@@ -60,6 +60,8 @@ const DIRECTORY_LOAD_GENERIC_ERROR = "Failed to load directory contents. Please 
 const DIRECTORY_LOAD_NETWORK_ERROR = "Failed to load files. Please check your connection settings.";
 const DIRECTORY_LOAD_TIMEOUT_ERROR = "Directory listing timed out. The remote share took too long to respond.";
 
+type DirectoryEntryIntent = { kind: "fresh" } | { kind: "restore-history" } | { kind: "parent-return"; childName: string };
+
 // ============================================================================
 // Helpers
 // ============================================================================
@@ -253,9 +255,9 @@ export function useFileBrowserPane(config: UseFileBrowserPaneConfig): UseFileBro
   );
 
   const directoryCache = React.useRef<Map<string, { items: FileEntry[]; timestamp: number }>>(new Map());
+  const pendingDirectoryEntryIntentRef = React.useRef<DirectoryEntryIntent | null>({ kind: "fresh" });
 
   const pendingFocusNameRef = React.useRef<string | null>(null);
-  const pendingParentDirectoryRestoreNameRef = React.useRef<string | null>(null);
   const pendingFilterRestoreRef = React.useRef<{ scope: string; value: string } | null>(null);
   const pendingSelectedFilesRestoreRef = React.useRef<Set<string> | null>(null);
   const lastAppliedRouteSyncTokenRef = React.useRef<number>(0);
@@ -581,6 +583,14 @@ export function useFileBrowserPane(config: UseFileBrowserPaneConfig): UseFileBro
       .map((f: FileEntry) => (currentPath ? `${currentPath}/${f.name}` : f.name));
   }, [sortedAndFilteredFiles, currentPath]);
 
+  const getVirtualizerItemKey = useCallback(
+    (index: number) => {
+      const file = sortedAndFilteredFiles[index];
+      return file ? `${connectionId}:${currentPath}:${file.name}` : `${connectionId}:${currentPath}:${index}`;
+    },
+    [connectionId, currentPath, sortedAndFilteredFiles]
+  );
+
   // ──────────────────────────────────────────────────────────────────────────
   // Virtualizer
   // ──────────────────────────────────────────────────────────────────────────
@@ -599,17 +609,22 @@ export function useFileBrowserPane(config: UseFileBrowserPaneConfig): UseFileBro
     estimateSize: () => rowHeight,
     overscan: 10,
     measureElement,
-    getItemKey: (index: number) => sortedAndFilteredFiles[index]?.name ?? index,
-    scrollMargin: parentRef.current?.offsetTop ?? 0,
-    enabled: true,
+    getItemKey: getVirtualizerItemKey,
+    enabled: !loading,
+    useFlushSync: false,
   });
 
   // ──────────────────────────────────────────────────────────────────────────
   // Focus-Restore / Scroll Effects
   // ──────────────────────────────────────────────────────────────────────────
 
+  const resetListScrollToTop = React.useCallback(() => {
+    if (parentRef.current) {
+      parentRef.current.scrollTop = 0;
+    }
+  }, []);
+
   const prevPathForFocusRef = React.useRef<string>(currentPath);
-  const pendingPathFocusResetRef = React.useRef<boolean>(true);
   const prevFocusedIndexRef = React.useRef<number>(0);
   const skipNextLayoutScrollRef = React.useRef<boolean>(false);
   const skipNextFilterFocusAdjustmentRef = React.useRef<boolean>(false);
@@ -618,48 +633,84 @@ export function useFileBrowserPane(config: UseFileBrowserPaneConfig): UseFileBro
   const previousFilterRef = React.useRef<string>(currentDirectoryFilter);
   const previousFilterScopeForFocusRef = React.useRef<string>(`${connectionId}:${currentPath}`);
 
-  // Keep filesRef updated and restore or reset focused index when files change
-  useEffect(() => {
+  // Keep filesRef updated and restore or reset focused index when files change.
+  // This must run before paint so a newly entered directory cannot briefly render
+  // with the previous directory's focused index or virtualizer window.
+  useLayoutEffect(() => {
     filesRef.current = sortedAndFilteredFiles;
+
+    if (loading) {
+      return;
+    }
 
     if (currentPath !== prevPathForFocusRef.current) {
       prevPathForFocusRef.current = currentPath;
       pendingFocusNameRef.current = null;
-      pendingPathFocusResetRef.current = true;
+
+      if (pendingDirectoryEntryIntentRef.current === null) {
+        pendingDirectoryEntryIntentRef.current = { kind: "fresh" };
+      }
     }
 
-    const savedState = navigationHistory.current.get(currentPath);
-    if (savedState) {
-      const restoredIndex = savedState.selectedFileName
-        ? sortedAndFilteredFiles.findIndex((f: FileEntry) => f.name === savedState.selectedFileName)
-        : Math.min(savedState.focusedIndex, Math.max(sortedAndFilteredFiles.length - 1, 0));
-
-      if (restoredIndex >= 0) {
-        lastRestoredPathRef.current = currentPath;
-        pendingPathFocusResetRef.current = false;
-        skipNextFilterFocusAdjustmentRef.current = true;
-        updateFocus(restoredIndex, { immediate: true });
-        requestAnimationFrame(() => {
-          if (parentRef.current) {
-            parentRef.current.scrollTop = savedState.scrollOffset;
-          }
-        });
-        navigationHistory.current.delete(currentPath);
-        return;
+    const applyFreshDirectoryEntry = () => {
+      pendingDirectoryEntryIntentRef.current = null;
+      updateFocus(0, { immediate: true });
+      resetListScrollToTop();
+      if (sortedAndFilteredFiles.length > 0) {
+        rowVirtualizer.scrollToIndex(0, { align: "start" });
       }
+    };
+
+    const entryIntent = pendingDirectoryEntryIntentRef.current;
+    if (entryIntent?.kind === "restore-history") {
+      const savedState = navigationHistory.current.get(currentPath);
+      if (savedState) {
+        const restoredIndex = savedState.selectedFileName
+          ? sortedAndFilteredFiles.findIndex((f: FileEntry) => f.name === savedState.selectedFileName)
+          : Math.min(savedState.focusedIndex, Math.max(sortedAndFilteredFiles.length - 1, 0));
+
+        if (restoredIndex >= 0) {
+          pendingDirectoryEntryIntentRef.current = null;
+          lastRestoredPathRef.current = currentPath;
+          skipNextFilterFocusAdjustmentRef.current = true;
+          updateFocus(restoredIndex, { immediate: true });
+          const restorePath = currentPath;
+          requestAnimationFrame(() => {
+            if (parentRef.current && currentPathRef.current === restorePath) {
+              parentRef.current.scrollTop = savedState.scrollOffset;
+            }
+          });
+          navigationHistory.current.delete(currentPath);
+          return;
+        }
+
+        navigationHistory.current.delete(currentPath);
+      }
+
+      applyFreshDirectoryEntry();
       return;
     }
 
-    const pendingParentDirectoryRestoreName = pendingParentDirectoryRestoreNameRef.current;
-    if (pendingParentDirectoryRestoreName !== null) {
-      const restoreIndex = sortedAndFilteredFiles.findIndex((f: FileEntry) => f.name === pendingParentDirectoryRestoreName);
+    if (entryIntent?.kind === "parent-return") {
+      if (currentDirectoryFilter.trim().length > 0) {
+        return;
+      }
+
+      const restoreIndex = sortedAndFilteredFiles.findIndex((f: FileEntry) => f.name === entryIntent.childName);
       if (restoreIndex >= 0) {
-        pendingPathFocusResetRef.current = false;
-        pendingParentDirectoryRestoreNameRef.current = null;
+        pendingDirectoryEntryIntentRef.current = null;
         skipNextFilterFocusAdjustmentRef.current = true;
         updateFocus(restoreIndex, { immediate: true });
         rowVirtualizer.scrollToIndex(restoreIndex, { align: "auto" });
+        return;
       }
+
+      applyFreshDirectoryEntry();
+      return;
+    }
+
+    if (entryIntent?.kind === "fresh") {
+      applyFreshDirectoryEntry();
       return;
     }
 
@@ -667,19 +718,15 @@ export function useFileBrowserPane(config: UseFileBrowserPaneConfig): UseFileBro
     if (pendingName !== null) {
       const idx = sortedAndFilteredFiles.findIndex((f: FileEntry) => f.name === pendingName);
       if (idx >= 0) {
-        pendingPathFocusResetRef.current = false;
+        pendingFocusNameRef.current = null;
         updateFocus(idx, { immediate: true });
         rowVirtualizer.scrollToIndex(idx, { align: "auto" });
+        return;
       }
-      return;
-    }
 
-    if (pendingPathFocusResetRef.current) {
-      pendingPathFocusResetRef.current = false;
-      updateFocus(0, { immediate: true });
-      rowVirtualizer.scrollToIndex(0, { align: "start" });
+      pendingFocusNameRef.current = null;
     }
-  }, [sortedAndFilteredFiles, currentPath, updateFocus, rowVirtualizer]);
+  }, [currentDirectoryFilter, sortedAndFilteredFiles, currentPath, loading, updateFocus, rowVirtualizer, resetListScrollToTop]);
 
   useEffect(() => {
     const filterScope = `${connectionId}:${currentPath}`;
@@ -729,6 +776,11 @@ export function useFileBrowserPane(config: UseFileBrowserPaneConfig): UseFileBro
   // Scroll focused item into view
   useLayoutEffect(() => {
     if (focusedIndex >= 0) {
+      if (focusedIndex >= sortedAndFilteredFiles.length) {
+        prevFocusedIndexRef.current = Math.max(sortedAndFilteredFiles.length - 1, 0);
+        return;
+      }
+
       const prev = prevFocusedIndexRef.current;
       const diff = focusedIndex - prev;
 
@@ -753,7 +805,7 @@ export function useFileBrowserPane(config: UseFileBrowserPaneConfig): UseFileBro
       rowVirtualizer.scrollToIndex(focusedIndex, { align });
       prevFocusedIndexRef.current = focusedIndex;
     }
-  }, [focusedIndex, visibleRowCount, rowVirtualizer]);
+  }, [focusedIndex, sortedAndFilteredFiles.length, visibleRowCount, rowVirtualizer]);
 
   // Resize observer for visible-row-count (used by PageUp/PageDown)
   useLayoutEffect(() => {
@@ -1114,6 +1166,7 @@ export function useFileBrowserPane(config: UseFileBrowserPaneConfig): UseFileBro
         });
 
         const newPath = currentPath ? `${currentPath}/${file.name}` : file.name;
+        pendingDirectoryEntryIntentRef.current = { kind: "fresh" };
         logger.info("Navigating to directory", { from: currentPath, to: newPath, directory: file.name }, "browser");
 
         navigateToPath(newPath, { blurActiveElement: true });
@@ -1174,7 +1227,9 @@ export function useFileBrowserPane(config: UseFileBrowserPaneConfig): UseFileBro
     const childDirectoryName = pathParts[pathParts.length - 1] || null;
     const parentPath = pathParts.slice(0, -1).join("/");
 
-    pendingParentDirectoryRestoreNameRef.current = childDirectoryName;
+    pendingDirectoryEntryIntentRef.current = childDirectoryName
+      ? { kind: "parent-return", childName: childDirectoryName }
+      : { kind: "fresh" };
 
     if (childDirectoryName) {
       const existingParentHistory = navigationHistory.current.get(parentPath);
@@ -1662,8 +1717,8 @@ export function useFileBrowserPane(config: UseFileBrowserPaneConfig): UseFileBro
       const nextFilterScope = `${snapshot.connectionId}:${snapshot.path}`;
 
       pendingLocationRef.current = null;
-      pendingFocusNameRef.current = snapshot.focusedFileName;
-      pendingParentDirectoryRestoreNameRef.current = null;
+      pendingDirectoryEntryIntentRef.current = { kind: "restore-history" };
+      pendingFocusNameRef.current = null;
       pendingFilterRestoreRef.current = {
         scope: nextFilterScope,
         value: snapshot.currentDirectoryFilter,
@@ -1727,8 +1782,10 @@ export function useFileBrowserPane(config: UseFileBrowserPaneConfig): UseFileBro
       const normalizedPath = normalizeLocalDrivePath(nextConnectionId, nextPath);
 
       const pendingLocation = pendingLocationRef.current;
+      const matchedPendingLocation =
+        pendingLocation !== null && pendingLocation.connectionId === nextConnectionId && pendingLocation.path === normalizedPath;
       if (pendingLocation) {
-        if (pendingLocation.connectionId === nextConnectionId && pendingLocation.path === normalizedPath) {
+        if (matchedPendingLocation) {
           pendingLocationRef.current = null;
         } else {
           return;
@@ -1740,6 +1797,7 @@ export function useFileBrowserPane(config: UseFileBrowserPaneConfig): UseFileBro
       if (connectionChanged) {
         const nextCacheKey = `${nextConnectionId}:${normalizedPath}`;
         const seededSnapshot = directoryCache.current.get(nextCacheKey);
+        pendingDirectoryEntryIntentRef.current = { kind: "fresh" };
         prepareDirectoryTransition(nextConnectionId, normalizedPath);
         setConnectionId(nextConnectionId);
         setCurrentPath(normalizedPath);
@@ -1755,6 +1813,9 @@ export function useFileBrowserPane(config: UseFileBrowserPaneConfig): UseFileBro
       }
 
       if (currentPathRef.current !== normalizedPath) {
+        if (!matchedPendingLocation) {
+          pendingDirectoryEntryIntentRef.current = { kind: "restore-history" };
+        }
         prepareDirectoryTransition(nextConnectionId, normalizedPath);
         setCurrentPath(normalizedPath);
         setViewInfo(null);

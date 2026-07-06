@@ -384,7 +384,7 @@ jobs:
       uses: dtolnay/rust-toolchain@29eef336d9b2848a0b548edc03f92a220660cdb8 # stable
 
     - name: Cache Rust build artifacts
-      uses: Swatinem/rust-cache@baf1a810e98b6a3001d0d7234864ed75a17c42fb
+      uses: Swatinem/rust-cache@a31add9f179badd605b91cbf1307522daf022cd5
       with:
         workspaces: companion/src-tauri -> target
 

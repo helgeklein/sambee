@@ -47,6 +47,18 @@ describe("backendAvailability", () => {
     expect(isBackendConnectivityError({ code: "ECONNABORTED", message: "timeout of 8000ms exceeded" })).toBe(false);
   });
 
+  it("treats a signal-aborted request as a local abort even when the transport error looks like a network error", () => {
+    expect(
+      isBackendConnectivityError({
+        code: "ERR_NETWORK",
+        message: "Network Error",
+        config: {
+          signal: { aborted: true },
+        },
+      })
+    ).toBe(false);
+  });
+
   it("does not classify HTTP responses as connectivity failures", () => {
     expect(
       isBackendConnectivityError({

@@ -13,6 +13,7 @@ import { formatDate, formatFileSize } from "../../pages/FileBrowser/formatters";
 import type { ViewMode } from "../../pages/FileBrowser/types";
 import type { FileEntry } from "../../types";
 import { getFileIcon } from "../../utils/fileIcons";
+import { FileRowButton } from "./FileRowButton";
 
 interface FileRowProps {
   file: FileEntry;
@@ -139,14 +140,13 @@ export const FileRow = React.memo(
             willChange: "transform", // GPU acceleration hint
           }}
         >
-          <Box
-            component="button"
+          <FileRowButton
             tabIndex={-1}
             onClick={() => onClick(file, index)}
             onContextMenu={handleContextMenu}
             sx={rowStyle}
-            data-selected={isSelected ? "true" : undefined}
-            aria-label={ariaLabel}
+            dataSelected={isSelected ? "true" : undefined}
+            ariaLabel={ariaLabel}
           >
             {/* Icon: show checkmark when multi-selected, file icon otherwise */}
             {(() => {
@@ -196,7 +196,7 @@ export const FileRow = React.memo(
                 </Box>
               );
             })()}
-          </Box>
+          </FileRowButton>
 
           {/* Context menu */}
           {hasContextMenu && (
