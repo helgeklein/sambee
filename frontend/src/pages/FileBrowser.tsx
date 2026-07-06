@@ -108,6 +108,84 @@ function parseCompanionLifecycleStatus(rawStatus: string | null): CompanionLifec
   }
 }
 
+interface DirectorySubscription {
+  connectionId: string;
+  path: string;
+}
+
+function getDirectorySubscriptionKey({ connectionId, path }: DirectorySubscription): string {
+  return `${connectionId}:${path}`;
+}
+
+function createDirectorySubscriptionMap(subscriptions: DirectorySubscription[]): Map<string, DirectorySubscription> {
+  return new Map(subscriptions.map((subscription) => [getDirectorySubscriptionKey(subscription), subscription]));
+}
+
+function diffDirectorySubscriptions(
+  previousSubscriptions: Map<string, DirectorySubscription>,
+  nextSubscriptions: Map<string, DirectorySubscription>
+): {
+  removedSubscriptions: DirectorySubscription[];
+  addedSubscriptions: DirectorySubscription[];
+} {
+  const removedSubscriptions: DirectorySubscription[] = [];
+  const addedSubscriptions: DirectorySubscription[] = [];
+
+  for (const [key, subscription] of previousSubscriptions) {
+    if (!nextSubscriptions.has(key)) {
+      removedSubscriptions.push(subscription);
+    }
+  }
+
+  for (const [key, subscription] of nextSubscriptions) {
+    if (!previousSubscriptions.has(key)) {
+      addedSubscriptions.push(subscription);
+    }
+  }
+
+  return {
+    removedSubscriptions,
+    addedSubscriptions,
+  };
+}
+
+function collectDirectorySubscriptions({
+  left,
+  right,
+  isDualMode,
+  includeLocalDrives,
+}: {
+  left: DirectorySubscription;
+  right: DirectorySubscription;
+  isDualMode: boolean;
+  includeLocalDrives: boolean;
+}): DirectorySubscription[] {
+  const subscriptions: DirectorySubscription[] = [];
+  const seen = new Set<string>();
+
+  const maybeAdd = ({ connectionId, path }: DirectorySubscription) => {
+    if (!connectionId || isLocalDrive(connectionId) !== includeLocalDrives) {
+      return;
+    }
+
+    const key = `${connectionId}:${path}`;
+    if (seen.has(key)) {
+      return;
+    }
+
+    seen.add(key);
+    subscriptions.push({ connectionId, path });
+  };
+
+  maybeAdd(left);
+
+  if (isDualMode) {
+    maybeAdd(right);
+  }
+
+  return subscriptions;
+}
+
 const Browser: React.FC = () => {
   // Track renders for performance monitoring
   const renderCountRef = React.useRef(0);
@@ -266,10 +344,14 @@ const Browser: React.FC = () => {
   const reconnectTimeoutRef = React.useRef<number | null>(null);
   const serverReconnectAttemptRef = React.useRef(0);
   const triggerServerReconnectRef = React.useRef<(reason: string) => void>(() => undefined);
+  const [serverDirectoryWs, setServerDirectoryWs] = useState<WebSocket | null>(null);
+  const serverAppliedSubscriptionsRef = React.useRef<Map<string, DirectorySubscription>>(new Map());
 
   // WebSocket for real-time directory updates (companion / local drives)
   const companionWsRef = React.useRef<WebSocket | null>(null);
   const companionReconnectRef = React.useRef<number | null>(null);
+  const [companionDirectoryWs, setCompanionDirectoryWs] = useState<WebSocket | null>(null);
+  const companionAppliedSubscriptionsRef = React.useRef<Map<string, DirectorySubscription>>(new Map());
 
   // ──────────────────────────────────────────────────────────────────────────
   // Pane Hooks — all per-pane state and logic
@@ -856,22 +938,7 @@ const Browser: React.FC = () => {
         markBackendAvailable();
         logger.info("WebSocket connected", { wsUrl }, "websocket");
         wsRef.current = ws;
-
-        // Subscribe to left pane's current directory (server connections only)
-        const leftConnId = leftPane.connectionIdRef.current;
-        const leftPath = leftPane.currentPathRef.current;
-        if (leftConnId && leftPath !== undefined && !isLocalDrive(leftConnId)) {
-          logger.debug("Subscribing to left pane directory", { connectionId: leftConnId, path: leftPath }, "websocket");
-          ws.send(JSON.stringify({ action: "subscribe", connection_id: leftConnId, path: leftPath }));
-        }
-
-        // Subscribe to right pane's current directory (if in dual mode, server connections only)
-        const rightConnId = rightPane.connectionIdRef.current;
-        const rightPath = rightPane.currentPathRef.current;
-        if (rightConnId && rightPath !== undefined && !isLocalDrive(rightConnId)) {
-          logger.debug("Subscribing to right pane directory", { connectionId: rightConnId, path: rightPath }, "websocket");
-          ws.send(JSON.stringify({ action: "subscribe", connection_id: rightConnId, path: rightPath }));
-        }
+        setServerDirectoryWs(ws);
       };
 
       ws.onmessage = (event) => {
@@ -908,6 +975,8 @@ const Browser: React.FC = () => {
             activeWs = null;
           }
           wsRef.current = null;
+          serverAppliedSubscriptionsRef.current = new Map();
+          setServerDirectoryWs((current) => (current === ws ? null : current));
           return;
         }
 
@@ -917,6 +986,8 @@ const Browser: React.FC = () => {
             activeWs = null;
           }
           wsRef.current = null;
+          serverAppliedSubscriptionsRef.current = new Map();
+          setServerDirectoryWs((current) => (current === ws ? null : current));
           return;
         }
 
@@ -925,6 +996,8 @@ const Browser: React.FC = () => {
           activeWs = null;
         }
         wsRef.current = null;
+        serverAppliedSubscriptionsRef.current = new Map();
+        setServerDirectoryWs((current) => (current === ws ? null : current));
 
         if (!disposed) {
           scheduleReconnect("socket-close");
@@ -945,6 +1018,8 @@ const Browser: React.FC = () => {
         activeWs.close();
         activeWs = null;
         wsRef.current = null;
+        serverAppliedSubscriptionsRef.current = new Map();
+        setServerDirectoryWs(null);
       }
 
       scheduleReconnect(reason, true);
@@ -961,6 +1036,8 @@ const Browser: React.FC = () => {
         activeWs = null;
       }
       wsRef.current = null;
+      serverAppliedSubscriptionsRef.current = new Map();
+      setServerDirectoryWs(null);
       triggerServerReconnectRef.current = () => undefined;
     };
   }, []);
@@ -1034,19 +1111,7 @@ const Browser: React.FC = () => {
         }
         logger.info("Companion WebSocket connected", {}, "websocket");
         companionWsRef.current = ws;
-
-        // Subscribe to local-drive directories currently being viewed
-        const leftConnId = leftPane.connectionIdRef.current;
-        const leftPath = leftPane.currentPathRef.current;
-        if (leftConnId && leftPath !== undefined && isLocalDrive(leftConnId)) {
-          ws.send(JSON.stringify({ action: "subscribe", connection_id: leftConnId, path: leftPath }));
-        }
-
-        const rightConnId = rightPane.connectionIdRef.current;
-        const rightPath = rightPane.currentPathRef.current;
-        if (rightConnId && rightPath !== undefined && isLocalDrive(rightConnId)) {
-          ws.send(JSON.stringify({ action: "subscribe", connection_id: rightConnId, path: rightPath }));
-        }
+        setCompanionDirectoryWs(ws);
       };
 
       ws.onmessage = (event) => {
@@ -1068,6 +1133,8 @@ const Browser: React.FC = () => {
             activeWs = null;
           }
           companionWsRef.current = null;
+          companionAppliedSubscriptionsRef.current = new Map();
+          setCompanionDirectoryWs((current) => (current === ws ? null : current));
           return;
         }
 
@@ -1076,6 +1143,8 @@ const Browser: React.FC = () => {
           activeWs = null;
         }
         companionWsRef.current = null;
+        companionAppliedSubscriptionsRef.current = new Map();
+        setCompanionDirectoryWs((current) => (current === ws ? null : current));
 
         scheduleReconnect();
       };
@@ -1095,57 +1164,104 @@ const Browser: React.FC = () => {
         activeWs = null;
       }
       companionWsRef.current = null;
+      companionAppliedSubscriptionsRef.current = new Map();
+      setCompanionDirectoryWs(null);
     };
   }, [companion.status, hasVisibleLocalDrivePane]);
 
-  // Subscribe/unsubscribe when either pane's directory changes.
-  // Returns a cleanup function that unsubscribes from the paths that were
-  // subscribed in *this* effect run, so stale directory-monitor handles on
-  // the backend are released before the next subscribe fires.
-  // biome-ignore lint/correctness/useExhaustiveDependencies: paneMode is needed to re-subscribe when toggling dual mode
   useEffect(() => {
-    // Helper: send a message to the correct WebSocket for a given connection.
-    const sendToWs = (connectionId: string, msg: object): boolean => {
-      if (isLocalDrive(connectionId)) {
-        if (companionWsRef.current?.readyState === WebSocket.OPEN) {
-          companionWsRef.current.send(JSON.stringify(msg));
-          return true;
-        }
-      } else {
-        if (wsRef.current?.readyState === WebSocket.OPEN) {
-          wsRef.current.send(JSON.stringify(msg));
-          return true;
-        }
-      }
-      return false;
-    };
-
-    // Track what we subscribe to so we can unsubscribe on cleanup
-    const subscribed: Array<{ connection_id: string; path: string }> = [];
-
-    // Subscribe to left pane's directory
-    if (leftPane.connectionId) {
-      const msg = { action: "subscribe", connection_id: leftPane.connectionId, path: leftPane.currentPath };
-      if (sendToWs(leftPane.connectionId, msg)) {
-        subscribed.push({ connection_id: leftPane.connectionId, path: leftPane.currentPath });
-      }
+    if (!serverDirectoryWs) {
+      serverAppliedSubscriptionsRef.current = new Map();
+      return;
     }
 
-    // Subscribe to right pane's directory when in dual mode
-    if (isDualMode && rightPane.connectionId) {
-      const msg = { action: "subscribe", connection_id: rightPane.connectionId, path: rightPane.currentPath };
-      if (sendToWs(rightPane.connectionId, msg)) {
-        subscribed.push({ connection_id: rightPane.connectionId, path: rightPane.currentPath });
-      }
-    }
-
-    // Cleanup: unsubscribe from old paths when deps change or on unmount
     return () => {
-      for (const sub of subscribed) {
-        sendToWs(sub.connection_id, { action: "unsubscribe", connection_id: sub.connection_id, path: sub.path });
+      if (serverDirectoryWs.readyState === WebSocket.OPEN) {
+        for (const sub of serverAppliedSubscriptionsRef.current.values()) {
+          serverDirectoryWs.send(JSON.stringify({ action: "unsubscribe", connection_id: sub.connectionId, path: sub.path }));
+        }
       }
+
+      serverAppliedSubscriptionsRef.current = new Map();
     };
-  }, [leftPane.currentPath, leftPane.connectionId, rightPane.currentPath, rightPane.connectionId, isDualMode, paneMode]);
+  }, [serverDirectoryWs]);
+
+  // Subscribe/unsubscribe server-backed pane directories when the server
+  // websocket changes or visible SMB targets change.
+  useEffect(() => {
+    if (serverDirectoryWs?.readyState !== WebSocket.OPEN) {
+      return;
+    }
+
+    const desiredSubscriptions = collectDirectorySubscriptions({
+      left: { connectionId: leftPane.connectionId, path: leftPane.currentPath },
+      right: { connectionId: rightPane.connectionId, path: rightPane.currentPath },
+      isDualMode,
+      includeLocalDrives: false,
+    });
+    const nextSubscriptions = createDirectorySubscriptionMap(desiredSubscriptions);
+    const { removedSubscriptions, addedSubscriptions } = diffDirectorySubscriptions(
+      serverAppliedSubscriptionsRef.current,
+      nextSubscriptions
+    );
+
+    for (const sub of removedSubscriptions) {
+      serverDirectoryWs.send(JSON.stringify({ action: "unsubscribe", connection_id: sub.connectionId, path: sub.path }));
+    }
+
+    for (const sub of addedSubscriptions) {
+      serverDirectoryWs.send(JSON.stringify({ action: "subscribe", connection_id: sub.connectionId, path: sub.path }));
+    }
+
+    serverAppliedSubscriptionsRef.current = nextSubscriptions;
+  }, [leftPane.connectionId, leftPane.currentPath, rightPane.connectionId, rightPane.currentPath, isDualMode, serverDirectoryWs]);
+
+  useEffect(() => {
+    if (!companionDirectoryWs) {
+      companionAppliedSubscriptionsRef.current = new Map();
+      return;
+    }
+
+    return () => {
+      if (companionDirectoryWs.readyState === WebSocket.OPEN) {
+        for (const sub of companionAppliedSubscriptionsRef.current.values()) {
+          companionDirectoryWs.send(JSON.stringify({ action: "unsubscribe", connection_id: sub.connectionId, path: sub.path }));
+        }
+      }
+
+      companionAppliedSubscriptionsRef.current = new Map();
+    };
+  }, [companionDirectoryWs]);
+
+  // Subscribe/unsubscribe local-drive pane directories when the companion
+  // websocket changes or visible local targets change.
+  useEffect(() => {
+    if (companionDirectoryWs?.readyState !== WebSocket.OPEN) {
+      return;
+    }
+
+    const desiredSubscriptions = collectDirectorySubscriptions({
+      left: { connectionId: leftPane.connectionId, path: leftPane.currentPath },
+      right: { connectionId: rightPane.connectionId, path: rightPane.currentPath },
+      isDualMode,
+      includeLocalDrives: true,
+    });
+    const nextSubscriptions = createDirectorySubscriptionMap(desiredSubscriptions);
+    const { removedSubscriptions, addedSubscriptions } = diffDirectorySubscriptions(
+      companionAppliedSubscriptionsRef.current,
+      nextSubscriptions
+    );
+
+    for (const sub of removedSubscriptions) {
+      companionDirectoryWs.send(JSON.stringify({ action: "unsubscribe", connection_id: sub.connectionId, path: sub.path }));
+    }
+
+    for (const sub of addedSubscriptions) {
+      companionDirectoryWs.send(JSON.stringify({ action: "subscribe", connection_id: sub.connectionId, path: sub.path }));
+    }
+
+    companionAppliedSubscriptionsRef.current = nextSubscriptions;
+  }, [leftPane.connectionId, leftPane.currentPath, rightPane.connectionId, rightPane.currentPath, isDualMode, companionDirectoryWs]);
 
   // ──────────────────────────────────────────────────────────────────────────
   // Dual-Pane Handlers

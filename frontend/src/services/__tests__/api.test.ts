@@ -45,6 +45,7 @@ import axios from "axios";
 // Now import the API service (it will use the mocked axios.create)
 import apiService, { LOCAL_DRIVE_EDIT_LOCKS_UNSUPPORTED_MESSAGE } from "../api";
 import { getBackendAvailabilitySnapshot, markBackendUnavailable, resetBackendAvailabilityForTests } from "../backendAvailability";
+import { logger } from "../logger";
 
 const mockedAxios = vi.mocked(axios);
 const mockAxiosInstance = mockedAxios.create() as ReturnType<typeof mockedAxios.create> & {
@@ -876,6 +877,57 @@ describe("API Service", () => {
         status: "reconnecting",
         lastErrorMessage: "Network error",
       });
+    });
+
+    it("does not mark the backend reconnecting for viewer blob network failures", async () => {
+      const networkError = {
+        code: "ERR_NETWORK",
+        message: "Network error",
+        config: {
+          method: "get",
+          url: "/viewer/5532865d-cb5b-4fb1-9232-6716970f97db/file",
+        },
+      };
+
+      expect(responseErrorHandler).toBeDefined();
+      await expect(responseErrorHandler?.(networkError as never)).rejects.toEqual(networkError);
+      expect(getBackendAvailabilitySnapshot()).toMatchObject({
+        status: "available",
+        lastErrorMessage: null,
+      });
+    });
+
+    it("does not log an API error for a signal-aborted viewer blob request surfaced as a network error", async () => {
+      const errorSpy = vi.spyOn(logger, "error");
+      const networkError = {
+        code: "ERR_NETWORK",
+        message: "Network Error",
+        config: {
+          method: "get",
+          url: "/viewer/5532865d-cb5b-4fb1-9232-6716970f97db/file",
+          signal: { aborted: true },
+        },
+      };
+
+      expect(responseErrorHandler).toBeDefined();
+      await expect(responseErrorHandler?.(networkError as never)).rejects.toEqual(networkError);
+      expect(errorSpy).not.toHaveBeenCalledWith("API request failed", expect.anything(), "api");
+    });
+
+    it("does not log an API error for a transient viewer blob network failure", async () => {
+      const errorSpy = vi.spyOn(logger, "error");
+      const networkError = {
+        code: "ERR_NETWORK",
+        message: "Network Error",
+        config: {
+          method: "get",
+          url: "/viewer/5532865d-cb5b-4fb1-9232-6716970f97db/file",
+        },
+      };
+
+      expect(responseErrorHandler).toBeDefined();
+      await expect(responseErrorHandler?.(networkError as never)).rejects.toEqual(networkError);
+      expect(errorSpy).not.toHaveBeenCalledWith("API request failed", expect.anything(), "api");
     });
 
     it("keeps the backend unavailable after another connectivity failure while already unavailable", async () => {
