@@ -155,12 +155,10 @@ export default defineConfig({
               }
             };
 
+            // Client-side aborts should cancel the upstream request, but a normal
+            // proxied HTTP response may emit `close` before `writableEnded`.
+            // Let the proxy manage response teardown for successful requests.
             req.once("aborted", abortProxyRequest);
-            res.once("close", () => {
-              if (!res.writableEnded) {
-                abortProxyRequest();
-              }
-            });
           });
         },
       },

@@ -102,7 +102,7 @@ const ImageViewer: React.FC<ViewerComponentProps> = ({
     setCurrentIndex,
     currentPath,
     filename,
-    imageCacheRef,
+    getCachedImageSrc,
     loadingStates,
     errorStates,
     showLoadingSpinner,
@@ -170,16 +170,16 @@ const ImageViewer: React.FC<ViewerComponentProps> = ({
     };
   }, [sessionId]);
 
-  // biome-ignore lint/correctness/useExhaustiveDependencies: loadingStates/errorStates trigger re-render when images load (imageCacheRef is a ref)
+  // biome-ignore lint/correctness/useExhaustiveDependencies: loadingStates/errorStates trigger re-render when images load and cached sources are read through the hook getter
   const slides = useMemo<LightboxImageSlide[]>(() => {
     return images.map((imagePath, index) => ({
       type: "image",
-      src: imageCacheRef.current.get(index) ?? TRANSPARENT_PIXEL,
+      src: getCachedImageSrc(index) ?? TRANSPARENT_PIXEL,
       alt: imagePath.split("/").pop() ?? imagePath,
       imageIndex: index,
       originalPath: imagePath,
     }));
-  }, [images, imageCacheRef, loadingStates, errorStates]);
+  }, [errorStates, getCachedImageSrc, images, loadingStates]);
 
   const handleClose = useCallback(() => {
     onClose();

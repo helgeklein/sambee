@@ -74,6 +74,8 @@ const PDFViewer: React.FC<ViewerComponentProps> = ({ connectionId, path, onClose
   const dialogRef = useRef<HTMLDivElement>(null);
   const numPagesRef = useRef(0);
   const searchHighlightsRef = useRef<DomTextSearchMatch[]>([]);
+  const currentMatchRef = useRef(0);
+  const matchLocationsRef = useRef<MatchLocation[]>([]);
 
   // Search state
   const [pageTexts, setPageTexts] = useState<Map<number, string>>(new Map());
@@ -122,6 +124,8 @@ const PDFViewer: React.FC<ViewerComponentProps> = ({ connectionId, path, onClose
         setNumPages(0);
         setCurrentPage(1);
         setPageTexts(new Map());
+        matchLocationsRef.current = [];
+        currentMatchRef.current = 0;
         setMatchLocations([]);
         setCurrentMatch(0);
 
@@ -412,6 +416,8 @@ const PDFViewer: React.FC<ViewerComponentProps> = ({ connectionId, path, onClose
   const performSearch = useCallback(
     (query: string) => {
       if (!query.trim() || pageTexts.size === 0) {
+        matchLocationsRef.current = [];
+        currentMatchRef.current = 0;
         setMatchLocations([]);
         setCurrentMatch(0);
         return;
@@ -438,15 +444,18 @@ const PDFViewer: React.FC<ViewerComponentProps> = ({ connectionId, path, onClose
         }
       }
 
+      matchLocationsRef.current = matches;
       setMatchLocations(matches);
 
       // Navigate to first match if any found
       if (matches.length > 0) {
+        currentMatchRef.current = 1;
         setCurrentMatch(1);
         if (matches[0]) {
           setCurrentPage(matches[0].page);
         }
       } else {
+        currentMatchRef.current = 0;
         setCurrentMatch(0);
       }
     },
@@ -476,33 +485,31 @@ const PDFViewer: React.FC<ViewerComponentProps> = ({ connectionId, path, onClose
   // Search matches count is simply the total from extracted text
   const searchMatches = matchLocations.length;
 
-  const handleSearchNext = useCallback(
-    (_event?: KeyboardEvent) => {
-      if (matchLocations.length === 0) return;
+  const handleSearchNext = useCallback((_event?: KeyboardEvent) => {
+    const latestMatchLocations = matchLocationsRef.current;
+    if (latestMatchLocations.length === 0) return;
 
-      const nextMatch = currentMatch >= matchLocations.length ? 1 : currentMatch + 1;
-      setCurrentMatch(nextMatch);
-      const nextLocation = matchLocations[nextMatch - 1];
-      if (nextLocation) {
-        setCurrentPage(nextLocation.page);
-      }
-    },
-    [matchLocations, currentMatch]
-  );
+    const nextMatch = currentMatchRef.current >= latestMatchLocations.length ? 1 : currentMatchRef.current + 1;
+    currentMatchRef.current = nextMatch;
+    setCurrentMatch(nextMatch);
+    const nextLocation = latestMatchLocations[nextMatch - 1];
+    if (nextLocation) {
+      setCurrentPage(nextLocation.page);
+    }
+  }, []);
 
-  const handleSearchPrevious = useCallback(
-    (_event?: KeyboardEvent) => {
-      if (matchLocations.length === 0) return;
+  const handleSearchPrevious = useCallback((_event?: KeyboardEvent) => {
+    const latestMatchLocations = matchLocationsRef.current;
+    if (latestMatchLocations.length === 0) return;
 
-      const prevMatch = currentMatch <= 1 ? matchLocations.length : currentMatch - 1;
-      setCurrentMatch(prevMatch);
-      const prevLocation = matchLocations[prevMatch - 1];
-      if (prevLocation) {
-        setCurrentPage(prevLocation.page);
-      }
-    },
-    [matchLocations, currentMatch]
-  );
+    const prevMatch = currentMatchRef.current <= 1 ? latestMatchLocations.length : currentMatchRef.current - 1;
+    currentMatchRef.current = prevMatch;
+    setCurrentMatch(prevMatch);
+    const prevLocation = latestMatchLocations[prevMatch - 1];
+    if (prevLocation) {
+      setCurrentPage(prevLocation.page);
+    }
+  }, []);
 
   const getCurrentPageMatchIndex = useCallback(() => {
     if (currentMatch <= 0) {
@@ -627,6 +634,8 @@ const PDFViewer: React.FC<ViewerComponentProps> = ({ connectionId, path, onClose
         setSearchPanelOpen(false);
         // Clear search results and highlights when closing search panel
         setSearchText("");
+        matchLocationsRef.current = [];
+        currentMatchRef.current = 0;
         setMatchLocations([]);
         setCurrentMatch(0);
       } else {

@@ -1,6 +1,6 @@
 import CloseIcon from "@mui/icons-material/Close";
 import { Alert, Box, Button, Dialog, DialogActions, DialogContent, DialogTitle, IconButton, Stack, Typography } from "@mui/material";
-import { memo, useEffect, useState } from "react";
+import { memo, useEffect, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { translate } from "../../i18n";
 import { logger } from "../../services/logger";
@@ -90,9 +90,6 @@ function ViewerFallbackDialog({ mode, path, error, onClose, onRetry }: ViewerFal
   );
 }
 
-//
-// DynamicViewer
-//
 export const DynamicViewer = memo(function DynamicViewer({
   connectionId,
   isReadOnly,
@@ -102,10 +99,15 @@ export const DynamicViewer = memo(function DynamicViewer({
 }: DynamicViewerProps) {
   const [loadState, setLoadState] = useState<DynamicViewerLoadState>({ status: "loading" });
   const [retryToken, setRetryToken] = useState(0);
+  const latestViewInfoRef = useRef(viewInfo);
+
+  latestViewInfoRef.current = viewInfo;
 
   useEffect(() => {
     let mounted = true;
     const loadAttempt = retryToken;
+    const requestedPath = latestViewInfoRef.current.path;
+    const requestedSessionId = latestViewInfoRef.current.sessionId;
     setLoadState({ status: "loading" });
 
     logger.info(
@@ -113,7 +115,7 @@ export const DynamicViewer = memo(function DynamicViewer({
       {
         loadAttempt,
         mimeType: viewInfo.mimeType,
-        sessionId: viewInfo.sessionId,
+        sessionId: requestedSessionId,
       },
       "viewer"
     );
@@ -125,7 +127,7 @@ export const DynamicViewer = memo(function DynamicViewer({
           viewerId: viewInfo.viewerId,
           componentFound: result.status === "loaded",
           resultStatus: result.status,
-          sessionId: viewInfo.sessionId,
+          sessionId: requestedSessionId,
         });
         if (result.status === "loaded") {
           setLoadState({ status: "loaded", component: result.component });
@@ -135,8 +137,8 @@ export const DynamicViewer = memo(function DynamicViewer({
             {
               loadAttempt,
               mimeType: viewInfo.mimeType,
-              path: viewInfo.path,
-              sessionId: viewInfo.sessionId,
+              path: requestedPath,
+              sessionId: requestedSessionId,
               viewerId: viewInfo.viewerId,
               online: typeof navigator !== "undefined" ? navigator.onLine : undefined,
               pageUrl: typeof window !== "undefined" ? window.location.href : undefined,
@@ -155,7 +157,7 @@ export const DynamicViewer = memo(function DynamicViewer({
     return () => {
       mounted = false;
     };
-  }, [retryToken, viewInfo.mimeType, viewInfo.path, viewInfo.sessionId, viewInfo.viewerId]);
+  }, [retryToken, viewInfo.mimeType, viewInfo.viewerId]);
 
   useEffect(() => {
     if (loadState.status !== "loaded") {
