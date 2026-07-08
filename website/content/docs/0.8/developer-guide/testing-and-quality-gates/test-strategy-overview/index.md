@@ -29,9 +29,6 @@ Keep frontend browser coverage explicit instead of folding it into the default V
 
 - `cd frontend && npm test` runs the default Vitest suite.
 - `cd frontend && npm run test:e2e` runs the default Playwright Chromium suite.
-- `cd frontend && npm run test:e2e:smoke` runs the focused Chromium smoke slice.
-- `cd frontend && npm run test:e2e:markdown` runs the markdown editor Playwright coverage in Chromium.
-- `cd frontend && npm run test:e2e:firefox` runs the markdown editor Playwright coverage in Firefox.
 - `cd frontend && npm run test:e2e:all` runs all configured Playwright browser projects.
 
 Install Playwright browsers locally with `cd frontend && npm run test:e2e:install` when a fresh environment does not have the browser binaries yet.

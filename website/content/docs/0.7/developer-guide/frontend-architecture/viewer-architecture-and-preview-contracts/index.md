@@ -235,7 +235,7 @@ The search row is shared, but the search backend is viewer-specific.
 
 - `PDFViewer` wires the search controls to PDF text extraction, page-aware match tracking, and PDF-specific next or previous navigation
 - rendered Markdown and other rendered text views can route search through the DOM text-search utility in `frontend/src/utils/domTextSearch.ts`
-- Markdown edit mode does not reuse the rendered-view DOM search implementation; it bridges the same outer toolbar UI into MDXEditor search primitives instead
+- Markdown edit mode does not reuse the rendered-view DOM search implementation; it bridges the same outer toolbar UI into the editor-specific search state and commands instead
 
 That separation is an important contract: contributors should reuse the shared search UI when possible, but should not assume every viewer can use the same search implementation under the hood.
 

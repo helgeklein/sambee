@@ -33,21 +33,19 @@ Opening in Sambee's viewers in the browser:
 Opening in natively installed apps:
 
 - To open a file in the associated native app, press <kbd>Ctrl + Enter</kbd> (or right-click and select **open in native app**).
-- If no associated native app has been choosen yet or if <kbd>Ctrl + Alt + Enter</kbd> is pressed, an app picker dialog is shown.
+- If no associated native app has been chosen yet or if <kbd>Ctrl + Alt + Enter</kbd> is pressed, an app picker dialog is shown.
 
-## Markdown Editor: UX & Table Features
+## Markdown Editor: Strategy Change
 
-The Markdown editor got a makeover to improve UX and align the styling with Sambee's theme for all supported components, e.g., tables.
+Let's put it plainly: the WYSIWYG Markdown editor is gone. Sad but true. The reason is plain and simple: UX. AFAIK, there's not a single open-source rich-text Markdown editor with WYSIWYG editing that comes with great user experience. As I found out, the old editor was certainly not up to the task. That means: out.
 
-The fact that rich text mode uses independent sub-editors for table cells, for example, should not matter to users. Navigation within Markdown documents should feel natural. That is now the case: you can **seamlessly move the cursor** across element borders, i.e., between code blocks, tables, and, of course, paragraphs. You can also move between table cells with the arrow keys as you've come to expect it from many other apps.
-
-Markdown's historical limitations sometimes still shine through in unexpected places. One such thing is the inability of many Markdown tools to deal with newlines in table cells: they simply don't provide any way to add line breaks and display breaks in existing MD files as literal HTML `<br>` tags. This was the case for Sambee's Markdown editor component, MDXEditor, too. It took a surprisingly large effort to find and implement a way around the built-in limitation, but it was certainly worth it: you can now **structure your table cells by adding newlines**, simulating paragraphs in regular text copy outside tables.
+The actually better option: take one of the best available editors, CodeMirror, and wire it up for Markdown - but also generic text editing. This provides a best-in-class editing experience with amazing UX. It also gives us battle-tested addons that implement many of the little quality-of-life features we've become accustomed to through decades of coding and editing experience.
 
 ## PDF Viewer
 
 Fixes:
 
-- Intra-document links now work correctly, e.g. from a table-of-content.
+- Intra-document links now work correctly, e.g. from a table of contents.
 
 ## Internals
 
@@ -55,7 +53,7 @@ Fixes:
 
 Sambee has a best-in-class documentation system that deduplicates content, inheriting unchanged text copy through versions. This enables us to provide complete and accurate docs for each product version while minimizing maintenance effort.
 
-This release adds a new docs reporting and visualization tool that creates an HTML report of all docs books, sections, and pages with their respectice properties (e.g., inherited, branched). The report also has a diff view that highlights changes between any two document versions.
+This release adds a new docs reporting and visualization tool that creates an HTML report of all docs books, sections, and pages with their respective properties (e.g., inherited, branched). The report also has a diff view that highlights changes between any two document versions.
 
 Docs editor tool improvements:
 

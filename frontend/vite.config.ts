@@ -21,6 +21,15 @@ const OPTIMIZE_DEPS_ENTRIES = [
   "!src/test/**",
 ];
 const OPTIMIZE_DEPS_INCLUDE = [
+  "@codemirror/commands",
+  "@codemirror/lang-markdown",
+  "@codemirror/language",
+  "@codemirror/language-data",
+  "@codemirror/search",
+  "@codemirror/state",
+  "@codemirror/view",
+  "codemirror",
+  "hoist-non-react-statics",
   "yet-another-react-lightbox",
   "yet-another-react-lightbox/plugins/zoom",
 ];

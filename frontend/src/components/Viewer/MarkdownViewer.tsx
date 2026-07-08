@@ -32,7 +32,7 @@ import { useKeyboardShortcuts } from "../../hooks/useKeyboardShortcuts";
 import apiService from "../../services/api";
 import { error as logError, info as logInfo } from "../../services/logger";
 import { useSambeeTheme } from "../../theme";
-import { getMarkdownContentStyles, getViewerColors } from "../../theme/viewerStyles";
+import { getMarkdownContentStyles, getViewerColors, MARKDOWN_CONTENT_PADDING } from "../../theme/viewerStyles";
 import type { EditLockInfo } from "../../types";
 import { isApiError } from "../../types";
 import { getApiErrorMessage } from "../../utils/apiErrors";
@@ -48,7 +48,6 @@ import type { ViewerComponentProps } from "../../utils/FileTypeRegistry";
 import { blurActiveToolbarControl } from "../../utils/keyboardUtils";
 import { createShareFile, shareNativeContent, shouldWarmNativeSharePayload, supportsNativeShare } from "../../utils/nativeShare";
 import { KeyboardShortcutsHelp } from "../KeyboardShortcutsHelp";
-import { ensureLexicalPrism, resetLexicalPrismForRetry } from "./ensureLexicalPrism";
 import { scheduleRetriableFocusRestore } from "./focusRestoration";
 import { loadMarkdownRichEditor } from "./loadMarkdownRichEditor";
 import MarkdownEditorErrorBoundary from "./MarkdownEditorErrorBoundary";
@@ -72,8 +71,8 @@ import "highlight.js/styles/github.css";
 const MARKDOWN_SEARCH_ROOT_SELECTOR = '[data-markdown-search-root="true"]';
 const MARKDOWN_SEARCH_MATCH_COLOR = "rgba(255, 255, 0, 0.4)";
 const MARKDOWN_SEARCH_CURRENT_MATCH_COLOR = "rgba(255, 152, 0, 0.4)";
-const MDX_EDITOR_SEARCH_MATCH_SELECTOR = "& .sambee-markdown-editor ::highlight(MdxSearch)";
-const MDX_EDITOR_CURRENT_SEARCH_MATCH_SELECTOR = "& .sambee-markdown-editor ::highlight(MdxFocusSearch)";
+const MARKDOWN_EDITOR_SEARCH_MATCH_SELECTOR = "& .sambee-markdown-editor .cm-searchMatch";
+const MARKDOWN_EDITOR_CURRENT_SEARCH_MATCH_SELECTOR = "& .sambee-markdown-editor .cm-searchMatch-selected";
 const MARKDOWN_HASH_PREFIX = "#";
 const MARKDOWN_SUPPORTED_LINK_PROTOCOLS = new Set(["http:", "https:", "mailto:", "tel:"]);
 const MARKDOWN_VIEWER_EDIT_FOCUS_RETRY_DELAYS_MS = [
@@ -126,6 +125,38 @@ function getEditorErrorMessage(error: unknown, fallbackMessage: string): string 
   }
 
   return fallbackMessage;
+}
+
+function withOpacity(color: string, opacity: number): string {
+  const normalizedOpacity = Math.max(0, Math.min(1, opacity));
+  const hex = color.trim().replace(/^#/, "");
+
+  if (/^[0-9a-fA-F]{3}$/.test(hex)) {
+    const redHex = hex.slice(0, 1);
+    const greenHex = hex.slice(1, 2);
+    const blueHex = hex.slice(2, 3);
+    const red = Number.parseInt(redHex + redHex, 16);
+    const green = Number.parseInt(greenHex + greenHex, 16);
+    const blue = Number.parseInt(blueHex + blueHex, 16);
+    return `rgba(${red}, ${green}, ${blue}, ${normalizedOpacity})`;
+  }
+
+  if (/^[0-9a-fA-F]{6}$/.test(hex)) {
+    const red = Number.parseInt(hex.slice(0, 2), 16);
+    const green = Number.parseInt(hex.slice(2, 4), 16);
+    const blue = Number.parseInt(hex.slice(4, 6), 16);
+    return `rgba(${red}, ${green}, ${blue}, ${normalizedOpacity})`;
+  }
+
+  const rgbMatch = color.match(/rgba?\(([^)]+)\)/i);
+
+  if (rgbMatch) {
+    const channels = (rgbMatch[1] ?? "").split(",").map((value) => value.trim());
+    const [red = "0", green = "0", blue = "0"] = channels;
+    return `rgba(${red}, ${green}, ${blue}, ${normalizedOpacity})`;
+  }
+
+  return color;
 }
 
 type PendingUnsavedChangesAction = "cancel-edit" | "close-viewer" | "stay-edit";
@@ -195,6 +226,17 @@ export const MarkdownViewer: React.FC<ViewerComponentProps> = ({ connectionId, p
   const shareWarmEnabled = shareEnabled && shouldWarmNativeSharePayload();
   const supportsEditLocks = apiService.supportsEditLocks(connectionId);
   const { viewerBg, toolbarBg, toolbarText, viewerText, linkColor, linkHoverColor } = getViewerColors(currentTheme, "markdown");
+  const markdownEditorTheme = useMemo(
+    () => ({
+      activeLineBackground: muiTheme.palette.action.selected,
+      borderColor: withOpacity(viewerText, muiTheme.palette.mode === "dark" ? 0.32 : 0.16),
+      linkColor,
+      selectionBackground: withOpacity(linkColor, muiTheme.palette.mode === "dark" ? 0.3 : 0.18),
+      surfaceBackground: viewerBg,
+      textColor: viewerText,
+    }),
+    [linkColor, muiTheme.palette.action.selected, muiTheme.palette.mode, viewerBg, viewerText]
+  );
   const currentSearchText = isEditing ? editorSearchText : viewerSearchText;
   const activeViewerSearchText = !isEditing && searchPanelOpen ? viewerSearchText : "";
 
@@ -268,7 +310,6 @@ export const MarkdownViewer: React.FC<ViewerComponentProps> = ({ connectionId, p
 
     void (async () => {
       try {
-        await ensureLexicalPrism();
         const module = await loadMarkdownRichEditor();
 
         if (cancelled) {
@@ -1057,7 +1098,6 @@ export const MarkdownViewer: React.FC<ViewerComponentProps> = ({ connectionId, p
     setEditorLoadError(null);
 
     if (editorLoadState === "failed") {
-      resetLexicalPrismForRetry();
       setEditorComponent(null);
       setEditorLoadState("idle");
       setEditorLoadNonce((previousValue) => previousValue + 1);
@@ -1469,7 +1509,7 @@ export const MarkdownViewer: React.FC<ViewerComponentProps> = ({ connectionId, p
                 <CircularProgress />
               </Box>
             ) : error ? (
-              <Box p={2}>
+              <Box sx={{ p: 2 }}>
                 <Alert severity="error">{error}</Alert>
               </Box>
             ) : isEditing ? (
@@ -1484,10 +1524,13 @@ export const MarkdownViewer: React.FC<ViewerComponentProps> = ({ connectionId, p
                     flex: 1,
                     minHeight: 0,
                   },
-                  [MDX_EDITOR_SEARCH_MATCH_SELECTOR]: {
+                  "& .sambee-markdown-editor .cm-content": {
+                    p: MARKDOWN_CONTENT_PADDING,
+                  },
+                  [MARKDOWN_EDITOR_SEARCH_MATCH_SELECTOR]: {
                     backgroundColor: MARKDOWN_SEARCH_MATCH_COLOR,
                   },
-                  [MDX_EDITOR_CURRENT_SEARCH_MATCH_SELECTOR]: {
+                  [MARKDOWN_EDITOR_CURRENT_SEARCH_MATCH_SELECTOR]: {
                     backgroundColor: MARKDOWN_SEARCH_CURRENT_MATCH_COLOR,
                   },
                 }}
@@ -1543,6 +1586,7 @@ export const MarkdownViewer: React.FC<ViewerComponentProps> = ({ connectionId, p
                       className="sambee-markdown-editor"
                       markdown={draftContent}
                       diffMarkdown={content}
+                      theme={markdownEditorTheme}
                       onChange={handleEditorChange}
                       onUserEdit={handleEditorUserEdit}
                       ariaLabel={t("viewer.edit.editorLabel")}

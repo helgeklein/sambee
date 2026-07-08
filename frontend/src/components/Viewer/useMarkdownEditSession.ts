@@ -4,7 +4,7 @@ import { MARKDOWN_EDITOR_BASELINE_SYNC_WINDOW_MS } from "./markdownEditorConstan
 interface UseMarkdownEditSessionOptions {
   isEditing: boolean;
   isSaving: boolean;
-  contentRef: RefObject<HTMLDivElement>;
+  contentRef: RefObject<HTMLDivElement | null>;
   hasPendingUnsavedChangesAction: boolean;
   restoreEditingFocus: () => (() => void) | undefined;
   setDraftContent: (markdown: string) => void;
