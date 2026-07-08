@@ -18,6 +18,7 @@ interface IdleWindow extends Window {
 async function warmRuntimeModules(): Promise<void> {
   await Promise.allSettled([
     import("../components/Viewer/ImageViewer"),
+    import("../components/Viewer/MarkdownRichEditor"),
     import("../components/Viewer/MarkdownViewer"),
     import("../components/Viewer/PDFViewer"),
     import("./authConfig"),

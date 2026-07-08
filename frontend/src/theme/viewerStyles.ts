@@ -153,8 +153,6 @@ const MARKDOWN_TABLE_DARK_ROW_ALT_BG = "#24231f";
 const MARKDOWN_TABLE_DARK_HEADER_BG = "#302e2a";
 const MARKDOWN_TABLE_DARK_BORDER = "#3b3935";
 const MARKDOWN_TABLE_DARK_HEADER_TEXT = "#ebe8e2";
-const MARKDOWN_EDITOR_INLINE_CODE_CLASS = "sambee-markdown-inline-code";
-const MARKDOWN_EDITOR_CODE_BLOCK_CLASS = "sambee-markdown-code-block";
 
 export function getMarkdownCodeSurfaceColors(theme: Theme) {
   if (theme.palette.mode === "dark") {
@@ -372,104 +370,5 @@ export function getMarkdownContentStyles(viewerText: string, linkColor: string, 
     maxWidth: "100%",
     p: MARKDOWN_CONTENT_PADDING,
     ...getMarkdownDocumentStyles(viewerText, linkColor, linkHoverColor),
-  };
-}
-
-export function getMarkdownEditorContentStyles(viewerText: string, linkColor: string, linkHoverColor: string): SystemStyleObject<Theme> {
-  return {
-    minHeight: "100%",
-    padding: 0,
-    caretColor: viewerText,
-    ...getMarkdownDocumentStyles(viewerText, linkColor, linkHoverColor),
-    [`& .${MARKDOWN_EDITOR_CODE_BLOCK_CLASS}`]: {
-      "--baseBase": (theme: Theme) => getMarkdownCodeSurfaceColors(theme).blockBackground,
-      "--baseBg": (theme: Theme) => getMarkdownCodeSurfaceColors(theme).blockBackground,
-      "--baseBgSubtle": (theme: Theme) => getMarkdownCodeSurfaceColors(theme).blockBackground,
-      "--baseBgHover": (theme: Theme) => getMarkdownCodeSurfaceColors(theme).blockBackground,
-      "--baseBgActive": (theme: Theme) => getMarkdownCodeSurfaceColors(theme).blockBackground,
-    },
-    "& [class*='codeMirrorWrapper']": {
-      borderColor: (theme) => getMarkdownCodeSurfaceColors(theme).blockBorder,
-      borderRadius: 0,
-      backgroundColor: (theme) => getMarkdownCodeSurfaceColors(theme).blockBackground,
-    },
-    "& [class*='codeMirrorToolbar']": {
-      backgroundColor: (theme) => getMarkdownCodeSurfaceColors(theme).blockBackground,
-      borderLeft: (theme) => `1px solid ${getMarkdownCodeSurfaceColors(theme).blockBorder}`,
-      borderBottom: (theme) => `1px solid ${getMarkdownCodeSurfaceColors(theme).blockBorder}`,
-      padding: "0.4rem",
-      borderBottomLeftRadius: 0,
-    },
-    [`& .${MARKDOWN_EDITOR_CODE_BLOCK_CLASS} > div`]: {
-      backgroundColor: (theme) => getMarkdownCodeSurfaceColors(theme).blockBackground,
-      border: (theme) => `1px solid ${getMarkdownCodeSurfaceColors(theme).blockBorder}`,
-      borderRadius: 0,
-      padding: MARKDOWN_CODE_BLOCK_PADDING,
-      fontSize: MARKDOWN_CODE_FONT_SIZE,
-      lineHeight: MARKDOWN_CODE_BLOCK_LINE_HEIGHT,
-      color: (theme) => getMarkdownCodeSurfaceColors(theme).textColor,
-    },
-    [`& .${MARKDOWN_EDITOR_CODE_BLOCK_CLASS} .cm-editor, & .${MARKDOWN_EDITOR_CODE_BLOCK_CLASS} .cm-scroller, & .${MARKDOWN_EDITOR_CODE_BLOCK_CLASS} .cm-content, & .${MARKDOWN_EDITOR_CODE_BLOCK_CLASS} .cm-gutters`]:
-      {
-        backgroundColor: (theme) => getMarkdownCodeSurfaceColors(theme).blockBackground,
-        color: (theme) => getMarkdownCodeSurfaceColors(theme).textColor,
-        fontSize: "inherit",
-        lineHeight: "inherit",
-      },
-    "& [class*='codeMirrorWrapper'] .cm-editor, & [class*='codeMirrorWrapper'] .cm-scroller, & [class*='codeMirrorWrapper'] .cm-content, & [class*='codeMirrorWrapper'] .cm-gutters":
-      {
-        backgroundColor: (theme) => getMarkdownCodeSurfaceColors(theme).blockBackground,
-        color: (theme) => getMarkdownCodeSurfaceColors(theme).textColor,
-        fontSize: "inherit",
-        lineHeight: "inherit",
-      },
-    "& [class*='codeMirrorWrapper'] .cm-gutters": {
-      borderRight: (theme) => `1px solid ${getMarkdownCodeSurfaceColors(theme).blockBorder}`,
-      paddingRight: "0.35rem",
-    },
-    [`& .${MARKDOWN_EDITOR_CODE_BLOCK_CLASS} .cm-editor`]: {
-      borderRadius: 0,
-    },
-    [`& .${MARKDOWN_EDITOR_CODE_BLOCK_CLASS} .cm-editor.cm-focused .cm-activeLineGutter`]: {
-      backgroundColor: (theme) => getMarkdownCodeSurfaceColors(theme).activeLineGutterBackground,
-      color: (theme) => getMarkdownCodeSurfaceColors(theme).textColor,
-      fontWeight: 600,
-    },
-    "& [class*='codeMirrorWrapper'] .cm-editor.cm-focused .cm-activeLineGutter": {
-      backgroundColor: (theme) => getMarkdownCodeSurfaceColors(theme).activeLineGutterBackground,
-      color: (theme) => getMarkdownCodeSurfaceColors(theme).textColor,
-      fontWeight: 600,
-    },
-    [`& .${MARKDOWN_EDITOR_CODE_BLOCK_CLASS} .cm-editor:not(.cm-focused) .cm-activeLineGutter`]: {
-      backgroundColor: "transparent",
-      color: "inherit",
-      fontWeight: "inherit",
-    },
-    "& [class*='codeMirrorWrapper'] .cm-editor:not(.cm-focused) .cm-activeLineGutter": {
-      backgroundColor: "transparent",
-      color: "inherit",
-      fontWeight: "inherit",
-    },
-    [`& .${MARKDOWN_EDITOR_CODE_BLOCK_CLASS} [role='combobox']`]: {
-      borderRadius: 0,
-    },
-    "& [class*='codeMirrorWrapper'] [role='combobox']": {
-      borderRadius: 0,
-    },
-    [`& .${MARKDOWN_EDITOR_CODE_BLOCK_CLASS} .cm-content`]: {
-      padding: 0,
-    },
-    [`& .${MARKDOWN_EDITOR_INLINE_CODE_CLASS}`]: {
-      backgroundColor: "transparent !important",
-      color: "inherit",
-      padding: 0,
-    },
-    // MDXEditor renders inline code text inside its own nested span that carries
-    // a background color. Clear that inner fill so the outer code chip remains
-    // one uniform surface.
-    [`& .${MARKDOWN_EDITOR_INLINE_CODE_CLASS} span, & code:not(pre code) span`]: {
-      backgroundColor: "transparent !important",
-      color: "inherit",
-    },
   };
 }
