@@ -99,7 +99,6 @@ For frontend work, that usually means:
 
 - `cd frontend && npm test` for the default Vitest suite
 - `cd frontend && npm run test:e2e` for the default Chromium browser pass
-- `cd frontend && npm run test:e2e:firefox` when the change is browser-sensitive enough to justify the extra cross-browser pass
 
 `./scripts/test` now includes a local companion Windows GNU target compatibility check.
 That check is intentionally a local validation aid, not part of the current `CI: Test` workflow contract.
