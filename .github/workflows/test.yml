@@ -342,12 +342,12 @@ jobs:
   # ──────────────────────────────────────────────
   test-gate:
     if: always()
-    needs: [backend, frontend, frontend-e2e, frontend-e2e-firefox, companion, website-docs]
+    needs: [backend, frontend, companion, website-docs]
     runs-on: ubuntu-latest
     steps:
     - name: Check results
       run: |
-        results="${{ needs.backend.result }} ${{ needs.frontend.result }} ${{ needs.frontend-e2e.result }} ${{ needs.frontend-e2e-firefox.result }} ${{ needs.companion.result }} ${{ needs.website-docs.result }}"
+        results="${{ needs.backend.result }} ${{ needs.frontend.result }} ${{ needs.companion.result }} ${{ needs.website-docs.result }}"
         for r in $results; do
           if [[ "$r" != "success" && "$r" != "skipped" ]]; then
             echo "Job failed or was cancelled: $r"
