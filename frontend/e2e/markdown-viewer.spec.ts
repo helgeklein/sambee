@@ -8,6 +8,7 @@ const logicalNavigationMarkdown =
   "`test22`\n\nsfd\n\n```txt\nsome text\nline 2\n```\n\n| Col 1 | Col2 |\n| --- | --- |\n| some data | more data |\n| Second row |  |\n\nomega\n";
 const tableCellNavigationMarkdown = "alpha\n\n| Col 1 | Col 2 |\n| --- | --- |\n| A1 | B1 |\n| A2 | B2 |\n\nomega\n";
 const loadedEmptyInternalLineMarkdown = "alpha\n\n| Col 1 | Col 2 |\n| --- | --- |\n| A1<br /><br />A3 | B1 |\n\nomega\n";
+const markdownEditorFocusSettleDelayMs = 320;
 
 type MockMarkdownViewerApiOptions = {
   onUploadBody?: (body: string) => void;
@@ -210,10 +211,12 @@ async function waitForMarkdownEditorReady(page: Page) {
 
   await expect(editor).toBeVisible();
   await expect(saveButton).toBeVisible();
+}
+
+async function waitForMarkdownEditorFocusToSettle(page: Page) {
   // The viewer schedules several focus-retry passes after entering edit mode.
-  // Table-cell caret tests are boundary-sensitive, so wait until that window
-  // has elapsed before taking over selection programmatically.
-  await page.waitForTimeout(400);
+  // Only boundary-sensitive caret setup needs to wait for that window.
+  await page.waitForTimeout(markdownEditorFocusSettleDelayMs);
 }
 
 async function getCodeMirrorDocumentText(locator: Locator) {
@@ -243,6 +246,7 @@ async function moveCaretToTableCellBoundaryByKeyboard(
   cellIndex: number,
   boundary: "end" | "start"
 ) {
+  await waitForMarkdownEditorFocusToSettle(page);
   const targetCell = getTableCellTextbox(page, cellIndex);
   await targetCell.click();
   await waitForEditableFocusWithin(targetCell);
@@ -379,7 +383,8 @@ async function moveCaretToTextNodeBoundary(locator: Locator, textContent: string
   await waitForSelectionWithin(locator);
 }
 
-async function moveCaretToLoadedEmptyInternalLine(locator: Locator) {
+async function moveCaretToLoadedEmptyInternalLine(page: Page, locator: Locator) {
+  await waitForMarkdownEditorFocusToSettle(page);
   await locator.click();
   await locator.evaluate((element) => {
     const selection = window.getSelection();
@@ -541,7 +546,7 @@ test("keeps the markdown editor viewport stable after cancelling the unsaved cha
     }
   });
 
-  const editorWrapper = page.locator(".mdxeditor");
+  const editorWrapper = page.locator(".sambee-markdown-editor .cm-scroller");
   const wrapperScrollTopBefore = await editorWrapper.evaluate((element) => (element as HTMLElement).scrollTop);
 
   await page.keyboard.press("Escape");
@@ -1059,7 +1064,7 @@ test("saves, reloads, and renders a loaded empty internal table-cell line as can
   await expect(page.getByRole("textbox", { name: "Markdown editor" })).toBeVisible();
 
   const targetCell = getTableCellTextbox(page, 2);
-  await moveCaretToLoadedEmptyInternalLine(targetCell);
+  await moveCaretToLoadedEmptyInternalLine(page, targetCell);
   await page.keyboard.type("s");
 
   const saveButton = page.getByRole("button", { name: "Save" });
@@ -1090,7 +1095,7 @@ test("switches to source mode after typing into a loaded empty internal table-ce
   await expect(page.getByRole("textbox", { name: "Markdown editor" })).toBeVisible();
 
   const targetCell = getTableCellTextbox(page, 2);
-  await moveCaretToLoadedEmptyInternalLine(targetCell);
+  await moveCaretToLoadedEmptyInternalLine(page, targetCell);
   await page.keyboard.type("s");
 
   const sourceModeToggle = page.getByRole("radio", { name: "Source mode" });

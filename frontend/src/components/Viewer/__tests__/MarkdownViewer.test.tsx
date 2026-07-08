@@ -7,18 +7,8 @@ import MarkdownViewer from "../MarkdownViewer";
 import { normalizeMarkdownTableCellLineBreaks } from "../markdownTableCellLineBreaks";
 import { createViewerSearchTestDriver } from "./viewerSearchTestUtils";
 
-const { mockEnsureLexicalPrism, mockResetLexicalPrismForRetry } = vi.hoisted(() => ({
-  mockEnsureLexicalPrism: vi.fn(),
-  mockResetLexicalPrismForRetry: vi.fn(),
-}));
-
 const { mockLoadMarkdownRichEditor } = vi.hoisted(() => ({
   mockLoadMarkdownRichEditor: vi.fn(),
-}));
-
-vi.mock("../ensureLexicalPrism", () => ({
-  ensureLexicalPrism: mockEnsureLexicalPrism,
-  resetLexicalPrismForRetry: mockResetLexicalPrismForRetry,
 }));
 
 vi.mock("../loadMarkdownRichEditor", () => ({
@@ -379,11 +369,8 @@ describe("MarkdownViewer", () => {
     localStorage.clear();
     localStorage.setItem("access_token", "mock-token");
     vi.restoreAllMocks();
-    mockEnsureLexicalPrism.mockReset();
-    mockEnsureLexicalPrism.mockResolvedValue(undefined);
     mockLoadMarkdownRichEditor.mockReset();
     mockLoadMarkdownRichEditor.mockResolvedValue({ default: MockMarkdownRichEditor });
-    mockResetLexicalPrismForRetry.mockReset();
     mockMarkdownEditorBehavior.changeBeforeUserEdit = false;
     mockMarkdownEditorBehavior.canonicalMarkdownOverride = null;
     mockMarkdownEditorBehavior.delayFocus = false;
@@ -474,7 +461,7 @@ describe("MarkdownViewer", () => {
     expect(getFileContentSpy).toHaveBeenCalledTimes(1);
   });
 
-  it("retries loading the editor after a transient Prism bootstrap failure", async () => {
+  it("retries loading the editor after a transient module-load failure", async () => {
     vi.spyOn(apiService, "getFileContent").mockResolvedValueOnce("# Readme\n");
     vi.spyOn(apiService, "supportsEditLocks").mockReturnValue(true);
     vi.spyOn(apiService, "releaseEditLock").mockResolvedValue();
@@ -484,7 +471,9 @@ describe("MarkdownViewer", () => {
       locked_by: "alice",
       locked_at: "2026-03-23T12:00:00Z",
     });
-    mockEnsureLexicalPrism.mockRejectedValueOnce(new Error("Loading Prism failed")).mockResolvedValueOnce(undefined);
+    mockLoadMarkdownRichEditor.mockRejectedValueOnce(new Error("Loading editor failed")).mockResolvedValueOnce({
+      default: MockMarkdownRichEditor,
+    });
 
     renderViewer();
 
@@ -496,13 +485,9 @@ describe("MarkdownViewer", () => {
     fireEvent.click(screen.getByRole("button", { name: "Retry editor" }));
 
     await waitFor(() => {
-      expect(mockResetLexicalPrismForRetry).toHaveBeenCalledTimes(1);
-    });
-
-    await waitFor(() => {
       expect(screen.getByRole("textbox", { name: "Markdown editor" })).toBeInTheDocument();
     });
-    expect(mockEnsureLexicalPrism).toHaveBeenCalledTimes(2);
+    expect(mockLoadMarkdownRichEditor).toHaveBeenCalledTimes(2);
   });
 
   it("resets the viewer scroll position when entering edit mode", async () => {

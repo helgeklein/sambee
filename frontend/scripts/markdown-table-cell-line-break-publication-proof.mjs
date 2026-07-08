@@ -473,7 +473,7 @@ async function runProof() {
         assertNoPageErrors(pageErrors, 'immediately after Shift+Enter');
 
         const sourceEditor = page.locator('.cm-content[role="textbox"]').first();
-        // MDXEditor exposes the mode switch as a radio-style toggle item, not a plain button.
+        // The source-mode switch is exposed as a radio-style toggle item, not a plain button.
         const sourceModeButton = page.getByRole('radio', { name: 'Source mode' });
         const sourceModeButtonVisible = await sourceModeButton.isVisible().catch(() => false);
 

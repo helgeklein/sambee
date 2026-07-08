@@ -48,7 +48,6 @@ import type { ViewerComponentProps } from "../../utils/FileTypeRegistry";
 import { blurActiveToolbarControl } from "../../utils/keyboardUtils";
 import { createShareFile, shareNativeContent, shouldWarmNativeSharePayload, supportsNativeShare } from "../../utils/nativeShare";
 import { KeyboardShortcutsHelp } from "../KeyboardShortcutsHelp";
-import { ensureLexicalPrism, resetLexicalPrismForRetry } from "./ensureLexicalPrism";
 import { scheduleRetriableFocusRestore } from "./focusRestoration";
 import { loadMarkdownRichEditor } from "./loadMarkdownRichEditor";
 import MarkdownEditorErrorBoundary from "./MarkdownEditorErrorBoundary";
@@ -311,7 +310,6 @@ export const MarkdownViewer: React.FC<ViewerComponentProps> = ({ connectionId, p
 
     void (async () => {
       try {
-        await ensureLexicalPrism();
         const module = await loadMarkdownRichEditor();
 
         if (cancelled) {
@@ -1100,7 +1098,6 @@ export const MarkdownViewer: React.FC<ViewerComponentProps> = ({ connectionId, p
     setEditorLoadError(null);
 
     if (editorLoadState === "failed") {
-      resetLexicalPrismForRetry();
       setEditorComponent(null);
       setEditorLoadState("idle");
       setEditorLoadNonce((previousValue) => previousValue + 1);
