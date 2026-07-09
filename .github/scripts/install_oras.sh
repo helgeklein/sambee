@@ -50,7 +50,8 @@ curl --fail --silent --show-error --location "$download_url" --output "$temp_dir
 printf '%s  %s\n' "$checksum" "$temp_dir/$archive_name" | sha256sum --check --status
 tar -xzf "$temp_dir/$archive_name" -C "$install_dir" oras
 
-resolved_version="$($install_dir/oras version | awk -F': *' '/^Version:/ {print $2; exit}')"
+version_output="$($install_dir/oras version)"
+resolved_version="$(printf '%s\n' "$version_output" | awk -F': *' '/^Version:/ {print $2}')"
 if [[ "$resolved_version" != "$ORAS_VERSION" ]]; then
   echo "Installed ORAS version mismatch: expected $ORAS_VERSION, got ${resolved_version:-unknown}" >&2
   exit 1

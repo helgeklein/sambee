@@ -216,6 +216,21 @@ export const SourceTextEditor = forwardRef<SourceTextEditorHandle, SourceTextEdi
           viewRef.current?.focus();
         },
         getValue: () => viewRef.current?.state.doc.toString() ?? value,
+        getPrimarySelectionText: () => {
+          const view = viewRef.current;
+
+          if (!view) {
+            return "";
+          }
+
+          const mainSelection = view.state.selection.main;
+
+          if (mainSelection.empty) {
+            return "";
+          }
+
+          return view.state.sliceDoc(mainSelection.from, mainSelection.to);
+        },
         getView: () => viewRef.current,
         preserveSelection: () => {
           const view = viewRef.current;

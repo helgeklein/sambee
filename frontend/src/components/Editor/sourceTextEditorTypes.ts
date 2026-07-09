@@ -17,6 +17,7 @@ export interface SourceTextEditorProps {
 export interface SourceTextEditorHandle {
   focus: () => void;
   getValue: () => string;
+  getPrimarySelectionText: () => string;
   getView: () => EditorView | null;
   preserveSelection: () => void;
   restorePreservedSelection: () => boolean;

@@ -69,6 +69,7 @@ describe("Keyboard Shortcuts Configuration", () => {
     it("should require ctrl modifier for connection selector focus", () => {
       expect(BROWSER_SHORTCUTS.FOCUS_CONNECTION_SELECTOR.ctrl).toBe(true);
       expect(BROWSER_SHORTCUTS.FOCUS_CONNECTION_SELECTOR.keys).toBe("ArrowDown");
+      expect(BROWSER_SHORTCUTS.FOCUS_CONNECTION_SELECTOR.allowInInputWithin).toBe('[data-quick-bar-input="true"]');
     });
   });
 

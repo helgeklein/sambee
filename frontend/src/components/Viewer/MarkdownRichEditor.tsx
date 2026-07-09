@@ -10,6 +10,7 @@ export interface MarkdownRichEditorHandle {
   focus: () => void;
   flushPendingEdits: () => Promise<void>;
   getCanonicalMarkdown: () => string;
+  getPrimarySelectionText: () => string;
   preserveSelection: () => void;
   restorePreservedSelection: () => boolean;
   focusCurrentSearchResult: () => boolean;
@@ -43,6 +44,7 @@ export interface MarkdownRichEditorProps {
   className?: string;
   searchText?: string;
   searchOpen?: boolean;
+  searchAutoNavigate?: boolean;
   onSearchStateChange?: (state: MarkdownRichEditorSearchState) => void;
 }
 
@@ -88,9 +90,9 @@ function countSearchMatches(editorRef: React.RefObject<SourceTextEditorHandle | 
   let currentMatch = 0;
   const mainSelection = view.state.selection.main;
 
-  while (!cursor.next().done) {
+  for (let nextMatch = cursor.next(); !nextMatch.done; nextMatch = cursor.next()) {
     matches += 1;
-    const match = cursor.value;
+    const match = nextMatch.value;
 
     if (match.from === mainSelection.from && match.to === mainSelection.to) {
       currentMatch = matches;
@@ -203,6 +205,7 @@ const MarkdownRichEditor = forwardRef<MarkdownRichEditorHandle, MarkdownRichEdit
       className,
       searchText = "",
       searchOpen = false,
+      searchAutoNavigate = true,
       onSearchStateChange,
     },
     ref
@@ -241,14 +244,14 @@ const MarkdownRichEditor = forwardRef<MarkdownRichEditorHandle, MarkdownRichEdit
       updateSearchQuery(editorRef, searchText);
 
       const shouldJumpToFirstResult =
-        !previousRequest || previousRequest.searchText !== searchText || previousRequest.searchOpen !== searchOpen;
+        searchAutoNavigate && (!previousRequest || previousRequest.searchText !== searchText || previousRequest.searchOpen !== searchOpen);
 
       if (shouldJumpToFirstResult) {
         editorRef.current?.runCommand(findNext);
       }
 
       reportSearchState();
-    }, [reportSearchState, searchOpen, searchText]);
+    }, [reportSearchState, searchAutoNavigate, searchOpen, searchText]);
 
     useImperativeHandle(
       ref,
@@ -258,6 +261,7 @@ const MarkdownRichEditor = forwardRef<MarkdownRichEditorHandle, MarkdownRichEdit
         },
         flushPendingEdits: async () => {},
         getCanonicalMarkdown: () => getCurrentDoc(editorRef),
+        getPrimarySelectionText: () => editorRef.current?.getPrimarySelectionText() ?? "",
         preserveSelection: () => {
           editorRef.current?.preserveSelection();
         },
