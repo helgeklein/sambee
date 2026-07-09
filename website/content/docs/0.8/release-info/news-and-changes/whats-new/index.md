@@ -37,7 +37,7 @@ Opening in natively installed apps:
 
 ## Markdown Editor: Strategy Change
 
-Let's put it plainly: the WYSIWYG Markdown editor is gone. Sad but true. The reason is plain and simple: UX. AFAIK, there's not a single open-source rich-text Markdown editor with WYSIWYG editing that comes with great user experience. As I found out, the old editor was certainly not up to the task. That means: out.
+The WYSIWYG Markdown editor is gone. The reason is plain and simple: UX. AFAIK, there's not a single open-source rich-text (WYSIWYG) Markdown editor that comes with great user experience. As I found out, the old editor was certainly not up to the task. That means: out.
 
 The actually better option: take one of the best available editors, CodeMirror, and wire it up for Markdown - but also generic text editing. This provides a best-in-class editing experience with amazing UX. It also gives us battle-tested addons that implement many of the little quality-of-life features we've become accustomed to through decades of coding and editing experience.
 

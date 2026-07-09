@@ -40,7 +40,7 @@ import { DEFAULT_SETTINGS_CATEGORY, type MobileSettingsView, type SettingsCatego
 import { getEnabledBrowserCommands } from "../config/browserCommands";
 import { BROWSER_SHORTCUTS, COMMON_SHORTCUTS, COPY_MOVE_SHORTCUTS, PANE_SHORTCUTS, SELECTION_SHORTCUTS } from "../config/keyboardShortcuts";
 import { useCompanion } from "../hooks/useCompanion";
-import { useKeyboardShortcuts } from "../hooks/useKeyboardShortcuts";
+import { type KeyboardShortcut, useKeyboardShortcuts } from "../hooks/useKeyboardShortcuts";
 import api from "../services/api";
 import { markBackendAvailable, useBackendAvailability } from "../services/backendAvailability";
 import { subscribeBackendRecoveryReconnect } from "../services/backendRecoveryEvents";
@@ -1783,7 +1783,7 @@ const Browser: React.FC = () => {
    * Routes navigation/action shortcuts to the active pane.
    * Includes dual-pane shortcuts (Ctrl+B, Tab, Ctrl+1, Ctrl+2).
    */
-  const browserShortcuts = useMemo(() => {
+  const browserShortcuts = useMemo<KeyboardShortcut[]>(() => {
     // Common condition building blocks to avoid repetition
     const noSettings = !settingsOpen && !mobileSettingsOpen;
     const browsing = noSettings && !activePane.viewInfo;
@@ -1915,25 +1915,25 @@ const Browser: React.FC = () => {
       // Delete file/directory (focus checked inside handler)
       {
         ...BROWSER_SHORTCUTS.DELETE_ITEM,
-        handler: activePane.handleDeleteRequest,
+        handler: () => activePane.handleDeleteRequest(),
         enabled: browsing && noDialogOpen && hasFocusedFile,
       },
       // Rename file/directory (focus checked inside handler)
       {
         ...BROWSER_SHORTCUTS.RENAME_ITEM,
-        handler: activePane.handleRenameRequest,
+        handler: () => activePane.handleRenameRequest(),
         enabled: browsing && noDialogOpen && hasFocusedFile,
       },
       // Create new directory (F7)
       {
         ...BROWSER_SHORTCUTS.NEW_DIRECTORY,
-        handler: activePane.handleNewDirectoryRequest,
+        handler: () => activePane.handleNewDirectoryRequest(),
         enabled: browsing && noDialogOpen,
       },
       // Create new file (Shift+F7)
       {
         ...BROWSER_SHORTCUTS.NEW_FILE,
-        handler: activePane.handleNewFileRequest,
+        handler: () => activePane.handleNewFileRequest(),
         enabled: browsing && noDialogOpen,
       },
 
@@ -1941,27 +1941,27 @@ const Browser: React.FC = () => {
       // Toggle selection on focused file, then move focus down (Insert / Space)
       {
         ...SELECTION_SHORTCUTS.TOGGLE_SELECTION,
-        handler: activePane.handleToggleSelection,
+        handler: () => activePane.handleToggleSelection(),
         enabled: browsing && noDialogOrCopyMove && hasFiles,
       },
       // Select focused file & move down (Alt+Down)
       {
         ...SELECTION_SHORTCUTS.SELECT_DOWN,
-        handler: activePane.handleSelectDown,
+        handler: () => activePane.handleSelectDown(),
         enabled: browsing && noDialogOrCopyMove && hasFiles,
         priority: 10,
       },
       // Select focused file & move up (Alt+Up)
       {
         ...SELECTION_SHORTCUTS.SELECT_UP,
-        handler: activePane.handleSelectUp,
+        handler: () => activePane.handleSelectUp(),
         enabled: browsing && noDialogOrCopyMove && hasFiles,
         priority: 10,
       },
       // Select all files (Ctrl+A)
       {
         ...SELECTION_SHORTCUTS.SELECT_ALL,
-        handler: activePane.handleSelectAll,
+        handler: () => activePane.handleSelectAll(),
         enabled: browsing && noDialogOrCopyMove && hasFiles,
       },
 

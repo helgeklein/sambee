@@ -59,6 +59,7 @@ const MockMarkdownRichEditor = forwardRef<
     focus: () => void;
     flushPendingEdits: () => Promise<void>;
     getCanonicalMarkdown: () => string;
+    getPrimarySelectionText: () => string;
     preserveSelection: () => void;
     restorePreservedSelection: () => boolean;
     focusCurrentSearchResult: () => boolean;
@@ -80,6 +81,7 @@ const MockMarkdownRichEditor = forwardRef<
     className?: string;
     searchText?: string;
     searchOpen?: boolean;
+    searchAutoNavigate?: boolean;
     onSearchStateChange?: (state: {
       searchText: string;
       searchMatches: number;
@@ -105,6 +107,7 @@ const MockMarkdownRichEditor = forwardRef<
     const toolbarButtonRef = useRef<HTMLButtonElement | null>(null);
     const previousMarkdownRef = useRef(markdown);
     const latestMarkdownRef = useRef(markdown);
+    const lastSelectionRef = useRef({ start: 0, end: 0 });
     const preservedSelectionRef = useRef<{
       type: "textarea";
       start: number;
@@ -165,6 +168,25 @@ const MockMarkdownRichEditor = forwardRef<
       textarea.setSelectionRange(markdown.length, markdown.length);
       previousMarkdownRef.current = markdown;
     }, [markdown]);
+
+    useEffect(() => {
+      const textarea = textareaRef.current;
+
+      if (!textarea) {
+        return;
+      }
+
+      const originalSetSelectionRange = textarea.setSelectionRange.bind(textarea);
+
+      textarea.setSelectionRange = (start: number, end: number, direction?: "forward" | "backward" | "none") => {
+        lastSelectionRef.current = { start, end };
+        originalSetSelectionRange(start, end, direction);
+      };
+
+      return () => {
+        textarea.setSelectionRange = originalSetSelectionRange;
+      };
+    }, []);
 
     useImperativeHandle(ref, () => ({
       focus: () => {
@@ -243,6 +265,22 @@ const MockMarkdownRichEditor = forwardRef<
         }
 
         return mockMarkdownEditorBehavior.canonicalMarkdownOverride ?? latestMarkdownRef.current;
+      },
+      getPrimarySelectionText: () => {
+        const textarea = textareaRef.current;
+
+        if (!textarea) {
+          return "";
+        }
+
+        const { value } = textarea;
+        const { start, end } = lastSelectionRef.current;
+
+        if (start === end) {
+          return "";
+        }
+
+        return value.slice(start, end);
       },
       focusCurrentSearchResult: () => {
         mockMarkdownEditorBehavior.focusCurrentSearchResultCalls += 1;
@@ -1662,6 +1700,78 @@ describe("MarkdownViewer", () => {
 
     await waitFor(() => {
       expect(screen.getByText("2 / 2")).toBeInTheDocument();
+    });
+  });
+
+  it("seeds edit-mode search from the current editor selection without moving it", async () => {
+    vi.spyOn(apiService, "getFileContent").mockResolvedValueOnce("# Alpha\n\nAlpha beta alpha\n");
+    vi.spyOn(apiService, "supportsEditLocks").mockReturnValue(false);
+
+    renderViewer();
+
+    await screen.findByText("Alpha");
+    fireEvent.click(screen.getByRole("button", { name: "Edit" }));
+
+    const editor = await screen.findByRole("textbox", { name: "Markdown editor" });
+    const selectionStart = editor.value.indexOf("beta");
+    const selectionEnd = selectionStart + "beta".length;
+
+    editor.focus();
+    editor.setSelectionRange(selectionStart, selectionEnd);
+
+    fireEvent.keyDown(document, { key: "f", ctrlKey: true });
+
+    await waitFor(() => {
+      expect(screen.getByPlaceholderText("Search")).toHaveValue("beta");
+      expect(mockMarkdownEditorBehavior.lastSearchText).toBe("beta");
+      expect(editor.selectionStart).toBe(selectionStart);
+      expect(editor.selectionEnd).toBe(selectionEnd);
+    });
+  });
+
+  it("reseeds edit-mode search from the latest selection when reopening search", async () => {
+    vi.spyOn(apiService, "getFileContent").mockResolvedValueOnce("# Alpha\n\nAlpha beta alpha\n");
+    vi.spyOn(apiService, "supportsEditLocks").mockReturnValue(false);
+
+    renderViewer();
+
+    await screen.findByText("Alpha");
+    fireEvent.click(screen.getByRole("button", { name: "Edit" }));
+
+    const editor = await screen.findByRole("textbox", { name: "Markdown editor" });
+    const betaStart = editor.value.indexOf("beta");
+    const betaEnd = betaStart + "beta".length;
+
+    editor.focus();
+    editor.setSelectionRange(betaStart, betaEnd);
+
+    fireEvent.keyDown(document, { key: "f", ctrlKey: true });
+
+    const firstSearchInput = await screen.findByPlaceholderText("Search");
+
+    await waitFor(() => {
+      expect(firstSearchInput).toHaveValue("beta");
+    });
+
+    fireEvent.keyDown(firstSearchInput, { key: "Escape" });
+
+    await waitFor(() => {
+      expect(screen.queryByPlaceholderText("Search")).not.toBeInTheDocument();
+    });
+
+    const alphaStart = editor.value.lastIndexOf("alpha");
+    const alphaEnd = alphaStart + "alpha".length;
+
+    editor.focus();
+    editor.setSelectionRange(alphaStart, alphaEnd);
+
+    fireEvent.keyDown(document, { key: "f", ctrlKey: true });
+
+    await waitFor(() => {
+      expect(screen.getByPlaceholderText("Search")).toHaveValue("alpha");
+      expect(mockMarkdownEditorBehavior.lastSearchText).toBe("alpha");
+      expect(editor.selectionStart).toBe(alphaStart);
+      expect(editor.selectionEnd).toBe(alphaEnd);
     });
   });
 

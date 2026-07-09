@@ -11,6 +11,14 @@ describe("useKeyboardShortcuts", () => {
     vi.clearAllMocks();
   });
 
+  afterEach(() => {
+    if (document.activeElement instanceof HTMLElement) {
+      document.activeElement.blur();
+    }
+
+    document.body.innerHTML = "";
+  });
+
   // Helper to simulate keyboard events
   const simulateKeyPress = (
     key: string,
@@ -121,6 +129,39 @@ describe("useKeyboardShortcuts", () => {
       renderHook(() => useKeyboardShortcuts({ shortcuts }));
       simulateKeyPress("a");
 
+      expect(mockHandler).toHaveBeenCalledTimes(1);
+    });
+
+    it("should allow a shortcut only within the configured interactive surface", () => {
+      document.body.innerHTML =
+        '<div><input data-quick-bar-input="true" id="quick-bar-input" /><div class="cm-editor"><div contenteditable="true" id="editor-focus"></div></div></div>';
+
+      const quickBarInput = document.getElementById("quick-bar-input");
+      const editorFocus = document.getElementById("editor-focus");
+
+      if (!(quickBarInput instanceof HTMLInputElement) || !(editorFocus instanceof HTMLElement)) {
+        throw new Error("Expected test focus targets");
+      }
+
+      const shortcuts: KeyboardShortcut[] = [
+        {
+          id: "focus-connection-selector",
+          keys: "ArrowDown",
+          description: "Open connection selector",
+          ctrl: true,
+          allowInInputWithin: '[data-quick-bar-input="true"]',
+          handler: mockHandler,
+        },
+      ];
+
+      renderHook(() => useKeyboardShortcuts({ shortcuts }));
+
+      quickBarInput.focus();
+      simulateKeyPress("ArrowDown", { ctrlKey: true });
+      expect(mockHandler).toHaveBeenCalledTimes(1);
+
+      editorFocus.focus();
+      simulateKeyPress("ArrowDown", { ctrlKey: true });
       expect(mockHandler).toHaveBeenCalledTimes(1);
     });
   });

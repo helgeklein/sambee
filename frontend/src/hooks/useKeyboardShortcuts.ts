@@ -43,6 +43,8 @@ export interface KeyboardShortcut {
   alt?: boolean;
   /** Allow when input field has focus (default: false) */
   allowInInput?: boolean;
+  /** Allow when focus is inside the given interactive input surface */
+  allowInInputWithin?: string;
   /** Custom condition to enable/disable shortcut */
   enabled?: boolean;
   /** Priority for overlapping shortcuts (higher = checked first, default: 0) */
@@ -174,7 +176,14 @@ export const useKeyboardShortcuts = ({ shortcuts, inputSelector = "input, textar
         if (shortcut.enabled === false) continue;
 
         // Skip if an interactive control has focus and shortcut doesn't explicitly allow it
-        if (interactiveHasFocus && !shortcut.allowInInput) continue;
+        if (interactiveHasFocus && !shortcut.allowInInput) {
+          const isAllowedInputSurface =
+            shortcut.allowInInputWithin && activeElement instanceof Element
+              ? activeElement.matches(shortcut.allowInInputWithin) || activeElement.closest(shortcut.allowInInputWithin)
+              : false;
+
+          if (!isAllowedInputSurface) continue;
+        }
 
         // Check modifier keys
         if (shortcut.ctrl && !(event.ctrlKey || event.metaKey)) continue;

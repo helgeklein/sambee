@@ -190,6 +190,7 @@ export const MarkdownViewer: React.FC<ViewerComponentProps> = ({ connectionId, p
   const [searchMatches, setSearchMatches] = useState(0);
   const [currentSearchMatch, setCurrentSearchMatch] = useState(0);
   const [searchPanelOpen, setSearchPanelOpen] = useState(false);
+  const [editorSearchAutoNavigate, setEditorSearchAutoNavigate] = useState(true);
   const [editorBoundaryKey, setEditorBoundaryKey] = useState(0);
   const [editorFailed, setEditorFailed] = useState(false);
   const [editorLoadState, setEditorLoadState] = useState<EditorModuleLoadState>("idle");
@@ -721,6 +722,7 @@ export const MarkdownViewer: React.FC<ViewerComponentProps> = ({ connectionId, p
       setDraftContent(content);
       setEditBaselineContent(content);
       setEditorSearchText(searchPanelOpen ? viewerSearchText : "");
+      setEditorSearchAutoNavigate(true);
       clearPendingBaselineSync();
       beginBaselineSyncWindow();
       markEditSessionPristine();
@@ -971,6 +973,7 @@ export const MarkdownViewer: React.FC<ViewerComponentProps> = ({ connectionId, p
       if (!preserveQuery) {
         if (isEditing) {
           setEditorSearchText("");
+          setEditorSearchAutoNavigate(true);
         } else {
           setViewerSearchText("");
         }
@@ -1026,6 +1029,17 @@ export const MarkdownViewer: React.FC<ViewerComponentProps> = ({ connectionId, p
         return;
       }
 
+      if (isEditing) {
+        const selectedText = editorRef.current?.getPrimarySelectionText() ?? "";
+
+        if (selectedText.length > 0) {
+          setEditorSearchText(selectedText);
+          setEditorSearchAutoNavigate(false);
+        } else {
+          setEditorSearchAutoNavigate(true);
+        }
+      }
+
       setSearchPanelOpen(true);
     },
     [editorSearchState.isSearchable, error, isEditing, loading]
@@ -1034,6 +1048,7 @@ export const MarkdownViewer: React.FC<ViewerComponentProps> = ({ connectionId, p
   const handleSearchChange = useCallback(
     (text: string) => {
       if (isEditing) {
+        setEditorSearchAutoNavigate(true);
         setEditorSearchText(text);
         return;
       }
@@ -1594,6 +1609,7 @@ export const MarkdownViewer: React.FC<ViewerComponentProps> = ({ connectionId, p
                       readOnly={editorShouldBeReadOnly}
                       searchText={activeEditorSearchText}
                       searchOpen={searchPanelOpen}
+                      searchAutoNavigate={editorSearchAutoNavigate}
                       onSearchStateChange={handleEditorSearchStateChange}
                     />
                   </MarkdownEditorErrorBoundary>

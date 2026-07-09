@@ -404,7 +404,7 @@ export const BROWSER_SHORTCUTS = {
     label: "Ctrl+Down",
     helpGroup: "navigation",
     ctrl: true,
-    allowInInput: true,
+    allowInInputWithin: '[data-quick-bar-input="true"]',
   },
   OPEN_SETTINGS: {
     id: "open-settings",

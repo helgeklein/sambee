@@ -644,7 +644,7 @@ describe("Browser Component - Interactions", () => {
       expect(screen.getByText("Test Server 1 (192.168.1.100/share1)")).toBeInTheDocument();
     });
 
-    it("opens the connection selector instead of the quick bar mode menu when Ctrl+ArrowDown is pressed on the mode button", async () => {
+    it("does not open the connection selector or mode menu when Ctrl+ArrowDown is pressed on the mode button", async () => {
       const user = userEvent.setup();
       renderBrowser("/browse/smb/test-server-1");
 
@@ -658,8 +658,7 @@ describe("Browser Component - Interactions", () => {
 
       await user.keyboard("{Control>}{ArrowDown}{/Control}");
 
-      expect(await screen.findByRole("listbox")).toBeInTheDocument();
-      expect(screen.getByText("Test Server 1 (192.168.1.100/share1)")).toBeInTheDocument();
+      expect(screen.queryByRole("listbox")).not.toBeInTheDocument();
       expect(screen.queryByRole("menuitem", { name: "Filter" })).not.toBeInTheDocument();
     });
 
