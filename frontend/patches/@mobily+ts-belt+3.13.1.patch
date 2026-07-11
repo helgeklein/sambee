@@ -1,0 +1,28 @@
+diff --git a/node_modules/@mobily/ts-belt/dist/esm/index.js b/node_modules/@mobily/ts-belt/dist/esm/index.js
+index d1eadb2..974de2d 100644
+--- a/node_modules/@mobily/ts-belt/dist/esm/index.js
++++ b/node_modules/@mobily/ts-belt/dist/esm/index.js
+@@ -1,14 +1,14 @@
+ import { pipe } from "./pipe.js";
+ import { flow } from "./flow.js";
+-import * as F from "./Function";
+-import * as A from "./Array";
+-import * as R from "./Result";
+-import * as G from "./Guards";
+-import * as O from "./Option";
+-import * as S from "./String";
+-import * as D from "./Dict";
+-import * as B from "./Bool";
+-import * as N from "./Number";
++import * as F from "./Function/index.js";
++import * as A from "./Array/index.js";
++import * as R from "./Result/index.js";
++import * as G from "./Guards/index.js";
++import * as O from "./Option/index.js";
++import * as S from "./String/index.js";
++import * as D from "./Dict/index.js";
++import * as B from "./Bool/index.js";
++import * as N from "./Number/index.js";
+ export {
+   A,
+   B,

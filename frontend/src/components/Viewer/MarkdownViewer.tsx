@@ -32,7 +32,13 @@ import { useKeyboardShortcuts } from "../../hooks/useKeyboardShortcuts";
 import apiService from "../../services/api";
 import { error as logError, info as logInfo } from "../../services/logger";
 import { useSambeeTheme } from "../../theme";
-import { getMarkdownContentStyles, getViewerColors, MARKDOWN_CONTENT_PADDING } from "../../theme/viewerStyles";
+import { getSearchHighlightColors } from "../../theme/commonStyles";
+import {
+  getMarkdownContentStyles,
+  getMarkdownTableSurfaceColors,
+  getViewerColors,
+  MARKDOWN_CONTENT_PADDING,
+} from "../../theme/viewerStyles";
 import type { EditLockInfo } from "../../types";
 import { isApiError } from "../../types";
 import { getApiErrorMessage } from "../../utils/apiErrors";
@@ -61,6 +67,7 @@ import {
   MARKDOWN_VIEWER_UNSAVED_DIALOG_AUTOFOCUS_DELAYS_MS,
   MARKDOWN_VIEWER_UNSAVED_DIALOG_RESTORE_FOCUS_DELAY_MS,
 } from "./markdownEditorConstants";
+import { PASSIVE_SEARCH_MATCH_CLASS, PASSIVE_SELECTED_SEARCH_MATCH_CLASS } from "./markdownEditorSearch";
 import { areMarkdownSearchStatesEqual } from "./markdownSearchState";
 import { normalizeMarkdownTableCellLineBreaks, remarkRenderMarkdownTableCellLineBreaks } from "./markdownTableCellLineBreaks";
 import { useMarkdownEditSession } from "./useMarkdownEditSession";
@@ -69,10 +76,10 @@ import { createEditToolbarAction, createSaveToolbarAction } from "./viewerToolba
 import "highlight.js/styles/github.css";
 
 const MARKDOWN_SEARCH_ROOT_SELECTOR = '[data-markdown-search-root="true"]';
-const MARKDOWN_SEARCH_MATCH_COLOR = "rgba(255, 255, 0, 0.4)";
-const MARKDOWN_SEARCH_CURRENT_MATCH_COLOR = "rgba(255, 152, 0, 0.4)";
 const MARKDOWN_EDITOR_SEARCH_MATCH_SELECTOR = "& .sambee-markdown-editor .cm-searchMatch";
 const MARKDOWN_EDITOR_CURRENT_SEARCH_MATCH_SELECTOR = "& .sambee-markdown-editor .cm-searchMatch-selected";
+const MARKDOWN_EDITOR_PASSIVE_SEARCH_MATCH_SELECTOR = `& .sambee-markdown-editor .${PASSIVE_SEARCH_MATCH_CLASS}`;
+const MARKDOWN_EDITOR_PASSIVE_CURRENT_SEARCH_MATCH_SELECTOR = `& .sambee-markdown-editor .${PASSIVE_SELECTED_SEARCH_MATCH_CLASS}`;
 const MARKDOWN_HASH_PREFIX = "#";
 const MARKDOWN_SUPPORTED_LINK_PROTOCOLS = new Set(["http:", "https:", "mailto:", "tel:"]);
 const MARKDOWN_VIEWER_EDIT_FOCUS_RETRY_DELAYS_MS = [
@@ -227,16 +234,39 @@ export const MarkdownViewer: React.FC<ViewerComponentProps> = ({ connectionId, p
   const shareWarmEnabled = shareEnabled && shouldWarmNativeSharePayload();
   const supportsEditLocks = apiService.supportsEditLocks(connectionId);
   const { viewerBg, toolbarBg, toolbarText, viewerText, linkColor, linkHoverColor } = getViewerColors(currentTheme, "markdown");
+  const markdownTableSurfaceColors = getMarkdownTableSurfaceColors(muiTheme);
+  const searchHighlightColors = useMemo(() => getSearchHighlightColors(muiTheme, currentTheme), [currentTheme, muiTheme]);
   const markdownEditorTheme = useMemo(
     () => ({
       activeLineBackground: muiTheme.palette.action.selected,
       borderColor: withOpacity(viewerText, muiTheme.palette.mode === "dark" ? 0.32 : 0.16),
+      currentSearchMatchBackground: searchHighlightColors.currentMatch,
+      isDarkMode: muiTheme.palette.mode === "dark",
       linkColor,
+      otherSearchMatchBackground: searchHighlightColors.otherMatches,
       selectionBackground: withOpacity(linkColor, muiTheme.palette.mode === "dark" ? 0.3 : 0.18),
       surfaceBackground: viewerBg,
+      tableAlternateRowBackground: markdownTableSurfaceColors.alternateRowBackground,
+      tableBackground: markdownTableSurfaceColors.tableBackground,
+      tableBorderColor: markdownTableSurfaceColors.border,
+      tableHeaderBackground: markdownTableSurfaceColors.headerBackground,
+      tableHeaderText: markdownTableSurfaceColors.headerText,
       textColor: viewerText,
     }),
-    [linkColor, muiTheme.palette.action.selected, muiTheme.palette.mode, viewerBg, viewerText]
+    [
+      linkColor,
+      markdownTableSurfaceColors.alternateRowBackground,
+      markdownTableSurfaceColors.border,
+      markdownTableSurfaceColors.headerBackground,
+      markdownTableSurfaceColors.headerText,
+      markdownTableSurfaceColors.tableBackground,
+      muiTheme.palette.action.selected,
+      muiTheme.palette.mode,
+      searchHighlightColors.currentMatch,
+      searchHighlightColors.otherMatches,
+      viewerBg,
+      viewerText,
+    ]
   );
   const currentSearchText = isEditing ? editorSearchText : viewerSearchText;
   const activeViewerSearchText = !isEditing && searchPanelOpen ? viewerSearchText : "";
@@ -433,12 +463,16 @@ export const MarkdownViewer: React.FC<ViewerComponentProps> = ({ connectionId, p
   }, [error, focusViewerContent, isEditing, loading]);
 
   useEffect(() => {
-    if (!isEditing || editorLoadState !== "loaded" || editorLoadError || !EditorComponent) {
+    if (!isEditing || editorLoadState !== "loaded" || editorLoadError || !EditorComponent || searchPanelOpen) {
       return;
     }
 
     const timeoutIds = MARKDOWN_VIEWER_EDIT_FOCUS_RETRY_DELAYS_MS.map((delayMs) =>
       window.setTimeout(() => {
+        if (isViewerSearchInputFocused()) {
+          return;
+        }
+
         editorRef.current?.focus();
       }, delayMs)
     );
@@ -448,7 +482,7 @@ export const MarkdownViewer: React.FC<ViewerComponentProps> = ({ connectionId, p
         window.clearTimeout(timeoutId);
       }
     };
-  }, [EditorComponent, editorLoadError, editorLoadState, isEditing]);
+  }, [EditorComponent, editorLoadError, editorLoadState, isEditing, searchPanelOpen]);
 
   useEffect(() => {
     if (!isEditing) {
@@ -812,6 +846,8 @@ export const MarkdownViewer: React.FC<ViewerComponentProps> = ({ connectionId, p
           });
         }
 
+        savedContent = normalizeMarkdownTableCellLineBreaks(savedContent);
+
         await apiService.saveTextFile(connectionId, path, savedContent, {
           filename,
           mimeType: "text/markdown;charset=utf-8",
@@ -1032,11 +1068,10 @@ export const MarkdownViewer: React.FC<ViewerComponentProps> = ({ connectionId, p
       if (isEditing) {
         const selectedText = editorRef.current?.getPrimarySelectionText() ?? "";
 
+        setEditorSearchAutoNavigate(false);
+
         if (selectedText.length > 0) {
           setEditorSearchText(selectedText);
-          setEditorSearchAutoNavigate(false);
-        } else {
-          setEditorSearchAutoNavigate(true);
         }
       }
 
@@ -1048,7 +1083,7 @@ export const MarkdownViewer: React.FC<ViewerComponentProps> = ({ connectionId, p
   const handleSearchChange = useCallback(
     (text: string) => {
       if (isEditing) {
-        setEditorSearchAutoNavigate(true);
+        setEditorSearchAutoNavigate(false);
         setEditorSearchText(text);
         return;
       }
@@ -1156,6 +1191,7 @@ export const MarkdownViewer: React.FC<ViewerComponentProps> = ({ connectionId, p
     (_event?: KeyboardEvent) => {
       if (isEditing) {
         runEditorCommand(t("common.search.nextMatch"), () => {
+          editorRef.current?.focusCurrentSearchResult();
           editorRef.current?.nextSearchResult();
         });
         return;
@@ -1174,6 +1210,7 @@ export const MarkdownViewer: React.FC<ViewerComponentProps> = ({ connectionId, p
     (_event?: KeyboardEvent) => {
       if (isEditing) {
         runEditorCommand(t("common.search.previousMatch"), () => {
+          editorRef.current?.focusCurrentSearchResult();
           editorRef.current?.previousSearchResult();
         });
         return;
@@ -1543,10 +1580,16 @@ export const MarkdownViewer: React.FC<ViewerComponentProps> = ({ connectionId, p
                     p: MARKDOWN_CONTENT_PADDING,
                   },
                   [MARKDOWN_EDITOR_SEARCH_MATCH_SELECTOR]: {
-                    backgroundColor: MARKDOWN_SEARCH_MATCH_COLOR,
+                    backgroundColor: searchHighlightColors.otherMatches,
+                  },
+                  [MARKDOWN_EDITOR_PASSIVE_SEARCH_MATCH_SELECTOR]: {
+                    backgroundColor: searchHighlightColors.otherMatches,
                   },
                   [MARKDOWN_EDITOR_CURRENT_SEARCH_MATCH_SELECTOR]: {
-                    backgroundColor: MARKDOWN_SEARCH_CURRENT_MATCH_COLOR,
+                    backgroundColor: searchHighlightColors.currentMatch,
+                  },
+                  [MARKDOWN_EDITOR_PASSIVE_CURRENT_SEARCH_MATCH_SELECTOR]: {
+                    backgroundColor: searchHighlightColors.currentMatch,
                   },
                 }}
               >
@@ -1621,12 +1664,12 @@ export const MarkdownViewer: React.FC<ViewerComponentProps> = ({ connectionId, p
                 sx={{
                   ...getMarkdownContentStyles(viewerText, linkColor, linkHoverColor),
                   [`& ${DOM_TEXT_SEARCH_HIGHLIGHT_SELECTOR}`]: {
-                    backgroundColor: MARKDOWN_SEARCH_MATCH_COLOR,
+                    backgroundColor: searchHighlightColors.otherMatches,
                     borderRadius: 0.5,
                     padding: 0,
                   },
                   [`& ${DOM_TEXT_SEARCH_HIGHLIGHT_SELECTOR}[${DOM_TEXT_SEARCH_CURRENT_MATCH_ATTRIBUTE}="true"]`]: {
-                    backgroundColor: MARKDOWN_SEARCH_CURRENT_MATCH_COLOR,
+                    backgroundColor: searchHighlightColors.currentMatch,
                   },
                 }}
               >

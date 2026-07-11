@@ -27,6 +27,7 @@ const mockMarkdownEditorBehavior = {
   focusResetsScrollPosition: false,
   flushRejectError: null as Error | null,
   initialNormalizedMarkdown: null as string | null,
+  lastSearchAutoNavigate: true,
   lastSearchOpen: false,
   lastSearchText: "",
   lastRestoredScrollTop: null as number | null,
@@ -93,7 +94,18 @@ const MockMarkdownRichEditor = forwardRef<
   }
 >(
   (
-    { markdown, onChange, onUserEdit, ariaLabel, readOnly = false, className, searchText = "", searchOpen = false, onSearchStateChange },
+    {
+      markdown,
+      onChange,
+      onUserEdit,
+      ariaLabel,
+      readOnly = false,
+      className,
+      searchText = "",
+      searchOpen = false,
+      searchAutoNavigate = true,
+      onSearchStateChange,
+    },
     ref
   ) => {
     if (mockMarkdownEditorBehavior.throwOnRender) {
@@ -102,6 +114,7 @@ const MockMarkdownRichEditor = forwardRef<
 
     mockMarkdownEditorBehavior.lastSearchOpen = searchOpen;
     mockMarkdownEditorBehavior.lastSearchText = searchText;
+    mockMarkdownEditorBehavior.lastSearchAutoNavigate = searchAutoNavigate;
 
     const textareaRef = useRef<HTMLTextAreaElement | null>(null);
     const toolbarButtonRef = useRef<HTMLButtonElement | null>(null);
@@ -418,6 +431,7 @@ describe("MarkdownViewer", () => {
     mockMarkdownEditorBehavior.focusResetsScrollPosition = false;
     mockMarkdownEditorBehavior.flushRejectError = null;
     mockMarkdownEditorBehavior.initialNormalizedMarkdown = null;
+    mockMarkdownEditorBehavior.lastSearchAutoNavigate = true;
     mockMarkdownEditorBehavior.lastSearchOpen = false;
     mockMarkdownEditorBehavior.lastSearchText = "";
     mockMarkdownEditorBehavior.lastRestoredScrollTop = null;
@@ -1775,6 +1789,50 @@ describe("MarkdownViewer", () => {
     });
   });
 
+  it("focuses the search input when reopening edit-mode search without a selection", async () => {
+    vi.spyOn(apiService, "getFileContent").mockResolvedValueOnce("# Alpha\n\nAlpha beta alpha\n");
+    vi.spyOn(apiService, "supportsEditLocks").mockReturnValue(false);
+
+    renderViewer();
+
+    await screen.findByText("Alpha");
+    fireEvent.click(screen.getByRole("button", { name: "Edit" }));
+
+    const editor = await screen.findByRole("textbox", { name: "Markdown editor" });
+    const betaStart = editor.value.indexOf("beta");
+    const betaEnd = betaStart + "beta".length;
+
+    editor.focus();
+    editor.setSelectionRange(betaStart, betaEnd);
+
+    fireEvent.keyDown(document, { key: "f", ctrlKey: true });
+
+    const firstSearchInput = await screen.findByPlaceholderText("Search");
+
+    await waitFor(() => {
+      expect(firstSearchInput).toHaveValue("beta");
+    });
+
+    fireEvent.keyDown(firstSearchInput, { key: "Escape" });
+
+    await waitFor(() => {
+      expect(screen.queryByPlaceholderText("Search")).not.toBeInTheDocument();
+    });
+
+    editor.focus();
+    editor.setSelectionRange(betaEnd, betaEnd);
+
+    fireEvent.keyDown(document, { key: "f", ctrlKey: true });
+
+    const reopenedSearchInput = await screen.findByPlaceholderText("Search");
+
+    await waitFor(() => {
+      expect(reopenedSearchInput).toHaveFocus();
+      expect(reopenedSearchInput).toHaveValue("beta");
+      expect(mockMarkdownEditorBehavior.lastSearchAutoNavigate).toBe(false);
+    });
+  });
+
   it("returns focus to the active editor match when edit-mode search is dismissed with Escape", async () => {
     const onClose = vi.fn();
 
@@ -1810,6 +1868,29 @@ describe("MarkdownViewer", () => {
     await waitFor(() => {
       expect(screen.getByPlaceholderText("Search")).toHaveValue("alpha");
       expect(screen.getByText("1 / 2")).toBeInTheDocument();
+    });
+  });
+
+  it("keeps focus in the search input while typing in edit-mode search", async () => {
+    vi.spyOn(apiService, "getFileContent").mockResolvedValueOnce("# Alpha\n\nAlpha beta alpha\n");
+    vi.spyOn(apiService, "supportsEditLocks").mockReturnValue(false);
+
+    renderViewer();
+
+    await screen.findByText("Alpha");
+    fireEvent.click(screen.getByRole("button", { name: "Edit" }));
+    await screen.findByRole("textbox", { name: "Markdown editor" });
+
+    fireEvent.click(screen.getByRole("button", { name: "Search" }));
+
+    const searchInput = await screen.findByPlaceholderText("Search");
+    fireEvent.change(searchInput, { target: { value: "alpha" } });
+
+    await waitFor(() => {
+      expect(searchInput).toHaveFocus();
+      expect(searchInput).toHaveValue("alpha");
+      expect(mockMarkdownEditorBehavior.lastSearchText).toBe("alpha");
+      expect(mockMarkdownEditorBehavior.lastSearchAutoNavigate).toBe(false);
     });
   });
 

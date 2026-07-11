@@ -7,16 +7,20 @@ import { drawSelection, EditorView, highlightActiveLine, keymap, scrollPastEnd }
 
 interface CommonEditorExtensionsOptions {
   defaultSyntaxHighlighting?: boolean;
+  drawSelection?: boolean;
+  highlightSelectionMatches?: boolean;
   lineWrapping?: boolean;
 }
 
 export function buildCommonEditorExtensions({
   defaultSyntaxHighlighting = true,
+  drawSelection: includeDrawSelection = true,
+  highlightSelectionMatches: includeSelectionMatches = true,
   lineWrapping = false,
 }: CommonEditorExtensionsOptions = {}): Extension[] {
   return [
     history(),
-    drawSelection(),
+    ...(includeDrawSelection ? [drawSelection()] : []),
     scrollPastEnd(),
     EditorState.allowMultipleSelections.of(true),
     closeBrackets(),
@@ -24,7 +28,7 @@ export function buildCommonEditorExtensions({
     ...(defaultSyntaxHighlighting ? [syntaxHighlighting(defaultHighlightStyle, { fallback: true })] : []),
     bracketMatching(),
     search({ top: true }),
-    highlightSelectionMatches(),
+    ...(includeSelectionMatches ? [highlightSelectionMatches()] : []),
     highlightActiveLine(),
     ...(lineWrapping ? [EditorView.lineWrapping] : []),
     keymap.of([indentWithTab, ...closeBracketsKeymap, ...defaultKeymap, ...historyKeymap]),

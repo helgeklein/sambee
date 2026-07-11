@@ -1,5 +1,4 @@
 import { type RefObject, useCallback, useEffect, useRef, useState } from "react";
-import { MARKDOWN_EDITOR_BASELINE_SYNC_WINDOW_MS } from "./markdownEditorConstants";
 
 interface UseMarkdownEditSessionOptions {
   isEditing: boolean;
@@ -36,28 +35,18 @@ export function useMarkdownEditSession({
   const allowBaselineSyncRef = useRef(false);
   const pendingRestoreEditorFocusRef = useRef(false);
   const pendingBaselineSyncRequestIdRef = useRef(0);
-  const baselineSyncWindowTimeoutRef = useRef<number | null>(null);
 
   const clearPendingBaselineSync = useCallback(() => {
     pendingBaselineSyncRequestIdRef.current += 1;
   }, []);
 
   const clearBaselineSyncWindow = useCallback(() => {
-    if (baselineSyncWindowTimeoutRef.current !== null) {
-      window.clearTimeout(baselineSyncWindowTimeoutRef.current);
-      baselineSyncWindowTimeoutRef.current = null;
-    }
-
     allowBaselineSyncRef.current = false;
   }, []);
 
   const beginBaselineSyncWindow = useCallback(() => {
     clearBaselineSyncWindow();
     allowBaselineSyncRef.current = true;
-    baselineSyncWindowTimeoutRef.current = window.setTimeout(() => {
-      baselineSyncWindowTimeoutRef.current = null;
-      allowBaselineSyncRef.current = false;
-    }, MARKDOWN_EDITOR_BASELINE_SYNC_WINDOW_MS);
   }, [clearBaselineSyncWindow]);
 
   const markEditSessionPristine = useCallback(() => {

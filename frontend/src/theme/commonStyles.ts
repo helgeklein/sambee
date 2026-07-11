@@ -45,6 +45,11 @@ export interface SecondaryToolbarSurfaceColors {
   shadow: string;
 }
 
+export interface SearchHighlightColors {
+  currentMatch: string;
+  otherMatches: string;
+}
+
 export function getSecondaryToolbarSelectedBackground(theme: Theme, themeConfig?: ThemeConfig): string {
   return (
     themeConfig?.components?.markdownViewer?.secondaryToolbarSelected ??
@@ -52,6 +57,17 @@ export function getSecondaryToolbarSelectedBackground(theme: Theme, themeConfig?
     themeConfig?.action?.selected ??
     theme.palette.action.selected
   );
+}
+
+export function getSearchHighlightColors(theme: Theme, themeConfig?: ThemeConfig): SearchHighlightColors {
+  const otherMatchesBase =
+    themeConfig?.components?.search?.otherMatch ?? theme.palette.warning.main ?? theme.palette.primary.dark ?? theme.palette.primary.main;
+  const currentMatchBase = themeConfig?.components?.search?.currentMatch ?? theme.palette.info.main ?? theme.palette.primary.main;
+
+  return {
+    otherMatches: alpha(otherMatchesBase, theme.palette.mode === "dark" ? 0.5 : 0.3),
+    currentMatch: alpha(currentMatchBase, theme.palette.mode === "dark" ? 0.52 : 0.36),
+  };
 }
 
 export function getSecondaryToolbarSurfaceColors(
