@@ -63,11 +63,6 @@ export const MARKDOWN_SNIPPET_COMPLETIONS: readonly Completion[] = [
     detail: "Code fence with language",
     type: "keyword",
   }),
-  snippetCompletion(`| ${field("column1")} | ${field("column2")} |\n| --- | --- |\n| ${field("value1")} | ${field("value2")} |`, {
-    label: "table",
-    detail: "Markdown table",
-    type: "keyword",
-  }),
 ];
 
 const markdownSnippetSource = completeFromList(MARKDOWN_SNIPPET_COMPLETIONS);
@@ -82,9 +77,12 @@ const markdownAutocompleteSource: CompletionSource = (context: CompletionContext
   return markdownSnippetSource(context);
 };
 
-export function buildMarkdownAutocomplete(): Extension {
+export function createMarkdownSnippetAutocompleter(): CompletionSource {
+  return markdownAutocompleteSource;
+}
+
+export function buildMarkdownAutocompleteUi(): Extension {
   return autocompletion({
-    override: [markdownAutocompleteSource],
     activateOnTyping: true,
     icons: false,
   });

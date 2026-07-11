@@ -164,6 +164,42 @@ Object.defineProperty(window, "localStorage", {
   value: localStorageMock,
 });
 
+if (typeof globalThis.Iterator === "undefined") {
+  class IteratorHelperPolyfill<TValue> {
+    private readonly values: TValue[];
+
+    constructor(iterable: Iterable<TValue>) {
+      this.values = Array.from(iterable);
+    }
+
+    map<TResult>(mapper: (value: TValue, index: number) => TResult): IteratorHelperPolyfill<TResult> {
+      return new IteratorHelperPolyfill(this.values.map(mapper));
+    }
+
+    toArray(): TValue[] {
+      return [...this.values];
+    }
+
+    [Symbol.iterator](): Iterator<TValue> {
+      return this.values[Symbol.iterator]();
+    }
+  }
+
+  class IteratorPolyfill {}
+
+  Object.defineProperty(IteratorPolyfill, "from", {
+    value: <TValue>(iterable: Iterable<TValue>) => new IteratorHelperPolyfill(iterable),
+    configurable: true,
+    writable: true,
+  });
+
+  Object.defineProperty(globalThis, "Iterator", {
+    value: IteratorPolyfill,
+    configurable: true,
+    writable: true,
+  });
+}
+
 // Keep a stable, fully populated location object for tests that construct URLs.
 
 if (typeof Range !== "undefined") {

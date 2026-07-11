@@ -68,6 +68,13 @@ export interface ThemeConfig {
       /** Link hover color */
       hover?: string;
     };
+    /** Search highlight colors shared across viewers and editors */
+    search?: {
+      /** Background color for non-current search matches */
+      otherMatch: string;
+      /** Background color for the current/selected search match */
+      currentMatch: string;
+    };
     /** PDF viewer colors */
     pdfViewer?: {
       /** Background color for PDF viewer */
@@ -319,6 +326,26 @@ export const THEME_SCHEMA: Record<string, ThemeFieldSchema> = {
           textSecondary: {
             label: "Secondary Text",
             description: "Muted text color on status bar for less important information",
+            type: "color",
+            required: false,
+          },
+        },
+      },
+      search: {
+        label: "Search Highlights",
+        description: "Colors for current and non-current search matches across viewers and editors",
+        type: "color",
+        required: false,
+        fields: {
+          otherMatch: {
+            label: "Other Matches",
+            description: "Background color for search matches that are not currently selected",
+            type: "color",
+            required: false,
+          },
+          currentMatch: {
+            label: "Current Match",
+            description: "Background color for the currently selected search match",
             type: "color",
             required: false,
           },

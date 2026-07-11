@@ -10,6 +10,7 @@ import { useKeyboardShortcuts } from "../../hooks/useKeyboardShortcuts";
 import apiService from "../../services/api";
 import { error as logError } from "../../services/logger";
 import { useSambeeTheme } from "../../theme";
+import { getSearchHighlightColors } from "../../theme/commonStyles";
 import { getViewerColors } from "../../theme/viewerStyles";
 import { isApiError } from "../../types";
 import { getApiErrorMessage } from "../../utils/apiErrors";
@@ -90,6 +91,7 @@ const PDFViewer: React.FC<ViewerComponentProps> = ({ connectionId, path, onClose
 
   const { currentTheme } = useSambeeTheme();
   const muiTheme = useTheme();
+  const searchHighlightColors = useMemo(() => getSearchHighlightColors(muiTheme, currentTheme), [currentTheme, muiTheme]);
   const isMobile = useMediaQuery(muiTheme.breakpoints.down("sm"));
   const shareEnabled = isMobile && supportsNativeShare();
   const { viewerBg, toolbarBg, toolbarText } = getViewerColors(currentTheme, "pdf");
@@ -986,7 +988,7 @@ const PDFViewer: React.FC<ViewerComponentProps> = ({ connectionId, path, onClose
                   },
                 },
                 [`& .react-pdf__Page__textContent ${DOM_TEXT_SEARCH_HIGHLIGHT_SELECTOR}`]: {
-                  backgroundColor: "rgba(255, 255, 0, 0.4)",
+                  backgroundColor: searchHighlightColors.otherMatches,
                   borderRadius: "2px",
                   color: "transparent !important",
                   WebkitTextFillColor: "transparent !important",
@@ -994,7 +996,7 @@ const PDFViewer: React.FC<ViewerComponentProps> = ({ connectionId, path, onClose
                 },
                 [`& .react-pdf__Page__textContent ${DOM_TEXT_SEARCH_HIGHLIGHT_SELECTOR}[${DOM_TEXT_SEARCH_CURRENT_MATCH_ATTRIBUTE}="true"]`]:
                   {
-                    backgroundColor: "rgba(255, 152, 0, 0.4)",
+                    backgroundColor: searchHighlightColors.currentMatch,
                   },
               }}
             >

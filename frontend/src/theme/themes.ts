@@ -47,6 +47,10 @@ export const builtInThemes: ThemeConfig[] = [
         main: "#C24400", // Dark for readability
         hover: "#FF5900", // Lighter on hover for visual feedback
       },
+      search: {
+        otherMatch: "#F57C00", // Strong orange for non-current search matches
+        currentMatch: "#1976D2", // Blue for the current search match
+      },
       pdfViewer: {
         viewerBackground: "#FBF9F4", // Default background
         toolbarBackground: "#FBF9F4", // Default background
@@ -121,6 +125,10 @@ export const builtInThemes: ThemeConfig[] = [
       link: {
         main: "#F4C430", // Golden yellow
         hover: "#F6E58D", // Lighter yellow on hover
+      },
+      search: {
+        otherMatch: "#FFB74D", // Brighter orange for non-current search matches on dark backgrounds
+        currentMatch: "#64B5F6", // Brighter blue for the current search match on dark backgrounds
       },
       pdfViewer: {
         viewerBackground: "#1F262B", // Default background

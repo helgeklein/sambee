@@ -1,4 +1,4 @@
-import type { Break, Html, Parent, PhrasingContent, Root, TableCell, Text } from "mdast";
+import type { Break, Html, Parent, PhrasingContent, Root, Table, TableCell, Text } from "mdast";
 import remarkGfm from "remark-gfm";
 import remarkParse from "remark-parse";
 import remarkStringify from "remark-stringify";
@@ -20,6 +20,19 @@ function createTextNode(value: string): Text {
 
 function createBreakNode(): Html {
   return { type: "html", value: "<br />" };
+}
+
+interface MarkdownReplacement {
+  startOffset: number;
+  endOffset: number;
+  replacement: string;
+}
+
+interface MarkdownTableSnapshot {
+  semanticSignature: string;
+  source: string;
+  startOffset: number;
+  endOffset: number;
 }
 
 function isBreakHtmlNode(node: PhrasingContent | undefined): node is Html {
@@ -146,6 +159,89 @@ function convertCanonicalBreakHtmlToMdastBreaks(children: PhrasingContent[]): Ph
   return renderedChildren;
 }
 
+function collectCanonicalBreakHtmlReplacements(children: PhrasingContent[], replacements: MarkdownReplacement[]): void {
+  for (const child of children) {
+    if (isBreakHtmlNode(child)) {
+      const startOffset = child.position?.start.offset;
+      const endOffset = child.position?.end.offset;
+
+      if (typeof startOffset === "number" && typeof endOffset === "number") {
+        replacements.push({ startOffset, endOffset, replacement: "<br>" });
+      }
+
+      continue;
+    }
+
+    if (hasPhrasingChildren(child)) {
+      collectCanonicalBreakHtmlReplacements(child.children, replacements);
+    }
+  }
+}
+
+function applyMarkdownReplacements(markdown: string, replacements: MarkdownReplacement[]): string {
+  if (replacements.length === 0) {
+    return markdown;
+  }
+
+  let nextMarkdown = markdown;
+
+  for (const { startOffset, endOffset, replacement } of [...replacements].sort((left, right) => right.startOffset - left.startOffset)) {
+    nextMarkdown = `${nextMarkdown.slice(0, startOffset)}${replacement}${nextMarkdown.slice(endOffset)}`;
+  }
+
+  return nextMarkdown;
+}
+
+function getPhrasingSemanticSignature(children: PhrasingContent[]): string {
+  return JSON.stringify(
+    children.map((child) => {
+      if (child.type === "text") {
+        return { type: "text", value: child.value };
+      }
+
+      if (isBreakHtmlNode(child)) {
+        return { type: "break" };
+      }
+
+      if (hasPhrasingChildren(child)) {
+        return {
+          type: child.type,
+          children: getPhrasingSemanticSignature(child.children),
+        };
+      }
+
+      return child;
+    })
+  );
+}
+
+function collectMarkdownTableSnapshots(markdown: string): MarkdownTableSnapshot[] {
+  const tree = markdownParser.parse(markdown) as Root;
+  const tables: MarkdownTableSnapshot[] = [];
+
+  visit(tree, "table", (node) => {
+    const tableNode = node as Table;
+    const startOffset = tableNode.position?.start.offset;
+    const endOffset = tableNode.position?.end.offset;
+
+    if (typeof startOffset !== "number" || typeof endOffset !== "number") {
+      return;
+    }
+
+    tables.push({
+      semanticSignature: JSON.stringify({
+        align: tableNode.align,
+        rows: tableNode.children.map((row) => row.children.map((cell) => getPhrasingSemanticSignature((cell as TableCell).children))),
+      }),
+      source: markdown.slice(startOffset, endOffset),
+      startOffset,
+      endOffset,
+    });
+  });
+
+  return tables;
+}
+
 export function normalizeMarkdownTableCellLineBreaks(markdown: string): string {
   const tree = markdownParser.parse(markdown) as Root;
 
@@ -160,6 +256,54 @@ export function normalizeMarkdownTableCellLineBreaks(markdown: string): string {
   });
 
   return markdownProcessor.stringify(tree);
+}
+
+export function prepareMarkdownTableCellLineBreaksForEditor(markdown: string): string {
+  if (!markdown.includes("<br")) {
+    return markdown;
+  }
+
+  const tree = markdownParser.parse(markdown) as Root;
+  const replacements: MarkdownReplacement[] = [];
+
+  visit(tree, "tableCell", (node) => {
+    const tableCellNode = node as TableCell;
+    collectCanonicalBreakHtmlReplacements(tableCellNode.children, replacements);
+  });
+
+  return applyMarkdownReplacements(markdown, replacements);
+}
+
+export function preserveUnchangedMarkdownTableSource(previousMarkdown: string, nextMarkdown: string): string {
+  if (previousMarkdown === nextMarkdown) {
+    return nextMarkdown;
+  }
+
+  const previousTables = collectMarkdownTableSnapshots(previousMarkdown);
+  const nextTables = collectMarkdownTableSnapshots(nextMarkdown);
+
+  if (previousTables.length === 0 || previousTables.length !== nextTables.length) {
+    return nextMarkdown;
+  }
+
+  const replacements: MarkdownReplacement[] = [];
+
+  for (let index = 0; index < nextTables.length; index += 1) {
+    const previousTable = previousTables[index];
+    const nextTable = nextTables[index];
+
+    if (!previousTable || !nextTable || previousTable.semanticSignature !== nextTable.semanticSignature) {
+      continue;
+    }
+
+    replacements.push({
+      startOffset: nextTable.startOffset,
+      endOffset: nextTable.endOffset,
+      replacement: previousTable.source,
+    });
+  }
+
+  return applyMarkdownReplacements(nextMarkdown, replacements);
 }
 
 export function remarkRenderMarkdownTableCellLineBreaks() {

@@ -1,10 +1,21 @@
-import { findNext, findPrevious, getSearchQuery, SearchQuery, setSearchQuery } from "@codemirror/search";
+import { findNext, findPrevious } from "@codemirror/search";
 import { EditorSelection } from "@codemirror/state";
-import { forwardRef, useCallback, useEffect, useImperativeHandle, useMemo, useRef } from "react";
+import { insertEmptyMarkdownTable } from "codemirror-markdown-tables";
+import { forwardRef, useCallback, useEffect, useImperativeHandle, useMemo, useRef, useState } from "react";
 import { buildMarkdownEditorExtensions } from "../Editor/buildMarkdownEditorExtensions";
 import type { MarkdownEditorThemeOptions } from "../Editor/buildMarkdownEditorTheme";
 import { SourceTextEditor } from "../Editor/SourceTextEditor";
 import type { SourceTextEditorHandle } from "../Editor/sourceTextEditorTypes";
+import { getRootSearchMetrics, shouldAutoNavigateSearch, updateRootSearchQuery } from "./markdownEditorSearch";
+import {
+  normalizeMarkdownTableCellLineBreaks,
+  prepareMarkdownTableCellLineBreaksForEditor,
+  preserveUnchangedMarkdownTableSource,
+} from "./markdownTableCellLineBreaks";
+
+const insertDefaultMarkdownTable = insertEmptyMarkdownTable({
+  size: { rows: 2, cols: 2 },
+});
 
 export interface MarkdownRichEditorHandle {
   focus: () => void;
@@ -48,58 +59,31 @@ export interface MarkdownRichEditorProps {
   onSearchStateChange?: (state: MarkdownRichEditorSearchState) => void;
 }
 
-function getCurrentDoc(editorRef: React.RefObject<SourceTextEditorHandle | null>): string {
-  return editorRef.current?.getValue() ?? "";
+interface NestedPublicationState {
+  observedGeneration: number;
+  publishedGeneration: number;
+  pendingPromise: Promise<void> | null;
+  resolvePending: (() => void) | null;
 }
 
-function updateSearchQuery(editorRef: React.RefObject<SourceTextEditorHandle | null>, searchText: string): void {
-  const view = editorRef.current?.getView();
-
-  if (!view) {
-    return;
-  }
-
-  view.dispatch({
-    effects: setSearchQuery.of(
-      new SearchQuery({
-        search: searchText,
-        caseSensitive: false,
-        literal: true,
-      })
-    ),
-  });
+function normalizeTableCellBreaksIfNeeded(markdown: string): string {
+  return markdown.includes("<br") ? normalizeMarkdownTableCellLineBreaks(markdown) : markdown;
 }
 
-function countSearchMatches(editorRef: React.RefObject<SourceTextEditorHandle | null>) {
-  const view = editorRef.current?.getView();
+function getCurrentDoc(editorRef: React.RefObject<SourceTextEditorHandle | null>, previousMarkdown: string): string {
+  return preserveUnchangedMarkdownTableSource(previousMarkdown, normalizeTableCellBreaksIfNeeded(editorRef.current?.getValue() ?? ""));
+}
 
-  if (!view) {
-    return { matches: 0, currentMatch: 0, searchText: "", isSearchable: false };
+function getEventTargetElement(target: EventTarget | null): Element | null {
+  if (target instanceof Element) {
+    return target;
   }
 
-  const query = getSearchQuery(view.state);
-  const normalizedSearchText = query.search;
-  const isSearchable = view.state.doc.length > 0;
-
-  if (!normalizedSearchText) {
-    return { matches: 0, currentMatch: 0, searchText: normalizedSearchText, isSearchable };
+  if (target instanceof Text) {
+    return target.parentElement;
   }
 
-  const cursor = query.getCursor(view.state);
-  let matches = 0;
-  let currentMatch = 0;
-  const mainSelection = view.state.selection.main;
-
-  for (let nextMatch = cursor.next(); !nextMatch.done; nextMatch = cursor.next()) {
-    matches += 1;
-    const match = nextMatch.value;
-
-    if (match.from === mainSelection.from && match.to === mainSelection.to) {
-      currentMatch = matches;
-    }
-  }
-
-  return { matches, currentMatch, searchText: normalizedSearchText, isSearchable };
+  return null;
 }
 
 function replaceSelectionWithText(
@@ -141,10 +125,17 @@ function createLinkCommand(editorRef: React.RefObject<SourceTextEditorHandle | n
 }
 
 function insertTableCommand(editorRef: React.RefObject<SourceTextEditorHandle | null>): void {
-  replaceSelectionWithText(editorRef, () => {
-    const insert = "| Column 1 | Column 2 |\n| --- | --- |\n| Value 1 | Value 2 |";
-    return { insert, selection: { anchor: 2, head: 10 } };
+  const view = editorRef.current?.getView();
+
+  if (!view) {
+    return;
+  }
+
+  insertDefaultMarkdownTable({
+    state: view.state,
+    dispatch: view.dispatch.bind(view),
   });
+  view.focus();
 }
 
 function insertThematicBreakCommand(editorRef: React.RefObject<SourceTextEditorHandle | null>): void {
@@ -196,6 +187,7 @@ const MarkdownRichEditor = forwardRef<MarkdownRichEditorHandle, MarkdownRichEdit
   (
     {
       markdown,
+      diffMarkdown,
       onChange,
       onUserEdit,
       ariaLabel,
@@ -212,14 +204,80 @@ const MarkdownRichEditor = forwardRef<MarkdownRichEditorHandle, MarkdownRichEdit
   ) => {
     const editorRef = useRef<SourceTextEditorHandle | null>(null);
     const previousSearchRequestRef = useRef<{ searchText: string; searchOpen: boolean } | null>(null);
+    const lastPublishedCanonicalMarkdownRef = useRef<string | null>(null);
+    const nestedPublicationStateRef = useRef<NestedPublicationState>({
+      observedGeneration: 0,
+      publishedGeneration: 0,
+      pendingPromise: null,
+      resolvePending: null,
+    });
     const extensions = useMemo(() => buildMarkdownEditorExtensions(theme), [theme]);
+    const [editorMarkdown, setEditorMarkdown] = useState(() => prepareMarkdownTableCellLineBreaksForEditor(markdown));
+
+    useEffect(() => {
+      if (markdown === lastPublishedCanonicalMarkdownRef.current) {
+        return;
+      }
+
+      setEditorMarkdown(prepareMarkdownTableCellLineBreaksForEditor(markdown));
+      lastPublishedCanonicalMarkdownRef.current = null;
+    }, [markdown]);
+
+    const markNestedPublicationPending = useCallback(() => {
+      const publicationState = nestedPublicationStateRef.current;
+
+      publicationState.observedGeneration += 1;
+
+      if (publicationState.pendingPromise) {
+        return;
+      }
+
+      publicationState.pendingPromise = new Promise<void>((resolve) => {
+        publicationState.resolvePending = resolve;
+      });
+    }, []);
+
+    const resolveNestedPublication = useCallback(() => {
+      const publicationState = nestedPublicationStateRef.current;
+
+      if (publicationState.observedGeneration <= publicationState.publishedGeneration) {
+        return;
+      }
+
+      publicationState.publishedGeneration = publicationState.observedGeneration;
+      const resolvePending = publicationState.resolvePending;
+      publicationState.pendingPromise = null;
+      publicationState.resolvePending = null;
+      resolvePending?.();
+    }, []);
+
+    const flushNestedPublication = useCallback(async () => {
+      const publicationState = nestedPublicationStateRef.current;
+
+      if (publicationState.observedGeneration <= publicationState.publishedGeneration) {
+        return;
+      }
+
+      await publicationState.pendingPromise;
+    }, []);
+
+    const handleChange = useCallback(
+      (nextValue: string) => {
+        resolveNestedPublication();
+        setEditorMarkdown(nextValue);
+        const canonicalMarkdown = normalizeTableCellBreaksIfNeeded(nextValue);
+        lastPublishedCanonicalMarkdownRef.current = canonicalMarkdown;
+        onChange(canonicalMarkdown);
+      },
+      [onChange, resolveNestedPublication]
+    );
 
     const reportSearchState = useCallback(() => {
       if (!onSearchStateChange) {
         return;
       }
 
-      const metrics = countSearchMatches(editorRef);
+      const metrics = getRootSearchMetrics(editorRef.current?.getView());
       onSearchStateChange({
         searchText: searchOpen ? searchText : "",
         searchMatches: searchOpen ? metrics.matches : 0,
@@ -236,15 +294,14 @@ const MarkdownRichEditor = forwardRef<MarkdownRichEditorHandle, MarkdownRichEdit
       previousSearchRequestRef.current = currentRequest;
 
       if (!searchOpen || searchText.trim().length === 0) {
-        updateSearchQuery(editorRef, "");
+        updateRootSearchQuery(editorRef.current?.getView(), "");
         reportSearchState();
         return;
       }
 
-      updateSearchQuery(editorRef, searchText);
+      updateRootSearchQuery(editorRef.current?.getView(), searchText);
 
-      const shouldJumpToFirstResult =
-        searchAutoNavigate && (!previousRequest || previousRequest.searchText !== searchText || previousRequest.searchOpen !== searchOpen);
+      const shouldJumpToFirstResult = shouldAutoNavigateSearch(previousRequest, currentRequest, searchAutoNavigate);
 
       if (shouldJumpToFirstResult) {
         editorRef.current?.runCommand(findNext);
@@ -253,14 +310,48 @@ const MarkdownRichEditor = forwardRef<MarkdownRichEditorHandle, MarkdownRichEdit
       reportSearchState();
     }, [reportSearchState, searchAutoNavigate, searchOpen, searchText]);
 
+    useEffect(() => {
+      const rootView = editorRef.current?.getView();
+
+      if (!rootView) {
+        return;
+      }
+
+      const handlePotentialNestedEdit = (event: Event) => {
+        const targetElement = getEventTargetElement(event.target);
+
+        if (!targetElement || !rootView.dom.contains(targetElement) || !targetElement.closest(".tbl-cell-editor")) {
+          return;
+        }
+
+        markNestedPublicationPending();
+      };
+
+      rootView.dom.addEventListener("beforeinput", handlePotentialNestedEdit, true);
+      rootView.dom.addEventListener("compositionend", handlePotentialNestedEdit, true);
+      rootView.dom.addEventListener("paste", handlePotentialNestedEdit, true);
+      rootView.dom.addEventListener("cut", handlePotentialNestedEdit, true);
+
+      return () => {
+        rootView.dom.removeEventListener("beforeinput", handlePotentialNestedEdit, true);
+        rootView.dom.removeEventListener("compositionend", handlePotentialNestedEdit, true);
+        rootView.dom.removeEventListener("paste", handlePotentialNestedEdit, true);
+        rootView.dom.removeEventListener("cut", handlePotentialNestedEdit, true);
+        nestedPublicationStateRef.current.resolvePending?.();
+        nestedPublicationStateRef.current.pendingPromise = null;
+        nestedPublicationStateRef.current.resolvePending = null;
+        nestedPublicationStateRef.current.publishedGeneration = nestedPublicationStateRef.current.observedGeneration;
+      };
+    }, [markNestedPublicationPending]);
+
     useImperativeHandle(
       ref,
       () => ({
         focus: () => {
           editorRef.current?.focus();
         },
-        flushPendingEdits: async () => {},
-        getCanonicalMarkdown: () => getCurrentDoc(editorRef),
+        flushPendingEdits: flushNestedPublication,
+        getCanonicalMarkdown: () => getCurrentDoc(editorRef, diffMarkdown ?? markdown),
         getPrimarySelectionText: () => editorRef.current?.getPrimarySelectionText() ?? "",
         preserveSelection: () => {
           editorRef.current?.preserveSelection();
@@ -277,10 +368,12 @@ const MarkdownRichEditor = forwardRef<MarkdownRichEditorHandle, MarkdownRichEdit
           return true;
         },
         nextSearchResult: () => {
+          editorRef.current?.getView()?.focus();
           editorRef.current?.runCommand(findNext);
           reportSearchState();
         },
         previousSearchResult: () => {
+          editorRef.current?.getView()?.focus();
           editorRef.current?.runCommand(findPrevious);
           reportSearchState();
         },
@@ -305,21 +398,19 @@ const MarkdownRichEditor = forwardRef<MarkdownRichEditorHandle, MarkdownRichEdit
           reportSearchState();
         },
       }),
-      [reportSearchState]
+      [diffMarkdown, flushNestedPublication, markdown, reportSearchState]
     );
 
     return (
       <SourceTextEditor
         ref={editorRef}
         className={className}
-        value={markdown}
+        value={editorMarkdown}
         extensions={extensions}
         readOnly={readOnly}
         autoFocus={autoFocus}
         ariaLabel={ariaLabel}
-        onChange={(nextValue) => {
-          onChange(nextValue);
-        }}
+        onChange={handleChange}
         onUserEdit={onUserEdit}
         onUpdate={() => {
           reportSearchState();
