@@ -597,9 +597,9 @@ pyyaml==6.0.3 \
     --hash=sha256:fa160448684b4e94d80416c0fa4aac48967a969efe22931448d853ada8baf926 \
     --hash=sha256:fc09d0aa354569bc501d4e787133afc08552722d3ab34836a80547331bb5d4a0
     # via uvicorn
-smbprotocol==1.16.1 \
-    --hash=sha256:0f9c35b2a0103314da06aecaffa8821f060a9773ad82cc0d7f29130083d598b4 \
-    --hash=sha256:ad7a31662792817c6da3629a3cfb96a51d8213e993ebd0c0a7ee750d2b1f8ec8
+smbprotocol==1.17.0 \
+    --hash=sha256:bcc27edfff7d727a7eb30424138766e1ee216ae2ffc1af03dab0448f29c4731c \
+    --hash=sha256:bd1abff5417f5af83ca516a64ab8e5acece3dbdcf58d4e5e23e47f5165a77349
     # via -r requirements.txt
 sqlalchemy==2.0.51 \
     --hash=sha256:0378d055e9e8cd6ce4d8dff683bdd3d7d413533c4ee51d67a2b1e0f9eacc0f23 \
