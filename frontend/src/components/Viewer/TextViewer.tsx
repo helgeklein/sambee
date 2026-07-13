@@ -53,10 +53,18 @@ function withOpacity(color: string, opacity: number): string {
 }
 
 function isViewerSearchInputFocused(): boolean {
+  if (typeof document === "undefined") {
+    return false;
+  }
+
   return document.activeElement instanceof HTMLElement && document.activeElement.getAttribute(VIEWER_SEARCH_INPUT_ATTRIBUTE) === "true";
 }
 
 function isTextEditorTextInputFocused(): boolean {
+  if (typeof document === "undefined") {
+    return false;
+  }
+
   const activeElement = document.activeElement;
 
   if (!(activeElement instanceof HTMLElement)) {
