@@ -16,7 +16,9 @@ If you want to take a new Companion version to the `stable` update channel, foll
 
 1. Update `VERSION` and run `./scripts/sync-version`.
    - Git merge the reviewed `version-sync` changes.
+1. If you need a prerelease or test build before the official version, choose a distinct override version such as `0.8.0-beta.1` or `0.8.0-rc.1`.
 1. Run `Release: Build Companion Artifact` and select the target platforms.
+   - Leave `publish_version_override` empty for the checked-in version, or set it to the temporary prerelease version for this run.
    - This creates draft release in the GitHub repo `helgeklein/sambee-companion`.
 1. Test the draft release.
    - Download the installer from the releases artifacts, install and test.
@@ -25,7 +27,10 @@ If you want to take a new Companion version to the `stable` update channel, foll
    - Validate both update behavior and direct-download metadata against the promoted feeds.
 1. Rerun `Release: Promote Companion Release` for `beta`, `stable`, and Sambee download metadata.
 
-Companion release tags follow the `companion-vX.Y.Z` pattern.
+Companion release tags follow the `companion-v<version>` pattern.
+
+The build workflow refuses to reuse an existing Companion release tag, whether that release is still a draft or already published.
+When you need another pre-release candidate, assign a distinct suffix instead of rebuilding the same tag.
 
 One published release can move from `test` to `beta` to `stable` without rebuilding binaries.
 
@@ -40,7 +45,7 @@ Read the detailed pages in this order:
 | Workflow or system | When to use it | Result |
 |---|---|---|
 | Local `npm run check:rust:windows` | You want an early local Windows-target compatibility signal while working in Linux or the devcontainer. | Runs a Windows GNU target `cargo check` only. It does not create signed release assets. |
-| `Release: Build Companion Artifact` | You want to create release assets for one Companion version. | Builds the selected platform set and updates a draft GitHub Release in `helgeklein/sambee-companion`. |
+| `Release: Build Companion Artifact` | You want to create release assets for one new Companion version or prerelease candidate. | Builds the selected platform set and creates a draft GitHub Release in `helgeklein/sambee-companion`, failing early if that tag already exists. |
 | `Release: Promote Companion Release` | A published Companion release is approved for one or more channels or for Sambee download metadata. | Rewrites the selected feed files in `docs/feeds` of the release repository and publishes the updates at `https://release-feeds.sambee.net`. |
 | `helgeklein/sambee-companion` | You need the release repository that owns public Companion release artifacts. | Hosts immutable GitHub Release assets and stores the committed feed files under `docs/feeds` to be served by GitHub Pages. |
 | `https://release-feeds.sambee.net` | You need the public feed host that installed Companion builds and Sambee read. | Serves the promoted feed JSON files from GitHub Pages (not from the main `sambee.net` website deployment). |
@@ -49,7 +54,7 @@ Read the detailed pages in this order:
 
 | File or system | Role |
 |---|---|
-| `.github/workflows/build-companion.yml` | Builds platform artifacts and updates a draft release. |
+| `.github/workflows/build-companion.yml` | Builds platform artifacts, supports a one-run version override, and creates a draft release for a unique tag. |
 | `.github/workflows/promote-companion-release.yml` | Promotes one published release to selected public feeds. |
 | `.github/scripts/promote_companion_release.py` | Resolves release assets and writes the feed JSON files. |
 | `helgeklein/sambee-companion` | Dedicated public release repository for Companion GitHub Releases and committed feed source files. |
@@ -92,6 +97,7 @@ Channel visibility is decided only by the promoted feed files.
 - Do not treat update channels as different binaries.
 - Do not patch broken published assets in place.
 - Build and publish a new release instead of replacing assets on an existing tag.
+- Assign a distinct prerelease suffix when you need another build before the official release.
 - Review whether you are changing Companion updater visibility, Sambee download visibility, or both.
 - Treat local Windows GNU cross-checks as compatibility validation only.
 - Keep actual Windows artifact creation and signing in the CI release workflow.

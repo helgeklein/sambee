@@ -9,6 +9,10 @@ env:
 on:
   workflow_dispatch:
     inputs:
+      publish_version_override:
+        description: Optional version override to use. Leave empty to use the checked-in VERSION value.
+        required: false
+        type: string
       build_all_platforms:
         description: 'Build all supported platforms'
         type: boolean
@@ -32,7 +36,7 @@ on:
 
 # Cancel any in-progress builds for the same ref
 concurrency:
-  group: build-companion-${{ github.ref }}
+  group: build-companion-${{ github.ref }}-${{ inputs.publish_version_override || 'checked-in-version' }}
   cancel-in-progress: true
 
 permissions:
@@ -46,8 +50,54 @@ jobs:
   prepare:
     runs-on: ubuntu-latest
     outputs:
+      version_override: ${{ steps.inputs.outputs.version_override }}
+      version: ${{ steps.metadata.outputs.version }}
+      release_tag: ${{ steps.metadata.outputs.release_tag }}
       matrix: ${{ steps.set-matrix.outputs.matrix }}
     steps:
+      - name: Resolve build inputs
+        id: inputs
+        shell: bash
+        run: |
+          version_override="$(printf '%s' "${{ inputs.publish_version_override }}" | tr -d '[:space:]')"
+
+          if [[ -n "$version_override" ]] && ! [[ "$version_override" =~ ^[0-9]+\.[0-9]+\.[0-9]+(-[0-9A-Za-z.-]+)?(\+[0-9A-Za-z.-]+)?$ ]]; then
+            echo "publish_version_override must use major.minor.patch with optional prerelease or build metadata, for example 0.1.0-test1" >&2
+            exit 1
+          fi
+
+          echo "version_override=$version_override" >> "$GITHUB_OUTPUT"
+
+      - name: Checkout code
+        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+
+      - name: Resolve release metadata
+        id: metadata
+        shell: bash
+        run: |
+          source_version="$(tr -d '[:space:]' < VERSION)"
+          version_override="${{ steps.inputs.outputs.version_override }}"
+
+          if [[ -n "$version_override" ]]; then
+            version="$version_override"
+          else
+            version="$source_version"
+          fi
+
+          release_tag="companion-v$version"
+
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+          echo "release_tag=$release_tag" >> "$GITHUB_OUTPUT"
+
+      - name: Fail if release tag already exists
+        env:
+          GITHUB_TOKEN: ${{ secrets.COMPANION_RELEASE_REPO_TOKEN }}
+        run: |
+          python3 .github/scripts/check_companion_release_tag_absent.py \
+            --owner "${{ env.COMPANION_RELEASE_REPO_OWNER }}" \
+            --repo "${{ env.COMPANION_RELEASE_REPO_NAME }}" \
+            --tag "${{ steps.metadata.outputs.release_tag }}"
+
       - id: set-matrix
         run: |
           ALL='[{"platform":"ubuntu-latest","target":"x86_64-unknown-linux-gnu","label":"linux-x64","bundles":"deb,appimage"},{"platform":"macos-latest","target":"aarch64-apple-darwin","label":"macos-arm64","bundles":"dmg"},{"platform":"windows-latest","target":"x86_64-pc-windows-msvc","label":"windows-x64","bundles":"nsis"},{"platform":"windows-latest","target":"aarch64-pc-windows-msvc","label":"windows-arm64","bundles":"nsis"}]'
@@ -99,7 +149,15 @@ jobs:
         uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
 
       - name: Sync and verify version metadata
+        if: ${{ needs.prepare.outputs.version_override == '' }}
         uses: ./.github/actions/sync-version-check
+
+      - name: Apply manual version override
+        if: ${{ needs.prepare.outputs.version_override != '' }}
+        shell: bash
+        run: |
+          printf '%s\n' '${{ needs.prepare.outputs.version_override }}' > VERSION
+          ./scripts/sync-version
 
       # ── System dependencies (Linux only) ──
       - name: Install Tauri system dependencies (Linux)
@@ -255,7 +313,7 @@ jobs:
           owner: ${{ env.COMPANION_RELEASE_REPO_OWNER }}
           repo: ${{ env.COMPANION_RELEASE_REPO_NAME }}
           releaseCommitish: ${{ env.COMPANION_RELEASE_REPO_BRANCH }}
-          includeUpdaterJson: false
+          uploadUpdaterJson: false
           tagName: companion-v__VERSION__
           releaseName: 'Sambee Companion v__VERSION__'
           releaseBody: 'See the assets below to download and install.'

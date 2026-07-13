@@ -32,7 +32,7 @@ Keep new names short, stable, and grouped by what the workflow does rather than 
 | `Release: Create Docker Image` | `.github/workflows/docker-image-preview-publish.yml` | Builds, validates, publishes, and signs a new preview image, forcing a fresh Debian package-layer rebuild for that run before moving the `test` channel tag. |
 | `Maintenance: Backfill Docker Release Tags` | `.github/workflows/docker-image-backfill.yml` | Reattaches release tags and release-channel aliases to an already published candidate digest for an existing release. |
 | `Maintenance: Clean Up Docker Package Versions` | `.github/workflows/docker-image-cleanup.yml` | Removes unprotected SHA-tagged preview GHCR package versions, prunes stale signature artifacts, and deletes unreferenced untagged package versions while preserving release-tagged and channel-protected versions including `test`. |
-| `Release: Build Companion Artifact` | `.github/workflows/build-companion.yml` | Builds companion release artifacts for the public distribution repository. |
+| `Release: Build Companion Artifact` | `.github/workflows/build-companion.yml` | Builds companion release artifacts for a new unique version or prerelease candidate in the public distribution repository. |
 | `Release: Promote Companion Release` | `.github/workflows/promote-companion-release.yml` | Moves an existing companion release onto one or more update channels. |
 | `Deploy: Website` | `.github/workflows/website-deploy.yml` | Builds the website and deploys `website/public/` to Cloudflare Pages. |
 | `Security: Dependency Audit` | `.github/workflows/dependency-security.yml` | Runs scheduled and manual dependency vulnerability audits. |
