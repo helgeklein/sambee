@@ -15,18 +15,18 @@ from app.core.user_setting_definitions import (
     DEFAULT_LANGUAGE_PREFERENCE,
     DEFAULT_PANE_MODE,
     DEFAULT_QUICK_NAV_INCLUDE_DOT_DIRECTORIES,
-    DEFAULT_TEXT_EDITOR_MAX_FILE_SIZE_BYTES,
     DEFAULT_REGIONAL_LOCALE_PREFERENCE,
+    DEFAULT_TEXT_EDITOR_MAX_FILE_SIZE_BYTES,
     DEFAULT_THEME_ID,
     UserSettingKey,
 )
 from app.models.user_settings import (
     AppearanceUserSettingsRead,
     BrowserUserSettingsRead,
-    TextEditorUserSettingsRead,
     CurrentUserSettingsRead,
     CurrentUserSettingsUpdate,
     LocalizationUserSettingsRead,
+    TextEditorUserSettingsRead,
     UserSetting,
 )
 
