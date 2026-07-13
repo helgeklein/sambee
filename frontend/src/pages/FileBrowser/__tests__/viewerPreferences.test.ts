@@ -54,6 +54,18 @@ describe("viewerPreferences", () => {
     await expect(getPreferredViewerId("report.pdf", "application/pdf")).resolves.toBeNull();
   });
 
+  it("accepts the text viewer as a valid stored association", async () => {
+    loadCurrentUserSettingsMock.mockResolvedValue({
+      browser: {
+        viewer_associations: {
+          "ext:.ts": "text",
+        },
+      },
+    });
+
+    await expect(getPreferredViewerId("app.ts", "application/octet-stream")).resolves.toBe("text");
+  });
+
   it("stores both MIME and extension associations when available", async () => {
     loadCurrentUserSettingsMock.mockResolvedValue({
       browser: {

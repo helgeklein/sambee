@@ -1,4 +1,5 @@
 import {
+  Article as ArticleIcon,
   ChevronRight as ChevronRightIcon,
   FolderOpen as FolderOpenIcon,
   Palette as PaletteIcon,
@@ -36,6 +37,7 @@ const SETTINGS_PARENT_ICON_GLYPH_SX: SxProps<Theme> = {
     xs: 24,
     sm: 22,
   },
+  transition: "none",
 };
 const SETTINGS_PARENT_TYPOGRAPHY_PROPS: Partial<TypographyProps> = {
   variant: "body1",
@@ -110,6 +112,8 @@ function renderCategoryIcon(item: SettingsNavItem, iconGlyphSx?: SxProps<Theme>)
       return <PaletteIcon sx={iconGlyphSx} />;
     case "file-browser":
       return <FolderOpenIcon sx={iconGlyphSx} />;
+    case "text-editor":
+      return <ArticleIcon sx={iconGlyphSx} />;
     case "connections":
       return <StorageIcon sx={iconGlyphSx} />;
     case "local-drives":
@@ -164,10 +168,26 @@ export function SettingsCategoryList({
                 onClick={() => onSelect(category)}
                 onKeyDown={onItemKeyDown}
                 selected={isSelected}
+                disableRipple
+                disableTouchRipple
                 tabIndex={getItemTabIndex?.(category)}
                 role={itemRole}
                 aria-selected={getItemAriaSelected?.(category)}
-                sx={resolveProp(itemButtonSx, isSelected, category)}
+                sx={appendSx(resolveProp(itemButtonSx, isSelected, category), {
+                  transition: "none",
+                  "& .MuiTouchRipple-root": {
+                    display: "none",
+                  },
+                  "& .MuiTypography-root": {
+                    transition: "none",
+                  },
+                  "& .MuiListItemIcon-root": {
+                    transition: "none",
+                  },
+                  "& .MuiSvgIcon-root": {
+                    transition: "none",
+                  },
+                })}
               >
                 <ListItemIcon sx={resolveProp(itemIconSx, isSelected, category)}>
                   {renderCategoryIcon(category, parentIconGlyphSx)}

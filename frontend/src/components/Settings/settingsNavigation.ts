@@ -1,6 +1,13 @@
 import { translate } from "../../i18n";
 
-export type SettingsCategory = "appearance" | "file-browser" | "connections" | "local-drives" | "admin-users" | "admin-system";
+export type SettingsCategory =
+  | "appearance"
+  | "file-browser"
+  | "text-editor"
+  | "connections"
+  | "local-drives"
+  | "admin-users"
+  | "admin-system";
 export type SettingsNavItem = SettingsCategory;
 export type SettingsContentItem = SettingsNavItem;
 
@@ -25,6 +32,7 @@ interface SettingsCategoryMeta {
 export const SETTINGS_ROUTE_BY_CATEGORY: Record<SettingsCategory, string> = {
   appearance: "/settings/appearance",
   "file-browser": "/settings/file-browser",
+  "text-editor": "/settings/text-editor",
   connections: "/settings/connections",
   "local-drives": "/settings/connections/local-drives",
   "admin-users": "/settings/admin/users",
@@ -61,6 +69,16 @@ export const SETTINGS_CATEGORY_META: Record<SettingsCategory, SettingsCategoryMe
       return translate("settings.categories.fileBrowser.description");
     },
     route: SETTINGS_ROUTE_BY_CATEGORY["file-browser"],
+    section: "personal",
+  },
+  "text-editor": {
+    get label() {
+      return translate("settings.categories.textEditor.label");
+    },
+    get description() {
+      return translate("settings.categories.textEditor.description");
+    },
+    route: SETTINGS_ROUTE_BY_CATEGORY["text-editor"],
     section: "personal",
   },
   connections: {
@@ -110,6 +128,7 @@ export const SETTINGS_CATEGORY_META: Record<SettingsCategory, SettingsCategoryMe
 export const SETTINGS_CATEGORY_ORDER: SettingsCategory[] = [
   "appearance",
   "file-browser",
+  "text-editor",
   "connections",
   "local-drives",
   "admin-users",

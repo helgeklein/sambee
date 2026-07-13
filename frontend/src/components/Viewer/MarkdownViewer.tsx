@@ -67,7 +67,6 @@ import {
   MARKDOWN_VIEWER_UNSAVED_DIALOG_AUTOFOCUS_DELAYS_MS,
   MARKDOWN_VIEWER_UNSAVED_DIALOG_RESTORE_FOCUS_DELAY_MS,
 } from "./markdownEditorConstants";
-import { PASSIVE_SEARCH_MATCH_CLASS, PASSIVE_SELECTED_SEARCH_MATCH_CLASS } from "./markdownEditorSearch";
 import { areMarkdownSearchStatesEqual } from "./markdownSearchState";
 import { normalizeMarkdownTableCellLineBreaks, remarkRenderMarkdownTableCellLineBreaks } from "./markdownTableCellLineBreaks";
 import { useMarkdownEditSession } from "./useMarkdownEditSession";
@@ -76,10 +75,6 @@ import { createEditToolbarAction, createSaveToolbarAction } from "./viewerToolba
 import "highlight.js/styles/github.css";
 
 const MARKDOWN_SEARCH_ROOT_SELECTOR = '[data-markdown-search-root="true"]';
-const MARKDOWN_EDITOR_SEARCH_MATCH_SELECTOR = "& .sambee-markdown-editor .cm-searchMatch";
-const MARKDOWN_EDITOR_CURRENT_SEARCH_MATCH_SELECTOR = "& .sambee-markdown-editor .cm-searchMatch-selected";
-const MARKDOWN_EDITOR_PASSIVE_SEARCH_MATCH_SELECTOR = `& .sambee-markdown-editor .${PASSIVE_SEARCH_MATCH_CLASS}`;
-const MARKDOWN_EDITOR_PASSIVE_CURRENT_SEARCH_MATCH_SELECTOR = `& .sambee-markdown-editor .${PASSIVE_SELECTED_SEARCH_MATCH_CLASS}`;
 const MARKDOWN_HASH_PREFIX = "#";
 const MARKDOWN_SUPPORTED_LINK_PROTOCOLS = new Set(["http:", "https:", "mailto:", "tel:"]);
 const MARKDOWN_VIEWER_EDIT_FOCUS_RETRY_DELAYS_MS = [
@@ -1578,18 +1573,6 @@ export const MarkdownViewer: React.FC<ViewerComponentProps> = ({ connectionId, p
                   },
                   "& .sambee-markdown-editor .cm-content": {
                     p: MARKDOWN_CONTENT_PADDING,
-                  },
-                  [MARKDOWN_EDITOR_SEARCH_MATCH_SELECTOR]: {
-                    backgroundColor: searchHighlightColors.otherMatches,
-                  },
-                  [MARKDOWN_EDITOR_PASSIVE_SEARCH_MATCH_SELECTOR]: {
-                    backgroundColor: searchHighlightColors.otherMatches,
-                  },
-                  [MARKDOWN_EDITOR_CURRENT_SEARCH_MATCH_SELECTOR]: {
-                    backgroundColor: searchHighlightColors.currentMatch,
-                  },
-                  [MARKDOWN_EDITOR_PASSIVE_CURRENT_SEARCH_MATCH_SELECTOR]: {
-                    backgroundColor: searchHighlightColors.currentMatch,
                   },
                 }}
               >

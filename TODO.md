@@ -22,6 +22,6 @@
 - Additional formats
    - DCM (medical image format)
 
-## Text viewer and editor
+# Companion build warning
 
-- Support various text-based files
+- Unexpected input(s) 'includeUpdaterJson', valid inputs are ['releaseId', 'tagName', 'releaseName', 'releaseBody', 'releaseDraft', 'prerelease', 'releaseCommitish', 'projectPath', 'uploadUpdaterJson', 'updaterJsonPreferNsis', 'tauriScript', 'args', 'retryAttempts', 'owner', 'repo', 'githubBaseUrl', 'releaseAssetNamePattern', 'uploadPlainBinary', 'uploadWorkflowArtifacts', 'workflowArtifactNamePattern', 'uploadUpdaterSignatures', 'generateReleaseNotes', 'mobile']

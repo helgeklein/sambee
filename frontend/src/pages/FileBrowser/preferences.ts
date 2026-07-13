@@ -6,13 +6,16 @@ export const QUICK_NAV_INCLUDE_DOT_DIRECTORIES_STORAGE_KEY = "quick-nav-include-
 export const FILE_BROWSER_VIEW_MODE_STORAGE_KEY = "file-browser-view-mode";
 export const FILE_BROWSER_PANE_MODE_STORAGE_KEY = "dual-pane-mode";
 export const SELECTED_CONNECTION_ID_STORAGE_KEY = "selectedConnectionId";
+export const TEXT_EDITOR_MAX_FILE_SIZE_BYTES_STORAGE_KEY = "text-editor-max-file-size-bytes";
 
 const QUICK_NAV_PREFERENCE_EVENT = "sambee:quick-nav-dot-directories-changed";
 const VIEW_MODE_PREFERENCE_EVENT = "sambee:file-browser-view-mode-changed";
 const PANE_MODE_PREFERENCE_EVENT = "sambee:file-browser-pane-mode-changed";
 const SELECTED_CONNECTION_PREFERENCE_EVENT = "sambee:selected-connection-changed";
+const TEXT_EDITOR_MAX_FILE_SIZE_PREFERENCE_EVENT = "sambee:text-editor-max-file-size-bytes-changed";
 const ENABLED_STORAGE_VALUE = "true";
 const DISABLED_STORAGE_VALUE = "false";
+const DEFAULT_TEXT_EDITOR_MAX_FILE_SIZE_BYTES = 52_428_800;
 
 function normalizeSelectedConnectionId(connectionId: string | null | undefined): string | null {
   const normalized = connectionId?.trim();
@@ -122,6 +125,29 @@ export function writeSelectedConnectionIdPreference(connectionId: string | null)
   });
 }
 
+export function readTextEditorMaxFileSizeBytesPreference(): number {
+  const rawValue = localStorage.getItem(TEXT_EDITOR_MAX_FILE_SIZE_BYTES_STORAGE_KEY);
+  const parsedValue = rawValue ? Number.parseInt(rawValue, 10) : Number.NaN;
+
+  return Number.isFinite(parsedValue) && parsedValue > 0 ? parsedValue : DEFAULT_TEXT_EDITOR_MAX_FILE_SIZE_BYTES;
+}
+
+function setTextEditorMaxFileSizeBytesPreference(maxFileSizeBytes: number, dispatchEvent: boolean): void {
+  localStorage.setItem(TEXT_EDITOR_MAX_FILE_SIZE_BYTES_STORAGE_KEY, String(maxFileSizeBytes));
+  if (dispatchEvent) {
+    window.dispatchEvent(new CustomEvent(TEXT_EDITOR_MAX_FILE_SIZE_PREFERENCE_EVENT, { detail: maxFileSizeBytes }));
+  }
+}
+
+export function writeTextEditorMaxFileSizeBytesPreference(maxFileSizeBytes: number): void {
+  setTextEditorMaxFileSizeBytesPreference(maxFileSizeBytes, true);
+  void patchCurrentUserSettings({
+    text_editor: {
+      max_file_size_bytes: maxFileSizeBytes,
+    },
+  });
+}
+
 export function useQuickNavIncludeDotDirectoriesPreference(): [boolean, (enabled: boolean) => void] {
   const [enabled, setEnabled] = useState<boolean>(() => readQuickNavIncludeDotDirectoriesPreference());
 
@@ -198,4 +224,43 @@ export function useFileBrowserViewModePreference(): [ViewMode, (viewMode: ViewMo
   }, []);
 
   return [viewMode, writeFileBrowserViewModePreference];
+}
+
+export function useTextEditorMaxFileSizeBytesPreference(): [number, (maxFileSizeBytes: number) => void] {
+  const [maxFileSizeBytes, setMaxFileSizeBytes] = useState<number>(() => readTextEditorMaxFileSizeBytesPreference());
+
+  useEffect(() => {
+    let cancelled = false;
+
+    const updatePreference = () => {
+      setMaxFileSizeBytes(readTextEditorMaxFileSizeBytesPreference());
+    };
+
+    const handleStorage = (event: StorageEvent) => {
+      if (isStorageEventForKey(event, TEXT_EDITOR_MAX_FILE_SIZE_BYTES_STORAGE_KEY)) {
+        updatePreference();
+      }
+    };
+
+    window.addEventListener("storage", handleStorage);
+    window.addEventListener(TEXT_EDITOR_MAX_FILE_SIZE_PREFERENCE_EVENT, updatePreference);
+
+    void loadCurrentUserSettings().then((settings) => {
+      if (cancelled || !settings) {
+        return;
+      }
+
+      const backendValue = settings.text_editor.max_file_size_bytes;
+      setTextEditorMaxFileSizeBytesPreference(backendValue, true);
+      setMaxFileSizeBytes(backendValue);
+    });
+
+    return () => {
+      cancelled = true;
+      window.removeEventListener("storage", handleStorage);
+      window.removeEventListener(TEXT_EDITOR_MAX_FILE_SIZE_PREFERENCE_EVENT, updatePreference);
+    };
+  }, []);
+
+  return [maxFileSizeBytes, writeTextEditorMaxFileSizeBytesPreference];
 }

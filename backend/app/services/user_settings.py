@@ -16,6 +16,7 @@ from app.core.user_setting_definitions import (
     DEFAULT_PANE_MODE,
     DEFAULT_QUICK_NAV_INCLUDE_DOT_DIRECTORIES,
     DEFAULT_REGIONAL_LOCALE_PREFERENCE,
+    DEFAULT_TEXT_EDITOR_MAX_FILE_SIZE_BYTES,
     DEFAULT_THEME_ID,
     UserSettingKey,
 )
@@ -25,6 +26,7 @@ from app.models.user_settings import (
     CurrentUserSettingsRead,
     CurrentUserSettingsUpdate,
     LocalizationUserSettingsRead,
+    TextEditorUserSettingsRead,
     UserSetting,
 )
 
@@ -34,6 +36,8 @@ TRUE_VALUES = {"1", "true", "yes", "on"}
 FALSE_VALUES = {"0", "false", "no", "off"}
 VALID_FILE_BROWSER_VIEW_MODES = {"list", "details"}
 VALID_PANE_MODES = {"single", "dual"}
+MIN_TEXT_EDITOR_MAX_FILE_SIZE_BYTES = 65_536
+MAX_TEXT_EDITOR_MAX_FILE_SIZE_BYTES = 104_857_600
 VALID_THEME_MODES = {"light", "dark"}
 VALID_LANGUAGE_PREFERENCES = {DEFAULT_LANGUAGE_PREFERENCE, "en", "en-XA"}
 REGIONAL_LOCALE_PATTERN = re.compile(r"^[A-Za-z]{2,3}(?:-[A-Za-z0-9]{2,8})*$")
@@ -125,6 +129,17 @@ def _parse_optional_string(raw_value: str | None) -> str | None:
 
     normalized = raw_value.strip()
     return normalized or None
+
+
+def _parse_int(raw_value: str | None, *, key: UserSettingKey, default: int) -> int:
+    if raw_value is None:
+        return default
+
+    try:
+        return int(raw_value)
+    except (TypeError, ValueError):
+        logger.error(f"Invalid stored integer value for user settings: {key.value}")
+        return default
 
 
 def _is_valid_theme_config(theme: Any) -> bool:
@@ -235,6 +250,13 @@ def build_current_user_settings_read(*, user_id: uuid.UUID, session: Session) ->
             ),
             selected_connection_id=_parse_optional_string(values.get(UserSettingKey.BROWSER_SELECTED_CONNECTION_ID.value)),
             viewer_associations=_parse_viewer_associations(values.get(UserSettingKey.BROWSER_VIEWER_ASSOCIATIONS.value)),
+        ),
+        text_editor=TextEditorUserSettingsRead(
+            max_file_size_bytes=_parse_int(
+                values.get(UserSettingKey.TEXT_EDITOR_MAX_FILE_SIZE_BYTES.value),
+                key=UserSettingKey.TEXT_EDITOR_MAX_FILE_SIZE_BYTES,
+                default=DEFAULT_TEXT_EDITOR_MAX_FILE_SIZE_BYTES,
+            )
         ),
     )
 
@@ -389,6 +411,19 @@ def update_current_user_settings(*, user_id: uuid.UUID, payload: CurrentUserSett
                 session=session,
             )
 
+        has_updates = True
+
+    if payload.text_editor and payload.text_editor.max_file_size_bytes is not None:
+        max_file_size_bytes = payload.text_editor.max_file_size_bytes
+        if max_file_size_bytes < MIN_TEXT_EDITOR_MAX_FILE_SIZE_BYTES or max_file_size_bytes > MAX_TEXT_EDITOR_MAX_FILE_SIZE_BYTES:
+            raise ValueError("Text editor max file size must be between 65536 and 104857600 bytes")
+
+        _upsert_user_setting(
+            user_id=user_id,
+            key=UserSettingKey.TEXT_EDITOR_MAX_FILE_SIZE_BYTES,
+            value=str(max_file_size_bytes),
+            session=session,
+        )
         has_updates = True
 
     if not has_updates:

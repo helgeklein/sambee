@@ -75,6 +75,7 @@ export const EN_TRANSLATIONS = {
       pdfViewer: "PDF viewer shortcuts",
       imageViewer: "Image viewer shortcuts",
       markdownViewer: "Markdown viewer shortcuts",
+      textViewer: "Text viewer shortcuts",
     },
   },
   app: {
@@ -129,6 +130,10 @@ export const EN_TRANSLATIONS = {
         label: "File Browser",
         description: "Set defaults for how the file browser behaves.",
       },
+      textEditor: {
+        label: "Text Editor",
+        description: "Configure defaults and safety limits for the generic text editor.",
+      },
       connections: {
         label: "Connections",
         description: "Manage shared and private SMB connections.",
@@ -178,6 +183,13 @@ export const EN_TRANSLATIONS = {
       quickNavigationDescription: "Choose how quick navigation discovers folders in the file browser.",
       includeDotDirectoriesLabel: "Include dot directories in quick nav",
       includeDotDirectoriesDescription: "Show folders like .git, .cache, and other dot-prefixed directories in quick navigation results.",
+    },
+    textEditorPage: {
+      limitsTitle: "Limits",
+      limitsDescription: "Control when Sambee opens files in the rich text editor instead of falling back to safer alternatives.",
+      maxFileSizeLabel: "Maximum rich editor file size (MB)",
+      maxFileSizeDescription:
+        "Files larger than this limit will not open in the full CodeMirror-based text editor. Use this to avoid slow or memory-heavy editing sessions for very large files.",
     },
     connectionsPage: {
       smbSectionTitle: "SMB Connections",
@@ -639,6 +651,7 @@ export const EN_TRANSLATIONS = {
         image: "Image Viewer",
         markdown: "Markdown Viewer",
         pdf: "PDF Viewer",
+        text: "Text Editor",
       },
     },
     shortcuts: {
@@ -866,6 +879,18 @@ export const EN_TRANSLATIONS = {
       removeUnderline: "Remove underline",
       undo: "Undo",
       redo: "Redo",
+    },
+    text: {
+      lockFailed: "Unable to enter text edit mode. {{message}}",
+      lockFailedReason: "Failed to acquire edit lock.",
+      saveFailed: "Failed to save text file changes.",
+      editorLabel: "Text editor",
+      editorCrashTitle: "Text editor unavailable",
+      editorCrashMessage:
+        "The text editor encountered an internal error. Your draft is still kept in memory. Retry the editor or return to the read-only view.",
+      limitMessage:
+        "This file is {{currentSizeMb}} MB, which exceeds your Text Editor limit of {{maxSizeMb}} MB. Sambee opened it in a safer read-only fallback instead of the full CodeMirror editor.",
+      limitSearchUnavailable: "Search is unavailable while this file is shown in the large-file fallback.",
     },
     share: {
       preparing: "Preparing file to share...",

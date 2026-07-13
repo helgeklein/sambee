@@ -3,6 +3,7 @@ import { ConnectionsSettings } from "../../pages/ConnectionsSettings";
 import { FileBrowserSettings } from "../../pages/FileBrowserSettings";
 import { LocalDrivesSettings } from "../../pages/LocalDrivesSettings";
 import { AppearanceSettings } from "../../pages/PreferencesSettings";
+import { TextEditorSettings } from "../../pages/TextEditorSettings";
 import { UserManagementSettings } from "../../pages/UserManagementSettings";
 import { getSettingsNavItemDescription, getSettingsNavItemLabel, type SettingsNavItem } from "./settingsNavigation";
 
@@ -27,6 +28,8 @@ export function SettingsCategoryContent({
       return <AppearanceSettings />;
     case "file-browser":
       return <FileBrowserSettings />;
+    case "text-editor":
+      return <TextEditorSettings />;
     case "connections":
       return (
         <ConnectionsSettings

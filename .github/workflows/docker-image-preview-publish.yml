@@ -164,7 +164,7 @@ jobs:
       run: cd frontend && npx tsc --noEmit
 
     - name: Run frontend tests
-      run: cd frontend && npm test -- --run
+      run: cd frontend && npm run test:ci
 
   build-and-validate-platforms:
     needs: [prepare, validate-tests]

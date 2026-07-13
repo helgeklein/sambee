@@ -286,7 +286,7 @@ jobs:
       run: cd frontend && npx tsc --noEmit
 
     - name: Run tests
-      run: cd frontend && npm test -- --run
+      run: cd frontend && npm run test:ci
 
   # ──────────────────────────────────────────────
   # Companion: Node.js + Rust + Tauri tests

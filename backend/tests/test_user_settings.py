@@ -20,6 +20,7 @@ class TestCurrentUserSettingsApi:
         assert data["browser"]["pane_mode"] == "single"
         assert data["browser"]["selected_connection_id"] is None
         assert data["browser"]["viewer_associations"] == {}
+        assert data["text_editor"]["max_file_size_bytes"] == 52428800
 
     def test_user_can_update_own_settings(self, client: TestClient, auth_headers_user: dict[str, str], session: Session) -> None:
         response = client.put(
@@ -51,6 +52,9 @@ class TestCurrentUserSettingsApi:
                         "application/pdf": "pdf",
                     },
                 },
+                "text_editor": {
+                    "max_file_size_bytes": 4194304,
+                },
             },
         )
 
@@ -68,6 +72,7 @@ class TestCurrentUserSettingsApi:
             ".md": "markdown",
             "application/pdf": "pdf",
         }
+        assert data["text_editor"]["max_file_size_bytes"] == 4194304
 
         rows = session.exec(select(UserSetting)).all()
         values = {row.key: row.value for row in rows}
@@ -80,6 +85,7 @@ class TestCurrentUserSettingsApi:
         assert values[UserSettingKey.BROWSER_PANE_MODE.value] == "dual"
         assert values[UserSettingKey.BROWSER_SELECTED_CONNECTION_ID.value] == "conn-123"
         assert values[UserSettingKey.BROWSER_VIEWER_ASSOCIATIONS.value] == '{".md":"markdown","application/pdf":"pdf"}'
+        assert values[UserSettingKey.TEXT_EDITOR_MAX_FILE_SIZE_BYTES.value] == "4194304"
 
     def test_user_can_clear_custom_themes(self, client: TestClient, auth_headers_user: dict[str, str], session: Session) -> None:
         seed_response = client.put(
@@ -231,6 +237,16 @@ class TestCurrentUserSettingsApi:
 
         assert response.status_code == 400
         assert response.json()["detail"] == "Viewer associations must use non-empty file keys and viewer IDs"
+
+    def test_update_rejects_invalid_text_editor_max_file_size(self, client: TestClient, auth_headers_user: dict[str, str]) -> None:
+        response = client.put(
+            "/api/auth/me/settings",
+            headers=auth_headers_user,
+            json={"text_editor": {"max_file_size_bytes": 1024}},
+        )
+
+        assert response.status_code == 400
+        assert response.json()["detail"] == "Text editor max file size must be between 65536 and 104857600 bytes"
 
     def test_update_rejects_invalid_regional_locale(self, client: TestClient, auth_headers_user: dict[str, str]) -> None:
         response = client.put(

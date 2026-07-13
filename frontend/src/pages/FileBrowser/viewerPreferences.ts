@@ -43,7 +43,7 @@ export async function getPreferredViewerId(filename: string, mimeType: string): 
 
   for (const key of getViewerAssociationKeys(filename, mimeType)) {
     const viewerId = associations[key];
-    if (viewerId === "image" || viewerId === "markdown" || viewerId === "pdf") {
+    if (viewerId === "image" || viewerId === "markdown" || viewerId === "pdf" || viewerId === "text") {
       return viewerId;
     }
   }

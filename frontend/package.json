@@ -13,6 +13,7 @@
     "lint:fix": "biome check --write src",
     "format": "biome format --write src",
     "test": "vitest run",
+    "test:ci": "vitest run --maxWorkers=2",
     "test:watch": "vitest",
     "test:ui": "vitest --ui",
     "test:run": "vitest run",

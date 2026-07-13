@@ -16,6 +16,7 @@ vi.mock("react-i18next", () => ({
         "fileBrowser.viewerPicker.viewers.image": "Image Viewer",
         "fileBrowser.viewerPicker.viewers.markdown": "Markdown Viewer",
         "fileBrowser.viewerPicker.viewers.pdf": "PDF Viewer",
+        "fileBrowser.viewerPicker.viewers.text": "Text Editor",
       };
 
       return translations[key] ?? key;
@@ -136,6 +137,23 @@ describe("BrowserViewerPicker", () => {
       viewerId: "markdown",
       rememberSelection: false,
     });
+  });
+
+  it("renders the text viewer option when provided", () => {
+    render(
+      <BrowserViewerPicker
+        open={true}
+        fileName="notes.txt"
+        viewerIds={["text"]}
+        defaultViewerId="text"
+        preferredViewerId={null}
+        showNativeOption={false}
+        onClose={vi.fn()}
+        onConfirm={vi.fn()}
+      />
+    );
+
+    expect(screen.getByText("Text Editor")).toBeInTheDocument();
   });
 
   it("focuses the viewer list when the dialog opens", async () => {

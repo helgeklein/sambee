@@ -4,17 +4,15 @@ import { render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { createRef } from "react";
 import { describe, expect, it } from "vitest";
+import {
+  buildPassiveSearchHighlightExtension,
+  PASSIVE_SEARCH_MATCH_CLASS,
+  PASSIVE_SELECTED_SEARCH_MATCH_CLASS,
+} from "../../Editor/buildCodeMirrorSearchHighlights";
 import { buildCommonEditorExtensions } from "../../Editor/buildCommonEditorExtensions";
 import { SourceTextEditor } from "../../Editor/SourceTextEditor";
 import type { SourceTextEditorHandle } from "../../Editor/sourceTextEditorTypes";
-import {
-  buildPassiveSearchHighlightExtension,
-  getRootSearchMetrics,
-  PASSIVE_SEARCH_MATCH_CLASS,
-  PASSIVE_SELECTED_SEARCH_MATCH_CLASS,
-  shouldAutoNavigateSearch,
-  updateRootSearchQuery,
-} from "../markdownEditorSearch";
+import { getRootSearchMetrics, shouldAutoNavigateSearch, updateRootSearchQuery } from "../markdownEditorSearch";
 
 describe("markdownEditorSearch", () => {
   it("counts root-editor matches and tracks the active match across navigation", async () => {
