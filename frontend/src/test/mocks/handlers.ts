@@ -69,6 +69,9 @@ let currentUserSettingsResponse: CurrentUserSettings = {
     selected_connection_id: null,
     viewer_associations: {},
   },
+  text_editor: {
+    max_file_size_bytes: 2097152,
+  },
 };
 
 export const handlers = [

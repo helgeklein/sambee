@@ -44,6 +44,9 @@ export function setupSuccessfulApiMocks(api: ApiMock): void {
       selected_connection_id: null,
       viewer_associations: {},
     },
+    text_editor: {
+      max_file_size_bytes: 2097152,
+    },
   };
 
   api.getConnections.mockResolvedValue(mockConnections);
@@ -136,6 +139,9 @@ export function setupNavigationApiMocks(api: ApiMock): void {
       pane_mode: "single",
       selected_connection_id: null,
       viewer_associations: {},
+    },
+    text_editor: {
+      max_file_size_bytes: 2097152,
     },
   };
 

@@ -13,7 +13,7 @@ interface DynamicViewerProps {
   viewInfo: {
     path: string;
     mimeType: string;
-    viewerId?: "image" | "markdown" | "pdf";
+    viewerId?: "image" | "markdown" | "pdf" | "text";
     images?: string[];
     currentIndex?: number;
     sessionId: string;

@@ -28,6 +28,7 @@ describe("SettingsCategoryList", () => {
     renderList();
 
     expect(screen.getByRole("option", { name: /^connections$/i })).toBeInTheDocument();
+    expect(screen.getByRole("option", { name: /text editor/i })).toBeInTheDocument();
     expect(screen.getByRole("option", { name: /local drives/i })).toBeInTheDocument();
     expect(screen.queryByRole("button", { name: /expand|collapse/i })).not.toBeInTheDocument();
   });

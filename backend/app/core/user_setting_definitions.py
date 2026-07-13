@@ -13,6 +13,7 @@ class UserSettingKey(StrEnum):
     BROWSER_PANE_MODE = "browser.pane_mode"
     BROWSER_SELECTED_CONNECTION_ID = "browser.selected_connection_id"
     BROWSER_VIEWER_ASSOCIATIONS = "browser.viewer_associations"
+    TEXT_EDITOR_MAX_FILE_SIZE_BYTES = "text_editor.max_file_size_bytes"
 
 
 DEFAULT_THEME_ID = "sambee-light"
@@ -21,3 +22,4 @@ DEFAULT_REGIONAL_LOCALE_PREFERENCE = "browser"
 DEFAULT_QUICK_NAV_INCLUDE_DOT_DIRECTORIES = False
 DEFAULT_FILE_BROWSER_VIEW_MODE = "list"
 DEFAULT_PANE_MODE = "single"
+DEFAULT_TEXT_EDITOR_MAX_FILE_SIZE_BYTES = 2_097_152

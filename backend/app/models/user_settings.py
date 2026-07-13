@@ -35,10 +35,15 @@ class BrowserUserSettingsRead(SQLModel):
     viewer_associations: dict[str, str] = Field(default_factory=dict)
 
 
+class TextEditorUserSettingsRead(SQLModel):
+    max_file_size_bytes: int
+
+
 class CurrentUserSettingsRead(SQLModel):
     appearance: AppearanceUserSettingsRead
     localization: LocalizationUserSettingsRead
     browser: BrowserUserSettingsRead
+    text_editor: TextEditorUserSettingsRead
 
 
 class AppearanceUserSettingsUpdate(SQLModel):
@@ -59,7 +64,12 @@ class BrowserUserSettingsUpdate(SQLModel):
     viewer_associations: Optional[dict[str, str]] = None
 
 
+class TextEditorUserSettingsUpdate(SQLModel):
+    max_file_size_bytes: Optional[int] = None
+
+
 class CurrentUserSettingsUpdate(SQLModel):
     appearance: Optional[AppearanceUserSettingsUpdate] = None
     localization: Optional[LocalizationUserSettingsUpdate] = None
     browser: Optional[BrowserUserSettingsUpdate] = None
+    text_editor: Optional[TextEditorUserSettingsUpdate] = None

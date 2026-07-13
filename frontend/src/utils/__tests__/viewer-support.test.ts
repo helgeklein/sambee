@@ -21,6 +21,13 @@ describe("hasViewerSupport", () => {
     expect(hasViewerSupport("text/markdown")).toBe(true);
   });
 
+  it("returns true for common text and code formats", () => {
+    expect(hasViewerSupport("text/plain")).toBe(true);
+    expect(hasViewerSupport("application/json")).toBe(true);
+    expect(hasViewerSupport("text/html")).toBe(true);
+    expect(hasViewerSupport("text/css")).toBe(true);
+  });
+
   it("returns true for PDF", () => {
     expect(hasViewerSupport("application/pdf")).toBe(true);
   });
@@ -68,5 +75,12 @@ describe("isImageFile", () => {
 describe("getCompatibleViewerIds", () => {
   it("falls back to the extension when MIME metadata is too generic for markdown", () => {
     expect(getCompatibleViewerIds("notes.MD", "text/plain")).toEqual(["markdown"]);
+  });
+
+  it("routes common text and code files to the text viewer", () => {
+    expect(getCompatibleViewerIds("notes.txt", "text/plain")).toEqual(["text"]);
+    expect(getCompatibleViewerIds("app.ts", "application/octet-stream")).toEqual(["text"]);
+    expect(getCompatibleViewerIds("index.html", "text/html")).toEqual(["text"]);
+    expect(getCompatibleViewerIds("styles.css", "text/css")).toEqual(["text"]);
   });
 });

@@ -28,6 +28,10 @@ vi.mock("../../../pages/FileBrowserSettings", () => ({
   FileBrowserSettings: () => <div>File Browser Settings Content</div>,
 }));
 
+vi.mock("../../../pages/TextEditorSettings", () => ({
+  TextEditorSettings: () => <div>Text Editor Settings Content</div>,
+}));
+
 vi.mock("../../../pages/LocalDrivesSettings", () => ({
   LocalDrivesSettings: () => <div>Local Drives Settings Content</div>,
 }));
@@ -106,12 +110,14 @@ describe("SettingsDialog Component", () => {
     expect(screen.getByText("Settings")).toBeInTheDocument();
     const appearanceOption = await screen.findByRole("option", { name: /appearance/i });
     const fileBrowserOption = screen.getByRole("option", { name: /file browser/i });
+    const textEditorOption = screen.getByRole("option", { name: /text editor/i });
     const connectionsOption = screen.getByRole("option", { name: /^connections$/i });
     const userManagementOption = await screen.findByRole("option", { name: /user management/i });
     const systemOption = await screen.findByRole("option", { name: /system/i });
 
     expect(appearanceOption).toBeInTheDocument();
     expect(fileBrowserOption).toBeInTheDocument();
+    expect(textEditorOption).toBeInTheDocument();
     expect(connectionsOption).toBeInTheDocument();
     expect(screen.getByRole("option", { name: /local drives/i })).toBeInTheDocument();
     expect(userManagementOption).toBeInTheDocument();

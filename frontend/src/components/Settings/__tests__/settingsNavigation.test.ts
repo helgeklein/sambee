@@ -20,7 +20,7 @@ describe("settingsNavigation", () => {
       {
         section: "personal",
         label: "Personal",
-        categories: ["appearance", "file-browser", "connections", "local-drives"],
+        categories: ["appearance", "file-browser", "text-editor", "connections", "local-drives"],
       },
     ]);
   });
@@ -30,7 +30,7 @@ describe("settingsNavigation", () => {
       {
         section: "personal",
         label: "Personal",
-        categories: ["appearance", "file-browser", "connections", "local-drives"],
+        categories: ["appearance", "file-browser", "text-editor", "connections", "local-drives"],
       },
       {
         section: "administration",
@@ -43,6 +43,7 @@ describe("settingsNavigation", () => {
   it("maps current settings routes to their categories", () => {
     expect(getSettingsCategoryByPath("/settings/appearance")).toBe("appearance");
     expect(getSettingsCategoryByPath("/settings/file-browser")).toBe("file-browser");
+    expect(getSettingsCategoryByPath("/settings/text-editor")).toBe("text-editor");
     expect(getSettingsCategoryByPath("/settings/connections")).toBe("connections");
     expect(getSettingsCategoryByPath("/settings/connections/smb")).toBe("connections");
     expect(getSettingsCategoryByPath("/settings/connections/local-drives")).toBe("local-drives");
@@ -53,12 +54,13 @@ describe("settingsNavigation", () => {
   it("maps nested settings routes to the correct nav items", () => {
     expect(getSettingsNavItemByPath("/settings/appearance")).toBe("appearance");
     expect(getSettingsNavItemByPath("/settings/file-browser")).toBe("file-browser");
+    expect(getSettingsNavItemByPath("/settings/text-editor")).toBe("text-editor");
     expect(getSettingsNavItemByPath("/settings/connections")).toBe("connections");
     expect(getSettingsNavItemByPath("/settings/connections/local-drives")).toBe("local-drives");
   });
 
   it("returns visible settings nav items as a flat list", () => {
-    expect(getVisibleSettingsNavItems(false)).toEqual(["appearance", "file-browser", "connections", "local-drives"]);
+    expect(getVisibleSettingsNavItems(false)).toEqual(["appearance", "file-browser", "text-editor", "connections", "local-drives"]);
   });
 
   it("does not resolve retired legacy settings routes", () => {
@@ -72,6 +74,7 @@ describe("settingsNavigation", () => {
   it("returns translated labels when the locale changes", async () => {
     expect(getSettingsCategoryLabel("appearance")).toBe("Appearance");
     expect(getSettingsCategoryLabel("file-browser")).toBe("File Browser");
+    expect(getSettingsCategoryLabel("text-editor")).toBe("Text Editor");
     expect(getSettingsNavItemLabel("local-drives")).toBe("Local Drives");
     expect(getSettingsViewTitle("main")).toBe("Settings");
 
@@ -81,6 +84,8 @@ describe("settingsNavigation", () => {
     expect(getSettingsCategoryLabel("appearance")).toMatch(/^\[.*\]$/);
     expect(getSettingsCategoryLabel("file-browser")).not.toBe("File Browser");
     expect(getSettingsCategoryLabel("file-browser")).toMatch(/^\[.*\]$/);
+    expect(getSettingsCategoryLabel("text-editor")).not.toBe("Text Editor");
+    expect(getSettingsCategoryLabel("text-editor")).toMatch(/^\[.*\]$/);
     expect(getSettingsNavItemLabel("local-drives")).not.toBe("Local Drives");
     expect(getSettingsNavItemLabel("local-drives")).toMatch(/^\[.*\]$/);
     expect(getSettingsViewTitle("main")).toBe("[Šéťťíńğš]");

@@ -158,6 +158,9 @@ export interface CurrentUserSettings {
     selected_connection_id: string | null;
     viewer_associations: Record<string, string>;
   };
+  text_editor: {
+    max_file_size_bytes: number;
+  };
 }
 
 export interface CurrentUserSettingsUpdate {
@@ -175,6 +178,9 @@ export interface CurrentUserSettingsUpdate {
     pane_mode?: "single" | "dual";
     selected_connection_id?: string | null;
     viewer_associations?: Record<string, string>;
+  };
+  text_editor?: {
+    max_file_size_bytes?: number;
   };
 }
 
