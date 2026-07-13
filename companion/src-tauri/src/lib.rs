@@ -1,7 +1,7 @@
 //! Sambee Companion — Tauri application setup and plugin wiring.
 //!
 //! Registers all Tauri plugins (deep-link, single-instance, store, shell,
-//! http, notification) and sets up the system tray, deep-link handling,
+//! http) and sets up the system tray, deep-link handling,
 //! and the full edit lifecycle.
 
 mod app_registry;
@@ -1032,7 +1032,6 @@ pub fn run() {
         .plugin(tauri_plugin_store::Builder::default().build())
         .plugin(tauri_plugin_shell::init())
         .plugin(tauri_plugin_http::init())
-        .plugin(tauri_plugin_notification::init())
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_updater::Builder::new().build())
         .manage(OperationStore::new())
