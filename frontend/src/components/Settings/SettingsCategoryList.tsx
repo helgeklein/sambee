@@ -37,6 +37,7 @@ const SETTINGS_PARENT_ICON_GLYPH_SX: SxProps<Theme> = {
     xs: 24,
     sm: 22,
   },
+  transition: "none",
 };
 const SETTINGS_PARENT_TYPOGRAPHY_PROPS: Partial<TypographyProps> = {
   variant: "body1",
@@ -167,10 +168,26 @@ export function SettingsCategoryList({
                 onClick={() => onSelect(category)}
                 onKeyDown={onItemKeyDown}
                 selected={isSelected}
+                disableRipple
+                disableTouchRipple
                 tabIndex={getItemTabIndex?.(category)}
                 role={itemRole}
                 aria-selected={getItemAriaSelected?.(category)}
-                sx={resolveProp(itemButtonSx, isSelected, category)}
+                sx={appendSx(resolveProp(itemButtonSx, isSelected, category), {
+                  transition: "none",
+                  "& .MuiTouchRipple-root": {
+                    display: "none",
+                  },
+                  "& .MuiTypography-root": {
+                    transition: "none",
+                  },
+                  "& .MuiListItemIcon-root": {
+                    transition: "none",
+                  },
+                  "& .MuiSvgIcon-root": {
+                    transition: "none",
+                  },
+                })}
               >
                 <ListItemIcon sx={resolveProp(itemIconSx, isSelected, category)}>
                   {renderCategoryIcon(category, parentIconGlyphSx)}
