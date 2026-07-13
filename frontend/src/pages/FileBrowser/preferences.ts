@@ -15,7 +15,7 @@ const SELECTED_CONNECTION_PREFERENCE_EVENT = "sambee:selected-connection-changed
 const TEXT_EDITOR_MAX_FILE_SIZE_PREFERENCE_EVENT = "sambee:text-editor-max-file-size-bytes-changed";
 const ENABLED_STORAGE_VALUE = "true";
 const DISABLED_STORAGE_VALUE = "false";
-const DEFAULT_TEXT_EDITOR_MAX_FILE_SIZE_BYTES = 2_097_152;
+const DEFAULT_TEXT_EDITOR_MAX_FILE_SIZE_BYTES = 52_428_800;
 
 function normalizeSelectedConnectionId(connectionId: string | null | undefined): string | null {
   const normalized = connectionId?.trim();

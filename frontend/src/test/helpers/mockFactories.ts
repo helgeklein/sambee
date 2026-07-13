@@ -45,7 +45,7 @@ export function setupSuccessfulApiMocks(api: ApiMock): void {
       viewer_associations: {},
     },
     text_editor: {
-      max_file_size_bytes: 2097152,
+      max_file_size_bytes: 52428800,
     },
   };
 
@@ -141,7 +141,7 @@ export function setupNavigationApiMocks(api: ApiMock): void {
       viewer_associations: {},
     },
     text_editor: {
-      max_file_size_bytes: 2097152,
+      max_file_size_bytes: 52428800,
     },
   };
 

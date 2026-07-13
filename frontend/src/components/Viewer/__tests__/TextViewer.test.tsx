@@ -5,7 +5,7 @@ import apiService from "../../../services/api";
 import { SambeeThemeProvider } from "../../../theme";
 
 const { readTextEditorMaxFileSizeBytesPreferenceMock } = vi.hoisted(() => ({
-  readTextEditorMaxFileSizeBytesPreferenceMock: vi.fn(() => 2_097_152),
+  readTextEditorMaxFileSizeBytesPreferenceMock: vi.fn(() => 52_428_800),
 }));
 
 vi.mock("../../../pages/FileBrowser/preferences", () => ({
@@ -72,7 +72,7 @@ function renderViewer() {
 describe("TextViewer", () => {
   beforeEach(() => {
     vi.clearAllMocks();
-    readTextEditorMaxFileSizeBytesPreferenceMock.mockReturnValue(2_097_152);
+    readTextEditorMaxFileSizeBytesPreferenceMock.mockReturnValue(52_428_800);
     vi.spyOn(apiService, "supportsEditLocks").mockReturnValue(true);
     vi.spyOn(apiService, "getFileContent").mockResolvedValue("hello world");
     vi.spyOn(apiService, "acquireEditLock").mockResolvedValue({

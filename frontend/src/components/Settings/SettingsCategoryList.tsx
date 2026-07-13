@@ -1,4 +1,5 @@
 import {
+  Article as ArticleIcon,
   ChevronRight as ChevronRightIcon,
   FolderOpen as FolderOpenIcon,
   Palette as PaletteIcon,
@@ -110,6 +111,8 @@ function renderCategoryIcon(item: SettingsNavItem, iconGlyphSx?: SxProps<Theme>)
       return <PaletteIcon sx={iconGlyphSx} />;
     case "file-browser":
       return <FolderOpenIcon sx={iconGlyphSx} />;
+    case "text-editor":
+      return <ArticleIcon sx={iconGlyphSx} />;
     case "connections":
       return <StorageIcon sx={iconGlyphSx} />;
     case "local-drives":

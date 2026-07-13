@@ -9,7 +9,7 @@ const { setTextEditorMaxFileSizeBytesMock } = vi.hoisted(() => ({
 }));
 
 vi.mock("../FileBrowser/preferences", () => ({
-  useTextEditorMaxFileSizeBytesPreference: () => [2097152, setTextEditorMaxFileSizeBytesMock],
+  useTextEditorMaxFileSizeBytesPreference: () => [52428800, setTextEditorMaxFileSizeBytesMock],
 }));
 
 describe("TextEditorSettings", () => {

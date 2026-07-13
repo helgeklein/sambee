@@ -20,7 +20,7 @@ class TestCurrentUserSettingsApi:
         assert data["browser"]["pane_mode"] == "single"
         assert data["browser"]["selected_connection_id"] is None
         assert data["browser"]["viewer_associations"] == {}
-        assert data["text_editor"]["max_file_size_bytes"] == 2097152
+        assert data["text_editor"]["max_file_size_bytes"] == 52428800
 
     def test_user_can_update_own_settings(self, client: TestClient, auth_headers_user: dict[str, str], session: Session) -> None:
         response = client.put(
