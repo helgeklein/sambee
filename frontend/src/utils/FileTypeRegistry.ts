@@ -612,7 +612,6 @@ const FILE_TYPE_REGISTRY: FileTypeDefinition[] = [
   // Video
   {
     extensions: [".mp4"],
-    viewerComponent: textViewerComponentLoader,
     mimeTypes: ["video/mp4"],
     category: "video",
     icon: "video",

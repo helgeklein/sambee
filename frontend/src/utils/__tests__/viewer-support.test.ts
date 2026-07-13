@@ -83,4 +83,8 @@ describe("getCompatibleViewerIds", () => {
     expect(getCompatibleViewerIds("index.html", "text/html")).toEqual(["text"]);
     expect(getCompatibleViewerIds("styles.css", "text/css")).toEqual(["text"]);
   });
+
+  it("does not route mp4 files to the text viewer", () => {
+    expect(getCompatibleViewerIds("clip.mp4", "video/mp4")).toEqual([]);
+  });
 });
