@@ -886,7 +886,8 @@ export const EN_TRANSLATIONS = {
       saveFailed: "Failed to save text file changes.",
       editorLabel: "Text editor",
       editorCrashTitle: "Text editor unavailable",
-      editorCrashMessage: "The text editor encountered an internal error. Your draft is still kept in memory. Retry the editor or return to the read-only view.",
+      editorCrashMessage:
+        "The text editor encountered an internal error. Your draft is still kept in memory. Retry the editor or return to the read-only view.",
       limitMessage:
         "This file is {{currentSizeMb}} MB, which exceeds your Text Editor limit of {{maxSizeMb}} MB. Sambee opened it in a safer read-only fallback instead of the full CodeMirror editor.",
       limitSearchUnavailable: "Search is unavailable while this file is shown in the large-file fallback.",

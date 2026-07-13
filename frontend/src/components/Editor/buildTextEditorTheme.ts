@@ -1,8 +1,8 @@
 import { HighlightStyle, syntaxHighlighting } from "@codemirror/language";
 import type { Extension } from "@codemirror/state";
 import { tags } from "@lezer/highlight";
-import { buildSelectionLayerTheme } from "./buildEditorSelectionLayer";
 import { buildCodeMirrorSurfaceTheme, type CodeMirrorSurfaceThemeOptions } from "./buildCodeMirrorSurfaceTheme";
+import { buildSelectionLayerTheme } from "./buildEditorSelectionLayer";
 
 export interface TextEditorThemeOptions extends CodeMirrorSurfaceThemeOptions {
   accentColor: string;

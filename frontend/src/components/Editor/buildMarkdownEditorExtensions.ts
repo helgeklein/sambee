@@ -6,13 +6,13 @@ import type { Extension } from "@codemirror/state";
 import { EditorView, keymap } from "@codemirror/view";
 import { markdownTableAutocompleter, markdownTables } from "codemirror-markdown-tables";
 import { buildPassiveSearchHighlightExtension } from "./buildCodeMirrorSearchHighlights";
+import { buildCommonEditorExtensions } from "./buildCommonEditorExtensions";
 import {
   buildSelectionLayerExtension,
   EDITOR_SELECTION_RANGE_CLASS,
   getSelectionLineSegments,
   type SelectionLineSegment,
 } from "./buildEditorSelectionLayer";
-import { buildCommonEditorExtensions } from "./buildCommonEditorExtensions";
 import { buildMarkdownAutocompleteUi, createMarkdownSnippetAutocompleter } from "./buildMarkdownAutocomplete";
 import { buildMarkdownEditorTheme, type MarkdownEditorThemeOptions } from "./buildMarkdownEditorTheme";
 import { buildMarkdownTableTheme } from "./buildMarkdownTableTheme";

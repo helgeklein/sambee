@@ -857,9 +857,7 @@ export const getAllViewerIds = (): ViewerId[] => Object.keys(VIEWER_DEFINITIONS)
 export const getCompatibleViewerIds = (filename: string, mimeType: string): ViewerId[] => {
   const extensionViewerId = getViewerIdForFileType(getFileTypeByExtension(filename));
   const normalizedMimeType = mimeType.trim().toLowerCase();
-  const mimeViewerId = GENERIC_TEXT_VIEWER_MIME_TYPES.has(normalizedMimeType)
-    ? null
-    : getViewerIdForFileType(getFileTypeByMime(mimeType));
+  const mimeViewerId = GENERIC_TEXT_VIEWER_MIME_TYPES.has(normalizedMimeType) ? null : getViewerIdForFileType(getFileTypeByMime(mimeType));
   const viewerId = mimeViewerId ?? extensionViewerId;
   return viewerId ? [viewerId] : [];
 };

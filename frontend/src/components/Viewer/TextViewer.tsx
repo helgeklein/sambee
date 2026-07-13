@@ -28,8 +28,8 @@ import type { ViewerComponentProps } from "../../utils/FileTypeRegistry";
 import { blurActiveToolbarControl } from "../../utils/keyboardUtils";
 import { createShareFile, shareNativeContent, shouldWarmNativeSharePayload, supportsNativeShare } from "../../utils/nativeShare";
 import { KeyboardShortcutsHelp } from "../KeyboardShortcutsHelp";
-import MarkdownEditorErrorBoundary from "./MarkdownEditorErrorBoundary";
 import { scheduleRetriableFocusRestore } from "./focusRestoration";
+import MarkdownEditorErrorBoundary from "./MarkdownEditorErrorBoundary";
 import { TextCodeEditor, type TextCodeEditorHandle, type TextCodeEditorSearchState } from "./TextCodeEditor";
 import { useMarkdownEditSession } from "./useMarkdownEditSession";
 import { VIEWER_SEARCH_INPUT_ATTRIBUTE, ViewerControls, ViewerFilenameBadge } from "./ViewerControls";
@@ -149,7 +149,15 @@ export const TextViewer: React.FC<ViewerComponentProps> = ({ connectionId, path,
       surfaceBackground: viewerBg,
       textColor: viewerText,
     }),
-    [linkColor, muiTheme.palette.action.selected, muiTheme.palette.mode, searchHighlightColors.currentMatch, searchHighlightColors.otherMatches, viewerBg, viewerText]
+    [
+      linkColor,
+      muiTheme.palette.action.selected,
+      muiTheme.palette.mode,
+      searchHighlightColors.currentMatch,
+      searchHighlightColors.otherMatches,
+      viewerBg,
+      viewerText,
+    ]
   );
 
   const setEditBaselineContent = useCallback((nextContent: string) => {
@@ -309,11 +317,6 @@ export const TextViewer: React.FC<ViewerComponentProps> = ({ connectionId, path,
     [connectionId, filename, path]
   );
 
-  useEffect(() => {
-    prefetchedShareFileRef.current = null;
-    sharePrefetchPromiseRef.current = null;
-  }, [loadShareFile]);
-
   const handleDownload = useCallback(async () => {
     try {
       await apiService.downloadFile(connectionId, path, filename);
@@ -407,7 +410,21 @@ export const TextViewer: React.FC<ViewerComponentProps> = ({ connectionId, path,
       setEditError(t("viewer.text.lockFailed", { message }));
       logError("Failed to enter text edit mode", { error: err, path, connectionId });
     }
-  }, [beginBaselineSyncWindow, clearPendingBaselineSync, connectionId, content, error, exceedsEditorLimit, isReadOnly, loading, markEditSessionPristine, path, setEditBaselineContent, supportsEditLocks, t]);
+  }, [
+    beginBaselineSyncWindow,
+    clearPendingBaselineSync,
+    connectionId,
+    content,
+    error,
+    exceedsEditorLimit,
+    isReadOnly,
+    loading,
+    markEditSessionPristine,
+    path,
+    setEditBaselineContent,
+    supportsEditLocks,
+    t,
+  ]);
 
   const handleCancelEdit = useCallback(async () => {
     if (hasUnsavedChanges) {
@@ -466,7 +483,22 @@ export const TextViewer: React.FC<ViewerComponentProps> = ({ connectionId, path,
         }
       }
     },
-    [clearBaselineSyncWindow, closeViewer, connectionId, draftContent, exitEditMode, filename, isEditing, isReadOnly, markEditSessionPristine, path, requestRestoreEditingFocus, restoreEditingFocus, setEditBaselineContent, t]
+    [
+      clearBaselineSyncWindow,
+      closeViewer,
+      connectionId,
+      draftContent,
+      exitEditMode,
+      filename,
+      isEditing,
+      isReadOnly,
+      markEditSessionPristine,
+      path,
+      requestRestoreEditingFocus,
+      restoreEditingFocus,
+      setEditBaselineContent,
+      t,
+    ]
   );
 
   const handleSave = useCallback(async () => {
@@ -483,23 +515,20 @@ export const TextViewer: React.FC<ViewerComponentProps> = ({ connectionId, path,
     await closeViewer();
   }, [closeViewer, hasUnsavedChanges, isEditing]);
 
-  const closeSearchPanel = useCallback(
-    ({ preserveQuery, restoreEditorFocus }: { preserveQuery: boolean; restoreEditorFocus: boolean }) => {
-      setSearchPanelOpen(false);
+  const closeSearchPanel = useCallback(({ preserveQuery, restoreEditorFocus }: { preserveQuery: boolean; restoreEditorFocus: boolean }) => {
+    setSearchPanelOpen(false);
 
-      if (!preserveQuery) {
-        setSearchText("");
-        setSearchAutoNavigate(true);
-      }
+    if (!preserveQuery) {
+      setSearchText("");
+      setSearchAutoNavigate(true);
+    }
 
-      if (!restoreEditorFocus) {
-        return;
-      }
+    if (!restoreEditorFocus) {
+      return;
+    }
 
-      editorRef.current?.focusCurrentSearchResult();
-    },
-    []
-  );
+    editorRef.current?.focusCurrentSearchResult();
+  }, []);
 
   const handleEscape = useCallback(() => {
     if (searchPanelOpen || isViewerSearchInputFocused()) {
@@ -608,7 +637,11 @@ export const TextViewer: React.FC<ViewerComponentProps> = ({ connectionId, path,
   const textShortcuts = useMemo(
     () => [
       { ...COMMON_SHORTCUTS.DOWNLOAD, handler: handleDownload },
-      { ...COMMON_SHORTCUTS.SEARCH, handler: handleOpenSearch, enabled: !loading && !error && !exceedsEditorLimit && editorSearchState.isSearchable },
+      {
+        ...COMMON_SHORTCUTS.SEARCH,
+        handler: handleOpenSearch,
+        enabled: !loading && !error && !exceedsEditorLimit && editorSearchState.isSearchable,
+      },
       { ...COMMON_SHORTCUTS.NEXT_MATCH, handler: handleSearchNext, enabled: searchMatches > 0 },
       { ...COMMON_SHORTCUTS.PREVIOUS_MATCH, handler: handleSearchPrevious, enabled: searchMatches > 0 },
       { ...COMMON_SHORTCUTS.EDIT, handler: () => void handleEnterEditMode(), enabled: !isEditing && !isReadOnly && !exceedsEditorLimit },
@@ -617,7 +650,25 @@ export const TextViewer: React.FC<ViewerComponentProps> = ({ connectionId, path,
       { ...COMMON_SHORTCUTS.CLOSE, handler: handleEscape, allowInInput: false, enabled: !unsavedChangesDialogOpen },
       { ...BROWSER_SHORTCUTS.SHOW_HELP, handler: () => setShowHelp(true) },
     ],
-    [editorSearchState.isSearchable, error, exceedsEditorLimit, handleDownload, handleEnterEditMode, handleEscape, handleOpenSearch, handleSave, handleSearchNext, handleSearchPrevious, handleToggleFullscreen, isEditing, isReadOnly, isSaving, loading, searchMatches, unsavedChangesDialogOpen]
+    [
+      editorSearchState.isSearchable,
+      error,
+      exceedsEditorLimit,
+      handleDownload,
+      handleEnterEditMode,
+      handleEscape,
+      handleOpenSearch,
+      handleSave,
+      handleSearchNext,
+      handleSearchPrevious,
+      handleToggleFullscreen,
+      isEditing,
+      isReadOnly,
+      isSaving,
+      loading,
+      searchMatches,
+      unsavedChangesDialogOpen,
+    ]
   );
 
   useKeyboardShortcuts({
@@ -662,7 +713,16 @@ export const TextViewer: React.FC<ViewerComponentProps> = ({ connectionId, path,
       role="status"
       aria-label={t("viewer.edit.unsavedIndicatorAria")}
       title={t("viewer.edit.unsavedIndicator")}
-      sx={{ width: isMobile ? 7 : 8, height: isMobile ? 7 : 8, borderRadius: "50%", backgroundColor: toolbarText, opacity: 1, flexShrink: 0, alignSelf: "flex-start", mt: "-0.26em" }}
+      sx={{
+        width: isMobile ? 7 : 8,
+        height: isMobile ? 7 : 8,
+        borderRadius: "50%",
+        backgroundColor: toolbarText,
+        opacity: 1,
+        flexShrink: 0,
+        alignSelf: "flex-start",
+        mt: "-0.26em",
+      }}
     />
   ) : null;
 
@@ -733,7 +793,17 @@ export const TextViewer: React.FC<ViewerComponentProps> = ({ connectionId, path,
           },
         }}
       >
-        <Box sx={{ position: "relative", width: "100%", height: "100%", display: "flex", flexDirection: "column", overflow: "hidden", boxSizing: "border-box" }}>
+        <Box
+          sx={{
+            position: "relative",
+            width: "100%",
+            height: "100%",
+            display: "flex",
+            flexDirection: "column",
+            overflow: "hidden",
+            boxSizing: "border-box",
+          }}
+        >
           <Box sx={{ flexShrink: 0, zIndex: 1 }}>
             <ViewerControls
               filename={filename}
@@ -766,10 +836,33 @@ export const TextViewer: React.FC<ViewerComponentProps> = ({ connectionId, path,
             />
           </Box>
 
-          {editError ? <Alert severity="error" sx={{ m: 2, flexShrink: 0 }}>{editError}</Alert> : null}
-          {shareError ? <Alert severity="error" sx={{ m: 2, flexShrink: 0 }}>{shareError}</Alert> : null}
+          {editError ? (
+            <Alert severity="error" sx={{ m: 2, flexShrink: 0 }}>
+              {editError}
+            </Alert>
+          ) : null}
+          {shareError ? (
+            <Alert severity="error" sx={{ m: 2, flexShrink: 0 }}>
+              {shareError}
+            </Alert>
+          ) : null}
 
-          <Box ref={contentRef} data-testid="text-viewer-content" tabIndex={0} sx={{ flex: 1, display: "flex", flexDirection: "column", overflow: "hidden", minHeight: 0, width: "100%", paddingBottom: "env(safe-area-inset-bottom, 0px)", backgroundColor: viewerBg, "&:focus": { outline: "none" } }}>
+          <Box
+            ref={contentRef}
+            data-testid="text-viewer-content"
+            tabIndex={0}
+            sx={{
+              flex: 1,
+              display: "flex",
+              flexDirection: "column",
+              overflow: "hidden",
+              minHeight: 0,
+              width: "100%",
+              paddingBottom: "env(safe-area-inset-bottom, 0px)",
+              backgroundColor: viewerBg,
+              "&:focus": { outline: "none" },
+            }}
+          >
             {loading ? (
               <Box sx={{ display: "flex", justifyContent: "center", alignItems: "center", height: "100%" }}>
                 <CircularProgress />
@@ -786,7 +879,10 @@ export const TextViewer: React.FC<ViewerComponentProps> = ({ connectionId, path,
                     maxSizeMb: (maxFileSizeBytes / (1024 * 1024)).toFixed(0),
                   })}
                 </Alert>
-                <Box component="pre" sx={{ m: 0, whiteSpace: "pre-wrap", wordBreak: "break-word", color: viewerText, fontFamily: "monospace" }}>
+                <Box
+                  component="pre"
+                  sx={{ m: 0, whiteSpace: "pre-wrap", wordBreak: "break-word", color: viewerText, fontFamily: "monospace" }}
+                >
                   {content}
                 </Box>
               </Box>
@@ -900,7 +996,12 @@ export const TextViewer: React.FC<ViewerComponentProps> = ({ connectionId, path,
         </DialogActions>
       </Dialog>
 
-      <KeyboardShortcutsHelp open={showHelp} onClose={() => setShowHelp(false)} shortcuts={textShortcuts} title={t("keyboardShortcutsHelp.titles.textViewer")} />
+      <KeyboardShortcutsHelp
+        open={showHelp}
+        onClose={() => setShowHelp(false)}
+        shortcuts={textShortcuts}
+        title={t("keyboardShortcutsHelp.titles.textViewer")}
+      />
     </>
   );
 };

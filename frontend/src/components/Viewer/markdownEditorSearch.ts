@@ -1,4 +1,4 @@
-import { getSearchQuery, SearchQuery, searchPanelOpen, setSearchQuery } from "@codemirror/search";
+import { getSearchQuery, SearchQuery, setSearchQuery } from "@codemirror/search";
 import type { EditorView } from "@codemirror/view";
 
 export interface MarkdownEditorSearchRequest {
@@ -16,10 +16,6 @@ export interface MarkdownEditorSearchMetrics {
 interface SearchMatchRange {
   from: number;
   to: number;
-}
-
-function rangeEquals(left: SearchMatchRange | null, right: SearchMatchRange): boolean {
-  return left !== null && left.from === right.from && left.to === right.to;
 }
 
 function rangeContainedInSelection(range: SearchMatchRange, selection: SearchMatchRange): boolean {

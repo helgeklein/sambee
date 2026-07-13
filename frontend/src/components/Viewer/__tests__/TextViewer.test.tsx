@@ -4,6 +4,25 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 import apiService from "../../../services/api";
 import { SambeeThemeProvider } from "../../../theme";
 
+interface MockTextCodeEditorProps {
+  ariaLabel: string;
+  className?: string;
+  onChange: (text: string) => void;
+  onSearchStateChange?: (state: {
+    currentMatch: number;
+    isSearchOpen: boolean;
+    isSearchable: boolean;
+    searchMatches: number;
+    searchText: string;
+    viewMode: "source";
+  }) => void;
+  onUserEdit?: () => void;
+  readOnly?: boolean;
+  searchOpen?: boolean;
+  searchText?: string;
+  text: string;
+}
+
 const { readTextEditorMaxFileSizeBytesPreferenceMock } = vi.hoisted(() => ({
   readTextEditorMaxFileSizeBytesPreferenceMock: vi.fn(() => 52_428_800),
 }));
@@ -13,7 +32,7 @@ vi.mock("../../../pages/FileBrowser/preferences", () => ({
 }));
 
 vi.mock("../TextCodeEditor", () => {
-  const MockTextCodeEditor = forwardRef(function MockTextCodeEditor(props: any, ref) {
+  const MockTextCodeEditor = forwardRef(function MockTextCodeEditor(props: MockTextCodeEditorProps, ref) {
     const latestTextRef = useRef(props.text);
 
     latestTextRef.current = props.text;

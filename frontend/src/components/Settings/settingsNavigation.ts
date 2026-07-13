@@ -1,6 +1,13 @@
 import { translate } from "../../i18n";
 
-export type SettingsCategory = "appearance" | "file-browser" | "text-editor" | "connections" | "local-drives" | "admin-users" | "admin-system";
+export type SettingsCategory =
+  | "appearance"
+  | "file-browser"
+  | "text-editor"
+  | "connections"
+  | "local-drives"
+  | "admin-users"
+  | "admin-system";
 export type SettingsNavItem = SettingsCategory;
 export type SettingsContentItem = SettingsNavItem;
 
