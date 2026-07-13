@@ -145,7 +145,17 @@ fi
 if grep -q '"test"' package.json; then
     echo -e "${YELLOW}=== Frontend: Unit Tests ===${NC}"
     echo -e "${BLUE}Running frontend tests...${NC}"
-    if npm test -- --run; then
+    FRONTEND_TEST_SCRIPT="${FRONTEND_TEST_SCRIPT:-}"
+    if [ -z "$FRONTEND_TEST_SCRIPT" ]; then
+        if [ "${CI:-}" = "true" ]; then
+            FRONTEND_TEST_SCRIPT="test:ci"
+        else
+            FRONTEND_TEST_SCRIPT="test"
+        fi
+    fi
+
+    echo -e "${BLUE}Using frontend npm script: ${FRONTEND_TEST_SCRIPT}${NC}"
+    if npm run "$FRONTEND_TEST_SCRIPT"; then
         echo -e "${GREEN}✓ Frontend tests passed${NC}\n"
     else
         echo -e "${RED}✗ Frontend tests failed${NC}\n"
