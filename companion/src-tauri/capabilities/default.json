@@ -15,7 +15,6 @@
     "shell:default",
     "store:default",
     "http:default",
-    "notification:default",
     "dialog:default",
     "updater:default",
     {

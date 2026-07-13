@@ -142,7 +142,7 @@
     "/^grep (-A|-E|-i)\\b/": true,
     "/^(\/usr\/local\/bin\/)?python(3)? -m (mypy|py_compile|pytest|ruff|unittest)/": true,
     "/^time\\b/": true,
-    "/^cargo\\s+(build|check|clean|doc|new|init|run|test|bench|update|search|install|uninstall|publish|login|logout|package|metadata|fix|clippy|fmt|tree|verify|watch)\\b/": true,
+    "/^cargo\\s+(audit|build|check|clean|doc|new|init|run|test|bench|update|search|install|uninstall|publish|login|logout|package|metadata|fix|clippy|fmt|tree|verify|watch)\\b/": true,
     "rm": false,
     "rmdir": false,
     "del": false,
