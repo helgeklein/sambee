@@ -1131,9 +1131,9 @@ ruff==0.15.20 \
     --hash=sha256:ed65ef510e43a137207e0f01cfcf998aeddb1aeeda5c9d35023e910284d7cf21 \
     --hash=sha256:f701305e66b38ea6c91882490eb73459796808e4c6362a1b765255e0cdcd4053
     # via -r requirements-dev.txt
-smbprotocol==1.16.1 \
-    --hash=sha256:0f9c35b2a0103314da06aecaffa8821f060a9773ad82cc0d7f29130083d598b4 \
-    --hash=sha256:ad7a31662792817c6da3629a3cfb96a51d8213e993ebd0c0a7ee750d2b1f8ec8
+smbprotocol==1.17.0 \
+    --hash=sha256:bcc27edfff7d727a7eb30424138766e1ee216ae2ffc1af03dab0448f29c4731c \
+    --hash=sha256:bd1abff5417f5af83ca516a64ab8e5acece3dbdcf58d4e5e23e47f5165a77349
     # via -r requirements.txt
 sqlalchemy==2.0.51 \
     --hash=sha256:0378d055e9e8cd6ce4d8dff683bdd3d7d413533c4ee51d67a2b1e0f9eacc0f23 \
