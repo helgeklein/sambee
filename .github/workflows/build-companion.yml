@@ -255,7 +255,7 @@ jobs:
           owner: ${{ env.COMPANION_RELEASE_REPO_OWNER }}
           repo: ${{ env.COMPANION_RELEASE_REPO_NAME }}
           releaseCommitish: ${{ env.COMPANION_RELEASE_REPO_BRANCH }}
-          includeUpdaterJson: false
+          uploadUpdaterJson: false
           tagName: companion-v__VERSION__
           releaseName: 'Sambee Companion v__VERSION__'
           releaseBody: 'See the assets below to download and install.'

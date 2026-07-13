@@ -41,6 +41,10 @@ The WYSIWYG Markdown editor is gone. The reason is plain and simple: UX. AFAIK, 
 
 The actually better option: take one of the best available editors, CodeMirror, and wire it up for Markdown - but also generic text editing. This provides a best-in-class editing experience with amazing UX. It also gives us battle-tested addons that implement many of the little quality-of-life features we've become accustomed to through decades of coding and editing experience.
 
+## Text File Viewer and Editor
+
+Since we already have an excellent text editor (see the Markdown Editor note), we might as well put it to good use as a generic text file editor. Sambee can now open, display, and edit any kind of text-based file, with all the bells and whistles of a first-rate editor, for example syntax highlighting.
+
 ## PDF Viewer
 
 Fixes:

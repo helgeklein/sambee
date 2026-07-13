@@ -21,7 +21,3 @@
 
 - Additional formats
    - DCM (medical image format)
-
-# Companion build warning
-
-- Unexpected input(s) 'includeUpdaterJson', valid inputs are ['releaseId', 'tagName', 'releaseName', 'releaseBody', 'releaseDraft', 'prerelease', 'releaseCommitish', 'projectPath', 'uploadUpdaterJson', 'updaterJsonPreferNsis', 'tauriScript', 'args', 'retryAttempts', 'owner', 'repo', 'githubBaseUrl', 'releaseAssetNamePattern', 'uploadPlainBinary', 'uploadWorkflowArtifacts', 'workflowArtifactNamePattern', 'uploadUpdaterSignatures', 'generateReleaseNotes', 'mobile']
