@@ -23,7 +23,7 @@ The manual workflow exposes one optional version override plus one checkbox per 
 
 | Input | What it means | Typical usage |
 |---|---|---|
-| `publish_version_override` | Use a temporary version for this run instead of the checked-in `VERSION` value. | Set it for prerelease, beta, rc, or test builds such as `0.8.0-beta.1` without changing the repository version. |
+| `publish_version_override` | Use a temporary version for this run instead of the checked-in `VERSION` value. Enter `major.minor.patch` with an optional prerelease suffix and optional build metadata. | Set it for prerelease, beta, rc, or test builds such as `0.8.0-beta.1` without changing the repository version. |
 | `build_all_platforms` | Include every supported platform in one run. | Check it for a normal full release. |
 | `build_linux_x64` | Include the Linux x64 build. | Check it when you need Linux release assets. |
 | `build_macos_arm64` | Include the macOS ARM64 build. | Check it when you need Apple Silicon macOS release assets. |
@@ -40,6 +40,15 @@ Current platform checkboxes are:
 
 If you leave `publish_version_override` empty, the workflow uses the checked-in `VERSION` value and verifies that all synced metadata files are already committed.
 If you set `publish_version_override`, the workflow writes that value into the synced Companion metadata files for this run only.
+
+Use the same version shape you would expect from a release tag:
+
+- `0.8.0` for a plain release version
+- `0.8.0-beta.1` or `0.8.0-rc.1` for prerelease candidates
+- `0.8.0-test.1` for temporary test builds
+- `0.8.0-beta.1+build.5` if you need build metadata
+
+In other words, the accepted structure is `major.minor.patch`, optionally followed by `-prerelease` and then `+build-metadata`.
 
 The workflow fails early if the resulting release tag already exists in `helgeklein/sambee-companion`, whether that release is still a draft or already published.
 Choose a distinct prerelease suffix such as `-beta.1` or `-rc.1` when you need another build before the official release.
