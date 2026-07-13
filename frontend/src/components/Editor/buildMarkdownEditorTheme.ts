@@ -1,9 +1,8 @@
 import { HighlightStyle, syntaxHighlighting } from "@codemirror/language";
 import type { Extension } from "@codemirror/state";
-import { EditorView } from "@codemirror/view";
 import { tags } from "@lezer/highlight";
+import { buildSelectionLayerTheme } from "./buildEditorSelectionLayer";
 import { buildCodeMirrorSurfaceTheme } from "./buildCodeMirrorSurfaceTheme";
-import { MARKDOWN_SELECTION_RANGE_CLASS } from "./buildMarkdownEditorExtensions";
 
 export interface MarkdownEditorThemeOptions {
   activeLineBackground: string;
@@ -45,16 +44,6 @@ export function buildMarkdownEditorTheme({
       textColor,
     }),
     syntaxHighlighting(HighlightStyle.define([{ tag: [tags.labelName, tags.link, tags.string, tags.url], color: linkColor }])),
-    EditorView.theme({
-      ".cm-content ::selection": {
-        backgroundColor: "transparent",
-      },
-      ".cm-line::selection, .cm-line ::selection": {
-        backgroundColor: "transparent",
-      },
-      [`.${MARKDOWN_SELECTION_RANGE_CLASS}`]: {
-        backgroundColor: selectionBackground,
-      },
-    }),
+    buildSelectionLayerTheme({ selectionBackground }),
   ];
 }

@@ -8,13 +8,15 @@ import userEvent from "@testing-library/user-event";
 import { createRef, useState } from "react";
 import { describe, expect, it, vi } from "vitest";
 import { buildCommonEditorExtensions } from "../buildCommonEditorExtensions";
+import { buildSelectionLayerExtension, getSelectionLineSegments } from "../buildEditorSelectionLayer";
 import {
   buildMarkdownAutocompleteUi,
   createMarkdownSnippetAutocompleter,
   MARKDOWN_SNIPPET_COMPLETIONS,
 } from "../buildMarkdownAutocomplete";
-import { buildMarkdownEditorExtensions, getMarkdownSelectionLineSegments } from "../buildMarkdownEditorExtensions";
+import { buildMarkdownEditorExtensions } from "../buildMarkdownEditorExtensions";
 import type { MarkdownEditorThemeOptions } from "../buildMarkdownEditorTheme";
+import { buildTextEditorTheme, type TextEditorThemeOptions } from "../buildTextEditorTheme";
 import { SourceTextEditor } from "../SourceTextEditor";
 import type { SourceTextEditorHandle } from "../sourceTextEditorTypes";
 
@@ -31,6 +33,18 @@ const TEST_MARKDOWN_THEME: MarkdownEditorThemeOptions = {
   tableHeaderBackground: "rgb(234, 232, 227)",
   tableHeaderText: "rgb(31, 38, 43)",
   textColor: "rgb(31, 38, 43)",
+};
+
+const TEST_TEXT_THEME: TextEditorThemeOptions = {
+  activeLineBackground: TEST_MARKDOWN_THEME.activeLineBackground,
+  accentColor: TEST_MARKDOWN_THEME.linkColor,
+  borderColor: TEST_MARKDOWN_THEME.borderColor,
+  currentSearchMatchBackground: "rgba(244, 196, 48, 0.32)",
+  isDarkMode: false,
+  otherSearchMatchBackground: "rgba(244, 196, 48, 0.18)",
+  selectionBackground: TEST_MARKDOWN_THEME.selectionBackground,
+  surfaceBackground: TEST_MARKDOWN_THEME.surfaceBackground,
+  textColor: TEST_MARKDOWN_THEME.textColor,
 };
 
 describe("SourceTextEditor", () => {
@@ -245,18 +259,53 @@ describe("SourceTextEditor", () => {
 
     await waitFor(() => {
       expect(editor.closest(".cm-editor")?.querySelectorAll(".cm-selectionBackground")).toHaveLength(0);
-      expect(editor.closest(".cm-editor")?.querySelector(".sambee-markdown-selection-layer")).not.toBeNull();
+      expect(editor.closest(".cm-editor")?.querySelector(".sambee-editor-selection-layer")).not.toBeNull();
     });
   });
 
   it("includes empty lines in markdown selection segments", () => {
     const state = EditorState.create({ doc: ["alpha", "", "beta"].join("\n") });
 
-    expect(getMarkdownSelectionLineSegments(state.doc, { from: 0, to: state.doc.length })).toEqual([
+    expect(getSelectionLineSegments(state.doc, { from: 0, to: state.doc.length })).toEqual([
       { from: 0, to: 5, emptyLine: false },
       { from: 6, to: 6, emptyLine: true },
       { from: 7, to: 11, emptyLine: false },
     ]);
+  });
+
+  it("uses the shared selection layer for plain text editors", async () => {
+    const user = userEvent.setup();
+    const editorRef = createRef<SourceTextEditorHandle>();
+
+    render(
+      <SourceTextEditor
+        ref={editorRef}
+        value={["Line 1", "2", "", "5", "", "7"].join("\n")}
+        extensions={[
+          ...buildCommonEditorExtensions({ drawSelection: false }),
+          ...buildTextEditorTheme(TEST_TEXT_THEME),
+          buildSelectionLayerExtension(),
+        ]}
+        ariaLabel="Plain text selection editor"
+        onChange={() => {}}
+      />
+    );
+
+    const editor = await screen.findByLabelText("Plain text selection editor");
+    await user.click(editor);
+
+    const view = editorRef.current?.getView();
+
+    if (!view) {
+      throw new Error("Expected editor view to be available");
+    }
+
+    view.dispatch({ selection: EditorSelection.range(0, 11) });
+
+    await waitFor(() => {
+      expect(editor.closest(".cm-editor")?.querySelectorAll(".cm-selectionBackground")).toHaveLength(0);
+      expect(editor.closest(".cm-editor")?.querySelector(".sambee-editor-selection-layer")).not.toBeNull();
+    });
   });
 
   it("applies the markdown theme colors to text, links, and the active line", async () => {

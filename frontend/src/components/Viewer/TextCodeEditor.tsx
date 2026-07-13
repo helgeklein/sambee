@@ -3,6 +3,8 @@ import { languages } from "@codemirror/language-data";
 import { findNext, findPrevious } from "@codemirror/search";
 import type { Extension } from "@codemirror/state";
 import { forwardRef, useCallback, useEffect, useImperativeHandle, useMemo, useRef, useState } from "react";
+import { buildPassiveSearchHighlightExtension } from "../Editor/buildCodeMirrorSearchHighlights";
+import { buildSelectionLayerExtension } from "../Editor/buildEditorSelectionLayer";
 import { buildCommonEditorExtensions } from "../Editor/buildCommonEditorExtensions";
 import { buildTextEditorTheme, type TextEditorThemeOptions } from "../Editor/buildTextEditorTheme";
 import { SourceTextEditor } from "../Editor/SourceTextEditor";
@@ -71,7 +73,13 @@ export const TextCodeEditor = forwardRef<TextCodeEditorHandle, TextCodeEditorPro
     const [languageExtensions, setLanguageExtensions] = useState<Extension[]>(EMPTY_EXTENSIONS);
     const previousSearchRequestRef = useRef<{ searchText: string; searchOpen: boolean } | null>(null);
     const extensions = useMemo(
-      () => [...buildCommonEditorExtensions({ lineWrapping: false }), ...buildTextEditorTheme(theme), ...languageExtensions],
+      () => [
+        ...buildCommonEditorExtensions({ drawSelection: false, highlightSelectionMatches: false, lineWrapping: false }),
+        ...buildTextEditorTheme(theme),
+        buildSelectionLayerExtension(),
+        buildPassiveSearchHighlightExtension(),
+        ...languageExtensions,
+      ],
       [languageExtensions, theme]
     );
 

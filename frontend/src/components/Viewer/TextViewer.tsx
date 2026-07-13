@@ -805,12 +805,6 @@ export const TextViewer: React.FC<ViewerComponentProps> = ({ connectionId, path,
                   "& .sambee-text-editor .cm-content": {
                     p: "16px 20px",
                   },
-                  "& .sambee-text-editor .cm-searchMatch": {
-                    backgroundColor: searchHighlightColors.otherMatches,
-                  },
-                  "& .sambee-text-editor .cm-searchMatch-selected": {
-                    backgroundColor: searchHighlightColors.currentMatch,
-                  },
                 }}
               >
                 <MarkdownEditorErrorBoundary

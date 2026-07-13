@@ -1,5 +1,6 @@
 import type { Extension } from "@codemirror/state";
 import { EditorView } from "@codemirror/view";
+import { PASSIVE_SEARCH_MATCH_CLASS, PASSIVE_SELECTED_SEARCH_MATCH_CLASS } from "./buildCodeMirrorSearchHighlights";
 
 export interface CodeMirrorSurfaceThemeOptions {
   activeLineBackground: string;
@@ -40,7 +41,13 @@ export function buildCodeMirrorSurfaceTheme({
         ".cm-searchMatch": {
           backgroundColor: otherSearchMatchBackground,
         },
+        [`.${PASSIVE_SEARCH_MATCH_CLASS}`]: {
+          backgroundColor: otherSearchMatchBackground,
+        },
         ".cm-searchMatch-selected": {
+          backgroundColor: currentSearchMatchBackground,
+        },
+        [`.${PASSIVE_SELECTED_SEARCH_MATCH_CLASS}`]: {
           backgroundColor: currentSearchMatchBackground,
         },
         ".cm-cursor, .cm-dropCursor": {

@@ -5,13 +5,15 @@ import userEvent from "@testing-library/user-event";
 import { createRef } from "react";
 import { describe, expect, it } from "vitest";
 import { buildCommonEditorExtensions } from "../../Editor/buildCommonEditorExtensions";
+import {
+  buildPassiveSearchHighlightExtension,
+  PASSIVE_SEARCH_MATCH_CLASS,
+  PASSIVE_SELECTED_SEARCH_MATCH_CLASS,
+} from "../../Editor/buildCodeMirrorSearchHighlights";
 import { SourceTextEditor } from "../../Editor/SourceTextEditor";
 import type { SourceTextEditorHandle } from "../../Editor/sourceTextEditorTypes";
 import {
-  buildPassiveSearchHighlightExtension,
   getRootSearchMetrics,
-  PASSIVE_SEARCH_MATCH_CLASS,
-  PASSIVE_SELECTED_SEARCH_MATCH_CLASS,
   shouldAutoNavigateSearch,
   updateRootSearchQuery,
 } from "../markdownEditorSearch";
