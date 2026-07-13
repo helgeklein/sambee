@@ -43,7 +43,7 @@ hex = "0.4"
 keyring = { version = "3", features = ["apple-native", "windows-native", "sync-secret-service"] }
 chrono = { version = "0.4", features = ["serde"] }
 tokio-util = { version = "0.7", features = ["io"] }
-notify = "7"
+notify = "8"
 
 [target.'cfg(windows)'.dependencies]
 winreg = "0.55"
