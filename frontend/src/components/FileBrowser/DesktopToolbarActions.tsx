@@ -1,6 +1,8 @@
+import DescriptionOutlinedIcon from "@mui/icons-material/DescriptionOutlined";
 import HelpOutlineIcon from "@mui/icons-material/HelpOutlineOutlined";
+import KeyboardIcon from "@mui/icons-material/Keyboard";
 import SettingsIcon from "@mui/icons-material/Settings";
-import { Box, ListItemText, Menu, MenuItem } from "@mui/material";
+import { Box, ListItemIcon, ListItemText, Menu, MenuItem } from "@mui/material";
 import { BROWSER_SHORTCUTS } from "../../config/keyboardShortcuts";
 import { withShortcut } from "../../hooks/useKeyboardShortcuts";
 import { usePillButtonMenu } from "../../hooks/usePillButtonMenu";
@@ -75,6 +77,9 @@ export function DesktopToolbarActions({
             onOpenHelp();
           }}
         >
+          <ListItemIcon>
+            <KeyboardIcon fontSize="small" />
+          </ListItemIcon>
           <ListItemText primary={translate("fileBrowser.chrome.helpMenu.keyboardShortcuts")} />
         </MenuItem>
         <MenuItem
@@ -83,6 +88,9 @@ export function DesktopToolbarActions({
             onOpenDocumentation();
           }}
         >
+          <ListItemIcon>
+            <DescriptionOutlinedIcon fontSize="small" />
+          </ListItemIcon>
           <ListItemText primary={translate("fileBrowser.chrome.helpMenu.documentation")} />
         </MenuItem>
       </Menu>
