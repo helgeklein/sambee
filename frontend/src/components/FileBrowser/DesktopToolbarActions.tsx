@@ -1,11 +1,13 @@
+import HelpOutlineIcon from "@mui/icons-material/HelpOutlineOutlined";
 import SettingsIcon from "@mui/icons-material/Settings";
-import { Box, IconButton, ListItemText, Menu, MenuItem } from "@mui/material";
-import { type MouseEvent, useState } from "react";
+import { Box, ListItemText, Menu, MenuItem } from "@mui/material";
 import { BROWSER_SHORTCUTS } from "../../config/keyboardShortcuts";
 import { withShortcut } from "../../hooks/useKeyboardShortcuts";
+import { usePillButtonMenu } from "../../hooks/usePillButtonMenu";
 import { translate } from "../../i18n";
+import { secondaryToolbarMenuPaperSx } from "../../theme/commonStyles";
 import { createEscapeHandler } from "../../utils/keyboardUtils";
-import { HelpCircleOutlineIcon } from "../HelpCircleOutlineIcon";
+import { ToolbarIconButton } from "./ToolbarIconButton";
 
 //
 // DesktopToolbarActions
@@ -28,50 +30,48 @@ export function DesktopToolbarActions({
   onEscape,
   disableTabFocus,
 }: DesktopToolbarActionsProps) {
-  const [helpMenuAnchorEl, setHelpMenuAnchorEl] = useState<HTMLElement | null>(null);
-
-  const handleOpenHelpMenu = (event: MouseEvent<HTMLElement>) => {
-    setHelpMenuAnchorEl(event.currentTarget);
-  };
-
-  const handleCloseHelpMenu = () => {
-    setHelpMenuAnchorEl(null);
-  };
-
-  const handleMenuClose = (_event: unknown, reason: string) => {
-    handleCloseHelpMenu();
-    if (reason === "escapeKeyDown") {
-      onEscape?.();
-    }
-  };
+  const { anchorEl, open, handleClick, handleKeyDown, handleKeyUp, handleClose } = usePillButtonMenu(onEscape);
 
   return (
     <Box sx={{ display: "flex", alignItems: "center", gap: 0.5 }}>
-      <IconButton
-        color="inherit"
-        onClick={handleOpenHelpMenu}
-        onKeyDown={createEscapeHandler(onEscape)}
-        title={translate("fileBrowser.chrome.toolbar.help")}
-        aria-label={translate("fileBrowser.chrome.toolbar.help")}
+      <ToolbarIconButton
+        label={translate("fileBrowser.chrome.toolbar.help")}
+        tooltip={translate("fileBrowser.chrome.toolbar.help")}
+        onClick={handleClick}
+        onKeyDown={handleKeyDown}
+        onKeyUp={handleKeyUp}
         tabIndex={disableTabFocus ? -1 : undefined}
+        ariaControls={open ? "help-menu" : undefined}
+        ariaExpanded={open}
+        ariaHaspopup="menu"
       >
-        <HelpCircleOutlineIcon />
-      </IconButton>
+        <HelpOutlineIcon />
+      </ToolbarIconButton>
       <Menu
-        anchorEl={helpMenuAnchorEl}
-        open={helpMenuAnchorEl !== null}
-        onClose={handleMenuClose}
+        id="help-menu"
+        anchorEl={anchorEl}
+        open={open}
+        onClose={handleClose}
+        anchorOrigin={{
+          vertical: "bottom",
+          horizontal: "right",
+        }}
+        transformOrigin={{
+          vertical: "top",
+          horizontal: "right",
+        }}
         slotProps={{
+          list: {
+            role: "menu",
+          },
           paper: {
-            sx: {
-              bgcolor: "background.paper",
-            },
+            sx: secondaryToolbarMenuPaperSx,
           },
         }}
       >
         <MenuItem
           onClick={() => {
-            handleCloseHelpMenu();
+            handleClose();
             onOpenHelp();
           }}
         >
@@ -79,23 +79,22 @@ export function DesktopToolbarActions({
         </MenuItem>
         <MenuItem
           onClick={() => {
-            handleCloseHelpMenu();
+            handleClose();
             onOpenDocumentation();
           }}
         >
           <ListItemText primary={translate("fileBrowser.chrome.helpMenu.documentation")} />
         </MenuItem>
       </Menu>
-      <IconButton
-        color="inherit"
+      <ToolbarIconButton
+        label={translate("fileBrowser.chrome.toolbar.openSettings")}
+        tooltip={withShortcut(BROWSER_SHORTCUTS.OPEN_SETTINGS)}
         onClick={onOpenSettings}
         onKeyDown={createEscapeHandler(onEscape)}
-        title={withShortcut(BROWSER_SHORTCUTS.OPEN_SETTINGS)}
-        aria-label={translate("fileBrowser.chrome.toolbar.openSettings")}
         tabIndex={disableTabFocus ? -1 : undefined}
       >
         <SettingsIcon />
-      </IconButton>
+      </ToolbarIconButton>
     </Box>
   );
 }

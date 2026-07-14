@@ -1,5 +1,6 @@
 import { Logout as LogoutIcon, Settings as SettingsIcon } from "@mui/icons-material";
 import DescriptionOutlinedIcon from "@mui/icons-material/DescriptionOutlined";
+import HelpOutlineIcon from "@mui/icons-material/HelpOutlineOutlined";
 import HomeIcon from "@mui/icons-material/Home";
 import {
   Box,
@@ -22,7 +23,6 @@ import { SAFE_AREA_INSET } from "../../theme/mobileShell";
 import type { Connection } from "../../types";
 import type { VersionInfo } from "../../utils/version";
 import { fetchVersionInfo } from "../../utils/version";
-import { HelpCircleOutlineIcon } from "../HelpCircleOutlineIcon";
 
 interface HamburgerMenuProps {
   open: boolean;
@@ -151,7 +151,7 @@ const HamburgerMenu: React.FC<HamburgerMenuProps> = ({
             aria-label={t("fileBrowser.chrome.mobileMenu.openKeyboardShortcutsAriaLabel")}
           >
             <ListItemIcon>
-              <HelpCircleOutlineIcon />
+              <HelpOutlineIcon />
             </ListItemIcon>
             <ListItemText primary={t("fileBrowser.chrome.helpMenu.keyboardShortcuts")} />
           </ListItemButton>
