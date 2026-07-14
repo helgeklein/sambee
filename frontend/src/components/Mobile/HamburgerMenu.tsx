@@ -1,4 +1,5 @@
 import { Logout as LogoutIcon, Settings as SettingsIcon } from "@mui/icons-material";
+import DescriptionOutlinedIcon from "@mui/icons-material/DescriptionOutlined";
 import HomeIcon from "@mui/icons-material/Home";
 import {
   Box,
@@ -21,6 +22,7 @@ import { SAFE_AREA_INSET } from "../../theme/mobileShell";
 import type { Connection } from "../../types";
 import type { VersionInfo } from "../../utils/version";
 import { fetchVersionInfo } from "../../utils/version";
+import { HelpCircleOutlineIcon } from "../HelpCircleOutlineIcon";
 
 interface HamburgerMenuProps {
   open: boolean;
@@ -29,6 +31,8 @@ interface HamburgerMenuProps {
   selectedConnectionId: string;
   onConnectionChange: (connectionId: string) => void;
   onNavigateToRoot: () => void;
+  onOpenHelp: () => void;
+  onOpenDocumentation: () => void;
   onOpenSettings: () => void;
   onLogout: () => void;
 }
@@ -40,6 +44,8 @@ const HamburgerMenu: React.FC<HamburgerMenuProps> = ({
   selectedConnectionId,
   onConnectionChange,
   onNavigateToRoot,
+  onOpenHelp,
+  onOpenDocumentation,
   onOpenSettings,
   onLogout,
 }) => {
@@ -133,6 +139,36 @@ const HamburgerMenu: React.FC<HamburgerMenuProps> = ({
               <HomeIcon />
             </ListItemIcon>
             <ListItemText primary={t("common.labels.root")} />
+          </ListItemButton>
+        </ListItem>
+
+        <ListItem disablePadding>
+          <ListItemButton
+            onClick={() => {
+              onOpenHelp();
+              onClose();
+            }}
+            aria-label={t("fileBrowser.chrome.mobileMenu.openKeyboardShortcutsAriaLabel")}
+          >
+            <ListItemIcon>
+              <HelpCircleOutlineIcon />
+            </ListItemIcon>
+            <ListItemText primary={t("fileBrowser.chrome.helpMenu.keyboardShortcuts")} />
+          </ListItemButton>
+        </ListItem>
+
+        <ListItem disablePadding>
+          <ListItemButton
+            onClick={() => {
+              onOpenDocumentation();
+              onClose();
+            }}
+            aria-label={t("fileBrowser.chrome.mobileMenu.openDocumentationAriaLabel")}
+          >
+            <ListItemIcon>
+              <DescriptionOutlinedIcon />
+            </ListItemIcon>
+            <ListItemText primary={t("fileBrowser.chrome.helpMenu.documentation")} />
           </ListItemButton>
         </ListItem>
 

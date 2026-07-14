@@ -58,6 +58,7 @@ import { loadCurrentUserSettings } from "../services/userSettingsSync";
 import { getMobileViewportShellSx, mobileSafeAreaAppBarSx, mobileSafeAreaToolbarSx, SAFE_AREA_INSET } from "../theme/mobileShell";
 import type { ConflictInfo, Connection } from "../types";
 import { isApiError } from "../types";
+import { openExternalUrl } from "../utils/externalLinks";
 import { compareLocalizedStrings } from "../utils/localeFormatting";
 import { isAdminUser } from "../utils/userAccess";
 import {
@@ -1570,6 +1571,10 @@ const Browser: React.FC = () => {
     }, 0);
   };
 
+  const handleOpenDocumentation = useCallback(() => {
+    openExternalUrl("https://sambee.net/docs/");
+  }, []);
+
   const openConnectionsSettings = useCallback(() => {
     if (useCompactLayout) {
       setMobileSettingsInitialView("connections");
@@ -2192,6 +2197,8 @@ const Browser: React.FC = () => {
           }
           activePane.setViewInfo(null);
         }}
+        onOpenHelp={() => setShowHelp(true)}
+        onOpenDocumentation={handleOpenDocumentation}
         onOpenSettings={handleOpenSettings}
         onLogout={handleLogout}
       />
@@ -2210,6 +2217,8 @@ const Browser: React.FC = () => {
               searchActivationToken={quickBarActivationToken}
               searchInputRef={quickBarPane.searchInputRef}
               showSearch={activePane.connectionId !== ""}
+              onOpenHelp={() => setShowHelp(true)}
+              onOpenDocumentation={handleOpenDocumentation}
               onOpenSettings={handleOpenSettings}
               onBlurToFileList={() => quickBarPane.listContainerEl?.focus()}
               searchQueryValue={quickBarQueryValue}

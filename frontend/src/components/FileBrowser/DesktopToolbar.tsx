@@ -11,6 +11,8 @@ interface DesktopToolbarProps {
   searchActivationToken?: number;
   searchInputRef?: React.RefObject<HTMLInputElement>;
   showSearch: boolean;
+  onOpenHelp: () => void;
+  onOpenDocumentation: () => void;
   onOpenSettings: () => void;
   /** Called when ESC is pressed on controls or when menus close, to focus file list */
   onBlurToFileList?: () => void;
@@ -32,6 +34,8 @@ export function DesktopToolbar({
   searchActivationToken,
   searchInputRef,
   showSearch,
+  onOpenHelp,
+  onOpenDocumentation,
   onOpenSettings,
   onBlurToFileList,
   searchQueryValue,
@@ -74,7 +78,13 @@ export function DesktopToolbar({
       <Box sx={{ flexGrow: 1 }} />
 
       <Box sx={{ ml: 1 }}>
-        <DesktopToolbarActions onOpenSettings={onOpenSettings} onEscape={onBlurToFileList} disableTabFocus={disableTabFocus} />
+        <DesktopToolbarActions
+          onOpenHelp={onOpenHelp}
+          onOpenDocumentation={onOpenDocumentation}
+          onOpenSettings={onOpenSettings}
+          onEscape={onBlurToFileList}
+          disableTabFocus={disableTabFocus}
+        />
       </Box>
     </>
   );

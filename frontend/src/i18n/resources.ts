@@ -750,10 +750,17 @@ export const EN_TRANSLATIONS = {
       mobileMenu: {
         selectConnectionAriaLabel: "Select connection",
         navigateRootAriaLabel: "Navigate to root directory",
+        openKeyboardShortcutsAriaLabel: "Open keyboard shortcuts",
+        openDocumentationAriaLabel: "Open documentation",
         openSettingsAriaLabel: "Open settings",
         logoutAriaLabel: "Logout",
       },
+      helpMenu: {
+        keyboardShortcuts: "Keyboard shortcuts",
+        documentation: "Documentation",
+      },
       toolbar: {
+        help: "Help",
         openSettings: "Open settings",
       },
     },
