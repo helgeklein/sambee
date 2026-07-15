@@ -37,19 +37,36 @@ Opening in natively installed apps:
 
 ## Markdown Editor: Strategy Change
 
-The WYSIWYG Markdown editor is gone. The reason is plain and simple: UX. AFAIK, there's not a single open-source rich-text (WYSIWYG) Markdown editor that comes with great user experience. As I found out, the old editor was certainly not up to the task. That means: out.
+The WYSIWYG Markdown editor is gone. The reason is plain and simple: UX. AFAIK, there's not a single open-source rich-text (WYSIWYG) Markdown editor that comes with great user experience. As I found out, the old editor was certainly not up to the task.
 
-The actually better option: take one of the best available editors, CodeMirror, and wire it up for Markdown - but also generic text editing. This provides a best-in-class editing experience with amazing UX. It also gives us battle-tested addons that implement many of the little quality-of-life features we've become accustomed to through decades of coding and editing experience.
+The actually better option: take one of the best available editors, CodeMirror, and wire it up for Markdown. This provides a best-in-class editing experience with amazing UX. It also gives us battle-tested addons that implement many of the little quality-of-life features we've become accustomed to through decades of coding and editing experience.
+
+### Interactive Markdown Table Editing
+
+While editing Markdown in a text editor works well for headings and lists, it utterly fails when it comes to tables. Markdown's table syntax is simply too unwieldy - try inserting a column in the middle - and the source code is not exactly pleasing on the eye. Tables just have to be edited in an interactive WYSIWYG UI that looks and feels like a spreadsheet app. And that is exactly what you get with Sambee.
 
 ## Text File Viewer and Editor
 
 Since we already have an excellent text editor (see the Markdown Editor note), we might as well put it to good use as a generic text file editor. Sambee can now open, display, and edit any kind of text-based file, with all the bells and whistles of a first-rate editor, for example syntax highlighting.
 
-## PDF Viewer
+## Miscellaneous
 
-Fixes:
+### Home Screen
+
+- Added a help button next to the settings (gear) icon
+
+### File List
+
+- Increased font size on mobile
+
+### PDF Viewer
 
 - Intra-document links now work correctly, e.g. from a table of contents.
+
+### Under the Hood
+
+- Major dependency upgrades across the board, e.g., to React 19 and MUI 9
+- Improved suspend/resume and reload resilience
 
 ## Internals
 
