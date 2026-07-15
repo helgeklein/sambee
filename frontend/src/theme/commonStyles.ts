@@ -205,3 +205,18 @@ export const secondaryStripButtonIconSx: SxProps<Theme> = {
   display: "flex",
   fontSize: "1.25rem",
 };
+
+export const toolbarIconButtonSx: SxProps<Theme> = {
+  minWidth: 44,
+  minHeight: 44,
+  "&:focus": {
+    outline: "none",
+  },
+  "&.Mui-focusVisible": {
+    outline: "none",
+    boxShadow: (theme) => getPillButtonFocusVisibleBoxShadow(theme),
+  },
+  "& .MuiSvgIcon-root": {
+    fontSize: "1.5rem",
+  },
+};

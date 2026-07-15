@@ -75,6 +75,86 @@ describe("useBackendRecoveryMonitor", () => {
     expect(onReconnectNow).toHaveBeenCalledWith("window-focus");
   });
 
+  it("proactively probes on focus after resume even when backend still looks available", async () => {
+    const fetchMock = vi.fn<typeof fetch>().mockResolvedValue(new Response(null, { status: 200 }));
+
+    vi.stubGlobal("fetch", fetchMock);
+
+    renderHook(() => useBackendRecoveryMonitor({ status: "available" }));
+
+    expect(fetchMock).toHaveBeenCalledTimes(0);
+
+    act(() => {
+      window.dispatchEvent(new Event("focus"));
+    });
+
+    await flushAsyncWork();
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+  });
+
+  it("throttles proactive focus probes while backend remains available", async () => {
+    const fetchMock = vi.fn<typeof fetch>().mockResolvedValue(new Response(null, { status: 200 }));
+
+    vi.stubGlobal("fetch", fetchMock);
+
+    renderHook(() => useBackendRecoveryMonitor({ status: "available" }));
+
+    act(() => {
+      window.dispatchEvent(new Event("focus"));
+    });
+
+    await flushAsyncWork();
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+
+    act(() => {
+      window.dispatchEvent(new Event("focus"));
+    });
+
+    await flushAsyncWork();
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(30_000);
+    });
+
+    act(() => {
+      window.dispatchEvent(new Event("focus"));
+    });
+
+    await flushAsyncWork();
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+  });
+
+  it("does not proactively probe on a normal pageshow during hard reload", async () => {
+    const fetchMock = vi.fn<typeof fetch>().mockResolvedValue(new Response(null, { status: 200 }));
+
+    vi.stubGlobal("fetch", fetchMock);
+
+    renderHook(() => useBackendRecoveryMonitor({ status: "available" }));
+
+    act(() => {
+      window.dispatchEvent(new PageTransitionEvent("pageshow", { persisted: false }));
+    });
+
+    await flushAsyncWork();
+    expect(fetchMock).toHaveBeenCalledTimes(0);
+  });
+
+  it("proactively probes on a persisted pageshow restore", async () => {
+    const fetchMock = vi.fn<typeof fetch>().mockResolvedValue(new Response(null, { status: 200 }));
+
+    vi.stubGlobal("fetch", fetchMock);
+
+    renderHook(() => useBackendRecoveryMonitor({ status: "available" }));
+
+    act(() => {
+      window.dispatchEvent(new PageTransitionEvent("pageshow", { persisted: true }));
+    });
+
+    await flushAsyncWork();
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+  });
+
   it("uses an authenticated recovery probe when an access token is present", async () => {
     const fetchMock = vi.fn<typeof fetch>().mockResolvedValue(new Response(null, { status: 200 }));
 

@@ -50,6 +50,7 @@ import {
   DOM_TEXT_SEARCH_HIGHLIGHT_SELECTOR,
   type DomTextSearchMatch,
 } from "../../utils/domTextSearch";
+import { openExternalUrl } from "../../utils/externalLinks";
 import type { ViewerComponentProps } from "../../utils/FileTypeRegistry";
 import { blurActiveToolbarControl } from "../../utils/keyboardUtils";
 import { createShareFile, shareNativeContent, shouldWarmNativeSharePayload, supportsNativeShare } from "../../utils/nativeShare";
@@ -1678,7 +1679,7 @@ export const MarkdownViewer: React.FC<ViewerComponentProps> = ({ connectionId, p
                       const handleLinkClick = opensNewTab
                         ? (event: React.MouseEvent) => {
                             event.preventDefault();
-                            window.open(resolvedHref, "_blank", "noopener,noreferrer");
+                            openExternalUrl(resolvedHref);
 
                             // External links leave focus on the clicked anchor.
                             // Restore focus to the viewer surface so single-key

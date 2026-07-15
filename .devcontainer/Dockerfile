@@ -3,6 +3,8 @@
 FROM mcr.microsoft.com/devcontainers/python:3.13@sha256:9b0762901a555c31c2c63824cb5b1ade77da939500e034317b8d09578b94ba0e
 
 ARG HUGO_VERSION=0.160.0
+ARG NODE_MAJOR=20
+ARG RUST_TOOLCHAIN=stable
 
 # Install Sambee system dependencies from centralized script
 COPY scripts/install-system-deps /tmp/
@@ -17,6 +19,7 @@ RUN apt-get update && export DEBIAN_FRONTEND=noninteractive \
         build-essential \
         curl \
         gcc-mingw-w64-x86-64 \
+        gnupg \
         libkrb5-dev \
         ripgrep \
         smbclient \
@@ -31,6 +34,21 @@ RUN apt-get update && export DEBIAN_FRONTEND=noninteractive \
         librsvg2-dev \
         file \
     && apt-get clean -y && rm -rf /var/lib/apt/lists/*
+
+# Install Node.js from the official apt repository so Dev Containers does not
+# need to generate feature-specific build overrides in /tmp.
+RUN arch="$(dpkg --print-architecture)" \
+    && mkdir -p /etc/apt/keyrings \
+    && curl -fsSL https://deb.nodesource.com/gpgkey/nodesource-repo.gpg.key \
+        | gpg --dearmor -o /etc/apt/keyrings/nodesource.gpg \
+    && echo "deb [signed-by=/etc/apt/keyrings/nodesource.gpg arch=${arch}] https://deb.nodesource.com/node_${NODE_MAJOR}.x nodistro main" \
+        > /etc/apt/sources.list.d/nodesource.list \
+    && apt-get update \
+    && export DEBIAN_FRONTEND=noninteractive \
+    && apt-get -y install --no-install-recommends nodejs \
+    && corepack enable \
+    && apt-get clean -y \
+    && rm -rf /var/lib/apt/lists/*
 
 # Install Hugo Extended as a pinned devcontainer dependency.
 RUN arch="$(dpkg --print-architecture)" \
@@ -48,7 +66,13 @@ RUN arch="$(dpkg --print-architecture)" \
 
 # Use a minimal bash configuration
 USER vscode
-RUN printf '%s\n' 'export PATH="$HOME/.local/bin:$PATH"' > ~/.bashrc
+ENV PATH="/home/vscode/.cargo/bin:${PATH}"
+RUN curl -fsSL https://sh.rustup.rs -o /tmp/rustup-init.sh \
+    && chmod +x /tmp/rustup-init.sh \
+    && /tmp/rustup-init.sh -y --profile minimal --default-toolchain "${RUST_TOOLCHAIN}" \
+    && rustup component add rustfmt clippy \
+    && rm -f /tmp/rustup-init.sh
+RUN printf '%s\n' 'export PATH="$HOME/.cargo/bin:$HOME/.local/bin:$PATH"' > ~/.bashrc
 
 # Pre-create directories with correct ownership to prevent Docker from creating them as root
 RUN mkdir -p /home/vscode/.vscode-server/extensions \

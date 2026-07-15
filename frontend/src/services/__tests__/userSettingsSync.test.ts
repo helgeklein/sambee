@@ -22,6 +22,12 @@ vi.mock("../authConfig", () => ({
 
 import { clearCurrentUserSettingsCache, loadCurrentUserSettings, patchCurrentUserSettings } from "../userSettingsSync";
 
+async function flushAsyncWork(): Promise<void> {
+  await Promise.resolve();
+  await Promise.resolve();
+  await new Promise((resolve) => setTimeout(resolve, 0));
+}
+
 describe("userSettingsSync", () => {
   beforeEach(() => {
     vi.clearAllMocks();
@@ -122,5 +128,42 @@ describe("userSettingsSync", () => {
         },
       },
     });
+  });
+
+  it("coalesces concurrent forced and non-forced settings loads into a single request", async () => {
+    const initialSettings = {
+      appearance: { theme_id: "sambee-light", custom_themes: [] },
+      localization: {
+        language: "browser" as const,
+        regional_locale: "browser",
+      },
+      browser: {
+        quick_nav_include_dot_directories: false,
+        file_browser_view_mode: "list" as const,
+        pane_mode: "single" as const,
+        selected_connection_id: null,
+        viewer_associations: {},
+      },
+    };
+
+    let resolveSettings: ((value: typeof initialSettings) => void) | null = null;
+    getCurrentUserSettingsMock.mockImplementation(
+      () =>
+        new Promise((resolve) => {
+          resolveSettings = resolve;
+        })
+    );
+
+    const forcedLoadPromise = loadCurrentUserSettings(true);
+    const regularLoadPromise = loadCurrentUserSettings();
+
+    await flushAsyncWork();
+    expect(getCurrentUserSettingsMock).toHaveBeenCalledTimes(1);
+
+    resolveSettings?.(initialSettings);
+
+    await expect(forcedLoadPromise).resolves.toEqual(initialSettings);
+    await expect(regularLoadPromise).resolves.toEqual(initialSettings);
+    expect(getCurrentUserSettingsMock).toHaveBeenCalledTimes(1);
   });
 });

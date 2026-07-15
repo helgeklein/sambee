@@ -14,11 +14,13 @@ const AUTHENTICATED_PROBE_PATH = "/auth/me";
 const HEALTH_CHECK_TIMEOUT_MS = 5_000;
 const PROBE_FAILURES_BEFORE_UNAVAILABLE = 3;
 const RECOVERY_RETRY_DELAYS_MS = [750, 1_250, 2_000, 3_000] as const;
+const PROACTIVE_PROBE_MIN_INTERVAL_MS = 30_000;
+const PROACTIVE_RECOVERY_REASONS = new Set(["visibility-visible", "window-focus", "window-online", "window-pageshow"]);
 
 interface BackendRecoveryMonitorOptions {
   enabled?: boolean;
   status: BackendAvailabilityStatus;
-  onRecovered?: () => void;
+  onRecovered?: (reason: string, wasRecovering: boolean) => void;
   onReconnectNow?: (reason: string) => void;
 }
 
@@ -59,6 +61,7 @@ export function useBackendRecoveryMonitor({ enabled = true, status, onRecovered,
   const probeInFlightRef = useRef(false);
   const queuedProbeReasonRef = useRef<string | null>(null);
   const consecutiveFailuresRef = useRef(0);
+  const lastProbeStartedAtRef = useRef<number>(0);
   const onRecoveredRef = useRef(onRecovered);
   const onReconnectNowRef = useRef(onReconnectNow);
   const runHealthProbeRef = useRef<(reason: string) => void>(() => undefined);
@@ -96,6 +99,7 @@ export function useBackendRecoveryMonitor({ enabled = true, status, onRecovered,
       }
 
       probeInFlightRef.current = true;
+      lastProbeStartedAtRef.current = Date.now();
       clearProbeTimer();
 
       const abortController = new AbortController();
@@ -117,13 +121,14 @@ export function useBackendRecoveryMonitor({ enabled = true, status, onRecovered,
         }
 
         const wasRecovering = getBackendAvailabilitySnapshot().status !== "available" || consecutiveFailuresRef.current > 0;
+        const shouldNotifyRecovery = wasRecovering || PROACTIVE_RECOVERY_REASONS.has(reason);
         consecutiveFailuresRef.current = 0;
         markBackendAvailable();
 
-        if (wasRecovering) {
+        if (shouldNotifyRecovery) {
           logger.info("Backend recovery probe succeeded", { reason, url: probeRequest.url }, "backend-recovery");
           onReconnectNowRef.current?.("health-probe-success");
-          onRecoveredRef.current?.();
+          onRecoveredRef.current?.("health-probe-success", wasRecovering);
         }
       } catch (error) {
         consecutiveFailuresRef.current += 1;
@@ -188,8 +193,15 @@ export function useBackendRecoveryMonitor({ enabled = true, status, onRecovered,
       return;
     }
 
+    const shouldRunProactiveProbe = () => Date.now() - lastProbeStartedAtRef.current >= PROACTIVE_PROBE_MIN_INTERVAL_MS;
+
     const triggerImmediateRecovery = (reason: string) => {
       if (getBackendAvailabilitySnapshot().status === "available") {
+        if (!shouldRunProactiveProbe()) {
+          return;
+        }
+
+        void runHealthProbe(reason);
         return;
       }
 
@@ -211,7 +223,11 @@ export function useBackendRecoveryMonitor({ enabled = true, status, onRecovered,
       triggerImmediateRecovery("window-online");
     };
 
-    const handlePageShow = () => {
+    const handlePageShow = (event: PageTransitionEvent) => {
+      if (!event.persisted) {
+        return;
+      }
+
       triggerImmediateRecovery("window-pageshow");
     };
 
