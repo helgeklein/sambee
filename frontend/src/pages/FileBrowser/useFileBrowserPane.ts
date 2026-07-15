@@ -595,24 +595,26 @@ export function useFileBrowserPane(config: UseFileBrowserPaneConfig): UseFileBro
   // Virtualizer
   // ──────────────────────────────────────────────────────────────────────────
 
-  const measureElement = React.useMemo(
-    () =>
-      typeof window !== "undefined" && navigator.userAgent.includes("Firefox")
-        ? undefined
-        : (element: Element) => element.getBoundingClientRect().height,
-    []
-  );
-
   const rowVirtualizer = useVirtualizer({
     count: sortedAndFilteredFiles.length,
     getScrollElement: () => parentRef.current,
     estimateSize: () => rowHeight,
     overscan: 10,
-    measureElement,
     getItemKey: getVirtualizerItemKey,
     enabled: !loading,
     useFlushSync: false,
   });
+
+  const lastMeasuredRowHeightRef = React.useRef<number | null>(null);
+
+  useLayoutEffect(() => {
+    if (lastMeasuredRowHeightRef.current === rowHeight) {
+      return;
+    }
+
+    lastMeasuredRowHeightRef.current = rowHeight;
+    rowVirtualizer.measure();
+  }, [rowHeight, rowVirtualizer]);
 
   // ──────────────────────────────────────────────────────────────────────────
   // Focus-Restore / Scroll Effects

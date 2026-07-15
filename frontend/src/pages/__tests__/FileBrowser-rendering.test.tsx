@@ -8,6 +8,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 import { FileBrowserAlerts } from "../../components/FileBrowser/FileBrowserAlerts";
 import api from "../../services/api";
 import { markBackendAvailable, markBackendReconnecting, resetBackendAvailabilityForTests } from "../../services/backendAvailability";
+import { emitBackendRecoveryConfirmed } from "../../services/backendRecoveryEvents";
 import { saveBrowserRecoverySnapshot } from "../../services/browserRecoverySnapshot";
 import {
   type ApiMock,
@@ -266,6 +267,23 @@ describe("Browser Component - Rendering", () => {
     });
     expectDirectoryLoad("conn-1", "");
     expectDirectoryLoad("conn-2", "");
+  });
+
+  it("refreshes the visible pane when a proactive recovery probe succeeds without a status transition", async () => {
+    renderBrowser("/browse/smb/test-server-1");
+
+    await waitFor(() => {
+      expect(api.listDirectory).toHaveBeenCalledTimes(1);
+    });
+
+    act(() => {
+      emitBackendRecoveryConfirmed("health-probe-success");
+    });
+
+    await waitFor(() => {
+      expect(api.listDirectory).toHaveBeenCalledTimes(2);
+    });
+    expectDirectoryLoad("conn-1", "");
   });
 
   it("shows retryable timeout state when directory loading times out", async () => {

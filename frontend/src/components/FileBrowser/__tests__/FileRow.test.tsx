@@ -15,6 +15,7 @@ function createDefaultFileRowProps() {
       is_readable: true,
       is_hidden: false,
     },
+    useCompactLayout: false,
     index: 0,
     isSelected: true,
     isMultiSelected: true,

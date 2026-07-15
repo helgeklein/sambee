@@ -63,7 +63,7 @@ export async function loadCurrentUserSettings(forceRefresh: boolean = false): Pr
     return cachedSettings;
   }
 
-  if (!forceRefresh && pendingLoad) {
+  if (pendingLoad) {
     return pendingLoad;
   }
 

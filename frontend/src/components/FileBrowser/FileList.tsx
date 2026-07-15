@@ -9,6 +9,7 @@ import { FileRow } from "./FileRow";
 interface FileListProps {
   files: FileEntry[];
   showEmptyState?: boolean;
+  useCompactLayout?: boolean;
   focusedIndex: number;
   selectedFiles: Set<string>;
   onFileClick: (file: FileEntry, index?: number) => void;
@@ -37,6 +38,7 @@ export const FileList = React.memo(
   ({
     files,
     showEmptyState = true,
+    useCompactLayout = false,
     focusedIndex,
     selectedFiles,
     onFileClick,
@@ -98,9 +100,9 @@ export const FileList = React.memo(
                 if (!file) return null;
                 return (
                   <FileRow
-                    ref={rowVirtualizer.measureElement}
                     key={virtualItem.key}
                     file={file}
+                    useCompactLayout={useCompactLayout}
                     index={virtualItem.index}
                     isSelected={virtualItem.index === focusedIndex}
                     isMultiSelected={selectedFiles.has(file.name)}

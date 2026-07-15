@@ -19,7 +19,7 @@ import { Settings } from "./pages/Settings";
 import { TextEditorSettings } from "./pages/TextEditorSettings";
 import { UserManagementSettings } from "./pages/UserManagementSettings";
 import { useBackendAvailability } from "./services/backendAvailability";
-import { emitBackendRecoveryReconnect } from "./services/backendRecoveryEvents";
+import { emitBackendRecoveryConfirmed, emitBackendRecoveryReconnect } from "./services/backendRecoveryEvents";
 import { SambeeThemeProvider, useSambeeTheme } from "./theme";
 
 // Lazy load route components for better code splitting
@@ -43,6 +43,13 @@ function AppContent() {
     status: backendAvailability.status,
     onReconnectNow: (reason) => {
       emitBackendRecoveryReconnect(reason);
+    },
+    onRecovered: (_reason, wasRecovering) => {
+      if (wasRecovering) {
+        return;
+      }
+
+      emitBackendRecoveryConfirmed("health-probe-success");
     },
   });
 

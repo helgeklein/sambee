@@ -405,6 +405,7 @@ export const FileBrowserPane: React.FC<FileBrowserPaneProps> = ({
           <FileList
             files={sortedAndFilteredFiles}
             showEmptyState={error === null}
+            useCompactLayout={useCompactLayout}
             focusedIndex={focusedIndex}
             selectedFiles={selectedFiles}
             onFileClick={handleFileClick}

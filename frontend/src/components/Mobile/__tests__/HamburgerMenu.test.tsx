@@ -28,6 +28,10 @@ const mockConnections: Connection[] = [
     id: "1",
     name: "Test Share",
     type: "smb",
+    slug: "test-share",
+    scope: "private",
+    access_mode: "read_write",
+    can_manage: true,
     host: "server.local",
     port: 445,
     share_name: "share1",
@@ -39,6 +43,10 @@ const mockConnections: Connection[] = [
     id: "2",
     name: "Another Share",
     type: "smb",
+    slug: "another-share",
+    scope: "private",
+    access_mode: "read_write",
+    can_manage: true,
     host: "server2.local",
     port: 445,
     share_name: "share2",
@@ -52,7 +60,6 @@ describe("HamburgerMenu", () => {
   const mockOnClose = vi.fn();
   const mockOnConnectionChange = vi.fn();
   const mockOnNavigateToRoot = vi.fn();
-  const mockOnOpenHelp = vi.fn();
   const mockOnOpenDocumentation = vi.fn();
   const mockOnOpenSettings = vi.fn();
   const mockOnLogout = vi.fn();
@@ -72,7 +79,6 @@ describe("HamburgerMenu", () => {
             selectedConnectionId="1"
             onConnectionChange={mockOnConnectionChange}
             onNavigateToRoot={mockOnNavigateToRoot}
-            onOpenHelp={mockOnOpenHelp}
             onOpenDocumentation={mockOnOpenDocumentation}
             onOpenSettings={mockOnOpenSettings}
             onLogout={mockOnLogout}
@@ -83,10 +89,15 @@ describe("HamburgerMenu", () => {
 
     expect(screen.getByText("Sambee")).toBeInTheDocument();
     expect(screen.getByText("Root")).toBeInTheDocument();
-    expect(screen.getByText("Keyboard shortcuts")).toBeInTheDocument();
-    expect(screen.getByText("Documentation")).toBeInTheDocument();
     expect(screen.getByText("Settings")).toBeInTheDocument();
+    expect(screen.getByText("Documentation")).toBeInTheDocument();
     expect(screen.getByText("Logout")).toBeInTheDocument();
+
+    const menuItems = screen.getAllByRole("button");
+    const settingsIndex = menuItems.findIndex((item) => item.textContent?.includes("Settings"));
+    const documentationIndex = menuItems.findIndex((item) => item.textContent?.includes("Documentation"));
+    expect(settingsIndex).toBeGreaterThan(-1);
+    expect(documentationIndex).toBeGreaterThan(settingsIndex);
   });
 
   test("does not render when closed", () => {
@@ -100,7 +111,6 @@ describe("HamburgerMenu", () => {
             selectedConnectionId="1"
             onConnectionChange={mockOnConnectionChange}
             onNavigateToRoot={mockOnNavigateToRoot}
-            onOpenHelp={mockOnOpenHelp}
             onOpenDocumentation={mockOnOpenDocumentation}
             onOpenSettings={mockOnOpenSettings}
             onLogout={mockOnLogout}
@@ -123,7 +133,6 @@ describe("HamburgerMenu", () => {
             selectedConnectionId="1"
             onConnectionChange={mockOnConnectionChange}
             onNavigateToRoot={mockOnNavigateToRoot}
-            onOpenHelp={mockOnOpenHelp}
             onOpenDocumentation={mockOnOpenDocumentation}
             onOpenSettings={mockOnOpenSettings}
             onLogout={mockOnLogout}
@@ -150,7 +159,6 @@ describe("HamburgerMenu", () => {
             selectedConnectionId="1"
             onConnectionChange={mockOnConnectionChange}
             onNavigateToRoot={mockOnNavigateToRoot}
-            onOpenHelp={mockOnOpenHelp}
             onOpenDocumentation={mockOnOpenDocumentation}
             onOpenSettings={mockOnOpenSettings}
             onLogout={mockOnLogout}
@@ -179,7 +187,6 @@ describe("HamburgerMenu", () => {
             selectedConnectionId="1"
             onConnectionChange={mockOnConnectionChange}
             onNavigateToRoot={mockOnNavigateToRoot}
-            onOpenHelp={mockOnOpenHelp}
             onOpenDocumentation={mockOnOpenDocumentation}
             onOpenSettings={mockOnOpenSettings}
             onLogout={mockOnLogout}
@@ -197,34 +204,6 @@ describe("HamburgerMenu", () => {
     });
   });
 
-  test("calls onOpenHelp when Keyboard shortcuts is clicked", async () => {
-    render(
-      <SambeeThemeProvider>
-        <BrowserRouter>
-          <HamburgerMenu
-            open={true}
-            onClose={mockOnClose}
-            connections={mockConnections}
-            selectedConnectionId="1"
-            onConnectionChange={mockOnConnectionChange}
-            onNavigateToRoot={mockOnNavigateToRoot}
-            onOpenHelp={mockOnOpenHelp}
-            onOpenDocumentation={mockOnOpenDocumentation}
-            onOpenSettings={mockOnOpenSettings}
-            onLogout={mockOnLogout}
-          />
-        </BrowserRouter>
-      </SambeeThemeProvider>
-    );
-
-    fireEvent.click(screen.getByText("Keyboard shortcuts"));
-
-    await waitFor(() => {
-      expect(mockOnOpenHelp).toHaveBeenCalledTimes(1);
-      expect(mockOnClose).toHaveBeenCalledTimes(1);
-    });
-  });
-
   test("calls onOpenDocumentation when Documentation is clicked", async () => {
     render(
       <SambeeThemeProvider>
@@ -236,7 +215,6 @@ describe("HamburgerMenu", () => {
             selectedConnectionId="1"
             onConnectionChange={mockOnConnectionChange}
             onNavigateToRoot={mockOnNavigateToRoot}
-            onOpenHelp={mockOnOpenHelp}
             onOpenDocumentation={mockOnOpenDocumentation}
             onOpenSettings={mockOnOpenSettings}
             onLogout={mockOnLogout}
@@ -264,6 +242,7 @@ describe("HamburgerMenu", () => {
             selectedConnectionId="1"
             onConnectionChange={mockOnConnectionChange}
             onNavigateToRoot={mockOnNavigateToRoot}
+            onOpenDocumentation={mockOnOpenDocumentation}
             onOpenSettings={mockOnOpenSettings}
             onLogout={mockOnLogout}
           />
@@ -290,7 +269,6 @@ describe("HamburgerMenu", () => {
             selectedConnectionId="1"
             onConnectionChange={mockOnConnectionChange}
             onNavigateToRoot={mockOnNavigateToRoot}
-            onOpenHelp={mockOnOpenHelp}
             onOpenDocumentation={mockOnOpenDocumentation}
             onOpenSettings={mockOnOpenSettings}
             onLogout={mockOnLogout}
@@ -299,7 +277,6 @@ describe("HamburgerMenu", () => {
       </SambeeThemeProvider>
     );
 
-    expect(screen.getByText("Keyboard shortcuts")).toBeInTheDocument();
     expect(screen.getByText("Documentation")).toBeInTheDocument();
     expect(screen.getByText("Settings")).toBeInTheDocument();
     expect(screen.getByText("Root")).toBeInTheDocument();
@@ -317,7 +294,6 @@ describe("HamburgerMenu", () => {
             selectedConnectionId="1"
             onConnectionChange={mockOnConnectionChange}
             onNavigateToRoot={mockOnNavigateToRoot}
-            onOpenHelp={mockOnOpenHelp}
             onOpenDocumentation={mockOnOpenDocumentation}
             onOpenSettings={mockOnOpenSettings}
             onLogout={mockOnLogout}
@@ -344,7 +320,6 @@ describe("HamburgerMenu", () => {
             selectedConnectionId=""
             onConnectionChange={mockOnConnectionChange}
             onNavigateToRoot={mockOnNavigateToRoot}
-            onOpenHelp={mockOnOpenHelp}
             onOpenDocumentation={mockOnOpenDocumentation}
             onOpenSettings={mockOnOpenSettings}
             onLogout={mockOnLogout}
@@ -359,7 +334,6 @@ describe("HamburgerMenu", () => {
 
     // But other menu items should still be there
     expect(screen.getByText("Root")).toBeInTheDocument();
-    expect(screen.getByText("Keyboard shortcuts")).toBeInTheDocument();
     expect(screen.getByText("Documentation")).toBeInTheDocument();
     expect(screen.getByText("Settings")).toBeInTheDocument();
     expect(screen.getByText("Logout")).toBeInTheDocument();

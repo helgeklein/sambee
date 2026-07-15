@@ -43,7 +43,7 @@ import { useCompanion } from "../hooks/useCompanion";
 import { type KeyboardShortcut, useKeyboardShortcuts } from "../hooks/useKeyboardShortcuts";
 import api from "../services/api";
 import { markBackendAvailable, useBackendAvailability } from "../services/backendAvailability";
-import { subscribeBackendRecoveryReconnect } from "../services/backendRecoveryEvents";
+import { subscribeBackendRecoveryConfirmed, subscribeBackendRecoveryReconnect } from "../services/backendRecoveryEvents";
 import { isLocalDrive, mergeConnections } from "../services/backendRouter";
 import {
   clearBrowserRecoverySnapshot,
@@ -55,6 +55,7 @@ import { logger } from "../services/logger";
 import { scheduleRuntimeWarmup } from "../services/runtimeWarmup";
 import { buildServerWebSocketUrl } from "../services/serverWebsocket";
 import { loadCurrentUserSettings } from "../services/userSettingsSync";
+import { FILE_BROWSER_ROW_HEIGHT } from "../theme/constants";
 import { getMobileViewportShellSx, mobileSafeAreaAppBarSx, mobileSafeAreaToolbarSx, SAFE_AREA_INSET } from "../theme/mobileShell";
 import type { ConflictInfo, Connection } from "../types";
 import { isApiError } from "../types";
@@ -212,15 +213,13 @@ const Browser: React.FC = () => {
 
   // Detect screen size and input method for responsive behavior
   const useCompactLayout = useMediaQuery(theme.breakpoints.down("sm"));
-  const hasTouchInput = useMediaQuery("(pointer: coarse)");
 
-  // Set row height depending on input method (mouse vs. touch)
-  // Touch: larger touch targets (44px+ per WCAG guidelines)
-  const rowHeight = hasTouchInput ? 56 : 40;
+  // Use explicit layout density rather than pointer heuristics so row sizing stays stable.
+  const rowHeight = useCompactLayout ? FILE_BROWSER_ROW_HEIGHT.MOBILE_PX : FILE_BROWSER_ROW_HEIGHT.DESKTOP_PX;
 
   // Track if keyboard is being used for navigation (for proper focus styling)
-  // Touch devices start without focus indicator; desktop shows focus on load
-  const [isUsingKeyboard, setIsUsingKeyboard] = useState(!hasTouchInput);
+  // Compact/mobile layout starts without focus indicator; desktop shows focus on load.
+  const [isUsingKeyboard, setIsUsingKeyboard] = useState(!useCompactLayout);
 
   // ──────────────────────────────────────────────────────────────────────────
   // Global Page State
@@ -449,6 +448,12 @@ const Browser: React.FC = () => {
       triggerServerReconnectRef.current(reason);
     });
   }, []);
+
+  useEffect(() => {
+    return subscribeBackendRecoveryConfirmed(() => {
+      refreshVisiblePanesAfterRecovery();
+    });
+  }, [refreshVisiblePanesAfterRecovery]);
 
   const restoreInitialRecoverySnapshot = useCallback(() => {
     const snapshot = initialRecoverySnapshotRef.current;

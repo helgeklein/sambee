@@ -54,6 +54,7 @@ export function DesktopToolbarActions({
         anchorEl={anchorEl}
         open={open}
         onClose={handleClose}
+        disableRestoreFocus
         anchorOrigin={{
           vertical: "bottom",
           horizontal: "right",

@@ -1,6 +1,5 @@
 import { Logout as LogoutIcon, Settings as SettingsIcon } from "@mui/icons-material";
 import DescriptionOutlinedIcon from "@mui/icons-material/DescriptionOutlined";
-import HelpOutlineIcon from "@mui/icons-material/HelpOutlineOutlined";
 import HomeIcon from "@mui/icons-material/Home";
 import {
   Box,
@@ -31,7 +30,6 @@ interface HamburgerMenuProps {
   selectedConnectionId: string;
   onConnectionChange: (connectionId: string) => void;
   onNavigateToRoot: () => void;
-  onOpenHelp: () => void;
   onOpenDocumentation: () => void;
   onOpenSettings: () => void;
   onLogout: () => void;
@@ -44,7 +42,6 @@ const HamburgerMenu: React.FC<HamburgerMenuProps> = ({
   selectedConnectionId,
   onConnectionChange,
   onNavigateToRoot,
-  onOpenHelp,
   onOpenDocumentation,
   onOpenSettings,
   onLogout,
@@ -141,19 +138,18 @@ const HamburgerMenu: React.FC<HamburgerMenuProps> = ({
             <ListItemText primary={t("common.labels.root")} />
           </ListItemButton>
         </ListItem>
-
         <ListItem disablePadding>
           <ListItemButton
             onClick={() => {
-              onOpenHelp();
+              onOpenSettings();
               onClose();
             }}
-            aria-label={t("fileBrowser.chrome.mobileMenu.openKeyboardShortcutsAriaLabel")}
+            aria-label={t("fileBrowser.chrome.mobileMenu.openSettingsAriaLabel")}
           >
             <ListItemIcon>
-              <HelpOutlineIcon />
+              <SettingsIcon />
             </ListItemIcon>
-            <ListItemText primary={t("fileBrowser.chrome.helpMenu.keyboardShortcuts")} />
+            <ListItemText primary={t("common.labels.settings")} />
           </ListItemButton>
         </ListItem>
 
@@ -169,21 +165,6 @@ const HamburgerMenu: React.FC<HamburgerMenuProps> = ({
               <DescriptionOutlinedIcon />
             </ListItemIcon>
             <ListItemText primary={t("fileBrowser.chrome.helpMenu.documentation")} />
-          </ListItemButton>
-        </ListItem>
-
-        <ListItem disablePadding>
-          <ListItemButton
-            onClick={() => {
-              onOpenSettings();
-              onClose();
-            }}
-            aria-label={t("fileBrowser.chrome.mobileMenu.openSettingsAriaLabel")}
-          >
-            <ListItemIcon>
-              <SettingsIcon />
-            </ListItemIcon>
-            <ListItemText primary={t("common.labels.settings")} />
           </ListItemButton>
         </ListItem>
 

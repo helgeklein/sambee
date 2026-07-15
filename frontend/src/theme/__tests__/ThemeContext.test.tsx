@@ -3,14 +3,16 @@ import type { ReactNode } from "react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { SambeeThemeProvider, useSambeeTheme } from "../ThemeContext";
 
-const { loadCurrentUserSettingsMock, patchCurrentUserSettingsMock } = vi.hoisted(() => ({
+const { loadCurrentUserSettingsMock, patchCurrentUserSettingsMock, userSettingsChangedEvent } = vi.hoisted(() => ({
   loadCurrentUserSettingsMock: vi.fn(),
   patchCurrentUserSettingsMock: vi.fn(),
+  userSettingsChangedEvent: "sambee:user-settings-changed",
 }));
 
 vi.mock("../../services/userSettingsSync", () => ({
   loadCurrentUserSettings: loadCurrentUserSettingsMock,
   patchCurrentUserSettings: patchCurrentUserSettingsMock,
+  USER_SETTINGS_CHANGED_EVENT: userSettingsChangedEvent,
 }));
 
 //
@@ -373,6 +375,46 @@ describe("Theme System - ThemeContext", () => {
           custom_themes: [customTheme],
         },
       });
+    });
+
+    it("should apply appearance updates from user settings change events", async () => {
+      const { result } = renderHook(() => useSambeeTheme(), { wrapper });
+
+      act(() => {
+        window.dispatchEvent(
+          new CustomEvent(userSettingsChangedEvent, {
+            detail: {
+              appearance: {
+                theme_id: "custom-2",
+                custom_themes: [
+                  {
+                    id: "custom-2",
+                    name: "Custom 2",
+                    mode: "light",
+                    primary: { main: "#123456" },
+                  },
+                ],
+              },
+              localization: {
+                language: "browser",
+                regional_locale: "browser",
+              },
+              browser: {
+                quick_nav_include_dot_directories: false,
+                file_browser_view_mode: "list",
+                pane_mode: "single",
+                selected_connection_id: null,
+                viewer_associations: {},
+              },
+            },
+          })
+        );
+      });
+
+      await waitFor(() => {
+        expect(result.current.currentTheme.id).toBe("custom-2");
+      });
+      expect(result.current.availableThemes.some((theme) => theme.id === "custom-2")).toBe(true);
     });
   });
 });

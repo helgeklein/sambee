@@ -1,6 +1,7 @@
 import { createTheme, type Theme } from "@mui/material";
 import { createContext, type ReactNode, useContext, useEffect, useMemo, useState } from "react";
-import { loadCurrentUserSettings, patchCurrentUserSettings } from "../services/userSettingsSync";
+import { loadCurrentUserSettings, patchCurrentUserSettings, USER_SETTINGS_CHANGED_EVENT } from "../services/userSettingsSync";
+import type { CurrentUserSettings } from "../types";
 import { getContainedButtonFocusVisibleBoxShadow } from "./commonStyles";
 import { builtInThemes, getDefaultTheme } from "./themes";
 import type { ThemeConfig } from "./types";
@@ -342,8 +343,7 @@ export function SambeeThemeProvider({ children }: ThemeProviderProps) {
   useEffect(() => {
     let cancelled = false;
 
-    const syncFromBackend = async () => {
-      const settings = await loadCurrentUserSettings(true);
+    const applyAppearanceSettings = (settings: CurrentUserSettings | null) => {
       if (!settings || cancelled) {
         return;
       }
@@ -361,10 +361,21 @@ export function SambeeThemeProvider({ children }: ThemeProviderProps) {
       }
     };
 
+    const syncFromBackend = async () => {
+      const settings = await loadCurrentUserSettings();
+      applyAppearanceSettings(settings);
+    };
+
+    const handleUserSettingsChanged = (event: Event) => {
+      applyAppearanceSettings((event as CustomEvent<CurrentUserSettings>).detail);
+    };
+
+    window.addEventListener(USER_SETTINGS_CHANGED_EVENT, handleUserSettingsChanged);
     void syncFromBackend();
 
     return () => {
       cancelled = true;
+      window.removeEventListener(USER_SETTINGS_CHANGED_EVENT, handleUserSettingsChanged);
     };
   }, []);
 

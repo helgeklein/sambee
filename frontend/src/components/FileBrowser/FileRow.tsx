@@ -17,6 +17,7 @@ import { FileRowButton } from "./FileRowButton";
 
 interface FileRowProps {
   file: FileEntry;
+  useCompactLayout?: boolean;
   index: number;
   isSelected: boolean;
   isMultiSelected: boolean;
@@ -49,6 +50,7 @@ export const FileRow = React.memo(
     (
       {
         file,
+        useCompactLayout = false,
         index,
         isSelected,
         isMultiSelected,
@@ -68,6 +70,7 @@ export const FileRow = React.memo(
       const { t } = useTranslation();
       const isListMode = viewMode === "list";
       const isFile = file.type !== "directory";
+      const rowTextSx = useCompactLayout ? { fontSize: "16px" } : undefined;
       const hasContextMenu = !!(
         onRename ||
         (isFile && (onOpenAssociatedViewer || onOpenViewerPicker || onOpenAssociatedNativeApp || onOpenNativePicker))
@@ -165,7 +168,7 @@ export const FileRow = React.memo(
                 <>
                   <Box sx={fileRowStyles.iconBox}>{icon}</Box>
                   <Box sx={fileRowStyles.contentBox}>
-                    <Typography variant="body2" noWrap title={file.name} color="text.primary">
+                    <Typography variant="body2" noWrap title={file.name} color="text.primary" sx={rowTextSx}>
                       {file.name}
                     </Typography>
                   </Box>
@@ -183,14 +186,19 @@ export const FileRow = React.memo(
                 >
                   <Box sx={fileRowStyles.iconBox}>{icon}</Box>
                   <Box sx={{ ...fileRowStyles.contentBox, minWidth: 0 }}>
-                    <Typography variant="body2" noWrap title={file.name} color="text.primary">
+                    <Typography variant="body2" noWrap title={file.name} color="text.primary" sx={rowTextSx}>
                       {file.name}
                     </Typography>
                   </Box>
-                  <Typography variant="body2" color="text.secondary" sx={{ textAlign: "right", minWidth: "80px", ml: 1, mr: 3 }} noWrap>
+                  <Typography
+                    variant="body2"
+                    color="text.secondary"
+                    sx={{ textAlign: "right", minWidth: "80px", ml: 1, mr: 3, ...rowTextSx }}
+                    noWrap
+                  >
                     {file.type === "directory" ? "" : formatFileSize(file.size)}
                   </Typography>
-                  <Typography variant="body2" color="text.secondary" noWrap>
+                  <Typography variant="body2" color="text.secondary" sx={rowTextSx} noWrap>
                     {formatDate(file.modified_at)}
                   </Typography>
                 </Box>

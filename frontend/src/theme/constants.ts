@@ -48,6 +48,12 @@ export const TOOLBAR_HEIGHT = {
   DESKTOP_PX: 64,
 } as const;
 
+/** File-browser row heights for compact/mobile and desktop layouts. */
+export const FILE_BROWSER_ROW_HEIGHT = {
+  MOBILE_PX: 56,
+  DESKTOP_PX: 40,
+} as const;
+
 //
 // Page input field sizing
 //
