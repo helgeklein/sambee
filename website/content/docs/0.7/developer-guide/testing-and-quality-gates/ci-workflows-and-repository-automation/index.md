@@ -126,7 +126,7 @@ It runs `scripts/refresh-backend-lockfiles --check` on pushes, pull requests, an
 
 Use this as the fast failure signal when requirement files and generated lockfiles drift apart.
 
-For the broader dependency-update workflow, use [Dependency and Release Workflow](../release-and-versioning/dependency-and-release-workflow/).
+For the broader dependency-update workflow, use [Dependency Update Workflow](../release-and-versioning/dependency-update-workflow/).
 
 ## Admin: Sync Labels
 

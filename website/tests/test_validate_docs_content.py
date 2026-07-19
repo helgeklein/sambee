@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import importlib.util
+import re
 import shutil
 import sys
 import tempfile
@@ -214,10 +215,19 @@ class DocsValidatorTests(unittest.TestCase):
         self.addCleanup(tempdir.cleanup)
 
         versions_path = root / "data" / "docs-versions.toml"
+        versions_text = versions_path.read_text(encoding="utf-8")
+        updated_versions_text, replacement_count = re.subn(
+            r'^current\s*=\s*"[^"]*"\s*$',
+            'current = "9.9"',
+            versions_text,
+            count=1,
+            flags=re.MULTILINE,
+        )
+        self.assertEqual(
+            replacement_count, 1, msg="expected one current version assignment"
+        )
         versions_path.write_text(
-            versions_path.read_text(encoding="utf-8").replace(
-                'current = "0.7"', 'current = "9.9"'
-            ),
+            updated_versions_text,
             encoding="utf-8",
         )
 

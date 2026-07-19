@@ -65,37 +65,57 @@ class DocsReportTests(unittest.TestCase):
         )
         return tempdir, root
 
-    def promote_inherited_page_to_branched(self, root: Path) -> tuple[str, str, str]:
-        """Turn one inherited 0.8 page into real authored content with a diff."""
-        version_root = root / "content" / "docs" / "0.8"
+    def current_version(self, root: Path) -> str:
+        """Return the metadata-declared current docs version for one fixture."""
+        return DOCS_EDITOR.DocsEditor(root).load_versions_document().current
+
+    def promote_inherited_page_to_branched(
+        self, root: Path
+    ) -> tuple[str, str, str, str, str]:
+        """Turn one inherited current-version page into real content with a diff."""
+        editor = DOCS_EDITOR.DocsEditor(root)
+        current_version = editor.load_versions_document().current
+        version_root = root / "content" / "docs" / current_version
         for marker in sorted(version_root.rglob("inherit.md")):
             relative = marker.relative_to(version_root)
             if len(relative.parts) != 4:
                 continue
             book, section, page, _ = relative.parts
             page_dir = marker.parent
-            marker.unlink()
-            source_path = (
-                root / "content" / "docs" / "0.7" / book / section / page / "index.md"
+            source_version = DOCS_REPORT.resolve_page_source_version(
+                editor,
+                current_version,
+                (book, section, page),
+                include_current=True,
             )
+            if source_version is None:
+                continue
+            source_path = editor.resolve_page_source_file(
+                current_version, (book, section, page)
+            )
+            marker.unlink()
             source_text = source_path.read_text(encoding="utf-8")
             page_dir.joinpath("index.md").write_text(
                 source_text.rstrip()
                 + "\n\nStandalone report branch test line.\nSecond branch-only line.\n",
                 encoding="utf-8",
             )
-            return book, section, page
-        raise AssertionError("expected at least one inherited 0.8 page fixture")
+            return book, section, page, current_version, source_version
+        raise AssertionError(
+            "expected at least one inherited current-version page fixture"
+        )
 
     def test_build_report_data_marks_branched_page_and_diff_counts(self) -> None:
         """Branched page versions should be labeled and diffed against predecessors."""
         tempdir, root = self.build_temp_website()
         self.addCleanup(tempdir.cleanup)
 
-        book, section, page = self.promote_inherited_page_to_branched(root)
+        book, section, page, current_version, source_version = (
+            self.promote_inherited_page_to_branched(root)
+        )
 
         report_data = DOCS_REPORT.build_report_data(root)
-        self.assertEqual(report_data["meta"]["current_version"], "0.7")
+        self.assertEqual(report_data["meta"]["current_version"], current_version)
 
         row = next(
             item
@@ -103,9 +123,9 @@ class DocsReportTests(unittest.TestCase):
             if item.get("kind") == "page"
             and item.get("path") == f"{book}/{section}/{page}"
         )
-        page_cell = row["version_cells"]["0.8"]
+        page_cell = row["version_cells"][current_version]
         self.assertEqual(page_cell["state"], "branched")
-        self.assertEqual(page_cell["source_version"], "0.7")
+        self.assertEqual(page_cell["source_version"], source_version)
         self.assertGreaterEqual(page_cell["diff_added"], 2)
         self.assertEqual(page_cell["diff_removed"], 0)
         self.assertNotIn("summary", report_data)
@@ -115,6 +135,17 @@ class DocsReportTests(unittest.TestCase):
         tempdir, root = self.build_temp_website()
         self.addCleanup(tempdir.cleanup)
 
+        editor = DOCS_EDITOR.DocsEditor(root)
+        current_version = self.current_version(root)
+        source_version = DOCS_REPORT.resolve_branch_source_version(
+            editor,
+            current_version,
+            ("user-guide",),
+            include_current=True,
+        )
+        if source_version is None:
+            self.fail("expected user-guide to resolve to a content source")
+
         report_data = DOCS_REPORT.build_report_data(root)
 
         row = next(
@@ -122,11 +153,11 @@ class DocsReportTests(unittest.TestCase):
             for item in report_data["rows"]
             if item.get("kind") == "book" and item.get("path") == "user-guide"
         )
-        book_cell = row["version_cells"]["0.8"]
+        book_cell = row["version_cells"][current_version]
         self.assertEqual(book_cell["state"], "inherited")
-        self.assertEqual(book_cell["source_version"], "0.7")
-        self.assertIn("0.7", row["content_versions"])
-        self.assertIn("0.8", row["content_versions"])
+        self.assertEqual(book_cell["source_version"], source_version)
+        self.assertIn(source_version, row["content_versions"])
+        self.assertIn(current_version, row["content_versions"])
 
     def test_render_report_html_embeds_json_not_html_entities(self) -> None:
         """Embedded report JSON should remain valid JSON in the HTML payload script tag."""

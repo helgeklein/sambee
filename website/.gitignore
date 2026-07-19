@@ -1,5 +1,6 @@
 node_modules/
 public/
+public-dev/
 resources/*
 !resources/_gen/
 resources/_gen/*

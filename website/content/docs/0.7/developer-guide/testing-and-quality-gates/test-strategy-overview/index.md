@@ -173,4 +173,4 @@ Use the shared fixtures instead of rebuilding the same setup in each test file.
 - [Image Conversion Test Assets](../image-conversion-test-assets/): generated fixtures, real colorspace assertions, and the backend integration suite for image-conversion regressions
 - [Logging and Localization](../../cross-cutting-systems/logging-and-localization/): shared cross-boundary rules that often expand the validation surface
 - [How to Plan and Review a Change](../../contribution-workflows/how-to-plan-and-review-a-change/): decide scope before choosing checks
-- [Dependency and Release Workflow](../../release-and-versioning/dependency-and-release-workflow/): use this when version metadata or reviewed dependency inputs are part of the change
+- [Dependency Update Workflow](../../release-and-versioning/dependency-update-workflow/): use this when version metadata or reviewed dependency inputs are part of the change

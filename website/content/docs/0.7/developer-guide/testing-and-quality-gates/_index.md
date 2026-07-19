@@ -12,6 +12,6 @@ Related supporting pages:
 
 - [CI Workflows and Repository Automation](./ci-workflows-and-repository-automation/)
 - [Logging and Localization](../cross-cutting-systems/logging-and-localization/)
-- [Dependency and Release Workflow](../release-and-versioning/dependency-and-release-workflow/)
+- [Dependency Update Workflow](../release-and-versioning/dependency-update-workflow/)
 
 Use this section before you finish a change that affects API behavior, UI behavior, or companion workflows.

@@ -17,7 +17,7 @@
 
 ## Correctness
 
-- Always run lint and relevant tests after making changes and fix any warnings or errors.
+- Always run relevant tests after making changes and fix any warnings or errors.
 
 ## Coding style
 
@@ -35,7 +35,7 @@
 
 ## Dependencies
 
-- Before changing pinned or hashed dependencies or lockfiles, consult `website/content/docs/<VERSION>/developer-guide/release-and-versioning/dependency-and-release-workflow/index.md`.
+- Before changing pinned or hashed dependencies or lockfiles, consult `website/content/docs/<VERSION>/developer-guide/release-and-versioning/dependency-update-workflow/index.md`.
 
 ## Frontend testing / issue reproduction
 
