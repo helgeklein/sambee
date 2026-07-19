@@ -55,17 +55,146 @@ class DocsEditorTestCase(unittest.TestCase):
             self.assertFalse(path.exists(), msg=f"expected path to be absent: {path}")
 
     def build_temp_website(self) -> tuple[tempfile.TemporaryDirectory[str], Path]:
-        """Create a minimal temporary website tree for testing."""
+        """Create a deterministic docs-editor fixture independent of live docs."""
         tempdir = tempfile.TemporaryDirectory()
         root = Path(tempdir.name)
 
-        shutil.copytree(WEBSITE_DIR / "content" / "docs", root / "content" / "docs")
-        shutil.copytree(WEBSITE_DIR / "data" / "docs-nav", root / "data" / "docs-nav")
-        (root / "scripts").mkdir(parents=True, exist_ok=True)
-        shutil.copy2(
-            WEBSITE_DIR / "data" / "docs-versions.toml",
-            root / "data" / "docs-versions.toml",
+        docs_root = root / "content" / "docs"
+        nav_root = root / "data" / "docs-nav"
+        docs_root.mkdir(parents=True)
+        nav_root.mkdir(parents=True)
+        (docs_root / "_index.md").write_text(
+            '+++\ntitle = "Documentation"\n+++\n', encoding="utf-8"
         )
+        (root / "data" / "docs-versions.toml").write_text(
+            """current = "1.0"
+
+[[versions]]
+slug = "0.9"
+label = "0.9"
+visible = true
+searchable = false
+
+[[versions]]
+slug = "1.0"
+label = "1.0"
+visible = true
+searchable = false
+
+[[versions]]
+slug = "1.1"
+label = "1.1"
+visible = true
+searchable = false
+
+[[versions]]
+slug = "2.0"
+label = "2.0"
+visible = true
+searchable = false
+""",
+            encoding="utf-8",
+        )
+
+        for version in ("0.9", "1.0", "2.0"):
+            version_dir = docs_root / version
+            version_dir.mkdir()
+            (version_dir / "_index.md").write_text(
+                f'+++\ntitle = "{version}"\n+++\n', encoding="utf-8"
+            )
+
+        website_dev_nav = """books = [
+  "website-dev-guide",
+]
+
+[[sections.website-dev-guide.items]]
+slug = "docs-platform"
+title = "Docs Platform"
+
+[pages.website-dev-guide.docs-platform]
+items = [
+  "website-and-docs-architecture-overview",
+]
+"""
+        (nav_root / "0.9.toml").write_text(website_dev_nav, encoding="utf-8")
+        (nav_root / "1.0.toml").write_text(website_dev_nav, encoding="utf-8")
+        (nav_root / "2.0.toml").write_text("books = [\n]\n", encoding="utf-8")
+
+        authored_page_dir = (
+            docs_root
+            / "0.9"
+            / "website-dev-guide"
+            / "docs-platform"
+            / "website-and-docs-architecture-overview"
+        )
+        authored_page_dir.mkdir(parents=True)
+        (docs_root / "0.9" / "website-dev-guide" / "_index.md").write_text(
+            '+++\ntitle = "Website Dev Guide"\n+++\n', encoding="utf-8"
+        )
+        (authored_page_dir / "index.md").write_text(
+            '+++\ntitle = "Website and Docs Architecture Overview"\n+++\n',
+            encoding="utf-8",
+        )
+        inherited_page_dir = (
+            docs_root
+            / "1.0"
+            / "website-dev-guide"
+            / "docs-platform"
+            / "website-and-docs-architecture-overview"
+        )
+        inherited_page_dir.mkdir(parents=True)
+        (docs_root / "1.0" / "website-dev-guide" / "_inherit.md").write_text(
+            "", encoding="utf-8"
+        )
+        (inherited_page_dir / "inherit.md").write_text("", encoding="utf-8")
+
+        version_dir = docs_root / "1.1"
+        version_dir.mkdir()
+        (version_dir / "_inherit.md").write_text("", encoding="utf-8")
+        (nav_root / "1.1.toml").write_text(
+            """books = [
+  "end-user",
+  "admin",
+  "developer",
+]
+
+[[sections.end-user.items]]
+slug = "getting-started"
+title = "Getting Started"
+
+[pages.end-user.getting-started]
+items = [
+  "install",
+]
+
+[[sections.admin.items]]
+slug = "configuration"
+title = "Configuration"
+""",
+            encoding="utf-8",
+        )
+        for book, title in (
+            ("end-user", "End User"),
+            ("admin", "Admin"),
+            ("developer", "Developer"),
+        ):
+            book_dir = version_dir / book
+            book_dir.mkdir()
+            (book_dir / "_index.md").write_text(
+                f'+++\ntitle = "{title}"\n+++\n', encoding="utf-8"
+            )
+
+        install_dir = version_dir / "end-user" / "getting-started" / "install"
+        install_dir.mkdir(parents=True)
+        (install_dir / "index.md").write_text(
+            '+++\ntitle = "Install"\n+++\n', encoding="utf-8"
+        )
+        (version_dir / "admin" / "configuration").mkdir()
+        (version_dir / "admin" / "configuration" / "_index.md").write_text(
+            '+++\ntitle = "Configuration"\n+++\n', encoding="utf-8"
+        )
+
+        (root / "scripts").mkdir(parents=True, exist_ok=True)
         shutil.copy2(
             WEBSITE_DIR / "scripts" / "validate-docs-content.py",
             root / "scripts" / "validate-docs-content.py",
@@ -150,7 +279,9 @@ class DocsEditorTestCase(unittest.TestCase):
     ) -> list[str]:
         """Return the ordered page slugs for one docs section."""
         nav = self.load_nav_data(root, version)
-        return list(nav["pages"][book][section]["items"])
+        return list(
+            nav.get("pages", {}).get(book, {}).get(section, {}).get("items", [])
+        )
 
     def assert_versions_state(
         self,
@@ -445,23 +576,31 @@ class DocsEditorVersionTests(DocsEditorTestCase):
         with self.assertRaises(DOCS_EDITOR.DocsEditorError):
             editor.plan_version_delete("1.0", new_current=None)
 
-    def test_delete_current_version_still_fails_if_newer_versions_depend_on_it(
+    def test_delete_current_version_preserves_newer_inherited_versions(
         self,
     ) -> None:
-        """Deleting the current version should still fail when inherited newer versions depend on it."""
+        """Deleting the current version should preserve descendants with a resolvable earlier source."""
         tempdir, root = self.build_temp_website()
         self.addCleanup(tempdir.cleanup)
 
+        self.rewrite_versions_document(root, include_slugs=["0.9", "1.0"])
+        for version in ("1.1", "2.0"):
+            shutil.rmtree(root / "content" / "docs" / version)
+            (root / "data" / "docs-nav" / f"{version}.toml").unlink()
+        self.create_inherited_version(root, source_version="1.0", new_version="1.1")
         editor = self.make_editor(root)
         plan = editor.plan_version_delete("1.0", new_current="1.1")
-        with self.assertRaises(DOCS_EDITOR.DocsEditorError):
-            editor.apply_plan(plan)
+        editor.apply_plan(plan)
+
+        self.assert_paths_missing(self.docs_content_path(root, "1.0"))
+        self.assertEqual(editor.validate(), [])
 
     def test_create_latest_refuses_missing_latest_content_tree(self) -> None:
         """Appending after the latest declared version should fail if the latest tree is absent."""
         tempdir, root = self.build_temp_website()
         self.addCleanup(tempdir.cleanup)
 
+        shutil.rmtree(root / "content" / "docs" / "2.0")
         editor = DOCS_EDITOR.DocsEditor(root)
         with self.assertRaises(DOCS_EDITOR.DocsEditorError):
             editor.plan_version_create(
@@ -522,6 +661,7 @@ class DocsEditorVersionTests(DocsEditorTestCase):
         tempdir, root = self.build_temp_website()
         self.addCleanup(tempdir.cleanup)
 
+        self.make_empty_docs_workspace(root)
         (root / "data" / "docs-versions.toml").write_text(
             "# Canonical docs version metadata used by Hugo templates for labels, switchers,\n",
             encoding="utf-8",
@@ -687,7 +827,7 @@ class DocsEditorBookTests(DocsEditorTestCase):
 
         editor = self.make_editor(root)
         plan = editor.plan_book_create(
-            "0.8",
+            "1.1",
             book="tutorials",
             title="Tutorials",
             position="end",
@@ -714,7 +854,7 @@ class DocsEditorBookTests(DocsEditorTestCase):
 
         editor = self.make_editor(root)
         plan = editor.plan_book_create(
-            "0.8",
+            "1.1",
             book="tutorials",
             title=None,
             position="end",
@@ -723,11 +863,11 @@ class DocsEditorBookTests(DocsEditorTestCase):
         )
         editor.apply_plan(plan)
 
-        self.assertEqual(self.nav_book_slugs(root, "0.8")[-1], "tutorials")
-        self.assert_paths_exist(self.docs_content_path(root, "0.8", "tutorials"))
+        self.assertEqual(self.nav_book_slugs(root, "1.1")[-1], "tutorials")
+        self.assert_paths_exist(self.docs_content_path(root, "1.1", "tutorials"))
         self.assert_paths_missing(
-            self.docs_content_path(root, "0.8", "tutorials", "_index.md"),
-            self.docs_content_path(root, "0.8", "tutorials", "_inherit.md"),
+            self.docs_content_path(root, "1.1", "tutorials", "_index.md"),
+            self.docs_content_path(root, "1.1", "tutorials", "_inherit.md"),
         )
         self.assertEqual(editor.validate(), [])
 
@@ -739,7 +879,7 @@ class DocsEditorBookTests(DocsEditorTestCase):
         editor = self.make_editor(root)
         with self.assertRaisesRegex(DOCS_EDITOR.DocsEditorError, "--title"):
             editor.plan_book_create(
-                "0.8",
+                "1.1",
                 book="tutorials",
                 title="Tutorials",
                 position=None,
@@ -748,7 +888,7 @@ class DocsEditorBookTests(DocsEditorTestCase):
             )
         with self.assertRaisesRegex(DOCS_EDITOR.DocsEditorError, "--inherit"):
             editor.plan_book_create(
-                "0.8",
+                "1.1",
                 book="tutorials",
                 title=None,
                 position=None,
@@ -764,7 +904,7 @@ class DocsEditorBookTests(DocsEditorTestCase):
         editor = self.make_editor(root)
         editor.apply_plan(
             editor.plan_book_create(
-                "0.8",
+                "1.1",
                 book="tutorials",
                 title=None,
                 position="end",
@@ -772,12 +912,12 @@ class DocsEditorBookTests(DocsEditorTestCase):
                 structural_only=True,
             )
         )
-        self.create_inherited_version(root, source_version="0.8", new_version="0.9")
+        self.create_inherited_version(root, source_version="1.1", new_version="1.2")
 
-        self.assert_paths_exist(self.docs_content_path(root, "0.9", "tutorials"))
+        self.assert_paths_exist(self.docs_content_path(root, "1.2", "tutorials"))
         self.assert_paths_missing(
-            self.docs_content_path(root, "0.9", "tutorials", "_index.md"),
-            self.docs_content_path(root, "0.9", "tutorials", "_inherit.md"),
+            self.docs_content_path(root, "1.2", "tutorials", "_index.md"),
+            self.docs_content_path(root, "1.2", "tutorials", "_inherit.md"),
         )
         self.assertEqual(self.make_editor(root).validate(), [])
 
@@ -789,7 +929,7 @@ class DocsEditorBookTests(DocsEditorTestCase):
         editor = self.make_editor(root)
         editor.apply_plan(
             editor.plan_book_create(
-                "0.8",
+                "1.1",
                 book="tutorials",
                 title=None,
                 position="end",
@@ -799,22 +939,22 @@ class DocsEditorBookTests(DocsEditorTestCase):
         )
         editor.apply_plan(
             editor.plan_book_rename(
-                "0.8",
+                "1.1",
                 old_book="tutorials",
                 new_book="learning",
                 title=None,
             )
         )
 
-        self.assert_paths_exist(self.docs_content_path(root, "0.8", "learning"))
+        self.assert_paths_exist(self.docs_content_path(root, "1.1", "learning"))
         self.assert_paths_missing(
-            self.docs_content_path(root, "0.8", "learning", "_index.md"),
-            self.docs_content_path(root, "0.8", "learning", "_inherit.md"),
-            self.docs_content_path(root, "0.8", "tutorials"),
+            self.docs_content_path(root, "1.1", "learning", "_index.md"),
+            self.docs_content_path(root, "1.1", "learning", "_inherit.md"),
+            self.docs_content_path(root, "1.1", "tutorials"),
         )
         with self.assertRaisesRegex(DOCS_EDITOR.DocsEditorError, "--title"):
             editor.plan_book_rename(
-                "0.8",
+                "1.1",
                 old_book="learning",
                 new_book="training",
                 title="Training",
@@ -973,7 +1113,7 @@ class DocsEditorSectionTests(DocsEditorTestCase):
             "authentication",
             [entry["slug"] for entry in nav["sections"]["admin"]["items"]],
         )
-        self.assertNotIn("authentication", nav["pages"]["admin"])
+        self.assertNotIn("admin", nav["pages"])
         self.assert_paths_missing(
             self.docs_content_path(root, "1.1", "admin", "authentication")
         )
@@ -1451,29 +1591,29 @@ class DocsEditorPageTests(DocsEditorTestCase):
         editor = self.make_editor(root)
         expected_text = editor.replace_title_in_markdown(
             editor.resolve_page_source_file(
-                "0.8",
+                "1.0",
                 (
                     "website-dev-guide",
                     "docs-platform",
                     "website-and-docs-architecture-overview",
                 ),
             ).read_text(encoding="utf-8"),
-            "Website and Docs Architecture Overview for 0.8",
+            "Website and Docs Architecture Overview for 1.0",
         )
 
         plan = editor.plan_page_materialize(
-            "0.8",
+            "1.0",
             book="website-dev-guide",
             section="docs-platform",
             page="website-and-docs-architecture-overview",
-            title="Website and Docs Architecture Overview for 0.8",
+            title="Website and Docs Architecture Overview for 1.0",
         )
         editor.apply_plan(plan)
 
         self.assert_paths_missing(
             self.docs_content_path(
                 root,
-                "0.8",
+                "1.0",
                 "website-dev-guide",
                 "docs-platform",
                 "website-and-docs-architecture-overview",
@@ -1483,7 +1623,7 @@ class DocsEditorPageTests(DocsEditorTestCase):
         self.assertEqual(
             self.docs_content_path(
                 root,
-                "0.8",
+                "1.0",
                 "website-dev-guide",
                 "docs-platform",
                 "website-and-docs-architecture-overview",
@@ -1502,10 +1642,10 @@ class DocsEditorPageTests(DocsEditorTestCase):
 
         with self.assertRaisesRegex(
             DOCS_EDITOR.DocsEditorError,
-            "page already has real content: 0.7/website-dev-guide/docs-platform/website-and-docs-architecture-overview",
+            "page already has real content: 0.9/website-dev-guide/docs-platform/website-and-docs-architecture-overview",
         ):
             editor.plan_page_materialize(
-                "0.7",
+                "0.9",
                 book="website-dev-guide",
                 section="docs-platform",
                 page="website-and-docs-architecture-overview",
@@ -1519,17 +1659,17 @@ class DocsEditorPageTests(DocsEditorTestCase):
 
         self.promote_inherited_page_to_real_content(
             root,
-            version="0.8",
+            version="1.0",
             book="website-dev-guide",
             section="docs-platform",
             page="website-and-docs-architecture-overview",
-            title="Website and Docs Architecture Overview for 0.8",
+            title="Website and Docs Architecture Overview for 1.0",
             body="Version-specific override.",
         )
 
         editor = self.make_editor(root)
         plan = editor.plan_page_inherit(
-            "0.8",
+            "1.0",
             book="website-dev-guide",
             section="docs-platform",
             page="website-and-docs-architecture-overview",
@@ -1539,7 +1679,7 @@ class DocsEditorPageTests(DocsEditorTestCase):
         self.assert_paths_missing(
             self.docs_content_path(
                 root,
-                "0.8",
+                "1.0",
                 "website-dev-guide",
                 "docs-platform",
                 "website-and-docs-architecture-overview",
@@ -1549,7 +1689,7 @@ class DocsEditorPageTests(DocsEditorTestCase):
         self.assertEqual(
             self.docs_content_path(
                 root,
-                "0.8",
+                "1.0",
                 "website-dev-guide",
                 "docs-platform",
                 "website-and-docs-architecture-overview",
@@ -1568,10 +1708,10 @@ class DocsEditorPageTests(DocsEditorTestCase):
 
         with self.assertRaisesRegex(
             DOCS_EDITOR.DocsEditorError,
-            "cannot inherit page 0.7/website-dev-guide/docs-platform/website-and-docs-architecture-overview: no earlier version resolves to index.md",
+            "cannot inherit page 0.9/website-dev-guide/docs-platform/website-and-docs-architecture-overview: no earlier version resolves to index.md",
         ):
             editor.plan_page_inherit(
-                "0.7",
+                "0.9",
                 book="website-dev-guide",
                 section="docs-platform",
                 page="website-and-docs-architecture-overview",
@@ -1587,7 +1727,7 @@ class DocsEditorCliTests(DocsEditorTestCase):
         self.addCleanup(tempdir.cleanup)
 
         result = self.run_cli(
-            root, "--json", "version", "create", "0.9", "--after", "0.8"
+            root, "--json", "version", "create", "1.2", "--after", "1.1"
         )
 
         self.assert_preview_json_payload(
@@ -1595,22 +1735,24 @@ class DocsEditorCliTests(DocsEditorTestCase):
             destructive=False,
             entity="version",
             operation="create",
-            metadata={"new_version": "0.9", "source_version": "0.8"},
+            metadata={"new_version": "1.2", "source_version": "1.1"},
         )
-        self.assertFalse((root / "content" / "docs" / "0.9").exists())
-        self.assert_versions_state(root, current="0.7", slugs=["0.7", "0.8"])
+        self.assertFalse((root / "content" / "docs" / "1.2").exists())
+        self.assert_versions_state(
+            root, current="1.0", slugs=["0.9", "1.0", "1.1", "2.0"]
+        )
 
     def test_cli_version_create_preview_text_includes_metadata(self) -> None:
         """Human-readable preview should show the operation metadata before file changes."""
         tempdir, root = self.build_temp_website()
         self.addCleanup(tempdir.cleanup)
 
-        result = self.run_cli(root, "version", "create", "0.9", "--after", "0.8")
+        result = self.run_cli(root, "version", "create", "1.2", "--after", "1.1")
 
         self.assertEqual(result.returncode, 0, msg=result.stderr)
         self.assertIn("Metadata:\n- Entity: version", result.stdout)
-        self.assertIn("- New version: 0.9", result.stdout)
-        self.assertIn("- Source version: 0.8", result.stdout)
+        self.assertIn("- New version: 1.2", result.stdout)
+        self.assertIn("- Source version: 1.1", result.stdout)
         self.assertIn("Run again with --apply to write these changes.", result.stdout)
 
     def test_cli_version_create_with_latest_bootstraps_first_version(self) -> None:
@@ -1820,6 +1962,8 @@ class DocsEditorCliTests(DocsEditorTestCase):
         self.addCleanup(tempdir.cleanup)
 
         self.rewrite_versions_document(root, include_slugs=["0.9", "1.0", "1.1"])
+        shutil.rmtree(root / "content" / "docs" / "2.0")
+        (root / "data" / "docs-nav" / "2.0.toml").unlink()
 
         result = self.run_cli(root, "--apply", "version", "create", "1.2", "--latest")
 
@@ -1851,6 +1995,7 @@ class DocsEditorCliTests(DocsEditorTestCase):
         tempdir, root = self.build_temp_website()
         self.addCleanup(tempdir.cleanup)
 
+        shutil.rmtree(root / "content" / "docs" / "2.0")
         shutil.copy2(
             root / "data" / "docs-nav" / "1.1.toml",
             root / "data" / "docs-nav" / "2.0.toml",
@@ -3062,7 +3207,7 @@ class DocsEditorCliTests(DocsEditorTestCase):
             "section",
             "create",
             "--version",
-            "0.7",
+            "0.9",
             "--book",
             "website-dev-guide",
             "--section",
@@ -3077,10 +3222,10 @@ class DocsEditorCliTests(DocsEditorTestCase):
             stderr_fragment="--inherit and --structural-only cannot be combined",
         )
         self.assertNotIn(
-            "testing", self.nav_section_slugs(root, "0.7", "website-dev-guide")
+            "testing", self.nav_section_slugs(root, "0.9", "website-dev-guide")
         )
         self.assert_paths_missing(
-            self.docs_content_path(root, "0.7", "website-dev-guide", "testing")
+            self.docs_content_path(root, "0.9", "website-dev-guide", "testing")
         )
 
     def test_cli_section_create_refuses_existing_section_collision(self) -> None:
@@ -3645,7 +3790,7 @@ class DocsEditorCliTests(DocsEditorTestCase):
             "page",
             "materialize",
             "--version",
-            "0.8",
+            "1.0",
             "--book",
             "website-dev-guide",
             "--section",
@@ -3660,7 +3805,7 @@ class DocsEditorCliTests(DocsEditorTestCase):
             entity="page",
             operation="materialize",
             metadata={
-                "version": "0.8",
+                "version": "1.0",
                 "book": "website-dev-guide",
                 "section": "docs-platform",
                 "page": "website-and-docs-architecture-overview",
@@ -3669,8 +3814,8 @@ class DocsEditorCliTests(DocsEditorTestCase):
         self.assertIn(
             {
                 "action": "delete_file",
-                "path": "content/docs/0.8/website-dev-guide/docs-platform/website-and-docs-architecture-overview/inherit.md",
-                "description": "Remove inherited page marker for 0.8/website-dev-guide/docs-platform/website-and-docs-architecture-overview",
+                "path": "content/docs/1.0/website-dev-guide/docs-platform/website-and-docs-architecture-overview/inherit.md",
+                "description": "Remove inherited page marker for 1.0/website-dev-guide/docs-platform/website-and-docs-architecture-overview",
                 "target": None,
             },
             payload["changes"],
@@ -3678,7 +3823,7 @@ class DocsEditorCliTests(DocsEditorTestCase):
         self.assert_paths_exist(
             self.docs_content_path(
                 root,
-                "0.8",
+                "1.0",
                 "website-dev-guide",
                 "docs-platform",
                 "website-and-docs-architecture-overview",
@@ -3688,7 +3833,7 @@ class DocsEditorCliTests(DocsEditorTestCase):
         self.assert_paths_missing(
             self.docs_content_path(
                 root,
-                "0.8",
+                "1.0",
                 "website-dev-guide",
                 "docs-platform",
                 "website-and-docs-architecture-overview",
@@ -3707,7 +3852,7 @@ class DocsEditorCliTests(DocsEditorTestCase):
             "page",
             "materialize",
             "--version",
-            "0.8",
+            "1.0",
             "--book",
             "website-dev-guide",
             "--section",
@@ -3715,18 +3860,18 @@ class DocsEditorCliTests(DocsEditorTestCase):
             "--page",
             "website-and-docs-architecture-overview",
             "--title",
-            "Website and Docs Architecture Overview for 0.8",
+            "Website and Docs Architecture Overview for 1.0",
         )
 
         self.assertEqual(result.returncode, 0, msg=result.stderr)
         self.assertIn(
-            "Applied: Materialize inherited page website-dev-guide/docs-platform/website-and-docs-architecture-overview in docs version 0.8",
+            "Applied: Materialize inherited page website-dev-guide/docs-platform/website-and-docs-architecture-overview in docs version 1.0",
             result.stdout,
         )
         self.assert_paths_missing(
             self.docs_content_path(
                 root,
-                "0.8",
+                "1.0",
                 "website-dev-guide",
                 "docs-platform",
                 "website-and-docs-architecture-overview",
@@ -3735,14 +3880,14 @@ class DocsEditorCliTests(DocsEditorTestCase):
         )
         materialized_text = self.docs_content_path(
             root,
-            "0.8",
+            "1.0",
             "website-dev-guide",
             "docs-platform",
             "website-and-docs-architecture-overview",
             DOCS_EDITOR.PAGE_INDEX,
         ).read_text(encoding="utf-8")
         self.assertIn(
-            'title = "Website and Docs Architecture Overview for 0.8"',
+            'title = "Website and Docs Architecture Overview for 1.0"',
             materialized_text,
         )
 
@@ -3755,11 +3900,11 @@ class DocsEditorCliTests(DocsEditorTestCase):
 
         self.promote_inherited_page_to_real_content(
             root,
-            version="0.8",
+            version="1.0",
             book="website-dev-guide",
             section="docs-platform",
             page="website-and-docs-architecture-overview",
-            title="Website and Docs Architecture Overview for 0.8",
+            title="Website and Docs Architecture Overview for 1.0",
             body="Version-specific override.",
         )
 
@@ -3769,7 +3914,7 @@ class DocsEditorCliTests(DocsEditorTestCase):
             "page",
             "inherit",
             "--version",
-            "0.8",
+            "1.0",
             "--book",
             "website-dev-guide",
             "--section",
@@ -3784,7 +3929,7 @@ class DocsEditorCliTests(DocsEditorTestCase):
             entity="page",
             operation="inherit",
             metadata={
-                "version": "0.8",
+                "version": "1.0",
                 "book": "website-dev-guide",
                 "section": "docs-platform",
                 "page": "website-and-docs-architecture-overview",
@@ -3793,8 +3938,8 @@ class DocsEditorCliTests(DocsEditorTestCase):
         self.assertIn(
             {
                 "action": "delete_file",
-                "path": "content/docs/0.8/website-dev-guide/docs-platform/website-and-docs-architecture-overview/index.md",
-                "description": "Remove real page content for 0.8/website-dev-guide/docs-platform/website-and-docs-architecture-overview",
+                "path": "content/docs/1.0/website-dev-guide/docs-platform/website-and-docs-architecture-overview/index.md",
+                "description": "Remove real page content for 1.0/website-dev-guide/docs-platform/website-and-docs-architecture-overview",
                 "target": None,
             },
             payload["changes"],
@@ -3802,7 +3947,7 @@ class DocsEditorCliTests(DocsEditorTestCase):
         self.assert_paths_exist(
             self.docs_content_path(
                 root,
-                "0.8",
+                "1.0",
                 "website-dev-guide",
                 "docs-platform",
                 "website-and-docs-architecture-overview",
@@ -3812,7 +3957,7 @@ class DocsEditorCliTests(DocsEditorTestCase):
         self.assert_paths_missing(
             self.docs_content_path(
                 root,
-                "0.8",
+                "1.0",
                 "website-dev-guide",
                 "docs-platform",
                 "website-and-docs-architecture-overview",
@@ -3827,11 +3972,11 @@ class DocsEditorCliTests(DocsEditorTestCase):
 
         self.promote_inherited_page_to_real_content(
             root,
-            version="0.8",
+            version="1.0",
             book="website-dev-guide",
             section="docs-platform",
             page="website-and-docs-architecture-overview",
-            title="Website and Docs Architecture Overview for 0.8",
+            title="Website and Docs Architecture Overview for 1.0",
             body="Version-specific override.",
         )
 
@@ -3842,7 +3987,7 @@ class DocsEditorCliTests(DocsEditorTestCase):
             "page",
             "inherit",
             "--version",
-            "0.8",
+            "1.0",
             "--book",
             "website-dev-guide",
             "--section",
@@ -3853,13 +3998,13 @@ class DocsEditorCliTests(DocsEditorTestCase):
 
         self.assertEqual(result.returncode, 0, msg=result.stderr)
         self.assertIn(
-            "Applied: Convert page website-dev-guide/docs-platform/website-and-docs-architecture-overview to inherited content in docs version 0.8",
+            "Applied: Convert page website-dev-guide/docs-platform/website-and-docs-architecture-overview to inherited content in docs version 1.0",
             result.stdout,
         )
         self.assert_paths_missing(
             self.docs_content_path(
                 root,
-                "0.8",
+                "1.0",
                 "website-dev-guide",
                 "docs-platform",
                 "website-and-docs-architecture-overview",
@@ -3869,7 +4014,7 @@ class DocsEditorCliTests(DocsEditorTestCase):
         self.assertEqual(
             self.docs_content_path(
                 root,
-                "0.8",
+                "1.0",
                 "website-dev-guide",
                 "docs-platform",
                 "website-and-docs-architecture-overview",
@@ -3951,13 +4096,13 @@ class DocsEditorCliTests(DocsEditorTestCase):
             "page",
             "create",
             "--version",
-            "0.7",
+            "0.9",
             "--book",
             "website-dev-guide",
             "--section",
-            "authoring-and-tooling",
+            "docs-platform",
             "--page",
-            "docs-editor-tool",
+            "website-and-docs-architecture-overview",
             "--title",
             "Docs Editor Tool",
         )
@@ -3970,18 +4115,18 @@ class DocsEditorCliTests(DocsEditorTestCase):
         self.assert_paths_exist(
             self.docs_content_path(
                 root,
-                "0.7",
+                "0.9",
                 "website-dev-guide",
-                "authoring-and-tooling",
-                "docs-editor-tool",
+                "docs-platform",
+                "website-and-docs-architecture-overview",
             )
         )
         self.assert_paths_missing(
             self.docs_content_path(
                 root,
-                "0.7",
+                "0.9",
                 "website-dev-guide",
-                "authoring-and-tooling",
+                "docs-platform",
                 "docs-editor-tool-setup",
             )
         )
@@ -3998,7 +4143,7 @@ class DocsEditorCliTests(DocsEditorTestCase):
             "page",
             "create",
             "--version",
-            "0.8",
+            "1.0",
             "--book",
             "website-dev-guide",
             "--section",
@@ -4027,11 +4172,11 @@ class DocsEditorCliTests(DocsEditorTestCase):
             "page",
             "create",
             "--version",
-            "0.7",
+            "0.9",
             "--book",
             "website-dev-guide",
             "--section",
-            "authoring-and-tooling",
+            "docs-platform",
             "--page",
             "docs-editor-quickstart",
             "--title",
@@ -4049,9 +4194,9 @@ class DocsEditorCliTests(DocsEditorTestCase):
         self.assert_paths_missing(
             self.docs_content_path(
                 root,
-                "0.7",
+                "0.9",
                 "website-dev-guide",
-                "authoring-and-tooling",
+                "docs-platform",
                 "docs-editor-quickstart",
             )
         )
