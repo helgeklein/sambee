@@ -134,8 +134,17 @@ features:
           body: Full Markdown support for rendering, searching, and editing without needing to switch into a separate editor.
         - title: View and edit
           body: View Markdown files with rich formatting, seamlessly switch to editing mode when needed.
-        - title: WYSIWYG editing
-          body: Edit directly in the rendered view. Switch to Markdown syntax only upon preference.
+        - title: WYSIWYG table editing
+          body: Edit tables directly in the rendered view.
+    - id: text_code
+      icon: code
+      title: Text and code
+      summary: View and edit text and code files in the embedded editor.
+      items:
+        - title: Professional editor
+          body: Built on CodeMirror, a feature-rich, fast, and mature browser-based editor.
+        - title: Syntax highlighting
+          body: Support for many formats and file types.
     - id: file_management
       icon: drive_file_move
       title: File management
@@ -237,6 +246,32 @@ preview_support:
           detail: Portable Document Format
         - label: MD
           detail: CommonMark-compatible text
+    - title: Config & data files
+      icon: data_object
+      formats:
+        - label: YAML
+          detail: YAML Ain't Markup Language
+        - label: INI
+          detail: Initialization file format
+        - label: JSON
+          detail: JavaScript Object Notation
+        - label: TOML
+          detail: Tom's Obvious Minimal Language
+        - label: XML
+          detail: Extensible Markup Language
+    - title: Code files
+      icon: code
+      formats:
+        - label: JS/TS
+          detail: JavaScript / TypeScript
+        - label: HTML
+          detail: Hypertext Markup Language
+        - label: CSS
+          detail: Cascading Style Sheets
+        - label: PY
+          detail: Python
+        - label: SH
+          detail: Bash
 
 companion:
   enabled: true
