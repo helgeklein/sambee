@@ -36,18 +36,17 @@
 # - Docs page version identity is derived from the content path below
 #   website/content/docs/<version>/, not from page front matter.
 # - The current slug should usually also be marked with status = "current".
-current = "0.7"
+current = "0.8"
 
 [[versions]]
 slug = "0.7"
 label = "0.7"
 visible = true
-status = "current"
-searchable = true
+searchable = false
 
 [[versions]]
 slug = "0.8"
 label = "0.8"
 visible = true
-status = "preview"
-searchable = false
+status = "current"
+searchable = true

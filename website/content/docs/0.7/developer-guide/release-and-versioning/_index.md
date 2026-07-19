@@ -4,9 +4,17 @@ title = "Release and Versioning"
 
 This section covers the workflows where a small metadata mistake can create cross-boundary drift.
 
+For a complete Sambee product release, start here:
+
+- [Release Checklist](./release-checklist/)
+- [Product Versioning](./product-versioning/)
+
+For dependency changes, use:
+
+- [Dependency Update Workflow](./dependency-update-workflow/)
+
 For Sambee Docker image releases, read these pages in order:
 
-- [Dependency and Release Workflow](./dependency-and-release-workflow/)
 - [Docker Release Overview](./docker-release-overview/)
 - [Publish Test Docker Candidate](./publish-test-docker-candidate/)
 - [Promote Docker Candidate](./promote-docker-candidate/)
@@ -21,4 +29,4 @@ For Companion release distribution, read these pages in order:
 - [Promote Companion Release](./promote-companion-release/)
 - [Companion Channels, Feeds, And Downloads](./companion-channels-feeds-and-downloads/)
 
-Use this section when you are changing version numbers, updating reviewed dependencies, or touching release-sensitive files.
+Use this section when you are changing version numbers, updating reviewed dependencies, or publishing a product release.

@@ -1,36 +1,8 @@
 +++
-title = "Dependency and Release Workflow"
+title = "Dependency Update Workflow"
 +++
 
-Versioning in Sambee is deliberate. Several files across backend, frontend, and companion have to stay aligned, and the repository already has workflows to enforce that alignment.
-
-## Product Version Source of Truth
-
-The application version lives in one place:
-
-- `VERSION`
-
-When the product version changes:
-
-1. update `VERSION`
-2. run `./scripts/sync-version`
-3. review all resulting metadata changes together
-
-The sync step updates version-bearing frontend and companion files so they do not drift away from the root version.
-
-## Files That Move with Product Version Changes
-
-The sync workflow updates files such as:
-
-- `frontend/package.json`
-- `frontend/package-lock.json`
-- `companion/package.json`
-- `companion/package-lock.json`
-- `companion/src-tauri/Cargo.toml`
-- `companion/src-tauri/tauri.conf.json`
-- `companion/src-tauri/Cargo.lock`
-
-Treat those edits as release metadata, not as noise to separate later.
+Use this page for routine dependency updates and dependency-related release preparation. Use [Product Versioning](../product-versioning/) when changing the Sambee version, and [Release Checklist](../release-checklist/) when preparing a complete product release.
 
 ## Dependency Update Rules
 
@@ -97,16 +69,7 @@ Use [Container Image Security and Artifact Integrity](../../security/container-i
 - Trivy suppression policy
 - image signing, SBOM, and provenance controls
 
-Keep this page focused on version alignment and release-sensitive dependency changes.
-
-## Release-Sensitive Change Checklist
-
-Use extra care when a change touches any of these:
-
-- `VERSION`
-- dependency lockfiles or requirement inputs
-- package metadata in frontend or companion projects
-- build scripts that generate version-bearing or release-facing outputs
+Keep this page focused on dependency inputs, generated lockfiles, and dependency-specific validation.
 
 ## Validation Expectations
 
@@ -115,11 +78,10 @@ At minimum, run the checks for the subsystem whose release-sensitive files chang
 Common examples:
 
 ```bash
-./scripts/sync-version
 cd backend && pytest -v
 cd backend && mypy app
 cd frontend && npx tsc --noEmit && npm run lint
 cd companion && npx tsc --noEmit && npm run lint
 ```
 
-Choose the relevant subset based on what changed, but do not skip version-sync validation when `VERSION` moves.
+Choose the relevant subset based on the dependencies that changed.

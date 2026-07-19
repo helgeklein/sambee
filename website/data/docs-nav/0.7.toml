@@ -239,7 +239,9 @@ title = "Release and Versioning"
 
 [pages.developer-guide.release-and-versioning]
 items = [
-  "dependency-and-release-workflow",
+  "dependency-update-workflow",
+  "product-versioning",
+  "release-checklist",
   "docker-release-overview",
   "publish-test-docker-candidate",
   "promote-docker-candidate",
