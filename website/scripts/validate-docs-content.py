@@ -495,7 +495,7 @@ def validate_nav_content(
             issues.append(DocsIssue(book_dir, "book folder listed in nav is missing"))
             continue
 
-        issues.extend(validate_branch_bundle(book_dir, required=True))
+        issues.extend(validate_branch_bundle(book_dir, required=False))
         if (book_dir / BRANCH_INHERIT_FILE).exists() and not resolve_branch_inheritance(
             version_order, nav_data.version, (book_slug,)
         ):

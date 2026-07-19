@@ -1,0 +1,56 @@
+{{/* Purpose: Return the first ordered docs location that Hugo can render for one version. */}}
+{{ $version := .version | default "" }}
+{{ $preferStable := true }}
+{{ if isset . "preferStable" }}
+  {{ $preferStable = .preferStable }}
+{{ end }}
+{{ $targetURL := "" }}
+{{ $docsNav := index hugo.Data "docs-nav" }}
+{{ $navData := index $docsNav $version }}
+
+{{ with $navData }}
+  {{ $navData = . }}
+  {{ range $bookSlug := $navData.books | default slice }}
+    {{ $locations := slice (dict "book" $bookSlug) }}
+    {{ $sectionEntries := slice }}
+    {{ with index $navData.sections $bookSlug }}
+      {{ $sectionEntries = .items | default slice }}
+    {{ end }}
+    {{ range $sectionEntry := $sectionEntries }}
+      {{ $sectionSlug := $sectionEntry.slug }}
+      {{ $locations = $locations | append (dict "book" $bookSlug "section" $sectionSlug) }}
+      {{ $pageSlugs := slice }}
+      {{ with index $navData.pages $bookSlug }}
+        {{ with index . $sectionSlug }}
+          {{ $pageSlugs = .items | default slice }}
+        {{ end }}
+      {{ end }}
+      {{ range $pageSlug := $pageSlugs }}
+        {{ $locations = $locations | append (dict "book" $bookSlug "section" $sectionSlug "page" $pageSlug) }}
+      {{ end }}
+    {{ end }}
+
+    {{ range $location := $locations }}
+      {{ if not $targetURL }}
+        {{ $lookupPath := partial "docs/page-path.html" (dict
+          "version" $version
+          "book" ($location.book | default "")
+          "section" ($location.section | default "")
+          "page" ($location.page | default "")
+          "preferStable" false
+        ) }}
+        {{ with site.GetPage $lookupPath }}
+          {{ $targetURL = partial "docs/page-url.html" (dict
+            "version" $version
+            "book" ($location.book | default "")
+            "section" ($location.section | default "")
+            "page" ($location.page | default "")
+            "preferStable" $preferStable
+          ) }}
+        {{ end }}
+      {{ end }}
+    {{ end }}
+  {{ end }}
+{{ end }}
+
+{{ return $targetURL }}

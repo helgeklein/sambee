@@ -1,3 +1,4 @@
+Book and section landing pages are optional. Either may be structural only, with no `_index.md` and no `_inherit.md`. A structural node remains in navigation but has no public landing route. This Website Dev Guide uses structural-only sections.
 +++
 title = "Docs Authoring Workflow"
 +++

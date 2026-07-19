@@ -1,3 +1,5 @@
+`book create` creates a book folder, writes `_index.md` by default or `_inherit.md` with `--inherit`, and inserts the book into the version nav file. With `--structural-only`, it creates no landing file. `--structural-only` cannot be combined with `--inherit` or `--title`.
+`book rename` renames the book directory, updates `books` ordering plus the associated `sections` and `pages` tables, and propagates inherited-only descendants when allowed. It preserves a structural-only book as structural-only; `--title` is not valid when renaming such a book.
 +++
 title = "Docs Editor Operation Reference"
 +++

@@ -120,7 +120,7 @@ def display_branch_state(raw_state: BranchNodeState, *, is_section: bool) -> str
     if raw_state is BranchNodeState.INHERITED:
         return "inherited"
     if raw_state is BranchNodeState.STRUCTURAL:
-        return "structural-only" if is_section else "structural"
+        return "structural-only"
     return "invalid"
 
 
@@ -722,7 +722,7 @@ def render_report_html(data: dict[str, Any]) -> str:
         showDiffCount: true,
         onlyBranched: false,
         onlyInheritedPages: false,
-        onlyStructuralSections: false,
+        onlyStructuralNodes: false,
       }},
       expanded: new Set(rows.filter((row) => row.has_children).map((row) => row.id)),
       compare: {{ left: null, right: null, onlyChanges: true }},
@@ -755,7 +755,7 @@ def render_report_html(data: dict[str, Any]) -> str:
         ['showDiffCount', 'Show diff counts'],
         ['onlyBranched', 'Only branched'],
         ['onlyInheritedPages', 'Only inherited pages'],
-        ['onlyStructuralSections', 'Only structural-only sections'],
+        ['onlyStructuralNodes', 'Only structural-only nodes'],
       ];
       const container = document.getElementById('toggle-pills');
       container.replaceChildren();
@@ -772,7 +772,7 @@ def render_report_html(data: dict[str, Any]) -> str:
       if (state.search && !haystack.includes(state.search)) return false;
       if (state.toggles.onlyBranched && !row.flags.has_branched) return false;
       if (state.toggles.onlyInheritedPages && !(row.kind === 'page' && row.flags.has_inherited)) return false;
-      if (state.toggles.onlyStructuralSections && !(row.kind === 'section' && row.flags.has_structural)) return false;
+      if (state.toggles.onlyStructuralNodes && !row.flags.has_structural) return false;
       return true;
     }}
 
@@ -789,7 +789,7 @@ def render_report_html(data: dict[str, Any]) -> str:
       return (
         state.toggles.onlyBranched ||
         state.toggles.onlyInheritedPages ||
-        state.toggles.onlyStructuralSections
+        state.toggles.onlyStructuralNodes
       );
     }}
 
@@ -815,7 +815,6 @@ def render_report_html(data: dict[str, Any]) -> str:
         branched: 'branched',
         inherited: 'inherited',
         'structural-only': 'structural',
-        structural: 'structural',
         missing: 'missing',
         invalid: 'invalid',
       }};

@@ -49,21 +49,21 @@ A page folder under `website/content/docs/<version>/<book>/<section>/<page>/` mu
 
 Do not keep both files in the same page folder.
 
-### Version and Book Folders
+### Version Folders
 
-A version folder or book folder must contain exactly one of:
+A version folder must contain exactly one of:
 
 - `_index.md`: real landing-page content
 - `_inherit.md`: empty inheritance marker
 
-### Section Folders
+### Book and Section Folders
 
-A section folder may contain zero or one of:
+A book folder or section folder may contain zero or one of:
 
-- `_index.md`: real section landing-page content
+- `_index.md`: real landing-page content
 - `_inherit.md`: empty inheritance marker
 
-If there's no file, it means the section is structural only and has no content of its own.
+If neither file exists, the folder is structural only and has no content or public landing route of its own.
 
 ## Marker Files Are Markers Only
 

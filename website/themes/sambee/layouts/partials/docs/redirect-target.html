@@ -1,4 +1,4 @@
-{{/* Purpose: Resolve docs entry pages that should redirect to a version's first book. */}}
+{{/* Purpose: Resolve docs entry pages that should redirect to a version's first routable page. */}}
 {{ $page := . }}
 {{ $docsContext := partial "docs/context.html" $page }}
 {{ $targetURL := "" }}
@@ -9,18 +9,12 @@
 
   {{ if $docsContext.isDocsRoot }}
     {{ with and $currentVersion (index $docsNav $currentVersion) }}
-      {{ $books := .books | default slice }}
-      {{ if gt (len $books) 0 }}
-        {{ $targetURL = partial "docs/page-url.html" (dict "version" $currentVersion "book" (index $books 0)) }}
-      {{ end }}
+      {{ $targetURL = partial "docs/first-routable-url.html" (dict "version" $currentVersion) }}
     {{ end }}
   {{ else if and $docsContext.isExplicitVersion $docsContext.isCurrentVersion }}
     {{ if $docsContext.isVersion }}
       {{ with and $currentVersion (index $docsNav $currentVersion) }}
-        {{ $books := .books | default slice }}
-        {{ if gt (len $books) 0 }}
-          {{ $targetURL = partial "docs/page-url.html" (dict "version" $currentVersion "book" (index $books 0)) }}
-        {{ end }}
+        {{ $targetURL = partial "docs/first-routable-url.html" (dict "version" $currentVersion) }}
       {{ end }}
     {{ else }}
       {{ $targetURL = partial "docs/page-url.html" (dict
@@ -32,14 +26,10 @@
     {{ end }}
   {{ else if $docsContext.isVersion }}
     {{ with and $docsContext.version (index $docsNav $docsContext.version) }}
-    {{ $books := .books | default slice }}
-    {{ if gt (len $books) 0 }}
-        {{ $targetURL = partial "docs/page-url.html" (dict
-          "version" $docsContext.version
-          "book" (index $books 0)
-          "preferStable" false
-        ) }}
-      {{ end }}
+      {{ $targetURL = partial "docs/first-routable-url.html" (dict
+        "version" $docsContext.version
+        "preferStable" false
+      ) }}
     {{ end }}
   {{ end }}
 
