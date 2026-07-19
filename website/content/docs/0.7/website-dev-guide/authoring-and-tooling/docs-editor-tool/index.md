@@ -109,6 +109,21 @@ python3 scripts/docs-editor.py --apply book create \
   --title "Tutorials"
 ```
 
+## Example: Create a Structural-Only Book
+
+Use this when a book is only a navigation container and should not have a landing page of its own.
+
+```bash
+cd website
+python3 scripts/docs-editor.py book create \
+  --version 0.7 \
+  --book release-info \
+  --position start \
+  --structural-only
+```
+
+That creates the book directory and nav entry without `_index.md` or `_inherit.md`.
+
 ## Example: Create a Structural-Only Section
 
 This is useful when you want a navigation group without a section landing page.

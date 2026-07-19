@@ -687,7 +687,7 @@ class DocsEditorBookTests(DocsEditorTestCase):
 
         editor = self.make_editor(root)
         plan = editor.plan_book_create(
-            "1.1",
+            "0.8",
             book="tutorials",
             title="Tutorials",
             position="end",
@@ -705,6 +705,120 @@ class DocsEditorBookTests(DocsEditorTestCase):
             ),
             '+++\ntitle = "Tutorials"\n+++\n\n',
         )
+        self.assertEqual(editor.validate(), [])
+
+    def test_structural_only_book_create_keeps_nav_and_tree_valid(self) -> None:
+        """Structural-only books should update nav without creating landing files."""
+        tempdir, root = self.build_temp_website()
+        self.addCleanup(tempdir.cleanup)
+
+        editor = self.make_editor(root)
+        plan = editor.plan_book_create(
+            "0.8",
+            book="tutorials",
+            title=None,
+            position="end",
+            inherit=False,
+            structural_only=True,
+        )
+        editor.apply_plan(plan)
+
+        self.assertEqual(self.nav_book_slugs(root, "0.8")[-1], "tutorials")
+        self.assert_paths_exist(self.docs_content_path(root, "0.8", "tutorials"))
+        self.assert_paths_missing(
+            self.docs_content_path(root, "0.8", "tutorials", "_index.md"),
+            self.docs_content_path(root, "0.8", "tutorials", "_inherit.md"),
+        )
+        self.assertEqual(editor.validate(), [])
+
+    def test_structural_only_book_create_rejects_title_and_inherit(self) -> None:
+        """Structural books cannot have either landing metadata or inheritance."""
+        tempdir, root = self.build_temp_website()
+        self.addCleanup(tempdir.cleanup)
+
+        editor = self.make_editor(root)
+        with self.assertRaisesRegex(DOCS_EDITOR.DocsEditorError, "--title"):
+            editor.plan_book_create(
+                "0.8",
+                book="tutorials",
+                title="Tutorials",
+                position=None,
+                inherit=False,
+                structural_only=True,
+            )
+        with self.assertRaisesRegex(DOCS_EDITOR.DocsEditorError, "--inherit"):
+            editor.plan_book_create(
+                "0.8",
+                book="tutorials",
+                title=None,
+                position=None,
+                inherit=True,
+                structural_only=True,
+            )
+
+    def test_structural_only_book_is_preserved_in_inherited_version(self) -> None:
+        """A later inherited version must retain a markerless structural book."""
+        tempdir, root = self.build_temp_website()
+        self.addCleanup(tempdir.cleanup)
+
+        editor = self.make_editor(root)
+        editor.apply_plan(
+            editor.plan_book_create(
+                "0.8",
+                book="tutorials",
+                title=None,
+                position="end",
+                inherit=False,
+                structural_only=True,
+            )
+        )
+        self.create_inherited_version(root, source_version="0.8", new_version="0.9")
+
+        self.assert_paths_exist(self.docs_content_path(root, "0.9", "tutorials"))
+        self.assert_paths_missing(
+            self.docs_content_path(root, "0.9", "tutorials", "_index.md"),
+            self.docs_content_path(root, "0.9", "tutorials", "_inherit.md"),
+        )
+        self.assertEqual(self.make_editor(root).validate(), [])
+
+    def test_structural_only_book_rename_preserves_markerless_root(self) -> None:
+        """Renaming a structural book must not materialize a landing page."""
+        tempdir, root = self.build_temp_website()
+        self.addCleanup(tempdir.cleanup)
+
+        editor = self.make_editor(root)
+        editor.apply_plan(
+            editor.plan_book_create(
+                "0.8",
+                book="tutorials",
+                title=None,
+                position="end",
+                inherit=False,
+                structural_only=True,
+            )
+        )
+        editor.apply_plan(
+            editor.plan_book_rename(
+                "0.8",
+                old_book="tutorials",
+                new_book="learning",
+                title=None,
+            )
+        )
+
+        self.assert_paths_exist(self.docs_content_path(root, "0.8", "learning"))
+        self.assert_paths_missing(
+            self.docs_content_path(root, "0.8", "learning", "_index.md"),
+            self.docs_content_path(root, "0.8", "learning", "_inherit.md"),
+            self.docs_content_path(root, "0.8", "tutorials"),
+        )
+        with self.assertRaisesRegex(DOCS_EDITOR.DocsEditorError, "--title"):
+            editor.plan_book_rename(
+                "0.8",
+                old_book="learning",
+                new_book="training",
+                title="Training",
+            )
         self.assertEqual(editor.validate(), [])
 
     def test_book_delete_removes_nav_and_content(self) -> None:

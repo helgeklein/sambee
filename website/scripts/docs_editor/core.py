@@ -856,26 +856,25 @@ class DocsEditor:
             raise DocsEditorError(
                 f"book node is invalid for rename materialization: {version}/{old_book}"
             )
-        if old_book_state is BranchNodeState.STRUCTURAL:
-            raise DocsEditorError(
-                f"book node cannot be structural-only: {version}/{old_book}"
-            )
-
         # Once the slug changes in the target version, inheritance can no longer continue
         # to resolve through the old path lineage, so inherited roots are materialized here.
-        book_index_text = self.resolve_branch_source_file(
-            version, (old_book,)
-        ).read_text(encoding="utf-8")
-        if title is not None:
-            book_index_text = self.replace_title_in_markdown(book_index_text, title)
-        changes.append(
-            PlannedChange(
-                "write_text",
-                new_book_dir / DOCS_ROOT_INDEX,
-                f"Materialize renamed book landing content for {version}/{new_book}",
-                book_index_text,
+        if old_book_state in {
+            BranchNodeState.AUTHORED,
+            BranchNodeState.INHERITED,
+        }:
+            book_index_text = self.resolve_branch_source_file(
+                version, (old_book,)
+            ).read_text(encoding="utf-8")
+            if title is not None:
+                book_index_text = self.replace_title_in_markdown(book_index_text, title)
+            changes.append(
+                PlannedChange(
+                    "write_text",
+                    new_book_dir / DOCS_ROOT_INDEX,
+                    f"Materialize renamed book landing content for {version}/{new_book}",
+                    book_index_text,
+                )
             )
-        )
 
         for section_dir in self.direct_child_dirs(old_book_dir):
             new_section_dir = new_book_dir / section_dir.name
@@ -1310,9 +1309,9 @@ class DocsEditor:
 
         for book_dir in self.direct_child_dirs(source_root):
             new_book_dir = new_root / book_dir.name
-            if not self.has_branch_marker(book_dir):
+            if self.classify_branch_node_state(book_dir) is BranchNodeState.INVALID:
                 raise DocsEditorError(
-                    f"cannot inherit book {book_dir.name} from {source_version}: missing _index.md or _inherit.md"
+                    f"cannot inherit invalid book {book_dir.name} from {source_version}"
                 )
             changes.append(
                 PlannedChange(
@@ -1321,14 +1320,15 @@ class DocsEditor:
                     f"Create book directory {new_version}/{book_dir.name}",
                 )
             )
-            changes.append(
-                PlannedChange(
-                    "write_text",
-                    new_book_dir / BRANCH_INHERIT,
-                    f"Create book inheritance marker for {new_version}/{book_dir.name}",
-                    self.empty_marker(new_book_dir / BRANCH_INHERIT),
+            if self.has_branch_marker(book_dir):
+                changes.append(
+                    PlannedChange(
+                        "write_text",
+                        new_book_dir / BRANCH_INHERIT,
+                        f"Create book inheritance marker for {new_version}/{book_dir.name}",
+                        self.empty_marker(new_book_dir / BRANCH_INHERIT),
+                    )
                 )
-            )
 
             for section_dir in self.direct_child_dirs(book_dir):
                 new_section_dir = new_book_dir / section_dir.name
@@ -1608,8 +1608,13 @@ class DocsEditor:
         title: str | None,
         position: str | None,
         inherit: bool,
+        structural_only: bool = False,
     ) -> OperationPlan:
         """Build a plan for book creation within one docs version."""
+        if inherit and structural_only:
+            raise DocsEditorError("--inherit and --structural-only cannot be combined")
+        if structural_only and title is not None:
+            raise DocsEditorError("--title cannot be used with --structural-only")
         if version not in self.version_slugs():
             raise DocsEditorError(f"unknown docs version: {version}")
 
@@ -1639,7 +1644,9 @@ class DocsEditor:
             ),
         ]
 
-        if inherit:
+        if structural_only:
+            pass
+        elif inherit:
             if not self.can_resolve_branch_inheritance(version, (book,)):
                 raise DocsEditorError(
                     f"cannot create inherited book {version}/{book}: no earlier version resolves to _index.md"
@@ -1672,6 +1679,7 @@ class DocsEditor:
                 "operation": "create",
                 "version": version,
                 "book": book,
+                "structural_only": structural_only,
             },
         )
 
@@ -1758,6 +1766,15 @@ class DocsEditor:
         if new_book_dir.exists():
             raise DocsEditorError(
                 f"destination book already exists: {version}/{new_book}"
+            )
+
+        if (
+            title is not None
+            and self.classify_branch_node_state(old_book_dir)
+            is BranchNodeState.STRUCTURAL
+        ):
+            raise DocsEditorError(
+                "--title cannot be used when renaming a structural-only book"
             )
 
         nav_document = self.load_nav_document(version)
@@ -2831,6 +2848,11 @@ def build_parser() -> argparse.ArgumentParser:
         action="store_true",
         help="create an inherited book marker instead of real landing content",
     )
+    book_create_parser.add_argument(
+        "--structural-only",
+        action="store_true",
+        help="create only the book directory and nav entry, without landing content",
+    )
 
     book_delete_parser = book_commands.add_parser("delete", help="delete a docs book")
     book_delete_parser.add_argument(
@@ -3043,6 +3065,7 @@ def execute(args: argparse.Namespace) -> int:
                 title=args.title,
                 position=args.position,
                 inherit=args.inherit,
+                structural_only=args.structural_only,
             )
         elif args.operation == "delete":
             plan = editor.plan_book_delete(args.version, book=args.book)

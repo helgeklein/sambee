@@ -159,6 +159,33 @@ class DocsReportTests(unittest.TestCase):
         self.assertIn(source_version, row["content_versions"])
         self.assertIn(current_version, row["content_versions"])
 
+    def test_build_report_data_marks_structural_book(self) -> None:
+        """Structural books should use the common structural-only report state."""
+        tempdir, root = self.build_temp_website()
+        self.addCleanup(tempdir.cleanup)
+
+        editor = DOCS_EDITOR.DocsEditor(root)
+        current_version = self.current_version(root)
+        editor.apply_plan(
+            editor.plan_book_create(
+                current_version,
+                book="structural-book",
+                title=None,
+                position="end",
+                inherit=False,
+                structural_only=True,
+            )
+        )
+
+        report_data = DOCS_REPORT.build_report_data(root)
+        row = next(
+            item
+            for item in report_data["rows"]
+            if item.get("kind") == "book" and item.get("path") == "structural-book"
+        )
+        self.assertEqual(row["version_cells"][current_version]["state"], "structural-only")
+        self.assertTrue(row["flags"]["has_structural"])
+
     def test_render_report_html_embeds_json_not_html_entities(self) -> None:
         """Embedded report JSON should remain valid JSON in the HTML payload script tag."""
         tempdir, root = self.build_temp_website()
@@ -210,6 +237,9 @@ class DocsReportTests(unittest.TestCase):
         self.assertIn(
             "state.toggles.onlyBranched && !row.flags.has_branched", html_text
         )
+        self.assertIn("onlyStructuralNodes", html_text)
+        self.assertIn("Only structural-only nodes", html_text)
+        self.assertNotIn("onlyStructuralSections", html_text)
         self.assertIn("Expanded version chips", html_text)
         self.assertIn("Expand all", html_text)
         self.assertIn("version-chip--placeholder", html_text)
