@@ -82,4 +82,4 @@ cd website
 npm run dev
 ```
 
-That dev workflow also keeps search indexing and WebP generation in sync while you iterate.
+That dev workflow also keeps search indexing and WebP generation in sync while you iterate. Its transient output is written to `website/public-dev/`, so production-style builds can safely continue to use `website/public/` without disrupting the running preview.

@@ -6,9 +6,27 @@ const path = require("path");
 const chokidar = require("chokidar");
 
 const siteRoot = path.resolve(__dirname, "..");
-const publicRoot = path.join(siteRoot, "public");
+const DEFAULT_SITE_DIRECTORY = "public";
+const SITE_ARGUMENT = "--site";
 const debounceMs = 500;
 const htmlExtension = ".html";
+
+function getSiteDirectory() {
+   const siteArgumentIndex = process.argv.indexOf(SITE_ARGUMENT);
+   if (siteArgumentIndex === -1) {
+      return DEFAULT_SITE_DIRECTORY;
+   }
+
+   const siteDirectory = process.argv[siteArgumentIndex + 1];
+   if (!siteDirectory || siteDirectory.startsWith("--")) {
+      throw new Error(`Missing directory after ${SITE_ARGUMENT}`);
+   }
+
+   return siteDirectory;
+}
+
+const siteDirectory = getSiteDirectory();
+const siteOutputRoot = path.resolve(siteRoot, siteDirectory);
 
 let debounceTimer = null;
 let isIndexing = false;
@@ -24,7 +42,7 @@ function runPagefind() {
    isIndexing = true;
    shouldReindex = false;
 
-   const child = spawn("npx", ["pagefind", "--site", "public", "--quiet"], {
+   const child = spawn("npx", ["pagefind", "--site", siteOutputRoot, "--quiet"], {
       cwd: siteRoot,
       stdio: ["ignore", "inherit", "inherit"],
    });
@@ -61,7 +79,7 @@ function handlePublicHtmlEvent(filePath) {
    scheduleIndex();
 }
 
-const watcher = chokidar.watch(publicRoot, {
+const watcher = chokidar.watch(siteOutputRoot, {
    ignoreInitial: true,
    ignored: (filePath) => filePath.includes(`${path.sep}pagefind${path.sep}`),
 });
@@ -71,7 +89,7 @@ watcher
    .on("change", handlePublicHtmlEvent)
    .on("unlink", handlePublicHtmlEvent)
    .on("ready", () => {
-      console.log("[pagefind] Watching generated HTML for search index updates");
+      console.log(`[pagefind] Watching ${siteDirectory} for generated HTML changes`);
    })
    .on("error", (error) => {
       console.error(`[pagefind] Watcher error: ${error.message}`);
