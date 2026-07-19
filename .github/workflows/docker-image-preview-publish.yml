@@ -546,7 +546,7 @@ jobs:
         context: .
         file: ./Dockerfile
         platforms: ${{ matrix.docker_platform }}
-        outputs: type=oci,dest=${{ runner.temp }}/attested-image-${{ matrix.platform_id }},tar=false,oci-mediatypes=false
+        outputs: type=oci,dest=${{ runner.temp }}/attested-image-${{ matrix.platform_id }},tar=false,oci-mediatypes=true
         labels: ${{ steps.image.outputs.labels }}
         build-args: |
           BUILD_CREATED_AT=${{ needs.prepare.outputs.created }}

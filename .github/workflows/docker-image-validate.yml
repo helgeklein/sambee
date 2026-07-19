@@ -124,6 +124,19 @@ jobs:
         cache-from: type=gha,scope=docker-image-validate-${{ matrix.platform_id }}
         cache-to: type=gha,mode=max,scope=docker-image-validate-${{ matrix.platform_id }}
 
+    - name: Export attested validation OCI layout
+      uses: docker/build-push-action@53b7df96c91f9c12dcc8a07bcb9ccacbed38856a # v7.3.0
+      with:
+        context: .
+        file: ./Dockerfile
+        platforms: ${{ matrix.docker_platform }}
+        outputs: type=oci,dest=${{ runner.temp }}/attested-validation-image-${{ matrix.platform_id }},tar=false,oci-mediatypes=true
+        build-args: |
+          BUILD_CREATED_AT=${{ needs.prepare.outputs.created }}
+        cache-from: type=gha,scope=docker-image-validate-${{ matrix.platform_id }}
+        provenance: true
+        sbom: true
+
     - name: Start validation container
       shell: bash
       run: |
