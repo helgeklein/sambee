@@ -2988,9 +2988,7 @@ def build_parser() -> argparse.ArgumentParser:
         "--version", required=True, help="docs version slug"
     )
     page_inherit_parser.add_argument("--book", required=True, help="book slug")
-    page_inherit_parser.add_argument(
-        "--section", required=True, help="section slug"
-    )
+    page_inherit_parser.add_argument("--section", required=True, help="section slug")
     page_inherit_parser.add_argument("--page", required=True, help="page slug")
 
     page_delete_parser = page_commands.add_parser("delete", help="delete a docs page")

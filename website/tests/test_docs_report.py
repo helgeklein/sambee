@@ -183,7 +183,9 @@ class DocsReportTests(unittest.TestCase):
             for item in report_data["rows"]
             if item.get("kind") == "book" and item.get("path") == "structural-book"
         )
-        self.assertEqual(row["version_cells"][current_version]["state"], "structural-only")
+        self.assertEqual(
+            row["version_cells"][current_version]["state"], "structural-only"
+        )
         self.assertTrue(row["flags"]["has_structural"])
 
     def test_render_report_html_embeds_json_not_html_entities(self) -> None:
