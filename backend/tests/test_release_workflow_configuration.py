@@ -126,6 +126,7 @@ def test_docker_candidate_aliases_use_the_post_sign_verifier_digest() -> None:
     assert any(step.get("name") == "Install Cosign" for step in verifier_steps)
     verification_step = next(step for step in verifier_steps if step.get("name") == "Verify signed candidate")
     assert "verify_published_candidate_image.sh" in verification_step["run"]
+    assert '--candidate-digest "${{ needs.build-and-publish-immutable.outputs.digest }}"' in verification_step["run"]
 
     signer_job = workflow["jobs"]["sign-preview"]
     signer_step = next(step for step in signer_job["steps"] if step.get("name") == "Sign preview digest")
@@ -186,6 +187,8 @@ def test_companion_finalizer_recovers_exact_artifacts_and_uploads_completion_las
 
     steps = finalizer["steps"]
     download_step = next(step for step in steps if step.get("name") == "Download authoritative Companion artifacts")
+    assert "--recovery-provenance-output" in download_step["run"]
+    assert "state=recover-finalizer" in download_step["run"]
     assert 'gh api "repos/$GITHUB_REPOSITORY/actions/artifacts/$artifact_id"' in download_step["run"]
     assert ".expired" in download_step["run"]
     assert "expected_artifact_name" in download_step["run"]
@@ -198,3 +201,13 @@ def test_companion_finalizer_recovers_exact_artifacts_and_uploads_completion_las
     assert "upload_or_verify" in run
     assert run.index("companion-release-manifest.json") < run.index("companion-release-provenance.json")
     assert run.rindex("companion-completion-marker.json") > run.index("while IFS= read")
+
+    create_step = next(step for step in steps if step.get("name") == "Create or resume external draft release")
+    assert "sambee-companion-recovery-v1" in create_step["run"]
+    assert "release state changed after preflight" in create_step["run"]
+    assert "resolve_companion_release_state.py" in create_step["run"]
+
+    verify_step = next(step for step in steps if step.get("name") == "Verify completed Companion draft")
+    assert "promote_companion_release.py" in verify_step["run"]
+    assert "--verify-only" in verify_step["run"]
+    assert "--allow-draft" in verify_step["run"]

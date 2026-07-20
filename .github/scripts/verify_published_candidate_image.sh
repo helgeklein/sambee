@@ -6,6 +6,7 @@ usage() {
   cat <<'EOF' >&2
 Usage: verify_published_candidate_image.sh \
   --image-name <repository> --metadata-repository <repository> \
+  [--candidate-digest <sha256:...>] \
   --expected-description <text> --expected-revision <sha> \
   --expected-version <version> --expected-source <url> --expected-title <text> \
   --expected-build-tag <build-vX.Y.Z> --github-repository <owner/repo>
@@ -15,6 +16,7 @@ EOF
 
 image_name=""
 metadata_repository=""
+candidate_digest=""
 expected_description=""
 expected_revision=""
 expected_version=""
@@ -27,6 +29,7 @@ while [[ $# -gt 0 ]]; do
   case "$1" in
     --image-name) image_name="$2"; shift 2 ;;
     --metadata-repository) metadata_repository="$2"; shift 2 ;;
+    --candidate-digest) candidate_digest="$2"; shift 2 ;;
     --expected-description) expected_description="$2"; shift 2 ;;
     --expected-revision) expected_revision="$2"; shift 2 ;;
     --expected-version) expected_version="$2"; shift 2 ;;
@@ -42,8 +45,16 @@ if [[ -z "$image_name" || -z "$metadata_repository" || -z "$expected_description
   usage
 fi
 
-candidate_ref="$image_name:$expected_build_tag"
-candidate_digest="$(crane digest "$candidate_ref")"
+if [[ -n "$candidate_digest" ]]; then
+  resolved_candidate_digest="$(crane digest "$image_name@$candidate_digest")"
+  if [[ "$resolved_candidate_digest" != "$candidate_digest" ]]; then
+    echo "Candidate digest mismatch: expected $candidate_digest, resolved $resolved_candidate_digest" >&2
+    exit 1
+  fi
+else
+  candidate_ref="$image_name:$expected_build_tag"
+  candidate_digest="$(crane digest "$candidate_ref")"
+fi
 candidate_ref_by_digest="$image_name@$candidate_digest"
 
 bash "$(dirname "${BASH_SOURCE[0]}")/verify_candidate_image.sh" \

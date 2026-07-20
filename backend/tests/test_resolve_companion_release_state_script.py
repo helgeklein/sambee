@@ -1,3 +1,4 @@
+import base64
 import hashlib
 import json
 import sys
@@ -49,6 +50,7 @@ def release(*, draft: bool, completion: bool, recoverable: bool = False) -> dict
     provenance_bytes = json.dumps(provenance, indent=2, sort_keys=True).encode() + b"\n"
     return {
         "draft": draft,
+        "body": "",
         "assets": assets,
         "provenance": provenance,
         "completion": {
@@ -58,6 +60,13 @@ def release(*, draft: bool, completion: bool, recoverable: bool = False) -> dict
             "expected_assets_sha256": MODULE.expected_asset_set_digest(provenance.get("assets", [])),
         },
     }
+
+
+def embed_recovery_provenance(current_release: dict) -> None:
+    provenance_bytes = json.dumps(current_release["provenance"], indent=2, sort_keys=True).encode() + b"\n"
+    encoded = base64.b64encode(provenance_bytes).decode()
+    current_release["body"] = f"{MODULE.RECOVERY_PROVENANCE_PREFIX}{encoded}{MODULE.RECOVERY_PROVENANCE_SUFFIX}"
+    current_release["assets"] = []
 
 
 def asset_json(asset: dict, _token: str) -> dict:
@@ -95,6 +104,31 @@ def test_matching_draft_with_retained_artifacts_recovers(monkeypatch: pytest.Mon
     monkeypatch.setattr(MODULE, "request_asset_bytes", asset_bytes)
 
     assert MODULE.resolve_state(CURRENT_RELEASE, IDENTITY, "token") == "recover-finalizer"
+
+
+def test_draft_without_provenance_asset_recovers_from_embedded_provenance() -> None:
+    global CURRENT_RELEASE
+    CURRENT_RELEASE = release(draft=True, completion=False, recoverable=True)
+    embed_recovery_provenance(CURRENT_RELEASE)
+
+    assert MODULE.resolve_state(CURRENT_RELEASE, IDENTITY, "token") == "recover-finalizer"
+
+
+def test_embedded_recovery_provenance_rejects_mismatched_identity() -> None:
+    global CURRENT_RELEASE
+    CURRENT_RELEASE = release(draft=True, completion=False, recoverable=True)
+    CURRENT_RELEASE["provenance"]["source_sha"] = "b" * 40
+    embed_recovery_provenance(CURRENT_RELEASE)
+
+    with pytest.raises(SystemExit, match="1"):
+        MODULE.resolve_state(CURRENT_RELEASE, IDENTITY, "token")
+
+
+def test_identityless_draft_fails_closed() -> None:
+    current_release = {"draft": True, "body": "", "assets": []}
+
+    with pytest.raises(SystemExit, match="1"):
+        MODULE.resolve_state(current_release, IDENTITY, "token")
 
 
 def test_conflicting_release_fails_closed(monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]) -> None:

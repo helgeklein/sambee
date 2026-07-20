@@ -122,6 +122,22 @@ def request_bytes(url: str) -> bytes:
         return response.read()
 
 
+def request_asset_bytes(asset: dict, token: str | None = None) -> bytes:
+    if token and isinstance(asset.get("url"), str):
+        request = urllib.request.Request(
+            asset["url"],
+            headers={
+                "Accept": "application/octet-stream",
+                "Authorization": f"Bearer {token}",
+                "User-Agent": "sambee-promotion-workflow",
+                "X-GitHub-Api-Version": "2022-11-28",
+            },
+        )
+        with urllib.request.urlopen(request) as response:
+            return response.read()
+    return request_bytes(asset["browser_download_url"])
+
+
 def normalize_release_tag(release_ref: str) -> str:
     release_ref = release_ref.strip()
     match = re.search(r"/releases/tag/([^/?#]+)", release_ref)
@@ -171,11 +187,9 @@ def asset_by_name(assets: list[dict], name: str) -> dict:
     fail(f"Release is missing required integrity asset {name}")
 
 
-def fetch_json_asset(asset: dict) -> dict:
+def fetch_json_asset(asset: dict, token: str | None = None) -> dict:
     try:
-        payload = json.loads(
-            request_bytes(asset["browser_download_url"]).decode("utf-8")
-        )
+        payload = json.loads(request_asset_bytes(asset, token).decode("utf-8"))
     except (KeyError, UnicodeDecodeError, json.JSONDecodeError) as error:
         fail(f"Integrity asset {asset.get('name')} is not valid JSON: {error}")
     if not isinstance(payload, dict):
@@ -183,21 +197,21 @@ def fetch_json_asset(asset: dict) -> dict:
     return payload
 
 
-def verify_release_integrity(release: dict, assets: list[dict]) -> None:
+def verify_release_integrity(
+    release: dict, assets: list[dict], token: str | None = None
+) -> None:
     provenance_asset = asset_by_name(assets, PROVENANCE_ASSET_NAME)
     completion_asset = asset_by_name(assets, COMPLETION_MARKER_ASSET_NAME)
     release_manifest_asset = asset_by_name(assets, RELEASE_MANIFEST_ASSET_NAME)
-    provenance_bytes = request_bytes(provenance_asset["browser_download_url"])
+    provenance_bytes = request_asset_bytes(provenance_asset, token)
     try:
         provenance = json.loads(provenance_bytes.decode("utf-8"))
     except (UnicodeDecodeError, json.JSONDecodeError) as error:
         fail(f"Integrity asset {PROVENANCE_ASSET_NAME} is not valid JSON: {error}")
     if not isinstance(provenance, dict):
         fail(f"Integrity asset {PROVENANCE_ASSET_NAME} must contain a JSON object")
-    completion = fetch_json_asset(completion_asset)
-    release_manifest_bytes = request_bytes(
-        release_manifest_asset["browser_download_url"]
-    )
+    completion = fetch_json_asset(completion_asset, token)
+    release_manifest_bytes = request_asset_bytes(release_manifest_asset, token)
     try:
         release_manifest = json.loads(release_manifest_bytes.decode("utf-8"))
     except (UnicodeDecodeError, json.JSONDecodeError) as error:
@@ -283,7 +297,7 @@ def verify_release_integrity(release: dict, assets: list[dict]) -> None:
         fail("Companion release contains unexpected or missing assets")
     for name, expected_asset in expected_by_name.items():
         asset = asset_by_name(assets, name)
-        content = request_bytes(asset["browser_download_url"])
+        content = request_asset_bytes(asset, token)
         if (
             asset.get("size") != expected_asset["size"]
             or len(content) != expected_asset["size"]
@@ -451,6 +465,7 @@ def main() -> None:
     parser.add_argument("--release-repo", required=True)
     parser.add_argument("--release-repo-path")
     parser.add_argument("--verify-only", action="store_true")
+    parser.add_argument("--allow-draft", action="store_true")
     parser.add_argument("--companion-channel-test", action="store_true")
     parser.add_argument("--companion-channel-beta", action="store_true")
     parser.add_argument("--companion-channel-stable", action="store_true")
@@ -479,14 +494,16 @@ def main() -> None:
     )
     tag_name = str(release.get("tag_name") or normalize_release_tag(args.release_ref))
 
-    if release.get("draft"):
+    if args.allow_draft and not args.verify_only:
+        fail("--allow-draft may only be used with --verify-only")
+    if release.get("draft") and not args.allow_draft:
         fail(f"Release {tag_name} is still a draft")
 
     assets = release.get("assets", [])
     if not assets:
         fail(f"Release {tag_name} has no assets")
 
-    verify_release_integrity(release, assets)
+    verify_release_integrity(release, assets, token)
 
     if args.verify_only:
         print(f"Verified immutable Companion release {tag_name}")

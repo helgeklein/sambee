@@ -15,7 +15,6 @@ SPEC.loader.exec_module(MODULE)
 
 
 def make_release(payload: bytes) -> tuple[dict, list[dict], dict[str, bytes]]:
-    updater_payload = b"updater"
     signature_payload = b"signature"
     expected_assets = [
         {
@@ -94,6 +93,22 @@ def test_verify_release_integrity_accepts_matching_assets(monkeypatch: pytest.Mo
     monkeypatch.setattr(MODULE, "request_bytes", urls.__getitem__)
 
     MODULE.verify_release_integrity(release, assets)
+
+
+def test_verify_release_integrity_authenticates_asset_downloads(monkeypatch: pytest.MonkeyPatch) -> None:
+    release, assets, urls = make_release(b"installer")
+    received_tokens = []
+
+    def request_asset(asset: dict, token: str | None = None) -> bytes:
+        received_tokens.append(token)
+        return urls[asset["browser_download_url"]]
+
+    monkeypatch.setattr(MODULE, "request_asset_bytes", request_asset)
+
+    MODULE.verify_release_integrity(release, assets, "release-token")
+
+    assert received_tokens
+    assert set(received_tokens) == {"release-token"}
 
 
 def test_verify_release_integrity_rejects_tampered_asset(monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]) -> None:

@@ -4,6 +4,8 @@
 from __future__ import annotations
 
 import argparse
+import base64
+import binascii
 import hashlib
 import json
 import os
@@ -12,10 +14,13 @@ import urllib.error
 import urllib.parse
 import urllib.request
 from dataclasses import dataclass
+from pathlib import Path
 from typing import Any, NoReturn
 
 PROVENANCE_ASSET = "companion-release-provenance.json"
 COMPLETION_ASSET = "companion-completion-marker.json"
+RECOVERY_PROVENANCE_PREFIX = "<!-- sambee-companion-recovery-v1:"
+RECOVERY_PROVENANCE_SUFFIX = " -->"
 NEW_CANDIDATE_INSTRUCTIONS = (
     "Increment the third build-sequence component in VERSION, run ./scripts/sync-version, "
     "commit the synchronized changes on main, and rerun."
@@ -92,6 +97,39 @@ def find_asset(release: dict[str, Any], name: str) -> dict[str, Any] | None:
     return None
 
 
+def embedded_recovery_provenance_bytes(release: dict[str, Any]) -> bytes | None:
+    body = release.get("body")
+    if not isinstance(body, str):
+        return None
+    start = body.find(RECOVERY_PROVENANCE_PREFIX)
+    if start == -1:
+        return None
+    encoded_start = start + len(RECOVERY_PROVENANCE_PREFIX)
+    end = body.find(RECOVERY_PROVENANCE_SUFFIX, encoded_start)
+    if end == -1 or body.find(RECOVERY_PROVENANCE_PREFIX, encoded_start) != -1:
+        fail("Existing Companion draft has invalid embedded recovery provenance")
+    encoded = body[encoded_start:end]
+    try:
+        return base64.b64decode(encoded, validate=True)
+    except (binascii.Error, ValueError) as error:
+        fail(
+            f"Existing Companion draft has invalid embedded recovery provenance: {error}"
+        )
+
+
+def release_provenance_bytes(release: dict[str, Any], token: str) -> bytes:
+    provenance_asset = find_asset(release, PROVENANCE_ASSET)
+    if provenance_asset is not None:
+        return request_asset_bytes(provenance_asset, token)
+    embedded_provenance = embedded_recovery_provenance_bytes(release)
+    if release.get("draft", False) and embedded_provenance is not None:
+        return embedded_provenance
+    fail_new_candidate(
+        "Existing Companion release has no provenance asset or embedded recovery provenance "
+        "and cannot be safely resumed."
+    )
+
+
 def expected_asset_set_digest(expected_assets: list[dict[str, Any]]) -> str:
     encoded = json.dumps(
         sorted(expected_assets, key=lambda asset: str(asset.get("name"))),
@@ -132,18 +170,13 @@ def resolve_state(
     if release is None:
         return "build"
 
-    provenance_asset = find_asset(release, PROVENANCE_ASSET)
-    if provenance_asset is None:
-        fail_new_candidate(
-            "Existing Companion release has no provenance asset and cannot be safely resumed. "
-        )
-    provenance_bytes = request_asset_bytes(provenance_asset, token)
+    provenance_bytes = release_provenance_bytes(release, token)
     try:
         provenance = json.loads(provenance_bytes.decode("utf-8"))
     except (UnicodeDecodeError, json.JSONDecodeError) as error:
-        fail(f"Unable to read release asset {provenance_asset.get('name')}: {error}")
+        fail(f"Unable to read Companion release provenance: {error}")
     if not isinstance(provenance, dict):
-        fail(f"Release asset {provenance_asset.get('name')} must contain a JSON object")
+        fail("Companion release provenance must contain a JSON object")
     require_matching_identity(provenance, identity)
     if provenance.get("schema_version") != 1:
         fail("Existing Companion release provenance has an unsupported schema version")
@@ -239,6 +272,7 @@ def main() -> None:
     parser.add_argument("--build-tag", required=True)
     parser.add_argument("--source-sha", required=True)
     parser.add_argument("--release-tag", required=True)
+    parser.add_argument("--recovery-provenance-output")
     args = parser.parse_args()
     token = os.environ.get("GITHUB_TOKEN")
     if not token:
@@ -252,6 +286,14 @@ def main() -> None:
     )
     release = fetch_release(args.owner, args.repo, args.release_tag, token)
     state = resolve_state(release, identity, token)
+    if args.recovery_provenance_output:
+        if release is None or state != "recover-finalizer":
+            fail(
+                "Recovery provenance can only be written for a recoverable draft release"
+            )
+        Path(args.recovery_provenance_output).write_bytes(
+            release_provenance_bytes(release, token)
+        )
     print(f"state={state}")
     if release is not None and isinstance(release.get("id"), int):
         print(f"release_id={release['id']}")

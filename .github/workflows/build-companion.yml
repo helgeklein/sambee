@@ -343,10 +343,16 @@ jobs:
             exit 0
           fi
 
-          GH_TOKEN="$COMPANION_TOKEN" gh release download "$RELEASE_TAG" \
-            --repo "$RELEASE_REPOSITORY" \
-            --pattern companion-release-provenance.json \
-            --dir "$RUNNER_TEMP/companion-artifacts"
+          GITHUB_TOKEN="$COMPANION_TOKEN" python3 .github/scripts/resolve_companion_release_state.py \
+            --owner "${RELEASE_REPOSITORY%%/*}" \
+            --repo "${RELEASE_REPOSITORY#*/}" \
+            --version "${{ needs.prepare.outputs.version }}" \
+            --build-tag "${{ needs.prepare.outputs.build_tag }}" \
+            --source-sha "${{ needs.prepare.outputs.checkout_ref }}" \
+            --release-tag "$RELEASE_TAG" \
+            --recovery-provenance-output "$RUNNER_TEMP/companion-artifacts/companion-release-provenance.json" \
+            > "$RUNNER_TEMP/recovery-state"
+          grep -qx 'state=recover-finalizer' "$RUNNER_TEMP/recovery-state"
           origin_run_id="$(jq -r '.workflow_run.id' "$RUNNER_TEMP/companion-artifacts/companion-release-provenance.json")"
           origin_run_attempt="$(jq -r '.workflow_run.attempt' "$RUNNER_TEMP/companion-artifacts/companion-release-provenance.json")"
           if [[ ! "$origin_run_id" =~ ^[0-9]+$ || ! "$origin_run_attempt" =~ ^[0-9]+$ ]]; then
@@ -525,11 +531,19 @@ jobs:
           RELEASE_TAG: ${{ needs.prepare.outputs.release_tag }}
           RELEASE_REPOSITORY: ${{ env.COMPANION_RELEASE_REPO_OWNER }}/${{ env.COMPANION_RELEASE_REPO_NAME }}
           VERSION: ${{ needs.prepare.outputs.version }}
+          BUILD_TAG: ${{ needs.prepare.outputs.build_tag }}
+          SOURCE_SHA: ${{ needs.prepare.outputs.checkout_ref }}
+          PUBLICATION_STATE: ${{ needs.prepare.outputs.publication_state }}
         run: |
           release_json="$(gh release view "$RELEASE_TAG" --repo "$RELEASE_REPOSITORY" --json isDraft 2>/dev/null || true)"
           if [[ -z "$release_json" ]]; then
+            if [[ "$PUBLICATION_STATE" != "build" ]]; then
+              echo "Recoverable Companion draft $RELEASE_TAG disappeared; increment Z and rebuild." >&2
+              exit 1
+            fi
             provenance="$ARTIFACT_DIR/companion-release-provenance.json"
             release_body="$RUNNER_TEMP/companion-release-body.md"
+            recovery_provenance="$(base64 -w 0 "$provenance")"
             {
               echo "Immutable Sambee Companion artifact release."
               echo
@@ -542,6 +556,8 @@ jobs:
               echo "- Retained Actions artifacts: \`$(jq -r '[.actions_artifacts[] | "id=\(.id), digest=\(.digest)"] | join("; ")' "$provenance")\`"
               echo
               echo "This release is immutable once created. Recovery may upload only missing byte-identical assets from the recorded retained workflow artifacts."
+              echo
+              echo "<!-- sambee-companion-recovery-v1:$recovery_provenance -->"
             } > "$release_body"
             gh release create "$RELEASE_TAG" \
               --repo "$RELEASE_REPOSITORY" \
@@ -549,10 +565,22 @@ jobs:
               --target "${{ env.COMPANION_RELEASE_REPO_BRANCH }}" \
               --title "Sambee Companion v$VERSION" \
               --notes-file "$release_body"
+          elif [[ "$PUBLICATION_STATE" == "build" ]]; then
+            echo "Companion release state changed after preflight; rerun to recover or diagnose $RELEASE_TAG without rebuilding." >&2
+            exit 1
           elif [[ "$(jq -r '.isDraft' <<<"$release_json")" != "true" ]]; then
             echo "External release $RELEASE_TAG is already published and cannot be modified by a build finalizer." >&2
             exit 1
           fi
+
+          state="$(GITHUB_TOKEN="$GH_TOKEN" python3 .github/scripts/resolve_companion_release_state.py \
+            --owner "${RELEASE_REPOSITORY%%/*}" \
+            --repo "${RELEASE_REPOSITORY#*/}" \
+            --version "$VERSION" \
+            --build-tag "$BUILD_TAG" \
+            --source-sha "$SOURCE_SHA" \
+            --release-tag "$RELEASE_TAG")"
+          grep -qx 'state=recover-finalizer' <<<"$state"
 
       - name: Upload verified release assets
         shell: bash
@@ -591,6 +619,18 @@ jobs:
             upload_or_verify "$asset"
           done < <(find "$ARTIFACT_DIR" -type f -print0 | sort -z)
           upload_or_verify "$ARTIFACT_DIR/companion-completion-marker.json"
+
+      - name: Verify completed Companion draft
+        shell: bash
+        env:
+          GITHUB_TOKEN: ${{ secrets.COMPANION_RELEASE_REPO_TOKEN }}
+        run: |
+          python3 .github/scripts/promote_companion_release.py \
+            --release-ref "${{ needs.prepare.outputs.release_tag }}" \
+            --release-owner "${{ env.COMPANION_RELEASE_REPO_OWNER }}" \
+            --release-repo "${{ env.COMPANION_RELEASE_REPO_NAME }}" \
+            --verify-only \
+            --allow-draft
 
       - name: Summarize Companion publication
         if: always()

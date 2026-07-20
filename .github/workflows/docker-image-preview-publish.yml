@@ -718,6 +718,7 @@ jobs:
         bash .github/scripts/verify_published_candidate_image.sh \
           --image-name "${{ needs.prepare.outputs.image_name }}" \
           --metadata-repository "${{ needs.prepare.outputs.signature_repository }}" \
+          --candidate-digest "${{ needs.build-and-publish-immutable.outputs.digest }}" \
           --expected-description "${{ needs.prepare.outputs.image_description }}" \
           --expected-revision "${{ needs.prepare.outputs.full_sha }}" \
           --expected-version "${{ needs.prepare.outputs.version }}" \
