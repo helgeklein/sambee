@@ -28,7 +28,7 @@
   "dependencies": {
     "@codemirror/autocomplete": "^6.20.3",
     "@codemirror/commands": "^6.10.4",
-    "@codemirror/lang-markdown": "^6.3.4",
+    "@codemirror/lang-markdown": "^6.5.1",
     "@codemirror/language": "^6.12.4",
     "@codemirror/language-data": "^6.5.1",
     "@codemirror/search": "^6.7.1",
@@ -48,7 +48,7 @@
     "i18next": "^26.3.6",
     "react": "^19.2.7",
     "react-dom": "^19.2.7",
-    "react-i18next": "^17.0.9",
+    "react-i18next": "^17.0.10",
     "react-markdown": "^10.1.0",
     "react-pdf": "^10.4.1",
     "react-photo-view": "^1.2.7",
@@ -59,7 +59,7 @@
     "yet-another-react-lightbox": "^3.32.1"
   },
   "devDependencies": {
-    "@biomejs/biome": "2.5.3",
+    "@biomejs/biome": "2.5.4",
     "@playwright/test": "^1.61.1",
     "@testing-library/jest-dom": "^6.9.1",
     "@testing-library/react": "^16.3.2",
@@ -75,7 +75,7 @@
     "patch-package": "^8.0.1",
     "playwright": "^1.59.1",
     "typescript": "^7.0.2",
-    "vite": "8.1.4",
+    "vite": "8.1.5",
     "vitest": "^4.1.0"
   }
 }
