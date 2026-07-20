@@ -50,3 +50,10 @@ label = "0.8"
 visible = true
 status = "current"
 searchable = true
+
+[[versions]]
+slug = "0.9"
+label = "0.9"
+visible = true
+status = "preview"
+searchable = false

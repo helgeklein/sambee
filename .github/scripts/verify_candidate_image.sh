@@ -9,7 +9,7 @@ readonly DOCKER_IMAGE_MANIFEST_MEDIA_TYPE="application/vnd.docker.distribution.m
 
 usage() {
   cat <<'EOF' >&2
-Usage: verify_candidate_image.sh --image-ref <repo:tag|repo@digest> --expected-description <text> --expected-revision <sha> --expected-version <version> --expected-source <url> --expected-title <text>
+Usage: verify_candidate_image.sh --image-ref <repo:tag|repo@digest> --expected-description <text> --expected-revision <sha> --expected-version <version> --expected-source <url> --expected-title <text> [--expected-build-tag <build-vX.Y.Z>]
 EOF
   exit 1
 }
@@ -20,6 +20,7 @@ expected_revision=""
 expected_version=""
 expected_source=""
 expected_title=""
+expected_build_tag=""
 
 require_match() {
   local actual="$1"
@@ -54,6 +55,7 @@ require_config_labels() {
   local config_title
   local config_url
   local config_version
+  local config_build_tag
 
   config_description="$(extract_config_label "$config_json_input" "org.opencontainers.image.description")"
   config_revision="$(extract_config_label "$config_json_input" "org.opencontainers.image.revision")"
@@ -61,6 +63,7 @@ require_config_labels() {
   config_title="$(extract_config_label "$config_json_input" "org.opencontainers.image.title")"
   config_url="$(extract_config_label "$config_json_input" "org.opencontainers.image.url")"
   config_version="$(extract_config_label "$config_json_input" "org.opencontainers.image.version")"
+  config_build_tag="$(extract_config_label "$config_json_input" "org.sambee.build-tag")"
 
   require_match "$config_description" "$expected_description" "$subject description"
   require_match "$config_revision" "$expected_revision" "$subject revision"
@@ -68,6 +71,9 @@ require_config_labels() {
   require_match "$config_title" "$expected_title" "$subject title"
   require_match "$config_url" "$expected_source" "$subject URL"
   require_match "$config_version" "$expected_version" "$subject version"
+  if [[ -n "$expected_build_tag" ]]; then
+    require_match "$config_build_tag" "$expected_build_tag" "$subject build tag"
+  fi
 }
 
 require_annotations() {
@@ -80,6 +86,7 @@ require_annotations() {
   local annotation_title
   local annotation_url
   local annotation_version
+  local annotation_build_tag
 
   annotation_description="$(extract_annotation "$manifest_json" "org.opencontainers.image.description")"
   annotation_revision="$(extract_annotation "$manifest_json" "org.opencontainers.image.revision")"
@@ -87,6 +94,7 @@ require_annotations() {
   annotation_title="$(extract_annotation "$manifest_json" "org.opencontainers.image.title")"
   annotation_url="$(extract_annotation "$manifest_json" "org.opencontainers.image.url")"
   annotation_version="$(extract_annotation "$manifest_json" "org.opencontainers.image.version")"
+  annotation_build_tag="$(extract_annotation "$manifest_json" "org.sambee.build-tag")"
 
   require_match "$annotation_description" "$expected_description" "$subject description"
   require_match "$annotation_revision" "$expected_revision" "$subject revision"
@@ -94,6 +102,9 @@ require_annotations() {
   require_match "$annotation_title" "$expected_title" "$subject title"
   require_match "$annotation_url" "$expected_source" "$subject URL"
   require_match "$annotation_version" "$expected_version" "$subject version"
+  if [[ -n "$expected_build_tag" ]]; then
+    require_match "$annotation_build_tag" "$expected_build_tag" "$subject build tag"
+  fi
 }
 
 while [[ $# -gt 0 ]]; do
@@ -120,6 +131,10 @@ while [[ $# -gt 0 ]]; do
       ;;
     --expected-title)
       expected_title="$2"
+      shift 2
+      ;;
+    --expected-build-tag)
+      expected_build_tag="$2"
       shift 2
       ;;
     *)

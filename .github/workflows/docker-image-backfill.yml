@@ -12,6 +12,10 @@ on:
         required: true
         type: string
 
+concurrency:
+  group: docker-release-publication
+  cancel-in-progress: false
+
 permissions:
   contents: read
 
@@ -22,6 +26,7 @@ jobs:
       checkout_ref: ${{ steps.metadata.outputs.checkout_ref }}
       release_type: ${{ steps.metadata.outputs.release_type }}
       version: ${{ steps.metadata.outputs.version }}
+      build_tag: ${{ steps.metadata.outputs.build_tag }}
       major_minor: ${{ steps.metadata.outputs.major_minor }}
       image_description: ${{ steps.metadata.outputs.image_description }}
       image_name: ${{ steps.metadata.outputs.image_name }}
@@ -62,25 +67,29 @@ jobs:
         image_description="$(bash .github/scripts/read_website_description.sh)"
 
         if [[ "$prerelease" == "true" ]]; then
-          release_type="beta"
+          echo "Publishable releases must not be prereleases." >&2
+          exit 1
+        fi
 
-          if [[ "$release_image_tag" != "$version"-* ]]; then
-            echo "Prerelease tag must start with v$version-, got $release_tag" >&2
-            exit 1
-          fi
-        else
-          release_type="stable"
+        release_type="stable"
+        expected_tag="v$version"
+        if [[ "$release_tag" != "$expected_tag" ]]; then
+          echo "Release tag $expected_tag expected, got $release_tag" >&2
+          exit 1
+        fi
 
-          expected_tag="v$version"
-          if [[ "$release_tag" != "$expected_tag" ]]; then
-            echo "Release tag $expected_tag expected, got $release_tag" >&2
-            exit 1
-          fi
+        build_tag="build-v$version"
+        git fetch origin "refs/tags/$build_tag:refs/tags/$build_tag"
+        build_sha="$(git rev-parse "refs/tags/$build_tag^{commit}")"
+        if [[ "$build_sha" != "$full_sha" ]]; then
+          echo "Canonical build tag $build_tag points to $build_sha, but release tag $release_tag points to $full_sha." >&2
+          exit 1
         fi
 
         echo "checkout_ref=$release_tag" >> "$GITHUB_OUTPUT"
         echo "release_type=$release_type" >> "$GITHUB_OUTPUT"
         echo "version=$version" >> "$GITHUB_OUTPUT"
+        echo "build_tag=$build_tag" >> "$GITHUB_OUTPUT"
         echo "major_minor=$major_minor" >> "$GITHUB_OUTPUT"
         {
           echo 'image_description<<EOF'
@@ -117,7 +126,7 @@ jobs:
       id: resolve
       shell: bash
       run: |
-        candidate_source_tag="sha-${{ needs.prepare.outputs.full_sha }}"
+        candidate_source_tag="${{ needs.prepare.outputs.build_tag }}"
         candidate_ref="${{ needs.prepare.outputs.image_name }}:${candidate_source_tag}"
 
         set +e
@@ -284,6 +293,9 @@ jobs:
       with:
         install-dir: ${{ runner.temp }}/bin
 
+    - name: Install Cosign
+      uses: sigstore/cosign-installer@6f9f17788090df1f26f669e9d70d6ae9567deba6 # v4.1.2
+
     - name: Log in to GHCR with crane
       shell: bash
       run: crane auth login ghcr.io -u "${{ github.actor }}" -p "${{ secrets.GITHUB_TOKEN }}"
@@ -292,26 +304,19 @@ jobs:
       shell: bash
       run: oras login ghcr.io -u "${{ github.actor }}" -p "${{ secrets.GITHUB_TOKEN }}"
 
-    - name: Verify candidate artifact metadata
+    - name: Verify signed published candidate
       shell: bash
       run: |
-        bash .github/scripts/verify_candidate_image.sh \
-          --image-ref "${{ needs.prepare.outputs.image_name }}@${{ needs.resolve-candidate-artifact.outputs.candidate_digest }}" \
-          --expected-description "${{ needs.prepare.outputs.image_description }}" \
-          --expected-revision "${{ needs.prepare.outputs.full_sha }}" \
-          --expected-version "${{ needs.prepare.outputs.version }}" \
-          --expected-source "${{ needs.prepare.outputs.source_url }}" \
-          --expected-title "${{ env.IMAGE_TITLE }}"
-
-    - name: Verify candidate metadata bundle
-      shell: bash
-      run: |
-        bash .github/scripts/verify_candidate_metadata_bundle.sh \
-          --image-ref "${{ needs.prepare.outputs.image_name }}@${{ needs.resolve-candidate-artifact.outputs.candidate_digest }}" \
+        bash .github/scripts/verify_published_candidate_image.sh \
+          --image-name "${{ needs.prepare.outputs.image_name }}" \
           --metadata-repository "${{ needs.prepare.outputs.signature_repository }}" \
+          --expected-description "${{ needs.prepare.outputs.image_description }}" \
           --expected-version "${{ needs.prepare.outputs.version }}" \
           --expected-revision "${{ needs.prepare.outputs.full_sha }}" \
-          --expected-source "${{ needs.prepare.outputs.source_url }}"
+          --expected-source "${{ needs.prepare.outputs.source_url }}" \
+          --expected-title "${{ env.IMAGE_TITLE }}" \
+          --expected-build-tag "${{ needs.prepare.outputs.build_tag }}" \
+          --github-repository "${{ github.repository }}"
 
   publish-release-tags:
     needs: [prepare, resolve-candidate-artifact, verify-candidate-artifact]
@@ -335,26 +340,10 @@ jobs:
     - name: Attach immutable release tags
       shell: bash
       run: |
-        tags=()
-        if [[ "${{ needs.prepare.outputs.release_type }}" == "stable" ]]; then
-          tags+=("${{ needs.prepare.outputs.version }}")
-          tags+=("${{ needs.prepare.outputs.major_minor }}")
-        fi
-
-        if [[ ${#tags[@]} -eq 0 ]]; then
-          echo "No immutable release tags to attach"
-          exit 0
-        fi
-
-        args=()
-        for tag in "${tags[@]}"; do
-          args+=(--tag "$tag")
-        done
-
         bash .github/scripts/promote_container_image.sh \
           --image-name "${{ needs.prepare.outputs.image_name }}" \
           --source-digest "${{ needs.resolve-candidate-artifact.outputs.candidate_digest }}" \
-          "${args[@]}"
+          --tag "${{ needs.prepare.outputs.major_minor }}"
 
   promote-channel-tags:
     needs: [prepare, resolve-candidate-artifact, publish-release-tags]
@@ -481,27 +470,3 @@ jobs:
           "${{ runner.temp }}/metadata-bundle/provenance/intoto.jsonl" \
           "${{ runner.temp }}/metadata-bundle/sbom/linux-amd64.spdx.json" \
           "${{ runner.temp }}/metadata-bundle/sbom/linux-arm64.spdx.json"
-
-  sign-and-attest:
-    needs: [prepare, resolve-candidate-artifact, promote-channel-tags]
-    runs-on: ubuntu-latest
-    permissions:
-      contents: read
-      packages: write
-      id-token: write
-    steps:
-    - name: Install Cosign
-      uses: sigstore/cosign-installer@6f9f17788090df1f26f669e9d70d6ae9567deba6 # v4.1.2
-
-    - name: Log in to GHCR
-      uses: docker/login-action@af1e73f918a031802d376d3c8bbc3fe56130a9b0 # v4.4.0
-      with:
-        registry: ghcr.io
-        username: ${{ github.actor }}
-        password: ${{ secrets.GITHUB_TOKEN }}
-
-    - name: Sign promoted digest
-      shell: bash
-      env:
-        COSIGN_REPOSITORY: ${{ needs.prepare.outputs.signature_repository }}
-      run: cosign sign --yes "${{ needs.prepare.outputs.image_name }}@${{ needs.resolve-candidate-artifact.outputs.candidate_digest }}"
