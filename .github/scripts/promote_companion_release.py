@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import argparse
+import hashlib
 import json
 import os
 import re
@@ -41,6 +42,9 @@ SAMBEE_DOWNLOAD_PATTERNS = {
     "macos-arm64": [r"(aarch64|arm64).*\.dmg$", r"\.dmg$"],
     "linux-x64": [r"(amd64|x86_64).*\.AppImage$", r"\.AppImage$"],
 }
+
+PROVENANCE_ASSET_NAME = "companion-release-provenance.json"
+COMPLETION_MARKER_ASSET_NAME = "companion-completion-marker.json"
 
 
 def fail(message: str) -> NoReturn:
@@ -90,6 +94,15 @@ def request_text(url: str) -> str:
         return response.read().decode("utf-8").strip()
 
 
+def request_bytes(url: str) -> bytes:
+    request = urllib.request.Request(
+        url,
+        headers={"User-Agent": "sambee-promotion-workflow"},
+    )
+    with urllib.request.urlopen(request) as response:
+        return response.read()
+
+
 def normalize_release_tag(release_ref: str) -> str:
     release_ref = release_ref.strip()
     match = re.search(r"/releases/tag/([^/?#]+)", release_ref)
@@ -130,6 +143,100 @@ def require_asset(assets: list[dict], patterns: list[str], description: str) -> 
     if asset is None:
         fail(f"Missing asset for {description}. Expected patterns: {patterns}")
     return asset
+
+
+def asset_by_name(assets: list[dict], name: str) -> dict:
+    for asset in assets:
+        if asset.get("name") == name:
+            return asset
+    fail(f"Release is missing required integrity asset {name}")
+
+
+def fetch_json_asset(asset: dict) -> dict:
+    try:
+        payload = json.loads(
+            request_bytes(asset["browser_download_url"]).decode("utf-8")
+        )
+    except (KeyError, UnicodeDecodeError, json.JSONDecodeError) as error:
+        fail(f"Integrity asset {asset.get('name')} is not valid JSON: {error}")
+    if not isinstance(payload, dict):
+        fail(f"Integrity asset {asset.get('name')} must contain a JSON object")
+    return payload
+
+
+def verify_release_integrity(release: dict, assets: list[dict]) -> None:
+    provenance_asset = asset_by_name(assets, PROVENANCE_ASSET_NAME)
+    completion_asset = asset_by_name(assets, COMPLETION_MARKER_ASSET_NAME)
+    provenance_bytes = request_bytes(provenance_asset["browser_download_url"])
+    try:
+        provenance = json.loads(provenance_bytes.decode("utf-8"))
+    except (UnicodeDecodeError, json.JSONDecodeError) as error:
+        fail(f"Integrity asset {PROVENANCE_ASSET_NAME} is not valid JSON: {error}")
+    if not isinstance(provenance, dict):
+        fail(f"Integrity asset {PROVENANCE_ASSET_NAME} must contain a JSON object")
+    completion = fetch_json_asset(completion_asset)
+
+    version = normalize_version(str(release.get("tag_name") or ""))
+    expected_tag = str(release.get("tag_name") or "")
+    if provenance.get("schema_version") != 1:
+        fail("Companion release provenance has an unsupported schema version")
+    if (
+        provenance.get("release_tag") != expected_tag
+        or provenance.get("version") != version
+    ):
+        fail(
+            "Companion release provenance does not match the selected release tag and version"
+        )
+    if completion.get("schema_version") != 1:
+        fail("Companion completion marker has an unsupported schema version")
+    if (
+        completion.get("provenance_sha256")
+        != hashlib.sha256(provenance_bytes).hexdigest()
+    ):
+        fail("Companion completion marker does not match the release provenance")
+
+    expected_assets = provenance.get("assets")
+    if not isinstance(expected_assets, list) or not expected_assets:
+        fail("Companion release provenance does not define any assets")
+    if completion.get("expected_assets") != expected_assets:
+        fail(
+            "Companion completion marker asset set does not match the release provenance"
+        )
+
+    expected_by_name: dict[str, dict] = {}
+    for expected_asset in expected_assets:
+        if not isinstance(expected_asset, dict):
+            fail("Companion release provenance has an invalid asset record")
+        name = expected_asset.get("name")
+        digest = expected_asset.get("sha256")
+        size = expected_asset.get("size")
+        if (
+            not isinstance(name, str)
+            or not isinstance(digest, str)
+            or not isinstance(size, int)
+        ):
+            fail("Companion release provenance has an incomplete asset record")
+        if name in expected_by_name:
+            fail(f"Companion release provenance lists duplicate asset {name}")
+        expected_by_name[name] = expected_asset
+
+    allowed_names = set(expected_by_name) | {
+        PROVENANCE_ASSET_NAME,
+        COMPLETION_MARKER_ASSET_NAME,
+    }
+    actual_names = {str(asset.get("name") or "") for asset in assets}
+    if actual_names != allowed_names:
+        fail("Companion release contains unexpected or missing assets")
+    for name, expected_asset in expected_by_name.items():
+        asset = asset_by_name(assets, name)
+        content = request_bytes(asset["browser_download_url"])
+        if (
+            asset.get("size") != expected_asset["size"]
+            or len(content) != expected_asset["size"]
+        ):
+            fail(f"Companion release asset size mismatch for {name}")
+        if hashlib.sha256(content).hexdigest() != expected_asset["sha256"]:
+            fail(f"Companion release asset checksum mismatch for {name}")
 
 
 def build_tauri_feed(release: dict, assets: list[dict]) -> dict:
@@ -289,6 +396,8 @@ def main() -> None:
     assets = release.get("assets", [])
     if not assets:
         fail(f"Release {tag_name} has no assets")
+
+    verify_release_integrity(release, assets)
 
     output_root = Path(args.release_repo_path) / "docs" / "feeds"
 

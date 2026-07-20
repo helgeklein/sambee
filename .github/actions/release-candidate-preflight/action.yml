@@ -42,4 +42,4 @@ runs:
           --dispatch-sha "${{ inputs.dispatch-sha }}" \
           --build-version "${{ inputs.build-version }}" \
           --run-url "${{ inputs.run-url }}" >> "$GITHUB_OUTPUT"
-        - uses: ./.github/actions/sync-version-check
+    - uses: ./.github/actions/sync-version-check
