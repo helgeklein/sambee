@@ -1,3 +1,5 @@
+import os
+import shutil
 import subprocess
 import sys
 from importlib.util import module_from_spec, spec_from_file_location
@@ -6,6 +8,8 @@ from pathlib import Path
 import pytest
 
 SCRIPT = Path(__file__).parents[2] / ".github/scripts/prepare_release_candidate.py"
+GIT_EXECUTABLE = shutil.which("git")
+assert GIT_EXECUTABLE is not None
 SPEC = spec_from_file_location("prepare_release_candidate", SCRIPT)
 assert SPEC and SPEC.loader
 MODULE = module_from_spec(SPEC)
@@ -35,6 +39,8 @@ def git(repository: Path, *arguments: str) -> str:
 
 @pytest.fixture
 def repository(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
+    git_directory = str(Path(GIT_EXECUTABLE).parent)
+    monkeypatch.setenv("PATH", f"{git_directory}:{os.environ.get('PATH', '')}")
     remote = tmp_path / "remote.git"
     local = tmp_path / "local"
     subprocess.run(["git", "init", "--bare", str(remote)], check=True, capture_output=True)

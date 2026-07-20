@@ -39,6 +39,23 @@ exit 1
     fake_oras.chmod(0o755)
 
 
+def write_fake_jq(directory: Path) -> None:
+    fake_jq = directory / "jq"
+    fake_jq.write_text(
+        """#!/usr/bin/env bash
+set -euo pipefail
+if [[ "$1" == "-r" && "$2" == ".artifactType // empty" ]]; then
+    printf '%s\\n' "${ORAS_ARTIFACT_TYPE}"
+    exit 0
+fi
+echo "Unexpected jq arguments: $*" >&2
+exit 1
+""",
+        encoding="utf-8",
+    )
+    fake_jq.chmod(0o755)
+
+
 def run_publish(tmp_path: Path, *, existing: bool, existing_metadata: bytes) -> subprocess.CompletedProcess[str]:
     bundle_dir = tmp_path / "bundle"
     existing_dir = tmp_path / "existing"
@@ -49,6 +66,7 @@ def run_publish(tmp_path: Path, *, existing: bool, existing_metadata: bytes) -> 
     write_bundle(bundle_dir)
     write_bundle(existing_dir, existing_metadata)
     write_fake_oras(bin_dir)
+    write_fake_jq(bin_dir)
     push_marker = tmp_path / "push"
     environment = {
         **os.environ,
