@@ -55,11 +55,31 @@ def test_candidate_matrix_builds_depend_on_shared_preflight() -> None:
 def test_release_mutation_workflows_share_the_expected_locks() -> None:
     docker_candidate = load_workflow("docker-image-preview-publish.yml")
     docker_promotion = load_workflow("docker-image-publish.yml")
+    docker_backfill = load_workflow("docker-image-backfill.yml")
     companion = load_workflow("build-companion.yml")
 
-    assert docker_candidate["concurrency"]["group"] == "docker-release-publication"
-    assert docker_promotion["concurrency"]["group"] == "docker-release-publication"
+    for workflow in (docker_candidate, docker_promotion, docker_backfill):
+        assert workflow["concurrency"]["group"] == "docker-release-publication"
+        assert workflow["concurrency"]["cancel-in-progress"] is False
     assert companion["concurrency"]["group"] == "companion-release-publication"
+    assert companion["concurrency"]["cancel-in-progress"] is False
+
+
+def test_docker_candidate_workflow_selects_build_or_repair_before_build_jobs() -> None:
+    workflow = load_workflow("docker-image-preview-publish.yml")
+    prepare_steps = workflow["jobs"]["prepare"]["steps"]
+    state_step = next(step for step in prepare_steps if step.get("name") == "Resolve Docker candidate publication state")
+
+    assert 'echo "state=build"' in state_step["run"]
+    assert 'echo "state=repair"' in state_step["run"]
+    assert "verify_published_candidate_image.sh" in state_step["run"]
+    assert "Published candidate verifier resolved" in state_step["run"]
+
+    for job_name in ("validate-tests", "build-and-validate-platforms", "build-and-publish-immutable"):
+        assert "publication_state == 'build'" in workflow["jobs"][job_name]["if"]
+    for job_name in ("publish-immutable-markers", "promote-test-tag", "repair-candidate-aliases"):
+        expected_state = "repair" if job_name == "repair-candidate-aliases" else "build"
+        assert f"publication_state == '{expected_state}'" in workflow["jobs"][job_name]["if"]
 
 
 def test_coordinated_companion_promotion_uses_signed_docker_verifier() -> None:
@@ -144,3 +164,37 @@ def test_docker_candidate_cleanup_and_summary_cover_staging_lifecycle() -> None:
 def test_docker_backfill_does_not_sign_after_alias_promotion() -> None:
     workflow = load_workflow("docker-image-backfill.yml")
     assert "sign-and-attest" not in workflow["jobs"]
+
+
+def test_companion_promotion_serializes_feed_updates_and_reports_push_targets() -> None:
+    workflow = load_workflow("promote-companion-release.yml")
+    assert workflow["concurrency"]["group"] == "companion-release-publication"
+    assert workflow["concurrency"]["cancel-in-progress"] is False
+
+    steps = workflow["jobs"]["promote"]["steps"]
+    push_step = next(step for step in steps if step.get("name") == "Commit and push feed updates")
+    assert "Failed to push feed updates for:" in push_step["run"]
+    assert "remote feed state is unknown" in push_step["run"]
+
+
+def test_companion_finalizer_recovers_exact_artifacts_and_uploads_completion_last() -> None:
+    workflow = load_workflow("build-companion.yml")
+    finalizer = workflow["jobs"]["finalize-release"]
+    assert finalizer["needs"] == ["prepare", "build"]
+    assert "recover-finalizer" in finalizer["if"]
+    assert "needs.build.result == 'success'" in finalizer["if"]
+
+    steps = finalizer["steps"]
+    download_step = next(step for step in steps if step.get("name") == "Download authoritative Companion artifacts")
+    assert 'gh api "repos/$GITHUB_REPOSITORY/actions/artifacts/$artifact_id"' in download_step["run"]
+    assert ".expired" in download_step["run"]
+    assert "expected_artifact_name" in download_step["run"]
+    assert "origin_run_attempt" in download_step["run"]
+    assert "companion-${origin_run_id}-${origin_run_attempt}" in download_step["run"]
+    assert "artifact_id/zip" in download_step["run"]
+
+    upload_step = next(step for step in steps if step.get("name") == "Upload verified release assets")
+    run = upload_step["run"]
+    assert "upload_or_verify" in run
+    assert run.index("companion-release-manifest.json") < run.index("companion-release-provenance.json")
+    assert run.rindex("companion-completion-marker.json") > run.index("while IFS= read")

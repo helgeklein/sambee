@@ -62,10 +62,16 @@ for tag in "${tags[@]}"; do
     fi
   fi
 
-  crane cp "$source_ref" "$target_ref"
-  resolved_target_digest="$(crane digest "$target_ref")"
+  if ! crane cp "$source_ref" "$target_ref"; then
+    echo "Failed while updating mutable pointer $target_ref from verified digest $source_digest. Inspect $target_ref before retrying; its final registry state is unknown." >&2
+    exit 1
+  fi
+  if ! resolved_target_digest="$(crane digest "$target_ref")"; then
+    echo "Unable to verify mutable pointer $target_ref after updating it. Inspect $target_ref before retrying." >&2
+    exit 1
+  fi
   if [[ "$resolved_target_digest" != "$source_digest" ]]; then
-    echo "Promotion verification failed for $target_ref: expected $source_digest, resolved $resolved_target_digest" >&2
+    echo "Mutable pointer verification failed for $target_ref: expected $source_digest, resolved $resolved_target_digest. No immutable artifact was changed." >&2
     exit 1
   fi
 done

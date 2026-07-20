@@ -12,6 +12,15 @@ title = "Release Checklist"
 
 Docker and Companion candidates may be built independently. Select an existing canonical build version when the second component must use a source commit that `main` has already advanced past.
 
+## Production Cutover Freeze
+
+The release cutover is active as of 2026-07-20. Until the cutover is announced complete, permit only explicitly identified controlled test candidates through the current canonical-candidate workflows.
+
+- Do not use legacy Docker or Companion publishing entry points.
+- Do not promote `stable` or `beta` through a legacy workflow.
+- Do not mix legacy publication with the canonical candidate, immutable-artifact, and pointer-only promotion workflows.
+- End the freeze only after the cutover announcement and the first production publication and recovery paths have been monitored.
+
 ## Documentation
 
 1. Review the **homepage** content and update it where necessary.

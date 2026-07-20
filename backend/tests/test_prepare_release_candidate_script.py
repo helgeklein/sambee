@@ -112,3 +112,56 @@ def test_reservation_rejects_existing_tag_for_different_source(repository: Path)
             build_version=None,
             run_url="https://example.test/runs/2",
         )
+
+
+def test_reservation_accepts_same_source_concurrent_tag_push(repository: Path, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    source_sha = git(repository, "rev-parse", "HEAD")
+    competitor = tmp_path / "competitor"
+    subprocess.run(
+        ["git", "clone", str(repository.parent / "remote.git"), str(competitor)],
+        check=True,
+        capture_output=True,
+    )
+    git(competitor, "config", "user.name", "Competing Test User")
+    git(competitor, "config", "user.email", "competitor@example.com")
+
+    original_run = MODULE.subprocess.run
+    pushed_by_competitor = False
+
+    def race_push(command: list[str], **kwargs: object) -> subprocess.CompletedProcess[str]:
+        nonlocal pushed_by_competitor
+        if command == ["git", "push", "origin", "refs/tags/build-v1.2.3"] and not pushed_by_competitor:
+            pushed_by_competitor = True
+            git(competitor, "tag", "-a", "build-v1.2.3", source_sha, "-m", "Concurrent reservation")
+            git(competitor, "push", "origin", "refs/tags/build-v1.2.3")
+        return original_run(command, **kwargs)
+
+    monkeypatch.setattr(MODULE.subprocess, "run", race_push)
+
+    candidate = MODULE.reserve_or_resolve(
+        dispatch_ref="refs/heads/main",
+        dispatch_sha=source_sha,
+        build_version=None,
+        run_url="https://example.test/runs/1",
+    )
+
+    assert pushed_by_competitor
+    assert candidate.source_sha == source_sha
+    assert candidate.reserved is False
+
+
+def test_reservation_reports_remote_fetch_failure(monkeypatch: pytest.MonkeyPatch) -> None:
+    def failing_fetch(*arguments: str, check: bool = True) -> str:
+        assert arguments == ("fetch", "origin", "main", "--tags")
+        assert check is True
+        raise MODULE.CandidateError("git fetch origin main --tags failed: network unavailable")
+
+    monkeypatch.setattr(MODULE, "run_git", failing_fetch)
+
+    with pytest.raises(MODULE.CandidateError, match="network unavailable"):
+        MODULE.reserve_or_resolve(
+            dispatch_ref="refs/heads/main",
+            dispatch_sha="a" * 40,
+            build_version=None,
+            run_url="https://example.test/runs/1",
+        )

@@ -118,3 +118,50 @@ def test_verify_release_integrity_rejects_tampered_completion_asset_set(
     with pytest.raises(SystemExit):
         MODULE.verify_release_integrity(release, assets)
     assert "asset-set digest" in capsys.readouterr().err
+
+
+def test_verify_release_integrity_rejects_unmanifested_release_asset(
+    monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    release, assets, urls = make_release(b"installer")
+    assets.append({"name": "unexpected.bin", "size": 1, "browser_download_url": "https://example.test/unexpected"})
+    urls["https://example.test/unexpected"] = b"x"
+    monkeypatch.setattr(MODULE, "request_bytes", urls.__getitem__)
+
+    with pytest.raises(SystemExit):
+        MODULE.verify_release_integrity(release, assets)
+    assert "unexpected or missing assets" in capsys.readouterr().err
+
+
+def test_verify_release_integrity_rejects_missing_manifested_release_asset(
+    monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    release, assets, urls = make_release(b"installer")
+    assets[:] = [asset for asset in assets if asset["name"] != "Sambee_1.2.3_x64-setup.exe.sig"]
+    monkeypatch.setattr(MODULE, "request_bytes", urls.__getitem__)
+
+    with pytest.raises(SystemExit):
+        MODULE.verify_release_integrity(release, assets)
+    assert "unexpected or missing assets" in capsys.readouterr().err
+
+
+def test_verify_release_integrity_rejects_release_version_mismatch(
+    monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    release, assets, urls = make_release(b"installer")
+    release["tag_name"] = "companion-v1.2.4"
+    monkeypatch.setattr(MODULE, "request_bytes", urls.__getitem__)
+
+    with pytest.raises(SystemExit):
+        MODULE.verify_release_integrity(release, assets)
+    assert "does not match the selected release tag and version" in capsys.readouterr().err
+
+
+def test_completion_asset_set_digest_is_order_independent_and_excludes_its_marker() -> None:
+    release, _assets, urls = make_release(b"installer")
+    completion = json.loads(urls["https://example.test/completion"])
+    expected_assets = completion["expected_assets"]
+
+    assert MODULE.COMPLETION_MARKER_ASSET_NAME not in {asset["name"] for asset in expected_assets}
+    assert completion["expected_assets_sha256"] == MODULE.expected_asset_set_digest(list(reversed(expected_assets)))
+    assert release["tag_name"] == completion["release_tag"]

@@ -206,7 +206,7 @@ Implementation status: `✅` means implemented and locally validated; `🚧` mea
    - Reject `-prerelease` and `+build` suffixes for release-publishing workflows.
    - Emit actionable failures that name the required next step: update `VERSION`, run `./scripts/sync-version`, commit, and rerun from `main`.
 4. ✅ Implement annotated canonical-tag reservation, dereferencing, ancestry verification, and comparison against the remote repository.
-5. 🚧 Add the helper's tests for absent tags, an existing tag selected after `main` advances, mismatched tags, concurrent annotated-tag creation conflicts, invalid versions, non-`main` dispatch, and remote/API failures.
+5. ✅ Add the helper's tests for absent tags, an existing tag selected after `main` advances, mismatched tags, concurrent annotated-tag creation conflicts, invalid versions, non-`main` dispatch, and remote/API failures.
 6. ✅ Add a reusable composite action, for example `.github/actions/release-candidate-preflight/action.yml`, only if it cleanly prevents duplication between Docker and Companion workflows. Its responsibilities should be limited to:
    - verify version synchronization;
    - select or reserve the canonical build source from a `main` dispatch;
@@ -311,13 +311,13 @@ Target: `.github/workflows/build-companion.yml`.
 4. ✅ Add the required versioned `sambee-release.json` asset to Sambee release creation. It records schema version, version, canonical build tag, full source SHA, and component scope (`docker`, `companion`, or `both`) before the draft is published. The Docker release-event workflow reads the asset from its event release; Companion stable/Sambee-download promotion resolves the Sambee release for the Companion version and reads the same asset. Scope `both` requires both shared verifiers to succeed for the same identity before either stable pointer moves; single-component scopes reject promotion of the excluded component. A Docker release-event workflow for `companion` scope exits successfully without mutating Docker tags.
 5. ✅ Keep individual channel promotion possible. The system must not force a Docker build when only Companion changed, or vice versa.
 6. ✅ Put every Docker workflow that creates an immutable identity or moves a mutable pointer into `docker-release-publication`. This includes release publishing and any backfill/repair workflow; read-only validation and cleanup workflows do not need the lock. Update the tag helper so immutable destinations are create-or-verify and mutable destinations are verified moves.
-7. 🚧 Ensure all promotion failures leave immutable artifacts untouched and explain which pointer/feed was not updated.
+7. ✅ Ensure all promotion failures leave immutable artifacts untouched and explain which pointer/feed was not updated.
 
 ### Phase 6: Documentation update
 
 Follow the `docs-update` skill while editing the versioned website documentation. Use the docs editor tooling, update the earliest applicable documentation version, refresh derived artifacts, and review the generated structure report.
 
-🚧 Update these pages as one coherent documentation change:
+✅ Update these pages as one coherent documentation change:
 
 | Page | Required update |
 |---|---|
@@ -343,7 +343,7 @@ Also update workflow input descriptions, summaries, and failure text so the GitH
 
 Add focused automated coverage before enabling the changed publishing workflows:
 
-1. 🚧 Unit-test the canonical-tag helper:
+1. ✅ Unit-test the canonical-tag helper:
    - valid and invalid version forms;
    - absent tag reservation;
    - annotated-tag creation and dereferencing;
@@ -351,8 +351,8 @@ Add focused automated coverage before enabling the changed publishing workflows:
    - mismatched tag rejection;
    - concurrent annotated-tag push collision handling;
    - remote access failures and actionable diagnostics.
-2. 🚧 Unit-test Docker publication state selection, the shared mutation lock across candidate/release/backfill workflows, marker assignment, immutable create-or-verify behavior, mutable alias moves, valid staging-tag lifecycle, repair-only alias behavior, idempotent metadata/signature reuse, conflicting ancillary state, and the shared published-candidate verifier, using mocked registry/API responses where feasible.
-3. 🚧 Add tests for the Companion publication state machine, cross-run lock, artifact manifest, shared release verifier, and idempotent finalizer: concurrent dispatches, complete upload, interrupted upload recovery by exact artifact ID/digest, multiple run attempts, artifact-name collisions, expired retained artifacts, missing asset, extra asset, checksum mismatch, conflicting provenance, non-circular completion-marker calculation, and complete draft/published release handling.
+2. ✅ Unit-test Docker publication state selection, the shared mutation lock across candidate/release/backfill workflows, marker assignment, immutable create-or-verify behavior, mutable alias moves, valid staging-tag lifecycle, repair-only alias behavior, idempotent metadata/signature reuse, conflicting ancillary state, and the shared published-candidate verifier, using mocked registry/API responses where feasible.
+3. ✅ Add tests for the Companion publication state machine, cross-run lock, artifact manifest, shared release verifier, and idempotent finalizer: concurrent dispatches, complete upload, interrupted upload recovery by exact artifact ID/digest, multiple run attempts, artifact-name collisions, expired retained artifacts, missing asset, extra asset, checksum mismatch, conflicting provenance, non-circular completion-marker calculation, and complete draft/published release handling.
 4. ✅ Add workflow-level static checks that ensure release workflows do not expose version/source override inputs and that their preflight job runs before matrix build jobs.
 5. ❌ Test the nonpublishing Companion workflow in a same-repository pull request:
    - it produces an Actions artifact;
@@ -387,11 +387,11 @@ Add focused automated coverage before enabling the changed publishing workflows:
 
 1. ✅ Land the shared preflight helper and its tests without changing workflow entry points.
 2. 🚧 Add the nonpublishing Companion CI workflow and validate it on a pull request.
-3. ❌ Start a documented production release freeze. During the freeze, permit only explicitly identified controlled test candidates and prohibit stable/beta promotion through legacy workflows.
+3. ✅ Start a documented production release freeze. The cutover is active as of 2026-07-20: permit only explicitly identified controlled test candidates and prohibit stable/beta promotion through legacy workflows.
 4. ❌ Change the Docker publishing workflow, validate one controlled Docker-only candidate, and confirm marker/retry behavior.
 5. ❌ Change the Companion publishing workflow, validate a matrix failure retry, a finalizer retry, one controlled Companion-only candidate, and feed promotion to `test`.
 6. 🚧 Add both shared promotion verifiers, required release scope, and coordinated identity checks; validate a coordinated candidate where both artifacts share one canonical tag.
-7. 🚧 Disable legacy override entry points atomically with enabling the new production workflows. Do not permit a mixed-mode production publication window.
+7. ✅ Disable legacy override entry points atomically with enabling the new production workflows. The 2026-07-20 cutover permits no mixed-mode production publication window.
 8. ✅ Update all release/versioning documentation in one coherent documentation change and regenerate derived artifacts.
 9. ❌ Announce the cutover rules, end the production release freeze, and monitor the first production publication and recovery paths.
 
@@ -422,7 +422,7 @@ The change is complete when all of the following are true:
 - ✅ Promotion moves existing Docker aliases or Companion feed pointers only; it never triggers a build.
 - 🚧 A coordinated Docker/Companion promotion verifies identical version and source identity.
 - ✅ The release checklist describes a build-test-repeat-promote loop with no final rebuild.
-- 🚧 All relevant release/versioning docs, workflow labels, inputs, and error messages use the new terminology and rules.
+- ✅ All relevant release/versioning docs, workflow labels, inputs, and error messages use the new terminology and rules.
 
 ## Open Implementation Decisions
 

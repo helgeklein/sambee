@@ -37,6 +37,10 @@ env:
   COMPANION_RELEASE_REPO_NAME: sambee-companion
   COMPANION_RELEASE_REPO_BRANCH: main
 
+concurrency:
+  group: companion-release-publication
+  cancel-in-progress: false
+
 permissions:
   contents: read
   packages: read
@@ -186,4 +190,12 @@ jobs:
           fi
 
           git -C release-repo commit -m "Promote ${release_tag} release feeds"
-          git -C release-repo push origin HEAD:${{ env.COMPANION_RELEASE_REPO_BRANCH }}
+          if ! git -C release-repo push origin HEAD:${{ env.COMPANION_RELEASE_REPO_BRANCH }}; then
+            targets=()
+            [[ "${{ github.event.inputs.companion_channel_test }}" == "true" ]] && targets+=("Companion test feed")
+            [[ "${{ github.event.inputs.companion_channel_beta }}" == "true" ]] && targets+=("Companion beta feed")
+            [[ "${{ github.event.inputs.companion_channel_stable }}" == "true" ]] && targets+=("Companion stable feed")
+            [[ "${{ github.event.inputs.sambee }}" == "true" ]] && targets+=("Sambee Companion metadata")
+            echo "Failed to push feed updates for: ${targets[*]}. The remote feed state is unknown; inspect those targets before retrying." >&2
+            exit 1
+          fi

@@ -134,3 +134,25 @@ def test_completion_with_mismatched_provenance_digest_fails_closed(
 
     with pytest.raises(SystemExit, match="1"):
         MODULE.resolve_state(CURRENT_RELEASE, IDENTITY, "token")
+
+
+def test_recovery_rejects_retained_artifact_without_digest(monkeypatch: pytest.MonkeyPatch) -> None:
+    global CURRENT_RELEASE
+    CURRENT_RELEASE = release(draft=True, completion=False, recoverable=True)
+    CURRENT_RELEASE["provenance"]["actions_artifacts"][0]["digest"] = ""
+    monkeypatch.setattr(MODULE, "request_asset_json", asset_json)
+    monkeypatch.setattr(MODULE, "request_asset_bytes", asset_bytes)
+
+    with pytest.raises(SystemExit, match="1"):
+        MODULE.resolve_state(CURRENT_RELEASE, IDENTITY, "token")
+
+
+def test_recovery_rejects_non_integer_workflow_attempt(monkeypatch: pytest.MonkeyPatch) -> None:
+    global CURRENT_RELEASE
+    CURRENT_RELEASE = release(draft=True, completion=False, recoverable=True)
+    CURRENT_RELEASE["provenance"]["workflow_run"]["attempt"] = "1"
+    monkeypatch.setattr(MODULE, "request_asset_json", asset_json)
+    monkeypatch.setattr(MODULE, "request_asset_bytes", asset_bytes)
+
+    with pytest.raises(SystemExit, match="1"):
+        MODULE.resolve_state(CURRENT_RELEASE, IDENTITY, "token")

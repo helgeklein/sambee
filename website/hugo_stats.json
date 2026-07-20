@@ -927,6 +927,7 @@
       "product-specific-notes",
       "product-version-source-of-truth",
       "production-and-development-origin-rules",
+      "production-cutover-freeze",
       "promotion-targets-mean-different-things",
       "public-distribution-surface",
       "public-url-contract",
