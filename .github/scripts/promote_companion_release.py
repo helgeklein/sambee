@@ -47,6 +47,14 @@ PROVENANCE_ASSET_NAME = "companion-release-provenance.json"
 COMPLETION_MARKER_ASSET_NAME = "companion-completion-marker.json"
 
 
+def expected_asset_set_digest(expected_assets: list[dict]) -> str:
+    canonical_assets = sorted(expected_assets, key=lambda asset: str(asset.get("name")))
+    encoded = json.dumps(
+        canonical_assets, separators=(",", ":"), sort_keys=True
+    ).encode("utf-8")
+    return hashlib.sha256(encoded).hexdigest()
+
+
 def fail(message: str) -> NoReturn:
     print(f"Error: {message}", file=sys.stderr)
     raise SystemExit(1)
@@ -202,6 +210,10 @@ def verify_release_integrity(release: dict, assets: list[dict]) -> None:
         fail(
             "Companion completion marker asset set does not match the release provenance"
         )
+    if completion.get("expected_assets_sha256") != expected_asset_set_digest(
+        expected_assets
+    ):
+        fail("Companion completion marker asset-set digest does not match provenance")
 
     expected_by_name: dict[str, dict] = {}
     for expected_asset in expected_assets:

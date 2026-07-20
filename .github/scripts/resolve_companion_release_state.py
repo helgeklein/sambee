@@ -4,6 +4,7 @@
 from __future__ import annotations
 
 import argparse
+import hashlib
 import json
 import os
 import sys
@@ -76,6 +77,15 @@ def find_asset(release: dict[str, Any], name: str) -> dict[str, Any] | None:
     return None
 
 
+def expected_asset_set_digest(expected_assets: list[dict[str, Any]]) -> str:
+    encoded = json.dumps(
+        sorted(expected_assets, key=lambda asset: str(asset.get("name"))),
+        separators=(",", ":"),
+        sort_keys=True,
+    ).encode("utf-8")
+    return hashlib.sha256(encoded).hexdigest()
+
+
 @dataclass(frozen=True)
 class ReleaseIdentity:
     version: str
@@ -118,6 +128,19 @@ def resolve_state(
 
     completion_asset = find_asset(release, COMPLETION_ASSET)
     if completion_asset is not None:
+        completion = request_asset_json(completion_asset, token)
+        expected_assets = provenance.get("assets")
+        if (
+            not isinstance(expected_assets, list)
+            or completion.get("expected_assets") != expected_assets
+        ):
+            fail(
+                "Existing Companion completion marker does not match release provenance"
+            )
+        if completion.get("expected_assets_sha256") != expected_asset_set_digest(
+            expected_assets
+        ):
+            fail("Existing Companion completion marker has an invalid asset-set digest")
         return "complete"
     if not release.get("draft", False):
         fail(

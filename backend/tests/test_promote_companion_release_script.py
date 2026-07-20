@@ -35,6 +35,7 @@ def make_release(payload: bytes) -> tuple[dict, list[dict], dict[str, bytes]]:
         "schema_version": 1,
         "provenance_sha256": hashlib.sha256(provenance_bytes).hexdigest(),
         "expected_assets": expected_assets,
+        "expected_assets_sha256": MODULE.expected_asset_set_digest(expected_assets),
     }
     completion_bytes = json.dumps(completion, indent=2, sort_keys=True).encode() + b"\n"
     urls = {
@@ -69,3 +70,17 @@ def test_verify_release_integrity_rejects_tampered_asset(monkeypatch: pytest.Mon
     with pytest.raises(SystemExit):
         MODULE.verify_release_integrity(release, assets)
     assert "checksum mismatch" in capsys.readouterr().err
+
+
+def test_verify_release_integrity_rejects_tampered_completion_asset_set(
+    monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    release, assets, urls = make_release(b"installer")
+    completion = json.loads(urls["https://example.test/completion"])
+    completion["expected_assets_sha256"] = "0" * 64
+    urls["https://example.test/completion"] = json.dumps(completion).encode()
+    monkeypatch.setattr(MODULE, "request_bytes", urls.__getitem__)
+
+    with pytest.raises(SystemExit):
+        MODULE.verify_release_integrity(release, assets)
+    assert "asset-set digest" in capsys.readouterr().err

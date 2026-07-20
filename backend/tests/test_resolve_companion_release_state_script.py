@@ -25,6 +25,7 @@ def release(*, draft: bool, completion: bool, recoverable: bool = False) -> dict
         "build_tag": IDENTITY.build_tag,
         "source_sha": IDENTITY.source_sha,
         "release_tag": IDENTITY.release_tag,
+        "assets": [],
     }
     if recoverable:
         provenance["workflow_run"] = {"id": 123, "attempt": 1}
@@ -32,11 +33,21 @@ def release(*, draft: bool, completion: bool, recoverable: bool = False) -> dict
     assets = [{"name": MODULE.PROVENANCE_ASSET, "url": "provenance"}]
     if completion:
         assets.append({"name": MODULE.COMPLETION_ASSET, "url": "completion"})
-    return {"draft": draft, "assets": assets, "provenance": provenance}
+    return {
+        "draft": draft,
+        "assets": assets,
+        "provenance": provenance,
+        "completion": {
+            "expected_assets": provenance.get("assets", []),
+            "expected_assets_sha256": MODULE.expected_asset_set_digest(provenance.get("assets", [])),
+        },
+    }
 
 
 def asset_json(asset: dict, _token: str) -> dict:
-    return CURRENT_RELEASE["provenance"]
+    if asset["name"] == MODULE.PROVENANCE_ASSET:
+        return CURRENT_RELEASE["provenance"]
+    return CURRENT_RELEASE["completion"]
 
 
 CURRENT_RELEASE: dict = {}
@@ -66,6 +77,16 @@ def test_conflicting_release_fails_closed(monkeypatch: pytest.MonkeyPatch) -> No
     global CURRENT_RELEASE
     CURRENT_RELEASE = release(draft=True, completion=False, recoverable=True)
     CURRENT_RELEASE["provenance"]["source_sha"] = "b" * 40
+    monkeypatch.setattr(MODULE, "request_asset_json", asset_json)
+
+    with pytest.raises(SystemExit, match="1"):
+        MODULE.resolve_state(CURRENT_RELEASE, IDENTITY, "token")
+
+
+def test_invalid_completion_marker_fails_closed(monkeypatch: pytest.MonkeyPatch) -> None:
+    global CURRENT_RELEASE
+    CURRENT_RELEASE = release(draft=False, completion=True)
+    CURRENT_RELEASE["completion"]["expected_assets_sha256"] = "0" * 64
     monkeypatch.setattr(MODULE, "request_asset_json", asset_json)
 
     with pytest.raises(SystemExit, match="1"):

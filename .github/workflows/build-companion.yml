@@ -373,10 +373,16 @@ jobs:
           if os.environ["PUBLICATION_STATE"] == "recover-finalizer":
               provenance_bytes = provenance_path.read_bytes()
               provenance = json.loads(provenance_bytes)
+              expected_assets_json = json.dumps(
+                sorted(provenance["assets"], key=lambda asset: asset["name"]),
+                separators=(",", ":"),
+                sort_keys=True,
+              ).encode("utf-8")
               completion = {
                   "schema_version": 1,
                   "provenance_sha256": hashlib.sha256(provenance_bytes).hexdigest(),
                   "expected_assets": provenance["assets"],
+                "expected_assets_sha256": hashlib.sha256(expected_assets_json).hexdigest(),
               }
               completion_path.write_text(
                   json.dumps(completion, indent=2, sort_keys=True) + "\n", encoding="utf-8"
@@ -425,6 +431,11 @@ jobs:
               "schema_version": 1,
               "provenance_sha256": hashlib.file_digest(provenance_path.open("rb"), "sha256").hexdigest(),
               "expected_assets": assets,
+              "expected_assets_sha256": hashlib.sha256(json.dumps(
+                sorted(assets, key=lambda asset: asset["name"]),
+                separators=(",", ":"),
+                sort_keys=True,
+              ).encode("utf-8")).hexdigest(),
           }
           completion_path.write_text(
               json.dumps(completion, indent=2, sort_keys=True) + "\n", encoding="utf-8"
