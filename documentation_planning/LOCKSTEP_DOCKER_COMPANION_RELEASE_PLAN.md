@@ -262,11 +262,11 @@ Target: `.github/workflows/build-companion.yml`.
    - no longer recommend prerelease suffixes;
    - instruct the maintainer to increment the third build-sequence component in `VERSION`, synchronize, commit on `main`, and rerun.
 7. [x] Replace `tauri-action` release creation in matrix jobs with direct Tauri packaging commands. Matrix jobs sign/package their selected platform, generate updater artifacts, write an artifact manifest containing names and SHA-256 checksums, and upload only private GitHub Actions artifacts. Artifact names include workflow run ID, run attempt, platform, and target; retries never overwrite an artifact from an earlier attempt.
-8. Add one finalizer job after all selected matrix jobs succeed. It downloads every selected artifact and manifest, verifies the complete installer/updater/signature set and all checksums, then rechecks the external release state while the workflow lock is still held.
-9. The finalizer creates the one draft release in `helgeklein/sambee-companion`, uploads the verified manifest as its first asset, then uploads and verifies every other asset by name, size, and checksum. It uploads the completion-marker JSON last. The draft becomes complete only after every manifest entry is present and verified and the marker binds the release tag, manifest digest, provenance digest, and complete expected asset set.
-10. Configure retained Actions artifacts long enough for audited recovery. For `recover-finalizer`, fetch the exact GitHub artifact IDs and digests recorded in the draft provenance, require their run ID, run attempt, platform, target, and manifest digest to match, accept only missing remote assets or remote assets with the same checksum, and reject conflicts. A recovery run never rebuilds matrix artifacts. Missing or expired retained artifacts require a new `Z` version; they must not be reconstructed.
+8. [x] Add one finalizer job after all selected matrix jobs succeed. It downloads every selected artifact and manifest, verifies the complete installer/updater/signature set and all checksums, then rechecks the external release state while the workflow lock is still held.
+9. [x] The finalizer creates the one draft release in `helgeklein/sambee-companion`, uploads the verified manifest as its first asset, then uploads and verifies every other asset by name, size, and checksum. It uploads the completion-marker JSON last. The draft becomes complete only after every manifest entry is present and verified and the marker binds the release tag, manifest digest, provenance digest, and complete expected asset set.
+10. [x] Configure retained Actions artifacts long enough for audited recovery. For `recover-finalizer`, fetch the exact GitHub artifact IDs and digests recorded in the draft provenance, require their run ID, run attempt, platform, target, and manifest digest to match, accept only missing remote assets or remote assets with the same checksum, and reject conflicts. A recovery run never rebuilds matrix artifacts. Missing or expired retained artifacts require a new `Z` version; they must not be reconstructed.
 11. Set `releaseCommitish` only to the release repository's required branch if GitHub requires it; do not misrepresent it as the Sambee source. Instead, make the canonical Sambee tag/SHA first-class release metadata and attach a provenance JSON asset.
-12. Include the following in the draft GitHub Release body:
+12. [x] Include the following in the draft GitHub Release body:
    - Sambee version;
    - canonical build tag;
    - full Sambee source SHA;
@@ -276,14 +276,14 @@ Target: `.github/workflows/build-companion.yml`.
    - artifact platform matrix;
    - statement that the release is immutable once created.
 13. Keep the draft-release model and existing platform selection, unless a focused review concludes that partial platform release artifacts should be disallowed for the normal release path. A selected partial-platform set must be explicit in the manifest and release body.
-14. Add an Actions summary listing concurrency group, workflow state, version, canonical build tag, source SHA, Companion release URL/tag, originating/recovery run IDs, artifact manifest digest, and built platforms.
+14. [x] Add an Actions summary listing concurrency group, workflow state, version, canonical build tag, source SHA, Companion release URL/tag, originating/recovery run IDs, artifact manifest digest, and built platforms.
 15. Confirm the feed promotion script uses the release tag's normalized version unchanged and that it will correctly order numeric `Z` updates through Tauri's standard version comparison.
-16. Add a shared Companion release verifier used by finalization and every promotion path. It verifies the provenance and completion-marker schemas, exact manifested asset names/sizes/SHA-256 values, expected platform/signature pairs, build tag, source SHA, version, and absence of unmanifested assets unless an explicit schema rule allows them.
+16. [x] Add a shared Companion release verifier used by finalization and every promotion path. It verifies the provenance and completion-marker schemas, exact manifested asset names/sizes/SHA-256 values, expected platform/signature pairs, build tag, source SHA, version, and absence of unmanifested assets unless an explicit schema rule allows them.
 
 ### Phase 4: Nonpublishing Companion CI workflow
 
 1. [x] Add `.github/workflows/verify-companion-build.yml` with `pull_request` and optional manual `workflow_dispatch` triggers.
-2. Trigger it for Companion source, Tauri configuration, shared version-sync logic, and workflow dependency changes. Use path filters to avoid unnecessary expensive CI work.
+2. [x] Trigger it for Companion source, Tauri configuration, shared version-sync logic, and workflow dependency changes. Use path filters to avoid unnecessary expensive CI work.
 3. [x] Run Companion checks first:
    - `npm ci`;
    - TypeScript check and lint;
@@ -292,7 +292,7 @@ Target: `.github/workflows/build-companion.yml`.
 5. [x] Do not pass updater-signing or release-repository credentials. Assert that `TAURI_SIGNING_PRIVATE_KEY` and `TAURI_SIGNING_PRIVATE_KEY_PASSWORD` are unset before packaging. Allow the established Azure Windows code-signing configuration only for same-repository events; assert that fork pull requests have no Azure, Apple, release-repository, or updater-signing secrets and skip all secret-backed signing/notarization steps.
 6. [x] Do not invoke `tauri-action` release creation and do not contact `helgeklein/sambee-companion`.
 7. [x] Upload resulting verification artifacts to the workflow run with a short, explicit retention period, then delete the temporary Tauri configuration in an `always()` cleanup step.
-8. Document that those artifacts are for test/diagnostic use only and must never be distributed through a public channel or installed as a supported update.
+8. [x] Document that those artifacts are for test/diagnostic use only and must never be distributed through a public channel or installed as a supported update.
 9. Add a proof-of-concept test for this override before relying on it: same-repository Windows x64 packaging must succeed with the established code-signing configuration but without updater-signing credentials, produce no `.sig` updater artifacts, and leave no updater-release output. A fork pull request must build the same target unsigned with no secrets. Do not use `pull_request_target`; it would execute untrusted fork code with secrets.
 
 ### Phase 5: Promotion and cross-artifact consistency
@@ -353,7 +353,7 @@ Add focused automated coverage before enabling the changed publishing workflows:
    - remote access failures and actionable diagnostics.
 2. Unit-test Docker publication state selection, the shared mutation lock across candidate/release/backfill workflows, marker assignment, immutable create-or-verify behavior, mutable alias moves, valid staging-tag lifecycle, repair-only alias behavior, idempotent metadata/signature reuse, conflicting ancillary state, and the shared published-candidate verifier, using mocked registry/API responses where feasible.
 3. Add tests for the Companion publication state machine, cross-run lock, artifact manifest, shared release verifier, and idempotent finalizer: concurrent dispatches, complete upload, interrupted upload recovery by exact artifact ID/digest, multiple run attempts, artifact-name collisions, expired retained artifacts, missing asset, extra asset, checksum mismatch, conflicting provenance, non-circular completion-marker calculation, and complete draft/published release handling.
-4. Add workflow-level static checks that ensure release workflows do not expose version/source override inputs and that their preflight job runs before matrix build jobs.
+4. [x] Add workflow-level static checks that ensure release workflows do not expose version/source override inputs and that their preflight job runs before matrix build jobs.
 5. Test the nonpublishing Companion workflow in a same-repository pull request:
    - it produces an Actions artifact;
    - it creates no release in the Companion repository;

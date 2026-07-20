@@ -106,6 +106,10 @@ jobs:
         with:
           install-dir: ${{ runner.temp }}/bin
 
+      - name: Install Cosign
+        if: ${{ steps.scope.outputs.scope == 'both' }}
+        uses: sigstore/cosign-installer@6f9f17788090df1f26f669e9d70d6ae9567deba6 # v4.1.2
+
       - name: Verify coordinated Docker candidate
         if: ${{ steps.scope.outputs.scope == 'both' }}
         shell: bash
@@ -120,22 +124,16 @@ jobs:
           source_url="https://github.com/${GITHUB_REPOSITORY}"
           crane auth login ghcr.io -u "${{ github.actor }}" -p "${{ secrets.GITHUB_TOKEN }}"
           oras login ghcr.io -u "${{ github.actor }}" -p "${{ secrets.GITHUB_TOKEN }}"
-          candidate_ref="$image_name:${{ steps.scope.outputs.build_tag }}"
-          candidate_digest="$(crane digest "$candidate_ref")"
-          bash .github/scripts/verify_candidate_image.sh \
-            --image-ref "$candidate_ref" \
+          bash .github/scripts/verify_published_candidate_image.sh \
+            --image-name "$image_name" \
+            --metadata-repository "$signature_repository" \
             --expected-description "$image_description" \
             --expected-revision "${{ steps.scope.outputs.source_sha }}" \
             --expected-version "${{ steps.scope.outputs.version }}" \
             --expected-source "$source_url" \
             --expected-title Sambee \
-            --expected-build-tag "${{ steps.scope.outputs.build_tag }}"
-          bash .github/scripts/verify_candidate_metadata_bundle.sh \
-            --image-ref "$image_name@$candidate_digest" \
-            --metadata-repository "$signature_repository" \
-            --expected-version "${{ steps.scope.outputs.version }}" \
-            --expected-revision "${{ steps.scope.outputs.source_sha }}" \
-            --expected-source "$source_url"
+            --expected-build-tag "${{ steps.scope.outputs.build_tag }}" \
+            --github-repository "${{ github.repository }}"
 
       - name: Checkout release repository
         uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0

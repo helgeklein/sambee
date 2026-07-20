@@ -4,8 +4,13 @@ on:
   pull_request:
     paths:
       - companion/**
+      - VERSION
       - scripts/sync-version
+      - scripts/check_tauri_version_alignment.py
+      - .github/actions/sync-version-check/**
       - .github/workflows/verify-companion-build.yml
+      - companion/package-lock.json
+      - companion/tsconfig.json
   workflow_dispatch:
 
 permissions:

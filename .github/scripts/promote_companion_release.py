@@ -45,6 +45,7 @@ SAMBEE_DOWNLOAD_PATTERNS = {
 
 PROVENANCE_ASSET_NAME = "companion-release-provenance.json"
 COMPLETION_MARKER_ASSET_NAME = "companion-completion-marker.json"
+RELEASE_MANIFEST_ASSET_NAME = "companion-release-manifest.json"
 
 
 def expected_asset_set_digest(expected_assets: list[dict]) -> str:
@@ -53,6 +54,16 @@ def expected_asset_set_digest(expected_assets: list[dict]) -> str:
         canonical_assets, separators=(",", ":"), sort_keys=True
     ).encode("utf-8")
     return hashlib.sha256(encoded).hexdigest()
+
+
+def canonical_manifest_digest(payload: dict) -> str:
+    canonical_payload = dict(payload)
+    canonical_payload.pop("manifest_sha256", None)
+    return hashlib.sha256(
+        json.dumps(canonical_payload, separators=(",", ":"), sort_keys=True).encode(
+            "utf-8"
+        )
+    ).hexdigest()
 
 
 def fail(message: str) -> NoReturn:
@@ -175,6 +186,7 @@ def fetch_json_asset(asset: dict) -> dict:
 def verify_release_integrity(release: dict, assets: list[dict]) -> None:
     provenance_asset = asset_by_name(assets, PROVENANCE_ASSET_NAME)
     completion_asset = asset_by_name(assets, COMPLETION_MARKER_ASSET_NAME)
+    release_manifest_asset = asset_by_name(assets, RELEASE_MANIFEST_ASSET_NAME)
     provenance_bytes = request_bytes(provenance_asset["browser_download_url"])
     try:
         provenance = json.loads(provenance_bytes.decode("utf-8"))
@@ -183,6 +195,19 @@ def verify_release_integrity(release: dict, assets: list[dict]) -> None:
     if not isinstance(provenance, dict):
         fail(f"Integrity asset {PROVENANCE_ASSET_NAME} must contain a JSON object")
     completion = fetch_json_asset(completion_asset)
+    release_manifest_bytes = request_bytes(
+        release_manifest_asset["browser_download_url"]
+    )
+    try:
+        release_manifest = json.loads(release_manifest_bytes.decode("utf-8"))
+    except (UnicodeDecodeError, json.JSONDecodeError) as error:
+        fail(
+            f"Integrity asset {RELEASE_MANIFEST_ASSET_NAME} is not valid JSON: {error}"
+        )
+    if not isinstance(release_manifest, dict):
+        fail(
+            f"Integrity asset {RELEASE_MANIFEST_ASSET_NAME} must contain a JSON object"
+        )
 
     version = normalize_version(str(release.get("tag_name") or ""))
     expected_tag = str(release.get("tag_name") or "")
@@ -197,6 +222,8 @@ def verify_release_integrity(release: dict, assets: list[dict]) -> None:
         )
     if completion.get("schema_version") != 1:
         fail("Companion completion marker has an unsupported schema version")
+    if completion.get("release_tag") != expected_tag:
+        fail("Companion completion marker does not match the release tag")
     if (
         completion.get("provenance_sha256")
         != hashlib.sha256(provenance_bytes).hexdigest()
@@ -214,6 +241,21 @@ def verify_release_integrity(release: dict, assets: list[dict]) -> None:
         expected_assets
     ):
         fail("Companion completion marker asset-set digest does not match provenance")
+    if (
+        provenance.get("artifact_manifest_sha256")
+        != hashlib.sha256(release_manifest_bytes).hexdigest()
+    ):
+        fail("Companion release provenance does not match the artifact manifest")
+    if completion.get("artifact_manifest_sha256") != provenance.get(
+        "artifact_manifest_sha256"
+    ):
+        fail("Companion completion marker does not match the artifact manifest")
+    if release_manifest.get("schema_version") != 1 or release_manifest.get(
+        "manifest_sha256"
+    ) != canonical_manifest_digest(release_manifest):
+        fail("Companion release manifest has an unsupported schema or invalid digest")
+    if release_manifest.get("platforms") != provenance.get("platforms"):
+        fail("Companion release manifest platform matrix does not match provenance")
 
     expected_by_name: dict[str, dict] = {}
     for expected_asset in expected_assets:
@@ -249,6 +291,40 @@ def verify_release_integrity(release: dict, assets: list[dict]) -> None:
             fail(f"Companion release asset size mismatch for {name}")
         if hashlib.sha256(content).hexdigest() != expected_asset["sha256"]:
             fail(f"Companion release asset checksum mismatch for {name}")
+
+    manifested_names = set()
+    platforms = release_manifest.get("platforms")
+    if not isinstance(platforms, list) or not platforms:
+        fail("Companion release manifest does not define a platform matrix")
+    for platform in platforms:
+        if not isinstance(platform, dict) or not isinstance(
+            platform.get("assets"), list
+        ):
+            fail("Companion release manifest has an invalid platform record")
+        roles = set()
+        for asset in platform["assets"]:
+            if not isinstance(asset, dict) or not isinstance(asset.get("name"), str):
+                fail("Companion release manifest has an invalid platform asset")
+            name = asset["name"]
+            if name not in expected_by_name or name in manifested_names:
+                fail(
+                    "Companion release manifest has an unexpected or duplicate platform asset"
+                )
+            expected_asset = expected_by_name[name]
+            if (
+                asset.get("sha256") != expected_asset["sha256"]
+                or asset.get("size") != expected_asset["size"]
+                or not isinstance(asset.get("roles"), list)
+            ):
+                fail(f"Companion release manifest does not match provenance for {name}")
+            manifested_names.add(name)
+            roles.update(asset["roles"])
+        if not {"installer", "updater", "signature"} <= roles:
+            fail(
+                "Companion release manifest is missing an installer, updater, or signature"
+            )
+    if manifested_names != set(expected_by_name) - {RELEASE_MANIFEST_ASSET_NAME}:
+        fail("Companion release manifest does not cover every package asset")
 
 
 def build_tauri_feed(release: dict, assets: list[dict]) -> dict:

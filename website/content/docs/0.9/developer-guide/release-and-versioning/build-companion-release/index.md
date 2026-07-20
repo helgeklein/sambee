@@ -17,6 +17,12 @@ Run the build workflow when:
 Do not use this workflow to change channel visibility.
 That is the job of `Release: Promote Companion Release`.
 
+## Verification Builds
+
+Pull requests use the nonpublishing `Verify Companion Build` workflow for a Windows x64 package check. Its retained seven-day Actions artifact is diagnostic only: it is not uploaded to `helgeklein/sambee-companion`, does not enter a public feed, and must never be installed as a supported update.
+
+The verification workflow disables Tauri updater artifacts and does not receive updater-signing or release-repository credentials. Fork pull requests build without repository secrets or platform signing credentials.
+
 ## Input
 
 The manual workflow exposes an optional existing build-version selector plus one checkbox per platform:
@@ -52,8 +58,8 @@ Before packaging, the workflow:
 2. Reserves or resolves the canonical `build-vX.Y.Z` source commit.
 3. Verifies synchronized version metadata.
 4. Builds the platform matrix derived from the checked boxes without contacting the external release repository.
-5. Uploads uniquely named private Actions artifacts.
-6. Verifies checksums, writes provenance and a completion marker, then creates or resumes the external draft release from one finalizer.
+5. Writes a per-platform artifact manifest with package names, SHA-256 checksums, installer/updater/signature roles, platform, and target; then uploads uniquely named private Actions artifacts.
+6. The finalizer downloads every retained artifact, verifies the manifests and complete package sets, writes a public aggregate manifest, provenance, and completion marker, then creates or resumes the external draft release.
 
 The build matrix is currently configured for:
 
@@ -74,12 +80,21 @@ That release can contain:
 - Installer assets.
 - Tauri updater bundles.
 - `.sig` files for updater verification.
-- Release provenance and a completion marker describing the exact expected assets.
+- A public aggregate artifact manifest, uploaded before all package assets.
+- Release provenance and a completion marker binding the release tag, aggregate-manifest digest, provenance digest, and exact expected assets.
 
 The workflow uses the tag format `companion-v<effective-version>`.
 
 Channel visibility is still unset at this stage.
 The build is only a published candidate until a later promotion updates the feed files.
+
+## Recovery And Immutability
+
+The external draft is immutable once any asset is present: the finalizer uploads a missing asset or accepts an existing byte-identical asset, and rejects a conflicting replacement.
+
+If a finalizer is interrupted, a later run uses the exact retained Actions artifact IDs, digests, originating run ID, run attempt, platform, and target recorded in draft provenance. It does not rebuild matrix artifacts. Expired, missing, ambiguous, or mismatched retained artifacts require a new `Z` candidate.
+
+GitHub Actions concurrency is mutual exclusion, not a FIFO queue: only one pending run is retained for the `companion-release-publication` lock. Avoid stacking dispatches. A superseded pending dispatch is safe to submit again because it never reached a publication step.
 
 ## Review Before Publish
 

@@ -296,6 +296,15 @@ jobs:
           TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
         run: cd companion && npm run tauri -- build --target ${{ matrix.target }} --bundles ${{ matrix.bundles }} -v
 
+      - name: Create immutable package artifact manifest
+        shell: bash
+        run: |
+          python3 .github/scripts/manage_companion_artifact_manifest.py create \
+            --artifact-dir "companion/src-tauri/target/${{ matrix.target }}/release/bundle" \
+            --platform "${{ matrix.label }}" \
+            --target "${{ matrix.target }}" \
+            --output "companion/src-tauri/target/${{ matrix.target }}/release/bundle/companion-artifact-manifest.json"
+
       - name: Upload build artifacts
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
@@ -312,6 +321,11 @@ jobs:
       actions: read
       contents: read
     steps:
+      - name: Checkout release scripts
+        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+        with:
+          ref: ${{ needs.prepare.outputs.checkout_ref }}
+
       - name: Download authoritative Companion artifacts
         shell: bash
         env:
@@ -333,11 +347,24 @@ jobs:
             --repo "$RELEASE_REPOSITORY" \
             --pattern companion-release-provenance.json \
             --dir "$RUNNER_TEMP/companion-artifacts"
+          origin_run_id="$(jq -r '.workflow_run.id' "$RUNNER_TEMP/companion-artifacts/companion-release-provenance.json")"
+          origin_run_attempt="$(jq -r '.workflow_run.attempt' "$RUNNER_TEMP/companion-artifacts/companion-release-provenance.json")"
+          if [[ ! "$origin_run_id" =~ ^[0-9]+$ || ! "$origin_run_attempt" =~ ^[0-9]+$ ]]; then
+            echo "Draft provenance has invalid originating workflow identity; increment Z and rebuild." >&2
+            exit 1
+          fi
           mapfile -t artifact_records < <(jq -c '.actions_artifacts[]' "$RUNNER_TEMP/companion-artifacts/companion-release-provenance.json")
           for record in "${artifact_records[@]}"; do
             artifact_id="$(jq -r '.id' <<<"$record")"
             expected_name="$(jq -r '.name' <<<"$record")"
             expected_digest="$(jq -r '.digest' <<<"$record")"
+            expected_platform="$(jq -r '.platform' <<<"$record")"
+            expected_target="$(jq -r '.target' <<<"$record")"
+            expected_artifact_name="companion-${origin_run_id}-${origin_run_attempt}-${expected_platform}-${expected_target}"
+            if [[ "$expected_name" != "$expected_artifact_name" ]]; then
+              echo "Retained artifact $artifact_id has inconsistent platform metadata; increment Z and rebuild." >&2
+              exit 1
+            fi
             artifact_json="$(gh api "repos/$GITHUB_REPOSITORY/actions/artifacts/$artifact_id")"
             if [[ "$(jq -r '.name' <<<"$artifact_json")" != "$expected_name" || \
                   "$(jq -r '.expired' <<<"$artifact_json")" != "false" || \
@@ -349,6 +376,15 @@ jobs:
             gh api "repos/$GITHUB_REPOSITORY/actions/artifacts/$artifact_id/zip" > "$archive"
             unzip -q "$archive" -d "$RUNNER_TEMP/companion-artifacts"
           done
+
+      - name: Verify retained package manifests
+        shell: bash
+        env:
+          ARTIFACT_DIR: ${{ runner.temp }}/companion-artifacts
+        run: |
+          python3 .github/scripts/manage_companion_artifact_manifest.py verify \
+            --artifact-dir "$ARTIFACT_DIR" \
+            --output "$ARTIFACT_DIR/companion-release-manifest.json"
 
       - name: Create release provenance and completion marker
         shell: bash
@@ -370,9 +406,21 @@ jobs:
           artifact_dir = Path(os.environ["ARTIFACT_DIR"])
           provenance_path = artifact_dir / "companion-release-provenance.json"
           completion_path = artifact_dir / "companion-completion-marker.json"
+          release_manifest_path = artifact_dir / "companion-release-manifest.json"
           if os.environ["PUBLICATION_STATE"] == "recover-finalizer":
               provenance_bytes = provenance_path.read_bytes()
               provenance = json.loads(provenance_bytes)
+              release_manifest = json.loads(release_manifest_path.read_text(encoding="utf-8"))
+              recovered_manifest_sha256 = hashlib.file_digest(
+                release_manifest_path.open("rb"), "sha256"
+              ).hexdigest()
+              if (
+                recovered_manifest_sha256 != provenance.get("artifact_manifest_sha256")
+                or release_manifest.get("platforms") != provenance.get("platforms")
+              ):
+                raise SystemExit(
+                  "Recovered Companion artifacts do not reproduce the draft artifact manifest; increment Z and rebuild."
+                )
               expected_assets_json = json.dumps(
                 sorted(provenance["assets"], key=lambda asset: asset["name"]),
                 separators=(",", ":"),
@@ -380,6 +428,8 @@ jobs:
               ).encode("utf-8")
               completion = {
                   "schema_version": 1,
+                  "release_tag": provenance["release_tag"],
+                  "artifact_manifest_sha256": provenance["artifact_manifest_sha256"],
                   "provenance_sha256": hashlib.sha256(provenance_bytes).hexdigest(),
                   "expected_assets": provenance["assets"],
                 "expected_assets_sha256": hashlib.sha256(expected_assets_json).hexdigest(),
@@ -390,7 +440,7 @@ jobs:
               raise SystemExit(0)
           assets = []
           for path in sorted(path for path in artifact_dir.rglob("*") if path.is_file()):
-              if path.name in {"companion-release-provenance.json", "companion-completion-marker.json"}:
+              if path.name in {"companion-artifact-manifest.json", "companion-release-provenance.json", "companion-completion-marker.json"}:
                   continue
               assets.append({
                   "name": path.name,
@@ -405,6 +455,8 @@ jobs:
               "release_tag": os.environ["RELEASE_TAG"],
               "source_sha": os.environ["SOURCE_SHA"],
               "version": os.environ["VERSION"],
+              "artifact_manifest_sha256": hashlib.file_digest(release_manifest_path.open("rb"), "sha256").hexdigest(),
+              "platforms": json.loads(release_manifest_path.read_text(encoding="utf-8"))["platforms"],
               "assets": assets,
               "workflow_run": {
                   "id": int(os.environ["GITHUB_RUN_ID"]),
@@ -419,16 +471,39 @@ jobs:
               text=True,
           ))["artifacts"]
           prefix = f"companion-{os.environ['GITHUB_RUN_ID']}-{os.environ['GITHUB_RUN_ATTEMPT']}-"
-          provenance["actions_artifacts"] = [
-              {"id": artifact["id"], "name": artifact["name"], "digest": artifact.get("digest", "")}
-              for artifact in artifacts
-              if artifact.get("name", "").startswith(prefix)
-          ]
+          platform_targets = {
+              "linux-x64": "x86_64-unknown-linux-gnu",
+              "macos-arm64": "aarch64-apple-darwin",
+              "windows-x64": "x86_64-pc-windows-msvc",
+              "windows-arm64": "aarch64-pc-windows-msvc",
+          }
+          retained_artifacts = []
+          for artifact in artifacts:
+              artifact_name = artifact.get("name", "")
+              if not artifact_name.startswith(prefix):
+                  continue
+              suffix = artifact_name.removeprefix(prefix)
+              platform = next(
+                  (label for label in platform_targets if suffix.startswith(f"{label}-")),
+                  None,
+              )
+              if platform is None or suffix != f"{platform}-{platform_targets[platform]}":
+                  raise SystemExit(f"Unexpected Companion artifact name for recovery: {artifact_name}")
+              retained_artifacts.append({
+                  "id": artifact["id"],
+                  "name": artifact_name,
+                  "digest": artifact.get("digest", ""),
+                  "platform": platform,
+                  "target": platform_targets[platform],
+              })
+          provenance["actions_artifacts"] = retained_artifacts
           if not provenance["actions_artifacts"] or any(not artifact["digest"] for artifact in provenance["actions_artifacts"]):
               raise SystemExit("Unable to record immutable GitHub Actions artifact identities for finalizer recovery.")
           provenance_path.write_text(json.dumps(provenance, indent=2, sort_keys=True) + "\n", encoding="utf-8")
           completion = {
               "schema_version": 1,
+              "release_tag": provenance["release_tag"],
+              "artifact_manifest_sha256": provenance["artifact_manifest_sha256"],
               "provenance_sha256": hashlib.file_digest(provenance_path.open("rb"), "sha256").hexdigest(),
               "expected_assets": assets,
               "expected_assets_sha256": hashlib.sha256(json.dumps(
@@ -445,6 +520,7 @@ jobs:
       - name: Create or resume external draft release
         shell: bash
         env:
+          ARTIFACT_DIR: ${{ runner.temp }}/companion-artifacts
           GH_TOKEN: ${{ secrets.COMPANION_RELEASE_REPO_TOKEN }}
           RELEASE_TAG: ${{ needs.prepare.outputs.release_tag }}
           RELEASE_REPOSITORY: ${{ env.COMPANION_RELEASE_REPO_OWNER }}/${{ env.COMPANION_RELEASE_REPO_NAME }}
@@ -452,12 +528,27 @@ jobs:
         run: |
           release_json="$(gh release view "$RELEASE_TAG" --repo "$RELEASE_REPOSITORY" --json isDraft 2>/dev/null || true)"
           if [[ -z "$release_json" ]]; then
+            provenance="$ARTIFACT_DIR/companion-release-provenance.json"
+            release_body="$RUNNER_TEMP/companion-release-body.md"
+            {
+              echo "Immutable Sambee Companion artifact release."
+              echo
+              echo "- Sambee version: \`$(jq -r '.version' "$provenance")\`"
+              echo "- Canonical build tag: \`$(jq -r '.build_tag' "$provenance")\`"
+              echo "- Sambee source SHA: \`$(jq -r '.source_sha' "$provenance")\`"
+              echo "- Originating workflow: [run $(jq -r '.workflow_run.id' "$provenance") attempt $(jq -r '.workflow_run.attempt' "$provenance")]($(jq -r '.workflow_run.url' "$provenance"))"
+              echo "- Aggregate artifact-manifest SHA-256: \`$(jq -r '.artifact_manifest_sha256' "$provenance")\`"
+              echo "- Platforms: \`$(jq -r '[.platforms[] | "\(.platform) (\(.target))"] | join(", ")' "$provenance")\`"
+              echo "- Retained Actions artifacts: \`$(jq -r '[.actions_artifacts[] | "id=\(.id), digest=\(.digest)"] | join("; ")' "$provenance")\`"
+              echo
+              echo "This release is immutable once created. Recovery may upload only missing byte-identical assets from the recorded retained workflow artifacts."
+            } > "$release_body"
             gh release create "$RELEASE_TAG" \
               --repo "$RELEASE_REPOSITORY" \
               --draft \
               --target "${{ env.COMPANION_RELEASE_REPO_BRANCH }}" \
               --title "Sambee Companion v$VERSION" \
-              --notes "See the assets below to download and install."
+              --notes-file "$release_body"
           elif [[ "$(jq -r '.isDraft' <<<"$release_json")" != "true" ]]; then
             echo "External release $RELEASE_TAG is already published and cannot be modified by a build finalizer." >&2
             exit 1
@@ -491,12 +582,40 @@ jobs:
             fi
           }
 
+          upload_or_verify "$ARTIFACT_DIR/companion-release-manifest.json"
           upload_or_verify "$ARTIFACT_DIR/companion-release-provenance.json"
           while IFS= read -r -d '' asset; do
             case "$(basename "$asset")" in
-              companion-release-provenance.json|companion-completion-marker.json) continue ;;
+              companion-artifact-manifest.json|companion-release-manifest.json|companion-release-provenance.json|companion-completion-marker.json) continue ;;
             esac
             upload_or_verify "$asset"
           done < <(find "$ARTIFACT_DIR" -type f -print0 | sort -z)
           upload_or_verify "$ARTIFACT_DIR/companion-completion-marker.json"
+
+      - name: Summarize Companion publication
+        if: always()
+        shell: bash
+        env:
+          ARTIFACT_DIR: ${{ runner.temp }}/companion-artifacts
+          PUBLICATION_STATE: ${{ needs.prepare.outputs.publication_state }}
+          RELEASE_TAG: ${{ needs.prepare.outputs.release_tag }}
+          RELEASE_REPOSITORY: ${{ env.COMPANION_RELEASE_REPO_OWNER }}/${{ env.COMPANION_RELEASE_REPO_NAME }}
+        run: |
+          provenance="$ARTIFACT_DIR/companion-release-provenance.json"
+          {
+            echo '## Companion publication'
+            echo
+            echo '- Concurrency group: `companion-release-publication`'
+            echo "- State: \`$PUBLICATION_STATE\`"
+            echo "- Release: [\`$RELEASE_TAG\`](https://github.com/$RELEASE_REPOSITORY/releases/tag/$RELEASE_TAG)"
+            if [[ -f "$provenance" ]]; then
+              echo "- Version: \`$(jq -r '.version' "$provenance")\`"
+              echo "- Canonical build: \`$(jq -r '.build_tag' "$provenance")\`"
+              echo "- Source SHA: \`$(jq -r '.source_sha' "$provenance")\`"
+              echo "- Originating run: \`$(jq -r '.workflow_run.id' "$provenance")\` attempt \`$(jq -r '.workflow_run.attempt' "$provenance")\`"
+              echo "- Finalizer run: \`$GITHUB_RUN_ID\` attempt \`$GITHUB_RUN_ATTEMPT\`"
+              echo "- Artifact manifest SHA-256: \`$(jq -r '.artifact_manifest_sha256' "$provenance")\`"
+              echo "- Platforms: \`$(jq -r '[.platforms[] | .platform] | join(", ")' "$provenance")\`"
+            fi
+          } >> "$GITHUB_STEP_SUMMARY"
 

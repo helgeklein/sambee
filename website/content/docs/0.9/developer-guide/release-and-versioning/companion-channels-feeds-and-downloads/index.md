@@ -69,6 +69,7 @@ Important behavior:
 
 - Each channel manifest points to immutable release assets in `sambee-companion`.
 - Feed files can move between releases over time, but published asset URLs should not be patched in place.
+- Each publishable release uses a new plain numeric `X.Y.Z` version. Tauri offers an update only when the later version is greater; publishing replacement bytes under an equal version is unsupported.
 - The promotion script includes every platform for which it finds a complete bundle-and-signature pair.
 - A release does not need every platform to be promotable.
 
@@ -125,7 +126,8 @@ Companion also uses one Tauri updater signing key across all channels.
 
 - Do not treat update channels as different binaries.
 - Do not patch broken published assets in place.
-- Build and publish a new release instead.
+- Build and publish a new `Z` version instead.
+- Treat `test`, `beta`, and `stable` as visibility pointers, never as different binaries or version suffixes.
 - Review whether you are changing Companion updater visibility, Sambee download visibility, or both.
 - Keep release automation aligned with asset naming conventions, because promotion depends on asset-pattern matching.
 

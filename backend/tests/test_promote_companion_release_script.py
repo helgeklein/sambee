@@ -15,24 +15,50 @@ SPEC.loader.exec_module(MODULE)
 
 
 def make_release(payload: bytes) -> tuple[dict, list[dict], dict[str, bytes]]:
+    updater_payload = b"updater"
+    signature_payload = b"signature"
     expected_assets = [
         {
             "name": "Sambee_1.2.3_x64-setup.exe",
             "sha256": hashlib.sha256(payload).hexdigest(),
             "size": len(payload),
-        }
+        },
+        {"name": "Sambee_1.2.3_x64-setup.exe.sig", "sha256": hashlib.sha256(signature_payload).hexdigest(), "size": len(signature_payload)},
     ]
+    platform_assets = [
+        {**expected_assets[0], "roles": ["installer", "updater"]},
+        {**expected_assets[1], "roles": ["signature"]},
+    ]
+    release_manifest = {
+        "schema_version": 1,
+        "platforms": [
+            {"platform": "windows-x64", "target": "x86_64-pc-windows-msvc", "manifest_sha256": "a" * 64, "assets": platform_assets}
+        ],
+    }
+    release_manifest["manifest_sha256"] = MODULE.canonical_manifest_digest(release_manifest)
+    release_manifest_bytes = json.dumps(release_manifest, indent=2, sort_keys=True).encode() + b"\n"
+    expected_assets.append(
+        {
+            "name": MODULE.RELEASE_MANIFEST_ASSET_NAME,
+            "sha256": hashlib.sha256(release_manifest_bytes).hexdigest(),
+            "size": len(release_manifest_bytes),
+        }
+    )
     provenance = {
         "schema_version": 1,
         "build_tag": "build-v1.2.3",
         "release_tag": "companion-v1.2.3",
         "source_sha": "a" * 40,
         "version": "1.2.3",
+        "artifact_manifest_sha256": hashlib.sha256(release_manifest_bytes).hexdigest(),
+        "platforms": release_manifest["platforms"],
         "assets": expected_assets,
     }
     provenance_bytes = json.dumps(provenance, indent=2, sort_keys=True).encode() + b"\n"
     completion = {
         "schema_version": 1,
+        "release_tag": "companion-v1.2.3",
+        "artifact_manifest_sha256": provenance["artifact_manifest_sha256"],
         "provenance_sha256": hashlib.sha256(provenance_bytes).hexdigest(),
         "expected_assets": expected_assets,
         "expected_assets_sha256": MODULE.expected_asset_set_digest(expected_assets),
@@ -42,9 +68,16 @@ def make_release(payload: bytes) -> tuple[dict, list[dict], dict[str, bytes]]:
         "https://example.test/setup": payload,
         "https://example.test/provenance": provenance_bytes,
         "https://example.test/completion": completion_bytes,
+        "https://example.test/manifest": release_manifest_bytes,
     }
     assets = [
         {"name": expected_assets[0]["name"], "size": len(payload), "browser_download_url": "https://example.test/setup"},
+        {"name": expected_assets[1]["name"], "size": len(signature_payload), "browser_download_url": "https://example.test/signature"},
+        {
+            "name": MODULE.RELEASE_MANIFEST_ASSET_NAME,
+            "size": len(release_manifest_bytes),
+            "browser_download_url": "https://example.test/manifest",
+        },
         {"name": MODULE.PROVENANCE_ASSET_NAME, "size": len(provenance_bytes), "browser_download_url": "https://example.test/provenance"},
         {
             "name": MODULE.COMPLETION_MARKER_ASSET_NAME,
@@ -52,6 +85,7 @@ def make_release(payload: bytes) -> tuple[dict, list[dict], dict[str, bytes]]:
             "browser_download_url": "https://example.test/completion",
         },
     ]
+    urls["https://example.test/signature"] = signature_payload
     return {"tag_name": "companion-v1.2.3"}, assets, urls
 
 

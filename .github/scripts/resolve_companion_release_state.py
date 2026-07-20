@@ -47,7 +47,7 @@ def request_json(url: str, token: str) -> Any:
         raise GitHubApiError(error.code, error.reason) from error
 
 
-def request_asset_json(asset: dict[str, Any], token: str) -> dict[str, Any]:
+def request_asset_bytes(asset: dict[str, Any], token: str) -> bytes:
     url = asset.get("url") or asset.get("browser_download_url")
     if not isinstance(url, str):
         fail(f"Release asset {asset.get('name')} has no download URL")
@@ -62,8 +62,15 @@ def request_asset_json(asset: dict[str, Any], token: str) -> dict[str, Any]:
     )
     try:
         with urllib.request.urlopen(request) as response:
-            payload = json.loads(response.read().decode("utf-8"))
-    except (urllib.error.HTTPError, UnicodeDecodeError, json.JSONDecodeError) as error:
+            return response.read()
+    except urllib.error.HTTPError as error:
+        fail(f"Unable to read release asset {asset.get('name')}: {error}")
+
+
+def request_asset_json(asset: dict[str, Any], token: str) -> dict[str, Any]:
+    try:
+        payload = json.loads(request_asset_bytes(asset, token).decode("utf-8"))
+    except (UnicodeDecodeError, json.JSONDecodeError) as error:
         fail(f"Unable to read release asset {asset.get('name')}: {error}")
     if not isinstance(payload, dict):
         fail(f"Release asset {asset.get('name')} must contain a JSON object")
@@ -123,12 +130,31 @@ def resolve_state(
             "Existing Companion release has no provenance asset and cannot be safely resumed. "
             "Increment Z and publish a new candidate."
         )
-    provenance = request_asset_json(provenance_asset, token)
+    provenance_bytes = request_asset_bytes(provenance_asset, token)
+    try:
+        provenance = json.loads(provenance_bytes.decode("utf-8"))
+    except (UnicodeDecodeError, json.JSONDecodeError) as error:
+        fail(f"Unable to read release asset {provenance_asset.get('name')}: {error}")
+    if not isinstance(provenance, dict):
+        fail(f"Release asset {provenance_asset.get('name')} must contain a JSON object")
     require_matching_identity(provenance, identity)
+    if provenance.get("schema_version") != 1:
+        fail("Existing Companion release provenance has an unsupported schema version")
 
     completion_asset = find_asset(release, COMPLETION_ASSET)
     if completion_asset is not None:
         completion = request_asset_json(completion_asset, token)
+        if completion.get("schema_version") != 1:
+            fail(
+                "Existing Companion completion marker has an unsupported schema version"
+            )
+        if (
+            completion.get("provenance_sha256")
+            != hashlib.sha256(provenance_bytes).hexdigest()
+        ):
+            fail(
+                "Existing Companion completion marker does not match release provenance"
+            )
         expected_assets = provenance.get("assets")
         if (
             not isinstance(expected_assets, list)
@@ -150,10 +176,14 @@ def resolve_state(
 
     workflow_run = provenance.get("workflow_run")
     artifacts = provenance.get("actions_artifacts")
+    platforms = provenance.get("platforms")
     if (
         not isinstance(workflow_run, dict)
         or not isinstance(artifacts, list)
         or not artifacts
+        or not isinstance(platforms, list)
+        or not platforms
+        or not isinstance(provenance.get("artifact_manifest_sha256"), str)
     ):
         fail(
             "Existing Companion draft does not record recovery artifact identities. "
@@ -164,7 +194,15 @@ def resolve_state(
     ):
         fail("Existing Companion draft has invalid workflow recovery metadata")
     for artifact in artifacts:
-        if not isinstance(artifact, dict) or not isinstance(artifact.get("id"), int):
+        if (
+            not isinstance(artifact, dict)
+            or not isinstance(artifact.get("id"), int)
+            or not isinstance(artifact.get("platform"), str)
+            or not isinstance(artifact.get("target"), str)
+            or not isinstance(artifact.get("name"), str)
+            or not isinstance(artifact.get("digest"), str)
+            or not artifact["digest"]
+        ):
             fail("Existing Companion draft has invalid retained artifact metadata")
     return "recover-finalizer"
 
