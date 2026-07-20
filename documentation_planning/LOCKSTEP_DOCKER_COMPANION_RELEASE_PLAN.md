@@ -377,7 +377,7 @@ Add focused automated coverage before enabling the changed publishing workflows:
    - promotion moves only pointers/feeds and does not rebuild;
    - `both` scope blocks either stable promotion until both artifacts verify, while single-component scopes allow only their named component.
 7. ❌ Validate Tauri behavior with two successive versions on the test channel, confirming that the later `Z` value is offered and installed as an update.
-8. 🚧 Run repository checks appropriate to each touched area:
+8. ✅ Run repository checks appropriate to each touched area:
    - Python tests for helper scripts;
    - workflow YAML/actionlint validation if available;
    - Companion validation suite for Companion workflow/configuration changes;
@@ -386,11 +386,13 @@ Add focused automated coverage before enabling the changed publishing workflows:
 ## Rollout Sequence
 
 1. ✅ Land the shared preflight helper and its tests without changing workflow entry points.
-2. 🚧 Add the nonpublishing Companion CI workflow and validate it on a pull request.
+2. ✅ Add the nonpublishing Companion CI workflow.
+   - ❌ Validate it on same-repository and fork pull requests.
 3. ✅ Start a documented production release freeze. The cutover is active as of 2026-07-20: permit only explicitly identified controlled test candidates and prohibit stable/beta promotion through legacy workflows.
 4. ❌ Change the Docker publishing workflow, validate one controlled Docker-only candidate, and confirm marker/retry behavior.
 5. ❌ Change the Companion publishing workflow, validate a matrix failure retry, a finalizer retry, one controlled Companion-only candidate, and feed promotion to `test`.
-6. 🚧 Add both shared promotion verifiers, required release scope, and coordinated identity checks; validate a coordinated candidate where both artifacts share one canonical tag.
+6. ✅ Add both shared promotion verifiers, required release scope, and coordinated identity checks.
+   - ❌ Validate a coordinated `both`-scope candidate where both artifacts share one canonical tag.
 7. ✅ Disable legacy override entry points atomically with enabling the new production workflows. The 2026-07-20 cutover permits no mixed-mode production publication window.
 8. ✅ Update all release/versioning documentation in one coherent documentation change and regenerate derived artifacts.
 9. ❌ Announce the cutover rules, end the production release freeze, and monitor the first production publication and recovery paths.
