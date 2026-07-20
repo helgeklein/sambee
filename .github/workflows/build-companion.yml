@@ -400,26 +400,26 @@ jobs:
               "source_sha": os.environ["SOURCE_SHA"],
               "version": os.environ["VERSION"],
               "assets": assets,
-                "workflow_run": {
+              "workflow_run": {
                   "id": int(os.environ["GITHUB_RUN_ID"]),
                   "attempt": int(os.environ["GITHUB_RUN_ATTEMPT"]),
                   "url": f"{os.environ['GITHUB_SERVER_URL']}/{os.environ['GITHUB_REPOSITORY']}/actions/runs/{os.environ['GITHUB_RUN_ID']}",
-                },
-                "actions_artifacts": [],
+              },
+              "actions_artifacts": [],
           }
-              import subprocess
-              artifacts = json.loads(subprocess.check_output(
-                ["gh", "api", f"repos/{os.environ['GITHUB_REPOSITORY']}/actions/runs/{os.environ['GITHUB_RUN_ID']}/artifacts?per_page=100"],
-                text=True,
-              ))["artifacts"]
-              prefix = f"companion-{os.environ['GITHUB_RUN_ID']}-{os.environ['GITHUB_RUN_ATTEMPT']}-"
-              provenance["actions_artifacts"] = [
-                {"id": artifact["id"], "name": artifact["name"], "digest": artifact.get("digest", "")}
-                for artifact in artifacts
-                if artifact.get("name", "").startswith(prefix)
-              ]
-              if not provenance["actions_artifacts"] or any(not artifact["digest"] for artifact in provenance["actions_artifacts"]):
-                raise SystemExit("Unable to record immutable GitHub Actions artifact identities for finalizer recovery.")
+          import subprocess
+          artifacts = json.loads(subprocess.check_output(
+              ["gh", "api", f"repos/{os.environ['GITHUB_REPOSITORY']}/actions/runs/{os.environ['GITHUB_RUN_ID']}/artifacts?per_page=100"],
+              text=True,
+          ))["artifacts"]
+          prefix = f"companion-{os.environ['GITHUB_RUN_ID']}-{os.environ['GITHUB_RUN_ATTEMPT']}-"
+          provenance["actions_artifacts"] = [
+              {"id": artifact["id"], "name": artifact["name"], "digest": artifact.get("digest", "")}
+              for artifact in artifacts
+              if artifact.get("name", "").startswith(prefix)
+          ]
+          if not provenance["actions_artifacts"] or any(not artifact["digest"] for artifact in provenance["actions_artifacts"]):
+              raise SystemExit("Unable to record immutable GitHub Actions artifact identities for finalizer recovery.")
           provenance_path.write_text(json.dumps(provenance, indent=2, sort_keys=True) + "\n", encoding="utf-8")
           completion = {
               "schema_version": 1,
