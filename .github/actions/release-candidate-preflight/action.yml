@@ -1,0 +1,45 @@
+name: Release Build Preflight
+description: Resolve or reserve the canonical immutable source for a publishable build.
+
+inputs:
+  build-version:
+    description: Existing build version to reuse.
+    required: false
+  dispatch-ref:
+    description: Immutable workflow dispatch ref.
+    required: true
+  dispatch-sha:
+    description: Immutable workflow dispatch commit.
+    required: true
+  run-url:
+    description: Workflow run URL for tag audit metadata.
+    required: true
+
+outputs:
+  version:
+    value: ${{ steps.preflight.outputs.version }}
+  build_tag:
+    value: ${{ steps.preflight.outputs.build_tag }}
+  source_sha:
+    value: ${{ steps.preflight.outputs.source_sha }}
+  tree_sha:
+    value: ${{ steps.preflight.outputs.tree_sha }}
+  reserved:
+    value: ${{ steps.preflight.outputs.reserved }}
+
+runs:
+  using: composite
+  steps:
+    - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0
+      with:
+        ref: ${{ inputs.dispatch-sha }}
+        fetch-depth: 0
+    - id: preflight
+      shell: bash
+      run: |
+        python3 .github/scripts/prepare_release_candidate.py \
+          --dispatch-ref "${{ inputs.dispatch-ref }}" \
+          --dispatch-sha "${{ inputs.dispatch-sha }}" \
+          --build-version "${{ inputs.build-version }}" \
+          --run-url "${{ inputs.run-url }}" >> "$GITHUB_OUTPUT"
+        - uses: ./.github/actions/sync-version-check

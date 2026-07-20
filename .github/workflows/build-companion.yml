@@ -9,8 +9,8 @@ env:
 on:
   workflow_dispatch:
     inputs:
-      publish_version_override:
-        description: Optional version override to use. Leave empty to use the checked-in VERSION value.
+      build_version:
+        description: Existing immutable build version to publish. Leave empty to reserve the VERSION at this main commit.
         required: false
         type: string
       build_all_platforms:
@@ -34,10 +34,9 @@ on:
         type: boolean
         default: false
 
-# Cancel any in-progress builds for the same ref
 concurrency:
-  group: build-companion-${{ github.ref }}-${{ inputs.publish_version_override || 'checked-in-version' }}
-  cancel-in-progress: true
+  group: companion-release-publication
+  cancel-in-progress: false
 
 permissions:
   contents: write
@@ -50,43 +49,28 @@ jobs:
   prepare:
     runs-on: ubuntu-latest
     outputs:
-      version_override: ${{ steps.inputs.outputs.version_override }}
+      checkout_ref: ${{ steps.preflight.outputs.source_sha }}
+      build_tag: ${{ steps.preflight.outputs.build_tag }}
       version: ${{ steps.metadata.outputs.version }}
       release_tag: ${{ steps.metadata.outputs.release_tag }}
       matrix: ${{ steps.set-matrix.outputs.matrix }}
     steps:
-      - name: Resolve build inputs
-        id: inputs
-        shell: bash
-        run: |
-          version_override="$(printf '%s' "${{ inputs.publish_version_override }}" | tr -d '[:space:]')"
-
-          if [[ -n "$version_override" ]] && ! [[ "$version_override" =~ ^[0-9]+\.[0-9]+\.[0-9]+(-[0-9A-Za-z.-]+)?(\+[0-9A-Za-z.-]+)?$ ]]; then
-            echo "publish_version_override must use major.minor.patch with optional prerelease or build metadata, for example 0.1.0-test1" >&2
-            exit 1
-          fi
-
-          echo "version_override=$version_override" >> "$GITHUB_OUTPUT"
-
-      - name: Checkout code
-        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+      - name: Reserve or resolve canonical build source
+        id: preflight
+        uses: ./.github/actions/release-candidate-preflight
+        with:
+          build-version: ${{ inputs.build_version }}
+          dispatch-ref: ${{ github.ref }}
+          dispatch-sha: ${{ github.sha }}
+          run-url: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
 
       - name: Resolve release metadata
         id: metadata
         shell: bash
         run: |
-          source_version="$(tr -d '[:space:]' < VERSION)"
-          version_override="${{ steps.inputs.outputs.version_override }}"
+          release_tag="companion-v${{ steps.preflight.outputs.version }}"
 
-          if [[ -n "$version_override" ]]; then
-            version="$version_override"
-          else
-            version="$source_version"
-          fi
-
-          release_tag="companion-v$version"
-
-          echo "version=$version" >> "$GITHUB_OUTPUT"
+          echo "version=${{ steps.preflight.outputs.version }}" >> "$GITHUB_OUTPUT"
           echo "release_tag=$release_tag" >> "$GITHUB_OUTPUT"
 
       - name: Fail if release tag already exists
@@ -147,17 +131,11 @@ jobs:
     steps:
       - name: Checkout code
         uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+        with:
+          ref: ${{ needs.prepare.outputs.checkout_ref }}
 
       - name: Sync and verify version metadata
-        if: ${{ needs.prepare.outputs.version_override == '' }}
         uses: ./.github/actions/sync-version-check
-
-      - name: Apply manual version override
-        if: ${{ needs.prepare.outputs.version_override != '' }}
-        shell: bash
-        run: |
-          printf '%s\n' '${{ needs.prepare.outputs.version_override }}' > VERSION
-          ./scripts/sync-version
 
       # ── System dependencies (Linux only) ──
       - name: Install Tauri system dependencies (Linux)
@@ -282,49 +260,128 @@ jobs:
             throw "Azure Code Signing dlib not found after extraction."
           }
 
-      # ── Build with tauri-action ──
+      # ── Package locally; only the finalizer may create an external release. ──
       - name: Build Tauri application
-        uses: tauri-apps/tauri-action@1deb371b0cd8bd54025b384f1cd735e725c4060f # v1.0.0
-        id: tauri-build
+        shell: bash
         env:
-          GITHUB_TOKEN: ${{ secrets.COMPANION_RELEASE_REPO_TOKEN }}
-          # Force sparse protocol for crates.io index (avoids git auth issues)
           CARGO_REGISTRIES_CRATES_IO_PROTOCOL: sparse
-          # Code signing for macOS
           APPLE_CERTIFICATE: ${{ secrets.APPLE_CERTIFICATE }}
           APPLE_CERTIFICATE_PASSWORD: ${{ secrets.APPLE_CERTIFICATE_PASSWORD }}
           APPLE_SIGNING_IDENTITY: ${{ secrets.APPLE_SIGNING_IDENTITY }}
           APPLE_ID: ${{ secrets.APPLE_ID }}
           APPLE_PASSWORD: ${{ secrets.APPLE_PASSWORD }}
           APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
-          # Code signing for Windows (Azure Trusted Signing)
           AZURE_CLIENT_ID: ${{ secrets.AZURE_CLIENT_ID }}
           AZURE_CLIENT_SECRET: ${{ secrets.AZURE_CLIENT_SECRET }}
           AZURE_TENANT_ID: ${{ secrets.AZURE_TENANT_ID }}
           AZURE_TRUSTED_SIGNING_ACCOUNT_NAME: HK-Artifact-Signing
           AZURE_CERTIFICATE_PROFILE_NAME: HK-Certificate-Profile
-          # Tauri updater signing
           TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
           TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
-        with:
-          projectPath: companion
-          # -v enables verbose bundler logging for easier CI debugging.
-          args: --target ${{ matrix.target }} --bundles ${{ matrix.bundles }} -v
-          owner: ${{ env.COMPANION_RELEASE_REPO_OWNER }}
-          repo: ${{ env.COMPANION_RELEASE_REPO_NAME }}
-          releaseCommitish: ${{ env.COMPANION_RELEASE_REPO_BRANCH }}
-          uploadUpdaterJson: false
-          tagName: companion-v__VERSION__
-          releaseName: 'Sambee Companion v__VERSION__'
-          releaseBody: 'See the assets below to download and install.'
-          releaseDraft: true
-          prerelease: false
+        run: cd companion && npm run tauri -- build --target ${{ matrix.target }} --bundles ${{ matrix.bundles }} -v
 
-      # ── Upload build artifacts ──
       - name: Upload build artifacts
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
-          name: companion-${{ matrix.label }}
+          name: companion-${{ github.run_id }}-${{ github.run_attempt }}-${{ matrix.label }}-${{ matrix.target }}
           path: companion/src-tauri/target/${{ matrix.target }}/release/bundle/
+          if-no-files-found: error
           retention-days: 14
+
+  finalize-release:
+    needs: [prepare, build]
+    if: ${{ fromJson(needs.prepare.outputs.matrix).include[0] != null }}
+    runs-on: ubuntu-latest
+    permissions:
+      actions: read
+      contents: read
+    steps:
+      - name: Download packaged Companion artifacts
+        shell: bash
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          mkdir -p "$RUNNER_TEMP/companion-artifacts"
+          gh run download "$GITHUB_RUN_ID" \
+            --pattern "companion-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}-*" \
+            --dir "$RUNNER_TEMP/companion-artifacts"
+
+      - name: Create release provenance and completion marker
+        shell: bash
+        env:
+          ARTIFACT_DIR: ${{ runner.temp }}/companion-artifacts
+          BUILD_TAG: ${{ needs.prepare.outputs.build_tag }}
+          RELEASE_TAG: ${{ needs.prepare.outputs.release_tag }}
+          SOURCE_SHA: ${{ needs.prepare.outputs.checkout_ref }}
+          VERSION: ${{ needs.prepare.outputs.version }}
+        run: |
+          python3 - <<'PY'
+          import hashlib
+          import json
+          import os
+          from pathlib import Path
+
+          artifact_dir = Path(os.environ["ARTIFACT_DIR"])
+          assets = []
+          for path in sorted(path for path in artifact_dir.rglob("*") if path.is_file()):
+              if path.name in {"companion-release-provenance.json", "companion-completion-marker.json"}:
+                  continue
+              assets.append({
+                  "name": path.name,
+                  "sha256": hashlib.file_digest(path.open("rb"), "sha256").hexdigest(),
+                  "size": path.stat().st_size,
+              })
+          if not assets:
+              raise SystemExit("No Companion package assets were downloaded.")
+          provenance = {
+              "schema_version": 1,
+              "build_tag": os.environ["BUILD_TAG"],
+              "release_tag": os.environ["RELEASE_TAG"],
+              "source_sha": os.environ["SOURCE_SHA"],
+              "version": os.environ["VERSION"],
+              "assets": assets,
+          }
+          provenance_path = artifact_dir / "companion-release-provenance.json"
+          provenance_path.write_text(json.dumps(provenance, indent=2, sort_keys=True) + "\n", encoding="utf-8")
+          completion = {
+              "schema_version": 1,
+              "provenance_sha256": hashlib.file_digest(provenance_path.open("rb"), "sha256").hexdigest(),
+              "expected_assets": assets,
+          }
+          (artifact_dir / "companion-completion-marker.json").write_text(
+              json.dumps(completion, indent=2, sort_keys=True) + "\n", encoding="utf-8"
+          )
+          PY
+
+      - name: Create or resume external draft release
+        shell: bash
+        env:
+          GH_TOKEN: ${{ secrets.COMPANION_RELEASE_REPO_TOKEN }}
+          RELEASE_TAG: ${{ needs.prepare.outputs.release_tag }}
+          RELEASE_REPOSITORY: ${{ env.COMPANION_RELEASE_REPO_OWNER }}/${{ env.COMPANION_RELEASE_REPO_NAME }}
+          VERSION: ${{ needs.prepare.outputs.version }}
+        run: |
+          release_json="$(gh release view "$RELEASE_TAG" --repo "$RELEASE_REPOSITORY" --json isDraft 2>/dev/null || true)"
+          if [[ -z "$release_json" ]]; then
+            gh release create "$RELEASE_TAG" \
+              --repo "$RELEASE_REPOSITORY" \
+              --draft \
+              --target "${{ env.COMPANION_RELEASE_REPO_BRANCH }}" \
+              --title "Sambee Companion v$VERSION" \
+              --notes "See the assets below to download and install."
+          elif [[ "$(jq -r '.isDraft' <<<"$release_json")" != "true" ]]; then
+            echo "External release $RELEASE_TAG is already published and cannot be modified by a build finalizer." >&2
+            exit 1
+          fi
+
+      - name: Upload verified release assets
+        shell: bash
+        env:
+          ARTIFACT_DIR: ${{ runner.temp }}/companion-artifacts
+          GH_TOKEN: ${{ secrets.COMPANION_RELEASE_REPO_TOKEN }}
+          RELEASE_TAG: ${{ needs.prepare.outputs.release_tag }}
+          RELEASE_REPOSITORY: ${{ env.COMPANION_RELEASE_REPO_OWNER }}/${{ env.COMPANION_RELEASE_REPO_NAME }}
+        run: |
+          mapfile -d '' assets < <(find "$ARTIFACT_DIR" -type f -print0 | sort -z)
+          gh release upload "$RELEASE_TAG" "${assets[@]}" --clobber --repo "$RELEASE_REPOSITORY"
 

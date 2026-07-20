@@ -9,7 +9,7 @@ on:
     types: [ published ]
 
 concurrency:
-  group: publish-docker-image-${{ github.event.release.tag_name }}
+  group: docker-release-publication
   cancel-in-progress: false
 
 permissions:
@@ -22,6 +22,7 @@ jobs:
       checkout_ref: ${{ steps.metadata.outputs.checkout_ref }}
       release_type: ${{ steps.metadata.outputs.release_type }}
       version: ${{ steps.metadata.outputs.version }}
+      build_tag: ${{ steps.metadata.outputs.build_tag }}
       image_description: ${{ steps.metadata.outputs.image_description }}
       major_minor: ${{ steps.metadata.outputs.major_minor }}
       image_name: ${{ steps.metadata.outputs.image_name }}
@@ -57,25 +58,29 @@ jobs:
         image_description="$(bash .github/scripts/read_website_description.sh)"
 
         if [[ "${{ github.event.release.prerelease }}" == "true" ]]; then
-          release_type="beta"
+          echo "Publishable releases must not be prereleases." >&2
+          exit 1
+        fi
 
-          if [[ "$release_image_tag" != "$version"-* ]]; then
-            echo "Prerelease tag must start with v$version-, got $release_tag" >&2
-            exit 1
-          fi
-        else
-          release_type="stable"
+        release_type="stable"
+        expected_tag="v$version"
+        if [[ "$release_tag" != "$expected_tag" ]]; then
+          echo "Release tag $expected_tag expected, got $release_tag" >&2
+          exit 1
+        fi
 
-          expected_tag="v$version"
-          if [[ "$release_tag" != "$expected_tag" ]]; then
-            echo "Release tag $expected_tag expected, got $release_tag" >&2
-            exit 1
-          fi
+        build_tag="build-v$version"
+        git fetch origin "refs/tags/$build_tag:refs/tags/$build_tag"
+        build_sha="$(git rev-parse "refs/tags/$build_tag^{commit}")"
+        if [[ "$build_sha" != "$full_sha" ]]; then
+          echo "Canonical build tag $build_tag points to $build_sha, but release tag $release_tag points to $full_sha." >&2
+          exit 1
         fi
 
         echo "checkout_ref=$release_tag" >> "$GITHUB_OUTPUT"
         echo "release_type=$release_type" >> "$GITHUB_OUTPUT"
         echo "version=$version" >> "$GITHUB_OUTPUT"
+        echo "build_tag=$build_tag" >> "$GITHUB_OUTPUT"
         {
           echo 'image_description<<EOF'
           echo "$image_description"
@@ -113,7 +118,7 @@ jobs:
       id: resolve
       shell: bash
       run: |
-        candidate_source_tag="sha-${{ needs.prepare.outputs.full_sha }}"
+        candidate_source_tag="${{ needs.prepare.outputs.build_tag }}"
         candidate_ref="${{ needs.prepare.outputs.image_name }}:${candidate_source_tag}"
 
         set +e
@@ -122,7 +127,7 @@ jobs:
         set -e
 
         if [[ $status -ne 0 ]]; then
-          echo "Preview candidate image not found for commit ${{ needs.prepare.outputs.full_sha }}." >&2
+          echo "Published build image not found for ${{ needs.prepare.outputs.build_tag }}." >&2
           echo "Expected candidate tag: $candidate_ref" >&2
           echo "Release promotion only promotes an already published preview candidate." >&2
           echo "Run the 'Release: Create Docker Image' workflow for this exact commit first, then rerun this release workflow." >&2
@@ -172,7 +177,8 @@ jobs:
           --expected-revision "${{ needs.prepare.outputs.full_sha }}" \
           --expected-version "${{ needs.prepare.outputs.version }}" \
           --expected-source "${{ needs.prepare.outputs.source_url }}" \
-          --expected-title "${{ env.IMAGE_TITLE }}"
+          --expected-title "${{ env.IMAGE_TITLE }}" \
+          --expected-build-tag "${{ needs.prepare.outputs.build_tag }}"
 
     - name: Verify candidate metadata bundle
       shell: bash
@@ -206,26 +212,10 @@ jobs:
     - name: Attach immutable release tags
       shell: bash
       run: |
-        tags=()
-        if [[ "${{ needs.prepare.outputs.release_type }}" == "stable" ]]; then
-          tags+=("${{ needs.prepare.outputs.version }}")
-          tags+=("${{ needs.prepare.outputs.major_minor }}")
-        fi
-
-        if [[ ${#tags[@]} -eq 0 ]]; then
-          echo "No immutable release tags to attach"
-          exit 0
-        fi
-
-        args=()
-        for tag in "${tags[@]}"; do
-          args+=(--tag "$tag")
-        done
-
         bash .github/scripts/promote_container_image.sh \
           --image-name "${{ needs.prepare.outputs.image_name }}" \
           --source-digest "${{ needs.resolve-candidate-artifact.outputs.candidate_digest }}" \
-          "${args[@]}"
+          --tag "${{ needs.prepare.outputs.major_minor }}"
 
   promote-channel-tags:
     needs: [prepare, resolve-candidate-artifact, publish-release-tags]

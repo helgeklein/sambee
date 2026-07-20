@@ -8,29 +8,25 @@ env:
 on:
   workflow_dispatch:
     inputs:
-      source_ref:
-        description: Optional commit SHA or tag to build & publish. Leave empty to use the latest commit.
-        required: false
-        type: string
-      publish_version_override:
-        description: Optional version override to use. Leave empty to use the checked-in VERSION value.
+      build_version:
+        description: Existing immutable build version to publish. Leave empty to reserve the VERSION at this main commit.
         required: false
         type: string
 
 concurrency:
-  group: preview-docker-image-${{ inputs.source_ref || github.sha }}
+  group: docker-release-publication
   cancel-in-progress: false
 
 permissions:
-  contents: read
+  contents: write
 
 jobs:
   prepare:
     runs-on: ubuntu-latest
     outputs:
-      checkout_ref: ${{ steps.inputs.outputs.checkout_ref }}
-      source_ref_name: ${{ steps.inputs.outputs.source_ref_name }}
-      version_override: ${{ steps.inputs.outputs.version_override }}
+      checkout_ref: ${{ steps.preflight.outputs.source_sha }}
+      source_ref_name: ${{ steps.preflight.outputs.build_tag }}
+      build_tag: ${{ steps.preflight.outputs.build_tag }}
       version: ${{ steps.metadata.outputs.version }}
       image_description: ${{ steps.metadata.outputs.image_description }}
       image_name: ${{ steps.metadata.outputs.image_name }}
@@ -40,53 +36,24 @@ jobs:
       created: ${{ steps.metadata.outputs.created }}
       os_packages_refresh_key: ${{ steps.metadata.outputs.os_packages_refresh_key }}
     steps:
-    - name: Resolve preview inputs
-      id: inputs
-      shell: bash
-      run: |
-        source_ref="$(printf '%s' "${{ inputs.source_ref }}" | tr -d '[:space:]')"
-        version_override="$(printf '%s' "${{ inputs.publish_version_override }}" | tr -d '[:space:]')"
-
-        if [[ -n "$version_override" ]] && ! [[ "$version_override" =~ ^[0-9]+\.[0-9]+\.[0-9]+(-[0-9A-Za-z.-]+)?(\+[0-9A-Za-z.-]+)?$ ]]; then
-          echo "publish_version_override must use major.minor.patch with optional prerelease or build metadata, for example 0.1.0-test1" >&2
-          exit 1
-        fi
-
-        if [[ -n "$source_ref" ]]; then
-          checkout_ref="$source_ref"
-          source_ref_name="$source_ref"
-        else
-          checkout_ref="${GITHUB_SHA}"
-          source_ref_name="${GITHUB_REF_NAME}@${GITHUB_SHA:0:7}"
-        fi
-
-        echo "checkout_ref=$checkout_ref" >> "$GITHUB_OUTPUT"
-        echo "source_ref_name=$source_ref_name" >> "$GITHUB_OUTPUT"
-        echo "version_override=$version_override" >> "$GITHUB_OUTPUT"
-
-    - name: Checkout source code
-      uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+    - name: Reserve or resolve canonical build source
+      id: preflight
+      uses: ./.github/actions/release-candidate-preflight
       with:
-        ref: ${{ steps.inputs.outputs.checkout_ref }}
+        build-version: ${{ inputs.build_version }}
+        dispatch-ref: ${{ github.ref }}
+        dispatch-sha: ${{ github.sha }}
+        run-url: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
 
     - name: Resolve preview metadata
       id: metadata
       shell: bash
       run: |
-        source_version="$(tr -d '[:space:]' < VERSION)"
-        version_override="${{ steps.inputs.outputs.version_override }}"
-        if [[ -n "$version_override" ]]; then
-          version="$version_override"
-        else
-          version="$source_version"
-        fi
-
         owner_lower="$(printf '%s' "$GITHUB_REPOSITORY_OWNER" | tr '[:upper:]' '[:lower:]')"
-        full_sha="$(git rev-parse HEAD)"
         image_description="$(bash .github/scripts/read_website_description.sh)"
         created="$(date -u +"%Y-%m-%dT%H:%M:%SZ")"
 
-        echo "version=$version" >> "$GITHUB_OUTPUT"
+        echo "version=${{ steps.preflight.outputs.version }}" >> "$GITHUB_OUTPUT"
         {
           echo 'image_description<<EOF'
           echo "$image_description"
@@ -94,7 +61,7 @@ jobs:
         } >> "$GITHUB_OUTPUT"
         echo "image_name=ghcr.io/$owner_lower/sambee" >> "$GITHUB_OUTPUT"
         echo "signature_repository=ghcr.io/$owner_lower/sambee-signatures" >> "$GITHUB_OUTPUT"
-        echo "full_sha=$full_sha" >> "$GITHUB_OUTPUT"
+        echo "full_sha=${{ steps.preflight.outputs.source_sha }}" >> "$GITHUB_OUTPUT"
         echo "source_url=https://github.com/${GITHUB_REPOSITORY}" >> "$GITHUB_OUTPUT"
         echo "created=$created" >> "$GITHUB_OUTPUT"
         echo "os_packages_refresh_key=$created" >> "$GITHUB_OUTPUT"
@@ -116,15 +83,7 @@ jobs:
         ref: ${{ needs.prepare.outputs.checkout_ref }}
 
     - name: Sync and verify version metadata
-      if: ${{ needs.prepare.outputs.version_override == '' }}
       uses: ./.github/actions/sync-version-check
-
-    - name: Apply manual version override
-      if: ${{ needs.prepare.outputs.version_override != '' }}
-      shell: bash
-      run: |
-        printf '%s\n' '${{ needs.prepare.outputs.version_override }}' > VERSION
-        ./scripts/sync-version
 
     - name: Install backend system dependencies
       run: bash scripts/install-system-deps
@@ -189,15 +148,7 @@ jobs:
         ref: ${{ needs.prepare.outputs.checkout_ref }}
 
     - name: Sync and verify version metadata
-      if: ${{ needs.prepare.outputs.version_override == '' }}
       uses: ./.github/actions/sync-version-check
-
-    - name: Apply manual version override
-      if: ${{ needs.prepare.outputs.version_override != '' }}
-      shell: bash
-      run: |
-        printf '%s\n' '${{ needs.prepare.outputs.version_override }}' > VERSION
-        ./scripts/sync-version
 
     - name: Write build metadata files
       shell: bash
@@ -215,6 +166,7 @@ jobs:
           --source-url "${{ needs.prepare.outputs.source_url }}" \
           --title "${{ env.IMAGE_TITLE }}" \
           --version "${{ needs.prepare.outputs.version }}" \
+          --build-tag "${{ needs.prepare.outputs.build_tag }}" \
           --annotation-platform "${{ matrix.docker_platform }}"
 
     - name: Log in to GHCR
@@ -414,9 +366,10 @@ jobs:
         IMAGE_SOURCE_URL: ${{ needs.prepare.outputs.source_url }}
         IMAGE_TITLE_VALUE: ${{ env.IMAGE_TITLE }}
         IMAGE_VERSION: ${{ needs.prepare.outputs.version }}
+        IMAGE_BUILD_TAG: ${{ needs.prepare.outputs.build_tag }}
       run: |
         image_name="$IMAGE_NAME"
-        index_ref="$image_name:sha-$IMAGE_REVISION"
+        index_ref="$image_name:staging-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}-index"
         platform_digest_dir="${{ runner.temp }}/platform-digests"
         amd64_digest="$(tr -d '[:space:]' < "$platform_digest_dir/digest-amd64")"
         arm64_digest="$(tr -d '[:space:]' < "$platform_digest_dir/digest-arm64")"
@@ -439,6 +392,7 @@ jobs:
           "org.opencontainers.image.title=$IMAGE_TITLE_VALUE"
           "org.opencontainers.image.url=$IMAGE_SOURCE_URL"
           "org.opencontainers.image.version=$IMAGE_VERSION"
+          "org.sambee.build-tag=$IMAGE_BUILD_TAG"
         )
 
         annotation_args=()
@@ -478,7 +432,8 @@ jobs:
           --expected-revision "${{ needs.prepare.outputs.full_sha }}" \
           --expected-version "${{ needs.prepare.outputs.version }}" \
           --expected-source "${{ needs.prepare.outputs.source_url }}" \
-          --expected-title "${{ env.IMAGE_TITLE }}"
+          --expected-title "${{ env.IMAGE_TITLE }}" \
+          --expected-build-tag "${{ needs.prepare.outputs.build_tag }}"
 
   build-metadata-platforms:
     needs: [prepare, build-and-publish-immutable]
@@ -502,12 +457,8 @@ jobs:
       with:
         ref: ${{ needs.prepare.outputs.checkout_ref }}
 
-    - name: Apply manual version override
-      if: ${{ needs.prepare.outputs.version_override != '' }}
-      shell: bash
-      run: |
-        printf '%s\n' '${{ needs.prepare.outputs.version_override }}' > VERSION
-        ./scripts/sync-version
+    - name: Sync and verify version metadata
+      uses: ./.github/actions/sync-version-check
 
     - name: Write build metadata files
       shell: bash
@@ -537,6 +488,7 @@ jobs:
           --source-url "${{ needs.prepare.outputs.source_url }}" \
           --title "${{ env.IMAGE_TITLE }}" \
           --version "${{ needs.prepare.outputs.version }}" \
+          --build-tag "${{ needs.prepare.outputs.build_tag }}" \
           --annotation-platform "${{ matrix.docker_platform }}"
 
     - name: Export attested platform OCI layout
@@ -637,35 +589,8 @@ jobs:
           --metadata-repository "${{ needs.prepare.outputs.signature_repository }}" \
           --image-digest "${{ needs.build-and-publish-immutable.outputs.digest }}"
 
-  promote-test-tag:
-    needs: [prepare, build-and-publish-immutable, build-metadata-bundle]
-    runs-on: ubuntu-latest
-    permissions:
-      contents: read
-      packages: write
-    steps:
-    - name: Checkout repository
-      uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
-
-    - name: Set up crane
-      uses: ./.github/actions/setup-crane
-      with:
-        install-dir: ${{ runner.temp }}/bin
-
-    - name: Log in to GHCR with crane
-      shell: bash
-      run: crane auth login ghcr.io -u "${{ github.actor }}" -p "${{ secrets.GITHUB_TOKEN }}"
-
-    - name: Promote preview digest to test
-      shell: bash
-      run: |
-        bash .github/scripts/promote_container_image.sh \
-          --image-name "${{ needs.prepare.outputs.image_name }}" \
-          --source-digest "${{ needs.build-and-publish-immutable.outputs.digest }}" \
-          --tag test
-
   sign-preview:
-    needs: [prepare, build-and-publish-immutable, promote-test-tag]
+    needs: [prepare, build-and-publish-immutable, build-metadata-bundle]
     runs-on: ubuntu-latest
     permissions:
       contents: read
@@ -687,3 +612,80 @@ jobs:
       env:
         COSIGN_REPOSITORY: ${{ needs.prepare.outputs.signature_repository }}
       run: cosign sign --yes "${{ needs.prepare.outputs.image_name }}@${{ needs.build-and-publish-immutable.outputs.digest }}"
+
+  publish-immutable-markers:
+    needs: [prepare, build-and-publish-immutable, sign-preview]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
+    steps:
+    - name: Checkout repository
+      uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+
+    - name: Set up crane
+      uses: ./.github/actions/setup-crane
+      with:
+        install-dir: ${{ runner.temp }}/bin
+
+    - name: Log in to GHCR with crane
+      shell: bash
+      run: crane auth login ghcr.io -u "${{ github.actor }}" -p "${{ secrets.GITHUB_TOKEN }}"
+
+    - name: Create or verify immutable build markers
+      shell: bash
+      run: |
+        bash .github/scripts/promote_container_image.sh \
+          --image-name "${{ needs.prepare.outputs.image_name }}" \
+          --source-digest "${{ needs.build-and-publish-immutable.outputs.digest }}" \
+          --tag "${{ needs.prepare.outputs.build_tag }}" \
+          --tag "sha-${{ needs.prepare.outputs.full_sha }}" \
+          --tag "${{ needs.prepare.outputs.version }}" \
+          --immutable
+
+  promote-test-tag:
+    needs: [prepare, build-and-publish-immutable, publish-immutable-markers]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
+    steps:
+    - name: Checkout repository
+      uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+
+    - name: Set up crane
+      uses: ./.github/actions/setup-crane
+      with:
+        install-dir: ${{ runner.temp }}/bin
+
+    - name: Log in to GHCR with crane
+      shell: bash
+      run: crane auth login ghcr.io -u "${{ github.actor }}" -p "${{ secrets.GITHUB_TOKEN }}"
+
+    - name: Promote verified build digest to test
+      shell: bash
+      run: |
+        bash .github/scripts/promote_container_image.sh \
+          --image-name "${{ needs.prepare.outputs.image_name }}" \
+          --source-digest "${{ needs.build-and-publish-immutable.outputs.digest }}" \
+          --tag test
+
+  cleanup-staging-image:
+    if: ${{ always() }}
+    needs: [prepare, build-and-publish-immutable, sign-preview, publish-immutable-markers, promote-test-tag]
+    runs-on: ubuntu-latest
+    permissions:
+      packages: write
+    steps:
+    - name: Set up crane
+      uses: ./.github/actions/setup-crane
+      with:
+        install-dir: ${{ runner.temp }}/bin
+
+    - name: Log in to GHCR with crane
+      shell: bash
+      run: crane auth login ghcr.io -u "${{ github.actor }}" -p "${{ secrets.GITHUB_TOKEN }}"
+
+    - name: Delete run-scoped staging tag
+      shell: bash
+      run: crane delete "${{ needs.prepare.outputs.image_name }}:staging-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}-index" || true
