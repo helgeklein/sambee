@@ -53,6 +53,7 @@ jobs:
       build_tag: ${{ steps.preflight.outputs.build_tag }}
       version: ${{ steps.metadata.outputs.version }}
       release_tag: ${{ steps.metadata.outputs.release_tag }}
+      publication_state: ${{ steps.release-state.outputs.state }}
       matrix: ${{ steps.set-matrix.outputs.matrix }}
     steps:
       - name: Reserve or resolve canonical build source
@@ -73,14 +74,29 @@ jobs:
           echo "version=${{ steps.preflight.outputs.version }}" >> "$GITHUB_OUTPUT"
           echo "release_tag=$release_tag" >> "$GITHUB_OUTPUT"
 
-      - name: Fail if release tag already exists
+      - name: Resolve Companion publication state
+        id: release-state
         env:
           GITHUB_TOKEN: ${{ secrets.COMPANION_RELEASE_REPO_TOKEN }}
         run: |
-          python3 .github/scripts/check_companion_release_tag_absent.py \
+          python3 .github/scripts/resolve_companion_release_state.py \
             --owner "${{ env.COMPANION_RELEASE_REPO_OWNER }}" \
             --repo "${{ env.COMPANION_RELEASE_REPO_NAME }}" \
-            --tag "${{ steps.metadata.outputs.release_tag }}"
+            --version "${{ steps.preflight.outputs.version }}" \
+            --build-tag "${{ steps.preflight.outputs.build_tag }}" \
+            --source-sha "${{ steps.preflight.outputs.source_sha }}" \
+            --release-tag "${{ steps.metadata.outputs.release_tag }}" >> "$GITHUB_OUTPUT"
+
+      - name: Summarize publication state
+        run: |
+          {
+            echo '## Companion publication'
+            echo
+            echo "- Concurrency group: \`companion-release-publication\`"
+            echo "- State: \`${{ steps.release-state.outputs.state }}\`"
+            echo "- Canonical build: \`${{ steps.preflight.outputs.build_tag }}\`"
+            echo "- Source SHA: \`${{ steps.preflight.outputs.source_sha }}\`"
+          } >> "$GITHUB_STEP_SUMMARY"
 
       - id: set-matrix
         run: |
@@ -121,7 +137,7 @@ jobs:
   # ─────────────────────────────────────────────────────────────────────
   build:
     needs: prepare
-    if: ${{ fromJson(needs.prepare.outputs.matrix).include[0] != null }}
+    if: ${{ needs.prepare.outputs.publication_state == 'build' && fromJson(needs.prepare.outputs.matrix).include[0] != null }}
     strategy:
       fail-fast: false
       matrix: ${{ fromJson(needs.prepare.outputs.matrix) }}
@@ -290,21 +306,49 @@ jobs:
 
   finalize-release:
     needs: [prepare, build]
-    if: ${{ fromJson(needs.prepare.outputs.matrix).include[0] != null }}
+    if: ${{ always() && needs.prepare.outputs.publication_state != 'complete' && (needs.prepare.outputs.publication_state == 'recover-finalizer' || needs.build.result == 'success') }}
     runs-on: ubuntu-latest
     permissions:
       actions: read
       contents: read
     steps:
-      - name: Download packaged Companion artifacts
+      - name: Download authoritative Companion artifacts
         shell: bash
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          COMPANION_TOKEN: ${{ secrets.COMPANION_RELEASE_REPO_TOKEN }}
+          PUBLICATION_STATE: ${{ needs.prepare.outputs.publication_state }}
+          RELEASE_TAG: ${{ needs.prepare.outputs.release_tag }}
+          RELEASE_REPOSITORY: ${{ env.COMPANION_RELEASE_REPO_OWNER }}/${{ env.COMPANION_RELEASE_REPO_NAME }}
         run: |
           mkdir -p "$RUNNER_TEMP/companion-artifacts"
-          gh run download "$GITHUB_RUN_ID" \
-            --pattern "companion-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}-*" \
+          if [[ "$PUBLICATION_STATE" == "build" ]]; then
+            gh run download "$GITHUB_RUN_ID" \
+              --pattern "companion-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}-*" \
+              --dir "$RUNNER_TEMP/companion-artifacts"
+            exit 0
+          fi
+
+          GH_TOKEN="$COMPANION_TOKEN" gh release download "$RELEASE_TAG" \
+            --repo "$RELEASE_REPOSITORY" \
+            --pattern companion-release-provenance.json \
             --dir "$RUNNER_TEMP/companion-artifacts"
+          mapfile -t artifact_records < <(jq -c '.actions_artifacts[]' "$RUNNER_TEMP/companion-artifacts/companion-release-provenance.json")
+          for record in "${artifact_records[@]}"; do
+            artifact_id="$(jq -r '.id' <<<"$record")"
+            expected_name="$(jq -r '.name' <<<"$record")"
+            expected_digest="$(jq -r '.digest' <<<"$record")"
+            artifact_json="$(gh api "repos/$GITHUB_REPOSITORY/actions/artifacts/$artifact_id")"
+            if [[ "$(jq -r '.name' <<<"$artifact_json")" != "$expected_name" || \
+                  "$(jq -r '.expired' <<<"$artifact_json")" != "false" || \
+                  "$(jq -r '.digest // empty' <<<"$artifact_json")" != "$expected_digest" ]]; then
+              echo "Retained artifact $artifact_id no longer matches the provenance record; increment Z and rebuild." >&2
+              exit 1
+            fi
+            archive="$RUNNER_TEMP/companion-artifact-$artifact_id.zip"
+            gh api "repos/$GITHUB_REPOSITORY/actions/artifacts/$artifact_id/zip" > "$archive"
+            unzip -q "$archive" -d "$RUNNER_TEMP/companion-artifacts"
+          done
 
       - name: Create release provenance and completion marker
         shell: bash
@@ -314,6 +358,8 @@ jobs:
           RELEASE_TAG: ${{ needs.prepare.outputs.release_tag }}
           SOURCE_SHA: ${{ needs.prepare.outputs.checkout_ref }}
           VERSION: ${{ needs.prepare.outputs.version }}
+          PUBLICATION_STATE: ${{ needs.prepare.outputs.publication_state }}
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           python3 - <<'PY'
           import hashlib
@@ -322,6 +368,20 @@ jobs:
           from pathlib import Path
 
           artifact_dir = Path(os.environ["ARTIFACT_DIR"])
+          provenance_path = artifact_dir / "companion-release-provenance.json"
+          completion_path = artifact_dir / "companion-completion-marker.json"
+          if os.environ["PUBLICATION_STATE"] == "recover-finalizer":
+              provenance_bytes = provenance_path.read_bytes()
+              provenance = json.loads(provenance_bytes)
+              completion = {
+                  "schema_version": 1,
+                  "provenance_sha256": hashlib.sha256(provenance_bytes).hexdigest(),
+                  "expected_assets": provenance["assets"],
+              }
+              completion_path.write_text(
+                  json.dumps(completion, indent=2, sort_keys=True) + "\n", encoding="utf-8"
+              )
+              raise SystemExit(0)
           assets = []
           for path in sorted(path for path in artifact_dir.rglob("*") if path.is_file()):
               if path.name in {"companion-release-provenance.json", "companion-completion-marker.json"}:
@@ -340,15 +400,33 @@ jobs:
               "source_sha": os.environ["SOURCE_SHA"],
               "version": os.environ["VERSION"],
               "assets": assets,
+                "workflow_run": {
+                  "id": int(os.environ["GITHUB_RUN_ID"]),
+                  "attempt": int(os.environ["GITHUB_RUN_ATTEMPT"]),
+                  "url": f"{os.environ['GITHUB_SERVER_URL']}/{os.environ['GITHUB_REPOSITORY']}/actions/runs/{os.environ['GITHUB_RUN_ID']}",
+                },
+                "actions_artifacts": [],
           }
-          provenance_path = artifact_dir / "companion-release-provenance.json"
+              import subprocess
+              artifacts = json.loads(subprocess.check_output(
+                ["gh", "api", f"repos/{os.environ['GITHUB_REPOSITORY']}/actions/runs/{os.environ['GITHUB_RUN_ID']}/artifacts?per_page=100"],
+                text=True,
+              ))["artifacts"]
+              prefix = f"companion-{os.environ['GITHUB_RUN_ID']}-{os.environ['GITHUB_RUN_ATTEMPT']}-"
+              provenance["actions_artifacts"] = [
+                {"id": artifact["id"], "name": artifact["name"], "digest": artifact.get("digest", "")}
+                for artifact in artifacts
+                if artifact.get("name", "").startswith(prefix)
+              ]
+              if not provenance["actions_artifacts"] or any(not artifact["digest"] for artifact in provenance["actions_artifacts"]):
+                raise SystemExit("Unable to record immutable GitHub Actions artifact identities for finalizer recovery.")
           provenance_path.write_text(json.dumps(provenance, indent=2, sort_keys=True) + "\n", encoding="utf-8")
           completion = {
               "schema_version": 1,
               "provenance_sha256": hashlib.file_digest(provenance_path.open("rb"), "sha256").hexdigest(),
               "expected_assets": assets,
           }
-          (artifact_dir / "companion-completion-marker.json").write_text(
+          completion_path.write_text(
               json.dumps(completion, indent=2, sort_keys=True) + "\n", encoding="utf-8"
           )
           PY
@@ -382,6 +460,32 @@ jobs:
           RELEASE_TAG: ${{ needs.prepare.outputs.release_tag }}
           RELEASE_REPOSITORY: ${{ env.COMPANION_RELEASE_REPO_OWNER }}/${{ env.COMPANION_RELEASE_REPO_NAME }}
         run: |
-          mapfile -d '' assets < <(find "$ARTIFACT_DIR" -type f -print0 | sort -z)
-          gh release upload "$RELEASE_TAG" "${assets[@]}" --clobber --repo "$RELEASE_REPOSITORY"
+          upload_or_verify() {
+            local asset_path="$1"
+            local asset_name
+            asset_name="$(basename "$asset_path")"
+            local remote_asset
+            remote_asset="$(gh release view "$RELEASE_TAG" --repo "$RELEASE_REPOSITORY" --json assets --jq ".assets[] | select(.name == \"$asset_name\") | .name" || true)"
+            if [[ -z "$remote_asset" ]]; then
+              gh release upload "$RELEASE_TAG" "$asset_path" --repo "$RELEASE_REPOSITORY"
+              return
+            fi
+            local existing_dir="$RUNNER_TEMP/existing-release-assets"
+            mkdir -p "$existing_dir"
+            rm -f "$existing_dir/$asset_name"
+            gh release download "$RELEASE_TAG" --repo "$RELEASE_REPOSITORY" --pattern "$asset_name" --dir "$existing_dir"
+            if ! cmp --silent "$asset_path" "$existing_dir/$asset_name"; then
+              echo "Existing release asset $asset_name differs from the retained build artifact; increment Z and rebuild." >&2
+              exit 1
+            fi
+          }
+
+          upload_or_verify "$ARTIFACT_DIR/companion-release-provenance.json"
+          while IFS= read -r -d '' asset; do
+            case "$(basename "$asset")" in
+              companion-release-provenance.json|companion-completion-marker.json) continue ;;
+            esac
+            upload_or_verify "$asset"
+          done < <(find "$ARTIFACT_DIR" -type f -print0 | sort -z)
+          upload_or_verify "$ARTIFACT_DIR/companion-completion-marker.json"
 

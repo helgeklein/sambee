@@ -29,6 +29,8 @@ jobs:
       signature_repository: ${{ steps.metadata.outputs.signature_repository }}
       full_sha: ${{ steps.metadata.outputs.full_sha }}
       source_url: ${{ steps.metadata.outputs.source_url }}
+      docker_enabled: ${{ steps.metadata.outputs.docker_enabled }}
+      component_scope: ${{ steps.metadata.outputs.component_scope }}
     steps:
     - name: Checkout tagged code
       uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
@@ -82,12 +84,23 @@ jobs:
         scope_dir="$RUNNER_TEMP/release-scope"
         mkdir -p "$scope_dir"
         gh release download "$release_tag" --pattern sambee-release.json --dir "$scope_dir"
-        python3 .github/scripts/validate_release_scope.py \
-          --metadata-file "$scope_dir/sambee-release.json" \
-          --component docker \
-          --version "$version" \
-          --build-tag "$build_tag" \
-          --source-sha "$full_sha"
+        component_scope="$(jq -r '.component_scope' "$scope_dir/sambee-release.json")"
+        if [[ "$component_scope" != docker && "$component_scope" != companion && "$component_scope" != both ]]; then
+          echo "sambee-release.json has an invalid component_scope." >&2
+          exit 1
+        fi
+        docker_enabled=true
+        if [[ "$component_scope" == companion ]]; then
+          docker_enabled=false
+          echo "Docker promotion is not authorized for companion-only release $release_tag."
+        else
+          python3 .github/scripts/validate_release_scope.py \
+            --metadata-file "$scope_dir/sambee-release.json" \
+            --component docker \
+            --version "$version" \
+            --build-tag "$build_tag" \
+            --source-sha "$full_sha"
+        fi
 
         echo "checkout_ref=$release_tag" >> "$GITHUB_OUTPUT"
         echo "release_type=$release_type" >> "$GITHUB_OUTPUT"
@@ -103,9 +116,12 @@ jobs:
         echo "signature_repository=ghcr.io/$owner_lower/sambee-signatures" >> "$GITHUB_OUTPUT"
         echo "full_sha=$full_sha" >> "$GITHUB_OUTPUT"
         echo "source_url=https://github.com/${GITHUB_REPOSITORY}" >> "$GITHUB_OUTPUT"
+        echo "docker_enabled=$docker_enabled" >> "$GITHUB_OUTPUT"
+        echo "component_scope=$component_scope" >> "$GITHUB_OUTPUT"
 
   resolve-candidate-artifact:
     needs: prepare
+    if: ${{ needs.prepare.outputs.docker_enabled == 'true' }}
     runs-on: ubuntu-latest
     permissions:
       contents: read
@@ -154,6 +170,7 @@ jobs:
 
   verify-candidate-artifact:
     needs: [prepare, resolve-candidate-artifact]
+    if: ${{ needs.prepare.outputs.docker_enabled == 'true' }}
     runs-on: ubuntu-latest
     permissions:
       contents: read
@@ -202,8 +219,32 @@ jobs:
           --expected-revision "${{ needs.prepare.outputs.full_sha }}" \
           --expected-source "${{ needs.prepare.outputs.source_url }}"
 
+    - name: Verify coordinated Companion release
+      if: ${{ needs.prepare.outputs.component_scope == 'both' }}
+      shell: bash
+      env:
+        GITHUB_TOKEN: ${{ secrets.COMPANION_RELEASE_REPO_TOKEN }}
+      run: |
+        companion_tag="companion-v${{ needs.prepare.outputs.version }}"
+        python3 .github/scripts/promote_companion_release.py \
+          --verify-only \
+          --release-ref "$companion_tag" \
+          --release-owner helgeklein \
+          --release-repo sambee-companion
+        provenance_dir="$RUNNER_TEMP/companion-provenance"
+        mkdir -p "$provenance_dir"
+        gh release download "$companion_tag" --repo helgeklein/sambee-companion \
+          --pattern companion-release-provenance.json --dir "$provenance_dir"
+        jq -e \
+          --arg version "${{ needs.prepare.outputs.version }}" \
+          --arg build_tag "${{ needs.prepare.outputs.build_tag }}" \
+          --arg source_sha "${{ needs.prepare.outputs.full_sha }}" \
+          '.version == $version and .build_tag == $build_tag and .source_sha == $source_sha' \
+          "$provenance_dir/companion-release-provenance.json" >/dev/null
+
   publish-release-tags:
     needs: [prepare, resolve-candidate-artifact, verify-candidate-artifact]
+    if: ${{ needs.prepare.outputs.docker_enabled == 'true' }}
     runs-on: ubuntu-latest
     permissions:
       contents: read
@@ -231,6 +272,7 @@ jobs:
 
   promote-channel-tags:
     needs: [prepare, resolve-candidate-artifact, publish-release-tags]
+    if: ${{ needs.prepare.outputs.docker_enabled == 'true' }}
     runs-on: ubuntu-latest
     permissions:
       contents: read
@@ -321,6 +363,7 @@ jobs:
 
   upload-metadata-release-assets:
     needs: [prepare, resolve-candidate-artifact, publish-release-tags]
+    if: ${{ needs.prepare.outputs.docker_enabled == 'true' }}
     runs-on: ubuntu-latest
     permissions:
       contents: write
@@ -357,6 +400,7 @@ jobs:
 
   sign-and-attest:
     needs: [prepare, resolve-candidate-artifact, promote-channel-tags]
+    if: ${{ needs.prepare.outputs.docker_enabled == 'true' }}
     runs-on: ubuntu-latest
     permissions:
       contents: read

@@ -19,6 +19,7 @@ concurrency:
 
 permissions:
   contents: write
+  packages: read
 
 jobs:
   prepare:
@@ -35,6 +36,8 @@ jobs:
       source_url: ${{ steps.metadata.outputs.source_url }}
       created: ${{ steps.metadata.outputs.created }}
       os_packages_refresh_key: ${{ steps.metadata.outputs.os_packages_refresh_key }}
+      publication_state: ${{ steps.candidate-state.outputs.state }}
+      candidate_digest: ${{ steps.candidate-state.outputs.digest }}
     steps:
     - name: Reserve or resolve canonical build source
       id: preflight
@@ -66,8 +69,41 @@ jobs:
         echo "created=$created" >> "$GITHUB_OUTPUT"
         echo "os_packages_refresh_key=$created" >> "$GITHUB_OUTPUT"
 
+    - name: Set up crane
+      uses: ./.github/actions/setup-crane
+      with:
+        install-dir: ${{ runner.temp }}/bin
+
+    - name: Log in to GHCR with crane
+      shell: bash
+      run: crane auth login ghcr.io -u "${{ github.actor }}" -p "${{ secrets.GITHUB_TOKEN }}"
+
+    - name: Resolve Docker candidate publication state
+      id: candidate-state
+      shell: bash
+      run: |
+        candidate_ref="${{ steps.metadata.outputs.image_name }}:${{ steps.preflight.outputs.build_tag }}"
+        if ! candidate_digest="$(crane digest "$candidate_ref" 2>/dev/null)"; then
+          echo "state=build" >> "$GITHUB_OUTPUT"
+          echo 'Docker candidate marker is absent; selecting build path.' >> "$GITHUB_STEP_SUMMARY"
+          exit 0
+        fi
+
+        bash .github/scripts/verify_candidate_image.sh \
+          --image-ref "$candidate_ref" \
+          --expected-description "${{ steps.metadata.outputs.image_description }}" \
+          --expected-revision "${{ steps.metadata.outputs.full_sha }}" \
+          --expected-version "${{ steps.preflight.outputs.version }}" \
+          --expected-source "${{ steps.metadata.outputs.source_url }}" \
+          --expected-title "${{ env.IMAGE_TITLE }}" \
+          --expected-build-tag "${{ steps.preflight.outputs.build_tag }}"
+        echo "state=repair" >> "$GITHUB_OUTPUT"
+        echo "digest=$candidate_digest" >> "$GITHUB_OUTPUT"
+        echo "Docker candidate marker already exists at \`$candidate_digest\`; selecting repair-only path." >> "$GITHUB_STEP_SUMMARY"
+
   validate-tests:
     needs: prepare
+    if: ${{ needs.prepare.outputs.publication_state == 'build' }}
     runs-on: ubuntu-latest
     container:
       image: python:3.13.12-slim@sha256:f1927c75e81efd1e091dbd64b6c0ecaa5630b38635a3d1c04034ac636e1f94c8
@@ -127,6 +163,7 @@ jobs:
 
   build-and-validate-platforms:
     needs: [prepare, validate-tests]
+    if: ${{ needs.prepare.outputs.publication_state == 'build' }}
     runs-on: ${{ matrix.runner_label }}
     permissions:
       contents: read
@@ -187,7 +224,7 @@ jobs:
         context: .
         file: ./Dockerfile
         platforms: ${{ matrix.docker_platform }}
-        outputs: type=image,name=${{ needs.prepare.outputs.image_name }},push-by-digest=true,name-canonical=true,push=true
+        outputs: type=image,name=${{ needs.prepare.outputs.image_name }}:staging-${{ github.run_id }}-${{ github.run_attempt }}-${{ matrix.platform_id }},push-by-digest=true,name-canonical=true,push=true
         labels: ${{ steps.image.outputs.labels }}
         build-args: |
           BUILD_CREATED_AT=${{ needs.prepare.outputs.created }}
@@ -312,6 +349,7 @@ jobs:
 
   build-and-publish-immutable:
     needs: [prepare, build-and-validate-platforms]
+    if: ${{ needs.prepare.outputs.publication_state == 'build' }}
     runs-on: ubuntu-latest
     permissions:
       actions: read
@@ -437,6 +475,7 @@ jobs:
 
   build-metadata-platforms:
     needs: [prepare, build-and-publish-immutable]
+    if: ${{ needs.prepare.outputs.publication_state == 'build' }}
     runs-on: ${{ matrix.runner_label }}
     permissions:
       contents: read
@@ -529,6 +568,7 @@ jobs:
 
   build-metadata-bundle:
     needs: [prepare, build-and-publish-immutable, build-metadata-platforms]
+    if: ${{ needs.prepare.outputs.publication_state == 'build' }}
     runs-on: ubuntu-latest
     permissions:
       actions: read
@@ -591,6 +631,7 @@ jobs:
 
   sign-preview:
     needs: [prepare, build-and-publish-immutable, build-metadata-bundle]
+    if: ${{ needs.prepare.outputs.publication_state == 'build' }}
     runs-on: ubuntu-latest
     permissions:
       contents: read
@@ -615,6 +656,7 @@ jobs:
 
   publish-immutable-markers:
     needs: [prepare, build-and-publish-immutable, sign-preview]
+    if: ${{ needs.prepare.outputs.publication_state == 'build' }}
     runs-on: ubuntu-latest
     permissions:
       contents: read
@@ -645,6 +687,7 @@ jobs:
 
   promote-test-tag:
     needs: [prepare, build-and-publish-immutable, publish-immutable-markers]
+    if: ${{ needs.prepare.outputs.publication_state == 'build' }}
     runs-on: ubuntu-latest
     permissions:
       contents: read
@@ -671,7 +714,7 @@ jobs:
           --tag test
 
   cleanup-staging-image:
-    if: ${{ always() }}
+    if: ${{ always() && needs.prepare.outputs.publication_state == 'build' }}
     needs: [prepare, build-and-publish-immutable, sign-preview, publish-immutable-markers, promote-test-tag]
     runs-on: ubuntu-latest
     permissions:
@@ -686,6 +729,47 @@ jobs:
       shell: bash
       run: crane auth login ghcr.io -u "${{ github.actor }}" -p "${{ secrets.GITHUB_TOKEN }}"
 
-    - name: Delete run-scoped staging tag
+    - name: Delete run-scoped staging tags
       shell: bash
-      run: crane delete "${{ needs.prepare.outputs.image_name }}:staging-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}-index" || true
+      run: |
+        for platform in amd64 arm64 index; do
+          staging_tag="staging-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}-${platform}"
+          if ! crane delete "${{ needs.prepare.outputs.image_name }}:$staging_tag"; then
+            echo "::warning::Unable to delete run-scoped staging tag $staging_tag. Registry retention must remove it."
+          fi
+        done
+
+  repair-candidate-aliases:
+    needs: prepare
+    if: ${{ needs.prepare.outputs.publication_state == 'repair' }}
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
+    steps:
+    - name: Set up crane
+      uses: ./.github/actions/setup-crane
+      with:
+        install-dir: ${{ runner.temp }}/bin
+
+    - name: Log in to GHCR with crane
+      shell: bash
+      run: crane auth login ghcr.io -u "${{ github.actor }}" -p "${{ secrets.GITHUB_TOKEN }}"
+
+    - name: Create or verify missing immutable aliases
+      shell: bash
+      run: |
+        bash .github/scripts/promote_container_image.sh \
+          --image-name "${{ needs.prepare.outputs.image_name }}" \
+          --source-digest "${{ needs.prepare.outputs.candidate_digest }}" \
+          --tag "sha-${{ needs.prepare.outputs.full_sha }}" \
+          --tag "${{ needs.prepare.outputs.version }}" \
+          --immutable
+
+    - name: Move test alias to the verified candidate
+      shell: bash
+      run: |
+        bash .github/scripts/promote_container_image.sh \
+          --image-name "${{ needs.prepare.outputs.image_name }}" \
+          --source-digest "${{ needs.prepare.outputs.candidate_digest }}" \
+          --tag test

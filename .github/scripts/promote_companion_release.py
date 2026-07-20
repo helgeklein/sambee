@@ -361,14 +361,15 @@ def main() -> None:
     parser.add_argument("--release-ref", required=True)
     parser.add_argument("--release-owner", required=True)
     parser.add_argument("--release-repo", required=True)
-    parser.add_argument("--release-repo-path", required=True)
+    parser.add_argument("--release-repo-path")
+    parser.add_argument("--verify-only", action="store_true")
     parser.add_argument("--companion-channel-test", action="store_true")
     parser.add_argument("--companion-channel-beta", action="store_true")
     parser.add_argument("--companion-channel-stable", action="store_true")
     parser.add_argument("--sambee", action="store_true")
     args = parser.parse_args()
 
-    if not any(
+    if not args.verify_only and not any(
         [
             args.companion_channel_test,
             args.companion_channel_beta,
@@ -398,6 +399,13 @@ def main() -> None:
         fail(f"Release {tag_name} has no assets")
 
     verify_release_integrity(release, assets)
+
+    if args.verify_only:
+        print(f"Verified immutable Companion release {tag_name}")
+        return
+
+    if not args.release_repo_path:
+        fail("--release-repo-path is required unless --verify-only is used")
 
     output_root = Path(args.release_repo_path) / "docs" / "feeds"
 

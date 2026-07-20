@@ -1,0 +1,111 @@
+name: "Release: Create Public Sambee Release"
+
+on:
+  workflow_dispatch:
+    inputs:
+      build_version:
+        description: Existing immutable build version to release publicly.
+        required: true
+        type: string
+      component_scope:
+        description: Components authorized for stable promotion by this release.
+        required: true
+        type: choice
+        options:
+          - docker
+          - companion
+          - both
+      publish:
+        description: Publish the validated draft release and trigger Docker promotion.
+        required: true
+        default: false
+        type: boolean
+
+permissions:
+  contents: write
+
+jobs:
+  create-release:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Resolve canonical public release source
+        id: preflight
+        uses: ./.github/actions/release-candidate-preflight
+        with:
+          build-version: ${{ inputs.build_version }}
+          dispatch-ref: ${{ github.ref }}
+          dispatch-sha: ${{ github.sha }}
+          run-url: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+
+      - name: Create or verify immutable public tag
+        id: public-tag
+        shell: bash
+        run: |
+          release_tag="v${{ steps.preflight.outputs.version }}"
+          source_sha="${{ steps.preflight.outputs.source_sha }}"
+          git fetch origin "refs/tags/$release_tag:refs/tags/$release_tag" 2>/dev/null || true
+          existing_sha="$(git rev-parse -q --verify "refs/tags/$release_tag^{commit}" 2>/dev/null || true)"
+          if [[ -n "$existing_sha" && "$existing_sha" != "$source_sha" ]]; then
+            echo "Public release tag $release_tag points to $existing_sha, not canonical source $source_sha." >&2
+            exit 1
+          fi
+          if [[ -z "$existing_sha" ]]; then
+            git tag -a "$release_tag" "$source_sha" -m "Sambee ${{ steps.preflight.outputs.version }}"
+            git push origin "refs/tags/$release_tag"
+          fi
+          echo "release_tag=$release_tag" >> "$GITHUB_OUTPUT"
+
+      - name: Create or verify draft release metadata
+        shell: bash
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          RELEASE_TAG: ${{ steps.public-tag.outputs.release_tag }}
+          VERSION: ${{ steps.preflight.outputs.version }}
+          BUILD_TAG: ${{ steps.preflight.outputs.build_tag }}
+          SOURCE_SHA: ${{ steps.preflight.outputs.source_sha }}
+          COMPONENT_SCOPE: ${{ inputs.component_scope }}
+        run: |
+          release_json="$(gh release view "$RELEASE_TAG" --json isDraft,isPrerelease 2>/dev/null || true)"
+          if [[ -z "$release_json" ]]; then
+            gh release create "$RELEASE_TAG" --draft --title "Sambee v$VERSION" --generate-notes
+          elif [[ "$(jq -r '.isDraft' <<<"$release_json")" != "true" ]]; then
+            echo "Public release $RELEASE_TAG is already published and cannot be modified." >&2
+            exit 1
+          fi
+
+          scope_file="$RUNNER_TEMP/sambee-release.json"
+          jq -n \
+            --arg version "$VERSION" \
+            --arg build_tag "$BUILD_TAG" \
+            --arg source_sha "$SOURCE_SHA" \
+            --arg component_scope "$COMPONENT_SCOPE" \
+            '{schema_version: 1, version: $version, build_tag: $build_tag, source_sha: $source_sha, component_scope: $component_scope}' \
+            > "$scope_file"
+          python3 .github/scripts/validate_release_scope.py \
+            --metadata-file "$scope_file" \
+            --component "$([[ "$COMPONENT_SCOPE" == companion ]] && echo companion || echo docker)" \
+            --version "$VERSION" --build-tag "$BUILD_TAG" --source-sha "$SOURCE_SHA"
+
+          existing_dir="$RUNNER_TEMP/existing-scope"
+          mkdir -p "$existing_dir"
+          if gh release download "$RELEASE_TAG" --pattern sambee-release.json --dir "$existing_dir" 2>/dev/null; then
+            if ! cmp --silent "$scope_file" "$existing_dir/sambee-release.json"; then
+              echo "Existing sambee-release.json differs from the requested immutable release identity." >&2
+              exit 1
+            fi
+          else
+            gh release upload "$RELEASE_TAG" "$scope_file#sambee-release.json"
+          fi
+          rm -rf "$existing_dir"
+          mkdir -p "$existing_dir"
+          gh release download "$RELEASE_TAG" --pattern sambee-release.json --dir "$existing_dir"
+          python3 .github/scripts/validate_release_scope.py \
+            --metadata-file "$existing_dir/sambee-release.json" \
+            --component "$([[ "$COMPONENT_SCOPE" == companion ]] && echo companion || echo docker)" \
+            --version "$VERSION" --build-tag "$BUILD_TAG" --source-sha "$SOURCE_SHA"
+
+      - name: Publish validated public release
+        if: ${{ inputs.publish }}
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: gh release edit "${{ steps.public-tag.outputs.release_tag }}" --draft=false

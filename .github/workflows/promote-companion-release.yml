@@ -39,6 +39,7 @@ env:
 
 permissions:
   contents: read
+  packages: read
 
 jobs:
   promote:
@@ -59,6 +60,7 @@ jobs:
         uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
 
       - name: Validate public release scope
+        id: scope
         shell: bash
         env:
           COMPANION_TOKEN: ${{ secrets.COMPANION_RELEASE_REPO_TOKEN }}
@@ -67,8 +69,9 @@ jobs:
           scope_dir="$RUNNER_TEMP/release-scope"
           mkdir -p "$scope_dir"
           gh release download "${{ inputs.sambee_release_tag }}" --pattern sambee-release.json --dir "$scope_dir"
-          release_ref="${{ inputs.release_ref }}"
-          companion_tag="${release_ref##*/}"
+          companion_tag="$(GH_TOKEN="$COMPANION_TOKEN" gh release view "${{ inputs.release_ref }}" \
+            --repo "${{ env.COMPANION_RELEASE_REPO_OWNER }}/${{ env.COMPANION_RELEASE_REPO_NAME }}" \
+            --json tagName --jq .tagName)"
           GH_TOKEN="$COMPANION_TOKEN" gh release download "$companion_tag" \
             --repo "${{ env.COMPANION_RELEASE_REPO_OWNER }}/${{ env.COMPANION_RELEASE_REPO_NAME }}" \
             --pattern companion-release-provenance.json \
@@ -79,6 +82,60 @@ jobs:
             --version "$(jq -r '.version' "$scope_dir/companion-release-provenance.json")" \
             --build-tag "$(jq -r '.build_tag' "$scope_dir/companion-release-provenance.json")" \
             --source-sha "$(jq -r '.source_sha' "$scope_dir/companion-release-provenance.json")"
+          build_tag="$(jq -r '.build_tag' "$scope_dir/companion-release-provenance.json")"
+          source_sha="$(jq -r '.source_sha' "$scope_dir/companion-release-provenance.json")"
+          git fetch origin "refs/tags/$build_tag:refs/tags/$build_tag"
+          if [[ "$(git rev-parse "refs/tags/$build_tag^{commit}")" != "$source_sha" ]]; then
+            echo "Companion provenance source SHA does not match canonical tag $build_tag." >&2
+            exit 1
+          fi
+          echo "scope=$(jq -r '.component_scope' "$scope_dir/sambee-release.json")" >> "$GITHUB_OUTPUT"
+          echo "version=$(jq -r '.version' "$scope_dir/companion-release-provenance.json")" >> "$GITHUB_OUTPUT"
+          echo "build_tag=$build_tag" >> "$GITHUB_OUTPUT"
+          echo "source_sha=$source_sha" >> "$GITHUB_OUTPUT"
+
+      - name: Set up crane
+        if: ${{ steps.scope.outputs.scope == 'both' }}
+        uses: ./.github/actions/setup-crane
+        with:
+          install-dir: ${{ runner.temp }}/bin
+
+      - name: Set up ORAS
+        if: ${{ steps.scope.outputs.scope == 'both' }}
+        uses: ./.github/actions/setup-oras
+        with:
+          install-dir: ${{ runner.temp }}/bin
+
+      - name: Verify coordinated Docker candidate
+        if: ${{ steps.scope.outputs.scope == 'both' }}
+        shell: bash
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          git checkout --detach "${{ steps.scope.outputs.build_tag }}"
+          owner_lower="$(printf '%s' "$GITHUB_REPOSITORY_OWNER" | tr '[:upper:]' '[:lower:]')"
+          image_name="ghcr.io/$owner_lower/sambee"
+          signature_repository="ghcr.io/$owner_lower/sambee-signatures"
+          image_description="$(bash .github/scripts/read_website_description.sh)"
+          source_url="https://github.com/${GITHUB_REPOSITORY}"
+          crane auth login ghcr.io -u "${{ github.actor }}" -p "${{ secrets.GITHUB_TOKEN }}"
+          oras login ghcr.io -u "${{ github.actor }}" -p "${{ secrets.GITHUB_TOKEN }}"
+          candidate_ref="$image_name:${{ steps.scope.outputs.build_tag }}"
+          candidate_digest="$(crane digest "$candidate_ref")"
+          bash .github/scripts/verify_candidate_image.sh \
+            --image-ref "$candidate_ref" \
+            --expected-description "$image_description" \
+            --expected-revision "${{ steps.scope.outputs.source_sha }}" \
+            --expected-version "${{ steps.scope.outputs.version }}" \
+            --expected-source "$source_url" \
+            --expected-title Sambee \
+            --expected-build-tag "${{ steps.scope.outputs.build_tag }}"
+          bash .github/scripts/verify_candidate_metadata_bundle.sh \
+            --image-ref "$image_name@$candidate_digest" \
+            --metadata-repository "$signature_repository" \
+            --expected-version "${{ steps.scope.outputs.version }}" \
+            --expected-revision "${{ steps.scope.outputs.source_sha }}" \
+            --expected-source "$source_url"
 
       - name: Checkout release repository
         uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
@@ -114,9 +171,12 @@ jobs:
             "${args[@]}"
 
       - name: Commit and push feed updates
+        env:
+          GH_TOKEN: ${{ secrets.COMPANION_RELEASE_REPO_TOKEN }}
         run: |
-          release_ref="${{ github.event.inputs.release_ref }}"
-          release_tag="${release_ref##*/}"
+          release_tag="$(gh release view "${{ inputs.release_ref }}" \
+            --repo "${{ env.COMPANION_RELEASE_REPO_OWNER }}/${{ env.COMPANION_RELEASE_REPO_NAME }}" \
+            --json tagName --jq .tagName)"
 
           git -C release-repo config user.name "github-actions[bot]"
           git -C release-repo config user.email "41898282+github-actions[bot]@users.noreply.github.com"

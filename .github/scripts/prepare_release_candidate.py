@@ -135,7 +135,7 @@ def reserve_or_resolve(
         check=False,
     )
     if push.returncode:
-        run_git("fetch", "origin", f"refs/tags/{tag}:refs/tags/{tag}")
+        run_git("fetch", "origin", f"+refs/tags/{tag}:refs/tags/{tag}")
         existing_sha = resolve_tag(tag)
         if existing_sha != dispatch_sha:
             raise CandidateError(
