@@ -58,10 +58,10 @@ This removes the conflict between feature-branch testing and squash merges: publ
 
 - Add a nonpublishing Companion CI workflow for pull requests and optionally manual dispatches against non-`main` branches.
 - It builds and validates the Companion so development can be tested on CI, where the maintainer cannot build the desktop application locally.
-- It must not create a GitHub Release, upload to `helgeklein/sambee-companion`, alter Tauri feeds, use production updater signing, or claim a release version.
+- It must not create a GitHub Release, upload to `helgeklein/sambee-companion`, alter Tauri feeds, use updater signing, or claim a release version. Same-repository branch builds may use the available Windows code-signing configuration.
 - Upload build outputs only as GitHub Actions artifacts with short retention.
 - For pull requests from forks, use no repository secrets. Build unsigned and skip platform code-signing/notarization steps that require secrets.
-- Keep release packaging and signing in the trusted `main` publishing workflow.
+- Keep release packaging and updater signing in the trusted `main` publishing workflow. Allow Windows code signing for same-repository branch builds.
 
 ### Canonical version-to-source registry
 
@@ -286,12 +286,12 @@ Target: `.github/workflows/build-companion.yml`.
    - `npm ci`;
    - TypeScript check and lint;
    - Rust tests and/or the existing validation suite where practical.
-4. Build an unsigned package for the agreed baseline platform(s), initially Linux x64 where GitHub-hosted CI can run it reliably. Generate a temporary CI-only Tauri config file that overrides `bundle.createUpdaterArtifacts` to `false`, then invoke `npx tauri build --config <temporary-config>` with the supported Linux bundle set. This prevents the configured production updater-artifact path from requiring `TAURI_SIGNING_PRIVATE_KEY`.
-5. Do not pass production signing, notarization, release-repository, or updater-signing secrets. Assert in the workflow that `TAURI_SIGNING_PRIVATE_KEY`, `TAURI_SIGNING_PRIVATE_KEY_PASSWORD`, Apple signing variables, and Azure signing variables are unset before packaging.
+4. Build a signed Windows x64 package by default for same-repository pull requests and branch dispatches. Generate a temporary CI-only Tauri config file that overrides `bundle.createUpdaterArtifacts` to `false`, then invoke `npx tauri build --config <temporary-config>` with the supported Windows bundle set. This prevents the configured production updater-artifact path from requiring `TAURI_SIGNING_PRIVATE_KEY`. Fork pull requests build the same Windows x64 package unsigned because GitHub does not provide repository secrets to fork code.
+5. Do not pass updater-signing or release-repository credentials. Assert that `TAURI_SIGNING_PRIVATE_KEY` and `TAURI_SIGNING_PRIVATE_KEY_PASSWORD` are unset before packaging. Allow the established Azure Windows code-signing configuration only for same-repository events; assert that fork pull requests have no Azure, Apple, release-repository, or updater-signing secrets and skip all secret-backed signing/notarization steps.
 6. Do not invoke `tauri-action` release creation and do not contact `helgeklein/sambee-companion`.
 7. Upload resulting verification artifacts to the workflow run with a short, explicit retention period, then delete the temporary Tauri configuration in an `always()` cleanup step.
 8. Document that those artifacts are for test/diagnostic use only and must never be distributed through a public channel or installed as a supported update.
-9. Add a proof-of-concept test for this override before relying on it: Linux packaging must succeed without updater/signing secrets, produce no `.sig` updater artifacts, and leave no updater-release output. Decide separately whether trusted same-repository PRs need optional signed Windows/macOS verification. Do not use `pull_request_target`; it would execute untrusted PR code with secrets.
+9. Add a proof-of-concept test for this override before relying on it: same-repository Windows x64 packaging must succeed with the established code-signing configuration but without updater-signing credentials, produce no `.sig` updater artifacts, and leave no updater-release output. A fork pull request must build the same target unsigned with no secrets. Do not use `pull_request_target`; it would execute untrusted fork code with secrets.
 
 ### Phase 5: Promotion and cross-artifact consistency
 
@@ -416,7 +416,7 @@ The change is complete when all of the following are true:
 - Every Companion promotion revalidates the completion marker and the complete manifested release asset set.
 - Every public release records a valid component scope, and stable promotion enforces it before moving any pointer.
 - Operators understand that GitHub concurrency retains only one pending run per group and safely redispatch superseded runs.
-- The nonpublishing Companion CI package succeeds with a generated updater-artifacts-disabled configuration and no production signing or updater secrets.
+- The nonpublishing Companion CI package succeeds with a generated updater-artifacts-disabled configuration, uses the established Windows signer for same-repository branches, and receives no updater-signing or release-repository credentials. Fork pull requests remain unsigned and receive no secrets.
 - Promotion moves existing Docker aliases or Companion feed pointers only; it never triggers a build.
 - A coordinated Docker/Companion promotion verifies identical version and source identity.
 - The release checklist describes a build-test-repeat-promote loop with no final rebuild.
@@ -435,7 +435,7 @@ Resolve these small operational details during implementation, with the defaults
 | Build tag annotation | Annotated Git tag containing version, full SHA, workflow URL/run ID, and creation timestamp; reserve by creating and non-force-pushing that annotated tag, then dereference and compare it after a collision. |
 | Candidate tag creation permission | `contents: write` only in trusted `main` publishing workflows. |
 | Candidate-build main-only guard | Require manually dispatched candidate builds to have `github.ref == refs/heads/main`. A new candidate uses captured `github.sha`; an existing candidate is allowed only when its tag target is an ancestor of current `origin/main`. Release/promotion events validate immutable release metadata instead. |
-| Companion PR package platform | Linux x64 unsigned package first; add more platforms only when the cost and test value justify them. |
+| Companion branch-build default | Same-repository branch builds sign Windows x64 by default. Fork pull requests build Windows x64 unsigned because secrets are unavailable; add additional verification platforms only when the cost and test value justify them. |
 | Release metadata format | Human-readable GitHub Release body, mandatory machine-readable Companion provenance and completion-marker JSON assets, and machine-readable OCI labels/annotations for Docker. |
 | Public release metadata and component scope | Required versioned `sambee-release.json` release asset with version, build tag, source SHA, and `docker`/`companion`/`both` scope; promotion fails when absent, malformed, or inconsistent. |
 | Docker tag mutation classes | Immutable create-or-verify: candidate, source SHA, exact version. Mutable verified pointers: test, beta, stable, major/minor. |
