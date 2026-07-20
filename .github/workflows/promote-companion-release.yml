@@ -7,6 +7,10 @@ on:
         description: Companion release tag or GitHub release URL
         required: true
         type: string
+      sambee_release_tag:
+        description: Public Sambee release tag that authorizes this Companion promotion
+        required: true
+        type: string
       companion_channel_test:
         description: Update Companion test channel feed
         required: true
@@ -53,6 +57,28 @@ jobs:
 
       - name: Checkout sambee
         uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+
+      - name: Validate public release scope
+        shell: bash
+        env:
+          COMPANION_TOKEN: ${{ secrets.COMPANION_RELEASE_REPO_TOKEN }}
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          scope_dir="$RUNNER_TEMP/release-scope"
+          mkdir -p "$scope_dir"
+          gh release download "${{ inputs.sambee_release_tag }}" --pattern sambee-release.json --dir "$scope_dir"
+          release_ref="${{ inputs.release_ref }}"
+          companion_tag="${release_ref##*/}"
+          GH_TOKEN="$COMPANION_TOKEN" gh release download "$companion_tag" \
+            --repo "${{ env.COMPANION_RELEASE_REPO_OWNER }}/${{ env.COMPANION_RELEASE_REPO_NAME }}" \
+            --pattern companion-release-provenance.json \
+            --dir "$scope_dir"
+          python3 .github/scripts/validate_release_scope.py \
+            --metadata-file "$scope_dir/sambee-release.json" \
+            --component companion \
+            --version "$(jq -r '.version' "$scope_dir/companion-release-provenance.json")" \
+            --build-tag "$(jq -r '.build_tag' "$scope_dir/companion-release-provenance.json")" \
+            --source-sha "$(jq -r '.source_sha' "$scope_dir/companion-release-provenance.json")"
 
       - name: Checkout release repository
         uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0

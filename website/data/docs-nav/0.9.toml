@@ -1,0 +1,307 @@
+books = [
+  "release-info",
+  "user-guide",
+  "admin-guide",
+  "developer-guide",
+  "website-dev-guide",
+]
+
+[[sections.release-info.items]]
+slug = "news-and-changes"
+title = "News and Changes"
+
+[pages.release-info.news-and-changes]
+items = [
+  "whats-new",
+]
+
+[[sections.user-guide.items]]
+slug = "getting-started"
+title = "Getting Started"
+
+[pages.user-guide.getting-started]
+items = [
+  "what-is-sambee",
+]
+
+[[sections.user-guide.items]]
+slug = "accessing-files"
+title = "Accessing Files"
+
+[pages.user-guide.accessing-files]
+items = [
+  "connect-to-an-smb-share",
+  "access-local-drives",
+]
+
+[[sections.user-guide.items]]
+slug = "browsing-and-navigation"
+title = "Browsing and Navigation"
+
+[pages.user-guide.browsing-and-navigation]
+items = [
+  "smart-navigation-and-the-quick-bar",
+  "dual-pane-mode",
+  "keyboard-navigation-and-shortcuts",
+  "mobile-navigation",
+]
+
+[[sections.user-guide.items]]
+slug = "viewing-and-editing-files"
+title = "Viewing & Editing Files"
+
+[pages.user-guide.viewing-and-editing-files]
+items = [
+  "view-images-and-read-documents",
+  "edit-markdown",
+  "edit-files-in-desktop-apps",
+  "file-locking-and-conflict-resolution",
+]
+
+[[sections.user-guide.items]]
+slug = "companion-app"
+title = "Companion App"
+
+[pages.user-guide.companion-app]
+items = [
+  "install-and-pair-the-companion-app",
+  "desktop-app-picker",
+]
+
+[[sections.user-guide.items]]
+slug = "troubleshooting"
+title = "Troubleshooting"
+
+[pages.user-guide.troubleshooting]
+items = [
+  "common-user-problems",
+]
+
+[[sections.user-guide.items]]
+slug = "reference"
+title = "Reference"
+
+[pages.user-guide.reference]
+items = [
+  "supported-file-formats",
+]
+
+[[sections.admin-guide.items]]
+slug = "overview-and-planning"
+title = "Overview and Planning"
+
+[pages.admin-guide.overview-and-planning]
+items = [
+  "architecture-overview",
+]
+
+[[sections.admin-guide.items]]
+slug = "installation-and-deployment"
+title = "Installation and Deployment"
+
+[pages.admin-guide.installation-and-deployment]
+items = [
+  "deploy-sambee-with-docker",
+  "first-startup-and-first-admin-login",
+]
+
+[[sections.admin-guide.items]]
+slug = "network-and-reverse-proxy"
+title = "Network and Reverse Proxy"
+
+[pages.admin-guide.network-and-reverse-proxy]
+items = [
+  "put-sambee-behind-a-reverse-proxy",
+]
+
+[[sections.admin-guide.items]]
+slug = "configuration"
+title = "Configuration"
+
+[pages.admin-guide.configuration]
+items = [
+  "configuration-key-reference",
+]
+
+[[sections.admin-guide.items]]
+slug = "operations-and-maintenance"
+title = "Operations and Maintenance"
+
+[pages.admin-guide.operations-and-maintenance]
+items = [
+  "view-logs-and-restart-services",
+  "update-sambee-safely",
+  "backup-and-restore-planning",
+]
+
+[[sections.admin-guide.items]]
+slug = "reference"
+title = "Reference"
+
+[pages.admin-guide.reference]
+items = [
+  "port-and-path-reference",
+  "companion-support-reference",
+]
+
+[[sections.developer-guide.items]]
+slug = "project-orientation"
+title = "Project Orientation"
+
+[pages.developer-guide.project-orientation]
+items = [
+  "what-sambee-consists-of",
+  "repository-tour",
+]
+
+[[sections.developer-guide.items]]
+slug = "local-development-workflow"
+title = "Local Development Workflow"
+
+[pages.developer-guide.local-development-workflow]
+items = [
+  "set-up-the-development-environment",
+  "common-task-commands",
+]
+
+[[sections.developer-guide.items]]
+slug = "backend-architecture"
+title = "Backend Architecture"
+
+[pages.developer-guide.backend-architecture]
+items = [
+  "backend-overview",
+  "request-flow-and-service-boundaries",
+  "image-preprocessing-and-conversion-pipeline",
+  "smb-change-notification-and-directory-freshness",
+  "file-operations-and-edit-locking",
+]
+
+[[sections.developer-guide.items]]
+slug = "frontend-architecture"
+title = "Frontend Architecture"
+
+[pages.developer-guide.frontend-architecture]
+items = [
+  "frontend-overview",
+  "theming-system-and-theme-selection",
+  "file-browser-and-navigation-model",
+  "keyboard-shortcuts-and-command-model",
+  "viewer-architecture-and-preview-contracts",
+]
+
+[[sections.developer-guide.items]]
+slug = "companion-architecture"
+title = "Companion Architecture"
+
+[pages.developer-guide.companion-architecture]
+items = [
+  "companion-overview",
+  "companion-runtime-and-native-app-editing",
+  "browser-to-companion-trust-model",
+  "local-drive-and-save-back-pipeline",
+]
+
+[[sections.developer-guide.items]]
+slug = "cross-cutting-systems"
+title = "Cross-Cutting Systems"
+
+[pages.developer-guide.cross-cutting-systems]
+items = [
+  "logging-and-localization",
+  "localization-and-locale-behavior",
+  "frontend-logging-and-tracing",
+]
+
+[[sections.developer-guide.items]]
+slug = "testing-and-quality-gates"
+title = "Testing and Quality Gates"
+
+[pages.developer-guide.testing-and-quality-gates]
+items = [
+  "test-strategy-overview",
+  "image-conversion-test-assets",
+  "ci-workflows-and-repository-automation",
+]
+
+[[sections.developer-guide.items]]
+slug = "contribution-workflows"
+title = "Contribution Workflows"
+
+[pages.developer-guide.contribution-workflows]
+items = [
+  "how-to-plan-and-review-a-change",
+]
+
+[[sections.developer-guide.items]]
+slug = "security"
+title = "Security"
+
+[pages.developer-guide.security]
+items = [
+  "dependency-security-and-dependabot",
+  "container-image-security-and-artifact-integrity",
+]
+
+[[sections.developer-guide.items]]
+slug = "release-and-versioning"
+title = "Release and Versioning"
+
+[pages.developer-guide.release-and-versioning]
+items = [
+  "dependency-update-workflow",
+  "product-versioning",
+  "release-checklist",
+  "docker-release-overview",
+  "publish-test-docker-candidate",
+  "promote-docker-candidate",
+  "docker-backfill-and-cleanup",
+  "companion-release-overview",
+  "build-companion-release",
+  "promote-companion-release",
+  "companion-channels-feeds-and-downloads",
+]
+
+[[sections.website-dev-guide.items]]
+slug = "docs-platform"
+title = "Docs Platform"
+
+[pages.website-dev-guide.docs-platform]
+items = [
+  "website-and-docs-architecture-overview",
+  "docs-content-model-navigation-and-inheritance",
+  "docs-runtime-and-route-resolution",
+]
+
+[[sections.website-dev-guide.items]]
+slug = "authoring-and-tooling"
+title = "Authoring and Tooling"
+
+[pages.website-dev-guide.authoring-and-tooling]
+items = [
+  "docs-authoring-workflow",
+  "docs-style-guide",
+  "docs-shortcodes",
+  "docs-editor-tool",
+  "docs-editor-operation-reference",
+]
+
+[[sections.website-dev-guide.items]]
+slug = "site-systems"
+title = "Site Systems"
+
+[pages.website-dev-guide.site-systems]
+items = [
+  "media-publishing-workflow",
+  "typography-system",
+  "typography-usage-and-boundaries",
+]
+
+[[sections.website-dev-guide.items]]
+slug = "setup-and-operations"
+title = "Setup and Operations"
+
+[pages.website-dev-guide.setup-and-operations]
+items = [
+  "set-up-cloudflare-pages-publishing",
+]
