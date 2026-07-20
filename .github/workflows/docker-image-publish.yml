@@ -189,6 +189,9 @@ jobs:
       with:
         install-dir: ${{ runner.temp }}/bin
 
+    - name: Install Cosign
+      uses: sigstore/cosign-installer@6f9f17788090df1f26f669e9d70d6ae9567deba6 # v4.1.2
+
     - name: Log in to GHCR with crane
       shell: bash
       run: crane auth login ghcr.io -u "${{ github.actor }}" -p "${{ secrets.GITHUB_TOKEN }}"
@@ -197,27 +200,19 @@ jobs:
       shell: bash
       run: oras login ghcr.io -u "${{ github.actor }}" -p "${{ secrets.GITHUB_TOKEN }}"
 
-    - name: Verify candidate artifact metadata
+    - name: Verify signed published candidate
       shell: bash
       run: |
-        bash .github/scripts/verify_candidate_image.sh \
-          --image-ref "${{ needs.prepare.outputs.image_name }}@${{ needs.resolve-candidate-artifact.outputs.candidate_digest }}" \
+        bash .github/scripts/verify_published_candidate_image.sh \
+          --image-name "${{ needs.prepare.outputs.image_name }}" \
+          --metadata-repository "${{ needs.prepare.outputs.signature_repository }}" \
           --expected-description "${{ needs.prepare.outputs.image_description }}" \
           --expected-revision "${{ needs.prepare.outputs.full_sha }}" \
           --expected-version "${{ needs.prepare.outputs.version }}" \
           --expected-source "${{ needs.prepare.outputs.source_url }}" \
           --expected-title "${{ env.IMAGE_TITLE }}" \
-          --expected-build-tag "${{ needs.prepare.outputs.build_tag }}"
-
-    - name: Verify candidate metadata bundle
-      shell: bash
-      run: |
-        bash .github/scripts/verify_candidate_metadata_bundle.sh \
-          --image-ref "${{ needs.prepare.outputs.image_name }}@${{ needs.resolve-candidate-artifact.outputs.candidate_digest }}" \
-          --metadata-repository "${{ needs.prepare.outputs.signature_repository }}" \
-          --expected-version "${{ needs.prepare.outputs.version }}" \
-          --expected-revision "${{ needs.prepare.outputs.full_sha }}" \
-          --expected-source "${{ needs.prepare.outputs.source_url }}"
+          --expected-build-tag "${{ needs.prepare.outputs.build_tag }}" \
+          --github-repository "${{ github.repository }}"
 
     - name: Verify coordinated Companion release
       if: ${{ needs.prepare.outputs.component_scope == 'both' }}

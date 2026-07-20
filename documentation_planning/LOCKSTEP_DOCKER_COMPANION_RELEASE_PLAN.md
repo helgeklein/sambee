@@ -223,7 +223,7 @@ Target: `.github/workflows/docker-image-preview-publish.yml`.
 2. [x] Require workflow dispatch from `main`. Use `github.ref` and `github.sha` as the new-candidate authority; do not compare the dispatch SHA to the later moving branch tip.
 3. [x] Replace the current override branches with the shared preflight action. All jobs check out its resolved canonical source SHA.
 4. [x] Add a repository-wide, non-cancelling GitHub Actions concurrency group named `docker-release-publication`. Keep it for the entire workflow so no two runs can race on the same registry marker or aliases. Use this exact same group in every workflow that mutates Docker candidate or release aliases, including `docker-image-publish.yml` and any backfill/repair workflow.
-5. Move the Docker-specific existence check into the preflight stage and branch by the Docker publication state machine:
+5. [x] Move the Docker-specific existence check into the preflight stage and branch by the Docker publication state machine:
    - absent marker: enter the build path;
    - matching marker: enter the repair-only path and skip all builds;
    - mismatched marker: fail closed with provenance diagnostics.
@@ -232,7 +232,7 @@ Target: `.github/workflows/docker-image-preview-publish.yml`.
 8. [x] Add the custom OCI label and index annotation `org.sambee.build-tag=build-v<version>` alongside the existing version, revision, source, and timestamp fields.
 9. Recheck that `build-v<version>` is absent, then create it as the Docker publication commit point. Verify it resolves to the signed final digest. This tag must never be overwritten.
 10. Only after the candidate marker exists, create or verify the immutable `sha-<source-sha>` tag and move `test` to that same digest. If either operation fails, a repair-only rerun resolves the existing candidate marker, verifies the digest/signature, and completes missing immutable identities or mutable aliases without rebuilding. An existing immutable tag at another digest is corruption and fails closed.
-11. Extend `verify_candidate_image.sh`, or add a focused wrapper such as `verify_published_candidate_image.sh`, so repair and promotion use the same verification contract. It must:
+11. [x] Extend `verify_candidate_image.sh`, or add a focused wrapper such as `verify_published_candidate_image.sh`, so repair and promotion use the same verification contract. It must:
    - resolve `build-v<version>` to its digest;
    - verify `org.opencontainers.image.version`, `org.opencontainers.image.revision`, and `org.sambee.build-tag` on the index and platform manifests;
    - require the revision to equal the canonical Git build-tag target SHA;
