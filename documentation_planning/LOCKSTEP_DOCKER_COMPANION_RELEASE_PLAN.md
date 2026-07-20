@@ -120,6 +120,32 @@ Within that lock, preflight resolves exactly one of these states:
 
 The marker is assigned only while this workflow lock is held. A preflight existence check is advisory; the locked final marker assignment and post-assignment verification establish correctness.
 
+### Companion publication state machine
+
+The Companion publishing workflow must use a non-cancelling, repository-wide GitHub Actions concurrency group named `companion-release-publication`. Hold it for the full workflow so two dispatches cannot both spend time building the same version and then race to create `companion-v<version>`. It does not serialize Docker builds or nonpublishing Companion verification builds.
+
+Within that lock, preflight resolves exactly one of these states:
+
+| State | Required workflow path |
+|---|---|
+| No `companion-v<version>` release exists | Build path: run the selected matrix, validate its manifest, then create and complete one draft release. |
+| Matching incomplete draft exists, has no valid completion marker, and records the same original workflow run ID and manifest digest | Finalizer-recovery path: skip all matrix builds, retrieve retained artifacts from that original run, and resume only missing byte-identical uploads. |
+| Matching draft has a valid completion marker, or a published release has the same verified provenance | Complete path: skip all builds and uploads; report the existing immutable release for review or promotion. |
+| Existing release metadata, source SHA, run ID, or manifest conflicts | Fail closed. Do not rebuild, upload, delete, or replace assets; use a new `Z` version for replacement artifacts. |
+
+The finalizer must query the external release repository again immediately before creating or resuming a draft. The release body and mandatory provenance manifest must record the originating workflow run ID and run attempt so recovery can prove which retained artifacts are authoritative. Upload a small completion-marker JSON asset last; it contains the release tag, manifest digest, provenance digest, and expected asset-set digest. A draft is complete only when that marker and every referenced asset verify. A published release without a valid completion marker is conflicting state and fails closed.
+
+### Concurrency queue behavior
+
+GitHub Actions concurrency is a mutual-exclusion mechanism, not a FIFO work queue. A concurrency group can have one running and one pending run; a newly queued run can replace an older pending run even when `cancel-in-progress` is `false`.
+
+Operational rules:
+
+- Do not dispatch another workflow using `docker-release-publication` or `companion-release-publication` while one in that group is running or pending.
+- A superseded pending run has published nothing and is safe to dispatch again.
+- Every preflight summary must show the concurrency group name, current run URL, canonical version/tag, selected source SHA, and chosen build/repair/complete state.
+- Documentation must tell operators to inspect the Actions run list before dispatch and to rerun a superseded pending operation rather than changing the version solely because it never started.
+
 ### Retry and recovery policy
 
 | Situation | Required behavior |
@@ -132,6 +158,7 @@ The marker is assigned only while this workflow lock is held. A preflight existe
 | Companion matrix fails before finalization | Retry matrix build jobs from the same canonical source/version; no external Companion release exists. |
 | Companion draft exists but finalization was interrupted | Rerun only the finalizer. It validates an artifact manifest and uploads only absent, byte-identical assets; any existing asset with a mismatched checksum fails and requires a new `Z` version. |
 | Completed Companion draft or published release exists | Never rebuild or replace its assets. Review/publish/promote the immutable release, or use the next `Z` version for replacement assets. |
+| Publishing run was superseded while pending in a concurrency group | Confirm it never started or published state, then dispatch it again with the same canonical candidate. |
 
 This permits retries for infrastructure failures before publication while preserving immutable published artifacts. A gap in build sequence numbers is valid and preferable to overwriting an artifact identity.
 
@@ -179,7 +206,7 @@ Target: `.github/workflows/docker-image-preview-publish.yml`.
 1. Remove the `source_ref` and `publish_version_override` dispatch inputs. Add an optional `candidate_version` selector whose only valid values are existing canonical candidate versions.
 2. Require workflow dispatch from `main`. Use `github.ref` and `github.sha` as the new-candidate authority; do not compare the dispatch SHA to the later moving branch tip.
 3. Replace the current override branches with the shared preflight action. All jobs check out its resolved canonical source SHA.
-4. Add a repository-wide, non-cancelling GitHub Actions concurrency group named `docker-release-publication`. Keep it for the entire workflow so no two runs can race on the same registry marker or aliases.
+4. Add a repository-wide, non-cancelling GitHub Actions concurrency group named `docker-release-publication`. Keep it for the entire workflow so no two runs can race on the same registry marker or aliases. Use this exact same group in every workflow that mutates Docker candidate or release aliases, including `docker-image-publish.yml` and any backfill/repair workflow.
 5. Move the Docker-specific existence check into the preflight stage and branch by the Docker publication state machine:
    - absent marker: enter the build path;
    - matching marker: enter the repair-only path and skip all builds;
@@ -211,24 +238,28 @@ Target: `.github/workflows/build-companion.yml`.
 
 1. Remove `publish_version_override` from `workflow_dispatch` and concurrency naming. Add the same optional existing `candidate_version` selector as Docker.
 2. Add a `main` dispatch guard and use the shared preflight action before matrix construction. Every matrix job checks out the preflight's canonical source SHA.
-3. Remove all temporary `VERSION` rewrite and `sync-version` branches. Require the committed checked-in `VERSION` and `sync-version-check` result.
-4. Retain the existing early GitHub Release uniqueness check, but revise its message:
+3. Replace the existing cancel-in-progress concurrency expression with the repository-wide, non-cancelling `companion-release-publication` group and keep it for the full workflow.
+4. Remove all temporary `VERSION` rewrite and `sync-version` branches. Require the committed checked-in `VERSION` and `sync-version-check` result.
+5. Replace the simple release-absence check with the Companion publication state machine. Preflight outputs `build`, `recover-finalizer`, `complete`, or fails closed; matrix jobs run only for `build`.
+6. Revise release-state messages so they:
    - no longer recommend prerelease suffixes;
    - instruct the maintainer to increment the third build-sequence component in `VERSION`, synchronize, commit on `main`, and rerun.
-5. Replace `tauri-action` release creation in matrix jobs with direct Tauri packaging commands. Matrix jobs sign/package their selected platform, generate updater artifacts, write an artifact manifest containing names and SHA-256 checksums, and upload only private GitHub Actions artifacts.
-6. Add one serialized finalizer job after all selected matrix jobs succeed. It downloads every selected artifact and manifest, verifies the complete installer/updater/signature set and all checksums, then rechecks that the Companion draft is absent.
-7. The finalizer creates the one draft release in `helgeklein/sambee-companion`, uploads the verified manifest as its first asset, then uploads and verifies every other asset by name, size, and checksum. The draft becomes complete only after every manifest entry is present and verified.
-8. Configure the retained Actions artifacts and their retention period so a failed finalizer can be rerun from the **same workflow run**. On that retry, it obtains the expected manifest from the retained workflow artifact, accepts only missing remote assets or remote assets with the same checksum, and rejects conflicts. A new publishing workflow run must fail if any draft already exists and direct the operator to rerun the original finalizer or perform an audited recovery from its retained artifacts; it must never rebuild or replace that version.
-9. Set `releaseCommitish` only to the release repository's required branch if GitHub requires it; do not misrepresent it as the Sambee source. Instead, make the canonical Sambee tag/SHA first-class release metadata and attach a provenance JSON asset.
-10. Include the following in the draft GitHub Release body:
+7. Replace `tauri-action` release creation in matrix jobs with direct Tauri packaging commands. Matrix jobs sign/package their selected platform, generate updater artifacts, write an artifact manifest containing names and SHA-256 checksums, and upload only private GitHub Actions artifacts.
+8. Add one finalizer job after all selected matrix jobs succeed. It downloads every selected artifact and manifest, verifies the complete installer/updater/signature set and all checksums, then rechecks the external release state while the workflow lock is still held.
+9. The finalizer creates the one draft release in `helgeklein/sambee-companion`, uploads the verified manifest as its first asset, then uploads and verifies every other asset by name, size, and checksum. It uploads the completion-marker JSON last. The draft becomes complete only after every manifest entry is present and verified and the marker binds the release tag, manifest digest, provenance digest, and complete expected asset set.
+10. Configure retained Actions artifacts long enough for audited recovery. For `recover-finalizer`, fetch artifacts by the original run ID recorded in the draft provenance, require the retained manifest digest to match, accept only missing remote assets or remote assets with the same checksum, and reject conflicts. A recovery run never rebuilds matrix artifacts.
+11. Set `releaseCommitish` only to the release repository's required branch if GitHub requires it; do not misrepresent it as the Sambee source. Instead, make the canonical Sambee tag/SHA first-class release metadata and attach a provenance JSON asset.
+12. Include the following in the draft GitHub Release body:
    - Sambee version;
    - canonical candidate tag;
    - full Sambee source SHA;
+   - originating GitHub Actions run ID, run attempt, and run URL;
+   - artifact-manifest digest;
    - artifact platform matrix;
    - statement that the release is immutable once created.
-11. Keep the draft-release model and existing platform selection, unless a focused review concludes that partial platform release artifacts should be disallowed for the normal release path. A selected partial-platform set must be explicit in the manifest and release body.
-12. Add an Actions summary listing version, canonical tag, source SHA, Companion release URL/tag, artifact manifest digest, and built platforms.
-13. Confirm the feed promotion script uses the release tag's normalized version unchanged and that it will correctly order numeric `Z` updates through Tauri's standard version comparison.
+13. Keep the draft-release model and existing platform selection, unless a focused review concludes that partial platform release artifacts should be disallowed for the normal release path. A selected partial-platform set must be explicit in the manifest and release body.
+14. Add an Actions summary listing concurrency group, workflow state, version, canonical tag, source SHA, Companion release URL/tag, originating/recovery run IDs, artifact manifest digest, and built platforms.
+15. Confirm the feed promotion script uses the release tag's normalized version unchanged and that it will correctly order numeric `Z` updates through Tauri's standard version comparison.
 
 ### Phase 4: Nonpublishing Companion CI workflow
 
@@ -252,14 +283,22 @@ Target: `.github/workflows/build-companion.yml`.
    - resolve the Companion release's recorded Sambee source SHA;
    - resolve `candidate-v<version>`;
    - fail if they differ or release metadata is missing.
-3. Review the Docker promotion workflow and make it call the shared published-candidate verifier. It must resolve the candidate marker itself, validate digest labels/annotations, canonical source SHA, metadata bundle, and Cosign signature before it moves a Docker alias.
+3. Update `.github/workflows/docker-image-publish.yml` explicitly:
+   - join the same non-cancelling `docker-release-publication` concurrency group as candidate publication;
+   - derive the plain version and canonical `candidate-v<version>` marker from the published Sambee release tag;
+   - resolve the candidate marker first instead of resolving `sha-<commit>`;
+   - run the shared published-candidate verifier and use only its output digest for stable, beta, major/minor, and exact-version aliases;
+   - require the candidate revision to equal both the canonical Git tag target and the Sambee release tag target;
+   - treat `sha-<commit>` as a consistency/repair alias rather than the candidate source of truth; and
+   - fail with an instruction to complete/retry candidate repair before rerunning release publication when required aliases are missing.
 4. For an operation that promotes both components to stable or updates Sambee's public Companion metadata as part of a coordinated release, add an optional validation step requiring:
    - same version;
    - same canonical candidate tag;
    - same full source SHA;
    - both immutable component artifacts exist.
 5. Keep individual channel promotion possible. The system must not force a Docker build when only Companion changed, or vice versa.
-6. Ensure all promotion failures leave immutable artifacts untouched and explain which pointer/feed was not updated.
+6. Put every Docker workflow that mutates candidate, source-SHA, version, beta, stable, or test tags into `docker-release-publication`. This includes release publishing and any backfill/repair workflow; read-only validation and cleanup workflows do not need the lock.
+7. Ensure all promotion failures leave immutable artifacts untouched and explain which pointer/feed was not updated.
 
 ### Phase 6: Documentation update
 
@@ -273,13 +312,15 @@ Update these pages as one coherent documentation change:
 | `website/content/docs/0.7/developer-guide/release-and-versioning/release-checklist/index.md` | Replace the separate loosely coupled release steps with the end-to-end candidate loop: increment `Z`, sync and commit on `main`, build only affected component(s), test, repeat as needed, then promote the exact approved artifacts. State that no post-approval rebuild occurs. |
 | `website/content/docs/0.7/developer-guide/release-and-versioning/docker-release-overview/index.md` | Explain the Docker candidate identity: canonical candidate tag, immutable source SHA/digest/version marker, valid run-scoped staging tags, shared provenance verification, and mutable channel aliases. |
 | `website/content/docs/0.7/developer-guide/release-and-versioning/publish-test-docker-candidate/index.md` | Remove source/version override instructions. Document `main` dispatch, the optional existing-candidate selector, canonical-tag reservation, repository-wide Docker publication lock, valid staging-tag lifecycle, late Docker marker commit point, automatic repair-only path, retry-before-marker rule, and exact test-tag behavior. |
-| `website/content/docs/0.7/developer-guide/release-and-versioning/promote-docker-candidate/index.md` | Explain pointer-only promotion and source/version verification before promotion. |
+| `website/content/docs/0.7/developer-guide/release-and-versioning/promote-docker-candidate/index.md` | Explain pointer-only promotion, `candidate-v<version>` as the source of truth, shared source/version/signature verification, the repository-wide mutation lock, and release-workflow retry behavior. |
 | `website/content/docs/0.7/developer-guide/release-and-versioning/companion-release-overview/index.md` | Present the separate release repository as immutable artifact/feed infrastructure while defining lockstep version/source identity, independent component builds, and main-only publication. |
 | `website/content/docs/0.7/developer-guide/release-and-versioning/build-companion-release/index.md` | Remove `publish_version_override`, prerelease-candidate guidance, and arbitrary source assumptions. Document `main` dispatch, optional existing-candidate selection, canonical candidate tag, matrix-to-finalizer publication, manifest-checked draft repair, release metadata, and platform selection. |
 | `website/content/docs/0.7/developer-guide/release-and-versioning/promote-companion-release/index.md` | Document pointer-only promotion, required release source identity, independent channel/feed targets, and coordinated-release checks where applicable. |
 | `website/content/docs/0.7/developer-guide/release-and-versioning/companion-channels-feeds-and-downloads/index.md` | Clarify that feeds expose immutable versioned artifacts, never replacements under equal version, and that `test`/`beta`/`stable` select visibility rather than create different binaries. |
 | `website/content/docs/0.7/developer-guide/release-and-versioning/_index.md` | Update the guide navigation/summary to describe the main-only candidate and promotion model. |
 | Relevant CI/developer documentation outside this directory | Add the nonpublishing Companion PR build path, including its unsigned-artifact and no-secrets constraints. |
+
+Document GitHub Actions concurrency behavior on the Docker and Companion build pages: only one pending run is retained per group, operators must avoid stacking publishing dispatches, and a superseded pending run is safe to dispatch again because it never reached a publication step.
 
 Also update workflow input descriptions, summaries, and failure text so the GitHub Actions UI matches the written process. Remove all documentation that recommends rebuilding a release under the same version or using `-beta`, `-rc`, `-test`, or `+build` suffixes for normal publishable candidates.
 
@@ -295,8 +336,8 @@ Add focused automated coverage before enabling the changed publishing workflows:
    - mismatched tag rejection;
    - concurrent annotated-tag push collision handling;
    - remote access failures and actionable diagnostics.
-2. Unit-test Docker publication state selection, repository-wide lock behavior, marker assignment, valid staging-tag lifecycle, repair-only alias behavior, and the shared published-candidate verifier, using mocked registry/API responses where feasible.
-3. Add tests for the Companion artifact manifest and idempotent finalizer: complete upload, interrupted upload retry, missing asset, checksum mismatch, and existing draft/published release handling. Retain and extend tests for `check_companion_release_tag_absent.py` to cover draft and published releases, pagination, authorization failures, and the revised message.
+2. Unit-test Docker publication state selection, the shared mutation lock across candidate/release/backfill workflows, marker assignment, valid staging-tag lifecycle, repair-only alias behavior, and the shared published-candidate verifier, using mocked registry/API responses where feasible.
+3. Add tests for the Companion publication state machine, cross-run lock, artifact manifest, and idempotent finalizer: concurrent dispatches, complete upload, interrupted upload recovery by original run ID, missing retained artifacts, missing asset, checksum mismatch, conflicting provenance, and complete draft/published release handling.
 4. Add workflow-level static checks that ensure release workflows do not expose version/source override inputs and that their preflight job runs before matrix build jobs.
 5. Test the nonpublishing Companion workflow in a same-repository pull request:
    - it produces an Actions artifact;
@@ -307,9 +348,11 @@ Add focused automated coverage before enabling the changed publishing workflows:
    - first Docker build creates the candidate tag and Docker marker only after a signed final digest exists;
    - a second Docker dispatch for the same matching version takes the repair-only path, performs no build, and verifies or restores aliases;
    - a conflicting marker provenance fails before build or alias mutation;
+   - Docker release publication resolves `candidate-v<version>`, not `sha-<commit>`, and blocks behind the same mutation lock;
    - Companion build from the same canonical candidate succeeds once after `main` advances;
    - a retry after a deliberately pre-marker Docker failure succeeds without overwriting a source-SHA alias, and its `staging-*` tags are cleaned up;
    - a partially uploaded Companion draft finalizes idempotently from the same manifest;
+   - two Companion dispatches cannot build or finalize concurrently, and a superseded pending dispatch can be rerun safely;
    - a mismatched commit with the same `VERSION` fails;
    - promotion moves only pointers/feeds and does not rebuild.
 7. Validate Tauri behavior with two successive versions on the test channel, confirming that the later `Z` value is offered and installed as an update.
@@ -345,7 +388,9 @@ The change is complete when all of the following are true:
 - A pre-marker Docker failure and a pre-finalizer Companion matrix failure can be retried with the same version and source commit.
 - Docker stages images only under unique run-scoped references until the signed candidate marker is committed; source-SHA and channel aliases are never overwritten by a retry.
 - Docker serializes candidate publication repository-wide and validates marker provenance, metadata, and signature before either repair or promotion changes an alias.
-- Companion publishes assets only through one manifest-validated finalizer; an interrupted finalizer can resume only from the original workflow run's retained artifacts and only with byte-identical assets.
+- Docker release publication resolves the immutable candidate marker first and shares the mutation lock with candidate, backfill, and repair operations.
+- Companion serializes publishing workflows repository-wide and publishes assets only through one manifest-validated finalizer; an interrupted finalizer can resume only from the recorded original workflow run's retained artifacts and only with byte-identical assets.
+- Operators understand that GitHub concurrency retains only one pending run per group and safely redispatch superseded runs.
 - The nonpublishing Companion CI package succeeds with a generated updater-artifacts-disabled configuration and no production signing or updater secrets.
 - Promotion moves existing Docker aliases or Companion feed pointers only; it never triggers a build.
 - A coordinated Docker/Companion promotion verifies identical version and source identity.
@@ -360,12 +405,13 @@ Resolve these small operational details during implementation, with the defaults
 |---|---|
 | Docker immutable version marker name | `candidate-v<version>` so it is visibly distinct from mutable stable/beta channel tags. |
 | Docker publication lock | Repository-wide non-cancelling `docker-release-publication` workflow concurrency group. |
+| Companion publication lock | Repository-wide non-cancelling `companion-release-publication` workflow concurrency group. |
 | Docker staging tags | Same-repository tags named `staging-<run-id>-<attempt>-<platform>`, deleted in an `always()` cleanup job and covered by stale-tag retention. |
 | Candidate tag annotation | Annotated Git tag containing version, full SHA, workflow URL/run ID, and creation timestamp; reserve by creating and non-force-pushing that annotated tag, then dereference and compare it after a collision. |
 | Candidate tag creation permission | `contents: write` only in trusted `main` publishing workflows. |
 | Main-only guard | Require `github.ref` to be `refs/heads/main`. A new candidate uses captured `github.sha`; an existing candidate is allowed only when its tag target is an ancestor of current `origin/main`. |
 | Companion PR package platform | Linux x64 unsigned package first; add more platforms only when the cost and test value justify them. |
-| Release metadata format | Human-readable GitHub Release body plus machine-readable OCI labels; add a small JSON provenance asset only if promotion cannot reliably read those fields. |
+| Release metadata format | Human-readable GitHub Release body, mandatory machine-readable Companion provenance and completion-marker JSON assets, and machine-readable OCI labels/annotations for Docker. |
 | Version-marker publication point | After final digest verification, required metadata, and signing complete; before `sha-<source-sha>` and mutable channel aliases. |
 
 ## Non-Goals
