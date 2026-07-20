@@ -20,8 +20,8 @@ This plan deliberately changes the operational meaning of the three numeric vers
 
 | Component | Sambee meaning |
 |---|---|
-| `X` | User-visible product release number. Increment for every normal, non-hotfix release, including backward-compatible releases. |
-| `Y` | Maintenance/hotfix release number within product release `X`. Reset to `0` for a new product release. |
+| `X` | User-visible product release number. Increment for every normal, non-maintenance release, including backward-compatible releases. |
+| `Y` | Maintenance release number within product release `X`. Reset to `0` for a new product release. |
 | `Z` | Immutable build sequence for the current `X.Y` release train. Increment before every new publishable candidate build. |
 
 Examples:
@@ -41,16 +41,16 @@ Examples:
 - `./scripts/sync-version` continues to synchronize frontend and Companion metadata.
 - Every publishable build must use a committed, synchronized version from `main`.
 - Remove all publishing-workflow version overrides. A workflow must never temporarily rewrite `VERSION` to produce a publishable Docker or Companion artifact.
-- An optional candidate selector may choose an existing `candidate-v<version>` tag. It is not a version override: the workflow reads `VERSION` from that canonical commit and rejects a selector that does not name an existing canonical tag.
+- An optional build selector may choose an existing `build-v<version>` tag. It is not a version override: the workflow reads `VERSION` from that canonical commit and rejects a selector that does not name an existing canonical build tag.
 
 ### Publish boundary
 
 - Manually dispatched Docker and Companion **candidate-building** workflows must be dispatched from `refs/heads/main`; reject any other dispatch ref before checking out build dependencies or exposing release credentials.
-- Event-driven and manually dispatched **promotion** workflows do not apply the candidate-build `github.ref == refs/heads/main` guard. They must not build. They instead resolve the requested release/tag, its canonical candidate tag, and the immutable source commit, then require all three identities to agree before moving any pointer.
+- Event-driven and manually dispatched **promotion** workflows do not apply the candidate-build `github.ref == refs/heads/main` guard. They must not build. They instead resolve the requested release/tag, its canonical build tag, and the immutable source commit, then require all three identities to agree before moving any pointer.
 - A new candidate uses the immutable `github.sha` captured at that `main` dispatch. Do not compare it with the moving `origin/main` tip later in the run.
-- A later component build may select only an existing canonical candidate tag. The preflight resolves that tag, verifies its commit is an ancestor of `origin/main`, and checks out that immutable commit for every build job.
-- A caller may not supply an arbitrary branch, pull-request ref, Git tag, or source SHA. The only permitted source selector is an existing, validated `candidate-v<version>` tag.
-- The workflow records the resolved candidate tag and source SHA, rather than a moving branch name, in all artifact metadata and summaries.
+- A later component build may select only an existing canonical build tag. The preflight resolves that tag, verifies its commit is an ancestor of `origin/main`, and checks out that immutable commit for every build job.
+- A caller may not supply an arbitrary branch, pull-request ref, Git tag, or source SHA. The only permitted source selector is an existing, validated `build-v<version>` tag.
+- The workflow records the resolved build tag and source SHA, rather than a moving branch name, in all artifact metadata and summaries.
 
 This removes the conflict between feature-branch testing and squash merges: published artifacts are always built after the squashed change is present on `main`.
 
@@ -68,27 +68,27 @@ This removes the conflict between feature-branch testing and squash merges: publ
 Use one canonical Git tag in the main repository:
 
 ```text
-candidate-v<version> -> immutable main commit used for release artifacts
+build-v<version> -> immutable main commit used for release artifacts
 ```
 
 Examples:
 
 ```text
-candidate-v1.0.4 -> 3d7c0d4...
-candidate-v1.1.0 -> b3ca2eb...
+build-v1.0.4 -> 3d7c0d4...
+build-v1.1.0 -> b3ca2eb...
 ```
 
-The tag is a shared registry, not a component completion marker. Do not add Docker- or Companion-specific candidate tags.
+The tag is a shared registry, not a component completion marker. Do not add Docker- or Companion-specific build tags.
 
 For each publishing workflow preflight:
 
 1. Require `github.ref == refs/heads/main`. This checks the immutable dispatch context and does not depend on whether another commit reaches `main` after dispatch.
-2. Fetch `origin/main` and `refs/tags/candidate-v*` with tags available for ancestry verification.
-3. When the optional `candidate_version` selector is empty, use `github.sha` as the proposed source. Check out that SHA, verify synchronized metadata with `sync-version-check`, and read/validate its plain `X.Y.Z` value from `VERSION`.
-4. When `candidate_version` is supplied, require a strict plain `X.Y.Z` value, resolve exactly `refs/tags/candidate-v<candidate_version>`, dereference the annotated tag to its commit, and require that commit to be an ancestor of `origin/main`. Check out that commit, verify synchronized metadata, and require its `VERSION` to equal `candidate_version`.
-5. For a new candidate, resolve the expected tag `candidate-v<version>`. If absent, create a local **annotated** tag at the checked-out `github.sha` containing the version, full SHA, workflow run URL, and creation time. Push `refs/tags/candidate-v<version>` without force.
+2. Fetch `origin/main` and `refs/tags/build-v*` with tags available for ancestry verification.
+3. When the optional `build_version` selector is empty, use `github.sha` as the proposed source. Check out that SHA, verify synchronized metadata with `sync-version-check`, and read/validate its plain `X.Y.Z` value from `VERSION`.
+4. When `build_version` is supplied, require a strict plain `X.Y.Z` value, resolve exactly `refs/tags/build-v<build_version>`, dereference the annotated tag to its commit, and require that commit to be an ancestor of `origin/main`. Check out that commit, verify synchronized metadata, and require its `VERSION` to equal `build_version`.
+5. For a new candidate, resolve the expected tag `build-v<version>`. If absent, create a local **annotated** tag at the checked-out `github.sha` containing the version, full SHA, workflow run URL, and creation time. Push `refs/tags/build-v<version>` without force.
 6. If that push reports that the remote tag already exists, fetch it again, dereference it to its target commit, and continue only when it targets the same commit. Otherwise fail before expensive work; the version is bound to another source commit.
-7. For an existing selected candidate, do not recreate or move the tag. Output the canonical version, annotated tag name, full source SHA, and source tree SHA.
+7. For an existing selected build, do not recreate or move the tag. Output the canonical version, annotated tag name, full source SHA, and source tree SHA.
 
 The annotated-tag push is the concurrent reservation operation. It replaces the prior lightweight-tag proposal. A check before the push is only an optimization; the push result and post-conflict fetch decide correctness.
 
@@ -100,7 +100,7 @@ Each workflow owns only its component's artifact-existence check after the share
 
 | Workflow | Already-published artifact check | Retry rule |
 |---|---|---|
-| Docker | Check the immutable `candidate-v<version>` marker in GHCR. It is the release-publication commit point and is written only after the final digest is validated, metadata is published, and that digest is signed. | Retry from scratch only while the marker is absent. Any run-scoped staging images are never a candidate artifact. Once the marker exists, perform repair-only alias operations without rebuilding. |
+| Docker | Check the immutable `build-v<version>` marker in GHCR. It is the release-publication commit point and is written only after the final digest is validated, metadata is published, and that digest is signed. | Retry from scratch only while the marker is absent. Any run-scoped staging images are never a candidate artifact. Once the marker exists, perform repair-only alias operations without rebuilding. |
 | Companion | Check for any existing `companion-v<version>` draft or published release. Matrix builds do not contact the release repository. A single finalizer creates and completes the draft after every selected platform build has succeeded. | Retry matrix builds while no draft exists. After draft creation, retry only the original workflow run's idempotent finalizer, which can upload missing assets whose hashes match the retained manifest; it must reject replacement assets. |
 
 The component check must occur in the first preflight job before platform matrices, signing, or packaging work begins. A finalizer must recheck immediately before its one-way commit point to handle concurrent workflows.
@@ -115,7 +115,7 @@ Within that lock, preflight resolves exactly one of these states:
 
 | State | Required workflow path |
 |---|---|
-| `candidate-v<version>` absent | Build path: build staging images, validate, assemble, attest, sign, verify, then create the immutable marker. |
+| `build-v<version>` absent | Build path: build staging images, validate, assemble, attest, sign, verify, then create the immutable marker. |
 | Marker exists and its provenance matches the selected canonical candidate | Repair path: skip every build job, verify the already signed digest, and create or verify only missing immutable source-SHA and mutable channel aliases. |
 | Marker exists but provenance, digest, signature, or metadata does not match | Fail closed. Do not retag, rebuild, or repair it. Investigate the corrupted publication state and use a new `Z` version for a replacement artifact. |
 
@@ -127,7 +127,7 @@ Docker tags have explicit mutation classes:
 
 | Class | Tags | Mutation rule |
 |---|---|---|
-| Immutable identity | `candidate-v<version>`, `sha-<source-sha>`, exact `X.Y.Z` | Create when absent, accept idempotently when already equal, and fail closed when the existing tag resolves to another digest. Never overwrite. |
+| Immutable identity | `build-v<version>`, `sha-<source-sha>`, exact `X.Y.Z` | Create when absent, accept idempotently when already equal, and fail closed when the existing tag resolves to another digest. Never overwrite. |
 | Mutable pointer | `test`, `beta`, `stable`, `X.Y` | Move only from a digest returned by the shared published-candidate verifier and only while holding `docker-release-publication`. |
 
 ### Companion publication state machine
@@ -162,8 +162,8 @@ Operational rules:
 
 | Situation | Required behavior |
 |---|---|
-| Canonical candidate tag absent | Create an annotated tag at the immutable `main` dispatch SHA and proceed. |
-| Canonical tag exists and is selected | Check out its target commit, require it to remain reachable from `main`, and proceed with that source even if `main` has advanced. |
+| Canonical build tag absent | Create an annotated tag at the immutable `main` dispatch SHA and proceed. |
+| Canonical build tag exists and is selected | Check out its target commit, require it to remain reachable from `main`, and proceed with that source even if `main` has advanced. |
 | Canonical tag exists at a different SHA during new-candidate reservation | Fail. Increment `Z`, synchronize metadata, commit on `main`, and build a new candidate. |
 | Docker version marker exists | Do not rebuild or overwrite it. Permit only a repair-only job that verifies the signed digest and completes missing mutable aliases such as `test`. |
 | Docker fails before marker creation | Discard or expire its unique run-scoped staging tags and retry from the same canonical source/version. Never create or overwrite `sha-<source-sha>` before the marker exists. |
@@ -180,15 +180,15 @@ This permits retries for infrastructure failures before publication while preser
 - Docker promotion continues to move `test`, `beta`, and `stable` aliases to the selected immutable digest.
 - Companion promotion continues to rewrite independent Tauri channel feeds and Sambee direct-download metadata in `helgeklein/sambee-companion`.
 - Promotion inputs must identify the immutable artifact version/release, not a branch head.
-- Before promotion, validate that artifact metadata records the same canonical source SHA and candidate tag as `candidate-v<version>`.
-- Every public Sambee release carries a required versioned `sambee-release.json` asset containing at least `schema_version`, `version`, `candidate_tag`, `source_sha`, and `component_scope`. `component_scope` has exactly one value: `docker`, `companion`, or `both`. Release creation uploads and validates this asset while the release is a draft, then publishes the release only after it is complete. Promotion workflows fail if the asset is missing, malformed, or inconsistent with the Git release tag/target.
-- For scope `both`, require both immutable artifacts to exist and pass their shared verifiers for the same version, canonical tag, and source SHA before promoting either component to stable or updating public download metadata.
+- Before promotion, validate that artifact metadata records the same canonical source SHA and build tag as `build-v<version>`.
+- Every public Sambee release carries a required versioned `sambee-release.json` asset containing at least `schema_version`, `version`, `build_tag`, `source_sha`, and `component_scope`. `component_scope` has exactly one value: `docker`, `companion`, or `both`. Release creation uploads and validates this asset while the release is a draft, then publishes the release only after it is complete. Promotion workflows fail if the asset is missing, malformed, or inconsistent with the Git release tag/target.
+- For scope `both`, require both immutable artifacts to exist and pass their shared verifiers for the same version, canonical build tag, and source SHA before promoting either component to stable or updating public download metadata.
 - For scope `docker` or `companion`, permit stable promotion only for the named component and reject attempts to promote the excluded component from that release.
 - Docker-only and Companion-only maintenance candidates remain allowed; only promote the component that was built and approved.
 
 ### Release tag and release notes
 
-- Keep the existing main Sambee Git release/tag creation after the approved candidate is selected, but change its source reference to the canonical `candidate-v<version>` commit.
+- Keep the existing main Sambee Git release/tag creation after the approved candidate is selected, but change its source reference to the canonical `build-v<version>` commit.
 - Since publishing only originates from `main`, that tag always points to a `main` commit and remains compatible with squash-merge history.
 - The Docker and Companion release metadata must state the product version and full source SHA.
 - Continue using one Sambee "What's New" page per public product version. Candidate builds are not separate public release-note entries; the promoted build's final version is the page identity.
@@ -198,7 +198,7 @@ This permits retries for infrastructure failures before publication while preser
 ### Phase 1: Version policy and shared validation
 
 1. Add a small release-candidate helper, preferably `.github/scripts/prepare_release_candidate.py` or a focused shell helper with automated tests.
-2. Give it an optional `--candidate-version` selector, the dispatch SHA/ref, and the remote URL. It must never accept an arbitrary source SHA, ref, or tag.
+2. Give it an optional `--build-version` selector, the dispatch SHA/ref, and the remote URL. It must never accept an arbitrary source SHA, ref, or tag.
 3. Implement plain publishable-version validation:
    - Accept exactly `X.Y.Z`, with non-negative numeric components and no leading zeroes other than `0` itself.
    - Reject `-prerelease` and `+build` suffixes for release-publishing workflows.
@@ -207,9 +207,9 @@ This permits retries for infrastructure failures before publication while preser
 5. Add the helper's tests for absent tags, an existing tag selected after `main` advances, mismatched tags, concurrent annotated-tag creation conflicts, invalid versions, non-`main` dispatch, and remote/API failures.
 6. Add a reusable composite action, for example `.github/actions/release-candidate-preflight/action.yml`, only if it cleanly prevents duplication between Docker and Companion workflows. Its responsibilities should be limited to:
    - verify version synchronization;
-   - select or reserve the canonical source from a `main` dispatch;
+   - select or reserve the canonical build source from a `main` dispatch;
    - verify the selected source is reachable from `main`;
-   - resolve and output the version, candidate tag, full SHA, and tree SHA;
+   - resolve and output the version, build tag, full SHA, and tree SHA;
    - expose outputs needed by the caller.
 7. Keep component-specific published-artifact checks outside the shared action, because Docker registry state and GitHub Release state are different concerns.
 
@@ -217,7 +217,7 @@ This permits retries for infrastructure failures before publication while preser
 
 Target: `.github/workflows/docker-image-preview-publish.yml`.
 
-1. Remove the `source_ref` and `publish_version_override` dispatch inputs. Add an optional `candidate_version` selector whose only valid values are existing canonical candidate versions.
+1. Remove the `source_ref` and `publish_version_override` dispatch inputs. Add an optional `build_version` selector whose only valid values are existing canonical build versions.
 2. Require workflow dispatch from `main`. Use `github.ref` and `github.sha` as the new-candidate authority; do not compare the dispatch SHA to the later moving branch tip.
 3. Replace the current override branches with the shared preflight action. All jobs check out its resolved canonical source SHA.
 4. Add a repository-wide, non-cancelling GitHub Actions concurrency group named `docker-release-publication`. Keep it for the entire workflow so no two runs can race on the same registry marker or aliases. Use this exact same group in every workflow that mutates Docker candidate or release aliases, including `docker-image-publish.yml` and any backfill/repair workflow.
@@ -227,20 +227,20 @@ Target: `.github/workflows/docker-image-preview-publish.yml`.
    - mismatched marker: fail closed with provenance diagnostics.
 6. Replace the early public `sha-<commit>` publication with valid, unique same-repository staging tags in the exact form `staging-<github-run-id>-<github-run-attempt>-<platform>`. Staging references may be used for cross-runner validation and index assembly, but are never version markers, channels, or promotion inputs. An `always()` cleanup job deletes those staging tags with `crane delete` after a terminal outcome; if cleanup fails, it emits an actionable warning and scheduled registry retention removes stale `staging-*` tags after a documented maximum age.
 7. Assemble the final multi-platform index by digest from the validated staging outputs. Verify labels, manifests, SBOM/provenance bundle, and required metadata against that digest. Sign the final digest before any public candidate alias is created.
-8. Add the custom OCI label and index annotation `org.sambee.candidate-tag=candidate-v<version>` alongside the existing version, revision, source, and timestamp fields.
-9. Recheck that `candidate-v<version>` is absent, then create it as the Docker publication commit point. Verify it resolves to the signed final digest. This tag must never be overwritten.
+8. Add the custom OCI label and index annotation `org.sambee.build-tag=build-v<version>` alongside the existing version, revision, source, and timestamp fields.
+9. Recheck that `build-v<version>` is absent, then create it as the Docker publication commit point. Verify it resolves to the signed final digest. This tag must never be overwritten.
 10. Only after the candidate marker exists, create or verify the immutable `sha-<source-sha>` tag and move `test` to that same digest. If either operation fails, a repair-only rerun resolves the existing candidate marker, verifies the digest/signature, and completes missing immutable identities or mutable aliases without rebuilding. An existing immutable tag at another digest is corruption and fails closed.
 11. Extend `verify_candidate_image.sh`, or add a focused wrapper such as `verify_published_candidate_image.sh`, so repair and promotion use the same verification contract. It must:
-   - resolve `candidate-v<version>` to its digest;
-   - verify `org.opencontainers.image.version`, `org.opencontainers.image.revision`, and `org.sambee.candidate-tag` on the index and platform manifests;
-   - require the revision to equal the canonical Git tag target SHA;
+   - resolve `build-v<version>` to its digest;
+   - verify `org.opencontainers.image.version`, `org.opencontainers.image.revision`, and `org.sambee.build-tag` on the index and platform manifests;
+   - require the revision to equal the canonical Git build-tag target SHA;
    - verify the required metadata bundle exists for the digest;
    - verify the Cosign signature using the repository's required identity and issuer policy; and
    - output the verified digest for alias promotion.
 12. Add OCI labels for:
    - product version;
    - resolved source SHA;
-   - canonical candidate tag;
+   - canonical build tag;
    - source repository URL;
    - build timestamp.
 13. Add a workflow summary containing the canonical source tag, SHA, final digest, Docker version marker, staging references, and movable test tag.
@@ -251,7 +251,7 @@ Target: `.github/workflows/docker-image-preview-publish.yml`.
 
 Target: `.github/workflows/build-companion.yml`.
 
-1. Remove `publish_version_override` from `workflow_dispatch` and concurrency naming. Add the same optional existing `candidate_version` selector as Docker.
+1. Remove `publish_version_override` from `workflow_dispatch` and concurrency naming. Add the same optional existing `build_version` selector as Docker.
 2. Add a `main` dispatch guard and use the shared preflight action before matrix construction. Every matrix job checks out the preflight's canonical source SHA.
 3. Replace the existing cancel-in-progress concurrency expression with the repository-wide, non-cancelling `companion-release-publication` group and keep it for the full workflow.
 4. Remove all temporary `VERSION` rewrite and `sync-version` branches. Require the committed checked-in `VERSION` and `sync-version-check` result.
@@ -266,7 +266,7 @@ Target: `.github/workflows/build-companion.yml`.
 11. Set `releaseCommitish` only to the release repository's required branch if GitHub requires it; do not misrepresent it as the Sambee source. Instead, make the canonical Sambee tag/SHA first-class release metadata and attach a provenance JSON asset.
 12. Include the following in the draft GitHub Release body:
    - Sambee version;
-   - canonical candidate tag;
+   - canonical build tag;
    - full Sambee source SHA;
    - originating GitHub Actions run ID, run attempt, and run URL;
    - exact retained GitHub artifact IDs and digests;
@@ -274,9 +274,9 @@ Target: `.github/workflows/build-companion.yml`.
    - artifact platform matrix;
    - statement that the release is immutable once created.
 13. Keep the draft-release model and existing platform selection, unless a focused review concludes that partial platform release artifacts should be disallowed for the normal release path. A selected partial-platform set must be explicit in the manifest and release body.
-14. Add an Actions summary listing concurrency group, workflow state, version, canonical tag, source SHA, Companion release URL/tag, originating/recovery run IDs, artifact manifest digest, and built platforms.
+14. Add an Actions summary listing concurrency group, workflow state, version, canonical build tag, source SHA, Companion release URL/tag, originating/recovery run IDs, artifact manifest digest, and built platforms.
 15. Confirm the feed promotion script uses the release tag's normalized version unchanged and that it will correctly order numeric `Z` updates through Tauri's standard version comparison.
-16. Add a shared Companion release verifier used by finalization and every promotion path. It verifies the provenance and completion-marker schemas, exact manifested asset names/sizes/SHA-256 values, expected platform/signature pairs, candidate tag, source SHA, version, and absence of unmanifested assets unless an explicit schema rule allows them.
+16. Add a shared Companion release verifier used by finalization and every promotion path. It verifies the provenance and completion-marker schemas, exact manifested asset names/sizes/SHA-256 values, expected platform/signature pairs, build tag, source SHA, version, and absence of unmanifested assets unless an explicit schema rule allows them.
 
 ### Phase 4: Nonpublishing Companion CI workflow
 
@@ -296,17 +296,17 @@ Target: `.github/workflows/build-companion.yml`.
 ### Phase 5: Promotion and cross-artifact consistency
 
 1. Review `.github/workflows/promote-companion-release.yml` and `.github/scripts/promote_companion_release.py`.
-2. Require Companion promotion to call the shared Companion release verifier. It must validate the completion marker and every manifested asset, then resolve `candidate-v<version>` and fail if the verified source SHA differs from its target.
+2. Require Companion promotion to call the shared Companion release verifier. It must validate the completion marker and every manifested asset, then resolve `build-v<version>` and fail if the verified source SHA differs from its target.
 3. Update `.github/workflows/docker-image-publish.yml` explicitly:
    - join the same non-cancelling `docker-release-publication` concurrency group as candidate publication;
    - retain its `release: published` trigger and do not apply the manual candidate-build `github.ref == refs/heads/main` guard;
-   - derive the plain version and canonical `candidate-v<version>` marker from the published Sambee release tag;
-   - resolve the candidate marker first instead of resolving `sha-<commit>`;
+   - derive the plain version and canonical `build-v<version>` marker from the published Sambee release tag;
+   - resolve the build marker first instead of resolving `sha-<commit>`;
    - run the shared published-candidate verifier and use only its output digest for mutable stable, beta, and major/minor aliases and the immutable exact-version identity;
    - require the candidate revision to equal both the canonical Git tag target and the Sambee release tag target;
    - treat `sha-<commit>` as a consistency/repair alias rather than the candidate source of truth; and
    - fail with an instruction to complete/retry candidate repair before rerunning release publication when required aliases are missing.
-4. Add the required versioned `sambee-release.json` asset to Sambee release creation. It records schema version, version, canonical candidate tag, full source SHA, and component scope (`docker`, `companion`, or `both`) before the draft is published. The Docker release-event workflow reads the asset from its event release; Companion stable/Sambee-download promotion resolves the Sambee release for the Companion version and reads the same asset. Scope `both` requires both shared verifiers to succeed for the same identity before either stable pointer moves; single-component scopes reject promotion of the excluded component. A Docker release-event workflow for `companion` scope exits successfully without mutating Docker tags.
+4. Add the required versioned `sambee-release.json` asset to Sambee release creation. It records schema version, version, canonical build tag, full source SHA, and component scope (`docker`, `companion`, or `both`) before the draft is published. The Docker release-event workflow reads the asset from its event release; Companion stable/Sambee-download promotion resolves the Sambee release for the Companion version and reads the same asset. Scope `both` requires both shared verifiers to succeed for the same identity before either stable pointer moves; single-component scopes reject promotion of the excluded component. A Docker release-event workflow for `companion` scope exits successfully without mutating Docker tags.
 5. Keep individual channel promotion possible. The system must not force a Docker build when only Companion changed, or vice versa.
 6. Put every Docker workflow that creates an immutable identity or moves a mutable pointer into `docker-release-publication`. This includes release publishing and any backfill/repair workflow; read-only validation and cleanup workflows do not need the lock. Update the tag helper so immutable destinations are create-or-verify and mutable destinations are verified moves.
 7. Ensure all promotion failures leave immutable artifacts untouched and explain which pointer/feed was not updated.
@@ -323,7 +323,7 @@ Update these pages as one coherent documentation change:
 | `website/content/docs/0.7/developer-guide/release-and-versioning/release-checklist/index.md` | Replace the separate loosely coupled release steps with the end-to-end candidate loop: increment `Z`, sync and commit on `main`, build only affected component(s), test, repeat as needed, then promote the exact approved artifacts. State that no post-approval rebuild occurs. |
 | `website/content/docs/0.7/developer-guide/release-and-versioning/docker-release-overview/index.md` | Explain the Docker candidate identity: canonical candidate tag, immutable source SHA/digest/version marker, valid run-scoped staging tags, shared provenance verification, and mutable channel aliases. |
 | `website/content/docs/0.7/developer-guide/release-and-versioning/publish-test-docker-candidate/index.md` | Remove source/version override instructions. Document `main` dispatch, the optional existing-candidate selector, canonical-tag reservation, repository-wide Docker publication lock, valid staging-tag lifecycle, late Docker marker commit point, automatic repair-only path, retry-before-marker rule, and exact test-tag behavior. |
-| `website/content/docs/0.7/developer-guide/release-and-versioning/promote-docker-candidate/index.md` | Explain pointer-only promotion, `candidate-v<version>` as the source of truth, shared source/version/signature verification, the repository-wide mutation lock, and release-workflow retry behavior. |
+| `website/content/docs/0.7/developer-guide/release-and-versioning/promote-docker-candidate/index.md` | Explain pointer-only promotion, `build-v<version>` as the source of truth, shared source/version/signature verification, the repository-wide mutation lock, and release-workflow retry behavior. |
 | `website/content/docs/0.7/developer-guide/release-and-versioning/companion-release-overview/index.md` | Present the separate release repository as immutable artifact/feed infrastructure while defining lockstep version/source identity, independent component builds, and main-only publication. |
 | `website/content/docs/0.7/developer-guide/release-and-versioning/build-companion-release/index.md` | Remove `publish_version_override`, prerelease-candidate guidance, and arbitrary source assumptions. Document `main` dispatch, optional existing-candidate selection, canonical candidate tag, matrix-to-finalizer publication, manifest-checked draft repair, release metadata, and platform selection. |
 | `website/content/docs/0.7/developer-guide/release-and-versioning/promote-companion-release/index.md` | Document pointer-only promotion, required release source identity, independent channel/feed targets, and coordinated-release checks where applicable. |
@@ -361,7 +361,7 @@ Add focused automated coverage before enabling the changed publishing workflows:
    - first Docker build creates the candidate tag and Docker marker only after a signed final digest exists;
    - a second Docker dispatch for the same matching version takes the repair-only path, performs no build, and verifies or restores aliases;
    - a conflicting marker provenance fails before build or alias mutation;
-   - Docker release publication resolves `candidate-v<version>`, not `sha-<commit>`, and blocks behind the same mutation lock;
+   - Docker release publication resolves `build-v<version>`, not `sha-<commit>`, and blocks behind the same mutation lock;
    - a release-triggered Docker promotion validates release/candidate/source identity without applying the manual-dispatch main-ref guard;
    - existing immutable Docker tags at the same digest are accepted and at another digest fail closed;
    - matching pre-marker metadata/signatures are reused and conflicting residue fails closed;
@@ -401,7 +401,7 @@ The change is complete when all of the following are true:
 - New candidates have no version or source override. Existing candidates can only be selected by a validated canonical candidate version.
 - A Docker or Companion release workflow cannot publish from a feature branch, pull-request ref, arbitrary Git tag, or arbitrary SHA.
 - A feature-branch Companion CI build works without creating public/release artifacts or consuming a candidate version.
-- The first release workflow for `X.Y.Z` atomically binds `candidate-vX.Y.Z` to a `main` commit.
+- The first release workflow for `X.Y.Z` atomically binds `build-vX.Y.Z` to a `main` commit.
 - A later workflow for the other component can select and reuse that tag after `main` advances, only when it resolves to a commit reachable from `main`.
 - Reusing `X.Y.Z` from another commit fails before expensive work begins.
 - Docker cannot publish a second immutable version marker for the same version.
@@ -428,16 +428,16 @@ Resolve these small operational details during implementation, with the defaults
 
 | Decision | Default |
 |---|---|
-| Docker immutable version marker name | `candidate-v<version>` so it is visibly distinct from mutable stable/beta channel tags. |
+| Docker immutable version marker name | `build-v<version>` so it is visibly distinct from mutable stable/beta channel tags. |
 | Docker publication lock | Repository-wide non-cancelling `docker-release-publication` workflow concurrency group. |
 | Companion publication lock | Repository-wide non-cancelling `companion-release-publication` workflow concurrency group. |
 | Docker staging tags | Same-repository tags named `staging-<run-id>-<attempt>-<platform>`, deleted in an `always()` cleanup job and covered by stale-tag retention. |
-| Candidate tag annotation | Annotated Git tag containing version, full SHA, workflow URL/run ID, and creation timestamp; reserve by creating and non-force-pushing that annotated tag, then dereference and compare it after a collision. |
+| Build tag annotation | Annotated Git tag containing version, full SHA, workflow URL/run ID, and creation timestamp; reserve by creating and non-force-pushing that annotated tag, then dereference and compare it after a collision. |
 | Candidate tag creation permission | `contents: write` only in trusted `main` publishing workflows. |
 | Candidate-build main-only guard | Require manually dispatched candidate builds to have `github.ref == refs/heads/main`. A new candidate uses captured `github.sha`; an existing candidate is allowed only when its tag target is an ancestor of current `origin/main`. Release/promotion events validate immutable release metadata instead. |
 | Companion PR package platform | Linux x64 unsigned package first; add more platforms only when the cost and test value justify them. |
 | Release metadata format | Human-readable GitHub Release body, mandatory machine-readable Companion provenance and completion-marker JSON assets, and machine-readable OCI labels/annotations for Docker. |
-| Public release metadata and component scope | Required versioned `sambee-release.json` release asset with version, candidate tag, source SHA, and `docker`/`companion`/`both` scope; promotion fails when absent, malformed, or inconsistent. |
+| Public release metadata and component scope | Required versioned `sambee-release.json` release asset with version, build tag, source SHA, and `docker`/`companion`/`both` scope; promotion fails when absent, malformed, or inconsistent. |
 | Docker tag mutation classes | Immutable create-or-verify: candidate, source SHA, exact version. Mutable verified pointers: test, beta, stable, major/minor. |
 | Companion retained artifact identity | Record GitHub artifact ID, digest, run ID, run attempt, platform, and target; recovery downloads exact IDs only. |
 | Version-marker publication point | After final digest verification, required metadata, and signing complete; before `sha-<source-sha>` and mutable channel aliases. |
