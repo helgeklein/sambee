@@ -16,11 +16,19 @@ from typing import Any, NoReturn
 
 PROVENANCE_ASSET = "companion-release-provenance.json"
 COMPLETION_ASSET = "companion-completion-marker.json"
+NEW_CANDIDATE_INSTRUCTIONS = (
+    "Increment the third build-sequence component in VERSION, run ./scripts/sync-version, "
+    "commit the synchronized changes on main, and rerun."
+)
 
 
 def fail(message: str) -> NoReturn:
     print(f"Error: {message}", file=sys.stderr)
     raise SystemExit(1)
+
+
+def fail_new_candidate(message: str) -> NoReturn:
+    fail(f"{message} {NEW_CANDIDATE_INSTRUCTIONS}")
 
 
 class GitHubApiError(Exception):
@@ -112,9 +120,9 @@ def require_matching_identity(
     }
     for key, value in expected.items():
         if provenance.get(key) != value:
-            fail(
+            fail_new_candidate(
                 f"Existing Companion release provenance {key} does not match the selected "
-                "canonical candidate. Increment Z and publish a new candidate."
+                "canonical candidate."
             )
 
 
@@ -126,9 +134,8 @@ def resolve_state(
 
     provenance_asset = find_asset(release, PROVENANCE_ASSET)
     if provenance_asset is None:
-        fail(
+        fail_new_candidate(
             "Existing Companion release has no provenance asset and cannot be safely resumed. "
-            "Increment Z and publish a new candidate."
         )
     provenance_bytes = request_asset_bytes(provenance_asset, token)
     try:
@@ -169,9 +176,8 @@ def resolve_state(
             fail("Existing Companion completion marker has an invalid asset-set digest")
         return "complete"
     if not release.get("draft", False):
-        fail(
+        fail_new_candidate(
             "Published Companion release has no completion marker and is conflicting state. "
-            "Increment Z and publish a new candidate."
         )
 
     workflow_run = provenance.get("workflow_run")
@@ -185,9 +191,8 @@ def resolve_state(
         or not platforms
         or not isinstance(provenance.get("artifact_manifest_sha256"), str)
     ):
-        fail(
+        fail_new_candidate(
             "Existing Companion draft does not record recovery artifact identities. "
-            "Increment Z and publish a new candidate."
         )
     if not isinstance(workflow_run.get("id"), int) or not isinstance(
         workflow_run.get("attempt"), int

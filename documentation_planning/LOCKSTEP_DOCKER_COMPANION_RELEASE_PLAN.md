@@ -227,11 +227,11 @@ Target: `.github/workflows/docker-image-preview-publish.yml`.
    - absent marker: enter the build path;
    - matching marker: enter the repair-only path and skip all builds;
    - mismatched marker: fail closed with provenance diagnostics.
-6. 🚧 Replace the early public `sha-<commit>` publication with valid, unique same-repository staging tags in the exact form `staging-<github-run-id>-<github-run-attempt>-<platform>`. Staging references may be used for cross-runner validation and index assembly, but are never version markers, channels, or promotion inputs. An `always()` cleanup job deletes those staging tags with `crane delete` after a terminal outcome; if cleanup fails, it emits an actionable warning and scheduled registry retention removes stale `staging-*` tags after a documented maximum age.
-7. 🚧 Assemble the final multi-platform index by digest from the validated staging outputs. Verify labels, manifests, SBOM/provenance bundle, and required metadata against that digest. Sign the final digest before any public candidate alias is created.
+6. ✅ Replace the early public `sha-<commit>` publication with valid, unique same-repository staging tags in the exact form `staging-<github-run-id>-<github-run-attempt>-<platform>`. Staging references may be used for cross-runner validation and index assembly, but are never version markers, channels, or promotion inputs. An `always()` cleanup job deletes those staging tags with `crane delete` after a terminal outcome; if cleanup fails, it emits an actionable warning and scheduled registry retention removes stale `staging-*` tags after a documented maximum age.
+7. ✅ Assemble the final multi-platform index by digest from the validated staging outputs. Verify labels, manifests, SBOM/provenance bundle, and required metadata against that digest. Sign the final digest before any public candidate alias is created.
 8. ✅ Add the custom OCI label and index annotation `org.sambee.build-tag=build-v<version>` alongside the existing version, revision, source, and timestamp fields.
-9. 🚧 Recheck that `build-v<version>` is absent, then create it as the Docker publication commit point. Verify it resolves to the signed final digest. This tag must never be overwritten.
-10. 🚧 Only after the candidate marker exists, create or verify the immutable `sha-<source-sha>` tag and move `test` to that same digest. If either operation fails, a repair-only rerun resolves the existing candidate marker, verifies the digest/signature, and completes missing immutable identities or mutable aliases without rebuilding. An existing immutable tag at another digest is corruption and fails closed.
+9. ✅ Recheck that `build-v<version>` is absent, then create it as the Docker publication commit point. Verify it resolves to the signed final digest. This tag must never be overwritten.
+10. ✅ Only after the candidate marker exists, create or verify the immutable `sha-<source-sha>` tag and move `test` to that same digest. If either operation fails, a repair-only rerun resolves the existing candidate marker, verifies the digest/signature, and completes missing immutable identities or mutable aliases without rebuilding. An existing immutable tag at another digest is corruption and fails closed.
 11. ✅ Extend `verify_candidate_image.sh`, or add a focused wrapper such as `verify_published_candidate_image.sh`, so repair and promotion use the same verification contract. It must:
    - resolve `build-v<version>` to its digest;
    - verify `org.opencontainers.image.version`, `org.opencontainers.image.revision`, and `org.sambee.build-tag` on the index and platform manifests;
@@ -245,9 +245,9 @@ Target: `.github/workflows/docker-image-preview-publish.yml`.
    - canonical build tag;
    - source repository URL;
    - build timestamp.
-13. 🚧 Add a workflow summary containing the canonical source tag, SHA, final digest, Docker version marker, staging references, and movable test tag.
-14. 🚧 Update Docker promotion and repair scripts to call the shared published-candidate verifier before copying any alias. Promotion must consume the verifier's resolved digest, never a caller-supplied unchecked digest.
-15. 🚧 Make pre-marker ancillary publication idempotent. Before publishing a digest-keyed metadata bundle or signature, detect existing state, verify it completely, reuse it only when identical and valid, and fail closed on conflicts. Add documented cleanup/retention for orphaned pre-marker digest artifacts.
+13. ✅ Add a workflow summary containing the canonical source tag, SHA, final digest, Docker version marker, staging references, and movable test tag.
+14. ✅ Update Docker promotion and repair scripts to call the shared published-candidate verifier before copying any alias. Promotion must consume the verifier's resolved digest, never a caller-supplied unchecked digest.
+15. ✅ Make pre-marker ancillary publication idempotent. Before publishing a digest-keyed metadata bundle or signature, detect existing state, verify it completely, reuse it only when identical and valid, and fail closed on conflicts. Add documented cleanup/retention for orphaned pre-marker digest artifacts.
 
 ### Phase 3: Companion publishing workflow
 
@@ -258,7 +258,7 @@ Target: `.github/workflows/build-companion.yml`.
 3. ✅ Replace the existing cancel-in-progress concurrency expression with the repository-wide, non-cancelling `companion-release-publication` group and keep it for the full workflow.
 4. ✅ Remove all temporary `VERSION` rewrite and `sync-version` branches. Require the committed checked-in `VERSION` and `sync-version-check` result.
 5. ✅ Replace the simple release-absence check with the Companion publication state machine. Preflight outputs `build`, `recover-finalizer`, `complete`, or fails closed; matrix jobs run only for `build`.
-6. 🚧 Revise release-state messages so they:
+6. ✅ Revise release-state messages so they:
    - no longer recommend prerelease suffixes;
    - instruct the maintainer to increment the third build-sequence component in `VERSION`, synchronize, commit on `main`, and rerun.
 7. ✅ Replace `tauri-action` release creation in matrix jobs with direct Tauri packaging commands. Matrix jobs sign/package their selected platform, generate updater artifacts, write an artifact manifest containing names and SHA-256 checksums, and upload only private GitHub Actions artifacts. Artifact names include workflow run ID, run attempt, platform, and target; retries never overwrite an artifact from an earlier attempt.
@@ -299,7 +299,7 @@ Target: `.github/workflows/build-companion.yml`.
 
 1. ✅ Review `.github/workflows/promote-companion-release.yml` and `.github/scripts/promote_companion_release.py`.
 2. ✅ Require Companion promotion to call the shared Companion release verifier. It must validate the completion marker and every manifested asset, then resolve `build-v<version>` and fail if the verified source SHA differs from its target.
-3. 🚧 Update `.github/workflows/docker-image-publish.yml` explicitly:
+3. ✅ Update `.github/workflows/docker-image-publish.yml` explicitly:
    - join the same non-cancelling `docker-release-publication` concurrency group as candidate publication;
    - retain its `release: published` trigger and do not apply the manual candidate-build `github.ref == refs/heads/main` guard;
    - derive the plain version and canonical `build-v<version>` marker from the published Sambee release tag;

@@ -63,7 +63,7 @@ That signature repository can still show both digest-derived signature tags and 
 
 ## Retry Behavior
 
-Before the late candidate marker is written, a failed run may be retried with the same `Z` version. The run uses a unique `staging-<run>-<attempt>-<platform>` tag and cleans it up after promotion or failure.
+Before the late candidate marker is written, a failed run may be retried with the same `Z` version. The run uses a unique `staging-<run>-<attempt>-<platform>` tag and cleans it up after promotion or failure. If that immediate deletion fails, the workflow emits a warning; the Docker package cleanup workflow reclaims the disposable staging tags and their unreferenced signature and metadata artifacts. It runs after successful candidate publication and on Sunday and Tuesday schedules, so stale artifacts are retained for no more than six days.
 
 After a valid candidate marker exists, a matching dispatch takes the repair-only path. It verifies the signed digest and restores only missing matching immutable aliases or the `test` pointer; it does not rebuild the image. A conflicting immutable marker requires incrementing `Z` and publishing a new candidate.
 

@@ -80,6 +80,22 @@ def test_unknown_arch_specific_tags_are_not_test_only() -> None:
 
 
 @pytest.mark.unit
+def test_run_scoped_staging_tags_are_test_only() -> None:
+    module = load_cleanup_module()
+
+    for platform in ("amd64", "arm64", "index"):
+        assert module.is_test_only_tag(f"staging-123456-2-{platform}")
+
+
+@pytest.mark.unit
+def test_malformed_staging_tags_are_not_test_only() -> None:
+    module = load_cleanup_module()
+
+    assert not module.is_test_only_tag("staging-123456-2-s390x")
+    assert not module.is_test_only_tag("staging-run-2-amd64")
+
+
+@pytest.mark.unit
 def test_test_tag_is_protected() -> None:
     module = load_cleanup_module()
 

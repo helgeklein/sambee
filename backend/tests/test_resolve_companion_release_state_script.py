@@ -97,7 +97,7 @@ def test_matching_draft_with_retained_artifacts_recovers(monkeypatch: pytest.Mon
     assert MODULE.resolve_state(CURRENT_RELEASE, IDENTITY, "token") == "recover-finalizer"
 
 
-def test_conflicting_release_fails_closed(monkeypatch: pytest.MonkeyPatch) -> None:
+def test_conflicting_release_fails_closed(monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]) -> None:
     global CURRENT_RELEASE
     CURRENT_RELEASE = release(draft=True, completion=False, recoverable=True)
     CURRENT_RELEASE["provenance"]["source_sha"] = "b" * 40
@@ -106,6 +106,10 @@ def test_conflicting_release_fails_closed(monkeypatch: pytest.MonkeyPatch) -> No
 
     with pytest.raises(SystemExit, match="1"):
         MODULE.resolve_state(CURRENT_RELEASE, IDENTITY, "token")
+
+    error_output = capsys.readouterr().err
+    assert "Increment the third build-sequence component in VERSION" in error_output
+    assert "run ./scripts/sync-version" in error_output
 
 
 def test_invalid_completion_marker_fails_closed(monkeypatch: pytest.MonkeyPatch) -> None:

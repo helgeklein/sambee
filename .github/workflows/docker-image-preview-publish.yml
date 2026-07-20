@@ -101,7 +101,8 @@ jobs:
           exit 0
         fi
 
-        bash .github/scripts/verify_published_candidate_image.sh \
+        verified_output="$RUNNER_TEMP/verified-candidate-digest"
+        GITHUB_OUTPUT="$verified_output" bash .github/scripts/verify_published_candidate_image.sh \
           --image-name "${{ steps.metadata.outputs.image_name }}" \
           --metadata-repository "${{ steps.metadata.outputs.signature_repository }}" \
           --expected-description "${{ steps.metadata.outputs.image_description }}" \
@@ -111,8 +112,13 @@ jobs:
           --expected-title "${{ env.IMAGE_TITLE }}" \
           --expected-build-tag "${{ steps.preflight.outputs.build_tag }}" \
           --github-repository "${{ github.repository }}"
+        verified_digest="$(awk -F= '$1 == "resolved_digest" { print $2 }' "$verified_output")"
+        if [[ "$verified_digest" != "$candidate_digest" ]]; then
+          echo "Published candidate verifier resolved $verified_digest, but marker resolved $candidate_digest." >&2
+          exit 1
+        fi
         echo "state=repair" >> "$GITHUB_OUTPUT"
-        echo "digest=$candidate_digest" >> "$GITHUB_OUTPUT"
+        echo "digest=$verified_digest" >> "$GITHUB_OUTPUT"
         echo "Docker candidate marker already exists at \`$candidate_digest\`; selecting repair-only path." >> "$GITHUB_STEP_SUMMARY"
 
   validate-tests:
@@ -666,10 +672,62 @@ jobs:
       shell: bash
       env:
         COSIGN_REPOSITORY: ${{ needs.prepare.outputs.signature_repository }}
-      run: cosign sign --yes "${{ needs.prepare.outputs.image_name }}@${{ needs.build-and-publish-immutable.outputs.digest }}"
+      run: |
+        bash .github/scripts/ensure_candidate_signature.sh \
+          --image-ref "${{ needs.prepare.outputs.image_name }}@${{ needs.build-and-publish-immutable.outputs.digest }}" \
+          --github-repository "${{ github.repository }}"
+
+  verify-signed-candidate:
+    needs: [prepare, sign-preview]
+    if: ${{ needs.prepare.outputs.publication_state == 'build' }}
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
+    outputs:
+      candidate_digest: ${{ steps.verify.outputs.resolved_digest }}
+    steps:
+    - name: Checkout repository
+      uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+
+    - name: Set up crane
+      uses: ./.github/actions/setup-crane
+      with:
+        install-dir: ${{ runner.temp }}/bin
+
+    - name: Set up ORAS
+      uses: ./.github/actions/setup-oras
+      with:
+        install-dir: ${{ runner.temp }}/bin
+
+    - name: Install Cosign
+      uses: sigstore/cosign-installer@6f9f17788090df1f26f669e9d70d6ae9567deba6 # v4.1.2
+
+    - name: Log in to GHCR with crane
+      shell: bash
+      run: crane auth login ghcr.io -u "${{ github.actor }}" -p "${{ secrets.GITHUB_TOKEN }}"
+
+    - name: Log in to GHCR with ORAS
+      shell: bash
+      run: oras login ghcr.io -u "${{ github.actor }}" -p "${{ secrets.GITHUB_TOKEN }}"
+
+    - name: Verify signed candidate
+      id: verify
+      shell: bash
+      run: |
+        bash .github/scripts/verify_published_candidate_image.sh \
+          --image-name "${{ needs.prepare.outputs.image_name }}" \
+          --metadata-repository "${{ needs.prepare.outputs.signature_repository }}" \
+          --expected-description "${{ needs.prepare.outputs.image_description }}" \
+          --expected-revision "${{ needs.prepare.outputs.full_sha }}" \
+          --expected-version "${{ needs.prepare.outputs.version }}" \
+          --expected-source "${{ needs.prepare.outputs.source_url }}" \
+          --expected-title "${{ env.IMAGE_TITLE }}" \
+          --expected-build-tag "${{ needs.prepare.outputs.build_tag }}" \
+          --github-repository "${{ github.repository }}"
 
   publish-immutable-markers:
-    needs: [prepare, build-and-publish-immutable, sign-preview]
+    needs: [prepare, verify-signed-candidate]
     if: ${{ needs.prepare.outputs.publication_state == 'build' }}
     runs-on: ubuntu-latest
     permissions:
@@ -693,14 +751,14 @@ jobs:
       run: |
         bash .github/scripts/promote_container_image.sh \
           --image-name "${{ needs.prepare.outputs.image_name }}" \
-          --source-digest "${{ needs.build-and-publish-immutable.outputs.digest }}" \
+          --source-digest "${{ needs.verify-signed-candidate.outputs.candidate_digest }}" \
           --tag "${{ needs.prepare.outputs.build_tag }}" \
           --tag "sha-${{ needs.prepare.outputs.full_sha }}" \
           --tag "${{ needs.prepare.outputs.version }}" \
           --immutable
 
   promote-test-tag:
-    needs: [prepare, build-and-publish-immutable, publish-immutable-markers]
+    needs: [prepare, verify-signed-candidate, publish-immutable-markers]
     if: ${{ needs.prepare.outputs.publication_state == 'build' }}
     runs-on: ubuntu-latest
     permissions:
@@ -724,12 +782,12 @@ jobs:
       run: |
         bash .github/scripts/promote_container_image.sh \
           --image-name "${{ needs.prepare.outputs.image_name }}" \
-          --source-digest "${{ needs.build-and-publish-immutable.outputs.digest }}" \
+          --source-digest "${{ needs.verify-signed-candidate.outputs.candidate_digest }}" \
           --tag test
 
   cleanup-staging-image:
     if: ${{ always() && needs.prepare.outputs.publication_state == 'build' }}
-    needs: [prepare, build-and-publish-immutable, sign-preview, publish-immutable-markers, promote-test-tag]
+    needs: [prepare, build-and-publish-immutable, sign-preview, verify-signed-candidate, publish-immutable-markers, promote-test-tag]
     runs-on: ubuntu-latest
     permissions:
       packages: write
@@ -787,3 +845,31 @@ jobs:
           --image-name "${{ needs.prepare.outputs.image_name }}" \
           --source-digest "${{ needs.prepare.outputs.candidate_digest }}" \
           --tag test
+
+  summarize-candidate:
+    if: ${{ always() }}
+    needs: [prepare, verify-signed-candidate, cleanup-staging-image, repair-candidate-aliases]
+    runs-on: ubuntu-latest
+    steps:
+    - name: Summarize candidate publication
+      shell: bash
+      run: |
+        candidate_digest="${{ needs.verify-signed-candidate.outputs.candidate_digest }}"
+        if [[ "${{ needs.prepare.outputs.publication_state }}" == "repair" ]]; then
+          candidate_digest="${{ needs.prepare.outputs.candidate_digest }}"
+        fi
+
+        {
+          echo '## Docker Candidate Publication'
+          echo
+          echo "- Canonical source tag: \`${{ needs.prepare.outputs.build_tag }}\`"
+          echo "- Source SHA: \`${{ needs.prepare.outputs.full_sha }}\`"
+          echo "- Final digest: \`${candidate_digest:-unavailable}\`"
+          echo "- Docker version marker: \`${{ needs.prepare.outputs.image_name }}:${{ needs.prepare.outputs.build_tag }}\`"
+          echo "- Movable test tag: \`${{ needs.prepare.outputs.image_name }}:test\`"
+          if [[ "${{ needs.prepare.outputs.publication_state }}" == "build" ]]; then
+            echo "- Staging references: \`${{ needs.prepare.outputs.image_name }}:staging-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}-{amd64,arm64,index}\`"
+          else
+            echo '- Staging references: not created during repair-only publication.'
+          fi
+        } >> "$GITHUB_STEP_SUMMARY"

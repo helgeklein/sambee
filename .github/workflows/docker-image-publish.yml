@@ -175,6 +175,8 @@ jobs:
     permissions:
       contents: read
       packages: write
+    outputs:
+      candidate_digest: ${{ steps.verify.outputs.resolved_digest }}
     steps:
     - name: Checkout repository
       uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
@@ -201,6 +203,7 @@ jobs:
       run: oras login ghcr.io -u "${{ github.actor }}" -p "${{ secrets.GITHUB_TOKEN }}"
 
     - name: Verify signed published candidate
+      id: verify
       shell: bash
       run: |
         bash .github/scripts/verify_published_candidate_image.sh \
@@ -213,6 +216,18 @@ jobs:
           --expected-title "${{ env.IMAGE_TITLE }}" \
           --expected-build-tag "${{ needs.prepare.outputs.build_tag }}" \
           --github-repository "${{ github.repository }}"
+
+    - name: Verify candidate repair aliases
+      shell: bash
+      run: |
+        verified_digest="${{ steps.verify.outputs.resolved_digest }}"
+        for alias in "sha-${{ needs.prepare.outputs.full_sha }}" "${{ needs.prepare.outputs.version }}"; do
+          if ! alias_digest="$(crane digest "${{ needs.prepare.outputs.image_name }}:${alias}" 2>/dev/null)" || [[ "$alias_digest" != "$verified_digest" ]]; then
+            echo "Candidate repair alias ${{ needs.prepare.outputs.image_name }}:${alias} is missing or does not match the verified candidate digest." >&2
+            echo "Run 'Release: Create Docker Image' with build_version=${{ needs.prepare.outputs.version }} to complete candidate repair, then rerun release publication." >&2
+            exit 1
+          fi
+        done
 
     - name: Verify coordinated Companion release
       if: ${{ needs.prepare.outputs.component_scope == 'both' }}
@@ -262,11 +277,11 @@ jobs:
       run: |
         bash .github/scripts/promote_container_image.sh \
           --image-name "${{ needs.prepare.outputs.image_name }}" \
-          --source-digest "${{ needs.resolve-candidate-artifact.outputs.candidate_digest }}" \
+          --source-digest "${{ needs.verify-candidate-artifact.outputs.candidate_digest }}" \
           --tag "${{ needs.prepare.outputs.major_minor }}"
 
   promote-channel-tags:
-    needs: [prepare, resolve-candidate-artifact, publish-release-tags]
+    needs: [prepare, verify-candidate-artifact, publish-release-tags]
     if: ${{ needs.prepare.outputs.docker_enabled == 'true' }}
     runs-on: ubuntu-latest
     permissions:
@@ -313,7 +328,7 @@ jobs:
         fi
 
         decision="promote"
-        if [[ -n "$beta_digest" && "$beta_digest" == "${{ needs.resolve-candidate-artifact.outputs.candidate_digest }}" ]]; then
+        if [[ -n "$beta_digest" && "$beta_digest" == "${{ needs.verify-candidate-artifact.outputs.candidate_digest }}" ]]; then
           decision="keep"
           echo "Beta already points at the promoted digest; no beta update is needed."
         else
@@ -330,7 +345,7 @@ jobs:
       run: |
         bash .github/scripts/promote_container_image.sh \
           --image-name "${{ needs.prepare.outputs.image_name }}" \
-          --source-digest "${{ needs.resolve-candidate-artifact.outputs.candidate_digest }}" \
+          --source-digest "${{ needs.verify-candidate-artifact.outputs.candidate_digest }}" \
           --tag beta
 
     - name: Promote stable channel tag
@@ -339,7 +354,7 @@ jobs:
       run: |
         bash .github/scripts/promote_container_image.sh \
           --image-name "${{ needs.prepare.outputs.image_name }}" \
-          --source-digest "${{ needs.resolve-candidate-artifact.outputs.candidate_digest }}" \
+          --source-digest "${{ needs.verify-candidate-artifact.outputs.candidate_digest }}" \
           --tag stable
 
     - name: Promote beta channel tag to catch up with stable
@@ -348,7 +363,7 @@ jobs:
       run: |
         bash .github/scripts/promote_container_image.sh \
           --image-name "${{ needs.prepare.outputs.image_name }}" \
-          --source-digest "${{ needs.resolve-candidate-artifact.outputs.candidate_digest }}" \
+          --source-digest "${{ needs.verify-candidate-artifact.outputs.candidate_digest }}" \
           --tag beta
 
     - name: Keep beta on newer release line
@@ -357,7 +372,7 @@ jobs:
       run: echo "Keeping beta on its current digest because it is already aligned or points to a higher semver release."
 
   upload-metadata-release-assets:
-    needs: [prepare, resolve-candidate-artifact, publish-release-tags]
+    needs: [prepare, verify-candidate-artifact, publish-release-tags]
     if: ${{ needs.prepare.outputs.docker_enabled == 'true' }}
     runs-on: ubuntu-latest
     permissions:
@@ -379,7 +394,7 @@ jobs:
     - name: Pull metadata bundle
       shell: bash
       run: |
-        metadata_tag="$(bash .github/scripts/metadata_bundle_tag.sh --image-digest "${{ needs.resolve-candidate-artifact.outputs.candidate_digest }}")"
+        metadata_tag="$(bash .github/scripts/metadata_bundle_tag.sh --image-digest "${{ needs.verify-candidate-artifact.outputs.candidate_digest }}")"
         oras pull "${{ needs.prepare.outputs.signature_repository }}:${metadata_tag}" --output "${{ runner.temp }}/metadata-bundle"
 
     - name: Upload bundle files to GitHub release assets
@@ -392,28 +407,3 @@ jobs:
           "${{ runner.temp }}/metadata-bundle/provenance/intoto.jsonl" \
           "${{ runner.temp }}/metadata-bundle/sbom/linux-amd64.spdx.json" \
           "${{ runner.temp }}/metadata-bundle/sbom/linux-arm64.spdx.json"
-
-  sign-and-attest:
-    needs: [prepare, resolve-candidate-artifact, promote-channel-tags]
-    if: ${{ needs.prepare.outputs.docker_enabled == 'true' }}
-    runs-on: ubuntu-latest
-    permissions:
-      contents: read
-      packages: write
-      id-token: write
-    steps:
-    - name: Install Cosign
-      uses: sigstore/cosign-installer@6f9f17788090df1f26f669e9d70d6ae9567deba6 # v4.1.2
-
-    - name: Log in to GHCR
-      uses: docker/login-action@af1e73f918a031802d376d3c8bbc3fe56130a9b0 # v4.4.0
-      with:
-        registry: ghcr.io
-        username: ${{ github.actor }}
-        password: ${{ secrets.GITHUB_TOKEN }}
-
-    - name: Sign promoted digest
-      shell: bash
-      env:
-        COSIGN_REPOSITORY: ${{ needs.prepare.outputs.signature_repository }}
-      run: cosign sign --yes "${{ needs.prepare.outputs.image_name }}@${{ needs.resolve-candidate-artifact.outputs.candidate_digest }}"

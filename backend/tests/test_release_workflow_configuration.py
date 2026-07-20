@@ -77,3 +77,70 @@ def test_docker_backfill_uses_signed_candidate_verifier() -> None:
     assert any(step.get("name") == "Install Cosign" for step in steps)
     verifier_step = next(step for step in steps if step.get("name") == "Verify signed published candidate")
     assert "verify_published_candidate_image.sh" in verifier_step["run"]
+
+
+def test_docker_promotion_uses_only_the_verifier_digest_for_aliases() -> None:
+    workflow = load_workflow("docker-image-publish.yml")
+    verifier_job = workflow["jobs"]["verify-candidate-artifact"]
+    assert verifier_job["outputs"]["candidate_digest"] == "${{ steps.verify.outputs.resolved_digest }}"
+    assert "sign-and-attest" not in workflow["jobs"]
+
+    alias_jobs = ("publish-release-tags", "promote-channel-tags")
+    for job_name in alias_jobs:
+        job = workflow["jobs"][job_name]
+        assert "verify-candidate-artifact" in job["needs"]
+        run_steps = "\n".join(step.get("run", "") for step in job["steps"] if isinstance(step, dict))
+        assert "needs.verify-candidate-artifact.outputs.candidate_digest" in run_steps
+
+    repair_step = next(step for step in verifier_job["steps"] if step.get("name") == "Verify candidate repair aliases")
+    assert "steps.verify.outputs.resolved_digest" in repair_step["run"]
+    assert "build_version=${{ needs.prepare.outputs.version }}" in repair_step["run"]
+
+
+def test_docker_candidate_aliases_use_the_post_sign_verifier_digest() -> None:
+    workflow = load_workflow("docker-image-preview-publish.yml")
+    verifier_job = workflow["jobs"]["verify-signed-candidate"]
+    assert verifier_job["outputs"]["candidate_digest"] == "${{ steps.verify.outputs.resolved_digest }}"
+
+    verifier_steps = verifier_job["steps"]
+    assert any(step.get("name") == "Install Cosign" for step in verifier_steps)
+    verification_step = next(step for step in verifier_steps if step.get("name") == "Verify signed candidate")
+    assert "verify_published_candidate_image.sh" in verification_step["run"]
+
+    signer_job = workflow["jobs"]["sign-preview"]
+    signer_step = next(step for step in signer_job["steps"] if step.get("name") == "Sign preview digest")
+    assert "ensure_candidate_signature.sh" in signer_step["run"]
+
+    for job_name in ("publish-immutable-markers", "promote-test-tag"):
+        job = workflow["jobs"][job_name]
+        assert "verify-signed-candidate" in job["needs"]
+        run_steps = "\n".join(step.get("run", "") for step in job["steps"] if isinstance(step, dict))
+        assert "needs.verify-signed-candidate.outputs.candidate_digest" in run_steps
+
+
+def test_docker_candidate_cleanup_and_summary_cover_staging_lifecycle() -> None:
+    workflow = load_workflow("docker-image-preview-publish.yml")
+    cleanup_job = workflow["jobs"]["cleanup-staging-image"]
+    assert cleanup_job["if"] == "${{ always() && needs.prepare.outputs.publication_state == 'build' }}"
+    cleanup_step = next(step for step in cleanup_job["steps"] if step.get("name") == "Delete run-scoped staging tags")
+    assert "staging-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}-${platform}" in cleanup_step["run"]
+    assert "crane delete" in cleanup_step["run"]
+
+    summary_job = workflow["jobs"]["summarize-candidate"]
+    assert summary_job["if"] == "${{ always() }}"
+    summary_step = summary_job["steps"][0]
+    assert "GITHUB_STEP_SUMMARY" in summary_step["run"]
+    for expected_detail in (
+        "Canonical source tag",
+        "Source SHA",
+        "Final digest",
+        "Docker version marker",
+        "Staging references",
+        "Movable test tag",
+    ):
+        assert expected_detail in summary_step["run"]
+
+
+def test_docker_backfill_does_not_sign_after_alias_promotion() -> None:
+    workflow = load_workflow("docker-image-backfill.yml")
+    assert "sign-and-attest" not in workflow["jobs"]
