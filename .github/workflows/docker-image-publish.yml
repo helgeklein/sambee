@@ -41,6 +41,8 @@ jobs:
     - name: Resolve release metadata
       id: metadata
       shell: bash
+      env:
+        GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
       run: |
         version="$(tr -d '[:space:]' < VERSION)"
         release_tag="${{ github.event.release.tag_name }}"
@@ -76,6 +78,16 @@ jobs:
           echo "Canonical build tag $build_tag points to $build_sha, but release tag $release_tag points to $full_sha." >&2
           exit 1
         fi
+
+        scope_dir="$RUNNER_TEMP/release-scope"
+        mkdir -p "$scope_dir"
+        gh release download "$release_tag" --pattern sambee-release.json --dir "$scope_dir"
+        python3 .github/scripts/validate_release_scope.py \
+          --metadata-file "$scope_dir/sambee-release.json" \
+          --component docker \
+          --version "$version" \
+          --build-tag "$build_tag" \
+          --source-sha "$full_sha"
 
         echo "checkout_ref=$release_tag" >> "$GITHUB_OUTPUT"
         echo "release_type=$release_type" >> "$GITHUB_OUTPUT"
