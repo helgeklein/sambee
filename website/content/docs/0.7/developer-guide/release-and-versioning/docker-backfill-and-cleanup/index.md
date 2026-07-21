@@ -52,7 +52,7 @@ Use backfill in specific repair scenarios such as:
 - A transient runner or registry failure interrupted release publication after the candidate image had already been built successfully.
 - An older approved release predates the current metadata-bundle flow, and you need to reconstruct the release assets without rebuilding the runtime image.
 
-Do not use backfill when you want to ship a new candidate commit. In that case, go back to [Publish Test Docker Candidate](../publish-test-docker-candidate/) and then [Promote Docker Candidate](../promote-docker-candidate/).
+Do not use backfill when you want to ship a new candidate commit. In that case, go back to [Build Docker Image](../build-docker-image/) and then [Promote Docker Image](../promote-docker-image/).
 
 ### Tag requirements
 
@@ -132,18 +132,10 @@ There is no retention count anymore. The workflow deletes every package version 
 - An untagged platform manifest stays if a retained multi-platform index still points to it.
 - A stale `ghcr.io/<owner>/sambee-signatures` artifact is deleted after its corresponding image digest is no longer retained.
 
-## Which Workflow To Use
-
-| Need | Workflow |
-|---|---|
-| Reattach tags for an existing approved release. | `Maintenance: Backfill Docker Release Tags` |
-| Repair a broken release-tag alias after an operational failure. | `Maintenance: Backfill Docker Release Tags` |
-| Remove unprotected preview versions and unreferenced artifacts automatically. | `Maintenance: Clean Up Docker Package Versions` |
-
 ## Boundaries
 
 - Do not publish a replacement runtime image in backfill. Recovery should point tags back at an existing digest.
 - Do not treat immutable `sha-<full-commit-sha>` preview tags as permanent history. The cleanup workflow is expected to prune them.
 - Do not use moving tags such as `stable`, `beta`, or `test` as the only source of deployment truth when a digest is available.
 
-If you are starting from a new candidate commit rather than repairing an existing release path, go back to [Publish Test Docker Candidate](../publish-test-docker-candidate/) or [Promote Docker Candidate](../promote-docker-candidate/).
+If you are starting from a new candidate commit rather than repairing an existing release path, go back to [Build Docker Image](../build-docker-image/) or [Promote Docker Image](../promote-docker-image/).

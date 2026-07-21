@@ -12,6 +12,7 @@ Usage: write_docker_image_metadata_outputs.sh \
   --source-url <url> \
   --title <text> \
   --version <version> \
+  [--build-tag <build-vX.Y.Z>] \
   [--annotation-platform <linux/arch>] \
   [--image-name <repo>] \
   [--tag <tag>]
@@ -26,6 +27,7 @@ revision=""
 source_url=""
 title=""
 version=""
+build_tag=""
 annotation_platform=""
 image_name=""
 tag=""
@@ -58,6 +60,10 @@ while [[ $# -gt 0 ]]; do
       ;;
     --version)
       version="$2"
+      shift 2
+      ;;
+    --build-tag)
+      build_tag="$2"
       shift 2
       ;;
     --annotation-platform)
@@ -103,6 +109,10 @@ metadata_entries=(
   "org.opencontainers.image.url=$source_url"
   "org.opencontainers.image.version=$version"
 )
+
+if [[ -n "$build_tag" ]]; then
+  metadata_entries+=("org.sambee.build-tag=$build_tag")
+fi
 
 annotation_scopes=(
   "index"

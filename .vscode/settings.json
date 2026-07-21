@@ -121,7 +121,6 @@
     "pgrep": true,
     "ps": true,
     "pytest": true,
-    "ruff": true,
     "sed": true,
     "sleep": true,
     "tail": true,
@@ -130,12 +129,28 @@
     "uptime": true,
     "who": true,
     "hugo": true,
+    "source backend/.venv/bin/activate": true,
     "/(\\.\\/)?scripts\\/lint/": true,
     "/(\\.\\/)?scripts\\/test/": true,
     "/(\\.\\/)?scripts\\/format/": true,
     "/(\\.\\/)?scripts\\/dev-start/": true,
     "/(\\.\\/)?scripts\\/dev-stop/": true,
-    "/(\\.\\/)?(website\\/)?scripts\\/docs-report.py/": true,
+    "/(\\.\\/)?(website\\/)?scripts\\/(docs-report|docs-editor).py/": true,
+    "/(\\.venv\\/bin\\/)?pytest/": true,
+    "/(\\.venv\\/bin\\/)?ruff/": true,
+    "/^cd /workspace && node -v && npm -v$/": {
+      "approve": true,
+      "matchCommandLine": true
+    },
+    "/^python3 scripts/update-docs-derived-artifacts\\.py$/": {
+      "approve": true
+    },
+    "/python3 scripts/update-docs-derived-artifacts\\.py/": {
+      "approve": true
+    },
+    "/python3 scripts/validate-docs-content\\.py/": {
+      "approve": true
+    },
     "npm": true,
     "npx": true,
     "/^git\\s+(status|diff|log|ls-remote|show|branch)\\b/": true,
