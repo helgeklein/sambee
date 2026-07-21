@@ -85,8 +85,8 @@ def compare_semver(left: SemVer, right: SemVer) -> int:
     )
 
 
-def should_promote_beta_tag(stable_version: str, beta_version: str | None) -> bool:
-    stable = parse_semver(stable_version)
+def should_promote_beta_tag(candidate_version: str, beta_version: str | None) -> bool:
+    candidate = parse_semver(candidate_version)
 
     if not beta_version:
         return True
@@ -96,18 +96,18 @@ def should_promote_beta_tag(stable_version: str, beta_version: str | None) -> bo
     except ValueError:
         return True
 
-    return compare_semver(beta, stable) <= 0
+    return compare_semver(beta, candidate) <= 0
 
 
 def main() -> int:
     parser = argparse.ArgumentParser()
-    parser.add_argument("--stable-version", required=True)
+    parser.add_argument("--candidate-version", required=True)
     parser.add_argument("--beta-version")
     args = parser.parse_args()
 
     decision = (
         "promote"
-        if should_promote_beta_tag(args.stable_version, args.beta_version)
+        if should_promote_beta_tag(args.candidate_version, args.beta_version)
         else "keep"
     )
     print(decision)

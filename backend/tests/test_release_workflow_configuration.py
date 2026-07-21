@@ -105,16 +105,49 @@ def test_docker_promotion_uses_only_the_verifier_digest_for_aliases() -> None:
     assert verifier_job["outputs"]["candidate_digest"] == "${{ steps.verify.outputs.resolved_digest }}"
     assert "sign-and-attest" not in workflow["jobs"]
 
-    alias_jobs = ("publish-release-tags", "promote-channel-tags")
-    for job_name in alias_jobs:
-        job = workflow["jobs"][job_name]
-        assert "verify-candidate-artifact" in job["needs"]
-        run_steps = "\n".join(step.get("run", "") for step in job["steps"] if isinstance(step, dict))
-        assert "needs.verify-candidate-artifact.outputs.candidate_digest" in run_steps
+    promotion_job = workflow["jobs"]["promote-release-tags"]
+    assert promotion_job["needs"] == ["prepare", "verify-candidate-artifact"]
+    run_steps = "\n".join(step.get("run", "") for step in promotion_job["steps"] if isinstance(step, dict))
+    assert "needs.verify-candidate-artifact.outputs.candidate_digest" in run_steps
 
     repair_step = next(step for step in verifier_job["steps"] if step.get("name") == "Verify candidate repair aliases")
     assert "steps.verify.outputs.resolved_digest" in repair_step["run"]
     assert "build_version=${{ needs.prepare.outputs.version }}" in repair_step["run"]
+
+
+def test_docker_promotion_has_a_beta_only_manual_path() -> None:
+    workflow = load_workflow("docker-image-publish.yml")
+    inputs = workflow_inputs(workflow)
+    assert set(inputs) == {"build_version"}
+    assert inputs["build_version"]["required"] is True
+
+    prepare_steps = workflow["jobs"]["prepare"]["steps"]
+    metadata_step = next(step for step in prepare_steps if step.get("name") == "Resolve release metadata")
+    assert 'github.event_name }}" == "workflow_dispatch' in metadata_step["run"]
+    assert "prepare_release_candidate.py" in metadata_step["run"]
+    assert '--build-version "${{ inputs.build_version }}"' in metadata_step["run"]
+    assert 'release_type="beta"' in metadata_step["run"]
+    assert 'component_scope="docker"' in metadata_step["run"]
+
+    assert "publish-release-tags" not in workflow["jobs"]
+    promotion_job = workflow["jobs"]["promote-release-tags"]
+    assert promotion_job["needs"] == ["prepare", "verify-candidate-artifact"]
+    assert "release_type == 'stable'" in workflow["jobs"]["upload-metadata-release-assets"]["if"]
+    assert "promote-release-tags" in workflow["jobs"]["upload-metadata-release-assets"]["needs"]
+
+    verifier_steps = workflow["jobs"]["verify-candidate-artifact"]["steps"]
+    coordinated_step = next(step for step in verifier_steps if step.get("name") == "Verify coordinated Companion release")
+    assert "release_type == 'stable'" in coordinated_step["if"]
+
+    promotion_steps = promotion_job["steps"]
+    minor_step = next(step for step in promotion_steps if step.get("name") == "Attach minor-series tag")
+    assert minor_step["if"] == "${{ needs.prepare.outputs.release_type == 'stable' }}"
+    beta_policy_step = next(step for step in promotion_steps if step.get("name") == "Decide whether promotion should move beta")
+    assert "if" not in beta_policy_step
+    assert "--candidate-version" in beta_policy_step["run"]
+    beta_step = next(step for step in promotion_steps if step.get("name") == "Promote beta channel tag")
+    assert beta_step["if"] == "${{ needs.prepare.outputs.release_type == 'beta' && steps.beta-policy.outputs.decision == 'promote' }}"
+    assert "needs.verify-candidate-artifact.outputs.candidate_digest" in beta_step["run"]
 
 
 def test_docker_candidate_aliases_use_the_post_sign_verifier_digest() -> None:
@@ -171,8 +204,14 @@ def test_companion_promotion_serializes_feed_updates_and_reports_push_targets() 
     workflow = load_workflow("promote-companion-release.yml")
     assert workflow["concurrency"]["group"] == "companion-release-publication"
     assert workflow["concurrency"]["cancel-in-progress"] is False
+    assert "sambee_release_tag" not in workflow_inputs(workflow)
 
     steps = workflow["jobs"]["promote"]["steps"]
+    scope_step = next(step for step in steps if step.get("name") == "Validate public release scope")
+    assert 'version="$(jq -er' in scope_step["run"]
+    assert 'sambee_release_tag="v$version"' in scope_step["run"]
+    assert 'gh release download "$sambee_release_tag"' in scope_step["run"]
+    assert "inputs.sambee_release_tag" not in scope_step["run"]
     push_step = next(step for step in steps if step.get("name") == "Commit and push feed updates")
     assert "Failed to push feed updates for:" in push_step["run"]
     assert "remote feed state is unknown" in push_step["run"]

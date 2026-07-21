@@ -2,49 +2,72 @@
 title = "Release Checklist"
 +++
 
-## Candidate Loop
+## Process Overview for Test and Preview Candidates
 
-1. Update `VERSION` to the next plain numeric `X.Y.Z` build sequence and run `./scripts/sync-version`.
-1. Commit the synchronized metadata on `main`.
-1. Build only the affected component. Candidate workflows reserve or select the immutable `build-vX.Y.Z` source tag; they never accept a source or version override.
-1. Test the exact Docker digest through `test`, or test the Companion draft assets and promote them to the Companion `test` feed.
+1. Update `VERSION` to the next plain numeric `X.Y.Z` build sequence ([details](../product-versioning/)).
+   - Run `./scripts/sync-version`.
+   - Commit the synchronized metadata on `main`.
+1. Build the affected component (see below for details).
+   - Build workflows reserve the current `VERSION` by adding a Git tag when building from the latest commit.
+   - Alternatively, select an existing `build-vX.Y.Z` Git tag to build from.
+1. Test the resulting build.
+   - Docker: Through the `test` tag.
+   - Companion: Through the Companion draft release assets. Promote them to the Companion `test` feed as needed.
 1. Repeat the loop with a new `Z` value when a new candidate is required. Never rebuild or replace a published artifact under the same version.
 
-Docker and Companion candidates may be built independently. Select an existing canonical build version when the second component must use a source commit that `main` has already advanced past.
+Notes:
 
-## Production Cutover Freeze
+- Docker and Companion candidates may be built independently.
 
-The release cutover is active as of 2026-07-20. Until the cutover is announced complete, permit only explicitly identified controlled test candidates through the current canonical-candidate workflows.
+## Component Build & Release Process
 
-- Do not use legacy Docker or Companion publishing entry points.
-- Do not promote `stable` or `beta` through a legacy workflow.
-- Do not mix legacy publication with the canonical candidate, immutable-artifact, and pointer-only promotion workflows.
-- End the freeze only after the cutover announcement and the first production publication and recovery paths have been monitored.
+### Update Documentation
 
-## Documentation
-
-1. Review the **homepage** content and update it where necessary.
-1. **Docs:**
+1. Review the homepage content and update it where necessary.
+1. Docs:
    - Verify [Supported File Formats](../../../user-guide/reference/supported-file-formats/) and update as necessary.
    - Finalize the target release's [What's New](/release-info/news-and-changes/whats-new/) page.
    - Mark the target version as current in `website/data/docs-versions.toml`.
-   - Run the VS Code task **Website: Refresh Docs Derived Artifacts**.
+   - Run the VS Code task `Website: Refresh Docs Derived Artifacts`.
    - Review the Docs Structure Report this creates in `/workspace/website-meta/docs-reports/docs-structure-report.html`.
 1. Git merge all changes.
 
-## Create The Public Release
+### Build Docker Image
 
-See [Overview](../docker-release-overview/).
+See this [Overview](../docker-release-overview/). In short:
 
-1. Run `Release: Create Public Sambee Release` with the approved canonical build version and the intended `docker`, `companion`, or `both` scope.
-1. Review the generated draft and its required `sambee-release.json` identity asset.
-1. Publish the draft only after the approved immutable artifacts exist. For `both`, both artifact verifiers must agree on the version, build tag, and source SHA.
-1. Publishing a Docker-authorized release triggers [Release: Publish Docker Image](../promote-docker-candidate/), which moves only verified aliases. It never rebuilds the image.
+1. Run [Release: Create Docker Image](../build-docker-image/)
+   - The workflow:
+      - Builds the [Docker image](https://github.com/helgeklein/sambee/pkgs/container/sambee/versions).
+      - Moves the `test` tag to it.
+      - Adds the `X.Y.Z` version tag.
+1. To also move the `beta` tag to the newly built image, run [Release: Publish Docker Image](../promote-docker-image/) manually.
 
-## Publish the Companion
+### Build Companion
 
-See [Overview](../companion-release-overview/)
+See this [Overview](../companion-release-overview/). In short:
 
-1. Run [Release: Build Companion Artifact](../build-companion-release/) from `main` or select an existing canonical build version.
-1. Test and publish its immutable external draft release.
-1. Run [Release: Promote Companion Release](../promote-companion-release/) to move `test`, `beta`, `stable`, and/or Sambee download metadata feeds without rebuilding binaries.
+1. Run [Release: Build Companion Artifact](../build-companion-release/).
+   - The workflow creates a draft release in the [Companion GitHub repo](https://github.com/helgeklein/sambee-companion/releases).
+   - Publish it.
+
+### Publish a Build
+
+To publish a candidate build after testing and validation, complete the following steps.
+
+1. Run `Release: Create Public Sambee Release`. Specify:
+   - the validated canonical build version.
+   - the intended scope: `docker`, `companion`, or `both`.
+   - whether to publish the resulting draft release in the Sambee GitHub repo,
+1. The workflow creates a release in the Sambee GitHub repo, either as draft or published.
+1. If you didn't select automatic publishing above, publish the draft release manually.
+
+If you selected `docker` or `both`:
+
+- Release publication triggers [Release: Publish Docker Image](../promote-docker-image/)
+   - The workflow tags the image built earlier as `beta` (if not ahead) and `stable`, and adds `X.Y` a version tag.
+
+If you selected `companion` or `both`:
+
+1. Run [Release: Promote Companion Release](../promote-companion-release/).
+   - The workflow promotes the release to the `test`, `beta`, and/or `stable` update channels and updates the Sambee download-metadata feed.

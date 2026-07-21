@@ -6,25 +6,34 @@ Sambee Companion releases are built and published once, and later promoted acros
 
 Key differences between the Companion and Docker release paths:
 
-- Docker releases promote an already published container digest.
+- Docker releases promote an already published container image.
 - Companion releases promote an already published GitHub Release by rewriting feeds read by Companion's auto-updater and by the Sambee frontend.
-- Local Linux-hosted cross-checks can validate Windows-target compatibility, but they do not replace the Windows CI release build.
+- Docker images are available for Linux only, whereas Companion is a native app for Windows, Linux, and macOS. Each platform binary needs to be built on the respective OS.
 
 ## Summary
 
 If you want to take a new Companion version to the `stable` update channel, follow this order:
 
-1. Update the committed plain numeric `VERSION`, run `./scripts/sync-version`, and dispatch from `main`.
-1. Run `Release: Build Companion Artifact` and select target platforms, or select an existing canonical `build-vX.Y.Z` candidate.
-   - This creates one immutable draft release in `helgeklein/sambee-companion`.
+1. Increment `VERSION` to the next `X.Y.Z` value and run `./scripts/sync-version`.
+1. Run `Release: Build Companion Artifact`:
+   - Select target platforms
+   - If the workflow's source version field is left blank, the artifact is built from the current commit in `main`, and the Git tag `build-vX.Y.Z` is created to reserve the version for the commit the artifact is built from.
+   - If a source version field is specified, the workflow verifies and repairs the artifact associated with the version via the Git tag used for reservation.
+1. The workflow:
+   - builds Companion
+   - signs the build artifacts
+   - creates one immutable draft release in in the [Companion GitHub repo](https://github.com/helgeklein/sambee-companion/releases).
+   - assigns a `companion-vX.Y.Z` tag to the draft release.
 1. Test the draft release.
-   - Download the installer from the releases artifacts, install and test.
-1. Publish the draft release.
-1. Run `Release: Promote Companion Release` for `test`.
-   - Validate both update behavior and direct-download metadata against the promoted feeds.
-1. Rerun `Release: Promote Companion Release` for `beta`, `stable`, and Sambee download metadata.
-
-Companion release tags follow the `companion-v<version>` pattern.
+   - Download the installer from the release's artifacts, install and test.
+1. Publish the draft release. This:
+   - Makes the release eligible for promotion to the `test`, `beta`, and `stable` channels.
+   - Prevents additional build workflow runs changing the published Companion release.
+1. Ensure that a matching published public Sambee release `vX.Y.Z` exists.
+   - This authorizes the Companion workflow to promote a release.
+1. To promote the release to the update channels, run `Release: Promote Companion Release`:
+   - Select the channels: `test`, `beta`, and/or `stable`.
+   - Select whether to update the Sambee download metadata.
 
 The workflow uses `build`, `recover-finalizer`, and `complete` states. A matching incomplete draft resumes only from recorded retained Actions artifacts; a complete draft or published release is not rebuilt. When a replacement is needed, increment `Z`, synchronize, commit on `main`, and build a new candidate.
 

@@ -1,5 +1,5 @@
 +++
-title = "Promote Docker Candidate"
+title = "Promote Docker Image"
 +++
 
 This is step 2 of the Docker release flow.

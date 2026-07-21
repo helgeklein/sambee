@@ -397,7 +397,7 @@ jobs:
           echo "Beta already points at the promoted digest; no beta update is needed."
         else
           decision="$(python3 .github/scripts/should_promote_beta_tag.py \
-            --stable-version "${{ needs.prepare.outputs.version }}" \
+            --candidate-version "${{ needs.prepare.outputs.version }}" \
             --beta-version "$beta_version")"
         fi
 
