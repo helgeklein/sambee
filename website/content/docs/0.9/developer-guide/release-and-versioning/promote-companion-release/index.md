@@ -26,7 +26,6 @@ The manual workflow accepts these inputs:
 | Input | What it means | Typical usage |
 |---|---|---|
 | `release_ref` | The release to promote. | Use the Companion tag for the clearest intent, for example `companion-v0.6.0`. |
-| `sambee_release_tag` | Public Sambee release that authorizes this promotion. | Use the matching `vX.Y.Z` release containing `sambee-release.json`. |
 | `companion_channel_test` | Update the Companion `test` updater feed. | Use when installed test-channel builds should see this release. |
 | `companion_channel_beta` | Update the Companion `beta` updater feed. | Use when prerelease users should see this release. |
 | `companion_channel_stable` | Update the Companion `stable` updater feed. | Use when the release is approved for normal users. |
@@ -37,6 +36,8 @@ The manual workflow accepts these inputs:
 - A Companion tag such as `companion-v0.6.0`.
 - A GitHub release URL.
 - A numeric GitHub release ID.
+
+The workflow reads the selected release's immutable provenance and derives the required public Sambee authorization tag as `vX.Y.Z`. That public release must contain `sambee-release.json` with a matching version, build tag, source SHA, and Companion-compatible scope.
 
 At least one target must be selected.
 
@@ -91,9 +92,8 @@ Use this order when you are promoting a Companion release:
 1. Publish the reviewed draft release in `helgeklein/sambee-companion`.
 2. Start `Release: Promote Companion Release`.
 3. Set `release_ref` to the exact published release you want to expose.
-4. Set `sambee_release_tag` to the matching public Sambee release whose scope includes Companion.
-5. Select only the feed targets you intend to change.
-6. Let the workflow update and push the selected feed files.
-7. Validate the affected updater channel or Sambee download surface.
-8. Rerun the same workflow later if that same release should move from `test` to `beta` or `stable`.
+4. Select only the feed targets you intend to change.
+5. Let the workflow derive the matching public Sambee release, then update and push the selected feed files.
+6. Validate the affected updater channel or Sambee download surface.
+7. Rerun the same workflow later if that same release should move from `test` to `beta` or `stable`.
 

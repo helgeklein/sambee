@@ -10,7 +10,7 @@ title = "Release Checklist"
 
 See [Overview](../docker-release-overview/).
 
-1. Run the CI workflow [Release: Create Docker Image](../publish-test-docker-candidate/) to **build** the Docker image and move the `test` tag to it.
+1. Run the CI workflow [Release: Create Docker Image](../build-docker-image/) to **build** the Docker image and move the `test` tag to it.
    - Don't override the product version in the CI workflow.
 1. **Test** the newly built image (pull it via the `test` tag).
 
@@ -31,7 +31,7 @@ See [Overview](../docker-release-overview/).
 
 1. Create a Git tag on the commit the tested image was built from.
 1. Publish a GitHub release from that tag.
-   - Release publication triggers [Release: Publish Docker Image](../promote-docker-candidate/), which tags the image built earlier as `beta` (prereleases) or `stable` and adds version tags for stable releases.
+   - Release publication triggers [Release: Publish Docker Image](../promote-docker-image/), which tags the image built earlier as `beta` (prereleases) or `stable` and adds version tags for stable releases.
 
 ## Publish the Companion
 

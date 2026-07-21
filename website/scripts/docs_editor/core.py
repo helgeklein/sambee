@@ -1058,12 +1058,17 @@ class DocsEditor:
             old_in_nav = old_page in later_pages
             new_in_nav = new_page in later_pages
 
-            if new_page_dir.exists() or new_in_nav:
+            old_exists = old_page_dir.exists() or old_in_nav
+            new_exists = new_page_dir.exists() or new_in_nav
+            if old_exists and new_exists:
                 raise DocsEditorError(
-                    f"cannot rename page {book}/{section}/{old_page} to {new_page}: later version {later_version} already has {new_page}"
+                    f"cannot rename page {book}/{section}/{old_page} to {new_page}: later version {later_version} contains both page slugs"
                 )
 
-            if not old_page_dir.exists() and not old_in_nav:
+            if new_exists:
+                continue
+
+            if not old_exists:
                 continue
 
             if not old_page_dir.exists():
@@ -2547,6 +2552,148 @@ python3 scripts/docs-editor.py page materialize --version {version} --book {book
             },
         )
 
+    def plan_page_coordinated_rename(
+        self,
+        versions: list[str],
+        *,
+        book: str,
+        section: str,
+        old_page: str,
+        new_page: str,
+        title: str | None,
+    ) -> OperationPlan:
+        """Rename one page across selected versions and inherited descendants atomically."""
+        if not versions:
+            raise DocsEditorError(
+                "at least one docs version is required for a coordinated page rename"
+            )
+
+        version_order = self.version_slugs()
+        unknown_versions = [
+            version for version in versions if version not in version_order
+        ]
+        if unknown_versions:
+            raise DocsEditorError(f"unknown docs version: {unknown_versions[0]}")
+        if len(set(versions)) != len(versions):
+            raise DocsEditorError("coordinated page rename versions must be unique")
+
+        selected_versions = set(versions)
+        ordered_selected_versions = [
+            version for version in version_order if version in selected_versions
+        ]
+        first_index = version_order.index(ordered_selected_versions[0])
+        propagated_versions: list[str] = []
+        existing_target_versions: list[str] = []
+        changes: list[PlannedChange] = []
+
+        for candidate_version in version_order[first_index:]:
+            old_page_dir = self.page_root(candidate_version, book, section, old_page)
+            new_page_dir = self.page_root(candidate_version, book, section, new_page)
+            nav_document = self.load_nav_document(candidate_version)
+            page_slugs = nav_document.get("pages", {}).get(book, {}).get(section, [])
+            old_exists = old_page_dir.exists() or old_page in page_slugs
+            new_exists = new_page_dir.exists() or new_page in page_slugs
+            is_selected = candidate_version in selected_versions
+
+            if old_exists and new_exists:
+                raise DocsEditorError(
+                    f"cannot rename page {book}/{section}/{old_page} to {new_page}: "
+                    f"version {candidate_version} contains both page slugs"
+                )
+            if new_exists:
+                if is_selected:
+                    raise DocsEditorError(
+                        f"destination page already exists: {candidate_version}/{book}/{section}/{new_page}"
+                    )
+                existing_target_versions.append(candidate_version)
+                continue
+            if not old_exists:
+                if is_selected:
+                    raise DocsEditorError(
+                        f"page folder is missing: {candidate_version}/{book}/{section}/{old_page}"
+                    )
+                continue
+            if not old_page_dir.exists() or old_page not in page_slugs:
+                raise DocsEditorError(
+                    f"version {candidate_version} has an inconsistent page node for "
+                    f"{book}/{section}/{old_page}"
+                )
+            if not self.has_page_marker(old_page_dir):
+                raise DocsEditorError(
+                    f"version {candidate_version} page {book}/{section}/{old_page} "
+                    "is missing index.md or inherit.md"
+                )
+            if not is_selected and self.page_has_real_content(old_page_dir):
+                raise DocsEditorError(
+                    "cannot rename page across later versions with real content: "
+                    f"{candidate_version}; add --also-version {candidate_version} "
+                    "to coordinate the rename"
+                )
+
+            changes.append(
+                PlannedChange(
+                    "write_text",
+                    self.nav_path(candidate_version),
+                    f"Rename page {book}/{section}/{old_page} to {new_page} in nav for version {candidate_version}",
+                    self.render_nav_document(
+                        self.rename_page_in_nav(
+                            nav_document, book, section, old_page, new_page
+                        )
+                    ),
+                )
+            )
+            if is_selected:
+                changes.extend(
+                    self.build_materialized_page_changes(
+                        candidate_version,
+                        book,
+                        section,
+                        old_page,
+                        new_page,
+                        title,
+                    )
+                )
+                changes.append(
+                    PlannedChange(
+                        "delete_dir",
+                        old_page_dir,
+                        f"Delete old page directory {candidate_version}/{book}/{section}/{old_page} after rename materialization",
+                    )
+                )
+            else:
+                propagated_versions.append(candidate_version)
+                changes.append(
+                    PlannedChange(
+                        "rename_path",
+                        old_page_dir,
+                        f"Rename inherited-only descendant page directory {candidate_version}/{book}/{section}/{old_page} to {new_page}",
+                        target=new_page_dir,
+                    )
+                )
+
+        version_summary = ", ".join(ordered_selected_versions)
+        summary_scope = "version" if len(ordered_selected_versions) == 1 else "versions"
+        return OperationPlan(
+            summary=(
+                f"Rename page {book}/{section}/{old_page} to {new_page} in docs "
+                f"{summary_scope} {version_summary}"
+            ),
+            destructive=True,
+            changes=changes,
+            metadata={
+                "entity": "page",
+                "operation": "rename",
+                "version": ordered_selected_versions[0],
+                "versions": ordered_selected_versions,
+                "book": book,
+                "section": section,
+                "page": old_page,
+                "new_page": new_page,
+                "propagated_versions": propagated_versions,
+                "existing_target_versions": existing_target_versions,
+            },
+        )
+
     def validate(self) -> list[Any]:
         """Run the existing docs validator against this editor's website root."""
         spec = importlib.util.spec_from_file_location(
@@ -3015,6 +3162,15 @@ def build_parser() -> argparse.ArgumentParser:
         "--title",
         help="new page title for real content in the target version",
     )
+    page_rename_parser.add_argument(
+        "--also-version",
+        action="append",
+        default=[],
+        help=(
+            "additional docs version to rename in the same atomic operation; "
+            "repeat for each independently authored version"
+        ),
+    )
 
     return parser
 
@@ -3135,8 +3291,8 @@ def execute(args: argparse.Namespace) -> int:
                 page=args.page,
             )
         elif args.operation == "rename":
-            plan = editor.plan_page_rename(
-                args.version,
+            plan = editor.plan_page_coordinated_rename(
+                [args.version, *args.also_version],
                 book=args.book,
                 section=args.section,
                 old_page=args.from_page,

@@ -16,8 +16,8 @@ For dependency changes, use:
 For Sambee Docker image releases, read these pages in order:
 
 - [Docker Release Overview](./docker-release-overview/)
-- [Publish Test Docker Candidate](./publish-test-docker-candidate/)
-- [Promote Docker Candidate](./promote-docker-candidate/)
+- [Build Docker Image](./build-docker-image/)
+- [Promote Docker Image](./promote-docker-image/)
 - [Docker Backfill And Cleanup](./docker-backfill-and-cleanup/)
 
 Use these pages when the goal is to take one reviewed commit all the way to `stable` without rebuilding at release time.

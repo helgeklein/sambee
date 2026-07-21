@@ -7,10 +7,6 @@ on:
         description: Companion release tag or GitHub release URL
         required: true
         type: string
-      sambee_release_tag:
-        description: Public Sambee release tag that authorizes this Companion promotion
-        required: true
-        type: string
       companion_channel_test:
         description: Update Companion test channel feed
         required: true
@@ -72,7 +68,6 @@ jobs:
         run: |
           scope_dir="$RUNNER_TEMP/release-scope"
           mkdir -p "$scope_dir"
-          gh release download "${{ inputs.sambee_release_tag }}" --pattern sambee-release.json --dir "$scope_dir"
           companion_tag="$(GH_TOKEN="$COMPANION_TOKEN" gh release view "${{ inputs.release_ref }}" \
             --repo "${{ env.COMPANION_RELEASE_REPO_OWNER }}/${{ env.COMPANION_RELEASE_REPO_NAME }}" \
             --json tagName --jq .tagName)"
@@ -80,10 +75,13 @@ jobs:
             --repo "${{ env.COMPANION_RELEASE_REPO_OWNER }}/${{ env.COMPANION_RELEASE_REPO_NAME }}" \
             --pattern companion-release-provenance.json \
             --dir "$scope_dir"
+          version="$(jq -er '.version | strings' "$scope_dir/companion-release-provenance.json")"
+          sambee_release_tag="v$version"
+          gh release download "$sambee_release_tag" --pattern sambee-release.json --dir "$scope_dir"
           python3 .github/scripts/validate_release_scope.py \
             --metadata-file "$scope_dir/sambee-release.json" \
             --component companion \
-            --version "$(jq -r '.version' "$scope_dir/companion-release-provenance.json")" \
+            --version "$version" \
             --build-tag "$(jq -r '.build_tag' "$scope_dir/companion-release-provenance.json")" \
             --source-sha "$(jq -r '.source_sha' "$scope_dir/companion-release-provenance.json")"
           build_tag="$(jq -r '.build_tag' "$scope_dir/companion-release-provenance.json")"
@@ -94,7 +92,8 @@ jobs:
             exit 1
           fi
           echo "scope=$(jq -r '.component_scope' "$scope_dir/sambee-release.json")" >> "$GITHUB_OUTPUT"
-          echo "version=$(jq -r '.version' "$scope_dir/companion-release-provenance.json")" >> "$GITHUB_OUTPUT"
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+          echo "sambee_release_tag=$sambee_release_tag" >> "$GITHUB_OUTPUT"
           echo "build_tag=$build_tag" >> "$GITHUB_OUTPUT"
           echo "source_sha=$source_sha" >> "$GITHUB_OUTPUT"
 

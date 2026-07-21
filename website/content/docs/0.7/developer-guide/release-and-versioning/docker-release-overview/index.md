@@ -28,8 +28,8 @@ If you want to publish a new Docker image:
 
 Read the detailed pages in this order:
 
-1. [Publish Test Docker Candidate](../publish-test-docker-candidate/)
-2. [Promote Docker Candidate](../promote-docker-candidate/)
+1. [Build Docker Image](../build-docker-image/)
+2. [Promote Docker Image](../promote-docker-image/)
 3. [Docker Backfill And Cleanup](../docker-backfill-and-cleanup/)
 
 ## Workflow Map
@@ -90,9 +90,9 @@ It also:
 
 Release promotion does not rebuild the image. It verifies candidate image metadata and the published metadata bundle first, then promotes the existing digest.
 
-Use [Publish Test Docker Candidate](../publish-test-docker-candidate/) for the build-and-publish flow.
+Use [Build Docker Image](../build-docker-image/) for the build-and-publish flow.
 
-Use [Promote Docker Candidate](../promote-docker-candidate/) for the release path.
+Use [Promote Docker Image](../promote-docker-image/) for the release path.
 
 Use [Docker Backfill And Cleanup](../docker-backfill-and-cleanup/) for recovery, backfill, and cleanup.
 

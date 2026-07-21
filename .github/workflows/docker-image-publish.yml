@@ -7,6 +7,12 @@ env:
 on:
   release:
     types: [ published ]
+  workflow_dispatch:
+    inputs:
+      build_version:
+        description: Existing immutable build version to promote to the Docker beta channel.
+        required: true
+        type: string
 
 concurrency:
   group: docker-release-publication
@@ -35,10 +41,8 @@ jobs:
     - name: Checkout tagged code
       uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
       with:
-        ref: ${{ github.event.release.tag_name }}
-
-    - name: Sync and verify version metadata
-      uses: ./.github/actions/sync-version-check
+        ref: ${{ github.event_name == 'release' && github.event.release.tag_name || github.sha }}
+        fetch-depth: 0
 
     - name: Resolve release metadata
       id: metadata
@@ -46,63 +50,80 @@ jobs:
       env:
         GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
       run: |
-        version="$(tr -d '[:space:]' < VERSION)"
-        release_tag="${{ github.event.release.tag_name }}"
+        if [[ "${{ github.event_name }}" == "workflow_dispatch" ]]; then
+          candidate_output="$RUNNER_TEMP/beta-candidate-output"
+          python3 .github/scripts/prepare_release_candidate.py \
+            --dispatch-ref "${{ github.ref }}" \
+            --dispatch-sha "${{ github.sha }}" \
+            --build-version "${{ inputs.build_version }}" \
+            --run-url "${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}" \
+            > "$candidate_output"
+          source "$candidate_output"
+          release_type="beta"
+          component_scope="docker"
+          docker_enabled=true
+        else
+          version="$(tr -d '[:space:]' < VERSION)"
+          release_tag="${{ github.event.release.tag_name }}"
 
-        if [[ "$release_tag" != v* ]]; then
-          echo "Release tag must start with v, got $release_tag" >&2
-          exit 1
+          if [[ "$release_tag" != v* ]]; then
+            echo "Release tag must start with v, got $release_tag" >&2
+            exit 1
+          fi
+
+          full_sha="$(git rev-parse HEAD)"
+          if [[ "${{ github.event.release.prerelease }}" == "true" ]]; then
+            echo "Publishable releases must not be prereleases." >&2
+            exit 1
+          fi
+
+          release_type="stable"
+          expected_tag="v$version"
+          if [[ "$release_tag" != "$expected_tag" ]]; then
+            echo "Release tag $expected_tag expected, got $release_tag" >&2
+            exit 1
+          fi
+
+          build_tag="build-v$version"
+          git fetch origin "refs/tags/$build_tag:refs/tags/$build_tag"
+          build_sha="$(git rev-parse "refs/tags/$build_tag^{commit}")"
+          if [[ "$build_sha" != "$full_sha" ]]; then
+            echo "Canonical build tag $build_tag points to $build_sha, but release tag $release_tag points to $full_sha." >&2
+            exit 1
+          fi
+
+          scope_dir="$RUNNER_TEMP/release-scope"
+          mkdir -p "$scope_dir"
+          gh release download "$release_tag" --pattern sambee-release.json --dir "$scope_dir"
+          component_scope="$(jq -r '.component_scope' "$scope_dir/sambee-release.json")"
+          if [[ "$component_scope" != docker && "$component_scope" != companion && "$component_scope" != both ]]; then
+            echo "sambee-release.json has an invalid component_scope." >&2
+            exit 1
+          fi
+          docker_enabled=true
+          if [[ "$component_scope" == companion ]]; then
+            docker_enabled=false
+            echo "Docker promotion is not authorized for companion-only release $release_tag."
+          else
+            python3 .github/scripts/validate_release_scope.py \
+              --metadata-file "$scope_dir/sambee-release.json" \
+              --component docker \
+              --version "$version" \
+              --build-tag "$build_tag" \
+              --source-sha "$full_sha"
+          fi
         fi
 
-        release_image_tag="${release_tag#v}"
-
-        full_sha="$(git rev-parse HEAD)"
+        checked_in_version="$(tr -d '[:space:]' < VERSION)"
+        if [[ "$checked_in_version" != "$version" ]]; then
+          echo "Canonical source has VERSION $checked_in_version, not $version." >&2
+          exit 1
+        fi
         major_minor="$(printf '%s' "$version" | cut -d. -f1-2)"
         owner_lower="$(printf '%s' "$GITHUB_REPOSITORY_OWNER" | tr '[:upper:]' '[:lower:]')"
         image_description="$(bash .github/scripts/read_website_description.sh)"
 
-        if [[ "${{ github.event.release.prerelease }}" == "true" ]]; then
-          echo "Publishable releases must not be prereleases." >&2
-          exit 1
-        fi
-
-        release_type="stable"
-        expected_tag="v$version"
-        if [[ "$release_tag" != "$expected_tag" ]]; then
-          echo "Release tag $expected_tag expected, got $release_tag" >&2
-          exit 1
-        fi
-
-        build_tag="build-v$version"
-        git fetch origin "refs/tags/$build_tag:refs/tags/$build_tag"
-        build_sha="$(git rev-parse "refs/tags/$build_tag^{commit}")"
-        if [[ "$build_sha" != "$full_sha" ]]; then
-          echo "Canonical build tag $build_tag points to $build_sha, but release tag $release_tag points to $full_sha." >&2
-          exit 1
-        fi
-
-        scope_dir="$RUNNER_TEMP/release-scope"
-        mkdir -p "$scope_dir"
-        gh release download "$release_tag" --pattern sambee-release.json --dir "$scope_dir"
-        component_scope="$(jq -r '.component_scope' "$scope_dir/sambee-release.json")"
-        if [[ "$component_scope" != docker && "$component_scope" != companion && "$component_scope" != both ]]; then
-          echo "sambee-release.json has an invalid component_scope." >&2
-          exit 1
-        fi
-        docker_enabled=true
-        if [[ "$component_scope" == companion ]]; then
-          docker_enabled=false
-          echo "Docker promotion is not authorized for companion-only release $release_tag."
-        else
-          python3 .github/scripts/validate_release_scope.py \
-            --metadata-file "$scope_dir/sambee-release.json" \
-            --component docker \
-            --version "$version" \
-            --build-tag "$build_tag" \
-            --source-sha "$full_sha"
-        fi
-
-        echo "checkout_ref=$release_tag" >> "$GITHUB_OUTPUT"
+        echo "checkout_ref=$full_sha" >> "$GITHUB_OUTPUT"
         echo "release_type=$release_type" >> "$GITHUB_OUTPUT"
         echo "version=$version" >> "$GITHUB_OUTPUT"
         echo "build_tag=$build_tag" >> "$GITHUB_OUTPUT"
@@ -118,6 +139,9 @@ jobs:
         echo "source_url=https://github.com/${GITHUB_REPOSITORY}" >> "$GITHUB_OUTPUT"
         echo "docker_enabled=$docker_enabled" >> "$GITHUB_OUTPUT"
         echo "component_scope=$component_scope" >> "$GITHUB_OUTPUT"
+
+    - name: Sync and verify version metadata
+      uses: ./.github/actions/sync-version-check
 
   resolve-candidate-artifact:
     needs: prepare
@@ -230,7 +254,7 @@ jobs:
         done
 
     - name: Verify coordinated Companion release
-      if: ${{ needs.prepare.outputs.component_scope == 'both' }}
+      if: ${{ needs.prepare.outputs.release_type == 'stable' && needs.prepare.outputs.component_scope == 'both' }}
       shell: bash
       env:
         GITHUB_TOKEN: ${{ secrets.COMPANION_RELEASE_REPO_TOKEN }}
@@ -252,8 +276,8 @@ jobs:
           '.version == $version and .build_tag == $build_tag and .source_sha == $source_sha' \
           "$provenance_dir/companion-release-provenance.json" >/dev/null
 
-  publish-release-tags:
-    needs: [prepare, resolve-candidate-artifact, verify-candidate-artifact]
+  promote-release-tags:
+    needs: [prepare, verify-candidate-artifact]
     if: ${{ needs.prepare.outputs.docker_enabled == 'true' }}
     runs-on: ubuntu-latest
     permissions:
@@ -272,7 +296,8 @@ jobs:
       shell: bash
       run: crane auth login ghcr.io -u "${{ github.actor }}" -p "${{ secrets.GITHUB_TOKEN }}"
 
-    - name: Attach immutable release tags
+    - name: Attach minor-series tag
+      if: ${{ needs.prepare.outputs.release_type == 'stable' }}
       shell: bash
       run: |
         bash .github/scripts/promote_container_image.sh \
@@ -280,29 +305,8 @@ jobs:
           --source-digest "${{ needs.verify-candidate-artifact.outputs.candidate_digest }}" \
           --tag "${{ needs.prepare.outputs.major_minor }}"
 
-  promote-channel-tags:
-    needs: [prepare, verify-candidate-artifact, publish-release-tags]
-    if: ${{ needs.prepare.outputs.docker_enabled == 'true' }}
-    runs-on: ubuntu-latest
-    permissions:
-      contents: read
-      packages: write
-    steps:
-    - name: Checkout repository
-      uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
-
-    - name: Set up crane
-      uses: ./.github/actions/setup-crane
-      with:
-        install-dir: ${{ runner.temp }}/bin
-
-    - name: Log in to GHCR with crane
-      shell: bash
-      run: crane auth login ghcr.io -u "${{ github.actor }}" -p "${{ secrets.GITHUB_TOKEN }}"
-
-    - name: Decide whether stable promotion should also move beta
+    - name: Decide whether promotion should move beta
       id: beta-policy
-      if: ${{ needs.prepare.outputs.release_type == 'stable' }}
       shell: bash
       run: |
         beta_ref="${{ needs.prepare.outputs.image_name }}:beta"
@@ -333,14 +337,14 @@ jobs:
           echo "Beta already points at the promoted digest; no beta update is needed."
         else
           decision="$(python3 .github/scripts/should_promote_beta_tag.py \
-            --stable-version "${{ needs.prepare.outputs.version }}" \
+            --candidate-version "${{ needs.prepare.outputs.version }}" \
             --beta-version "$beta_version")"
         fi
 
         echo "decision=$decision" >> "$GITHUB_OUTPUT"
 
-    - name: Promote prerelease beta channel tag
-      if: ${{ needs.prepare.outputs.release_type == 'beta' }}
+    - name: Promote beta channel tag
+      if: ${{ needs.prepare.outputs.release_type == 'beta' && steps.beta-policy.outputs.decision == 'promote' }}
       shell: bash
       run: |
         bash .github/scripts/promote_container_image.sh \
@@ -367,13 +371,13 @@ jobs:
           --tag beta
 
     - name: Keep beta on newer release line
-      if: ${{ needs.prepare.outputs.release_type == 'stable' && steps.beta-policy.outputs.decision == 'keep' }}
+      if: ${{ steps.beta-policy.outputs.decision == 'keep' }}
       shell: bash
       run: echo "Keeping beta on its current digest because it is already aligned or points to a higher semver release."
 
   upload-metadata-release-assets:
-    needs: [prepare, verify-candidate-artifact, publish-release-tags]
-    if: ${{ needs.prepare.outputs.docker_enabled == 'true' }}
+    needs: [prepare, verify-candidate-artifact, promote-release-tags]
+    if: ${{ needs.prepare.outputs.docker_enabled == 'true' && needs.prepare.outputs.release_type == 'stable' }}
     runs-on: ubuntu-latest
     permissions:
       contents: write

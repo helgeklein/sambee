@@ -4,6 +4,11 @@ title = "Docs Style Guide"
 
 Use this page as the canonical copy style reference for published docs.
 
+## Language
+
+- Use simple but correct language.
+- Don't be nitpicky.
+
 ## Lists
 
 ### Sentence Style

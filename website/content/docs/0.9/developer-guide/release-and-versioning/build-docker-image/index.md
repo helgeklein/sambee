@@ -1,35 +1,22 @@
 +++
-title = "Publish Test Docker Candidate"
+title = "Build Docker Image"
 +++
 
-This is step 1 of the Docker release flow.
+This is step 1 of the Docker release flow ([overview](../docker-release-overview/)).
 
-Use this `Release: Create Docker Image` workflow to create a deployable Docker image from a specific commit. It is the only workflow that builds and pushes a new Sambee image to GitHub Container Registry.
+Use `Release: Create Docker Image` to build one immutable Docker candidate from `main`. It is the only workflow that builds and pushes a new Sambee image to GitHub Container Registry (GHCR).
 
-This workflow does not create a Git tag, does not publish a GitHub Release, and does not move anything to `stable` or `beta`. It builds a candidate image, validates it, publishes it under an immutable `sha-<full-commit-sha>` tag, and moves the `test` tag to that same digest.
-
-## Summary
-
-Use this order when you are preparing a release candidate (RC) Docker image:
-
-1. Merge the commit you may want to ship.
-1. Start `Release: Create Docker Image` from that exact commit.
-   - Leave `source_ref` empty unless you deliberately need another immutable ref.
-   - Leave `publish_version_override` empty unless this is a preview-only label.
-1. Wait for the workflow to publish a new Docker image in GHCR tagged `sha-<full-commit-sha>` and `test`.
+The workflow reserves the annotated canonical Git tag `build-vX.Y.Z` for the committed, synchronized `VERSION` source. It does not publish a GitHub Release or move `stable` or `beta`.
 
 ## Inputs
 
-The manual workflow accepts these inputs:
+The workflow accepts only an optional existing candidate selector:
 
 | Input | What it means | Typical usage |
 |---|---|---|
-| `source_ref` | Which code to build. Use a commit SHA or tag. | Leave empty to build from the latest commit of the branch you selected when starting the run. Set it only when you need to point the run at a different commit. |
-| `publish_version_override` | Which version label to bake into the image. This is **not** the image tag used by Docker Compose. If you leave it empty, the workflow uses the checked-in `VERSION` value. | Use it for preview-only labels such as `0.8.0-test.1`. Leave it empty for a normal release candidate. |
+| `build_version` | Reuse an existing immutable `X.Y.Z` candidate. | Leave empty for a new candidate. Use an existing value only to verify or repair its immutable aliases. |
 
-If `publish_version_override` is set, CI rewrites `VERSION` for that run only and reruns `./scripts/sync-version` before building.
-
-That version value is written into the image metadata and the generated metadata bundle. It is not the main preview lookup tag. The candidate is still published under `sha-<full-commit-sha>` and then exposed through the moving `test` tag.
+The workflow rejects arbitrary source refs, source SHAs, and temporary version overrides. The checked-in, synchronized plain numeric `VERSION` is the only publishable version source.
 
 ## Validation
 
@@ -51,19 +38,27 @@ After validation, the workflow:
 2. Starts those same images and waits for the health endpoint to succeed.
 3. Scans those same images with Trivy.
 4. Assembles the platform manifests into one multi-platform candidate index.
-5. Publishes that candidate index under `sha-<full-commit-sha>`.
+5. Publishes the candidate index under immutable `build-vX.Y.Z`, `X.Y.Z`, and `sha-<full-commit-sha>` markers.
 6. Extracts per-platform SBOM and provenance payloads on native runners, then assembles and publishes the metadata bundle under the digest-derived `.meta` tag in `ghcr.io/<owner>/sambee-signatures`.
-7. Moves the `test` tag onto that same digest after metadata bundle publication succeeds.
-8. Signs the digest with Cosign using GitHub Actions OIDC.
+7. Signs the digest with Cosign using GitHub Actions OIDC and verifies the signature, image labels, and metadata bundle.
+8. Moves `test` to that same verified image.
 
-The digest is the real artifact identity. The `test` tag is only a moving alias.
+The digest is the real artifact identity. The canonical `build-vX.Y.Z` tag is the candidate source of truth; `test` is only a moving alias.
 
-Later promotion may move `stable`, `beta`, or both channel aliases to that same digest, depending on the release type and the current `beta` version.
+Later promotion may move `stable`, `beta`, or both channel aliases to that same image, depending on the release type and the current `beta` version.
 
 The workflow uses digest-only platform pushes while assembling the final candidate index. Treat those platform manifests as internal publish artifacts, not release candidates.
 
 Cosign writes the signature artifact into a dedicated signature repository so the main `sambee` package page stays centered on deployable image versions.
 That signature repository can still show both digest-derived signature tags and referenced untagged bundle manifests, which are part of Cosign's current storage model rather than extra preview image variants.
+
+## Retry Behavior
+
+Before the late candidate marker is written, a failed run may be retried with the same `Z` version. The run uses a unique `staging-<run>-<attempt>-<platform>` tag and cleans it up after promotion or failure. If that immediate deletion fails, the workflow emits a warning; the Docker package cleanup workflow reclaims the disposable staging tags and their unreferenced signature and metadata artifacts. It runs after successful candidate publication and on Sunday and Tuesday schedules, so stale artifacts are retained for no more than six days.
+
+After a valid candidate marker exists, a matching dispatch takes the repair-only path. It verifies the signed digest and restores only missing matching immutable aliases or the `test` pointer; it does not rebuild the image. A conflicting immutable marker requires incrementing `Z` and publishing a new candidate.
+
+GitHub Actions concurrency is mutual exclusion, not a FIFO queue: only one pending run is retained for the publication lock. Avoid stacking dispatches. A superseded pending dispatch is safe to submit again because it did not reach a publication step.
 
 ## Security Scan Behavior
 
