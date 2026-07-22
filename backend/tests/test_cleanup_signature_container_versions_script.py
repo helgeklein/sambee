@@ -124,6 +124,24 @@ def test_supported_arch_specific_preview_tags_are_not_retained() -> None:
 
 
 @pytest.mark.unit
+def test_run_scoped_staging_tags_are_not_retained() -> None:
+    module = load_cleanup_module()
+    staging_digest = "sha256:" + "6" * 64
+
+    versions = [
+        module.PackageVersion(
+            version_id=1,
+            created_at="2026-05-17T00:00:00Z",
+            digest=staging_digest,
+            tags=["staging-123456-2-index"],
+        )
+    ]
+
+    assert module.is_test_only_image_tag("staging-123456-2-index")
+    assert module.retained_image_digests(versions) == set()
+
+
+@pytest.mark.unit
 def test_classify_signature_version_protects_retained_digest_artifacts() -> None:
     module = load_cleanup_module()
     retained_digest = "sha256:" + "a" * 64

@@ -1012,9 +1012,8 @@ mod tests {
 
     #[test]
     fn test_matches_handler_identifier_is_case_insensitive_for_handler_names() {
-        let identifier = parse_handler_identifier(&make_handler_name_id(
-            r"C:\Program Files\WindowsApps\Microsoft.WindowsNotepad\Notepad\Notepad.exe",
-        ));
+        let handler_name = make_handler_name_id(r"C:\Program Files\WindowsApps\Microsoft.WindowsNotepad\Notepad\Notepad.exe");
+        let identifier = parse_handler_identifier(&handler_name);
 
         assert!(matches_handler_identifier(
             &identifier,

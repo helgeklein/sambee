@@ -1,0 +1,116 @@
+name: Verify Companion Build
+
+on:
+  pull_request:
+    paths:
+      - companion/**
+      - VERSION
+      - scripts/sync-version
+      - scripts/check_tauri_version_alignment.py
+      - .github/actions/sync-version-check/**
+      - .github/workflows/verify-companion-build.yml
+      - companion/package-lock.json
+      - companion/tsconfig.json
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  windows-x64:
+    runs-on: windows-latest
+    env:
+      CARGO_REGISTRIES_CRATES_IO_PROTOCOL: sparse
+      AZURE_CLIENT_ID: ${{ github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository && secrets.AZURE_CLIENT_ID || '' }}
+      AZURE_CLIENT_SECRET: ${{ github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository && secrets.AZURE_CLIENT_SECRET || '' }}
+      AZURE_TENANT_ID: ${{ github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository && secrets.AZURE_TENANT_ID || '' }}
+      AZURE_TRUSTED_SIGNING_ACCOUNT_NAME: HK-Artifact-Signing
+      AZURE_CERTIFICATE_PROFILE_NAME: HK-Certificate-Profile
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+
+      - uses: ./.github/actions/sync-version-check
+
+      - uses: dtolnay/rust-toolchain@29eef336d9b2848a0b548edc03f92a220660cdb8
+        with:
+          targets: x86_64-pc-windows-msvc
+
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020
+        with:
+          node-version: '20'
+          cache: npm
+          cache-dependency-path: companion/package-lock.json
+
+      - name: Install dependencies
+        run: cd companion && npm ci
+
+      - name: Run Companion checks
+        shell: pwsh
+        run: |
+          cd companion
+          npx tsc --noEmit
+          npm run lint
+          cd src-tauri
+          cargo test
+
+      - name: Assert verification-only secret boundary
+        shell: pwsh
+        run: |
+          foreach ($name in @('TAURI_SIGNING_PRIVATE_KEY', 'TAURI_SIGNING_PRIVATE_KEY_PASSWORD')) {
+            if (-not [string]::IsNullOrEmpty([Environment]::GetEnvironmentVariable($name))) {
+              throw "$name must be unset for verification-only builds."
+            }
+          }
+          $isFork = '${{ github.event_name }}' -eq 'pull_request' -and '${{ github.event.pull_request.head.repo.full_name }}' -ne '${{ github.repository }}'
+          if ($isFork) {
+            foreach ($name in @('AZURE_CLIENT_ID', 'AZURE_CLIENT_SECRET', 'AZURE_TENANT_ID', 'APPLE_CERTIFICATE', 'APPLE_CERTIFICATE_PASSWORD', 'COMPANION_RELEASE_REPO_TOKEN')) {
+              if (-not [string]::IsNullOrEmpty([Environment]::GetEnvironmentVariable($name))) {
+                throw "$name must be unset for fork pull requests."
+              }
+            }
+          }
+
+      - name: Configure verification-only Tauri bundle
+        shell: pwsh
+        run: |
+          $configPath = 'companion/src-tauri/tauri.conf.json'
+          $env:TAURI_CI_CONFIG = Join-Path $env:RUNNER_TEMP 'tauri.verification.json'
+          $config = Get-Content $configPath -Raw | ConvertFrom-Json
+          $config.bundle.createUpdaterArtifacts = $false
+          if ('${{ github.event_name }}' -eq 'pull_request' -and '${{ github.event.pull_request.head.repo.full_name }}' -ne '${{ github.repository }}') {
+            $config.bundle.windows.PSObject.Properties.Remove('signCommand')
+          }
+          $config | ConvertTo-Json -Depth 20 | Set-Content $env:TAURI_CI_CONFIG
+          "TAURI_CI_CONFIG=$env:TAURI_CI_CONFIG" | Out-File -FilePath $env:GITHUB_ENV -Append
+
+      - name: Install Azure signing client
+        if: ${{ github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository }}
+        shell: pwsh
+        run: cargo install trusted-signing-cli --version 0.9.0 --locked
+
+      - name: Build Windows x64 package
+        shell: pwsh
+        run: cd companion; npm run tauri -- build --config $env:TAURI_CI_CONFIG --target x86_64-pc-windows-msvc --bundles nsis -v
+
+      - name: Assert updater artifacts are absent
+        shell: pwsh
+        run: |
+          $bundlePath = 'companion/src-tauri/target/x86_64-pc-windows-msvc/release/bundle'
+          if (Get-ChildItem -Path $bundlePath -Recurse -Filter '*.sig' | Select-Object -First 1) {
+            throw 'Verification-only build produced an updater signature artifact.'
+          }
+
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
+        with:
+          name: companion-verification-windows-x64-${{ github.run_id }}
+          path: companion/src-tauri/target/x86_64-pc-windows-msvc/release/bundle/
+          if-no-files-found: error
+          retention-days: 7
+
+      - name: Remove temporary Tauri configuration
+        if: ${{ always() }}
+        shell: pwsh
+        run: |
+          if ($env:TAURI_CI_CONFIG) {
+            Remove-Item -Force -ErrorAction SilentlyContinue $env:TAURI_CI_CONFIG
+          }

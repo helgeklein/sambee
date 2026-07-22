@@ -1564,6 +1564,116 @@ class DocsEditorPageTests(DocsEditorTestCase):
         )
         self.assertEqual(editor.validate(), [])
 
+    def test_page_rename_allows_later_non_overlapping_target_page(self) -> None:
+        """An older rename may safely precede a later version that already uses the new slug."""
+        tempdir, root = self.build_temp_website()
+        self.addCleanup(tempdir.cleanup)
+
+        self.create_inherited_version(root, source_version="1.1", new_version="1.2")
+        later_old_page = self.docs_content_path(
+            root, "1.2", "end-user", "getting-started", "install"
+        )
+        later_new_page = self.docs_content_path(
+            root, "1.2", "end-user", "getting-started", "setup"
+        )
+        later_old_page.rename(later_new_page)
+        nav_path = root / "data" / "docs-nav" / "1.2.toml"
+        nav_path.write_text(
+            nav_path.read_text(encoding="utf-8").replace('"install"', '"setup"'),
+            encoding="utf-8",
+        )
+
+        editor = self.make_editor(root)
+        plan = editor.plan_page_rename(
+            "1.1",
+            book="end-user",
+            section="getting-started",
+            old_page="install",
+            new_page="setup",
+            title="Setup Sambee",
+        )
+        editor.apply_plan(plan)
+
+        self.assertEqual(plan.metadata["propagated_versions"], [])
+        self.assert_paths_exist(
+            self.docs_content_path(
+                root, "1.1", "end-user", "getting-started", "setup", "index.md"
+            ),
+            later_new_page / "inherit.md",
+        )
+        self.assertEqual(editor.validate(), [])
+
+    def test_page_rename_refuses_later_overlapping_target_page(self) -> None:
+        """A later version that contains both slugs remains an unsafe collision."""
+        tempdir, root = self.build_temp_website()
+        self.addCleanup(tempdir.cleanup)
+
+        self.create_inherited_version(root, source_version="1.1", new_version="1.2")
+        later_new_page = self.docs_content_path(
+            root, "1.2", "end-user", "getting-started", "setup"
+        )
+        later_new_page.mkdir()
+        (later_new_page / "index.md").write_text(
+            '+++\ntitle = "Different Setup"\n+++\n', encoding="utf-8"
+        )
+        nav_path = root / "data" / "docs-nav" / "1.2.toml"
+        nav_path.write_text(
+            nav_path.read_text(encoding="utf-8").replace(
+                '  "install",', '  "install",\n  "setup",'
+            ),
+            encoding="utf-8",
+        )
+
+        with self.assertRaisesRegex(
+            DOCS_EDITOR.DocsEditorError, "contains both page slugs"
+        ):
+            self.make_editor(root).plan_page_rename(
+                "1.1",
+                book="end-user",
+                section="getting-started",
+                old_page="install",
+                new_page="setup",
+                title="Setup Sambee",
+            )
+
+    def test_page_rename_coordinates_selected_authored_versions(self) -> None:
+        """Selected independently authored versions are renamed as one atomic plan."""
+        tempdir, root = self.build_temp_website()
+        self.addCleanup(tempdir.cleanup)
+
+        self.create_inherited_version(root, source_version="1.1", new_version="1.2")
+        self.create_inherited_version(root, source_version="1.2", new_version="1.3")
+        self.promote_inherited_page_to_real_content(
+            root,
+            version="1.3",
+            book="end-user",
+            section="getting-started",
+            page="install",
+            title="Install Sambee 1.3",
+            body="Version-specific instructions.",
+        )
+
+        editor = self.make_editor(root)
+        plan = editor.plan_page_coordinated_rename(
+            ["1.1", "1.3"],
+            book="end-user",
+            section="getting-started",
+            old_page="install",
+            new_page="setup",
+            title="Setup Sambee",
+        )
+        editor.apply_plan(plan)
+
+        self.assertEqual(plan.metadata["versions"], ["1.1", "1.3"])
+        self.assertEqual(plan.metadata["propagated_versions"], ["1.2"])
+        for version in ("1.1", "1.2", "1.3"):
+            page_slugs = self.nav_page_slugs(
+                root, version, "end-user", "getting-started"
+            )
+            self.assertIn("setup", page_slugs)
+            self.assertNotIn("install", page_slugs)
+        self.assertEqual(editor.validate(), [])
+
     def test_page_create_inherit_requires_earlier_resolution(self) -> None:
         """Creating an inherited page should require an earlier real page."""
         tempdir, root = self.build_temp_website()
