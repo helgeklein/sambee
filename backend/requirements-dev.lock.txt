@@ -401,9 +401,9 @@ faker==40.31.0 \
     --hash=sha256:af163a937aec99dca5abaeb94dd5008c51c26c6e9af1a26c8db4b3c4e7ca4403 \
     --hash=sha256:bedc97c292a48a6a1bbe471a9076d7395a196421ede1cedde99d5719f6b91027
     # via -r requirements-dev.txt
-fastapi==0.139.0 \
-    --hash=sha256:99ab7b2d92223c76d6cf10757ab3f89d45b38267fc20b2a136cf02f6beac3145 \
-    --hash=sha256:cf15e1e9e667ddb0ad63811e60bd11390d1aac838ca4a7a23f421807b2308189
+fastapi==0.139.2 \
+    --hash=sha256:333145a6891e9b5b3cfceb69baf817e8240cde4d4588ae5a10bf56ffacb6255e \
+    --hash=sha256:b9ad015a835173d59865e2f5d8296fbc2b317bf56a2ba1a5bfbdd03de2fd4b1c
     # via -r requirements.txt
 greenlet==3.5.4 \
     --hash=sha256:0232ae1de90a8e07867bb127d7a6ba2301e859145489f25cda8a6096dabe1d20 \
