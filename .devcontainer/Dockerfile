@@ -3,7 +3,7 @@
 FROM mcr.microsoft.com/devcontainers/python:3.13@sha256:9b0762901a555c31c2c63824cb5b1ade77da939500e034317b8d09578b94ba0e
 
 ARG HUGO_VERSION=0.160.0
-ARG NODE_MAJOR=20
+ARG NODE_MAJOR=24
 ARG RUST_TOOLCHAIN=stable
 
 # Install Sambee system dependencies from centralized script
