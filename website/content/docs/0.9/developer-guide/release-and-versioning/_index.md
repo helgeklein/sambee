@@ -6,7 +6,7 @@ This section covers the process of publishing new versions of the Docker image a
 
 For a complete Sambee product release, start here:
 
-- [Release Checklist](./release-checklist/)
+- [Release Overview](./release-overview/)
 - [Product Versioning](./product-versioning/)
 
 For dependency changes, use:
