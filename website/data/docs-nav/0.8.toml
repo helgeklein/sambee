@@ -251,7 +251,7 @@ title = "Release and Versioning"
 items = [
   "dependency-update-workflow",
   "product-versioning",
-  "release-checklist",
+  "release-overview",
   "docker-release-overview",
   "build-docker-image",
   "promote-docker-image",
