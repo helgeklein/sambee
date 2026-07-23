@@ -249,7 +249,7 @@ title = "Release and Versioning"
 
 [pages.developer-guide.release-and-versioning]
 items = [
-  "release-checklist",
+  "release-overview",
   "product-versioning",
   "docker-release-overview",
   "build-docker-image",

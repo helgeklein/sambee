@@ -6,7 +6,7 @@ title = "What's New"
 
 ### Release Workflow v2: Docker & Companion Version Lockstep
 
-Sambee has a sophisticated build and release system (see for yourself, the [docs](../../../developer-guide/release-and-versioning/release-checklist/) are public). Previously, releases and version numbers of the Docker image and the Companion app were (deliberately) independent. However, it turned out that it's more efficient and natural to increment the versions of both components in sync.
+Sambee has a sophisticated build and release system (see for yourself, the [docs](../../../developer-guide/release-and-versioning/release-overview/) are public). Previously, releases and version numbers of the Docker image and the Companion app were (deliberately) independent. However, it turned out that it's more efficient and natural to increment the versions of both components in sync.
 
 This led to quite the architecture change that started with a redefinition of the version number ([details](../../..//developer-guide/release-and-versioning/product-versioning/)), followed by a second step where the release processes were reworked so that they now follow a straightforward pattern:
 
