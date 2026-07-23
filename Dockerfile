@@ -2,7 +2,7 @@
 
 # Multi-stage build for production
 # Stage 1: Build frontend on the native builder because the emitted assets are architecture-independent.
-FROM --platform=$BUILDPLATFORM node:20-alpine AS frontend-builder
+FROM --platform=$BUILDPLATFORM node:24-alpine AS frontend-builder
 WORKDIR /app
 COPY frontend/package*.json ./
 COPY frontend/scripts ./scripts
