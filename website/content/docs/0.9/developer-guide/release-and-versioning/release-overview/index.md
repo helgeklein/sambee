@@ -1,6 +1,13 @@
 +++
-title = "Release Checklist"
+title = "Release Overview"
 +++
+
+## Principles
+
+- The version number source of truth is the `VERSION` file in the repository.
+- Every built artifact gets a unique version number.
+- Each version is built only once.
+- Releases happen without rebuilds but by applying tags to existing builds (Docker image) or updating channel pointers (Companion app).
 
 ## Process Overview for Test and Preview Candidates
 

@@ -15,11 +15,15 @@
     "images:validate": "python3 scripts/validate-webp-assets.py",
     "build:search-index": "npx pagefind --site public --quiet",
     "build:search-index:dev": "npx pagefind --site public-dev --quiet",
-    "dev": "npm run dev:prepare && concurrently --kill-others-on-fail --names theme,hugo,pagefind,webp,docs \"node scripts/themeGenerator.js --watch\" \"hugo server --source . --environment development --destination public-dev --renderToMemory=false --bind 0.0.0.0 --port 1313 --disableFastRender --navigateToChanged\" \"node scripts/pagefindWatch.js --site public-dev\" \"node scripts/webpWatch.js\" \"node scripts/docsInheritanceWatch.js\"",
-    "dev:prepare": "npm run build:theme && npm run docs:validate && npm run docs:materialize-inherited && rm -rf public-dev && hugo --source . --environment development --destination public-dev --cleanDestinationDir && npm run validate:homepage-ctas -- public-dev && npm run build:search-index:dev",
+    "dev": "npm run dev:prepare && npm run dev:watch",
+    "dev:with-search": "npm run dev:prepare:with-search && npm run dev:watch:with-search",
+    "dev:prepare": "npm run build:theme && npm run docs:validate && npm run docs:materialize-inherited && rm -rf public-dev && hugo --source . --environment development --destination public-dev --cleanDestinationDir && npm run validate:homepage-ctas -- public-dev",
+    "dev:prepare:with-search": "npm run dev:prepare && npm run build:search-index:dev",
+    "dev:watch": "concurrently --kill-others-on-fail --names theme,hugo,webp,docs \"node scripts/themeGenerator.js --watch\" \"hugo server --source . --environment development --destination public-dev --renderToMemory=false --bind 0.0.0.0 --port 1313 --disableFastRender\" \"node scripts/webpWatch.js\" \"node scripts/docsInheritanceWatch.js\"",
+    "dev:watch:with-search": "concurrently --kill-others-on-fail --names theme,hugo,pagefind,webp,docs \"node scripts/themeGenerator.js --watch\" \"hugo server --source . --environment development --destination public-dev --renderToMemory=false --bind 0.0.0.0 --port 1313 --disableFastRender\" \"node scripts/pagefindWatch.js --site public-dev\" \"node scripts/webpWatch.js\" \"node scripts/docsInheritanceWatch.js\"",
     "dev:search": "npm run dev:prepare",
     "build": "npm run build:theme && npm run docs:validate && npm run docs:materialize-inherited && npm run build:site && npm run validate:homepage-ctas",
-    "preview": "npm run build:search && hugo server --source . --bind 0.0.0.0 --port 1313 --environment production --disableFastRender --navigateToChanged",
+    "preview": "npm run build:search && hugo server --source . --bind 0.0.0.0 --port 1313 --environment production --disableFastRender",
     "build:search": "npm run build && npm run build:search-index"
   },
   "devDependencies": {
@@ -30,5 +34,8 @@
     "tailwind-bootstrap-grid": "^6.0.0",
     "tailwindcss": "^4.1.18",
     "wrangler": "^4.102.0"
+  },
+  "overrides": {
+    "shell-quote": "1.9.0"
   }
 }

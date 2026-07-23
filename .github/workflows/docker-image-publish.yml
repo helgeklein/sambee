@@ -39,7 +39,7 @@ jobs:
       component_scope: ${{ steps.metadata.outputs.component_scope }}
     steps:
     - name: Checkout tagged code
-      uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+      uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       with:
         ref: ${{ github.event_name == 'release' && github.event.release.tag_name || github.sha }}
         fetch-depth: 0
@@ -155,7 +155,7 @@ jobs:
       candidate_source_tag: ${{ steps.resolve.outputs.candidate_source_tag }}
     steps:
     - name: Checkout repository
-      uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+      uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
     - name: Set up crane
       uses: ./.github/actions/setup-crane
@@ -203,7 +203,7 @@ jobs:
       candidate_digest: ${{ steps.verify.outputs.resolved_digest }}
     steps:
     - name: Checkout repository
-      uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+      uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
     - name: Set up crane
       uses: ./.github/actions/setup-crane
@@ -285,7 +285,7 @@ jobs:
       packages: write
     steps:
     - name: Checkout repository
-      uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+      uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
     - name: Set up crane
       uses: ./.github/actions/setup-crane
@@ -384,7 +384,7 @@ jobs:
       packages: read
     steps:
     - name: Checkout repository
-      uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+      uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
     - name: Set up ORAS
       uses: ./.github/actions/setup-oras

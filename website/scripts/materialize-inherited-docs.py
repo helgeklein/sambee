@@ -3,7 +3,6 @@
 
 from __future__ import annotations
 
-import shutil
 from pathlib import Path
 
 import tomllib
@@ -34,13 +33,6 @@ source_docs_path = "{source_docs_path}"
 """
 
 
-def reset_generated_docs() -> None:
-    """Remove stale generated docs anchors before rebuilding them."""
-    if GENERATED_CONTENT_DIR.exists():
-        shutil.rmtree(GENERATED_CONTENT_DIR)
-    GENERATED_CONTENT_DIR.mkdir(parents=True, exist_ok=True)
-
-
 def load_current_version() -> str:
     """Return the current docs version slug declared in docs metadata."""
     with DOCS_VERSIONS_FILE.open("rb") as file:
@@ -50,72 +42,117 @@ def load_current_version() -> str:
     return current_version if isinstance(current_version, str) else ""
 
 
-def write_anchor(source_marker: Path, anchor_name: str) -> None:
-    """Write a generated Hugo page anchor for one inheritance marker."""
-    relative_parent = source_marker.parent.relative_to(DOCS_CONTENT_DIR)
-    anchor_path = GENERATED_CONTENT_DIR / relative_parent / anchor_name
-    anchor_path.parent.mkdir(parents=True, exist_ok=True)
-    anchor_path.write_text(ANCHOR_CONTENT, encoding="utf-8")
-
-
-def write_current_route_anchor(
-    source_directory: Path, anchor_name: str, current_version: str
+def add_inherited_anchor(
+    anchors: dict[Path, str], source_marker: Path, anchor_name: str
 ) -> None:
-    """Write a generated stable current-docs route anchor for one current-version page."""
+    """Record a generated Hugo page anchor for one inheritance marker."""
+    relative_parent = source_marker.parent.relative_to(DOCS_CONTENT_DIR)
+    anchors[relative_parent / anchor_name] = ANCHOR_CONTENT
+
+
+def add_current_route_anchor(
+    anchors: dict[Path, str],
+    source_directory: Path,
+    anchor_name: str,
+    current_version: str,
+) -> None:
+    """Record a stable current-docs route anchor for one current-version page."""
     version_root = DOCS_CONTENT_DIR / current_version
     relative_parent = source_directory.relative_to(version_root)
     if not relative_parent.parts:
         return
 
-    anchor_path = GENERATED_CONTENT_DIR / relative_parent / anchor_name
-    anchor_path.parent.mkdir(parents=True, exist_ok=True)
     source_docs_path = "/docs/" + "/".join((current_version, *relative_parent.parts))
-    anchor_path.write_text(
-        CURRENT_ROUTE_ANCHOR_TEMPLATE.format(source_docs_path=source_docs_path),
-        encoding="utf-8",
+    anchors[relative_parent / anchor_name] = CURRENT_ROUTE_ANCHOR_TEMPLATE.format(
+        source_docs_path=source_docs_path
     )
 
 
-def materialize_markers() -> int:
-    """Generate routing anchors and return the number written."""
-    reset_generated_docs()
-    generated_count = 0
+def collect_inherited_anchors() -> dict[Path, str]:
+    """Return the generated anchor files needed for inherited docs routes."""
+    anchors: dict[Path, str] = {}
 
     for marker in sorted(DOCS_CONTENT_DIR.rglob(BRANCH_MARKER)):
-        write_anchor(marker, BRANCH_ANCHOR)
-        generated_count += 1
+        add_inherited_anchor(anchors, marker, BRANCH_ANCHOR)
 
     for marker in sorted(DOCS_CONTENT_DIR.rglob(PAGE_MARKER)):
-        write_anchor(marker, PAGE_ANCHOR)
-        generated_count += 1
+        add_inherited_anchor(anchors, marker, PAGE_ANCHOR)
 
-    return generated_count
+    return anchors
 
 
-def materialize_current_routes(current_version: str) -> int:
-    """Generate stable current-docs routes for the declared current version."""
+def collect_current_route_anchors(current_version: str) -> dict[Path, str]:
+    """Return the generated anchor files needed for stable current-docs routes."""
+    anchors: dict[Path, str] = {}
     if not current_version:
-        return 0
+        return anchors
 
     current_version_dir = DOCS_CONTENT_DIR / current_version
     if not current_version_dir.exists():
-        return 0
-
-    generated_count = 0
+        return anchors
 
     for directory in sorted(
         path for path in current_version_dir.rglob("*") if path.is_dir()
     ):
         if (directory / BRANCH_SOURCE).exists() or (directory / BRANCH_MARKER).exists():
-            write_current_route_anchor(directory, BRANCH_ANCHOR, current_version)
-            generated_count += 1
+            add_current_route_anchor(anchors, directory, BRANCH_ANCHOR, current_version)
             continue
 
         if (directory / PAGE_SOURCE).exists() or (directory / PAGE_MARKER).exists():
-            write_current_route_anchor(directory, PAGE_ANCHOR, current_version)
-            generated_count += 1
+            add_current_route_anchor(anchors, directory, PAGE_ANCHOR, current_version)
 
-    return generated_count
+    return anchors
+
+
+def collect_existing_anchors() -> dict[Path, str]:
+    """Return generated anchor files currently on disk."""
+    if not GENERATED_CONTENT_DIR.exists():
+        return {}
+
+    return {
+        anchor_path.relative_to(GENERATED_CONTENT_DIR): anchor_path.read_text(
+            encoding="utf-8"
+        )
+        for anchor_path in GENERATED_CONTENT_DIR.rglob("*.md")
+    }
+
+
+def remove_empty_generated_directories() -> None:
+    """Remove empty directories left behind by obsolete generated anchors."""
+    if not GENERATED_CONTENT_DIR.exists():
+        return
+
+    for directory in sorted(
+        (path for path in GENERATED_CONTENT_DIR.rglob("*") if path.is_dir()),
+        key=lambda path: len(path.parts),
+        reverse=True,
+    ):
+        try:
+            directory.rmdir()
+        except OSError:
+            continue
+
+
+def reconcile_anchors(desired_anchors: dict[Path, str]) -> tuple[int, int, int]:
+    """Apply only generated-anchor changes required to match desired content."""
+    existing_anchors = collect_existing_anchors()
+    deleted_paths = sorted(existing_anchors.keys() - desired_anchors.keys())
+    written_paths = sorted(
+        path
+        for path, content in desired_anchors.items()
+        if existing_anchors.get(path) != content
+    )
+
+    for relative_path in deleted_paths:
+        (GENERATED_CONTENT_DIR / relative_path).unlink()
+
+    for relative_path in written_paths:
+        anchor_path = GENERATED_CONTENT_DIR / relative_path
+        anchor_path.parent.mkdir(parents=True, exist_ok=True)
+        anchor_path.write_text(desired_anchors[relative_path], encoding="utf-8")
+
+    remove_empty_generated_directories()
+    return len(written_paths), len(deleted_paths), len(desired_anchors)
 
 
 def main() -> int:
@@ -127,12 +164,14 @@ def main() -> int:
         return 0
 
     current_version = load_current_version()
-    inherited_count = materialize_markers()
-    current_route_count = materialize_current_routes(current_version)
+    inherited_anchors = collect_inherited_anchors()
+    current_route_anchors = collect_current_route_anchors(current_version)
+    desired_anchors = inherited_anchors | current_route_anchors
+    written_count, deleted_count, desired_count = reconcile_anchors(desired_anchors)
     print(
-        "Generated "
-        f"{inherited_count} inherited docs route anchor(s) and "
-        f"{current_route_count} stable current-docs route anchor(s)."
+        "Reconciled "
+        f"{desired_count} docs route anchor(s): {written_count} written, "
+        f"{deleted_count} deleted."
     )
     return 0
 
