@@ -58,6 +58,9 @@
     "swiper": "^14.0.5",
     "yet-another-react-lightbox": "^3.32.1"
   },
+  "overrides": {
+    "react-router": "8.3.0"
+  },
   "devDependencies": {
     "@biomejs/biome": "2.5.4",
     "@playwright/test": "^1.61.1",
