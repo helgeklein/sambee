@@ -2,6 +2,10 @@
 title = "What's New"
 +++
 
+## Under the Hood
+
+- Security: updated all dependencies with known vulnerabilities to fixed versions
+
 ## Internals
 
 ### Release Workflow v2: Docker & Companion Version Lockstep
