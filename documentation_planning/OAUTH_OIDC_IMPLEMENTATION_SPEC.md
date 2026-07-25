@@ -105,12 +105,13 @@ Add **Settings > Administration > Authentication** as a guided setup flow:
    - choose exactly one sign-in mode: **Password only**, **OIDC with local recovery**, or **OIDC only**
    - summarize the resulting login and provisioning behavior before confirmation
    - warn when activation invalidates active sessions or changes the current administrator's login path
+   - before switching to **Password only**, show the number of accounts without a local password that will be unable to sign in and require explicit confirmation
    - require the tested identity to be mapped to the current administrator, admitted by the proposed policy, and resolve to `admin` under the proposed mappings before enabling **OIDC only**
    - require a fresh test sign-in before changing admission or role mappings while already in **OIDC only** mode
 
 After activation, **Existing user mappings** lists local accounts that need to retain their existing Sambee data. For each account, an administrator may enter the expected IdP username and confirm a pending mapping. On that identity's next normal OIDC login, Sambee consumes the pending mapping and permanently binds the validated `(issuer, subject)` to the selected local account. The user receives no separate mapping link, mapping page, or approval prompt. Ordinary admitted users without a pending mapping are auto-provisioned on first OIDC sign-in. Recommend **OIDC with local recovery** during migration so existing local users can continue signing in with their passwords until mapped; before direct activation into **OIDC only**, warn that every existing user without a permanent or pending mapping will be unable to sign in to their existing account.
 
-Standard scopes and claims are not shown in the primary flow. An **Advanced** section contains scopes, defaulting to `openid profile email groups`, and claim-name overrides defaulting to `preferred_username`, `name`, `email`, and `groups`. Each override has a reset-to-default action. The interactive test validates these choices before activation.
+Standard scopes and claims are not shown in the primary flow. An **Advanced** section contains scopes, defaulting to `openid profile email groups`, and claim-name overrides defaulting to `preferred_username`, `name`, `email`, and `groups`. Each override has a reset-to-default action. The interactive test validates that the configured username claim is present and string-valued, but OIDC does not guarantee that `preferred_username` or another configurable claim is unique, stable, or non-reassignable. Before enabling administrator-created username mappings, require the administrator to confirm from the provider's documentation that the selected claim uniquely identifies one current account within the issuer. Aliases and display names are unsuitable. Document the verified claim for every supported provider; disable pending username mappings for a provider whose claim uniqueness cannot be established.
 
 The client secret is write-only after submission. A read response exposes only `client_secret_configured: true|false`; the backend never returns a masked, partial, or hashed secret. While editing, the frontend may reveal only the unsent value already held in the input, preserves it after recoverable validation failures, and clears it after successful testing or navigation away. Leaving the replacement field empty preserves the existing stored secret.
 
@@ -127,11 +128,11 @@ The client secret is write-only after submission. A read response exposes only `
 
 Show linked authentication types on each user: `Local password`, `OIDC`, or both. For OIDC-linked users, show the provider display name and last successful OIDC login. Do not expose the OIDC subject in the default UI.
 
-Administrators manage mappings from the user-management UI and the authentication-settings **Existing user mappings** section. Users cannot initiate, approve, change, or remove their own mapping. Creating or replacing a pending username mapping, moving an existing immutable identity mapping, and unmapping require confirmation and an audit event. A pending username mapping can bind only a previously unmapped identity to a local account that has no established OIDC identity. Moving an existing identity to another unmapped local user is a separate explicit administrator action that warns that both affected users will be signed out.
+Administrators manage mappings from the user-management UI and the authentication-settings **Existing user mappings** section. Users cannot initiate, approve, change, or remove their own mapping. Creating or replacing a pending username mapping, moving an existing immutable identity mapping, and detaching a mapping require confirmation and an audit event. A pending username mapping can bind only a previously unmapped identity to a local account that has no established OIDC identity. Moving an existing identity to another unmapped local user is a separate explicit administrator action that warns that both affected users will be signed out. Present **Move mapping** and **Change mapping** as the normal actions. Keep **Detach OIDC identity** as an advanced action with an explicit warning that it does not revoke IdP access: if the identity remains admitted, a later login may auto-provision a new local account or fail on a local username collision. Access revocation must use IdP membership, Sambee admission policy, or local account disabling.
 
 Do not implement **Add local password** in v1. Preserve passwords for existing local users and allow administrators to create local accounts through the existing user-management workflow when the sign-in mode permits password authentication, but never add a password retroactively to an OIDC-provisioned account. Password reset and password change require an existing password hash and are unavailable to accounts without one. In **OIDC only** mode, hide all password-management actions because local credentials cannot be used.
 
-Sambee retains one local `User.role` regardless of authentication method. A successful OIDC login synchronizes that role when mappings are configured. A password login uses the currently stored role without contacting the IdP. Removing an IdP group can change the stored role on the next OIDC login, but does not remove an existing local password. Disabling or expiring a local user continues to block both authentication methods and must not be undone by auto-provisioning.
+Sambee retains one local `User.role` regardless of authentication method. Every successful OIDC login recalculates and synchronizes that role: an admitted identity with no administrator/editor match becomes `viewer`, including when both privileged mapping lists are empty. A password login uses the currently stored role without contacting the IdP. Removing an IdP group can change the stored role on the next OIDC login, but does not remove an existing local password. Disabling or expiring a local user continues to block both authentication methods and must not be undone by auto-provisioning.
 
 Password recovery uses the documented `/login/local` route rather than adding visual noise to the primary OIDC login. It is available only in **OIDC with local recovery** mode, only to local-password accounts, and has its own password-login rate limit. It does not bypass normal password verification, activity, expiry, or token-version checks. **Password only** continues to use the normal login page.
 
@@ -196,7 +197,7 @@ A purpose-`test` callback validates the provider response and configured claims 
 
 The flow UUID is a correlation identifier, not an authorization credential. The frontend removes it from browser history, keeps it only in `sessionStorage` for the current setup tab, and uses an authenticated admin endpoint to retrieve the safe preview. Preview and activation require `ACCESS_ADMIN_SETTINGS`, the same initiating administrator, purpose `test`, and status `callback_validated`. The preview shows the server-calculated admission result, matching admission group when applicable, and resulting Sambee role; it explains that mapping does not override admission.
 
-**Activate** submits the flow ID plus the reviewed sign-in mode, admission policy, and privileged group mappings. The test flow records the active `configuration_revision`, or records that no active configuration existed, when testing begins. Inside the activation write transaction, the backend rejects a revision/existence mismatch with **Configuration changed; connect and test again**, evaluates the tested claims against the submitted access settings, and rejects activation unless the initiating administrator is admitted and resolves to `admin`. It then atomically persists the server-validated configuration, creates or verifies the tested identity mapping to the initiating administrator, and consumes the flow. An identity already mapped to another user or a conflicting identity already mapped to the administrator rejects activation. Canceling or closing the setup discards the client identifier, and the server flow expires after 30 minutes without affecting active authentication. Each **Connect and test** attempt creates a new immutable flow; editing tested provider fields or access settings that affect the preview requires a new test. Login flows retain secret, hashed one-time grants.
+**Activate** submits the flow ID plus the reviewed sign-in mode, admission policy, and privileged group mappings. The test flow records the active `configuration_revision`, or records that no active configuration existed, when testing begins. Inside the activation write transaction, the backend rejects a revision/existence mismatch with **Configuration changed; connect and test again**, evaluates the tested claims against the submitted access settings, and rejects activation unless the initiating administrator is admitted and resolves to `admin`. It then atomically persists the server-validated configuration, creates or verifies the tested identity mapping to the initiating administrator, and consumes the flow. An identity already mapped to another user or a conflicting identity already mapped to the administrator rejects activation. Canceling or closing the setup discards the client identifier, and the server flow expires after 30 minutes without affecting active authentication. Each **Connect and test** attempt creates a new immutable flow. During one unexpired setup flow, admission and role-mapping edits recompute the preview server-side from the stored validated claims and do not require another IdP login. Editing issuer, client ID, client secret, scopes, or claim names, or allowing the test to expire, requires a new test. A later admission or role-policy change while OIDC-only remains active still requires a fresh test sign-in. Login flows retain secret, hashed one-time grants.
 
 ### Identity resolution
 
@@ -210,7 +211,7 @@ Use this order:
    - `all_idp_users`: admit every otherwise-valid OIDC identity
 5. If the identity is not admitted, reject login with `oidc_user_not_admitted` without creating a record.
 6. If admitted and no immutable identity mapping exists, normalize the configured username claim by trimming surrounding whitespace while preserving case, then find an administrator-created `OidcPendingIdentityMapping` for the active provider and that exact expected username.
-7. If a pending mapping exists, atomically recheck its provider revision, target-user state, absence of an established target identity, username uniqueness, and both `OidcIdentity` uniqueness constraints; consume it and bind `(issuer, subject)` to the target local user. If any check changed, fail closed with a stable mapping-conflict error and create no user or identity.
+7. If a pending mapping exists, atomically recheck that it still exists, the target user remains active and unmapped, the exact expected claim still matches, and `(issuer, subject)` remains unmapped; consume it and create the constrained `OidcIdentity` in the same transaction. If any check changed or a database identity constraint fails, fail closed with a stable mapping-conflict error and create no user or identity.
 8. If no pending mapping exists, create the local user and identity mapping in one database transaction.
 
 Email, username, and display name remain mutable profile attributes and never resolve an established identity. Username is used only once to consume an explicit administrator-created pending mapping; every later login resolves exclusively through immutable `(issuer, subject)`.
@@ -224,12 +225,12 @@ During initial setup, the administrator maps only the successfully tested identi
 For any other existing local user:
 
 1. An administrator with `ACCESS_ADMIN_SETTINGS` selects **Map OIDC account** for the target local user.
-2. The administrator enters the exact username emitted by the configured OIDC username claim. Sambee trims surrounding whitespace, preserves case, and rejects an empty value or an exact duplicate pending username for the provider.
-3. The confirmation shows the local account, expected IdP username, local role, and a stronger warning when the target is an administrator. It explains that the mapping remains subject to admission and that the first admitted, previously unmapped OIDC identity with that exact username will claim the account.
-4. If the target has no established OIDC identity, Sambee creates or replaces the target user's `OidcPendingIdentityMapping`, recording the active provider revision and initiating administrator. Pending mappings persist until consumed, replaced, canceled, invalidated by a provider-configuration change, or removed with the target user.
+2. The administrator enters the exact username emitted by the configured OIDC username claim. Prefill the field with the local username, keep it editable, require explicit confirmation, trim surrounding whitespace, preserve case, and reject an empty value or an exact duplicate pending username for the provider.
+3. The confirmation shows the local account, expected IdP username, current local role, pending-mapping age when replacing one, and a stronger warning when the target is an administrator. It explains that mapping remains subject to admission, role will be recalculated from current IdP groups on first login, the current local role may not survive, and the first admitted, previously unmapped OIDC identity with that exact username will claim the account.
+4. If the target has no established OIDC identity, Sambee creates or replaces the target user's `OidcPendingIdentityMapping`, recording the initiating administrator. Pending mappings persist until consumed, replaced, canceled, deleted because issuer or username-claim configuration changed, or removed with the target user. Display them as **Waiting for first OIDC login** with expected username, creator, age, and **Cancel**; established mappings display as **OIDC linked**.
 5. On the matching identity's next normal OIDC login, the login transaction applies admission first, verifies that `(issuer, subject)` is not already mapped, rechecks the pending mapping and target, creates the immutable `OidcIdentity`, consumes the pending mapping, updates the target's synchronized profile and role, and increments `token_version`. The user sees only the normal OIDC login flow.
 
-An existing immutable identity always wins over any username match and can never be moved by consuming a pending mapping. To move an existing identity, an administrator selects that known mapping and an unmapped local target, then confirms an atomic reassignment; the UI never exposes or accepts the raw subject. To associate a different identity with an already mapped local account, the administrator must explicitly remove the established mapping before creating a pending username mapping. A newly established target mapping, deleted or inactive target, duplicate username, provider revision mismatch, or identity uniqueness conflict fails closed and requires administrator review.
+An existing immutable identity always wins over any username match and can never be moved by consuming a pending mapping. To move an existing identity, an administrator selects that known mapping and an unmapped local target, then confirms an atomic reassignment; the UI never exposes or accepts the raw subject. To associate a different identity with an already mapped local account, the administrator must explicitly detach the established mapping before creating a pending username mapping. A newly established target mapping, deleted or inactive target, duplicate username, deleted pending mapping, or identity uniqueness conflict fails closed and requires administrator review. Detaching an identity does not deny it future login when admission still permits it.
 
 Creating, replacing, canceling, consuming, moving, and removing mappings write audit events and increment `token_version` for every affected local user when an immutable mapping changes. In OIDC-only mode, reject removing or moving the last active mapped local administrator. Admission and role-policy edits remain subject to the separate fresh-test guard.
 
@@ -256,7 +257,7 @@ On every successful OIDC login:
 
 - update `last_login_at` on the identity
 - update name or email only when the corresponding provider claim is present and valid; preserve the existing local value when the claim is absent or invalid; per-user profile overrides are not supported in the first release
-- when at least one role mapping is configured, recalculate the role from provider groups; manual role overrides are not supported in this mode
+- recalculate the role from provider groups on every OIDC login; assign `viewer` when no privileged mapping matches, including when both privileged mapping lists are empty; manual role overrides are not supported
 - increment `User.token_version` if the synchronized role changes, invalidating older Sambee tokens
 - preserve `is_active`, `expires_at`, and local password state
 - never reactivate, unexpire, or delete an account automatically
@@ -299,6 +300,7 @@ A singleton table for the first release. Use integer primary key `id=1` with a d
 | `encrypted_client_secret` | nullable string | encrypted with the external OIDC secret key |
 | `scopes_json` | JSON text | must include `openid` |
 | `username_claim` | string | proposed default `preferred_username` |
+| `username_claim_uniqueness_confirmed` | boolean | administrator attestation required before creating pending username mappings; reset when issuer or username claim changes |
 | `name_claim` | nullable string | proposed default `name` |
 | `email_claim` | nullable string | proposed default `email` |
 | `groups_claim` | nullable string | proposed default `groups` |
@@ -364,7 +366,6 @@ Stores an administrator's declaration that the next admitted, previously unmappe
 | --- | --- | --- |
 | `id` | UUID primary key | internal pending-mapping record |
 | `provider_configuration_id` | provider FK | active provider owning the expected username |
-| `provider_configuration_revision` | integer | invalidates the pending mapping after an active provider-configuration change |
 | `expected_username` | string | trimmed, case-preserving exact value expected from the configured username claim |
 | `target_user_id` | user FK, indexed | existing local account to bind |
 | `created_by_user_id` | administrator user FK | audit attribution |
@@ -378,7 +379,7 @@ Constraints:
 - deleting a target user deletes its pending mapping in the same service transaction
 - consuming a pending mapping conditionally deletes it and creates the immutable identity in one transaction
 
-Pending mappings are not secrets and do not expire automatically. They remain visible to administrators until consumed, replaced, canceled, invalidated, or deleted with the target. This avoids coordination windows while keeping all mapping decisions administrator-controlled. The UI must warn that reassignment of an IdP username before first consumption could let its new holder claim the pending local account.
+Pending mappings are not secrets and do not expire automatically. They remain visible to administrators until consumed, replaced, canceled, or deleted with the target. This avoids coordination windows while keeping all mapping decisions administrator-controlled. Changing the active issuer or configured username claim deletes every pending mapping and resets `username_claim_uniqueness_confirmed=false` in the same configuration transaction because those changes alter the declaration's meaning. Before confirmation, show the number of pending mappings that will be deleted. Admission, role, scope, client, secret, display-name, and sign-in-mode changes do not invalidate pending mappings; current admission and role policy are evaluated when the mapping is consumed. The UI must warn that reassignment of an IdP username before first consumption could let its new holder claim the pending local account.
 
 ### `OidcFlow`
 
@@ -421,7 +422,7 @@ Required transition:
 4. Reject `oidc_only` unless the current administrator's tested OIDC identity is mapped to that administrator, is admitted by the proposed policy, and resolves to `admin` under the proposed group mappings. Apply the same fresh-test guard to later admission or role-mapping changes while OIDC-only remains active.
 5. Provide `sambee auth set-mode password-only` as the documented emergency command. It updates only `sign_in_mode`, invalidates existing sessions through `token_version`, and does not create, reset, or bypass any password.
 
-Auth configuration changes must clear the frontend auth-config cache and invalidate backend discovery/JWKS configuration caches. Increment `configuration_revision` for every active provider, admission, role-mapping, or sign-in-mode change so in-progress flows and pending username mappings become stale. Creating, consuming, canceling, removing, or reassigning an individual identity mapping does not change the provider revision and therefore does not invalidate unrelated pending mappings. Scope session invalidation in the same database transaction:
+Auth configuration changes must clear the frontend auth-config cache and invalidate backend discovery/JWKS configuration caches. Increment `configuration_revision` for every active provider, admission, role-mapping, or sign-in-mode change so in-progress browser flows become stale. Changing issuer or username claim also deletes all pending username mappings and resets the uniqueness attestation in the same transaction; other configuration changes preserve them. Creating, consuming, canceling, removing, or reassigning an individual identity mapping does not change the provider revision and therefore does not invalidate unrelated pending mappings. Scope session invalidation in the same database transaction:
 
 - sign-in-mode changes bulk-increment every user's existing `token_version`
 - issuer, client ID, scopes, claim names, admission policy/groups, or role mappings bulk-increment `token_version` only for users referenced by `OidcIdentity`
@@ -466,16 +467,15 @@ Require the existing `ACCESS_ADMIN_SETTINGS` capability for reads and writes. Un
 Add:
 
 - `GET /api/admin/auth/oidc` returns redacted configuration
-- `PUT /api/admin/auth/oidc` atomically updates configuration. Changing issuer, client ID, client secret, scopes, or claim names requires and consumes a successful administrator-bound test flow. Activation verifies the test flow's expected active revision before writing and creates the initiating administrator's tested identity mapping in the same transaction. Display name may be updated directly. Admission and role-mapping changes may be updated directly with confirmation and scoped session invalidation in **Password only** or **OIDC with local recovery** mode. Entering an OIDC mode requires a successful test; changing admission or role mappings while OIDC-only remains active requires a fresh test proving that the initiating administrator is admitted and still resolves to `admin`.
-- `POST /api/admin/auth/oidc/validate` validates a submitted candidate without saving it
-- `POST /api/admin/auth/oidc/test-login` validates a submitted candidate, stores its encrypted snapshot on an administrator-bound `OidcFlow`, and starts interactive test sign-in
+- `PUT /api/admin/auth/oidc` atomically updates configuration. Changing issuer, client ID, client secret, scopes, or claim names requires and consumes a successful administrator-bound test flow. Activation verifies the test flow's expected active revision before writing and creates the initiating administrator's tested identity mapping in the same transaction. Changing issuer or username claim reports and deletes affected pending mappings and resets the username-claim uniqueness attestation. Display name may be updated directly. Admission and role-mapping changes may be updated directly with confirmation and scoped session invalidation in **Password only** or **OIDC with local recovery** mode. Entering an OIDC mode requires a successful test; changing admission or role mappings while OIDC-only remains active requires a fresh test proving that the initiating administrator is admitted and still resolves to `admin`.
+- `POST /api/admin/auth/oidc/test-login` validates a submitted candidate without saving it; on validation failure it returns the structured check report, and on success it stores the encrypted snapshot on an administrator-bound `OidcFlow` and starts interactive test sign-in
 - `POST /api/admin/auth/oidc/test-result` returns the safe claim preview for an unexpired test flow ID bound to the current administrator without consuming it
-- `PUT /api/admin/auth/oidc/mappings/{user_id}/pending` creates or replaces a pending mapping from an exact expected IdP username to an unmapped local user, records the current provider revision, and returns the redacted pending-mapping state
+- `PUT /api/admin/auth/oidc/mappings/{user_id}/pending` requires `username_claim_uniqueness_confirmed=true`, creates or replaces a pending mapping from an exact expected IdP username to an unmapped local user, and returns the redacted pending-mapping state
 - `DELETE /api/admin/auth/oidc/mappings/{user_id}/pending` cancels the target user's pending mapping
 - `POST /api/admin/auth/oidc/mappings/{identity_id}/move` atomically moves a known immutable identity to a selected local user after explicit confirmation and never returns or accepts the raw subject
 - `DELETE /api/admin/auth/oidc/mappings/{user_id}` confirms and removes a mapping subject to the last-administrator guard
 
-Validation response example:
+Candidate-validation failure response example from `POST /api/admin/auth/oidc/test-login`:
 
 ```json
 {
@@ -497,7 +497,7 @@ Never echo secrets, discovery documents, JWKS bodies, provider error bodies, or 
 
 ## Configuration Validation
 
-The non-interactive **Validate configuration** action must:
+The non-interactive validation stage at the start of **Connect and test** must:
 
 - validate field syntax and required combinations locally
 - require an absolute issuer URL with no userinfo, query, or fragment
@@ -510,6 +510,7 @@ The non-interactive **Validate configuration** action must:
 - fetch and parse JWKS with strict response size and timeout limits
 - report whether configured scopes are advertised, as a warning because providers do not always publish complete scope metadata
 - report that credentials, redirect URI registration, and claims remain unverified until interactive login
+- report that an interactive test can verify that the username claim is present and string-valued but cannot prove that the provider issues it uniquely; administrator-created pending mappings require a provider-documented uniqueness guarantee
 
 All discovery, JWKS, token, and UserInfo requests must use one `ValidatedOidcHttpClient`; the OIDC library must not perform network requests outside this adapter. Apply these simple rules to the issuer and every endpoint obtained from discovery:
 
@@ -601,7 +602,7 @@ Safe fields include local user ID, username after resolution, provider configura
 
 - replace the public auth config type with the canonical `sign_in_mode` contract and derive password/OIDC availability from it
 - add redacted OIDC admin configuration and validation result types
-- add API methods for read, update, validate, authorization start, and one-time grant exchange
+- add API methods for read, update, connect/test, authorization start, and one-time grant exchange
 - centralize successful-token handling so password and OIDC login use the same storage, tracing initialization, current-user load, and redirect logic
 - clear `authConfig` cache after saving authentication settings
 
@@ -611,7 +612,7 @@ Safe fields include local user ID, username after resolution, provider configura
 - add a minimal `/login/oidc/callback` route that parses, removes, and exchanges the fragment grant
 - add the admin authentication settings category/page
 - add linked-authentication information to user management
-- add administrator-only pending username mapping, move, cancel, and unmapping controls to user management and authentication settings
+- add administrator-only pending username mapping, move, cancel, and detach controls to user management and authentication settings
 - gate all admin UI with the same server-enforced capability used by the API
 
 ### Accessibility and error handling
@@ -655,12 +656,15 @@ Names can change during implementation, but protocol, configuration, and identit
 - trim-only, case-preserving username normalization and case-sensitive collision behavior
 - disabled, expired, and OIDC-only users
 - password change/reset require an existing hash, and no API can add a password to an OIDC-provisioned user
-- mandatory profile synchronization and role synchronization when mappings are configured
+- mandatory profile synchronization and role synchronization on every OIDC login
 - missing or invalid optional name/email claims preserve existing local values
 - token-version increment only when authorization-relevant state changes
 - `OidcFlow` state/grant hashing, status transitions, expiry, atomic consumption, and replay rejection
 - pending username mapping validation, uniqueness, replacement, cancellation, and target-mapping guards
 - exact, trim-only, case-preserving pending-username matching occurs only after admission and only for an unmapped immutable identity
+- provider username claims without a documented uniqueness guarantee cannot enable pending mappings
+- issuer or username-claim changes delete pending mappings while unrelated configuration changes preserve them
+- username-claim uniqueness confirmation is persisted, required by the pending-mapping service, and reset after issuer or username-claim changes
 - test flows are administrator-bound, expire, and never modify active configuration before activation
 - activation rejects an active-configuration revision/existence mismatch and atomically commits the candidate plus initiating-administrator mapping
 - return-path validation
@@ -689,9 +693,10 @@ Use an in-process fake OIDC provider or deterministic mocked HTTP transport; do 
 - multiple backend sessions cannot transition or consume the same flow twice
 - an admitted, previously unmapped identity consumes one exact pending username mapping and binds to its target instead of being auto-provisioned
 - a non-admitted identity cannot consume a pending mapping, and a pending mapping cannot move an already mapped immutable identity
-- concurrent matching logins consume a pending mapping once; stale provider revision, target state, newly established target mapping, and uniqueness conflicts fail closed
+- concurrent matching logins consume a pending mapping once; deleted pending state, target state, newly established target mapping, and identity uniqueness conflicts fail closed
 - pending mapping creation, replacement, cancellation, and consumption are audited without exposing raw subjects
 - mapping, unmapping, pending-mapping replacement, and explicit reassignment enforce identity uniqueness, verify expected mappings, increment affected token versions, and reject removal of the last viable OIDC administrator
+- detaching an admitted identity is not treated as access revocation; the confirmation and tests cover subsequent auto-provisioning or username-collision behavior
 - admin APIs reject non-admin users and never return a client secret
 - lockout-prevention rules reject unsafe configuration updates
 - OIDC-only activation fails unless the tested, mapped administrator remains admitted and an admin under the proposed mappings
@@ -701,6 +706,8 @@ Use an in-process fake OIDC provider or deterministic mocked HTTP transport; do 
 - sign-in-mode changes invalidate every user; provider, claim, admission, and mapping changes invalidate only OIDC-linked users
 - client-secret-only rotation and display-name changes preserve established sessions
 - invalidation confirmation reports affected account count without claiming an active-session count and explicitly identifies when it includes the acting administrator
+- switching to password-only reports the count of passwordless accounts that will lose sign-in access and requires explicit confirmation
+- issuer or username-claim changes report and delete affected pending mappings and reset the uniqueness attestation; unrelated configuration changes preserve pending mappings
 - validated outbound HTTP rejects forbidden addresses, redirects, invalid certificates, oversized responses, and DNS rebinding
 - password, OIDC, mixed, and `none` modes each preserve expected behavior
 
@@ -719,12 +726,17 @@ Use an in-process fake OIDC provider or deterministic mocked HTTP transport; do 
 - setup and later administration provide the same administrator-owned mapping controls; users receive no self-service mapping controls
 - pending mapping confirmation shows the target local account, exact expected IdP username, local role, and administrator-account warning
 - users complete pending mappings through ordinary OIDC login without a separate link, mapping screen, or approval step
+- pending mapping UI uses **Waiting for first OIDC login** and shows expected username, creator, age, and cancellation; established mappings use **OIDC linked**
+- expected IdP username is prefilled from the local username but remains editable and requires explicit confirmation
+- pending mappings are unavailable until the administrator confirms the provider-documented uniqueness of the configured username claim
 - standard claims remain hidden by default, advanced overrides can be reset, and observed groups populate mapping choices
 - administrator/editor mapping validation and fixed viewer fallback
 - case-insensitive normalized group matching and cross-role collision errors
 - admin navigation/capability visibility
 - accounts without an existing password receive no password-change/reset/add action; OIDC-only mode hides all password-management actions
 - pending-mapping UI explains that mapping does not override admission and that the expected IdP username is used only for first binding
+- **Detach OIDC identity** is an advanced action that warns it does not revoke admitted IdP access
+- switching to **Password only** shows and confirms the count of accounts without local passwords that will lose sign-in access
 - configuration-change confirmation explicitly warns when the acting administrator will be signed out
 
 ### End-to-end tests
@@ -742,8 +754,11 @@ Use an in-process fake OIDC provider or deterministic mocked HTTP transport; do 
 - the guided setup configures a provider using only issuer, client ID, and client secret before access choices
 - a failed or abandoned candidate test leaves the working provider configuration unchanged
 - stale tested configuration cannot overwrite a concurrent administrator update
+- initial setup access-policy edits recompute the stored test preview without another IdP login
 - activation maps only the tested administrator; administrators create pending username mappings for other existing users afterward
 - `/login/local` is usable only in OIDC-with-recovery mode and retains password rate limiting
+- switching to password-only warns about passwordless accounts before invalidating sessions
+- detaching an admitted identity shows that the operation does not revoke access and its next login follows normal provisioning or collision rules
 - `sambee auth set-mode password-only` restores the mode without resetting or bypassing credentials
 
 Run the full backend test suite and type check, frontend test suite and type/lint checks, and the repository-wide test script before completion.
@@ -784,6 +799,7 @@ Update the earliest applicable documentation version using docs inheritance and 
 - OIDC setup procedure and redirect URI
 - field-by-field UI reference
 - provisioning and role-mapping behavior
+- pending username mapping prerequisites, provider claim uniqueness, and detach-versus-revoke behavior
 - admission modes and their security implications
 - lockout prevention and emergency recovery
 - OIDC provider client-secret rotation through **Connect and test**
@@ -819,7 +835,7 @@ Validate the example against the current supported Authelia release and clearly 
 - add the selected OIDC dependency through the dependency workflow
 - add data models and migrations
 - add encrypted/redacted configuration service
-- add admin read/update/validate APIs
+- add admin read/update APIs with validation integrated into **Connect and test**
 - add authentication settings UI
 - add lockout guards and emergency recovery mechanism
 
@@ -832,6 +848,7 @@ Acceptance criteria:
 - a non-admin cannot read or modify it
 - no API, log, or database plaintext field exposes the client secret
 - unsafe sign-in-mode and admission combinations are rejected
+- pending username mappings remain disabled until provider claim uniqueness is confirmed and are deleted when issuer or username claim changes
 
 ### Phase 2: login and administrator-managed identity mapping
 
@@ -899,11 +916,11 @@ Decide whether the existing `ACCESS_ADMIN_SETTINGS` capability is sufficient for
 
 ### 3. How are existing users mapped to OIDC identities?
 
-**Recommended:** administrator-managed mapping only. The administrator selects the local account and declares its exact expected IdP username. The next admitted, previously unmapped identity with that validated username atomically consumes the pending mapping and becomes permanently identified by immutable `(issuer, subject)`. Never infer a mapping from email or require users to choose a local account.
+**Recommended:** administrator-managed mapping only. The administrator selects the local account and declares its exact expected IdP username after verifying that the provider guarantees the configured claim is unique within the issuer. The next admitted, previously unmapped identity with that validated username atomically consumes the pending mapping and becomes permanently identified by immutable `(issuer, subject)`. Never infer a mapping from email or require users to choose a local account.
 
 Decide whether users may map themselves, whether administrators can map and unmap later, and whether the operational simplicity of one-time username bootstrap is acceptable given that IdP usernames can be reassigned before first consumption.
 
-**Decision:** users never map accounts themselves. Initial activation maps only the tested identity to the setup administrator. After activation, an administrator selects another existing local user, enters the exact expected IdP username, and confirms a persistent pending mapping. The next admitted, previously unmapped OIDC identity with that validated username consumes the pending mapping during ordinary login and is thereafter resolved only by immutable `(issuer, subject)`. Administrators may cancel or replace pending mappings and explicitly move or remove established mappings. Never auto-map by email, silently match similar usernames, let a pending username move an established identity, or expose or accept a raw provider subject.
+**Decision:** users never map accounts themselves. Initial activation maps only the tested identity to the setup administrator. After activation, and only after confirming that the provider guarantees uniqueness for the configured username claim, an administrator selects another existing local user, enters the exact expected IdP username, and confirms a persistent pending mapping. The next admitted, previously unmapped OIDC identity with that validated username consumes the pending mapping during ordinary login and is thereafter resolved only by immutable `(issuer, subject)`. Administrators may cancel or replace pending mappings and explicitly move or detach established mappings. Detaching does not revoke an identity that remains admitted. Never auto-map by email, silently match similar usernames, let a pending username move an established identity, or expose or accept a raw provider subject.
 
 ### 4. Which claim supplies Sambee usernames?
 
@@ -911,7 +928,7 @@ Decide whether users may map themselves, whether administrators can map and unma
 
 Decide whether Sambee may generate a suffix on collision and whether usernames should continue syncing after provisioning. Keeping usernames stable after creation is recommended because they appear in logs and administration.
 
-**Decision:** use configurable `preferred_username` by default, trim surrounding whitespace, preserve case, enforce case-sensitive uniqueness, reject collisions without generated suffixes, and keep the local username stable after creation.
+**Decision:** use configurable `preferred_username` by default, trim surrounding whitespace, preserve case, enforce case-sensitive local uniqueness, reject collisions without generated suffixes, and keep the local username stable after creation. OIDC does not guarantee that this claim is unique; pending mappings require provider documentation establishing that the configured claim uniquely identifies one current account within the issuer.
 
 ### 5. Which unknown OIDC users may sign in?
 
@@ -1003,11 +1020,11 @@ Decide whether production deployments need an optional hostname/IP allowlist to 
 
 ### 16. What does “Validate configuration” promise?
 
-**Recommended:** present one **Connect and test** action that runs metadata/JWKS validation and then interactive sign-in. Keep the backend checks separate and state that metadata validation alone cannot verify credentials, redirect registration, consent, or claim mappings.
+**Recommended:** present one **Connect and test** action that runs metadata/JWKS validation and then interactive sign-in. Keep validation as a separate internal typed operation, not a separate public admin endpoint, and state that metadata validation alone cannot verify credentials, redirect registration, consent, or claim mappings.
 
 Decide whether interactive test sign-in is required in the first release or may follow later.
 
-**Decision:** include both checks in the first release behind one guided **Connect and test** action. Require successful test sign-in before either OIDC mode can be activated.
+**Decision:** include both checks in the first release behind one guided **Connect and test** action and one admin endpoint. Require successful test sign-in before either OIDC mode can be activated. During an unexpired initial setup flow, recompute admission and role previews from stored validated claims without another IdP login; require a new test only after provider fields, scopes, or claim names change, the test expires, or an active OIDC-only policy is later edited.
 
 ### 17. What logout behavior is required?
 
