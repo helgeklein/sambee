@@ -24,6 +24,7 @@ const mockMarkdownEditorBehavior = {
   delayFocus: false,
   emitNonEditableInputBeforeInitialChange: false,
   emitUnannotatedDocChangeBeforeInitialChange: false,
+  emitUnannotatedDocChangeOnMarkdownPropChange: false,
   focusEditableBeforeInitialChange: false,
   focusCurrentSearchResultCalls: 0,
   focusResetsScrollPosition: false,
@@ -77,7 +78,7 @@ const MockMarkdownRichEditor = forwardRef<
   {
     markdown: string;
     onChange: (markdown: string) => void;
-    onUserEdit?: () => void;
+    onUserEdit?: (viewUpdate?: ViewUpdate) => void;
     ariaLabel: string;
     autoFocus?: boolean;
     readOnly?: boolean;
@@ -174,6 +175,11 @@ const MockMarkdownRichEditor = forwardRef<
       latestMarkdownRef.current = markdown;
       const textarea = textareaRef.current;
 
+      if (previousMarkdownRef.current !== markdown && mockMarkdownEditorBehavior.emitUnannotatedDocChangeOnMarkdownPropChange) {
+        onUserEdit?.({ transactions: [{ isUserEvent: () => false }] } as unknown as ViewUpdate);
+        onChange(markdown);
+      }
+
       if (
         !textarea ||
         previousMarkdownRef.current === markdown ||
@@ -186,7 +192,7 @@ const MockMarkdownRichEditor = forwardRef<
 
       textarea.setSelectionRange(markdown.length, markdown.length);
       previousMarkdownRef.current = markdown;
-    }, [markdown]);
+    }, [markdown, onChange, onUserEdit]);
 
     useEffect(() => {
       const textarea = textareaRef.current;
@@ -433,6 +439,7 @@ describe("MarkdownViewer", () => {
     mockMarkdownEditorBehavior.delayFocus = false;
     mockMarkdownEditorBehavior.emitNonEditableInputBeforeInitialChange = false;
     mockMarkdownEditorBehavior.emitUnannotatedDocChangeBeforeInitialChange = false;
+    mockMarkdownEditorBehavior.emitUnannotatedDocChangeOnMarkdownPropChange = false;
     mockMarkdownEditorBehavior.focusEditableBeforeInitialChange = false;
     mockMarkdownEditorBehavior.focusCurrentSearchResultCalls = 0;
     mockMarkdownEditorBehavior.focusResetsScrollPosition = false;
@@ -739,6 +746,42 @@ describe("MarkdownViewer", () => {
       });
       expect(screen.getByRole("textbox", { name: "Markdown editor" })).toHaveValue(normalizedMarkdown);
     });
+  });
+
+  it("remains pristine after an unannotated editor reformat following Ctrl+S", async () => {
+    vi.spyOn(apiService, "getFileContent").mockResolvedValueOnce("# Readme\n");
+    vi.spyOn(apiService, "supportsEditLocks").mockReturnValue(true);
+    vi.spyOn(apiService, "acquireEditLock").mockResolvedValueOnce({
+      lock_id: "lock-1",
+      file_path: "/docs/readme.md",
+      locked_by: "alice",
+      locked_at: "2026-03-23T12:00:00Z",
+    });
+    vi.spyOn(apiService, "saveTextFile").mockResolvedValue();
+    vi.spyOn(apiService, "releaseEditLock").mockResolvedValue();
+    mockMarkdownEditorBehavior.canonicalMarkdownOverride = "# Canonical\n";
+    mockMarkdownEditorBehavior.emitUnannotatedDocChangeOnMarkdownPropChange = true;
+
+    renderViewer();
+
+    await screen.findByText("Readme");
+    fireEvent.click(screen.getByRole("button", { name: "Edit" }));
+
+    const editor = await screen.findByRole("textbox", { name: "Markdown editor" });
+    fireEvent.change(editor, { target: { value: "# Updated\n" } });
+    expect(await screen.findByLabelText("Unsaved changes")).toBeInTheDocument();
+
+    fireEvent.keyDown(editor, { key: "s", ctrlKey: true });
+
+    await waitFor(() => {
+      expect(editor).toHaveValue("# Canonical\n");
+      expect(screen.queryByLabelText("Unsaved changes")).not.toBeInTheDocument();
+    });
+
+    mockMarkdownEditorBehavior.canonicalMarkdownOverride = null;
+    fireEvent.change(editor, { target: { value: "# Canonical\n\nNext edit\n" } });
+
+    expect(await screen.findByLabelText("Unsaved changes")).toBeInTheDocument();
   });
 
   it("restores focus to the editor after save even when editor focus is delayed", async () => {
