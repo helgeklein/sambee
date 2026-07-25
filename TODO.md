@@ -8,13 +8,6 @@
 
 ## Markdown editor
 
-- Table cells
-   - Special characters: when saving, it's escaped with a backslash and displayed with the backslash the next time it's opened in MD editor.
-      - Markdown viewer shows it correctly (without the backslash)
-      - Observed with:
-         - Asterisk (*)
-         - Ampersand (&)
-   - Can we use lists in table cells?
 - Search + replace (Ctrl+H)
 
 ## Authentication system

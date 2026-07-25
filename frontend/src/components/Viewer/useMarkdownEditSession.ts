@@ -1,4 +1,11 @@
+import type { ViewUpdate } from "@codemirror/view";
 import { type RefObject, useCallback, useEffect, useRef, useState } from "react";
+
+const USER_EDIT_EVENTS = ["input", "delete", "move", "undo", "redo"] as const;
+
+function hasExplicitUserEdit(viewUpdate: ViewUpdate): boolean {
+  return viewUpdate.transactions.some((transaction) => USER_EDIT_EVENTS.some((event) => transaction.isUserEvent(event)));
+}
 
 interface UseMarkdownEditSessionOptions {
   isEditing: boolean;
@@ -15,7 +22,7 @@ export interface MarkdownEditSessionController {
   clearBaselineSyncWindow: () => void;
   clearPendingBaselineSync: () => void;
   handleEditorChange: (markdown: string) => void;
-  handleEditorUserEdit: () => void;
+  handleEditorUserEdit: (viewUpdate?: ViewUpdate) => void;
   hasUserEditedInSession: boolean;
   markEditSessionPristine: () => void;
   requestRestoreEditingFocus: () => void;
@@ -85,11 +92,18 @@ export function useMarkdownEditSession({
     [clearPendingBaselineSync, isEditing, setDraftContent, setEditBaselineContent]
   );
 
-  const handleEditorUserEdit = useCallback(() => {
-    clearBaselineSyncWindow();
-    hasUserEditedRef.current = true;
-    setHasUserEditedInSession(true);
-  }, [clearBaselineSyncWindow]);
+  const handleEditorUserEdit = useCallback(
+    (viewUpdate?: ViewUpdate) => {
+      if (allowBaselineSyncRef.current && viewUpdate && !hasExplicitUserEdit(viewUpdate)) {
+        return;
+      }
+
+      clearBaselineSyncWindow();
+      hasUserEditedRef.current = true;
+      setHasUserEditedInSession(true);
+    },
+    [clearBaselineSyncWindow]
+  );
 
   useEffect(() => {
     if (!isEditing) {
@@ -105,7 +119,7 @@ export function useMarkdownEditSession({
     const handleEditorInteractionStart = (event: Event) => {
       const target = event.target;
 
-      if (target instanceof HTMLElement && target.matches('[contenteditable="true"], textarea')) {
+      if (target instanceof Element && target.closest('.cm-editor, [contenteditable="true"], textarea')) {
         clearBaselineSyncWindow();
       }
     };
@@ -120,12 +134,20 @@ export function useMarkdownEditSession({
 
     interactionRoot.addEventListener("keydown", handleEditorInteractionStart);
     interactionRoot.addEventListener("pointerdown", handleEditorInteractionStart);
+    interactionRoot.addEventListener("beforeinput", handleEditorInteractionStart);
+    interactionRoot.addEventListener("paste", handleEditorInteractionStart);
+    interactionRoot.addEventListener("cut", handleEditorInteractionStart);
+    interactionRoot.addEventListener("drop", handleEditorInteractionStart);
     interactionRoot.addEventListener("keydown", handleToolbarInteractionStart);
     interactionRoot.addEventListener("pointerdown", handleToolbarInteractionStart);
 
     return () => {
       interactionRoot.removeEventListener("keydown", handleEditorInteractionStart);
       interactionRoot.removeEventListener("pointerdown", handleEditorInteractionStart);
+      interactionRoot.removeEventListener("beforeinput", handleEditorInteractionStart);
+      interactionRoot.removeEventListener("paste", handleEditorInteractionStart);
+      interactionRoot.removeEventListener("cut", handleEditorInteractionStart);
+      interactionRoot.removeEventListener("drop", handleEditorInteractionStart);
       interactionRoot.removeEventListener("keydown", handleToolbarInteractionStart);
       interactionRoot.removeEventListener("pointerdown", handleToolbarInteractionStart);
     };

@@ -10,7 +10,7 @@ export interface SourceTextEditorProps {
   contentAttributes?: Record<string, string>;
   className?: string;
   onChange: (value: string, viewUpdate: ViewUpdate) => void;
-  onUserEdit?: () => void;
+  onUserEdit?: (viewUpdate: ViewUpdate) => void;
   onUpdate?: (viewUpdate: ViewUpdate, view: EditorView) => void;
 }
 

@@ -2,6 +2,11 @@
 title = "What's New"
 +++
 
+## Markdown Editor
+
+- Lists are normalized (formatted) when saved, using `-` for unordered lists and `1.` for every ordered-list item.
+- The editor now updates to display the normalized Markdown written to disk after a successful save.
+
 ## Under the Hood
 
 - Security: updated all dependencies with known vulnerabilities to fixed versions

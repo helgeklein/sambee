@@ -1,5 +1,6 @@
 import { findNext, findPrevious } from "@codemirror/search";
 import { EditorSelection } from "@codemirror/state";
+import type { ViewUpdate } from "@codemirror/view";
 import { insertEmptyMarkdownTable } from "codemirror-markdown-tables";
 import { forwardRef, useCallback, useEffect, useImperativeHandle, useMemo, useRef, useState } from "react";
 import { buildMarkdownEditorExtensions } from "../Editor/buildMarkdownEditorExtensions";
@@ -47,7 +48,7 @@ export interface MarkdownRichEditorProps {
   markdown: string;
   diffMarkdown?: string;
   onChange: (markdown: string) => void;
-  onUserEdit?: () => void;
+  onUserEdit?: (viewUpdate?: ViewUpdate) => void;
   ariaLabel: string;
   theme: MarkdownEditorThemeOptions;
   autoFocus?: boolean;

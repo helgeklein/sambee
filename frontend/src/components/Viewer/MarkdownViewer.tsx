@@ -851,9 +851,11 @@ export const MarkdownViewer: React.FC<ViewerComponentProps> = ({ connectionId, p
         emitMarkdownDebugTrace("MarkdownViewer", "persistDraft:save-resolved", {
           savedContentLength: savedContent.length,
         });
+        clearPendingBaselineSync();
+        beginBaselineSyncWindow();
         setContent(savedContent);
+        setDraftContent(savedContent);
         setEditBaselineContent(savedContent);
-        clearBaselineSyncWindow();
         markEditSessionPristine();
 
         if (afterSave === "close-viewer") {
@@ -884,7 +886,8 @@ export const MarkdownViewer: React.FC<ViewerComponentProps> = ({ connectionId, p
       }
     },
     [
-      clearBaselineSyncWindow,
+      beginBaselineSyncWindow,
+      clearPendingBaselineSync,
       closeViewer,
       connectionId,
       draftContent,
