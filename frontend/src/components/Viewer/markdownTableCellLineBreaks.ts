@@ -12,7 +12,11 @@ function createMdastBreakNode(): Break {
 }
 
 const markdownParser = unified().use(remarkParse).use(remarkGfm);
-const markdownProcessor = unified().use(remarkParse).use(remarkGfm).use(remarkStringify).use(remarkGfm);
+const markdownProcessor = unified()
+  .use(remarkParse)
+  .use(remarkGfm)
+  .use(remarkStringify, { bullet: "-", incrementListMarker: false })
+  .use(remarkGfm);
 
 function createTextNode(value: string): Text {
   return { type: "text", value };

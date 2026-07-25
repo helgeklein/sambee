@@ -852,6 +852,7 @@ export const MarkdownViewer: React.FC<ViewerComponentProps> = ({ connectionId, p
           savedContentLength: savedContent.length,
         });
         setContent(savedContent);
+        setDraftContent(savedContent);
         setEditBaselineContent(savedContent);
         clearBaselineSyncWindow();
         markEditSessionPristine();

@@ -45,6 +45,26 @@ describe("markdownTableCellLineBreaks", () => {
     expect(normalizeMarkdownTableCellLineBreaks(normalized)).toBe(normalized);
   });
 
+  it("canonicalizes list markers while preserving list-like text in fenced code", () => {
+    const markdown = [
+      "* first",
+      "* second",
+      "",
+      "1. first",
+      "2. second",
+      "",
+      "```md",
+      "* literal bullet",
+      "2. literal number",
+      "```",
+      "",
+    ].join("\n");
+
+    expect(normalizeMarkdownTableCellLineBreaks(markdown)).toBe(
+      ["- first", "- second", "", "1. first", "1. second", "", "```md", "* literal bullet", "2. literal number", "```", ""].join("\n")
+    );
+  });
+
   it("renders canonical breaks visually only inside table cells", async () => {
     render(
       <ReactMarkdown remarkPlugins={[remarkGfm, remarkRenderMarkdownTableCellLineBreaks]}>

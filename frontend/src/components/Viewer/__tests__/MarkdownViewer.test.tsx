@@ -696,6 +696,42 @@ describe("MarkdownViewer", () => {
         mimeType: "text/markdown;charset=utf-8",
       });
     });
+
+    await waitFor(() => {
+      expect(screen.getByRole("textbox", { name: "Markdown editor" })).toHaveValue("# Canonical\n");
+    });
+  });
+
+  it("shows save-time Markdown normalization in the open editor", async () => {
+    vi.spyOn(apiService, "getFileContent").mockResolvedValueOnce("# Readme\n");
+    vi.spyOn(apiService, "supportsEditLocks").mockReturnValue(true);
+    vi.spyOn(apiService, "acquireEditLock").mockResolvedValueOnce({
+      lock_id: "lock-1",
+      file_path: "/docs/readme.md",
+      locked_by: "alice",
+      locked_at: "2026-03-23T12:00:00Z",
+    });
+    const saveSpy = vi.spyOn(apiService, "saveTextFile").mockResolvedValue();
+    vi.spyOn(apiService, "releaseEditLock").mockResolvedValue();
+
+    renderViewer();
+
+    await screen.findByText("Readme");
+    fireEvent.click(screen.getByRole("button", { name: "Edit" }));
+
+    const editor = await screen.findByRole("textbox", { name: "Markdown editor" });
+    fireEvent.change(editor, { target: { value: "* first\n* second\n\n1. first\n2. second\n" } });
+    fireEvent.click(screen.getByRole("button", { name: "Save" }));
+
+    const normalizedMarkdown = "- first\n- second\n\n1. first\n1. second\n";
+
+    await waitFor(() => {
+      expect(saveSpy).toHaveBeenCalledWith("conn1", "/docs/readme.md", normalizedMarkdown, {
+        filename: "readme.md",
+        mimeType: "text/markdown;charset=utf-8",
+      });
+      expect(screen.getByRole("textbox", { name: "Markdown editor" })).toHaveValue(normalizedMarkdown);
+    });
   });
 
   it("restores focus to the editor after save even when editor focus is delayed", async () => {
