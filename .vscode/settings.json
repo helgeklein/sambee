@@ -141,7 +141,7 @@
     "which": true,
     "who": true,
     // Read-only Git inspection
-    "/^git\\s+(--no-pager)?\\s+\\s+(status|diff|log|show|branch|blame|rev-parse|ls-files|ls-tree|describe|tag|remote)\\b/": {
+    "/^git\\s+(status|diff|log|show|branch|blame|rev-parse|ls-files|ls-tree|describe|tag|remote)\\b/": {
       "approve": true,
       "matchCommandLine": true
     },

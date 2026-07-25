@@ -130,7 +130,9 @@ Show linked authentication types on each user: `Local password`, `OIDC`, or both
 
 Administrators manage mappings from the user-management UI and the authentication-settings **Existing user mappings** section. Users cannot initiate, approve, change, or remove their own mapping. Mapping and unmapping require confirmation and an audit event. A **Change mapping** action uses the same validated identity-capture process and atomically moves the identity only after warning that both affected users will be signed out.
 
-Password reset is hidden for OIDC-only users. An administrator may instead use an explicit **Add local password** action that converts the account to mixed authentication, requires confirmation, and writes an audit event. Disabling or expiring a local user continues to block OIDC login and must not be undone by auto-provisioning.
+Password reset and **Add local password** are unavailable in **OIDC only** mode because a local credential cannot be used in that mode. In **OIDC with local recovery** or **Password only** mode, an administrator may use **Add local password** for a user without one. The confirmation warns that the password is an authentication path independent of the identity provider, writes an audit event, and increments the target user's `token_version` so existing sessions are invalidated. It does not change the global sign-in mode or the user's role.
+
+Sambee retains one local `User.role` regardless of authentication method. A successful OIDC login synchronizes that role when mappings are configured. A password login uses the currently stored role without contacting the IdP. Removing an IdP group can change the stored role on the next OIDC login, but does not remove an existing local password. Disabling or expiring a local user continues to block both authentication methods and must not be undone by auto-provisioning.
 
 Password recovery uses the documented `/login/local` route rather than adding visual noise to the primary OIDC login. It is available only in **OIDC with local recovery** mode, only to local-password accounts, and has its own password-login rate limit. It does not bypass normal password verification, activity, expiry, or token-version checks. **Password only** continues to use the normal login page.
 
@@ -146,7 +148,7 @@ Password recovery uses the documented `/login/local` route rather than adding vi
 4. Persist a short-lived, one-time `OidcFlow`. Login and test flows begin with status `started`; an identity-capture flow is created as `invitation_pending` by an administrator and transitions to `started` only when its invitation is consumed:
    - hash of `state`
    - encrypted PKCE verifier
-   - encrypted nonce, or a hash if the selected OIDC library can validate from the original safely
+   - nonce encrypted with `SAMBEE_OIDC_SECRET_KEY`
    - flow purpose: `login`, `identity_capture`, or `test`
    - initiating administrator ID for `identity_capture` and `test`, plus the target local user ID for `identity_capture`
    - provider configuration revision
@@ -172,9 +174,14 @@ Started flows expire after five minutes, transition atomically, and are deleted 
    - expiry and issued-at constraints with bounded clock skew
    - transaction nonce
    - required `sub` claim
-6. Use ID-token claims by default. When a configured required claim is absent and the provider advertises UserInfo, make exactly one UserInfo request for the flow through `ValidatedOidcHttpClient`, with no retry and no cross-login failure cache. Require UserInfo `sub` to exactly equal the validated ID-token `sub`, then merge only configured missing claims. If the subject differs or a required claim remains absent, fail login. Log category `token_claim_mismatch` with reason `user_info_subject_mismatch` for a subject mismatch without logging either subject value.
-7. Complete the callback according to the flow purpose. A `login` flow resolves the local user and role, rejects inactive or expired users, and continues below. An `identity_capture` or `test` flow follows its dedicated completion rules without provisioning a user, creating a mapping, or changing authorization.
-8. For `login`, generate a random, single-use login grant, store only its hash on the flow, transition the flow to `callback_validated`, and redirect to a frontend callback route with the plaintext grant in the URL fragment. Do not issue a Sambee JWT in the callback.
+6. Use ID-token claims by default and classify configured claims as follows:
+   - `sub` is mandatory in the validated ID token and cannot be supplied by UserInfo
+   - username is required for every interactive test and login
+   - groups are required only when `selected_groups` admission or a privileged role mapping is configured
+   - name and email are optional profile claims; their absence never fails authentication and never triggers UserInfo
+7. When a required username or groups claim is absent and the provider advertises UserInfo, make exactly one UserInfo request for the flow through `ValidatedOidcHttpClient`, with no retry and no cross-login failure cache. Require UserInfo `sub` to exactly equal the validated ID-token `sub`, then merge only the configured missing required claims. If the subject differs, UserInfo is unavailable, or a required claim remains absent, fail login. Log category `token_claim_mismatch` with reason `user_info_subject_mismatch` for a subject mismatch without logging either subject value.
+8. Complete the callback according to the flow purpose. A `login` flow resolves the local user and role, rejects inactive or expired users, and continues below. An `identity_capture` or `test` flow follows its dedicated completion rules without provisioning a user, creating a mapping, or changing authorization.
+9. For `login`, generate a random, single-use login grant, store only its hash on the flow, transition the flow to `callback_validated`, and redirect to a frontend callback route with the plaintext grant in the URL fragment. Do not issue a Sambee JWT in the callback.
 
 Example redirect:
 
@@ -232,7 +239,7 @@ For a new identity:
 - normalize the proposed username exactly like the current local model: trim surrounding whitespace, preserve case, and apply case-sensitive uniqueness; do not lowercase or rewrite characters
 - reject a collision with an existing username, create no user or mapping, and direct the user to ask an administrator to map the existing local account or resolve the username collision
 - set name and email from configured claims when valid
-- set `password_hash` to `NULL` for an OIDC-only user
+- set `password_hash` to `NULL` for a newly OIDC-provisioned user
 - set `must_change_password=false`
 - set `is_active=true`
 - leave `expires_at=NULL`
@@ -313,7 +320,21 @@ The decrypted secret must exist only for the outbound token request and validati
 - If an encrypted secret exists but the key is missing or cannot decrypt it, fail OIDC closed, mark authentication health unhealthy, and emit an actionable error. Do not erase or replace the stored ciphertext.
 - Keep password recovery available according to the configured recovery policy; OIDC key failure does not silently change persisted login settings.
 - Document secure generation, backup, container secret injection, and file/environment permissions. Losing the key requires entering a new client secret.
-- Provide a maintenance command for rotation. It reads the current key from `SAMBEE_OIDC_SECRET_KEY` and the replacement from `SAMBEE_OIDC_NEW_SECRET_KEY`, decrypts and re-encrypts the client secret in one transaction, verifies the result, and never accepts either key as a command-line argument. After rotation, deploy with the replacement as `SAMBEE_OIDC_SECRET_KEY` and remove the temporary variable.
+
+#### OIDC client-secret rotation
+
+To rotate the provider-issued OIDC client secret, enter the replacement in the authentication settings and complete **Connect and test**. The active client secret remains unchanged until activation atomically promotes the tested candidate. This procedure does not use `SAMBEE_OIDC_NEW_SECRET_KEY` and does not rotate the key that encrypts the secret at rest.
+
+#### Encryption-key rotation
+
+Rotate the at-rest encryption key only while all Sambee application processes are stopped so no process can retain or write ciphertext using the old key. The maintenance command:
+
+1. Reads the current key from `SAMBEE_OIDC_SECRET_KEY` and the replacement from `SAMBEE_OIDC_NEW_SECRET_KEY`; it never accepts either key as a command-line argument.
+2. Acquires an exclusive database write transaction, decrypts the stored client secret with the current key, validates the replacement Fernet key, and re-encrypts the secret.
+3. Decrypts the candidate ciphertext with the replacement key and compares it with the original plaintext before committing. Any failure rolls back without changing the stored ciphertext.
+4. Prints the exact next action: replace `SAMBEE_OIDC_SECRET_KEY` with the new value, remove `SAMBEE_OIDC_NEW_SECRET_KEY`, and restart Sambee. It never prints either key.
+
+On restart, Sambee must decrypt the stored secret successfully before serving OIDC authorization requests. If rotation did not commit, restart with the old key. If rotation committed but deployment of the replacement key failed, deploy the replacement key before restarting. Do not support multiple live encryption keys in v1.
 
 ### `OidcIdentity`
 
@@ -361,7 +382,7 @@ No provider tokens are retained after the callback. If the selected library requ
 
 - make `password_hash` nullable
 - password login must fail generically when `password_hash` is absent
-- normal password change requires an existing local password; the audited admin-only **Add local password** action is the sole way to add password authentication to an OIDC-only user
+- normal password change requires an existing local password; the audited admin-only **Add local password** action is available only in `password_only` and `oidc_with_recovery`, invalidates the target user's sessions, and is the sole way to add password authentication to a user without a password
 - add no provider subject fields directly to `User`; keep identity linkage normalized
 
 ## Configuration Precedence and Lockout Prevention
@@ -382,9 +403,11 @@ Auth configuration changes must clear the frontend auth-config cache and invalid
 - issuer, client ID, scopes, claim names, admission policy/groups, or role mappings bulk-increment `token_version` only for users referenced by `OidcIdentity`
 - client-secret-only rotation and display-name changes do not invalidate established Sambee sessions
 
-Existing JWT validation then performs all revocation without a new global JWT claim. Before confirmation, show the number of accounts that will be signed out; do not claim to know the number of active sessions because Sambee does not persist a session registry.
+Existing JWT validation then performs all revocation without a new global JWT claim. Before confirmation, show the number of accounts that will be signed out; do not claim to know the number of active sessions because Sambee does not persist a session registry. If the acting administrator is included, identify that explicitly: **This includes your account. You must sign in through {provider display name} to continue.**
 
-OIDC-authenticated Sambee JWTs expire after the backend constant `OIDC_ACCESS_TOKEN_EXPIRE_MINUTES = 60`. This is not an administrator setting in v1. In OIDC-only mode, expiration automatically starts OIDC reauthentication once while preserving the safe return path; an active IdP session normally makes this redirect silent. Track that attempt in `sessionStorage` to prevent redirect loops, and clear the marker after successful login. On failure, render the login page with **Try OIDC again** and a generic message that sign-in is temporarily unavailable. OIDC-only intentionally provides no local-login fallback during an IdP outage. Mixed mode returns to the login page with OIDC as the primary action and retains `/login/local`. Explicit logout suppresses automatic reauthentication and clears the attempt marker.
+`POST /api/auth/oidc/exchange` always issues a Sambee JWT with the backend constant `OIDC_ACCESS_TOKEN_EXPIRE_MINUTES = 60`. `POST /api/auth/token` retains the configured password-session lifetime. Do not add an authentication-method field to `User` or a persistent authentication-method JWT claim; authorization remains identical after issuance.
+
+The OIDC lifetime is not an administrator setting in v1. In OIDC-only mode, expiration automatically starts OIDC reauthentication once while preserving the safe return path; an active IdP session normally makes this redirect silent. Track that attempt in `sessionStorage` to prevent redirect loops, and clear the marker after successful login. On failure, render the login page with **Try OIDC again** and a generic message that sign-in is temporarily unavailable. OIDC-only intentionally provides no local-login fallback during an IdP outage. Mixed mode returns to the login page with OIDC as the primary action and retains `/login/local`. Explicit logout suppresses automatic reauthentication and clears the attempt marker.
 
 ## Backend API
 
@@ -512,6 +535,7 @@ Keep library-specific token dictionaries out of provisioning and API layers.
 ### Application
 
 - Encrypt the client secret with `SAMBEE_OIDC_SECRET_KEY`, which is external to the database.
+- Encrypt each flow's nonce and PKCE verifier with `SAMBEE_OIDC_SECRET_KEY`; do not persist either value or a reversible derivative in plaintext.
 - Never log authorization codes, state, nonce, PKCE verifier, grants, client secrets, provider tokens, raw claims, or full group lists.
 - Hash state and login grants at rest with SHA-256; compare using constant-time behavior where applicable.
 - Consume state and grants atomically to prevent replay.
@@ -599,12 +623,14 @@ Names can change during implementation, but protocol, configuration, and identit
 - sign-in-mode validation and fixed standard scope/claim defaults
 - singleton configuration database constraint and strict admission/mapping JSON schemas
 - secret encryption, replacement, preservation, removal, and response redaction
+- encrypted nonce/verifier round trips and absence of plaintext protocol material at rest
 - browser-only client-secret visibility, recoverable-error preservation, and clearing after successful test/navigation
 - issuer and endpoint URL validation
 - role mapping for fixed viewer fallback, one privileged match, multiple matches, duplicates, malformed group claims, and both privileged roles
 - stable `(issuer, subject)` lookup regardless of email/username changes
 - trim-only, case-preserving username normalization and case-sensitive collision behavior
 - disabled, expired, and OIDC-only users
+- **Add local password** is rejected in `oidc_only`, allowed only in `password_only` and `oidc_with_recovery`, preserves the role, invalidates target-user sessions, and emits an audit event
 - mandatory profile synchronization and role synchronization when mappings are configured
 - token-version increment only when authorization-relevant state changes
 - `OidcFlow` state/grant hashing, status transitions, expiry, atomic consumption, and replay rejection
@@ -622,7 +648,8 @@ Use an in-process fake OIDC provider or deterministic mocked HTTP transport; do 
 - successful code exchange and ID-token validation
 - wrong issuer, audience, nonce, signature, algorithm, expired token, missing subject, unknown key, and rotated key
 - UserInfo response with a missing or mismatched subject
-- UserInfo is attempted at most once per flow with no retry or cross-login failure cache
+- missing required username or groups triggers at most one UserInfo request with no retry or cross-login failure cache
+- missing optional name/email does not trigger UserInfo or fail authentication
 - provider error callback
 - selected-groups and all-IdP-user admission behavior
 - selected-groups admission rejects missing, malformed, and nonmatching group claims without creating users
@@ -631,6 +658,7 @@ Use an in-process fake OIDC provider or deterministic mocked HTTP transport; do 
 - role change invalidates old Sambee JWT
 - OIDC callback produces a one-time grant, not a token in the URL
 - grant exchange succeeds once and fails on replay/expiry
+- OIDC exchange always issues a 60-minute JWT while password login retains the configured password-session lifetime
 - multiple backend sessions cannot transition or consume the same flow twice
 - identity capture grants no Sambee session, exposes no target-user details, and requires confirmation by the same initiating administrator
 - later-administration capture uses the active provider revision and commits only after administrator confirmation
@@ -640,9 +668,10 @@ Use an in-process fake OIDC provider or deterministic mocked HTTP transport; do 
 - OIDC-only activation fails unless the tested, mapped administrator remains admitted and an admin under the proposed mappings
 - OIDC-only admission/mapping edits require a fresh test proving the initiating administrator remains admitted and admin
 - missing, wrong, and rotated external OIDC encryption keys fail closed without destroying configuration
+- stopped-application encryption-key rotation verifies replacement ciphertext before commit, rolls back on failure, and requires the replacement key at next startup
 - sign-in-mode changes invalidate every user; provider, claim, admission, and mapping changes invalidate only OIDC-linked users
 - client-secret-only rotation and display-name changes preserve established sessions
-- invalidation confirmation reports affected account count without claiming an active-session count
+- invalidation confirmation reports affected account count without claiming an active-session count and explicitly identifies when it includes the acting administrator
 - validated outbound HTTP rejects forbidden addresses, redirects, invalid certificates, oversized responses, and DNS rebinding
 - password, OIDC, mixed, and `none` modes each preserve expected behavior
 
@@ -663,7 +692,8 @@ Use an in-process fake OIDC provider or deterministic mocked HTTP transport; do 
 - administrator/editor mapping validation and fixed viewer fallback
 - case-insensitive normalized group matching and cross-role collision errors
 - admin navigation/capability visibility
-- OIDC-only users do not receive password reset actions
+- **Add local password** and password reset are hidden in OIDC-only mode; supported modes show the independent-authentication-path warning
+- configuration-change confirmation explicitly warns when the acting administrator will be signed out
 
 ### End-to-end tests
 
@@ -722,7 +752,8 @@ Update the earliest applicable documentation version using docs inheritance and 
 - provisioning and role-mapping behavior
 - admission modes and their security implications
 - lockout prevention and emergency recovery
-- client-secret rotation
+- OIDC provider client-secret rotation through **Connect and test**
+- at-rest encryption-key rotation with stopped-application, deployment, startup-verification, and rollback procedures
 - troubleshooting by stable error category
 - security/privacy notes about claims and local user records
 - upgrade notes for the new database-owned auth configuration behavior
@@ -959,13 +990,13 @@ Reuse the existing per-user token version and the `OidcIdentity` relation rather
 
 **Decision:** always increment the provider revision after active security-sensitive changes. Increment every user's `token_version` for sign-in-mode changes; increment only OIDC-linked users for issuer, client ID, scopes, claim, admission, or mapping changes; preserve sessions for client-secret-only rotation and display-name changes.
 
-### 19. Can an OIDC-only user gain a local password?
+### 19. When may an OIDC-provisioned user gain a local password?
 
-**Recommended:** only through an explicit admin action that clearly changes the account to mixed authentication and records an audit event. Normal self-service password change remains unavailable without an existing password.
+**Recommended:** expose an explicit administrator action only while the global sign-in mode permits password authentication. Hide it in OIDC-only mode, where the credential would be unusable and easily forgotten. Normal self-service password change remains unavailable without an existing password.
 
-Decide whether password reset should be hidden entirely for OIDC-linked users or allowed for recovery.
+Decide which sign-in modes permit the action and how to communicate that a local password is independent of the IdP.
 
-**Decision:** hide password reset for OIDC-only users. Provide an explicit, confirmed, audited admin action named **Add local password** to create mixed authentication.
+**Decision:** hide password reset and **Add local password** in OIDC-only mode. In Password only and OIDC with local recovery modes, provide the explicit, confirmed, audited **Add local password** action for users without one. Warn that it creates an IdP-independent authentication path, preserve the user's role, and invalidate that user's existing sessions.
 
 ### 20. Which OIDC signing algorithms are required?
 
