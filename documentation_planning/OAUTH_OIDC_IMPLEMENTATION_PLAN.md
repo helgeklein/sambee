@@ -20,6 +20,7 @@ This plan translates the normative specification into readiness gates and review
 - Keep secrets, protocol material, provider tokens, raw claims, and raw OIDC subjects out of APIs, URLs, logs, audit rows, and diagnostics.
 - Make account mapping and provider replacement transactional. Never expose a detached or partially replaced state.
 - Use canonical backend request and response models as the source for frontend types and contract tests.
+- Roll out breaking backend/frontend contracts through an explicit compatibility bridge or one atomic pull request; never leave a deployed frontend expecting a removed field.
 - Add focused tests in the same pull request as each behavior. Do not defer security-negative tests to final hardening.
 - Follow the pinned and hashed backend dependency workflow before changing requirement or lock files.
 
@@ -136,6 +137,7 @@ Create canonical Pydantic models and enums for:
 - move, change, detach, and cancellation operations
 - one-time grant exchange and existing login response reuse
 - stable public and administrator error codes
+- administrator prerequisites and authentication health, with exact fields for `oidc_secret_key_configured`, `public_url_configured`, safe canonical `public_url`, derived `redirect_uri`, typed health status, and an allowlisted safe reason code
 
 Generate and snapshot the relevant OpenAPI component schemas. Frontend types may be generated from or manually mirrored against that reviewed snapshot, but contract tests must detect drift.
 
@@ -151,9 +153,9 @@ Add a database-backed audit record rather than relying on application logs. The 
 
 Audit writes that describe a committed mutation must occur in the same database transaction as that mutation. Failed operations may write a separate redacted failure event after rollback. Audit insertion failure must fail and roll back a security-sensitive mutation rather than silently losing the record.
 
-Define retention and administrator visibility before exposing an audit UI. An audit UI is not required for OIDC v1; durable database records and an operator-supported retrieval path are required.
+Retain OIDC audit rows indefinitely in v1; document database growth and backup implications. An audit UI is not required. Provide an operator-supported, read-only JSON Lines export through `sambee auth audit export`, with optional time and event-name filters, after the CLI delivery contract is established. The export returns only the already allowlisted persisted fields and never decrypts OIDC configuration or flow data.
 
-**Exit check:** tests prove mutation rollback on audit-write failure and prove that forbidden values cannot enter serialized audit details.
+**Exit check:** tests prove mutation rollback on audit-write failure, prove that forbidden values cannot enter serialized audit details, and prove that export filters cannot expose arbitrary tables or fields.
 
 ### Gate R5: emergency CLI delivery contract
 
@@ -166,6 +168,7 @@ Choose and document one supported invocation that works in the production contai
 ```text
 sambee auth set-mode password-only [--force]
 sambee auth rotate-oidc-secret-key
+sambee auth audit export [--since <timestamp>] [--event <name>]
 ```
 
 If repository packaging cannot reliably install a console script, use an explicitly supported module invocation and provide a container wrapper; do not document an accidental `python -c` command. Both commands must reuse application services and transaction logic rather than duplicate database mutations.
@@ -176,7 +179,7 @@ If repository packaging cannot reliably install a console script, use an explici
 
 **Owner:** backend/data
 
-**Required before:** enabling OIDC modes.
+**Required before:** the activation-cutover pull request may register provider finalization or expose an OIDC mode.
 
 Rehearse the migration against:
 
@@ -188,9 +191,21 @@ Rehearse the migration against:
 
 Verify row counts, password-hash preservation, indexes, foreign keys, singleton and uniqueness constraints, non-null revision defaults, and idempotent reruns.
 
-**Exit check:** migration tests retain a fixture representing the oldest supported upgrade state.
+**Exit check:** migration tests retain a fixture representing the oldest supported upgrade state, and the activation-cutover review links the successful current-database backup/upgrade/restore rehearsal.
 
-### Gate R7: target provider confirmation
+### Gate R7: enforceable authentication rate limits
+
+**Owner:** backend/security/operations
+
+**Required before:** public OIDC routes or `/login/local` are usable in an active OIDC mode.
+
+The standard container is directly reachable and cannot assume an external reverse proxy. Add application-enforced, separately configurable rate-limit buckets for authorization starts, callbacks, exchanges, and password login, using a maintained limiter and bounded storage rather than an unbounded custom request map. Use the direct peer address by default. Trust forwarded client addresses only through an explicit trusted-proxy configuration; never trust forwarding headers from arbitrary peers. A deployment may add stricter edge limits, but those are defense in depth rather than the only enforcement.
+
+Define the default limits, burst behavior, keying, cleanup, multi-process behavior, and trusted-proxy semantics in the implementation review. Return the stable `oidc_rate_limited` response for OIDC endpoints and an equally generic password-login failure without leaking account existence.
+
+**Exit check:** deterministic tests independently exhaust each bucket, receive `429` without affecting other buckets, verify cleanup and bounded storage, verify direct and trusted-proxy address handling, and exercise the standard container without an external proxy.
+
+### Gate R8: target provider confirmation
 
 **Owner:** backend, documentation, and release reviewer
 
@@ -205,8 +220,9 @@ Select the supported Authelia version, confirm its issuer/discovery behavior, `R
 ```mermaid
 flowchart TD
     P00[PR 00: library and HTTP spike] --> P01[PR 01: dependency and adapter]
-    P00 --> P03[PR 03: canonical API contracts]
+    P00 --> P03[PR 03: canonical API contracts and frontend bridge]
     P02[PR 02: schema and audit foundation] --> P04[PR 04: secrets and configuration service]
+    P03 --> P04
     P03 --> P05[PR 05: public auth config and direct mode]
     P04 --> P05
     P04 --> P06[PR 06: candidate validation and test-flow start]
@@ -215,7 +231,8 @@ flowchart TD
     P03 --> P07
     P06 --> P08[PR 08: callback and tested-identity preview]
     P01 --> P08
-    P07 --> P09[PR 09: activation and replacement transaction]
+    P07 --> P07A[PR 07A: mapping and user-auth admin APIs]
+    P07 --> P09[PR 09: dormant finalization engine]
     P08 --> P09
     P05 --> P09
     P05 --> P10[PR 10: recovery CLI and key rotation]
@@ -225,14 +242,19 @@ flowchart TD
     P11 --> P12[PR 12: grant exchange and public login completion]
     P03 --> P13[PR 13: frontend auth foundation]
     P05 --> P13
-    P09 --> P14[PR 14: admin setup and mapping UI]
+    P12 --> P13
+    P09 --> P14[PR 14: dormant admin setup UI]
+    P10 --> P14
     P13 --> P14
-    P07 --> P15[PR 15: user-management mapping UI]
+    P07A --> P15[PR 15: user-management mapping UI]
     P13 --> P15
-    P10 --> P16[PR 16: docs, E2E, and release review]
+    P09 --> P16[PR 16: activation cutover]
+    P10 --> P16
     P12 --> P16
+    P13 --> P16
     P14 --> P16
     P15 --> P16
+    P16 --> P17[PR 17: docs, E2E, and release review]
 ```
 
 PR numbers describe dependency order, not necessarily merge order. Parallel work is described below.
@@ -290,7 +312,7 @@ PR numbers describe dependency order, not necessarily merge order. Parallel work
 
 **Acceptance:** focused tests and backend type checking pass; dependency files are reproducibly generated; no active auth behavior changes.
 
-### PR 02: schema, nullable passwords, and audit foundation
+### PR 02: schema, nullable passwords, password guards, and audit foundation
 
 **Goal:** add dormant storage and close the data-model part of Gates R4 and R6.
 
@@ -310,15 +332,16 @@ PR numbers describe dependency order, not necessarily merge order. Parallel work
 - Rebuild or alter `User` safely so `password_hash` is nullable.
 - Add all database checks, unique constraints, indexes, foreign keys, revision defaults, and explicit delete behavior.
 - Add a reusable audit writer that participates in a caller-owned transaction.
+- Update password login, password change, and administrator password reset in the same pull request so every `password_hash` caller handles `NULL` safely. Password login must fail through the generic invalid-credentials path; change and reset must reject accounts without an existing hash so no endpoint adds a password to an OIDC-provisioned account.
 - Do not seed a provider row or infer mappings for existing users.
 
 **Security invariants:** no plaintext client secret, verifier, nonce, tested identity, or candidate configuration column; immutable identity uniqueness is database-enforced; audit data rejects raw subjects and arbitrary dictionaries.
 
-**Tests:** fresh migration, upgrade fixture, idempotent rerun, failed-rebuild rollback, password preservation, singleton race/constraint, mapping constraints, cascade transaction behavior, and audit-write rollback.
+**Tests:** fresh migration, upgrade fixture, idempotent rerun, failed-rebuild rollback, password preservation, null-password login/change/reset behavior, strict mypy coverage of every password-hash caller, singleton race/constraint, mapping constraints, cascade transaction behavior, and audit-write rollback.
 
 **Acceptance:** old databases retain identical password behavior; a database without a provider row behaves exactly as before.
 
-### PR 03: canonical backend API contracts
+### PR 03: canonical API contracts and frontend compatibility bridge
 
 **Can run with:** PR 02 after PR 00 establishes library-facing shapes.
 
@@ -329,6 +352,8 @@ PR numbers describe dependency order, not necessarily merge order. Parallel work
 - new `backend/app/models/oidc_api.py` or API models colocated in `backend/app/models/oidc.py`
 - new contract tests under `backend/tests/api/`
 - a checked contract fixture under the existing test-fixture convention
+- `frontend/src/services/authConfig.ts`
+- existing frontend auth-config consumers, mocks, and tests as required by the compatibility bridge
 
 **Work:**
 
@@ -337,8 +362,10 @@ PR numbers describe dependency order, not necessarily merge order. Parallel work
 - Define omitted-account acknowledgements as row-bound structured values, not a single unscoped boolean.
 - Define candidate secret semantics so absence preserves an existing secret and no read model can contain it.
 - Snapshot relevant OpenAPI schemas for frontend drift tests.
+- Before changing the backend wire response, make the frontend parser prefer a valid canonical `sign_in_mode`, temporarily accept the legacy `auth_method` only when the canonical field is absent, and render authentication unavailable rather than inferring Password-only when neither schema is valid or the request fails.
+- Keep existing `none` and password behavior unchanged against the old backend. Do not render OIDC controls in this bridge; PR 13 owns the complete mode-aware login experience and removes the legacy parser after the backend transition is deployed.
 
-**Acceptance:** Gate R3 exit checks pass and frontend reviewers approve field names, nullability, and error handling.
+**Acceptance:** Gate R3 exit checks pass; frontend reviewers approve field names, nullability, and error handling; the compatibility tests run the new frontend parser against both old and canonical backend responses, malformed responses, and fetch failure.
 
 ### PR 04: environment, encryption, and configuration service
 
@@ -360,7 +387,7 @@ PR numbers describe dependency order, not necessarily merge order. Parallel work
 - Derive the fixed callback URI only from the trusted public URL.
 - Add Fernet encryption/redaction helpers for client secrets and encrypted flow payloads.
 - Add typed candidate normalization, secret-preserve/replace behavior, group normalization, mapping collision checks, revision calculation, and cache invalidation hooks.
-- Expose authentication health without logging key material.
+- Produce the typed administrator prerequisites/health model defined in Gate R3 without logging key material. Health reason codes are allowlisted and contain no exception text.
 - Fail OIDC closed when ciphertext cannot be decrypted; preserve configured recovery behavior and stored ciphertext.
 
 **Security invariants:** no automatic OIDC key generation; no database fallback key; decrypted values have request-local lifetime; exceptions and model representations redact values.
@@ -369,7 +396,7 @@ PR numbers describe dependency order, not necessarily merge order. Parallel work
 
 ### PR 05: public auth config and direct Password-only mode
 
-**Depends on:** PR 03 and PR 04.
+**Depends on:** PR 03 and PR 04. The frontend compatibility bridge must merge before this backend response changes.
 
 **Goal:** introduce canonical sign-in-mode reads and the guarded direct transition without enabling OIDC login.
 
@@ -388,7 +415,6 @@ PR numbers describe dependency order, not necessarily merge order. Parallel work
 - Add `PUT /api/admin/auth/mode`, limited to Password-only with expected configuration revision, expected active/unexpired passwordless count, and required acknowledgement.
 - Recompute counts and local-password administrator availability in the write transaction.
 - Increment every existing user token version only after a valid transition.
-- Make password login, change, and reset fail safely and generically when no hash exists.
 - Add the legacy TOML deprecation warning only after a database configuration exists.
 
 **Security invariants:** the endpoint cannot enable OIDC; it preserves provider configuration and mappings; the UI path has no force option; absent hashes do not produce timing-sensitive or internal errors.
@@ -447,6 +473,32 @@ PR numbers describe dependency order, not necessarily merge order. Parallel work
 
 **Acceptance:** concurrency tests prove one provisioning or consumption result; every partial-write and audit failure rolls back.
 
+### PR 07A: administrator mapping and user-authentication APIs
+
+**Depends on:** PR 07.
+
+**Goal:** expose the complete administrator-owned mapping surface and the redacted user authentication state required by frontend user management.
+
+**Primary files:**
+
+- `backend/app/api/admin_auth.py`
+- `backend/app/api/admin.py`
+- `backend/app/models/user.py`
+- canonical API models from PR 03
+- focused API and integration tests under `backend/tests/`
+
+**Work:**
+
+- Add the unified individual/batch pending-mapping endpoint, pending cancellation, immutable identity move, mapped-account change, and detach endpoints from the specification.
+- Require the specified administrator capability, confirmations, expected state/revisions, stable row-keyed errors, and transactional audit behavior.
+- Extend the administrator user read model with redacted authentication methods, provider display name, last successful OIDC login, and pending-mapping state. Expose an internal identity ID only in the administrator operation model that needs it; never expose a raw subject or subject hash.
+- Keep authentication fields absent from ordinary current-user responses unless required by the specification.
+- Map database uniqueness failures and concurrent state changes to stable conflict errors after rolling back the complete operation.
+
+**Security invariants:** no self-service route exists; all operations compose PR 07 services in one caller-owned transaction; changing a mapping cannot expose a detached-without-pending intermediate state; removing or moving the last viable OIDC administrator is rejected.
+
+**Acceptance:** every mapping API has capability, redaction, stale-state, concurrency, audit-failure, rollback, and last-administrator integration coverage; administrator user-list tests cover Local password, OIDC, both, and pending states.
+
 ### PR 08: callback validation and tested-identity preview
 
 **Depends on:** PR 01 and PR 06; uses PR 07 for policy evaluation.
@@ -476,11 +528,11 @@ PR numbers describe dependency order, not necessarily merge order. Parallel work
 
 **Acceptance:** race, replay, expiry, cancellation, redaction, UserInfo reason, and ciphertext-deletion tests pass.
 
-### PR 09: provider activation and identity-namespace replacement
+### PR 09: dormant provider finalization and identity-namespace replacement engine
 
 **Depends on:** PR 05, PR 07, and PR 08.
 
-**Goal:** implement the sole provider finalization endpoint and atomic reviewed activation/replacement.
+**Goal:** implement and exhaustively test atomic reviewed activation/replacement without yet making OIDC activation reachable in a deployed application.
 
 **Primary files:**
 
@@ -492,7 +544,7 @@ PR numbers describe dependency order, not necessarily merge order. Parallel work
 
 **Work:**
 
-- Add `PUT /api/admin/auth/oidc` without an operation field.
+- Implement the `PUT /api/admin/auth/oidc` handler and transaction service without registering the finalization route in the production router. PR 16 owns route registration and activation availability.
 - Recheck flow ownership/status/expiry, configuration existence/revision, mapping revision, every row, omission acknowledgements, uniqueness attestation, administrator state, tested identity admission/role, unique administrator mapping, and resulting usable administrator.
 - For initial activation, promote the candidate, map the tested administrator, and create reviewed pending rows in one transaction.
 - For replacement intent, replace established and pending mappings from the complete reviewed plan, invalidate affected sessions, and increment both revisions in one transaction.
@@ -502,7 +554,7 @@ PR numbers describe dependency order, not necessarily merge order. Parallel work
 
 **Security invariants:** no delete-before-replace state; request cannot override flow intent; stale reviews have no effects; failed writes leave the unexpired flow correctable.
 
-**Acceptance:** transaction-failure injection, concurrency, stale-plan, stale-config, lost-response retry, and administrator-lockout tests pass.
+**Acceptance:** transaction-failure injection, concurrency, stale-plan, stale-config, lost-response retry, and administrator-lockout tests pass through an isolated test router or direct handler invocation; the production application returns `404` for provider finalization and cannot enter an OIDC mode.
 
 ### PR 10: emergency mode and encryption-key rotation CLI
 
@@ -523,12 +575,13 @@ PR numbers describe dependency order, not necessarily merge order. Parallel work
 - Report usable local-password administrators and active/unexpired passwordless accounts; recheck both after confirmation.
 - Refuse lockout by default and allow only an explicitly warned `--force` containment path.
 - Implement stopped-application OIDC encryption-key rotation using environment variables only.
+- Implement the read-only `sambee auth audit export` command with validated time and event filters and JSON Lines output containing only persisted allowlisted fields.
 - Re-encrypt and verify the client secret, delete all ephemeral flows, and commit both changes atomically.
 - Print exact deployment next steps without printing keys.
 
 **Security invariants:** no password reset or bypass; no key command-line arguments; no duplicated direct SQL mutation path; no multiple live keys.
 
-**Acceptance:** documented production-container invocation passes tests, including rollback and stale-count paths.
+**Acceptance:** documented production-container invocation passes tests, including rollback, stale-count, audit-export filtering/redaction, and an assertion that the Docker image actually installs or exposes the selected command entry point.
 
 ### PR 11: login identity resolution, provisioning, and synchronization
 
@@ -557,7 +610,7 @@ PR numbers describe dependency order, not necessarily merge order. Parallel work
 
 ### PR 12: grant exchange and public login completion
 
-**Depends on:** PR 11.
+**Depends on:** PR 01 and PR 11. Closes Gate R7 before activation cutover.
 
 **Goal:** issue the existing Sambee JWT only after atomic one-time grant exchange.
 
@@ -566,6 +619,7 @@ PR numbers describe dependency order, not necessarily merge order. Parallel work
 - `backend/app/api/oidc_auth.py`
 - `backend/app/services/oidc_flow.py`
 - `backend/app/core/security.py`
+- `backend/requirements.txt` and generated lock files when the selected limiter adds a dependency
 - focused API and integration tests
 
 **Work:**
@@ -575,13 +629,14 @@ PR numbers describe dependency order, not necessarily merge order. Parallel work
 - Atomically consume a valid grant and recheck user activity, expiry, token version, and configuration revision.
 - Issue a 60-minute OIDC-authenticated Sambee JWT through the existing token path.
 - Add `Referrer-Policy: no-referrer` and safe cache headers to callback responses.
-- Document deployment-layer rate-limit endpoints and add application hooks where existing infrastructure supports them.
+- Document the application rate-limit boundary and the optional stricter deployment-edge limits.
+- Add application-enforced, separately keyed rate limits for authorization starts, callbacks, exchanges, normal password login, and recovery password login according to Gate R7. Use a maintained limiter added through the backend dependency workflow, bounded storage, and explicit trusted-proxy handling.
 
-**Acceptance:** grant replay/expiry, stale configuration, return-path, password lifetime, WebSocket, and companion-dependent session regression tests pass.
+**Acceptance:** grant replay/expiry, stale configuration, return-path, password lifetime, WebSocket, companion-dependent session regression, and Gate R7 rate-limit tests pass. The standard directly exposed container returns `429` after the configured threshold without an external proxy.
 
 ### PR 13: frontend authentication foundation
 
-**Depends on:** PR 03 contract and PR 05 public config.
+**Depends on:** PR 03 contract, PR 05 public config, and PR 12 public OIDC endpoints.
 
 **Goal:** adopt canonical auth configuration and add login/callback routing without the administrator wizard.
 
@@ -605,14 +660,15 @@ PR numbers describe dependency order, not necessarily merge order. Parallel work
 - Centralize successful-token storage, tracing initialization, current-user load, and safe return navigation for password and OIDC.
 - Implement one automatic OIDC-only reauthentication attempt and loop suppression in `sessionStorage`.
 - Map only stable server errors and safe allowlisted fragment errors to translated messages.
+- Remove the temporary legacy `auth_method` parser only after the canonical backend response from PR 05 is the supported deployment baseline.
 
 **Acceptance:** all four effective states (`none`, Password-only, recovery, OIDC-only), outage behavior, callback replay prevention, logout suppression, deep return routes, and accessibility tests pass.
 
-### PR 14: administrator authentication setup and replacement UI
+### PR 14: dormant administrator authentication setup and replacement UI
 
 **Depends on:** PR 09, PR 10, and PR 13.
 
-**Goal:** deliver the six-step administrator workflow and direct Password-only action.
+**Goal:** build and test the six-step administrator workflow and direct Password-only action without exposing an activation control before the backend cutover gate is complete.
 
 **Primary files:**
 
@@ -636,12 +692,13 @@ PR numbers describe dependency order, not necessarily merge order. Parallel work
 - Add explicit cancel through the deletion endpoint.
 - Add direct Password-only confirmation with displayed count, stale refresh, local-administrator block, and no force control.
 - Clear auth-config cache after committed settings changes.
+- Keep the production settings navigation entry and finalization submission disabled or unregistered. PR 16 exposes them only after all cutover dependencies and Gates R5-R7 are complete.
 
-**Acceptance:** frontend tests cover every wizard state, secret semantics, URL validation, fresh-test boundaries, stale reviews, timeout retry, focus/error behavior, and capability gating.
+**Acceptance:** frontend tests cover every wizard state, secret semantics, URL validation, fresh-test boundaries, stale reviews, timeout retry, focus/error behavior, and capability gating; the production application exposes no route or control that can activate OIDC.
 
 ### PR 15: user-management authentication and mapping UI
 
-**Depends on:** PR 07 APIs and PR 13 frontend contracts. May merge after PR 14 if shared components are first introduced there.
+**Depends on:** PR 07A APIs and PR 13 frontend contracts. May merge after PR 14 if shared components are first introduced there.
 
 **Goal:** expose administrator-owned mapping operations and authentication status in existing user management.
 
@@ -664,9 +721,35 @@ PR numbers describe dependency order, not necessarily merge order. Parallel work
 
 **Acceptance:** no self-service control exists; raw identity IDs are used only internally where required and raw subjects are never displayed or accepted; all confirmation and rollback states are tested.
 
-### PR 16: documentation, E2E, operations, and release review
+### PR 16: activation cutover
 
-**Depends on:** PR 10, PR 12, PR 14, and PR 15. Gate R7 closes here.
+**Depends on:** PR 09, PR 10, PR 12, PR 13, PR 14, PR 15, and completed Gate R6 evidence.
+
+**Goal:** make OIDC activation reachable only after login, recovery, rate limiting, mapping administration, and migration safety are complete.
+
+**Primary files:**
+
+- `backend/app/main.py` and OIDC router registration
+- `frontend/src/App.tsx`
+- `frontend/src/components/Settings/settingsNavigation.ts`
+- final cross-layer auth and deployment tests
+
+**Work:**
+
+- Verify and link closure evidence for Gates R1-R7, including the production-container CLI and current-database migration rehearsal.
+- Register the sole provider-finalization route implemented in PR 09.
+- Register and expose the administrator Authentication settings route/navigation implemented in PR 14.
+- Confirm the public authorize/callback/exchange routes, mode-aware frontend login, mapping administration, and recovery command are present in the same deployable artifact.
+- Run a pre-cutover smoke matrix that activates recovery mode and OIDC-only mode, signs out the acting administrator, signs back in through OIDC, and restores Password-only through the documented CLI.
+- Confirm failed or incomplete readiness checks leave finalization unavailable rather than relying on an undocumented feature flag.
+
+**Security invariants:** no build artifact can persist an OIDC mode unless every required login and recovery surface is included; finalization remains guarded by the tested identity, revisions, mapping plan, and usable-administrator checks from PR 09.
+
+**Acceptance:** one production-like artifact completes the cutover smoke matrix; `none` and Password-only regression suites remain unchanged; route and navigation availability tests prove activation is impossible in every earlier milestone.
+
+### PR 17: documentation, E2E, operations, and release review
+
+**Depends on:** PR 16. Gate R8 closes here.
 
 **Goal:** complete operator guidance, cross-layer validation, and security release approval.
 
@@ -685,6 +768,7 @@ PR numbers describe dependency order, not necessarily merge order. Parallel work
 - Add the complete supported Authelia example and validate it against the selected version.
 - Run the full specification E2E matrix, migration rehearsal, dependency checks, frontend checks, backend tests/type check, repository script, and a focused security review.
 - Verify deployment-layer rate-limit examples for authorization, callback, exchange, and password login.
+- Document application-enforced default rate limits, trusted-proxy configuration, and optional stricter edge limits.
 
 **Acceptance:** all specification acceptance criteria pass; no unresolved high-severity protocol, SSRF, replay, mapping, privilege, lockout, or secret-handling finding remains.
 
@@ -698,13 +782,13 @@ After PR 00 resolves the library boundary, the following lanes may proceed concu
 | B | PR 02 schema/audit | Can proceed independently; coordinate model names with PR 03. |
 | C | PR 03 API contracts | Requires backend and frontend joint review before either side branches widely. |
 | D | Gate R5 CLI packaging design | May prototype invocation only; production mutations wait for PR 04/05 services. |
-| E | Gate R7 Authelia research | May confirm version and claim behavior early; final docs wait for implemented behavior. |
+| E | Gate R8 Authelia research | May confirm version and claim behavior early; final docs wait for implemented behavior. |
 
 After PR 03 merges, frontend PR 13 may start against mocked canonical schemas while backend PRs 04-09 proceed. The administrator wizard can be component-tested against mock handlers after the preview/finalization contract is frozen, but it must not merge with fabricated fields or error semantics.
 
 PR 07 identity services and PR 08 callback/test completion may be developed in parallel only after agreeing on the normalized tested-identity type and transaction ownership. PR 09 owns the finalization transaction and must not duplicate validators from PR 07; it composes them within one caller-owned session.
 
-Public OIDC login must not merge before PR 01 proves all network calls are controlled. OIDC-only UI must not merge before the recovery CLI is verified in the production container. Release documentation must not claim support before the Authelia rehearsal and full security review pass.
+Public OIDC routes may merge dormant after PR 01 proves all network calls are controlled, but no OIDC mode may be persisted before PR 16. PR 16 must verify the recovery CLI in the production container, close Gate R6, and include the complete frontend login path. Release documentation must not claim support before the Authelia rehearsal and full security review pass.
 
 ## Cross-cutting Contracts
 
@@ -755,6 +839,7 @@ Schema, services, and routes may ship before UI only when no provider row exists
 | After PR 09 | Activation, replacement, stale review, audit rollback, revision, and idempotent retry integration suites. |
 | After PR 12 | Full backend auth suite using deterministic fake provider, including WebSocket and companion-dependent session behavior. |
 | After PR 15 | Full frontend unit/integration suite and all auth/settings accessibility checks. |
+| Before PR 16 | Gates R1-R7, current-database migration rehearsal, production-container CLI, direct-container rate limiting, and dormant-route assertions. |
 | Before release | Backend tests and mypy, frontend tests/type/lint, E2E matrix, migration rehearsal, repository-wide `scripts/test`, docs validation, Authelia rehearsal, and security review. |
 
 Tests must not call a public IdP. The final supported-provider rehearsal may use a controlled local/containerized Authelia instance.
@@ -771,9 +856,10 @@ Tests must not call a public IdP. The final supported-provider rehearsal may use
 | PR 10 | Emergency mode and stopped-application encryption-key rotation runbooks. |
 | PR 11-12 | Login, recovery, session lifetime, provisioning, admission, role synchronization, and logout. |
 | PR 14-15 | Field-level UI reference and administrator mapping workflows. |
-| PR 16 | Consolidation, Authelia example, troubleshooting, security/privacy, and release notes. |
+| PR 16 | Activation cutover notes and verified recovery/migration evidence. |
+| PR 17 | Consolidation, Authelia example, troubleshooting, security/privacy, and release notes. |
 
-Website documentation is intentionally delivered near feature completion so it describes verified behavior, but each implementation PR must note its documentation impact and PR 16 may not omit it.
+Website documentation is intentionally delivered near feature completion so it describes verified behavior, but each implementation PR must note its documentation impact and PR 17 may not omit it.
 
 ## Requirement Traceability
 
@@ -782,46 +868,47 @@ The matrix maps normative specification sections to the implementation issue tha
 | Specification requirement | Primary implementation | Integration/release proof |
 | --- | --- | --- |
 | Goals, non-goals, legacy JWT consequence | PR 03, PR 05, PR 12 | PR 16 |
-| Administrator six-step setup UX | PR 14 | PR 16 |
-| Login modes and `/login/local` | PR 05, PR 13 | PR 16 |
-| User-management authentication state | PR 15 | PR 16 |
-| Authorization start, state, nonce, PKCE | PR 01, PR 06, PR 12 | PR 16 |
-| Callback claim and token validation | PR 01, PR 08, PR 11 | PR 16 |
-| One-shot UserInfo and diagnostic reasons | PR 01, PR 08 | PR 16 |
-| Exactly-one-row flow transitions | PR 06, PR 08, PR 12 | PR 16 |
-| Login grant and 60-second exchange | PR 11, PR 12, PR 13 | PR 16 |
-| Test snapshot, preview, cancel, and expiry | PR 06, PR 08, PR 14 | PR 16 |
-| Idempotent finalization receipt | PR 09, PR 14 | PR 16 |
-| Immutable identity resolution | PR 02, PR 07, PR 11 | PR 16 |
-| Pending username mapping | PR 07, PR 09, PR 15 | PR 16 |
-| Initial and replacement mapping plans | PR 07, PR 09, PR 14 | PR 16 |
-| Admission and auto-provisioning | PR 07, PR 11 | PR 16 |
-| Profile and role synchronization | PR 07, PR 11 | PR 16 |
-| Last-administrator role guard | PR 07, PR 11 | PR 16 |
-| Group normalization and precedence | PR 07 | PR 14, PR 16 |
-| Provider singleton and revision model | PR 02, PR 04 | PR 09, PR 16 |
-| External encryption key and rotation | PR 04, PR 10 | PR 16 |
-| Nullable user passwords | PR 02, PR 05 | PR 13, PR 16 |
-| Bootstrap/configuration precedence | PR 04, PR 05 | PR 16 |
-| Session invalidation scope | PR 05, PR 07, PR 09 | PR 16 |
-| Public authentication API | PR 03, PR 05, PR 12 | PR 13, PR 16 |
-| Administrator API | PR 03, PR 05-09 | PR 14-16 |
-| Stable error registry | PR 03, PR 05, PR 08-12 | PR 13-16 |
-| Validated outbound HTTP and SSRF controls | PR 00, PR 01 | PR 16 security review |
-| OIDC dependency/library requirement | PR 00, PR 01 | PR 16 dependency validation |
-| Protocol security requirements | PR 01, PR 06, PR 08, PR 12 | PR 16 security review |
-| Application/browser security requirements | PR 02-15 | PR 16 security review |
-| Durable logging and audit events | PR 02, PR 05-12 | PR 16 audit review |
-| Frontend types, routes, and accessibility | PR 13-15 | PR 16 |
-| Database migration and dormant rollout | PR 02, PR 04-05 | PR 16 migration rehearsal |
-| Rollback and emergency recovery | PR 05, PR 10 | PR 16 operations rehearsal |
-| Administrator documentation | PR 16 | PR 16 docs validation |
-| Version-pinned Authelia example | Gate R7, PR 16 | PR 16 provider rehearsal |
-| All 20 resolved decisions | PR 00-16 according to rows above | PR 16 specification checklist |
+| Administrator six-step setup UX | PR 14, PR 16 | PR 17 |
+| Login modes and `/login/local` | PR 05, PR 13, PR 16 | PR 17 |
+| User-management authentication state | PR 07A, PR 15 | PR 17 |
+| Authorization start, state, nonce, PKCE | PR 01, PR 06, PR 12 | PR 16, PR 17 |
+| Callback claim and token validation | PR 01, PR 08, PR 11 | PR 17 |
+| One-shot UserInfo and diagnostic reasons | PR 01, PR 08 | PR 17 |
+| Exactly-one-row flow transitions | PR 06, PR 08, PR 12 | PR 17 |
+| Login grant and 60-second exchange | PR 11, PR 12, PR 13 | PR 16, PR 17 |
+| Test snapshot, preview, cancel, and expiry | PR 06, PR 08, PR 14 | PR 17 |
+| Idempotent finalization receipt | PR 09, PR 14 | PR 16, PR 17 |
+| Immutable identity resolution | PR 02, PR 07, PR 11 | PR 17 |
+| Pending username mapping | PR 07, PR 07A, PR 09, PR 15 | PR 17 |
+| Initial and replacement mapping plans | PR 07, PR 09, PR 14 | PR 16, PR 17 |
+| Admission and auto-provisioning | PR 07, PR 11 | PR 17 |
+| Profile and role synchronization | PR 07, PR 11 | PR 17 |
+| Last-administrator role guard | PR 07, PR 11 | PR 17 |
+| Group normalization and precedence | PR 07 | PR 14, PR 17 |
+| Provider singleton and revision model | PR 02, PR 04 | PR 09, PR 16, PR 17 |
+| External encryption key and rotation | PR 04, PR 10 | PR 16, PR 17 |
+| Nullable user passwords | PR 02 | PR 13, PR 17 |
+| Bootstrap/configuration precedence | PR 04, PR 05 | PR 16, PR 17 |
+| Session invalidation scope | PR 05, PR 07, PR 09 | PR 16, PR 17 |
+| Public authentication API | PR 03, PR 05, PR 12 | PR 13, PR 16, PR 17 |
+| Administrator API | PR 03, PR 05-09, PR 07A | PR 14-17 |
+| Stable error registry | PR 03, PR 05, PR 08-12 | PR 13-17 |
+| Validated outbound HTTP and SSRF controls | PR 00, PR 01 | PR 17 security review |
+| Enforceable authentication rate limits | Gate R7, PR 12 | PR 16, PR 17 |
+| OIDC dependency/library requirement | PR 00, PR 01 | PR 17 dependency validation |
+| Protocol security requirements | PR 01, PR 06, PR 08, PR 12 | PR 17 security review |
+| Application/browser security requirements | PR 02-16 | PR 17 security review |
+| Durable logging and audit events | PR 02, PR 05-12 | PR 10 export, PR 17 audit review |
+| Frontend types, routes, and accessibility | PR 03, PR 13-16 | PR 17 |
+| Database migration and dormant rollout | PR 02, PR 04-05 | Gate R6, PR 16-17 |
+| Rollback and emergency recovery | PR 05, PR 10 | PR 16-17 operations rehearsal |
+| Administrator documentation | PR 17 | PR 17 docs validation |
+| Version-pinned Authelia example | Gate R8, PR 17 | PR 17 provider rehearsal |
+| All 20 resolved decisions | PR 00-17 and PR 07A according to rows above | PR 17 specification checklist |
 
 ## Release Checklist
 
-- [ ] Gates R1-R7 are closed with linked evidence.
+- [ ] Gates R1-R8 are closed with linked evidence.
 - [ ] All canonical API schemas and stable errors match frontend parsing and tests.
 - [ ] No active behavior changes when no provider configuration exists.
 - [ ] Password, `none`, recovery, and OIDC-only suites pass.
@@ -831,6 +918,7 @@ The matrix maps normative specification sections to the implementation issue tha
 - [ ] Activation and replacement rollback, stale-review, and idempotent-retry tests pass.
 - [ ] Last-administrator and Password-only recovery paths are tested in UI and CLI.
 - [ ] The documented CLI runs in the production container.
+- [ ] Application-enforced rate limits return stable `429` responses in the directly exposed standard container.
 - [ ] The version-pinned Authelia setup works from the published instructions.
 - [ ] Backend tests and mypy pass.
 - [ ] Frontend tests, type check, and lint pass.
@@ -840,4 +928,4 @@ The matrix maps normative specification sections to the implementation issue tha
 
 ## Definition Of Done
 
-The implementation is complete only when an administrator can configure the supported Authelia version from the documentation, test and safely activate either OIDC mode, migrate or replace account mappings atomically, recover through the documented password-only command when credentials permit, and sign in through a protocol flow that passes the complete negative security test matrix. Existing password and `none` deployments must remain behaviorally compatible, and no implementation step may weaken the specification's identity, replay, SSRF, privilege, lockout, audit, or secret-handling invariants.
+The implementation is complete only when an administrator can configure the supported Authelia version from the documentation, test and safely activate either OIDC mode, migrate or replace account mappings atomically, recover through the documented password-only command when credentials permit, and sign in through a protocol flow that passes the complete negative security test matrix. The activation cutover must be the first point at which an OIDC mode can be persisted, and it must include the complete backend login, frontend login, recovery CLI, mapping administration, rate limiting, and migration evidence in one deployable artifact. Existing password and `none` deployments must remain behaviorally compatible, and no implementation step may weaken the specification's identity, replay, SSRF, privilege, lockout, audit, or secret-handling invariants.
