@@ -31,11 +31,13 @@ describe("markdownTableCellLineBreaks", () => {
   });
 
   it("strips trailing table-cell line breaks during normalization", () => {
-    const markdown = ["| Column |", "| --- |", "| foo<br /><br /> |", ""].join("\n");
+    const markdown = ["| HTML | Entity |", "| --- | --- |", "| foo<br /><br /> | bar&#10;&#xA; |", ""].join("\n");
     const normalized = normalizeMarkdownTableCellLineBreaks(markdown);
 
     expect(normalized).toContain("foo");
     expect(normalized).not.toContain("foo<br");
+    expect(normalized).toContain("bar");
+    expect(normalized).not.toContain("bar<br");
   });
 
   it("is idempotent for already-canonical table-cell markdown", () => {
@@ -63,6 +65,40 @@ describe("markdownTableCellLineBreaks", () => {
     expect(normalizeMarkdownTableCellLineBreaks(markdown)).toBe(
       ["- first", "- second", "", "1. first", "1. second", "", "```md", "* literal bullet", "2. literal number", "```", ""].join("\n")
     );
+  });
+
+  it("preserves unrelated Markdown source while normalizing table-cell breaks", () => {
+    const markdown = [
+      "## Closed heading ##",
+      "",
+      "__strong__ and _emphasis_",
+      "",
+      "|Name|Value|",
+      "|:--|--:|",
+      "| punctuation | asterisk (*) and a&b |",
+      "| break | foo<BR>bar |",
+      "",
+    ].join("\n");
+
+    expect(normalizeMarkdownTableCellLineBreaks(markdown)).toBe(markdown.replace("foo<BR>bar", "foo<br />bar"));
+  });
+
+  it("removes redundant legacy escapes from table-cell punctuation", () => {
+    const markdown = ["| Value |", "| --- |", "| asterisk (\\*) and a\\&b |", ""].join("\n");
+
+    expect(normalizeMarkdownTableCellLineBreaks(markdown)).toBe(["| Value |", "| --- |", "| asterisk (*) and a&b |", ""].join("\n"));
+  });
+
+  it("keeps table-cell escapes that preserve Markdown semantics", () => {
+    const markdown = ["| Value |", "| --- |", "| \\*literal\\* and \\&copy; |", ""].join("\n");
+
+    expect(normalizeMarkdownTableCellLineBreaks(markdown)).toBe(markdown);
+  });
+
+  it("leaves list-like text inside table cells unchanged", () => {
+    const markdown = ["| Items |", "| --- |", "| * first<br />2. second |", ""].join("\n");
+
+    expect(normalizeMarkdownTableCellLineBreaks(markdown)).toBe(markdown);
   });
 
   it("renders canonical breaks visually only inside table cells", async () => {

@@ -129,7 +129,7 @@ describe("MarkdownRichEditor", () => {
 
   it("preserves unrelated markdown formatting while adapting table-cell breaks for the editor", async () => {
     const editorRef = createRef<MarkdownRichEditorHandle>();
-    const markdown = ["Outside <br /> stays literal.", "", "* one", "* two", "", "| A |", "| - |", "| foo<br />bar |", ""].join("\n");
+    const markdown = ["Outside <br /> stays literal.", "", "- one", "- two", "", "| A |", "| - |", "| foo<br />bar |", ""].join("\n");
 
     render(
       <MarkdownRichEditor

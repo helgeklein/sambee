@@ -1,30 +1,17 @@
-import type { Break, Html, Parent, PhrasingContent, Root, Table, TableCell, Text } from "mdast";
+import type { Break, Html, List, ListItem, Parent, PhrasingContent, Root, Table, TableCell } from "mdast";
 import remarkGfm from "remark-gfm";
 import remarkParse from "remark-parse";
-import remarkStringify from "remark-stringify";
 import { unified } from "unified";
 import { visit } from "unist-util-visit";
 
 const BREAK_HTML_PATTERN = /^<\/?br\s*\/?>$/i;
+const NUMERIC_LINE_BREAK_ENTITY_PATTERN = /&#(?:0*10|x0*a);/gi;
 
 function createMdastBreakNode(): Break {
   return { type: "break" };
 }
 
 const markdownParser = unified().use(remarkParse).use(remarkGfm);
-const markdownProcessor = unified()
-  .use(remarkParse)
-  .use(remarkGfm)
-  .use(remarkStringify, { bullet: "-", incrementListMarker: false })
-  .use(remarkGfm);
-
-function createTextNode(value: string): Text {
-  return { type: "text", value };
-}
-
-function createBreakNode(): Html {
-  return { type: "html", value: "<br />" };
-}
 
 interface MarkdownReplacement {
   startOffset: number;
@@ -45,99 +32,6 @@ function isBreakHtmlNode(node: PhrasingContent | undefined): node is Html {
 
 function hasPhrasingChildren(node: PhrasingContent): node is Parent & PhrasingContent & { children: PhrasingContent[] } {
   return "children" in node && Array.isArray(node.children);
-}
-
-function normalizeTextNodeValue(value: string): PhrasingContent[] {
-  if (!value.includes("\n")) {
-    return [createTextNode(value)];
-  }
-
-  const parts = value.split("\n");
-  const normalizedNodes: PhrasingContent[] = [];
-
-  for (let index = 0; index < parts.length; index += 1) {
-    const part = parts[index] ?? "";
-
-    if (part.length > 0) {
-      normalizedNodes.push(createTextNode(part));
-    }
-
-    if (index < parts.length - 1) {
-      normalizedNodes.push(createBreakNode());
-    }
-  }
-
-  return normalizedNodes;
-}
-
-function normalizePhrasingChildren(children: PhrasingContent[]): PhrasingContent[] {
-  const normalizedChildren: PhrasingContent[] = [];
-
-  for (const child of children) {
-    if (child.type === "text" && typeof child.value === "string") {
-      normalizedChildren.push(...normalizeTextNodeValue(child.value));
-      continue;
-    }
-
-    if (isBreakHtmlNode(child)) {
-      normalizedChildren.push(createBreakNode());
-      continue;
-    }
-
-    if (hasPhrasingChildren(child)) {
-      normalizedChildren.push({
-        ...child,
-        children: normalizePhrasingChildren(child.children),
-      } as PhrasingContent);
-      continue;
-    }
-
-    normalizedChildren.push(child);
-  }
-
-  return normalizedChildren;
-}
-
-function stripTrailingBreaks(children: PhrasingContent[]): PhrasingContent[] {
-  const trimmedChildren = [...children];
-
-  // Trailing in-cell breaks are intentionally unsupported. We normalize them
-  // away here so save, reload, and source mode all share the same contract.
-  while (trimmedChildren.length > 0) {
-    const lastChild = trimmedChildren[trimmedChildren.length - 1];
-
-    if (!lastChild) {
-      break;
-    }
-
-    if (lastChild.type === "text" && typeof lastChild.value === "string" && lastChild.value.length === 0) {
-      trimmedChildren.pop();
-      continue;
-    }
-
-    if (isBreakHtmlNode(lastChild)) {
-      trimmedChildren.pop();
-      continue;
-    }
-
-    if (hasPhrasingChildren(lastChild)) {
-      const strippedNestedChildren = stripTrailingBreaks(lastChild.children);
-
-      if (strippedNestedChildren.length === 0) {
-        trimmedChildren.pop();
-        continue;
-      }
-
-      trimmedChildren[trimmedChildren.length - 1] = {
-        ...lastChild,
-        children: strippedNestedChildren,
-      } as PhrasingContent;
-    }
-
-    break;
-  }
-
-  return trimmedChildren;
 }
 
 function convertCanonicalBreakHtmlToMdastBreaks(children: PhrasingContent[]): PhrasingContent[] {
@@ -196,6 +90,126 @@ function applyMarkdownReplacements(markdown: string, replacements: MarkdownRepla
   return nextMarkdown;
 }
 
+function setMarkdownReplacement(replacements: Map<string, MarkdownReplacement>, replacement: MarkdownReplacement): void {
+  for (const [key, existingReplacement] of replacements) {
+    const overlaps = replacement.startOffset < existingReplacement.endOffset && replacement.endOffset > existingReplacement.startOffset;
+
+    if (overlaps) {
+      replacements.delete(key);
+    }
+  }
+
+  replacements.set(`${replacement.startOffset}:${replacement.endOffset}`, replacement);
+}
+
+function collectTableCellBreakReplacements(
+  markdown: string,
+  children: PhrasingContent[],
+  replacements: Map<string, MarkdownReplacement>
+): void {
+  for (const child of children) {
+    const startOffset = child.position?.start.offset;
+    const endOffset = child.position?.end.offset;
+
+    if (isBreakHtmlNode(child) && typeof startOffset === "number" && typeof endOffset === "number") {
+      setMarkdownReplacement(replacements, { startOffset, endOffset, replacement: "<br />" });
+      continue;
+    }
+
+    if (child.type === "text" && child.value.includes("\n") && typeof startOffset === "number" && typeof endOffset === "number") {
+      const source = markdown.slice(startOffset, endOffset);
+
+      for (const match of source.matchAll(NUMERIC_LINE_BREAK_ENTITY_PATTERN)) {
+        if (typeof match.index !== "number") {
+          continue;
+        }
+
+        const entityStartOffset = startOffset + match.index;
+        setMarkdownReplacement(replacements, {
+          startOffset: entityStartOffset,
+          endOffset: entityStartOffset + match[0].length,
+          replacement: "<br />",
+        });
+      }
+    }
+
+    if (hasPhrasingChildren(child)) {
+      collectTableCellBreakReplacements(markdown, child.children, replacements);
+    }
+  }
+}
+
+function collectTrailingTableCellBreakReplacements(
+  markdown: string,
+  children: PhrasingContent[],
+  replacements: Map<string, MarkdownReplacement>
+): boolean {
+  for (let index = children.length - 1; index >= 0; index -= 1) {
+    const child = children[index];
+
+    if (!child) {
+      continue;
+    }
+
+    const startOffset = child.position?.start.offset;
+    const endOffset = child.position?.end.offset;
+
+    if (isBreakHtmlNode(child) && typeof startOffset === "number" && typeof endOffset === "number") {
+      setMarkdownReplacement(replacements, { startOffset, endOffset, replacement: "" });
+      continue;
+    }
+
+    if (child.type === "text" && child.value.endsWith("\n") && typeof startOffset === "number" && typeof endOffset === "number") {
+      const source = markdown.slice(startOffset, endOffset);
+      const trailingEntities = /(?:&#(?:0*10|x0*a);)+$/i.exec(source);
+
+      if (trailingEntities?.index !== undefined) {
+        setMarkdownReplacement(replacements, {
+          startOffset: startOffset + trailingEntities.index,
+          endOffset,
+          replacement: "",
+        });
+      }
+
+      if (child.value.replace(/\n+$/, "").length === 0) {
+        continue;
+      }
+    }
+
+    if (hasPhrasingChildren(child) && collectTrailingTableCellBreakReplacements(markdown, child.children, replacements)) {
+      continue;
+    }
+
+    return false;
+  }
+
+  return true;
+}
+
+function collectListMarkerReplacements(markdown: string, tree: Root, replacements: Map<string, MarkdownReplacement>): void {
+  visit(tree, "listItem", (node, _index, parent) => {
+    const listItem = node as ListItem;
+    const list = parent as List | undefined;
+    const startOffset = listItem.position?.start.offset;
+
+    if (typeof startOffset !== "number" || list?.type !== "list") {
+      return;
+    }
+
+    const marker = /^(?:[-+*]|\d+[.)])(?=\s)/.exec(markdown.slice(startOffset));
+
+    if (!marker) {
+      return;
+    }
+
+    setMarkdownReplacement(replacements, {
+      startOffset,
+      endOffset: startOffset + marker[0].length,
+      replacement: list.ordered ? "1." : "-",
+    });
+  });
+}
+
 function getPhrasingSemanticSignature(children: PhrasingContent[]): string {
   return JSON.stringify(
     children.map((child) => {
@@ -246,20 +260,79 @@ function collectMarkdownTableSnapshots(markdown: string): MarkdownTableSnapshot[
   return tables;
 }
 
-export function normalizeMarkdownTableCellLineBreaks(markdown: string): string {
-  const tree = markdownParser.parse(markdown) as Root;
+function haveEquivalentMarkdownTables(previousMarkdown: string, nextMarkdown: string): boolean {
+  const previousTables = collectMarkdownTableSnapshots(previousMarkdown);
+  const nextTables = collectMarkdownTableSnapshots(nextMarkdown);
 
-  // Canonicalization has to happen while the content is still a table-cell AST.
-  // Once a literal newline is flattened into raw pipe-table text, markdown
-  // parsing treats it as row structure and the original in-cell meaning is not
-  // recoverable. Persisted table-cell breaks therefore normalize to <br /> here.
+  return (
+    previousTables.length === nextTables.length &&
+    previousTables.every((previousTable, index) => previousTable.semanticSignature === nextTables[index]?.semanticSignature)
+  );
+}
+
+function removeRedundantTableCellEscapes(markdown: string): string {
+  const tree = markdownParser.parse(markdown) as Root;
+  const escapeOffsetGroups: number[][] = [];
+
   visit(tree, "tableCell", (node) => {
-    const tableCellNode = node as TableCell;
-    const children = tableCellNode.children;
-    tableCellNode.children = stripTrailingBreaks(normalizePhrasingChildren(children));
+    const tableCell = node as TableCell;
+    const startOffset = tableCell.position?.start.offset;
+    const endOffset = tableCell.position?.end.offset;
+
+    if (typeof startOffset !== "number" || typeof endOffset !== "number") {
+      return;
+    }
+
+    const source = markdown.slice(startOffset, endOffset);
+    const escapeOffsets: number[] = [];
+
+    for (const match of source.matchAll(/\\[&*]/g)) {
+      if (typeof match.index === "number") {
+        escapeOffsets.push(startOffset + match.index);
+      }
+    }
+
+    if (escapeOffsets.length > 0) {
+      escapeOffsetGroups.push(escapeOffsets);
+    }
   });
 
-  return markdownProcessor.stringify(tree);
+  let normalizedMarkdown = markdown;
+
+  for (const escapeOffsets of escapeOffsetGroups.sort((left, right) => (right[0] ?? 0) - (left[0] ?? 0))) {
+    const safeEscapeOffsets = escapeOffsets.filter((escapeOffset) => {
+      const candidateMarkdown = `${normalizedMarkdown.slice(0, escapeOffset)}${normalizedMarkdown.slice(escapeOffset + 1)}`;
+      return haveEquivalentMarkdownTables(normalizedMarkdown, candidateMarkdown);
+    });
+
+    let candidateMarkdown = normalizedMarkdown;
+
+    for (const escapeOffset of safeEscapeOffsets.sort((left, right) => right - left)) {
+      candidateMarkdown = `${candidateMarkdown.slice(0, escapeOffset)}${candidateMarkdown.slice(escapeOffset + 1)}`;
+    }
+
+    if (haveEquivalentMarkdownTables(normalizedMarkdown, candidateMarkdown)) {
+      normalizedMarkdown = candidateMarkdown;
+    }
+  }
+
+  return normalizedMarkdown;
+}
+
+export function normalizeMarkdownTableCellLineBreaks(markdown: string): string {
+  const sourceMarkdown = removeRedundantTableCellEscapes(markdown);
+  const tree = markdownParser.parse(sourceMarkdown) as Root;
+  const replacements = new Map<string, MarkdownReplacement>();
+
+  visit(tree, "tableCell", (node) => {
+    const tableCellNode = node as TableCell;
+    collectTableCellBreakReplacements(sourceMarkdown, tableCellNode.children, replacements);
+    collectTrailingTableCellBreakReplacements(sourceMarkdown, tableCellNode.children, replacements);
+  });
+
+  collectListMarkerReplacements(sourceMarkdown, tree, replacements);
+
+  return applyMarkdownReplacements(sourceMarkdown, [...replacements.values()]);
 }
 
 export function prepareMarkdownTableCellLineBreaksForEditor(markdown: string): string {

@@ -109,78 +109,182 @@
   "js/ts.suggestionActions.enabled": false,
   // GitHub Copilot Auto-Approve Commands
   "chat.tools.terminal.autoApprove": {
-    "awk": true,
-    "curl": true,
+    // Local inspection
+    "basename": true,
+    "cat": true,
+    "cut": true,
+    "date": true,
+    "df": true,
+    "dirname": true,
+    "du": true,
     "echo": true,
-    "head": true,
+    "env": true,
+    "file": true,
+    "git": false,
     "grep": true,
+    "head": true,
+    "jq": true,
     "ls": true,
     "lsof": true,
-    "mypy": true,
-    "nohup": true,
     "pgrep": true,
+    "printenv": true,
     "ps": true,
-    "pytest": true,
-    "sed": true,
-    "sleep": true,
+    "pwd": true,
+    "sort": true,
+    "stat": true,
     "tail": true,
-    "tee": true,
-    "time": true,
+    "tree": true,
+    "type": true,
+    "uniq": true,
     "uptime": true,
+    "wc": true,
+    "which": true,
     "who": true,
-    "hugo": true,
-    "source backend/.venv/bin/activate": true,
-    "/(\\.\\/)?scripts\\/lint/": true,
-    "/(\\.\\/)?scripts\\/test/": true,
-    "/(\\.\\/)?scripts\\/format/": true,
-    "/(\\.\\/)?scripts\\/dev-start/": true,
-    "/(\\.\\/)?scripts\\/dev-stop/": true,
-    "/(\\.\\/)?(website\\/)?scripts\\/(docs-report|docs-editor).py/": true,
-    "/(\\.venv\\/bin\\/)?pytest/": true,
-    "/(\\.venv\\/bin\\/)?ruff/": true,
-    "/^cd /workspace && node -v && npm -v$/": {
+    // Read-only Git inspection
+    "/^git\\s+(status|diff|log|show|branch|blame|rev-parse|ls-files|ls-tree|describe|tag|remote)\\b/": {
       "approve": true,
       "matchCommandLine": true
     },
-    "/^python3 scripts/update-docs-derived-artifacts\\.py$/": {
-      "approve": true
+    // Read-only remote Git inspection
+    "/^git\\s+ls-remote\\b/": {
+      "approve": true,
+      "matchCommandLine": true
     },
-    "/python3 scripts/update-docs-derived-artifacts\\.py/": {
-      "approve": true
+    // HTTP GET/HEAD with common non-mutating curl options.
+    // POST, PUT, DELETE, forms, uploads, output files, and custom
+    // request methods do not match and therefore require approval.
+    "/^curl\\s+(?:(?:-[fsSLI]+|--(?:fail|fail-with-body|silent|show-error|location|head|compressed))\\s+)*(?:['\\\"]?https?:\\/\\/[^\\s'\\\"]+['\\\"]?)(?:\\s+['\\\"]?https?:\\/\\/[^\\s'\\\"]+['\\\"]?)*$/": {
+      "approve": true,
+      "matchCommandLine": true
     },
-    "/python3 scripts/validate-docs-content\\.py/": {
-      "approve": true
+    // wget may inspect a URL or write the response only to stdout.
+    "/^wget\\s+(?:-qO-|--spider)\\s+['\\\"]?https?:\\/\\/[^\\s'\\\"]+['\\\"]?$/": {
+      "approve": true,
+      "matchCommandLine": true
     },
-    "npm": true,
-    "npx": true,
-    "/^git\\s+(status|diff|log|ls-remote|show|branch)\\b/": true,
-    "/^grep (-A|-E|-i)\\b/": true,
-    "/^(\/usr\/local\/bin\/)?python(3)? -m (mypy|py_compile|pytest|ruff|unittest)/": true,
-    "/^time\\b/": true,
-    "/^cargo\\s+(audit|build|check|clean|doc|new|init|run|test|bench|update|search|install|uninstall|publish|login|logout|package|metadata|fix|clippy|fmt|tree|verify|watch)\\b/": true,
-    "rm": false,
-    "rmdir": false,
-    "del": false,
-    "kill": false,
+    // DNS and reachability queries
+    "/^(dig|host|nslookup|ping)\\b/": {
+      "approve": true,
+      "matchCommandLine": true
+    },
+    // Read-only package registry queries
+    "/^npm\\s+(view|info|search)\\b/": {
+      "approve": true,
+      "matchCommandLine": true
+    },
+    "/^cargo\\s+search\\b/": {
+      "approve": true,
+      "matchCommandLine": true
+    },
+    "/^pip3?\\s+index\\s+versions\\b/": {
+      "approve": true,
+      "matchCommandLine": true
+    },
+    // Python tests and static analysis
+    "/^(?:\\.venv\\/bin\\/|backend\\/\\.venv\\/bin\\/)?pytest\\b/": {
+      "approve": true,
+      "matchCommandLine": true
+    },
+    "/^(?:\\.venv\\/bin\\/|backend\\/\\.venv\\/bin\\/)?(?:ruff|mypy)\\b/": {
+      "approve": true,
+      "matchCommandLine": true
+    },
+    "/^(?:\\/usr\\/local\\/bin\\/)?python3?\\s+-m\\s+(?:pytest|ruff|mypy|py_compile|unittest)\\b/": {
+      "approve": true,
+      "matchCommandLine": true
+    },
+    // Frontend validation and builds
+    "/^npm\\s+test\\b/": {
+      "approve": true,
+      "matchCommandLine": true
+    },
+    "/^npm\\s+run\\s+(?:test|lint|format|check|typecheck|build)\\b/": {
+      "approve": true,
+      "matchCommandLine": true
+    },
+    "/^npx\\s+tsc\\s+--noEmit\\b/": {
+      "approve": true,
+      "matchCommandLine": true
+    },
+    // Rust validation and read-only inspection
+    "/^cargo\\s+(?:test|check|clippy|fmt|metadata|tree|doc)\\b/": {
+      "approve": true,
+      "matchCommandLine": true
+    },
+    // Known repository validation scripts
+    "/^(?:\\.\\/)?scripts\\/(?:lint|test|format)(?:\\s|$)/": {
+      "approve": true,
+      "matchCommandLine": true
+    },
+    "/^python3\\s+scripts\\/(?:update-docs-derived-artifacts|validate-docs-content)\\.py(?:\\s|$)/": {
+      "approve": true,
+      "matchCommandLine": true
+    },
+    "/^python3\\s+(?:website\\/)?scripts\\/(?:docs-report|docs-editor)\\.py(?:\\s|$)/": {
+      "approve": true,
+      "matchCommandLine": true
+    },
+    // Always require approval for destructive or privileged tools
     "chmod": false,
     "chown": false,
-    "/^git\\s+(push|reset|revert|clean)\\b/": false,
-    "/^npm\\s+(uninstall|remove)\\b/": false,
-    "/workspace/frontend/node_modules/.bin/biome": true
+    "dd": false,
+    "del": false,
+    "docker": false,
+    "kill": false,
+    "mkfs": false,
+    "mount": false,
+    "podman": false,
+    "rm": false,
+    "rmdir": false,
+    "sudo": false,
+    "su": false,
+    "umount": false,
+    // Require approval for remote access and transfer tools
+    "ftp": false,
+    "rsync": false,
+    "scp": false,
+    "sftp": false,
+    "ssh": false,
+    // Require approval for package installation or arbitrary execution
+    "apt": false,
+    "apt-get": false,
+    "corepack": false,
+    "pip": false,
+    "pip3": false,
+    "pnpm": false,
+    "yarn": false,
+    // Require approval for Git writes and working-tree changes
+    "/^git\\s+(?:add|apply|bisect|checkout|cherry-pick|clean|clone|commit|fetch|merge|mv|pull|push|rebase|reset|restore|revert|rm|stash|switch|worktree)\\b/": {
+      "approve": false,
+      "matchCommandLine": true
+    },
+    // Require approval for dependency and publishing operations
+    "/^npm\\s+(?:ci|install|uninstall|remove|update|publish|exec)\\b/": {
+      "approve": false,
+      "matchCommandLine": true
+    },
+    "/^npx\\b/": {
+      "approve": false,
+      "matchCommandLine": true
+    },
+    "/^cargo\\s+(?:add|clean|fix|install|login|logout|new|init|package|publish|remove|run|update|watch)\\b/": {
+      "approve": false,
+      "matchCommandLine": true
+    },
   },
   "workbench.colorCustomizations": {
     "activityBar.activeBackground": "#f7d260",
     "activityBar.background": "#f7d260",
     "activityBar.foreground": "#15202b",
     "activityBar.inactiveForeground": "#15202b99",
-    "activityBarBadge.background": "#089874",
+    "activityBarBadge.background": "#F4C430",
     "activityBarBadge.foreground": "#e7e7e7",
     "commandCenter.border": "#15202b99",
     "sash.hoverBorder": "#f7d260",
     "statusBar.background": "#f4c430",
     "statusBar.foreground": "#15202b",
     "statusBarItem.hoverBackground": "#e5b00c",
-    "statusBarItem.remoteBackground": "#089774",
+    "statusBarItem.remoteBackground": "#F4C430",
     "statusBarItem.remoteForeground": "#15202b",
     "titleBar.activeBackground": "#f4c430",
     "titleBar.activeForeground": "#15202b",
