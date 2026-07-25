@@ -212,6 +212,8 @@ Use centrally defined limits and window constants:
 
 Use token buckets with capacity equal to each stated request count and continuous refill across its stated duration. A rejected request does not consume a token. Calculate `Retry-After` as the ceiling of the monotonic-clock duration until one token is available. For each request, refill, allow/reject, token consumption, last-used update, and `Retry-After` calculation occur atomically under one process-local lock or an equivalent primitive; never hold that lock across an `await` or any I/O.
 
+Treat the password IP and username buckets as one atomic admission decision under that lock. Refill both, then admit only when both contain a token. If either is empty, consume neither, update both LRU positions, and return the maximum ceiling wait until both can admit a request. Otherwise consume one token from each and update both LRU positions before releasing the lock. Endpoint buckets that apply alone retain the single-bucket rule.
+
 The supported single-process deployment may use bounded in-memory TTL/LRU maps with separate capacities of 10,000 source-IP keys and 10,000 username keys. Remove fully refilled inactive entries first and then evict the least-recently-used entry when a map is full; capacity is handled only through eviction, never blanket rejection of unseen keys. A username under active attack remains recently used, while cardinality flooding cannot create an unbounded map or a global fail-closed login outage. A process restart may clear these baseline buckets. Document that a shared limiter with equivalent atomic semantics is required before supporting multiple application instances.
 
 Define `SAMBEE_TRUSTED_PROXY_CIDRS` as an optional environment variable containing a comma-separated list of validated IP addresses or CIDR ranges. Its default is empty. Every repository-maintained Uvicorn launch path, including production and development commands, must pass `--no-proxy-headers` so the limiter observes the socket peer and Sambee remains the sole forwarding-header authority. When the direct peer is not trusted, ignore forwarding headers. When it is trusted, parse `X-Forwarded-For` strictly from right to left, skip addresses covered by the configured trusted ranges, and use the first untrusted address. Fall back to the direct peer when the chain is malformed or contains no untrusted address. Support IPv4 and IPv6 without accepting hostnames or partial addresses.
@@ -612,6 +614,7 @@ PR numbers describe dependency order, not necessarily merge order. Parallel work
 **Primary files:**
 
 - `backend/app/api/oidc_auth.py`
+- `backend/app/main.py`
 - `backend/app/services/oidc_identity.py`
 - `backend/app/services/oidc_flow.py`
 - integration tests with the deterministic fake provider
@@ -621,12 +624,13 @@ PR numbers describe dependency order, not necessarily merge order. Parallel work
 - Apply admission, immutable identity lookup, pending mapping consumption, or atomic provisioning in the specified order.
 - Reject collisions, inactive users, expired users, missing required claims, malformed groups, and policy failures with stable errors.
 - Synchronize valid profile fields and role; apply the last-administrator guard.
+- Replace restart-time bootstrap mutation with a first-run-only rule. Create the configured bootstrap administrator only when both the user table is empty and no database authentication configuration exists. Once either exists, startup must never create a missing configured administrator or change any existing user's role, activity, expiry, or password. Surface a missing usable administrator through typed authentication health and actionable redacted logs rather than mutating authorization state.
 - Generate a random login grant, store only its hash and revocation snapshot, set the 60-second deadline, transition to `callback_validated`, and redirect with the fragment.
 - Add all required audit events without claim or subject leakage.
 
-**Security invariants:** callback URL contains only the one-time grant fragment; no Sambee JWT is issued in callback; concurrent callbacks cannot create duplicate users or identities.
+**Security invariants:** callback URL contains only the one-time grant fragment; no Sambee JWT is issued in callback; concurrent callbacks cannot create duplicate users or identities; application restart cannot create, reactivate, unexpire, or promote a user after initialization.
 
-**Acceptance:** admission, mapping, provisioning, role, profile, concurrency, and failure-path integration tests pass.
+**Acceptance:** admission, mapping, provisioning, role, profile, concurrency, and failure-path integration tests pass. Restart tests cover first-run creation and preserve an existing user's OIDC-synchronized demotion, disabled state, expiry, and deletion without recreating or promoting the configured bootstrap username. Missing-administrator health contains no credentials or identity claims.
 
 ### PR 12: dormant grant exchange and login completion
 
@@ -657,10 +661,10 @@ PR numbers describe dependency order, not necessarily merge order. Parallel work
 - Implement atomic token-bucket refill/check/consume and deterministic `Retry-After` behavior using a monotonic clock and a process-local synchronization primitive.
 - Load and validate `SAMBEE_TRUSTED_PROXY_CIDRS`, add `--no-proxy-headers` to every repository-maintained Uvicorn command, retain socket-peer visibility at the ASGI boundary, and implement the strict right-to-left forwarding-chain algorithm from Gate R7.
 - Enforce the 64 KiB password-form body limit at the ASGI boundary before form parsing; accept the exact limit, reject one byte over with a generic `413`, and do not log or reflect body content.
-- Replace the password handler's direct `OAuth2PasswordRequestForm` dependency with one cached dependency that parses the form exactly once, checks the IP and complete hashed username token buckets after parsing but before credential lookup, and returns the unchanged form. The exact untrimmed submitted username continues to control database lookup.
+- Replace the password handler's direct `OAuth2PasswordRequestForm` dependency with one cached dependency that parses the form exactly once, performs the atomic two-bucket password admission decision after parsing but before credential lookup, and returns the unchanged form. The exact untrimmed submitted username continues to control database lookup.
 - Document optional reverse-proxy limits as defense in depth without making a proxy mandatory or trusting its forwarding headers by default.
 
-**Acceptance:** grant replay/expiry, stale configuration, return-path, password lifetime, WebSocket, companion-dependent session regression, Password-only rate-limit regression, and Gate R7 backend/browser tests pass. A contract test proves the password form is parsed once, both password buckets are checked before credential lookup, and lookup receives the unchanged username. Fixed safe navigation redirects and canonical API `429` responses follow the normative transport contract, buckets remain independent, bounded, and atomic, trusted-proxy behavior is configuration-driven and spoof resistant, every maintained Uvicorn command disables framework proxy-header rewriting, and the production application returns `404` for test-login, authorization, callback, and exchange.
+**Acceptance:** grant replay/expiry, stale configuration, return-path, password lifetime, WebSocket, companion-dependent session regression, Password-only rate-limit regression, and Gate R7 backend/browser tests pass. A contract test proves the password form is parsed once, both password buckets are checked before credential lookup, lookup receives the unchanged username, rejection by either bucket consumes neither token, and exhaustion of both returns the maximum wait. Fixed safe navigation redirects and canonical API `429` responses follow the normative transport contract, buckets remain independent, bounded, and atomic, trusted-proxy behavior is configuration-driven and spoof resistant, every maintained Uvicorn command disables framework proxy-header rewriting, and the production application returns `404` for test-login, authorization, callback, and exchange.
 
 ### PR 13: frontend authentication foundation
 
@@ -918,7 +922,7 @@ The matrix maps normative specification sections to the implementation issue tha
 | Provider singleton and revision model | PR 02, PR 04 | PR 09, PR 16, PR 17 |
 | External encryption key and rotation | PR 04, PR 10 | PR 16, PR 17 |
 | Nullable user passwords | PR 02 | PR 13, PR 17 |
-| Bootstrap/configuration precedence | PR 04, PR 05 | PR 16, PR 17 |
+| Bootstrap/configuration precedence and first-run administrator creation | PR 04, PR 05, PR 11 | PR 16, PR 17 |
 | Session invalidation scope | PR 05, PR 07, PR 09 | PR 16, PR 17 |
 | Public authentication API | PR 03, PR 05, PR 12 | PR 13, PR 16, PR 17 |
 | Administrator API | PR 03, PR 05-09, PR 07A | PR 14-17 |
@@ -947,6 +951,7 @@ The matrix maps normative specification sections to the implementation issue tha
 - [ ] Flow replay, race, expiry, and exactly-one-row transition tests pass.
 - [ ] Activation and replacement rollback, stale-review, and idempotent-retry tests pass.
 - [ ] Last-administrator and Password-only recovery paths are tested in UI and CLI.
+- [ ] Restart tests prove initialized databases never recreate, reactivate, unexpire, or promote the configured bootstrap user.
 - [ ] The documented CLI runs in the production container.
 - [ ] The backend enforces independent bounded authentication buckets, honors forwarding headers only from configured trusted proxies, and returns fixed allowlisted navigation redirects or canonical API `429` responses with `Retry-After` as appropriate.
 - [ ] The version-pinned Authelia setup works from the published instructions.
