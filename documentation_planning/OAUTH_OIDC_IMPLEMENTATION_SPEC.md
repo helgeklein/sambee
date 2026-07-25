@@ -98,18 +98,17 @@ Add **Settings > Administration > Authentication** as a guided setup flow:
    - administrator and editor group mappings populated with selectable groups observed during test sign-in
    - manual group entry for groups the testing administrator does not belong to
    - fixed `viewer` fallback for every admitted user who matches neither privileged mapping
-5. **Map existing users**
-   - map the tested identity to the current administrator with one confirmation
-   - list existing local users and their OIDC mapping status
-   - let the administrator create a short-lived identity-capture invitation for another local user; the intended person authenticates at the provider, then the administrator reviews and confirms the immutable identity mapping
-   - stage setup-time mappings under the tested candidate and commit them only when activation succeeds
-   - allow this step to be skipped for users who will be auto-provisioned on first OIDC sign-in
+5. **Review administrator mapping**
+   - confirm that activation will map the tested identity to the current administrator
+   - show the server-calculated admission result and resulting role under the proposed access policy
 6. **Activate**
    - choose exactly one sign-in mode: **Password only**, **OIDC with local recovery**, or **OIDC only**
    - summarize the resulting login and provisioning behavior before confirmation
    - warn when activation invalidates active sessions or changes the current administrator's login path
    - require the tested identity to be mapped to the current administrator, admitted by the proposed policy, and resolve to `admin` under the proposed mappings before enabling **OIDC only**
    - require a fresh test sign-in before changing admission or role mappings while already in **OIDC only** mode
+
+After activation, **Existing user mappings** lists local accounts that need to retain their existing Sambee data. Administrators may map those accounts through the normal identity-capture workflow. Ordinary admitted users require no mapping and are auto-provisioned on first OIDC sign-in. Recommend **OIDC with local recovery** during migration so existing local users can continue signing in with their passwords until mapped; before direct activation into **OIDC only**, warn that every unmapped existing user will be unable to sign in until an administrator maps them.
 
 Standard scopes and claims are not shown in the primary flow. An **Advanced** section contains scopes, defaulting to `openid profile email groups`, and claim-name overrides defaulting to `preferred_username`, `name`, `email`, and `groups`. Each override has a reset-to-default action. The interactive test validates these choices before activation.
 
@@ -130,7 +129,7 @@ Show linked authentication types on each user: `Local password`, `OIDC`, or both
 
 Administrators manage mappings from the user-management UI and the authentication-settings **Existing user mappings** section. Users cannot initiate, approve, change, or remove their own mapping. Mapping and unmapping require confirmation and an audit event. A **Change mapping** action uses the same validated identity-capture process and atomically moves the identity only after warning that both affected users will be signed out.
 
-Password reset and **Add local password** are unavailable in **OIDC only** mode because a local credential cannot be used in that mode. In **OIDC with local recovery** or **Password only** mode, an administrator may use **Add local password** for a user without one. The confirmation warns that the password is an authentication path independent of the identity provider, writes an audit event, and increments the target user's `token_version` so existing sessions are invalidated. It does not change the global sign-in mode or the user's role.
+Do not implement **Add local password** in v1. Preserve passwords for existing local users and allow administrators to create local accounts through the existing user-management workflow when the sign-in mode permits password authentication, but never add a password retroactively to an OIDC-provisioned account. Password reset and password change require an existing password hash and are unavailable to accounts without one. In **OIDC only** mode, hide all password-management actions because local credentials cannot be used.
 
 Sambee retains one local `User.role` regardless of authentication method. A successful OIDC login synchronizes that role when mappings are configured. A password login uses the currently stored role without contacting the IdP. Removing an IdP group can change the stored role on the next OIDC login, but does not remove an existing local password. Disabling or expiring a local user continues to block both authentication methods and must not be undone by auto-provisioning.
 
@@ -146,9 +145,8 @@ Password recovery uses the documented `/login/local` route rather than adding vi
 2. Allow only relative, application-owned `return_to` paths; otherwise use `/browse`.
 3. Generate cryptographically random `state`, `nonce`, and PKCE verifier values.
 4. Persist a short-lived, one-time `OidcFlow`. Login and test flows begin with status `started`; an identity-capture flow is created as `invitation_pending` by an administrator and transitions to `started` only when its invitation is consumed:
-   - hash of `state`
-   - encrypted PKCE verifier
-   - nonce encrypted with `SAMBEE_OIDC_SECRET_KEY`
+   - login and test flows store the hash of `state`, encrypted PKCE verifier, and encrypted nonce at creation
+   - identity-capture flows leave those protocol fields `NULL` while `invitation_pending`, then generate and populate them atomically during the transition to `started`
    - flow purpose: `login`, `identity_capture`, or `test`
    - initiating administrator ID for `identity_capture` and `test`, plus the target local user ID for `identity_capture`
    - provider configuration revision
@@ -197,7 +195,9 @@ Do not put the Sambee JWT, provider authorization code, ID token, or access toke
 
 A purpose-`test` callback validates the provider response and configured claims but never creates or maps a user, changes a role, or issues a Sambee session. It stores only the safe identity preview and tested candidate configuration on the administrator-bound flow, clears the state hash, transitions to `callback_validated`, and redirects back to the setup flow with the random flow UUID in the URL fragment.
 
-The flow UUID is a correlation identifier, not an authorization credential. The frontend removes it from browser history, keeps it only in `sessionStorage` for the current setup tab, and uses an authenticated admin endpoint to retrieve the safe preview. Preview and activation require `ACCESS_ADMIN_SETTINGS`, the same initiating administrator, purpose `test`, and status `callback_validated`. **Activate** submits the flow ID plus the reviewed sign-in mode, admission policy, and privileged group mappings. The backend evaluates the tested claims against those submitted access settings, rejects activation unless the initiating administrator is admitted and resolves to `admin`, and atomically persists the server-validated settings while consuming the unexpired flow. Canceling or closing the setup discards the client identifier, and the server flow expires after 30 minutes without affecting active authentication. Each **Connect and test** attempt creates a new immutable flow; editing tested provider fields or access settings that affect the preview requires a new test. Login flows retain secret, hashed one-time grants.
+The flow UUID is a correlation identifier, not an authorization credential. The frontend removes it from browser history, keeps it only in `sessionStorage` for the current setup tab, and uses an authenticated admin endpoint to retrieve the safe preview. Preview and activation require `ACCESS_ADMIN_SETTINGS`, the same initiating administrator, purpose `test`, and status `callback_validated`. The preview shows the server-calculated admission result, matching admission group when applicable, and resulting Sambee role; it explains that mapping does not override admission.
+
+**Activate** submits the flow ID plus the reviewed sign-in mode, admission policy, and privileged group mappings. The test flow records the active `configuration_revision`, or records that no active configuration existed, when testing begins. Inside the activation write transaction, the backend rejects a revision/existence mismatch with **Configuration changed; connect and test again**, evaluates the tested claims against the submitted access settings, and rejects activation unless the initiating administrator is admitted and resolves to `admin`. It then atomically persists the server-validated configuration, creates or verifies the tested identity mapping to the initiating administrator, and consumes the flow. An identity already mapped to another user or a conflicting identity already mapped to the administrator rejects activation. Canceling or closing the setup discards the client identifier, and the server flow expires after 30 minutes without affecting active authentication. Each **Connect and test** attempt creates a new immutable flow; editing tested provider fields or access settings that affect the preview requires a new test. Login flows retain secret, hashed one-time grants.
 
 ### Identity resolution
 
@@ -218,18 +218,18 @@ Email, preferred username, and display name are mutable profile attributes. They
 
 Users never map accounts themselves. An administrator owns every mapping operation, and Sambee never infers a mapping from mutable email, username, or display-name claims. Standard OIDC does not provide a portable account-directory API, so the UI captures the immutable provider identity through an authenticated OIDC transaction instead of asking an administrator to type a subject identifier.
 
-During initial setup, the administrator can map the successfully tested identity directly to their own local account. The backend reuses the validated `(issuer, subject)` from the administrator-bound test flow, requires explicit confirmation, and stages the mapping under that immutable test flow. Other setup-time captures are child flows that use the same encrypted candidate snapshot. Activation rechecks identity uniqueness and commits all approved staged mappings in the same transaction as the candidate configuration; abandoning or expiring the test flow discards them without changing active mappings.
+During initial setup, the administrator maps only the successfully tested identity directly to their own local account. The backend reuses the validated `(issuer, subject)` from the administrator-bound test flow, requires explicit confirmation, and creates that mapping in the activation transaction. Other existing users are mapped only after activation through the normal workflow below; there are no setup-time capture child flows or staged mappings.
 
 For any other existing local user:
 
 1. An administrator with `ACCESS_ADMIN_SETTINGS` selects **Map OIDC account** for the target local user.
-2. Sambee creates a ten-minute, single-use identity-capture invitation bound to the initiating administrator and target user. A later-administration capture is bound to the active provider revision; a setup capture is instead bound to its parent test flow and encrypted candidate snapshot. Only the hash of the random invitation secret is stored.
+2. Sambee creates a 30-minute, single-use identity-capture invitation bound to the initiating administrator, target user, and active provider revision. Only the hash of the random invitation secret is stored. Once authorization starts, the normal five-minute OIDC transaction lifetime applies.
 3. The administrator opens or securely shares `/login/oidc/map#invitation=<secret>` with the intended person. The capture page removes the fragment from browser history before posting the secret to the public start endpoint, which atomically consumes it and starts the purpose-`identity_capture` OIDC authorization flow. The invitation therefore avoids normal server and proxy URL logs. It grants no Sambee access and does not reveal the target user's details.
 4. The intended person authenticates at the provider. The callback performs the normal OIDC protocol validation, consumes the invitation, stores the validated issuer, subject, and minimal display claims, and transitions the flow to `callback_validated`. It creates no user, mapping, or Sambee session and shows only that the identity was captured for administrator review.
-5. The initiating administrator reviews the provider display name plus safe name/email preview and explicitly confirms or rejects the mapping. Confirmation atomically rechecks administrator capability, flow expiry, configuration source, target-user state, and both identity uniqueness constraints. A setup confirmation transitions the child flow to `mapping_approved` for activation; a later-administration confirmation creates the mapping immediately and consumes the flow.
+5. Any administrator who currently has `ACCESS_ADMIN_SETTINGS` may review the provider display name, safe name/email preview, server-calculated admission result, matching admission group when applicable, and resulting role, then explicitly confirm or reject the mapping. The UI explains that mapping does not override admission. Confirmation atomically rechecks administrator capability, flow expiry, provider revision, target-user state, and both identity uniqueness constraints before creating the mapping and consuming the flow. Audit data records both the initiating and approving administrator IDs.
 6. Mapping, unmapping, and changing a mapping increment `token_version` for every affected local user and write an audit event. **Change mapping** performs capture first and requires the administrator to select the expected currently mapped local user; confirmation moves the validated identity only when that source mapping is unchanged, preventing a stale approval from moving a different mapping. It never exposes or accepts a raw provider subject.
 
-Canceling, administrator sign-out, expiry, replay, deletion or deactivation of the target user, a parent-test-flow change, or an active provider-configuration change invalidates the capture. An administrator cannot approve a flow initiated by another administrator. In OIDC-only mode, reject unmapping or moving the last active mapped local administrator. Admission and role-policy edits remain subject to the separate fresh-test guard.
+Canceling, expiry, replay, deletion or deactivation of the target user, or an active provider-configuration change invalidates the capture. Browser sign-out does not alter the server-side capture; approval always requires a currently authenticated administrator with `ACCESS_ADMIN_SETTINGS`. In OIDC-only mode, reject unmapping or moving the last active mapped local administrator. Admission and role-policy edits remain subject to the separate fresh-test guard.
 
 ### Provisioning
 
@@ -253,7 +253,7 @@ An invalid or missing optional profile claim does not invalidate a login; it is 
 On every successful OIDC login:
 
 - update `last_login_at` on the identity
-- update name and email from the provider; per-user profile overrides are not supported in the first release
+- update name or email only when the corresponding provider claim is present and valid; preserve the existing local value when the claim is absent or invalid; per-user profile overrides are not supported in the first release
 - when at least one role mapping is configured, recalculate the role from provider groups; manual role overrides are not supported in this mode
 - increment `User.token_version` if the synchronized role changes, invalidating older Sambee tokens
 - preserve `is_active`, `expires_at`, and local password state
@@ -331,8 +331,9 @@ Rotate the at-rest encryption key only while all Sambee application processes ar
 
 1. Reads the current key from `SAMBEE_OIDC_SECRET_KEY` and the replacement from `SAMBEE_OIDC_NEW_SECRET_KEY`; it never accepts either key as a command-line argument.
 2. Acquires an exclusive database write transaction, decrypts the stored client secret with the current key, validates the replacement Fernet key, and re-encrypts the secret.
-3. Decrypts the candidate ciphertext with the replacement key and compares it with the original plaintext before committing. Any failure rolls back without changing the stored ciphertext.
-4. Prints the exact next action: replace `SAMBEE_OIDC_SECRET_KEY` with the new value, remove `SAMBEE_OIDC_NEW_SECRET_KEY`, and restart Sambee. It never prints either key.
+3. Deletes every ephemeral `OidcFlow` row in the same transaction because flows may contain protocol material or candidate configuration encrypted with the old key. Any open login, test, or identity-capture browser flow must be restarted after rotation.
+4. Decrypts the candidate ciphertext with the replacement key and compares it with the original plaintext before committing. Any failure rolls back both the ciphertext change and flow deletion.
+5. Prints the exact next action: replace `SAMBEE_OIDC_SECRET_KEY` with the new value, remove `SAMBEE_OIDC_NEW_SECRET_KEY`, and restart Sambee. It never prints either key.
 
 On restart, Sambee must decrypt the stored secret successfully before serving OIDC authorization requests. If rotation did not commit, restart with the old key. If rotation committed but deployment of the replacement key failed, deploy the replacement key before restarting. Do not support multiple live encryption keys in v1.
 
@@ -361,17 +362,16 @@ Use one database-backed flow table so login, identity capture, and test sign-in 
 | --- | --- |
 | `id` | internal UUID |
 | `purpose` | `login`, `identity_capture`, or `test` |
-| `status` | `invitation_pending`, `started`, `callback_processing`, `callback_validated`, `mapping_approved`, or `consumed`; only identity-capture flows use the invitation/mapping states |
-| `state_hash` | populated at flow creation, verified and cleared during callback claiming |
+| `status` | `invitation_pending`, `started`, `callback_processing`, `callback_validated`, or `consumed`; only identity-capture flows use `invitation_pending` |
+| `state_hash` | nullable while an identity capture awaits invitation use; otherwise populated when authorization starts, verified, and cleared during callback claiming |
 | `grant_hash` | populated after callback only for login exchange; absent for identity-capture and test flows |
 | `invitation_hash` | populated for identity capture and consumed when its OIDC authorization starts |
-| `encrypted_verifier`, `encrypted_nonce` | transient OIDC protocol material |
+| `encrypted_verifier`, `encrypted_nonce` | nullable while an identity capture awaits invitation use; generated atomically when authorization starts |
 | `initiating_admin_id`, `target_user_id` | administrator binding for test/capture and local mapping target for capture |
-| `parent_test_flow_id` | setup capture's candidate-configuration source; absent for later-administration capture |
 | `user_id`, `user_token_version` | resolved login identity and revocation snapshot |
 | `issuer`, `subject`, `display_claims_json` | minimal validated identity data needed for administrator mapping confirmation |
-| `encrypted_candidate_configuration` | test-flow snapshot; identity-capture child flows reference it through `parent_test_flow_id` |
-| `configuration_revision` | active provider revision used to reject stale login and later-administration identity-capture flows |
+| `encrypted_candidate_configuration` | populated only for test flows |
+| `configuration_revision` | expected active revision for test activation and active provider revision for login/identity-capture staleness checks; nullable only when a test records that no active configuration existed |
 | `return_path`, `expires_at` | safe navigation and cleanup data |
 
 Every transition uses a conditional database update on the expected current status. Terminal flows are consumed once and removed opportunistically. Do not build a generic workflow engine or store provider tokens in the row.
@@ -382,7 +382,7 @@ No provider tokens are retained after the callback. If the selected library requ
 
 - make `password_hash` nullable
 - password login must fail generically when `password_hash` is absent
-- normal password change requires an existing local password; the audited admin-only **Add local password** action is available only in `password_only` and `oidc_with_recovery`, invalidates the target user's sessions, and is the sole way to add password authentication to a user without a password
+- normal password change and password reset require an existing local password; v1 provides no action that adds a password to a user whose hash is `NULL`
 - add no provider subject fields directly to `User`; keep identity linkage normalized
 
 ## Configuration Precedence and Lockout Prevention
@@ -397,7 +397,7 @@ Required transition:
 4. Reject `oidc_only` unless the current administrator's tested OIDC identity is mapped to that administrator, is admitted by the proposed policy, and resolves to `admin` under the proposed group mappings. Apply the same fresh-test guard to later admission or role-mapping changes while OIDC-only remains active.
 5. Provide `sambee auth set-mode password-only` as the documented emergency command. It updates only `sign_in_mode`, invalidates existing sessions through `token_version`, and does not create, reset, or bypass any password.
 
-Auth configuration changes must clear the frontend auth-config cache and invalidate backend discovery/JWKS configuration caches. Increment `configuration_revision` for every active provider, admission, mapping, or sign-in-mode change so in-progress flows become stale. Scope session invalidation in the same database transaction:
+Auth configuration changes must clear the frontend auth-config cache and invalidate backend discovery/JWKS configuration caches. Increment `configuration_revision` for every active provider, admission, role-mapping, or sign-in-mode change so in-progress flows become stale. Creating, removing, or reassigning an individual identity mapping does not change the provider revision and therefore does not invalidate unrelated pending captures. Scope session invalidation in the same database transaction:
 
 - sign-in-mode changes bulk-increment every user's existing `token_version`
 - issuer, client ID, scopes, claim names, admission policy/groups, or role mappings bulk-increment `token_version` only for users referenced by `OidcIdentity`
@@ -442,15 +442,14 @@ Require the existing `ACCESS_ADMIN_SETTINGS` capability for reads and writes. Un
 Add:
 
 - `GET /api/admin/auth/oidc` returns redacted configuration
-- `PUT /api/admin/auth/oidc` atomically updates configuration. Changing issuer, client ID, client secret, scopes, or claim names requires and consumes a successful administrator-bound test flow. Display name may be updated directly. Admission and mapping changes may be updated directly with confirmation and scoped session invalidation in **Password only** or **OIDC with local recovery** mode. Entering an OIDC mode requires a successful test; changing admission or mappings while OIDC-only remains active requires a fresh test proving that the initiating administrator is admitted and still resolves to `admin`.
+- `PUT /api/admin/auth/oidc` atomically updates configuration. Changing issuer, client ID, client secret, scopes, or claim names requires and consumes a successful administrator-bound test flow. Activation verifies the test flow's expected active revision before writing and creates the initiating administrator's tested identity mapping in the same transaction. Display name may be updated directly. Admission and role-mapping changes may be updated directly with confirmation and scoped session invalidation in **Password only** or **OIDC with local recovery** mode. Entering an OIDC mode requires a successful test; changing admission or role mappings while OIDC-only remains active requires a fresh test proving that the initiating administrator is admitted and still resolves to `admin`.
 - `POST /api/admin/auth/oidc/validate` validates a submitted candidate without saving it
 - `POST /api/admin/auth/oidc/test-login` validates a submitted candidate, stores its encrypted snapshot on an administrator-bound `OidcFlow`, and starts interactive test sign-in
 - `POST /api/admin/auth/oidc/test-result` returns the safe claim preview for an unexpired test flow ID bound to the current administrator without consuming it
-- `POST /api/admin/auth/oidc/test-result/{flow_id}/map-current-admin` explicitly stages the tested identity mapping for activation
-- `POST /api/admin/auth/oidc/mappings/capture` creates an administrator- and target-user-bound identity-capture invitation; an optional parent test-flow ID selects setup staging instead of the active provider
+- `POST /api/admin/auth/oidc/mappings/capture` creates a 30-minute administrator- and target-user-bound identity-capture invitation against the active provider
 - `POST /api/auth/oidc/mappings/capture/start` consumes an invitation received from the fragment-clearing capture page and starts the public OIDC transaction without granting Sambee access
-- `GET /api/admin/auth/oidc/mappings/{flow_id}` returns the safe captured-identity preview only to the initiating administrator
-- `POST /api/admin/auth/oidc/mappings/{flow_id}/confirm` atomically confirms a captured mapping or mapping change
+- `GET /api/admin/auth/oidc/mappings/{flow_id}` returns the safe, server-calculated identity/admission/role preview to any current administrator and never returns the raw subject or full groups
+- `POST /api/admin/auth/oidc/mappings/{flow_id}/confirm` lets any current administrator atomically confirm a captured mapping or mapping change and records initiating and approving administrators
 - `DELETE /api/admin/auth/oidc/mappings/{user_id}` confirms and removes a mapping subject to the last-administrator guard
 
 Validation response example:
@@ -630,12 +629,14 @@ Names can change during implementation, but protocol, configuration, and identit
 - stable `(issuer, subject)` lookup regardless of email/username changes
 - trim-only, case-preserving username normalization and case-sensitive collision behavior
 - disabled, expired, and OIDC-only users
-- **Add local password** is rejected in `oidc_only`, allowed only in `password_only` and `oidc_with_recovery`, preserves the role, invalidates target-user sessions, and emits an audit event
+- password change/reset require an existing hash, and no API can add a password to an OIDC-provisioned user
 - mandatory profile synchronization and role synchronization when mappings are configured
+- missing or invalid optional name/email claims preserve existing local values
 - token-version increment only when authorization-relevant state changes
 - `OidcFlow` state/grant hashing, status transitions, expiry, atomic consumption, and replay rejection
+- identity-capture protocol fields remain null until invitation consumption populates them atomically
 - test flows are administrator-bound, expire, and never modify active configuration before activation
-- setup identity captures use their parent test snapshot, approved mappings remain staged, and activation commits the candidate plus mappings atomically
+- activation rejects an active-configuration revision/existence mismatch and atomically commits the candidate plus initiating-administrator mapping
 - return-path validation
 - log redaction
 
@@ -660,15 +661,18 @@ Use an in-process fake OIDC provider or deterministic mocked HTTP transport; do 
 - grant exchange succeeds once and fails on replay/expiry
 - OIDC exchange always issues a 60-minute JWT while password login retains the configured password-session lifetime
 - multiple backend sessions cannot transition or consume the same flow twice
-- identity capture grants no Sambee session, exposes no target-user details, and requires confirmation by the same initiating administrator
-- later-administration capture uses the active provider revision and commits only after administrator confirmation
+- identity capture grants no Sambee session, exposes no target-user details, and uses a 30-minute single-use invitation followed by a five-minute OIDC transaction
+- any current administrator may approve a capture; audit data records both initiating and approving administrators
+- mapping preview shows server-calculated admission, matching admission group when applicable, and resulting role without raw subject or full groups
+- identity capture uses the active provider revision and commits only after administrator confirmation
+- confirming one identity mapping does not invalidate an unrelated pending capture
 - mapping, unmapping, and reassignment enforce identity uniqueness, verify the expected source mapping, increment affected token versions, and reject removal of the last viable OIDC administrator
 - admin APIs reject non-admin users and never return a client secret
 - lockout-prevention rules reject unsafe configuration updates
 - OIDC-only activation fails unless the tested, mapped administrator remains admitted and an admin under the proposed mappings
 - OIDC-only admission/mapping edits require a fresh test proving the initiating administrator remains admitted and admin
 - missing, wrong, and rotated external OIDC encryption keys fail closed without destroying configuration
-- stopped-application encryption-key rotation verifies replacement ciphertext before commit, rolls back on failure, and requires the replacement key at next startup
+- stopped-application encryption-key rotation verifies replacement ciphertext, atomically deletes all ephemeral flows, rolls back both changes on failure, and requires the replacement key at next startup
 - sign-in-mode changes invalidate every user; provider, claim, admission, and mapping changes invalidate only OIDC-linked users
 - client-secret-only rotation and display-name changes preserve established sessions
 - invalidation confirmation reports affected account count without claiming an active-session count and explicitly identifies when it includes the acting administrator
@@ -692,7 +696,8 @@ Use an in-process fake OIDC provider or deterministic mocked HTTP transport; do 
 - administrator/editor mapping validation and fixed viewer fallback
 - case-insensitive normalized group matching and cross-role collision errors
 - admin navigation/capability visibility
-- **Add local password** and password reset are hidden in OIDC-only mode; supported modes show the independent-authentication-path warning
+- accounts without an existing password receive no password-change/reset/add action; OIDC-only mode hides all password-management actions
+- identity-mapping preview shows server-calculated admission and resulting role and explains that mapping does not override admission
 - configuration-change confirmation explicitly warns when the acting administrator will be signed out
 
 ### End-to-end tests
@@ -709,6 +714,8 @@ Use an in-process fake OIDC provider or deterministic mocked HTTP transport; do 
 - successful reauthentication clears the loop marker; provider failure does not trigger another automatic redirect
 - the guided setup configures a provider using only issuer, client ID, and client secret before access choices
 - a failed or abandoned candidate test leaves the working provider configuration unchanged
+- stale tested configuration cannot overwrite a concurrent administrator update
+- activation maps only the tested administrator; other existing users are mapped afterward through the normal invitation flow
 - `/login/local` is usable only in OIDC-with-recovery mode and retains password rate limiting
 - `sambee auth set-mode password-only` restores the mode without resetting or bypassing credentials
 
@@ -730,7 +737,7 @@ The migration must be idempotent under the repository migration runner. Back up 
 
 1. Ship schema and dormant backend support with no behavior change.
 2. Ship admin configuration and non-interactive validation while OIDC activation remains guarded.
-3. Ship login, callback, grant exchange, administrator-managed identity capture/mapping, and test-login support.
+3. Ship login, callback, grant exchange, setup-administrator mapping, post-activation administrator-managed identity capture/mapping, and test-login support.
 4. Ship admission-controlled provisioning and profile synchronization.
 5. Ship administrator/editor group synchronization with the fixed viewer fallback.
 6. Ship documentation and Authelia example before marking the feature complete.
@@ -812,6 +819,7 @@ Acceptance criteria:
 - all protocol validation failures fail closed
 - replayed state, callback, and exchange grants are rejected
 - no provider or Sambee token appears in redirect URLs or logs
+- activation rejects stale tests and maps only the tested initiating administrator; other existing accounts use the normal post-activation mapping flow
 - password and `none` regression tests pass
 
 ### Phase 3: provisioning and role mapping
@@ -868,7 +876,7 @@ Decide whether the existing `ACCESS_ADMIN_SETTINGS` capability is sufficient for
 
 Decide whether users may map themselves, whether administrators can map and unmap later, and how Sambee safely obtains an identity without a standard OIDC directory API.
 
-**Decision:** users never map accounts themselves. During setup and later administration, an administrator selects the local user, starts a short-lived identity-capture transaction, reviews the validated identity, and confirms mapping, unmapping, or reassignment. The tested setup identity can be mapped directly to the current administrator. Never auto-map by email/username or expose or accept a raw provider subject.
+**Decision:** users never map accounts themselves. Initial activation maps only the tested identity to the setup administrator. After activation, an administrator selects another existing local user and creates a 30-minute identity-capture invitation; any current administrator may review the server-calculated admission/role preview and confirm mapping, unmapping, or reassignment. Record both initiating and approving administrators. Never auto-map by email/username or expose or accept a raw provider subject.
 
 ### 4. Which claim supplies Sambee usernames?
 
@@ -924,7 +932,7 @@ Distinguish malformed authorization data from a valid claim that simply has no p
 
 Decide whether admins need per-user profile overrides.
 
-**Decision:** synchronize name and email on each login, keep username stable, and do not support per-user profile overrides in the first release.
+**Decision:** synchronize each valid, present name or email claim on login, preserve the existing local value when the corresponding claim is absent or invalid, keep username stable, and do not support per-user profile overrides in the first release.
 
 ### 11. What happens when a user is removed from the IdP?
 
@@ -990,13 +998,13 @@ Reuse the existing per-user token version and the `OidcIdentity` relation rather
 
 **Decision:** always increment the provider revision after active security-sensitive changes. Increment every user's `token_version` for sign-in-mode changes; increment only OIDC-linked users for issuer, client ID, scopes, claim, admission, or mapping changes; preserve sessions for client-secret-only rotation and display-name changes.
 
-### 19. When may an OIDC-provisioned user gain a local password?
+### 19. Can an OIDC-provisioned user gain a local password?
 
-**Recommended:** expose an explicit administrator action only while the global sign-in mode permits password authentication. Hide it in OIDC-only mode, where the credential would be unusable and easily forgotten. Normal self-service password change remains unavailable without an existing password.
+**Recommended:** no in v1. Preserve passwords for existing local users and allow normal creation of local accounts when password authentication is available, but avoid a special retroactive credential path for OIDC-provisioned users.
 
-Decide which sign-in modes permit the action and how to communicate that a local password is independent of the IdP.
+Decide whether the added recovery flexibility justifies a separate privileged API, UI, audit, session-invalidation, and authorization contract.
 
-**Decision:** hide password reset and **Add local password** in OIDC-only mode. In Password only and OIDC with local recovery modes, provide the explicit, confirmed, audited **Add local password** action for users without one. Warn that it creates an IdP-independent authentication path, preserve the user's role, and invalidate that user's existing sessions.
+**Decision:** do not implement **Add local password** in v1. Existing local users retain their passwords and may be mapped to OIDC; administrators may create local accounts through the existing workflow when password authentication is available. OIDC-provisioned accounts remain passwordless, and password change/reset require an existing password hash.
 
 ### 20. Which OIDC signing algorithms are required?
 
