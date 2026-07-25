@@ -148,7 +148,7 @@ Do not implement **Add local password** in v1. Preserve passwords for existing l
 
 Sambee retains one local `User.role` regardless of authentication method. Every successful OIDC login recalculates and synchronizes that role: an admitted identity with no administrator/editor match becomes `viewer`, including when both privileged mapping lists are empty. A password login uses the currently stored role without contacting the IdP. Removing an IdP group can change the stored role on the next OIDC login, but does not remove an existing local password. If synchronization would leave no usable administrator, fail that OIDC login with a stable configuration error, preserve the stored administrator role and mapping, increment `token_version` to revoke every existing session for that user, and emit an actionable audit event. This narrow lockout guard does not grant an OIDC session contrary to current group policy. Recovery requires restoring the administrator's IdP group or switching to password-only and using an existing local password; the error and audit event state when that password does not exist. Disabling or expiring a local user continues to block both authentication methods and must not be undone by auto-provisioning.
 
-Password recovery uses the documented `/login/local` route rather than adding visual noise to the primary OIDC login. It is available only in **OIDC with local recovery** mode, only to local-password accounts, and has its own password-login rate limit. It does not bypass normal password verification, activity, expiry, or token-version checks. **Password only** continues to use the normal login page.
+Password recovery uses the documented `/login/local` route rather than adding visual noise to the primary OIDC login. It is available only in **OIDC with local recovery** mode and only to local-password accounts. Recovery and Password-only login use the same backend password endpoint and the same IP and normalized-username rate-limit buckets; neither the limiter nor its response distinguishes the current sign-in mode or whether the request came from recovery UI. Recovery does not bypass normal password verification, activity, expiry, or token-version checks. **Password only** continues to use the normal login page.
 
 ## Authentication Flow
 
@@ -488,7 +488,7 @@ Add:
 - `GET /api/auth/oidc/callback`
 - `POST /api/auth/oidc/exchange`
 
-All three endpoints are public by necessity, have narrow schemas, and receive dedicated rate limits at the reverse proxy/deployment layer. Callback and exchange failures use stable error codes without exposing provider payloads.
+All three endpoints are public by necessity, have narrow schemas, and receive dedicated application-enforced rate limits enabled by default. A reverse proxy may add stricter defense-in-depth limits but is not required for correct enforcement. Callback and exchange failures use stable error codes without exposing provider payloads.
 
 ### Admin API
 
@@ -553,7 +553,9 @@ Public authentication failures use this compact registry. The frontend renders o
 | `password_only_no_local_administrator` | 409 | **Password only requires an active administrator with a local password. Use the documented server command for emergency recovery or deliberate containment.** |
 | `oidc_last_administrator_role_conflict` | 409 | **Your administrator access changed. Restore the IdP group or use local recovery after the operator enables Password only.** |
 | `oidc_last_administrator_role_conflict_no_recovery` | 409 | **Your administrator access changed and no local recovery password exists. Restore the administrator group at the identity provider.** |
-| `oidc_rate_limited` | 429 | **Too many sign-in attempts. Wait and try again.** |
+| `oidc_rate_limited` | 429 API / 303 navigation | **Too many sign-in attempts. Wait and try again.** |
+
+`oidc_rate_limited` is one logical error with endpoint-specific transport. Authorization-start and callback browser navigations return `303 See Other` to the fixed `/login#error=oidc_rate_limited` location. That redirect must not reflect any request value. Exchange and password-login APIs return `429 Too Many Requests`, include `Retry-After`, and use their canonical generic JSON bodies. The password response must not disclose account existence, sign-in mode, or recovery intent.
 
 `oidc_mapping_review_stale`, `passwordless_account_count_changed`, and `password_only_no_local_administrator` are admin-only. On a stale mapping review, the frontend discards the stale reviewed plan, refetches the complete server-derived plan, and shows **Mappings changed while you were reviewing. Review the refreshed plan before continuing.** It never merges or silently resubmits stale edits. On a changed passwordless-account count, it refreshes the count and requires a new acknowledgement. When no local-password administrator exists, it blocks the UI action and points to the documented server command without offering a force control. Other admin validation and mapping APIs use the same codes where applicable and may add safe field and row context. Do not expose provider payloads, claim values, subjects, secrets, or internal exception text.
 
@@ -628,7 +630,10 @@ Keep library-specific token dictionaries out of provisioning and API layers.
 - Issue OIDC-authenticated Sambee JWTs for at most 60 minutes and continue validating the existing per-user `token_version`.
 - Increment `token_version` on role changes and identity mapping, unmapping, or reassignment.
 - Increment `token_version` when last-administrator protection blocks a role change so previously issued administrator sessions are revoked even though the recovery role is preserved.
-- Rate-limit authorization starts, callbacks, exchanges, and password login separately.
+- Enforce bounded application-level rate limits by default: authorization starts at 20 requests per source IP per 5 minutes, callbacks at 60 per source IP per 5 minutes, exchanges at 30 per source IP per 5 minutes, and password login at 10 attempts per source IP per 5 minutes plus 10 attempts per normalized username per 15 minutes. Authorization, callback, exchange, and the shared password endpoint use independent buckets; the normalized-username password bucket is an additional check rather than a separate endpoint bucket.
+- Use a bounded in-memory limiter for the supported single-application-process deployment, expire inactive keys, and cap tracked keys so attacker-controlled input cannot cause unbounded memory growth. A restart may clear baseline limits. Multi-instance deployments require a shared limiter before horizontal scaling.
+- Derive source IP from the direct peer by default. Honor forwarding headers only when an explicit trusted-proxy configuration identifies the connecting proxy; never trust arbitrary client-supplied forwarding headers.
+- Treat reverse-proxy limits as optional defense in depth. Documented proxy examples may strengthen but must not replace or weaken the application defaults.
 - Add structured audit events for configuration updates, validation attempts, successful/failed OIDC login, provisioning, identity mapping/unmapping/reassignment, and role changes.
 - Return generic login failures to the browser while logging a specific reason and correlation ID server-side.
 

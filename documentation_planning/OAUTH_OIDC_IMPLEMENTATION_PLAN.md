@@ -196,21 +196,24 @@ Verify row counts, password-hash preservation, indexes, foreign keys, singleton 
 
 ### Gate R7: enforceable authentication rate limits
 
-**Owner:** backend/security/operations
+**Owner:** backend/security
 
 **Required before:** public OIDC routes or `/login/local` are usable in an active OIDC mode.
 
-The normative specification places enforcement at the reverse-proxy/deployment layer. Select and ship one supported reverse-proxy configuration with four separate rate-limit buckets: authorization starts, callbacks, exchanges, and the shared `POST /api/auth/token` password endpoint. Password-only and recovery login intentionally share the password bucket because they use the same backend endpoint; the proxy must not infer database sign-in mode or authentication intent. Update the supported container deployment example so public traffic reaches Sambee through that boundary rather than exposing the application port directly. Existing deployments using another proxy must reproduce or strengthen the documented limits before enabling OIDC.
+Implement baseline limits in the backend so direct-container and proxied deployments receive the same protection. Use four independent endpoint buckets: authorization starts, callbacks, exchanges, and the shared `POST /api/auth/token` password endpoint. Password login also uses an additional normalized-username bucket. Password-only and recovery login intentionally share both password checks because they use the same backend endpoint; the limiter must not infer database sign-in mode or authentication intent.
 
-Define the supported proxy, default limits, burst behavior, keying, forwarding-header trust boundary, and endpoint-specific response behavior in the implementation review:
+Use centrally defined limits and window constants:
 
-- authorization and callback are top-level browser navigations; throttling redirects exactly to `/login#error=oidc_rate_limited`
-- exchange returns the canonical JSON `429` contract for `oidc_rate_limited`
-- the shared password token endpoint returns a generic JSON `429` that does not reveal account existence or whether the request came from Password-only or recovery UI
+- authorization starts: 20 requests per source IP per 5 minutes
+- callbacks: 60 requests per source IP per 5 minutes
+- exchanges: 30 requests per source IP per 5 minutes
+- password endpoint: 10 attempts per source IP per 5 minutes and 10 attempts per normalized username per 15 minutes
 
-Navigation throttling must never reflect a return path, provider parameter, query value, header, or request body in the redirect. The frontend removes the allowlisted fragment from browser history before rendering its local translated message. Optional application-level limits may provide defense in depth, but they do not replace the required deployment-layer enforcement and must not use an unbounded custom request map.
+The supported single-process deployment may use a bounded in-memory limiter. Expire inactive entries, impose a tested hard cap on tracked keys, and fail closed for new keys when that cap is reached so attacker-controlled source addresses or usernames cannot cause unbounded memory growth. A process restart may clear these baseline buckets. Document that a shared limiter is required before supporting multiple application instances.
 
-**Exit check:** deployment tests start the supported proxy configuration, independently exhaust each bucket without affecting the others, verify forwarding-header spoofing cannot select another rate-limit key, and prove the documented public application path cannot bypass the proxy to reach the backend. Browser tests verify fixed authorization/callback redirects contain only the allowlisted fragment, immediately remove it from history, render the local safe message, and never reflect request data. API tests verify the canonical exchange and generic password `429` responses.
+Use the direct peer address unless an explicit trusted-proxy configuration identifies the connecting proxy. Ignore client-supplied forwarding headers from every other peer. Authorization and callback are top-level browser navigations and return `303 See Other` exactly to `/login#error=oidc_rate_limited` when throttled. Exchange returns the canonical JSON `429` contract for `oidc_rate_limited`; the shared password endpoint returns a generic JSON `429`. Both API responses include `Retry-After`. Navigation throttling must never reflect a return path, provider parameter, query value, header, or request body. The frontend removes the allowlisted fragment from browser history before rendering its local translated message. Optional reverse-proxy limits are defense in depth and may strengthen, but must not replace or weaken, these defaults.
+
+**Exit check:** backend tests independently exhaust every endpoint bucket and both password keys without affecting unrelated buckets, prove bounded-memory and expiry behavior, cover restart semantics, and verify forwarding-header spoofing cannot select another key. Browser tests verify fixed authorization/callback redirects contain only the allowlisted fragment, immediately remove it from history, render the local safe message, and never reflect request data. API tests verify `Retry-After`, the canonical exchange response, and the generic password response without account, mode, or recovery-intent disclosure.
 
 ### Gate R8: target provider confirmation
 
@@ -247,7 +250,7 @@ flowchart TD
     P04 --> P10
     P07 --> P11[PR 11: login resolution and synchronization]
     P08 --> P11
-    P11 --> P12[PR 12: grant exchange and public login completion]
+    P11 --> P12[PR 12: dormant grant exchange and login completion]
     P03 --> P13[PR 13: frontend auth foundation]
     P05 --> P13
     P12 --> P13
@@ -445,7 +448,7 @@ PR numbers describe dependency order, not necessarily merge order. Parallel work
 
 **Work:**
 
-- Add `POST /api/admin/auth/oidc/test-login`.
+- Implement `POST /api/admin/auth/oidc/test-login` without registering it in the production router. Exercise it through an isolated test router or direct handler invocation; PR 16 registers it with the complete interactive flow.
 - Validate local fields, metadata, JWKS, endpoint safety, advertised capabilities, and warnings.
 - Encrypt and persist the candidate, state verifier material, initiating administrator, active configuration existence/revision, and immutable server-derived intent.
 - Return only the safe validation report or a server-generated authorization URL with `Cache-Control: no-store`.
@@ -453,7 +456,7 @@ PR numbers describe dependency order, not necessarily merge order. Parallel work
 
 **Security invariants:** active configuration is untouched; authorization URLs never come from client input; each attempt creates a fresh immutable flow; flow material is encrypted or hashed as specified.
 
-**Acceptance:** abandoned and failed candidates leave active login unchanged; a successful response contains no secret or provider document.
+**Acceptance:** abandoned and failed candidates leave active login unchanged; a successful response contains no secret or provider document; the production application returns `404` for test-login.
 
 ### PR 07: identity, admission, roles, and mapping service
 
@@ -531,7 +534,7 @@ PR numbers describe dependency order, not necessarily merge order. Parallel work
 - Add the setup-only allowlisted missing-groups fragment failure.
 - Add the authenticated stateless body-bearing preview and test-flow deletion endpoints.
 - Delete terminal callback failures conditionally from `callback_processing` and retain only a separate redacted failure audit event.
-- Keep the public callback route unregistered in the production router. Exercise it through an isolated test router or direct handler invocation; PR 12 is the first production registration point after Gate R7 is closed.
+- Keep the public callback route unregistered in the production router. Exercise it through an isolated test router or direct handler invocation; PR 16 registers it with the complete backend and frontend flow after Gate R7 is closed.
 
 **Security invariants:** no provisioning, mapping, role mutation, or Sambee JWT for test purpose; no issuer or subject in preview; zero-row transitions make no later provider request or mutation.
 
@@ -617,33 +620,31 @@ PR numbers describe dependency order, not necessarily merge order. Parallel work
 
 **Acceptance:** admission, mapping, provisioning, role, profile, concurrency, and failure-path integration tests pass.
 
-### PR 12: grant exchange and public login completion
+### PR 12: dormant grant exchange and login completion
 
 **Depends on:** PR 01 and PR 11. Closes Gate R7 before activation cutover.
 
-**Goal:** issue the existing Sambee JWT only after atomic one-time grant exchange.
+**Goal:** implement and test issuance of the existing Sambee JWT after atomic one-time grant exchange without exposing an incomplete browser flow.
 
 **Primary files:**
 
 - `backend/app/api/oidc_auth.py`
 - `backend/app/services/oidc_flow.py`
 - `backend/app/core/security.py`
-- supported reverse-proxy configuration and container deployment example
-- backend requirements and generated lock files only when an optional application-level limiter adds a dependency
+- backend requirements and generated lock files only when the application limiter adds a dependency
 - focused API and integration tests
 
 **Work:**
 
-- Add `GET /api/auth/oidc/authorize`, complete `GET /api/auth/oidc/callback`, and add `POST /api/auth/oidc/exchange`.
-- Register the authorization, callback, and exchange routes in the production router only after the supported proxy configuration and its Gate R7 tests are part of the same pull request.
+- Implement `GET /api/auth/oidc/authorize`, complete `GET /api/auth/oidc/callback`, and implement `POST /api/auth/oidc/exchange` without registering any interactive OIDC route in the production router. Exercise the handlers through an isolated test router; PR 16 owns atomic production registration.
 - Sanitize `return_to` to application-owned relative routes.
 - Atomically consume a valid grant and recheck user activity, expiry, token version, and configuration revision.
 - Issue a 60-minute OIDC-authenticated Sambee JWT through the existing token path.
 - Add `Referrer-Policy: no-referrer` and safe cache headers to callback responses.
-- Implement and document the supported reverse-proxy rate-limit boundary from Gate R7, including the four buckets, trusted forwarding semantics, endpoint-specific navigation/API responses, and optional stricter operator limits.
-- Prevent the supported deployment path from bypassing the proxy and reaching the backend directly. An optional maintained application limiter may add defense in depth through the backend dependency workflow but cannot substitute for the proxy tests.
+- Implement the bounded application limiter from Gate R7, including four independent endpoint buckets, both password keys, expiry and capacity behavior, trusted-proxy semantics, and endpoint-specific navigation/API responses.
+- Document optional reverse-proxy limits as defense in depth without making a proxy mandatory or trusting its forwarding headers by default.
 
-**Acceptance:** grant replay/expiry, stale configuration, return-path, password lifetime, WebSocket, companion-dependent session regression, and Gate R7 deployment/browser tests pass. The supported public container path returns fixed safe navigation redirects or canonical API `429` responses through the proxy as appropriate, the four buckets remain independent, and the backend is not publicly reachable through a bypass port in that deployment.
+**Acceptance:** grant replay/expiry, stale configuration, return-path, password lifetime, WebSocket, companion-dependent session regression, and Gate R7 backend/browser tests pass. Fixed safe navigation redirects and canonical API `429` responses follow the normative transport contract, buckets remain independent and bounded, and the production application returns `404` for test-login, authorization, callback, and exchange.
 
 ### PR 13: frontend authentication foundation
 
@@ -666,7 +667,7 @@ PR numbers describe dependency order, not necessarily merge order. Parallel work
 
 - Replace `auth_method` with canonical `sign_in_mode` and derive method availability.
 - Replace fetch-failure fallback-to-password with an authentication-unavailable retry state. Never infer that local login is enabled after a failed config read.
-- Add `/login/local` and `/login/oidc/callback` with correct mode gates.
+- Implement `/login/local` and `/login/oidc/callback` with correct mode gates, but keep both routes unavailable in the production router until PR 16. Exercise them through focused router tests and fixtures backed by PR 12's isolated test router.
 - Parse and remove the callback fragment before exchange; load no third-party resources on the callback page.
 - Centralize successful-token storage, tracing initialization, current-user load, and safe return navigation for password and OIDC.
 - Implement one automatic OIDC-only reauthentication attempt and loop suppression in `sessionStorage`.
@@ -674,7 +675,7 @@ PR numbers describe dependency order, not necessarily merge order. Parallel work
 - Treat `oidc_rate_limited` as an allowlisted navigation fragment error, remove it from history before rendering, and never render reflected URL or provider content.
 - Remove the temporary legacy `auth_method` parser only after the canonical backend response from PR 05 is the supported deployment baseline.
 
-**Acceptance:** all four effective states (`none`, Password-only, recovery, OIDC-only), outage behavior, callback replay prevention, rate-limited navigation fragment removal, logout suppression, deep return routes, and accessibility tests pass.
+**Acceptance:** all four effective states (`none`, Password-only, recovery, OIDC-only), outage behavior, callback replay prevention, rate-limited navigation fragment removal, logout suppression, deep return routes, and accessibility tests pass; the production application has no reachable OIDC callback or local-recovery frontend route.
 
 ### PR 14: dormant administrator authentication setup and replacement UI
 
@@ -748,7 +749,8 @@ PR numbers describe dependency order, not necessarily merge order. Parallel work
 
 **Work:**
 
-- Verify and link closure evidence for Gates R1-R7, including the audit export, production-container CLI, supported proxy rate limits, and current-database migration rehearsal.
+- Verify and link closure evidence for Gates R1-R7, including the audit export, production-container CLI, application rate limits, and current-database migration rehearsal.
+- Atomically register the administrator test-login handler; public authorization, callback, and exchange handlers; and frontend local-recovery and OIDC-callback routes implemented in PRs 06, 08, 12, and 13.
 - Register the sole provider-finalization route implemented in PR 09.
 - Register and expose the administrator Authentication settings route/navigation implemented in PR 14.
 - Confirm the public authorize/callback/exchange routes, mode-aware frontend login, mapping administration, and recovery command are present in the same deployable artifact.
@@ -779,8 +781,8 @@ PR numbers describe dependency order, not necessarily merge order. Parallel work
 - Document setup, callback URL, claims, admission, roles, mappings, replacement, recovery, secret rotation, key rotation, stable errors, privacy, upgrade behavior, and logout limitations.
 - Add the complete supported Authelia example and validate it against the selected version.
 - Run the full specification E2E matrix, migration rehearsal, dependency checks, frontend checks, backend tests/type check, repository script, and a focused security review.
-- Verify deployment-layer rate-limit examples for authorization, callback, exchange, and password login.
-- Document the supported proxy's default authentication limits, forwarding-header trust boundary, non-bypass deployment, and optional stricter operator limits.
+- Verify optional reverse-proxy defense-in-depth examples for authorization, callback, exchange, and password login without making them prerequisites for backend enforcement.
+- Document the application's default authentication limits, bounded single-process behavior, forwarding-header trust boundary, multi-instance shared-limiter requirement, and optional stricter proxy limits.
 
 **Acceptance:** all specification acceptance criteria pass; no unresolved high-severity protocol, SSRF, replay, mapping, privilege, lockout, or secret-handling finding remains.
 
@@ -851,7 +853,7 @@ Schema, services, and routes may ship before UI only when no provider row exists
 | After PR 09 | Activation, replacement, stale review, audit rollback, revision, and idempotent retry integration suites. |
 | After PR 12 | Full backend auth suite using deterministic fake provider, including WebSocket and companion-dependent session behavior. |
 | After PR 15 | Full frontend unit/integration suite and all auth/settings accessibility checks. |
-| Before PR 16 | Gates R1-R7, current-database migration rehearsal, production-container CLI and audit export, supported four-bucket proxy rate limiting, safe navigation/API throttle responses, and dormant-route assertions. |
+| Before PR 16 | Gates R1-R7, current-database migration rehearsal, production-container CLI and audit export, bounded application rate limiting, safe navigation/API throttle responses, and dormant-route assertions. |
 | Before release | Backend tests and mypy, frontend tests/type/lint, E2E matrix, migration rehearsal, repository-wide `scripts/test`, docs validation, Authelia rehearsal, and security review. |
 
 Tests must not call a public IdP. The final supported-provider rehearsal may use a controlled local/containerized Authelia instance.
@@ -930,7 +932,7 @@ The matrix maps normative specification sections to the implementation issue tha
 - [ ] Activation and replacement rollback, stale-review, and idempotent-retry tests pass.
 - [ ] Last-administrator and Password-only recovery paths are tested in UI and CLI.
 - [ ] The documented CLI runs in the production container.
-- [ ] The supported deployment proxy enforces four independent authentication buckets, returns fixed allowlisted navigation redirects or canonical API `429` responses as appropriate, and cannot be bypassed through a publicly exposed backend port.
+- [ ] The backend enforces independent bounded authentication buckets, honors forwarding headers only from configured trusted proxies, and returns fixed allowlisted navigation redirects or canonical API `429` responses with `Retry-After` as appropriate.
 - [ ] The version-pinned Authelia setup works from the published instructions.
 - [ ] Backend tests and mypy pass.
 - [ ] Frontend tests, type check, and lint pass.
