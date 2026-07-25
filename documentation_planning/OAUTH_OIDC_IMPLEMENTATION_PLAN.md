@@ -138,6 +138,7 @@ Create canonical Pydantic models and enums for:
 - one-time grant exchange and existing login response reuse
 - stable public and administrator error codes
 - administrator prerequisites and authentication health, with exact fields for `oidc_secret_key_configured`, `public_url_configured`, safe canonical `public_url`, derived `redirect_uri`, typed health status, and an allowlisted safe reason code
+- administrator-only user authentication state containing `has_local_password`, pending-mapping state, and a nullable redacted OIDC object with opaque `identity_id`, provider display name, and last successful OIDC login; this is the read source for the move endpoint and never includes issuer, subject, or a subject hash
 
 Generate and snapshot the relevant OpenAPI component schemas. Frontend types may be generated from or manually mirrored against that reviewed snapshot, but contract tests must detect drift.
 
@@ -153,9 +154,9 @@ Add a database-backed audit record rather than relying on application logs. The 
 
 Audit writes that describe a committed mutation must occur in the same database transaction as that mutation. Failed operations may write a separate redacted failure event after rollback. Audit insertion failure must fail and roll back a security-sensitive mutation rather than silently losing the record.
 
-Retain OIDC audit rows indefinitely in v1; document database growth and backup implications. An audit UI is not required. Provide an operator-supported, read-only JSON Lines export through `sambee auth audit export`, with optional time and event-name filters, after the CLI delivery contract is established. The export returns only the already allowlisted persisted fields and never decrypts OIDC configuration or flow data.
+Retain OIDC audit rows indefinitely in v1; document database growth and backup implications. An audit UI is not required. Transactional persistence and field allowlisting close this gate. The operator export is a separate operational deliverable owned by Gate R5 and PR 10 and is required before activation cutover, not before earlier audited mutations merge.
 
-**Exit check:** tests prove mutation rollback on audit-write failure, prove that forbidden values cannot enter serialized audit details, and prove that export filters cannot expose arbitrary tables or fields.
+**Exit check:** tests prove mutation rollback on audit-write failure and prove that forbidden values cannot enter serialized audit details.
 
 ### Gate R5: emergency CLI delivery contract
 
@@ -171,9 +172,9 @@ sambee auth rotate-oidc-secret-key
 sambee auth audit export [--since <timestamp>] [--event <name>]
 ```
 
-If repository packaging cannot reliably install a console script, use an explicitly supported module invocation and provide a container wrapper; do not document an accidental `python -c` command. Both commands must reuse application services and transaction logic rather than duplicate database mutations.
+If repository packaging cannot reliably install a console script, use an explicitly supported module invocation and provide a container wrapper; do not document an accidental `python -c` command. The mutation commands must reuse application services and transaction logic rather than duplicate database mutations. Audit export is read-only, accepts only typed filters, returns only allowlisted persisted fields, and never decrypts OIDC data.
 
-**Exit check:** container-level tests invoke the documented command, cover confirmation and stale-count rechecks, and prove that no command accepts or prints encryption keys.
+**Exit check:** container-level tests invoke all documented commands, cover confirmation and stale-count rechecks, prove that no command accepts or prints encryption keys, and prove that audit-export filters cannot expose arbitrary tables or fields.
 
 ### Gate R6: migration rehearsal
 
@@ -199,11 +200,11 @@ Verify row counts, password-hash preservation, indexes, foreign keys, singleton 
 
 **Required before:** public OIDC routes or `/login/local` are usable in an active OIDC mode.
 
-The standard container is directly reachable and cannot assume an external reverse proxy. Add application-enforced, separately configurable rate-limit buckets for authorization starts, callbacks, exchanges, and password login, using a maintained limiter and bounded storage rather than an unbounded custom request map. Use the direct peer address by default. Trust forwarded client addresses only through an explicit trusted-proxy configuration; never trust forwarding headers from arbitrary peers. A deployment may add stricter edge limits, but those are defense in depth rather than the only enforcement.
+The normative specification places enforcement at the reverse-proxy/deployment layer. Select and ship one supported reverse-proxy configuration with separate rate-limit buckets for authorization starts, callbacks, exchanges, normal password login, and recovery password login. Update the supported container deployment example so public traffic reaches Sambee through that boundary rather than exposing the application port directly. Existing deployments using another proxy must reproduce or strengthen the documented limits before enabling OIDC.
 
-Define the default limits, burst behavior, keying, cleanup, multi-process behavior, and trusted-proxy semantics in the implementation review. Return the stable `oidc_rate_limited` response for OIDC endpoints and an equally generic password-login failure without leaking account existence.
+Define the supported proxy, default limits, burst behavior, keying, forwarding-header trust boundary, and response behavior in the implementation review. The proxy must return the approved stable `oidc_rate_limited` response for OIDC endpoints and an equally generic password-login `429` without leaking account existence. Optional application-level limits may provide defense in depth, but they do not replace the required deployment-layer enforcement and must not use an unbounded custom request map.
 
-**Exit check:** deterministic tests independently exhaust each bucket, receive `429` without affecting other buckets, verify cleanup and bounded storage, verify direct and trusted-proxy address handling, and exercise the standard container without an external proxy.
+**Exit check:** deployment tests start the supported proxy configuration, independently exhaust each bucket, receive the approved `429` response without affecting other buckets, verify forwarding-header spoofing cannot select another rate-limit key, and prove the documented public application path cannot bypass the proxy to reach the backend.
 
 ### Gate R8: target provider confirmation
 
@@ -232,6 +233,7 @@ flowchart TD
     P06 --> P08[PR 08: callback and tested-identity preview]
     P01 --> P08
     P07 --> P07A[PR 07A: mapping and user-auth admin APIs]
+    P05 --> P07A
     P07 --> P09[PR 09: dormant finalization engine]
     P08 --> P09
     P05 --> P09
@@ -475,7 +477,7 @@ PR numbers describe dependency order, not necessarily merge order. Parallel work
 
 ### PR 07A: administrator mapping and user-authentication APIs
 
-**Depends on:** PR 07.
+**Depends on:** PR 05 and PR 07.
 
 **Goal:** expose the complete administrator-owned mapping surface and the redacted user authentication state required by frontend user management.
 
@@ -491,13 +493,13 @@ PR numbers describe dependency order, not necessarily merge order. Parallel work
 
 - Add the unified individual/batch pending-mapping endpoint, pending cancellation, immutable identity move, mapped-account change, and detach endpoints from the specification.
 - Require the specified administrator capability, confirmations, expected state/revisions, stable row-keyed errors, and transactional audit behavior.
-- Extend the administrator user read model with redacted authentication methods, provider display name, last successful OIDC login, and pending-mapping state. Expose an internal identity ID only in the administrator operation model that needs it; never expose a raw subject or subject hash.
+- Extend the administrator user read model with `has_local_password`, pending-mapping state, and a nullable nested OIDC object containing the opaque internal `identity_id`, provider display name, and last successful OIDC login. This administrator-only object is the read source for `POST /api/admin/auth/oidc/mappings/{identity_id}/move`; never expose issuer, subject, or a subject hash.
 - Keep authentication fields absent from ordinary current-user responses unless required by the specification.
 - Map database uniqueness failures and concurrent state changes to stable conflict errors after rolling back the complete operation.
 
 **Security invariants:** no self-service route exists; all operations compose PR 07 services in one caller-owned transaction; changing a mapping cannot expose a detached-without-pending intermediate state; removing or moving the last viable OIDC administrator is rejected.
 
-**Acceptance:** every mapping API has capability, redaction, stale-state, concurrency, audit-failure, rollback, and last-administrator integration coverage; administrator user-list tests cover Local password, OIDC, both, and pending states.
+**Acceptance:** every mapping API has capability, redaction, stale-state, concurrency, audit-failure, rollback, and last-administrator integration coverage; administrator user-list tests cover Local password, OIDC, both, and pending states; a contract test obtains `identity_id` from the administrator user response and successfully invokes the move endpoint without any raw provider identifier.
 
 ### PR 08: callback validation and tested-identity preview
 
@@ -619,7 +621,8 @@ PR numbers describe dependency order, not necessarily merge order. Parallel work
 - `backend/app/api/oidc_auth.py`
 - `backend/app/services/oidc_flow.py`
 - `backend/app/core/security.py`
-- `backend/requirements.txt` and generated lock files when the selected limiter adds a dependency
+- supported reverse-proxy configuration and container deployment example
+- backend requirements and generated lock files only when an optional application-level limiter adds a dependency
 - focused API and integration tests
 
 **Work:**
@@ -629,10 +632,10 @@ PR numbers describe dependency order, not necessarily merge order. Parallel work
 - Atomically consume a valid grant and recheck user activity, expiry, token version, and configuration revision.
 - Issue a 60-minute OIDC-authenticated Sambee JWT through the existing token path.
 - Add `Referrer-Policy: no-referrer` and safe cache headers to callback responses.
-- Document the application rate-limit boundary and the optional stricter deployment-edge limits.
-- Add application-enforced, separately keyed rate limits for authorization starts, callbacks, exchanges, normal password login, and recovery password login according to Gate R7. Use a maintained limiter added through the backend dependency workflow, bounded storage, and explicit trusted-proxy handling.
+- Implement and document the supported reverse-proxy rate-limit boundary from Gate R7, including separate buckets, trusted forwarding semantics, stable responses, and optional stricter operator limits.
+- Prevent the supported deployment path from bypassing the proxy and reaching the backend directly. An optional maintained application limiter may add defense in depth through the backend dependency workflow but cannot substitute for the proxy tests.
 
-**Acceptance:** grant replay/expiry, stale configuration, return-path, password lifetime, WebSocket, companion-dependent session regression, and Gate R7 rate-limit tests pass. The standard directly exposed container returns `429` after the configured threshold without an external proxy.
+**Acceptance:** grant replay/expiry, stale configuration, return-path, password lifetime, WebSocket, companion-dependent session regression, and Gate R7 deployment tests pass. The supported public container path returns the approved `429` through the proxy, and the backend is not publicly reachable through a bypass port in that deployment.
 
 ### PR 13: frontend authentication foundation
 
@@ -736,7 +739,7 @@ PR numbers describe dependency order, not necessarily merge order. Parallel work
 
 **Work:**
 
-- Verify and link closure evidence for Gates R1-R7, including the production-container CLI and current-database migration rehearsal.
+- Verify and link closure evidence for Gates R1-R7, including the audit export, production-container CLI, supported proxy rate limits, and current-database migration rehearsal.
 - Register the sole provider-finalization route implemented in PR 09.
 - Register and expose the administrator Authentication settings route/navigation implemented in PR 14.
 - Confirm the public authorize/callback/exchange routes, mode-aware frontend login, mapping administration, and recovery command are present in the same deployable artifact.
@@ -768,7 +771,7 @@ PR numbers describe dependency order, not necessarily merge order. Parallel work
 - Add the complete supported Authelia example and validate it against the selected version.
 - Run the full specification E2E matrix, migration rehearsal, dependency checks, frontend checks, backend tests/type check, repository script, and a focused security review.
 - Verify deployment-layer rate-limit examples for authorization, callback, exchange, and password login.
-- Document application-enforced default rate limits, trusted-proxy configuration, and optional stricter edge limits.
+- Document the supported proxy's default authentication limits, forwarding-header trust boundary, non-bypass deployment, and optional stricter operator limits.
 
 **Acceptance:** all specification acceptance criteria pass; no unresolved high-severity protocol, SSRF, replay, mapping, privilege, lockout, or secret-handling finding remains.
 
@@ -839,7 +842,7 @@ Schema, services, and routes may ship before UI only when no provider row exists
 | After PR 09 | Activation, replacement, stale review, audit rollback, revision, and idempotent retry integration suites. |
 | After PR 12 | Full backend auth suite using deterministic fake provider, including WebSocket and companion-dependent session behavior. |
 | After PR 15 | Full frontend unit/integration suite and all auth/settings accessibility checks. |
-| Before PR 16 | Gates R1-R7, current-database migration rehearsal, production-container CLI, direct-container rate limiting, and dormant-route assertions. |
+| Before PR 16 | Gates R1-R7, current-database migration rehearsal, production-container CLI and audit export, supported proxy rate limiting, and dormant-route assertions. |
 | Before release | Backend tests and mypy, frontend tests/type/lint, E2E matrix, migration rehearsal, repository-wide `scripts/test`, docs validation, Authelia rehearsal, and security review. |
 
 Tests must not call a public IdP. The final supported-provider rehearsal may use a controlled local/containerized Authelia instance.
@@ -853,7 +856,7 @@ Tests must not call a public IdP. The final supported-provider rehearsal may use
 | PR 04 | Deployment variables, key generation, backup, trust-store, and health behavior. |
 | PR 05 | Database-owned mode precedence and Password-only transition semantics. |
 | PR 06-09 | Setup, test, mapping-plan, activation, replacement, errors, and audit behavior. |
-| PR 10 | Emergency mode and stopped-application encryption-key rotation runbooks. |
+| PR 10 | Emergency mode, audit export, and stopped-application encryption-key rotation runbooks. |
 | PR 11-12 | Login, recovery, session lifetime, provisioning, admission, role synchronization, and logout. |
 | PR 14-15 | Field-level UI reference and administrator mapping workflows. |
 | PR 16 | Activation cutover notes and verified recovery/migration evidence. |
@@ -918,7 +921,7 @@ The matrix maps normative specification sections to the implementation issue tha
 - [ ] Activation and replacement rollback, stale-review, and idempotent-retry tests pass.
 - [ ] Last-administrator and Password-only recovery paths are tested in UI and CLI.
 - [ ] The documented CLI runs in the production container.
-- [ ] Application-enforced rate limits return stable `429` responses in the directly exposed standard container.
+- [ ] The supported deployment proxy enforces separate authentication limits, returns approved stable `429` responses, and cannot be bypassed through a publicly exposed backend port.
 - [ ] The version-pinned Authelia setup works from the published instructions.
 - [ ] Backend tests and mypy pass.
 - [ ] Frontend tests, type check, and lint pass.
