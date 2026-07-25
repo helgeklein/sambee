@@ -1,3 +1,4 @@
+import type { ViewUpdate } from "@codemirror/view";
 import { act, configure, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { forwardRef, useEffect, useImperativeHandle, useRef, useState } from "react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
@@ -22,6 +23,7 @@ const mockMarkdownEditorBehavior = {
   changeBeforeUserEdit: false,
   delayFocus: false,
   emitNonEditableInputBeforeInitialChange: false,
+  emitUnannotatedDocChangeBeforeInitialChange: false,
   focusEditableBeforeInitialChange: false,
   focusCurrentSearchResultCalls: 0,
   focusResetsScrollPosition: false,
@@ -159,10 +161,14 @@ const MockMarkdownRichEditor = forwardRef<
         toolbarButtonRef.current.dispatchEvent(new InputEvent("input", { bubbles: true }));
       }
 
+      if (mockMarkdownEditorBehavior.emitUnannotatedDocChangeBeforeInitialChange) {
+        onUserEdit?.({ transactions: [{ isUserEvent: () => false }] } as unknown as ViewUpdate);
+      }
+
       if (mockMarkdownEditorBehavior.initialNormalizedMarkdown !== null) {
         onChange(mockMarkdownEditorBehavior.initialNormalizedMarkdown);
       }
-    }, [onChange]);
+    }, [onChange, onUserEdit]);
 
     useEffect(() => {
       latestMarkdownRef.current = markdown;
@@ -426,6 +432,7 @@ describe("MarkdownViewer", () => {
     mockMarkdownEditorBehavior.canonicalMarkdownOverride = null;
     mockMarkdownEditorBehavior.delayFocus = false;
     mockMarkdownEditorBehavior.emitNonEditableInputBeforeInitialChange = false;
+    mockMarkdownEditorBehavior.emitUnannotatedDocChangeBeforeInitialChange = false;
     mockMarkdownEditorBehavior.focusEditableBeforeInitialChange = false;
     mockMarkdownEditorBehavior.focusCurrentSearchResultCalls = 0;
     mockMarkdownEditorBehavior.focusResetsScrollPosition = false;
@@ -1362,6 +1369,35 @@ describe("MarkdownViewer", () => {
     await waitFor(() => {
       expect(screen.queryByLabelText("Unsaved changes")).not.toBeInTheDocument();
     });
+  });
+
+  it("treats an unannotated mount-time document change as initial baseline synchronization", async () => {
+    vi.spyOn(apiService, "getFileContent").mockResolvedValueOnce("# Readme\n");
+    vi.spyOn(apiService, "supportsEditLocks").mockReturnValue(true);
+    vi.spyOn(apiService, "releaseEditLock").mockResolvedValue();
+    vi.spyOn(apiService, "acquireEditLock").mockResolvedValueOnce({
+      lock_id: "lock-1",
+      file_path: "/docs/readme.md",
+      locked_by: "alice",
+      locked_at: "2026-03-23T12:00:00Z",
+    });
+    mockMarkdownEditorBehavior.emitUnannotatedDocChangeBeforeInitialChange = true;
+    mockMarkdownEditorBehavior.initialNormalizedMarkdown = "# Readme\n\n";
+
+    renderViewer();
+
+    await screen.findByText("Readme");
+    fireEvent.click(screen.getByRole("button", { name: "Edit" }));
+
+    const editor = await screen.findByRole("textbox", { name: "Markdown editor" });
+
+    await waitFor(() => {
+      expect(screen.queryByLabelText("Unsaved changes")).not.toBeInTheDocument();
+    });
+
+    fireEvent.change(editor, { target: { value: "# Readme\n\nUpdated\n" } });
+
+    expect(await screen.findByLabelText("Unsaved changes")).toBeInTheDocument();
   });
 
   it("does not mark the document dirty when autofocus happens before the initial editor normalization change", async () => {

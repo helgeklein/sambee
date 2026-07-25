@@ -117,7 +117,7 @@ export const SourceTextEditor = forwardRef<SourceTextEditorHandle, SourceTextEdi
           return;
         }
 
-        onUserEditRef.current?.();
+        onUserEditRef.current?.(viewUpdate);
         onChangeRef.current(viewUpdate.state.doc.toString(), viewUpdate);
       });
 
