@@ -103,6 +103,7 @@ Define named constants in the adapter, with tests at every boundary. Initial val
 | JWKS response limit | 1 MiB |
 | Token response limit | 256 KiB |
 | UserInfo response limit | 256 KiB |
+| Password form body limit | 64 KiB |
 | Concurrent OIDC outbound requests per process | 4 |
 | Discovery/JWKS cache maximum age | 1 hour, further bounded by valid HTTP cache directives |
 | ID-token clock skew | 60 seconds |
@@ -209,15 +210,17 @@ Use centrally defined limits and window constants:
 - exchanges: 30 requests per source IP per 5 minutes
 - password endpoint: 10 attempts per source IP per 5 minutes and 10 attempts per normalized username per 15 minutes
 
-The supported single-process deployment may use bounded in-memory TTL/LRU maps with separate capacities of 10,000 source-IP keys and 10,000 username keys. Remove expired entries first and then evict the least-recently-used entry when a map is full; capacity is handled only through eviction, never blanket rejection of unseen keys. A username under active attack remains recently used, while cardinality flooding cannot create an unbounded map or a global fail-closed login outage. A process restart may clear these baseline buckets. Document that a shared limiter is required before supporting multiple application instances.
+Use token buckets with capacity equal to each stated request count and continuous refill across its stated duration. A rejected request does not consume a token. Calculate `Retry-After` as the ceiling of the monotonic-clock duration until one token is available. For each request, refill, allow/reject, token consumption, last-used update, and `Retry-After` calculation occur atomically under one process-local lock or an equivalent primitive; never hold that lock across an `await` or any I/O.
 
-Define `SAMBEE_TRUSTED_PROXY_CIDRS` as an optional environment variable containing a comma-separated list of validated IP addresses or CIDR ranges. Its default is empty. Keep framework-level proxy-header rewriting disabled so the limiter can observe the direct peer. When the direct peer is not trusted, ignore forwarding headers. When it is trusted, parse `X-Forwarded-For` strictly from right to left, skip addresses covered by the configured trusted ranges, and use the first untrusted address. Fall back to the direct peer when the chain is malformed or contains no untrusted address. Support IPv4 and IPv6 without accepting hostnames or partial addresses.
+The supported single-process deployment may use bounded in-memory TTL/LRU maps with separate capacities of 10,000 source-IP keys and 10,000 username keys. Remove fully refilled inactive entries first and then evict the least-recently-used entry when a map is full; capacity is handled only through eviction, never blanket rejection of unseen keys. A username under active attack remains recently used, while cardinality flooding cannot create an unbounded map or a global fail-closed login outage. A process restart may clear these baseline buckets. Document that a shared limiter with equivalent atomic semantics is required before supporting multiple application instances.
 
-For the password username bucket, trim surrounding whitespace while preserving case and Unicode code points, matching stored-username normalization without changing the exact password lookup. Enforce a named 256-code-point limiter-input maximum: every longer submitted value uses one fixed overlength bucket key and continues through the generic invalid-credentials path. Hash normalized limiter keys with SHA-256 before storage so the map never retains submitted usernames.
+Define `SAMBEE_TRUSTED_PROXY_CIDRS` as an optional environment variable containing a comma-separated list of validated IP addresses or CIDR ranges. Its default is empty. Every repository-maintained Uvicorn launch path, including production and development commands, must pass `--no-proxy-headers` so the limiter observes the socket peer and Sambee remains the sole forwarding-header authority. When the direct peer is not trusted, ignore forwarding headers. When it is trusted, parse `X-Forwarded-For` strictly from right to left, skip addresses covered by the configured trusted ranges, and use the first untrusted address. Fall back to the direct peer when the chain is malformed or contains no untrusted address. Support IPv4 and IPv6 without accepting hostnames or partial addresses.
+
+For the password username bucket, trim surrounding whitespace while preserving case and Unicode code points, matching stored-username normalization without changing the exact password lookup. Hash the complete normalized UTF-8 value with SHA-256 before storage so the map retains a fixed-size key and never stores submitted usernames. Enforce the named 64 KiB password-form body limit before form parsing and return a generic `413` without reading credentials into application models; do not merge long usernames into a shared limiter key.
 
 Authorization and callback are top-level browser navigations and return `303 See Other` exactly to `/login#error=oidc_rate_limited` when throttled. Exchange returns the canonical JSON `429` contract for `oidc_rate_limited`; the shared password endpoint returns a generic JSON `429`. Both API responses include `Retry-After`. Navigation throttling must never reflect a return path, provider parameter, query value, header, or request body. The frontend removes the allowlisted fragment from browser history before rendering its local translated message. Optional reverse-proxy limits are defense in depth and may strengthen, but must not replace or weaken, these defaults.
 
-**Exit check:** backend tests independently exhaust every endpoint bucket and both password keys without affecting unrelated buckets; prove expiry, 10,000-entry capacity, expired-first cleanup, LRU eviction, overlength-key handling, fixed-size hashed username keys, and restart semantics; and verify malformed or spoofed forwarding headers cannot select another key. Trusted-proxy tests cover empty configuration, invalid CIDRs, IPv4, IPv6, and multiple trusted hops. API tests cover Password-only as well as OIDC recovery and verify `Retry-After`, the canonical exchange response, and the generic password response without account, mode, or recovery-intent disclosure. Browser tests verify fixed authorization/callback redirects contain only the allowlisted fragment, immediately remove it from history, render the local safe message, and never reflect request data.
+**Exit check:** deterministic-monotonic-clock and simultaneous-request tests cover exact token capacity, continuous refill boundaries, rejected-request behavior, atomic check-and-consume, and `Retry-After`. Backend tests independently exhaust every endpoint bucket and both password keys without affecting unrelated buckets; prove 10,000-entry capacity, fully-refilled cleanup, LRU eviction, complete long-username hashing, fixed-size stored keys, exact-size and one-byte-over password-form handling, and restart semantics; and verify malformed or spoofed forwarding headers cannot select another key. Trusted-proxy tests cover empty configuration, invalid CIDRs, IPv4, IPv6, multiple trusted hops, and an integration assertion that forwarding headers never rewrite the ASGI socket peer before Sambee evaluates trust. API tests cover Password-only as well as OIDC recovery and verify the canonical exchange response and generic password response without account, mode, or recovery-intent disclosure. Browser tests verify fixed authorization/callback redirects contain only the allowlisted fragment, immediately remove it from history, render the local safe message, and never reflect request data.
 
 ### Gate R8: target provider confirmation
 
@@ -634,10 +637,11 @@ PR numbers describe dependency order, not necessarily merge order. Parallel work
 **Primary files:**
 
 - `backend/app/api/oidc_auth.py`
+- `backend/app/api/auth.py`
 - `backend/app/services/oidc_flow.py`
 - `backend/app/core/security.py`
 - `backend/app/core/config.py`
-- `Dockerfile` and development launch scripts when required to keep framework-level proxy-header rewriting disabled
+- `Dockerfile` and every repository-maintained Uvicorn development launch script
 - `config.example.toml` only for a comment directing operators to the environment-owned trusted-proxy setting
 - backend requirements and generated lock files only when the application limiter adds a dependency
 - focused API and integration tests
@@ -650,11 +654,13 @@ PR numbers describe dependency order, not necessarily merge order. Parallel work
 - Issue a 60-minute OIDC-authenticated Sambee JWT through the existing token path.
 - Add `Referrer-Policy: no-referrer` and safe cache headers to callback responses.
 - Implement the bounded application limiter from Gate R7, including four independent endpoint buckets, both password keys, expiry and capacity behavior, trusted-proxy semantics, and endpoint-specific navigation/API responses.
-- Load and validate `SAMBEE_TRUSTED_PROXY_CIDRS`, retain direct-peer visibility at the ASGI boundary, and implement the strict right-to-left forwarding-chain algorithm from Gate R7.
-- Add the trim-only, case-preserving, fixed-size hashed username key without changing the exact username used by password authentication.
+- Implement atomic token-bucket refill/check/consume and deterministic `Retry-After` behavior using a monotonic clock and a process-local synchronization primitive.
+- Load and validate `SAMBEE_TRUSTED_PROXY_CIDRS`, add `--no-proxy-headers` to every repository-maintained Uvicorn command, retain socket-peer visibility at the ASGI boundary, and implement the strict right-to-left forwarding-chain algorithm from Gate R7.
+- Enforce the 64 KiB password-form body limit at the ASGI boundary before form parsing; accept the exact limit, reject one byte over with a generic `413`, and do not log or reflect body content.
+- Replace the password handler's direct `OAuth2PasswordRequestForm` dependency with one cached dependency that parses the form exactly once, checks the IP and complete hashed username token buckets after parsing but before credential lookup, and returns the unchanged form. The exact untrimmed submitted username continues to control database lookup.
 - Document optional reverse-proxy limits as defense in depth without making a proxy mandatory or trusting its forwarding headers by default.
 
-**Acceptance:** grant replay/expiry, stale configuration, return-path, password lifetime, WebSocket, companion-dependent session regression, Password-only rate-limit regression, and Gate R7 backend/browser tests pass. Fixed safe navigation redirects and canonical API `429` responses follow the normative transport contract, buckets remain independent and bounded, trusted-proxy behavior is configuration-driven and spoof resistant, and the production application returns `404` for test-login, authorization, callback, and exchange.
+**Acceptance:** grant replay/expiry, stale configuration, return-path, password lifetime, WebSocket, companion-dependent session regression, Password-only rate-limit regression, and Gate R7 backend/browser tests pass. A contract test proves the password form is parsed once, both password buckets are checked before credential lookup, and lookup receives the unchanged username. Fixed safe navigation redirects and canonical API `429` responses follow the normative transport contract, buckets remain independent, bounded, and atomic, trusted-proxy behavior is configuration-driven and spoof resistant, every maintained Uvicorn command disables framework proxy-header rewriting, and the production application returns `404` for test-login, authorization, callback, and exchange.
 
 ### PR 13: frontend authentication foundation
 
