@@ -12,7 +12,7 @@ This plan translates the normative specification into readiness gates and review
 
 ## Delivery Principles
 
-- Preserve current `password` and deployment-level `none` behavior until an administrator completes tested OIDC activation.
+- Preserve current `password` and deployment-level `none` authentication semantics until an administrator completes tested OIDC activation. The application-enforced password rate limit introduced by PR 12 is an approved security hardening for every mode, including existing Password-only deployments, rather than an OIDC activation behavior.
 - Keep every intermediate pull request deployable with OIDC dormant or unavailable.
 - Keep protocol, outbound HTTP, configuration, identity, and API concerns behind typed boundaries.
 - Use the same Sambee JWT and authorization path after either password or OIDC authentication.
@@ -209,11 +209,15 @@ Use centrally defined limits and window constants:
 - exchanges: 30 requests per source IP per 5 minutes
 - password endpoint: 10 attempts per source IP per 5 minutes and 10 attempts per normalized username per 15 minutes
 
-The supported single-process deployment may use a bounded in-memory limiter. Expire inactive entries, impose a tested hard cap on tracked keys, and fail closed for new keys when that cap is reached so attacker-controlled source addresses or usernames cannot cause unbounded memory growth. A process restart may clear these baseline buckets. Document that a shared limiter is required before supporting multiple application instances.
+The supported single-process deployment may use bounded in-memory TTL/LRU maps with separate capacities of 10,000 source-IP keys and 10,000 username keys. Remove expired entries first and then evict the least-recently-used entry when a map is full; capacity is handled only through eviction, never blanket rejection of unseen keys. A username under active attack remains recently used, while cardinality flooding cannot create an unbounded map or a global fail-closed login outage. A process restart may clear these baseline buckets. Document that a shared limiter is required before supporting multiple application instances.
 
-Use the direct peer address unless an explicit trusted-proxy configuration identifies the connecting proxy. Ignore client-supplied forwarding headers from every other peer. Authorization and callback are top-level browser navigations and return `303 See Other` exactly to `/login#error=oidc_rate_limited` when throttled. Exchange returns the canonical JSON `429` contract for `oidc_rate_limited`; the shared password endpoint returns a generic JSON `429`. Both API responses include `Retry-After`. Navigation throttling must never reflect a return path, provider parameter, query value, header, or request body. The frontend removes the allowlisted fragment from browser history before rendering its local translated message. Optional reverse-proxy limits are defense in depth and may strengthen, but must not replace or weaken, these defaults.
+Define `SAMBEE_TRUSTED_PROXY_CIDRS` as an optional environment variable containing a comma-separated list of validated IP addresses or CIDR ranges. Its default is empty. Keep framework-level proxy-header rewriting disabled so the limiter can observe the direct peer. When the direct peer is not trusted, ignore forwarding headers. When it is trusted, parse `X-Forwarded-For` strictly from right to left, skip addresses covered by the configured trusted ranges, and use the first untrusted address. Fall back to the direct peer when the chain is malformed or contains no untrusted address. Support IPv4 and IPv6 without accepting hostnames or partial addresses.
 
-**Exit check:** backend tests independently exhaust every endpoint bucket and both password keys without affecting unrelated buckets, prove bounded-memory and expiry behavior, cover restart semantics, and verify forwarding-header spoofing cannot select another key. Browser tests verify fixed authorization/callback redirects contain only the allowlisted fragment, immediately remove it from history, render the local safe message, and never reflect request data. API tests verify `Retry-After`, the canonical exchange response, and the generic password response without account, mode, or recovery-intent disclosure.
+For the password username bucket, trim surrounding whitespace while preserving case and Unicode code points, matching stored-username normalization without changing the exact password lookup. Enforce a named 256-code-point limiter-input maximum: every longer submitted value uses one fixed overlength bucket key and continues through the generic invalid-credentials path. Hash normalized limiter keys with SHA-256 before storage so the map never retains submitted usernames.
+
+Authorization and callback are top-level browser navigations and return `303 See Other` exactly to `/login#error=oidc_rate_limited` when throttled. Exchange returns the canonical JSON `429` contract for `oidc_rate_limited`; the shared password endpoint returns a generic JSON `429`. Both API responses include `Retry-After`. Navigation throttling must never reflect a return path, provider parameter, query value, header, or request body. The frontend removes the allowlisted fragment from browser history before rendering its local translated message. Optional reverse-proxy limits are defense in depth and may strengthen, but must not replace or weaken, these defaults.
+
+**Exit check:** backend tests independently exhaust every endpoint bucket and both password keys without affecting unrelated buckets; prove expiry, 10,000-entry capacity, expired-first cleanup, LRU eviction, overlength-key handling, fixed-size hashed username keys, and restart semantics; and verify malformed or spoofed forwarding headers cannot select another key. Trusted-proxy tests cover empty configuration, invalid CIDRs, IPv4, IPv6, and multiple trusted hops. API tests cover Password-only as well as OIDC recovery and verify `Retry-After`, the canonical exchange response, and the generic password response without account, mode, or recovery-intent disclosure. Browser tests verify fixed authorization/callback redirects contain only the allowlisted fragment, immediately remove it from history, render the local safe message, and never reflect request data.
 
 ### Gate R8: target provider confirmation
 
@@ -241,6 +245,7 @@ flowchart TD
     P03 --> P07
     P06 --> P08[PR 08: dormant callback and tested-identity preview]
     P01 --> P08
+    P07 --> P08
     P07 --> P07A[PR 07A: mapping and user-auth admin APIs]
     P05 --> P07A
     P07 --> P09[PR 09: dormant finalization engine]
@@ -512,7 +517,7 @@ PR numbers describe dependency order, not necessarily merge order. Parallel work
 
 ### PR 08: dormant callback validation and tested-identity preview
 
-**Depends on:** PR 01 and PR 06; uses PR 07 for policy evaluation.
+**Depends on:** PR 01, PR 06, and PR 07.
 
 **Goal:** finish purpose-`test` callback processing without registering a publicly reachable callback or changing active authorization.
 
@@ -631,6 +636,9 @@ PR numbers describe dependency order, not necessarily merge order. Parallel work
 - `backend/app/api/oidc_auth.py`
 - `backend/app/services/oidc_flow.py`
 - `backend/app/core/security.py`
+- `backend/app/core/config.py`
+- `Dockerfile` and development launch scripts when required to keep framework-level proxy-header rewriting disabled
+- `config.example.toml` only for a comment directing operators to the environment-owned trusted-proxy setting
 - backend requirements and generated lock files only when the application limiter adds a dependency
 - focused API and integration tests
 
@@ -642,9 +650,11 @@ PR numbers describe dependency order, not necessarily merge order. Parallel work
 - Issue a 60-minute OIDC-authenticated Sambee JWT through the existing token path.
 - Add `Referrer-Policy: no-referrer` and safe cache headers to callback responses.
 - Implement the bounded application limiter from Gate R7, including four independent endpoint buckets, both password keys, expiry and capacity behavior, trusted-proxy semantics, and endpoint-specific navigation/API responses.
+- Load and validate `SAMBEE_TRUSTED_PROXY_CIDRS`, retain direct-peer visibility at the ASGI boundary, and implement the strict right-to-left forwarding-chain algorithm from Gate R7.
+- Add the trim-only, case-preserving, fixed-size hashed username key without changing the exact username used by password authentication.
 - Document optional reverse-proxy limits as defense in depth without making a proxy mandatory or trusting its forwarding headers by default.
 
-**Acceptance:** grant replay/expiry, stale configuration, return-path, password lifetime, WebSocket, companion-dependent session regression, and Gate R7 backend/browser tests pass. Fixed safe navigation redirects and canonical API `429` responses follow the normative transport contract, buckets remain independent and bounded, and the production application returns `404` for test-login, authorization, callback, and exchange.
+**Acceptance:** grant replay/expiry, stale configuration, return-path, password lifetime, WebSocket, companion-dependent session regression, Password-only rate-limit regression, and Gate R7 backend/browser tests pass. Fixed safe navigation redirects and canonical API `429` responses follow the normative transport contract, buckets remain independent and bounded, trusted-proxy behavior is configuration-driven and spoof resistant, and the production application returns `404` for test-login, authorization, callback, and exchange.
 
 ### PR 13: frontend authentication foundation
 
