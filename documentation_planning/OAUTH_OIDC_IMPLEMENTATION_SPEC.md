@@ -74,40 +74,42 @@ OIDC should establish or resolve a local `User`, then issue the same Sambee JWT 
 
 ### Administrator configuration
 
-Add **Settings > Administration > Authentication**. The page contains:
+Add **Settings > Administration > Authentication** as a guided setup flow:
 
-1. **Sign-in methods**
-   - OIDC enabled toggle
-   - Local password login enabled toggle
-   - warning when a change could remove the current administrator's login path
+1. **Prerequisites**
+   - show whether `SAMBEE_OIDC_SECRET_KEY` is configured without exposing it
+   - show the exact redirect URI with a copy button
+   - block provider setup with an actionable message when the external key or public/base URL is missing
 2. **Provider**
-   - display name
    - issuer URL
    - client ID
    - client secret with `Set new secret`/`Replace secret` behavior
-   - scopes, defaulting to `openid profile email groups`
-3. **Identity claims**
-   - username claim
-   - display-name claim
-   - email claim
-   - groups claim
-4. **Provisioning**
+   - optional display name, defaulted from the issuer hostname
+3. **Connect and test**
+   - stage the values in a short-lived, encrypted test flow without changing the active configuration
+   - run metadata and JWKS validation
+   - continue directly into interactive test sign-in when those checks pass
+   - show the resolved username, name, email, and groups from the test identity, never the raw token or complete claims document
+4. **Access**
    - auto-provision users toggle
-   - default role for a provisioned user with no matching group
-5. **Role mapping**
-   - zero or more exact group names for `admin`, `editor`, and `viewer`
-   - role mappings synchronize on every OIDC login when at least one mapping is configured
-6. **Actions**
-   - **Validate configuration**
-   - **Save**
+   - administrator and editor group mappings populated with selectable groups observed during test sign-in
+   - manual group entry for groups the testing administrator does not belong to
+   - fixed `viewer` fallback for every user who matches neither privileged mapping
+5. **Activate**
+   - choose exactly one sign-in mode: **Password only**, **OIDC with local recovery**, or **OIDC only**
+   - summarize the resulting login and provisioning behavior before confirmation
+   - warn when activation invalidates active sessions or changes the current administrator's login path
+   - require the tested identity to resolve to `admin` under the proposed mappings before enabling **OIDC only**
+
+Standard scopes and claims are not shown in the primary flow. An **Advanced** section contains scopes, defaulting to `openid profile email groups`, and claim-name overrides defaulting to `preferred_username`, `name`, `email`, and `groups`. Each override has a reset-to-default action. The interactive test validates these choices before activation.
 
 The client secret is write-only. A read response exposes only `client_secret_configured: true|false`. Leaving the replacement field empty preserves the existing secret.
 
 ### Login
 
-- If OIDC is enabled, show **Sign in with {provider display name}**.
-- If password login is enabled, retain the username/password form.
-- If only OIDC is enabled, make the OIDC action primary and do not render password fields.
+- In **Password only** mode, show the username/password form.
+- In **OIDC with local recovery** mode, show **Sign in with {provider display name}** as the primary action; local password login remains at the separate recovery URL.
+- In **OIDC only** mode, show only **Sign in with {provider display name}**.
 - If auth mode is `none`, retain the current direct redirect behavior.
 - Authentication errors return to the login page with a stable error code and a user-safe message. Provider responses, tokens, claim values, and secrets must not be placed in the URL or rendered verbatim.
 
@@ -128,26 +130,26 @@ Password recovery uses a separate, documented recovery URL rather than adding vi
 1. Confirm OIDC is enabled and has a complete saved configuration.
 2. Allow only relative, application-owned `return_to` paths; otherwise use `/browse`.
 3. Generate cryptographically random `state`, `nonce`, and PKCE verifier values.
-4. Persist a short-lived, one-time `OidcAuthorizationTransaction`:
+4. Persist a short-lived, one-time `OidcFlow` with status `started`:
    - hash of `state`
    - encrypted PKCE verifier
    - encrypted nonce, or a hash if the selected OIDC library can validate from the original safely
    - flow purpose: `login`, `link`, or `test`
    - initiating local user ID for `link` and initiating admin ID for `test`
-   - authentication-configuration version
+   - provider configuration revision
    - sanitized return path
    - creation and expiry timestamps
 5. Build the provider authorization URL from discovered metadata using `response_type=code`, `scope`, `state`, `nonce`, `code_challenge`, and `code_challenge_method=S256`.
 6. Return an HTTP redirect to the provider.
 
-Transactions expire after five minutes, are consumed atomically, and are deleted after success or terminal failure. A periodic or opportunistic cleanup removes expired rows.
+Started flows expire after five minutes, transition atomically, and are deleted after terminal failure or consumption. A periodic or opportunistic cleanup removes expired rows.
 
 ### Callback
 
 `GET /api/auth/oidc/callback?code=...&state=...`
 
 1. Reject missing, malformed, expired, already-consumed, or unknown state.
-2. Atomically consume the transaction before exchanging the code.
+2. Atomically transition the flow from `started` to `callback_processing` before exchanging the code so no second callback can process it. A terminal callback failure transitions it to `consumed`.
 3. Reject provider error responses with a generic user-facing error and a specific server log event.
 4. Exchange the authorization code using the client credentials and PKCE verifier.
 5. Validate the ID token using the OIDC library:
@@ -158,9 +160,8 @@ Transactions expire after five minutes, are consumed atomically, and are deleted
    - transaction nonce
    - required `sub` claim
 6. Use ID-token claims by default. Call UserInfo only when a configured required claim is absent and the provider advertises a UserInfo endpoint. If UserInfo is called, require its `sub` claim to exactly equal the validated ID-token `sub`; otherwise fail the login.
-7. Resolve the local user and role as described below.
-8. Reject inactive or expired local users.
-9. Create a random, single-use `OidcLoginGrant`, store only its hash, and redirect to a frontend callback route with the plaintext grant in the URL fragment. Do not issue a Sambee JWT in the callback.
+7. Complete the callback according to the flow purpose. A `login` flow resolves the local user and role, rejects inactive or expired users, and continues below. A `link` or `test` flow follows its dedicated completion rules without provisioning a user or changing authorization.
+8. For `login`, generate a random, single-use login grant, store only its hash on the flow, transition the flow to `callback_validated`, and redirect to a frontend callback route with the plaintext grant in the URL fragment. Do not issue a Sambee JWT in the callback.
 
 Example redirect:
 
@@ -168,9 +169,15 @@ Example redirect:
 /login/oidc/callback#grant=<single-use-random-value>
 ```
 
-The fragment avoids normal server and proxy request logs. The callback page immediately removes it from browser history and exchanges it through `POST /api/auth/oidc/exchange`. The grant expires after 60 seconds and can be used once. The exchange atomically consumes the grant, reloads the local user, rechecks activity, expiry, token version, and authentication-configuration version, and only then issues a Sambee JWT. It returns the same login response shape as password authentication, after which the frontend stores the Sambee JWT through its existing path.
+The fragment avoids normal server and proxy request logs. The callback page immediately removes it from browser history and exchanges it through `POST /api/auth/oidc/exchange`. The grant expires after 60 seconds and can be used once. The exchange atomically transitions the flow to `consumed`, reloads the local user, rechecks activity, expiry, token version, and provider configuration revision, and only then issues a Sambee JWT. It returns the same login response shape as password authentication, after which the frontend stores the Sambee JWT through its existing path.
 
 Do not put the Sambee JWT, provider authorization code, ID token, or access token in the redirect URL.
+
+### Test sign-in completion
+
+A purpose-`test` callback validates the provider response and configured claims but never creates or links a user, changes a role, or issues a Sambee session. It stores only the safe identity preview and tested candidate configuration on the administrator-bound flow, replaces the state hash with a random review-grant hash, transitions to `callback_validated`, and redirects back to the setup flow with the plaintext review grant in the URL fragment.
+
+The frontend removes the fragment from browser history, keeps the review grant only in `sessionStorage` for the current setup tab, and uses an authenticated admin endpoint to retrieve the safe preview. Preview reads require the same initiating administrator but do not consume the flow. **Activate** submits the review grant plus the reviewed sign-in mode, provisioning choice, and privileged group mappings; activation atomically consumes the unexpired flow. Canceling or closing the setup discards the client grant, and the server flow expires after 15 minutes without affecting active authentication.
 
 ### Identity resolution
 
@@ -190,13 +197,13 @@ Email, preferred username, and display name are mutable profile attributes. They
 Linking is a separate authenticated flow and must never be inferred from a normal login:
 
 1. A signed-in local-password user selects **Link OIDC account** and re-enters their current password.
-2. `POST /api/auth/oidc/link/authorize` verifies the password and current user state, then creates a five-minute authorization transaction with purpose `link`, bound to that user ID and the current authentication-configuration version.
+2. `POST /api/auth/oidc/link/authorize` verifies the password and current user state, then creates a five-minute `OidcFlow` with purpose `link`, bound to that user ID and the current provider configuration revision.
 3. The normal OIDC protocol checks run during callback. The callback does not create or move an identity link.
 4. If `(issuer, subject)` is already linked to any user, the flow fails without revealing the other account.
-5. The callback creates a one-time pending-link grant bound to the initiating user and redirects to a confirmation page. The page may show validated display name/email for recognition but never the raw subject.
-6. The user explicitly confirms. The authenticated confirmation endpoint verifies that the current user matches the initiating user, atomically consumes the grant, rechecks the uniqueness constraints and user state, creates the link, increments `token_version`, and returns a replacement Sambee JWT so the user remains signed in.
+5. The callback stores the validated issuer, subject, and minimal display claims on the flow, replaces its state hash with a one-time confirmation-grant hash, transitions it to `callback_validated`, and redirects to a confirmation page. The page may show validated display name/email for recognition but never the raw subject.
+6. The user explicitly confirms. The authenticated confirmation endpoint verifies that the current user matches the initiating user, atomically consumes the flow grant, rechecks the uniqueness constraints and user state, creates the link, increments `token_version`, and returns a replacement Sambee JWT so the user remains signed in.
 
-Canceling, signing out, changing users, expiry, replay, or an authentication-configuration change invalidates the flow. Administrators may unlink an identity with confirmation and an audit event, but cannot enter or reassign a provider subject manually. Self-service linking is included in the first release; admin-initiated linking is not.
+Canceling, signing out, changing users, expiry, replay, or a provider-configuration change invalidates the flow. Administrators may unlink an identity with confirmation and an audit event, but cannot enter or reassign a provider subject manually. Self-service linking is included in the first release; admin-initiated linking is not.
 
 ### Provisioning
 
@@ -237,10 +244,9 @@ For each login:
 1. Compare normalized group values using exact equality.
 2. Collect all matching Sambee roles.
 3. If multiple roles match, select the highest privilege: `admin` > `editor` > `viewer`.
-4. If no role matches during provisioning, assign the configured default role.
-5. If no role matches for an existing user during synchronized login, demote the user to the configured default role.
+4. If no privileged role matches, assign or demote the user to `viewer`.
 
-Store mappings as structured JSON validated by a typed model. Reject empty normalized names and deduplicate normalized group names. Reject the complete configuration if two displayed values normalize to the same group but map to different roles; show the collision in validation before save. Log the resulting role and whether it changed, but do not log the user's full group list.
+Store administrator and editor mappings as structured JSON validated by a typed model. Reject empty normalized names and deduplicate normalized group names. Reject the complete configuration if two displayed values normalize to the same group but map to both privileged roles; show the collision before activation. Log the resulting role and whether it changed, but do not log the user's full group list.
 
 ## Data Model
 
@@ -251,8 +257,7 @@ A singleton table for the first release, with a schema that can later gain a pro
 | Field | Type | Notes |
 | --- | --- | --- |
 | `id` | integer/UUID primary key | singleton enforced by service in v1 |
-| `enabled` | boolean | controls OIDC login availability |
-| `password_login_enabled` | boolean | controls local password login availability |
+| `sign_in_mode` | enum | `password_only`, `oidc_with_recovery`, or `oidc_only` |
 | `display_name` | string | login button label; default `OpenID Connect` |
 | `issuer_url` | string | canonical HTTPS issuer |
 | `client_id` | string | non-secret |
@@ -263,14 +268,14 @@ A singleton table for the first release, with a schema that can later gain a pro
 | `email_claim` | nullable string | proposed default `email` |
 | `groups_claim` | nullable string | proposed default `groups` |
 | `auto_provision` | boolean | default `false` |
-| `default_role` | role enum | proposed default `viewer` |
-| `role_mappings_json` | JSON text | role to exact group-name arrays |
-| `oidc_session_expire_minutes` | integer | fixed default and maximum `60` in v1 |
-| `auth_config_version` | integer | incremented for security-sensitive changes |
+| `role_mappings_json` | JSON text | administrator and editor group-name arrays |
+| `configuration_revision` | integer | invalidates in-progress flows after security-sensitive changes |
 | `created_at`, `updated_at` | timestamp | UTC |
 | `updated_by_user_id` | nullable user FK | audit attribution |
 
-Configuration updates are all-or-nothing. The service validates and encrypts a candidate model before committing it. Updating non-secret fields without a new client secret preserves the encrypted value. A missing client secret is valid only while saving a disabled draft; validation, interactive test sign-in, and OIDC activation require a configured secret.
+Active configuration updates are all-or-nothing. The service validates and encrypts a candidate model before committing it. Updating non-secret fields without a new client secret preserves the encrypted value. A missing client secret is valid only in **Password only** mode; validation, interactive test sign-in, and either OIDC mode require a configured secret.
+
+**Connect and test** does not overwrite a working active configuration. It stores the encrypted candidate configuration on a purpose-`test` `OidcFlow`, validates it, and uses that snapshot for interactive sign-in. A successful test extends the flow just long enough for the administrator to review and activate it. Activation atomically promotes the tested snapshot to the singleton active configuration; abandoned test flows expire without affecting current login behavior.
 
 The decrypted secret must exist only for the outbound token request and validation request. Redaction applies to models, logs, exception strings, and diagnostics.
 
@@ -300,13 +305,25 @@ Constraints:
 - unique `(user_id, issuer)` so a user has at most one identity for a provider
 - delete behavior must be explicit; deleting a user should delete its identity links in the same service transaction
 
-### Ephemeral records
+### `OidcFlow`
 
-Use database-backed records so login works correctly with multiple backend workers and restarts:
+Use one database-backed flow table so login, linking, and test sign-in work correctly with multiple backend workers and restarts:
 
-- `OidcAuthorizationTransaction`: state hash, encrypted verifier/nonce material, purpose, initiating user/admin ID where applicable, auth-configuration version, return path, expiry, consumed timestamp
-- `OidcLoginGrant`: grant hash, user ID, token version, auth-configuration version, return path, expiry, consumed timestamp
-- `OidcPendingLinkGrant`: grant hash, initiating user ID, issuer, subject, minimal display claims, auth-configuration version, expiry, consumed timestamp
+| Field | Purpose |
+| --- | --- |
+| `id` | internal UUID |
+| `purpose` | `login`, `link`, or `test` |
+| `status` | `started`, `callback_processing`, `callback_validated`, or `consumed` |
+| `state_hash`, `grant_hash` | one-time browser correlation values; only the value needed by the current state is populated |
+| `encrypted_verifier`, `encrypted_nonce` | transient OIDC protocol material |
+| `initiating_user_id` | local user/admin binding for link and test flows |
+| `user_id`, `user_token_version` | resolved login identity and revocation snapshot |
+| `issuer`, `subject`, `display_claims_json` | minimal validated identity data needed for link confirmation |
+| `encrypted_candidate_configuration` | test-flow snapshot; absent for normal login/link flows |
+| `configuration_revision` | active provider revision used to reject stale login/link flows |
+| `return_path`, `expires_at` | safe navigation and cleanup data |
+
+Every transition uses a conditional database update on the expected current status. Terminal flows are consumed once and removed opportunistically. Do not build a generic workflow engine or store provider tokens in the row.
 
 No provider tokens are retained after the callback. If the selected library requires temporary token data, keep it in memory only for the current request.
 
@@ -321,18 +338,17 @@ No provider tokens are retained after the callback. If the selected library requ
 
 OIDC provider details and UI-managed login-method state are database-owned. Existing TOML `auth_method` remains the bootstrap/default source during migration.
 
-Recommended transition:
+Required transition:
 
 1. With no OIDC configuration row, preserve current `password` or `none` behavior exactly.
-2. Creating the first OIDC configuration does not enable it until validation succeeds and the administrator explicitly saves `enabled=true`.
-3. Once a database auth configuration exists, it controls OIDC/password availability. `none` remains an explicit deployment-level TOML mode and cannot be combined with OIDC.
-4. Reject any update that enables neither OIDC nor password while the deployment is not in `none` mode.
-5. Reject OIDC-only mode unless the current administrator has a linked OIDC identity or has just completed a successful test sign-in for the candidate configuration.
-6. Keep a documented emergency recovery mechanism that restores local password login from the server environment or a narrowly scoped CLI command.
+2. Initial provider setup keeps `sign_in_mode=password_only` until **Connect and test** succeeds and an administrator activates an OIDC mode.
+3. Once a database auth configuration exists, its single `sign_in_mode` controls password/OIDC availability. `none` remains an explicit deployment-level TOML mode and cannot be combined with OIDC.
+4. Reject `oidc_only` unless the current administrator has a linked OIDC identity, has completed a successful test sign-in for the candidate configuration, and resolves to `admin` under the proposed group mappings.
+5. Keep a documented emergency recovery mechanism that restores local password login from the server environment or a narrowly scoped CLI command.
 
-Auth configuration changes must clear the frontend auth-config cache and invalidate backend discovery/JWKS configuration caches. Increment `auth_config_version` when issuer, client ID, role mappings, or enabled login methods change. Include that version in all newly issued Sambee JWTs and reject a token whose version no longer matches. Once a database auth configuration exists, reject legacy tokens without the claim. Display-name-only edits do not increment the version.
+Auth configuration changes must clear the frontend auth-config cache and invalidate backend discovery/JWKS configuration caches. When issuer, client ID, role mappings, or sign-in mode changes, increment `configuration_revision` and bulk-increment every user's existing `token_version` in the same database transaction. Existing JWT validation then invalidates all sessions without a new global JWT claim. Display-name-only edits do neither.
 
-OIDC-authenticated Sambee JWTs expire after 60 minutes. This value is fixed as the v1 maximum so removal or authorization changes at the IdP cannot leave a Sambee session active for the existing 24-hour default. In OIDC-only mode, expiration automatically starts OIDC reauthentication while preserving the safe return path; an active IdP session normally makes this redirect silent. Mixed mode returns to the login page with OIDC as the primary action. Explicit logout suppresses automatic reauthentication.
+OIDC-authenticated Sambee JWTs expire after the backend constant `OIDC_ACCESS_TOKEN_EXPIRE_MINUTES = 60`. This is not an administrator setting in v1. In OIDC-only mode, expiration automatically starts OIDC reauthentication once while preserving the safe return path; an active IdP session normally makes this redirect silent. Track that attempt in `sessionStorage` to prevent redirect loops, and clear the marker after successful login. On failure, render the login page with **Try OIDC again** and recovery guidance. Mixed mode returns to the login page with OIDC as the primary action. Explicit logout suppresses automatic reauthentication and clears the attempt marker.
 
 ## Backend API
 
@@ -343,16 +359,16 @@ OIDC-authenticated Sambee JWTs expire after 60 minutes. This value is fixed as t
 ```json
 {
   "auth_method": "password",
-  "password_enabled": true,
+   "sign_in_mode": "oidc_with_recovery",
+   "methods": ["oidc", "password"],
   "oidc": {
-    "enabled": true,
     "display_name": "Company SSO",
     "authorization_path": "/api/auth/oidc/authorize"
   }
 }
 ```
 
-Compatibility: retain `auth_method` while frontend callers migrate. Define an `oidc` enum value only if a single-value mode remains useful; the boolean capability fields are authoritative because password and OIDC may coexist.
+Compatibility: retain the legacy `auth_method` while frontend callers migrate, but make `sign_in_mode` and `methods` authoritative. Do not add an `oidc` value to the old enum; it cannot represent mixed mode correctly.
 
 Add:
 
@@ -364,14 +380,15 @@ All three endpoints are public by necessity, have narrow schemas, and receive de
 
 ### Admin API
 
-Require `ACCESS_ADMIN_SETTINGS` for reads and the new `MANAGE_AUTH_SETTINGS` capability for writes. Grant the new capability to admins by default.
+Require the existing `ACCESS_ADMIN_SETTINGS` capability for reads and writes. Under the current fixed-role model this remains admin-only; add a dedicated authentication capability only when delegated/custom roles create a real distinction.
 
 Add:
 
 - `GET /api/admin/auth/oidc` returns redacted configuration
-- `PUT /api/admin/auth/oidc` validates and atomically updates configuration
+- `PUT /api/admin/auth/oidc` atomically updates configuration; changing issuer, client ID, client secret, scopes, or claim names requires and consumes a successful administrator-bound test-flow grant, while display name, provisioning, mappings, and valid sign-in-mode changes may be updated directly with confirmation
 - `POST /api/admin/auth/oidc/validate` validates a submitted candidate without saving it
-- `POST /api/admin/auth/oidc/test-login` starts the interactive test transaction required before OIDC-only activation
+- `POST /api/admin/auth/oidc/test-login` validates a submitted candidate, stores its encrypted snapshot on an administrator-bound `OidcFlow`, and starts interactive test sign-in
+- `POST /api/admin/auth/oidc/test-result` returns the safe claim preview for an unexpired review grant bound to the current administrator without consuming it
 
 Validation response example:
 
@@ -459,7 +476,7 @@ Keep library-specific token dictionaries out of provisioning and API layers.
 - Hash state and login grants at rest with SHA-256; compare using constant-time behavior where applicable.
 - Consume state and grants atomically to prevent replay.
 - Apply existing inactive-user, expiration, and token-version checks.
-- Issue OIDC-authenticated Sambee JWTs for at most 60 minutes and validate their authentication-configuration version.
+- Issue OIDC-authenticated Sambee JWTs for at most 60 minutes and continue validating the existing per-user `token_version`.
 - Increment `token_version` on role changes and identity unlinking.
 - Rate-limit authorization starts, callbacks, exchanges, and password login separately.
 - Add structured audit events for configuration updates, validation attempts, successful/failed OIDC login, provisioning, identity linking/unlinking, and role changes.
@@ -521,7 +538,7 @@ Expected modules, following current repository boundaries:
 
 - `app/core/auth_methods.py`: represent OIDC/mixed availability without breaking `none`
 - `app/core/security.py`: keep Sambee JWT validation shared; make missing password hashes safe
-- `app/models/oidc.py`: provider, identity, transaction, grant, and API models
+- `app/models/oidc.py`: provider, identity, flow, and API models
 - `app/services/oidc_configuration.py`: encryption, redaction, validation, persistence, and cache invalidation
 - `app/services/oidc_client.py`: library adapter, discovery/JWKS behavior, authorization and callback validation
 - `app/services/oidc_identity.py`: identity resolution, provisioning, profile sync, and role sync
@@ -537,15 +554,17 @@ Names can change during implementation, but protocol, configuration, and identit
 ### Backend unit tests
 
 - configuration validation and normalization
+- sign-in-mode validation and fixed standard scope/claim defaults
 - secret encryption, replacement, preservation, removal, and response redaction
 - issuer and endpoint URL validation
-- role mapping for no match, one match, multiple matches, duplicates, malformed group claims, and each role
+- role mapping for fixed viewer fallback, one privileged match, multiple matches, duplicates, malformed group claims, and both privileged roles
 - stable `(issuer, subject)` lookup regardless of email/username changes
 - username collision behavior
 - disabled, expired, and OIDC-only users
 - mandatory profile synchronization and role synchronization when mappings are configured
 - token-version increment only when authorization-relevant state changes
-- state/grant hashing, expiry, atomic consumption, and replay rejection
+- `OidcFlow` state/grant hashing, status transitions, expiry, atomic consumption, and replay rejection
+- test flows are administrator-bound, expire, and never modify active configuration before activation
 - return-path validation
 - log redaction
 
@@ -564,25 +583,27 @@ Use an in-process fake OIDC provider or deterministic mocked HTTP transport; do 
 - role change invalidates old Sambee JWT
 - OIDC callback produces a one-time grant, not a token in the URL
 - grant exchange succeeds once and fails on replay/expiry
-- multiple backend sessions cannot consume the same transaction or grant twice
+- multiple backend sessions cannot transition or consume the same flow twice
 - linking requires current-password reauthentication, explicit confirmation, the same initiating user, and an unlinked provider identity
 - admin APIs reject non-admin users and never return a client secret
 - lockout-prevention rules reject unsafe configuration updates
+- OIDC-only activation fails unless the tested, linked administrator remains an admin under the proposed mappings
 - missing, wrong, and rotated external OIDC encryption keys fail closed without destroying configuration
-- authentication-sensitive configuration changes invalidate existing JWTs through `auth_config_version`
+- authentication-sensitive configuration changes increment the provider revision and every user's existing `token_version`
 - validated outbound HTTP rejects forbidden addresses, redirects, invalid certificates, oversized responses, and DNS rebinding
 - password, OIDC, mixed, and `none` modes each preserve expected behavior
 
 ### Frontend tests
 
-- login renders correctly for all auth configurations
+- login renders correctly for all three sign-in modes and deployment-level `none`
 - OIDC button uses the backend authorization path and preserves a valid return route
 - callback removes the fragment and exchanges the grant once
 - successful OIDC exchange follows the same post-login initialization as password login
 - stable error-code mapping and retry behavior
 - admin form secret-preservation semantics
-- validation checks/warnings and save states
-- role mapping editor validation
+- guided prerequisites, connect/test, access, and activation states
+- standard claims remain hidden by default, advanced overrides can be reset, and observed groups populate mapping choices
+- administrator/editor mapping validation and fixed viewer fallback
 - case-insensitive normalized group matching and cross-role collision errors
 - admin navigation/capability visibility
 - OIDC-only users do not receive password reset actions
@@ -597,6 +618,9 @@ Use an in-process fake OIDC provider or deterministic mocked HTTP transport; do 
 - disabled local account is denied despite valid provider authentication
 - password recovery login works during provider outage when enabled
 - OIDC session expiry reauthenticates through an existing IdP session and preserves the return route
+- successful reauthentication clears the loop marker; provider failure does not trigger another automatic redirect
+- the guided setup configures a provider using only issuer, client ID, and client secret before access choices
+- a failed or abandoned candidate test leaves the working provider configuration unchanged
 
 Run the full backend test suite and type check, frontend test suite and type/lint checks, and the repository-wide test script before completion.
 
@@ -604,7 +628,7 @@ Run the full backend test suite and type check, frontend test suite and type/lin
 
 ### Database migration
 
-1. Create provider configuration, identity, transaction, and grant tables and indexes.
+1. Create provider configuration, identity, and `OidcFlow` tables and indexes.
 2. Rebuild or alter the SQLite user table safely so `password_hash` is nullable; verify all existing password hashes are preserved.
 3. Add uniqueness constraints for federated identities.
 4. Do not create identity links for existing users automatically.
@@ -618,7 +642,7 @@ The migration must be idempotent under the repository migration runner. Back up 
 2. Ship admin configuration and non-interactive validation while OIDC activation remains guarded.
 3. Ship login, callback, grant exchange, and explicit linking/test-login support.
 4. Ship provisioning and profile synchronization.
-5. Ship group-to-role synchronization after role policy decisions are approved.
+5. Ship administrator/editor group synchronization with the fixed viewer fallback.
 6. Ship documentation and Authelia example before marking the feature complete.
 
 ### Rollback
@@ -653,7 +677,7 @@ Provide a complete, version-pinned example that includes:
 - `authorization_code` flow and PKCE settings
 - scopes and claims required by Sambee
 - a groups claim policy
-- example Authelia groups mapped to Sambee `admin`, `editor`, and `viewer`
+- example Authelia groups mapped to Sambee `admin` and `editor`, with an unmapped user demonstrating the fixed `viewer` fallback
 - corresponding values entered in Sambee's UI
 - validation and first-login procedure
 - expected behavior for an unmapped user
@@ -676,6 +700,8 @@ Acceptance criteria:
 
 - current deployments behave identically before an OIDC configuration is created
 - an admin can save and validate a provider configuration
+- an admin can complete basic provider setup without editing scopes or claim names
+- failed and abandoned test flows do not alter active authentication
 - a non-admin cannot read or modify it
 - no API, log, or database plaintext field exposes the client secret
 - unsafe auth-method combinations are rejected
@@ -737,11 +763,11 @@ Decide whether password login should remain visible to all local users, only thr
 
 ### 2. Who may modify authentication settings?
 
-**Recommended:** add `MANAGE_AUTH_SETTINGS` and grant it to admins by default. This separates high-risk identity-provider changes from general system-settings access and supports future delegated capabilities.
+**Recommended:** use the existing admin-settings capability while roles are fixed and all administrators have equivalent authority. Add a dedicated capability only with delegated/custom roles.
 
 Decide whether the existing `ACCESS_ADMIN_SETTINGS` capability is sufficient for reads and whether all admins should be allowed to change authentication.
 
-**Decision:** add `MANAGE_AUTH_SETTINGS`, granted to admins by default. `ACCESS_ADMIN_SETTINGS` permits redacted reads; only `MANAGE_AUTH_SETTINGS` permits changes.
+**Decision:** use `ACCESS_ADMIN_SETTINGS` for authentication reads and writes under the current admin-only role model. Revisit a dedicated capability when it can represent a real permission difference.
 
 ### 3. How are existing users linked to OIDC identities?
 
@@ -769,19 +795,19 @@ Decide whether the user-facing message should direct users to a named administra
 
 ### 6. What is the default role for an auto-provisioned, unmapped user?
 
-**Recommended:** `viewer`, matching least privilege.
+**Recommended:** use a fixed `viewer` fallback, matching least privilege, and expose mappings only for privileged roles.
 
 Decide whether unmatched users should instead be denied login even when auto-provisioning is enabled.
 
-**Decision:** assign `viewer` to an auto-provisioned user with no matching group.
+**Decision:** assign `viewer` to every user with no administrator/editor group match. Do not expose a configurable default role or viewer mapping in v1.
 
 ### 7. How should roles change on later logins?
 
-**Recommended:** synchronize on every OIDC login. Select the highest privilege among exact group matches. If no group matches, demote to the configured default role and invalidate existing sessions.
+**Recommended:** synchronize on every OIDC login. Select the highest privilege among exact group matches. If no privileged group matches, demote to `viewer` and invalidate existing sessions.
 
 Decide whether no match should demote, preserve the current role, or deny login. Also decide whether a manually assigned role can override OIDC synchronization; if yes, the data model needs an explicit role source/override flag.
 
-**Decision:** synchronize at every login, choose the highest matched privilege, demote an unmatched existing user to the default role, and invalidate existing sessions after a role change. Do not support manual role overrides while synchronization is enabled.
+**Decision:** synchronize at every login, choose the highest matched privilege, demote an unmatched existing user to `viewer`, and invalidate existing sessions after a role change. Do not support manual role overrides while synchronization is enabled.
 
 ### 8. Are group names case-sensitive and are nested group paths supported?
 
@@ -849,11 +875,11 @@ Decide whether production deployments need an optional hostname/IP allowlist to 
 
 ### 16. What does “Validate configuration” promise?
 
-**Recommended:** provide metadata/JWKS validation before save and a separate interactive **Test sign-in** before enabling OIDC-only mode. Clearly state that metadata validation alone cannot verify credentials, redirect registration, consent, or claim mappings.
+**Recommended:** present one **Connect and test** action that runs metadata/JWKS validation and then interactive sign-in. Keep the backend checks separate and state that metadata validation alone cannot verify credentials, redirect registration, consent, or claim mappings.
 
 Decide whether interactive test sign-in is required in the first release or may follow later.
 
-**Decision:** include metadata/JWKS validation and a separate interactive test sign-in in the first release. Require successful test sign-in before OIDC-only activation.
+**Decision:** include both checks in the first release behind one guided **Connect and test** action. Require successful test sign-in before either OIDC mode can be activated.
 
 ### 17. What logout behavior is required?
 
@@ -865,11 +891,11 @@ Decide whether Authelia or another target provider requires single logout at lau
 
 ### 18. What happens to active sessions after auth configuration changes?
 
-**Recommended:** keep sessions for non-security-sensitive edits such as display name; invalidate all user sessions when issuer, client ID, role mappings, synchronization policy, or enabled login methods change.
+**Recommended:** keep sessions for non-security-sensitive edits such as display name; invalidate all user sessions when issuer, client ID, role mappings, or sign-in mode changes.
 
-Decide whether global invalidation is acceptable operationally. Implementing it cleanly may require an application-wide auth configuration version claim in Sambee JWTs.
+Reuse the existing per-user token version rather than adding an application-wide JWT claim.
 
-**Decision:** increment an authentication-configuration version and invalidate all sessions after security-sensitive changes. Keep sessions for display-name-only edits.
+**Decision:** increment the provider configuration revision and bulk-increment every user's `token_version` after security-sensitive changes. Keep sessions for display-name-only edits.
 
 ### 19. Can an OIDC-only user gain a local password?
 
