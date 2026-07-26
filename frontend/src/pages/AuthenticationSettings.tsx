@@ -114,6 +114,7 @@ interface PendingOidcFinalization {
   expected_identity_mapping_revision: number | null;
   omitted_account_acknowledgements: string[];
 }
+type FinalizationFailureKind = "ambiguous" | "reauthentication" | "mapping_stale" | "configuration_changed" | "validation" | "other";
 const isPendingOidcFinalization = (value: unknown): value is PendingOidcFinalization => {
   if (typeof value !== "object" || value === null) return false;
   const request = value as Record<string, unknown>;
@@ -164,6 +165,16 @@ const finalizeOidcRequestWithRetry = async (request: PendingOidcFinalization) =>
     return finalizeOidcRequest(request);
   }
 };
+const finalizationFailureKind = (error: unknown): FinalizationFailureKind => {
+  if (!isApiError(error)) return "other";
+  if (error.response === undefined) return "ambiguous";
+  if (error.response.status === 401) return "reauthentication";
+  const errorCode = getApiErrorMessage(error, "");
+  if (errorCode === "oidc_mapping_review_stale") return "mapping_stale";
+  if (errorCode === "oidc_configuration_changed") return "configuration_changed";
+  if (getOidcMappingValidationErrors(error).length > 0) return "validation";
+  return "other";
+};
 const mappingReviewFor = (identity: OidcTestedIdentity) =>
   Object.fromEntries(
     identity.replacement_mappings.map((mapping) => [
@@ -191,6 +202,7 @@ export function AuthenticationSettings() {
   const [busy, setBusy] = useState(true);
   const [error, setError] = useState("");
   const [notice, setNotice] = useState("");
+  const [finalizationUnresolved, setFinalizationUnresolved] = useState(() => storedPendingFinalization() !== undefined);
   const previewRequestSequence = useRef(0);
   const selectedMappings = testedIdentity?.replacement_mappings.filter((mapping) => mappingReview[mapping.target_user_id]?.selected) ?? [];
   const replacementUsernames = selectedMappings.map((mapping) => mappingReview[mapping.target_user_id].expectedUsername.trim());
@@ -245,6 +257,7 @@ export function AuthenticationSettings() {
     let active = true;
     const restore = async () => {
       let recoveredFinalization = false;
+      let replayFailure: FinalizationFailureKind | null = null;
       const fragmentFlowId = new URLSearchParams(window.location.hash.replace(/^#/, "")).get("flow");
       if (fragmentFlowId) {
         sessionStorage.setItem(OIDC_SETUP_FLOW_STORAGE_KEY, fragmentFlowId);
@@ -252,10 +265,12 @@ export function AuthenticationSettings() {
       }
       const pendingFinalization = storedPendingFinalization();
       if (pendingFinalization) {
+        setFinalizationUnresolved(true);
         try {
           const result = await finalizeOidcRequestWithRetry(pendingFinalization);
           if (!active) return;
           clearAuthConfigCache();
+          setFinalizationUnresolved(false);
           sessionStorage.removeItem(OIDC_PENDING_FINALIZATION_STORAGE_KEY);
           sessionStorage.removeItem(OIDC_SETUP_FLOW_STORAGE_KEY);
           sessionStorage.removeItem(OIDC_REVIEWED_POLICY_STORAGE_KEY);
@@ -268,12 +283,19 @@ export function AuthenticationSettings() {
           recoveredFinalization = true;
         } catch (caught: unknown) {
           if (!active) return;
-          if (isApiError(caught) && caught.response === undefined) {
+          replayFailure = finalizationFailureKind(caught);
+          if (replayFailure === "ambiguous") {
             setError("Activation may have completed, but the server response was not received. Reload this page to confirm the result.");
             return;
           }
-          if (isApiError(caught) && caught.response?.status === 401) return;
+          if (replayFailure === "reauthentication") return;
+          setFinalizationUnresolved(false);
           sessionStorage.removeItem(OIDC_PENDING_FINALIZATION_STORAGE_KEY);
+          if (replayFailure === "configuration_changed") {
+            sessionStorage.removeItem(OIDC_SETUP_FLOW_STORAGE_KEY);
+            sessionStorage.removeItem(OIDC_REVIEWED_POLICY_STORAGE_KEY);
+            setError("The OIDC configuration changed after this test. Connect and test the provider again.");
+          }
         }
       }
 
@@ -281,7 +303,7 @@ export function AuthenticationSettings() {
       if (!active) return;
       setConfiguration(response);
       if (response.configuration) setCandidate(editableCandidate(response.configuration));
-      if (recoveredFinalization) return;
+      if (recoveredFinalization || replayFailure === "configuration_changed") return;
       const flowId = fragmentFlowId ?? sessionStorage.getItem(OIDC_SETUP_FLOW_STORAGE_KEY);
       if (!flowId) return;
       try {
@@ -292,6 +314,13 @@ export function AuthenticationSettings() {
         setMappingErrors({});
         setMappingReview(mappingReviewFor(identity));
         sessionStorage.setItem(OIDC_REVIEWED_POLICY_STORAGE_KEY, JSON.stringify(reviewedPolicyFor(identity.candidate)));
+        if (replayFailure === "mapping_stale") {
+          setError("The account mapping review changed. Review the refreshed mappings before activating.");
+        } else if (replayFailure === "validation") {
+          setError("Correct the highlighted OIDC mapping errors before activating.");
+        } else if (replayFailure === "other") {
+          setError("The tested configuration could not be activated. Review it before trying again.");
+        }
       } catch (caught: unknown) {
         if (!active) return;
         if (isApiError(caught) && caught.response?.status === 404) {
@@ -316,6 +345,7 @@ export function AuthenticationSettings() {
   }, [navigate]);
 
   const update = <Key extends keyof OidcConfigurationCandidate>(key: Key, value: OidcConfigurationCandidate[Key]) => {
+    if (finalizationUnresolved) return;
     const nextCandidate = {
       ...candidate,
       [key]: value,
@@ -372,6 +402,7 @@ export function AuthenticationSettings() {
   };
 
   const startTest = async (remapAll = false) => {
+    if (finalizationUnresolved) return;
     setBusy(true);
     setError("");
     try {
@@ -388,7 +419,8 @@ export function AuthenticationSettings() {
   };
 
   const activate = async () => {
-    if (!testedIdentity || replacementPlanInvalid || mappingAttestationMissing || !testedIdentityCanAdminister) return;
+    if (finalizationUnresolved || !testedIdentity || replacementPlanInvalid || mappingAttestationMissing || !testedIdentityCanAdminister)
+      return;
     const signInPath = testedIdentity.candidate.sign_in_mode === "oidc_only" ? "OIDC only" : "OIDC or password";
     const affectedAccountMessage =
       testedIdentity.affected_account_count === 0
@@ -409,57 +441,36 @@ export function AuthenticationSettings() {
       return;
     setBusy(true);
     setError("");
+    const finalizationRequest: PendingOidcFinalization = {
+      flow_id: testedIdentity.flow_id,
+      reviewed_policy: reviewedPolicyFor(candidate),
+      replacement_mappings: selectedMappings.map(({ target_user_id }) => ({
+        target_user_id,
+        expected_username: mappingReview[target_user_id].expectedUsername.trim(),
+      })),
+      expected_identity_mapping_revision: testedIdentity.expected_identity_mapping_revision,
+      omitted_account_acknowledgements: testedIdentity.replacement_mappings
+        .filter(
+          (mapping) =>
+            mapping.omission_acknowledgement_required &&
+            !mappingReview[mapping.target_user_id]?.selected &&
+            mappingReview[mapping.target_user_id]?.omissionAcknowledged
+        )
+        .map((mapping) => mapping.target_user_id),
+    };
+    sessionStorage.setItem(OIDC_PENDING_FINALIZATION_STORAGE_KEY, JSON.stringify(finalizationRequest));
+    setFinalizationUnresolved(true);
+    let result: Awaited<ReturnType<typeof finalizeOidcRequestWithRetry>>;
     try {
-      const finalizationArguments = [
-        testedIdentity.flow_id,
-        reviewedPolicyFor(candidate),
-        selectedMappings.map(({ target_user_id }) => ({
-          target_user_id,
-          expected_username: mappingReview[target_user_id].expectedUsername.trim(),
-        })),
-        testedIdentity.expected_identity_mapping_revision,
-        testedIdentity.replacement_mappings
-          .filter(
-            (mapping) =>
-              mapping.omission_acknowledgement_required &&
-              !mappingReview[mapping.target_user_id]?.selected &&
-              mappingReview[mapping.target_user_id]?.omissionAcknowledged
-          )
-          .map((mapping) => mapping.target_user_id),
-      ] as const;
-      const finalizationRequest: PendingOidcFinalization = {
-        flow_id: finalizationArguments[0],
-        reviewed_policy: finalizationArguments[1],
-        replacement_mappings: finalizationArguments[2],
-        expected_identity_mapping_revision: finalizationArguments[3],
-        omitted_account_acknowledgements: finalizationArguments[4],
-      };
-      sessionStorage.setItem(OIDC_PENDING_FINALIZATION_STORAGE_KEY, JSON.stringify(finalizationRequest));
-      const result = await finalizeOidcRequestWithRetry(finalizationRequest);
-      clearAuthConfigCache();
-      setTestedIdentity(null);
-      setMappingReview({});
-      sessionStorage.removeItem(OIDC_SETUP_FLOW_STORAGE_KEY);
-      sessionStorage.removeItem(OIDC_REVIEWED_POLICY_STORAGE_KEY);
-      sessionStorage.removeItem(OIDC_PENDING_FINALIZATION_STORAGE_KEY);
-      setClientSecret("");
-      setShowClientSecret(false);
-      if (result.reauthentication_required) {
-        localStorage.removeItem("access_token");
-        navigate("/login", { replace: true });
-        return;
-      }
-      setNotice("Authentication configuration activated.");
-      const refreshed = await api.getOidcConfiguration();
-      setConfiguration(refreshed);
-      if (refreshed.configuration) setCandidate(editableCandidate(refreshed.configuration));
+      result = await finalizeOidcRequestWithRetry(finalizationRequest);
     } catch (caught: unknown) {
-      if (!isApiError(caught) || (caught.response !== undefined && caught.response.status !== 401)) {
+      const failureKind = finalizationFailureKind(caught);
+      if (failureKind !== "ambiguous" && failureKind !== "reauthentication") {
+        setFinalizationUnresolved(false);
         sessionStorage.removeItem(OIDC_PENDING_FINALIZATION_STORAGE_KEY);
       }
       const validationErrors = getOidcMappingValidationErrors(caught);
-      const errorCode = getApiErrorMessage(caught, "");
-      if (errorCode === "oidc_mapping_review_stale") {
+      if (failureKind === "mapping_stale") {
         try {
           const refreshedIdentity = await api.getOidcTestResult(testedIdentity.flow_id, reviewedPolicyFor(candidate));
           setCandidate(editableCandidate(refreshedIdentity.candidate));
@@ -479,14 +490,14 @@ export function AuthenticationSettings() {
             setError("The current mapping review could not be loaded. Retry activation to refresh it.");
           }
         }
-      } else if (errorCode === "oidc_configuration_changed") {
+      } else if (failureKind === "configuration_changed") {
         sessionStorage.removeItem(OIDC_SETUP_FLOW_STORAGE_KEY);
         sessionStorage.removeItem(OIDC_REVIEWED_POLICY_STORAGE_KEY);
         setTestedIdentity(null);
         setMappingReview({});
         setMappingErrors({});
         setError("The OIDC configuration changed after this test. Connect and test the provider again.");
-      } else if (validationErrors.length > 0) {
+      } else if (failureKind === "validation") {
         setMappingErrors(
           Object.fromEntries(
             validationErrors
@@ -495,18 +506,44 @@ export function AuthenticationSettings() {
           )
         );
         setError("Correct the highlighted OIDC mapping errors before activating.");
-      } else if (isApiError(caught) && caught.response === undefined) {
-        setError("Activation may have completed, but the server response was not received. Retry activation to confirm the result.");
+      } else if (failureKind === "ambiguous") {
+        setError("Activation may have completed, but the server response was not received. Reload this page to confirm the result.");
       } else {
         setError("The tested configuration could not be activated. Run the test again.");
       }
+      setBusy(false);
+      return;
+    }
+
+    clearAuthConfigCache();
+    setFinalizationUnresolved(false);
+    setTestedIdentity(null);
+    setMappingReview({});
+    sessionStorage.removeItem(OIDC_SETUP_FLOW_STORAGE_KEY);
+    sessionStorage.removeItem(OIDC_REVIEWED_POLICY_STORAGE_KEY);
+    sessionStorage.removeItem(OIDC_PENDING_FINALIZATION_STORAGE_KEY);
+    setClientSecret("");
+    setShowClientSecret(false);
+    if (result.reauthentication_required) {
+      localStorage.removeItem("access_token");
+      navigate("/login", { replace: true });
+      setBusy(false);
+      return;
+    }
+    setNotice("Authentication configuration activated.");
+    try {
+      const refreshed = await api.getOidcConfiguration();
+      setConfiguration(refreshed);
+      if (refreshed.configuration) setCandidate(editableCandidate(refreshed.configuration));
+    } catch {
+      setError("Authentication was activated, but the current settings could not be reloaded. Reload this page to refresh them.");
     } finally {
       setBusy(false);
     }
   };
 
   const cancelTestFlow = async () => {
-    if (!testedIdentity) return;
+    if (finalizationUnresolved || !testedIdentity) return;
     setBusy(true);
     setError("");
     try {
@@ -525,6 +562,7 @@ export function AuthenticationSettings() {
   };
 
   const setPasswordOnly = async () => {
+    if (finalizationUnresolved) return;
     const activeConfiguration = configuration?.configuration;
     if (!activeConfiguration) return;
     const passwordlessCount = configuration.active_passwordless_user_count;
@@ -626,19 +664,28 @@ export function AuthenticationSettings() {
           label="Provider name"
           value={candidate.display_name}
           onChange={(event) => update("display_name", event.target.value)}
+          disabled={finalizationUnresolved}
           required
         />
         <TextField
           label="Issuer URL"
           value={candidate.issuer_url}
           onChange={(event) => update("issuer_url", event.target.value)}
+          disabled={finalizationUnresolved}
           required
         />
-        <TextField label="Client ID" value={candidate.client_id} onChange={(event) => update("client_id", event.target.value)} required />
+        <TextField
+          label="Client ID"
+          value={candidate.client_id}
+          onChange={(event) => update("client_id", event.target.value)}
+          disabled={finalizationUnresolved}
+          required
+        />
         <TextField
           label="Client secret"
           type={showClientSecret ? "text" : "password"}
           value={clientSecret}
+          disabled={finalizationUnresolved}
           onChange={(event) => {
             setClientSecret(event.target.value);
             setTestedIdentity(null);
@@ -671,6 +718,7 @@ export function AuthenticationSettings() {
           label="Scopes"
           value={listValue(candidate.scopes)}
           onChange={(event) => update("scopes", parseList(event.target.value))}
+          disabled={finalizationUnresolved}
           helperText="Comma-separated; openid is required."
         />
 
@@ -680,6 +728,7 @@ export function AuthenticationSettings() {
           label="Username claim"
           value={candidate.username_claim}
           onChange={(event) => update("username_claim", event.target.value)}
+          disabled={finalizationUnresolved}
           required
         />
         <FormControlLabel
@@ -687,6 +736,7 @@ export function AuthenticationSettings() {
             <Checkbox
               checked={candidate.username_claim_uniqueness_confirmed}
               onChange={(event) => update("username_claim_uniqueness_confirmed", event.target.checked)}
+              disabled={finalizationUnresolved}
             />
           }
           label="I confirmed this claim is stable and unique for every user"
@@ -695,22 +745,26 @@ export function AuthenticationSettings() {
           label="Name claim"
           value={candidate.name_claim ?? ""}
           onChange={(event) => update("name_claim", optionalClaim(event.target.value))}
+          disabled={finalizationUnresolved}
         />
         <TextField
           label="Email claim"
           value={candidate.email_claim ?? ""}
           onChange={(event) => update("email_claim", optionalClaim(event.target.value))}
+          disabled={finalizationUnresolved}
         />
         <TextField
           label="Groups claim"
           value={candidate.groups_claim ?? ""}
           onChange={(event) => update("groups_claim", optionalClaim(event.target.value))}
+          disabled={finalizationUnresolved}
         />
         <TextField
           select
           label="Admission"
           value={candidate.admission_mode}
           onChange={(event) => update("admission_mode", event.target.value as OidcConfigurationCandidate["admission_mode"])}
+          disabled={finalizationUnresolved}
         >
           <MenuItem value="all_idp_users">All authenticated users</MenuItem>
           <MenuItem value="selected_groups">Only selected groups</MenuItem>
@@ -720,6 +774,7 @@ export function AuthenticationSettings() {
             label="Admission groups"
             value={listValue(candidate.admission_groups)}
             onChange={(event) => update("admission_groups", parseList(event.target.value))}
+            disabled={finalizationUnresolved}
             error={Boolean(admissionGroupError)}
             helperText={admissionGroupError || "Comma-separated, exact group names."}
           />
@@ -728,6 +783,7 @@ export function AuthenticationSettings() {
           label="Administrator groups"
           value={listValue(candidate.role_mappings.admin)}
           onChange={(event) => update("role_mappings", { ...candidate.role_mappings, admin: parseList(event.target.value) })}
+          disabled={finalizationUnresolved}
           error={Boolean(adminGroupError)}
           helperText={adminGroupError}
           required
@@ -736,6 +792,7 @@ export function AuthenticationSettings() {
           label="Editor groups"
           value={listValue(candidate.role_mappings.editor)}
           onChange={(event) => update("role_mappings", { ...candidate.role_mappings, editor: parseList(event.target.value) })}
+          disabled={finalizationUnresolved}
           error={Boolean(editorGroupError)}
           helperText={editorGroupError}
         />
@@ -744,6 +801,7 @@ export function AuthenticationSettings() {
           label="Sign-in mode"
           value={candidate.sign_in_mode}
           onChange={(event) => update("sign_in_mode", event.target.value as OidcConfigurationCandidate["sign_in_mode"])}
+          disabled={finalizationUnresolved}
         >
           <MenuItem value="oidc_or_password">OIDC or password</MenuItem>
           <MenuItem value="oidc_only">OIDC only</MenuItem>
@@ -751,7 +809,7 @@ export function AuthenticationSettings() {
 
         <Button
           variant="outlined"
-          disabled={busy || configuration?.health.status !== "healthy" || groupConfigurationInvalid}
+          disabled={busy || finalizationUnresolved || configuration?.health.status !== "healthy" || groupConfigurationInvalid}
           onClick={() => void startTest()}
         >
           Connect and test
@@ -802,6 +860,7 @@ export function AuthenticationSettings() {
                           control={
                             <Checkbox
                               checked={review?.selected ?? false}
+                              disabled={finalizationUnresolved}
                               onChange={(event) => {
                                 if (!event.target.checked) {
                                   setMappingErrors((current) => {
@@ -833,7 +892,7 @@ export function AuthenticationSettings() {
                           value={expectedUsername}
                           placeholder={mapping.suggested_username}
                           helperText={serverError ?? `${hintLabel}: ${mapping.suggested_username}`}
-                          disabled={!review?.selected}
+                          disabled={finalizationUnresolved || !review?.selected}
                           error={
                             Boolean(serverError) ||
                             (Boolean(review?.selected) &&
@@ -862,6 +921,7 @@ export function AuthenticationSettings() {
                             control={
                               <Checkbox
                                 checked={review?.omissionAcknowledged ?? false}
+                                disabled={finalizationUnresolved}
                                 onChange={(event) =>
                                   setMappingReview((current) => ({
                                     ...current,
@@ -901,12 +961,19 @@ export function AuthenticationSettings() {
             <Button
               variant="contained"
               sx={{ mt: 2 }}
-              disabled={busy || reviewPending || replacementPlanInvalid || mappingAttestationMissing || !testedIdentityCanAdminister}
+              disabled={
+                busy ||
+                finalizationUnresolved ||
+                reviewPending ||
+                replacementPlanInvalid ||
+                mappingAttestationMissing ||
+                !testedIdentityCanAdminister
+              }
               onClick={activate}
             >
               Activate configuration
             </Button>
-            <Button variant="text" sx={{ mt: 2, ml: 1 }} disabled={busy} onClick={() => void cancelTestFlow()}>
+            <Button variant="text" sx={{ mt: 2, ml: 1 }} disabled={busy || finalizationUnresolved} onClick={() => void cancelTestFlow()}>
               Cancel
             </Button>
           </Box>
@@ -918,7 +985,7 @@ export function AuthenticationSettings() {
             <Typography variant="h6">Recovery</Typography>
             <Button
               variant="outlined"
-              disabled={busy || configuration.health.status !== "healthy"}
+              disabled={busy || finalizationUnresolved || configuration.health.status !== "healthy"}
               onClick={() => {
                 if (
                   window.confirm(
@@ -931,7 +998,7 @@ export function AuthenticationSettings() {
             >
               Remap all OIDC accounts
             </Button>
-            <Button color="warning" variant="outlined" disabled={busy} onClick={setPasswordOnly}>
+            <Button color="warning" variant="outlined" disabled={busy || finalizationUnresolved} onClick={setPasswordOnly}>
               Switch to Password only
             </Button>
           </>

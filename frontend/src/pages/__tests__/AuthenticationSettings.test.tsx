@@ -478,6 +478,12 @@ describe("Authentication settings", () => {
     expect(api.finalizeOidcConfiguration).toHaveBeenCalledTimes(2);
     expect(sessionStorage.getItem("sambee.oidc.setupFlowId")).toBe("test-flow");
     expect(screen.getByText("Tested identity")).toBeInTheDocument();
+    expect(screen.getByRole("textbox", { name: "Provider name" })).toBeDisabled();
+    expect(screen.getByRole("button", { name: "Connect and test" })).toBeDisabled();
+    expect(screen.getByRole("button", { name: "Activate configuration" })).toBeDisabled();
+    expect(screen.getByRole("button", { name: "Cancel" })).toBeDisabled();
+    expect(screen.getByRole("button", { name: "Remap all OIDC accounts" })).toBeDisabled();
+    expect(screen.getByRole("button", { name: "Switch to Password only" })).toBeDisabled();
   });
 
   it("replays a persisted finalization before loading configuration after reload", async () => {
@@ -547,6 +553,91 @@ describe("Authentication settings", () => {
     await waitFor(() => expect(api.finalizeOidcConfiguration).toHaveBeenCalled());
     expect(api.getOidcConfiguration).not.toHaveBeenCalled();
     expect(sessionStorage.getItem("sambee.oidc.pendingFinalization")).not.toBeNull();
+  });
+
+  it("refreshes an authoritative mapping review after a stale persisted finalization", async () => {
+    const pendingCandidate = configuration("Tested Provider");
+    sessionStorage.setItem("sambee.oidc.setupFlowId", "stored-flow");
+    sessionStorage.setItem("sambee.oidc.reviewedPolicy", JSON.stringify(reviewedPolicy(pendingCandidate)));
+    sessionStorage.setItem(
+      "sambee.oidc.pendingFinalization",
+      JSON.stringify({
+        flow_id: "stored-flow",
+        reviewed_policy: reviewedPolicy(pendingCandidate),
+        replacement_mappings: [],
+        expected_identity_mapping_revision: 1,
+        omitted_account_acknowledgements: [],
+      })
+    );
+    window.location.hash = "";
+    vi.mocked(api.finalizeOidcConfiguration).mockRejectedValue({
+      response: { status: 409, data: { detail: "oidc_mapping_review_stale" } },
+    });
+    vi.mocked(api.getOidcConfiguration).mockResolvedValue(response(configuration("Active Provider")));
+    vi.mocked(api.getOidcTestResult).mockResolvedValue(testedIdentity({ flow_id: "stored-flow", expected_identity_mapping_revision: 2 }));
+
+    renderSettings();
+
+    expect(await screen.findByText(/review the refreshed mappings/i)).toBeInTheDocument();
+    expect(api.getOidcTestResult).toHaveBeenCalledWith("stored-flow", reviewedPolicy(pendingCandidate));
+    expect(screen.getByRole("button", { name: "Activate configuration" })).toBeEnabled();
+    expect(sessionStorage.getItem("sambee.oidc.pendingFinalization")).toBeNull();
+    expect(sessionStorage.getItem("sambee.oidc.setupFlowId")).toBe("stored-flow");
+  });
+
+  it("discards obsolete setup state after a changed-configuration persisted finalization", async () => {
+    const pendingCandidate = configuration("Tested Provider");
+    sessionStorage.setItem("sambee.oidc.setupFlowId", "stored-flow");
+    sessionStorage.setItem("sambee.oidc.reviewedPolicy", JSON.stringify(reviewedPolicy(pendingCandidate)));
+    sessionStorage.setItem(
+      "sambee.oidc.pendingFinalization",
+      JSON.stringify({
+        flow_id: "stored-flow",
+        reviewed_policy: reviewedPolicy(pendingCandidate),
+        replacement_mappings: [],
+        expected_identity_mapping_revision: 1,
+        omitted_account_acknowledgements: [],
+      })
+    );
+    window.location.hash = "";
+    vi.mocked(api.finalizeOidcConfiguration).mockRejectedValue({
+      response: { status: 409, data: { detail: "oidc_configuration_changed" } },
+    });
+    vi.mocked(api.getOidcConfiguration).mockResolvedValue(response(configuration("Active Provider")));
+
+    renderSettings();
+
+    expect(await screen.findByText(/configuration changed after this test/i)).toBeInTheDocument();
+    expect(api.getOidcTestResult).not.toHaveBeenCalled();
+    expect(sessionStorage.getItem("sambee.oidc.pendingFinalization")).toBeNull();
+    expect(sessionStorage.getItem("sambee.oidc.setupFlowId")).toBeNull();
+    expect(sessionStorage.getItem("sambee.oidc.reviewedPolicy")).toBeNull();
+    expect(screen.getByRole("button", { name: "Connect and test" })).toBeEnabled();
+  });
+
+  it("keeps activation successful when the post-activation settings refresh fails", async () => {
+    const user = userEvent.setup();
+    vi.spyOn(window, "confirm").mockReturnValue(true);
+    vi.mocked(api.getOidcConfiguration)
+      .mockResolvedValueOnce(response(configuration("Active Provider")))
+      .mockRejectedValueOnce({ message: "Network unavailable" });
+    vi.mocked(api.getOidcTestResult).mockResolvedValue(testedIdentity());
+    vi.mocked(api.finalizeOidcConfiguration).mockResolvedValue({
+      configuration_revision: 3,
+      identity_mapping_revision: 2,
+      reauthentication_required: false,
+    });
+    window.location.hash = "flow=test-flow";
+    renderSettings();
+
+    await user.click(await screen.findByRole("button", { name: "Activate configuration" }));
+
+    expect(await screen.findByText("Authentication configuration activated.")).toBeInTheDocument();
+    expect(screen.getByText(/current settings could not be reloaded/i)).toBeInTheDocument();
+    expect(screen.queryByText(/activation may have completed/i)).not.toBeInTheDocument();
+    expect(api.finalizeOidcConfiguration).toHaveBeenCalledTimes(1);
+    expect(api.getOidcConfiguration).toHaveBeenCalledTimes(2);
+    expect(sessionStorage.getItem("sambee.oidc.pendingFinalization")).toBeNull();
   });
 
   it("clears a server mapping error when the row is deselected", async () => {
