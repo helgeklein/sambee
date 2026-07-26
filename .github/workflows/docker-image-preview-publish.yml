@@ -247,7 +247,7 @@ jobs:
         context: .
         file: ./Dockerfile
         platforms: ${{ matrix.docker_platform }}
-        outputs: type=image,name=${{ needs.prepare.outputs.image_name }}:staging-${{ github.run_id }}-${{ github.run_attempt }}-${{ matrix.platform_id }},push-by-digest=true,name-canonical=true,push=true
+        outputs: type=image,name=${{ needs.prepare.outputs.image_name }},push-by-digest=true,name-canonical=true,push=true
         labels: ${{ steps.image.outputs.labels }}
         build-args: |
           BUILD_CREATED_AT=${{ needs.prepare.outputs.created }}
@@ -809,15 +809,16 @@ jobs:
       shell: bash
       run: crane auth login ghcr.io -u "${{ github.actor }}" -p "${{ secrets.GITHUB_TOKEN }}"
 
-    - name: Delete run-scoped staging tags
+    - name: Delete run-scoped staging index
       shell: bash
       run: |
-        for platform in amd64 arm64 index; do
-          staging_tag="staging-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}-${platform}"
-          if ! crane delete "${{ needs.prepare.outputs.image_name }}:$staging_tag"; then
-            echo "::warning::Unable to delete run-scoped staging tag $staging_tag. Registry retention must remove it."
-          fi
-        done
+        staging_tag="staging-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}-index"
+        staging_ref="${{ needs.prepare.outputs.image_name }}:$staging_tag"
+        if ! crane digest "$staging_ref" >/dev/null 2>&1; then
+          echo "Run-scoped staging index $staging_tag was not created; nothing to delete."
+        elif ! crane delete "$staging_ref"; then
+          echo "::warning::Unable to delete run-scoped staging index $staging_tag. Registry retention must remove it."
+        fi
 
   repair-candidate-aliases:
     needs: prepare
@@ -879,8 +880,8 @@ jobs:
           echo "- Docker version marker: \`${{ needs.prepare.outputs.image_name }}:${{ needs.prepare.outputs.build_tag }}\`"
           echo "- Movable test tag: \`${{ needs.prepare.outputs.image_name }}:test\`"
           if [[ "${{ needs.prepare.outputs.publication_state }}" == "build" ]]; then
-            echo "- Staging references: \`${{ needs.prepare.outputs.image_name }}:staging-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}-{amd64,arm64,index}\`"
+            echo "- Staging reference: \`${{ needs.prepare.outputs.image_name }}:staging-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}-index\`"
           else
-            echo '- Staging references: not created during repair-only publication.'
+            echo '- Staging reference: not created during repair-only publication.'
           fi
         } >> "$GITHUB_STEP_SUMMARY"

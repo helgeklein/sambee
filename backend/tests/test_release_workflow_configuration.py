@@ -209,10 +209,19 @@ def test_docker_candidate_aliases_use_the_post_sign_verifier_digest() -> None:
 
 def test_docker_candidate_cleanup_and_summary_cover_staging_lifecycle() -> None:
     workflow = load_workflow("docker-image-preview-publish.yml")
+    platform_job = workflow["jobs"]["build-and-validate-platforms"]
+    build_step = next(step for step in platform_job["steps"] if step.get("name") == "Build and push preview platform image")
+    expected_output = "type=image,name=${{ needs.prepare.outputs.image_name }},push-by-digest=true,name-canonical=true,push=true"
+    assert build_step["with"]["outputs"] == expected_output
+
     cleanup_job = workflow["jobs"]["cleanup-staging-image"]
     assert cleanup_job["if"] == "${{ always() && needs.prepare.outputs.publication_state == 'build' }}"
-    cleanup_step = next(step for step in cleanup_job["steps"] if step.get("name") == "Delete run-scoped staging tags")
-    assert "staging-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}-${platform}" in cleanup_step["run"]
+    cleanup_step = next(step for step in cleanup_job["steps"] if step.get("name") == "Delete run-scoped staging index")
+    assert "staging-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}-index" in cleanup_step["run"]
+    assert "amd64" not in cleanup_step["run"]
+    assert "arm64" not in cleanup_step["run"]
+    assert 'crane digest "$staging_ref"' in cleanup_step["run"]
+    assert "was not created; nothing to delete" in cleanup_step["run"]
     assert "crane delete" in cleanup_step["run"]
 
     summary_job = workflow["jobs"]["summarize-candidate"]
@@ -224,7 +233,7 @@ def test_docker_candidate_cleanup_and_summary_cover_staging_lifecycle() -> None:
         "Source SHA",
         "Final digest",
         "Docker version marker",
-        "Staging references",
+        "Staging reference",
         "Movable test tag",
     ):
         assert expected_detail in summary_step["run"]
