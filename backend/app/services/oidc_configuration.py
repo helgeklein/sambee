@@ -5,6 +5,7 @@ from typing import Any, cast
 from urllib.parse import urlparse, urlsplit, urlunparse
 
 from cryptography.fernet import Fernet, InvalidToken
+from pydantic import SecretStr
 
 from app.core.environment import IS_PRODUCTION
 from app.models.oidc import OidcAdmissionMode, OidcProviderConfiguration, SignInMode
@@ -13,6 +14,7 @@ from app.models.oidc_api import (
     AuthenticationHealthReason,
     AuthenticationHealthStatus,
     OidcConfigurationCandidate,
+    OidcReviewedPolicy,
     OidcRoleMappings,
     RedactedOidcConfiguration,
 )
@@ -73,6 +75,33 @@ class OidcSecretCipher:
             return self._fernet.decrypt(ciphertext.encode("ascii")).decode("utf-8")
         except (InvalidToken, UnicodeDecodeError, UnicodeEncodeError) as exc:
             raise OidcSecretDecryptionError("OIDC secret could not be decrypted") from exc
+
+
+def apply_reviewed_policy(
+    tested: NormalizedOidcCandidate,
+    reviewed: OidcReviewedPolicy,
+    active: OidcProviderConfiguration | None,
+    cipher: OidcSecretCipher,
+) -> NormalizedOidcCandidate:
+    if reviewed.sign_in_mode == SignInMode.PASSWORD_ONLY:
+        raise OidcConfigurationError("Tested OIDC activation requires an OIDC sign-in mode")
+    candidate = OidcConfigurationCandidate(
+        display_name=tested.display_name,
+        issuer_url=tested.issuer_url,
+        client_id=tested.client_id,
+        client_secret=SecretStr(tested.client_secret) if tested.client_secret is not None else None,
+        scopes=list(tested.scopes),
+        username_claim=tested.username_claim,
+        username_claim_uniqueness_confirmed=reviewed.username_claim_uniqueness_confirmed,
+        name_claim=tested.name_claim,
+        email_claim=tested.email_claim,
+        groups_claim=tested.groups_claim,
+        sign_in_mode=reviewed.sign_in_mode,
+        admission_mode=reviewed.admission_mode,
+        admission_groups=reviewed.admission_groups,
+        role_mappings=reviewed.role_mappings,
+    )
+    return normalize_candidate(candidate, active, cipher)
 
 
 def normalize_group_key(value: str) -> str:

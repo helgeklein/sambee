@@ -15,11 +15,17 @@ import {
   Tooltip,
   Typography,
 } from "@mui/material";
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import api from "../services/api";
 import { clearAuthConfigCache } from "../services/authConfig";
-import { isApiError, type OidcAdminConfigurationRead, type OidcConfigurationCandidate, type OidcTestedIdentity } from "../types";
+import {
+  isApiError,
+  type OidcAdminConfigurationRead,
+  type OidcConfigurationCandidate,
+  type OidcReviewedPolicy,
+  type OidcTestedIdentity,
+} from "../types";
 import { getApiErrorMessage, getOidcMappingValidationErrors } from "../utils/apiErrors";
 
 const DEFAULT_CANDIDATE: OidcConfigurationCandidate = {
@@ -46,6 +52,14 @@ const parseList = (value: string) =>
     .filter(Boolean);
 const optionalClaim = (value: string) => value.trim() || null;
 const OIDC_SETUP_FLOW_STORAGE_KEY = "sambee.oidc.setupFlowId";
+const OIDC_REVIEWED_POLICY_STORAGE_KEY = "sambee.oidc.reviewedPolicy";
+const REVIEWABLE_POLICY_KEYS = new Set<keyof OidcConfigurationCandidate>([
+  "sign_in_mode",
+  "admission_mode",
+  "admission_groups",
+  "role_mappings",
+  "username_claim_uniqueness_confirmed",
+]);
 const normalizedGroupKey = (value: string) => value.normalize("NFKC").trim().toLowerCase();
 const duplicateGroupKeys = (values: string[]) => {
   const keys = values.map(normalizedGroupKey);
@@ -57,6 +71,23 @@ const editableCandidate = ({
   identity_mapping_revision: ___,
   ...candidate
 }: NonNullable<OidcAdminConfigurationRead["configuration"]>): OidcConfigurationCandidate => candidate;
+const reviewedPolicyFor = (candidate: OidcConfigurationCandidate): OidcReviewedPolicy => ({
+  sign_in_mode: candidate.sign_in_mode,
+  admission_mode: candidate.admission_mode,
+  admission_groups: candidate.admission_groups,
+  role_mappings: candidate.role_mappings,
+  username_claim_uniqueness_confirmed: candidate.username_claim_uniqueness_confirmed,
+});
+const storedReviewedPolicy = (): OidcReviewedPolicy | undefined => {
+  const stored = sessionStorage.getItem(OIDC_REVIEWED_POLICY_STORAGE_KEY);
+  if (!stored) return undefined;
+  try {
+    return JSON.parse(stored) as OidcReviewedPolicy;
+  } catch {
+    sessionStorage.removeItem(OIDC_REVIEWED_POLICY_STORAGE_KEY);
+    return undefined;
+  }
+};
 const mappingReviewFor = (identity: OidcTestedIdentity) =>
   Object.fromEntries(
     identity.replacement_mappings.map((mapping) => [
@@ -80,9 +111,11 @@ export function AuthenticationSettings() {
     Record<string, { selected: boolean; expectedUsername: string; omissionAcknowledged: boolean }>
   >({});
   const [mappingErrors, setMappingErrors] = useState<Record<string, string>>({});
+  const [reviewPending, setReviewPending] = useState(false);
   const [busy, setBusy] = useState(true);
   const [error, setError] = useState("");
   const [notice, setNotice] = useState("");
+  const previewRequestSequence = useRef(0);
   const selectedMappings = testedIdentity?.replacement_mappings.filter((mapping) => mappingReview[mapping.target_user_id]?.selected) ?? [];
   const replacementUsernames = selectedMappings.map((mapping) => mappingReview[mapping.target_user_id].expectedUsername.trim());
   const requiredOmissions =
@@ -129,7 +162,7 @@ export function AuthenticationSettings() {
         ? "A group cannot grant both administrator and editor roles."
         : "";
   const groupConfigurationInvalid = Boolean(admissionGroupError || adminGroupError || editorGroupError);
-  const testedIdentityCanAdminister = testedIdentity?.admitted === true && testedIdentity.resulting_role === "admin";
+  const testedIdentityCanAdminister = !reviewPending && testedIdentity?.admitted === true && testedIdentity.resulting_role === "admin";
 
   useEffect(() => {
     let active = true;
@@ -146,18 +179,20 @@ export function AuthenticationSettings() {
         const flowId = fragmentFlowId ?? sessionStorage.getItem(OIDC_SETUP_FLOW_STORAGE_KEY);
         if (!flowId) return;
         if (fragmentFlowId) window.history.replaceState(null, "", window.location.pathname + window.location.search);
-        return api.getOidcTestResult(flowId).then(
+        return api.getOidcTestResult(flowId, storedReviewedPolicy()).then(
           (identity) => {
             if (!active) return;
             setCandidate(editableCandidate(identity.candidate));
             setTestedIdentity(identity);
             setMappingErrors({});
             setMappingReview(mappingReviewFor(identity));
+            sessionStorage.setItem(OIDC_REVIEWED_POLICY_STORAGE_KEY, JSON.stringify(reviewedPolicyFor(identity.candidate)));
           },
           (caught: unknown) => {
             if (!active) return;
             if (isApiError(caught) && caught.response?.status === 404) {
               sessionStorage.removeItem(OIDC_SETUP_FLOW_STORAGE_KEY);
+              sessionStorage.removeItem(OIDC_REVIEWED_POLICY_STORAGE_KEY);
               setError("The saved OIDC test has expired. Connect and test the provider again.");
               return;
             }
@@ -177,13 +212,58 @@ export function AuthenticationSettings() {
   }, []);
 
   const update = <Key extends keyof OidcConfigurationCandidate>(key: Key, value: OidcConfigurationCandidate[Key]) => {
-    setCandidate((current) => ({
-      ...current,
+    const nextCandidate = {
+      ...candidate,
       [key]: value,
       ...(["issuer_url", "client_id", "username_claim"].includes(key) ? { username_claim_uniqueness_confirmed: false } : {}),
-    }));
+    };
+    setCandidate(nextCandidate);
+    if (testedIdentity && REVIEWABLE_POLICY_KEYS.has(key)) {
+      const requestSequence = ++previewRequestSequence.current;
+      const reviewedPolicy = reviewedPolicyFor(nextCandidate);
+      sessionStorage.setItem(OIDC_REVIEWED_POLICY_STORAGE_KEY, JSON.stringify(reviewedPolicy));
+      setReviewPending(true);
+      setError("");
+      void api
+        .getOidcTestResult(testedIdentity.flow_id, reviewedPolicy)
+        .then((identity) => {
+          if (requestSequence !== previewRequestSequence.current) return;
+          setCandidate(editableCandidate(identity.candidate));
+          setTestedIdentity(identity);
+          setMappingErrors({});
+          setMappingReview(mappingReviewFor(identity));
+          setReviewPending(false);
+        })
+        .catch((caught: unknown) => {
+          if (requestSequence !== previewRequestSequence.current) return;
+          if (isApiError(caught) && caught.response?.status === 404) {
+            sessionStorage.removeItem(OIDC_SETUP_FLOW_STORAGE_KEY);
+            sessionStorage.removeItem(OIDC_REVIEWED_POLICY_STORAGE_KEY);
+            setTestedIdentity(null);
+            setMappingReview({});
+            setError("The OIDC test expired. Connect and test the provider again.");
+            return;
+          }
+          if (getApiErrorMessage(caught, "") === "oidc_configuration_changed") {
+            sessionStorage.removeItem(OIDC_SETUP_FLOW_STORAGE_KEY);
+            sessionStorage.removeItem(OIDC_REVIEWED_POLICY_STORAGE_KEY);
+            setTestedIdentity(null);
+            setMappingReview({});
+            setError("The OIDC configuration changed after this test. Connect and test the provider again.");
+            return;
+          }
+          setError("The reviewed access policy could not be evaluated. Change it or retry before activating.");
+        });
+      setNotice("");
+      return;
+    }
+    ++previewRequestSequence.current;
+    setReviewPending(false);
     setTestedIdentity(null);
     setMappingReview({});
+    setMappingErrors({});
+    sessionStorage.removeItem(OIDC_SETUP_FLOW_STORAGE_KEY);
+    sessionStorage.removeItem(OIDC_REVIEWED_POLICY_STORAGE_KEY);
     setNotice("");
   };
 
@@ -194,6 +274,8 @@ export function AuthenticationSettings() {
       const payload = { ...candidate };
       if (clientSecret.trim()) payload.client_secret = clientSecret;
       const result = await api.startOidcTest(payload, remapAll);
+      sessionStorage.setItem(OIDC_SETUP_FLOW_STORAGE_KEY, result.flow_id);
+      sessionStorage.setItem(OIDC_REVIEWED_POLICY_STORAGE_KEY, JSON.stringify(reviewedPolicyFor(candidate)));
       window.location.assign(result.authorization_url);
     } catch {
       setError("The OIDC configuration could not be validated.");
@@ -204,9 +286,20 @@ export function AuthenticationSettings() {
   const activate = async () => {
     if (!testedIdentity || replacementPlanInvalid || !testedIdentityCanAdminister) return;
     const signInPath = testedIdentity.candidate.sign_in_mode === "oidc_only" ? "OIDC only" : "OIDC or password";
+    const affectedAccountMessage =
+      testedIdentity.affected_account_count === 0
+        ? "No accounts will be signed out."
+        : `${testedIdentity.affected_account_count} account${testedIdentity.affected_account_count === 1 ? "" : "s"} will be signed out.`;
+    const actingAdministratorMessage = testedIdentity.acting_administrator_affected
+      ? ` This includes your account. You must sign in through ${testedIdentity.candidate.display_name} to continue.`
+      : "";
+    const provisioningMessage =
+      testedIdentity.candidate.admission_mode === "all_idp_users"
+        ? " Any identity-provider user is admitted and a new local account is created on first sign-in when no mapping exists."
+        : " Only members of the selected admission groups are admitted; an admitted user gets a new local account on first sign-in when no mapping exists.";
     if (
       !window.confirm(
-        `Activate ${testedIdentity.candidate.display_name} in ${signInPath} mode? The tested identity ${testedIdentity.username} will be linked to your current administrator account. Existing sessions may be revoked, requiring users to sign in again through the configured login paths.`
+        `Activate ${testedIdentity.candidate.display_name} in ${signInPath} mode? The tested identity ${testedIdentity.username} will be linked to your current administrator account. ${affectedAccountMessage}${actingAdministratorMessage}${provisioningMessage}`
       )
     )
       return;
@@ -215,6 +308,7 @@ export function AuthenticationSettings() {
     try {
       const result = await api.finalizeOidcConfiguration(
         testedIdentity.flow_id,
+        reviewedPolicyFor(candidate),
         selectedMappings.map(({ target_user_id }) => ({
           target_user_id,
           expected_username: mappingReview[target_user_id].expectedUsername.trim(),
@@ -233,6 +327,7 @@ export function AuthenticationSettings() {
       setTestedIdentity(null);
       setMappingReview({});
       sessionStorage.removeItem(OIDC_SETUP_FLOW_STORAGE_KEY);
+      sessionStorage.removeItem(OIDC_REVIEWED_POLICY_STORAGE_KEY);
       setClientSecret("");
       setShowClientSecret(false);
       if (result.reauthentication_required) {
@@ -249,7 +344,7 @@ export function AuthenticationSettings() {
       const errorCode = getApiErrorMessage(caught, "");
       if (errorCode === "oidc_mapping_review_stale") {
         try {
-          const refreshedIdentity = await api.getOidcTestResult(testedIdentity.flow_id);
+          const refreshedIdentity = await api.getOidcTestResult(testedIdentity.flow_id, reviewedPolicyFor(candidate));
           setCandidate(editableCandidate(refreshedIdentity.candidate));
           setTestedIdentity(refreshedIdentity);
           setMappingErrors({});
@@ -258,6 +353,7 @@ export function AuthenticationSettings() {
         } catch (refreshError: unknown) {
           if (isApiError(refreshError) && refreshError.response?.status === 404) {
             sessionStorage.removeItem(OIDC_SETUP_FLOW_STORAGE_KEY);
+            sessionStorage.removeItem(OIDC_REVIEWED_POLICY_STORAGE_KEY);
             setTestedIdentity(null);
             setMappingReview({});
             setMappingErrors({});
@@ -268,6 +364,7 @@ export function AuthenticationSettings() {
         }
       } else if (errorCode === "oidc_configuration_changed") {
         sessionStorage.removeItem(OIDC_SETUP_FLOW_STORAGE_KEY);
+        sessionStorage.removeItem(OIDC_REVIEWED_POLICY_STORAGE_KEY);
         setTestedIdentity(null);
         setMappingReview({});
         setMappingErrors({});
@@ -296,6 +393,7 @@ export function AuthenticationSettings() {
     try {
       await api.cancelOidcTestFlow(testedIdentity.flow_id);
       sessionStorage.removeItem(OIDC_SETUP_FLOW_STORAGE_KEY);
+      sessionStorage.removeItem(OIDC_REVIEWED_POLICY_STORAGE_KEY);
       setTestedIdentity(null);
       setMappingReview({});
       setMappingErrors({});
@@ -547,7 +645,11 @@ export function AuthenticationSettings() {
             {testedIdentity.email && <Typography>Email: {testedIdentity.email}</Typography>}
             <Typography>Groups: {testedIdentity.groups.join(", ") || "None"}</Typography>
             <Typography>Admission: {testedIdentity.admitted ? "Allowed" : "Denied"}</Typography>
+            {testedIdentity.matching_admission_group && (
+              <Typography>Matching admission group: {testedIdentity.matching_admission_group}</Typography>
+            )}
             <Typography>Resulting role: {testedIdentity.resulting_role ?? "None"}</Typography>
+            <Typography color="text.secondary">Account mapping does not override the admission policy.</Typography>
             {!testedIdentityCanAdminister && (
               <Alert severity="error" sx={{ mt: 1 }}>
                 The tested identity must be admitted as an administrator before this configuration can be activated.
@@ -675,7 +777,7 @@ export function AuthenticationSettings() {
             <Button
               variant="contained"
               sx={{ mt: 2 }}
-              disabled={busy || replacementPlanInvalid || !testedIdentityCanAdminister}
+              disabled={busy || reviewPending || replacementPlanInvalid || !testedIdentityCanAdminister}
               onClick={activate}
             >
               Activate configuration

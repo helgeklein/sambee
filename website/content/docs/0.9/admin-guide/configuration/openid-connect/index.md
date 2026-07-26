@@ -96,9 +96,10 @@ Open **Settings > Administration > Authentication** as a local administrator.
 1. Confirm that the username claim is stable and unique.
 1. Select **OIDC or password** or **OIDC only**. Use the separate recovery action to switch an active configuration to **Password only**.
 1. Select **Connect and test** and complete provider sign-in in the same browser.
-1. Verify the returned username, email, groups, admission result, and resulting role. Activation remains unavailable unless the tested identity is admitted as an administrator.
+1. Verify the returned username, email, groups, matching admission group when group admission is configured, and resulting role. Account mapping does not override admission, and activation remains unavailable unless the tested identity is admitted as an administrator.
+1. Adjust the OIDC sign-in mode, admission policy, role mappings, or username-claim uniqueness confirmation as needed. Sambee reevaluates these policy-only changes from the tested identity without another provider login. Changing the provider, scopes, or claim names discards the test and requires **Connect and test** again.
 1. Review existing local accounts and select the accounts to map.
-1. Select **Activate configuration**, then confirm that the tested identity will be linked to your current administrator account. The confirmation summarizes the selected login paths and warns that users may need to sign in again if activation revokes their sessions.
+1. Select **Activate configuration**, then confirm that the tested identity will be linked to your current administrator account. The confirmation summarizes login and provisioning behavior, shows the exact number of accounts that will be signed out, and identifies when your administrator account is included and which provider you must use to continue.
 
 Testing does not change the active configuration. Activation succeeds only when the tested identity resolves to an administrator, the test belongs to the initiating administrator, and the active configuration has not changed since the test began. Leaving the client-secret field blank preserves an existing stored secret.
 

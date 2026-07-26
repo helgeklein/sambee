@@ -120,6 +120,18 @@ class OidcReplacementMappingInput(SQLModel):
     expected_username: str = Field(min_length=1)
 
 
+class OidcReviewedPolicy(SQLModel):
+    sign_in_mode: SignInMode
+    admission_mode: OidcAdmissionMode
+    admission_groups: list[str] = Field(default_factory=list, max_length=500)
+    role_mappings: OidcRoleMappings = Field(default_factory=OidcRoleMappings)
+    username_claim_uniqueness_confirmed: bool
+
+
+class OidcTestPreviewRequest(SQLModel):
+    reviewed_policy: OidcReviewedPolicy | None = None
+
+
 class OidcTestedIdentityRead(SQLModel):
     flow_id: uuid.UUID
     candidate: RedactedOidcConfiguration
@@ -130,12 +142,16 @@ class OidcTestedIdentityRead(SQLModel):
     email: str | None
     groups: list[str]
     admitted: bool
+    matching_admission_group: str | None
     resulting_role: UserRole | None
+    affected_account_count: int
+    acting_administrator_affected: bool
     expires_at: datetime
 
 
 class OidcFinalizeRequest(SQLModel):
     flow_id: uuid.UUID
+    reviewed_policy: OidcReviewedPolicy
     replacement_mappings: list[OidcReplacementMappingInput] = Field(default_factory=list)
     expected_identity_mapping_revision: int | None = None
     omitted_account_acknowledgements: list[uuid.UUID] = Field(default_factory=list)

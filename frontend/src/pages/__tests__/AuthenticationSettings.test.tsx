@@ -1,9 +1,9 @@
-import { render, screen } from "@testing-library/react";
+import { render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { MemoryRouter, Route, Routes } from "react-router-dom";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import api from "../../services/api";
-import type { OidcAdminConfigurationRead, OidcTestedIdentity, RedactedOidcConfiguration } from "../../types";
+import type { OidcAdminConfigurationRead, OidcReviewedPolicy, OidcTestedIdentity, RedactedOidcConfiguration } from "../../types";
 import { AuthenticationSettings } from "../AuthenticationSettings";
 
 vi.mock("../../services/api", () => ({
@@ -51,13 +51,24 @@ const response = (value: RedactedOidcConfiguration): OidcAdminConfigurationRead 
   },
 });
 
+const reviewedPolicy = (value: RedactedOidcConfiguration): OidcReviewedPolicy => ({
+  sign_in_mode: value.sign_in_mode,
+  admission_mode: value.admission_mode,
+  admission_groups: value.admission_groups,
+  role_mappings: value.role_mappings,
+  username_claim_uniqueness_confirmed: value.username_claim_uniqueness_confirmed,
+});
+
 const testedIdentity = (overrides: Partial<OidcTestedIdentity> = {}): OidcTestedIdentity => ({
   flow_id: "test-flow",
   candidate: configuration("Tested Provider"),
   replacement_mappings: [],
   expected_identity_mapping_revision: 1,
   admitted: true,
+  matching_admission_group: "sambee-users",
   resulting_role: "admin",
+  affected_account_count: 1,
+  acting_administrator_affected: true,
   username: "admin",
   name: "Test Admin",
   email: "admin@example.test",
@@ -96,7 +107,10 @@ describe("Authentication settings", () => {
       replacement_mappings: [],
       expected_identity_mapping_revision: 1,
       admitted: true,
+      matching_admission_group: "sambee-users",
       resulting_role: "admin",
+      affected_account_count: 1,
+      acting_administrator_affected: true,
       username: "admin",
       name: "Test Admin",
       email: "admin@example.test",
@@ -113,10 +127,10 @@ describe("Authentication settings", () => {
     renderSettings();
 
     expect(await screen.findByDisplayValue("Tested Provider")).toBeInTheDocument();
-    expect(api.getOidcTestResult).toHaveBeenCalledWith("test-flow");
+    expect(api.getOidcTestResult).toHaveBeenCalledWith("test-flow", undefined);
     await user.click(screen.getByRole("button", { name: "Activate configuration" }));
     expect(await screen.findByDisplayValue("Activated Provider")).toBeInTheDocument();
-    expect(api.finalizeOidcConfiguration).toHaveBeenCalledWith("test-flow", [], 1, []);
+    expect(api.finalizeOidcConfiguration).toHaveBeenCalledWith("test-flow", reviewedPolicy(tested), [], 1, []);
   });
 
   it("restores the current tab's OIDC setup flow from session storage", async () => {
@@ -129,7 +143,10 @@ describe("Authentication settings", () => {
       replacement_mappings: [],
       expected_identity_mapping_revision: 1,
       admitted: true,
+      matching_admission_group: "sambee-users",
       resulting_role: "admin",
+      affected_account_count: 1,
+      acting_administrator_affected: true,
       username: "admin",
       name: null,
       email: null,
@@ -140,7 +157,7 @@ describe("Authentication settings", () => {
     renderSettings();
 
     expect(await screen.findByDisplayValue("Stored Provider")).toBeInTheDocument();
-    expect(api.getOidcTestResult).toHaveBeenCalledWith("stored-flow");
+    expect(api.getOidcTestResult).toHaveBeenCalledWith("stored-flow", undefined);
   });
 
   it("clears an expired saved flow but retains retryable preview state", async () => {
@@ -185,11 +202,37 @@ describe("Authentication settings", () => {
     renderSettings();
 
     expect(await screen.findByText("Admission: Allowed")).toBeInTheDocument();
+    expect(screen.getByText("Matching admission group: sambee-users")).toBeInTheDocument();
     expect(screen.getByText("Resulting role: admin")).toBeInTheDocument();
+    expect(screen.getByText("Account mapping does not override the admission policy.")).toBeInTheDocument();
     await user.click(screen.getByRole("button", { name: "Activate configuration" }));
 
-    expect(confirm).toHaveBeenCalledWith(expect.stringMatching(/linked to your current administrator account.*sessions may be revoked/i));
+    expect(confirm).toHaveBeenCalledWith(
+      expect.stringMatching(
+        /linked to your current administrator account.*1 account will be signed out.*This includes your account.*sign in through Tested Provider/i
+      )
+    );
     expect(api.finalizeOidcConfiguration).not.toHaveBeenCalled();
+  });
+
+  it("reevaluates reviewed policy without another interactive provider test", async () => {
+    const user = userEvent.setup();
+    const initialCandidate = configuration("Tested Provider");
+    const reviewedCandidate = { ...initialCandidate, sign_in_mode: "oidc_only" as const };
+    vi.mocked(api.getOidcConfiguration).mockResolvedValue(response(configuration("Active Provider")));
+    vi.mocked(api.getOidcTestResult)
+      .mockResolvedValueOnce(testedIdentity({ candidate: initialCandidate }))
+      .mockResolvedValueOnce(testedIdentity({ candidate: reviewedCandidate, affected_account_count: 3 }));
+    window.location.hash = "flow=test-flow";
+    renderSettings();
+
+    await user.click(await screen.findByRole("combobox", { name: "Sign-in mode" }));
+    await user.click(screen.getByRole("option", { name: "OIDC only" }));
+
+    await waitFor(() => expect(api.getOidcTestResult).toHaveBeenNthCalledWith(2, "test-flow", reviewedPolicy(reviewedCandidate)));
+    expect(api.startOidcTest).not.toHaveBeenCalled();
+    expect(sessionStorage.getItem("sambee.oidc.setupFlowId")).toBe("test-flow");
+    expect(screen.getByRole("button", { name: "Activate configuration" })).toBeEnabled();
   });
 
   it("blocks activation when the tested identity is not an admitted administrator", async () => {
@@ -219,7 +262,7 @@ describe("Authentication settings", () => {
     await user.click(await screen.findByRole("button", { name: "Activate configuration" }));
 
     expect(await screen.findByText(/review the refreshed mappings/i)).toBeInTheDocument();
-    expect(api.getOidcTestResult).toHaveBeenNthCalledWith(2, "test-flow");
+    expect(api.getOidcTestResult).toHaveBeenNthCalledWith(2, "test-flow", reviewedPolicy(configuration("Tested Provider")));
     expect(sessionStorage.getItem("sambee.oidc.setupFlowId")).toBe("test-flow");
   });
 
@@ -251,7 +294,10 @@ describe("Authentication settings", () => {
       replacement_mappings: [],
       expected_identity_mapping_revision: 1,
       admitted: true,
+      matching_admission_group: "sambee-users",
       resulting_role: "admin",
+      affected_account_count: 1,
+      acting_administrator_affected: true,
       username: "admin",
       name: null,
       email: null,
@@ -306,7 +352,10 @@ describe("Authentication settings", () => {
       ],
       expected_identity_mapping_revision: 4,
       admitted: true,
+      matching_admission_group: "sambee-users",
       resulting_role: "admin",
+      affected_account_count: 2,
+      acting_administrator_affected: true,
       username: "admin",
       name: "Test Admin",
       email: "admin@example.test",
@@ -332,6 +381,7 @@ describe("Authentication settings", () => {
 
     expect(api.finalizeOidcConfiguration).toHaveBeenCalledWith(
       "test-flow",
+      reviewedPolicy(configuration("New Provider")),
       [
         { target_user_id: "user-1", expected_username: "reviewed-alice" },
         { target_user_id: "user-2", expected_username: "provider-alice" },
@@ -484,6 +534,23 @@ describe("Authentication settings", () => {
     expect(confirmation).not.toBeChecked();
   });
 
+  it("discards the validated flow when a provider-bound claim changes", async () => {
+    const user = userEvent.setup();
+    vi.mocked(api.getOidcConfiguration).mockResolvedValue(response(configuration("Active Provider")));
+    vi.mocked(api.getOidcTestResult).mockResolvedValue(testedIdentity());
+    window.location.hash = "flow=test-flow";
+    renderSettings();
+
+    await screen.findByText("Tested identity");
+    expect(sessionStorage.getItem("sambee.oidc.setupFlowId")).toBe("test-flow");
+    await user.clear(screen.getByRole("textbox", { name: "Username claim" }));
+    await user.type(screen.getByRole("textbox", { name: "Username claim" }), "email");
+
+    expect(sessionStorage.getItem("sambee.oidc.setupFlowId")).toBeNull();
+    expect(sessionStorage.getItem("sambee.oidc.reviewedPolicy")).toBeNull();
+    expect(screen.queryByText("Tested identity")).not.toBeInTheDocument();
+  });
+
   it("warns when an active passwordless account is omitted in OIDC or password mode", async () => {
     vi.mocked(api.getOidcConfiguration).mockResolvedValue(response(configuration("Active Provider")));
     vi.mocked(api.getOidcTestResult).mockResolvedValue({
@@ -506,7 +573,10 @@ describe("Authentication settings", () => {
       ],
       expected_identity_mapping_revision: 1,
       admitted: true,
+      matching_admission_group: "sambee-users",
       resulting_role: "admin",
+      affected_account_count: 1,
+      acting_administrator_affected: true,
       username: "admin",
       name: null,
       email: null,

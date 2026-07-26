@@ -430,8 +430,10 @@ class ApiService {
     return response.data;
   }
 
-  async getOidcTestResult(flowId: string): Promise<OidcTestedIdentity> {
-    const response = await this.api.get<OidcTestedIdentity>(`/admin/auth/oidc/test/${flowId}`);
+  async getOidcTestResult(flowId: string, reviewedPolicy?: OidcReviewedPolicy): Promise<OidcTestedIdentity> {
+    const response = await this.api.post<OidcTestedIdentity>(`/admin/auth/oidc/test-flows/${flowId}/preview`, {
+      reviewed_policy: reviewedPolicy,
+    });
     return response.data;
   }
 
@@ -441,12 +443,14 @@ class ApiService {
 
   async finalizeOidcConfiguration(
     flowId: string,
+    reviewedPolicy: OidcReviewedPolicy,
     replacementMappings: Array<{ target_user_id: string; expected_username: string }>,
     expectedIdentityMappingRevision: number | null,
     omittedAccountAcknowledgements: string[]
   ): Promise<OidcFinalizeResponse> {
     const response = await this.api.post<OidcFinalizeResponse>("/admin/auth/oidc/finalize", {
       flow_id: flowId,
+      reviewed_policy: reviewedPolicy,
       replacement_mappings: replacementMappings,
       expected_identity_mapping_revision: expectedIdentityMappingRevision,
       omitted_account_acknowledgements: omittedAccountAcknowledgements,

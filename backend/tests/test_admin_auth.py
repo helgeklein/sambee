@@ -5,6 +5,7 @@ from unittest.mock import Mock
 
 import pytest
 from fastapi.testclient import TestClient
+from sqlalchemy.exc import IntegrityError
 from sqlmodel import Session, select
 
 import app.api.admin_auth as admin_auth_module
@@ -24,7 +25,12 @@ from app.models.oidc import (
 )
 from app.models.user import User, UserRole
 from app.services.oidc_client import NormalizedOidcClaims
-from app.services.oidc_configuration import NormalizedOidcCandidate, OidcSecretCipher, encrypt_candidate_snapshot
+from app.services.oidc_configuration import (
+    NormalizedOidcCandidate,
+    OidcSecretCipher,
+    decrypt_candidate_snapshot,
+    encrypt_candidate_snapshot,
+)
 from app.services.oidc_identity import resolve_or_provision_oidc_user
 from app.services.oidc_mapping import OidcMappingError, claim_mapping_revision
 
@@ -77,6 +83,18 @@ def _create_validated_test_flow(
     session.add(flow)
     session.commit()
     return flow
+
+
+def _reviewed_policy_for_flow(flow: OidcFlow) -> dict[str, object]:
+    cipher = OidcSecretCipher(config_module.settings.oidc_secret_key)
+    candidate = decrypt_candidate_snapshot(str(flow.encrypted_candidate_configuration), cipher)
+    return {
+        "sign_in_mode": candidate.sign_in_mode,
+        "admission_mode": candidate.admission_mode,
+        "admission_groups": list(candidate.admission_groups),
+        "role_mappings": {"admin": list(candidate.admin_groups), "editor": list(candidate.editor_groups)},
+        "username_claim_uniqueness_confirmed": candidate.username_claim_uniqueness_confirmed,
+    }
 
 
 def test_finalize_oidc_configuration_is_idempotent(
@@ -134,12 +152,18 @@ def test_finalize_oidc_configuration_is_idempotent(
     session.commit()
 
     headers = {"Authorization": f"Bearer {admin_token}"}
-    tested = client.get(f"/api/admin/auth/oidc/test/{flow.id}", headers=headers)
+    reviewed_policy = _reviewed_policy_for_flow(flow)
+    tested = client.post(
+        f"/api/admin/auth/oidc/test-flows/{flow.id}/preview",
+        headers=headers,
+        json={"reviewed_policy": reviewed_policy},
+    )
     first = client.post(
         "/api/admin/auth/oidc/finalize",
         headers=headers,
         json={
             "flow_id": str(flow.id),
+            "reviewed_policy": reviewed_policy,
             "replacement_mappings": [{"target_user_id": str(unrelated_user.id), "expected_username": "provider-unrelated"}],
             "expected_identity_mapping_revision": None,
         },
@@ -176,7 +200,11 @@ def test_finalize_oidc_configuration_is_idempotent(
     assert client.get("/api/auth/me", headers=headers).status_code == 401
     session.refresh(admin_user)
     refreshed_headers = {"Authorization": f"Bearer {build_user_access_token(admin_user)}"}
-    second = client.post("/api/admin/auth/oidc/finalize", headers=refreshed_headers, json={"flow_id": str(flow.id)})
+    second = client.post(
+        "/api/admin/auth/oidc/finalize",
+        headers=refreshed_headers,
+        json={"flow_id": str(flow.id), "reviewed_policy": reviewed_policy},
+    )
     assert second.status_code == 200
     assert second.json() == first.json()
     clear_cache.assert_called_once_with()
@@ -192,7 +220,11 @@ def test_finalize_oidc_configuration_is_idempotent(
     flow.expires_at = datetime.now(timezone.utc) - timedelta(seconds=1)
     session.add(flow)
     session.commit()
-    expired_retry = client.post("/api/admin/auth/oidc/finalize", headers=refreshed_headers, json={"flow_id": str(flow.id)})
+    expired_retry = client.post(
+        "/api/admin/auth/oidc/finalize",
+        headers=refreshed_headers,
+        json={"flow_id": str(flow.id), "reviewed_policy": reviewed_policy},
+    )
     assert expired_retry.status_code == 404
 
 
@@ -204,15 +236,115 @@ def test_oidc_test_preview_is_not_cached_and_includes_identity_evaluation(
 ) -> None:
     flow = _create_validated_test_flow(session, admin_user)
 
-    response = client.get(
-        f"/api/admin/auth/oidc/test/{flow.id}",
+    response = client.post(
+        f"/api/admin/auth/oidc/test-flows/{flow.id}/preview",
         headers={"Authorization": f"Bearer {admin_token}"},
+        json={"reviewed_policy": _reviewed_policy_for_flow(flow)},
     )
 
     assert response.status_code == 200
     assert response.headers["cache-control"] == "no-store"
     assert response.json()["admitted"] is True
+    assert response.json()["matching_admission_group"] is None
     assert response.json()["resulting_role"] == "admin"
+    assert response.json()["affected_account_count"] == 1
+    assert response.json()["acting_administrator_affected"] is True
+
+
+def test_oidc_test_preview_reevaluates_reviewed_policy_and_reports_impact(
+    client: TestClient,
+    session: Session,
+    admin_user: User,
+    admin_token: str,
+) -> None:
+    other_user = User(username="preview-impact-user", password_hash="hash")
+    session.add(other_user)
+    session.commit()
+    flow = _create_validated_test_flow(session, admin_user)
+    reviewed_policy = _reviewed_policy_for_flow(flow)
+    reviewed_policy.update(
+        {
+            "sign_in_mode": "oidc_only",
+            "admission_mode": "selected_groups",
+            "admission_groups": ["SAMBEE-ADMINS"],
+        }
+    )
+
+    response = client.post(
+        f"/api/admin/auth/oidc/test-flows/{flow.id}/preview",
+        headers={"Authorization": f"Bearer {admin_token}"},
+        json={"reviewed_policy": reviewed_policy},
+    )
+
+    assert response.status_code == 200
+    result = response.json()
+    assert result["candidate"]["sign_in_mode"] == "oidc_only"
+    assert result["candidate"]["admission_mode"] == "selected_groups"
+    assert result["matching_admission_group"] == "SAMBEE-ADMINS"
+    assert result["resulting_role"] == "admin"
+    assert result["affected_account_count"] == 2
+    assert result["acting_administrator_affected"] is True
+
+
+def test_finalize_commits_reviewed_policy_after_interactive_test(
+    client: TestClient,
+    session: Session,
+    admin_user: User,
+    admin_token: str,
+) -> None:
+    flow = _create_validated_test_flow(session, admin_user)
+    reviewed_policy = _reviewed_policy_for_flow(flow)
+    reviewed_policy.update(
+        {
+            "sign_in_mode": "oidc_only",
+            "admission_mode": "selected_groups",
+            "admission_groups": ["sambee-admins"],
+        }
+    )
+
+    response = client.post(
+        "/api/admin/auth/oidc/finalize",
+        headers={"Authorization": f"Bearer {admin_token}"},
+        json={
+            "flow_id": str(flow.id),
+            "reviewed_policy": reviewed_policy,
+            "expected_identity_mapping_revision": None,
+        },
+    )
+
+    assert response.status_code == 200
+    active = session.get(OidcProviderConfiguration, 1)
+    assert active is not None
+    assert active.sign_in_mode == SignInMode.OIDC_ONLY
+    assert active.admission_mode == OidcAdmissionMode.SELECTED_GROUPS
+    assert json.loads(active.admission_groups_json) == ["sambee-admins"]
+
+
+def test_initial_activation_integrity_race_returns_configuration_changed(
+    client: TestClient,
+    session: Session,
+    admin_user: User,
+    admin_token: str,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    flow = _create_validated_test_flow(session, admin_user)
+
+    def raise_integrity_error() -> None:
+        raise IntegrityError("concurrent singleton insert", {}, RuntimeError("conflict"))
+
+    monkeypatch.setattr(session, "commit", raise_integrity_error)
+    response = client.post(
+        "/api/admin/auth/oidc/finalize",
+        headers={"Authorization": f"Bearer {admin_token}"},
+        json={
+            "flow_id": str(flow.id),
+            "reviewed_policy": _reviewed_policy_for_flow(flow),
+            "expected_identity_mapping_revision": None,
+        },
+    )
+
+    assert response.status_code == 409
+    assert response.json()["detail"] == "oidc_configuration_changed"
 
 
 def test_finalize_rejects_password_only_candidate(
@@ -226,7 +358,11 @@ def test_finalize_rejects_password_only_candidate(
     response = client.post(
         "/api/admin/auth/oidc/finalize",
         headers={"Authorization": f"Bearer {admin_token}"},
-        json={"flow_id": str(flow.id), "expected_identity_mapping_revision": None},
+        json={
+            "flow_id": str(flow.id),
+            "reviewed_policy": _reviewed_policy_for_flow(flow),
+            "expected_identity_mapping_revision": None,
+        },
     )
 
     assert response.status_code == 409
@@ -250,6 +386,7 @@ def test_finalize_returns_structured_mapping_review_errors(
         headers={"Authorization": f"Bearer {admin_token}"},
         json={
             "flow_id": str(flow.id),
+            "reviewed_policy": _reviewed_policy_for_flow(flow),
             "expected_identity_mapping_revision": None,
             "replacement_mappings": [{"target_user_id": str(target_id), "expected_username": "provider-user"}],
         },
@@ -286,7 +423,11 @@ def test_finalize_rechecks_initiating_administrator_after_write_boundary(
     response = client.post(
         "/api/admin/auth/oidc/finalize",
         headers={"Authorization": f"Bearer {admin_token}"},
-        json={"flow_id": str(flow.id), "expected_identity_mapping_revision": None},
+        json={
+            "flow_id": str(flow.id),
+            "reviewed_policy": _reviewed_policy_for_flow(flow),
+            "expected_identity_mapping_revision": None,
+        },
     )
 
     assert response.status_code == 409
@@ -320,7 +461,11 @@ def test_finalize_flow_claim_rechecks_expiry(
     response = client.post(
         "/api/admin/auth/oidc/finalize",
         headers={"Authorization": f"Bearer {admin_token}"},
-        json={"flow_id": str(flow.id), "expected_identity_mapping_revision": None},
+        json={
+            "flow_id": str(flow.id),
+            "reviewed_policy": _reviewed_policy_for_flow(flow),
+            "expected_identity_mapping_revision": None,
+        },
     )
 
     assert response.status_code == 404, response.json()
@@ -537,6 +682,7 @@ def test_namespace_replacement_stages_existing_identity_for_exact_relink(
         headers={"Authorization": f"Bearer {admin_token}"},
         json={
             "flow_id": str(flow.id),
+            "reviewed_policy": _reviewed_policy_for_flow(flow),
             "replacement_mappings": [{"target_user_id": str(existing_user.id), "expected_username": "provider-alice"}],
             "expected_identity_mapping_revision": 4,
         },
@@ -629,9 +775,10 @@ def test_namespace_replacement_rejects_duplicate_reviewed_usernames_before_mutat
     session.add(flow)
     session.commit()
 
-    preview = client.get(
-        f"/api/admin/auth/oidc/test/{flow.id}",
+    preview = client.post(
+        f"/api/admin/auth/oidc/test-flows/{flow.id}/preview",
         headers={"Authorization": f"Bearer {admin_token}"},
+        json={"reviewed_policy": _reviewed_policy_for_flow(flow)},
     )
     assert preview.status_code == 200
     preview_rows = preview.json()["replacement_mappings"]
@@ -642,6 +789,7 @@ def test_namespace_replacement_rejects_duplicate_reviewed_usernames_before_mutat
         headers={"Authorization": f"Bearer {admin_token}"},
         json={
             "flow_id": str(flow.id),
+            "reviewed_policy": _reviewed_policy_for_flow(flow),
             "expected_identity_mapping_revision": 4,
             "replacement_mappings": [
                 {"target_user_id": str(first_user.id), "expected_username": "duplicate"},
@@ -671,6 +819,7 @@ def test_username_claim_change_removes_pending_mappings_and_revokes_affected_use
         issuer_url="https://id.example.test",
         client_id="sambee",
         encrypted_client_secret=cipher.encrypt("secret"),
+        sign_in_mode=SignInMode.OIDC_OR_PASSWORD,
         role_mappings_json=json.dumps({"admin": ["sambee-admins"], "editor": []}),
         configuration_revision=7,
         identity_mapping_revision=3,
@@ -733,7 +882,11 @@ def test_username_claim_change_removes_pending_mappings_and_revokes_affected_use
     response = client.post(
         "/api/admin/auth/oidc/finalize",
         headers={"Authorization": f"Bearer {admin_token}"},
-        json={"flow_id": str(flow.id), "expected_identity_mapping_revision": 3},
+        json={
+            "flow_id": str(flow.id),
+            "reviewed_policy": _reviewed_policy_for_flow(flow),
+            "expected_identity_mapping_revision": 3,
+        },
     )
 
     assert response.status_code == 200
@@ -813,7 +966,7 @@ def test_mapping_context_change_rejects_concurrent_mapping_revision(
     response = client.post(
         "/api/admin/auth/oidc/finalize",
         headers={"Authorization": f"Bearer {admin_token}"},
-        json={"flow_id": str(flow.id)},
+        json={"flow_id": str(flow.id), "reviewed_policy": _reviewed_policy_for_flow(flow)},
     )
 
     assert response.status_code == 409

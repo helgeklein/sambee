@@ -1,4 +1,5 @@
 import json
+from dataclasses import dataclass
 from datetime import datetime, timezone
 from enum import StrEnum
 from typing import cast
@@ -32,6 +33,12 @@ class OidcIdentityError(ValueError):
         self.code = code
 
 
+@dataclass(frozen=True)
+class OidcAccessEvaluation:
+    role: UserRole
+    matching_admission_group: str | None
+
+
 def _json_strings(value: str) -> list[str]:
     decoded = json.loads(value)
     if not isinstance(decoded, list) or any(not isinstance(item, str) for item in decoded):
@@ -52,9 +59,10 @@ def _role_mappings(value: str) -> dict[str, list[str]]:
     return {"admin": cast(list[str], admin), "editor": cast(list[str], editor)}
 
 
-def resolve_oidc_role(configuration: OidcProviderConfiguration, groups: tuple[str, ...]) -> UserRole:
+def evaluate_oidc_access(configuration: OidcProviderConfiguration, groups: tuple[str, ...]) -> OidcAccessEvaluation:
     normalized_groups = {normalize_group_key(group) for group in groups}
-    admission_groups = {normalize_group_key(group) for group in _json_strings(configuration.admission_groups_json)}
+    configured_admission_groups = _json_strings(configuration.admission_groups_json)
+    admission_groups = {normalize_group_key(group) for group in configured_admission_groups}
     mappings = _role_mappings(configuration.role_mappings_json)
     admin_groups = {normalize_group_key(group) for group in mappings["admin"]}
     editor_groups = {normalize_group_key(group) for group in mappings["editor"]}
@@ -64,11 +72,19 @@ def resolve_oidc_role(configuration: OidcProviderConfiguration, groups: tuple[st
         raise OidcIdentityError(OidcIdentityErrorCode.NOT_ADMITTED)
     if configuration.admission_mode == OidcAdmissionMode.SELECTED_GROUPS and not normalized_groups.intersection(admission_groups):
         raise OidcIdentityError(OidcIdentityErrorCode.NOT_ADMITTED)
+    matching_admission_group = next(
+        (group for group in configured_admission_groups if normalize_group_key(group) in normalized_groups),
+        None,
+    )
     if normalized_groups.intersection(admin_groups):
-        return UserRole.ADMIN
+        return OidcAccessEvaluation(role=UserRole.ADMIN, matching_admission_group=matching_admission_group)
     if normalized_groups.intersection(editor_groups):
-        return UserRole.EDITOR
-    return UserRole.VIEWER
+        return OidcAccessEvaluation(role=UserRole.EDITOR, matching_admission_group=matching_admission_group)
+    return OidcAccessEvaluation(role=UserRole.VIEWER, matching_admission_group=matching_admission_group)
+
+
+def resolve_oidc_role(configuration: OidcProviderConfiguration, groups: tuple[str, ...]) -> UserRole:
+    return evaluate_oidc_access(configuration, groups).role
 
 
 def _is_unexpired(user: User, now: datetime) -> bool:

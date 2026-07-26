@@ -261,6 +261,14 @@ export interface OidcRoleMappings {
   editor: string[];
 }
 
+export interface OidcReviewedPolicy {
+  sign_in_mode: SignInMode;
+  admission_mode: OidcAdmissionMode;
+  admission_groups: string[];
+  role_mappings: OidcRoleMappings;
+  username_claim_uniqueness_confirmed: boolean;
+}
+
 export interface OidcConfigurationCandidate {
   display_name: string;
   issuer_url: string;
@@ -324,7 +332,10 @@ export interface OidcTestedIdentity {
   replacement_mappings: OidcReplacementMapping[];
   expected_identity_mapping_revision: number | null;
   admitted: boolean;
+  matching_admission_group: string | null;
   resulting_role: UserRole | null;
+  affected_account_count: number;
+  acting_administrator_affected: boolean;
   username: string;
   name: string | null;
   email: string | null;
