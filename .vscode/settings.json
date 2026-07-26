@@ -142,12 +142,7 @@
     "which": true,
     "who": true,
     // Read-only Git inspection
-    "/^git\\s+(status|diff|log|show|branch|blame|rev-parse|ls-files|ls-tree|describe|tag|remote)\\b/": {
-      "approve": true,
-      "matchCommandLine": true
-    },
-    // Read-only remote Git inspection
-    "/^git\\s+ls-remote\\b/": {
+    "/git(\\s+--no-pager)?\\s+(status|diff|log|show|branch|blame|rev-parse|ls-files|ls-remote|ls-tree|describe|tag|remote)\\b/": {
       "approve": true,
       "matchCommandLine": true
     },
@@ -182,28 +177,17 @@
       "matchCommandLine": true
     },
     // Python tests and static analysis
-    "/^(?:\\.venv\\/bin\\/|backend\\/\\.venv\\/bin\\/)?(?:pytest|mypy|ruff)\\b/": {
-      "approve": true,
-      "matchCommandLine": true
-    },
-    "/^(?:\\/usr\\/local\\/bin\\/)?python3?\\s+-m\\s+(?:pytest|ruff|mypy|py_compile|unittest)\\b/": {
-      "approve": true,
-      "matchCommandLine": true
-    },
-    "/^(?:cd\\s+(?:\\/workspace(?:\\/backend)?|backend)\\s+&&\\s+)?(?:\\.venv\\/bin\\/|backend\\/\\.venv\\/bin\\/)?(?:pytest|mypy|ruff)\\b[^;&|`$()<>\\r\\n]*(?:\\s+&&\\s+(?:\\.venv\\/bin\\/|backend\\/\\.venv\\/bin\\/)?(?:pytest|mypy|ruff)\\b[^;&|`$()<>\\r\\n]*)+$": {
-      "approve": true,
-      "matchCommandLine": true
-    },
+    "pytest": true,
+    "mypy": true,
+    "ruff": true,
+    // Frontend tests and static analysis
+    "npm run lint": true,
+    "npm test": true,
+    "npx vitest": true,
+    "npx tsc": true,
+    "npx biome": true,
     // Frontend validation and builds
-    "/^npm\\s+test\\b/": {
-      "approve": true,
-      "matchCommandLine": true
-    },
-    "/^npm\\s+run\\s+(?:test|lint|format|check|typecheck|build)\\b/": {
-      "approve": true,
-      "matchCommandLine": true
-    },
-    "/^npx\\s+tsc\\s+--noEmit\\b/": {
+    "/npm\\s+run\\s+(?:test|lint|format|check|typecheck|build)\\b/": {
       "approve": true,
       "matchCommandLine": true
     },
