@@ -142,6 +142,10 @@ export const EN_TRANSLATIONS = {
         label: "User Management",
         description: "Create accounts, assign roles, and issue password resets.",
       },
+      adminAuthentication: {
+        label: "Authentication",
+        description: "Configure password and OpenID Connect sign-in.",
+      },
       adminSystem: {
         label: "System",
         description: "Manage system-wide SMB and preprocessing runtime settings.",

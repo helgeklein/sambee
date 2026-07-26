@@ -2,8 +2,24 @@ import axios from "axios";
 import { logger } from "./logger";
 
 export type AuthMethod = "none" | "password";
+export type SignInMode = "none" | "password_only" | "oidc_or_password" | "oidc_only";
 
-interface AuthConfig {
+export interface OidcPublicConfig {
+  display_name: string;
+  authorization_path: string;
+}
+
+export interface AuthConfig {
+  sign_in_mode: SignInMode;
+  oidc: OidcPublicConfig | null;
+}
+
+interface CanonicalAuthConfigResponse {
+  sign_in_mode: Exclude<SignInMode, "none">;
+  oidc?: OidcPublicConfig | null;
+}
+
+interface LegacyAuthConfigResponse {
   auth_method: AuthMethod;
 }
 
@@ -19,15 +35,53 @@ export async function getAuthConfig(): Promise<AuthConfig> {
 
   try {
     const baseURL = import.meta.env.VITE_API_URL || "/api";
-    const response = await axios.get<AuthConfig>(`${baseURL}/auth/config`);
-    authConfigCache = response.data;
-    logger.info(`Auth configuration loaded: ${authConfigCache.auth_method}`, {}, "auth");
+    const response = await axios.get<unknown>(`${baseURL}/auth/config`);
+    authConfigCache = parseAuthConfig(response.data);
+    logger.info(`Auth configuration loaded: ${authConfigCache.sign_in_mode}`, {}, "auth");
     return authConfigCache;
   } catch (error) {
     logger.error("Failed to load auth configuration", { error }, "auth");
-    // Default to password auth if we can't reach the backend
-    return { auth_method: "password" };
+    throw error;
   }
+}
+
+function isOidcPublicConfig(value: unknown): value is OidcPublicConfig {
+  if (typeof value !== "object" || value === null) {
+    return false;
+  }
+  const candidate = value as Record<string, unknown>;
+  return typeof candidate.display_name === "string" && typeof candidate.authorization_path === "string";
+}
+
+export function parseAuthConfig(value: unknown): AuthConfig {
+  if (typeof value !== "object" || value === null) {
+    throw new Error("Invalid authentication configuration");
+  }
+
+  const candidate = value as Partial<CanonicalAuthConfigResponse & LegacyAuthConfigResponse>;
+  if (
+    candidate.sign_in_mode === "password_only" ||
+    candidate.sign_in_mode === "oidc_or_password" ||
+    candidate.sign_in_mode === "oidc_only"
+  ) {
+    const oidc = candidate.oidc ?? null;
+    if (candidate.sign_in_mode !== "password_only" && !isOidcPublicConfig(oidc)) {
+      throw new Error("OIDC authentication configuration is incomplete");
+    }
+    if (oidc !== null && !isOidcPublicConfig(oidc)) {
+      throw new Error("Invalid OIDC authentication configuration");
+    }
+    return { sign_in_mode: candidate.sign_in_mode, oidc };
+  }
+
+  if (candidate.auth_method === "none") {
+    return { sign_in_mode: "none", oidc: null };
+  }
+  if (candidate.auth_method === "password") {
+    return { sign_in_mode: "password_only", oidc: null };
+  }
+
+  throw new Error("Invalid authentication configuration");
 }
 
 /**
@@ -35,7 +89,7 @@ export async function getAuthConfig(): Promise<AuthConfig> {
  */
 export async function isAuthRequired(): Promise<boolean> {
   const config = await getAuthConfig();
-  return config.auth_method !== "none";
+  return config.sign_in_mode !== "none";
 }
 
 /**

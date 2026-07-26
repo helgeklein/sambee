@@ -9,8 +9,13 @@ vi.mock("../../services/api", () => ({
   login: vi.fn(),
 }));
 
+vi.mock("../../services/authConfig", () => ({
+  getAuthConfig: vi.fn(),
+}));
+
 // Import the mocked function so we can control it
 import { login as mockLogin } from "../../services/api";
+import { getAuthConfig as mockGetAuthConfig } from "../../services/authConfig";
 
 describe("Login Component", () => {
   beforeEach(() => {
@@ -18,6 +23,8 @@ describe("Login Component", () => {
     localStorage.clear();
     // Clear all mocks
     vi.clearAllMocks();
+    sessionStorage.clear();
+    vi.mocked(mockGetAuthConfig).mockResolvedValue({ sign_in_mode: "password_only", oidc: null });
   });
 
   it("renders login form with all elements", async () => {
@@ -224,5 +231,32 @@ describe("Login Component", () => {
     await waitFor(() => {
       expect(localStorage.getItem("access_token")).toBe("mock-user-token");
     });
+  });
+
+  it("shows provider and password sign-in together in OIDC or password mode", async () => {
+    vi.mocked(mockGetAuthConfig).mockResolvedValueOnce({
+      sign_in_mode: "oidc_or_password",
+      oidc: { display_name: "Example Identity", authorization_path: "/api/auth/oidc/authorize" },
+    });
+
+    render(<Login />);
+
+    expect(await screen.findByRole("button", { name: "Sign in with Example Identity" })).toBeInTheDocument();
+    expect(screen.getByLabelText(/username/i)).toBeInTheDocument();
+    expect(screen.getByLabelText(/password/i)).toBeInTheDocument();
+  });
+
+  it("shows only retry after an OIDC-only automatic attempt returns", async () => {
+    sessionStorage.setItem("sambee_oidc_attempted", "1");
+    vi.mocked(mockGetAuthConfig).mockResolvedValueOnce({
+      sign_in_mode: "oidc_only",
+      oidc: { display_name: "Example Identity", authorization_path: "/api/auth/oidc/authorize" },
+    });
+
+    render(<Login />);
+
+    expect(await screen.findByRole("button", { name: "Try again" })).toBeInTheDocument();
+    expect(screen.queryByLabelText(/username/i)).not.toBeInTheDocument();
+    expect(screen.queryByLabelText(/password/i)).not.toBeInTheDocument();
   });
 });

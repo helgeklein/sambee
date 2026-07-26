@@ -239,6 +239,71 @@ export interface AuthToken {
   role?: UserRole;
   expires_at?: string | null;
   must_change_password?: boolean;
+  return_path?: string;
+}
+
+export type SignInMode = "password_only" | "oidc_or_password" | "oidc_only";
+export type OidcAdmissionMode = "all_idp_users" | "selected_groups";
+
+export interface OidcRoleMappings {
+  admin: string[];
+  editor: string[];
+}
+
+export interface OidcConfigurationCandidate {
+  display_name: string;
+  issuer_url: string;
+  client_id: string;
+  client_secret?: string;
+  scopes: string[];
+  username_claim: string;
+  username_claim_uniqueness_confirmed: boolean;
+  name_claim: string | null;
+  email_claim: string | null;
+  groups_claim: string | null;
+  sign_in_mode: SignInMode;
+  admission_mode: OidcAdmissionMode;
+  admission_groups: string[];
+  role_mappings: OidcRoleMappings;
+}
+
+export interface RedactedOidcConfiguration extends Omit<OidcConfigurationCandidate, "client_secret"> {
+  client_secret_configured: boolean;
+  configuration_revision: number;
+  identity_mapping_revision: number;
+}
+
+export interface AuthenticationHealth {
+  oidc_secret_key_configured: boolean;
+  public_url_configured: boolean;
+  public_url: string | null;
+  redirect_uri: string | null;
+  status: "healthy" | "unhealthy";
+  reasons: string[];
+}
+
+export interface OidcAdminConfigurationRead {
+  configuration: RedactedOidcConfiguration | null;
+  health: AuthenticationHealth;
+}
+
+export interface OidcTestStartResponse {
+  flow_id: string;
+  authorization_url: string;
+}
+
+export interface OidcTestedIdentity {
+  flow_id: string;
+  username: string;
+  name: string | null;
+  email: string | null;
+  groups: string[];
+  expires_at: string;
+}
+
+export interface OidcFinalizeResponse {
+  configuration_revision: number;
+  identity_mapping_revision: number;
 }
 
 export interface CompanionDownloadMetadata {

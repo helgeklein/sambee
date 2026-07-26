@@ -171,6 +171,12 @@ async def reset_user_password(
     if not user:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="User not found")
 
+    if user.password_hash is None:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Password reset requires an existing local password",
+        )
+
     user.password_hash = get_password_hash(reset_data.new_password)
     user.must_change_password = reset_data.must_change_password
     user.token_version += 1

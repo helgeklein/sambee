@@ -203,6 +203,8 @@ class Settings(BaseModel):
     access_token_expire_minutes: int = 1440
     secret_key: str = ""  # Set dynamically from database
     encryption_key: str = ""  # Set dynamically from database
+    oidc_secret_key: str = ""
+    public_url: str = ""
 
     # Admin settings
     admin_username: str = "admin"
@@ -331,6 +333,8 @@ def load_settings() -> Settings:
 
     toml_config = load_toml_config(config_path)
     configured_setting_keys = frozenset(toml_config.keys())
+    toml_config["oidc_secret_key"] = os.environ.get("SAMBEE_OIDC_SECRET_KEY", "")
+    toml_config["public_url"] = os.environ.get("SAMBEE_PUBLIC_URL", "")
     return Settings(**toml_config)
 
 

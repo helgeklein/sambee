@@ -45,6 +45,8 @@ password = "changeme"
 
     # Set environment variable to redirect config loading
     os.environ["SAMBEE_CONFIG_PATH"] = str(test_config)
+    os.environ["SAMBEE_OIDC_SECRET_KEY"] = "797e7kOP_3m-d9nguKSO5ctIGg8AG5BmNIla9TMEZzE="
+    os.environ["SAMBEE_PUBLIC_URL"] = "https://sambee.example.test"
 
 
 @pytest.fixture(scope="session", autouse=True)
@@ -56,12 +58,14 @@ def reload_config():
     """
     import sys
 
+    import app.api.admin_auth
     import app.api.auth
     import app.api.companion
     import app.core.config as config_module
     import app.core.security
     import app.db.database
     import app.main
+    import app.services.authentication_config
 
     # Reload the settings with the test config path
     new_settings = config_module.load_settings()
@@ -72,9 +76,11 @@ def reload_config():
     # all modules see the updated values
     app.main.settings = new_settings
     app.api.auth.settings = new_settings
+    app.api.admin_auth.settings = new_settings
     app.api.companion.settings = new_settings
     app.core.security.settings = new_settings
     app.db.database.settings = new_settings
+    app.services.authentication_config.settings = new_settings
 
     # Also patch test modules if they've been imported
     if "tests.test_security" in sys.modules:

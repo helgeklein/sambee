@@ -132,12 +132,27 @@ class TestApplicationLifecycle:
         mock_db_session = MagicMock()
         mock_session.return_value.__enter__.return_value = mock_db_session
         mock_db_session.exec.return_value.first.return_value = None
+        mock_db_session.get.return_value = None
 
         # Create client which triggers startup
         with TestClient(app):
             # Verify admin user was added
             assert mock_db_session.add.called
             assert mock_db_session.commit.called
+
+    @patch("app.main.init_db")
+    @patch("app.main.Session")
+    def test_startup_does_not_recreate_admin_when_auth_configuration_exists(self, mock_session, mock_init_db):
+        from app.main import app
+
+        mock_db_session = MagicMock()
+        mock_session.return_value.__enter__.return_value = mock_db_session
+        mock_db_session.exec.return_value.first.return_value = None
+        mock_db_session.get.return_value = MagicMock()
+
+        with TestClient(app):
+            assert not mock_db_session.add.called
+            assert not mock_db_session.commit.called
 
     @patch("app.main.init_db")
     @patch("app.main.Session")

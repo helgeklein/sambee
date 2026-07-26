@@ -19,7 +19,7 @@ class User(SQLModel, table=True):
     username: str = Field(unique=True, index=True)
     name: str | None = Field(default=None)
     email: str | None = Field(default=None, index=True)
-    password_hash: str
+    password_hash: str | None = Field(default=None)
     role: UserRole = Field(
         default=UserRole.EDITOR,
         sa_column=Column(

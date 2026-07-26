@@ -18,6 +18,7 @@ from app.core.config import settings, static
 from app.core.exceptions import ConfigurationError
 from app.core.logging import get_logger
 from app.db.database import get_session
+from app.models.oidc import OidcProviderConfiguration
 from app.models.user import User
 
 logger = get_logger(__name__)
@@ -229,7 +230,8 @@ async def get_current_user_for_token(token: Optional[str], session: Session) -> 
     """
 
     # For "none" auth method, return the admin user
-    if settings.auth_method == AuthMethod.NONE:
+    database_auth_configuration = session.get(OidcProviderConfiguration, 1)
+    if database_auth_configuration is None and settings.auth_method == AuthMethod.NONE:
         logger.debug("Auth method is 'none' - returning admin user (assuming reverse proxy auth)")
         statement = select(User).where(User.username == settings.admin_username)
         user = session.exec(statement).first()

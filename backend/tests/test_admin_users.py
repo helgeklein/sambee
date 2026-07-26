@@ -139,6 +139,28 @@ class TestAdminUsers:
         old_token_response = client.get("/api/auth/me", headers={"Authorization": f"Bearer {user_token}"})
         assert old_token_response.status_code == 401
 
+    def test_reset_password_rejects_passwordless_user(
+        self,
+        client: TestClient,
+        auth_headers_admin: dict,
+        session: Session,
+    ):
+        passwordless_user = User(username="passwordless-reset-user", role=UserRole.VIEWER)
+        session.add(passwordless_user)
+        session.commit()
+        session.refresh(passwordless_user)
+
+        response = client.post(
+            f"/api/admin/users/{passwordless_user.id}/reset-password",
+            headers=auth_headers_admin,
+            json={"new_password": "BrandNewPass123!", "must_change_password": False},
+        )
+
+        assert response.status_code == 400
+        assert response.json()["detail"] == "Password reset requires an existing local password"
+        session.refresh(passwordless_user)
+        assert passwordless_user.password_hash is None
+
     def test_cannot_delete_last_active_admin(self, client: TestClient, auth_headers_admin: dict, admin_user: User):
         response = client.delete(f"/api/admin/users/{admin_user.id}", headers=auth_headers_admin)
 

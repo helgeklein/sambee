@@ -1,0 +1,172 @@
+import pytest
+from cryptography.fernet import Fernet
+
+from app.models.oidc import OidcProviderConfiguration, SignInMode
+from app.models.oidc_api import (
+    AuthenticationHealthReason,
+    AuthenticationHealthStatus,
+    OidcConfigurationCandidate,
+    OidcRoleMappings,
+)
+from app.services.oidc_configuration import (
+    OidcConfigurationError,
+    OidcSecretCipher,
+    OidcSecretDecryptionError,
+    OidcSecretKeyError,
+    build_authentication_health,
+    decrypt_candidate_snapshot,
+    derive_oidc_redirect_uri,
+    encrypt_candidate_snapshot,
+    normalize_candidate,
+    redacted_configuration,
+)
+
+
+def _active_configuration(cipher: OidcSecretCipher) -> OidcProviderConfiguration:
+    return OidcProviderConfiguration(
+        display_name="Example IDP",
+        issuer_url="https://idp.example.test",
+        client_id="sambee",
+        encrypted_client_secret=cipher.encrypt("existing-secret"),
+        sign_in_mode=SignInMode.OIDC_OR_PASSWORD,
+        configuration_revision=4,
+        identity_mapping_revision=2,
+    )
+
+
+def test_oidc_secret_cipher_round_trip_and_wrong_key() -> None:
+    cipher = OidcSecretCipher(Fernet.generate_key().decode("ascii"))
+    ciphertext = cipher.encrypt("client-secret")
+
+    assert ciphertext != "client-secret"
+    assert cipher.decrypt(ciphertext) == "client-secret"
+
+    wrong_cipher = OidcSecretCipher(Fernet.generate_key().decode("ascii"))
+    try:
+        wrong_cipher.decrypt(ciphertext)
+    except OidcSecretDecryptionError:
+        pass
+    else:
+        raise AssertionError("Wrong OIDC key must not decrypt ciphertext")
+
+
+def test_oidc_secret_cipher_rejects_missing_and_invalid_keys() -> None:
+    for key in ("", "not-a-fernet-key"):
+        try:
+            OidcSecretCipher(key)
+        except OidcSecretKeyError:
+            pass
+        else:
+            raise AssertionError("Invalid OIDC key must be rejected")
+
+
+def test_redirect_uri_uses_canonical_deployment_url() -> None:
+    assert derive_oidc_redirect_uri("https://sambee.example.com/", production=True) == ("https://sambee.example.com/api/auth/oidc/callback")
+
+
+def test_authentication_health_reason_order_is_stable() -> None:
+    health = build_authentication_health(
+        oidc_secret_key="invalid",
+        public_url="http://sambee.example.com?unsafe=true",
+        encrypted_client_secret="invalid-ciphertext",
+        has_active_administrator=False,
+        production=True,
+    )
+
+    assert health.status == AuthenticationHealthStatus.UNHEALTHY
+    assert health.reasons == [
+        AuthenticationHealthReason.OIDC_SECRET_KEY_INVALID,
+        AuthenticationHealthReason.PUBLIC_URL_INVALID,
+        AuthenticationHealthReason.NO_ACTIVE_ADMINISTRATOR,
+    ]
+
+
+def test_authentication_health_is_healthy_for_valid_inputs() -> None:
+    key = Fernet.generate_key().decode("ascii")
+    ciphertext = OidcSecretCipher(key).encrypt("client-secret")
+
+    health = build_authentication_health(
+        oidc_secret_key=key,
+        public_url="https://sambee.example.com",
+        encrypted_client_secret=ciphertext,
+        has_active_administrator=True,
+        production=True,
+    )
+
+    assert health.status == AuthenticationHealthStatus.HEALTHY
+    assert health.reasons == []
+    assert health.redirect_uri == "https://sambee.example.com/api/auth/oidc/callback"
+
+
+def test_candidate_omitted_secret_preserves_existing_ciphertext_value() -> None:
+    cipher = OidcSecretCipher(Fernet.generate_key().decode("ascii"))
+    active = _active_configuration(cipher)
+    candidate = OidcConfigurationCandidate(
+        issuer_url=active.issuer_url,
+        client_id=active.client_id,
+        sign_in_mode=SignInMode.OIDC_OR_PASSWORD,
+    )
+
+    normalized = normalize_candidate(candidate, active, cipher, development=False)
+
+    assert normalized.client_secret == "existing-secret"
+    assert "client_secret" not in normalized.changed_fields
+    assert "existing-secret" not in repr(normalized)
+
+
+def test_candidate_replacement_secret_is_tracked_and_snapshot_is_encrypted() -> None:
+    cipher = OidcSecretCipher(Fernet.generate_key().decode("ascii"))
+    active = _active_configuration(cipher)
+    candidate = OidcConfigurationCandidate(
+        issuer_url=active.issuer_url,
+        client_id=active.client_id,
+        client_secret="replacement-secret",
+        sign_in_mode=SignInMode.OIDC_OR_PASSWORD,
+    )
+
+    normalized = normalize_candidate(candidate, active, cipher, development=False)
+    ciphertext = encrypt_candidate_snapshot(normalized, cipher)
+    restored = decrypt_candidate_snapshot(ciphertext, cipher)
+
+    assert "client_secret" in normalized.changed_fields
+    assert "replacement-secret" not in ciphertext
+    assert restored == normalized
+
+
+def test_candidate_rejects_normalized_cross_role_group_collision() -> None:
+    cipher = OidcSecretCipher(Fernet.generate_key().decode("ascii"))
+    candidate = OidcConfigurationCandidate(
+        issuer_url="https://idp.example.test",
+        client_id="sambee",
+        role_mappings=OidcRoleMappings(admin=["Admin"], editor=["Ａｄｍｉｎ"]),
+    )
+
+    with pytest.raises(OidcConfigurationError):
+        normalize_candidate(candidate, None, cipher, development=False)
+
+
+def test_namespace_change_resets_revision_basis_and_is_detected() -> None:
+    cipher = OidcSecretCipher(Fernet.generate_key().decode("ascii"))
+    active = _active_configuration(cipher)
+    candidate = OidcConfigurationCandidate(
+        issuer_url="https://replacement.example.test",
+        client_id=active.client_id,
+        sign_in_mode=SignInMode.OIDC_OR_PASSWORD,
+    )
+
+    normalized = normalize_candidate(candidate, active, cipher, development=False)
+
+    assert normalized.identity_namespace_changed is True
+    assert normalized.configuration_revision == 5
+    assert normalized.identity_mapping_revision == 2
+
+
+def test_redacted_configuration_never_contains_secret() -> None:
+    cipher = OidcSecretCipher(Fernet.generate_key().decode("ascii"))
+    active = _active_configuration(cipher)
+
+    payload = redacted_configuration(active).model_dump(mode="json")
+
+    assert payload["client_secret_configured"] is True
+    assert "client_secret" not in payload
+    assert "encrypted_client_secret" not in payload

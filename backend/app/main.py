@@ -3,7 +3,7 @@ import sys
 import threading
 from collections.abc import Awaitable, Callable
 from contextlib import asynccontextmanager
-from datetime import datetime, timezone
+from datetime import datetime
 from os import PathLike
 from os import stat_result as os_stat_result
 from pathlib import Path
@@ -17,7 +17,7 @@ from sqlmodel import Session, select
 from starlette.types import Scope
 
 from app import __version__
-from app.api import admin, auth, browser, companion, connections, logs, system_settings, viewer, websocket
+from app.api import admin, admin_auth, auth, browser, companion, connections, logs, system_settings, viewer, websocket
 from app.core.config import settings
 from app.core.environment import DEV_CORS_ORIGINS, IS_DEVELOPMENT, IS_PRODUCTION
 from app.core.exceptions import ConfigurationError, SambeeError
@@ -25,6 +25,7 @@ from app.core.logging import log_error, set_request_id
 from app.core.secrets import generate_admin_password
 from app.core.security import get_password_hash
 from app.db.database import DATABASE_FILE_PATH, engine, init_db
+from app.models.oidc import OidcProviderConfiguration
 from app.models.user import User, UserRole
 from app.services.system_settings import store as system_settings_store
 from app.storage.smb_pool import shutdown_connection_pool
@@ -42,6 +43,25 @@ if IS_DEVELOPMENT:
 
 # Configure logging (no timestamp - Docker adds them automatically)
 log_format = "%(name)s - %(levelname)s - %(message)s"
+
+
+def bootstrap_admin_if_pristine(session: Session) -> tuple[User | None, str | None]:
+    existing_user_id = session.exec(select(User.id).limit(1)).first()
+    existing_auth_configuration = session.get(OidcProviderConfiguration, 1)
+    if existing_user_id is not None or existing_auth_configuration is not None:
+        return None, None
+
+    admin_password = generate_admin_password(IS_PRODUCTION)
+    admin = User(
+        username=settings.admin_username,
+        password_hash=get_password_hash(admin_password),
+        role=UserRole.ADMIN,
+    )
+    session.add(admin)
+    session.commit()
+    return admin, admin_password
+
+
 # Convert log level string (e.g., "INFO") to Python logging constant (e.g., logging.INFO = 20)
 # This allows config.toml to use human-readable strings like "DEBUG" or "ERROR"
 log_level = getattr(logging, settings.log_level)
@@ -234,25 +254,10 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
         system_settings_store.warm_cache()
         logger.info("System settings cache warmed")
 
-        # Create default admin user if doesn't exist
-        logger.info("Checking for admin user...")
+        logger.info("Checking first-run administrator bootstrap state...")
         with Session(engine) as session:
-            statement = select(User).where(User.username == settings.admin_username)
-            admin = session.exec(statement).first()
-
-            if not admin:
-                # Generate password based on environment
-                admin_password = generate_admin_password(IS_PRODUCTION)
-
-                admin = User(
-                    username=settings.admin_username,
-                    password_hash=get_password_hash(admin_password),
-                    role=UserRole.ADMIN,
-                )
-                session.add(admin)
-                session.commit()
-
-                # Display credentials prominently in production
+            admin, admin_password = bootstrap_admin_if_pristine(session)
+            if admin is not None and admin_password is not None:
                 if IS_PRODUCTION:
                     logger.warning("=" * 80)
                     logger.warning("FIRST-TIME SETUP - SAVE THESE CREDENTIALS")
@@ -264,16 +269,7 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
                 else:
                     logger.info(f"Created admin user: {settings.admin_username} / {admin_password}")
             else:
-                current_role = admin.role if isinstance(getattr(admin, "role", None), UserRole) else UserRole.EDITOR
-                current_is_active = admin.is_active if isinstance(getattr(admin, "is_active", None), bool) else True
-
-                if current_role != UserRole.ADMIN or not current_is_active:
-                    admin.role = UserRole.ADMIN
-                    admin.is_active = True
-                    admin.updated_at = datetime.now(timezone.utc)
-                    session.add(admin)
-                    session.commit()
-                logger.info(f"Admin user exists: {settings.admin_username}")
+                logger.info("Database already initialized; administrator bootstrap skipped")
 
         logger.info("Sambee application startup complete!")
         logger.info("API Documentation: http://localhost:8000/docs")
@@ -424,6 +420,7 @@ else:
 app.include_router(auth.router, prefix="/api/auth", tags=["auth"])
 app.include_router(connections.router, prefix="/api", tags=["connections"])
 app.include_router(admin.router, prefix="/api/admin", tags=["admin"])
+app.include_router(admin_auth.router, prefix="/api/admin", tags=["admin-auth"])
 app.include_router(system_settings.router, prefix="/api/admin", tags=["admin-settings"])
 app.include_router(browser.router, prefix="/api/browse", tags=["browse"])
 app.include_router(viewer.router, prefix="/api/viewer", tags=["viewer"])

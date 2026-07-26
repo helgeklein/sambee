@@ -35,7 +35,7 @@ describe("settingsNavigation", () => {
       {
         section: "administration",
         label: "Administration",
-        categories: ["admin-users", "admin-system"],
+        categories: ["admin-authentication", "admin-users", "admin-system"],
       },
     ]);
   });

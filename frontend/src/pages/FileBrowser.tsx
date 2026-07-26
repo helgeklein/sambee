@@ -52,6 +52,7 @@ import {
 } from "../services/browserRecoverySnapshot";
 import companionService, { buildCompanionWsUrl, type DriveInfo, hasStoredSecret } from "../services/companion";
 import { logger } from "../services/logger";
+import { OIDC_LOGOUT_MARKER } from "../services/oidcAuth";
 import { scheduleRuntimeWarmup } from "../services/runtimeWarmup";
 import { buildServerWebSocketUrl } from "../services/serverWebsocket";
 import { loadCurrentUserSettings } from "../services/userSettingsSync";
@@ -2087,6 +2088,7 @@ const Browser: React.FC = () => {
   const handleLogout = () => {
     clearBrowserRecoverySnapshot();
     localStorage.removeItem("access_token");
+    sessionStorage.setItem(OIDC_LOGOUT_MARKER, "1");
     navigate("/login");
   };
 

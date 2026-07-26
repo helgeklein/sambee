@@ -8,7 +8,7 @@ from datetime import datetime, timedelta, timezone
 import jwt
 import pytest
 from fastapi.testclient import TestClient
-from sqlmodel import Session
+from sqlmodel import Session, delete, select
 
 from app.core.security import (
     create_access_token,
@@ -137,6 +137,60 @@ class TestLoginEndpoint:
         assert data["token_type"] == "bearer"
         assert data["role"] == "admin"
 
+    def test_auth_config_uses_canonical_database_mode(self, client: TestClient, session: Session):
+        from app.models.oidc import OidcProviderConfiguration, SignInMode
+
+        configuration = OidcProviderConfiguration(
+            display_name="Company SSO",
+            issuer_url="https://idp.example.com",
+            client_id="sambee",
+            sign_in_mode=SignInMode.OIDC_OR_PASSWORD,
+        )
+        session.add(configuration)
+        session.flush()
+
+        try:
+            response = client.get("/api/auth/config")
+
+            assert response.status_code == 200
+            assert response.json() == {
+                "sign_in_mode": "oidc_or_password",
+                "oidc": {
+                    "display_name": "Company SSO",
+                    "authorization_path": "/api/auth/oidc/authorize",
+                },
+            }
+        finally:
+            session.exec(delete(OidcProviderConfiguration))
+            session.flush()
+            assert session.exec(select(OidcProviderConfiguration)).first() is None
+
+    def test_oidc_only_password_login_returns_404_before_form_validation(self, client: TestClient, session: Session):
+        from app.models.oidc import OidcProviderConfiguration, SignInMode
+
+        configuration = OidcProviderConfiguration(
+            display_name="Company SSO",
+            issuer_url="https://idp.example.com",
+            client_id="sambee",
+            sign_in_mode=SignInMode.OIDC_ONLY,
+        )
+        session.add(configuration)
+        session.flush()
+
+        try:
+            response = client.post(
+                "/api/auth/token",
+                content=b"not-a-valid-form",
+                headers={"Content-Type": "application/x-www-form-urlencoded"},
+            )
+
+            assert response.status_code == 404
+            assert response.json()["detail"] == "Password authentication is not enabled"
+        finally:
+            session.exec(delete(OidcProviderConfiguration))
+            session.flush()
+            assert session.exec(select(OidcProviderConfiguration)).first() is None
+
     def test_login_wrong_password(self, client: TestClient, admin_user: User):
         """Test login fails with incorrect password."""
         response = client.post(
@@ -162,6 +216,19 @@ class TestLoginEndpoint:
 
         assert response.status_code == 401
         assert "Incorrect username or password" in response.json()["detail"]
+
+    def test_login_passwordless_user_fails_generically(self, client: TestClient, session: Session):
+        passwordless_user = User(username="passwordless-user", role=UserRole.VIEWER)
+        session.add(passwordless_user)
+        session.commit()
+
+        response = client.post(
+            "/api/auth/token",
+            data={"username": passwordless_user.username, "password": "irrelevant"},
+        )
+
+        assert response.status_code == 401
+        assert response.json()["detail"] == "Incorrect username or password"
 
     def test_login_missing_fields(self, client: TestClient):
         """Test login fails with missing fields."""
@@ -349,6 +416,26 @@ class TestChangePasswordEndpoint:
         )
         assert response.status_code == 400
         assert "incorrect" in response.json()["detail"].lower()
+
+    def test_change_password_rejects_passwordless_user(self, client: TestClient, session: Session):
+        from app.core.security import build_user_access_token
+
+        passwordless_user = User(username="passwordless-change-user", role=UserRole.VIEWER)
+        session.add(passwordless_user)
+        session.commit()
+        session.refresh(passwordless_user)
+        headers = {"Authorization": f"Bearer {build_user_access_token(passwordless_user)}"}
+
+        response = client.post(
+            "/api/auth/change-password",
+            headers=headers,
+            json={"current_password": "irrelevant", "new_password": "newpass123"},
+        )
+
+        assert response.status_code == 400
+        assert response.json()["detail"] == "Password changes require an existing local password"
+        session.refresh(passwordless_user)
+        assert passwordless_user.password_hash is None
 
     def test_change_password_without_auth(self, client: TestClient):
         """Test that password change requires authentication."""

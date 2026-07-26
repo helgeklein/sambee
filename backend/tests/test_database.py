@@ -183,6 +183,53 @@ class TestDatabaseEngine:
 
         assert "sqlite" in str(engine.url)
 
+    def test_nullable_password_migration_preserves_dependent_user_references(self, tmp_path: Path):
+        db_path = tmp_path / "legacy-user-reference.db"
+        test_engine = create_engine(f"sqlite:///{db_path}")
+        try:
+            with test_engine.begin() as connection:
+                connection.execute(text("PRAGMA foreign_keys=ON"))
+                connection.execute(
+                    text(
+                        'CREATE TABLE "user" ('
+                        "id CHAR(32) PRIMARY KEY, username VARCHAR NOT NULL, name VARCHAR, email VARCHAR, "
+                        "password_hash VARCHAR NOT NULL, role VARCHAR NOT NULL DEFAULT 'editor', "
+                        "is_active BOOLEAN NOT NULL DEFAULT 1, must_change_password BOOLEAN NOT NULL DEFAULT 0, "
+                        "token_version INTEGER NOT NULL DEFAULT 0, expires_at TIMESTAMP, "
+                        "created_at TIMESTAMP NOT NULL, updated_at TIMESTAMP NOT NULL)"
+                    )
+                )
+                connection.execute(text('CREATE TABLE dependent (id INTEGER PRIMARY KEY, user_id CHAR(32) REFERENCES "user"(id))'))
+                connection.execute(
+                    text(
+                        'INSERT INTO "user" (id, username, password_hash, created_at, updated_at) '
+                        "VALUES ('abc', 'admin', 'hash', CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)"
+                    )
+                )
+                connection.execute(text("INSERT INTO dependent (id, user_id) VALUES (1, 'abc')"))
+                connection.execute(
+                    text(
+                        f"CREATE TABLE {MIGRATION_TABLE_NAME} ("
+                        "version INTEGER PRIMARY KEY, name TEXT NOT NULL, applied_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP)"
+                    )
+                )
+                for migration in MIGRATIONS:
+                    if migration.version < 12:
+                        connection.execute(
+                            text(f"INSERT INTO {MIGRATION_TABLE_NAME} (version, name) VALUES (:version, :name)"),
+                            {"version": migration.version, "name": migration.name},
+                        )
+
+            run_migrations(test_engine)
+
+            with test_engine.connect() as connection:
+                password_column = next(column for column in inspect(connection).get_columns("user") if column["name"] == "password_hash")
+                assert password_column["nullable"] is True
+                assert connection.execute(text("SELECT user_id FROM dependent WHERE id = 1")).scalar_one() == "abc"
+                assert connection.exec_driver_sql("PRAGMA foreign_key_check").fetchall() == []
+        finally:
+            test_engine.dispose()
+
     def test_run_migrations_drops_legacy_edit_lock_companion_session(self, tmp_path: Path):
         """Legacy persisted companion lock tokens are removed from edit_locks schema."""
         db_path = tmp_path / "legacy-edit-locks.db"
@@ -307,6 +354,89 @@ class TestDatabaseEngine:
 
                 applied_versions = set(connection.execute(text(f"SELECT version FROM {MIGRATION_TABLE_NAME}")).scalars().all())
                 assert 11 in applied_versions
+        finally:
+            test_engine.dispose()
+
+    def test_run_migrations_makes_password_nullable_and_preserves_hash(self, tmp_path: Path):
+        db_path = tmp_path / "legacy-user-password.db"
+        test_engine = create_engine(
+            f"sqlite:///{db_path}",
+            connect_args={"check_same_thread": False},
+        )
+
+        try:
+            with test_engine.begin() as connection:
+                connection.execute(
+                    text(
+                        f"""
+                        CREATE TABLE {MIGRATION_TABLE_NAME} (
+                            version INTEGER PRIMARY KEY,
+                            name TEXT NOT NULL,
+                            applied_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+                        )
+                        """
+                    )
+                )
+                connection.execute(
+                    text(
+                        """
+                        CREATE TABLE "user" (
+                            id CHAR(32) NOT NULL PRIMARY KEY,
+                            username VARCHAR NOT NULL,
+                            name VARCHAR,
+                            email VARCHAR,
+                            password_hash VARCHAR NOT NULL,
+                            role VARCHAR NOT NULL DEFAULT 'editor',
+                            is_active BOOLEAN NOT NULL DEFAULT 1,
+                            must_change_password BOOLEAN NOT NULL DEFAULT 0,
+                            token_version INTEGER NOT NULL DEFAULT 0,
+                            expires_at TIMESTAMP,
+                            created_at TIMESTAMP NOT NULL,
+                            updated_at TIMESTAMP NOT NULL
+                        )
+                        """
+                    )
+                )
+                connection.execute(
+                    text(
+                        """
+                        INSERT INTO "user" (
+                            id, username, password_hash, role, is_active,
+                            must_change_password, token_version, created_at, updated_at
+                        ) VALUES (
+                            :id, :username, :password_hash, 'admin', 1, 0, 3,
+                            CURRENT_TIMESTAMP, CURRENT_TIMESTAMP
+                        )
+                        """
+                    ),
+                    {"id": "a" * 32, "username": "legacy-admin", "password_hash": "preserved-hash"},
+                )
+                connection.execute(
+                    text(f"INSERT INTO {MIGRATION_TABLE_NAME} (version, name) VALUES (:version, :name)"),
+                    [{"version": migration.version, "name": migration.name} for migration in MIGRATIONS if migration.version < 12],
+                )
+
+            run_migrations(test_engine)
+            run_migrations(test_engine)
+
+            with test_engine.begin() as connection:
+                password_column = next(column for column in inspect(connection).get_columns("user") if column["name"] == "password_hash")
+                assert password_column["nullable"] is True
+                assert connection.execute(text('SELECT password_hash FROM "user"')).scalar_one() == "preserved-hash"
+                connection.execute(
+                    text(
+                        """
+                        INSERT INTO "user" (
+                            id, username, password_hash, role, is_active,
+                            must_change_password, token_version, created_at, updated_at
+                        ) VALUES (
+                            :id, :username, NULL, 'viewer', 1, 0, 0,
+                            CURRENT_TIMESTAMP, CURRENT_TIMESTAMP
+                        )
+                        """
+                    ),
+                    {"id": "b" * 32, "username": "passwordless-user"},
+                )
         finally:
             test_engine.dispose()
 

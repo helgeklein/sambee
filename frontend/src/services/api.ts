@@ -339,6 +339,12 @@ class ApiService {
     return response.data;
   }
 
+  async exchangeOidcGrant(grant: string): Promise<AuthToken> {
+    const response = await this.api.post<AuthToken>("/auth/oidc/exchange", { grant });
+    localStorage.setItem("access_token", response.data.access_token);
+    return response.data;
+  }
+
   async getCurrentUser(): Promise<User> {
     logger.debug("Fetching current user info", {}, "api");
     const response = await this.api.get<User>("/auth/me");
@@ -409,6 +415,31 @@ class ApiService {
 
   async getUsers(): Promise<AdminUser[]> {
     const response = await this.api.get<AdminUser[]>("/admin/users");
+    return response.data;
+  }
+
+  async getOidcConfiguration(): Promise<OidcAdminConfigurationRead> {
+    const response = await this.api.get<OidcAdminConfigurationRead>("/admin/auth/oidc");
+    return response.data;
+  }
+
+  async startOidcTest(candidate: OidcConfigurationCandidate): Promise<OidcTestStartResponse> {
+    const response = await this.api.post<OidcTestStartResponse>("/admin/auth/oidc/test", candidate);
+    return response.data;
+  }
+
+  async getOidcTestResult(flowId: string): Promise<OidcTestedIdentity> {
+    const response = await this.api.get<OidcTestedIdentity>(`/admin/auth/oidc/test/${flowId}`);
+    return response.data;
+  }
+
+  async finalizeOidcConfiguration(flowId: string): Promise<OidcFinalizeResponse> {
+    const response = await this.api.post<OidcFinalizeResponse>("/admin/auth/oidc/finalize", { flow_id: flowId });
+    return response.data;
+  }
+
+  async setPasswordOnlyAuthentication(): Promise<OidcFinalizeResponse> {
+    const response = await this.api.post<OidcFinalizeResponse>("/admin/auth/password-only");
     return response.data;
   }
 
@@ -1229,6 +1260,7 @@ export { LOCAL_DRIVE_EDIT_LOCKS_UNSUPPORTED_MESSAGE };
 
 // Export convenience functions
 export const login = (username: string, password: string) => apiService.login(username, password);
+export const exchangeOidcGrant = (grant: string) => apiService.exchangeOidcGrant(grant);
 
 export const browseFiles = async (path: string, _token: string) => {
   // For simple browsing, we'll use a default connection
