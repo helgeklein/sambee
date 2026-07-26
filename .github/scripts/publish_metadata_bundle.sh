@@ -61,9 +61,9 @@ verify_existing_bundle() {
   existing_dir="$(mktemp -d)"
   trap 'rm -rf "$existing_dir"' RETURN
 
-  local descriptor
-  descriptor="$(oras manifest fetch --descriptor "$metadata_ref")"
-  if [[ "$(jq -r '.artifactType // empty' <<<"$descriptor")" != "$BUNDLE_ARTIFACT_TYPE" ]]; then
+  local manifest
+  manifest="$(oras manifest fetch "$metadata_ref")"
+  if [[ "$(jq -r '.artifactType // empty' <<<"$manifest")" != "$BUNDLE_ARTIFACT_TYPE" ]]; then
     echo "Existing metadata bundle $metadata_ref has an unexpected artifact type." >&2
     return 1
   fi

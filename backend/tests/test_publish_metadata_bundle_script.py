@@ -21,7 +21,11 @@ def write_fake_oras(directory: Path) -> None:
 set -euo pipefail
 if [[ "$1 $2 $3" == "manifest fetch --descriptor" ]]; then
   [[ "${ORAS_EXISTING:-}" == true ]] || exit 1
-  printf '{"artifactType":"%s"}\n' "${ORAS_ARTIFACT_TYPE}"
+    printf '{"mediaType":"application/vnd.oci.image.manifest.v1+json","digest":"sha256:%064d"}\n' 0
+    exit 0
+fi
+if [[ "$1 $2" == "manifest fetch" ]]; then
+    printf '{"schemaVersion":2,"mediaType":"application/vnd.oci.image.manifest.v1+json","artifactType":"%s"}\n' "${ORAS_ARTIFACT_TYPE}"
   exit 0
 fi
 if [[ "$1" == pull ]]; then
@@ -56,7 +60,13 @@ exit 1
     fake_jq.chmod(0o755)
 
 
-def run_publish(tmp_path: Path, *, existing: bool, existing_metadata: bytes) -> subprocess.CompletedProcess[str]:
+def run_publish(
+    tmp_path: Path,
+    *,
+    existing: bool,
+    existing_metadata: bytes,
+    artifact_type: str = "application/vnd.sambee.image-metadata.v1",
+) -> subprocess.CompletedProcess[str]:
     bundle_dir = tmp_path / "bundle"
     existing_dir = tmp_path / "existing"
     bin_dir = tmp_path / "bin"
@@ -72,7 +82,7 @@ def run_publish(tmp_path: Path, *, existing: bool, existing_metadata: bytes) -> 
         **os.environ,
         "PATH": f"{bin_dir}:{os.environ['PATH']}",
         "ORAS_EXISTING": str(existing).lower(),
-        "ORAS_ARTIFACT_TYPE": "application/vnd.sambee.image-metadata.v1",
+        "ORAS_ARTIFACT_TYPE": artifact_type,
         "ORAS_SOURCE_DIR": str(existing_dir),
         "ORAS_PUSH_MARKER": str(push_marker),
     }
@@ -108,4 +118,17 @@ def test_rejects_conflicting_existing_metadata_bundle(tmp_path: Path) -> None:
 
     assert result.returncode != 0
     assert "conflicts with the candidate digest" in result.stderr
+    assert not result.push_marker.exists()  # type: ignore[attr-defined]
+
+
+def test_rejects_existing_manifest_with_wrong_artifact_type(tmp_path: Path) -> None:
+    result = run_publish(
+        tmp_path,
+        existing=True,
+        existing_metadata=b"metadata",
+        artifact_type="application/vnd.example.unexpected",
+    )
+
+    assert result.returncode != 0
+    assert "unexpected artifact type" in result.stderr
     assert not result.push_marker.exists()  # type: ignore[attr-defined]
