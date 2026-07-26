@@ -29,8 +29,10 @@ from app.models.oidc_api import (
     OidcMappingChangeRequest,
     OidcMappingMutationResponse,
     OidcPendingMappingBatchRequest,
+    OidcPendingMappingRead,
     OidcTestedIdentityRead,
     OidcTestStartResponse,
+    PasswordOnlyActivationRequest,
 )
 from app.models.user import User, UserRole
 from app.services.audit import AuditDetails, AuditEventName, AuditResult, write_audit_event
@@ -58,15 +60,15 @@ from app.services.oidc_mapping import (
     OidcMappingError,
     cancel_pending_mapping,
     change_identity,
+    claim_mapping_revision,
     create_pending_mappings,
     derive_mapping_plan,
     detach_identity,
     move_identity,
     replace_pending_mappings,
-    require_mapping_revision,
     validate_reviewed_mapping_plan,
 )
-from app.services.oidc_recovery import OidcRecoveryError, activate_password_only
+from app.services.oidc_recovery import OidcRecoveryError, activate_password_only, count_active_passwordless_users
 
 router = APIRouter()
 OIDC_SESSION_INVALIDATING_FIELDS = frozenset(
@@ -92,13 +94,46 @@ def _active_oidc_configuration(session: Session) -> OidcProviderConfiguration:
     return configuration
 
 
-def _commit_mapping_mutation(session: Session, configuration: OidcProviderConfiguration) -> OidcMappingMutationResponse:
+def _mapping_http_exception(error: OidcMappingError) -> HTTPException:
+    return HTTPException(
+        status_code=status.HTTP_409_CONFLICT,
+        detail={
+            "errors": [
+                {
+                    "target_user_id": str(error.target_user_id) if error.target_user_id is not None else None,
+                    "field": error.field,
+                    "error_code": error.error_code,
+                    "message": str(error),
+                }
+            ]
+        },
+    )
+
+
+def _commit_mapping_mutation(
+    session: Session,
+    identity_mapping_revision: int,
+    configuration: OidcProviderConfiguration,
+) -> OidcMappingMutationResponse:
     try:
         session.commit()
     except IntegrityError as error:
         session.rollback()
         raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="OIDC mapping changed concurrently") from error
-    return OidcMappingMutationResponse(identity_mapping_revision=configuration.identity_mapping_revision)
+    pending_mappings = session.exec(
+        select(OidcPendingIdentityMapping).where(OidcPendingIdentityMapping.provider_configuration_id == configuration.id)
+    ).all()
+    return OidcMappingMutationResponse(
+        identity_mapping_revision=identity_mapping_revision,
+        pending_mappings=[
+            OidcPendingMappingRead(
+                target_user_id=mapping.target_user_id,
+                expected_username=mapping.expected_username,
+                created_at=mapping.created_at,
+            )
+            for mapping in pending_mappings
+        ],
+    )
 
 
 def _as_utc(value: datetime) -> datetime:
@@ -135,12 +170,14 @@ async def get_oidc_configuration(
     return OidcAdminConfigurationRead(
         configuration=redacted_configuration(configuration) if configuration is not None else None,
         health=health,
+        active_passwordless_user_count=count_active_passwordless_users(session),
     )
 
 
 @router.post("/auth/oidc/test", response_model=OidcTestStartResponse)
 async def start_oidc_test(
     candidate: OidcConfigurationCandidate,
+    remap_all: bool = False,
     current_user: User = Depends(get_current_admin_user),
     session: Session = Depends(get_session),
 ) -> OidcTestStartResponse:
@@ -148,6 +185,8 @@ async def start_oidc_test(
     try:
         cipher = OidcSecretCipher(settings.oidc_secret_key)
         normalized = normalize_candidate(candidate, active, cipher)
+        if remap_all and active is None:
+            raise OidcConfigurationError("OIDC remapping requires an active provider configuration")
         if normalized.client_secret is None:
             raise OidcConfigurationError("OIDC test requires a client secret")
         redirect_uri = derive_oidc_redirect_uri(settings.public_url)
@@ -158,7 +197,7 @@ async def start_oidc_test(
             initiating_admin_id=current_user.id,
             encrypted_candidate_configuration=encrypt_candidate_snapshot(normalized, cipher),
             active_configuration_revision=active.configuration_revision if active is not None else None,
-            replace_identity_namespace=normalized.identity_namespace_changed,
+            replace_identity_namespace=remap_all or normalized.identity_namespace_changed,
             cipher=cipher,
         )
         authorization = build_authorization_request(
@@ -243,6 +282,7 @@ async def finalize_oidc_configuration(
     session: Session = Depends(get_session),
 ) -> OidcFinalizeResponse:
     existing_flow = session.get(OidcFlow, payload.flow_id)
+    now = datetime.now(timezone.utc)
     if (
         existing_flow is not None
         and existing_flow.purpose == OidcFlowPurpose.TEST
@@ -250,6 +290,7 @@ async def finalize_oidc_configuration(
         and existing_flow.initiating_admin_id == current_user.id
         and existing_flow.finalized_configuration_revision is not None
         and existing_flow.finalized_identity_mapping_revision is not None
+        and _as_utc(existing_flow.expires_at) > now
     ):
         return OidcFinalizeResponse(
             configuration_revision=existing_flow.finalized_configuration_revision,
@@ -327,6 +368,22 @@ async def finalize_oidc_configuration(
         raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="Tested administrator is not admitted") from error
     if role != UserRole.ADMIN:
         raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="Tested administrator does not resolve to administrator")
+
+    if active is not None:
+        configuration_table = OidcProviderConfiguration.__table__  # type: ignore[attr-defined]
+        configuration_claim = session.connection().execute(
+            update(configuration_table)
+            .where(
+                configuration_table.c.id == active.id,
+                configuration_table.c.configuration_revision == flow.configuration_revision,
+                configuration_table.c.identity_mapping_revision == expected_mapping_revision,
+            )
+            .values(configuration_revision=candidate.configuration_revision)
+        )
+        if configuration_claim.rowcount != 1:
+            session.rollback()
+            raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="OIDC configuration or mappings changed during review")
+        session.expire(active, ["configuration_revision", "identity_mapping_revision"])
 
     existing_subject = session.exec(
         select(OidcIdentity).where(OidcIdentity.issuer == tested.issuer, OidcIdentity.subject == tested.subject)
@@ -483,7 +540,11 @@ async def finalize_oidc_configuration(
     flow.finalized_identity_mapping_revision = active.identity_mapping_revision
     flow.finalized_reauthentication_required = reauthentication_required
     session.add(flow)
-    session.commit()
+    try:
+        session.commit()
+    except IntegrityError as error:
+        session.rollback()
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="OIDC configuration or mappings changed concurrently") from error
     clear_oidc_provider_cache()
     return OidcFinalizeResponse(
         configuration_revision=active.configuration_revision,
@@ -494,12 +555,19 @@ async def finalize_oidc_configuration(
 
 @router.post("/auth/password-only", response_model=OidcFinalizeResponse)
 async def set_password_only(
+    payload: PasswordOnlyActivationRequest,
     current_user: User = Depends(get_current_admin_user),
     session: Session = Depends(get_session),
 ) -> OidcFinalizeResponse:
     try:
-        configuration = activate_password_only(session, acting_user_id=current_user.id)
+        configuration = activate_password_only(
+            session,
+            acting_user_id=current_user.id,
+            expected_configuration_revision=payload.expected_configuration_revision,
+            expected_active_passwordless_user_count=payload.expected_active_passwordless_user_count,
+        )
     except OidcRecoveryError as error:
+        session.rollback()
         status_code = status.HTTP_404_NOT_FOUND if "not found" in str(error) else status.HTTP_409_CONFLICT
         raise HTTPException(status_code=status_code, detail=str(error)) from error
     clear_oidc_provider_cache()
@@ -520,7 +588,7 @@ async def put_pending_oidc_mappings(
     if not configuration.username_claim_uniqueness_confirmed:
         raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="OIDC username claim uniqueness is not confirmed")
     try:
-        require_mapping_revision(configuration, payload.expected_identity_mapping_revision)
+        identity_mapping_revision = claim_mapping_revision(session, configuration, payload.expected_identity_mapping_revision)
         target_ids = [row.target_user_id for row in payload.mappings]
         if len(set(target_ids)) != len(target_ids):
             raise OidcMappingError("OIDC mapping targets must be unique")
@@ -532,8 +600,8 @@ async def put_pending_oidc_mappings(
         )
     except OidcMappingError as error:
         session.rollback()
-        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=str(error)) from error
-    return _commit_mapping_mutation(session, configuration)
+        raise _mapping_http_exception(error) from error
+    return _commit_mapping_mutation(session, identity_mapping_revision, configuration)
 
 
 @router.delete("/auth/oidc/mappings/{user_id}/pending", response_model=OidcMappingMutationResponse)
@@ -545,7 +613,7 @@ async def delete_pending_oidc_mapping(
 ) -> OidcMappingMutationResponse:
     configuration = _active_oidc_configuration(session)
     try:
-        require_mapping_revision(configuration, expected_identity_mapping_revision)
+        identity_mapping_revision = claim_mapping_revision(session, configuration, expected_identity_mapping_revision)
         cancel_pending_mapping(
             session,
             configuration=configuration,
@@ -554,8 +622,8 @@ async def delete_pending_oidc_mapping(
         )
     except OidcMappingError as error:
         session.rollback()
-        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=str(error)) from error
-    return _commit_mapping_mutation(session, configuration)
+        raise _mapping_http_exception(error) from error
+    return _commit_mapping_mutation(session, identity_mapping_revision, configuration)
 
 
 @router.post("/auth/oidc/mappings/{identity_id}/move", response_model=OidcMappingMutationResponse)
@@ -567,7 +635,7 @@ async def move_oidc_identity(
 ) -> OidcMappingMutationResponse:
     configuration = _active_oidc_configuration(session)
     try:
-        require_mapping_revision(configuration, payload.expected_identity_mapping_revision)
+        identity_mapping_revision = claim_mapping_revision(session, configuration, payload.expected_identity_mapping_revision)
         move_identity(
             session,
             configuration=configuration,
@@ -577,8 +645,8 @@ async def move_oidc_identity(
         )
     except OidcMappingError as error:
         session.rollback()
-        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=str(error)) from error
-    return _commit_mapping_mutation(session, configuration)
+        raise _mapping_http_exception(error) from error
+    return _commit_mapping_mutation(session, identity_mapping_revision, configuration)
 
 
 @router.post("/auth/oidc/mappings/{user_id}/change", response_model=OidcMappingMutationResponse)
@@ -590,7 +658,7 @@ async def change_oidc_identity(
 ) -> OidcMappingMutationResponse:
     configuration = _active_oidc_configuration(session)
     try:
-        require_mapping_revision(configuration, payload.expected_identity_mapping_revision)
+        identity_mapping_revision = claim_mapping_revision(session, configuration, payload.expected_identity_mapping_revision)
         change_identity(
             session,
             configuration=configuration,
@@ -600,8 +668,8 @@ async def change_oidc_identity(
         )
     except OidcMappingError as error:
         session.rollback()
-        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=str(error)) from error
-    return _commit_mapping_mutation(session, configuration)
+        raise _mapping_http_exception(error) from error
+    return _commit_mapping_mutation(session, identity_mapping_revision, configuration)
 
 
 @router.delete("/auth/oidc/mappings/{user_id}", response_model=OidcMappingMutationResponse)
@@ -613,7 +681,7 @@ async def delete_oidc_identity(
 ) -> OidcMappingMutationResponse:
     configuration = _active_oidc_configuration(session)
     try:
-        require_mapping_revision(configuration, expected_identity_mapping_revision)
+        identity_mapping_revision = claim_mapping_revision(session, configuration, expected_identity_mapping_revision)
         detach_identity(
             session,
             configuration=configuration,
@@ -622,5 +690,5 @@ async def delete_oidc_identity(
         )
     except OidcMappingError as error:
         session.rollback()
-        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=str(error)) from error
-    return _commit_mapping_mutation(session, configuration)
+        raise _mapping_http_exception(error) from error
+    return _commit_mapping_mutation(session, identity_mapping_revision, configuration)

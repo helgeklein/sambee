@@ -77,6 +77,7 @@ class AdminUserOidcRead(SQLModel):
 
 class AdminUserPendingOidcRead(SQLModel):
     expected_username: str
+    created_by_username: str
     created_at: datetime
 
 

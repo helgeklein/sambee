@@ -4,6 +4,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import TextIO
 
+from sqlalchemy import update
 from sqlmodel import Session, select
 
 from app.models.audit import AuditEvent
@@ -17,27 +18,57 @@ class OidcRecoveryError(ValueError):
     pass
 
 
-def activate_password_only(session: Session, *, acting_user_id: uuid.UUID | None = None) -> OidcProviderConfiguration:
+def _is_active_unexpired(user: User, now: datetime) -> bool:
+    expires_at = user.expires_at
+    normalized_expiry = expires_at.replace(tzinfo=timezone.utc) if expires_at is not None and expires_at.tzinfo is None else expires_at
+    return user.is_active and (normalized_expiry is None or normalized_expiry > now)
+
+
+def count_active_passwordless_users(session: Session, *, now: datetime | None = None) -> int:
+    current_time = now or datetime.now(timezone.utc)
+    return sum(
+        1
+        for user in session.exec(select(User).where(User.password_hash == None)).all()  # noqa: E711
+        if _is_active_unexpired(user, current_time)
+    )
+
+
+def activate_password_only(
+    session: Session,
+    *,
+    acting_user_id: uuid.UUID | None = None,
+    expected_configuration_revision: int | None = None,
+    expected_active_passwordless_user_count: int | None = None,
+) -> OidcProviderConfiguration:
     configuration = session.get(OidcProviderConfiguration, 1)
     if configuration is None:
         raise OidcRecoveryError("Database authentication configuration was not found")
     now = datetime.now(timezone.utc)
+    if expected_configuration_revision is not None:
+        table = OidcProviderConfiguration.__table__  # type: ignore[attr-defined]
+        result = session.connection().execute(
+            update(table)
+            .where(table.c.id == configuration.id, table.c.configuration_revision == expected_configuration_revision)
+            .values(configuration_revision=expected_configuration_revision + 1)
+        )
+        if result.rowcount != 1:
+            raise OidcRecoveryError("oidc_configuration_changed")
+        session.expire(configuration, ["configuration_revision"])
+        actual_passwordless_count = count_active_passwordless_users(session, now=now)
+        if expected_active_passwordless_user_count != actual_passwordless_count:
+            raise OidcRecoveryError("passwordless_account_count_changed")
     local_admins = session.exec(
         select(User).where(User.role == UserRole.ADMIN, User.is_active == True, User.password_hash != None)  # noqa: E711,E712
     ).all()
     local_admin = next(
-        (
-            user
-            for user in local_admins
-            if user.expires_at is None
-            or (user.expires_at.replace(tzinfo=timezone.utc) if user.expires_at.tzinfo is None else user.expires_at) > now
-        ),
+        (user for user in local_admins if _is_active_unexpired(user, now)),
         None,
     )
     if local_admin is None:
-        raise OidcRecoveryError("Password-only mode requires an active local-password administrator")
+        raise OidcRecoveryError("password_only_no_local_administrator")
     configuration.sign_in_mode = SignInMode.PASSWORD_ONLY
-    configuration.configuration_revision += 1
+    if expected_configuration_revision is None:
+        configuration.configuration_revision += 1
     configuration.updated_by_user_id = acting_user_id
     for user in session.exec(select(User)).all():
         user.token_version += 1

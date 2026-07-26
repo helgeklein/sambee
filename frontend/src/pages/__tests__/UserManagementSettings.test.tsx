@@ -127,7 +127,7 @@ describe("UserManagementSettings", () => {
       </SambeeThemeProvider>
     );
 
-    expect(await screen.findByText("OIDC linked")).toBeInTheDocument();
+    expect(await screen.findByText(/OIDC linked: Corporate login/)).toBeInTheDocument();
     expect(screen.queryByRole("button", { name: /reset password/i })).not.toBeInTheDocument();
     expect(screen.queryByText("Local password")).not.toBeInTheDocument();
   });

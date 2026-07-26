@@ -423,8 +423,10 @@ class ApiService {
     return response.data;
   }
 
-  async startOidcTest(candidate: OidcConfigurationCandidate): Promise<OidcTestStartResponse> {
-    const response = await this.api.post<OidcTestStartResponse>("/admin/auth/oidc/test", candidate);
+  async startOidcTest(candidate: OidcConfigurationCandidate, remapAll = false): Promise<OidcTestStartResponse> {
+    const response = await this.api.post<OidcTestStartResponse>("/admin/auth/oidc/test", candidate, {
+      params: remapAll ? { remap_all: true } : undefined,
+    });
     return response.data;
   }
 
@@ -448,8 +450,14 @@ class ApiService {
     return response.data;
   }
 
-  async setPasswordOnlyAuthentication(): Promise<OidcFinalizeResponse> {
-    const response = await this.api.post<OidcFinalizeResponse>("/admin/auth/password-only");
+  async setPasswordOnlyAuthentication(
+    expectedConfigurationRevision: number,
+    expectedActivePasswordlessUserCount: number
+  ): Promise<OidcFinalizeResponse> {
+    const response = await this.api.post<OidcFinalizeResponse>("/admin/auth/password-only", {
+      expected_configuration_revision: expectedConfigurationRevision,
+      expected_active_passwordless_user_count: expectedActivePasswordlessUserCount,
+    });
     return response.data;
   }
 

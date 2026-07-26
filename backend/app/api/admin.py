@@ -23,6 +23,7 @@ from app.models.user import (
     UserRole,
     build_admin_user_read,
 )
+from app.services.oidc_mapping import OidcMappingError, remove_user_oidc_state
 
 router = APIRouter()
 logger = get_logger(__name__)
@@ -78,6 +79,7 @@ def _build_admin_user_read_with_authentication(session: Session, user: User) -> 
             "pending_oidc": (
                 AdminUserPendingOidcRead(
                     expected_username=pending.expected_username,
+                    created_by_username=(session.get(User, pending.created_by_user_id) or user).username,
                     created_at=pending.created_at,
                 )
                 if pending is not None
@@ -251,6 +253,11 @@ async def delete_user(
         is_delete=True,
     )
 
+    try:
+        remove_user_oidc_state(session, user=user, acting_user_id=current_user.id)
+    except OidcMappingError as error:
+        session.rollback()
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=str(error)) from error
     session.delete(user)
     session.commit()
 

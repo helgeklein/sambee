@@ -109,31 +109,39 @@ The proposed username is a hint unless it comes from a previous pending mapping.
 
 Inactive and expired accounts appear separately and cannot be selected. Reactivate an account before mapping it.
 
-In **OIDC or password** mode, accounts may be omitted. An omitted account can continue using its local password when one is configured. Review passwordless omissions carefully because they cannot sign in until an administrator creates a mapping.
+In **OIDC or password** mode, accounts may be omitted. An omitted account can continue using its local password when one is configured. Review passwordless omissions carefully because they cannot sign in until an administrator creates a mapping. If an omitted person signs in through OIDC first, their provider username may collide with an existing local account or Sambee may create a separate local account.
 
 In **OIDC only** mode, activation requires a separate acknowledgement for every omitted active account. An omitted account cannot sign in after activation.
 
 Changing the provider identity namespace is an explicit identity migration. Sambee removes obsolete identity links and pending mappings only after the complete replacement plan is reviewed. The tested administrator is linked directly to the new identity. Every selected account receives an exact pending mapping and establishes its immutable identity under the new namespace on its next admitted login. Activation stops if mappings change during review or if selected provider usernames are empty or duplicated.
 
+### Remap All OIDC Accounts
+
+Use **Remap all OIDC accounts** when provider subjects changed even though the issuer, client ID, and claim names stayed the same. This commonly follows an identity-provider reinstall or migration.
+
+Remapping requires another interactive provider test and uses the same account review as initial activation. Confirmation removes current OIDC links and pending mappings, signs out affected users, and creates the reviewed replacements in one transaction. Local users and their data are preserved.
+
 ## Manage Account Mappings
 
-Open **Settings > Administration > Users** to review how each local account authenticates. An account may show **Local password**, **OIDC linked**, or both. A pending mapping shows the exact provider username that must complete the first admitted OIDC login.
+Open **Settings > Administration > Users** to review how each local account authenticates. An account may show **Local password**, **OIDC linked**, or both. Established mappings show the provider name and last successful OIDC login. A pending mapping shows the exact provider username that must complete the first admitted OIDC login, who created the mapping, and when it was created.
 
 Administrators can perform these operations:
 
 - Map an unlinked local account to an expected provider username.
 - Cancel a pending mapping.
 - Change a linked account to a different provider username. This removes the existing immutable identity and creates a pending mapping.
-- Move an established identity to another active, unlinked local account.
-- Detach an established identity from a local account.
+- Use **Advanced OIDC actions** to move an established identity to another active, unlinked local account.
+- Use **Advanced OIDC actions** to detach an established identity from a local account.
 
 Changing, moving, or detaching an established identity revokes affected Sambee sessions. Detaching does not revoke access at the identity provider. Remove provider admission separately when the person must no longer sign in.
 
 Mapping updates are atomic and revision checked. If another administrator changes mappings while the page is open, Sambee rejects the stale update; reload the users page and review the current state. In **OIDC only** mode, Sambee prevents removal of the last active OIDC administrator mapping.
 
+Deleting a local user also removes their established identity, pending mappings, and incomplete OIDC flows in the same transaction. Deletion remains subject to the last-administrator guard.
+
 ## Recover Password-Only Access
 
-The web recovery action requires at least one active administrator with a local password. It switches to Password only and revokes all current sessions.
+The web recovery action requires at least one active, unexpired administrator with a local password. Before confirmation, Sambee shows how many active, unexpired accounts have no local password and will lose sign-in access. It switches to Password only and revokes all current sessions only when the configuration and displayed account count are still current. If either changed, reload Authentication settings and review the warning again.
 
 If OIDC prevents web access, run the backend CLI from the application environment:
 

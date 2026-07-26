@@ -93,6 +93,7 @@ class OidcGrantExchangeRequest(SQLModel):
 class OidcAdminConfigurationRead(SQLModel):
     configuration: RedactedOidcConfiguration | None
     health: AuthenticationHealth
+    active_passwordless_user_count: int
 
 
 class OidcTestStartResponse(SQLModel):
@@ -157,6 +158,18 @@ class OidcIdentityMoveRequest(OidcMappingMutationRequest):
 
 class OidcMappingMutationResponse(SQLModel):
     identity_mapping_revision: int
+    pending_mappings: list["OidcPendingMappingRead"]
+
+
+class OidcPendingMappingRead(SQLModel):
+    target_user_id: uuid.UUID
+    expected_username: str
+    created_at: datetime
+
+
+class PasswordOnlyActivationRequest(SQLModel):
+    expected_configuration_revision: int
+    expected_active_passwordless_user_count: int = Field(ge=0)
 
 
 class OidcFinalizeResponse(SQLModel):

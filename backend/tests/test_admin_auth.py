@@ -26,6 +26,7 @@ from app.models.user import User
 from app.services.oidc_client import NormalizedOidcClaims
 from app.services.oidc_configuration import NormalizedOidcCandidate, OidcSecretCipher, encrypt_candidate_snapshot
 from app.services.oidc_identity import resolve_or_provision_oidc_user
+from app.services.oidc_mapping import OidcMappingError, claim_mapping_revision
 
 
 def test_finalize_oidc_configuration_is_idempotent(
@@ -137,6 +138,61 @@ def test_finalize_oidc_configuration_is_idempotent(
     assert identity.subject == "admin-subject"
     pending = session.exec(select(OidcPendingIdentityMapping).where(OidcPendingIdentityMapping.target_user_id == unrelated_user.id)).one()
     assert pending.expected_username == "provider-unrelated"
+
+    flow.expires_at = datetime.now(timezone.utc) - timedelta(seconds=1)
+    session.add(flow)
+    session.commit()
+    expired_retry = client.post("/api/admin/auth/oidc/finalize", headers=refreshed_headers, json={"flow_id": str(flow.id)})
+    assert expired_retry.status_code == 404
+
+
+def test_mapping_revision_claim_is_conditional(session: Session) -> None:
+    configuration = OidcProviderConfiguration(
+        display_name="Provider",
+        issuer_url="https://issuer.example",
+        client_id="sambee",
+        identity_mapping_revision=4,
+    )
+    session.add(configuration)
+    session.commit()
+
+    assert claim_mapping_revision(session, configuration, 4) == 5
+    with pytest.raises(OidcMappingError, match="changed"):
+        claim_mapping_revision(session, configuration, 4)
+    session.rollback()
+
+
+def test_pending_mapping_duplicate_targets_return_structured_error(
+    client: TestClient,
+    session: Session,
+    admin_token: str,
+) -> None:
+    configuration = OidcProviderConfiguration(
+        display_name="Provider",
+        issuer_url="https://issuer.example",
+        client_id="sambee",
+        username_claim_uniqueness_confirmed=True,
+        identity_mapping_revision=2,
+    )
+    target = User(username="mapping-target")
+    session.add(configuration)
+    session.add(target)
+    session.commit()
+
+    response = client.put(
+        "/api/admin/auth/oidc/mappings/pending",
+        headers={"Authorization": f"Bearer {admin_token}"},
+        json={
+            "expected_identity_mapping_revision": 2,
+            "mappings": [
+                {"target_user_id": str(target.id), "expected_username": "first"},
+                {"target_user_id": str(target.id), "expected_username": "second"},
+            ],
+        },
+    )
+
+    assert response.status_code == 409
+    assert response.json()["detail"]["errors"][0]["error_code"] == "oidc_mapping_conflict"
 
 
 def test_namespace_replacement_stages_existing_identity_for_exact_relink(

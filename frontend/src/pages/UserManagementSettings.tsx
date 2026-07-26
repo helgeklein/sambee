@@ -6,8 +6,8 @@ import {
   Link as LinkIcon,
   LinkOff as LinkOffIcon,
   LockReset as LockResetIcon,
+  MoreVert as MoreVertIcon,
   Person as PersonIcon,
-  SwapHoriz as SwapHorizIcon,
 } from "@mui/icons-material";
 import {
   Box,
@@ -22,6 +22,7 @@ import {
   InputLabel,
   List,
   ListItem,
+  Menu,
   MenuItem,
   Select,
   Stack,
@@ -169,6 +170,10 @@ export function UserManagementSettings({ dialogSafeHeader = false }: UserManagem
   }>({ open: false, mode: "create", user: null, expectedUsername: "", targetUserId: "" });
   const [mappingSubmitting, setMappingSubmitting] = useState(false);
   const [mappingError, setMappingError] = useState<string | null>(null);
+  const [advancedMappingMenu, setAdvancedMappingMenu] = useState<{
+    anchor: HTMLElement | null;
+    user: AdminUser | null;
+  }>({ anchor: null, user: null });
   const [formState, setFormState] = useState<UserFormState>(DEFAULT_USER_FORM);
   const [formError, setFormError] = useState<string | null>(null);
   const [resetPasswordForm, setResetPasswordForm] = useState<ResetPasswordFormState>(DEFAULT_RESET_PASSWORD_FORM);
@@ -764,11 +769,22 @@ export function UserManagementSettings({ dialogSafeHeader = false }: UserManagem
                       {user.has_local_password && (
                         <Chip size="small" label="Local password" variant="outlined" sx={settingsMetadataChipSx} />
                       )}
-                      {user.oidc && <Chip size="small" label="OIDC linked" variant="outlined" sx={settingsMetadataChipSx} />}
+                      {user.oidc && (
+                        <Chip
+                          size="small"
+                          label={`OIDC linked: ${user.oidc.provider_display_name}${
+                            user.oidc.last_login_at ? `, last login ${new Date(user.oidc.last_login_at).toLocaleString()}` : ""
+                          }`}
+                          variant="outlined"
+                          sx={settingsMetadataChipSx}
+                        />
+                      )}
                       {user.pending_oidc && (
                         <Chip
                           size="small"
-                          label={`Waiting for first OIDC login: ${user.pending_oidc.expected_username}`}
+                          label={`Waiting for first OIDC login: ${user.pending_oidc.expected_username}, created by ${
+                            user.pending_oidc.created_by_username
+                          } on ${new Date(user.pending_oidc.created_at).toLocaleString()}`}
                           variant="outlined"
                           sx={settingsMetadataChipSx}
                         />
@@ -812,20 +828,12 @@ export function UserManagementSettings({ dialogSafeHeader = false }: UserManagem
                             <LinkIcon />
                           </IconButton>
                         </Tooltip>
-                        <Tooltip title="Move identity to another local user">
+                        <Tooltip title="Advanced OIDC actions">
                           <IconButton
-                            aria-label={`Move OIDC identity for ${user.username}`}
-                            onClick={() => openMappingEditor(user, "move")}
+                            aria-label={`Advanced OIDC actions for ${user.username}`}
+                            onClick={(event) => setAdvancedMappingMenu({ anchor: event.currentTarget, user })}
                           >
-                            <SwapHorizIcon />
-                          </IconButton>
-                        </Tooltip>
-                        <Tooltip title="Detach OIDC identity">
-                          <IconButton
-                            aria-label={`Detach OIDC identity from ${user.username}`}
-                            onClick={() => void handleDetachIdentity(user)}
-                          >
-                            <LinkOffIcon />
+                            <MoreVertIcon />
                           </IconButton>
                         </Tooltip>
                       </>
@@ -891,6 +899,31 @@ export function UserManagementSettings({ dialogSafeHeader = false }: UserManagem
           <AddIcon />
         </Fab>
       )}
+
+      <Menu
+        anchorEl={advancedMappingMenu.anchor}
+        open={Boolean(advancedMappingMenu.anchor)}
+        onClose={() => setAdvancedMappingMenu({ anchor: null, user: null })}
+      >
+        <MenuItem
+          onClick={() => {
+            const user = advancedMappingMenu.user;
+            setAdvancedMappingMenu({ anchor: null, user: null });
+            if (user) openMappingEditor(user, "move");
+          }}
+        >
+          Move identity to another local user
+        </MenuItem>
+        <MenuItem
+          onClick={() => {
+            const user = advancedMappingMenu.user;
+            setAdvancedMappingMenu({ anchor: null, user: null });
+            if (user) void handleDetachIdentity(user);
+          }}
+        >
+          Detach OIDC identity
+        </MenuItem>
+      </Menu>
 
       <ResponsiveFormDialog
         open={mappingEditor.open}

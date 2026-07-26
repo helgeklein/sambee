@@ -68,6 +68,14 @@ export function AuthenticationSettings() {
         !mappingReview[mapping.target_user_id]?.selected &&
         !mappingReview[mapping.target_user_id]?.omissionAcknowledged
     ) ?? [];
+  const omittedPasswordlessMappings =
+    testedIdentity?.replacement_mappings.filter(
+      (mapping) =>
+        mapping.target_state === "active" &&
+        !mapping.has_local_password &&
+        !mappingReview[mapping.target_user_id]?.selected &&
+        testedIdentity.candidate.sign_in_mode === "oidc_or_password"
+    ) ?? [];
   const replacementPlanInvalid =
     replacementUsernames.some((username) => !username || username === testedIdentity?.username.trim()) ||
     new Set(replacementUsernames).size !== replacementUsernames.length ||
@@ -127,13 +135,13 @@ export function AuthenticationSettings() {
     setNotice("");
   };
 
-  const startTest = async () => {
+  const startTest = async (remapAll = false) => {
     setBusy(true);
     setError("");
     try {
       const payload = { ...candidate };
       if (clientSecret.trim()) payload.client_secret = clientSecret;
-      const result = await api.startOidcTest(payload);
+      const result = await api.startOidcTest(payload, remapAll);
       window.location.assign(result.authorization_url);
     } catch {
       setError("The OIDC configuration could not be validated.");
@@ -183,11 +191,19 @@ export function AuthenticationSettings() {
   };
 
   const setPasswordOnly = async () => {
-    if (!window.confirm("Switch to Password only and revoke all active sessions?")) return;
+    const activeConfiguration = configuration?.configuration;
+    if (!activeConfiguration) return;
+    const passwordlessCount = configuration.active_passwordless_user_count;
+    if (
+      !window.confirm(
+        `Switch to Password only and revoke all active sessions? ${passwordlessCount} active account${passwordlessCount === 1 ? "" : "s"} without a local password will lose sign-in access.`
+      )
+    )
+      return;
     setBusy(true);
     setError("");
     try {
-      await api.setPasswordOnlyAuthentication();
+      await api.setPasswordOnlyAuthentication(activeConfiguration.configuration_revision, passwordlessCount);
       clearAuthConfigCache();
       setTestedIdentity(null);
       setClientSecret("");
@@ -334,7 +350,7 @@ export function AuthenticationSettings() {
           <MenuItem value="oidc_only">OIDC only</MenuItem>
         </TextField>
 
-        <Button variant="outlined" disabled={busy || configuration?.health.status !== "healthy"} onClick={startTest}>
+        <Button variant="outlined" disabled={busy || configuration?.health.status !== "healthy"} onClick={() => void startTest()}>
           Connect and test
         </Button>
 
@@ -347,6 +363,13 @@ export function AuthenticationSettings() {
             {testedIdentity.replacement_mappings.length > 0 && (
               <Stack spacing={2} sx={{ mt: 2 }}>
                 <Typography variant="subtitle1">Review existing accounts</Typography>
+                {omittedPasswordlessMappings.length > 0 && (
+                  <Alert severity="warning">
+                    {omittedPasswordlessMappings.length} active passwordless account
+                    {omittedPasswordlessMappings.length === 1 ? " is" : "s are"} omitted. These users cannot sign in until mapped. An
+                    unmapped OIDC login may collide with an existing username or create a separate account.
+                  </Alert>
+                )}
                 {testedIdentity.replacement_mappings
                   .filter((mapping) => mapping.selectable)
                   .map((mapping) => {
@@ -452,6 +475,21 @@ export function AuthenticationSettings() {
           <>
             <Divider />
             <Typography variant="h6">Recovery</Typography>
+            <Button
+              variant="outlined"
+              disabled={busy || configuration.health.status !== "healthy"}
+              onClick={() => {
+                if (
+                  window.confirm(
+                    "Remap all OIDC accounts? Current OIDC links will be removed, affected users signed out, and local users and data preserved."
+                  )
+                ) {
+                  void startTest(true);
+                }
+              }}
+            >
+              Remap all OIDC accounts
+            </Button>
             <Button color="warning" variant="outlined" disabled={busy} onClick={setPasswordOnly}>
               Switch to Password only
             </Button>

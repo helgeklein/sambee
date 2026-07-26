@@ -1,16 +1,29 @@
 import uuid
 from datetime import datetime, timezone
 
+from sqlalchemy import update
 from sqlmodel import Session, select
 
-from app.models.oidc import OidcIdentity, OidcPendingIdentityMapping, OidcProviderConfiguration, SignInMode
+from app.models.audit import AuditEvent
+from app.models.oidc import OidcFlow, OidcIdentity, OidcPendingIdentityMapping, OidcProviderConfiguration, SignInMode
 from app.models.oidc_api import OidcReplacementMappingInput, OidcReplacementMappingRead
 from app.models.user import User, UserRole, normalize_utc_datetime
 from app.services.audit import AuditDetails, AuditEventName, AuditResult, write_audit_event
 
 
 class OidcMappingError(ValueError):
-    pass
+    def __init__(
+        self,
+        message: str,
+        *,
+        error_code: str = "oidc_mapping_conflict",
+        target_user_id: uuid.UUID | None = None,
+        field: str | None = None,
+    ) -> None:
+        super().__init__(message)
+        self.error_code = error_code
+        self.target_user_id = target_user_id
+        self.field = field
 
 
 def _target_state(user: User, now: datetime) -> str:
@@ -123,9 +136,21 @@ def validate_reviewed_mapping_plan(
     return selected
 
 
-def require_mapping_revision(configuration: OidcProviderConfiguration, expected_revision: int) -> None:
-    if configuration.identity_mapping_revision != expected_revision:
+def claim_mapping_revision(
+    session: Session,
+    configuration: OidcProviderConfiguration,
+    expected_revision: int,
+) -> int:
+    table = OidcProviderConfiguration.__table__  # type: ignore[attr-defined]
+    result = session.connection().execute(
+        update(table)
+        .where(table.c.id == configuration.id, table.c.identity_mapping_revision == expected_revision)
+        .values(identity_mapping_revision=expected_revision + 1)
+    )
+    if result.rowcount != 1:
         raise OidcMappingError("OIDC identity mappings changed")
+    session.expire(configuration, ["identity_mapping_revision"])
+    return configuration.identity_mapping_revision
 
 
 def create_pending_mappings(
@@ -190,7 +215,12 @@ def replace_pending_mappings(
     for user_id in selected_ids:
         user = session.get(User, user_id)
         if user is None or _target_state(user, datetime.now(timezone.utc)) != "active":
-            raise OidcMappingError("OIDC mapping target is unavailable")
+            raise OidcMappingError(
+                "OIDC mapping target is unavailable",
+                error_code="oidc_mapping_target_unavailable",
+                target_user_id=user_id,
+                field="target_user_id",
+            )
         old_mapping = existing_by_target.get(user_id)
         if old_mapping is not None:
             write_audit_event(
@@ -209,9 +239,6 @@ def replace_pending_mappings(
         mappings=normalized,
         acting_user_id=acting_user_id,
     )
-    if mappings:
-        configuration.identity_mapping_revision += 1
-        session.add(configuration)
 
 
 def cancel_pending_mapping(
@@ -230,8 +257,6 @@ def cancel_pending_mapping(
     if mapping is None:
         raise OidcMappingError("OIDC pending mapping was not found")
     session.delete(mapping)
-    configuration.identity_mapping_revision += 1
-    session.add(configuration)
     write_audit_event(
         session,
         event_name=AuditEventName.PENDING_MAPPING_CANCELED,
@@ -315,11 +340,9 @@ def move_identity(
     identity.user_id = target.id
     source.token_version += 1
     target.token_version += 1
-    configuration.identity_mapping_revision += 1
     session.add(identity)
     session.add(source)
     session.add(target)
-    session.add(configuration)
     write_audit_event(
         session,
         event_name=AuditEventName.IDENTITY_REASSIGNED,
@@ -371,9 +394,7 @@ def change_identity(
         )
     )
     user.token_version += 1
-    configuration.identity_mapping_revision += 1
     session.add(user)
-    session.add(configuration)
     write_audit_event(
         session,
         event_name=AuditEventName.IDENTITY_MAPPING_CHANGED,
@@ -403,9 +424,7 @@ def detach_identity(
         raise OidcMappingError("OIDC mapping target is unavailable")
     session.delete(identity)
     user.token_version += 1
-    configuration.identity_mapping_revision += 1
     session.add(user)
-    session.add(configuration)
     write_audit_event(
         session,
         event_name=AuditEventName.IDENTITY_UNMAPPED,
@@ -414,3 +433,55 @@ def detach_identity(
         affected_user_id=target_user_id,
         provider_configuration_id=configuration.id,
     )
+
+
+def remove_user_oidc_state(
+    session: Session,
+    *,
+    user: User,
+    acting_user_id: uuid.UUID,
+) -> None:
+    configuration = session.get(OidcProviderConfiguration, 1)
+    identities = session.exec(select(OidcIdentity).where(OidcIdentity.user_id == user.id)).all()
+    if configuration is not None and any(identity.issuer == configuration.issuer_url for identity in identities):
+        _guard_last_oidc_admin(session, configuration, user.id)
+
+    pending_mappings = session.exec(
+        select(OidcPendingIdentityMapping).where(
+            (OidcPendingIdentityMapping.target_user_id == user.id) | (OidcPendingIdentityMapping.created_by_user_id == user.id)
+        )
+    ).all()
+    mappings_changed = bool(identities or pending_mappings)
+    for identity in identities:
+        write_audit_event(
+            session,
+            event_name=AuditEventName.IDENTITY_UNMAPPED,
+            result=AuditResult.SUCCEEDED,
+            acting_user_id=acting_user_id,
+            details=AuditDetails(username=user.username),
+            provider_configuration_id=configuration.id if configuration is not None else None,
+        )
+        session.delete(identity)
+    for mapping in pending_mappings:
+        write_audit_event(
+            session,
+            event_name=AuditEventName.PENDING_MAPPING_CANCELED,
+            result=AuditResult.SUCCEEDED,
+            details=AuditDetails(username=mapping.expected_username),
+            acting_user_id=acting_user_id,
+            affected_user_id=mapping.target_user_id,
+            provider_configuration_id=mapping.provider_configuration_id,
+        )
+        session.delete(mapping)
+    for flow in session.exec(select(OidcFlow).where((OidcFlow.initiating_admin_id == user.id) | (OidcFlow.user_id == user.id))).all():
+        session.delete(flow)
+    if mappings_changed and configuration is not None:
+        claim_mapping_revision(session, configuration, configuration.identity_mapping_revision)
+    if configuration is not None and configuration.updated_by_user_id == user.id:
+        configuration.updated_by_user_id = None
+        session.add(configuration)
+
+    session.flush()
+    audit_table = AuditEvent.__table__  # type: ignore[attr-defined]
+    session.connection().execute(update(audit_table).where(audit_table.c.acting_user_id == user.id).values(acting_user_id=None))
+    session.connection().execute(update(audit_table).where(audit_table.c.affected_user_id == user.id).values(affected_user_id=None))

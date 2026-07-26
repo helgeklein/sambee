@@ -39,6 +39,7 @@ const configuration = (displayName: string): RedactedOidcConfiguration => ({
 
 const response = (value: RedactedOidcConfiguration): OidcAdminConfigurationRead => ({
   configuration: value,
+  active_passwordless_user_count: 2,
   health: {
     oidc_secret_key_configured: true,
     public_url_configured: true,
@@ -185,6 +186,7 @@ describe("Authentication settings", () => {
     expect(await screen.findByText("Sign in again")).toBeInTheDocument();
     expect(localStorage.getItem("access_token")).toBeNull();
     expect(api.getOidcConfiguration).toHaveBeenCalledTimes(1);
+    expect(api.setPasswordOnlyAuthentication).toHaveBeenCalledWith(2, 2);
   });
 
   it("requires uniqueness to be reconfirmed when the username claim changes", async () => {
@@ -198,5 +200,53 @@ describe("Authentication settings", () => {
     await user.clear(screen.getByRole("textbox", { name: "Username claim" }));
     await user.type(screen.getByRole("textbox", { name: "Username claim" }), "email");
     expect(confirmation).not.toBeChecked();
+  });
+
+  it("warns when an active passwordless account is omitted in OIDC or password mode", async () => {
+    vi.mocked(api.getOidcConfiguration).mockResolvedValue(response(configuration("Active Provider")));
+    vi.mocked(api.getOidcTestResult).mockResolvedValue({
+      flow_id: "test-flow",
+      candidate: configuration("Active Provider"),
+      replacement_mappings: [
+        {
+          target_user_id: "user-1",
+          local_username: "alice",
+          local_role: "viewer",
+          has_local_password: false,
+          target_state: "active",
+          mapping_state: "unmapped",
+          suggested_username: "alice",
+          prefill_source: "local",
+          selected_by_default: false,
+          selectable: true,
+          omission_acknowledgement_required: false,
+        },
+      ],
+      expected_identity_mapping_revision: 1,
+      username: "admin",
+      name: null,
+      email: null,
+      groups: ["sambee-admins"],
+      expires_at: "2099-01-01T00:00:00Z",
+    });
+    window.location.hash = "flow=test-flow";
+
+    renderSettings();
+
+    expect(await screen.findByText(/active passwordless account is omitted/i)).toBeInTheDocument();
+    expect(screen.getByText(/may collide with an existing username or create a separate account/i)).toBeInTheDocument();
+  });
+
+  it("starts an explicit remap-all test flow", async () => {
+    const user = userEvent.setup();
+    vi.spyOn(window, "confirm").mockReturnValue(true);
+    vi.mocked(api.getOidcConfiguration).mockResolvedValue(response(configuration("Active Provider")));
+    vi.mocked(api.startOidcTest).mockImplementation(() => new Promise(() => undefined));
+    window.location.hash = "";
+    renderSettings();
+
+    await user.click(await screen.findByRole("button", { name: "Remap all OIDC accounts" }));
+
+    expect(api.startOidcTest).toHaveBeenCalledWith(expect.objectContaining({ display_name: "Active Provider" }), true);
   });
 });

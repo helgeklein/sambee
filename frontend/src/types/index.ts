@@ -39,6 +39,7 @@ export interface AdminUser {
   } | null;
   pending_oidc: {
     expected_username: string;
+    created_by_username: string;
     created_at: string;
   } | null;
 }
@@ -295,6 +296,7 @@ export interface AuthenticationHealth {
 export interface OidcAdminConfigurationRead {
   configuration: RedactedOidcConfiguration | null;
   health: AuthenticationHealth;
+  active_passwordless_user_count: number;
 }
 
 export interface OidcTestStartResponse {
@@ -336,6 +338,11 @@ export interface OidcFinalizeResponse {
 
 export interface OidcMappingMutationResponse {
   identity_mapping_revision: number;
+  pending_mappings: Array<{
+    target_user_id: string;
+    expected_username: string;
+    created_at: string;
+  }>;
 }
 
 export interface CompanionDownloadMetadata {
