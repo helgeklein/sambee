@@ -125,7 +125,7 @@ The implementation issue may revise a proposed value with security-review approv
 
 Create canonical Pydantic models and enums for:
 
-- public auth configuration and the three sign-in modes
+- public auth configuration and the three sign-in modes: `password_only`, `oidc_or_password`, and `oidc_only`
 - redacted administrator configuration
 - candidate configuration and validation checks
 - test-start success
@@ -199,9 +199,9 @@ Verify row counts, password-hash preservation, indexes, foreign keys, singleton 
 
 **Owner:** backend/security
 
-**Required before:** public OIDC routes or `/login/local` are usable in an active OIDC mode.
+**Required before:** public OIDC routes or password login in an active OIDC-or-password mode are usable.
 
-Implement baseline limits in the backend so direct-container and proxied deployments receive the same protection. Use four independent endpoint buckets: authorization starts, callbacks, exchanges, and the shared `POST /api/auth/token` password endpoint. Password login also uses an additional normalized-username bucket. Password-only and recovery login intentionally share both password checks because they use the same backend endpoint; the limiter must not infer database sign-in mode or authentication intent.
+Implement baseline limits in the backend so direct-container and proxied deployments receive the same protection. Use four independent endpoint buckets: authorization starts, callbacks, exchanges, and the shared `POST /api/auth/token` password endpoint. Password login also uses an additional normalized-username bucket. Password-only and OIDC-or-password login intentionally share both password checks because they use the same backend endpoint; the limiter must not infer the database sign-in mode.
 
 Use centrally defined limits and window constants:
 
@@ -220,11 +220,11 @@ Define `SAMBEE_TRUSTED_PROXY_CIDRS` as an optional environment variable containi
 
 For the password username bucket, trim surrounding whitespace while preserving case and Unicode code points, matching stored-username normalization without changing the exact password lookup. Hash the complete normalized UTF-8 value with SHA-256 before storage so the map retains a fixed-size key and never stores submitted usernames. Enforce the named 64 KiB password-form body limit before form parsing and return a generic `413` without reading credentials into application models; do not merge long usernames into a shared limiter key.
 
-After the transport-level body guard, resolve password-endpoint availability separately from the limiter. With no database authentication configuration, permit only legacy `password`; with a database configuration, permit only `password_only` and `oidc_with_recovery`. Legacy `none` and `oidc_only` return the existing fixed `404` before form parsing and without reading or changing any limiter bucket. The limiter receives no sign-in-mode or recovery-intent input. The 64 KiB ASGI guard intentionally remains an earlier transport-safety exception and may return generic `413` in any mode.
+After the transport-level body guard, resolve password-endpoint availability separately from the limiter. With no database authentication configuration, permit only legacy `password`; with a database configuration, permit only `password_only` and `oidc_or_password`. Legacy `none` and `oidc_only` return the existing fixed `404` before form parsing and without reading or changing any limiter bucket. The limiter receives no sign-in-mode input. The 64 KiB ASGI guard intentionally remains an earlier transport-safety exception and may return generic `413` in any mode.
 
 Authorization and callback are top-level browser navigations and return `303 See Other` exactly to `/login#error=oidc_rate_limited` when throttled. Exchange returns the canonical JSON `429` contract for `oidc_rate_limited`; the shared password endpoint returns a generic JSON `429`. Both API responses include `Retry-After`. Navigation throttling must never reflect a return path, provider parameter, query value, header, or request body. The frontend removes the allowlisted fragment from browser history before rendering its local translated message. Optional reverse-proxy limits are defense in depth and may strengthen, but must not replace or weaken, these defaults.
 
-**Exit check:** deterministic-monotonic-clock and simultaneous-request tests cover exact token capacity, continuous refill boundaries, rejected-request behavior, atomic check-and-consume, and `Retry-After`. Backend tests independently exhaust every endpoint bucket and both password keys without affecting unrelated buckets; prove 10,000-entry capacity, fully-refilled cleanup, LRU eviction, complete long-username hashing, fixed-size stored keys, exact-size and one-byte-over password-form handling, and restart semantics; and verify malformed or spoofed forwarding headers cannot select another key. Trusted-proxy tests cover empty configuration, invalid CIDRs, IPv4, IPv6, multiple trusted hops, and an integration assertion that forwarding headers never rewrite the ASGI socket peer before Sambee evaluates trust. API tests cover Password-only and OIDC recovery limiting; prove normal-sized legacy `none` and `oidc_only` requests always return fixed `404` without parsing the form or changing limiter state; prove the transport guard may return generic `413` first; and verify the canonical exchange response and generic password response without account, mode, or recovery-intent disclosure. Browser tests verify fixed authorization/callback redirects contain only the allowlisted fragment, immediately remove it from history, render the local safe message, and never reflect request data.
+**Exit check:** deterministic-monotonic-clock and simultaneous-request tests cover exact token capacity, continuous refill boundaries, rejected-request behavior, atomic check-and-consume, and `Retry-After`. Backend tests independently exhaust every endpoint bucket and both password keys without affecting unrelated buckets; prove 10,000-entry capacity, fully-refilled cleanup, LRU eviction, complete long-username hashing, fixed-size stored keys, exact-size and one-byte-over password-form handling, and restart semantics; and verify malformed or spoofed forwarding headers cannot select another key. Trusted-proxy tests cover empty configuration, invalid CIDRs, IPv4, IPv6, multiple trusted hops, and an integration assertion that forwarding headers never rewrite the ASGI socket peer before Sambee evaluates trust. API tests cover Password-only and OIDC-or-password limiting; prove normal-sized legacy `none` and `oidc_only` requests always return fixed `404` without parsing the form or changing limiter state; prove the transport guard may return generic `413` first; and verify the canonical exchange response and generic password response without account or mode disclosure. Browser tests verify fixed authorization/callback redirects contain only the allowlisted fragment, immediately remove it from history, render the local safe message, and never reflect request data.
 
 ### Gate R8: target provider confirmation
 
@@ -380,7 +380,7 @@ PR numbers describe dependency order, not necessarily merge order. Parallel work
 
 **Work:**
 
-- Define strict enums, bounded strings and arrays, request models, redacted response models, stable error codes, mapping-plan discriminated states, and completion receipts.
+- Define strict enums, including canonical `password_only`, `oidc_or_password`, and `oidc_only` sign-in-mode values, plus bounded strings and arrays, request models, redacted response models, stable error codes, mapping-plan discriminated states, and completion receipts.
 - Reuse the existing password login response for successful grant exchange.
 - Define omitted-account acknowledgements as row-bound structured values, not a single unscoped boolean.
 - Define candidate secret semantics so absence preserves an existing secret and no read model can contain it.
@@ -412,7 +412,7 @@ PR numbers describe dependency order, not necessarily merge order. Parallel work
 - Add typed candidate normalization, secret-preserve/replace behavior, group normalization, mapping collision checks, revision calculation, and cache invalidation hooks.
 - Produce the typed administrator prerequisites/health model defined in Gate R3 without logging key material. Health reason codes are allowlisted and contain no exception text.
 - Populate the five environment/configuration health reasons from Gate R3 in canonical order, preserving simultaneous failures. PR 11 later composes `no_active_administrator` without replacing existing reasons.
-- Fail OIDC closed when ciphertext cannot be decrypted; preserve configured recovery behavior and stored ciphertext.
+- Fail OIDC closed when ciphertext cannot be decrypted; preserve configured password availability and stored ciphertext.
 
 **Security invariants:** no automatic OIDC key generation; no database fallback key; decrypted values have request-local lifetime; exceptions and model representations redact values.
 
@@ -573,7 +573,7 @@ PR numbers describe dependency order, not necessarily merge order. Parallel work
 - Recheck flow ownership/status/expiry, configuration existence/revision, mapping revision, every row, omission acknowledgements, uniqueness attestation, administrator state, tested identity admission/role, unique administrator mapping, and resulting usable administrator.
 - For initial activation, promote the candidate, map the tested administrator, and create reviewed pending rows in one transaction.
 - For replacement intent, replace established and pending mappings from the complete reviewed plan, invalidate affected sessions, and increment both revisions in one transaction.
-- Add direct allowed updates in recovery mode with scoped invalidation and fresh-test enforcement for OIDC-only policy changes.
+- Add direct allowed updates in OIDC-or-password mode with scoped invalidation and fresh-test enforcement for OIDC-only policy changes.
 - Clear encrypted payloads and retain only the short-lived completion receipt.
 - Make same-administrator retry of a finalized flow return the receipt without another mutation or audit event.
 
@@ -691,15 +691,16 @@ PR numbers describe dependency order, not necessarily merge order. Parallel work
 
 - Replace `auth_method` with canonical `sign_in_mode` and derive method availability.
 - Replace fetch-failure fallback-to-password with an authentication-unavailable retry state. Never infer that local login is enabled after a failed config read.
-- Implement `/login/local` and `/login/oidc/callback` with correct mode gates, but keep both routes unavailable in the production router until PR 16. Exercise them through focused router tests and fixtures backed by PR 12's isolated test router.
+- Implement the mode-aware `/login` page and `/login/oidc/callback`, but keep the callback route unavailable in the production router until PR 16. Exercise the callback through focused router tests and fixtures backed by PR 12's isolated test router. Do not add `/login/local`.
 - Parse and remove the callback fragment before exchange; load no third-party resources on the callback page.
 - Centralize successful-token storage, tracing initialization, current-user load, and safe return navigation for password and OIDC.
-- Implement one automatic OIDC-only reauthentication attempt and loop suppression in `sessionStorage`.
+- Implement one automatic top-level OIDC-only authorization attempt from `/login`, preserving the safe return path. Set the attempt marker in `sessionStorage` before navigation; after provider, configuration, callback, or rate-limit failure, suppress another redirect and show only a minimal **Try again** state. Explicit logout uses a separate suppression marker and minimal **Sign in again** state so an active IdP session does not immediately sign the user back in. Explicit retry clears the applicable marker immediately before navigation, and successful login clears all suppression state.
+- In OIDC-or-password mode, render **Sign in with {provider display name}**, a clear **or** separator, and the Sambee username/password form together on `/login`; label the local action **Sign in with password**.
 - Map only stable server errors and safe allowlisted fragment errors to translated messages.
 - Treat `oidc_rate_limited` as an allowlisted navigation fragment error, remove it from history before rendering, and never render reflected URL or provider content.
 - Remove the temporary legacy `auth_method` parser only after the canonical backend response from PR 05 is the supported deployment baseline.
 
-**Acceptance:** all four effective states (`none`, Password-only, recovery, OIDC-only), outage behavior, callback replay prevention, rate-limited navigation fragment removal, logout suppression, deep return routes, and accessibility tests pass; the production application has no reachable OIDC callback or local-recovery frontend route.
+**Acceptance:** all four effective states (`none`, Password-only, OIDC-or-password, OIDC-only), combined-page behavior, transparent OIDC-only initiation, outage behavior, callback replay prevention, rate-limited navigation fragment removal, logout suppression, deep return routes, route-absence, and accessibility tests pass; the production application has no reachable OIDC callback and no `/login/local` route exists.
 
 ### PR 14: dormant administrator authentication setup and replacement UI
 
@@ -762,7 +763,7 @@ PR numbers describe dependency order, not necessarily merge order. Parallel work
 
 **Depends on:** PR 09, PR 10, PR 12, PR 13, PR 14, PR 15, and completed Gate R6 evidence.
 
-**Goal:** make OIDC activation reachable only after login, recovery, rate limiting, mapping administration, and migration safety are complete.
+**Goal:** make OIDC activation reachable only after login, emergency recovery, rate limiting, mapping administration, and migration safety are complete.
 
 **Primary files:**
 
@@ -774,11 +775,11 @@ PR numbers describe dependency order, not necessarily merge order. Parallel work
 **Work:**
 
 - Verify and link closure evidence for Gates R1-R7, including the audit export, production-container CLI, application rate limits, and current-database migration rehearsal.
-- Atomically register the administrator test-login handler; public authorization, callback, and exchange handlers; and frontend local-recovery and OIDC-callback routes implemented in PRs 06, 08, 12, and 13.
+- Atomically register the administrator test-login handler; public authorization, callback, and exchange handlers; the mode-aware `/login` behavior; and the frontend OIDC-callback route implemented in PRs 06, 08, 12, and 13.
 - Register the sole provider-finalization route implemented in PR 09.
 - Register and expose the administrator Authentication settings route/navigation implemented in PR 14.
 - Confirm the public authorize/callback/exchange routes, mode-aware frontend login, mapping administration, and recovery command are present in the same deployable artifact.
-- Run a pre-cutover smoke matrix that activates recovery mode and OIDC-only mode, signs out the acting administrator, signs back in through OIDC, and restores Password-only through the documented CLI.
+- Run a pre-cutover smoke matrix that activates OIDC-or-password mode and OIDC-only mode, verifies combined-page password login, verifies transparent OIDC-only initiation plus failure/logout suppression, signs out the acting administrator, signs back in through OIDC, and restores Password-only through the documented CLI.
 - Confirm failed or incomplete readiness checks leave finalization unavailable rather than relying on an undocumented feature flag.
 
 **Security invariants:** no build artifact can persist an OIDC mode unless every required login and recovery surface is included; finalization remains guarded by the tested identity, revisions, mapping plan, and usable-administrator checks from PR 09.
@@ -892,7 +893,7 @@ Tests must not call a public IdP. The final supported-provider rehearsal may use
 | PR 05 | Database-owned mode precedence and Password-only transition semantics. |
 | PR 06-09 | Setup, test, mapping-plan, activation, replacement, errors, and audit behavior. |
 | PR 10 | Emergency mode, audit export, and stopped-application encryption-key rotation runbooks. |
-| PR 11-12 | Login, recovery, session lifetime, provisioning, admission, role synchronization, and logout. |
+| PR 11-12 | Login, password availability, session lifetime, provisioning, admission, role synchronization, and logout. |
 | PR 14-15 | Field-level UI reference and administrator mapping workflows. |
 | PR 16 | Activation cutover notes and verified recovery/migration evidence. |
 | PR 17 | Consolidation, Authelia example, troubleshooting, security/privacy, and release notes. |
@@ -907,7 +908,7 @@ The matrix maps normative specification sections to the implementation issue tha
 | --- | --- | --- |
 | Goals, non-goals, legacy JWT consequence | PR 03, PR 05, PR 12 | PR 16 |
 | Administrator six-step setup UX | PR 14, PR 16 | PR 17 |
-| Login modes and `/login/local` | PR 05, PR 13, PR 16 | PR 17 |
+| Login modes, combined `/login`, transparent OIDC-only initiation, and `/login/local` absence | PR 05, PR 13, PR 16 | PR 17 |
 | User-management authentication state | PR 07A, PR 15 | PR 17 |
 | Authorization start, state, nonce, PKCE | PR 01, PR 06, PR 12 | PR 16, PR 17 |
 | Callback claim and token validation | PR 01, PR 08, PR 11 | PR 17 |
@@ -949,7 +950,7 @@ The matrix maps normative specification sections to the implementation issue tha
 - [ ] Gates R1-R8 are closed with linked evidence.
 - [ ] All canonical API schemas and stable errors match frontend parsing and tests.
 - [ ] No active behavior changes when no provider configuration exists.
-- [ ] Password, `none`, recovery, and OIDC-only suites pass.
+- [ ] Password, `none`, OIDC-or-password, and OIDC-only suites pass.
 - [ ] Migration rehearsal and backup/restore pass on a current database copy.
 - [ ] Secrets and protocol material are absent from API, URL, log, audit, and database plaintext checks.
 - [ ] Flow replay, race, expiry, and exactly-one-row transition tests pass.
