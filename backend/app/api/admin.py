@@ -9,17 +9,21 @@ from app.core.logging import get_logger, set_user
 from app.core.secrets import generate_temporary_password
 from app.core.security import get_password_hash, require_capability
 from app.db.database import get_session
+from app.models.oidc import OidcIdentity, OidcPendingIdentityMapping, OidcProviderConfiguration
 from app.models.user import (
     AdminUserCreate,
     AdminUserCreateResult,
+    AdminUserOidcRead,
     AdminUserPasswordReset,
     AdminUserPasswordResetResult,
+    AdminUserPendingOidcRead,
     AdminUserRead,
     AdminUserUpdate,
     User,
     UserRole,
     build_admin_user_read,
 )
+from app.services.oidc_mapping import OidcMappingError, remove_user_oidc_state
 
 router = APIRouter()
 logger = get_logger(__name__)
@@ -47,6 +51,48 @@ def _validate_user_update_guards(
             raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Cannot remove the last active admin")
 
 
+def _build_admin_user_read_with_authentication(session: Session, user: User) -> AdminUserRead:
+    result = build_admin_user_read(user)
+    configuration = session.get(OidcProviderConfiguration, 1)
+    if configuration is None:
+        return result
+    identity = session.exec(
+        select(OidcIdentity).where(OidcIdentity.issuer == configuration.issuer_url, OidcIdentity.user_id == user.id)
+    ).first()
+    pending = session.exec(
+        select(OidcPendingIdentityMapping).where(
+            OidcPendingIdentityMapping.provider_configuration_id == configuration.id,
+            OidcPendingIdentityMapping.target_user_id == user.id,
+        )
+    ).first()
+    return result.model_copy(
+        update={
+            "oidc": (
+                AdminUserOidcRead(
+                    identity_id=identity.id,
+                    provider_display_name=configuration.display_name,
+                    last_login_at=identity.last_login_at,
+                )
+                if identity is not None
+                else None
+            ),
+            "pending_oidc": (
+                AdminUserPendingOidcRead(
+                    expected_username=pending.expected_username,
+                    created_by_username=(
+                        creator.username
+                        if pending.created_by_user_id is not None and (creator := session.get(User, pending.created_by_user_id)) is not None
+                        else "Deleted user"
+                    ),
+                    created_at=pending.created_at,
+                )
+                if pending is not None
+                else None
+            ),
+        }
+    )
+
+
 @router.get("/users", response_model=list[AdminUserRead])
 async def list_users(
     current_user: User = Depends(require_capability(Capability.MANAGE_USERS)),
@@ -55,7 +101,7 @@ async def list_users(
     set_user(current_user.username)
     logger.info(f"Listing users: user={current_user.username}")
     users = session.exec(select(User).order_by(User.username)).all()
-    return [build_admin_user_read(user) for user in users]
+    return [_build_admin_user_read_with_authentication(session, user) for user in users]
 
 
 @router.post("/users", response_model=AdminUserCreateResult, status_code=status.HTTP_201_CREATED)
@@ -100,7 +146,7 @@ async def create_user(
     logger.info(f"Created user: actor={current_user.username}, username={user.username}, role={user.role}")
 
     return AdminUserCreateResult(
-        **build_admin_user_read(user).model_dump(),
+        **_build_admin_user_read_with_authentication(session, user).model_dump(),
         temporary_password=temporary_password,
     )
 
@@ -155,7 +201,7 @@ async def update_user(
     session.refresh(user)
 
     logger.info(f"Updated user: actor={current_user.username}, username={user.username}, role={user.role}, active={user.is_active}")
-    return build_admin_user_read(user)
+    return _build_admin_user_read_with_authentication(session, user)
 
 
 @router.post("/users/{user_id}/reset-password", response_model=AdminUserPasswordResetResult)
@@ -170,6 +216,12 @@ async def reset_user_password(
     user = session.get(User, user_id)
     if not user:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="User not found")
+
+    if user.password_hash is None:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Password reset requires an existing local password",
+        )
 
     user.password_hash = get_password_hash(reset_data.new_password)
     user.must_change_password = reset_data.must_change_password
@@ -205,6 +257,11 @@ async def delete_user(
         is_delete=True,
     )
 
+    try:
+        remove_user_oidc_state(session, user=user, acting_user_id=current_user.id)
+    except OidcMappingError as error:
+        session.rollback()
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=str(error)) from error
     session.delete(user)
     session.commit()
 

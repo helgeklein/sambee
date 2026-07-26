@@ -3,7 +3,10 @@ import {
   AdminPanelSettings as AdminIcon,
   Delete as DeleteIcon,
   Edit as EditIcon,
+  Link as LinkIcon,
+  LinkOff as LinkOffIcon,
   LockReset as LockResetIcon,
+  MoreVert as MoreVertIcon,
   Person as PersonIcon,
 } from "@mui/icons-material";
 import {
@@ -19,6 +22,7 @@ import {
   InputLabel,
   List,
   ListItem,
+  Menu,
   MenuItem,
   Select,
   Stack,
@@ -79,6 +83,8 @@ interface ResetPasswordFormState {
 interface UserManagementSettingsProps {
   dialogSafeHeader?: boolean;
 }
+
+type OidcMappingEditorMode = "create" | "change" | "move";
 
 const DEFAULT_USER_FORM: UserFormState = {
   username: "",
@@ -148,12 +154,27 @@ export function UserManagementSettings({ dialogSafeHeader = false }: UserManagem
   });
   const users = cachedUserManagementData?.users ?? [];
   const currentUserId = cachedUserManagementData?.currentUserId ?? null;
+  const oidcConfiguration = cachedUserManagementData?.oidcConfiguration.configuration ?? null;
+  const pendingOidcMappingsAllowed = oidcConfiguration?.username_claim_uniqueness_confirmed === true;
   const [editorOpen, setEditorOpen] = useState(false);
   const [deleteDialogOpen, setDeleteDialogOpen] = useState(false);
   const [resetPasswordEditorOpen, setResetPasswordEditorOpen] = useState(false);
   const [deleteSubmitting, setDeleteSubmitting] = useState(false);
   const [resetPasswordSubmitting, setResetPasswordSubmitting] = useState(false);
   const [selectedUser, setSelectedUser] = useState<AdminUser | null>(null);
+  const [mappingEditor, setMappingEditor] = useState<{
+    open: boolean;
+    mode: OidcMappingEditorMode;
+    user: AdminUser | null;
+    expectedUsername: string;
+    targetUserId: string;
+  }>({ open: false, mode: "create", user: null, expectedUsername: "", targetUserId: "" });
+  const [mappingSubmitting, setMappingSubmitting] = useState(false);
+  const [mappingError, setMappingError] = useState<string | null>(null);
+  const [advancedMappingMenu, setAdvancedMappingMenu] = useState<{
+    anchor: HTMLElement | null;
+    user: AdminUser | null;
+  }>({ anchor: null, user: null });
   const [formState, setFormState] = useState<UserFormState>(DEFAULT_USER_FORM);
   const [formError, setFormError] = useState<string | null>(null);
   const [resetPasswordForm, setResetPasswordForm] = useState<ResetPasswordFormState>(DEFAULT_RESET_PASSWORD_FORM);
@@ -176,6 +197,86 @@ export function UserManagementSettings({ dialogSafeHeader = false }: UserManagem
   const isEditing = Boolean(selectedUser);
   const isEditingSelf = Boolean(selectedUser && currentUserId && selectedUser.id === currentUserId);
   const activeAdminCount = useMemo(() => users.filter((user) => user.role === "admin" && user.is_active !== false).length, [users]);
+
+  const openMappingEditor = (user: AdminUser, mode: OidcMappingEditorMode) => {
+    setMappingError(null);
+    setMappingEditor({
+      open: true,
+      mode,
+      user,
+      expectedUsername: user.pending_oidc?.expected_username ?? "",
+      targetUserId: "",
+    });
+  };
+
+  const closeMappingEditor = () => {
+    if (mappingSubmitting) return;
+    setMappingEditor({ open: false, mode: "create", user: null, expectedUsername: "", targetUserId: "" });
+    setMappingError(null);
+  };
+
+  const handleMappingSubmit = async () => {
+    const user = mappingEditor.user;
+    if (!user || !oidcConfiguration) return;
+    try {
+      setMappingSubmitting(true);
+      setMappingError(null);
+      if (mappingEditor.mode === "move") {
+        if (!user.oidc || !mappingEditor.targetUserId) {
+          setMappingError("Select an available local account.");
+          return;
+        }
+        await api.moveOidcIdentity(user.oidc.identity_id, oidcConfiguration.identity_mapping_revision, mappingEditor.targetUserId);
+      } else {
+        if (!pendingOidcMappingsAllowed) {
+          setMappingError("Confirm that the provider username claim is stable and unique before creating pending mappings.");
+          return;
+        }
+        const expectedUsername = mappingEditor.expectedUsername.trim();
+        if (!expectedUsername) {
+          setMappingError("Provider username is required.");
+          return;
+        }
+        if (mappingEditor.mode === "change") {
+          await api.changeOidcIdentity(user.id, oidcConfiguration.identity_mapping_revision, expectedUsername);
+        } else {
+          await api.putPendingOidcMappings(oidcConfiguration.identity_mapping_revision, [
+            { target_user_id: user.id, expected_username: expectedUsername },
+          ]);
+        }
+      }
+      setMappingEditor({ open: false, mode: "create", user: null, expectedUsername: "", targetUserId: "" });
+      setMappingError(null);
+      showNotification("OIDC mapping updated.", "success");
+      await refresh();
+    } catch (error: unknown) {
+      setMappingError(getApiErrorMessage(error, "The OIDC mapping could not be updated."));
+    } finally {
+      setMappingSubmitting(false);
+    }
+  };
+
+  const handleCancelPendingMapping = async (user: AdminUser) => {
+    if (!oidcConfiguration || !window.confirm(`Cancel the pending OIDC mapping for ${user.username}?`)) return;
+    try {
+      await api.cancelPendingOidcMapping(user.id, oidcConfiguration.identity_mapping_revision);
+      showNotification("Pending OIDC mapping canceled.", "success");
+      await refresh();
+    } catch (error: unknown) {
+      showNotification(getApiErrorMessage(error, "The pending OIDC mapping could not be canceled."), "error");
+    }
+  };
+
+  const handleDetachIdentity = async (user: AdminUser) => {
+    if (!oidcConfiguration || !window.confirm(`Detach the OIDC identity from ${user.username}? This does not revoke IdP access.`)) return;
+    try {
+      await api.detachOidcIdentity(user.id, oidcConfiguration.identity_mapping_revision);
+      showNotification("OIDC identity detached.", "success");
+      await refresh();
+    } catch (error: unknown) {
+      showNotification(getApiErrorMessage(error, "The OIDC identity could not be detached."), "error");
+    }
+  };
 
   const openCreateDialog = () => {
     setSelectedUser(null);
@@ -670,6 +771,29 @@ export function UserManagementSettings({ dialogSafeHeader = false }: UserManagem
                           sx={settingsMetadataChipSx}
                         />
                       )}
+                      {user.has_local_password && (
+                        <Chip size="small" label="Local password" variant="outlined" sx={settingsMetadataChipSx} />
+                      )}
+                      {user.oidc && (
+                        <Chip
+                          size="small"
+                          label={`OIDC linked: ${user.oidc.provider_display_name}${
+                            user.oidc.last_login_at ? `, last login ${new Date(user.oidc.last_login_at).toLocaleString()}` : ""
+                          }`}
+                          variant="outlined"
+                          sx={settingsMetadataChipSx}
+                        />
+                      )}
+                      {user.pending_oidc && (
+                        <Chip
+                          size="small"
+                          label={`Waiting for first OIDC login: ${user.pending_oidc.expected_username}, created by ${
+                            user.pending_oidc.created_by_username
+                          } on ${new Date(user.pending_oidc.created_at).toLocaleString()}`}
+                          variant="outlined"
+                          sx={settingsMetadataChipSx}
+                        />
+                      )}
                       {user.expires_at && (
                         <Chip
                           size="small"
@@ -682,6 +806,64 @@ export function UserManagementSettings({ dialogSafeHeader = false }: UserManagem
                   </Box>
 
                   <Stack direction="row" spacing={1} sx={{ alignSelf: { xs: "stretch", sm: "center" } }}>
+                    {oidcConfiguration && !user.oidc && !user.pending_oidc && (
+                      <Tooltip
+                        title={
+                          pendingOidcMappingsAllowed
+                            ? "Map OIDC account"
+                            : "Confirm username claim uniqueness in Authentication settings before mapping accounts"
+                        }
+                      >
+                        <span>
+                          <IconButton
+                            aria-label={`Map OIDC account for ${user.username}`}
+                            disabled={!pendingOidcMappingsAllowed}
+                            onClick={() => openMappingEditor(user, "create")}
+                          >
+                            <LinkIcon />
+                          </IconButton>
+                        </span>
+                      </Tooltip>
+                    )}
+                    {oidcConfiguration && user.pending_oidc && (
+                      <Tooltip title="Cancel pending OIDC mapping">
+                        <IconButton
+                          aria-label={`Cancel pending OIDC mapping for ${user.username}`}
+                          onClick={() => void handleCancelPendingMapping(user)}
+                        >
+                          <LinkOffIcon />
+                        </IconButton>
+                      </Tooltip>
+                    )}
+                    {oidcConfiguration && user.oidc && (
+                      <>
+                        <Tooltip
+                          title={
+                            pendingOidcMappingsAllowed
+                              ? "Change OIDC account"
+                              : "Confirm username claim uniqueness in Authentication settings before changing accounts"
+                          }
+                        >
+                          <span>
+                            <IconButton
+                              aria-label={`Change OIDC account for ${user.username}`}
+                              disabled={!pendingOidcMappingsAllowed}
+                              onClick={() => openMappingEditor(user, "change")}
+                            >
+                              <LinkIcon />
+                            </IconButton>
+                          </span>
+                        </Tooltip>
+                        <Tooltip title="Advanced OIDC actions">
+                          <IconButton
+                            aria-label={`Advanced OIDC actions for ${user.username}`}
+                            onClick={(event) => setAdvancedMappingMenu({ anchor: event.currentTarget, user })}
+                          >
+                            <MoreVertIcon />
+                          </IconButton>
+                        </Tooltip>
+                      </>
+                    )}
                     <Tooltip title={t("settings.userManagement.actions.editUser")}>
                       <span>
                         <IconButton
@@ -693,17 +875,19 @@ export function UserManagementSettings({ dialogSafeHeader = false }: UserManagem
                         </IconButton>
                       </span>
                     </Tooltip>
-                    <Tooltip title={t("settings.userManagement.actions.resetPassword")}>
-                      <span>
-                        <IconButton
-                          aria-label={t("settings.userManagement.aria.resetPassword", { username: user.username })}
-                          onClick={() => openResetPasswordDialog(user)}
-                          sx={settingsUtilityIconButtonSx}
-                        >
-                          <LockResetIcon />
-                        </IconButton>
-                      </span>
-                    </Tooltip>
+                    {user.has_local_password && (
+                      <Tooltip title={t("settings.userManagement.actions.resetPassword")}>
+                        <span>
+                          <IconButton
+                            aria-label={t("settings.userManagement.aria.resetPassword", { username: user.username })}
+                            onClick={() => openResetPasswordDialog(user)}
+                            sx={settingsUtilityIconButtonSx}
+                          >
+                            <LockResetIcon />
+                          </IconButton>
+                        </span>
+                      </Tooltip>
+                    )}
                     <Tooltip
                       title={
                         isSelf ? t("settings.userManagement.actions.deleteSelfDisabled") : t("settings.userManagement.actions.deleteUser")
@@ -741,6 +925,85 @@ export function UserManagementSettings({ dialogSafeHeader = false }: UserManagem
           <AddIcon />
         </Fab>
       )}
+
+      <Menu
+        anchorEl={advancedMappingMenu.anchor}
+        open={Boolean(advancedMappingMenu.anchor)}
+        onClose={() => setAdvancedMappingMenu({ anchor: null, user: null })}
+      >
+        <MenuItem
+          onClick={() => {
+            const user = advancedMappingMenu.user;
+            setAdvancedMappingMenu({ anchor: null, user: null });
+            if (user) openMappingEditor(user, "move");
+          }}
+        >
+          Move identity to another local user
+        </MenuItem>
+        <MenuItem
+          onClick={() => {
+            const user = advancedMappingMenu.user;
+            setAdvancedMappingMenu({ anchor: null, user: null });
+            if (user) void handleDetachIdentity(user);
+          }}
+        >
+          Detach OIDC identity
+        </MenuItem>
+      </Menu>
+
+      <ResponsiveFormDialog
+        open={mappingEditor.open}
+        onClose={closeMappingEditor}
+        disableClose={mappingSubmitting}
+        title={
+          mappingEditor.mode === "move"
+            ? "Move OIDC identity"
+            : mappingEditor.mode === "change"
+              ? "Change OIDC account"
+              : "Map OIDC account"
+        }
+        description="Mapping does not override provider admission or role policy."
+        actions={
+          <Box sx={adminDialogEndActionRowSx}>
+            <Button onClick={closeMappingEditor} disabled={mappingSubmitting} variant="outlined">
+              Cancel
+            </Button>
+            <Button onClick={() => void handleMappingSubmit()} disabled={mappingSubmitting} variant="contained">
+              Confirm
+            </Button>
+          </Box>
+        }
+      >
+        {mappingError && <SettingsInlineAlert>{mappingError}</SettingsInlineAlert>}
+        {mappingEditor.mode === "move" ? (
+          <FormControl fullWidth>
+            <InputLabel id="oidc-move-target-label">Target local account</InputLabel>
+            <Select
+              labelId="oidc-move-target-label"
+              label="Target local account"
+              value={mappingEditor.targetUserId}
+              onChange={(event) => setMappingEditor((current) => ({ ...current, targetUserId: event.target.value }))}
+            >
+              {users
+                .filter((user) => user.is_active && !user.oidc && !user.pending_oidc && user.id !== mappingEditor.user?.id)
+                .map((user) => (
+                  <MenuItem key={user.id} value={user.id}>
+                    {user.username}
+                  </MenuItem>
+                ))}
+            </Select>
+          </FormControl>
+        ) : (
+          <TextField
+            autoFocus
+            fullWidth
+            label="Expected provider username"
+            value={mappingEditor.expectedUsername}
+            onChange={(event) => setMappingEditor((current) => ({ ...current, expectedUsername: event.target.value }))}
+            helperText="The first admitted, unmapped OIDC identity with this exact username will claim the account."
+          />
+        )}
+      </ResponsiveFormDialog>
 
       <ResponsiveFormDialog
         open={editorOpen}

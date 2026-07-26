@@ -78,7 +78,7 @@ tail -50 /tmp/backend.log
 1. **Start backend manually:**
    ```bash
    cd /workspace/backend
-   uvicorn app.main:app --reload --host 0.0.0.0 --port 8000
+   uvicorn app.main:app --reload --host 0.0.0.0 --port 8000 --no-proxy-headers
    ```
 
 2. **Check for Python errors:**
@@ -168,7 +168,7 @@ smbclient -L //your-server -U your-username
    ```bash
    # Ping the server
    ping your-server
-   
+
    # Check if SMB port is open
    nc -zv your-server 445
    ```
@@ -344,7 +344,7 @@ Then restart backend:
 ```bash
 pkill -f uvicorn
 cd /workspace/backend
-uvicorn app.main:app --reload --host 0.0.0.0 --port 8000
+uvicorn app.main:app --reload --host 0.0.0.0 --port 8000 --no-proxy-headers
 ```
 
 ### Inspect database

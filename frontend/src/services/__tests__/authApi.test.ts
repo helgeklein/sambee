@@ -39,7 +39,7 @@ vi.mock("axios", () => {
 import axios from "axios";
 import { apiService } from "../api";
 import type { AuthMethod } from "../authConfig";
-import { clearAuthConfigCache, getAuthConfig } from "../authConfig";
+import { clearAuthConfigCache, getAuthConfig, parseAuthConfig } from "../authConfig";
 
 const mockedAxios = vi.mocked(axios);
 const mockAxiosInstance = mockedAxios.create() as ReturnType<typeof mockedAxios.create> & {
@@ -70,14 +70,7 @@ describe("Authentication API Contract Tests", () => {
 
       const config = await getAuthConfig();
 
-      // Verify required field is present
-      expect(config).toHaveProperty("auth_method");
-
-      // Verify type
-      expect(typeof config.auth_method).toBe("string");
-
-      // Verify value
-      expect(config.auth_method).toBe("password");
+      expect(config).toEqual({ sign_in_mode: "password_only", oidc: null });
     });
 
     it("should handle 'none' auth method", async () => {
@@ -91,7 +84,7 @@ describe("Authentication API Contract Tests", () => {
       } as AxiosResponse);
 
       const config = await getAuthConfig();
-      expect(config.auth_method).toBe("none");
+      expect(config.sign_in_mode).toBe("none");
     });
 
     it("should handle 'password' auth method", async () => {
@@ -105,7 +98,26 @@ describe("Authentication API Contract Tests", () => {
       } as AxiosResponse);
 
       const config = await getAuthConfig();
-      expect(config.auth_method).toBe("password");
+      expect(config.sign_in_mode).toBe("password_only");
+    });
+
+    it("should prefer canonical OIDC configuration", async () => {
+      mockAxiosGet.mockResolvedValueOnce({
+        data: {
+          sign_in_mode: "oidc_or_password",
+          oidc: { display_name: "Company SSO", authorization_path: "/api/auth/oidc/authorize" },
+          auth_method: "password",
+        },
+      } as AxiosResponse);
+
+      await expect(getAuthConfig()).resolves.toEqual({
+        sign_in_mode: "oidc_or_password",
+        oidc: { display_name: "Company SSO", authorization_path: "/api/auth/oidc/authorize" },
+      });
+    });
+
+    it("should reject malformed canonical configuration", () => {
+      expect(() => parseAuthConfig({ sign_in_mode: "oidc_only" })).toThrow("OIDC authentication configuration is incomplete");
     });
   });
   describe("Contract Tests - POST /auth/token", () => {
@@ -312,9 +324,7 @@ describe("Authentication API Contract Tests", () => {
       clearAuthConfigCache();
       mockAxiosGet.mockRejectedValueOnce(new Error("Network error"));
 
-      // Should default to password auth on error
-      const config = await getAuthConfig();
-      expect(config.auth_method).toBe("password");
+      await expect(getAuthConfig()).rejects.toThrow("Network error");
     });
     it("should handle 401 on getCurrentUser", async () => {
       mockAxiosInstance.get.mockRejectedValueOnce({

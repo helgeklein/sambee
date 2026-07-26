@@ -11,6 +11,7 @@ import { translate } from "./i18n";
 import { CompanionLocalizationSync } from "./i18n/CompanionLocalizationSync";
 import { LocalePreferencesProvider } from "./i18n/LocalePreferencesProvider";
 import { AdvancedSettings } from "./pages/AdvancedSettings";
+import { AuthenticationSettings } from "./pages/AuthenticationSettings";
 import { ConnectionsSettings } from "./pages/ConnectionsSettings";
 import { FileBrowserSettings } from "./pages/FileBrowserSettings";
 import { LocalDrivesSettings } from "./pages/LocalDrivesSettings";
@@ -24,6 +25,7 @@ import { SambeeThemeProvider, useSambeeTheme } from "./theme";
 
 // Lazy load route components for better code splitting
 const Login = lazy(() => import("./pages/Login"));
+const OidcCallback = lazy(() => import("./pages/OidcCallback"));
 const FileBrowser = lazy(() => import("./pages/FileBrowser"));
 
 //
@@ -63,6 +65,7 @@ function AppContent() {
           <Suspense fallback={<div>{translate("app.loading")}</div>}>
             <Routes>
               <Route path="/login" element={<Login />} />
+              <Route path="/login/oidc/callback" element={<OidcCallback />} />
               <Route path="/browse/:targetType/:targetId/*" element={<FileBrowser />} />
               <Route path="/browse" element={<FileBrowser />} />
               <Route path="/settings" element={<SettingsLayout />}>
@@ -75,6 +78,7 @@ function AppContent() {
                 <Route path="connections/local-drives" element={<LocalDrivesSettings />} />
                 <Route path="connections/smb" element={<Navigate to="/settings/connections" replace />} />
                 <Route path="admin/users" element={<UserManagementSettings />} />
+                <Route path="admin/authentication" element={<AuthenticationSettings />} />
                 <Route path="admin/system" element={<AdvancedSettings />} />
               </Route>
               <Route path="/" element={<Navigate to="/browse" replace />} />

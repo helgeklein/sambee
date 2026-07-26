@@ -2,6 +2,14 @@
 title = "What's New"
 +++
 
+## OpenID Connect (OIDC) Authentication and Single Sign-On (SSO)
+
+Single sign-on was on my list of essential features from the very beginning. Having one source of truth for authentication and authorization is of great benefit even in the smallest networks with single-digit user counts.
+
+Sambee now sports a secure and comprehensive implementation of OpenID Connect to authenticate against IAM servers such as Authelia or Keycloak. If OIDC is configured as the only authentication method, SSO happens behind the scenes, fully transpartent to the user if they're already logged in to the IAM server. Otherwise, a user trying to access Sambee is redirected to the IAM server to authenticate. Once that has happened, they're redirected back to Sambee.
+
+Sambee's [OIDC implementation](../../../admin-guide/configuration/openid-connect/) comes with auto-provisioning, which creates Sambee user accounts automatically after successful OIDC authentication. This can (and often should) be gated by group membership so that only members of a specific group are allowed access to Sambee. Similarly, Sambee's user roles are assigned depending on group membership. This makes it possible to centrally manage access to Sambee's user roles (e.g., admin) in your IAM system.
+
 ## Markdown Editor
 
 - Lists are normalized (formatted) when saved, using `-` for unordered lists and `1.` for every ordered-list item.

@@ -18,6 +18,7 @@ const mockLocation = {
   pathname: "/",
   search: "",
   hash: "",
+  assign: vi.fn(),
   reload: vi.fn(),
 };
 

@@ -9,6 +9,7 @@ vi.mock("../../services/api", () => ({
   default: {
     getUsers: vi.fn(),
     getCurrentUser: vi.fn(),
+    getOidcConfiguration: vi.fn(),
     createUser: vi.fn(),
     updateUser: vi.fn(),
     resetUserPassword: vi.fn(),
@@ -29,13 +30,21 @@ describe("UserManagementSettings", () => {
         role: "admin",
         is_active: true,
         must_change_password: false,
+        has_local_password: true,
+        oidc: null,
+        pending_oidc: null,
         created_at: "2026-03-01T10:00:00Z",
+        updated_at: "2026-03-01T10:00:00Z",
       },
     ]);
     vi.mocked(api.getCurrentUser).mockResolvedValue({
       id: "user-1",
       username: "admin",
       role: "admin",
+    });
+    vi.mocked(api.getOidcConfiguration).mockResolvedValue({
+      configuration: null,
+      health: { status: "healthy", message: null },
     });
     vi.mocked(api.resetUserPassword).mockResolvedValue({
       message: "Password reset",
@@ -90,6 +99,104 @@ describe("UserManagementSettings", () => {
     expect(screen.getByText("Used to sign in and uniquely identify the account.")).toBeInTheDocument();
     expect(screen.getByLabelText(/^full name$/i)).toBeInTheDocument();
     expect(screen.getByText("Use the person's full name as they want it displayed in Sambee.")).toBeInTheDocument();
+  });
+
+  it("shows OIDC state and hides password reset for a passwordless account", async () => {
+    vi.mocked(api.getUsers).mockResolvedValue([
+      {
+        id: "user-1",
+        username: "admin",
+        role: "admin",
+        is_active: true,
+        must_change_password: false,
+        has_local_password: false,
+        oidc: {
+          identity_id: "identity-1",
+          provider_display_name: "Corporate login",
+          last_login_at: "2026-03-01T10:00:00Z",
+        },
+        pending_oidc: null,
+        created_at: "2026-03-01T10:00:00Z",
+        updated_at: "2026-03-01T10:00:00Z",
+      },
+    ]);
+
+    render(
+      <SambeeThemeProvider>
+        <UserManagementSettings />
+      </SambeeThemeProvider>
+    );
+
+    expect(await screen.findByText(/OIDC linked: Corporate login/)).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: /reset password/i })).not.toBeInTheDocument();
+    expect(screen.queryByText("Local password")).not.toBeInTheDocument();
+  });
+
+  it("disables pending mapping actions until username uniqueness is confirmed", async () => {
+    vi.mocked(api.getUsers).mockResolvedValue([
+      {
+        id: "user-1",
+        username: "linked-admin",
+        role: "admin",
+        is_active: true,
+        must_change_password: false,
+        has_local_password: true,
+        oidc: { identity_id: "identity-1", provider_display_name: "Corporate login", last_login_at: null },
+        pending_oidc: null,
+        created_at: "2026-03-01T10:00:00Z",
+        updated_at: "2026-03-01T10:00:00Z",
+      },
+      {
+        id: "user-2",
+        username: "unmapped-user",
+        role: "viewer",
+        is_active: true,
+        must_change_password: false,
+        has_local_password: true,
+        oidc: null,
+        pending_oidc: null,
+        created_at: "2026-03-01T10:00:00Z",
+        updated_at: "2026-03-01T10:00:00Z",
+      },
+    ]);
+    vi.mocked(api.getOidcConfiguration).mockResolvedValue({
+      configuration: {
+        display_name: "Corporate login",
+        issuer_url: "https://idp.example.test",
+        client_id: "sambee",
+        client_secret_configured: true,
+        scopes: ["openid", "groups"],
+        username_claim: "preferred_username",
+        username_claim_uniqueness_confirmed: false,
+        name_claim: "name",
+        email_claim: "email",
+        groups_claim: "groups",
+        sign_in_mode: "oidc_or_password",
+        admission_mode: "selected_groups",
+        admission_groups: ["users"],
+        role_mappings: { admin: ["admins"], editor: [] },
+        configuration_revision: 2,
+        identity_mapping_revision: 1,
+      },
+      active_passwordless_user_count: 0,
+      health: {
+        oidc_secret_key_configured: true,
+        public_url_configured: true,
+        public_url: "https://sambee.example.test",
+        redirect_uri: "https://sambee.example.test/api/auth/oidc/callback",
+        status: "healthy",
+        reasons: [],
+      },
+    });
+
+    render(
+      <SambeeThemeProvider>
+        <UserManagementSettings />
+      </SambeeThemeProvider>
+    );
+
+    expect(await screen.findByRole("button", { name: "Change OIDC account for linked-admin" })).toBeDisabled();
+    expect(screen.getByRole("button", { name: "Map OIDC account for unmapped-user" })).toBeDisabled();
   });
 
   it("lets the admin enter a new password for a reset", async () => {

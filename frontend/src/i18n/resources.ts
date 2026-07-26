@@ -102,6 +102,7 @@ export const EN_TRANSLATIONS = {
       usernameLabel: "Username",
       passwordLabel: "Password",
       submit: "Sign In",
+      submitWithPassword: "Sign in with password",
       invalidCredentials: "Invalid username or password",
     },
   },
@@ -141,6 +142,10 @@ export const EN_TRANSLATIONS = {
       adminUsers: {
         label: "User Management",
         description: "Create accounts, assign roles, and issue password resets.",
+      },
+      adminAuthentication: {
+        label: "Authentication",
+        description: "Configure password and OpenID Connect sign-in.",
       },
       adminSystem: {
         label: "System",

@@ -45,6 +45,7 @@ const CONNECTIONS_API_BASE = "/connections";
 const API_PATH_SUFFIX = "/api";
 const LOCAL_DRIVE_EDIT_LOCKS_UNSUPPORTED_MESSAGE = "Edit locks are not supported for local drives";
 const DIRECTORY_LIST_REQUEST_TIMEOUT_MS = 40_000;
+export const OIDC_FINALIZATION_REQUEST_TIMEOUT_MS = 15_000;
 
 function isViewerBlobRequest(config: AxiosError["config"] | undefined): boolean {
   const method = config?.method?.toLowerCase();
@@ -339,6 +340,12 @@ class ApiService {
     return response.data;
   }
 
+  async exchangeOidcGrant(grant: string): Promise<AuthToken> {
+    const response = await this.api.post<AuthToken>("/auth/oidc/exchange", { grant });
+    localStorage.setItem("access_token", response.data.access_token);
+    return response.data;
+  }
+
   async getCurrentUser(): Promise<User> {
     logger.debug("Fetching current user info", {}, "api");
     const response = await this.api.get<User>("/auth/me");
@@ -409,6 +416,114 @@ class ApiService {
 
   async getUsers(): Promise<AdminUser[]> {
     const response = await this.api.get<AdminUser[]>("/admin/users");
+    return response.data;
+  }
+
+  async getOidcConfiguration(): Promise<OidcAdminConfigurationRead> {
+    const response = await this.api.get<OidcAdminConfigurationRead>("/admin/auth/oidc");
+    return response.data;
+  }
+
+  async startOidcTest(candidate: OidcConfigurationCandidate, remapAll = false): Promise<OidcTestStartResponse> {
+    const response = await this.api.post<OidcTestStartResponse>("/admin/auth/oidc/test", candidate, {
+      params: remapAll ? { remap_all: true } : undefined,
+    });
+    return response.data;
+  }
+
+  async getOidcTestResult(flowId: string, reviewedPolicy?: OidcReviewedPolicy): Promise<OidcTestedIdentity> {
+    const response = await this.api.post<OidcTestedIdentity>(`/admin/auth/oidc/test-flows/${flowId}/preview`, {
+      reviewed_policy: reviewedPolicy,
+    });
+    return response.data;
+  }
+
+  async cancelOidcTestFlow(flowId: string): Promise<void> {
+    await this.api.delete(`/admin/auth/oidc/test-flows/${flowId}`);
+  }
+
+  async finalizeOidcConfiguration(
+    flowId: string,
+    reviewedPolicy: OidcReviewedPolicy,
+    replacementMappings: Array<{ target_user_id: string; expected_username: string }>,
+    expectedIdentityMappingRevision: number | null,
+    omittedAccountAcknowledgements: string[]
+  ): Promise<OidcFinalizeResponse> {
+    const response = await this.api.post<OidcFinalizeResponse>(
+      "/admin/auth/oidc/finalize",
+      {
+        flow_id: flowId,
+        reviewed_policy: reviewedPolicy,
+        replacement_mappings: replacementMappings,
+        expected_identity_mapping_revision: expectedIdentityMappingRevision,
+        omitted_account_acknowledgements: omittedAccountAcknowledgements,
+      },
+      {
+        timeout: OIDC_FINALIZATION_REQUEST_TIMEOUT_MS,
+      }
+    );
+    return response.data;
+  }
+
+  async setPasswordOnlyAuthentication(
+    expectedConfigurationRevision: number,
+    expectedActivePasswordlessUserCount: number,
+    acknowledgePasswordlessAccountLoss: boolean
+  ): Promise<OidcFinalizeResponse> {
+    const response = await this.api.post<OidcFinalizeResponse>("/admin/auth/password-only", {
+      expected_configuration_revision: expectedConfigurationRevision,
+      expected_active_passwordless_user_count: expectedActivePasswordlessUserCount,
+      acknowledge_passwordless_account_loss: acknowledgePasswordlessAccountLoss,
+    });
+    return response.data;
+  }
+
+  async putPendingOidcMappings(
+    expectedIdentityMappingRevision: number,
+    mappings: Array<{ target_user_id: string; expected_username: string }>
+  ): Promise<OidcMappingMutationResponse> {
+    const response = await this.api.put<OidcMappingMutationResponse>("/admin/auth/oidc/mappings/pending", {
+      expected_identity_mapping_revision: expectedIdentityMappingRevision,
+      mappings,
+    });
+    return response.data;
+  }
+
+  async cancelPendingOidcMapping(userId: string, expectedIdentityMappingRevision: number): Promise<OidcMappingMutationResponse> {
+    const response = await this.api.delete<OidcMappingMutationResponse>(`/admin/auth/oidc/mappings/${userId}/pending`, {
+      params: { expected_identity_mapping_revision: expectedIdentityMappingRevision },
+    });
+    return response.data;
+  }
+
+  async changeOidcIdentity(
+    userId: string,
+    expectedIdentityMappingRevision: number,
+    expectedUsername: string
+  ): Promise<OidcMappingMutationResponse> {
+    const response = await this.api.post<OidcMappingMutationResponse>(`/admin/auth/oidc/mappings/${userId}/change`, {
+      expected_identity_mapping_revision: expectedIdentityMappingRevision,
+      expected_username: expectedUsername,
+    });
+    return response.data;
+  }
+
+  async moveOidcIdentity(
+    identityId: string,
+    expectedIdentityMappingRevision: number,
+    targetUserId: string
+  ): Promise<OidcMappingMutationResponse> {
+    const response = await this.api.post<OidcMappingMutationResponse>(`/admin/auth/oidc/mappings/${identityId}/move`, {
+      expected_identity_mapping_revision: expectedIdentityMappingRevision,
+      target_user_id: targetUserId,
+    });
+    return response.data;
+  }
+
+  async detachOidcIdentity(userId: string, expectedIdentityMappingRevision: number): Promise<OidcMappingMutationResponse> {
+    const response = await this.api.delete<OidcMappingMutationResponse>(`/admin/auth/oidc/mappings/${userId}`, {
+      params: { expected_identity_mapping_revision: expectedIdentityMappingRevision },
+    });
     return response.data;
   }
 
@@ -1229,6 +1344,7 @@ export { LOCAL_DRIVE_EDIT_LOCKS_UNSUPPORTED_MESSAGE };
 
 // Export convenience functions
 export const login = (username: string, password: string) => apiService.login(username, password);
+export const exchangeOidcGrant = (grant: string) => apiService.exchangeOidcGrant(grant);
 
 export const browseFiles = async (path: string, _token: string) => {
   // For simple browsing, we'll use a default connection

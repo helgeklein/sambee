@@ -31,6 +31,17 @@ export interface AdminUser {
   expires_at?: string | null;
   created_at: string;
   updated_at: string;
+  has_local_password: boolean;
+  oidc: {
+    identity_id: string;
+    provider_display_name: string;
+    last_login_at: string | null;
+  } | null;
+  pending_oidc: {
+    expected_username: string;
+    created_by_username: string;
+    created_at: string;
+  } | null;
 }
 
 export interface AdminUserCreateInput {
@@ -239,6 +250,112 @@ export interface AuthToken {
   role?: UserRole;
   expires_at?: string | null;
   must_change_password?: boolean;
+  return_path?: string;
+}
+
+export type SignInMode = "password_only" | "oidc_or_password" | "oidc_only";
+export type OidcAdmissionMode = "all_idp_users" | "selected_groups";
+
+export interface OidcRoleMappings {
+  admin: string[];
+  editor: string[];
+}
+
+export interface OidcReviewedPolicy {
+  sign_in_mode: SignInMode;
+  admission_mode: OidcAdmissionMode;
+  admission_groups: string[];
+  role_mappings: OidcRoleMappings;
+  username_claim_uniqueness_confirmed: boolean;
+}
+
+export interface OidcConfigurationCandidate {
+  display_name: string;
+  issuer_url: string;
+  client_id: string;
+  client_secret?: string;
+  scopes: string[];
+  username_claim: string;
+  username_claim_uniqueness_confirmed: boolean;
+  name_claim: string | null;
+  email_claim: string | null;
+  groups_claim: string | null;
+  sign_in_mode: SignInMode;
+  admission_mode: OidcAdmissionMode;
+  admission_groups: string[];
+  role_mappings: OidcRoleMappings;
+}
+
+export interface RedactedOidcConfiguration extends Omit<OidcConfigurationCandidate, "client_secret"> {
+  client_secret_configured: boolean;
+  configuration_revision: number;
+  identity_mapping_revision: number;
+}
+
+export interface AuthenticationHealth {
+  oidc_secret_key_configured: boolean;
+  public_url_configured: boolean;
+  public_url: string | null;
+  redirect_uri: string | null;
+  status: "healthy" | "unhealthy";
+  reasons: string[];
+}
+
+export interface OidcAdminConfigurationRead {
+  configuration: RedactedOidcConfiguration | null;
+  health: AuthenticationHealth;
+  active_passwordless_user_count: number;
+}
+
+export interface OidcTestStartResponse {
+  flow_id: string;
+  authorization_url: string;
+}
+
+export interface OidcReplacementMapping {
+  target_user_id: string;
+  local_username: string;
+  local_role: UserRole;
+  has_local_password: boolean;
+  target_state: "active" | "inactive" | "expired";
+  mapping_state: "unmapped" | "pending" | "established";
+  suggested_username: string;
+  prefill_source: "pending" | "last_seen" | "local";
+  selected_by_default: boolean;
+  selectable: boolean;
+  omission_acknowledgement_required: boolean;
+}
+
+export interface OidcTestedIdentity {
+  flow_id: string;
+  candidate: RedactedOidcConfiguration;
+  replacement_mappings: OidcReplacementMapping[];
+  expected_identity_mapping_revision: number | null;
+  admitted: boolean;
+  matching_admission_group: string | null;
+  resulting_role: UserRole | null;
+  affected_account_count: number;
+  acting_administrator_affected: boolean;
+  username: string;
+  name: string | null;
+  email: string | null;
+  groups: string[];
+  expires_at: string;
+}
+
+export interface OidcFinalizeResponse {
+  configuration_revision: number;
+  identity_mapping_revision: number;
+  reauthentication_required: boolean;
+}
+
+export interface OidcMappingMutationResponse {
+  identity_mapping_revision: number;
+  pending_mappings: Array<{
+    target_user_id: string;
+    expected_username: string;
+    created_at: string;
+  }>;
 }
 
 export interface CompanionDownloadMetadata {
@@ -262,11 +379,22 @@ export interface ConflictInfo {
   incoming_file: FileInfo;
 }
 
+export interface OidcMappingValidationError {
+  target_user_id: string | null;
+  field: string | null;
+  error_code: string;
+  message: string;
+}
+
+export interface OidcMappingValidationDetail {
+  errors: OidcMappingValidationError[];
+}
+
 // API Error type for axios errors
 export interface ApiError {
   response?: {
     data?: {
-      detail?: string | ConflictInfo;
+      detail?: string | ConflictInfo | OidcMappingValidationDetail;
     };
     status?: number;
   };

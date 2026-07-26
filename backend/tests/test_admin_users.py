@@ -1,12 +1,22 @@
 """Tests for admin user management endpoints."""
 
 import uuid
+from datetime import datetime, timedelta, timezone
 
 import pytest
 from fastapi.testclient import TestClient
-from sqlmodel import Session
+from sqlmodel import Session, select
 
-from app.core.security import verify_password
+from app.core.security import create_access_token, get_password_hash, verify_password
+from app.models.oidc import (
+    OidcFlow,
+    OidcFlowPurpose,
+    OidcFlowStatus,
+    OidcIdentity,
+    OidcPendingIdentityMapping,
+    OidcProviderConfiguration,
+    SignInMode,
+)
 from app.models.user import User, UserRole
 
 
@@ -139,6 +149,28 @@ class TestAdminUsers:
         old_token_response = client.get("/api/auth/me", headers={"Authorization": f"Bearer {user_token}"})
         assert old_token_response.status_code == 401
 
+    def test_reset_password_rejects_passwordless_user(
+        self,
+        client: TestClient,
+        auth_headers_admin: dict,
+        session: Session,
+    ):
+        passwordless_user = User(username="passwordless-reset-user", role=UserRole.VIEWER)
+        session.add(passwordless_user)
+        session.commit()
+        session.refresh(passwordless_user)
+
+        response = client.post(
+            f"/api/admin/users/{passwordless_user.id}/reset-password",
+            headers=auth_headers_admin,
+            json={"new_password": "BrandNewPass123!", "must_change_password": False},
+        )
+
+        assert response.status_code == 400
+        assert response.json()["detail"] == "Password reset requires an existing local password"
+        session.refresh(passwordless_user)
+        assert passwordless_user.password_hash is None
+
     def test_cannot_delete_last_active_admin(self, client: TestClient, auth_headers_admin: dict, admin_user: User):
         response = client.delete(f"/api/admin/users/{admin_user.id}", headers=auth_headers_admin)
 
@@ -151,3 +183,82 @@ class TestAdminUsers:
         assert response.status_code == 200
         assert response.json()["message"] == "User deleted successfully"
         assert session.get(User, regular_user.id) is None
+
+    def test_delete_mapped_user_removes_oidc_state(
+        self,
+        client: TestClient,
+        auth_headers_admin: dict,
+        regular_user: User,
+        session: Session,
+    ):
+        configuration = OidcProviderConfiguration(
+            display_name="Provider",
+            issuer_url="https://issuer.example",
+            client_id="sambee",
+            sign_in_mode=SignInMode.OIDC_OR_PASSWORD,
+            identity_mapping_revision=7,
+            updated_by_user_id=regular_user.id,
+        )
+        identity = OidcIdentity(user_id=regular_user.id, issuer=configuration.issuer_url, subject="subject-1")
+        flow = OidcFlow(
+            purpose=OidcFlowPurpose.LOGIN,
+            status=OidcFlowStatus.STARTED,
+            user_id=regular_user.id,
+            expires_at=datetime.now(timezone.utc) + timedelta(minutes=5),
+        )
+        session.add(configuration)
+        session.add(identity)
+        session.add(flow)
+        session.commit()
+
+        response = client.delete(f"/api/admin/users/{regular_user.id}", headers=auth_headers_admin)
+
+        assert response.status_code == 200
+        assert session.get(User, regular_user.id) is None
+        assert session.exec(select(OidcIdentity).where(OidcIdentity.user_id == regular_user.id)).first() is None
+        assert session.get(OidcFlow, flow.id) is None
+        session.refresh(configuration)
+        assert configuration.identity_mapping_revision == 8
+        assert configuration.updated_by_user_id is None
+
+    def test_delete_mapping_creator_preserves_unrelated_pending_mapping(
+        self,
+        client: TestClient,
+        auth_headers_admin: dict,
+        regular_user: User,
+        admin_user: User,
+        session: Session,
+    ):
+        configuration = OidcProviderConfiguration(
+            display_name="Provider",
+            issuer_url="https://issuer.example",
+            client_id="sambee",
+            sign_in_mode=SignInMode.OIDC_OR_PASSWORD,
+            identity_mapping_revision=7,
+        )
+        session.add(configuration)
+        session.flush()
+        mapping = OidcPendingIdentityMapping(
+            provider_configuration_id=configuration.id,
+            expected_username="provider-user",
+            target_user_id=regular_user.id,
+            created_by_user_id=admin_user.id,
+        )
+        replacement_admin = User(
+            username="replacement-admin",
+            password_hash=get_password_hash("ReplacementAdmin123!"),
+            role=UserRole.ADMIN,
+        )
+        session.add(mapping)
+        session.add(replacement_admin)
+        session.commit()
+
+        replacement_headers = {"Authorization": f"Bearer {create_access_token(data={'sub': replacement_admin.username})}"}
+        response = client.delete(f"/api/admin/users/{admin_user.id}", headers=replacement_headers)
+
+        assert response.status_code == 200
+        session.refresh(mapping)
+        session.refresh(configuration)
+        assert mapping.target_user_id == regular_user.id
+        assert mapping.created_by_user_id is None
+        assert configuration.identity_mapping_revision == 7

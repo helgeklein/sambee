@@ -10,10 +10,6 @@
 
 - Search + replace (Ctrl+H)
 
-## Authentication system
-
-- OAuth/OIDC
-
 ## Theme
 
 - import/export, e.g., as JSON

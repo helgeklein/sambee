@@ -1,5 +1,6 @@
 import uuid
 from collections.abc import Callable
+from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
 from typing import Any, Optional
 
@@ -18,6 +19,7 @@ from app.core.config import settings, static
 from app.core.exceptions import ConfigurationError
 from app.core.logging import get_logger
 from app.db.database import get_session
+from app.models.oidc import OidcProviderConfiguration
 from app.models.user import User
 
 logger = get_logger(__name__)
@@ -36,6 +38,12 @@ oauth2_scheme_optional = OAuth2PasswordBearer(tokenUrl="/api/auth/token", auto_e
 
 # Fernet cipher for password encryption (initialized lazily)
 _fernet: Fernet | None = None
+
+
+@dataclass(frozen=True)
+class BrowserAuthentication:
+    user: User
+    token_version_current: bool
 
 
 def is_user_expired(user: User, now: datetime | None = None) -> bool:
@@ -183,6 +191,15 @@ def _get_user_from_subject(subject: str, session: Session) -> User | None:
 async def get_current_user(token: str = Depends(oauth2_scheme), session: Session = Depends(get_session)) -> User:
     """Get the current authenticated user from token"""
 
+    authentication = _authenticate_browser_token(token, session)
+    if not authentication.token_version_current:
+        raise _build_credentials_exception()
+    return authentication.user
+
+
+def _authenticate_browser_token(token: str, session: Session) -> BrowserAuthentication:
+    """Validate a browser JWT while reporting token-version freshness separately."""
+
     credentials_exception = _build_credentials_exception()
 
     try:
@@ -198,10 +215,29 @@ async def get_current_user(token: str = Depends(oauth2_scheme), session: Session
     user = _get_user_from_subject(subject, session)
     user = _ensure_user_is_current(user, credentials_exception)
 
-    token_version = int(payload.get("tv", 0))
-    if token_version != user.token_version:
+    try:
+        token_version = int(payload.get("tv", 0))
+    except (TypeError, ValueError):
         raise credentials_exception
-    return user
+    return BrowserAuthentication(user=user, token_version_current=token_version == user.token_version)
+
+
+async def get_admin_browser_authentication_allowing_stale_token(
+    token: Optional[str] = Depends(oauth2_scheme_optional),
+    session: Session = Depends(get_session),
+) -> BrowserAuthentication:
+    """Authenticate an administrator while exposing, but not rejecting, stale token versions."""
+
+    if token:
+        authentication = _authenticate_browser_token(token, session)
+    else:
+        authentication = BrowserAuthentication(
+            user=await get_current_user_for_token(token, session),
+            token_version_current=True,
+        )
+    if not user_has_capability(authentication.user, Capability.ACCESS_ADMIN_SETTINGS):
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Not enough permissions")
+    return authentication
 
 
 #
@@ -229,7 +265,8 @@ async def get_current_user_for_token(token: Optional[str], session: Session) -> 
     """
 
     # For "none" auth method, return the admin user
-    if settings.auth_method == AuthMethod.NONE:
+    database_auth_configuration = session.get(OidcProviderConfiguration, 1)
+    if database_auth_configuration is None and settings.auth_method == AuthMethod.NONE:
         logger.debug("Auth method is 'none' - returning admin user (assuming reverse proxy auth)")
         statement = select(User).where(User.username == settings.admin_username)
         user = session.exec(statement).first()

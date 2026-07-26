@@ -8,8 +8,9 @@ from datetime import datetime, timedelta, timezone
 import jwt
 import pytest
 from fastapi.testclient import TestClient
-from sqlmodel import Session
+from sqlmodel import Session, delete, select
 
+import app.api.auth as auth_module
 from app.core.security import (
     create_access_token,
     decrypt_password,
@@ -17,7 +18,24 @@ from app.core.security import (
     get_password_hash,
     verify_password,
 )
+from app.middleware.authentication import PASSWORD_FORM_BODY_LIMIT_BYTES
 from app.models.user import User, UserRole
+from app.services.oidc_client import OidcClientError, OidcClientErrorCode
+
+
+@pytest.mark.parametrize(
+    ("error_code", "expected_category"),
+    (
+        (OidcClientErrorCode.USERINFO_UNAVAILABLE, "user_info_unavailable"),
+        (OidcClientErrorCode.USERINFO_SUBJECT_MISMATCH, "user_info_subject_mismatch"),
+        (OidcClientErrorCode.REQUIRED_CLAIM_MISSING, "required_claim_missing_after_user_info"),
+        (OidcClientErrorCode.INVALID_ID_TOKEN, "oidc_sign_in_failed"),
+    ),
+)
+def test_oidc_failure_category_uses_safe_userinfo_reason(error_code: OidcClientErrorCode, expected_category: str) -> None:
+    error = OidcClientError(error_code, "provider detail must not be logged")
+
+    assert auth_module._oidc_failure_category(error) == expected_category
 
 
 @pytest.mark.unit
@@ -137,6 +155,80 @@ class TestLoginEndpoint:
         assert data["token_type"] == "bearer"
         assert data["role"] == "admin"
 
+    def test_auth_config_uses_canonical_database_mode(self, client: TestClient, session: Session):
+        from app.models.oidc import OidcProviderConfiguration, SignInMode
+
+        configuration = OidcProviderConfiguration(
+            display_name="Company SSO",
+            issuer_url="https://idp.example.com",
+            client_id="sambee",
+            sign_in_mode=SignInMode.OIDC_OR_PASSWORD,
+        )
+        session.add(configuration)
+        session.flush()
+
+        try:
+            response = client.get("/api/auth/config")
+
+            assert response.status_code == 200
+            assert response.json() == {
+                "sign_in_mode": "oidc_or_password",
+                "oidc": {
+                    "display_name": "Company SSO",
+                    "authorization_path": "/api/auth/oidc/authorize",
+                },
+            }
+        finally:
+            session.exec(delete(OidcProviderConfiguration))
+            session.flush()
+            assert session.exec(select(OidcProviderConfiguration)).first() is None
+
+    def test_oidc_only_password_login_returns_404_before_form_validation(self, client: TestClient, session: Session):
+        from app.models.oidc import OidcProviderConfiguration, SignInMode
+
+        configuration = OidcProviderConfiguration(
+            display_name="Company SSO",
+            issuer_url="https://idp.example.com",
+            client_id="sambee",
+            sign_in_mode=SignInMode.OIDC_ONLY,
+        )
+        session.add(configuration)
+        session.flush()
+
+        try:
+            response = client.post(
+                "/api/auth/token",
+                content=b"not-a-valid-form",
+                headers={"Content-Type": "application/x-www-form-urlencoded"},
+            )
+
+            assert response.status_code == 404
+            assert response.json()["detail"] == "Password authentication is not enabled"
+        finally:
+            session.exec(delete(OidcProviderConfiguration))
+            session.flush()
+            assert session.exec(select(OidcProviderConfiguration)).first() is None
+
+    def test_password_form_body_limit_accepts_exact_limit_and_rejects_one_byte_over(self, client: TestClient):
+        prefix = b"username=missing-user&password="
+        exact_body = prefix + b"x" * (PASSWORD_FORM_BODY_LIMIT_BYTES - len(prefix))
+
+        exact_response = client.post(
+            "/api/auth/token",
+            content=exact_body,
+            headers={"Content-Type": "application/x-www-form-urlencoded"},
+        )
+        oversized_response = client.post(
+            "/api/auth/token",
+            content=exact_body + b"x",
+            headers={"Content-Type": "application/x-www-form-urlencoded"},
+        )
+
+        assert exact_response.status_code == 401
+        assert exact_response.json()["detail"] == "Incorrect username or password"
+        assert oversized_response.status_code == 413
+        assert oversized_response.json() == {"detail": "Request body too large"}
+
     def test_login_wrong_password(self, client: TestClient, admin_user: User):
         """Test login fails with incorrect password."""
         response = client.post(
@@ -162,6 +254,105 @@ class TestLoginEndpoint:
 
         assert response.status_code == 401
         assert "Incorrect username or password" in response.json()["detail"]
+
+    def test_password_login_rate_limit_returns_generic_429(self, client: TestClient, monkeypatch: pytest.MonkeyPatch):
+        monkeypatch.setattr(auth_module.authentication_rate_limiter, "_clock", lambda: 0.0)
+        for _ in range(10):
+            response = client.post("/api/auth/token", data={"username": "missing", "password": "wrong"})
+            assert response.status_code == 401
+
+        response = client.post("/api/auth/token", data={"username": "missing", "password": "wrong"})
+
+        assert response.status_code == 429
+        assert response.json() == {"detail": "Incorrect username or password"}
+        assert response.headers["Retry-After"] == "90"
+
+    def test_oidc_exchange_rate_limit_returns_generic_429(self, client: TestClient, monkeypatch: pytest.MonkeyPatch):
+        monkeypatch.setattr(auth_module.authentication_rate_limiter, "_clock", lambda: 0.0)
+        for _ in range(30):
+            response = client.post("/api/auth/oidc/exchange", json={"grant": "x" * 32})
+            assert response.status_code == 401
+
+        response = client.post("/api/auth/oidc/exchange", json={"grant": "x" * 32})
+
+        assert response.status_code == 429
+        assert response.json() == {"detail": "OIDC login grant is invalid"}
+        assert response.headers["Retry-After"] == "10"
+
+    def test_oidc_authorization_rate_limit_uses_fixed_redirect(self, client: TestClient, monkeypatch: pytest.MonkeyPatch):
+        monkeypatch.setattr(auth_module.authentication_rate_limiter, "_clock", lambda: 0.0)
+        for _ in range(20):
+            response = client.get("/api/auth/oidc/authorize", follow_redirects=False)
+            assert response.status_code == 404
+
+        response = client.get("/api/auth/oidc/authorize", follow_redirects=False)
+
+        assert response.status_code == 303
+        assert response.headers["location"] == "/login#error=oidc_rate_limited"
+        assert response.headers["Retry-After"] == "15"
+
+    def test_oidc_callback_rate_limit_uses_fixed_redirect(self, client: TestClient, monkeypatch: pytest.MonkeyPatch):
+        monkeypatch.setattr(auth_module.authentication_rate_limiter, "_clock", lambda: 0.0)
+        for _ in range(60):
+            response = client.get(
+                "/api/auth/oidc/callback",
+                params={"state": "invalid-state", "code": "provider-code"},
+                follow_redirects=False,
+            )
+            assert response.status_code == 303
+            assert response.headers["location"] == "/login#error=oidc_authorization_state_invalid"
+
+        response = client.get(
+            "/api/auth/oidc/callback",
+            params={"state": "invalid-state", "code": "provider-code"},
+            follow_redirects=False,
+        )
+
+        assert response.status_code == 303
+        assert response.headers["location"] == "/login#error=oidc_rate_limited"
+        assert response.headers["Retry-After"] == "5"
+
+    def test_invalid_oidc_callback_uses_stable_error_redirect(self, client: TestClient):
+        response = client.get(
+            "/api/auth/oidc/callback",
+            params={"state": "invalid-state", "code": "provider-code"},
+            follow_redirects=False,
+        )
+
+        assert response.status_code == 303
+        assert response.headers["location"] == "/login#error=oidc_authorization_state_invalid"
+        assert response.headers["Cache-Control"] == "no-store"
+
+    def test_oidc_authorization_failure_uses_stable_error_redirect(self, client: TestClient, session: Session):
+        from app.models.oidc import OidcProviderConfiguration, SignInMode
+
+        session.add(
+            OidcProviderConfiguration(
+                display_name="Company SSO",
+                issuer_url="https://idp.example.com",
+                client_id="sambee",
+                sign_in_mode=SignInMode.OIDC_ONLY,
+            )
+        )
+        session.commit()
+
+        response = client.get("/api/auth/oidc/authorize", follow_redirects=False)
+
+        assert response.status_code == 303
+        assert response.headers["location"] == "/login#error=oidc_provider_unavailable"
+
+    def test_login_passwordless_user_fails_generically(self, client: TestClient, session: Session):
+        passwordless_user = User(username="passwordless-user", role=UserRole.VIEWER)
+        session.add(passwordless_user)
+        session.commit()
+
+        response = client.post(
+            "/api/auth/token",
+            data={"username": passwordless_user.username, "password": "irrelevant"},
+        )
+
+        assert response.status_code == 401
+        assert response.json()["detail"] == "Incorrect username or password"
 
     def test_login_missing_fields(self, client: TestClient):
         """Test login fails with missing fields."""
@@ -349,6 +540,26 @@ class TestChangePasswordEndpoint:
         )
         assert response.status_code == 400
         assert "incorrect" in response.json()["detail"].lower()
+
+    def test_change_password_rejects_passwordless_user(self, client: TestClient, session: Session):
+        from app.core.security import build_user_access_token
+
+        passwordless_user = User(username="passwordless-change-user", role=UserRole.VIEWER)
+        session.add(passwordless_user)
+        session.commit()
+        session.refresh(passwordless_user)
+        headers = {"Authorization": f"Bearer {build_user_access_token(passwordless_user)}"}
+
+        response = client.post(
+            "/api/auth/change-password",
+            headers=headers,
+            json={"current_password": "irrelevant", "new_password": "newpass123"},
+        )
+
+        assert response.status_code == 400
+        assert response.json()["detail"] == "Password changes require an existing local password"
+        session.refresh(passwordless_user)
+        assert passwordless_user.password_hash is None
 
     def test_change_password_without_auth(self, client: TestClient):
         """Test that password change requires authentication."""

@@ -6,6 +6,7 @@ export type SettingsCategory =
   | "text-editor"
   | "connections"
   | "local-drives"
+  | "admin-authentication"
   | "admin-users"
   | "admin-system";
 export type SettingsNavItem = SettingsCategory;
@@ -35,6 +36,7 @@ export const SETTINGS_ROUTE_BY_CATEGORY: Record<SettingsCategory, string> = {
   "text-editor": "/settings/text-editor",
   connections: "/settings/connections",
   "local-drives": "/settings/connections/local-drives",
+  "admin-authentication": "/settings/admin/authentication",
   "admin-users": "/settings/admin/users",
   "admin-system": "/settings/admin/system",
 };
@@ -112,6 +114,17 @@ export const SETTINGS_CATEGORY_META: Record<SettingsCategory, SettingsCategoryMe
     section: "administration",
     adminOnly: true,
   },
+  "admin-authentication": {
+    get label() {
+      return translate("settings.categories.adminAuthentication.label");
+    },
+    get description() {
+      return translate("settings.categories.adminAuthentication.description");
+    },
+    route: SETTINGS_ROUTE_BY_CATEGORY["admin-authentication"],
+    section: "administration",
+    adminOnly: true,
+  },
   "admin-system": {
     get label() {
       return translate("settings.categories.adminSystem.label");
@@ -131,6 +144,7 @@ export const SETTINGS_CATEGORY_ORDER: SettingsCategory[] = [
   "text-editor",
   "connections",
   "local-drives",
+  "admin-authentication",
   "admin-users",
   "admin-system",
 ];

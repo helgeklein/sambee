@@ -121,6 +121,7 @@ title = "Configuration"
 [pages.admin-guide.configuration]
 items = [
   "configuration-key-reference",
+  "openid-connect",
 ]
 
 [[sections.admin-guide.items]]

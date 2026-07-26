@@ -9,8 +9,13 @@ vi.mock("../../services/api", () => ({
   login: vi.fn(),
 }));
 
+vi.mock("../../services/authConfig", () => ({
+  getAuthConfig: vi.fn(),
+}));
+
 // Import the mocked function so we can control it
 import { login as mockLogin } from "../../services/api";
+import { getAuthConfig as mockGetAuthConfig } from "../../services/authConfig";
 
 describe("Login Component", () => {
   beforeEach(() => {
@@ -18,6 +23,12 @@ describe("Login Component", () => {
     localStorage.clear();
     // Clear all mocks
     vi.clearAllMocks();
+    sessionStorage.clear();
+    window.history.replaceState(null, "", "/login");
+    window.location.search = "";
+    window.location.hash = "";
+    vi.mocked(window.location.assign).mockClear();
+    vi.mocked(mockGetAuthConfig).mockResolvedValue({ sign_in_mode: "password_only", oidc: null });
   });
 
   it("renders login form with all elements", async () => {
@@ -224,5 +235,113 @@ describe("Login Component", () => {
     await waitFor(() => {
       expect(localStorage.getItem("access_token")).toBe("mock-user-token");
     });
+  });
+
+  it("shows provider and password sign-in together in OIDC or password mode", async () => {
+    vi.mocked(mockGetAuthConfig).mockResolvedValueOnce({
+      sign_in_mode: "oidc_or_password",
+      oidc: { display_name: "Example Identity", authorization_path: "/api/auth/oidc/authorize" },
+    });
+
+    render(<Login />);
+
+    const providerButton = await screen.findByRole("button", { name: "Sign in with Example Identity" });
+    expect(providerButton).toHaveClass("MuiButton-contained");
+    expect(screen.getByRole("button", { name: "Sign in with password" })).toHaveClass("MuiButton-outlined");
+    expect(screen.getByLabelText(/username/i)).toBeInTheDocument();
+    expect(screen.getByLabelText(/password/i)).toBeInTheDocument();
+  });
+
+  it("renders no controls while authentication mode is unknown", () => {
+    vi.mocked(mockGetAuthConfig).mockReturnValueOnce(new Promise(() => undefined));
+
+    render(<Login />);
+
+    expect(screen.queryByText(/loading/i)).not.toBeInTheDocument();
+    expect(screen.queryByLabelText(/username/i)).not.toBeInTheDocument();
+    expect(screen.queryByRole("button")).not.toBeInTheDocument();
+  });
+
+  it("shows only a retry state when authentication configuration is unavailable", async () => {
+    vi.mocked(mockGetAuthConfig).mockRejectedValueOnce(new Error("Unavailable"));
+
+    render(<Login />);
+
+    expect(await screen.findByRole("button", { name: "Try again" })).toBeInTheDocument();
+    expect(screen.getByRole("alert")).toHaveTextContent("Authentication is temporarily unavailable");
+    expect(screen.queryByLabelText(/username/i)).not.toBeInTheDocument();
+    expect(screen.queryByLabelText(/password/i)).not.toBeInTheDocument();
+  });
+
+  it("clears the configuration error after a successful retry", async () => {
+    const user = userEvent.setup();
+    vi.mocked(mockGetAuthConfig)
+      .mockRejectedValueOnce(new Error("Unavailable"))
+      .mockResolvedValueOnce({ sign_in_mode: "password_only", oidc: null });
+
+    render(<Login />);
+
+    await user.click(await screen.findByRole("button", { name: "Try again" }));
+
+    expect(await screen.findByLabelText(/username/i)).toBeInTheDocument();
+    expect(screen.queryByRole("alert")).not.toBeInTheDocument();
+  });
+
+  it("preserves a sanitized return path for automatic OIDC-only sign-in", async () => {
+    window.location.search = "?return_path=%2Fsettings%2Fappearance%3Ftab%3Dtheme";
+    vi.mocked(mockGetAuthConfig).mockResolvedValueOnce({
+      sign_in_mode: "oidc_only",
+      oidc: { display_name: "Example Identity", authorization_path: "/api/auth/oidc/authorize" },
+    });
+
+    render(<Login />);
+
+    await waitFor(() =>
+      expect(window.location.assign).toHaveBeenCalledWith("/api/auth/oidc/authorize?return_path=%2Fsettings%2Fappearance%3Ftab%3Dtheme")
+    );
+    expect(screen.queryByRole("button")).not.toBeInTheDocument();
+  });
+
+  it("shows only retry after an OIDC-only automatic attempt returns", async () => {
+    sessionStorage.setItem("sambee_oidc_attempted", "1");
+    vi.mocked(mockGetAuthConfig).mockResolvedValueOnce({
+      sign_in_mode: "oidc_only",
+      oidc: { display_name: "Example Identity", authorization_path: "/api/auth/oidc/authorize" },
+    });
+
+    render(<Login />);
+
+    expect(await screen.findByRole("button", { name: "Try again" })).toBeInTheDocument();
+    expect(screen.queryByLabelText(/username/i)).not.toBeInTheDocument();
+    expect(screen.queryByLabelText(/password/i)).not.toBeInTheDocument();
+  });
+
+  it("shows a stable OIDC error and clears it from browser history", async () => {
+    const replaceState = vi.spyOn(window.history, "replaceState");
+    sessionStorage.setItem("sambee_oidc_attempted", "1");
+    window.location.hash = "error=oidc_required_claim_missing";
+    vi.mocked(mockGetAuthConfig).mockResolvedValueOnce({
+      sign_in_mode: "oidc_only",
+      oidc: { display_name: "Example Identity", authorization_path: "/api/auth/oidc/authorize" },
+    });
+
+    render(<Login />);
+
+    expect(await screen.findByRole("alert")).toHaveTextContent(/did not supply required account information/i);
+    expect(replaceState).toHaveBeenCalledWith(null, "", window.location.pathname + window.location.search);
+  });
+
+  it("shows a provider failure alongside password login in mixed mode", async () => {
+    window.location.hash = "error=oidc_provider_unavailable";
+    vi.mocked(mockGetAuthConfig).mockResolvedValueOnce({
+      sign_in_mode: "oidc_or_password",
+      oidc: { display_name: "Example Identity", authorization_path: "/api/auth/oidc/authorize" },
+    });
+
+    render(<Login />);
+
+    expect(await screen.findByRole("alert")).toHaveTextContent(/identity provider is temporarily unavailable/i);
+    expect(screen.getByLabelText(/username/i)).toBeInTheDocument();
+    expect(screen.getByLabelText(/password/i)).toBeInTheDocument();
   });
 });
