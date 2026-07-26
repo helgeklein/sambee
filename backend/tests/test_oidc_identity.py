@@ -107,6 +107,7 @@ def test_pending_mapping_consumes_exact_username_and_preserves_local_password(se
 
     assert resolved.id == target.id
     assert resolved.password_hash == "existing-hash"
+    assert resolved.token_version == 1
     assert session.get(OidcPendingIdentityMapping, pending.id) is None
     assert session.exec(select(OidcIdentity).where(OidcIdentity.user_id == target.id)).one().subject == "subject-1"
 

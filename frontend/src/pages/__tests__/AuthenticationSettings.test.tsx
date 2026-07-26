@@ -74,6 +74,7 @@ describe("Authentication settings", () => {
     vi.mocked(api.getOidcTestResult).mockResolvedValue({
       flow_id: "test-flow",
       candidate: tested,
+      replacement_mappings: [],
       username: "admin",
       name: "Test Admin",
       email: "admin@example.test",
@@ -93,7 +94,46 @@ describe("Authentication settings", () => {
     expect(api.getOidcTestResult).toHaveBeenCalledWith("test-flow");
     await user.click(screen.getByRole("button", { name: "Activate configuration" }));
     expect(await screen.findByDisplayValue("Activated Provider")).toBeInTheDocument();
-    expect(api.finalizeOidcConfiguration).toHaveBeenCalledWith("test-flow");
+    expect(api.finalizeOidcConfiguration).toHaveBeenCalledWith("test-flow", []);
+  });
+
+  it("requires review of unique replacement usernames", async () => {
+    const user = userEvent.setup();
+    vi.mocked(api.getOidcConfiguration).mockResolvedValue(response(configuration("Old Provider")));
+    vi.mocked(api.getOidcTestResult).mockResolvedValue({
+      flow_id: "test-flow",
+      candidate: configuration("New Provider"),
+      replacement_mappings: [
+        { target_user_id: "user-1", local_username: "alice", expected_username: "provider-alice" },
+        { target_user_id: "user-2", local_username: "bob", expected_username: "provider-bob" },
+      ],
+      username: "admin",
+      name: "Test Admin",
+      email: "admin@example.test",
+      groups: ["sambee-admins"],
+      expires_at: "2099-01-01T00:00:00Z",
+    });
+    vi.mocked(api.finalizeOidcConfiguration).mockResolvedValue({
+      configuration_revision: 3,
+      identity_mapping_revision: 2,
+      reauthentication_required: true,
+    });
+    window.location.hash = "flow=test-flow";
+    renderSettings();
+
+    const alice = await screen.findByRole("textbox", { name: "Provider username for alice" });
+    const bob = screen.getByRole("textbox", { name: "Provider username for bob" });
+    await user.clear(bob);
+    await user.type(bob, "provider-alice");
+    expect(screen.getByRole("button", { name: "Activate configuration" })).toBeDisabled();
+    await user.clear(alice);
+    await user.type(alice, "reviewed-alice");
+    await user.click(screen.getByRole("button", { name: "Activate configuration" }));
+
+    expect(api.finalizeOidcConfiguration).toHaveBeenCalledWith("test-flow", [
+      { target_user_id: "user-1", expected_username: "reviewed-alice" },
+      { target_user_id: "user-2", expected_username: "provider-alice" },
+    ]);
   });
 
   it("returns to login without a privileged refresh after Password-only recovery", async () => {

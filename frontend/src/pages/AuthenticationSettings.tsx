@@ -56,6 +56,10 @@ export function AuthenticationSettings() {
   const [busy, setBusy] = useState(true);
   const [error, setError] = useState("");
   const [notice, setNotice] = useState("");
+  const replacementUsernames = testedIdentity?.replacement_mappings.map((mapping) => mapping.expected_username.trim()) ?? [];
+  const replacementPlanInvalid =
+    replacementUsernames.some((username) => !username || username === testedIdentity?.username) ||
+    new Set(replacementUsernames).size !== replacementUsernames.length;
 
   useEffect(() => {
     let active = true;
@@ -113,11 +117,17 @@ export function AuthenticationSettings() {
   };
 
   const activate = async () => {
-    if (!testedIdentity) return;
+    if (!testedIdentity || replacementPlanInvalid) return;
     setBusy(true);
     setError("");
     try {
-      const result = await api.finalizeOidcConfiguration(testedIdentity.flow_id);
+      const result = await api.finalizeOidcConfiguration(
+        testedIdentity.flow_id,
+        testedIdentity.replacement_mappings.map(({ target_user_id, expected_username }) => ({
+          target_user_id,
+          expected_username: expected_username.trim(),
+        }))
+      );
       clearAuthConfigCache();
       setTestedIdentity(null);
       setClientSecret("");
@@ -299,7 +309,37 @@ export function AuthenticationSettings() {
             <Typography>Username: {testedIdentity.username}</Typography>
             {testedIdentity.email && <Typography>Email: {testedIdentity.email}</Typography>}
             <Typography>Groups: {testedIdentity.groups.join(", ") || "None"}</Typography>
-            <Button variant="contained" sx={{ mt: 2 }} disabled={busy} onClick={activate}>
+            {testedIdentity.replacement_mappings.length > 0 && (
+              <Stack spacing={2} sx={{ mt: 2 }}>
+                <Typography variant="subtitle1">Identity replacement plan</Typography>
+                {testedIdentity.replacement_mappings.map((mapping) => (
+                  <TextField
+                    key={mapping.target_user_id}
+                    label={`Provider username for ${mapping.local_username}`}
+                    value={mapping.expected_username}
+                    error={
+                      !mapping.expected_username.trim() ||
+                      mapping.expected_username.trim() === testedIdentity.username ||
+                      replacementUsernames.filter((value) => value === mapping.expected_username.trim()).length > 1
+                    }
+                    onChange={(event) =>
+                      setTestedIdentity((current) =>
+                        current
+                          ? {
+                              ...current,
+                              replacement_mappings: current.replacement_mappings.map((row) =>
+                                row.target_user_id === mapping.target_user_id ? { ...row, expected_username: event.target.value } : row
+                              ),
+                            }
+                          : current
+                      )
+                    }
+                    required
+                  />
+                ))}
+              </Stack>
+            )}
+            <Button variant="contained" sx={{ mt: 2 }} disabled={busy || replacementPlanInvalid} onClick={activate}>
               Activate configuration
             </Button>
           </Box>

@@ -292,9 +292,16 @@ export interface OidcTestStartResponse {
   authorization_url: string;
 }
 
+export interface OidcReplacementMapping {
+  target_user_id: string;
+  local_username: string;
+  expected_username: string;
+}
+
 export interface OidcTestedIdentity {
   flow_id: string;
   candidate: RedactedOidcConfiguration;
+  replacement_mappings: OidcReplacementMapping[];
   username: string;
   name: string | null;
   email: string | null;

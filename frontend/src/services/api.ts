@@ -433,8 +433,14 @@ class ApiService {
     return response.data;
   }
 
-  async finalizeOidcConfiguration(flowId: string): Promise<OidcFinalizeResponse> {
-    const response = await this.api.post<OidcFinalizeResponse>("/admin/auth/oidc/finalize", { flow_id: flowId });
+  async finalizeOidcConfiguration(
+    flowId: string,
+    replacementMappings: Array<{ target_user_id: string; expected_username: string }>
+  ): Promise<OidcFinalizeResponse> {
+    const response = await this.api.post<OidcFinalizeResponse>("/admin/auth/oidc/finalize", {
+      flow_id: flowId,
+      replacement_mappings: replacementMappings,
+    });
     return response.data;
   }
 

@@ -211,6 +211,7 @@ def resolve_or_provision_oidc_user(
         session.delete(pending)
         configuration.identity_mapping_revision += 1
         session.add(configuration)
+        token_version_before_mapping = user.token_version
         user = _sync_existing_user(
             session,
             user=user,
@@ -221,6 +222,9 @@ def resolve_or_provision_oidc_user(
             now=current_time,
             correlation_id=correlation_id,
         )
+        if user.token_version == token_version_before_mapping:
+            user.token_version += 1
+            session.add(user)
         write_audit_event(
             session,
             event_name=AuditEventName.IDENTITY_MAPPED,

@@ -98,9 +98,21 @@ class OidcTestStartResponse(SQLModel):
     authorization_url: str
 
 
+class OidcReplacementMappingRead(SQLModel):
+    target_user_id: uuid.UUID
+    local_username: str
+    expected_username: str
+
+
+class OidcReplacementMappingInput(SQLModel):
+    target_user_id: uuid.UUID
+    expected_username: str = Field(min_length=1, max_length=500)
+
+
 class OidcTestedIdentityRead(SQLModel):
     flow_id: uuid.UUID
     candidate: RedactedOidcConfiguration
+    replacement_mappings: list[OidcReplacementMappingRead]
     username: str
     name: str | None
     email: str | None
@@ -110,6 +122,7 @@ class OidcTestedIdentityRead(SQLModel):
 
 class OidcFinalizeRequest(SQLModel):
     flow_id: uuid.UUID
+    replacement_mappings: list[OidcReplacementMappingInput] = Field(default_factory=list, max_length=10000)
 
 
 class OidcFinalizeResponse(SQLModel):

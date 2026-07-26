@@ -96,11 +96,12 @@ Open **Settings > Administration > Authentication** as a local administrator.
 1. Select the intended sign-in mode.
 1. Select **Connect and test** and complete provider sign-in in the same browser.
 1. Verify the returned username, email, and groups.
+1. When changing the provider identity namespace, review the proposed provider username for every linked or pending local account. Correct any empty or duplicate usernames.
 1. Select **Activate configuration**.
 
 Testing does not change the active configuration. Activation succeeds only when the tested identity resolves to an administrator, the test belongs to the initiating administrator, and the active configuration has not changed since the test began. Leaving the client-secret field blank preserves an existing stored secret.
 
-Changing the provider identity namespace removes obsolete OIDC identity links and pending mappings during activation. Users then establish identities under the new namespace on their next admitted login.
+Changing the provider identity namespace is an explicit identity migration. Sambee removes obsolete identity links and pending mappings only after the administrator reviews a complete replacement plan. The tested administrator is linked directly to the new identity; every other reviewed account receives an exact pending mapping and establishes its immutable identity under the new namespace on its next admitted login. Activation stops if the mapping set changed during testing or if reviewed provider usernames are empty or duplicated.
 
 ## Recover Password-Only Access
 
