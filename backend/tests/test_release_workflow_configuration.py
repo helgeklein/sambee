@@ -49,14 +49,9 @@ def test_candidate_matrix_builds_depend_on_shared_preflight() -> None:
         assert preflight_job is not None
         preflight_steps = preflight_job["steps"]
         preflight_index = next(
-            index
-            for index, step in enumerate(preflight_steps)
-            if step.get("uses") == "./.github/actions/release-candidate-preflight"
+            index for index, step in enumerate(preflight_steps) if step.get("uses") == "./.github/actions/release-candidate-preflight"
         )
-        assert any(
-            step.get("uses", "").startswith("actions/checkout@")
-            for step in preflight_steps[:preflight_index]
-        )
+        assert any(step.get("uses", "").startswith("actions/checkout@") for step in preflight_steps[:preflight_index])
 
         if workflow_name != "create-public-release.yml":
             build_jobs = [job for name, job in jobs.items() if name.startswith("build")]
@@ -66,6 +61,30 @@ def test_candidate_matrix_builds_depend_on_shared_preflight() -> None:
                 if isinstance(needs, str):
                     needs = [needs]
                 assert "prepare" in needs
+
+
+def test_public_release_annotated_tag_has_explicit_ci_identity() -> None:
+    workflow = load_workflow("create-public-release.yml")
+    steps = workflow["jobs"]["create-release"]["steps"]
+    tag_step = next(step for step in steps if step.get("name") == "Create or verify immutable public tag")
+
+    assert "user.name='github-actions[bot]'" in tag_step["run"]
+    assert "user.email='41898282+github-actions[bot]@users.noreply.github.com'" in tag_step["run"]
+    assert "tag -a" in tag_step["run"]
+
+
+def test_all_local_actions_follow_checkout_in_their_job() -> None:
+    workflow_directory = WORKSPACE / ".github/workflows"
+    for workflow_path in workflow_directory.glob("*.yml"):
+        workflow = load_workflow(workflow_path.name)
+        for job_name, job in workflow.get("jobs", {}).items():
+            steps = job.get("steps", [])
+            for index, step in enumerate(steps):
+                if not step.get("uses", "").startswith("./.github/actions/"):
+                    continue
+                assert any(previous_step.get("uses", "").startswith("actions/checkout@") for previous_step in steps[:index]), (
+                    f"{workflow_path.name}:{job_name} uses a local action before checkout"
+                )
 
 
 def test_release_mutation_workflows_share_the_expected_locks() -> None:

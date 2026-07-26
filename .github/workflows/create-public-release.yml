@@ -53,7 +53,10 @@ jobs:
             exit 1
           fi
           if [[ -z "$existing_sha" ]]; then
-            git tag -a "$release_tag" "$source_sha" -m "Sambee ${{ steps.preflight.outputs.version }}"
+            git \
+              -c user.name='github-actions[bot]' \
+              -c user.email='41898282+github-actions[bot]@users.noreply.github.com' \
+              tag -a "$release_tag" "$source_sha" -m "Sambee ${{ steps.preflight.outputs.version }}"
             git push origin "refs/tags/$release_tag"
           fi
           echo "release_tag=$release_tag" >> "$GITHUB_OUTPUT"

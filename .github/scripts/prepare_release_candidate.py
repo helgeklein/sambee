@@ -10,6 +10,8 @@ import sys
 from dataclasses import dataclass
 
 VERSION_PATTERN = re.compile(r"^(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)$")
+CI_GIT_USER_NAME = "github-actions[bot]"
+CI_GIT_USER_EMAIL = "41898282+github-actions[bot]@users.noreply.github.com"
 
 
 class CandidateError(RuntimeError):
@@ -127,7 +129,18 @@ def reserve_or_resolve(
         )
 
     message = f"Sambee build {version}\nsource_sha={dispatch_sha}\nworkflow={run_url}"
-    run_git("tag", "-a", tag, dispatch_sha, "-m", message)
+    run_git(
+        "-c",
+        f"user.name={CI_GIT_USER_NAME}",
+        "-c",
+        f"user.email={CI_GIT_USER_EMAIL}",
+        "tag",
+        "-a",
+        tag,
+        dispatch_sha,
+        "-m",
+        message,
+    )
     push = subprocess.run(
         ["git", "push", "origin", f"refs/tags/{tag}"],
         text=True,

@@ -78,6 +78,28 @@ def test_reserve_or_resolve_creates_annotated_build_tag(repository: Path) -> Non
     assert git(repository, "ls-remote", "--tags", "origin", "build-v1.2.3^{}")
 
 
+def test_reservation_does_not_require_ambient_git_identity(repository: Path, monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+    source_sha = git(repository, "rev-parse", "HEAD")
+    git(repository, "config", "--unset", "user.name")
+    git(repository, "config", "--unset", "user.email")
+    isolated_home = tmp_path / "identity-free-home"
+    isolated_home.mkdir()
+    monkeypatch.setenv("HOME", str(isolated_home))
+    monkeypatch.setenv("GIT_CONFIG_NOSYSTEM", "1")
+
+    candidate = MODULE.reserve_or_resolve(
+        dispatch_ref="refs/heads/main",
+        dispatch_sha=source_sha,
+        build_version=None,
+        run_url="https://example.test/runs/identity-free",
+    )
+
+    assert candidate.reserved is True
+    tag_ref = f"refs/tags/{candidate.tag}"
+    assert git(repository, "for-each-ref", "--format=%(taggername)", tag_ref) == MODULE.CI_GIT_USER_NAME
+    assert git(repository, "for-each-ref", "--format=%(taggeremail)", tag_ref) == f"<{MODULE.CI_GIT_USER_EMAIL}>"
+
+
 def test_resolve_existing_build_checks_out_its_canonical_commit(repository: Path) -> None:
     source_sha = git(repository, "rev-parse", "HEAD")
     MODULE.reserve_or_resolve(
