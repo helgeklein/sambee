@@ -142,3 +142,4 @@ class OidcFlow(SQLModel, table=True):
     finalized_at: datetime | None = Field(default=None)
     finalized_configuration_revision: int | None = Field(default=None)
     finalized_identity_mapping_revision: int | None = Field(default=None)
+    finalized_reauthentication_required: bool | None = Field(default=None)

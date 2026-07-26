@@ -414,6 +414,12 @@ def _apply_oidc_schema_migration(connection: Connection) -> None:
         SQLModel.metadata.tables[table_name].create(bind=connection, checkfirst=True)
 
 
+def _apply_oidc_reauthentication_receipt_migration(connection: Connection) -> None:
+    columns = {column[1] for column in connection.execute(text("PRAGMA table_info('oidcflow')"))}
+    if "finalized_reauthentication_required" not in columns:
+        connection.execute(text("ALTER TABLE oidcflow ADD COLUMN finalized_reauthentication_required BOOLEAN"))
+
+
 MIGRATIONS: tuple[Migration, ...] = (
     Migration(version=1, name="ensure_connection_slugs", apply=_apply_connection_slug_migration),
     Migration(version=2, name="add_user_role_and_session_fields", apply=_apply_user_role_migration),
@@ -428,6 +434,7 @@ MIGRATIONS: tuple[Migration, ...] = (
     Migration(version=11, name="drop_edit_lock_companion_session", apply=_apply_edit_lock_companion_session_drop_migration),
     Migration(version=12, name="allow_nullable_user_password", apply=_apply_nullable_user_password_migration),
     Migration(version=13, name="add_oidc_and_audit_schema", apply=_apply_oidc_schema_migration),
+    Migration(version=14, name="add_oidc_reauthentication_receipt", apply=_apply_oidc_reauthentication_receipt_migration),
 )
 
 

@@ -115,3 +115,4 @@ class OidcFinalizeRequest(SQLModel):
 class OidcFinalizeResponse(SQLModel):
     configuration_revision: int
     identity_mapping_revision: int
+    reauthentication_required: bool

@@ -176,6 +176,22 @@ def test_username_claim_change_preserves_identity_namespace() -> None:
     assert normalized.identity_namespace_changed is False
 
 
+def test_username_claim_change_requires_fresh_uniqueness_confirmation_from_caller() -> None:
+    cipher = OidcSecretCipher(Fernet.generate_key().decode("ascii"))
+    active = _active_configuration(cipher)
+    candidate = OidcConfigurationCandidate(
+        issuer_url=active.issuer_url,
+        client_id=active.client_id,
+        username_claim="email",
+        username_claim_uniqueness_confirmed=False,
+        sign_in_mode=SignInMode.OIDC_OR_PASSWORD,
+    )
+
+    normalized = normalize_candidate(candidate, active, cipher, development=False)
+
+    assert normalized.username_claim_uniqueness_confirmed is False
+
+
 def test_redacted_configuration_never_contains_secret() -> None:
     cipher = OidcSecretCipher(Fernet.generate_key().decode("ascii"))
     active = _active_configuration(cipher)

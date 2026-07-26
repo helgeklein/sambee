@@ -305,6 +305,7 @@ export interface OidcTestedIdentity {
 export interface OidcFinalizeResponse {
   configuration_revision: number;
   identity_mapping_revision: number;
+  reauthentication_required: boolean;
 }
 
 export interface CompanionDownloadMetadata {

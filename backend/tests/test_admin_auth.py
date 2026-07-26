@@ -1,11 +1,15 @@
 import json
 from dataclasses import asdict
 from datetime import datetime, timedelta, timezone
+from unittest.mock import Mock
 
+import pytest
 from fastapi.testclient import TestClient
 from sqlmodel import Session, select
 
+import app.api.admin_auth as admin_auth_module
 import app.core.config as config_module
+from app.core.security import build_user_access_token
 from app.models.oidc import (
     OidcAdmissionMode,
     OidcFlow,
@@ -28,8 +32,14 @@ def test_finalize_oidc_configuration_is_idempotent(
     session: Session,
     admin_user: User,
     admin_token: str,
+    monkeypatch: pytest.MonkeyPatch,
 ) -> None:
+    clear_cache = Mock()
+    monkeypatch.setattr(admin_auth_module, "clear_oidc_provider_cache", clear_cache)
     cipher = OidcSecretCipher(config_module.settings.oidc_secret_key)
+    unrelated_user = User(username="unrelated-user", password_hash="hash")
+    session.add(unrelated_user)
+    session.commit()
     candidate = NormalizedOidcCandidate(
         display_name="Example Identity",
         issuer_url="https://id.example.test",
@@ -49,7 +59,7 @@ def test_finalize_oidc_configuration_is_idempotent(
         configuration_revision=1,
         identity_mapping_revision=0,
         identity_namespace_changed=False,
-        changed_fields=("initial_configuration",),
+        changed_fields=("initial_configuration", "sign_in_mode"),
     )
     claims = NormalizedOidcClaims(
         issuer="https://id.example.test",
@@ -74,7 +84,6 @@ def test_finalize_oidc_configuration_is_idempotent(
     headers = {"Authorization": f"Bearer {admin_token}"}
     tested = client.get(f"/api/admin/auth/oidc/test/{flow.id}", headers=headers)
     first = client.post("/api/admin/auth/oidc/finalize", headers=headers, json={"flow_id": str(flow.id)})
-    second = client.post("/api/admin/auth/oidc/finalize", headers=headers, json={"flow_id": str(flow.id)})
 
     assert tested.status_code == 200
     assert tested.json()["candidate"]["display_name"] == "Example Identity"
@@ -85,8 +94,16 @@ def test_finalize_oidc_configuration_is_idempotent(
     assert '"encrypted_client_secret":' not in serialized_tested
     assert '"secret"' not in serialized_tested
     assert first.status_code == 200
+    assert first.json()["reauthentication_required"] is True
+    session.refresh(unrelated_user)
+    assert unrelated_user.token_version == 1
+    assert client.get("/api/auth/me", headers=headers).status_code == 401
+    session.refresh(admin_user)
+    refreshed_headers = {"Authorization": f"Bearer {build_user_access_token(admin_user)}"}
+    second = client.post("/api/admin/auth/oidc/finalize", headers=refreshed_headers, json={"flow_id": str(flow.id)})
     assert second.status_code == 200
     assert second.json() == first.json()
+    clear_cache.assert_called_once_with()
     session.refresh(flow)
     assert flow.status == OidcFlowStatus.CONSUMED
     assert flow.encrypted_candidate_configuration is None
@@ -186,3 +203,167 @@ def test_namespace_replacement_stages_existing_identity_for_exact_relink(
         ),
     )
     assert resolved.id == existing_user.id
+
+
+def test_username_claim_change_removes_pending_mappings_and_revokes_affected_users(
+    client: TestClient,
+    session: Session,
+    admin_user: User,
+    admin_token: str,
+) -> None:
+    cipher = OidcSecretCipher(config_module.settings.oidc_secret_key)
+    target = User(username="pending-user", password_hash="hash")
+    unrelated_user = User(username="unrelated-user", password_hash="hash")
+    active = OidcProviderConfiguration(
+        display_name="Example Identity",
+        issuer_url="https://id.example.test",
+        client_id="sambee",
+        encrypted_client_secret=cipher.encrypt("secret"),
+        role_mappings_json=json.dumps({"admin": ["sambee-admins"], "editor": []}),
+        configuration_revision=7,
+        identity_mapping_revision=3,
+    )
+    session.add(target)
+    session.add(unrelated_user)
+    session.add(active)
+    session.commit()
+    identity = OidcIdentity(user_id=admin_user.id, issuer=active.issuer_url, subject="admin-subject")
+    pending = OidcPendingIdentityMapping(
+        provider_configuration_id=active.id,
+        expected_username="provider-user",
+        target_user_id=target.id,
+        created_by_user_id=admin_user.id,
+    )
+    session.add(identity)
+    session.add(pending)
+    candidate = NormalizedOidcCandidate(
+        display_name=active.display_name,
+        issuer_url=active.issuer_url,
+        client_id=active.client_id,
+        client_secret="secret",
+        scopes=("openid", "profile", "groups"),
+        username_claim="email",
+        username_claim_uniqueness_confirmed=True,
+        name_claim="name",
+        email_claim="email",
+        groups_claim="groups",
+        sign_in_mode=SignInMode.PASSWORD_ONLY,
+        admission_mode=OidcAdmissionMode.ALL_IDP_USERS,
+        admission_groups=(),
+        admin_groups=("sambee-admins",),
+        editor_groups=(),
+        configuration_revision=8,
+        identity_mapping_revision=3,
+        identity_namespace_changed=False,
+        changed_fields=("username_claim",),
+    )
+    claims = NormalizedOidcClaims(
+        issuer=active.issuer_url,
+        subject=identity.subject,
+        username="admin@example.test",
+        name="Test Admin",
+        email="admin@example.test",
+        groups=("sambee-admins",),
+    )
+    flow = OidcFlow(
+        purpose=OidcFlowPurpose.TEST,
+        intent=OidcFlowIntent.CONFIGURE,
+        status=OidcFlowStatus.CALLBACK_VALIDATED,
+        initiating_admin_id=admin_user.id,
+        encrypted_candidate_configuration=encrypt_candidate_snapshot(candidate, cipher),
+        encrypted_tested_identity=cipher.encrypt(json.dumps(asdict(claims))),
+        configuration_revision=active.configuration_revision,
+        expires_at=datetime.now(timezone.utc) + timedelta(minutes=5),
+    )
+    session.add(flow)
+    session.commit()
+
+    response = client.post(
+        "/api/admin/auth/oidc/finalize",
+        headers={"Authorization": f"Bearer {admin_token}"},
+        json={"flow_id": str(flow.id)},
+    )
+
+    assert response.status_code == 200
+    assert session.get(OidcPendingIdentityMapping, pending.id) is None
+    assert session.get(OidcIdentity, identity.id) is not None
+    session.refresh(active)
+    session.refresh(admin_user)
+    session.refresh(target)
+    session.refresh(unrelated_user)
+    assert active.identity_mapping_revision == 4
+    assert admin_user.token_version == 1
+    assert target.token_version == 1
+    assert unrelated_user.token_version == 0
+
+
+def test_mapping_context_change_rejects_concurrent_mapping_revision(
+    client: TestClient,
+    session: Session,
+    admin_user: User,
+    admin_token: str,
+) -> None:
+    cipher = OidcSecretCipher(config_module.settings.oidc_secret_key)
+    active = OidcProviderConfiguration(
+        display_name="Example Identity",
+        issuer_url="https://id.example.test",
+        client_id="sambee",
+        encrypted_client_secret=cipher.encrypt("secret"),
+        configuration_revision=7,
+        identity_mapping_revision=4,
+    )
+    session.add(active)
+    session.commit()
+    candidate = NormalizedOidcCandidate(
+        display_name=active.display_name,
+        issuer_url=active.issuer_url,
+        client_id=active.client_id,
+        client_secret="secret",
+        scopes=("openid",),
+        username_claim="email",
+        username_claim_uniqueness_confirmed=True,
+        name_claim="name",
+        email_claim="email",
+        groups_claim="groups",
+        sign_in_mode=SignInMode.PASSWORD_ONLY,
+        admission_mode=OidcAdmissionMode.ALL_IDP_USERS,
+        admission_groups=(),
+        admin_groups=("sambee-admins",),
+        editor_groups=(),
+        configuration_revision=8,
+        identity_mapping_revision=3,
+        identity_namespace_changed=False,
+        changed_fields=("username_claim",),
+    )
+    claims = NormalizedOidcClaims(
+        issuer=active.issuer_url,
+        subject="admin-subject",
+        username="admin@example.test",
+        name="Test Admin",
+        email="admin@example.test",
+        groups=("sambee-admins",),
+    )
+    flow = OidcFlow(
+        purpose=OidcFlowPurpose.TEST,
+        intent=OidcFlowIntent.CONFIGURE,
+        status=OidcFlowStatus.CALLBACK_VALIDATED,
+        initiating_admin_id=admin_user.id,
+        encrypted_candidate_configuration=encrypt_candidate_snapshot(candidate, cipher),
+        encrypted_tested_identity=cipher.encrypt(json.dumps(asdict(claims))),
+        configuration_revision=active.configuration_revision,
+        expires_at=datetime.now(timezone.utc) + timedelta(minutes=5),
+    )
+    session.add(flow)
+    session.commit()
+
+    response = client.post(
+        "/api/admin/auth/oidc/finalize",
+        headers={"Authorization": f"Bearer {admin_token}"},
+        json={"flow_id": str(flow.id)},
+    )
+
+    assert response.status_code == 409
+    assert response.json()["detail"] == "OIDC identity mappings changed during testing"
+    session.refresh(active)
+    assert active.configuration_revision == 7
+    assert active.identity_mapping_revision == 4

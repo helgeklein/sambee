@@ -1,5 +1,6 @@
 import { render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
+import { MemoryRouter, Route, Routes } from "react-router-dom";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import api from "../../services/api";
 import type { OidcAdminConfigurationRead, RedactedOidcConfiguration } from "../../types";
@@ -48,6 +49,16 @@ const response = (value: RedactedOidcConfiguration): OidcAdminConfigurationRead 
   },
 });
 
+const renderSettings = () =>
+  render(
+    <MemoryRouter initialEntries={["/settings/admin/authentication"]}>
+      <Routes>
+        <Route path="/settings/admin/authentication" element={<AuthenticationSettings />} />
+        <Route path="/login" element={<div>Sign in again</div>} />
+      </Routes>
+    </MemoryRouter>
+  );
+
 describe("Authentication settings", () => {
   beforeEach(() => {
     vi.clearAllMocks();
@@ -69,15 +80,52 @@ describe("Authentication settings", () => {
       groups: ["sambee-admins"],
       expires_at: "2099-01-01T00:00:00Z",
     });
-    vi.mocked(api.finalizeOidcConfiguration).mockResolvedValue({ configuration_revision: 3, identity_mapping_revision: 2 });
+    vi.mocked(api.finalizeOidcConfiguration).mockResolvedValue({
+      configuration_revision: 3,
+      identity_mapping_revision: 2,
+      reauthentication_required: false,
+    });
     window.location.hash = "flow=test-flow";
 
-    render(<AuthenticationSettings />);
+    renderSettings();
 
     expect(await screen.findByDisplayValue("Tested Provider")).toBeInTheDocument();
     expect(api.getOidcTestResult).toHaveBeenCalledWith("test-flow");
     await user.click(screen.getByRole("button", { name: "Activate configuration" }));
     expect(await screen.findByDisplayValue("Activated Provider")).toBeInTheDocument();
     expect(api.finalizeOidcConfiguration).toHaveBeenCalledWith("test-flow");
+  });
+
+  it("returns to login without a privileged refresh after Password-only recovery", async () => {
+    const user = userEvent.setup();
+    vi.spyOn(window, "confirm").mockReturnValue(true);
+    vi.mocked(api.getOidcConfiguration).mockResolvedValue(response(configuration("Active Provider")));
+    vi.mocked(api.setPasswordOnlyAuthentication).mockResolvedValue({
+      configuration_revision: 3,
+      identity_mapping_revision: 1,
+      reauthentication_required: true,
+    });
+    localStorage.setItem("access_token", "revoked-token");
+    window.location.hash = "";
+    renderSettings();
+
+    await user.click(await screen.findByRole("button", { name: "Switch to Password only" }));
+
+    expect(await screen.findByText("Sign in again")).toBeInTheDocument();
+    expect(localStorage.getItem("access_token")).toBeNull();
+    expect(api.getOidcConfiguration).toHaveBeenCalledTimes(1);
+  });
+
+  it("requires uniqueness to be reconfirmed when the username claim changes", async () => {
+    const user = userEvent.setup();
+    vi.mocked(api.getOidcConfiguration).mockResolvedValue(response(configuration("Active Provider")));
+    window.location.hash = "";
+    renderSettings();
+
+    const confirmation = await screen.findByRole("checkbox", { name: "I confirmed this claim is stable and unique for every user" });
+    expect(confirmation).toBeChecked();
+    await user.clear(screen.getByRole("textbox", { name: "Username claim" }));
+    await user.type(screen.getByRole("textbox", { name: "Username claim" }), "email");
+    expect(confirmation).not.toBeChecked();
   });
 });

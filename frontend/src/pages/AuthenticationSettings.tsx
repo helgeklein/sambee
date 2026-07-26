@@ -12,6 +12,7 @@ import {
   Typography,
 } from "@mui/material";
 import { useEffect, useState } from "react";
+import { useNavigate } from "react-router-dom";
 import api from "../services/api";
 import { clearAuthConfigCache } from "../services/authConfig";
 import type { OidcAdminConfigurationRead, OidcConfigurationCandidate, OidcTestedIdentity } from "../types";
@@ -47,6 +48,7 @@ const editableCandidate = ({
 }: NonNullable<OidcAdminConfigurationRead["configuration"]>): OidcConfigurationCandidate => candidate;
 
 export function AuthenticationSettings() {
+  const navigate = useNavigate();
   const [candidate, setCandidate] = useState<OidcConfigurationCandidate>(DEFAULT_CANDIDATE);
   const [configuration, setConfiguration] = useState<OidcAdminConfigurationRead | null>(null);
   const [clientSecret, setClientSecret] = useState("");
@@ -87,7 +89,11 @@ export function AuthenticationSettings() {
   }, []);
 
   const update = <Key extends keyof OidcConfigurationCandidate>(key: Key, value: OidcConfigurationCandidate[Key]) => {
-    setCandidate((current) => ({ ...current, [key]: value }));
+    setCandidate((current) => ({
+      ...current,
+      [key]: value,
+      ...(["issuer_url", "client_id", "username_claim"].includes(key) ? { username_claim_uniqueness_confirmed: false } : {}),
+    }));
     setTestedIdentity(null);
     setNotice("");
   };
@@ -111,10 +117,15 @@ export function AuthenticationSettings() {
     setBusy(true);
     setError("");
     try {
-      await api.finalizeOidcConfiguration(testedIdentity.flow_id);
+      const result = await api.finalizeOidcConfiguration(testedIdentity.flow_id);
       clearAuthConfigCache();
       setTestedIdentity(null);
       setClientSecret("");
+      if (result.reauthentication_required) {
+        localStorage.removeItem("access_token");
+        navigate("/login", { replace: true });
+        return;
+      }
       setNotice("Authentication configuration activated.");
       const refreshed = await api.getOidcConfiguration();
       setConfiguration(refreshed);
@@ -133,10 +144,10 @@ export function AuthenticationSettings() {
     try {
       await api.setPasswordOnlyAuthentication();
       clearAuthConfigCache();
-      setNotice("Password-only authentication activated. Sign in again when this session ends.");
-      const refreshed = await api.getOidcConfiguration();
-      setConfiguration(refreshed);
-      if (refreshed.configuration) setCandidate(editableCandidate(refreshed.configuration));
+      setTestedIdentity(null);
+      setClientSecret("");
+      localStorage.removeItem("access_token");
+      navigate("/login", { replace: true });
     } catch {
       setError("Password-only mode requires an active administrator with a local password.");
     } finally {

@@ -28,7 +28,12 @@ from app.models.oidc_api import (
 )
 from app.models.user import User, UserRole
 from app.services.audit import AuditDetails, AuditEventName, AuditResult, write_audit_event
-from app.services.oidc_client import NormalizedOidcClaims, build_authorization_request, load_provider_metadata
+from app.services.oidc_client import (
+    NormalizedOidcClaims,
+    build_authorization_request,
+    clear_oidc_provider_cache,
+    load_provider_metadata,
+)
 from app.services.oidc_configuration import (
     OidcConfigurationError,
     OidcSecretCipher,
@@ -47,6 +52,20 @@ from app.services.oidc_recovery import OidcRecoveryError, activate_password_only
 
 router = APIRouter()
 FINALIZATION_RECEIPT_LIFETIME = timedelta(hours=24)
+OIDC_SESSION_INVALIDATING_FIELDS = frozenset(
+    {
+        "issuer_url",
+        "client_id",
+        "scopes",
+        "username_claim",
+        "name_claim",
+        "email_claim",
+        "groups_claim",
+        "admission_mode",
+        "admission_groups",
+        "role_mappings",
+    }
+)
 
 
 def _as_utc(value: datetime) -> datetime:
@@ -188,6 +207,7 @@ async def finalize_oidc_configuration(
         return OidcFinalizeResponse(
             configuration_revision=existing_flow.finalized_configuration_revision,
             identity_mapping_revision=existing_flow.finalized_identity_mapping_revision,
+            reauthentication_required=bool(existing_flow.finalized_reauthentication_required),
         )
     flow = _get_owned_validated_test_flow(session, payload.flow_id, current_user)
     cipher = OidcSecretCipher(settings.oidc_secret_key)
@@ -197,8 +217,18 @@ async def finalize_oidc_configuration(
     active_revision = active.configuration_revision if active is not None else None
     if active_revision != flow.configuration_revision:
         raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="OIDC configuration changed during testing")
+    replacing_namespace = flow.intent == OidcFlowIntent.REPLACE_IDENTITY_NAMESPACE and active is not None
+    username_claim_changed = active is not None and candidate.username_claim != active.username_claim
+    if (
+        active is not None
+        and (replacing_namespace or username_claim_changed)
+        and active.identity_mapping_revision != candidate.identity_mapping_revision
+    ):
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="OIDC identity mappings changed during testing")
     if candidate.client_secret is None:
         raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="OIDC client secret is unavailable")
+
+    previous_identity_user_ids = {identity.user_id for identity in session.exec(select(OidcIdentity)).all()}
 
     proposed = OidcProviderConfiguration(
         display_name=candidate.display_name,
@@ -216,7 +246,7 @@ async def finalize_oidc_configuration(
         admission_groups_json=json.dumps(candidate.admission_groups),
         role_mappings_json=json.dumps({"admin": candidate.admin_groups, "editor": candidate.editor_groups}),
         configuration_revision=candidate.configuration_revision,
-        identity_mapping_revision=candidate.identity_mapping_revision + 1,
+        identity_mapping_revision=active.identity_mapping_revision if active is not None else 0,
         updated_by_user_id=current_user.id,
     )
     try:
@@ -232,25 +262,37 @@ async def finalize_oidc_configuration(
     existing_user_identity = session.exec(
         select(OidcIdentity).where(OidcIdentity.user_id == current_user.id, OidcIdentity.issuer == tested.issuer)
     ).first()
-    replacing_namespace = flow.intent == OidcFlowIntent.REPLACE_IDENTITY_NAMESPACE and active is not None
     if not replacing_namespace and existing_subject is not None and existing_subject.user_id != current_user.id:
         raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="Tested OIDC identity is already mapped")
     if not replacing_namespace and existing_user_identity is not None and existing_user_identity.subject != tested.subject:
         raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="Administrator already has a different OIDC identity")
 
     relink_users: list[tuple[User, str]] = []
+    mapping_affected_user_ids: set[uuid.UUID] = set()
+    mappings_changed = False
     if replacing_namespace and active is not None:
         for identity in session.exec(select(OidcIdentity).where(OidcIdentity.issuer == active.issuer_url)).all():
             linked_user = session.get(User, identity.user_id)
             if linked_user is not None and linked_user.id != current_user.id:
                 relink_users.append((linked_user, identity.last_seen_username or linked_user.username))
+            mapping_affected_user_ids.add(identity.user_id)
+            mappings_changed = True
             session.delete(identity)
         for pending in session.exec(
             select(OidcPendingIdentityMapping).where(OidcPendingIdentityMapping.provider_configuration_id == active.id)
         ).all():
+            mapping_affected_user_ids.add(pending.target_user_id)
+            mappings_changed = True
             session.delete(pending)
         existing_subject = None
         existing_user_identity = None
+    elif username_claim_changed and active is not None:
+        for pending in session.exec(
+            select(OidcPendingIdentityMapping).where(OidcPendingIdentityMapping.provider_configuration_id == active.id)
+        ).all():
+            mapping_affected_user_ids.add(pending.target_user_id)
+            mappings_changed = True
+            session.delete(pending)
 
     if active is None:
         active = proposed
@@ -270,6 +312,8 @@ async def finalize_oidc_configuration(
             )
         )
     if existing_subject is None and existing_user_identity is None:
+        mappings_changed = True
+        mapping_affected_user_ids.add(current_user.id)
         session.add(
             OidcIdentity(
                 user_id=current_user.id,
@@ -279,6 +323,21 @@ async def finalize_oidc_configuration(
                 last_login_at=datetime.now(timezone.utc),
             )
         )
+    if mappings_changed:
+        active.identity_mapping_revision += 1
+
+    changed_fields = set(candidate.changed_fields)
+    revoked_user_ids = set(mapping_affected_user_ids)
+    if "sign_in_mode" in changed_fields:
+        revoked_user_ids.update(user.id for user in session.exec(select(User)).all())
+    elif changed_fields.intersection(OIDC_SESSION_INVALIDATING_FIELDS):
+        revoked_user_ids.update(previous_identity_user_ids)
+    for user_id in revoked_user_ids:
+        user = session.get(User, user_id)
+        if user is not None:
+            user.token_version += 1
+            session.add(user)
+    reauthentication_required = current_user.id in revoked_user_ids
     write_audit_event(
         session,
         event_name=AuditEventName.CONFIG_UPDATED,
@@ -294,12 +353,15 @@ async def finalize_oidc_configuration(
     flow.finalized_at = datetime.now(timezone.utc)
     flow.finalized_configuration_revision = active.configuration_revision
     flow.finalized_identity_mapping_revision = active.identity_mapping_revision
+    flow.finalized_reauthentication_required = reauthentication_required
     flow.expires_at = datetime.now(timezone.utc) + FINALIZATION_RECEIPT_LIFETIME
     session.add(flow)
     session.commit()
+    clear_oidc_provider_cache()
     return OidcFinalizeResponse(
         configuration_revision=active.configuration_revision,
         identity_mapping_revision=active.identity_mapping_revision,
+        reauthentication_required=reauthentication_required,
     )
 
 
@@ -313,7 +375,9 @@ async def set_password_only(
     except OidcRecoveryError as error:
         status_code = status.HTTP_404_NOT_FOUND if "not found" in str(error) else status.HTTP_409_CONFLICT
         raise HTTPException(status_code=status_code, detail=str(error)) from error
+    clear_oidc_provider_cache()
     return OidcFinalizeResponse(
         configuration_revision=configuration.configuration_revision,
         identity_mapping_revision=configuration.identity_mapping_revision,
+        reauthentication_required=True,
     )
