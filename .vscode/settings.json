@@ -108,6 +108,11 @@
   "js/ts.tsdk.promptToUseWorkspaceVersion": true,
   "js/ts.suggestionActions.enabled": false,
   // GitHub Copilot Auto-Approve Commands
+  // Notes:
+  // - Regexes apply to subcommands individually, e.g.: sub-command-A && sub-command-B
+  // - If matchCommandLine is true, the match is applied to the entire command line
+  //   - This should only be used with start and end anchors, e.g. /^git status$/
+  //   - Since AI often varies the exact command line, matchCommandLine is not useful.
   "chat.tools.terminal.autoApprove": {
     // Local inspection
     "basename": true,
@@ -121,7 +126,6 @@
     "echo": true,
     "env": true,
     "file": true,
-    "git": false,
     "grep": true,
     "head": true,
     "jq": true,
@@ -142,40 +146,19 @@
     "which": true,
     "who": true,
     // Read-only Git inspection
-    "/git(\\s+--no-pager)?\\s+(status|diff|log|show|branch|blame|rev-parse|ls-files|ls-remote|ls-tree|describe|tag|remote)\\b/": {
-      "approve": true,
-      "matchCommandLine": true
-    },
+    "/^git(?:\\s+--no-pager)?\\s+(?:status|diff|log|show|branch|blame|rev-parse|ls-files|ls-remote|ls-tree|describe|tag|remote)\\b/": true,
     // HTTP GET/HEAD with common non-mutating curl options.
     // POST, PUT, DELETE, forms, uploads, output files, and custom
     // request methods do not match and therefore require approval.
-    "/^curl\\s+(?:(?:-[fsSLI]+|--(?:fail|fail-with-body|silent|show-error|location|head|compressed))\\s+)*(?:['\\\"]?https?:\\/\\/[^\\s'\\\"]+['\\\"]?)(?:\\s+['\\\"]?https?:\\/\\/[^\\s'\\\"]+['\\\"]?)*$/": {
-      "approve": true,
-      "matchCommandLine": true
-    },
+    "/^curl\\s+(?:(?:-[fsSLI]+|--(?:fail|fail-with-body|silent|show-error|location|head|compressed))\\s+)*(?:['\\\"]?https?:\\/\\/[^\\s'\\\"]+['\\\"]?)(?:\\s+['\\\"]?https?:\\/\\/[^\\s'\\\"]+['\\\"]?)*$/": true,
     // wget may inspect a URL or write the response only to stdout.
-    "/^wget\\s+(?:-qO-|--spider)\\s+['\\\"]?https?:\\/\\/[^\\s'\\\"]+['\\\"]?$/": {
-      "approve": true,
-      "matchCommandLine": true
-    },
+    "/^wget\\s+(?:-qO-|--spider)\\s+['\\\"]?https?:\\/\\/[^\\s'\\\"]+['\\\"]?$/": true,
     // DNS and reachability queries
-    "/^(dig|host|nslookup|ping)\\b/": {
-      "approve": true,
-      "matchCommandLine": true
-    },
+    "/^(dig|host|nslookup|ping)\\b/": true,
     // Read-only package registry queries
-    "/^npm\\s+(view|info|search)\\b/": {
-      "approve": true,
-      "matchCommandLine": true
-    },
-    "/^cargo\\s+search\\b/": {
-      "approve": true,
-      "matchCommandLine": true
-    },
-    "/^pip3?\\s+index\\s+versions\\b/": {
-      "approve": true,
-      "matchCommandLine": true
-    },
+    "/^npm\\s+(view|info|search)\\b/": true,
+    "/^cargo\\s+search\\b/": true,
+    "/^pip3?\\s+index\\s+versions\\b/": true,
     // Python tests and static analysis
     "pytest": true,
     "mypy": true,
@@ -187,28 +170,13 @@
     "npx tsc": true,
     "npx biome": true,
     // Frontend validation and builds
-    "/npm\\s+run\\s+(?:test|lint|format|check|typecheck|build)\\b/": {
-      "approve": true,
-      "matchCommandLine": true
-    },
+    "/^npm\\s+run\\s+(?:test|lint|format|check|typecheck|build)\\b/": true,
     // Rust validation and read-only inspection
-    "/^cargo\\s+(?:test|check|clippy|fmt|metadata|tree|doc)\\b/": {
-      "approve": true,
-      "matchCommandLine": true
-    },
+    "/^cargo\\s+(?:test|check|clippy|fmt|metadata|tree|doc)\\b/": true,
     // Known repository validation scripts
-    "/^(?:\\.\\/)?scripts\\/(?:lint|test|format)(?:\\s|$)/": {
-      "approve": true,
-      "matchCommandLine": true
-    },
-    "/^python3\\s+scripts\\/(?:update-docs-derived-artifacts|validate-docs-content)\\.py(?:\\s|$)/": {
-      "approve": true,
-      "matchCommandLine": true
-    },
-    "/^python3\\s+(?:website\\/)?scripts\\/(?:docs-report|docs-editor)\\.py(?:\\s|$)/": {
-      "approve": true,
-      "matchCommandLine": true
-    },
+    "/^(?:\\.\\/)?scripts\\/(?:lint|test|format)(?:\\s|$)/": true,
+    "/^python3\\s+scripts\\/(?:update-docs-derived-artifacts|validate-docs-content)\\.py(?:\\s|$)/": true,
+    "/^python3\\s+(?:website\\/)?scripts\\/(?:docs-report|docs-editor)\\.py(?:\\s|$)/": true,
     // Always require approval for destructive or privileged tools
     "chmod": false,
     "chown": false,
@@ -234,49 +202,34 @@
     "apt": false,
     "apt-get": false,
     "corepack": false,
-    "pip": false,
-    "pip3": false,
     "pnpm": false,
     "yarn": false,
     // Require approval for Git writes and working-tree changes
-    "/^git\\s+(?:add|apply|bisect|checkout|cherry-pick|clean|clone|commit|fetch|merge|mv|pull|push|rebase|reset|restore|revert|rm|stash|switch|worktree)\\b/": {
-      "approve": false,
-      "matchCommandLine": true
-    },
+    "/^git(?:\\s+--no-pager)?\\s+(?:add|apply|bisect|checkout|cherry-pick|clean|clone|commit|fetch|merge|mv|pull|push|rebase|reset|restore|revert|rm|stash|switch|worktree)\\b/": false,
     // Require approval for dependency and publishing operations
-    "/^npm\\s+(?:ci|install|uninstall|remove|update|publish|exec)\\b/": {
-      "approve": false,
-      "matchCommandLine": true
-    },
-    "/^npx\\b/": {
-      "approve": false,
-      "matchCommandLine": true
-    },
-    "/^cargo\\s+(?:add|clean|fix|install|login|logout|new|init|package|publish|remove|run|update|watch)\\b/": {
-      "approve": false,
-      "matchCommandLine": true
-    },
+    "/^npm\\s+(?:ci|install|uninstall|remove|update|publish|exec)\\b/": false,
+    "/^cargo\\s+(?:add|clean|fix|install|login|logout|new|init|package|publish|remove|run|update|watch)\\b/": false
   },
   "workbench.colorCustomizations": {
-    "activityBar.activeBackground": "#F4C430",
-    "activityBar.background": "#F4C430",
+    "activityBar.activeBackground": "#f7d260",
+    "activityBar.background": "#f7d260",
     "activityBar.foreground": "#15202b",
     "activityBar.inactiveForeground": "#15202b99",
     "activityBarBadge.background": "#089874",
     "activityBarBadge.foreground": "#e7e7e7",
     "commandCenter.border": "#15202b99",
-    "sash.hoverBorder": "#F4C430",
+    "sash.hoverBorder": "#f7d260",
     "statusBar.background": "#f4c430",
     "statusBar.foreground": "#15202b",
     "statusBarItem.hoverBackground": "#e5b00c",
-    "statusBarItem.remoteBackground": "#F4C430",
+    "statusBarItem.remoteBackground": "#089774",
     "statusBarItem.remoteForeground": "#15202b",
     "titleBar.activeBackground": "#f4c430",
     "titleBar.activeForeground": "#15202b",
     "titleBar.inactiveBackground": "#f4c43099",
     "titleBar.inactiveForeground": "#15202b99",
-    "activityBarTop.activeBackground": "#F4C430",
-    "activityBarTop.background": "#F4C430",
+    "activityBarTop.activeBackground": "#f7d260",
+    "activityBarTop.background": "#f7d260",
     "activityBarTop.foreground": "#15202b",
     "activityBarTop.inactiveForeground": "#15202b99",
     "commandCenter.foreground": "#15202b",
