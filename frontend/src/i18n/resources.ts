@@ -102,6 +102,7 @@ export const EN_TRANSLATIONS = {
       usernameLabel: "Username",
       passwordLabel: "Password",
       submit: "Sign In",
+      submitWithPassword: "Sign in with password",
       invalidCredentials: "Invalid username or password",
     },
   },

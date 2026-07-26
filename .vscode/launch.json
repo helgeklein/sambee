@@ -6,7 +6,15 @@
       "type": "debugpy",
       "request": "launch",
       "module": "uvicorn",
-      "args": ["app.main:app", "--reload", "--host", "0.0.0.0", "--port", "8000"],
+      "args": [
+        "app.main:app",
+        "--reload",
+        "--host",
+        "0.0.0.0",
+        "--port",
+        "8000",
+        "--no-proxy-headers"
+      ],
       "cwd": "${workspaceFolder}/backend",
       "envFile": "${workspaceFolder}/.env.backend",
       "console": "integratedTerminal",
@@ -35,7 +43,10 @@
   "compounds": [
     {
       "name": "Full Stack",
-      "configurations": ["Backend: FastAPI", "Frontend: React"],
+      "configurations": [
+        "Backend: FastAPI",
+        "Frontend: React"
+      ],
       "stopAll": true
     }
   ]

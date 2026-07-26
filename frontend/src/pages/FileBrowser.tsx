@@ -52,7 +52,7 @@ import {
 } from "../services/browserRecoverySnapshot";
 import companionService, { buildCompanionWsUrl, type DriveInfo, hasStoredSecret } from "../services/companion";
 import { logger } from "../services/logger";
-import { OIDC_LOGOUT_MARKER } from "../services/oidcAuth";
+import { loginPath, OIDC_LOGOUT_MARKER } from "../services/oidcAuth";
 import { scheduleRuntimeWarmup } from "../services/runtimeWarmup";
 import { buildServerWebSocketUrl } from "../services/serverWebsocket";
 import { loadCurrentUserSettings } from "../services/userSettingsSync";
@@ -752,7 +752,7 @@ const Browser: React.FC = () => {
           const authRequired = await isAuthRequired();
           if (authRequired) {
             if (!preserveVisibleUi) {
-              navigate("/login");
+              navigate(loginPath(window.location.pathname + window.location.search));
             }
             return;
           }
@@ -779,7 +779,7 @@ const Browser: React.FC = () => {
         if (isApiError(err)) {
           if (err.response?.status === 401) {
             if (!preserveVisibleUi) {
-              navigate("/login");
+              navigate(loginPath(window.location.pathname + window.location.search));
             }
           } else if (err.response?.status === 403) {
             leftPane.setError("Access denied. Please contact an administrator to configure connections.");

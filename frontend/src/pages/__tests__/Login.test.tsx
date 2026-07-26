@@ -25,6 +25,9 @@ describe("Login Component", () => {
     vi.clearAllMocks();
     sessionStorage.clear();
     window.history.replaceState(null, "", "/login");
+    window.location.search = "";
+    window.location.hash = "";
+    vi.mocked(window.location.assign).mockClear();
     vi.mocked(mockGetAuthConfig).mockResolvedValue({ sign_in_mode: "password_only", oidc: null });
   });
 
@@ -242,9 +245,61 @@ describe("Login Component", () => {
 
     render(<Login />);
 
-    expect(await screen.findByRole("button", { name: "Sign in with Example Identity" })).toBeInTheDocument();
+    const providerButton = await screen.findByRole("button", { name: "Sign in with Example Identity" });
+    expect(providerButton).toHaveClass("MuiButton-contained");
+    expect(screen.getByRole("button", { name: "Sign in with password" })).toHaveClass("MuiButton-outlined");
     expect(screen.getByLabelText(/username/i)).toBeInTheDocument();
     expect(screen.getByLabelText(/password/i)).toBeInTheDocument();
+  });
+
+  it("renders no controls while authentication mode is unknown", () => {
+    vi.mocked(mockGetAuthConfig).mockReturnValueOnce(new Promise(() => undefined));
+
+    render(<Login />);
+
+    expect(screen.queryByText(/loading/i)).not.toBeInTheDocument();
+    expect(screen.queryByLabelText(/username/i)).not.toBeInTheDocument();
+    expect(screen.queryByRole("button")).not.toBeInTheDocument();
+  });
+
+  it("shows only a retry state when authentication configuration is unavailable", async () => {
+    vi.mocked(mockGetAuthConfig).mockRejectedValueOnce(new Error("Unavailable"));
+
+    render(<Login />);
+
+    expect(await screen.findByRole("button", { name: "Try again" })).toBeInTheDocument();
+    expect(screen.getByRole("alert")).toHaveTextContent("Authentication is temporarily unavailable");
+    expect(screen.queryByLabelText(/username/i)).not.toBeInTheDocument();
+    expect(screen.queryByLabelText(/password/i)).not.toBeInTheDocument();
+  });
+
+  it("clears the configuration error after a successful retry", async () => {
+    const user = userEvent.setup();
+    vi.mocked(mockGetAuthConfig)
+      .mockRejectedValueOnce(new Error("Unavailable"))
+      .mockResolvedValueOnce({ sign_in_mode: "password_only", oidc: null });
+
+    render(<Login />);
+
+    await user.click(await screen.findByRole("button", { name: "Try again" }));
+
+    expect(await screen.findByLabelText(/username/i)).toBeInTheDocument();
+    expect(screen.queryByRole("alert")).not.toBeInTheDocument();
+  });
+
+  it("preserves a sanitized return path for automatic OIDC-only sign-in", async () => {
+    window.location.search = "?return_path=%2Fsettings%2Fappearance%3Ftab%3Dtheme";
+    vi.mocked(mockGetAuthConfig).mockResolvedValueOnce({
+      sign_in_mode: "oidc_only",
+      oidc: { display_name: "Example Identity", authorization_path: "/api/auth/oidc/authorize" },
+    });
+
+    render(<Login />);
+
+    await waitFor(() =>
+      expect(window.location.assign).toHaveBeenCalledWith("/api/auth/oidc/authorize?return_path=%2Fsettings%2Fappearance%3Ftab%3Dtheme")
+    );
+    expect(screen.queryByRole("button")).not.toBeInTheDocument();
   });
 
   it("shows only retry after an OIDC-only automatic attempt returns", async () => {

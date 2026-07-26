@@ -6,7 +6,13 @@ import { useNavigate } from "react-router-dom";
 import { login } from "../services/api";
 import { type AuthConfig, getAuthConfig } from "../services/authConfig";
 import { logger } from "../services/logger";
-import { completeAuthentication, OIDC_ATTEMPT_MARKER, OIDC_LOGOUT_MARKER, startOidcAuthorization } from "../services/oidcAuth";
+import {
+  completeAuthentication,
+  loginReturnPath,
+  OIDC_ATTEMPT_MARKER,
+  OIDC_LOGOUT_MARKER,
+  startOidcAuthorization,
+} from "../services/oidcAuth";
 
 const OIDC_ERROR_MESSAGES: Readonly<Record<string, string>> = {
   oidc_authorization_state_invalid: "This sign-in request expired or is invalid. Start again.",
@@ -35,8 +41,11 @@ const Login: React.FC = () => {
   const [password, setPassword] = useState("");
   const [error, setError] = useState(oidcErrorFromFragment);
   const [isLoading, setIsLoading] = useState(true);
+  const [configurationUnavailable, setConfigurationUnavailable] = useState(false);
+  const [configurationAttempt, setConfigurationAttempt] = useState(0);
   const [authConfig, setAuthConfig] = useState<AuthConfig | null>(null);
   const [oidcOnlyState, setOidcOnlyState] = useState<"redirecting" | "failed" | "signed-out" | null>(null);
+  const [returnPath] = useState(() => loginReturnPath(window.location.search));
 
   useEffect(() => {
     if (oidcErrorFromFragment()) {
@@ -47,6 +56,9 @@ const Login: React.FC = () => {
   // Check if authentication is required
   useEffect(() => {
     const checkAuthConfig = async () => {
+      const attempt = configurationAttempt;
+      setIsLoading(true);
+      setConfigurationUnavailable(false);
       try {
         const config = await getAuthConfig();
         if (config.sign_in_mode === "none") {
@@ -64,20 +76,21 @@ const Login: React.FC = () => {
           } else {
             sessionStorage.setItem(OIDC_ATTEMPT_MARKER, "1");
             setOidcOnlyState("redirecting");
-            startOidcAuthorization(config.oidc.authorization_path);
+            startOidcAuthorization(config.oidc.authorization_path, returnPath);
             return;
           }
         }
       } catch (error) {
-        logger.error("Failed to check auth config", { error }, "auth");
-        setError("Authentication is temporarily unavailable.");
+        logger.error("Failed to check auth config", { error, attempt }, "auth");
+        setError((current) => current || "Authentication is temporarily unavailable.");
+        setConfigurationUnavailable(true);
       } finally {
         setIsLoading(false);
       }
     };
 
     checkAuthConfig();
-  }, [navigate]);
+  }, [configurationAttempt, navigate, returnPath]);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -85,8 +98,8 @@ const Login: React.FC = () => {
 
     try {
       const response = await login(username, password);
-      const returnPath = await completeAuthentication(response);
-      navigate(returnPath);
+      const authenticatedReturnPath = await completeAuthentication(response, returnPath);
+      navigate(authenticatedReturnPath);
     } catch (_err) {
       setError(t("auth.login.invalidCredentials"));
     }
@@ -96,26 +109,35 @@ const Login: React.FC = () => {
     if (!authConfig?.oidc) return;
     sessionStorage.setItem(OIDC_ATTEMPT_MARKER, "1");
     sessionStorage.removeItem(OIDC_LOGOUT_MARKER);
-    startOidcAuthorization(authConfig.oidc.authorization_path);
+    startOidcAuthorization(authConfig.oidc.authorization_path, returnPath);
   };
 
   if (isLoading || oidcOnlyState === "redirecting") {
-    if (oidcOnlyState === "redirecting") return null;
+    return null;
+  }
+
+  if (configurationUnavailable) {
     return (
-      <Container maxWidth="sm">
-        <Box
-          sx={{
-            marginTop: 8,
-            display: "flex",
-            flexDirection: "column",
-            alignItems: "center",
+      <Container maxWidth="sm" sx={{ py: 10 }}>
+        <Alert severity="error">{error}</Alert>
+        <Typography component="h1" variant="h5" sx={{ mt: 3 }}>
+          Sign in unavailable
+        </Typography>
+        <Button
+          variant="contained"
+          sx={{ mt: 3 }}
+          onClick={() => {
+            setError("");
+            setConfigurationAttempt((attempt) => attempt + 1);
           }}
         >
-          <Typography>{t("app.loading")}</Typography>
-        </Box>
+          Try again
+        </Button>
       </Container>
     );
   }
+
+  if (!authConfig) return null;
 
   if (authConfig?.sign_in_mode === "oidc_only") {
     const signedOut = oidcOnlyState === "signed-out";
@@ -153,7 +175,7 @@ const Login: React.FC = () => {
           )}
           {authConfig?.sign_in_mode === "oidc_or_password" && authConfig.oidc && (
             <>
-              <Button fullWidth variant="outlined" sx={{ mt: 2, mb: 3 }} onClick={startProviderLogin}>
+              <Button fullWidth variant="contained" sx={{ mt: 2, mb: 3 }} onClick={startProviderLogin}>
                 Sign in with {authConfig.oidc.display_name}
               </Button>
               <Divider>or</Divider>
@@ -180,8 +202,8 @@ const Login: React.FC = () => {
               value={password}
               onChange={(e) => setPassword(e.target.value)}
             />
-            <Button type="submit" fullWidth variant="contained" sx={{ mt: 3, mb: 2 }}>
-              {t("auth.login.submit")}
+            <Button type="submit" fullWidth variant="outlined" sx={{ mt: 3, mb: 2 }}>
+              {authConfig.sign_in_mode === "oidc_or_password" ? t("auth.login.submitWithPassword") : t("auth.login.submit")}
             </Button>
           </form>
         </Paper>

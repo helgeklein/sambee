@@ -19,6 +19,7 @@ import { useEffect, useRef, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import api from "../services/api";
 import { clearAuthConfigCache } from "../services/authConfig";
+import { loginPath } from "../services/oidcAuth";
 import {
   isApiError,
   type OidcAdminConfigurationRead,
@@ -277,7 +278,7 @@ export function AuthenticationSettings() {
           sessionStorage.removeItem(OIDC_REVIEWED_POLICY_STORAGE_KEY);
           if (result.reauthentication_required) {
             localStorage.removeItem("access_token");
-            navigate("/login", { replace: true });
+            navigate(loginPath(window.location.pathname + window.location.search), { replace: true });
             return;
           }
           setNotice("Authentication configuration activated.");
@@ -538,7 +539,7 @@ export function AuthenticationSettings() {
     setShowClientSecret(false);
     if (result.reauthentication_required) {
       localStorage.removeItem("access_token");
-      navigate("/login", { replace: true });
+      navigate(loginPath(window.location.pathname + window.location.search), { replace: true });
       setBusy(false);
       return;
     }
@@ -593,7 +594,7 @@ export function AuthenticationSettings() {
       setClientSecret("");
       setShowClientSecret(false);
       localStorage.removeItem("access_token");
-      navigate("/login", { replace: true });
+      navigate(loginPath(window.location.pathname + window.location.search), { replace: true });
     } catch (caught: unknown) {
       const errorCode = getApiErrorMessage(caught, "");
       if (errorCode === "oidc_configuration_changed" || errorCode === "passwordless_account_count_changed") {

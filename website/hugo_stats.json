@@ -938,6 +938,7 @@
       "openapi-as-a-future-option",
       "openid-connect-authentication-and-single-sign-on-sso",
       "openid-connect-authentication-oidc-and-single-sign-on-sso",
+      "openid-connect-oidc-authentication-and-single-sign-on-sso",
       "operating-rules",
       "operation-model-temp-files-and-recovery",
       "operation-reference",

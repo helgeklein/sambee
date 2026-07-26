@@ -126,6 +126,16 @@ def _oidc_error_code(error: Exception) -> str:
     return "oidc_provider_unavailable"
 
 
+def _oidc_failure_category(error: Exception) -> str:
+    if isinstance(error, OidcClientError):
+        return {
+            OidcClientErrorCode.USERINFO_UNAVAILABLE: "user_info_unavailable",
+            OidcClientErrorCode.USERINFO_SUBJECT_MISMATCH: "user_info_subject_mismatch",
+            OidcClientErrorCode.REQUIRED_CLAIM_MISSING: "required_claim_missing_after_user_info",
+        }.get(error.code, "oidc_sign_in_failed")
+    return "oidc_sign_in_failed"
+
+
 def _oidc_error_redirect(error: Exception) -> RedirectResponse:
     code = _oidc_error_code(error)
     if code not in OIDC_PUBLIC_ERROR_CODES:
@@ -361,15 +371,16 @@ async def oidc_callback(
         session.rollback()
         if claimed_flow_id is not None:
             fail_claimed_callback(session, claimed_flow_id)
+        failure_category = _oidc_failure_category(error)
         write_audit_event(
             session,
             event_name=AuditEventName.LOGIN_FAILED,
             result=AuditResult.FAILED,
-            details=AuditDetails(failure_category="oidc_sign_in_failed"),
+            details=AuditDetails(failure_category=failure_category),
             correlation_id=request.headers.get("x-request-id"),
         )
         session.commit()
-        logger.warning("OIDC callback failed: category=%s", type(error).__name__)
+        logger.warning("OIDC callback failed: reason=%s", failure_category)
         return _oidc_error_redirect(error)
 
 

@@ -10,6 +10,7 @@ import pytest
 from fastapi.testclient import TestClient
 from sqlmodel import Session, delete, select
 
+import app.api.auth as auth_module
 from app.core.security import (
     create_access_token,
     decrypt_password,
@@ -19,6 +20,22 @@ from app.core.security import (
 )
 from app.middleware.authentication import PASSWORD_FORM_BODY_LIMIT_BYTES
 from app.models.user import User, UserRole
+from app.services.oidc_client import OidcClientError, OidcClientErrorCode
+
+
+@pytest.mark.parametrize(
+    ("error_code", "expected_category"),
+    (
+        (OidcClientErrorCode.USERINFO_UNAVAILABLE, "user_info_unavailable"),
+        (OidcClientErrorCode.USERINFO_SUBJECT_MISMATCH, "user_info_subject_mismatch"),
+        (OidcClientErrorCode.REQUIRED_CLAIM_MISSING, "required_claim_missing_after_user_info"),
+        (OidcClientErrorCode.INVALID_ID_TOKEN, "oidc_sign_in_failed"),
+    ),
+)
+def test_oidc_failure_category_uses_safe_userinfo_reason(error_code: OidcClientErrorCode, expected_category: str) -> None:
+    error = OidcClientError(error_code, "provider detail must not be logged")
+
+    assert auth_module._oidc_failure_category(error) == expected_category
 
 
 @pytest.mark.unit
