@@ -5,7 +5,7 @@ log() {
     echo "[$(date '+%Y-%m-%d %H:%M:%S')] $1" | tee -a /tmp/dev-start.log
 }
 
-log "=" 
+log "="
 log "🚀 Starting Sambee development servers..."
 log "   Script: $0"
 log "   PWD: $(pwd)"
@@ -19,10 +19,10 @@ if pgrep -f "uvicorn.*app.main:app" > /dev/null; then
 else
     log "Starting backend server..."
     cd /workspace/backend
-    nohup uvicorn app.main:app --reload --host 0.0.0.0 --port 8000 > /tmp/backend.log 2>&1 &
+    nohup uvicorn app.main:app --reload --host 0.0.0.0 --port 8000 --no-proxy-headers > /tmp/backend.log 2>&1 &
     BACKEND_PID=$!
     log "   Backend process started (PID: $BACKEND_PID)"
-    
+
     # Wait for backend to actually start (max 10 seconds)
     for i in {1..20}; do
         if pgrep -f "uvicorn.*app.main:app" > /dev/null; then
@@ -48,7 +48,7 @@ if pgrep -f "vite" > /dev/null; then
 else
     log "Starting frontend server..."
     cd /workspace/frontend
-    
+
     # Check node_modules
     if [ ! -d "node_modules" ]; then
         if [ -f "package-lock.json" ]; then
@@ -63,11 +63,11 @@ else
             done
         fi
     fi
-    
+
     nohup npm run dev > /tmp/frontend.log 2>&1 &
     FRONTEND_PID=$!
     log "   Frontend process started (PID: $FRONTEND_PID)"
-    
+
     # Wait for frontend to actually start (max 10 seconds)
     for i in {1..20}; do
         if pgrep -f "vite" > /dev/null; then

@@ -33,13 +33,26 @@ def count_active_passwordless_users(session: Session, *, now: datetime | None = 
     )
 
 
+def count_active_local_password_administrators(session: Session, *, now: datetime | None = None) -> int:
+    current_time = now or datetime.now(timezone.utc)
+    return sum(
+        1
+        for user in session.exec(
+            select(User).where(User.role == UserRole.ADMIN, User.password_hash != None)  # noqa: E711
+        ).all()
+        if _is_active_unexpired(user, current_time)
+    )
+
+
 def activate_password_only(
     session: Session,
     *,
     acting_user_id: uuid.UUID | None = None,
     expected_configuration_revision: int | None = None,
     expected_active_passwordless_user_count: int | None = None,
+    expected_local_password_administrator_count: int | None = None,
     acknowledge_passwordless_account_loss: bool = False,
+    force_no_local_administrator: bool = False,
 ) -> OidcProviderConfiguration:
     configuration = session.get(OidcProviderConfiguration, 1)
     if configuration is None:
@@ -60,14 +73,10 @@ def activate_password_only(
             raise OidcRecoveryError("passwordless_account_count_changed")
         if actual_passwordless_count > 0 and not acknowledge_passwordless_account_loss:
             raise OidcRecoveryError("passwordless_account_loss_not_acknowledged")
-    local_admins = session.exec(
-        select(User).where(User.role == UserRole.ADMIN, User.is_active == True, User.password_hash != None)  # noqa: E711,E712
-    ).all()
-    local_admin = next(
-        (user for user in local_admins if _is_active_unexpired(user, now)),
-        None,
-    )
-    if local_admin is None:
+    local_administrator_count = count_active_local_password_administrators(session, now=now)
+    if expected_local_password_administrator_count is not None and expected_local_password_administrator_count != local_administrator_count:
+        raise OidcRecoveryError("local_password_administrator_count_changed")
+    if local_administrator_count == 0 and not force_no_local_administrator:
         raise OidcRecoveryError("password_only_no_local_administrator")
     configuration.sign_in_mode = SignInMode.PASSWORD_ONLY
     if expected_configuration_revision is None:

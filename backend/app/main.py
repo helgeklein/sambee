@@ -25,6 +25,7 @@ from app.core.logging import log_error, set_request_id
 from app.core.secrets import generate_admin_password
 from app.core.security import get_password_hash
 from app.db.database import DATABASE_FILE_PATH, engine, init_db
+from app.middleware.authentication import PasswordFormBodyLimitMiddleware
 from app.models.oidc import OidcProviderConfiguration
 from app.models.user import User, UserRole
 from app.services.system_settings import store as system_settings_store
@@ -341,6 +342,7 @@ app = FastAPI(
     version=__version__,
     lifespan=lifespan,
 )
+app.add_middleware(PasswordFormBodyLimitMiddleware)
 
 
 #

@@ -615,6 +615,69 @@ describe("Authentication settings", () => {
     expect(screen.getByRole("button", { name: "Connect and test" })).toBeEnabled();
   });
 
+  it("restores row validation errors from a persisted finalization", async () => {
+    const pendingCandidate = configuration("Tested Provider");
+    sessionStorage.setItem("sambee.oidc.setupFlowId", "stored-flow");
+    sessionStorage.setItem("sambee.oidc.reviewedPolicy", JSON.stringify(reviewedPolicy(pendingCandidate)));
+    sessionStorage.setItem(
+      "sambee.oidc.pendingFinalization",
+      JSON.stringify({
+        flow_id: "stored-flow",
+        reviewed_policy: reviewedPolicy(pendingCandidate),
+        replacement_mappings: [{ target_user_id: "user-1", expected_username: "provider-alice" }],
+        expected_identity_mapping_revision: 1,
+        omitted_account_acknowledgements: [],
+      })
+    );
+    window.location.hash = "";
+    vi.mocked(api.finalizeOidcConfiguration).mockRejectedValue({
+      response: {
+        status: 409,
+        data: {
+          detail: {
+            errors: [
+              {
+                target_user_id: "user-1",
+                field: "expected_username",
+                error_code: "oidc_mapping_username_conflict",
+                message: "Provider username is already mapped",
+              },
+            ],
+          },
+        },
+      },
+    });
+    vi.mocked(api.getOidcConfiguration).mockResolvedValue(response(configuration("Active Provider")));
+    vi.mocked(api.getOidcTestResult).mockResolvedValue(
+      testedIdentity({
+        flow_id: "stored-flow",
+        replacement_mappings: [
+          {
+            target_user_id: "user-1",
+            local_username: "alice",
+            local_role: "editor",
+            has_local_password: true,
+            target_state: "active",
+            mapping_state: "pending",
+            suggested_username: "provider-alice",
+            prefill_source: "pending",
+            selected_by_default: true,
+            selectable: true,
+            omission_acknowledgement_required: false,
+          },
+        ],
+      })
+    );
+
+    renderSettings();
+
+    expect(await screen.findByText("Provider username is already mapped")).toBeInTheDocument();
+    expect(screen.getByRole("textbox", { name: "Provider username for alice" })).toHaveAccessibleDescription(
+      "Provider username is already mapped"
+    );
+    expect(sessionStorage.getItem("sambee.oidc.pendingFinalization")).toBeNull();
+  });
+
   it("keeps activation successful when the post-activation settings refresh fails", async () => {
     const user = userEvent.setup();
     vi.spyOn(window, "confirm").mockReturnValue(true);

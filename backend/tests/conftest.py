@@ -204,6 +204,15 @@ def client_fixture(session: Session) -> Generator[TestClient, None, None]:
     app.dependency_overrides.clear()
 
 
+@pytest.fixture(autouse=True)
+def reset_authentication_rate_limiter() -> Generator[None, None, None]:
+    from app.services.authentication_rate_limit import authentication_rate_limiter
+
+    authentication_rate_limiter.reset()
+    yield
+    authentication_rate_limiter.reset()
+
+
 @pytest.fixture(name="admin_user")
 def admin_user_fixture(session: Session) -> User:
     """Create a test admin user."""

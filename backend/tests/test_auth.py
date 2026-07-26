@@ -17,6 +17,7 @@ from app.core.security import (
     get_password_hash,
     verify_password,
 )
+from app.middleware.authentication import PASSWORD_FORM_BODY_LIMIT_BYTES
 from app.models.user import User, UserRole
 
 
@@ -191,6 +192,26 @@ class TestLoginEndpoint:
             session.flush()
             assert session.exec(select(OidcProviderConfiguration)).first() is None
 
+    def test_password_form_body_limit_accepts_exact_limit_and_rejects_one_byte_over(self, client: TestClient):
+        prefix = b"username=missing-user&password="
+        exact_body = prefix + b"x" * (PASSWORD_FORM_BODY_LIMIT_BYTES - len(prefix))
+
+        exact_response = client.post(
+            "/api/auth/token",
+            content=exact_body,
+            headers={"Content-Type": "application/x-www-form-urlencoded"},
+        )
+        oversized_response = client.post(
+            "/api/auth/token",
+            content=exact_body + b"x",
+            headers={"Content-Type": "application/x-www-form-urlencoded"},
+        )
+
+        assert exact_response.status_code == 401
+        assert exact_response.json()["detail"] == "Incorrect username or password"
+        assert oversized_response.status_code == 413
+        assert oversized_response.json() == {"detail": "Request body too large"}
+
     def test_login_wrong_password(self, client: TestClient, admin_user: User):
         """Test login fails with incorrect password."""
         response = client.post(
@@ -216,6 +237,88 @@ class TestLoginEndpoint:
 
         assert response.status_code == 401
         assert "Incorrect username or password" in response.json()["detail"]
+
+    def test_password_login_rate_limit_returns_generic_429(self, client: TestClient):
+        for _ in range(10):
+            response = client.post("/api/auth/token", data={"username": "missing", "password": "wrong"})
+            assert response.status_code == 401
+
+        response = client.post("/api/auth/token", data={"username": "missing", "password": "wrong"})
+
+        assert response.status_code == 429
+        assert response.json() == {"detail": "Incorrect username or password"}
+        assert response.headers["Retry-After"] == "90"
+
+    def test_oidc_exchange_rate_limit_returns_generic_429(self, client: TestClient):
+        for _ in range(30):
+            response = client.post("/api/auth/oidc/exchange", json={"grant": "x" * 32})
+            assert response.status_code == 401
+
+        response = client.post("/api/auth/oidc/exchange", json={"grant": "x" * 32})
+
+        assert response.status_code == 429
+        assert response.json() == {"detail": "OIDC login grant is invalid"}
+        assert response.headers["Retry-After"] == "10"
+
+    def test_oidc_authorization_rate_limit_uses_fixed_redirect(self, client: TestClient):
+        for _ in range(20):
+            response = client.get("/api/auth/oidc/authorize", follow_redirects=False)
+            assert response.status_code == 404
+
+        response = client.get("/api/auth/oidc/authorize", follow_redirects=False)
+
+        assert response.status_code == 303
+        assert response.headers["location"] == "/login#error=oidc_rate_limited"
+        assert response.headers["Retry-After"] == "15"
+
+    def test_oidc_callback_rate_limit_uses_fixed_redirect(self, client: TestClient):
+        for _ in range(60):
+            response = client.get(
+                "/api/auth/oidc/callback",
+                params={"state": "invalid-state", "code": "provider-code"},
+                follow_redirects=False,
+            )
+            assert response.status_code == 303
+            assert response.headers["location"] == "/login#error=oidc_authorization_state_invalid"
+
+        response = client.get(
+            "/api/auth/oidc/callback",
+            params={"state": "invalid-state", "code": "provider-code"},
+            follow_redirects=False,
+        )
+
+        assert response.status_code == 303
+        assert response.headers["location"] == "/login#error=oidc_rate_limited"
+        assert response.headers["Retry-After"] == "5"
+
+    def test_invalid_oidc_callback_uses_stable_error_redirect(self, client: TestClient):
+        response = client.get(
+            "/api/auth/oidc/callback",
+            params={"state": "invalid-state", "code": "provider-code"},
+            follow_redirects=False,
+        )
+
+        assert response.status_code == 303
+        assert response.headers["location"] == "/login#error=oidc_authorization_state_invalid"
+        assert response.headers["Cache-Control"] == "no-store"
+
+    def test_oidc_authorization_failure_uses_stable_error_redirect(self, client: TestClient, session: Session):
+        from app.models.oidc import OidcProviderConfiguration, SignInMode
+
+        session.add(
+            OidcProviderConfiguration(
+                display_name="Company SSO",
+                issuer_url="https://idp.example.com",
+                client_id="sambee",
+                sign_in_mode=SignInMode.OIDC_ONLY,
+            )
+        )
+        session.commit()
+
+        response = client.get("/api/auth/oidc/authorize", follow_redirects=False)
+
+        assert response.status_code == 303
+        assert response.headers["location"] == "/login#error=oidc_provider_unavailable"
 
     def test_login_passwordless_user_fails_generically(self, client: TestClient, session: Session):
         passwordless_user = User(username="passwordless-user", role=UserRole.VIEWER)

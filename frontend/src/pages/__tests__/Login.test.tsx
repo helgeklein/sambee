@@ -24,6 +24,7 @@ describe("Login Component", () => {
     // Clear all mocks
     vi.clearAllMocks();
     sessionStorage.clear();
+    window.history.replaceState(null, "", "/login");
     vi.mocked(mockGetAuthConfig).mockResolvedValue({ sign_in_mode: "password_only", oidc: null });
   });
 
@@ -258,5 +259,34 @@ describe("Login Component", () => {
     expect(await screen.findByRole("button", { name: "Try again" })).toBeInTheDocument();
     expect(screen.queryByLabelText(/username/i)).not.toBeInTheDocument();
     expect(screen.queryByLabelText(/password/i)).not.toBeInTheDocument();
+  });
+
+  it("shows a stable OIDC error and clears it from browser history", async () => {
+    const replaceState = vi.spyOn(window.history, "replaceState");
+    sessionStorage.setItem("sambee_oidc_attempted", "1");
+    window.location.hash = "error=oidc_required_claim_missing";
+    vi.mocked(mockGetAuthConfig).mockResolvedValueOnce({
+      sign_in_mode: "oidc_only",
+      oidc: { display_name: "Example Identity", authorization_path: "/api/auth/oidc/authorize" },
+    });
+
+    render(<Login />);
+
+    expect(await screen.findByRole("alert")).toHaveTextContent(/did not supply required account information/i);
+    expect(replaceState).toHaveBeenCalledWith(null, "", window.location.pathname + window.location.search);
+  });
+
+  it("shows a provider failure alongside password login in mixed mode", async () => {
+    window.location.hash = "error=oidc_provider_unavailable";
+    vi.mocked(mockGetAuthConfig).mockResolvedValueOnce({
+      sign_in_mode: "oidc_or_password",
+      oidc: { display_name: "Example Identity", authorization_path: "/api/auth/oidc/authorize" },
+    });
+
+    render(<Login />);
+
+    expect(await screen.findByRole("alert")).toHaveTextContent(/identity provider is temporarily unavailable/i);
+    expect(screen.getByLabelText(/username/i)).toBeInTheDocument();
+    expect(screen.getByLabelText(/password/i)).toBeInTheDocument();
   });
 });

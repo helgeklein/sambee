@@ -10,21 +10,6 @@
 
 - Search + replace (Ctrl+H)
 
-## Authentication system
-
-- OAuth/OIDC:
-   - Add OAuth as authentication method in addition to password and none.
-   - Configuration should be via the UI (limited to Sambee users with admin rights).
-      - If possible, we should add a configuration validation option for users to check their config works.
-   - Optional auto-provisioning, where new OAuth users are auto-created in Sambee
-      - To be configurable via the UI
-   - Optional mapping of OAuth groups to Sambee roles
-      - Members of group A to become Sambee admins
-      - Members of group B to become Sambee editors
-      - Members of group C to become Sambee viewers
-   - Create documentation
-      - Include a full example for Authelia as OAuth provider/IdP that includes the necessary config on the Authelia side
-
 ## Theme
 
 - import/export, e.g., as JSON

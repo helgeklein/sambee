@@ -258,6 +258,7 @@ export function AuthenticationSettings() {
     const restore = async () => {
       let recoveredFinalization = false;
       let replayFailure: FinalizationFailureKind | null = null;
+      let replayValidationErrors: ReturnType<typeof getOidcMappingValidationErrors> = [];
       const fragmentFlowId = new URLSearchParams(window.location.hash.replace(/^#/, "")).get("flow");
       if (fragmentFlowId) {
         sessionStorage.setItem(OIDC_SETUP_FLOW_STORAGE_KEY, fragmentFlowId);
@@ -284,6 +285,9 @@ export function AuthenticationSettings() {
         } catch (caught: unknown) {
           if (!active) return;
           replayFailure = finalizationFailureKind(caught);
+          if (replayFailure === "validation") {
+            replayValidationErrors = getOidcMappingValidationErrors(caught);
+          }
           if (replayFailure === "ambiguous") {
             setError("Activation may have completed, but the server response was not received. Reload this page to confirm the result.");
             return;
@@ -311,7 +315,15 @@ export function AuthenticationSettings() {
         if (!active) return;
         setCandidate(editableCandidate(identity.candidate));
         setTestedIdentity(identity);
-        setMappingErrors({});
+        setMappingErrors(
+          replayFailure === "validation"
+            ? Object.fromEntries(
+                replayValidationErrors
+                  .filter((mappingError) => mappingError.target_user_id !== null)
+                  .map((mappingError) => [mappingError.target_user_id, mappingError.message])
+              )
+            : {}
+        );
         setMappingReview(mappingReviewFor(identity));
         sessionStorage.setItem(OIDC_REVIEWED_POLICY_STORAGE_KEY, JSON.stringify(reviewedPolicyFor(identity.candidate)));
         if (replayFailure === "mapping_stale") {

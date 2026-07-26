@@ -8,15 +8,41 @@ import { type AuthConfig, getAuthConfig } from "../services/authConfig";
 import { logger } from "../services/logger";
 import { completeAuthentication, OIDC_ATTEMPT_MARKER, OIDC_LOGOUT_MARKER, startOidcAuthorization } from "../services/oidcAuth";
 
+const OIDC_ERROR_MESSAGES: Readonly<Record<string, string>> = {
+  oidc_authorization_state_invalid: "This sign-in request expired or is invalid. Start again.",
+  oidc_provider_unavailable: "The identity provider is temporarily unavailable. Try again later.",
+  oidc_required_claim_missing: "The identity provider did not supply required account information. Contact your Sambee administrator.",
+  oidc_user_not_admitted: "You do not have permission to sign in to this Sambee instance.",
+  oidc_username_collision: "This identity cannot be connected automatically. Contact your Sambee administrator.",
+  oidc_mapping_conflict: "The account mapping changed or conflicts with another account. Contact your Sambee administrator.",
+  oidc_configuration_changed: "Authentication settings changed during sign-in. Start again.",
+  oidc_last_administrator_role_conflict:
+    "Your administrator access changed. Restore the IdP group or use your local password after the operator enables Password only.",
+  oidc_last_administrator_role_conflict_no_password:
+    "Your administrator access changed and no local password exists. Restore the administrator group at the identity provider.",
+  oidc_rate_limited: "Too many sign-in attempts. Wait and try again.",
+};
+
+const oidcErrorFromFragment = (): string => {
+  const code = new URLSearchParams(window.location.hash.replace(/^#/, "")).get("error");
+  return code ? (OIDC_ERROR_MESSAGES[code] ?? "") : "";
+};
+
 const Login: React.FC = () => {
   const { t } = useTranslation();
   const navigate = useNavigate();
   const [username, setUsername] = useState("");
   const [password, setPassword] = useState("");
-  const [error, setError] = useState("");
+  const [error, setError] = useState(oidcErrorFromFragment);
   const [isLoading, setIsLoading] = useState(true);
   const [authConfig, setAuthConfig] = useState<AuthConfig | null>(null);
   const [oidcOnlyState, setOidcOnlyState] = useState<"redirecting" | "failed" | "signed-out" | null>(null);
+
+  useEffect(() => {
+    if (oidcErrorFromFragment()) {
+      window.history.replaceState(null, "", window.location.pathname + window.location.search);
+    }
+  }, []);
 
   // Check if authentication is required
   useEffect(() => {
@@ -95,7 +121,7 @@ const Login: React.FC = () => {
     const signedOut = oidcOnlyState === "signed-out";
     return (
       <Container maxWidth="sm" sx={{ py: 10 }}>
-        {!signedOut && <Alert severity="error">Sign in is temporarily unavailable.</Alert>}
+        {!signedOut && <Alert severity="error">{error || "Sign in is temporarily unavailable."}</Alert>}
         <Typography component="h1" variant="h5" sx={{ mt: 3 }}>
           {signedOut ? "Signed out" : "Sign in unavailable"}
         </Typography>

@@ -24,6 +24,7 @@ Set these environment variables on the Sambee backend:
 |---|---|
 | `SAMBEE_PUBLIC_URL` | The externally reachable HTTPS origin for Sambee, without a path. |
 | `SAMBEE_OIDC_SECRET_KEY` | A persistent Fernet key used to encrypt the client secret and temporary OIDC flow data. |
+| `SAMBEE_TRUSTED_PROXY_CIDRS` | Optional comma-separated CIDR ranges for reverse proxies whose forwarding headers Sambee may trust. |
 
 Generate a key with the backend's installed `cryptography` package:
 
@@ -40,6 +41,21 @@ https://files.example.com/api/auth/oidc/callback
 ```
 
 Sambee requires HTTPS outside development. Development HTTP is accepted only for literal loopback hosts. Discovery, JWKS, token, and UserInfo requests use validated outbound connections, do not follow redirects, and reject unsafe resolved addresses.
+
+Sambee derives a request's source IP from the direct connection unless that peer is in `SAMBEE_TRUSTED_PROXY_CIDRS`. Add only proxies you operate. Sambee evaluates forwarding information from right to left and ignores untrusted claims. Repository-provided launch commands disable Uvicorn's separate proxy-header handling so this setting remains the only forwarding-header trust boundary.
+
+## Authentication Request Limits
+
+Sambee enforces authentication limits in the application. A reverse proxy may add stricter limits but does not replace these defaults:
+
+| Request | Default limit |
+|---|---|
+| Start OIDC authorization | 20 requests per source IP per 5 minutes |
+| Process OIDC callback | 60 requests per source IP per 5 minutes |
+| Exchange OIDC login grant | 30 requests per source IP per 5 minutes |
+| Password sign-in | 10 attempts per source IP per 5 minutes and 10 attempts per submitted username per 15 minutes |
+
+Limits refill continuously. A rejected API request returns `Retry-After`; browser-based OIDC requests return to the login page with a generic retry message. Password forms larger than 64 KiB are rejected before parsing. These responses do not expose account existence, the active sign-in mode, provider payloads, or submitted credentials.
 
 ## Configure the Provider
 
@@ -155,10 +171,12 @@ If OIDC prevents web access, run the backend CLI from the application environmen
 
 ```bash
 cd backend
-python -m app.oidc_admin password-only
+python -m app.oidc_admin set-mode password-only
 ```
 
-For Docker Compose, run the same module inside the backend container. The command refuses to proceed if no active local-password administrator exists.
+For Docker Compose, run the same module inside the backend container. The command displays the number of active local-password administrators and active passwordless accounts that will lose access. Review those counts, then type `password-only` exactly to confirm. Sambee rechecks the configuration and both counts before applying the change; if they changed, rerun the command and review the new impact.
+
+The command refuses to proceed if no active local-password administrator exists. For deliberate containment of a compromised identity provider, `set-mode password-only --force` permits the switch after an explicit warning and confirmation. This leaves no usable administrator and is not a credential-reset or login-bypass mechanism. `--force` is rejected when a usable local administrator exists.
 
 ## Rotate the Encryption Key
 

@@ -8,7 +8,13 @@ from sqlmodel import Session
 import app.api.admin_auth as admin_auth_module
 from app.models.oidc import OidcProviderConfiguration, SignInMode
 from app.models.user import User, UserRole
-from app.services.oidc_recovery import OidcRecoveryError, activate_password_only, count_active_passwordless_users
+from app.oidc_admin import activate_password_only_interactively
+from app.services.oidc_recovery import (
+    OidcRecoveryError,
+    activate_password_only,
+    count_active_local_password_administrators,
+    count_active_passwordless_users,
+)
 
 
 def test_password_only_recovery_rejects_expired_local_administrator(session: Session) -> None:
@@ -36,6 +42,71 @@ def test_password_only_recovery_rejects_expired_local_administrator(session: Ses
     configuration = session.get(OidcProviderConfiguration, 1)
     assert configuration is not None
     assert configuration.sign_in_mode == SignInMode.OIDC_ONLY
+
+
+def test_password_only_cli_reports_impact_and_requires_exact_confirmation(
+    session: Session, admin_user: User, capsys: pytest.CaptureFixture[str]
+) -> None:
+    session.add(
+        OidcProviderConfiguration(
+            display_name="Example",
+            issuer_url="https://id.example",
+            client_id="sambee",
+            sign_in_mode=SignInMode.OIDC_ONLY,
+        )
+    )
+    session.add(User(username="passwordless-user", role=UserRole.VIEWER))
+    session.commit()
+
+    with pytest.raises(OidcRecoveryError, match="was not confirmed"):
+        activate_password_only_interactively(session, force=False, read_confirmation=lambda _prompt: "no")
+    assert session.get(OidcProviderConfiguration, 1).sign_in_mode == SignInMode.OIDC_ONLY  # type: ignore[union-attr]
+
+    activate_password_only_interactively(session, force=False, read_confirmation=lambda _prompt: "password-only")
+
+    output = capsys.readouterr().out
+    assert "Active local-password administrators: 1" in output
+    assert "Active passwordless accounts that will lose access: 1" in output
+    assert session.get(OidcProviderConfiguration, 1).sign_in_mode == SignInMode.PASSWORD_ONLY  # type: ignore[union-attr]
+    session.refresh(admin_user)
+    assert admin_user.token_version == 1
+
+
+def test_password_only_cli_force_is_limited_to_deliberate_containment(session: Session) -> None:
+    session.add(
+        OidcProviderConfiguration(
+            display_name="Example",
+            issuer_url="https://id.example",
+            client_id="sambee",
+            sign_in_mode=SignInMode.OIDC_ONLY,
+        )
+    )
+    session.commit()
+
+    with pytest.raises(OidcRecoveryError, match="rerun with --force"):
+        activate_password_only_interactively(session, force=False, read_confirmation=lambda _prompt: "password-only")
+
+    activate_password_only_interactively(session, force=True, read_confirmation=lambda _prompt: "password-only")
+    assert session.get(OidcProviderConfiguration, 1).sign_in_mode == SignInMode.PASSWORD_ONLY  # type: ignore[union-attr]
+
+
+def test_password_only_rechecks_both_reviewed_counts(session: Session, admin_user: User) -> None:
+    configuration = OidcProviderConfiguration(
+        display_name="Example",
+        issuer_url="https://id.example",
+        client_id="sambee",
+        sign_in_mode=SignInMode.OIDC_ONLY,
+    )
+    session.add(configuration)
+    session.commit()
+
+    with pytest.raises(OidcRecoveryError, match="local_password_administrator_count_changed"):
+        activate_password_only(
+            session,
+            expected_configuration_revision=configuration.configuration_revision,
+            expected_active_passwordless_user_count=0,
+            expected_local_password_administrator_count=count_active_local_password_administrators(session) + 1,
+        )
 
 
 def test_password_only_endpoint_revokes_session_and_clears_provider_cache(

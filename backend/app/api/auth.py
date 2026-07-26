@@ -6,6 +6,7 @@ from typing import Any
 
 from fastapi import APIRouter, Body, Depends, HTTPException, Query, Request, status
 from fastapi.responses import RedirectResponse
+from sqlalchemy.exc import IntegrityError
 from sqlmodel import Session, select
 
 from app.core.auth_methods import AuthMethod
@@ -19,8 +20,11 @@ from app.models.user import CurrentUserRead, PasswordChangeRequest, User, build_
 from app.models.user_settings import CurrentUserSettingsRead, CurrentUserSettingsUpdate
 from app.services.audit import AuditDetails, AuditEventName, AuditResult, write_audit_event
 from app.services.authentication_config import build_public_auth_configuration, is_password_login_enabled
+from app.services.authentication_rate_limit import RateLimitDecision, authentication_rate_limiter, resolve_source_ip
 from app.services.oidc_client import (
     OidcClaimMapping,
+    OidcClientError,
+    OidcClientErrorCode,
     build_authorization_request,
     exchange_and_validate_callback,
     load_provider_metadata,
@@ -37,13 +41,26 @@ from app.services.oidc_flow import (
     start_login_flow,
 )
 from app.services.oidc_http import ValidatedOidcHttpClient
-from app.services.oidc_identity import resolve_or_provision_oidc_user
+from app.services.oidc_identity import OidcIdentityError, OidcIdentityErrorCode, resolve_or_provision_oidc_user
 from app.services.user_settings import build_current_user_settings_read, update_current_user_settings
 
 router = APIRouter()
 logger = get_logger(__name__)
 OIDC_ACCESS_TOKEN_EXPIRE_MINUTES = 60
-OIDC_ERROR_REDIRECT = "/login#error=oidc_sign_in_failed"
+OIDC_RATE_LIMIT_REDIRECT = "/login#error=oidc_rate_limited"
+OIDC_PUBLIC_ERROR_CODES = frozenset(
+    {
+        "oidc_authorization_state_invalid",
+        "oidc_provider_unavailable",
+        "oidc_required_claim_missing",
+        "oidc_user_not_admitted",
+        "oidc_username_collision",
+        "oidc_mapping_conflict",
+        "oidc_configuration_changed",
+        "oidc_last_administrator_role_conflict",
+        "oidc_last_administrator_role_conflict_no_password",
+    }
+)
 
 
 def _build_login_response(user: User, *, expires_minutes: int, return_path: str | None = None) -> dict[str, Any]:
@@ -61,6 +78,61 @@ def _build_login_response(user: User, *, expires_minutes: int, return_path: str 
     }
     if return_path is not None:
         response["return_path"] = return_path
+    return response
+
+
+def _request_source_ip(request: Request) -> str:
+    direct_peer = request.client.host if request.client is not None else None
+    return resolve_source_ip(direct_peer, request.headers.get("x-forwarded-for"), settings.trusted_proxy_cidrs)
+
+
+def _rate_limited_response(decision: RateLimitDecision, *, detail: str) -> None:
+    if decision.allowed:
+        return
+    raise HTTPException(
+        status_code=status.HTTP_429_TOO_MANY_REQUESTS,
+        detail=detail,
+        headers={"Retry-After": str(decision.retry_after_seconds)},
+    )
+
+
+def _rate_limited_redirect(decision: RateLimitDecision) -> RedirectResponse | None:
+    if decision.allowed:
+        return None
+    response = RedirectResponse(OIDC_RATE_LIMIT_REDIRECT, status_code=status.HTTP_303_SEE_OTHER)
+    response.headers["Retry-After"] = str(decision.retry_after_seconds)
+    return response
+
+
+def _oidc_error_code(error: Exception) -> str:
+    if isinstance(error, OidcFlowError):
+        return "oidc_authorization_state_invalid"
+    if isinstance(error, OidcClientError):
+        if error.code == OidcClientErrorCode.REQUIRED_CLAIM_MISSING:
+            return "oidc_required_claim_missing"
+        return "oidc_provider_unavailable"
+    if isinstance(error, OidcIdentityError):
+        return {
+            OidcIdentityErrorCode.NOT_ADMITTED: "oidc_user_not_admitted",
+            OidcIdentityErrorCode.USERNAME_COLLISION: "oidc_username_collision",
+            OidcIdentityErrorCode.ACCOUNT_UNAVAILABLE: "oidc_mapping_conflict",
+            OidcIdentityErrorCode.LAST_ADMIN_ROLE_CONFLICT: "oidc_last_administrator_role_conflict",
+            OidcIdentityErrorCode.LAST_ADMIN_ROLE_CONFLICT_NO_PASSWORD: "oidc_last_administrator_role_conflict_no_password",
+        }[error.code]
+    if isinstance(error, IntegrityError):
+        return "oidc_mapping_conflict"
+    if "configuration changed" in str(error).lower():
+        return "oidc_configuration_changed"
+    return "oidc_provider_unavailable"
+
+
+def _oidc_error_redirect(error: Exception) -> RedirectResponse:
+    code = _oidc_error_code(error)
+    if code not in OIDC_PUBLIC_ERROR_CODES:
+        code = "oidc_provider_unavailable"
+    response = RedirectResponse(f"/login#error={code}", status_code=status.HTTP_303_SEE_OTHER)
+    response.headers["Referrer-Policy"] = "no-referrer"
+    response.headers["Cache-Control"] = "no-store"
     return response
 
 
@@ -106,6 +178,11 @@ async def login(
     if not isinstance(username, str) or not isinstance(password, str) or not username or not password:
         raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail="Username and password are required")
 
+    _rate_limited_response(
+        authentication_rate_limiter.check_password(_request_source_ip(request), username),
+        detail="Incorrect username or password",
+    )
+
     logger.info(f"Login attempt: username={username}")
 
     statement = select(User).where(User.username == username)
@@ -131,9 +208,13 @@ async def login(
 
 @router.get("/oidc/authorize")
 async def oidc_authorize(
+    request: Request,
     return_path: str | None = Query(default=None),
     session: Session = Depends(get_session),
 ) -> RedirectResponse:
+    limited = _rate_limited_redirect(authentication_rate_limiter.check_authorization(_request_source_ip(request)))
+    if limited is not None:
+        return limited
     configuration = session.get(OidcProviderConfiguration, 1)
     if configuration is None or configuration.sign_in_mode not in (SignInMode.OIDC_OR_PASSWORD, SignInMode.OIDC_ONLY):
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="OIDC authentication is not enabled")
@@ -167,10 +248,10 @@ async def oidc_authorize(
             provider_configuration_id=configuration.id,
         )
         session.commit()
-    except Exception:
+    except Exception as error:
         session.rollback()
-        logger.exception("OIDC authorization start failed")
-        return RedirectResponse(OIDC_ERROR_REDIRECT, status_code=status.HTTP_303_SEE_OTHER)
+        logger.warning("OIDC authorization start failed: category=%s", type(error).__name__)
+        return _oidc_error_redirect(error)
     return RedirectResponse(authorization.url, status_code=status.HTTP_303_SEE_OTHER)
 
 
@@ -182,6 +263,9 @@ async def oidc_callback(
     provider_error: str | None = Query(default=None, alias="error"),
     session: Session = Depends(get_session),
 ) -> RedirectResponse:
+    limited = _rate_limited_redirect(authentication_rate_limiter.check_callback(_request_source_ip(request)))
+    if limited is not None:
+        return limited
     claimed_flow_id: uuid.UUID | None = None
     try:
         cipher = OidcSecretCipher(settings.oidc_secret_key)
@@ -286,17 +370,19 @@ async def oidc_callback(
         )
         session.commit()
         logger.warning("OIDC callback failed: category=%s", type(error).__name__)
-        response = RedirectResponse(OIDC_ERROR_REDIRECT, status_code=status.HTTP_303_SEE_OTHER)
-        response.headers["Referrer-Policy"] = "no-referrer"
-        response.headers["Cache-Control"] = "no-store"
-        return response
+        return _oidc_error_redirect(error)
 
 
 @router.post("/oidc/exchange")
 async def oidc_exchange(
     payload: OidcGrantExchangeRequest,
+    request: Request,
     session: Session = Depends(get_session),
 ) -> dict[str, Any]:
+    _rate_limited_response(
+        authentication_rate_limiter.check_exchange(_request_source_ip(request)),
+        detail="OIDC login grant is invalid",
+    )
     try:
         user, return_path = consume_login_grant(session, grant=payload.grant)
     except OidcFlowError as error:
