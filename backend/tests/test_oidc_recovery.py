@@ -55,6 +55,7 @@ def test_password_only_endpoint_revokes_session_and_clears_provider_cache(
             sign_in_mode=SignInMode.OIDC_ONLY,
         )
     )
+    session.add(User(username="passwordless-user", role=UserRole.VIEWER))
     session.commit()
     headers = {"Authorization": f"Bearer {admin_token}"}
 
@@ -64,6 +65,7 @@ def test_password_only_endpoint_revokes_session_and_clears_provider_cache(
         json={
             "expected_configuration_revision": 0,
             "expected_active_passwordless_user_count": count_active_passwordless_users(session),
+            "acknowledge_passwordless_account_loss": True,
         },
     )
 
@@ -95,8 +97,39 @@ def test_password_only_endpoint_rejects_stale_passwordless_count(
         json={
             "expected_configuration_revision": 0,
             "expected_active_passwordless_user_count": count_active_passwordless_users(session) + 1,
+            "acknowledge_passwordless_account_loss": True,
         },
     )
 
     assert response.status_code == 409
     assert response.json()["detail"] == "passwordless_account_count_changed"
+
+
+def test_password_only_endpoint_requires_passwordless_account_loss_acknowledgement(
+    client: TestClient,
+    session: Session,
+    admin_token: str,
+) -> None:
+    session.add(
+        OidcProviderConfiguration(
+            display_name="Example",
+            issuer_url="https://id.example",
+            client_id="sambee",
+            sign_in_mode=SignInMode.OIDC_ONLY,
+        )
+    )
+    session.add(User(username="passwordless-acknowledgement-user", role=UserRole.VIEWER))
+    session.commit()
+
+    response = client.post(
+        "/api/admin/auth/password-only",
+        headers={"Authorization": f"Bearer {admin_token}"},
+        json={
+            "expected_configuration_revision": 0,
+            "expected_active_passwordless_user_count": count_active_passwordless_users(session),
+            "acknowledge_passwordless_account_loss": False,
+        },
+    )
+
+    assert response.status_code == 409
+    assert response.json()["detail"] == "passwordless_account_loss_not_acknowledged"

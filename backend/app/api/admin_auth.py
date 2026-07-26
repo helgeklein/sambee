@@ -4,7 +4,7 @@ from datetime import datetime, timezone
 from typing import cast
 
 from fastapi import APIRouter, Depends, HTTPException, status
-from sqlalchemy import update
+from sqlalchemy import delete, update
 from sqlalchemy.exc import IntegrityError
 from sqlmodel import Session, select
 
@@ -66,6 +66,7 @@ from app.services.oidc_mapping import (
     detach_identity,
     move_identity,
     replace_pending_mappings,
+    validate_pending_mapping_batch,
     validate_reviewed_mapping_plan,
 )
 from app.services.oidc_recovery import OidcRecoveryError, activate_password_only, count_active_passwordless_users
@@ -95,16 +96,18 @@ def _active_oidc_configuration(session: Session) -> OidcProviderConfiguration:
 
 
 def _mapping_http_exception(error: OidcMappingError) -> HTTPException:
+    errors = error.validation_errors or (error,)
     return HTTPException(
         status_code=status.HTTP_409_CONFLICT,
         detail={
             "errors": [
                 {
-                    "target_user_id": str(error.target_user_id) if error.target_user_id is not None else None,
-                    "field": error.field,
-                    "error_code": error.error_code,
-                    "message": str(error),
+                    "target_user_id": str(item.target_user_id) if item.target_user_id is not None else None,
+                    "field": item.field,
+                    "error_code": item.error_code,
+                    "message": str(item),
                 }
+                for item in errors
             ]
         },
     )
@@ -273,6 +276,34 @@ async def get_oidc_test_result(
         groups=list(claims.groups),
         expires_at=flow.expires_at,
     )
+
+
+@router.delete("/auth/oidc/test-flows/{flow_id}", status_code=status.HTTP_204_NO_CONTENT)
+async def cancel_oidc_test_flow(
+    flow_id: uuid.UUID,
+    current_user: User = Depends(get_current_admin_user),
+    session: Session = Depends(get_session),
+) -> None:
+    table = OidcFlow.__table__  # type: ignore[attr-defined]
+    result = session.connection().execute(
+        delete(table).where(
+            table.c.id == flow_id,
+            table.c.purpose == OidcFlowPurpose.TEST,
+            table.c.initiating_admin_id == current_user.id,
+            table.c.status.in_(
+                (
+                    OidcFlowStatus.STARTED,
+                    OidcFlowStatus.CALLBACK_PROCESSING,
+                    OidcFlowStatus.CALLBACK_VALIDATED,
+                )
+            ),
+            table.c.expires_at > datetime.now(timezone.utc),
+        )
+    )
+    if result.rowcount != 1:
+        session.rollback()
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="OIDC test flow was not found")
+    session.commit()
 
 
 @router.post("/auth/oidc/finalize", response_model=OidcFinalizeResponse)
@@ -565,6 +596,7 @@ async def set_password_only(
             acting_user_id=current_user.id,
             expected_configuration_revision=payload.expected_configuration_revision,
             expected_active_passwordless_user_count=payload.expected_active_passwordless_user_count,
+            acknowledge_passwordless_account_loss=payload.acknowledge_passwordless_account_loss,
         )
     except OidcRecoveryError as error:
         session.rollback()
@@ -589,13 +621,11 @@ async def put_pending_oidc_mappings(
         raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="OIDC username claim uniqueness is not confirmed")
     try:
         identity_mapping_revision = claim_mapping_revision(session, configuration, payload.expected_identity_mapping_revision)
-        target_ids = [row.target_user_id for row in payload.mappings]
-        if len(set(target_ids)) != len(target_ids):
-            raise OidcMappingError("OIDC mapping targets must be unique")
+        mappings = validate_pending_mapping_batch(session, configuration=configuration, mappings=payload.mappings)
         replace_pending_mappings(
             session,
             configuration=configuration,
-            mappings={row.target_user_id: row.expected_username for row in payload.mappings},
+            mappings=mappings,
             acting_user_id=current_user.id,
         )
     except OidcMappingError as error:

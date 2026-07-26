@@ -7,8 +7,16 @@ import pytest
 from fastapi.testclient import TestClient
 from sqlmodel import Session, select
 
-from app.core.security import verify_password
-from app.models.oidc import OidcFlow, OidcFlowPurpose, OidcFlowStatus, OidcIdentity, OidcProviderConfiguration, SignInMode
+from app.core.security import create_access_token, get_password_hash, verify_password
+from app.models.oidc import (
+    OidcFlow,
+    OidcFlowPurpose,
+    OidcFlowStatus,
+    OidcIdentity,
+    OidcPendingIdentityMapping,
+    OidcProviderConfiguration,
+    SignInMode,
+)
 from app.models.user import User, UserRole
 
 
@@ -212,3 +220,45 @@ class TestAdminUsers:
         session.refresh(configuration)
         assert configuration.identity_mapping_revision == 8
         assert configuration.updated_by_user_id is None
+
+    def test_delete_mapping_creator_preserves_unrelated_pending_mapping(
+        self,
+        client: TestClient,
+        auth_headers_admin: dict,
+        regular_user: User,
+        admin_user: User,
+        session: Session,
+    ):
+        configuration = OidcProviderConfiguration(
+            display_name="Provider",
+            issuer_url="https://issuer.example",
+            client_id="sambee",
+            sign_in_mode=SignInMode.OIDC_OR_PASSWORD,
+            identity_mapping_revision=7,
+        )
+        session.add(configuration)
+        session.flush()
+        mapping = OidcPendingIdentityMapping(
+            provider_configuration_id=configuration.id,
+            expected_username="provider-user",
+            target_user_id=regular_user.id,
+            created_by_user_id=admin_user.id,
+        )
+        replacement_admin = User(
+            username="replacement-admin",
+            password_hash=get_password_hash("ReplacementAdmin123!"),
+            role=UserRole.ADMIN,
+        )
+        session.add(mapping)
+        session.add(replacement_admin)
+        session.commit()
+
+        replacement_headers = {"Authorization": f"Bearer {create_access_token(data={'sub': replacement_admin.username})}"}
+        response = client.delete(f"/api/admin/users/{admin_user.id}", headers=replacement_headers)
+
+        assert response.status_code == 200
+        session.refresh(mapping)
+        session.refresh(configuration)
+        assert mapping.target_user_id == regular_user.id
+        assert mapping.created_by_user_id is None
+        assert configuration.identity_mapping_revision == 7

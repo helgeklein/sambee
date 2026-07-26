@@ -366,11 +366,22 @@ export interface ConflictInfo {
   incoming_file: FileInfo;
 }
 
+export interface OidcMappingValidationError {
+  target_user_id: string | null;
+  field: string | null;
+  error_code: string;
+  message: string;
+}
+
+export interface OidcMappingValidationDetail {
+  errors: OidcMappingValidationError[];
+}
+
 // API Error type for axios errors
 export interface ApiError {
   response?: {
     data?: {
-      detail?: string | ConflictInfo;
+      detail?: string | ConflictInfo | OidcMappingValidationDetail;
     };
     status?: number;
   };

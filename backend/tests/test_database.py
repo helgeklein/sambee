@@ -440,6 +440,90 @@ class TestDatabaseEngine:
         finally:
             test_engine.dispose()
 
+    def test_run_migrations_makes_oidc_mapping_creator_nullable_and_preserves_mapping(self, tmp_path: Path):
+        db_path = tmp_path / "legacy-oidc-mapping-creator.db"
+        test_engine = create_engine(f"sqlite:///{db_path}", connect_args={"check_same_thread": False})
+
+        try:
+            with test_engine.begin() as connection:
+                connection.execute(
+                    text(
+                        f"""
+                        CREATE TABLE {MIGRATION_TABLE_NAME} (
+                            version INTEGER PRIMARY KEY,
+                            name TEXT NOT NULL,
+                            applied_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+                        )
+                        """
+                    )
+                )
+                connection.execute(text('CREATE TABLE "user" (id CHAR(32) NOT NULL PRIMARY KEY)'))
+                connection.execute(text("CREATE TABLE oidcproviderconfiguration (id INTEGER NOT NULL PRIMARY KEY)"))
+                connection.execute(
+                    text(
+                        """
+                        CREATE TABLE oidcpendingidentitymapping (
+                            id CHAR(32) NOT NULL PRIMARY KEY,
+                            provider_configuration_id INTEGER NOT NULL,
+                            expected_username VARCHAR NOT NULL,
+                            target_user_id CHAR(32) NOT NULL,
+                            created_by_user_id CHAR(32) NOT NULL,
+                            created_at DATETIME NOT NULL,
+                            updated_at DATETIME NOT NULL,
+                            CONSTRAINT uq_oidc_pending_provider_username
+                                UNIQUE (provider_configuration_id, expected_username),
+                            CONSTRAINT uq_oidc_pending_provider_target
+                                UNIQUE (provider_configuration_id, target_user_id),
+                            FOREIGN KEY(provider_configuration_id) REFERENCES oidcproviderconfiguration (id),
+                            FOREIGN KEY(target_user_id) REFERENCES "user" (id),
+                            FOREIGN KEY(created_by_user_id) REFERENCES "user" (id)
+                        )
+                        """
+                    )
+                )
+                connection.execute(text('INSERT INTO "user" (id) VALUES (:target), (:creator)'), {"target": "a" * 32, "creator": "b" * 32})
+                connection.execute(text("INSERT INTO oidcproviderconfiguration (id) VALUES (1)"))
+                connection.execute(
+                    text(
+                        """
+                        INSERT INTO oidcpendingidentitymapping (
+                            id, provider_configuration_id, expected_username, target_user_id,
+                            created_by_user_id, created_at, updated_at
+                        ) VALUES (:id, 1, 'provider-user', :target, :creator, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
+                        """
+                    ),
+                    {"id": "c" * 32, "target": "a" * 32, "creator": "b" * 32},
+                )
+                connection.execute(
+                    text(f"INSERT INTO {MIGRATION_TABLE_NAME} (version, name) VALUES (:version, :name)"),
+                    [{"version": migration.version, "name": migration.name} for migration in MIGRATIONS if migration.version < 15],
+                )
+
+            run_migrations(test_engine)
+            run_migrations(test_engine)
+
+            with test_engine.begin() as connection:
+                creator_column = next(
+                    column
+                    for column in inspect(connection).get_columns("oidcpendingidentitymapping")
+                    if column["name"] == "created_by_user_id"
+                )
+                assert creator_column["nullable"] is True
+                row = (
+                    connection.execute(text("SELECT target_user_id, created_by_user_id, expected_username FROM oidcpendingidentitymapping"))
+                    .mappings()
+                    .one()
+                )
+                assert row == {
+                    "target_user_id": "a" * 32,
+                    "created_by_user_id": "b" * 32,
+                    "expected_username": "provider-user",
+                }
+                connection.execute(text("UPDATE oidcpendingidentitymapping SET created_by_user_id = NULL"))
+                assert connection.execute(text("SELECT created_by_user_id FROM oidcpendingidentitymapping")).scalar_one() is None
+        finally:
+            test_engine.dispose()
+
 
 @pytest.mark.integration
 class TestModelConstraints:

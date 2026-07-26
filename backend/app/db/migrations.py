@@ -420,6 +420,71 @@ def _apply_oidc_reauthentication_receipt_migration(connection: Connection) -> No
         connection.execute(text("ALTER TABLE oidcflow ADD COLUMN finalized_reauthentication_required BOOLEAN"))
 
 
+def _apply_nullable_oidc_mapping_creator_migration(connection: Connection) -> None:
+    inspector = inspect(connection)
+    if not inspector.has_table("oidcpendingidentitymapping"):
+        return
+    creator_column = next(
+        (column for column in inspector.get_columns("oidcpendingidentitymapping") if column["name"] == "created_by_user_id"),
+        None,
+    )
+    if creator_column is None or creator_column["nullable"]:
+        return
+
+    connection.execute(text("DROP TABLE IF EXISTS oidcpendingidentitymapping__nullable_creator"))
+    connection.execute(
+        text(
+            """
+            CREATE TABLE oidcpendingidentitymapping__nullable_creator (
+                id CHAR(32) NOT NULL,
+                provider_configuration_id INTEGER NOT NULL,
+                expected_username VARCHAR NOT NULL,
+                target_user_id CHAR(32) NOT NULL,
+                created_by_user_id CHAR(32),
+                created_at DATETIME NOT NULL,
+                updated_at DATETIME NOT NULL,
+                PRIMARY KEY (id),
+                CONSTRAINT uq_oidc_pending_provider_username UNIQUE (provider_configuration_id, expected_username),
+                CONSTRAINT uq_oidc_pending_provider_target UNIQUE (provider_configuration_id, target_user_id),
+                FOREIGN KEY(provider_configuration_id) REFERENCES oidcproviderconfiguration (id),
+                FOREIGN KEY(target_user_id) REFERENCES "user" (id),
+                FOREIGN KEY(created_by_user_id) REFERENCES "user" (id)
+            )
+            """
+        )
+    )
+    connection.execute(
+        text(
+            """
+            INSERT INTO oidcpendingidentitymapping__nullable_creator (
+                id, provider_configuration_id, expected_username, target_user_id,
+                created_by_user_id, created_at, updated_at
+            )
+            SELECT
+                id, provider_configuration_id, expected_username, target_user_id,
+                created_by_user_id, created_at, updated_at
+            FROM oidcpendingidentitymapping
+            """
+        )
+    )
+    connection.execute(text("DROP TABLE oidcpendingidentitymapping"))
+    connection.execute(text("ALTER TABLE oidcpendingidentitymapping__nullable_creator RENAME TO oidcpendingidentitymapping"))
+    connection.execute(
+        text(
+            "CREATE INDEX IF NOT EXISTS ix_oidcpendingidentitymapping_provider_configuration_id "
+            "ON oidcpendingidentitymapping (provider_configuration_id)"
+        )
+    )
+    connection.execute(
+        text("CREATE INDEX IF NOT EXISTS ix_oidcpendingidentitymapping_target_user_id ON oidcpendingidentitymapping (target_user_id)")
+    )
+    connection.execute(
+        text(
+            "CREATE INDEX IF NOT EXISTS ix_oidcpendingidentitymapping_created_by_user_id ON oidcpendingidentitymapping (created_by_user_id)"
+        )
+    )
+
+
 MIGRATIONS: tuple[Migration, ...] = (
     Migration(version=1, name="ensure_connection_slugs", apply=_apply_connection_slug_migration),
     Migration(version=2, name="add_user_role_and_session_fields", apply=_apply_user_role_migration),
@@ -435,6 +500,7 @@ MIGRATIONS: tuple[Migration, ...] = (
     Migration(version=12, name="allow_nullable_user_password", apply=_apply_nullable_user_password_migration),
     Migration(version=13, name="add_oidc_and_audit_schema", apply=_apply_oidc_schema_migration),
     Migration(version=14, name="add_oidc_reauthentication_receipt", apply=_apply_oidc_reauthentication_receipt_migration),
+    Migration(version=15, name="allow_nullable_oidc_mapping_creator", apply=_apply_nullable_oidc_mapping_creator_migration),
 )
 
 
@@ -448,7 +514,7 @@ def run_migrations(engine: Engine) -> None:
                 continue
 
             logger.info(f"Applying schema migration {migration.version}: {migration.name}")
-            rebuilds_referenced_table = migration.version == 12 and connection.dialect.name == "sqlite"
+            rebuilds_referenced_table = migration.version in {12, 15} and connection.dialect.name == "sqlite"
             if rebuilds_referenced_table:
                 connection.exec_driver_sql("PRAGMA foreign_keys=OFF")
                 connection.commit()
@@ -460,7 +526,7 @@ def run_migrations(engine: Engine) -> None:
                     violations = connection.exec_driver_sql("PRAGMA foreign_key_check").fetchall()
                     connection.commit()
                     if violations:
-                        raise RuntimeError("Foreign-key validation failed after nullable user-password migration")
+                        raise RuntimeError(f"Foreign-key validation failed after schema migration {migration.version}")
             finally:
                 if connection.in_transaction():
                     connection.rollback()

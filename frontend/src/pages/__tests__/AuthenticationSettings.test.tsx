@@ -13,6 +13,7 @@ vi.mock("../../services/api", () => ({
     finalizeOidcConfiguration: vi.fn(),
     startOidcTest: vi.fn(),
     setPasswordOnlyAuthentication: vi.fn(),
+    cancelOidcTestFlow: vi.fn(),
   },
 }));
 
@@ -63,6 +64,7 @@ const renderSettings = () =>
 describe("Authentication settings", () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    sessionStorage.clear();
     window.history.replaceState(null, "", "/settings/admin/authentication#flow=test-flow");
   });
 
@@ -97,6 +99,54 @@ describe("Authentication settings", () => {
     await user.click(screen.getByRole("button", { name: "Activate configuration" }));
     expect(await screen.findByDisplayValue("Activated Provider")).toBeInTheDocument();
     expect(api.finalizeOidcConfiguration).toHaveBeenCalledWith("test-flow", [], 1, []);
+  });
+
+  it("restores the current tab's OIDC setup flow from session storage", async () => {
+    sessionStorage.setItem("sambee.oidc.setupFlowId", "stored-flow");
+    window.location.hash = "";
+    vi.mocked(api.getOidcConfiguration).mockResolvedValue(response(configuration("Active Provider")));
+    vi.mocked(api.getOidcTestResult).mockResolvedValue({
+      flow_id: "stored-flow",
+      candidate: configuration("Stored Provider"),
+      replacement_mappings: [],
+      expected_identity_mapping_revision: 1,
+      username: "admin",
+      name: null,
+      email: null,
+      groups: ["sambee-admins"],
+      expires_at: "2099-01-01T00:00:00Z",
+    });
+
+    renderSettings();
+
+    expect(await screen.findByDisplayValue("Stored Provider")).toBeInTheDocument();
+    expect(api.getOidcTestResult).toHaveBeenCalledWith("stored-flow");
+  });
+
+  it("cancels the server flow and clears tab-scoped setup state", async () => {
+    const user = userEvent.setup();
+    window.location.hash = "flow=test-flow";
+    vi.mocked(api.getOidcConfiguration).mockResolvedValue(response(configuration("Active Provider")));
+    vi.mocked(api.getOidcTestResult).mockResolvedValue({
+      flow_id: "test-flow",
+      candidate: configuration("Tested Provider"),
+      replacement_mappings: [],
+      expected_identity_mapping_revision: 1,
+      username: "admin",
+      name: null,
+      email: null,
+      groups: ["sambee-admins"],
+      expires_at: "2099-01-01T00:00:00Z",
+    });
+    vi.mocked(api.cancelOidcTestFlow).mockResolvedValue();
+    renderSettings();
+
+    expect(await screen.findByDisplayValue("Tested Provider")).toBeInTheDocument();
+    await user.click(screen.getByRole("button", { name: "Cancel" }));
+
+    expect(api.cancelOidcTestFlow).toHaveBeenCalledWith("test-flow");
+    expect(sessionStorage.getItem("sambee.oidc.setupFlowId")).toBeNull();
+    expect(await screen.findByText("OIDC setup canceled.")).toBeInTheDocument();
   });
 
   it("requires review of unique replacement usernames", async () => {
@@ -186,7 +236,66 @@ describe("Authentication settings", () => {
     expect(await screen.findByText("Sign in again")).toBeInTheDocument();
     expect(localStorage.getItem("access_token")).toBeNull();
     expect(api.getOidcConfiguration).toHaveBeenCalledTimes(1);
-    expect(api.setPasswordOnlyAuthentication).toHaveBeenCalledWith(2, 2);
+    expect(api.setPasswordOnlyAuthentication).toHaveBeenCalledWith(2, 2, true);
+  });
+
+  it("refreshes Password-only impact when the reviewed count is stale", async () => {
+    const user = userEvent.setup();
+    vi.spyOn(window, "confirm").mockReturnValue(true);
+    vi.mocked(api.getOidcConfiguration)
+      .mockResolvedValueOnce(response(configuration("Active Provider")))
+      .mockResolvedValueOnce({ ...response(configuration("Active Provider")), active_passwordless_user_count: 3 });
+    vi.mocked(api.setPasswordOnlyAuthentication).mockRejectedValue({
+      response: { data: { detail: "passwordless_account_count_changed" }, status: 409 },
+    });
+    renderSettings();
+
+    await user.click(await screen.findByRole("button", { name: "Switch to Password only" }));
+
+    expect(
+      await screen.findByText("Authentication settings changed. Review the current Password-only impact and confirm again.")
+    ).toBeInTheDocument();
+    expect(api.getOidcConfiguration).toHaveBeenCalledTimes(2);
+  });
+
+  it("shows a copyable redirect URI and toggles only the unsent client secret", async () => {
+    const user = userEvent.setup();
+    const writeText = vi.fn().mockResolvedValue(undefined);
+    Object.defineProperty(navigator, "clipboard", { configurable: true, value: { writeText } });
+    vi.mocked(api.getOidcConfiguration).mockResolvedValue(response(configuration("Active Provider")));
+    window.location.hash = "";
+    renderSettings();
+
+    const redirectUri = await screen.findByRole("textbox", { name: "Redirect URI" });
+    expect(redirectUri).toHaveValue("https://sambee.example.test/api/auth/oidc/callback");
+    await user.click(screen.getByRole("button", { name: "Copy redirect URI" }));
+    expect(writeText).toHaveBeenCalledWith("https://sambee.example.test/api/auth/oidc/callback");
+
+    const secret = screen.getByLabelText("Client secret");
+    await user.type(secret, "unsent-secret");
+    expect(secret).toHaveAttribute("type", "password");
+    await user.click(screen.getByRole("button", { name: "Show client secret" }));
+    expect(secret).toHaveAttribute("type", "text");
+    await user.click(screen.getByRole("button", { name: "Hide client secret" }));
+    expect(secret).toHaveAttribute("type", "password");
+  });
+
+  it("blocks testing for normalized group collisions and empty selected-group admission", async () => {
+    const user = userEvent.setup();
+    vi.mocked(api.getOidcConfiguration).mockResolvedValue(response(configuration("Active Provider")));
+    window.location.hash = "";
+    renderSettings();
+
+    const connect = await screen.findByRole("button", { name: "Connect and test" });
+    expect(connect).toBeEnabled();
+    await user.type(screen.getByRole("textbox", { name: "Editor groups" }), "ＳＡＭＢＥＥ－ＡＤＭＩＮＳ");
+    expect(screen.getAllByText("A group cannot grant both administrator and editor roles.")).toHaveLength(2);
+    expect(connect).toBeDisabled();
+
+    await user.clear(screen.getByRole("textbox", { name: "Editor groups" }));
+    await user.clear(screen.getByRole("textbox", { name: "Admission groups" }));
+    expect(screen.getByText("Add at least one admission group.")).toBeInTheDocument();
+    expect(connect).toBeDisabled();
   });
 
   it("requires uniqueness to be reconfirmed when the username claim changes", async () => {

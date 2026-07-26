@@ -113,7 +113,7 @@ class OidcPendingIdentityMapping(SQLModel, table=True):
     provider_configuration_id: int = Field(foreign_key="oidcproviderconfiguration.id", index=True)
     expected_username: str
     target_user_id: uuid.UUID = Field(foreign_key="user.id", index=True)
-    created_by_user_id: uuid.UUID = Field(foreign_key="user.id", index=True)
+    created_by_user_id: uuid.UUID | None = Field(default=None, foreign_key="user.id", index=True)
     created_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
     updated_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
 

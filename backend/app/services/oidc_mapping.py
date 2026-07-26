@@ -19,11 +19,18 @@ class OidcMappingError(ValueError):
         error_code: str = "oidc_mapping_conflict",
         target_user_id: uuid.UUID | None = None,
         field: str | None = None,
+        validation_errors: tuple["OidcMappingError", ...] = (),
     ) -> None:
         super().__init__(message)
         self.error_code = error_code
         self.target_user_id = target_user_id
         self.field = field
+        self.validation_errors = validation_errors
+
+
+def _raise_mapping_validation_errors(errors: list[OidcMappingError]) -> None:
+    if errors:
+        raise OidcMappingError("OIDC mapping validation failed", validation_errors=tuple(errors))
 
 
 def _target_state(user: User, now: datetime) -> str:
@@ -109,19 +116,60 @@ def validate_reviewed_mapping_plan(
 ) -> dict[uuid.UUID, str]:
     rows_by_id = {row.target_user_id: row for row in plan}
     submitted_ids = [row.target_user_id for row in submitted]
-    if len(set(submitted_ids)) != len(submitted_ids):
-        raise OidcMappingError("OIDC mapping targets must be unique")
+    duplicate_target_ids = {target_id for target_id in submitted_ids if submitted_ids.count(target_id) > 1}
     selected: dict[uuid.UUID, str] = {}
     usernames = {tested_username.strip()}
+    submitted_usernames = [row.expected_username.strip() for row in submitted]
+    errors: list[OidcMappingError] = []
     for submitted_row in submitted:
+        target_user_id = submitted_row.target_user_id
+        if target_user_id in duplicate_target_ids:
+            errors.append(
+                OidcMappingError(
+                    "OIDC mapping target is selected more than once",
+                    error_code="oidc_mapping_duplicate_target",
+                    target_user_id=target_user_id,
+                    field="target_user_id",
+                )
+            )
         plan_row = rows_by_id.get(submitted_row.target_user_id)
         if plan_row is None or not plan_row.selectable:
-            raise OidcMappingError("OIDC mapping target is unavailable")
-        if plan_row.mapping_state == "established" and not replacing_namespace:
-            raise OidcMappingError("OIDC mapping target is already linked")
+            errors.append(
+                OidcMappingError(
+                    "OIDC mapping target is unavailable",
+                    error_code="oidc_mapping_target_unavailable",
+                    target_user_id=target_user_id,
+                    field="target_user_id",
+                )
+            )
+        elif plan_row.mapping_state == "established" and not replacing_namespace:
+            errors.append(
+                OidcMappingError(
+                    "OIDC mapping target is already linked",
+                    error_code="oidc_mapping_target_linked",
+                    target_user_id=target_user_id,
+                    field="target_user_id",
+                )
+            )
         expected_username = submitted_row.expected_username.strip()
-        if not expected_username or expected_username in usernames:
-            raise OidcMappingError("OIDC mapping usernames must be non-empty and unique")
+        if not expected_username:
+            errors.append(
+                OidcMappingError(
+                    "Provider username is required",
+                    error_code="oidc_mapping_username_required",
+                    target_user_id=target_user_id,
+                    field="expected_username",
+                )
+            )
+        elif expected_username in usernames or submitted_usernames.count(expected_username) > 1:
+            errors.append(
+                OidcMappingError(
+                    "Provider username must be unique",
+                    error_code="oidc_mapping_duplicate_username",
+                    target_user_id=target_user_id,
+                    field="expected_username",
+                )
+            )
         usernames.add(expected_username)
         selected[submitted_row.target_user_id] = expected_username
 
@@ -132,8 +180,90 @@ def validate_reviewed_mapping_plan(
         row.target_user_id for row in plan if row.omission_acknowledgement_required and row.target_user_id not in selected
     }
     if acknowledgement_ids != required_omissions:
-        raise OidcMappingError("OIDC omitted accounts require explicit acknowledgement")
+        for target_user_id in required_omissions.symmetric_difference(acknowledgement_ids):
+            errors.append(
+                OidcMappingError(
+                    "OIDC omitted account acknowledgement is invalid",
+                    error_code="oidc_mapping_omission_acknowledgement_invalid",
+                    target_user_id=target_user_id,
+                    field="omitted_account_acknowledgements",
+                )
+            )
+    _raise_mapping_validation_errors(errors)
     return selected
+
+
+def validate_pending_mapping_batch(
+    session: Session,
+    *,
+    configuration: OidcProviderConfiguration,
+    mappings: list[OidcReplacementMappingInput],
+) -> dict[uuid.UUID, str]:
+    target_ids = [mapping.target_user_id for mapping in mappings]
+    usernames = [mapping.expected_username.strip() for mapping in mappings]
+    established_targets = {
+        identity.user_id for identity in session.exec(select(OidcIdentity).where(OidcIdentity.issuer == configuration.issuer_url)).all()
+    }
+    existing_pending = session.exec(
+        select(OidcPendingIdentityMapping).where(OidcPendingIdentityMapping.provider_configuration_id == configuration.id)
+    ).all()
+    pending_username_targets = {mapping.expected_username: mapping.target_user_id for mapping in existing_pending}
+    errors: list[OidcMappingError] = []
+    normalized: dict[uuid.UUID, str] = {}
+    now = datetime.now(timezone.utc)
+    for mapping, username in zip(mappings, usernames, strict=True):
+        target_user_id = mapping.target_user_id
+        if target_ids.count(target_user_id) > 1:
+            errors.append(
+                OidcMappingError(
+                    "OIDC mapping target is selected more than once",
+                    error_code="oidc_mapping_duplicate_target",
+                    target_user_id=target_user_id,
+                    field="target_user_id",
+                )
+            )
+        user = session.get(User, target_user_id)
+        if user is None or _target_state(user, now) != "active":
+            errors.append(
+                OidcMappingError(
+                    "OIDC mapping target is unavailable",
+                    error_code="oidc_mapping_target_unavailable",
+                    target_user_id=target_user_id,
+                    field="target_user_id",
+                )
+            )
+        if target_user_id in established_targets:
+            errors.append(
+                OidcMappingError(
+                    "OIDC mapping target is already linked",
+                    error_code="oidc_mapping_target_linked",
+                    target_user_id=target_user_id,
+                    field="target_user_id",
+                )
+            )
+        if not username:
+            errors.append(
+                OidcMappingError(
+                    "Provider username is required",
+                    error_code="oidc_mapping_username_required",
+                    target_user_id=target_user_id,
+                    field="expected_username",
+                )
+            )
+        elif usernames.count(username) > 1 or (
+            username in pending_username_targets and pending_username_targets[username] != target_user_id
+        ):
+            errors.append(
+                OidcMappingError(
+                    "Provider username must be unique",
+                    error_code="oidc_mapping_duplicate_username",
+                    target_user_id=target_user_id,
+                    field="expected_username",
+                )
+            )
+        normalized[target_user_id] = username
+    _raise_mapping_validation_errors(errors)
+    return normalized
 
 
 def claim_mapping_revision(
@@ -446,11 +576,7 @@ def remove_user_oidc_state(
     if configuration is not None and any(identity.issuer == configuration.issuer_url for identity in identities):
         _guard_last_oidc_admin(session, configuration, user.id)
 
-    pending_mappings = session.exec(
-        select(OidcPendingIdentityMapping).where(
-            (OidcPendingIdentityMapping.target_user_id == user.id) | (OidcPendingIdentityMapping.created_by_user_id == user.id)
-        )
-    ).all()
+    pending_mappings = session.exec(select(OidcPendingIdentityMapping).where(OidcPendingIdentityMapping.target_user_id == user.id)).all()
     mappings_changed = bool(identities or pending_mappings)
     for identity in identities:
         write_audit_event(
@@ -473,6 +599,9 @@ def remove_user_oidc_state(
             provider_configuration_id=mapping.provider_configuration_id,
         )
         session.delete(mapping)
+    for mapping in session.exec(select(OidcPendingIdentityMapping).where(OidcPendingIdentityMapping.created_by_user_id == user.id)).all():
+        mapping.created_by_user_id = None
+        session.add(mapping)
     for flow in session.exec(select(OidcFlow).where((OidcFlow.initiating_admin_id == user.id) | (OidcFlow.user_id == user.id))).all():
         session.delete(flow)
     if mappings_changed and configuration is not None:

@@ -170,6 +170,7 @@ class OidcPendingMappingRead(SQLModel):
 class PasswordOnlyActivationRequest(SQLModel):
     expected_configuration_revision: int
     expected_active_passwordless_user_count: int = Field(ge=0)
+    acknowledge_passwordless_account_loss: bool
 
 
 class OidcFinalizeResponse(SQLModel):

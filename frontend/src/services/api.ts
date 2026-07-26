@@ -435,6 +435,10 @@ class ApiService {
     return response.data;
   }
 
+  async cancelOidcTestFlow(flowId: string): Promise<void> {
+    await this.api.delete(`/admin/auth/oidc/test-flows/${flowId}`);
+  }
+
   async finalizeOidcConfiguration(
     flowId: string,
     replacementMappings: Array<{ target_user_id: string; expected_username: string }>,
@@ -452,11 +456,13 @@ class ApiService {
 
   async setPasswordOnlyAuthentication(
     expectedConfigurationRevision: number,
-    expectedActivePasswordlessUserCount: number
+    expectedActivePasswordlessUserCount: number,
+    acknowledgePasswordlessAccountLoss: boolean
   ): Promise<OidcFinalizeResponse> {
     const response = await this.api.post<OidcFinalizeResponse>("/admin/auth/password-only", {
       expected_configuration_revision: expectedConfigurationRevision,
       expected_active_passwordless_user_count: expectedActivePasswordlessUserCount,
+      acknowledge_passwordless_account_loss: acknowledgePasswordlessAccountLoss,
     });
     return response.data;
   }

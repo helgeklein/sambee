@@ -39,6 +39,7 @@ def activate_password_only(
     acting_user_id: uuid.UUID | None = None,
     expected_configuration_revision: int | None = None,
     expected_active_passwordless_user_count: int | None = None,
+    acknowledge_passwordless_account_loss: bool = False,
 ) -> OidcProviderConfiguration:
     configuration = session.get(OidcProviderConfiguration, 1)
     if configuration is None:
@@ -57,6 +58,8 @@ def activate_password_only(
         actual_passwordless_count = count_active_passwordless_users(session, now=now)
         if expected_active_passwordless_user_count != actual_passwordless_count:
             raise OidcRecoveryError("passwordless_account_count_changed")
+        if actual_passwordless_count > 0 and not acknowledge_passwordless_account_loss:
+            raise OidcRecoveryError("passwordless_account_loss_not_acknowledged")
     local_admins = session.exec(
         select(User).where(User.role == UserRole.ADMIN, User.is_active == True, User.password_hash != None)  # noqa: E711,E712
     ).all()

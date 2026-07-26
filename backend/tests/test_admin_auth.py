@@ -22,7 +22,7 @@ from app.models.oidc import (
     OidcProviderConfiguration,
     SignInMode,
 )
-from app.models.user import User
+from app.models.user import User, UserRole
 from app.services.oidc_client import NormalizedOidcClaims
 from app.services.oidc_configuration import NormalizedOidcCandidate, OidcSecretCipher, encrypt_candidate_snapshot
 from app.services.oidc_identity import resolve_or_provision_oidc_user
@@ -178,6 +178,7 @@ def test_pending_mapping_duplicate_targets_return_structured_error(
     session.add(configuration)
     session.add(target)
     session.commit()
+    target_id = target.id
 
     response = client.put(
         "/api/admin/auth/oidc/mappings/pending",
@@ -185,14 +186,100 @@ def test_pending_mapping_duplicate_targets_return_structured_error(
         json={
             "expected_identity_mapping_revision": 2,
             "mappings": [
-                {"target_user_id": str(target.id), "expected_username": "first"},
-                {"target_user_id": str(target.id), "expected_username": "second"},
+                {"target_user_id": str(target_id), "expected_username": "first"},
+                {"target_user_id": str(target_id), "expected_username": "second"},
             ],
         },
     )
 
     assert response.status_code == 409
-    assert response.json()["detail"]["errors"][0]["error_code"] == "oidc_mapping_conflict"
+    errors = response.json()["detail"]["errors"]
+    assert len(errors) == 2
+    assert {error["error_code"] for error in errors} == {"oidc_mapping_duplicate_target"}
+    assert {error["target_user_id"] for error in errors} == {str(target_id)}
+
+
+def test_pending_mapping_batch_returns_all_row_errors(
+    client: TestClient,
+    session: Session,
+    admin_token: str,
+) -> None:
+    configuration = OidcProviderConfiguration(
+        display_name="Provider",
+        issuer_url="https://issuer.example",
+        client_id="sambee",
+        username_claim_uniqueness_confirmed=True,
+        identity_mapping_revision=2,
+    )
+    inactive_target = User(username="inactive-mapping-target", is_active=False)
+    expired_target = User(username="expired-mapping-target", expires_at=datetime.now(timezone.utc) - timedelta(minutes=1))
+    session.add(configuration)
+    session.add(inactive_target)
+    session.add(expired_target)
+    session.commit()
+    inactive_target_id = inactive_target.id
+    expired_target_id = expired_target.id
+
+    response = client.put(
+        "/api/admin/auth/oidc/mappings/pending",
+        headers={"Authorization": f"Bearer {admin_token}"},
+        json={
+            "expected_identity_mapping_revision": 2,
+            "mappings": [
+                {"target_user_id": str(inactive_target_id), "expected_username": "duplicate"},
+                {"target_user_id": str(expired_target_id), "expected_username": "duplicate"},
+            ],
+        },
+    )
+
+    assert response.status_code == 409
+    errors = response.json()["detail"]["errors"]
+    assert len(errors) == 4
+    assert {error["target_user_id"] for error in errors} == {str(inactive_target_id), str(expired_target_id)}
+    assert {error["error_code"] for error in errors} == {
+        "oidc_mapping_target_unavailable",
+        "oidc_mapping_duplicate_username",
+    }
+
+
+def test_cancel_oidc_test_flow_enforces_owner_and_deletes_candidate(
+    client: TestClient,
+    session: Session,
+    admin_user: User,
+    admin_token: str,
+) -> None:
+    other_admin = User(username="other-flow-admin", password_hash="hash", role=UserRole.ADMIN)
+    session.add(other_admin)
+    session.flush()
+    other_flow = OidcFlow(
+        purpose=OidcFlowPurpose.TEST,
+        status=OidcFlowStatus.CALLBACK_VALIDATED,
+        initiating_admin_id=other_admin.id,
+        encrypted_candidate_configuration="encrypted-candidate",
+        encrypted_tested_identity="encrypted-identity",
+        expires_at=datetime.now(timezone.utc) + timedelta(minutes=5),
+    )
+    owned_flow = OidcFlow(
+        purpose=OidcFlowPurpose.TEST,
+        status=OidcFlowStatus.CALLBACK_VALIDATED,
+        initiating_admin_id=admin_user.id,
+        encrypted_candidate_configuration="encrypted-candidate",
+        encrypted_tested_identity="encrypted-identity",
+        expires_at=datetime.now(timezone.utc) + timedelta(minutes=5),
+    )
+    session.add(other_flow)
+    session.add(owned_flow)
+    session.commit()
+    other_flow_id = other_flow.id
+    owned_flow_id = owned_flow.id
+    headers = {"Authorization": f"Bearer {admin_token}"}
+
+    response = client.delete(f"/api/admin/auth/oidc/test-flows/{owned_flow_id}", headers=headers)
+    assert response.status_code == 204
+    assert session.get(OidcFlow, owned_flow_id) is None
+
+    denied = client.delete(f"/api/admin/auth/oidc/test-flows/{other_flow_id}", headers=headers)
+    assert denied.status_code == 404
 
 
 def test_namespace_replacement_stages_existing_identity_for_exact_relink(

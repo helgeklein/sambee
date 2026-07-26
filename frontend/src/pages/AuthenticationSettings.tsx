@@ -1,3 +1,4 @@
+import { ContentCopy, Visibility, VisibilityOff } from "@mui/icons-material";
 import {
   Alert,
   Box,
@@ -6,9 +7,12 @@ import {
   CircularProgress,
   Divider,
   FormControlLabel,
+  IconButton,
+  InputAdornment,
   MenuItem,
   Stack,
   TextField,
+  Tooltip,
   Typography,
 } from "@mui/material";
 import { useEffect, useState } from "react";
@@ -16,6 +20,7 @@ import { useNavigate } from "react-router-dom";
 import api from "../services/api";
 import { clearAuthConfigCache } from "../services/authConfig";
 import type { OidcAdminConfigurationRead, OidcConfigurationCandidate, OidcTestedIdentity } from "../types";
+import { getApiErrorMessage, getOidcMappingValidationErrors } from "../utils/apiErrors";
 
 const DEFAULT_CANDIDATE: OidcConfigurationCandidate = {
   display_name: "",
@@ -40,6 +45,12 @@ const parseList = (value: string) =>
     .map((entry) => entry.trim())
     .filter(Boolean);
 const optionalClaim = (value: string) => value.trim() || null;
+const OIDC_SETUP_FLOW_STORAGE_KEY = "sambee.oidc.setupFlowId";
+const normalizedGroupKey = (value: string) => value.normalize("NFKC").trim().toLowerCase();
+const duplicateGroupKeys = (values: string[]) => {
+  const keys = values.map(normalizedGroupKey);
+  return new Set(keys.filter((key, index) => key && keys.indexOf(key) !== index));
+};
 const editableCandidate = ({
   client_secret_configured: _,
   configuration_revision: __,
@@ -52,10 +63,12 @@ export function AuthenticationSettings() {
   const [candidate, setCandidate] = useState<OidcConfigurationCandidate>(DEFAULT_CANDIDATE);
   const [configuration, setConfiguration] = useState<OidcAdminConfigurationRead | null>(null);
   const [clientSecret, setClientSecret] = useState("");
+  const [showClientSecret, setShowClientSecret] = useState(false);
   const [testedIdentity, setTestedIdentity] = useState<OidcTestedIdentity | null>(null);
   const [mappingReview, setMappingReview] = useState<
     Record<string, { selected: boolean; expectedUsername: string; omissionAcknowledged: boolean }>
   >({});
+  const [mappingErrors, setMappingErrors] = useState<Record<string, string>>({});
   const [busy, setBusy] = useState(true);
   const [error, setError] = useState("");
   const [notice, setNotice] = useState("");
@@ -80,6 +93,31 @@ export function AuthenticationSettings() {
     replacementUsernames.some((username) => !username || username === testedIdentity?.username.trim()) ||
     new Set(replacementUsernames).size !== replacementUsernames.length ||
     requiredOmissions.length > 0;
+  const duplicateAdmissionGroups = duplicateGroupKeys(candidate.admission_groups);
+  const duplicateAdminGroups = duplicateGroupKeys(candidate.role_mappings.admin);
+  const duplicateEditorGroups = duplicateGroupKeys(candidate.role_mappings.editor);
+  const adminGroupKeys = new Set(candidate.role_mappings.admin.map(normalizedGroupKey));
+  const editorGroupKeys = new Set(candidate.role_mappings.editor.map(normalizedGroupKey));
+  const crossRoleGroupKeys = new Set([...adminGroupKeys].filter((key) => editorGroupKeys.has(key)));
+  const admissionGroupError =
+    candidate.admission_mode === "selected_groups" && candidate.admission_groups.length === 0
+      ? "Add at least one admission group."
+      : duplicateAdmissionGroups.size > 0
+        ? "Admission groups must be unique after normalization."
+        : "";
+  const adminGroupError =
+    duplicateAdminGroups.size > 0
+      ? "Administrator groups must be unique after normalization."
+      : crossRoleGroupKeys.size > 0
+        ? "A group cannot grant both administrator and editor roles."
+        : "";
+  const editorGroupError =
+    duplicateEditorGroups.size > 0
+      ? "Editor groups must be unique after normalization."
+      : crossRoleGroupKeys.size > 0
+        ? "A group cannot grant both administrator and editor roles."
+        : "";
+  const groupConfigurationInvalid = Boolean(admissionGroupError || adminGroupError || editorGroupError);
 
   useEffect(() => {
     let active = true;
@@ -91,9 +129,11 @@ export function AuthenticationSettings() {
         if (response.configuration) {
           setCandidate(editableCandidate(response.configuration));
         }
-        const flowId = new URLSearchParams(window.location.hash.replace(/^#/, "")).get("flow");
+        const fragmentFlowId = new URLSearchParams(window.location.hash.replace(/^#/, "")).get("flow");
+        if (fragmentFlowId) sessionStorage.setItem(OIDC_SETUP_FLOW_STORAGE_KEY, fragmentFlowId);
+        const flowId = fragmentFlowId ?? sessionStorage.getItem(OIDC_SETUP_FLOW_STORAGE_KEY);
         if (!flowId) return;
-        window.history.replaceState(null, "", window.location.pathname + window.location.search);
+        if (fragmentFlowId) window.history.replaceState(null, "", window.location.pathname + window.location.search);
         return api.getOidcTestResult(flowId).then((identity) => {
           if (active) {
             setCandidate(editableCandidate(identity.candidate));
@@ -173,7 +213,9 @@ export function AuthenticationSettings() {
       clearAuthConfigCache();
       setTestedIdentity(null);
       setMappingReview({});
+      sessionStorage.removeItem(OIDC_SETUP_FLOW_STORAGE_KEY);
       setClientSecret("");
+      setShowClientSecret(false);
       if (result.reauthentication_required) {
         localStorage.removeItem("access_token");
         navigate("/login", { replace: true });
@@ -183,8 +225,38 @@ export function AuthenticationSettings() {
       const refreshed = await api.getOidcConfiguration();
       setConfiguration(refreshed);
       if (refreshed.configuration) setCandidate(editableCandidate(refreshed.configuration));
+    } catch (caught: unknown) {
+      const validationErrors = getOidcMappingValidationErrors(caught);
+      if (validationErrors.length > 0) {
+        setMappingErrors(
+          Object.fromEntries(
+            validationErrors
+              .filter((mappingError) => mappingError.target_user_id !== null)
+              .map((mappingError) => [mappingError.target_user_id, mappingError.message])
+          )
+        );
+        setError("Correct the highlighted OIDC mapping errors before activating.");
+      } else {
+        setError("The tested configuration could not be activated. Run the test again.");
+      }
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const cancelTestFlow = async () => {
+    if (!testedIdentity) return;
+    setBusy(true);
+    setError("");
+    try {
+      await api.cancelOidcTestFlow(testedIdentity.flow_id);
+      sessionStorage.removeItem(OIDC_SETUP_FLOW_STORAGE_KEY);
+      setTestedIdentity(null);
+      setMappingReview({});
+      setMappingErrors({});
+      setNotice("OIDC setup canceled.");
     } catch {
-      setError("The tested configuration could not be activated. Run the test again.");
+      setError("The OIDC setup flow could not be canceled. It may already have expired.");
     } finally {
       setBusy(false);
     }
@@ -203,14 +275,29 @@ export function AuthenticationSettings() {
     setBusy(true);
     setError("");
     try {
-      await api.setPasswordOnlyAuthentication(activeConfiguration.configuration_revision, passwordlessCount);
+      await api.setPasswordOnlyAuthentication(activeConfiguration.configuration_revision, passwordlessCount, passwordlessCount > 0);
       clearAuthConfigCache();
       setTestedIdentity(null);
       setClientSecret("");
+      setShowClientSecret(false);
       localStorage.removeItem("access_token");
       navigate("/login", { replace: true });
-    } catch {
-      setError("Password-only mode requires an active administrator with a local password.");
+    } catch (caught: unknown) {
+      const errorCode = getApiErrorMessage(caught, "");
+      if (errorCode === "oidc_configuration_changed" || errorCode === "passwordless_account_count_changed") {
+        try {
+          const refreshed = await api.getOidcConfiguration();
+          setConfiguration(refreshed);
+          if (refreshed.configuration) setCandidate(editableCandidate(refreshed.configuration));
+          setError("Authentication settings changed. Review the current Password-only impact and confirm again.");
+        } catch {
+          setError("Authentication settings changed and could not be refreshed. Reload this page before trying again.");
+        }
+      } else if (errorCode === "passwordless_account_loss_not_acknowledged") {
+        setError("Confirm that active accounts without local passwords will lose sign-in access.");
+      } else {
+        setError("Password-only mode requires an active administrator with a local password.");
+      }
     } finally {
       setBusy(false);
     }
@@ -239,12 +326,40 @@ export function AuthenticationSettings() {
       {configuration?.health.status === "unhealthy" && (
         <Alert severity="warning" sx={{ mb: 3 }}>
           Complete the server prerequisites before testing: {configuration.health.reasons.join(", ")}.
-          {configuration.health.redirect_uri && ` Redirect URI: ${configuration.health.redirect_uri}`}
         </Alert>
       )}
 
       <Stack spacing={2.5}>
         <Typography variant="h6">Provider</Typography>
+        {configuration?.health.redirect_uri && (
+          <TextField
+            label="Redirect URI"
+            value={configuration.health.redirect_uri}
+            slotProps={{
+              input: {
+                readOnly: true,
+                endAdornment: (
+                  <InputAdornment position="end">
+                    <Tooltip title="Copy redirect URI">
+                      <IconButton
+                        aria-label="Copy redirect URI"
+                        edge="end"
+                        onClick={() => {
+                          void navigator.clipboard
+                            .writeText(configuration.health.redirect_uri ?? "")
+                            .then(() => setNotice("Redirect URI copied."))
+                            .catch(() => setError("The redirect URI could not be copied."));
+                        }}
+                      >
+                        <ContentCopy />
+                      </IconButton>
+                    </Tooltip>
+                  </InputAdornment>
+                ),
+              },
+            }}
+          />
+        )}
         <TextField
           label="Provider name"
           value={candidate.display_name}
@@ -260,7 +375,7 @@ export function AuthenticationSettings() {
         <TextField label="Client ID" value={candidate.client_id} onChange={(event) => update("client_id", event.target.value)} required />
         <TextField
           label="Client secret"
-          type="password"
+          type={showClientSecret ? "text" : "password"}
           value={clientSecret}
           onChange={(event) => {
             setClientSecret(event.target.value);
@@ -271,6 +386,24 @@ export function AuthenticationSettings() {
               ? "Leave blank to keep the stored secret."
               : "Required for the first test."
           }
+          slotProps={{
+            input: {
+              endAdornment: (
+                <InputAdornment position="end">
+                  <Tooltip title={showClientSecret ? "Hide client secret" : "Show client secret"}>
+                    <IconButton
+                      aria-label={showClientSecret ? "Hide client secret" : "Show client secret"}
+                      edge="end"
+                      onClick={() => setShowClientSecret((current) => !current)}
+                      onMouseDown={(event) => event.preventDefault()}
+                    >
+                      {showClientSecret ? <VisibilityOff /> : <Visibility />}
+                    </IconButton>
+                  </Tooltip>
+                </InputAdornment>
+              ),
+            },
+          }}
         />
         <TextField
           label="Scopes"
@@ -325,19 +458,24 @@ export function AuthenticationSettings() {
             label="Admission groups"
             value={listValue(candidate.admission_groups)}
             onChange={(event) => update("admission_groups", parseList(event.target.value))}
-            helperText="Comma-separated, exact group names."
+            error={Boolean(admissionGroupError)}
+            helperText={admissionGroupError || "Comma-separated, exact group names."}
           />
         )}
         <TextField
           label="Administrator groups"
           value={listValue(candidate.role_mappings.admin)}
           onChange={(event) => update("role_mappings", { ...candidate.role_mappings, admin: parseList(event.target.value) })}
+          error={Boolean(adminGroupError)}
+          helperText={adminGroupError}
           required
         />
         <TextField
           label="Editor groups"
           value={listValue(candidate.role_mappings.editor)}
           onChange={(event) => update("role_mappings", { ...candidate.role_mappings, editor: parseList(event.target.value) })}
+          error={Boolean(editorGroupError)}
+          helperText={editorGroupError}
         />
         <TextField
           select
@@ -350,7 +488,11 @@ export function AuthenticationSettings() {
           <MenuItem value="oidc_only">OIDC only</MenuItem>
         </TextField>
 
-        <Button variant="outlined" disabled={busy || configuration?.health.status !== "healthy"} onClick={() => void startTest()}>
+        <Button
+          variant="outlined"
+          disabled={busy || configuration?.health.status !== "healthy" || groupConfigurationInvalid}
+          onClick={() => void startTest()}
+        >
           Connect and test
         </Button>
 
@@ -374,6 +516,7 @@ export function AuthenticationSettings() {
                   .filter((mapping) => mapping.selectable)
                   .map((mapping) => {
                     const review = mappingReview[mapping.target_user_id];
+                    const serverError = mappingErrors[mapping.target_user_id];
                     const expectedUsername = review?.expectedUsername ?? "";
                     const hintLabel =
                       mapping.prefill_source === "pending"
@@ -410,23 +553,29 @@ export function AuthenticationSettings() {
                           label={`Provider username for ${mapping.local_username}`}
                           value={expectedUsername}
                           placeholder={mapping.suggested_username}
-                          helperText={`${hintLabel}: ${mapping.suggested_username}`}
+                          helperText={serverError ?? `${hintLabel}: ${mapping.suggested_username}`}
                           disabled={!review?.selected}
                           error={
-                            Boolean(review?.selected) &&
-                            (!expectedUsername.trim() ||
-                              expectedUsername.trim() === testedIdentity.username.trim() ||
-                              replacementUsernames.filter((value) => value === expectedUsername.trim()).length > 1)
+                            Boolean(serverError) ||
+                            (Boolean(review?.selected) &&
+                              (!expectedUsername.trim() ||
+                                expectedUsername.trim() === testedIdentity.username.trim() ||
+                                replacementUsernames.filter((value) => value === expectedUsername.trim()).length > 1))
                           }
-                          onChange={(event) =>
+                          onChange={(event) => {
+                            setMappingErrors((current) => {
+                              const next = { ...current };
+                              delete next[mapping.target_user_id];
+                              return next;
+                            });
                             setMappingReview((current) => ({
                               ...current,
                               [mapping.target_user_id]: {
                                 ...current[mapping.target_user_id],
                                 expectedUsername: event.target.value,
                               },
-                            }))
-                          }
+                            }));
+                          }}
                           required={review?.selected}
                         />
                         {mapping.omission_acknowledgement_required && !review?.selected && (
@@ -467,6 +616,9 @@ export function AuthenticationSettings() {
             )}
             <Button variant="contained" sx={{ mt: 2 }} disabled={busy || replacementPlanInvalid} onClick={activate}>
               Activate configuration
+            </Button>
+            <Button variant="text" sx={{ mt: 2, ml: 1 }} disabled={busy} onClick={() => void cancelTestFlow()}>
+              Cancel
             </Button>
           </Box>
         )}

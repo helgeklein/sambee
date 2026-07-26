@@ -79,7 +79,11 @@ def _build_admin_user_read_with_authentication(session: Session, user: User) -> 
             "pending_oidc": (
                 AdminUserPendingOidcRead(
                     expected_username=pending.expected_username,
-                    created_by_username=(session.get(User, pending.created_by_user_id) or user).username,
+                    created_by_username=(
+                        creator.username
+                        if pending.created_by_user_id is not None and (creator := session.get(User, pending.created_by_user_id)) is not None
+                        else "Deleted user"
+                    ),
                     created_at=pending.created_at,
                 )
                 if pending is not None

@@ -88,7 +88,8 @@ Consult the Authelia documentation for syntax supported by the installed Autheli
 
 Open **Settings > Administration > Authentication** as a local administrator.
 
-1. Enter the provider name, issuer URL, client ID, and client secret.
+1. Copy the displayed redirect URI and register it on the provider.
+1. Enter the provider name, issuer URL, client ID, and client secret. The visibility control reveals only the unsent value in the current browser field; Sambee never returns the stored secret.
 1. Configure scopes and claims.
 1. Choose whether all provider users or only selected groups may sign in.
 1. Enter exact group names for administrator and editor role mappings. Administrator mapping takes precedence over editor mapping; admitted users without either mapping become viewers.
@@ -100,6 +101,8 @@ Open **Settings > Administration > Authentication** as a local administrator.
 1. Select **Activate configuration**.
 
 Testing does not change the active configuration. Activation succeeds only when the tested identity resolves to an administrator, the test belongs to the initiating administrator, and the active configuration has not changed since the test began. Leaving the client-secret field blank preserves an existing stored secret.
+
+The current setup test is retained for the browser tab if the page reloads. Select **Cancel** to delete its encrypted candidate and tested identity immediately. Closing the page without canceling leaves the test unavailable to other administrators and lets it expire automatically.
 
 ### Review Existing Accounts
 
@@ -137,11 +140,11 @@ Changing, moving, or detaching an established identity revokes affected Sambee s
 
 Mapping updates are atomic and revision checked. If another administrator changes mappings while the page is open, Sambee rejects the stale update; reload the users page and review the current state. In **OIDC only** mode, Sambee prevents removal of the last active OIDC administrator mapping.
 
-Deleting a local user also removes their established identity, pending mappings, and incomplete OIDC flows in the same transaction. Deletion remains subject to the last-administrator guard.
+Deleting a local user also removes their established identity, pending mappings targeting that user, and incomplete OIDC flows in the same transaction. Pending mappings that the deleted user created for other accounts remain active and show **Deleted user** as their creator. Deletion remains subject to the last-administrator guard.
 
 ## Recover Password-Only Access
 
-The web recovery action requires at least one active, unexpired administrator with a local password. Before confirmation, Sambee shows how many active, unexpired accounts have no local password and will lose sign-in access. It switches to Password only and revokes all current sessions only when the configuration and displayed account count are still current. If either changed, reload Authentication settings and review the warning again.
+The web recovery action requires at least one active, unexpired administrator with a local password. Before confirmation, Sambee shows how many active, unexpired accounts have no local password and requires explicit acknowledgement that they will lose sign-in access. It switches to Password only and revokes all current sessions only when the configuration and displayed account count are still current. If either changed, Authentication settings reloads the current impact and requires confirmation again.
 
 If OIDC prevents web access, run the backend CLI from the application environment:
 
