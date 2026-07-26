@@ -31,6 +31,16 @@ export interface AdminUser {
   expires_at?: string | null;
   created_at: string;
   updated_at: string;
+  has_local_password: boolean;
+  oidc: {
+    identity_id: string;
+    provider_display_name: string;
+    last_login_at: string | null;
+  } | null;
+  pending_oidc: {
+    expected_username: string;
+    created_at: string;
+  } | null;
 }
 
 export interface AdminUserCreateInput {
@@ -295,13 +305,22 @@ export interface OidcTestStartResponse {
 export interface OidcReplacementMapping {
   target_user_id: string;
   local_username: string;
-  expected_username: string;
+  local_role: UserRole;
+  has_local_password: boolean;
+  target_state: "active" | "inactive" | "expired";
+  mapping_state: "unmapped" | "pending" | "established";
+  suggested_username: string;
+  prefill_source: "pending" | "last_seen" | "local";
+  selected_by_default: boolean;
+  selectable: boolean;
+  omission_acknowledgement_required: boolean;
 }
 
 export interface OidcTestedIdentity {
   flow_id: string;
   candidate: RedactedOidcConfiguration;
   replacement_mappings: OidcReplacementMapping[];
+  expected_identity_mapping_revision: number | null;
   username: string;
   name: string | null;
   email: string | null;
@@ -313,6 +332,10 @@ export interface OidcFinalizeResponse {
   configuration_revision: number;
   identity_mapping_revision: number;
   reauthentication_required: boolean;
+}
+
+export interface OidcMappingMutationResponse {
+  identity_mapping_revision: number;
 }
 
 export interface CompanionDownloadMetadata {

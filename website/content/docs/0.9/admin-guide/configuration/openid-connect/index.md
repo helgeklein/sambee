@@ -96,12 +96,40 @@ Open **Settings > Administration > Authentication** as a local administrator.
 1. Select the intended sign-in mode.
 1. Select **Connect and test** and complete provider sign-in in the same browser.
 1. Verify the returned username, email, and groups.
-1. When changing the provider identity namespace, review the proposed provider username for every linked or pending local account. Correct any empty or duplicate usernames.
+1. Review existing local accounts and select the accounts to map.
 1. Select **Activate configuration**.
 
 Testing does not change the active configuration. Activation succeeds only when the tested identity resolves to an administrator, the test belongs to the initiating administrator, and the active configuration has not changed since the test began. Leaving the client-secret field blank preserves an existing stored secret.
 
-Changing the provider identity namespace is an explicit identity migration. Sambee removes obsolete identity links and pending mappings only after the administrator reviews a complete replacement plan. The tested administrator is linked directly to the new identity; every other reviewed account receives an exact pending mapping and establishes its immutable identity under the new namespace on its next admitted login. Activation stops if the mapping set changed during testing or if reviewed provider usernames are empty or duplicated.
+### Review Existing Accounts
+
+Initial activation and provider identity namespace replacement both show every existing local account except the administrator who completed the test. Select an account only when its provider username has been confirmed.
+
+The proposed username is a hint unless it comes from a previous pending mapping. Previous pending mappings are selected by default. Last-seen provider usernames and local usernames remain unselected until an administrator confirms them. Provider usernames are matched exactly after surrounding whitespace is removed. The tested administrator and every selected account must use different provider usernames.
+
+Inactive and expired accounts appear separately and cannot be selected. Reactivate an account before mapping it.
+
+In **OIDC or password** mode, accounts may be omitted. An omitted account can continue using its local password when one is configured. Review passwordless omissions carefully because they cannot sign in until an administrator creates a mapping.
+
+In **OIDC only** mode, activation requires a separate acknowledgement for every omitted active account. An omitted account cannot sign in after activation.
+
+Changing the provider identity namespace is an explicit identity migration. Sambee removes obsolete identity links and pending mappings only after the complete replacement plan is reviewed. The tested administrator is linked directly to the new identity. Every selected account receives an exact pending mapping and establishes its immutable identity under the new namespace on its next admitted login. Activation stops if mappings change during review or if selected provider usernames are empty or duplicated.
+
+## Manage Account Mappings
+
+Open **Settings > Administration > Users** to review how each local account authenticates. An account may show **Local password**, **OIDC linked**, or both. A pending mapping shows the exact provider username that must complete the first admitted OIDC login.
+
+Administrators can perform these operations:
+
+- Map an unlinked local account to an expected provider username.
+- Cancel a pending mapping.
+- Change a linked account to a different provider username. This removes the existing immutable identity and creates a pending mapping.
+- Move an established identity to another active, unlinked local account.
+- Detach an established identity from a local account.
+
+Changing, moving, or detaching an established identity revokes affected Sambee sessions. Detaching does not revoke access at the identity provider. Remove provider admission separately when the person must no longer sign in.
+
+Mapping updates are atomic and revision checked. If another administrator changes mappings while the page is open, Sambee rejects the stale update; reload the users page and review the current state. In **OIDC only** mode, Sambee prevents removal of the last active OIDC administrator mapping.
 
 ## Recover Password-Only Access
 

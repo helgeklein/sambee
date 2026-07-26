@@ -9,11 +9,14 @@ from app.core.logging import get_logger, set_user
 from app.core.secrets import generate_temporary_password
 from app.core.security import get_password_hash, require_capability
 from app.db.database import get_session
+from app.models.oidc import OidcIdentity, OidcPendingIdentityMapping, OidcProviderConfiguration
 from app.models.user import (
     AdminUserCreate,
     AdminUserCreateResult,
+    AdminUserOidcRead,
     AdminUserPasswordReset,
     AdminUserPasswordResetResult,
+    AdminUserPendingOidcRead,
     AdminUserRead,
     AdminUserUpdate,
     User,
@@ -47,6 +50,43 @@ def _validate_user_update_guards(
             raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Cannot remove the last active admin")
 
 
+def _build_admin_user_read_with_authentication(session: Session, user: User) -> AdminUserRead:
+    result = build_admin_user_read(user)
+    configuration = session.get(OidcProviderConfiguration, 1)
+    if configuration is None:
+        return result
+    identity = session.exec(
+        select(OidcIdentity).where(OidcIdentity.issuer == configuration.issuer_url, OidcIdentity.user_id == user.id)
+    ).first()
+    pending = session.exec(
+        select(OidcPendingIdentityMapping).where(
+            OidcPendingIdentityMapping.provider_configuration_id == configuration.id,
+            OidcPendingIdentityMapping.target_user_id == user.id,
+        )
+    ).first()
+    return result.model_copy(
+        update={
+            "oidc": (
+                AdminUserOidcRead(
+                    identity_id=identity.id,
+                    provider_display_name=configuration.display_name,
+                    last_login_at=identity.last_login_at,
+                )
+                if identity is not None
+                else None
+            ),
+            "pending_oidc": (
+                AdminUserPendingOidcRead(
+                    expected_username=pending.expected_username,
+                    created_at=pending.created_at,
+                )
+                if pending is not None
+                else None
+            ),
+        }
+    )
+
+
 @router.get("/users", response_model=list[AdminUserRead])
 async def list_users(
     current_user: User = Depends(require_capability(Capability.MANAGE_USERS)),
@@ -55,7 +95,7 @@ async def list_users(
     set_user(current_user.username)
     logger.info(f"Listing users: user={current_user.username}")
     users = session.exec(select(User).order_by(User.username)).all()
-    return [build_admin_user_read(user) for user in users]
+    return [_build_admin_user_read_with_authentication(session, user) for user in users]
 
 
 @router.post("/users", response_model=AdminUserCreateResult, status_code=status.HTTP_201_CREATED)
@@ -100,7 +140,7 @@ async def create_user(
     logger.info(f"Created user: actor={current_user.username}, username={user.username}, role={user.role}")
 
     return AdminUserCreateResult(
-        **build_admin_user_read(user).model_dump(),
+        **_build_admin_user_read_with_authentication(session, user).model_dump(),
         temporary_password=temporary_password,
     )
 
@@ -155,7 +195,7 @@ async def update_user(
     session.refresh(user)
 
     logger.info(f"Updated user: actor={current_user.username}, username={user.username}, role={user.role}, active={user.is_active}")
-    return build_admin_user_read(user)
+    return _build_admin_user_read_with_authentication(session, user)
 
 
 @router.post("/users/{user_id}/reset-password", response_model=AdminUserPasswordResetResult)

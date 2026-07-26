@@ -9,6 +9,7 @@ vi.mock("../../services/api", () => ({
   default: {
     getUsers: vi.fn(),
     getCurrentUser: vi.fn(),
+    getOidcConfiguration: vi.fn(),
     createUser: vi.fn(),
     updateUser: vi.fn(),
     resetUserPassword: vi.fn(),
@@ -29,13 +30,21 @@ describe("UserManagementSettings", () => {
         role: "admin",
         is_active: true,
         must_change_password: false,
+        has_local_password: true,
+        oidc: null,
+        pending_oidc: null,
         created_at: "2026-03-01T10:00:00Z",
+        updated_at: "2026-03-01T10:00:00Z",
       },
     ]);
     vi.mocked(api.getCurrentUser).mockResolvedValue({
       id: "user-1",
       username: "admin",
       role: "admin",
+    });
+    vi.mocked(api.getOidcConfiguration).mockResolvedValue({
+      configuration: null,
+      health: { status: "healthy", message: null },
     });
     vi.mocked(api.resetUserPassword).mockResolvedValue({
       message: "Password reset",
@@ -90,6 +99,37 @@ describe("UserManagementSettings", () => {
     expect(screen.getByText("Used to sign in and uniquely identify the account.")).toBeInTheDocument();
     expect(screen.getByLabelText(/^full name$/i)).toBeInTheDocument();
     expect(screen.getByText("Use the person's full name as they want it displayed in Sambee.")).toBeInTheDocument();
+  });
+
+  it("shows OIDC state and hides password reset for a passwordless account", async () => {
+    vi.mocked(api.getUsers).mockResolvedValue([
+      {
+        id: "user-1",
+        username: "admin",
+        role: "admin",
+        is_active: true,
+        must_change_password: false,
+        has_local_password: false,
+        oidc: {
+          identity_id: "identity-1",
+          provider_display_name: "Corporate login",
+          last_login_at: "2026-03-01T10:00:00Z",
+        },
+        pending_oidc: null,
+        created_at: "2026-03-01T10:00:00Z",
+        updated_at: "2026-03-01T10:00:00Z",
+      },
+    ]);
+
+    render(
+      <SambeeThemeProvider>
+        <UserManagementSettings />
+      </SambeeThemeProvider>
+    );
+
+    expect(await screen.findByText("OIDC linked")).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: /reset password/i })).not.toBeInTheDocument();
+    expect(screen.queryByText("Local password")).not.toBeInTheDocument();
   });
 
   it("lets the admin enter a new password for a reset", async () => {

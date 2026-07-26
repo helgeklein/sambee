@@ -2,7 +2,7 @@ import { primeCachedAsyncData } from "../../hooks/useCachedAsyncData";
 import api from "../../services/api";
 import companionService, { type PairStatusResponse } from "../../services/companion";
 import { logger } from "../../services/logger";
-import type { AdminUser, AdvancedSystemSettings, CompanionDownloadMetadata, Connection } from "../../types";
+import type { AdminUser, AdvancedSystemSettings, CompanionDownloadMetadata, Connection, OidcAdminConfigurationRead } from "../../types";
 import { getApiErrorMessage } from "../../utils/apiErrors";
 import { LOCAL_DRIVES_PAGE_COPY } from "./localDrivesCopy";
 import type { SettingsNavItem } from "./settingsNavigation";
@@ -24,6 +24,7 @@ export interface LocalDrivesSettingsData {
 export interface UserManagementSettingsData {
   users: AdminUser[];
   currentUserId: string | null;
+  oidcConfiguration: OidcAdminConfigurationRead;
 }
 
 export async function loadConnectionsSettingsData(): Promise<Connection[]> {
@@ -31,11 +32,12 @@ export async function loadConnectionsSettingsData(): Promise<Connection[]> {
 }
 
 export async function loadUserManagementSettingsData(): Promise<UserManagementSettingsData> {
-  const [users, currentUser] = await Promise.all([api.getUsers(), api.getCurrentUser()]);
+  const [users, currentUser, oidcConfiguration] = await Promise.all([api.getUsers(), api.getCurrentUser(), api.getOidcConfiguration()]);
 
   return {
     users,
     currentUserId: currentUser.id ?? null,
+    oidcConfiguration,
   };
 }
 

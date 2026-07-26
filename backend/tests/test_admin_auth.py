@@ -84,12 +84,36 @@ def test_finalize_oidc_configuration_is_idempotent(
 
     headers = {"Authorization": f"Bearer {admin_token}"}
     tested = client.get(f"/api/admin/auth/oidc/test/{flow.id}", headers=headers)
-    first = client.post("/api/admin/auth/oidc/finalize", headers=headers, json={"flow_id": str(flow.id)})
+    first = client.post(
+        "/api/admin/auth/oidc/finalize",
+        headers=headers,
+        json={
+            "flow_id": str(flow.id),
+            "replacement_mappings": [{"target_user_id": str(unrelated_user.id), "expected_username": "provider-unrelated"}],
+            "expected_identity_mapping_revision": None,
+        },
+    )
 
     assert tested.status_code == 200
     assert tested.json()["candidate"]["display_name"] == "Example Identity"
     assert tested.json()["candidate"]["sign_in_mode"] == "oidc_only"
     assert tested.json()["candidate"]["client_secret_configured"] is True
+    assert tested.json()["expected_identity_mapping_revision"] is None
+    assert tested.json()["replacement_mappings"] == [
+        {
+            "target_user_id": str(unrelated_user.id),
+            "local_username": "unrelated-user",
+            "local_role": "editor",
+            "has_local_password": True,
+            "target_state": "active",
+            "mapping_state": "unmapped",
+            "suggested_username": "unrelated-user",
+            "prefill_source": "local",
+            "selected_by_default": False,
+            "selectable": True,
+            "omission_acknowledgement_required": True,
+        }
+    ]
     serialized_tested = json.dumps(tested.json())
     assert '"client_secret":' not in serialized_tested
     assert '"encrypted_client_secret":' not in serialized_tested
@@ -111,6 +135,8 @@ def test_finalize_oidc_configuration_is_idempotent(
     assert flow.encrypted_tested_identity is None
     identity = session.exec(select(OidcIdentity).where(OidcIdentity.user_id == admin_user.id)).one()
     assert identity.subject == "admin-subject"
+    pending = session.exec(select(OidcPendingIdentityMapping).where(OidcPendingIdentityMapping.target_user_id == unrelated_user.id)).one()
+    assert pending.expected_username == "provider-unrelated"
 
 
 def test_namespace_replacement_stages_existing_identity_for_exact_relink(
@@ -188,6 +214,7 @@ def test_namespace_replacement_stages_existing_identity_for_exact_relink(
         json={
             "flow_id": str(flow.id),
             "replacement_mappings": [{"target_user_id": str(existing_user.id), "expected_username": "provider-alice"}],
+            "expected_identity_mapping_revision": 4,
         },
     )
 
@@ -291,6 +318,7 @@ def test_namespace_replacement_rejects_duplicate_reviewed_usernames_before_mutat
         headers={"Authorization": f"Bearer {admin_token}"},
         json={
             "flow_id": str(flow.id),
+            "expected_identity_mapping_revision": 4,
             "replacement_mappings": [
                 {"target_user_id": str(first_user.id), "expected_username": "duplicate"},
                 {"target_user_id": str(second_user.id), "expected_username": "duplicate"},
@@ -381,7 +409,7 @@ def test_username_claim_change_removes_pending_mappings_and_revokes_affected_use
     response = client.post(
         "/api/admin/auth/oidc/finalize",
         headers={"Authorization": f"Bearer {admin_token}"},
-        json={"flow_id": str(flow.id)},
+        json={"flow_id": str(flow.id), "expected_identity_mapping_revision": 3},
     )
 
     assert response.status_code == 200

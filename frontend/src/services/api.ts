@@ -435,17 +435,70 @@ class ApiService {
 
   async finalizeOidcConfiguration(
     flowId: string,
-    replacementMappings: Array<{ target_user_id: string; expected_username: string }>
+    replacementMappings: Array<{ target_user_id: string; expected_username: string }>,
+    expectedIdentityMappingRevision: number | null,
+    omittedAccountAcknowledgements: string[]
   ): Promise<OidcFinalizeResponse> {
     const response = await this.api.post<OidcFinalizeResponse>("/admin/auth/oidc/finalize", {
       flow_id: flowId,
       replacement_mappings: replacementMappings,
+      expected_identity_mapping_revision: expectedIdentityMappingRevision,
+      omitted_account_acknowledgements: omittedAccountAcknowledgements,
     });
     return response.data;
   }
 
   async setPasswordOnlyAuthentication(): Promise<OidcFinalizeResponse> {
     const response = await this.api.post<OidcFinalizeResponse>("/admin/auth/password-only");
+    return response.data;
+  }
+
+  async putPendingOidcMappings(
+    expectedIdentityMappingRevision: number,
+    mappings: Array<{ target_user_id: string; expected_username: string }>
+  ): Promise<OidcMappingMutationResponse> {
+    const response = await this.api.put<OidcMappingMutationResponse>("/admin/auth/oidc/mappings/pending", {
+      expected_identity_mapping_revision: expectedIdentityMappingRevision,
+      mappings,
+    });
+    return response.data;
+  }
+
+  async cancelPendingOidcMapping(userId: string, expectedIdentityMappingRevision: number): Promise<OidcMappingMutationResponse> {
+    const response = await this.api.delete<OidcMappingMutationResponse>(`/admin/auth/oidc/mappings/${userId}/pending`, {
+      params: { expected_identity_mapping_revision: expectedIdentityMappingRevision },
+    });
+    return response.data;
+  }
+
+  async changeOidcIdentity(
+    userId: string,
+    expectedIdentityMappingRevision: number,
+    expectedUsername: string
+  ): Promise<OidcMappingMutationResponse> {
+    const response = await this.api.post<OidcMappingMutationResponse>(`/admin/auth/oidc/mappings/${userId}/change`, {
+      expected_identity_mapping_revision: expectedIdentityMappingRevision,
+      expected_username: expectedUsername,
+    });
+    return response.data;
+  }
+
+  async moveOidcIdentity(
+    identityId: string,
+    expectedIdentityMappingRevision: number,
+    targetUserId: string
+  ): Promise<OidcMappingMutationResponse> {
+    const response = await this.api.post<OidcMappingMutationResponse>(`/admin/auth/oidc/mappings/${identityId}/move`, {
+      expected_identity_mapping_revision: expectedIdentityMappingRevision,
+      target_user_id: targetUserId,
+    });
+    return response.data;
+  }
+
+  async detachOidcIdentity(userId: string, expectedIdentityMappingRevision: number): Promise<OidcMappingMutationResponse> {
+    const response = await this.api.delete<OidcMappingMutationResponse>(`/admin/auth/oidc/mappings/${userId}`, {
+      params: { expected_identity_mapping_revision: expectedIdentityMappingRevision },
+    });
     return response.data;
   }
 

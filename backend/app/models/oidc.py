@@ -32,6 +32,7 @@ class OidcFlowStatus(StrEnum):
     STARTED = "started"
     CALLBACK_PROCESSING = "callback_processing"
     CALLBACK_VALIDATED = "callback_validated"
+    FINALIZING = "finalizing"
     CONSUMED = "consumed"
 
 

@@ -1,11 +1,13 @@
 import uuid
 from datetime import datetime
 from enum import StrEnum
+from typing import Literal
 
 from pydantic import BaseModel, ConfigDict, SecretStr
 from sqlmodel import Field, SQLModel
 
 from app.models.oidc import OidcAdmissionMode, SignInMode
+from app.models.user import UserRole
 
 
 class AuthenticationHealthStatus(StrEnum):
@@ -101,18 +103,27 @@ class OidcTestStartResponse(SQLModel):
 class OidcReplacementMappingRead(SQLModel):
     target_user_id: uuid.UUID
     local_username: str
-    expected_username: str
+    local_role: UserRole
+    has_local_password: bool
+    target_state: Literal["active", "inactive", "expired"]
+    mapping_state: Literal["unmapped", "pending", "established"]
+    suggested_username: str
+    prefill_source: Literal["pending", "last_seen", "local"]
+    selected_by_default: bool
+    selectable: bool
+    omission_acknowledgement_required: bool
 
 
 class OidcReplacementMappingInput(SQLModel):
     target_user_id: uuid.UUID
-    expected_username: str = Field(min_length=1, max_length=500)
+    expected_username: str = Field(min_length=1)
 
 
 class OidcTestedIdentityRead(SQLModel):
     flow_id: uuid.UUID
     candidate: RedactedOidcConfiguration
     replacement_mappings: list[OidcReplacementMappingRead]
+    expected_identity_mapping_revision: int | None
     username: str
     name: str | None
     email: str | None
@@ -122,7 +133,30 @@ class OidcTestedIdentityRead(SQLModel):
 
 class OidcFinalizeRequest(SQLModel):
     flow_id: uuid.UUID
-    replacement_mappings: list[OidcReplacementMappingInput] = Field(default_factory=list, max_length=10000)
+    replacement_mappings: list[OidcReplacementMappingInput] = Field(default_factory=list)
+    expected_identity_mapping_revision: int | None = None
+    omitted_account_acknowledgements: list[uuid.UUID] = Field(default_factory=list)
+
+
+class OidcPendingMappingBatchRequest(SQLModel):
+    expected_identity_mapping_revision: int
+    mappings: list[OidcReplacementMappingInput]
+
+
+class OidcMappingMutationRequest(SQLModel):
+    expected_identity_mapping_revision: int
+
+
+class OidcMappingChangeRequest(OidcMappingMutationRequest):
+    expected_username: str = Field(min_length=1)
+
+
+class OidcIdentityMoveRequest(OidcMappingMutationRequest):
+    target_user_id: uuid.UUID
+
+
+class OidcMappingMutationResponse(SQLModel):
+    identity_mapping_revision: int
 
 
 class OidcFinalizeResponse(SQLModel):

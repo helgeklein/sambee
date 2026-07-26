@@ -69,8 +69,22 @@ class CurrentUserRead(SQLModel):
     created_at: datetime
 
 
+class AdminUserOidcRead(SQLModel):
+    identity_id: uuid.UUID
+    provider_display_name: str
+    last_login_at: datetime | None
+
+
+class AdminUserPendingOidcRead(SQLModel):
+    expected_username: str
+    created_at: datetime
+
+
 class AdminUserRead(CurrentUserRead):
     updated_at: datetime
+    has_local_password: bool
+    oidc: AdminUserOidcRead | None = None
+    pending_oidc: AdminUserPendingOidcRead | None = None
 
 
 class AdminUserCreate(SQLModel):
@@ -144,4 +158,5 @@ def build_admin_user_read(user: User) -> AdminUserRead:
         expires_at=normalize_utc_datetime(user.expires_at),
         created_at=normalize_utc_datetime(user.created_at),
         updated_at=normalize_utc_datetime(user.updated_at),
+        has_local_password=user.password_hash is not None,
     )

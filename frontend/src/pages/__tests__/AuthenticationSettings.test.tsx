@@ -75,6 +75,7 @@ describe("Authentication settings", () => {
       flow_id: "test-flow",
       candidate: tested,
       replacement_mappings: [],
+      expected_identity_mapping_revision: 1,
       username: "admin",
       name: "Test Admin",
       email: "admin@example.test",
@@ -94,7 +95,7 @@ describe("Authentication settings", () => {
     expect(api.getOidcTestResult).toHaveBeenCalledWith("test-flow");
     await user.click(screen.getByRole("button", { name: "Activate configuration" }));
     expect(await screen.findByDisplayValue("Activated Provider")).toBeInTheDocument();
-    expect(api.finalizeOidcConfiguration).toHaveBeenCalledWith("test-flow", []);
+    expect(api.finalizeOidcConfiguration).toHaveBeenCalledWith("test-flow", [], 1, []);
   });
 
   it("requires review of unique replacement usernames", async () => {
@@ -104,9 +105,34 @@ describe("Authentication settings", () => {
       flow_id: "test-flow",
       candidate: configuration("New Provider"),
       replacement_mappings: [
-        { target_user_id: "user-1", local_username: "alice", expected_username: "provider-alice" },
-        { target_user_id: "user-2", local_username: "bob", expected_username: "provider-bob" },
+        {
+          target_user_id: "user-1",
+          local_username: "alice",
+          local_role: "editor",
+          has_local_password: true,
+          target_state: "active",
+          mapping_state: "pending",
+          suggested_username: "provider-alice",
+          prefill_source: "pending",
+          selected_by_default: true,
+          selectable: true,
+          omission_acknowledgement_required: false,
+        },
+        {
+          target_user_id: "user-2",
+          local_username: "bob",
+          local_role: "viewer",
+          has_local_password: true,
+          target_state: "active",
+          mapping_state: "pending",
+          suggested_username: "provider-bob",
+          prefill_source: "pending",
+          selected_by_default: true,
+          selectable: true,
+          omission_acknowledgement_required: false,
+        },
       ],
+      expected_identity_mapping_revision: 4,
       username: "admin",
       name: "Test Admin",
       email: "admin@example.test",
@@ -130,10 +156,15 @@ describe("Authentication settings", () => {
     await user.type(alice, "reviewed-alice");
     await user.click(screen.getByRole("button", { name: "Activate configuration" }));
 
-    expect(api.finalizeOidcConfiguration).toHaveBeenCalledWith("test-flow", [
-      { target_user_id: "user-1", expected_username: "reviewed-alice" },
-      { target_user_id: "user-2", expected_username: "provider-alice" },
-    ]);
+    expect(api.finalizeOidcConfiguration).toHaveBeenCalledWith(
+      "test-flow",
+      [
+        { target_user_id: "user-1", expected_username: "reviewed-alice" },
+        { target_user_id: "user-2", expected_username: "provider-alice" },
+      ],
+      4,
+      []
+    );
   });
 
   it("returns to login without a privileged refresh after Password-only recovery", async () => {

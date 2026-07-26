@@ -53,13 +53,25 @@ export function AuthenticationSettings() {
   const [configuration, setConfiguration] = useState<OidcAdminConfigurationRead | null>(null);
   const [clientSecret, setClientSecret] = useState("");
   const [testedIdentity, setTestedIdentity] = useState<OidcTestedIdentity | null>(null);
+  const [mappingReview, setMappingReview] = useState<
+    Record<string, { selected: boolean; expectedUsername: string; omissionAcknowledged: boolean }>
+  >({});
   const [busy, setBusy] = useState(true);
   const [error, setError] = useState("");
   const [notice, setNotice] = useState("");
-  const replacementUsernames = testedIdentity?.replacement_mappings.map((mapping) => mapping.expected_username.trim()) ?? [];
+  const selectedMappings = testedIdentity?.replacement_mappings.filter((mapping) => mappingReview[mapping.target_user_id]?.selected) ?? [];
+  const replacementUsernames = selectedMappings.map((mapping) => mappingReview[mapping.target_user_id].expectedUsername.trim());
+  const requiredOmissions =
+    testedIdentity?.replacement_mappings.filter(
+      (mapping) =>
+        mapping.omission_acknowledgement_required &&
+        !mappingReview[mapping.target_user_id]?.selected &&
+        !mappingReview[mapping.target_user_id]?.omissionAcknowledged
+    ) ?? [];
   const replacementPlanInvalid =
-    replacementUsernames.some((username) => !username || username === testedIdentity?.username) ||
-    new Set(replacementUsernames).size !== replacementUsernames.length;
+    replacementUsernames.some((username) => !username || username === testedIdentity?.username.trim()) ||
+    new Set(replacementUsernames).size !== replacementUsernames.length ||
+    requiredOmissions.length > 0;
 
   useEffect(() => {
     let active = true;
@@ -78,6 +90,18 @@ export function AuthenticationSettings() {
           if (active) {
             setCandidate(editableCandidate(identity.candidate));
             setTestedIdentity(identity);
+            setMappingReview(
+              Object.fromEntries(
+                identity.replacement_mappings.map((mapping) => [
+                  mapping.target_user_id,
+                  {
+                    selected: mapping.selected_by_default,
+                    expectedUsername: mapping.selected_by_default ? mapping.suggested_username : "",
+                    omissionAcknowledged: false,
+                  },
+                ])
+              )
+            );
           }
         });
       })
@@ -99,6 +123,7 @@ export function AuthenticationSettings() {
       ...(["issuer_url", "client_id", "username_claim"].includes(key) ? { username_claim_uniqueness_confirmed: false } : {}),
     }));
     setTestedIdentity(null);
+    setMappingReview({});
     setNotice("");
   };
 
@@ -123,13 +148,23 @@ export function AuthenticationSettings() {
     try {
       const result = await api.finalizeOidcConfiguration(
         testedIdentity.flow_id,
-        testedIdentity.replacement_mappings.map(({ target_user_id, expected_username }) => ({
+        selectedMappings.map(({ target_user_id }) => ({
           target_user_id,
-          expected_username: expected_username.trim(),
-        }))
+          expected_username: mappingReview[target_user_id].expectedUsername.trim(),
+        })),
+        testedIdentity.expected_identity_mapping_revision,
+        testedIdentity.replacement_mappings
+          .filter(
+            (mapping) =>
+              mapping.omission_acknowledgement_required &&
+              !mappingReview[mapping.target_user_id]?.selected &&
+              mappingReview[mapping.target_user_id]?.omissionAcknowledged
+          )
+          .map((mapping) => mapping.target_user_id)
       );
       clearAuthConfigCache();
       setTestedIdentity(null);
+      setMappingReview({});
       setClientSecret("");
       if (result.reauthentication_required) {
         localStorage.removeItem("access_token");
@@ -311,32 +346,100 @@ export function AuthenticationSettings() {
             <Typography>Groups: {testedIdentity.groups.join(", ") || "None"}</Typography>
             {testedIdentity.replacement_mappings.length > 0 && (
               <Stack spacing={2} sx={{ mt: 2 }}>
-                <Typography variant="subtitle1">Identity replacement plan</Typography>
-                {testedIdentity.replacement_mappings.map((mapping) => (
-                  <TextField
-                    key={mapping.target_user_id}
-                    label={`Provider username for ${mapping.local_username}`}
-                    value={mapping.expected_username}
-                    error={
-                      !mapping.expected_username.trim() ||
-                      mapping.expected_username.trim() === testedIdentity.username ||
-                      replacementUsernames.filter((value) => value === mapping.expected_username.trim()).length > 1
-                    }
-                    onChange={(event) =>
-                      setTestedIdentity((current) =>
-                        current
-                          ? {
+                <Typography variant="subtitle1">Review existing accounts</Typography>
+                {testedIdentity.replacement_mappings
+                  .filter((mapping) => mapping.selectable)
+                  .map((mapping) => {
+                    const review = mappingReview[mapping.target_user_id];
+                    const expectedUsername = review?.expectedUsername ?? "";
+                    const hintLabel =
+                      mapping.prefill_source === "pending"
+                        ? "Previous pending"
+                        : mapping.prefill_source === "last_seen"
+                          ? "Last seen"
+                          : "Unverified";
+                    return (
+                      <Box key={mapping.target_user_id} sx={{ borderBottom: 1, borderColor: "divider", pb: 2 }}>
+                        <FormControlLabel
+                          control={
+                            <Checkbox
+                              checked={review?.selected ?? false}
+                              onChange={(event) =>
+                                setMappingReview((current) => ({
+                                  ...current,
+                                  [mapping.target_user_id]: {
+                                    ...current[mapping.target_user_id],
+                                    selected: event.target.checked,
+                                    expectedUsername:
+                                      event.target.checked && !current[mapping.target_user_id]?.expectedUsername
+                                        ? mapping.suggested_username
+                                        : (current[mapping.target_user_id]?.expectedUsername ?? ""),
+                                    omissionAcknowledged: false,
+                                  },
+                                }))
+                              }
+                            />
+                          }
+                          label={`Map ${mapping.local_username}`}
+                        />
+                        <TextField
+                          fullWidth
+                          label={`Provider username for ${mapping.local_username}`}
+                          value={expectedUsername}
+                          placeholder={mapping.suggested_username}
+                          helperText={`${hintLabel}: ${mapping.suggested_username}`}
+                          disabled={!review?.selected}
+                          error={
+                            Boolean(review?.selected) &&
+                            (!expectedUsername.trim() ||
+                              expectedUsername.trim() === testedIdentity.username.trim() ||
+                              replacementUsernames.filter((value) => value === expectedUsername.trim()).length > 1)
+                          }
+                          onChange={(event) =>
+                            setMappingReview((current) => ({
                               ...current,
-                              replacement_mappings: current.replacement_mappings.map((row) =>
-                                row.target_user_id === mapping.target_user_id ? { ...row, expected_username: event.target.value } : row
-                              ),
+                              [mapping.target_user_id]: {
+                                ...current[mapping.target_user_id],
+                                expectedUsername: event.target.value,
+                              },
+                            }))
+                          }
+                          required={review?.selected}
+                        />
+                        {mapping.omission_acknowledgement_required && !review?.selected && (
+                          <FormControlLabel
+                            control={
+                              <Checkbox
+                                checked={review?.omissionAcknowledged ?? false}
+                                onChange={(event) =>
+                                  setMappingReview((current) => ({
+                                    ...current,
+                                    [mapping.target_user_id]: {
+                                      ...current[mapping.target_user_id],
+                                      omissionAcknowledged: event.target.checked,
+                                    },
+                                  }))
+                                }
+                              />
                             }
-                          : current
-                      )
-                    }
-                    required
-                  />
-                ))}
+                            label={`I understand ${mapping.local_username} cannot use a local password in OIDC only mode`}
+                          />
+                        )}
+                      </Box>
+                    );
+                  })}
+                {testedIdentity.replacement_mappings.some((mapping) => !mapping.selectable) && (
+                  <Box>
+                    <Typography variant="subtitle2">Inactive or expired accounts</Typography>
+                    {testedIdentity.replacement_mappings
+                      .filter((mapping) => !mapping.selectable)
+                      .map((mapping) => (
+                        <Typography key={mapping.target_user_id} color="text.secondary">
+                          {mapping.local_username} ({mapping.target_state}) must be reactivated before mapping.
+                        </Typography>
+                      ))}
+                  </Box>
+                )}
               </Stack>
             )}
             <Button variant="contained" sx={{ mt: 2 }} disabled={busy || replacementPlanInvalid} onClick={activate}>
