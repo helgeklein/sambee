@@ -14,27 +14,32 @@ function readAndClearGrant(): string | null {
 export default function OidcCallback() {
   const navigate = useNavigate();
   const [error, setError] = useState(false);
-  const exchangeStarted = useRef(false);
+  const exchangePromise = useRef<Promise<string> | null>(null);
+  const mounted = useRef(false);
+  const navigationCompleted = useRef(false);
 
   useEffect(() => {
-    if (exchangeStarted.current) return;
-    exchangeStarted.current = true;
-    const grant = readAndClearGrant();
-    if (!grant) {
-      setError(true);
-      return;
+    mounted.current = true;
+    if (!exchangePromise.current) {
+      const grant = readAndClearGrant();
+      if (!grant) {
+        setError(true);
+        return;
+      }
+      exchangePromise.current = exchangeOidcGrant(grant).then(completeAuthentication);
     }
-    let active = true;
-    void exchangeOidcGrant(grant)
-      .then(completeAuthentication)
+    void exchangePromise.current
       .then((returnPath) => {
-        if (active) navigate(returnPath, { replace: true });
+        if (mounted.current && !navigationCompleted.current) {
+          navigationCompleted.current = true;
+          navigate(returnPath, { replace: true });
+        }
       })
       .catch(() => {
-        if (active) setError(true);
+        if (mounted.current) setError(true);
       });
     return () => {
-      active = false;
+      mounted.current = false;
     };
   }, [navigate]);
 

@@ -1,4 +1,5 @@
 import json
+import uuid
 from datetime import datetime, timedelta, timezone
 from typing import cast
 
@@ -36,6 +37,7 @@ from app.services.oidc_configuration import (
     derive_oidc_redirect_uri,
     encrypt_candidate_snapshot,
     normalize_candidate,
+    redacted_candidate,
     redacted_configuration,
 )
 from app.services.oidc_flow import start_test_flow
@@ -131,7 +133,7 @@ async def start_oidc_test(
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="OIDC configuration validation failed") from error
 
 
-def _get_owned_validated_test_flow(session: Session, flow_id: object, current_user: User) -> OidcFlow:
+def _get_owned_validated_test_flow(session: Session, flow_id: uuid.UUID, current_user: User) -> OidcFlow:
     flow = session.get(OidcFlow, flow_id)
     now = datetime.now(timezone.utc)
     if (
@@ -149,14 +151,17 @@ def _get_owned_validated_test_flow(session: Session, flow_id: object, current_us
 
 @router.get("/auth/oidc/test/{flow_id}", response_model=OidcTestedIdentityRead)
 async def get_oidc_test_result(
-    flow_id: str,
+    flow_id: uuid.UUID,
     current_user: User = Depends(get_current_admin_user),
     session: Session = Depends(get_session),
 ) -> OidcTestedIdentityRead:
     flow = _get_owned_validated_test_flow(session, flow_id, current_user)
-    claims = _tested_claims(cast(str, flow.encrypted_tested_identity), OidcSecretCipher(settings.oidc_secret_key))
+    cipher = OidcSecretCipher(settings.oidc_secret_key)
+    claims = _tested_claims(cast(str, flow.encrypted_tested_identity), cipher)
+    candidate = decrypt_candidate_snapshot(cast(str, flow.encrypted_candidate_configuration), cipher)
     return OidcTestedIdentityRead(
         flow_id=flow.id,
+        candidate=redacted_candidate(candidate),
         username=claims.username,
         name=claims.name,
         email=claims.email,
@@ -233,8 +238,12 @@ async def finalize_oidc_configuration(
     if not replacing_namespace and existing_user_identity is not None and existing_user_identity.subject != tested.subject:
         raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="Administrator already has a different OIDC identity")
 
+    relink_users: list[tuple[User, str]] = []
     if replacing_namespace and active is not None:
         for identity in session.exec(select(OidcIdentity).where(OidcIdentity.issuer == active.issuer_url)).all():
+            linked_user = session.get(User, identity.user_id)
+            if linked_user is not None and linked_user.id != current_user.id:
+                relink_users.append((linked_user, identity.last_seen_username or linked_user.username))
             session.delete(identity)
         for pending in session.exec(
             select(OidcPendingIdentityMapping).where(OidcPendingIdentityMapping.provider_configuration_id == active.id)
@@ -251,6 +260,15 @@ async def finalize_oidc_configuration(
             setattr(active, key, value)
         session.add(active)
     session.flush()
+    for relink_user, expected_username in relink_users:
+        session.add(
+            OidcPendingIdentityMapping(
+                provider_configuration_id=active.id,
+                expected_username=expected_username,
+                target_user_id=relink_user.id,
+                created_by_user_id=current_user.id,
+            )
+        )
     if existing_subject is None and existing_user_identity is None:
         session.add(
             OidcIdentity(

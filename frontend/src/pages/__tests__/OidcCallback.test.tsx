@@ -1,6 +1,7 @@
-import { screen, waitFor } from "@testing-library/react";
+import { render, screen, waitFor } from "@testing-library/react";
+import { StrictMode } from "react";
+import { MemoryRouter, Route, Routes } from "react-router-dom";
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import { render } from "../../test/utils/test-utils";
 import OidcCallback from "../OidcCallback";
 
 vi.mock("../../services/api", () => ({
@@ -39,18 +40,34 @@ describe("OIDC callback", () => {
       };
     });
 
-    render(<OidcCallback />);
+    render(
+      <StrictMode>
+        <MemoryRouter initialEntries={["/login/oidc/callback"]}>
+          <Routes>
+            <Route path="/login/oidc/callback" element={<OidcCallback />} />
+            <Route path="/browse" element={<div>File browser</div>} />
+          </Routes>
+        </MemoryRouter>
+      </StrictMode>
+    );
 
     await waitFor(() => expect(exchangeOidcGrant).toHaveBeenCalledWith("one-time-grant"));
     expect(fragmentScrubbedBeforeExchange).toBe(true);
     await waitFor(() => expect(localStorage.getItem("access_token")).toBe("sambee-token"));
+    expect(await screen.findByText("File browser")).toBeInTheDocument();
+    expect(exchangeOidcGrant).toHaveBeenCalledTimes(1);
+    expect(screen.queryByLabelText("Completing sign in")).not.toBeInTheDocument();
   });
 
   it("shows a generic retry action when the grant is missing", async () => {
     window.history.replaceState(null, "", "/login/oidc/callback");
     window.location.hash = "";
 
-    render(<OidcCallback />);
+    render(
+      <MemoryRouter initialEntries={["/login/oidc/callback"]}>
+        <OidcCallback />
+      </MemoryRouter>
+    );
 
     expect(await screen.findByRole("button", { name: "Try again" })).toBeInTheDocument();
     expect(exchangeOidcGrant).not.toHaveBeenCalled();

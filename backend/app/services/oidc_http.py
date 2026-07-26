@@ -30,6 +30,8 @@ VALIDATED_TEST_FLOW_LIFETIME_SECONDS: Final = 30 * 60
 LOGIN_GRANT_LIFETIME_SECONDS: Final = 60
 OIDC_SESSION_LIFETIME_MINUTES: Final = 60
 
+_OIDC_REQUEST_LIMITER = anyio.CapacityLimiter(MAX_CONCURRENT_OIDC_REQUESTS)
+
 SocketOption = tuple[int, int, int] | tuple[int, int, bytes | bytearray] | tuple[int, int, None, int]
 AddressResolver = Callable[[str, int], Awaitable[list[str]]]
 
@@ -187,7 +189,6 @@ class ValidatedOidcHttpClient:
             follow_redirects=False,
             timeout=httpx.Timeout(READ_TIMEOUT_SECONDS, connect=CONNECT_TIMEOUT_SECONDS),
         )
-        self._limiter = anyio.CapacityLimiter(MAX_CONCURRENT_OIDC_REQUESTS)
         self._development = development
 
     async def __aenter__(self) -> "ValidatedOidcHttpClient":
@@ -216,7 +217,7 @@ class ValidatedOidcHttpClient:
     ) -> OidcJsonResponse:
         validate_oidc_url(url, development=self._development)
         try:
-            async with self._limiter:
+            async with _OIDC_REQUEST_LIMITER:
                 async with self._client.stream(method, url, headers=headers, data=data, auth=auth) as response:
                     if response.is_redirect:
                         raise OidcHttpError(OidcHttpErrorCode.REDIRECT_REJECTED, "OIDC endpoint redirects are not allowed")

@@ -100,6 +100,7 @@ class OidcTestStartResponse(SQLModel):
 
 class OidcTestedIdentityRead(SQLModel):
     flow_id: uuid.UUID
+    candidate: RedactedOidcConfiguration
     username: str
     name: str | None
     email: str | None

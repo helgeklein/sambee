@@ -294,6 +294,7 @@ export interface OidcTestStartResponse {
 
 export interface OidcTestedIdentity {
   flow_id: string;
+  candidate: RedactedOidcConfiguration;
   username: string;
   name: string | null;
   email: string | null;

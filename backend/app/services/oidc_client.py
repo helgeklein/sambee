@@ -1,6 +1,7 @@
 import base64
 import json
 import time
+from collections import OrderedDict
 from collections.abc import Awaitable, Callable, Mapping
 from dataclasses import dataclass
 from enum import StrEnum
@@ -18,6 +19,7 @@ from app.services.oidc_http import (
     ID_TOKEN_CLOCK_SKEW_SECONDS,
     JWKS_RESPONSE_LIMIT_BYTES,
     MAX_FUTURE_IAT_SECONDS,
+    OIDC_CACHE_MAX_AGE_SECONDS,
     TOKEN_RESPONSE_LIMIT_BYTES,
     USERINFO_RESPONSE_LIMIT_BYTES,
     ValidatedOidcHttpClient,
@@ -26,6 +28,7 @@ from app.services.oidc_http import (
 
 ALLOWED_ID_TOKEN_ALGORITHMS: Final = ("RS256",)
 DISCOVERY_SUFFIX: Final = "/.well-known/openid-configuration"
+OIDC_PROVIDER_CACHE_MAX_ENTRIES: Final = 64
 
 
 class OidcClientErrorCode(StrEnum):
@@ -80,6 +83,16 @@ class NormalizedOidcClaims:
     email: str | None
 
 
+@dataclass(frozen=True)
+class _CachedProvider:
+    metadata: OidcProviderMetadata
+    jwks: dict[str, Any]
+    expires_at: float
+
+
+_PROVIDER_CACHE: OrderedDict[str, _CachedProvider] = OrderedDict()
+
+
 JwksLoader = Callable[[], Awaitable[dict[str, Any]]]
 
 
@@ -119,12 +132,49 @@ def _validate_jwks(data: dict[str, Any]) -> dict[str, Any]:
     return data
 
 
+def _cache_ttl(headers: httpx.Headers) -> int:
+    directives = {part.strip().lower() for value in headers.get_list("cache-control") for part in value.split(",")}
+    if directives.intersection({"no-store", "no-cache", "private"}):
+        return 0
+    max_age = next((directive.partition("=")[2].strip('"') for directive in directives if directive.startswith("max-age=")), None)
+    if max_age is None or not max_age.isdigit():
+        return 0
+    age = headers.get("age", "0").strip()
+    current_age = int(age) if age.isdigit() else 0
+    return max(0, min(int(max_age), OIDC_CACHE_MAX_AGE_SECONDS) - current_age)
+
+
+def _store_cached_provider(
+    issuer: str,
+    metadata: OidcProviderMetadata,
+    jwks: dict[str, Any],
+    ttl: int,
+) -> None:
+    if ttl <= 0:
+        _PROVIDER_CACHE.pop(issuer, None)
+        return
+    _PROVIDER_CACHE[issuer] = _CachedProvider(metadata=metadata, jwks=jwks, expires_at=time.monotonic() + ttl)
+    _PROVIDER_CACHE.move_to_end(issuer)
+    while len(_PROVIDER_CACHE) > OIDC_PROVIDER_CACHE_MAX_ENTRIES:
+        _PROVIDER_CACHE.popitem(last=False)
+
+
+def clear_oidc_provider_cache() -> None:
+    _PROVIDER_CACHE.clear()
+
+
 async def load_provider_metadata(
     http_client: ValidatedOidcHttpClient,
     issuer: str,
     *,
     development: bool = IS_DEVELOPMENT,
 ) -> tuple[OidcProviderMetadata, dict[str, Any]]:
+    cached = _PROVIDER_CACHE.get(issuer)
+    if cached is not None:
+        if cached.expires_at > time.monotonic():
+            _PROVIDER_CACHE.move_to_end(issuer)
+            return cached.metadata, cached.jwks
+        _PROVIDER_CACHE.pop(issuer, None)
     response = await http_client.request_json(
         "GET",
         _discovery_url(issuer, development=development),
@@ -163,7 +213,24 @@ async def load_provider_metadata(
         id_token_signing_alg_values_supported=algorithms,
         scopes_supported=_string_tuple(data, "scopes_supported"),
     )
-    return metadata, _validate_jwks(jwks_response.data)
+    jwks = _validate_jwks(jwks_response.data)
+    _store_cached_provider(issuer, metadata, jwks, min(_cache_ttl(response.headers), _cache_ttl(jwks_response.headers)))
+    return metadata, jwks
+
+
+async def refresh_provider_jwks(
+    http_client: ValidatedOidcHttpClient,
+    metadata: OidcProviderMetadata,
+) -> dict[str, Any]:
+    response = await http_client.request_json("GET", metadata.jwks_uri, response_limit=JWKS_RESPONSE_LIMIT_BYTES)
+    jwks = _validate_jwks(response.data)
+    cached = _PROVIDER_CACHE.get(metadata.issuer)
+    if cached is not None and cached.metadata == metadata and cached.expires_at > time.monotonic():
+        remaining_ttl = max(0, int(cached.expires_at - time.monotonic()))
+        _store_cached_provider(metadata.issuer, metadata, jwks, min(remaining_ttl, _cache_ttl(response.headers)))
+    else:
+        _PROVIDER_CACHE.pop(metadata.issuer, None)
+    return jwks
 
 
 def build_authorization_request(

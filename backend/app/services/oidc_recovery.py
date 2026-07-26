@@ -1,5 +1,6 @@
 import json
 import uuid
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import TextIO
 
@@ -20,9 +21,19 @@ def activate_password_only(session: Session, *, acting_user_id: uuid.UUID | None
     configuration = session.get(OidcProviderConfiguration, 1)
     if configuration is None:
         raise OidcRecoveryError("Database authentication configuration was not found")
-    local_admin = session.exec(
-        select(User.id).where(User.role == UserRole.ADMIN, User.is_active == True, User.password_hash != None)  # noqa: E711,E712
-    ).first()
+    now = datetime.now(timezone.utc)
+    local_admins = session.exec(
+        select(User).where(User.role == UserRole.ADMIN, User.is_active == True, User.password_hash != None)  # noqa: E711,E712
+    ).all()
+    local_admin = next(
+        (
+            user
+            for user in local_admins
+            if user.expires_at is None
+            or (user.expires_at.replace(tzinfo=timezone.utc) if user.expires_at.tzinfo is None else user.expires_at) > now
+        ),
+        None,
+    )
     if local_admin is None:
         raise OidcRecoveryError("Password-only mode requires an active local-password administrator")
     configuration.sign_in_mode = SignInMode.PASSWORD_ONLY

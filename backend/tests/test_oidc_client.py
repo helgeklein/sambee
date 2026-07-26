@@ -14,8 +14,10 @@ from app.services.oidc_client import (
     OidcClientErrorCode,
     OidcProviderMetadata,
     build_authorization_request,
+    clear_oidc_provider_cache,
     exchange_and_validate_callback,
     load_provider_metadata,
+    refresh_provider_jwks,
 )
 from app.services.oidc_http import ValidatedOidcHttpClient
 
@@ -68,6 +70,7 @@ def _id_token(private_key: Any, key_id: str, *, nonce: str, now: int, claims: di
 
 @pytest.mark.asyncio
 async def test_metadata_requires_exact_issuer_and_loads_jwks_through_injected_transport() -> None:
+    clear_oidc_provider_cache()
     requested_urls: list[str] = []
 
     def handler(request: httpx.Request) -> httpx.Response:
@@ -99,6 +102,7 @@ async def test_metadata_requires_exact_issuer_and_loads_jwks_through_injected_tr
 
 @pytest.mark.asyncio
 async def test_metadata_rejects_issuer_mismatch() -> None:
+    clear_oidc_provider_cache()
     transport = httpx.MockTransport(
         lambda request: httpx.Response(
             200,
@@ -116,6 +120,43 @@ async def test_metadata_rejects_issuer_mismatch() -> None:
         with pytest.raises(OidcClientError) as error:
             await load_provider_metadata(client, ISSUER, development=False)
     assert error.value.code == OidcClientErrorCode.INVALID_ISSUER
+
+
+@pytest.mark.asyncio
+async def test_metadata_and_jwks_cache_honors_ttl_and_forced_key_refresh() -> None:
+    clear_oidc_provider_cache()
+    requested_paths: list[str] = []
+    jwks_version = 1
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        nonlocal jwks_version
+        requested_paths.append(request.url.path)
+        headers = {"content-type": "application/json", "cache-control": "public, max-age=7200"}
+        if request.url.path.endswith("openid-configuration"):
+            return httpx.Response(
+                200,
+                headers=headers,
+                json={
+                    "issuer": ISSUER,
+                    "authorization_endpoint": f"{ISSUER}/authorize",
+                    "token_endpoint": f"{ISSUER}/token",
+                    "jwks_uri": f"{ISSUER}/jwks",
+                    "id_token_signing_alg_values_supported": ["RS256"],
+                },
+            )
+        return httpx.Response(200, headers=headers, json={"keys": [{"kty": "RSA", "kid": f"key-{jwks_version}"}]})
+
+    async with ValidatedOidcHttpClient(transport=httpx.MockTransport(handler), development=False) as client:
+        metadata, first_jwks = await load_provider_metadata(client, ISSUER, development=False)
+        _, cached_jwks = await load_provider_metadata(client, ISSUER, development=False)
+        jwks_version = 2
+        refreshed_jwks = await refresh_provider_jwks(client, metadata)
+        _, refreshed_cached_jwks = await load_provider_metadata(client, ISSUER, development=False)
+
+    assert requested_paths == ["/.well-known/openid-configuration", "/jwks", "/jwks"]
+    assert first_jwks == cached_jwks
+    assert refreshed_jwks == refreshed_cached_jwks
+    assert refreshed_jwks["keys"][0]["kid"] == "key-2"
 
 
 def test_authorization_request_contains_state_nonce_and_pkce_s256() -> None:

@@ -39,6 +39,12 @@ const parseList = (value: string) =>
     .map((entry) => entry.trim())
     .filter(Boolean);
 const optionalClaim = (value: string) => value.trim() || null;
+const editableCandidate = ({
+  client_secret_configured: _,
+  configuration_revision: __,
+  identity_mapping_revision: ___,
+  ...candidate
+}: NonNullable<OidcAdminConfigurationRead["configuration"]>): OidcConfigurationCandidate => candidate;
 
 export function AuthenticationSettings() {
   const [candidate, setCandidate] = useState<OidcConfigurationCandidate>(DEFAULT_CANDIDATE);
@@ -57,19 +63,16 @@ export function AuthenticationSettings() {
         if (!active) return;
         setConfiguration(response);
         if (response.configuration) {
-          const {
-            client_secret_configured: _,
-            configuration_revision: __,
-            identity_mapping_revision: ___,
-            ...stored
-          } = response.configuration;
-          setCandidate(stored);
+          setCandidate(editableCandidate(response.configuration));
         }
         const flowId = new URLSearchParams(window.location.hash.replace(/^#/, "")).get("flow");
         if (!flowId) return;
         window.history.replaceState(null, "", window.location.pathname + window.location.search);
         return api.getOidcTestResult(flowId).then((identity) => {
-          if (active) setTestedIdentity(identity);
+          if (active) {
+            setCandidate(editableCandidate(identity.candidate));
+            setTestedIdentity(identity);
+          }
         });
       })
       .catch(() => {
@@ -113,7 +116,9 @@ export function AuthenticationSettings() {
       setTestedIdentity(null);
       setClientSecret("");
       setNotice("Authentication configuration activated.");
-      setConfiguration(await api.getOidcConfiguration());
+      const refreshed = await api.getOidcConfiguration();
+      setConfiguration(refreshed);
+      if (refreshed.configuration) setCandidate(editableCandidate(refreshed.configuration));
     } catch {
       setError("The tested configuration could not be activated. Run the test again.");
     } finally {
@@ -129,8 +134,9 @@ export function AuthenticationSettings() {
       await api.setPasswordOnlyAuthentication();
       clearAuthConfigCache();
       setNotice("Password-only authentication activated. Sign in again when this session ends.");
-      setConfiguration(await api.getOidcConfiguration());
-      update("sign_in_mode", "password_only");
+      const refreshed = await api.getOidcConfiguration();
+      setConfiguration(refreshed);
+      if (refreshed.configuration) setCandidate(editableCandidate(refreshed.configuration));
     } catch {
       setError("Password-only mode requires an active administrator with a local password.");
     } finally {

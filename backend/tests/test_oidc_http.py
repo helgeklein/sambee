@@ -104,7 +104,14 @@ async def test_outbound_request_concurrency_is_bounded() -> None:
         active -= 1
         return httpx.Response(200, headers={"content-type": "application/json"}, content=b"{}")
 
-    async with ValidatedOidcHttpClient(transport=httpx.MockTransport(handler), development=False) as client:
-        await asyncio.gather(*(client.request_json("GET", "https://idp.example.test/data", response_limit=100) for _ in range(8)))
+    transport = httpx.MockTransport(handler)
+    async with (
+        ValidatedOidcHttpClient(transport=transport, development=False) as first_client,
+        ValidatedOidcHttpClient(transport=transport, development=False) as second_client,
+    ):
+        await asyncio.gather(
+            *(first_client.request_json("GET", "https://idp.example.test/data", response_limit=100) for _ in range(8)),
+            *(second_client.request_json("GET", "https://idp.example.test/data", response_limit=100) for _ in range(8)),
+        )
 
     assert peak == MAX_CONCURRENT_OIDC_REQUESTS

@@ -24,6 +24,7 @@ from app.services.oidc_client import (
     build_authorization_request,
     exchange_and_validate_callback,
     load_provider_metadata,
+    refresh_provider_jwks,
 )
 from app.services.oidc_configuration import OidcSecretCipher, decrypt_candidate_snapshot, derive_oidc_redirect_uri
 from app.services.oidc_flow import (
@@ -35,7 +36,7 @@ from app.services.oidc_flow import (
     fail_claimed_callback,
     start_login_flow,
 )
-from app.services.oidc_http import JWKS_RESPONSE_LIMIT_BYTES, ValidatedOidcHttpClient
+from app.services.oidc_http import ValidatedOidcHttpClient
 from app.services.oidc_identity import resolve_or_provision_oidc_user
 from app.services.user_settings import build_current_user_settings_read, update_current_user_settings
 
@@ -227,8 +228,7 @@ async def oidc_callback(
             metadata, jwks = await load_provider_metadata(http_client, issuer_url)
 
             async def refresh_jwks() -> dict[str, Any]:
-                response = await http_client.request_json("GET", metadata.jwks_uri, response_limit=JWKS_RESPONSE_LIMIT_BYTES)
-                return response.data
+                return await refresh_provider_jwks(http_client, metadata)
 
             claims = await exchange_and_validate_callback(
                 http_client,

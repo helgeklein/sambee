@@ -167,9 +167,7 @@ def normalize_candidate(
     if candidate.sign_in_mode != SignInMode.PASSWORD_ONLY and client_secret is None:
         raise OidcConfigurationError("OIDC sign-in requires a configured client secret")
 
-    namespace_changed = active is not None and (
-        issuer_url != active.issuer_url or client_id != active.client_id or username_claim != active.username_claim
-    )
+    namespace_changed = active is not None and (issuer_url != active.issuer_url or client_id != active.client_id)
     uniqueness_confirmed = candidate.username_claim_uniqueness_confirmed
     active_values = _active_values(active)
     candidate_values: dict[str, Any] = {
@@ -251,6 +249,27 @@ def redacted_configuration(configuration: OidcProviderConfiguration) -> Redacted
         role_mappings=OidcRoleMappings(admin=role_mappings["admin"], editor=role_mappings["editor"]),
         configuration_revision=configuration.configuration_revision,
         identity_mapping_revision=configuration.identity_mapping_revision,
+    )
+
+
+def redacted_candidate(candidate: NormalizedOidcCandidate) -> RedactedOidcConfiguration:
+    return RedactedOidcConfiguration(
+        display_name=candidate.display_name,
+        issuer_url=candidate.issuer_url,
+        client_id=candidate.client_id,
+        client_secret_configured=candidate.client_secret is not None,
+        scopes=list(candidate.scopes),
+        username_claim=candidate.username_claim,
+        username_claim_uniqueness_confirmed=candidate.username_claim_uniqueness_confirmed,
+        name_claim=candidate.name_claim,
+        email_claim=candidate.email_claim,
+        groups_claim=candidate.groups_claim,
+        sign_in_mode=candidate.sign_in_mode,
+        admission_mode=candidate.admission_mode,
+        admission_groups=list(candidate.admission_groups),
+        role_mappings=OidcRoleMappings(admin=list(candidate.admin_groups), editor=list(candidate.editor_groups)),
+        configuration_revision=candidate.configuration_revision,
+        identity_mapping_revision=candidate.identity_mapping_revision,
     )
 
 
