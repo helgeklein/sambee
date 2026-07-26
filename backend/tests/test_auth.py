@@ -255,7 +255,8 @@ class TestLoginEndpoint:
         assert response.status_code == 401
         assert "Incorrect username or password" in response.json()["detail"]
 
-    def test_password_login_rate_limit_returns_generic_429(self, client: TestClient):
+    def test_password_login_rate_limit_returns_generic_429(self, client: TestClient, monkeypatch: pytest.MonkeyPatch):
+        monkeypatch.setattr(auth_module.authentication_rate_limiter, "_clock", lambda: 0.0)
         for _ in range(10):
             response = client.post("/api/auth/token", data={"username": "missing", "password": "wrong"})
             assert response.status_code == 401
@@ -266,7 +267,8 @@ class TestLoginEndpoint:
         assert response.json() == {"detail": "Incorrect username or password"}
         assert response.headers["Retry-After"] == "90"
 
-    def test_oidc_exchange_rate_limit_returns_generic_429(self, client: TestClient):
+    def test_oidc_exchange_rate_limit_returns_generic_429(self, client: TestClient, monkeypatch: pytest.MonkeyPatch):
+        monkeypatch.setattr(auth_module.authentication_rate_limiter, "_clock", lambda: 0.0)
         for _ in range(30):
             response = client.post("/api/auth/oidc/exchange", json={"grant": "x" * 32})
             assert response.status_code == 401
@@ -277,7 +279,8 @@ class TestLoginEndpoint:
         assert response.json() == {"detail": "OIDC login grant is invalid"}
         assert response.headers["Retry-After"] == "10"
 
-    def test_oidc_authorization_rate_limit_uses_fixed_redirect(self, client: TestClient):
+    def test_oidc_authorization_rate_limit_uses_fixed_redirect(self, client: TestClient, monkeypatch: pytest.MonkeyPatch):
+        monkeypatch.setattr(auth_module.authentication_rate_limiter, "_clock", lambda: 0.0)
         for _ in range(20):
             response = client.get("/api/auth/oidc/authorize", follow_redirects=False)
             assert response.status_code == 404
@@ -288,7 +291,8 @@ class TestLoginEndpoint:
         assert response.headers["location"] == "/login#error=oidc_rate_limited"
         assert response.headers["Retry-After"] == "15"
 
-    def test_oidc_callback_rate_limit_uses_fixed_redirect(self, client: TestClient):
+    def test_oidc_callback_rate_limit_uses_fixed_redirect(self, client: TestClient, monkeypatch: pytest.MonkeyPatch):
+        monkeypatch.setattr(auth_module.authentication_rate_limiter, "_clock", lambda: 0.0)
         for _ in range(60):
             response = client.get(
                 "/api/auth/oidc/callback",
