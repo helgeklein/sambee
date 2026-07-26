@@ -132,6 +132,73 @@ describe("UserManagementSettings", () => {
     expect(screen.queryByText("Local password")).not.toBeInTheDocument();
   });
 
+  it("disables pending mapping actions until username uniqueness is confirmed", async () => {
+    vi.mocked(api.getUsers).mockResolvedValue([
+      {
+        id: "user-1",
+        username: "linked-admin",
+        role: "admin",
+        is_active: true,
+        must_change_password: false,
+        has_local_password: true,
+        oidc: { identity_id: "identity-1", provider_display_name: "Corporate login", last_login_at: null },
+        pending_oidc: null,
+        created_at: "2026-03-01T10:00:00Z",
+        updated_at: "2026-03-01T10:00:00Z",
+      },
+      {
+        id: "user-2",
+        username: "unmapped-user",
+        role: "viewer",
+        is_active: true,
+        must_change_password: false,
+        has_local_password: true,
+        oidc: null,
+        pending_oidc: null,
+        created_at: "2026-03-01T10:00:00Z",
+        updated_at: "2026-03-01T10:00:00Z",
+      },
+    ]);
+    vi.mocked(api.getOidcConfiguration).mockResolvedValue({
+      configuration: {
+        display_name: "Corporate login",
+        issuer_url: "https://idp.example.test",
+        client_id: "sambee",
+        client_secret_configured: true,
+        scopes: ["openid", "groups"],
+        username_claim: "preferred_username",
+        username_claim_uniqueness_confirmed: false,
+        name_claim: "name",
+        email_claim: "email",
+        groups_claim: "groups",
+        sign_in_mode: "oidc_or_password",
+        admission_mode: "selected_groups",
+        admission_groups: ["users"],
+        role_mappings: { admin: ["admins"], editor: [] },
+        configuration_revision: 2,
+        identity_mapping_revision: 1,
+      },
+      active_passwordless_user_count: 0,
+      health: {
+        oidc_secret_key_configured: true,
+        public_url_configured: true,
+        public_url: "https://sambee.example.test",
+        redirect_uri: "https://sambee.example.test/api/auth/oidc/callback",
+        status: "healthy",
+        reasons: [],
+      },
+    });
+
+    render(
+      <SambeeThemeProvider>
+        <UserManagementSettings />
+      </SambeeThemeProvider>
+    );
+
+    expect(await screen.findByRole("button", { name: "Change OIDC account for linked-admin" })).toBeDisabled();
+    expect(screen.getByRole("button", { name: "Map OIDC account for unmapped-user" })).toBeDisabled();
+  });
+
   it("lets the admin enter a new password for a reset", async () => {
     const user = userEvent.setup();
 

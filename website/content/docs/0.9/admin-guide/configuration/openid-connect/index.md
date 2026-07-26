@@ -103,7 +103,7 @@ Open **Settings > Administration > Authentication** as a local administrator.
 
 Testing does not change the active configuration. Activation succeeds only when the tested identity resolves to an administrator, the test belongs to the initiating administrator, and the active configuration has not changed since the test began. Leaving the client-secret field blank preserves an existing stored secret.
 
-The current setup test is retained for the browser tab if the page reloads. If another administrator changes account mappings during review, Sambee reloads the current mapping plan in the same tested flow and discards stale edits. If the provider configuration changed, or the saved test expired, Sambee discards the tested flow and requires another provider test. Temporary network failures retain the flow so the result can be loaded again. If the connection is interrupted during activation, select **Activate configuration** again. Sambee retries the same tested flow and returns the completed activation result when the first request already succeeded.
+The current setup test is retained for the browser tab if the page reloads. If another administrator changes account mappings during review, Sambee reloads the current mapping plan in the same tested flow and discards stale edits. If the provider configuration changed, or the saved test expired, Sambee discards the tested flow and requires another provider test. Temporary network failures retain the flow so the result can be loaded again. If the connection is interrupted during activation, Sambee retries the same tested flow. The browser retains that exact activation request in the current tab until the server returns a definitive result, so reloading the page can recover a completed activation without repeating its changes.
 
 Select **Cancel** to delete the test's encrypted candidate and tested identity immediately. Closing the page without canceling leaves the test unavailable to other administrators and lets it expire automatically.
 
@@ -130,6 +130,8 @@ Remapping requires another interactive provider test and uses the same account r
 ## Manage Account Mappings
 
 Open **Settings > Administration > Users** to review how each local account authenticates. An account may show **Local password**, **OIDC linked**, or both. Established mappings show the provider name and last successful OIDC login. A pending mapping shows the exact provider username that must complete the first admitted OIDC login, who created the mapping, and when it was created.
+
+Mapping and **Change OIDC account** controls are unavailable until Authentication settings confirms that the configured provider username claim is stable and unique for every user. This requirement also applies when changing an established identity to a pending mapping.
 
 Administrators can perform these operations:
 

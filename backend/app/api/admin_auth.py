@@ -74,6 +74,7 @@ from app.services.oidc_mapping import (
     create_pending_mappings,
     derive_mapping_plan,
     detach_identity,
+    ensure_pending_mapping_allowed,
     move_identity,
     replace_pending_mappings,
     validate_pending_mapping_batch,
@@ -493,13 +494,10 @@ async def finalize_oidc_configuration(
                 tested_username=tested.username.strip(),
                 replacing_namespace=replacing_namespace,
             )
+            if reviewed_replacement_mappings:
+                ensure_pending_mapping_allowed(candidate)
         except OidcMappingError as error:
             raise _mapping_http_exception(error) from error
-        if reviewed_replacement_mappings and not candidate.username_claim_uniqueness_confirmed:
-            raise HTTPException(
-                status_code=status.HTTP_409_CONFLICT,
-                detail="oidc_username_claim_uniqueness_not_confirmed",
-            )
     elif payload.replacement_mappings or payload.omitted_account_acknowledgements:
         raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="OIDC mapping review is not expected")
 
@@ -762,9 +760,9 @@ async def put_pending_oidc_mappings(
     session: Session = Depends(get_session),
 ) -> OidcMappingMutationResponse:
     configuration = _active_oidc_configuration(session)
-    if not configuration.username_claim_uniqueness_confirmed:
-        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="OIDC username claim uniqueness is not confirmed")
     try:
+        if payload.mappings:
+            ensure_pending_mapping_allowed(configuration)
         identity_mapping_revision = claim_mapping_revision(session, configuration, payload.expected_identity_mapping_revision)
         mappings = validate_pending_mapping_batch(session, configuration=configuration, mappings=payload.mappings)
         replace_pending_mappings(
@@ -833,6 +831,7 @@ async def change_oidc_identity(
 ) -> OidcMappingMutationResponse:
     configuration = _active_oidc_configuration(session)
     try:
+        ensure_pending_mapping_allowed(configuration)
         identity_mapping_revision = claim_mapping_revision(session, configuration, payload.expected_identity_mapping_revision)
         change_identity(
             session,

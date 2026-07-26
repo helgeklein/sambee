@@ -480,6 +480,75 @@ describe("Authentication settings", () => {
     expect(screen.getByText("Tested identity")).toBeInTheDocument();
   });
 
+  it("replays a persisted finalization before loading configuration after reload", async () => {
+    const user = userEvent.setup();
+    vi.spyOn(window, "confirm").mockReturnValue(true);
+    vi.mocked(api.getOidcConfiguration).mockResolvedValue(response(configuration("Active Provider")));
+    vi.mocked(api.getOidcTestResult).mockResolvedValue(testedIdentity());
+    vi.mocked(api.finalizeOidcConfiguration).mockRejectedValue({ message: "Network unavailable" });
+    window.location.hash = "flow=test-flow";
+    const firstView = renderSettings();
+
+    await user.click(await screen.findByRole("button", { name: "Activate configuration" }));
+    expect(await screen.findByText(/activation may have completed/i)).toBeInTheDocument();
+    const persistedRequest = sessionStorage.getItem("sambee.oidc.pendingFinalization");
+    expect(persistedRequest).not.toBeNull();
+    const originalFinalizationArguments = vi.mocked(api.finalizeOidcConfiguration).mock.calls[0];
+    firstView.unmount();
+
+    vi.clearAllMocks();
+    vi.mocked(api.finalizeOidcConfiguration).mockResolvedValue({
+      configuration_revision: 3,
+      identity_mapping_revision: 2,
+      reauthentication_required: true,
+    });
+    renderSettings();
+
+    expect(await screen.findByText("Sign in again")).toBeInTheDocument();
+    expect(api.finalizeOidcConfiguration).toHaveBeenCalledTimes(1);
+    expect(vi.mocked(api.finalizeOidcConfiguration).mock.calls[0]).toEqual(originalFinalizationArguments);
+    expect(api.getOidcConfiguration).not.toHaveBeenCalled();
+    expect(api.getOidcTestResult).not.toHaveBeenCalled();
+    expect(sessionStorage.getItem("sambee.oidc.pendingFinalization")).toBeNull();
+  });
+
+  it("discards malformed pending finalization state and restores the tested preview", async () => {
+    sessionStorage.setItem("sambee.oidc.setupFlowId", "stored-flow");
+    sessionStorage.setItem("sambee.oidc.pendingFinalization", JSON.stringify({ flow_id: "stored-flow", replacement_mappings: "invalid" }));
+    window.location.hash = "";
+    vi.mocked(api.getOidcConfiguration).mockResolvedValue(response(configuration("Active Provider")));
+    vi.mocked(api.getOidcTestResult).mockResolvedValue(testedIdentity({ flow_id: "stored-flow" }));
+
+    renderSettings();
+
+    expect(await screen.findByText("Tested identity")).toBeInTheDocument();
+    expect(api.finalizeOidcConfiguration).not.toHaveBeenCalled();
+    expect(api.getOidcTestResult).toHaveBeenCalledWith("stored-flow", undefined);
+    expect(sessionStorage.getItem("sambee.oidc.pendingFinalization")).toBeNull();
+  });
+
+  it("retains pending finalization state when receipt recovery requires reauthentication", async () => {
+    sessionStorage.setItem("sambee.oidc.setupFlowId", "stored-flow");
+    sessionStorage.setItem(
+      "sambee.oidc.pendingFinalization",
+      JSON.stringify({
+        flow_id: "stored-flow",
+        reviewed_policy: reviewedPolicy(configuration("Tested Provider")),
+        replacement_mappings: [],
+        expected_identity_mapping_revision: 1,
+        omitted_account_acknowledgements: [],
+      })
+    );
+    window.location.hash = "";
+    vi.mocked(api.finalizeOidcConfiguration).mockRejectedValue({ response: { status: 401 } });
+
+    renderSettings();
+
+    await waitFor(() => expect(api.finalizeOidcConfiguration).toHaveBeenCalled());
+    expect(api.getOidcConfiguration).not.toHaveBeenCalled();
+    expect(sessionStorage.getItem("sambee.oidc.pendingFinalization")).not.toBeNull();
+  });
+
   it("clears a server mapping error when the row is deselected", async () => {
     const user = userEvent.setup();
     vi.spyOn(window, "confirm").mockReturnValue(true);

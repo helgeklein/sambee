@@ -45,6 +45,7 @@ const CONNECTIONS_API_BASE = "/connections";
 const API_PATH_SUFFIX = "/api";
 const LOCAL_DRIVE_EDIT_LOCKS_UNSUPPORTED_MESSAGE = "Edit locks are not supported for local drives";
 const DIRECTORY_LIST_REQUEST_TIMEOUT_MS = 40_000;
+export const OIDC_FINALIZATION_REQUEST_TIMEOUT_MS = 15_000;
 
 function isViewerBlobRequest(config: AxiosError["config"] | undefined): boolean {
   const method = config?.method?.toLowerCase();
@@ -448,13 +449,19 @@ class ApiService {
     expectedIdentityMappingRevision: number | null,
     omittedAccountAcknowledgements: string[]
   ): Promise<OidcFinalizeResponse> {
-    const response = await this.api.post<OidcFinalizeResponse>("/admin/auth/oidc/finalize", {
-      flow_id: flowId,
-      reviewed_policy: reviewedPolicy,
-      replacement_mappings: replacementMappings,
-      expected_identity_mapping_revision: expectedIdentityMappingRevision,
-      omitted_account_acknowledgements: omittedAccountAcknowledgements,
-    });
+    const response = await this.api.post<OidcFinalizeResponse>(
+      "/admin/auth/oidc/finalize",
+      {
+        flow_id: flowId,
+        reviewed_policy: reviewedPolicy,
+        replacement_mappings: replacementMappings,
+        expected_identity_mapping_revision: expectedIdentityMappingRevision,
+        omitted_account_acknowledgements: omittedAccountAcknowledgements,
+      },
+      {
+        timeout: OIDC_FINALIZATION_REQUEST_TIMEOUT_MS,
+      }
+    );
     return response.data;
   }
 

@@ -53,6 +53,7 @@ const parseList = (value: string) =>
 const optionalClaim = (value: string) => value.trim() || null;
 const OIDC_SETUP_FLOW_STORAGE_KEY = "sambee.oidc.setupFlowId";
 const OIDC_REVIEWED_POLICY_STORAGE_KEY = "sambee.oidc.reviewedPolicy";
+const OIDC_PENDING_FINALIZATION_STORAGE_KEY = "sambee.oidc.pendingFinalization";
 const REVIEWABLE_POLICY_KEYS = new Set<keyof OidcConfigurationCandidate>([
   "sign_in_mode",
   "admission_mode",
@@ -105,6 +106,63 @@ const storedReviewedPolicy = (): OidcReviewedPolicy | undefined => {
   }
   sessionStorage.removeItem(OIDC_REVIEWED_POLICY_STORAGE_KEY);
   return undefined;
+};
+interface PendingOidcFinalization {
+  flow_id: string;
+  reviewed_policy: OidcReviewedPolicy;
+  replacement_mappings: Array<{ target_user_id: string; expected_username: string }>;
+  expected_identity_mapping_revision: number | null;
+  omitted_account_acknowledgements: string[];
+}
+const isPendingOidcFinalization = (value: unknown): value is PendingOidcFinalization => {
+  if (typeof value !== "object" || value === null) return false;
+  const request = value as Record<string, unknown>;
+  return (
+    typeof request.flow_id === "string" &&
+    request.flow_id.length > 0 &&
+    isReviewedPolicy(request.reviewed_policy) &&
+    Array.isArray(request.replacement_mappings) &&
+    request.replacement_mappings.every(
+      (mapping) =>
+        typeof mapping === "object" &&
+        mapping !== null &&
+        typeof (mapping as Record<string, unknown>).target_user_id === "string" &&
+        typeof (mapping as Record<string, unknown>).expected_username === "string"
+    ) &&
+    (request.expected_identity_mapping_revision === null ||
+      (typeof request.expected_identity_mapping_revision === "number" &&
+        Number.isInteger(request.expected_identity_mapping_revision) &&
+        request.expected_identity_mapping_revision >= 0)) &&
+    isStringArray(request.omitted_account_acknowledgements)
+  );
+};
+const storedPendingFinalization = (): PendingOidcFinalization | undefined => {
+  const stored = sessionStorage.getItem(OIDC_PENDING_FINALIZATION_STORAGE_KEY);
+  if (!stored) return undefined;
+  try {
+    const request: unknown = JSON.parse(stored);
+    if (isPendingOidcFinalization(request)) return request;
+  } catch {
+    // Invalid persisted state is discarded below.
+  }
+  sessionStorage.removeItem(OIDC_PENDING_FINALIZATION_STORAGE_KEY);
+  return undefined;
+};
+const finalizeOidcRequest = (request: PendingOidcFinalization) =>
+  api.finalizeOidcConfiguration(
+    request.flow_id,
+    request.reviewed_policy,
+    request.replacement_mappings,
+    request.expected_identity_mapping_revision,
+    request.omitted_account_acknowledgements
+  );
+const finalizeOidcRequestWithRetry = async (request: PendingOidcFinalization) => {
+  try {
+    return await finalizeOidcRequest(request);
+  } catch (firstAttemptError: unknown) {
+    if (!isApiError(firstAttemptError) || firstAttemptError.response !== undefined) throw firstAttemptError;
+    return finalizeOidcRequest(request);
+  }
 };
 const mappingReviewFor = (identity: OidcTestedIdentity) =>
   Object.fromEntries(
@@ -185,40 +243,67 @@ export function AuthenticationSettings() {
 
   useEffect(() => {
     let active = true;
-    void api
-      .getOidcConfiguration()
-      .then((response) => {
-        if (!active) return;
-        setConfiguration(response);
-        if (response.configuration) {
-          setCandidate(editableCandidate(response.configuration));
-        }
-        const fragmentFlowId = new URLSearchParams(window.location.hash.replace(/^#/, "")).get("flow");
-        if (fragmentFlowId) sessionStorage.setItem(OIDC_SETUP_FLOW_STORAGE_KEY, fragmentFlowId);
-        const flowId = fragmentFlowId ?? sessionStorage.getItem(OIDC_SETUP_FLOW_STORAGE_KEY);
-        if (!flowId) return;
-        if (fragmentFlowId) window.history.replaceState(null, "", window.location.pathname + window.location.search);
-        return api.getOidcTestResult(flowId, storedReviewedPolicy()).then(
-          (identity) => {
-            if (!active) return;
-            setCandidate(editableCandidate(identity.candidate));
-            setTestedIdentity(identity);
-            setMappingErrors({});
-            setMappingReview(mappingReviewFor(identity));
-            sessionStorage.setItem(OIDC_REVIEWED_POLICY_STORAGE_KEY, JSON.stringify(reviewedPolicyFor(identity.candidate)));
-          },
-          (caught: unknown) => {
-            if (!active) return;
-            if (isApiError(caught) && caught.response?.status === 404) {
-              sessionStorage.removeItem(OIDC_SETUP_FLOW_STORAGE_KEY);
-              sessionStorage.removeItem(OIDC_REVIEWED_POLICY_STORAGE_KEY);
-              setError("The saved OIDC test has expired. Connect and test the provider again.");
-              return;
-            }
-            setError("The OIDC test result could not be loaded. Retry by reopening this page.");
+    const restore = async () => {
+      let recoveredFinalization = false;
+      const fragmentFlowId = new URLSearchParams(window.location.hash.replace(/^#/, "")).get("flow");
+      if (fragmentFlowId) {
+        sessionStorage.setItem(OIDC_SETUP_FLOW_STORAGE_KEY, fragmentFlowId);
+        window.history.replaceState(null, "", window.location.pathname + window.location.search);
+      }
+      const pendingFinalization = storedPendingFinalization();
+      if (pendingFinalization) {
+        try {
+          const result = await finalizeOidcRequestWithRetry(pendingFinalization);
+          if (!active) return;
+          clearAuthConfigCache();
+          sessionStorage.removeItem(OIDC_PENDING_FINALIZATION_STORAGE_KEY);
+          sessionStorage.removeItem(OIDC_SETUP_FLOW_STORAGE_KEY);
+          sessionStorage.removeItem(OIDC_REVIEWED_POLICY_STORAGE_KEY);
+          if (result.reauthentication_required) {
+            localStorage.removeItem("access_token");
+            navigate("/login", { replace: true });
+            return;
           }
-        );
-      })
+          setNotice("Authentication configuration activated.");
+          recoveredFinalization = true;
+        } catch (caught: unknown) {
+          if (!active) return;
+          if (isApiError(caught) && caught.response === undefined) {
+            setError("Activation may have completed, but the server response was not received. Reload this page to confirm the result.");
+            return;
+          }
+          if (isApiError(caught) && caught.response?.status === 401) return;
+          sessionStorage.removeItem(OIDC_PENDING_FINALIZATION_STORAGE_KEY);
+        }
+      }
+
+      const response = await api.getOidcConfiguration();
+      if (!active) return;
+      setConfiguration(response);
+      if (response.configuration) setCandidate(editableCandidate(response.configuration));
+      if (recoveredFinalization) return;
+      const flowId = fragmentFlowId ?? sessionStorage.getItem(OIDC_SETUP_FLOW_STORAGE_KEY);
+      if (!flowId) return;
+      try {
+        const identity = await api.getOidcTestResult(flowId, storedReviewedPolicy());
+        if (!active) return;
+        setCandidate(editableCandidate(identity.candidate));
+        setTestedIdentity(identity);
+        setMappingErrors({});
+        setMappingReview(mappingReviewFor(identity));
+        sessionStorage.setItem(OIDC_REVIEWED_POLICY_STORAGE_KEY, JSON.stringify(reviewedPolicyFor(identity.candidate)));
+      } catch (caught: unknown) {
+        if (!active) return;
+        if (isApiError(caught) && caught.response?.status === 404) {
+          sessionStorage.removeItem(OIDC_SETUP_FLOW_STORAGE_KEY);
+          sessionStorage.removeItem(OIDC_REVIEWED_POLICY_STORAGE_KEY);
+          setError("The saved OIDC test has expired. Connect and test the provider again.");
+          return;
+        }
+        setError("The OIDC test result could not be loaded. Retry by reopening this page.");
+      }
+    };
+    void restore()
       .catch(() => {
         if (active) setError("Authentication settings could not be loaded.");
       })
@@ -228,7 +313,7 @@ export function AuthenticationSettings() {
     return () => {
       active = false;
     };
-  }, []);
+  }, [navigate]);
 
   const update = <Key extends keyof OidcConfigurationCandidate>(key: Key, value: OidcConfigurationCandidate[Key]) => {
     const nextCandidate = {
@@ -342,18 +427,21 @@ export function AuthenticationSettings() {
           )
           .map((mapping) => mapping.target_user_id),
       ] as const;
-      let result: Awaited<ReturnType<typeof api.finalizeOidcConfiguration>>;
-      try {
-        result = await api.finalizeOidcConfiguration(...finalizationArguments);
-      } catch (firstAttemptError: unknown) {
-        if (!isApiError(firstAttemptError) || firstAttemptError.response !== undefined) throw firstAttemptError;
-        result = await api.finalizeOidcConfiguration(...finalizationArguments);
-      }
+      const finalizationRequest: PendingOidcFinalization = {
+        flow_id: finalizationArguments[0],
+        reviewed_policy: finalizationArguments[1],
+        replacement_mappings: finalizationArguments[2],
+        expected_identity_mapping_revision: finalizationArguments[3],
+        omitted_account_acknowledgements: finalizationArguments[4],
+      };
+      sessionStorage.setItem(OIDC_PENDING_FINALIZATION_STORAGE_KEY, JSON.stringify(finalizationRequest));
+      const result = await finalizeOidcRequestWithRetry(finalizationRequest);
       clearAuthConfigCache();
       setTestedIdentity(null);
       setMappingReview({});
       sessionStorage.removeItem(OIDC_SETUP_FLOW_STORAGE_KEY);
       sessionStorage.removeItem(OIDC_REVIEWED_POLICY_STORAGE_KEY);
+      sessionStorage.removeItem(OIDC_PENDING_FINALIZATION_STORAGE_KEY);
       setClientSecret("");
       setShowClientSecret(false);
       if (result.reauthentication_required) {
@@ -366,6 +454,9 @@ export function AuthenticationSettings() {
       setConfiguration(refreshed);
       if (refreshed.configuration) setCandidate(editableCandidate(refreshed.configuration));
     } catch (caught: unknown) {
+      if (!isApiError(caught) || (caught.response !== undefined && caught.response.status !== 401)) {
+        sessionStorage.removeItem(OIDC_PENDING_FINALIZATION_STORAGE_KEY);
+      }
       const validationErrors = getOidcMappingValidationErrors(caught);
       const errorCode = getApiErrorMessage(caught, "");
       if (errorCode === "oidc_mapping_review_stale") {

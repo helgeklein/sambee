@@ -43,7 +43,7 @@ vi.mock("axios", () => {
 // Get reference to the mocked functions for assertions
 import axios from "axios";
 // Now import the API service (it will use the mocked axios.create)
-import apiService, { LOCAL_DRIVE_EDIT_LOCKS_UNSUPPORTED_MESSAGE } from "../api";
+import apiService, { LOCAL_DRIVE_EDIT_LOCKS_UNSUPPORTED_MESSAGE, OIDC_FINALIZATION_REQUEST_TIMEOUT_MS } from "../api";
 import { getBackendAvailabilitySnapshot, markBackendUnavailable, resetBackendAvailabilityForTests } from "../backendAvailability";
 import { logger } from "../logger";
 
@@ -77,6 +77,44 @@ describe("API Service", () => {
   afterEach(() => {
     vi.unstubAllGlobals();
     vi.clearAllMocks();
+  });
+
+  it("uses a bounded timeout for OIDC finalization", async () => {
+    mockAxiosInstance.post.mockResolvedValue({
+      data: { configuration_revision: 3, identity_mapping_revision: 2, reauthentication_required: true },
+    });
+
+    await apiService.finalizeOidcConfiguration(
+      "flow-id",
+      {
+        sign_in_mode: "oidc_only",
+        admission_mode: "selected_groups",
+        admission_groups: ["users"],
+        role_mappings: { admin: ["admins"], editor: [] },
+        username_claim_uniqueness_confirmed: true,
+      },
+      [],
+      1,
+      []
+    );
+
+    expect(mockAxiosInstance.post).toHaveBeenCalledWith(
+      "/admin/auth/oidc/finalize",
+      {
+        flow_id: "flow-id",
+        reviewed_policy: {
+          sign_in_mode: "oidc_only",
+          admission_mode: "selected_groups",
+          admission_groups: ["users"],
+          role_mappings: { admin: ["admins"], editor: [] },
+          username_claim_uniqueness_confirmed: true,
+        },
+        replacement_mappings: [],
+        expected_identity_mapping_revision: 1,
+        omitted_account_acknowledgements: [],
+      },
+      { timeout: OIDC_FINALIZATION_REQUEST_TIMEOUT_MS }
+    );
   });
 
   describe("Authentication", () => {

@@ -32,7 +32,7 @@ from app.services.oidc_configuration import (
     encrypt_candidate_snapshot,
 )
 from app.services.oidc_identity import resolve_or_provision_oidc_user
-from app.services.oidc_mapping import OidcMappingError, claim_mapping_revision
+from app.services.oidc_mapping import OidcMappingError, change_identity, claim_mapping_revision, move_identity
 
 
 def _create_validated_test_flow(
@@ -436,7 +436,103 @@ def test_finalize_rejects_pending_mappings_without_uniqueness_confirmation(
     )
 
     assert response.status_code == 409
-    assert response.json()["detail"] == "oidc_username_claim_uniqueness_not_confirmed"
+    assert response.json()["detail"]["errors"] == [
+        {
+            "target_user_id": None,
+            "field": None,
+            "error_code": "oidc_username_claim_uniqueness_not_confirmed",
+            "message": "OIDC username claim uniqueness is not confirmed",
+        }
+    ]
+    assert session.exec(select(OidcPendingIdentityMapping)).first() is None
+
+
+def test_change_identity_rejects_pending_mapping_without_uniqueness_confirmation(
+    client: TestClient,
+    session: Session,
+    admin_token: str,
+) -> None:
+    configuration = OidcProviderConfiguration(
+        display_name="Provider",
+        issuer_url="https://issuer.example",
+        client_id="sambee",
+        username_claim_uniqueness_confirmed=False,
+        identity_mapping_revision=3,
+    )
+    target = User(username="linked-target", password_hash="hash")
+    session.add(configuration)
+    session.add(target)
+    session.flush()
+    identity = OidcIdentity(user_id=target.id, issuer=configuration.issuer_url, subject="linked-subject")
+    session.add(identity)
+    session.commit()
+    target_id = target.id
+
+    response = client.post(
+        f"/api/admin/auth/oidc/mappings/{target_id}/change",
+        headers={"Authorization": f"Bearer {admin_token}"},
+        json={"expected_identity_mapping_revision": 3, "expected_username": "provider-target"},
+    )
+
+    assert response.status_code == 409
+    assert response.json()["detail"]["errors"][0]["error_code"] == "oidc_username_claim_uniqueness_not_confirmed"
+
+
+def test_change_identity_attestation_failure_does_not_mutate_mapping(session: Session, admin_user: User) -> None:
+    configuration = OidcProviderConfiguration(
+        display_name="Provider",
+        issuer_url="https://issuer.example",
+        client_id="sambee",
+        username_claim_uniqueness_confirmed=False,
+    )
+    target = User(username="service-linked-target", password_hash="hash")
+    session.add(configuration)
+    session.add(target)
+    session.flush()
+    identity = OidcIdentity(user_id=target.id, issuer=configuration.issuer_url, subject="service-linked-subject")
+    session.add(identity)
+    session.commit()
+
+    with pytest.raises(OidcMappingError) as error:
+        change_identity(
+            session,
+            configuration=configuration,
+            target_user_id=target.id,
+            expected_username="provider-target",
+            acting_user_id=admin_user.id,
+        )
+
+    assert error.value.error_code == "oidc_username_claim_uniqueness_not_confirmed"
+    assert session.get(OidcIdentity, identity.id) is not None
+    assert session.exec(select(OidcPendingIdentityMapping)).first() is None
+
+
+def test_move_identity_does_not_require_username_uniqueness_confirmation(session: Session, admin_user: User) -> None:
+    configuration = OidcProviderConfiguration(
+        display_name="Provider",
+        issuer_url="https://issuer.example",
+        client_id="sambee",
+        username_claim_uniqueness_confirmed=False,
+    )
+    source = User(username="move-source", password_hash="hash")
+    target = User(username="move-target", password_hash="hash")
+    session.add(configuration)
+    session.add(source)
+    session.add(target)
+    session.flush()
+    identity = OidcIdentity(user_id=source.id, issuer=configuration.issuer_url, subject="move-subject")
+    session.add(identity)
+    session.commit()
+
+    move_identity(
+        session,
+        configuration=configuration,
+        identity_id=identity.id,
+        target_user_id=target.id,
+        acting_user_id=admin_user.id,
+    )
+
+    assert identity.user_id == target.id
     assert session.exec(select(OidcPendingIdentityMapping)).first() is None
 
 

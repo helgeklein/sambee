@@ -155,6 +155,7 @@ export function UserManagementSettings({ dialogSafeHeader = false }: UserManagem
   const users = cachedUserManagementData?.users ?? [];
   const currentUserId = cachedUserManagementData?.currentUserId ?? null;
   const oidcConfiguration = cachedUserManagementData?.oidcConfiguration.configuration ?? null;
+  const pendingOidcMappingsAllowed = oidcConfiguration?.username_claim_uniqueness_confirmed === true;
   const [editorOpen, setEditorOpen] = useState(false);
   const [deleteDialogOpen, setDeleteDialogOpen] = useState(false);
   const [resetPasswordEditorOpen, setResetPasswordEditorOpen] = useState(false);
@@ -227,6 +228,10 @@ export function UserManagementSettings({ dialogSafeHeader = false }: UserManagem
         }
         await api.moveOidcIdentity(user.oidc.identity_id, oidcConfiguration.identity_mapping_revision, mappingEditor.targetUserId);
       } else {
+        if (!pendingOidcMappingsAllowed) {
+          setMappingError("Confirm that the provider username claim is stable and unique before creating pending mappings.");
+          return;
+        }
         const expectedUsername = mappingEditor.expectedUsername.trim();
         if (!expectedUsername) {
           setMappingError("Provider username is required.");
@@ -802,10 +807,22 @@ export function UserManagementSettings({ dialogSafeHeader = false }: UserManagem
 
                   <Stack direction="row" spacing={1} sx={{ alignSelf: { xs: "stretch", sm: "center" } }}>
                     {oidcConfiguration && !user.oidc && !user.pending_oidc && (
-                      <Tooltip title="Map OIDC account">
-                        <IconButton aria-label={`Map OIDC account for ${user.username}`} onClick={() => openMappingEditor(user, "create")}>
-                          <LinkIcon />
-                        </IconButton>
+                      <Tooltip
+                        title={
+                          pendingOidcMappingsAllowed
+                            ? "Map OIDC account"
+                            : "Confirm username claim uniqueness in Authentication settings before mapping accounts"
+                        }
+                      >
+                        <span>
+                          <IconButton
+                            aria-label={`Map OIDC account for ${user.username}`}
+                            disabled={!pendingOidcMappingsAllowed}
+                            onClick={() => openMappingEditor(user, "create")}
+                          >
+                            <LinkIcon />
+                          </IconButton>
+                        </span>
                       </Tooltip>
                     )}
                     {oidcConfiguration && user.pending_oidc && (
@@ -820,13 +837,22 @@ export function UserManagementSettings({ dialogSafeHeader = false }: UserManagem
                     )}
                     {oidcConfiguration && user.oidc && (
                       <>
-                        <Tooltip title="Change OIDC account">
-                          <IconButton
-                            aria-label={`Change OIDC account for ${user.username}`}
-                            onClick={() => openMappingEditor(user, "change")}
-                          >
-                            <LinkIcon />
-                          </IconButton>
+                        <Tooltip
+                          title={
+                            pendingOidcMappingsAllowed
+                              ? "Change OIDC account"
+                              : "Confirm username claim uniqueness in Authentication settings before changing accounts"
+                          }
+                        >
+                          <span>
+                            <IconButton
+                              aria-label={`Change OIDC account for ${user.username}`}
+                              disabled={!pendingOidcMappingsAllowed}
+                              onClick={() => openMappingEditor(user, "change")}
+                            >
+                              <LinkIcon />
+                            </IconButton>
+                          </span>
                         </Tooltip>
                         <Tooltip title="Advanced OIDC actions">
                           <IconButton
