@@ -112,6 +112,7 @@
     // Local inspection
     "basename": true,
     "cat": true,
+    "cd": true,
     "cut": true,
     "date": true,
     "df": true,
@@ -181,15 +182,15 @@
       "matchCommandLine": true
     },
     // Python tests and static analysis
-    "/^(?:\\.venv\\/bin\\/|backend\\/\\.venv\\/bin\\/)?pytest\\b/": {
-      "approve": true,
-      "matchCommandLine": true
-    },
-    "/^(?:\\.venv\\/bin\\/|backend\\/\\.venv\\/bin\\/)?(?:ruff|mypy)\\b/": {
+    "/^(?:\\.venv\\/bin\\/|backend\\/\\.venv\\/bin\\/)?(?:pytest|mypy|ruff)\\b/": {
       "approve": true,
       "matchCommandLine": true
     },
     "/^(?:\\/usr\\/local\\/bin\\/)?python3?\\s+-m\\s+(?:pytest|ruff|mypy|py_compile|unittest)\\b/": {
+      "approve": true,
+      "matchCommandLine": true
+    },
+    "/^(?:cd\\s+(?:\\/workspace(?:\\/backend)?|backend)\\s+&&\\s+)?(?:\\.venv\\/bin\\/|backend\\/\\.venv\\/bin\\/)?(?:pytest|mypy|ruff)\\b[^;&|`$()<>\\r\\n]*(?:\\s+&&\\s+(?:\\.venv\\/bin\\/|backend\\/\\.venv\\/bin\\/)?(?:pytest|mypy|ruff)\\b[^;&|`$()<>\\r\\n]*)+$": {
       "approve": true,
       "matchCommandLine": true
     },
