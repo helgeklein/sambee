@@ -38,18 +38,34 @@ def test_candidate_workflows_do_not_expose_source_or_version_overrides() -> None
 
 
 def test_candidate_matrix_builds_depend_on_shared_preflight() -> None:
-    for workflow_name in ("docker-image-preview-publish.yml", "build-companion.yml"):
+    for workflow_name in (
+        "docker-image-preview-publish.yml",
+        "build-companion.yml",
+        "create-public-release.yml",
+    ):
         workflow = load_workflow(workflow_name)
         jobs = workflow["jobs"]
-        prepare = jobs["prepare"]
-        assert step_uses(prepare["steps"], "./.github/actions/release-candidate-preflight")
-        build_jobs = [job for name, job in jobs.items() if name.startswith("build")]
-        assert build_jobs
-        for job in build_jobs:
-            needs = job.get("needs", [])
-            if isinstance(needs, str):
-                needs = [needs]
-            assert "prepare" in needs
+        preflight_job = jobs.get("prepare", jobs.get("create-release"))
+        assert preflight_job is not None
+        preflight_steps = preflight_job["steps"]
+        preflight_index = next(
+            index
+            for index, step in enumerate(preflight_steps)
+            if step.get("uses") == "./.github/actions/release-candidate-preflight"
+        )
+        assert any(
+            step.get("uses", "").startswith("actions/checkout@")
+            for step in preflight_steps[:preflight_index]
+        )
+
+        if workflow_name != "create-public-release.yml":
+            build_jobs = [job for name, job in jobs.items() if name.startswith("build")]
+            assert build_jobs
+            for job in build_jobs:
+                needs = job.get("needs", [])
+                if isinstance(needs, str):
+                    needs = [needs]
+                assert "prepare" in needs
 
 
 def test_release_mutation_workflows_share_the_expected_locks() -> None:

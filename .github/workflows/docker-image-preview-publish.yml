@@ -39,6 +39,9 @@ jobs:
       publication_state: ${{ steps.candidate-state.outputs.state }}
       candidate_digest: ${{ steps.candidate-state.outputs.digest }}
     steps:
+    - name: Checkout workflow actions
+      uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+
     - name: Reserve or resolve canonical build source
       id: preflight
       uses: ./.github/actions/release-candidate-preflight
