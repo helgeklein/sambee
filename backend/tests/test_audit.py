@@ -2,9 +2,9 @@ import json
 
 import pytest
 from pydantic import ValidationError
+from sqlalchemy.engine import Engine
 from sqlmodel import Session, select
 
-from app.db.database import engine
 from app.models.audit import AuditEvent
 from app.services.audit import (
     AuditDetails,
@@ -30,7 +30,7 @@ def test_subject_hash_is_stable_and_issuer_qualified() -> None:
     assert "subject" not in first
 
 
-def test_audit_writer_uses_caller_owned_transaction() -> None:
+def test_audit_writer_uses_caller_owned_transaction(engine: Engine) -> None:
     with Session(engine) as session:
         event = write_audit_event(
             session,
@@ -47,7 +47,7 @@ def test_audit_writer_uses_caller_owned_transaction() -> None:
         assert session.get(AuditEvent, event_id) is None
 
 
-def test_audit_writer_serializes_only_present_safe_details() -> None:
+def test_audit_writer_serializes_only_present_safe_details(engine: Engine) -> None:
     with Session(engine) as session:
         event = write_audit_event(
             session,
