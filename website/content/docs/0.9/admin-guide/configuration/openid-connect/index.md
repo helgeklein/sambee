@@ -94,15 +94,17 @@ Open **Settings > Administration > Authentication** as a local administrator.
 1. Choose whether all provider users or only selected groups may sign in.
 1. Enter exact group names for administrator and editor role mappings. Administrator mapping takes precedence over editor mapping; admitted users without either mapping become viewers.
 1. Confirm that the username claim is stable and unique.
-1. Select the intended sign-in mode.
+1. Select **OIDC or password** or **OIDC only**. Use the separate recovery action to switch an active configuration to **Password only**.
 1. Select **Connect and test** and complete provider sign-in in the same browser.
-1. Verify the returned username, email, and groups.
+1. Verify the returned username, email, groups, admission result, and resulting role. Activation remains unavailable unless the tested identity is admitted as an administrator.
 1. Review existing local accounts and select the accounts to map.
-1. Select **Activate configuration**.
+1. Select **Activate configuration**, then confirm that the tested identity will be linked to your current administrator account. The confirmation summarizes the selected login paths and warns that users may need to sign in again if activation revokes their sessions.
 
 Testing does not change the active configuration. Activation succeeds only when the tested identity resolves to an administrator, the test belongs to the initiating administrator, and the active configuration has not changed since the test began. Leaving the client-secret field blank preserves an existing stored secret.
 
-The current setup test is retained for the browser tab if the page reloads. Select **Cancel** to delete its encrypted candidate and tested identity immediately. Closing the page without canceling leaves the test unavailable to other administrators and lets it expire automatically.
+The current setup test is retained for the browser tab if the page reloads. If another administrator changes account mappings during review, Sambee reloads the current mapping plan in the same tested flow and discards stale edits. If the provider configuration changed, or the saved test expired, Sambee discards the tested flow and requires another provider test. Temporary network failures retain the flow so the result can be loaded again.
+
+Select **Cancel** to delete the test's encrypted candidate and tested identity immediately. Closing the page without canceling leaves the test unavailable to other administrators and lets it expire automatically.
 
 ### Review Existing Accounts
 

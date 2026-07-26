@@ -3,13 +3,13 @@ import uuid
 from datetime import datetime, timezone
 from typing import cast
 
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException, Response, status
 from sqlalchemy import delete, update
 from sqlalchemy.exc import IntegrityError
 from sqlmodel import Session, select
 
 from app.core.config import settings
-from app.core.security import get_current_admin_user
+from app.core.security import get_current_admin_user, is_user_expired
 from app.db.database import get_session
 from app.models.oidc import (
     OidcFlow,
@@ -19,6 +19,7 @@ from app.models.oidc import (
     OidcIdentity,
     OidcPendingIdentityMapping,
     OidcProviderConfiguration,
+    SignInMode,
 )
 from app.models.oidc_api import (
     OidcAdminConfigurationRead,
@@ -43,6 +44,7 @@ from app.services.oidc_client import (
     load_provider_metadata,
 )
 from app.services.oidc_configuration import (
+    NormalizedOidcCandidate,
     OidcConfigurationError,
     OidcSecretCipher,
     build_authentication_health,
@@ -158,6 +160,36 @@ def _tested_claims(ciphertext: str, cipher: OidcSecretCipher) -> NormalizedOidcC
         raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="OIDC test result is invalid") from error
 
 
+def _proposed_configuration(
+    candidate: NormalizedOidcCandidate,
+    cipher: OidcSecretCipher,
+    *,
+    updated_by_user_id: uuid.UUID,
+    identity_mapping_revision: int,
+) -> OidcProviderConfiguration:
+    if candidate.client_secret is None:
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="OIDC client secret is unavailable")
+    return OidcProviderConfiguration(
+        display_name=candidate.display_name,
+        issuer_url=candidate.issuer_url,
+        client_id=candidate.client_id,
+        encrypted_client_secret=cipher.encrypt(candidate.client_secret),
+        scopes_json=json.dumps(candidate.scopes),
+        username_claim=candidate.username_claim,
+        username_claim_uniqueness_confirmed=candidate.username_claim_uniqueness_confirmed,
+        name_claim=candidate.name_claim,
+        email_claim=candidate.email_claim,
+        groups_claim=candidate.groups_claim,
+        sign_in_mode=candidate.sign_in_mode,
+        admission_mode=candidate.admission_mode,
+        admission_groups_json=json.dumps(candidate.admission_groups),
+        role_mappings_json=json.dumps({"admin": candidate.admin_groups, "editor": candidate.editor_groups}),
+        configuration_revision=candidate.configuration_revision,
+        identity_mapping_revision=identity_mapping_revision,
+        updated_by_user_id=updated_by_user_id,
+    )
+
+
 @router.get("/auth/oidc", response_model=OidcAdminConfigurationRead)
 async def get_oidc_configuration(
     current_user: User = Depends(get_current_admin_user),
@@ -246,14 +278,26 @@ def _get_owned_validated_test_flow(session: Session, flow_id: uuid.UUID, current
 @router.get("/auth/oidc/test/{flow_id}", response_model=OidcTestedIdentityRead)
 async def get_oidc_test_result(
     flow_id: uuid.UUID,
+    response: Response,
     current_user: User = Depends(get_current_admin_user),
     session: Session = Depends(get_session),
 ) -> OidcTestedIdentityRead:
+    response.headers["Cache-Control"] = "no-store"
     flow = _get_owned_validated_test_flow(session, flow_id, current_user)
     cipher = OidcSecretCipher(settings.oidc_secret_key)
     claims = _tested_claims(cast(str, flow.encrypted_tested_identity), cipher)
     candidate = decrypt_candidate_snapshot(cast(str, flow.encrypted_candidate_configuration), cipher)
     active = session.get(OidcProviderConfiguration, 1)
+    proposed = _proposed_configuration(
+        candidate,
+        cipher,
+        updated_by_user_id=current_user.id,
+        identity_mapping_revision=active.identity_mapping_revision if active is not None else 0,
+    )
+    try:
+        resulting_role = resolve_oidc_role(proposed, claims.groups)
+    except OidcIdentityError:
+        resulting_role = None
     needs_mapping_review = active is None or flow.intent == OidcFlowIntent.REPLACE_IDENTITY_NAMESPACE
     replacement_mappings = (
         derive_mapping_plan(
@@ -274,6 +318,8 @@ async def get_oidc_test_result(
         name=claims.name,
         email=claims.email,
         groups=list(claims.groups),
+        admitted=resulting_role is not None,
+        resulting_role=resulting_role,
         expires_at=flow.expires_at,
     )
 
@@ -331,11 +377,13 @@ async def finalize_oidc_configuration(
     flow = _get_owned_validated_test_flow(session, payload.flow_id, current_user)
     cipher = OidcSecretCipher(settings.oidc_secret_key)
     candidate = decrypt_candidate_snapshot(cast(str, flow.encrypted_candidate_configuration), cipher)
+    if candidate.sign_in_mode == SignInMode.PASSWORD_ONLY:
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="oidc_tested_activation_mode_invalid")
     tested = _tested_claims(cast(str, flow.encrypted_tested_identity), cipher)
     active = session.get(OidcProviderConfiguration, 1)
     active_revision = active.configuration_revision if active is not None else None
     if active_revision != flow.configuration_revision:
-        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="OIDC configuration changed during testing")
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="oidc_configuration_changed")
     replacing_namespace = flow.intent == OidcFlowIntent.REPLACE_IDENTITY_NAMESPACE and active is not None
     username_claim_changed = active is not None and candidate.username_claim != active.username_claim
     if (
@@ -343,14 +391,12 @@ async def finalize_oidc_configuration(
         and (replacing_namespace or username_claim_changed)
         and active.identity_mapping_revision != candidate.identity_mapping_revision
     ):
-        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="OIDC identity mappings changed during testing")
-    if candidate.client_secret is None:
-        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="OIDC client secret is unavailable")
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="oidc_mapping_review_stale")
 
     needs_mapping_review = active is None or replacing_namespace
     expected_mapping_revision = active.identity_mapping_revision if active is not None else None
     if payload.expected_identity_mapping_revision != expected_mapping_revision:
-        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="OIDC identity mappings changed during review")
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="oidc_mapping_review_stale")
     reviewed_replacement_mappings: dict[uuid.UUID, str] = {}
     if needs_mapping_review:
         plan = derive_mapping_plan(
@@ -368,30 +414,17 @@ async def finalize_oidc_configuration(
                 replacing_namespace=replacing_namespace,
             )
         except OidcMappingError as error:
-            raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=str(error)) from error
+            raise _mapping_http_exception(error) from error
     elif payload.replacement_mappings or payload.omitted_account_acknowledgements:
         raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="OIDC mapping review is not expected")
 
     previous_identity_user_ids = {identity.user_id for identity in session.exec(select(OidcIdentity)).all()}
 
-    proposed = OidcProviderConfiguration(
-        display_name=candidate.display_name,
-        issuer_url=candidate.issuer_url,
-        client_id=candidate.client_id,
-        encrypted_client_secret=cipher.encrypt(candidate.client_secret),
-        scopes_json=json.dumps(candidate.scopes),
-        username_claim=candidate.username_claim,
-        username_claim_uniqueness_confirmed=candidate.username_claim_uniqueness_confirmed,
-        name_claim=candidate.name_claim,
-        email_claim=candidate.email_claim,
-        groups_claim=candidate.groups_claim,
-        sign_in_mode=candidate.sign_in_mode,
-        admission_mode=candidate.admission_mode,
-        admission_groups_json=json.dumps(candidate.admission_groups),
-        role_mappings_json=json.dumps({"admin": candidate.admin_groups, "editor": candidate.editor_groups}),
-        configuration_revision=candidate.configuration_revision,
-        identity_mapping_revision=active.identity_mapping_revision if active is not None else 0,
+    proposed = _proposed_configuration(
+        candidate,
+        cipher,
         updated_by_user_id=current_user.id,
+        identity_mapping_revision=active.identity_mapping_revision if active is not None else 0,
     )
     try:
         role = resolve_oidc_role(proposed, tested.groups)
@@ -413,7 +446,13 @@ async def finalize_oidc_configuration(
         )
         if configuration_claim.rowcount != 1:
             session.rollback()
-            raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="OIDC configuration or mappings changed during review")
+            latest = session.get(OidcProviderConfiguration, active.id)
+            detail = (
+                "oidc_configuration_changed"
+                if latest is None or latest.configuration_revision != flow.configuration_revision
+                else "oidc_mapping_review_stale"
+            )
+            raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=detail)
         session.expire(active, ["configuration_revision", "identity_mapping_revision"])
 
     existing_subject = session.exec(
@@ -430,26 +469,44 @@ async def finalize_oidc_configuration(
     flow_table = OidcFlow.__table__  # type: ignore[attr-defined]
     claim_result = session.connection().execute(
         update(flow_table)
-        .where(flow_table.c.id == flow.id, flow_table.c.status == OidcFlowStatus.CALLBACK_VALIDATED)
+        .where(
+            flow_table.c.id == flow.id,
+            flow_table.c.purpose == OidcFlowPurpose.TEST,
+            flow_table.c.status == OidcFlowStatus.CALLBACK_VALIDATED,
+            flow_table.c.initiating_admin_id == current_user.id,
+            flow_table.c.expires_at > datetime.now(timezone.utc),
+        )
         .values(status=OidcFlowStatus.FINALIZING)
     )
     if claim_result.rowcount != 1:
         session.rollback()
-        completed_flow = session.get(OidcFlow, payload.flow_id)
+        completed_flow = session.get(OidcFlow, payload.flow_id, populate_existing=True)
         if (
             completed_flow is not None
             and completed_flow.status == OidcFlowStatus.CONSUMED
             and completed_flow.initiating_admin_id == current_user.id
             and completed_flow.finalized_configuration_revision is not None
             and completed_flow.finalized_identity_mapping_revision is not None
+            and _as_utc(completed_flow.expires_at) > datetime.now(timezone.utc)
         ):
             return OidcFinalizeResponse(
                 configuration_revision=completed_flow.finalized_configuration_revision,
                 identity_mapping_revision=completed_flow.finalized_identity_mapping_revision,
                 reauthentication_required=bool(completed_flow.finalized_reauthentication_required),
             )
+        if completed_flow is not None and _as_utc(completed_flow.expires_at) <= datetime.now(timezone.utc):
+            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="OIDC test flow was not found")
         raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="OIDC finalization is already in progress")
     flow.status = OidcFlowStatus.FINALIZING
+    initiating_admin = session.exec(select(User).where(User.id == current_user.id).execution_options(populate_existing=True)).first()
+    if (
+        initiating_admin is None
+        or initiating_admin.role != UserRole.ADMIN
+        or not initiating_admin.is_active
+        or is_user_expired(initiating_admin)
+    ):
+        session.rollback()
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="oidc_initiating_administrator_unavailable")
 
     immutable_mapping_affected_user_ids: set[uuid.UUID] = set()
     mappings_changed = False

@@ -129,6 +129,8 @@ class OidcTestedIdentityRead(SQLModel):
     name: str | None
     email: str | None
     groups: list[str]
+    admitted: bool
+    resulting_role: UserRole | None
     expires_at: datetime
 
 

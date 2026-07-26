@@ -3,7 +3,7 @@ import userEvent from "@testing-library/user-event";
 import { MemoryRouter, Route, Routes } from "react-router-dom";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import api from "../../services/api";
-import type { OidcAdminConfigurationRead, RedactedOidcConfiguration } from "../../types";
+import type { OidcAdminConfigurationRead, OidcTestedIdentity, RedactedOidcConfiguration } from "../../types";
 import { AuthenticationSettings } from "../AuthenticationSettings";
 
 vi.mock("../../services/api", () => ({
@@ -51,6 +51,21 @@ const response = (value: RedactedOidcConfiguration): OidcAdminConfigurationRead 
   },
 });
 
+const testedIdentity = (overrides: Partial<OidcTestedIdentity> = {}): OidcTestedIdentity => ({
+  flow_id: "test-flow",
+  candidate: configuration("Tested Provider"),
+  replacement_mappings: [],
+  expected_identity_mapping_revision: 1,
+  admitted: true,
+  resulting_role: "admin",
+  username: "admin",
+  name: "Test Admin",
+  email: "admin@example.test",
+  groups: ["sambee-admins"],
+  expires_at: "2099-01-01T00:00:00Z",
+  ...overrides,
+});
+
 const renderSettings = () =>
   render(
     <MemoryRouter initialEntries={["/settings/admin/authentication"]}>
@@ -70,6 +85,7 @@ describe("Authentication settings", () => {
 
   it("reviews the tested candidate and synchronizes the activated configuration", async () => {
     const user = userEvent.setup();
+    vi.spyOn(window, "confirm").mockReturnValue(true);
     const active = configuration("Old Provider");
     const tested = configuration("Tested Provider");
     const activated = configuration("Activated Provider");
@@ -79,6 +95,8 @@ describe("Authentication settings", () => {
       candidate: tested,
       replacement_mappings: [],
       expected_identity_mapping_revision: 1,
+      admitted: true,
+      resulting_role: "admin",
       username: "admin",
       name: "Test Admin",
       email: "admin@example.test",
@@ -110,6 +128,8 @@ describe("Authentication settings", () => {
       candidate: configuration("Stored Provider"),
       replacement_mappings: [],
       expected_identity_mapping_revision: 1,
+      admitted: true,
+      resulting_role: "admin",
       username: "admin",
       name: null,
       email: null,
@@ -123,6 +143,104 @@ describe("Authentication settings", () => {
     expect(api.getOidcTestResult).toHaveBeenCalledWith("stored-flow");
   });
 
+  it("clears an expired saved flow but retains retryable preview state", async () => {
+    sessionStorage.setItem("sambee.oidc.setupFlowId", "expired-flow");
+    window.location.hash = "";
+    vi.mocked(api.getOidcConfiguration).mockResolvedValue(response(configuration("Active Provider")));
+    vi.mocked(api.getOidcTestResult).mockRejectedValueOnce({ response: { status: 404 } });
+
+    const expiredView = renderSettings();
+
+    expect(await screen.findByText(/saved OIDC test has expired/i)).toBeInTheDocument();
+    expect(sessionStorage.getItem("sambee.oidc.setupFlowId")).toBeNull();
+    expiredView.unmount();
+
+    sessionStorage.setItem("sambee.oidc.setupFlowId", "retryable-flow");
+    vi.mocked(api.getOidcTestResult).mockRejectedValueOnce({ message: "Network unavailable" });
+    renderSettings();
+
+    expect(await screen.findByText(/OIDC test result could not be loaded/i)).toBeInTheDocument();
+    expect(sessionStorage.getItem("sambee.oidc.setupFlowId")).toBe("retryable-flow");
+  });
+
+  it("offers only OIDC activation modes in provider setup", async () => {
+    const user = userEvent.setup();
+    vi.mocked(api.getOidcConfiguration).mockResolvedValue(response(configuration("Active Provider")));
+    window.location.hash = "";
+    renderSettings();
+
+    await user.click(await screen.findByRole("combobox", { name: "Sign-in mode" }));
+
+    expect(screen.getByRole("option", { name: "OIDC or password" })).toBeInTheDocument();
+    expect(screen.getByRole("option", { name: "OIDC only" })).toBeInTheDocument();
+    expect(screen.queryByRole("option", { name: "Password only" })).not.toBeInTheDocument();
+  });
+
+  it("shows identity evaluation and requires explicit administrator activation confirmation", async () => {
+    const user = userEvent.setup();
+    const confirm = vi.spyOn(window, "confirm").mockReturnValue(false);
+    vi.mocked(api.getOidcConfiguration).mockResolvedValue(response(configuration("Active Provider")));
+    vi.mocked(api.getOidcTestResult).mockResolvedValue(testedIdentity());
+    window.location.hash = "flow=test-flow";
+    renderSettings();
+
+    expect(await screen.findByText("Admission: Allowed")).toBeInTheDocument();
+    expect(screen.getByText("Resulting role: admin")).toBeInTheDocument();
+    await user.click(screen.getByRole("button", { name: "Activate configuration" }));
+
+    expect(confirm).toHaveBeenCalledWith(expect.stringMatching(/linked to your current administrator account.*sessions may be revoked/i));
+    expect(api.finalizeOidcConfiguration).not.toHaveBeenCalled();
+  });
+
+  it("blocks activation when the tested identity is not an admitted administrator", async () => {
+    vi.mocked(api.getOidcConfiguration).mockResolvedValue(response(configuration("Active Provider")));
+    vi.mocked(api.getOidcTestResult).mockResolvedValue(testedIdentity({ admitted: false, resulting_role: null }));
+    window.location.hash = "flow=test-flow";
+    renderSettings();
+
+    expect(await screen.findByText("Admission: Denied")).toBeInTheDocument();
+    expect(screen.getByText(/must be admitted as an administrator/i)).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Activate configuration" })).toBeDisabled();
+  });
+
+  it("refreshes a stale mapping review using the same tested flow", async () => {
+    const user = userEvent.setup();
+    vi.spyOn(window, "confirm").mockReturnValue(true);
+    vi.mocked(api.getOidcConfiguration).mockResolvedValue(response(configuration("Active Provider")));
+    vi.mocked(api.getOidcTestResult)
+      .mockResolvedValueOnce(testedIdentity({ expected_identity_mapping_revision: 1 }))
+      .mockResolvedValueOnce(testedIdentity({ expected_identity_mapping_revision: 2 }));
+    vi.mocked(api.finalizeOidcConfiguration).mockRejectedValue({
+      response: { status: 409, data: { detail: "oidc_mapping_review_stale" } },
+    });
+    window.location.hash = "flow=test-flow";
+    renderSettings();
+
+    await user.click(await screen.findByRole("button", { name: "Activate configuration" }));
+
+    expect(await screen.findByText(/review the refreshed mappings/i)).toBeInTheDocument();
+    expect(api.getOidcTestResult).toHaveBeenNthCalledWith(2, "test-flow");
+    expect(sessionStorage.getItem("sambee.oidc.setupFlowId")).toBe("test-flow");
+  });
+
+  it("discards a tested flow when the configuration changed", async () => {
+    const user = userEvent.setup();
+    vi.spyOn(window, "confirm").mockReturnValue(true);
+    vi.mocked(api.getOidcConfiguration).mockResolvedValue(response(configuration("Active Provider")));
+    vi.mocked(api.getOidcTestResult).mockResolvedValue(testedIdentity());
+    vi.mocked(api.finalizeOidcConfiguration).mockRejectedValue({
+      response: { status: 409, data: { detail: "oidc_configuration_changed" } },
+    });
+    window.location.hash = "flow=test-flow";
+    renderSettings();
+
+    await user.click(await screen.findByRole("button", { name: "Activate configuration" }));
+
+    expect(await screen.findByText(/configuration changed after this test/i)).toBeInTheDocument();
+    expect(sessionStorage.getItem("sambee.oidc.setupFlowId")).toBeNull();
+    expect(screen.queryByText("Tested identity")).not.toBeInTheDocument();
+  });
+
   it("cancels the server flow and clears tab-scoped setup state", async () => {
     const user = userEvent.setup();
     window.location.hash = "flow=test-flow";
@@ -132,6 +250,8 @@ describe("Authentication settings", () => {
       candidate: configuration("Tested Provider"),
       replacement_mappings: [],
       expected_identity_mapping_revision: 1,
+      admitted: true,
+      resulting_role: "admin",
       username: "admin",
       name: null,
       email: null,
@@ -151,6 +271,7 @@ describe("Authentication settings", () => {
 
   it("requires review of unique replacement usernames", async () => {
     const user = userEvent.setup();
+    vi.spyOn(window, "confirm").mockReturnValue(true);
     vi.mocked(api.getOidcConfiguration).mockResolvedValue(response(configuration("Old Provider")));
     vi.mocked(api.getOidcTestResult).mockResolvedValue({
       flow_id: "test-flow",
@@ -184,6 +305,8 @@ describe("Authentication settings", () => {
         },
       ],
       expected_identity_mapping_revision: 4,
+      admitted: true,
+      resulting_role: "admin",
       username: "admin",
       name: "Test Admin",
       email: "admin@example.test",
@@ -216,6 +339,56 @@ describe("Authentication settings", () => {
       4,
       []
     );
+  });
+
+  it("clears a server mapping error when the row is deselected", async () => {
+    const user = userEvent.setup();
+    vi.spyOn(window, "confirm").mockReturnValue(true);
+    vi.mocked(api.getOidcConfiguration).mockResolvedValue(response(configuration("Active Provider")));
+    vi.mocked(api.getOidcTestResult).mockResolvedValue(
+      testedIdentity({
+        replacement_mappings: [
+          {
+            target_user_id: "user-1",
+            local_username: "alice",
+            local_role: "editor",
+            has_local_password: true,
+            target_state: "active",
+            mapping_state: "pending",
+            suggested_username: "provider-alice",
+            prefill_source: "pending",
+            selected_by_default: true,
+            selectable: true,
+            omission_acknowledgement_required: false,
+          },
+        ],
+      })
+    );
+    vi.mocked(api.finalizeOidcConfiguration).mockRejectedValue({
+      response: {
+        status: 409,
+        data: {
+          detail: {
+            errors: [
+              {
+                target_user_id: "user-1",
+                field: "expected_username",
+                error_code: "oidc_mapping_username_conflict",
+                message: "Provider username is already mapped",
+              },
+            ],
+          },
+        },
+      },
+    });
+    window.location.hash = "flow=test-flow";
+    renderSettings();
+
+    await user.click(await screen.findByRole("button", { name: "Activate configuration" }));
+    expect(await screen.findByText("Provider username is already mapped")).toBeInTheDocument();
+
+    await user.click(screen.getByRole("checkbox", { name: "Map alice" }));
+    expect(screen.queryByText("Provider username is already mapped")).not.toBeInTheDocument();
   });
 
   it("returns to login without a privileged refresh after Password-only recovery", async () => {
@@ -332,6 +505,8 @@ describe("Authentication settings", () => {
         },
       ],
       expected_identity_mapping_revision: 1,
+      admitted: true,
+      resulting_role: "admin",
       username: "admin",
       name: null,
       email: null,

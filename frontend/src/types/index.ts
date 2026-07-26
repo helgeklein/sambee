@@ -323,6 +323,8 @@ export interface OidcTestedIdentity {
   candidate: RedactedOidcConfiguration;
   replacement_mappings: OidcReplacementMapping[];
   expected_identity_mapping_revision: number | null;
+  admitted: boolean;
+  resulting_role: UserRole | null;
   username: string;
   name: string | null;
   email: string | null;

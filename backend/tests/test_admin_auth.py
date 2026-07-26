@@ -29,6 +29,56 @@ from app.services.oidc_identity import resolve_or_provision_oidc_user
 from app.services.oidc_mapping import OidcMappingError, claim_mapping_revision
 
 
+def _create_validated_test_flow(
+    session: Session,
+    admin_user: User,
+    *,
+    sign_in_mode: SignInMode = SignInMode.OIDC_OR_PASSWORD,
+) -> OidcFlow:
+    cipher = OidcSecretCipher(config_module.settings.oidc_secret_key)
+    candidate = NormalizedOidcCandidate(
+        display_name="Example Identity",
+        issuer_url="https://id.example.test",
+        client_id="sambee",
+        client_secret="secret",
+        scopes=("openid", "profile", "groups"),
+        username_claim="preferred_username",
+        username_claim_uniqueness_confirmed=True,
+        name_claim="name",
+        email_claim="email",
+        groups_claim="groups",
+        sign_in_mode=sign_in_mode,
+        admission_mode=OidcAdmissionMode.ALL_IDP_USERS,
+        admission_groups=(),
+        admin_groups=("sambee-admins",),
+        editor_groups=(),
+        configuration_revision=1,
+        identity_mapping_revision=0,
+        identity_namespace_changed=False,
+        changed_fields=("initial_configuration", "sign_in_mode"),
+    )
+    claims = NormalizedOidcClaims(
+        issuer=candidate.issuer_url,
+        subject="admin-subject",
+        username=admin_user.username,
+        name="Test Admin",
+        email="admin@example.test",
+        groups=("sambee-admins",),
+    )
+    flow = OidcFlow(
+        purpose=OidcFlowPurpose.TEST,
+        status=OidcFlowStatus.CALLBACK_VALIDATED,
+        initiating_admin_id=admin_user.id,
+        encrypted_candidate_configuration=encrypt_candidate_snapshot(candidate, cipher),
+        encrypted_tested_identity=cipher.encrypt(json.dumps(asdict(claims))),
+        configuration_revision=None,
+        expires_at=datetime.now(timezone.utc) + timedelta(minutes=5),
+    )
+    session.add(flow)
+    session.commit()
+    return flow
+
+
 def test_finalize_oidc_configuration_is_idempotent(
     client: TestClient,
     session: Session,
@@ -144,6 +194,137 @@ def test_finalize_oidc_configuration_is_idempotent(
     session.commit()
     expired_retry = client.post("/api/admin/auth/oidc/finalize", headers=refreshed_headers, json={"flow_id": str(flow.id)})
     assert expired_retry.status_code == 404
+
+
+def test_oidc_test_preview_is_not_cached_and_includes_identity_evaluation(
+    client: TestClient,
+    session: Session,
+    admin_user: User,
+    admin_token: str,
+) -> None:
+    flow = _create_validated_test_flow(session, admin_user)
+
+    response = client.get(
+        f"/api/admin/auth/oidc/test/{flow.id}",
+        headers={"Authorization": f"Bearer {admin_token}"},
+    )
+
+    assert response.status_code == 200
+    assert response.headers["cache-control"] == "no-store"
+    assert response.json()["admitted"] is True
+    assert response.json()["resulting_role"] == "admin"
+
+
+def test_finalize_rejects_password_only_candidate(
+    client: TestClient,
+    session: Session,
+    admin_user: User,
+    admin_token: str,
+) -> None:
+    flow = _create_validated_test_flow(session, admin_user, sign_in_mode=SignInMode.PASSWORD_ONLY)
+
+    response = client.post(
+        "/api/admin/auth/oidc/finalize",
+        headers={"Authorization": f"Bearer {admin_token}"},
+        json={"flow_id": str(flow.id), "expected_identity_mapping_revision": None},
+    )
+
+    assert response.status_code == 409
+    assert response.json()["detail"] == "oidc_tested_activation_mode_invalid"
+
+
+def test_finalize_returns_structured_mapping_review_errors(
+    client: TestClient,
+    session: Session,
+    admin_user: User,
+    admin_token: str,
+) -> None:
+    inactive_target = User(username="inactive-finalization-target", is_active=False)
+    session.add(inactive_target)
+    session.commit()
+    target_id = inactive_target.id
+    flow = _create_validated_test_flow(session, admin_user)
+
+    response = client.post(
+        "/api/admin/auth/oidc/finalize",
+        headers={"Authorization": f"Bearer {admin_token}"},
+        json={
+            "flow_id": str(flow.id),
+            "expected_identity_mapping_revision": None,
+            "replacement_mappings": [{"target_user_id": str(target_id), "expected_username": "provider-user"}],
+        },
+    )
+
+    assert response.status_code == 409
+    assert response.json()["detail"]["errors"] == [
+        {
+            "target_user_id": str(target_id),
+            "field": "target_user_id",
+            "error_code": "oidc_mapping_target_unavailable",
+            "message": "OIDC mapping target is unavailable",
+        }
+    ]
+
+
+def test_finalize_rechecks_initiating_administrator_after_write_boundary(
+    client: TestClient,
+    session: Session,
+    admin_user: User,
+    admin_token: str,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    flow = _create_validated_test_flow(session, admin_user)
+
+    def deactivate_initiating_admin(*_args: object, **_kwargs: object) -> UserRole:
+        admin_user.is_active = False
+        session.add(admin_user)
+        session.flush()
+        return UserRole.ADMIN
+
+    monkeypatch.setattr(admin_auth_module, "resolve_oidc_role", deactivate_initiating_admin)
+
+    response = client.post(
+        "/api/admin/auth/oidc/finalize",
+        headers={"Authorization": f"Bearer {admin_token}"},
+        json={"flow_id": str(flow.id), "expected_identity_mapping_revision": None},
+    )
+
+    assert response.status_code == 409
+    assert response.json()["detail"] == "oidc_initiating_administrator_unavailable"
+
+
+def test_finalize_flow_claim_rechecks_expiry(
+    client: TestClient,
+    session: Session,
+    admin_user: User,
+    admin_token: str,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    flow = _create_validated_test_flow(session, admin_user)
+    baseline = datetime.now(timezone.utc)
+    flow.expires_at = baseline + timedelta(seconds=5)
+    session.add(flow)
+    session.commit()
+
+    class AdvancingDateTime(datetime):
+        calls = 0
+
+        @classmethod
+        def now(cls, tz: timezone | None = None) -> datetime:
+            cls.calls += 1
+            current = baseline if cls.calls == 1 else baseline + timedelta(seconds=10)
+            return current if tz is not None else current.replace(tzinfo=None)
+
+    monkeypatch.setattr(admin_auth_module, "datetime", AdvancingDateTime)
+
+    response = client.post(
+        "/api/admin/auth/oidc/finalize",
+        headers={"Authorization": f"Bearer {admin_token}"},
+        json={"flow_id": str(flow.id), "expected_identity_mapping_revision": None},
+    )
+
+    assert response.status_code == 404, response.json()
+    assert response.json()["detail"] == "OIDC test flow was not found"
 
 
 def test_mapping_revision_claim_is_conditional(session: Session) -> None:
@@ -518,7 +699,7 @@ def test_username_claim_change_removes_pending_mappings_and_revokes_affected_use
         name_claim="name",
         email_claim="email",
         groups_claim="groups",
-        sign_in_mode=SignInMode.PASSWORD_ONLY,
+        sign_in_mode=SignInMode.OIDC_OR_PASSWORD,
         admission_mode=OidcAdmissionMode.ALL_IDP_USERS,
         admission_groups=(),
         admin_groups=("sambee-admins",),
@@ -598,7 +779,7 @@ def test_mapping_context_change_rejects_concurrent_mapping_revision(
         name_claim="name",
         email_claim="email",
         groups_claim="groups",
-        sign_in_mode=SignInMode.PASSWORD_ONLY,
+        sign_in_mode=SignInMode.OIDC_OR_PASSWORD,
         admission_mode=OidcAdmissionMode.ALL_IDP_USERS,
         admission_groups=(),
         admin_groups=("sambee-admins",),
@@ -636,7 +817,7 @@ def test_mapping_context_change_rejects_concurrent_mapping_revision(
     )
 
     assert response.status_code == 409
-    assert response.json()["detail"] == "OIDC identity mappings changed during testing"
+    assert response.json()["detail"] == "oidc_mapping_review_stale"
     session.refresh(active)
     assert active.configuration_revision == 7
     assert active.identity_mapping_revision == 4

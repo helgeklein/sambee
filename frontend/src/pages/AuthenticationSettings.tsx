@@ -19,7 +19,7 @@ import { useEffect, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import api from "../services/api";
 import { clearAuthConfigCache } from "../services/authConfig";
-import type { OidcAdminConfigurationRead, OidcConfigurationCandidate, OidcTestedIdentity } from "../types";
+import { isApiError, type OidcAdminConfigurationRead, type OidcConfigurationCandidate, type OidcTestedIdentity } from "../types";
 import { getApiErrorMessage, getOidcMappingValidationErrors } from "../utils/apiErrors";
 
 const DEFAULT_CANDIDATE: OidcConfigurationCandidate = {
@@ -32,7 +32,7 @@ const DEFAULT_CANDIDATE: OidcConfigurationCandidate = {
   name_claim: "name",
   email_claim: "email",
   groups_claim: "groups",
-  sign_in_mode: "password_only",
+  sign_in_mode: "oidc_or_password",
   admission_mode: "selected_groups",
   admission_groups: [],
   role_mappings: { admin: [], editor: [] },
@@ -57,6 +57,17 @@ const editableCandidate = ({
   identity_mapping_revision: ___,
   ...candidate
 }: NonNullable<OidcAdminConfigurationRead["configuration"]>): OidcConfigurationCandidate => candidate;
+const mappingReviewFor = (identity: OidcTestedIdentity) =>
+  Object.fromEntries(
+    identity.replacement_mappings.map((mapping) => [
+      mapping.target_user_id,
+      {
+        selected: mapping.selected_by_default,
+        expectedUsername: mapping.selected_by_default ? mapping.suggested_username : "",
+        omissionAcknowledged: false,
+      },
+    ])
+  );
 
 export function AuthenticationSettings() {
   const navigate = useNavigate();
@@ -118,6 +129,7 @@ export function AuthenticationSettings() {
         ? "A group cannot grant both administrator and editor roles."
         : "";
   const groupConfigurationInvalid = Boolean(admissionGroupError || adminGroupError || editorGroupError);
+  const testedIdentityCanAdminister = testedIdentity?.admitted === true && testedIdentity.resulting_role === "admin";
 
   useEffect(() => {
     let active = true;
@@ -134,24 +146,24 @@ export function AuthenticationSettings() {
         const flowId = fragmentFlowId ?? sessionStorage.getItem(OIDC_SETUP_FLOW_STORAGE_KEY);
         if (!flowId) return;
         if (fragmentFlowId) window.history.replaceState(null, "", window.location.pathname + window.location.search);
-        return api.getOidcTestResult(flowId).then((identity) => {
-          if (active) {
+        return api.getOidcTestResult(flowId).then(
+          (identity) => {
+            if (!active) return;
             setCandidate(editableCandidate(identity.candidate));
             setTestedIdentity(identity);
-            setMappingReview(
-              Object.fromEntries(
-                identity.replacement_mappings.map((mapping) => [
-                  mapping.target_user_id,
-                  {
-                    selected: mapping.selected_by_default,
-                    expectedUsername: mapping.selected_by_default ? mapping.suggested_username : "",
-                    omissionAcknowledged: false,
-                  },
-                ])
-              )
-            );
+            setMappingErrors({});
+            setMappingReview(mappingReviewFor(identity));
+          },
+          (caught: unknown) => {
+            if (!active) return;
+            if (isApiError(caught) && caught.response?.status === 404) {
+              sessionStorage.removeItem(OIDC_SETUP_FLOW_STORAGE_KEY);
+              setError("The saved OIDC test has expired. Connect and test the provider again.");
+              return;
+            }
+            setError("The OIDC test result could not be loaded. Retry by reopening this page.");
           }
-        });
+        );
       })
       .catch(() => {
         if (active) setError("Authentication settings could not be loaded.");
@@ -190,7 +202,14 @@ export function AuthenticationSettings() {
   };
 
   const activate = async () => {
-    if (!testedIdentity || replacementPlanInvalid) return;
+    if (!testedIdentity || replacementPlanInvalid || !testedIdentityCanAdminister) return;
+    const signInPath = testedIdentity.candidate.sign_in_mode === "oidc_only" ? "OIDC only" : "OIDC or password";
+    if (
+      !window.confirm(
+        `Activate ${testedIdentity.candidate.display_name} in ${signInPath} mode? The tested identity ${testedIdentity.username} will be linked to your current administrator account. Existing sessions may be revoked, requiring users to sign in again through the configured login paths.`
+      )
+    )
+      return;
     setBusy(true);
     setError("");
     try {
@@ -227,7 +246,33 @@ export function AuthenticationSettings() {
       if (refreshed.configuration) setCandidate(editableCandidate(refreshed.configuration));
     } catch (caught: unknown) {
       const validationErrors = getOidcMappingValidationErrors(caught);
-      if (validationErrors.length > 0) {
+      const errorCode = getApiErrorMessage(caught, "");
+      if (errorCode === "oidc_mapping_review_stale") {
+        try {
+          const refreshedIdentity = await api.getOidcTestResult(testedIdentity.flow_id);
+          setCandidate(editableCandidate(refreshedIdentity.candidate));
+          setTestedIdentity(refreshedIdentity);
+          setMappingErrors({});
+          setMappingReview(mappingReviewFor(refreshedIdentity));
+          setError("The account mapping review changed. Review the refreshed mappings before activating.");
+        } catch (refreshError: unknown) {
+          if (isApiError(refreshError) && refreshError.response?.status === 404) {
+            sessionStorage.removeItem(OIDC_SETUP_FLOW_STORAGE_KEY);
+            setTestedIdentity(null);
+            setMappingReview({});
+            setMappingErrors({});
+            setError("The OIDC test expired while refreshing mappings. Connect and test the provider again.");
+          } else {
+            setError("The current mapping review could not be loaded. Retry activation to refresh it.");
+          }
+        }
+      } else if (errorCode === "oidc_configuration_changed") {
+        sessionStorage.removeItem(OIDC_SETUP_FLOW_STORAGE_KEY);
+        setTestedIdentity(null);
+        setMappingReview({});
+        setMappingErrors({});
+        setError("The OIDC configuration changed after this test. Connect and test the provider again.");
+      } else if (validationErrors.length > 0) {
         setMappingErrors(
           Object.fromEntries(
             validationErrors
@@ -483,7 +528,6 @@ export function AuthenticationSettings() {
           value={candidate.sign_in_mode}
           onChange={(event) => update("sign_in_mode", event.target.value as OidcConfigurationCandidate["sign_in_mode"])}
         >
-          <MenuItem value="password_only">Password only</MenuItem>
           <MenuItem value="oidc_or_password">OIDC or password</MenuItem>
           <MenuItem value="oidc_only">OIDC only</MenuItem>
         </TextField>
@@ -502,6 +546,13 @@ export function AuthenticationSettings() {
             <Typography>Username: {testedIdentity.username}</Typography>
             {testedIdentity.email && <Typography>Email: {testedIdentity.email}</Typography>}
             <Typography>Groups: {testedIdentity.groups.join(", ") || "None"}</Typography>
+            <Typography>Admission: {testedIdentity.admitted ? "Allowed" : "Denied"}</Typography>
+            <Typography>Resulting role: {testedIdentity.resulting_role ?? "None"}</Typography>
+            {!testedIdentityCanAdminister && (
+              <Alert severity="error" sx={{ mt: 1 }}>
+                The tested identity must be admitted as an administrator before this configuration can be activated.
+              </Alert>
+            )}
             {testedIdentity.replacement_mappings.length > 0 && (
               <Stack spacing={2} sx={{ mt: 2 }}>
                 <Typography variant="subtitle1">Review existing accounts</Typography>
@@ -530,7 +581,14 @@ export function AuthenticationSettings() {
                           control={
                             <Checkbox
                               checked={review?.selected ?? false}
-                              onChange={(event) =>
+                              onChange={(event) => {
+                                if (!event.target.checked) {
+                                  setMappingErrors((current) => {
+                                    const next = { ...current };
+                                    delete next[mapping.target_user_id];
+                                    return next;
+                                  });
+                                }
                                 setMappingReview((current) => ({
                                   ...current,
                                   [mapping.target_user_id]: {
@@ -542,8 +600,8 @@ export function AuthenticationSettings() {
                                         : (current[mapping.target_user_id]?.expectedUsername ?? ""),
                                     omissionAcknowledged: false,
                                   },
-                                }))
-                              }
+                                }));
+                              }}
                             />
                           }
                           label={`Map ${mapping.local_username}`}
@@ -614,7 +672,12 @@ export function AuthenticationSettings() {
                 )}
               </Stack>
             )}
-            <Button variant="contained" sx={{ mt: 2 }} disabled={busy || replacementPlanInvalid} onClick={activate}>
+            <Button
+              variant="contained"
+              sx={{ mt: 2 }}
+              disabled={busy || replacementPlanInvalid || !testedIdentityCanAdminister}
+              onClick={activate}
+            >
               Activate configuration
             </Button>
             <Button variant="text" sx={{ mt: 2, ml: 1 }} disabled={busy} onClick={() => void cancelTestFlow()}>
