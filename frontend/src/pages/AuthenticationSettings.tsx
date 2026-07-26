@@ -78,15 +78,33 @@ const reviewedPolicyFor = (candidate: OidcConfigurationCandidate): OidcReviewedP
   role_mappings: candidate.role_mappings,
   username_claim_uniqueness_confirmed: candidate.username_claim_uniqueness_confirmed,
 });
+const isStringArray = (value: unknown): value is string[] => Array.isArray(value) && value.every((entry) => typeof entry === "string");
+const isReviewedPolicy = (value: unknown): value is OidcReviewedPolicy => {
+  if (typeof value !== "object" || value === null) return false;
+  const policy = value as Record<string, unknown>;
+  const roleMappings = policy.role_mappings;
+  return (
+    (policy.sign_in_mode === "oidc_or_password" || policy.sign_in_mode === "oidc_only") &&
+    (policy.admission_mode === "all_idp_users" || policy.admission_mode === "selected_groups") &&
+    isStringArray(policy.admission_groups) &&
+    typeof roleMappings === "object" &&
+    roleMappings !== null &&
+    isStringArray((roleMappings as Record<string, unknown>).admin) &&
+    isStringArray((roleMappings as Record<string, unknown>).editor) &&
+    typeof policy.username_claim_uniqueness_confirmed === "boolean"
+  );
+};
 const storedReviewedPolicy = (): OidcReviewedPolicy | undefined => {
   const stored = sessionStorage.getItem(OIDC_REVIEWED_POLICY_STORAGE_KEY);
   if (!stored) return undefined;
   try {
-    return JSON.parse(stored) as OidcReviewedPolicy;
+    const policy: unknown = JSON.parse(stored);
+    if (isReviewedPolicy(policy)) return policy;
   } catch {
-    sessionStorage.removeItem(OIDC_REVIEWED_POLICY_STORAGE_KEY);
-    return undefined;
+    // Invalid persisted state is discarded below.
   }
+  sessionStorage.removeItem(OIDC_REVIEWED_POLICY_STORAGE_KEY);
+  return undefined;
 };
 const mappingReviewFor = (identity: OidcTestedIdentity) =>
   Object.fromEntries(
@@ -137,6 +155,7 @@ export function AuthenticationSettings() {
     replacementUsernames.some((username) => !username || username === testedIdentity?.username.trim()) ||
     new Set(replacementUsernames).size !== replacementUsernames.length ||
     requiredOmissions.length > 0;
+  const mappingAttestationMissing = selectedMappings.length > 0 && !candidate.username_claim_uniqueness_confirmed;
   const duplicateAdmissionGroups = duplicateGroupKeys(candidate.admission_groups);
   const duplicateAdminGroups = duplicateGroupKeys(candidate.role_mappings.admin);
   const duplicateEditorGroups = duplicateGroupKeys(candidate.role_mappings.editor);
@@ -284,7 +303,7 @@ export function AuthenticationSettings() {
   };
 
   const activate = async () => {
-    if (!testedIdentity || replacementPlanInvalid || !testedIdentityCanAdminister) return;
+    if (!testedIdentity || replacementPlanInvalid || mappingAttestationMissing || !testedIdentityCanAdminister) return;
     const signInPath = testedIdentity.candidate.sign_in_mode === "oidc_only" ? "OIDC only" : "OIDC or password";
     const affectedAccountMessage =
       testedIdentity.affected_account_count === 0
@@ -306,7 +325,7 @@ export function AuthenticationSettings() {
     setBusy(true);
     setError("");
     try {
-      const result = await api.finalizeOidcConfiguration(
+      const finalizationArguments = [
         testedIdentity.flow_id,
         reviewedPolicyFor(candidate),
         selectedMappings.map(({ target_user_id }) => ({
@@ -321,8 +340,15 @@ export function AuthenticationSettings() {
               !mappingReview[mapping.target_user_id]?.selected &&
               mappingReview[mapping.target_user_id]?.omissionAcknowledged
           )
-          .map((mapping) => mapping.target_user_id)
-      );
+          .map((mapping) => mapping.target_user_id),
+      ] as const;
+      let result: Awaited<ReturnType<typeof api.finalizeOidcConfiguration>>;
+      try {
+        result = await api.finalizeOidcConfiguration(...finalizationArguments);
+      } catch (firstAttemptError: unknown) {
+        if (!isApiError(firstAttemptError) || firstAttemptError.response !== undefined) throw firstAttemptError;
+        result = await api.finalizeOidcConfiguration(...finalizationArguments);
+      }
       clearAuthConfigCache();
       setTestedIdentity(null);
       setMappingReview({});
@@ -378,6 +404,8 @@ export function AuthenticationSettings() {
           )
         );
         setError("Correct the highlighted OIDC mapping errors before activating.");
+      } else if (isApiError(caught) && caught.response === undefined) {
+        setError("Activation may have completed, but the server response was not received. Retry activation to confirm the result.");
       } else {
         setError("The tested configuration could not be activated. Run the test again.");
       }
@@ -772,12 +800,17 @@ export function AuthenticationSettings() {
                       ))}
                   </Box>
                 )}
+                {mappingAttestationMissing && (
+                  <Alert severity="error">
+                    Confirm that the username claim is stable and unique before activating selected account mappings.
+                  </Alert>
+                )}
               </Stack>
             )}
             <Button
               variant="contained"
               sx={{ mt: 2 }}
-              disabled={busy || reviewPending || replacementPlanInvalid || !testedIdentityCanAdminister}
+              disabled={busy || reviewPending || replacementPlanInvalid || mappingAttestationMissing || !testedIdentityCanAdminister}
               onClick={activate}
             >
               Activate configuration

@@ -72,9 +72,13 @@ def evaluate_oidc_access(configuration: OidcProviderConfiguration, groups: tuple
         raise OidcIdentityError(OidcIdentityErrorCode.NOT_ADMITTED)
     if configuration.admission_mode == OidcAdmissionMode.SELECTED_GROUPS and not normalized_groups.intersection(admission_groups):
         raise OidcIdentityError(OidcIdentityErrorCode.NOT_ADMITTED)
-    matching_admission_group = next(
-        (group for group in configured_admission_groups if normalize_group_key(group) in normalized_groups),
-        None,
+    matching_admission_group = (
+        next(
+            (group for group in configured_admission_groups if normalize_group_key(group) in normalized_groups),
+            None,
+        )
+        if configuration.admission_mode == OidcAdmissionMode.SELECTED_GROUPS
+        else None
     )
     if normalized_groups.intersection(admin_groups):
         return OidcAccessEvaluation(role=UserRole.ADMIN, matching_admission_group=matching_admission_group)

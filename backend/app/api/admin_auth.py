@@ -9,7 +9,12 @@ from sqlalchemy.exc import IntegrityError
 from sqlmodel import Session, select
 
 from app.core.config import settings
-from app.core.security import get_current_admin_user, is_user_expired
+from app.core.security import (
+    BrowserAuthentication,
+    get_admin_browser_authentication_allowing_stale_token,
+    get_current_admin_user,
+    is_user_expired,
+)
 from app.db.database import get_session
 from app.models.oidc import (
     OidcFlow,
@@ -424,9 +429,10 @@ async def cancel_oidc_test_flow(
 @router.post("/auth/oidc/finalize", response_model=OidcFinalizeResponse)
 async def finalize_oidc_configuration(
     payload: OidcFinalizeRequest,
-    current_user: User = Depends(get_current_admin_user),
+    authentication: BrowserAuthentication = Depends(get_admin_browser_authentication_allowing_stale_token),
     session: Session = Depends(get_session),
 ) -> OidcFinalizeResponse:
+    current_user = authentication.user
     existing_flow = session.get(OidcFlow, payload.flow_id)
     now = datetime.now(timezone.utc)
     if (
@@ -442,6 +448,12 @@ async def finalize_oidc_configuration(
             configuration_revision=existing_flow.finalized_configuration_revision,
             identity_mapping_revision=existing_flow.finalized_identity_mapping_revision,
             reauthentication_required=bool(existing_flow.finalized_reauthentication_required),
+        )
+    if not authentication.token_version_current:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Could not validate credentials",
+            headers={"WWW-Authenticate": "Bearer"},
         )
     flow = _get_owned_validated_test_flow(session, payload.flow_id, current_user)
     cipher = OidcSecretCipher(settings.oidc_secret_key)
@@ -483,6 +495,11 @@ async def finalize_oidc_configuration(
             )
         except OidcMappingError as error:
             raise _mapping_http_exception(error) from error
+        if reviewed_replacement_mappings and not candidate.username_claim_uniqueness_confirmed:
+            raise HTTPException(
+                status_code=status.HTTP_409_CONFLICT,
+                detail="oidc_username_claim_uniqueness_not_confirmed",
+            )
     elif payload.replacement_mappings or payload.omitted_account_acknowledgements:
         raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="OIDC mapping review is not expected")
 

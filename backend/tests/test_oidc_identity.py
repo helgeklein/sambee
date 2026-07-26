@@ -10,6 +10,7 @@ from app.services.oidc_client import NormalizedOidcClaims
 from app.services.oidc_identity import (
     OidcIdentityError,
     OidcIdentityErrorCode,
+    evaluate_oidc_access,
     resolve_oidc_role,
     resolve_or_provision_oidc_user,
 )
@@ -58,6 +59,22 @@ def test_role_resolution_normalizes_groups_and_uses_highest_privilege(session: S
     role = resolve_oidc_role(configuration, ("sambee users", "editors", "PLATFORM ADMINS"))
 
     assert role == UserRole.ADMIN
+
+
+def test_all_provider_users_does_not_report_an_admission_group_match(session: Session) -> None:
+    configuration = _configuration(
+        session,
+        admission_groups=["Sambee Users"],
+        admin_groups=["Platform Admins"],
+    )
+    configuration.admission_mode = OidcAdmissionMode.ALL_IDP_USERS
+    session.add(configuration)
+    session.commit()
+
+    evaluation = evaluate_oidc_access(configuration, ("Sambee Users", "Platform Admins"))
+
+    assert evaluation.role == UserRole.ADMIN
+    assert evaluation.matching_admission_group is None
 
 
 def test_unmapped_identity_provisions_passwordless_user_and_audits(session: Session) -> None:

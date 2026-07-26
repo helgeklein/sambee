@@ -103,7 +103,7 @@ Open **Settings > Administration > Authentication** as a local administrator.
 
 Testing does not change the active configuration. Activation succeeds only when the tested identity resolves to an administrator, the test belongs to the initiating administrator, and the active configuration has not changed since the test began. Leaving the client-secret field blank preserves an existing stored secret.
 
-The current setup test is retained for the browser tab if the page reloads. If another administrator changes account mappings during review, Sambee reloads the current mapping plan in the same tested flow and discards stale edits. If the provider configuration changed, or the saved test expired, Sambee discards the tested flow and requires another provider test. Temporary network failures retain the flow so the result can be loaded again.
+The current setup test is retained for the browser tab if the page reloads. If another administrator changes account mappings during review, Sambee reloads the current mapping plan in the same tested flow and discards stale edits. If the provider configuration changed, or the saved test expired, Sambee discards the tested flow and requires another provider test. Temporary network failures retain the flow so the result can be loaded again. If the connection is interrupted during activation, select **Activate configuration** again. Sambee retries the same tested flow and returns the completed activation result when the first request already succeeded.
 
 Select **Cancel** to delete the test's encrypted candidate and tested identity immediately. Closing the page without canceling leaves the test unavailable to other administrators and lets it expire automatically.
 
@@ -111,7 +111,7 @@ Select **Cancel** to delete the test's encrypted candidate and tested identity i
 
 Initial activation and provider identity namespace replacement both show every existing local account except the administrator who completed the test. Select an account only when its provider username has been confirmed.
 
-The proposed username is a hint unless it comes from a previous pending mapping. Previous pending mappings are selected by default. Last-seen provider usernames and local usernames remain unselected until an administrator confirms them. Provider usernames are matched exactly after surrounding whitespace is removed. The tested administrator and every selected account must use different provider usernames.
+The proposed username is a hint unless it comes from a previous pending mapping. Previous pending mappings are selected by default. Last-seen provider usernames and local usernames remain unselected until an administrator confirms them. Provider usernames are matched exactly after surrounding whitespace is removed. The tested administrator and every selected account must use different provider usernames. Creating selected account mappings also requires confirmation that the configured username claim is stable and unique for every user.
 
 Inactive and expired accounts appear separately and cannot be selected. Reactivate an account before mapping it.
 

@@ -160,6 +160,25 @@ describe("Authentication settings", () => {
     expect(api.getOidcTestResult).toHaveBeenCalledWith("stored-flow", undefined);
   });
 
+  it("discards an invalid stored reviewed policy before restoring the server snapshot", async () => {
+    sessionStorage.setItem("sambee.oidc.setupFlowId", "stored-flow");
+    sessionStorage.setItem(
+      "sambee.oidc.reviewedPolicy",
+      JSON.stringify({ sign_in_mode: "retired_mode", admission_groups: "sambee-users" })
+    );
+    window.location.hash = "";
+    vi.mocked(api.getOidcConfiguration).mockResolvedValue(response(configuration("Active Provider")));
+    vi.mocked(api.getOidcTestResult).mockResolvedValue(testedIdentity({ flow_id: "stored-flow" }));
+
+    renderSettings();
+
+    expect(await screen.findByDisplayValue("Tested Provider")).toBeInTheDocument();
+    expect(api.getOidcTestResult).toHaveBeenCalledWith("stored-flow", undefined);
+    expect(JSON.parse(sessionStorage.getItem("sambee.oidc.reviewedPolicy") ?? "null")).toEqual(
+      reviewedPolicy(configuration("Tested Provider"))
+    );
+  });
+
   it("clears an expired saved flow but retains retryable preview state", async () => {
     sessionStorage.setItem("sambee.oidc.setupFlowId", "expired-flow");
     window.location.hash = "";
@@ -389,6 +408,76 @@ describe("Authentication settings", () => {
       4,
       []
     );
+  });
+
+  it("requires username uniqueness attestation for selected account mappings", async () => {
+    const candidate = { ...configuration("New Provider"), username_claim_uniqueness_confirmed: false };
+    vi.mocked(api.getOidcConfiguration).mockResolvedValue(response(configuration("Old Provider")));
+    vi.mocked(api.getOidcTestResult).mockResolvedValue(
+      testedIdentity({
+        candidate,
+        replacement_mappings: [
+          {
+            target_user_id: "user-1",
+            local_username: "alice",
+            local_role: "editor",
+            has_local_password: true,
+            target_state: "active",
+            mapping_state: "pending",
+            suggested_username: "provider-alice",
+            prefill_source: "pending",
+            selected_by_default: true,
+            selectable: true,
+            omission_acknowledgement_required: false,
+          },
+        ],
+      })
+    );
+    window.location.hash = "flow=test-flow";
+
+    renderSettings();
+
+    expect(await screen.findByText(/confirm that the username claim is stable and unique/i)).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Activate configuration" })).toBeDisabled();
+    expect(api.finalizeOidcConfiguration).not.toHaveBeenCalled();
+  });
+
+  it("retries the same finalization after a lost response and accepts its completion receipt", async () => {
+    const user = userEvent.setup();
+    vi.spyOn(window, "confirm").mockReturnValue(true);
+    vi.mocked(api.getOidcConfiguration).mockResolvedValue(response(configuration("Active Provider")));
+    vi.mocked(api.getOidcTestResult).mockResolvedValue(testedIdentity());
+    vi.mocked(api.finalizeOidcConfiguration).mockRejectedValueOnce({ message: "Network unavailable" }).mockResolvedValueOnce({
+      configuration_revision: 3,
+      identity_mapping_revision: 2,
+      reauthentication_required: true,
+    });
+    window.location.hash = "flow=test-flow";
+    renderSettings();
+
+    await user.click(await screen.findByRole("button", { name: "Activate configuration" }));
+
+    expect(await screen.findByText("Sign in again")).toBeInTheDocument();
+    expect(api.finalizeOidcConfiguration).toHaveBeenCalledTimes(2);
+    expect(vi.mocked(api.finalizeOidcConfiguration).mock.calls[1]).toEqual(vi.mocked(api.finalizeOidcConfiguration).mock.calls[0]);
+    expect(sessionStorage.getItem("sambee.oidc.setupFlowId")).toBeNull();
+  });
+
+  it("retains the tested flow when repeated finalization responses are ambiguous", async () => {
+    const user = userEvent.setup();
+    vi.spyOn(window, "confirm").mockReturnValue(true);
+    vi.mocked(api.getOidcConfiguration).mockResolvedValue(response(configuration("Active Provider")));
+    vi.mocked(api.getOidcTestResult).mockResolvedValue(testedIdentity());
+    vi.mocked(api.finalizeOidcConfiguration).mockRejectedValue({ message: "Network unavailable" });
+    window.location.hash = "flow=test-flow";
+    renderSettings();
+
+    await user.click(await screen.findByRole("button", { name: "Activate configuration" }));
+
+    expect(await screen.findByText(/activation may have completed/i)).toBeInTheDocument();
+    expect(api.finalizeOidcConfiguration).toHaveBeenCalledTimes(2);
+    expect(sessionStorage.getItem("sambee.oidc.setupFlowId")).toBe("test-flow");
+    expect(screen.getByText("Tested identity")).toBeInTheDocument();
   });
 
   it("clears a server mapping error when the row is deselected", async () => {

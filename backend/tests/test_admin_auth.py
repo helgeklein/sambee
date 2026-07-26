@@ -199,10 +199,9 @@ def test_finalize_oidc_configuration_is_idempotent(
     assert unrelated_user.token_version == 1
     assert client.get("/api/auth/me", headers=headers).status_code == 401
     session.refresh(admin_user)
-    refreshed_headers = {"Authorization": f"Bearer {build_user_access_token(admin_user)}"}
     second = client.post(
         "/api/admin/auth/oidc/finalize",
-        headers=refreshed_headers,
+        headers=headers,
         json={"flow_id": str(flow.id), "reviewed_policy": reviewed_policy},
     )
     assert second.status_code == 200
@@ -220,6 +219,13 @@ def test_finalize_oidc_configuration_is_idempotent(
     flow.expires_at = datetime.now(timezone.utc) - timedelta(seconds=1)
     session.add(flow)
     session.commit()
+    stale_expired_retry = client.post(
+        "/api/admin/auth/oidc/finalize",
+        headers=headers,
+        json={"flow_id": str(flow.id), "reviewed_policy": reviewed_policy},
+    )
+    assert stale_expired_retry.status_code == 401
+    refreshed_headers = {"Authorization": f"Bearer {build_user_access_token(admin_user)}"}
     expired_retry = client.post(
         "/api/admin/auth/oidc/finalize",
         headers=refreshed_headers,
@@ -401,6 +407,37 @@ def test_finalize_returns_structured_mapping_review_errors(
             "message": "OIDC mapping target is unavailable",
         }
     ]
+
+
+def test_finalize_rejects_pending_mappings_without_uniqueness_confirmation(
+    client: TestClient,
+    session: Session,
+    admin_user: User,
+    admin_token: str,
+) -> None:
+    target = User(username="unconfirmed-mapping-target", password_hash="hash")
+    session.add(target)
+    session.commit()
+    flow = _create_validated_test_flow(session, admin_user)
+    reviewed_policy = _reviewed_policy_for_flow(flow)
+    reviewed_policy["username_claim_uniqueness_confirmed"] = False
+
+    response = client.post(
+        "/api/admin/auth/oidc/finalize",
+        headers={"Authorization": f"Bearer {admin_token}"},
+        json={
+            "flow_id": str(flow.id),
+            "reviewed_policy": reviewed_policy,
+            "expected_identity_mapping_revision": None,
+            "replacement_mappings": [
+                {"target_user_id": str(target.id), "expected_username": "provider-target"},
+            ],
+        },
+    )
+
+    assert response.status_code == 409
+    assert response.json()["detail"] == "oidc_username_claim_uniqueness_not_confirmed"
+    assert session.exec(select(OidcPendingIdentityMapping)).first() is None
 
 
 def test_finalize_rechecks_initiating_administrator_after_write_boundary(
