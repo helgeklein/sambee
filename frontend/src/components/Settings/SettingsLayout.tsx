@@ -23,7 +23,7 @@ import {
   getVisibleSettingsNavItems,
   SETTINGS_ROUTE_BY_CATEGORY,
 } from "./settingsNavigation";
-import { useSettingsAccess } from "./useSettingsAccess";
+import { SettingsAccessProvider, useSettingsAccess } from "./useSettingsAccess";
 
 /**
  * SettingsLayout
@@ -37,7 +37,7 @@ export function SettingsLayout() {
   const isDesktop = useMediaQuery(theme.breakpoints.up("sm"));
   const navigate = useNavigate();
   const location = useLocation();
-  const { isAdmin } = useSettingsAccess();
+  const { isAdmin, canWrite } = useSettingsAccess();
   const { t } = useTranslation();
 
   // On desktop, redirect from /settings to the topmost settings page.
@@ -78,38 +78,42 @@ export function SettingsLayout() {
   if (isDesktop) {
     // Desktop: Sidebar + Content Area
     return (
-      <Box sx={{ display: "flex", height: "100vh" }}>
-        <SettingsSidebar />
-        <Box
-          sx={{
-            flex: 1,
-            display: "flex",
-            flexDirection: "column",
-            overflow: "hidden",
-          }}
-        >
-          <Outlet />
+      <SettingsAccessProvider value={{ isAdmin, canWrite }}>
+        <Box sx={{ display: "flex", height: "100vh" }}>
+          <SettingsSidebar />
+          <Box
+            sx={{
+              flex: 1,
+              display: "flex",
+              flexDirection: "column",
+              overflow: "hidden",
+            }}
+          >
+            <Outlet />
+          </Box>
         </Box>
-      </Box>
+      </SettingsAccessProvider>
     );
   }
 
   // Mobile: Full-page with AppBar (edge-to-edge layout)
   return (
-    <Box sx={getMobileViewportShellSx(true)}>
-      <AppBar position="static" sx={mobileSafeAreaAppBarSx}>
-        <Toolbar sx={mobileSafeAreaToolbarSx}>
-          <IconButton edge="start" color="inherit" onClick={handleMobileBack} aria-label={t("common.navigation.goBack")}>
-            <ArrowBackIcon />
-          </IconButton>
-          <Typography variant="h6" component="h1" sx={{ ml: 2 }}>
-            {getPageTitle()}
-          </Typography>
-        </Toolbar>
-      </AppBar>
-      <Box sx={mobileScrollableContentSx}>
-        <Outlet />
+    <SettingsAccessProvider value={{ isAdmin, canWrite }}>
+      <Box sx={getMobileViewportShellSx(true)}>
+        <AppBar position="static" sx={mobileSafeAreaAppBarSx}>
+          <Toolbar sx={mobileSafeAreaToolbarSx}>
+            <IconButton edge="start" color="inherit" onClick={handleMobileBack} aria-label={t("common.navigation.goBack")}>
+              <ArrowBackIcon />
+            </IconButton>
+            <Typography variant="h6" component="h1" sx={{ ml: 2 }}>
+              {getPageTitle()}
+            </Typography>
+          </Toolbar>
+        </AppBar>
+        <Box sx={mobileScrollableContentSx}>
+          <Outlet />
+        </Box>
       </Box>
-    </Box>
+    </SettingsAccessProvider>
   );
 }

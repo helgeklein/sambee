@@ -109,6 +109,7 @@ jobs:
           --forceSyncStatic \
           --baseURL "$base_url"
 
+        npm run redirects:generate
         npm run build:search-index
 
     - name: Upload website build artifact

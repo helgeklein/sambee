@@ -9,7 +9,6 @@ from sqlalchemy.exc import IntegrityError
 from sqlmodel import Session, select
 
 import app.api.admin_auth as admin_auth_module
-import app.core.config as config_module
 from app.core.security import build_user_access_token
 from app.models.audit import AuditEvent
 from app.models.oidc import (
@@ -23,16 +22,40 @@ from app.models.oidc import (
     OidcProviderConfiguration,
     SignInMode,
 )
+from app.models.system_settings import SystemSetting
 from app.models.user import User, UserRole
 from app.services.oidc_client import NormalizedOidcClaims
 from app.services.oidc_configuration import (
     NormalizedOidcCandidate,
-    OidcSecretCipher,
     decrypt_candidate_snapshot,
     encrypt_candidate_snapshot,
+    get_oidc_secret_cipher,
 )
 from app.services.oidc_identity import resolve_or_provision_oidc_user
 from app.services.oidc_mapping import OidcMappingError, change_identity, claim_mapping_revision, move_identity
+
+
+def test_no_authentication_mode_requires_acknowledgement_and_persists(
+    client: TestClient,
+    session: Session,
+    admin_token: str,
+) -> None:
+    headers = {"Authorization": f"Bearer {admin_token}"}
+
+    rejected = client.post("/api/admin/auth/mode", headers=headers, json={"mode": "none"})
+    assert rejected.status_code == 400
+
+    activated = client.post(
+        "/api/admin/auth/mode",
+        headers=headers,
+        json={"mode": "none", "acknowledge_no_authentication": True},
+    )
+    assert activated.status_code == 200
+    assert activated.json() == {"auth_mode": "none", "reauthentication_required": True}
+    setting = session.get(SystemSetting, "auth.mode")
+    assert setting is not None
+    assert setting.value == "none"
+    assert client.get("/api/auth/config").json() == {"sign_in_mode": "none", "oidc": None}
 
 
 def _create_validated_test_flow(
@@ -41,7 +64,7 @@ def _create_validated_test_flow(
     *,
     sign_in_mode: SignInMode = SignInMode.OIDC_OR_PASSWORD,
 ) -> OidcFlow:
-    cipher = OidcSecretCipher(config_module.settings.oidc_secret_key)
+    cipher = get_oidc_secret_cipher()
     candidate = NormalizedOidcCandidate(
         display_name="Example Identity",
         issuer_url="https://id.example.test",
@@ -49,7 +72,6 @@ def _create_validated_test_flow(
         client_secret="secret",
         scopes=("openid", "profile", "groups"),
         username_claim="preferred_username",
-        username_claim_uniqueness_confirmed=True,
         name_claim="name",
         email_claim="email",
         groups_claim="groups",
@@ -86,14 +108,13 @@ def _create_validated_test_flow(
 
 
 def _reviewed_policy_for_flow(flow: OidcFlow) -> dict[str, object]:
-    cipher = OidcSecretCipher(config_module.settings.oidc_secret_key)
+    cipher = get_oidc_secret_cipher()
     candidate = decrypt_candidate_snapshot(str(flow.encrypted_candidate_configuration), cipher)
     return {
         "sign_in_mode": candidate.sign_in_mode,
         "admission_mode": candidate.admission_mode,
         "admission_groups": list(candidate.admission_groups),
         "role_mappings": {"admin": list(candidate.admin_groups), "editor": list(candidate.editor_groups)},
-        "username_claim_uniqueness_confirmed": candidate.username_claim_uniqueness_confirmed,
     }
 
 
@@ -106,7 +127,7 @@ def test_finalize_oidc_configuration_is_idempotent(
 ) -> None:
     clear_cache = Mock()
     monkeypatch.setattr(admin_auth_module, "clear_oidc_provider_cache", clear_cache)
-    cipher = OidcSecretCipher(config_module.settings.oidc_secret_key)
+    cipher = get_oidc_secret_cipher()
     unrelated_user = User(username="unrelated-user", password_hash="hash")
     session.add(unrelated_user)
     session.commit()
@@ -117,7 +138,6 @@ def test_finalize_oidc_configuration_is_idempotent(
         client_secret="secret",
         scopes=("openid", "profile", "groups"),
         username_claim="preferred_username",
-        username_claim_uniqueness_confirmed=True,
         name_claim="name",
         email_claim="email",
         groups_claim="groups",
@@ -409,7 +429,7 @@ def test_finalize_returns_structured_mapping_review_errors(
     ]
 
 
-def test_finalize_rejects_pending_mappings_without_uniqueness_confirmation(
+def test_finalize_allows_pending_mappings_without_uniqueness_confirmation(
     client: TestClient,
     session: Session,
     admin_user: User,
@@ -420,7 +440,6 @@ def test_finalize_rejects_pending_mappings_without_uniqueness_confirmation(
     session.commit()
     flow = _create_validated_test_flow(session, admin_user)
     reviewed_policy = _reviewed_policy_for_flow(flow)
-    reviewed_policy["username_claim_uniqueness_confirmed"] = False
 
     response = client.post(
         "/api/admin/auth/oidc/finalize",
@@ -435,19 +454,13 @@ def test_finalize_rejects_pending_mappings_without_uniqueness_confirmation(
         },
     )
 
-    assert response.status_code == 409
-    assert response.json()["detail"]["errors"] == [
-        {
-            "target_user_id": None,
-            "field": None,
-            "error_code": "oidc_username_claim_uniqueness_not_confirmed",
-            "message": "OIDC username claim uniqueness is not confirmed",
-        }
-    ]
-    assert session.exec(select(OidcPendingIdentityMapping)).first() is None
+    assert response.status_code == 200
+    pending = session.exec(select(OidcPendingIdentityMapping)).one()
+    assert pending.target_user_id == target.id
+    assert pending.expected_username == "provider-target"
 
 
-def test_change_identity_rejects_pending_mapping_without_uniqueness_confirmation(
+def test_change_identity_allows_pending_mapping_without_uniqueness_confirmation(
     client: TestClient,
     session: Session,
     admin_token: str,
@@ -456,7 +469,6 @@ def test_change_identity_rejects_pending_mapping_without_uniqueness_confirmation
         display_name="Provider",
         issuer_url="https://issuer.example",
         client_id="sambee",
-        username_claim_uniqueness_confirmed=False,
         identity_mapping_revision=3,
     )
     target = User(username="linked-target", password_hash="hash")
@@ -474,16 +486,17 @@ def test_change_identity_rejects_pending_mapping_without_uniqueness_confirmation
         json={"expected_identity_mapping_revision": 3, "expected_username": "provider-target"},
     )
 
-    assert response.status_code == 409
-    assert response.json()["detail"]["errors"][0]["error_code"] == "oidc_username_claim_uniqueness_not_confirmed"
+    assert response.status_code == 200
+    pending = session.exec(select(OidcPendingIdentityMapping)).one()
+    assert pending.target_user_id == target_id
+    assert pending.expected_username == "provider-target"
 
 
-def test_change_identity_attestation_failure_does_not_mutate_mapping(session: Session, admin_user: User) -> None:
+def test_change_identity_does_not_require_uniqueness_confirmation(session: Session, admin_user: User) -> None:
     configuration = OidcProviderConfiguration(
         display_name="Provider",
         issuer_url="https://issuer.example",
         client_id="sambee",
-        username_claim_uniqueness_confirmed=False,
     )
     target = User(username="service-linked-target", password_hash="hash")
     session.add(configuration)
@@ -493,18 +506,17 @@ def test_change_identity_attestation_failure_does_not_mutate_mapping(session: Se
     session.add(identity)
     session.commit()
 
-    with pytest.raises(OidcMappingError) as error:
-        change_identity(
-            session,
-            configuration=configuration,
-            target_user_id=target.id,
-            expected_username="provider-target",
-            acting_user_id=admin_user.id,
-        )
+    change_identity(
+        session,
+        configuration=configuration,
+        target_user_id=target.id,
+        expected_username="provider-target",
+        acting_user_id=admin_user.id,
+    )
 
-    assert error.value.error_code == "oidc_username_claim_uniqueness_not_confirmed"
-    assert session.get(OidcIdentity, identity.id) is not None
-    assert session.exec(select(OidcPendingIdentityMapping)).first() is None
+    pending = session.exec(select(OidcPendingIdentityMapping)).one()
+    assert pending.target_user_id == target.id
+    assert pending.expected_username == "provider-target"
 
 
 def test_move_identity_does_not_require_username_uniqueness_confirmation(session: Session, admin_user: User) -> None:
@@ -512,7 +524,6 @@ def test_move_identity_does_not_require_username_uniqueness_confirmation(session
         display_name="Provider",
         issuer_url="https://issuer.example",
         client_id="sambee",
-        username_claim_uniqueness_confirmed=False,
     )
     source = User(username="move-source", password_hash="hash")
     target = User(username="move-target", password_hash="hash")
@@ -630,7 +641,6 @@ def test_pending_mapping_duplicate_targets_return_structured_error(
         display_name="Provider",
         issuer_url="https://issuer.example",
         client_id="sambee",
-        username_claim_uniqueness_confirmed=True,
         identity_mapping_revision=2,
     )
     target = User(username="mapping-target")
@@ -667,7 +677,6 @@ def test_pending_mapping_batch_returns_all_row_errors(
         display_name="Provider",
         issuer_url="https://issuer.example",
         client_id="sambee",
-        username_claim_uniqueness_confirmed=True,
         identity_mapping_revision=2,
     )
     inactive_target = User(username="inactive-mapping-target", is_active=False)
@@ -747,7 +756,7 @@ def test_namespace_replacement_stages_existing_identity_for_exact_relink(
     admin_user: User,
     admin_token: str,
 ) -> None:
-    cipher = OidcSecretCipher(config_module.settings.oidc_secret_key)
+    cipher = get_oidc_secret_cipher()
     existing_user = User(username="local-alice", password_hash="hash")
     active = OidcProviderConfiguration(
         display_name="Old Identity",
@@ -775,7 +784,6 @@ def test_namespace_replacement_stages_existing_identity_for_exact_relink(
         client_secret="new-secret",
         scopes=("openid", "profile", "groups"),
         username_claim="preferred_username",
-        username_claim_uniqueness_confirmed=True,
         name_claim="name",
         email_claim="email",
         groups_claim="groups",
@@ -847,7 +855,7 @@ def test_namespace_replacement_rejects_duplicate_reviewed_usernames_before_mutat
     admin_user: User,
     admin_token: str,
 ) -> None:
-    cipher = OidcSecretCipher(config_module.settings.oidc_secret_key)
+    cipher = get_oidc_secret_cipher()
     first_user = User(username="first-local", password_hash="hash")
     second_user = User(username="second-local", password_hash="hash")
     active = OidcProviderConfiguration(
@@ -873,7 +881,6 @@ def test_namespace_replacement_rejects_duplicate_reviewed_usernames_before_mutat
         client_secret="new-secret",
         scopes=("openid",),
         username_claim="preferred_username",
-        username_claim_uniqueness_confirmed=True,
         name_claim=None,
         email_claim=None,
         groups_claim="groups",
@@ -944,7 +951,7 @@ def test_username_claim_change_removes_pending_mappings_and_revokes_affected_use
     admin_user: User,
     admin_token: str,
 ) -> None:
-    cipher = OidcSecretCipher(config_module.settings.oidc_secret_key)
+    cipher = get_oidc_secret_cipher()
     target = User(username="pending-user", password_hash="hash")
     unrelated_user = User(username="unrelated-user", password_hash="hash")
     active = OidcProviderConfiguration(
@@ -977,7 +984,6 @@ def test_username_claim_change_removes_pending_mappings_and_revokes_affected_use
         client_secret="secret",
         scopes=("openid", "profile", "groups"),
         username_claim="email",
-        username_claim_uniqueness_confirmed=True,
         name_claim="name",
         email_claim="email",
         groups_claim="groups",
@@ -1043,7 +1049,7 @@ def test_mapping_context_change_rejects_concurrent_mapping_revision(
     admin_user: User,
     admin_token: str,
 ) -> None:
-    cipher = OidcSecretCipher(config_module.settings.oidc_secret_key)
+    cipher = get_oidc_secret_cipher()
     active = OidcProviderConfiguration(
         display_name="Example Identity",
         issuer_url="https://id.example.test",
@@ -1061,7 +1067,6 @@ def test_mapping_context_change_rejects_concurrent_mapping_revision(
         client_secret="secret",
         scopes=("openid",),
         username_claim="email",
-        username_claim_uniqueness_confirmed=True,
         name_claim="name",
         email_claim="email",
         groups_claim="groups",

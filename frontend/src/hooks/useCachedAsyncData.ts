@@ -64,6 +64,7 @@ interface UseCachedAsyncDataOptions<T> {
   cacheKey: string;
   load: () => Promise<T>;
   enabled?: boolean;
+  refreshCachedDataOnMount?: boolean;
   onError?: (error: unknown) => void;
   retainDataOnError?: boolean;
 }
@@ -81,6 +82,7 @@ export function useCachedAsyncData<T>({
   cacheKey,
   load,
   enabled = true,
+  refreshCachedDataOnMount = true,
   onError,
   retainDataOnError = true,
 }: UseCachedAsyncDataOptions<T>): UseCachedAsyncDataResult<T> {
@@ -184,7 +186,9 @@ export function useCachedAsyncData<T>({
       setDataState(cachedData);
       setHasResolved(true);
       setLoading(false);
-      void refresh();
+      if (refreshCachedDataOnMount) {
+        void refresh();
+      }
       return;
     }
 
@@ -192,7 +196,7 @@ export function useCachedAsyncData<T>({
     setHasResolved(false);
     setLoading(true);
     void refresh(true);
-  }, [cacheKey, enabled, refresh]);
+  }, [cacheKey, enabled, refresh, refreshCachedDataOnMount]);
 
   return {
     data,

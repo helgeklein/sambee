@@ -8,6 +8,8 @@ import type {
   AdminUserUpdateInput,
   AdvancedSystemSettings,
   AdvancedSystemSettingsUpdate,
+  AuthenticationMode,
+  AuthenticationModeActivationResponse,
   AuthToken,
   CompanionDownloadMetadata,
   Connection,
@@ -20,6 +22,8 @@ import type {
   EditLockInfo,
   EditLockStatus,
   FileInfo,
+  NetworkSettings,
+  NetworkSettingsUpdate,
   User,
 } from "../types";
 import { FileType } from "../types";
@@ -478,6 +482,17 @@ class ApiService {
     return response.data;
   }
 
+  async activateAuthenticationMode(
+    mode: Exclude<AuthenticationMode, "oidc_or_password" | "oidc_only">,
+    acknowledgeNoAuthentication = false
+  ): Promise<AuthenticationModeActivationResponse> {
+    const response = await this.api.post<AuthenticationModeActivationResponse>("/admin/auth/mode", {
+      mode,
+      acknowledge_no_authentication: acknowledgeNoAuthentication,
+    });
+    return response.data;
+  }
+
   async putPendingOidcMappings(
     expectedIdentityMappingRevision: number,
     mappings: Array<{ target_user_id: string; expected_username: string }>
@@ -558,6 +573,16 @@ class ApiService {
 
   async updateAdvancedSettings(payload: AdvancedSystemSettingsUpdate): Promise<AdvancedSystemSettings> {
     const response = await this.api.put<AdvancedSystemSettings>("/admin/settings/advanced", payload);
+    return response.data;
+  }
+
+  async getNetworkSettings(): Promise<NetworkSettings> {
+    const response = await this.api.get<NetworkSettings>("/admin/settings/network");
+    return response.data;
+  }
+
+  async updateNetworkSettings(payload: NetworkSettingsUpdate): Promise<NetworkSettings> {
+    const response = await this.api.put<NetworkSettings>("/admin/settings/network", payload);
     return response.data;
   }
 

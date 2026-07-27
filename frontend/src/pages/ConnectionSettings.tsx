@@ -83,7 +83,7 @@ export function ConnectionSettings({
   const theme = useTheme();
   const isLargeScreen = useMediaQuery(theme.breakpoints.up("sm"));
   const { t } = useTranslation();
-  const { isAdmin: detectedIsAdmin, canWrite: detectedCanWrite } = useSettingsAccess();
+  const { isAdmin: detectedIsAdmin, canWrite: detectedCanWrite } = useSettingsAccess(isAdmin !== true);
   // Use desktop layout if forced or on large screens
   const isDesktop = forceDesktopLayout || isLargeScreen;
   const shouldRenderInlineGroupHeader = Boolean(sectionTitle || sectionDescription || isDesktop);

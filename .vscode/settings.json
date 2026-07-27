@@ -163,6 +163,7 @@
     "pytest": true,
     "mypy": true,
     "ruff": true,
+    "/^python3 -m unittest\\b/": true,
     // Frontend tests and static analysis
     "npm run lint": true,
     "npm test": true,
@@ -175,7 +176,7 @@
     "/^cargo\\s+(?:test|check|clippy|fmt|metadata|tree|doc)\\b/": true,
     // Known repository validation scripts
     "/^(?:\\.\\/)?scripts\\/(?:lint|test|format)(?:\\s|$)/": true,
-    "/^python3\\s+scripts\\/(?:update-docs-derived-artifacts|validate-docs-content)\\.py(?:\\s|$)/": true,
+    "/^python3\\s+scripts\\/(?:generate-managed-redirects|update-docs-derived-artifacts|validate-docs-content)\\.py(?:\\s|$)/": true,
     "/^python3\\s+(?:website\\/)?scripts\\/(?:docs-report|docs-editor)\\.py(?:\\s|$)/": true,
     // Always require approval for destructive or privileged tools
     "chmod": false,

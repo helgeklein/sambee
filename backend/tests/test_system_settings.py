@@ -1,3 +1,4 @@
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
 from fastapi.testclient import TestClient
@@ -6,6 +7,7 @@ from sqlmodel.pool import StaticPool
 
 import app.db.database as database_module
 from app.core.system_setting_definitions import SystemSettingKey
+from app.models.oidc import OidcFlow, OidcFlowPurpose, OidcFlowStatus
 from app.models.system_settings import SystemSetting
 from app.services.system_settings import get_integer_setting_value
 from app.services.system_settings import store as system_settings_store
@@ -113,3 +115,63 @@ class TestAdvancedSystemSettingsApi:
 
         assert response.status_code == 400
         assert "Cannot update and reset the same setting" in response.json()["detail"]
+
+
+class TestNetworkSettingsApi:
+    def test_admin_can_update_network_settings(self, client: TestClient, auth_headers_admin: dict[str, str], session: Session) -> None:
+        response = client.put(
+            "/api/admin/settings/network",
+            headers=auth_headers_admin,
+            json={
+                "public_url": "https://files.example.test/",
+                "trusted_proxy_cidrs": ["10.0.0.4/24", "2001:db8::1/64", "10.0.0.0/24"],
+            },
+        )
+
+        assert response.status_code == 200
+        assert response.json() == {
+            "public_url": "https://files.example.test",
+            "trusted_proxy_cidrs": ["10.0.0.0/24", "2001:db8::/64"],
+        }
+        assert session.get(SystemSetting, "network.public_url").value == "https://files.example.test"
+
+    def test_network_settings_reject_public_url_path(self, client: TestClient, auth_headers_admin: dict[str, str]) -> None:
+        response = client.put(
+            "/api/admin/settings/network",
+            headers=auth_headers_admin,
+            json={"public_url": "https://files.example.test/sambee", "trusted_proxy_cidrs": []},
+        )
+
+        assert response.status_code == 400
+        assert "must not include a path" in response.json()["detail"]
+
+    def test_regular_user_cannot_update_network_settings(self, client: TestClient, auth_headers_user: dict[str, str]) -> None:
+        response = client.put(
+            "/api/admin/settings/network",
+            headers=auth_headers_user,
+            json={"public_url": "https://files.example.test", "trusted_proxy_cidrs": []},
+        )
+
+        assert response.status_code == 403
+
+    def test_public_url_change_invalidates_oidc_flows(
+        self, client: TestClient, auth_headers_admin: dict[str, str], session: Session
+    ) -> None:
+        session.add(
+            OidcFlow(
+                purpose=OidcFlowPurpose.LOGIN,
+                status=OidcFlowStatus.STARTED,
+                expires_at=datetime.now(timezone.utc) + timedelta(minutes=5),
+            )
+        )
+        session.add(SystemSetting(key="network.public_url", value="https://old.example.test"))
+        session.commit()
+
+        response = client.put(
+            "/api/admin/settings/network",
+            headers=auth_headers_admin,
+            json={"public_url": "https://new.example.test", "trusted_proxy_cidrs": []},
+        )
+
+        assert response.status_code == 200
+        assert session.query(OidcFlow).count() == 0

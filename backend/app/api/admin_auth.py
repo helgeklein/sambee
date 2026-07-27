@@ -8,7 +8,7 @@ from sqlalchemy import delete, update
 from sqlalchemy.exc import IntegrityError
 from sqlmodel import Session, select
 
-from app.core.config import settings
+from app.core.auth_methods import AuthenticationMode
 from app.core.security import (
     BrowserAuthentication,
     get_admin_browser_authentication_allowing_stale_token,
@@ -27,6 +27,8 @@ from app.models.oidc import (
     SignInMode,
 )
 from app.models.oidc_api import (
+    AuthenticationModeActivationRequest,
+    AuthenticationModeActivationResponse,
     OidcAdminConfigurationRead,
     OidcConfigurationCandidate,
     OidcFinalizeRequest,
@@ -44,6 +46,7 @@ from app.models.oidc_api import (
 )
 from app.models.user import User, UserRole
 from app.services.audit import AuditDetails, AuditEventName, AuditResult, write_audit_event
+from app.services.authentication_config import get_effective_authentication_mode, set_ui_authentication_mode
 from app.services.oidc_client import (
     NormalizedOidcClaims,
     build_authorization_request,
@@ -59,6 +62,7 @@ from app.services.oidc_configuration import (
     decrypt_candidate_snapshot,
     derive_oidc_redirect_uri,
     encrypt_candidate_snapshot,
+    get_oidc_secret_cipher,
     normalize_candidate,
     redacted_candidate,
     redacted_configuration,
@@ -74,13 +78,13 @@ from app.services.oidc_mapping import (
     create_pending_mappings,
     derive_mapping_plan,
     detach_identity,
-    ensure_pending_mapping_allowed,
     move_identity,
     replace_pending_mappings,
     validate_pending_mapping_batch,
     validate_reviewed_mapping_plan,
 )
 from app.services.oidc_recovery import OidcRecoveryError, activate_password_only, count_active_passwordless_users
+from app.services.system_settings import build_network_settings_read
 
 router = APIRouter()
 OIDC_SESSION_INVALIDATING_FIELDS = frozenset(
@@ -185,7 +189,6 @@ def _proposed_configuration(
         encrypted_client_secret=cipher.encrypt(candidate.client_secret),
         scopes_json=json.dumps(candidate.scopes),
         username_claim=candidate.username_claim,
-        username_claim_uniqueness_confirmed=candidate.username_claim_uniqueness_confirmed,
         name_claim=candidate.name_claim,
         email_claim=candidate.email_claim,
         groups_claim=candidate.groups_claim,
@@ -250,9 +253,10 @@ async def get_oidc_configuration(
     session: Session = Depends(get_session),
 ) -> OidcAdminConfigurationRead:
     configuration = session.get(OidcProviderConfiguration, 1)
+    effective_mode = get_effective_authentication_mode(session)
+    network = build_network_settings_read(session)
     health = build_authentication_health(
-        oidc_secret_key=settings.oidc_secret_key,
-        public_url=settings.public_url,
+        public_url=network.public_url,
         encrypted_client_secret=configuration.encrypted_client_secret if configuration else None,
         has_active_administrator=_has_active_admin(session),
     )
@@ -260,6 +264,8 @@ async def get_oidc_configuration(
         configuration=redacted_configuration(configuration) if configuration is not None else None,
         health=health,
         active_passwordless_user_count=count_active_passwordless_users(session),
+        auth_mode=effective_mode.mode,
+        auth_mode_source=effective_mode.source,
     )
 
 
@@ -272,13 +278,13 @@ async def start_oidc_test(
 ) -> OidcTestStartResponse:
     active = session.get(OidcProviderConfiguration, 1)
     try:
-        cipher = OidcSecretCipher(settings.oidc_secret_key)
+        cipher = get_oidc_secret_cipher()
         normalized = normalize_candidate(candidate, active, cipher)
         if remap_all and active is None:
             raise OidcConfigurationError("OIDC remapping requires an active provider configuration")
         if normalized.client_secret is None:
             raise OidcConfigurationError("OIDC test requires a client secret")
-        redirect_uri = derive_oidc_redirect_uri(settings.public_url)
+        redirect_uri = derive_oidc_redirect_uri(build_network_settings_read(session).public_url)
         async with ValidatedOidcHttpClient() as http_client:
             metadata, _ = await load_provider_metadata(http_client, normalized.issuer_url)
         started = start_test_flow(
@@ -339,7 +345,7 @@ async def get_oidc_test_result(
 ) -> OidcTestedIdentityRead:
     response.headers["Cache-Control"] = "no-store"
     flow = _get_owned_validated_test_flow(session, flow_id, current_user)
-    cipher = OidcSecretCipher(settings.oidc_secret_key)
+    cipher = get_oidc_secret_cipher()
     claims = _tested_claims(cast(str, flow.encrypted_tested_identity), cipher)
     tested_candidate = decrypt_candidate_snapshot(cast(str, flow.encrypted_candidate_configuration), cipher)
     active = session.get(OidcProviderConfiguration, 1)
@@ -457,7 +463,7 @@ async def finalize_oidc_configuration(
             headers={"WWW-Authenticate": "Bearer"},
         )
     flow = _get_owned_validated_test_flow(session, payload.flow_id, current_user)
-    cipher = OidcSecretCipher(settings.oidc_secret_key)
+    cipher = get_oidc_secret_cipher()
     tested_candidate = decrypt_candidate_snapshot(cast(str, flow.encrypted_candidate_configuration), cipher)
     tested = _tested_claims(cast(str, flow.encrypted_tested_identity), cipher)
     active = session.get(OidcProviderConfiguration, 1)
@@ -494,8 +500,6 @@ async def finalize_oidc_configuration(
                 tested_username=tested.username.strip(),
                 replacing_namespace=replacing_namespace,
             )
-            if reviewed_replacement_mappings:
-                ensure_pending_mapping_allowed(candidate)
         except OidcMappingError as error:
             raise _mapping_http_exception(error) from error
     elif payload.replacement_mappings or payload.omitted_account_acknowledgements:
@@ -695,6 +699,11 @@ async def finalize_oidc_configuration(
             user.token_version += 1
             session.add(user)
     reauthentication_required = current_user.id in revoked_user_ids
+    set_ui_authentication_mode(
+        session,
+        mode=AuthenticationMode(candidate.sign_in_mode.value),
+        updated_by_user_id=current_user.id,
+    )
     write_audit_event(
         session,
         event_name=AuditEventName.CONFIG_UPDATED,
@@ -753,6 +762,41 @@ async def set_password_only(
     )
 
 
+@router.post("/auth/mode", response_model=AuthenticationModeActivationResponse)
+async def activate_non_oidc_mode(
+    payload: AuthenticationModeActivationRequest,
+    current_user: User = Depends(get_current_admin_user),
+    session: Session = Depends(get_session),
+) -> AuthenticationModeActivationResponse:
+    if payload.mode in (AuthenticationMode.OIDC_OR_PASSWORD, AuthenticationMode.OIDC_ONLY):
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="OIDC modes require provider testing")
+    if payload.mode == AuthenticationMode.NONE and not payload.acknowledge_no_authentication:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST, detail="Acknowledge reverse-proxy authentication before activating this mode"
+        )
+    if payload.mode == AuthenticationMode.PASSWORD_ONLY and session.get(OidcProviderConfiguration, 1) is not None:
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="Use Password-only recovery for an existing OIDC configuration")
+    if payload.mode == AuthenticationMode.PASSWORD_ONLY and current_user.password_hash is None:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT, detail="Password-only mode requires an administrator with a local password"
+        )
+
+    set_ui_authentication_mode(session, mode=payload.mode, updated_by_user_id=current_user.id)
+    for user in session.exec(select(User)).all():
+        user.token_version += 1
+        session.add(user)
+    write_audit_event(
+        session,
+        event_name=AuditEventName.CONFIG_UPDATED,
+        result=AuditResult.SUCCEEDED,
+        details=AuditDetails(changed_fields=("auth_mode",)),
+        acting_user_id=current_user.id,
+        affected_user_id=current_user.id,
+    )
+    session.commit()
+    return AuthenticationModeActivationResponse(auth_mode=payload.mode, reauthentication_required=True)
+
+
 @router.put("/auth/oidc/mappings/pending", response_model=OidcMappingMutationResponse)
 async def put_pending_oidc_mappings(
     payload: OidcPendingMappingBatchRequest,
@@ -761,8 +805,6 @@ async def put_pending_oidc_mappings(
 ) -> OidcMappingMutationResponse:
     configuration = _active_oidc_configuration(session)
     try:
-        if payload.mappings:
-            ensure_pending_mapping_allowed(configuration)
         identity_mapping_revision = claim_mapping_revision(session, configuration, payload.expected_identity_mapping_revision)
         mappings = validate_pending_mapping_batch(session, configuration=configuration, mappings=payload.mappings)
         replace_pending_mappings(
@@ -831,7 +873,6 @@ async def change_oidc_identity(
 ) -> OidcMappingMutationResponse:
     configuration = _active_oidc_configuration(session)
     try:
-        ensure_pending_mapping_allowed(configuration)
         identity_mapping_revision = claim_mapping_revision(session, configuration, payload.expected_identity_mapping_revision)
         change_identity(
             session,
