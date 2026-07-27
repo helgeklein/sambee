@@ -1,14 +1,17 @@
-import { ContentCopy, Visibility, VisibilityOff } from "@mui/icons-material";
+import { ContentCopy, ExpandMore, Visibility, VisibilityOff } from "@mui/icons-material";
 import {
+  Accordion,
+  AccordionDetails,
+  AccordionSummary,
   Alert,
   Box,
   Button,
   Checkbox,
   CircularProgress,
-  Divider,
   FormControlLabel,
   IconButton,
   InputAdornment,
+  Link,
   MenuItem,
   Stack,
   TextField,
@@ -16,11 +19,17 @@ import {
   Typography,
 } from "@mui/material";
 import { useEffect, useRef, useState } from "react";
+import { Trans } from "react-i18next";
 import { useNavigate } from "react-router-dom";
+import { SettingsPage } from "../components/Settings/SettingsPage";
+import { settingsPrimaryButtonSx } from "../components/Settings/settingsButtonStyles";
+import { loadAuthenticationSettingsData, SETTINGS_DATA_CACHE_KEYS } from "../components/Settings/settingsDataSources";
+import { getCachedAsyncData, primeCachedAsyncData } from "../hooks/useCachedAsyncData";
 import api from "../services/api";
 import { clearAuthConfigCache } from "../services/authConfig";
 import { loginPath } from "../services/oidcAuth";
 import {
+  type AuthenticationMode,
   isApiError,
   type OidcAdminConfigurationRead,
   type OidcConfigurationCandidate,
@@ -35,7 +44,6 @@ const DEFAULT_CANDIDATE: OidcConfigurationCandidate = {
   client_id: "",
   scopes: ["openid", "profile", "email", "groups"],
   username_claim: "preferred_username",
-  username_claim_uniqueness_confirmed: false,
   name_claim: "name",
   email_claim: "email",
   groups_claim: "groups",
@@ -55,12 +63,12 @@ const optionalClaim = (value: string) => value.trim() || null;
 const OIDC_SETUP_FLOW_STORAGE_KEY = "sambee.oidc.setupFlowId";
 const OIDC_REVIEWED_POLICY_STORAGE_KEY = "sambee.oidc.reviewedPolicy";
 const OIDC_PENDING_FINALIZATION_STORAGE_KEY = "sambee.oidc.pendingFinalization";
+const OIDC_SETUP_GUIDE_URL = "https://sambee.net/mr/help-oidc-setup";
 const REVIEWABLE_POLICY_KEYS = new Set<keyof OidcConfigurationCandidate>([
   "sign_in_mode",
   "admission_mode",
   "admission_groups",
   "role_mappings",
-  "username_claim_uniqueness_confirmed",
 ]);
 const normalizedGroupKey = (value: string) => value.normalize("NFKC").trim().toLowerCase();
 const duplicateGroupKeys = (values: string[]) => {
@@ -78,22 +86,20 @@ const reviewedPolicyFor = (candidate: OidcConfigurationCandidate): OidcReviewedP
   admission_mode: candidate.admission_mode,
   admission_groups: candidate.admission_groups,
   role_mappings: candidate.role_mappings,
-  username_claim_uniqueness_confirmed: candidate.username_claim_uniqueness_confirmed,
 });
 const isStringArray = (value: unknown): value is string[] => Array.isArray(value) && value.every((entry) => typeof entry === "string");
 const isReviewedPolicy = (value: unknown): value is OidcReviewedPolicy => {
   if (typeof value !== "object" || value === null) return false;
   const policy = value as Record<string, unknown>;
-  const roleMappings = policy.role_mappings;
+  const roleMappings = policy["role_mappings"];
   return (
-    (policy.sign_in_mode === "oidc_or_password" || policy.sign_in_mode === "oidc_only") &&
-    (policy.admission_mode === "all_idp_users" || policy.admission_mode === "selected_groups") &&
-    isStringArray(policy.admission_groups) &&
+    (policy["sign_in_mode"] === "oidc_or_password" || policy["sign_in_mode"] === "oidc_only") &&
+    (policy["admission_mode"] === "all_idp_users" || policy["admission_mode"] === "selected_groups") &&
+    isStringArray(policy["admission_groups"]) &&
     typeof roleMappings === "object" &&
     roleMappings !== null &&
-    isStringArray((roleMappings as Record<string, unknown>).admin) &&
-    isStringArray((roleMappings as Record<string, unknown>).editor) &&
-    typeof policy.username_claim_uniqueness_confirmed === "boolean"
+    isStringArray((roleMappings as Record<string, unknown>)["admin"]) &&
+    isStringArray((roleMappings as Record<string, unknown>)["editor"])
   );
 };
 const storedReviewedPolicy = (): OidcReviewedPolicy | undefined => {
@@ -120,22 +126,22 @@ const isPendingOidcFinalization = (value: unknown): value is PendingOidcFinaliza
   if (typeof value !== "object" || value === null) return false;
   const request = value as Record<string, unknown>;
   return (
-    typeof request.flow_id === "string" &&
-    request.flow_id.length > 0 &&
-    isReviewedPolicy(request.reviewed_policy) &&
-    Array.isArray(request.replacement_mappings) &&
-    request.replacement_mappings.every(
+    typeof request["flow_id"] === "string" &&
+    request["flow_id"].length > 0 &&
+    isReviewedPolicy(request["reviewed_policy"]) &&
+    Array.isArray(request["replacement_mappings"]) &&
+    request["replacement_mappings"].every(
       (mapping) =>
         typeof mapping === "object" &&
         mapping !== null &&
-        typeof (mapping as Record<string, unknown>).target_user_id === "string" &&
-        typeof (mapping as Record<string, unknown>).expected_username === "string"
+        typeof (mapping as Record<string, unknown>)["target_user_id"] === "string" &&
+        typeof (mapping as Record<string, unknown>)["expected_username"] === "string"
     ) &&
-    (request.expected_identity_mapping_revision === null ||
-      (typeof request.expected_identity_mapping_revision === "number" &&
-        Number.isInteger(request.expected_identity_mapping_revision) &&
-        request.expected_identity_mapping_revision >= 0)) &&
-    isStringArray(request.omitted_account_acknowledgements)
+    (request["expected_identity_mapping_revision"] === null ||
+      (typeof request["expected_identity_mapping_revision"] === "number" &&
+        Number.isInteger(request["expected_identity_mapping_revision"]) &&
+        request["expected_identity_mapping_revision"] >= 0)) &&
+    isStringArray(request["omitted_account_acknowledgements"])
   );
 };
 const storedPendingFinalization = (): PendingOidcFinalization | undefined => {
@@ -191,7 +197,11 @@ const mappingReviewFor = (identity: OidcTestedIdentity) =>
 export function AuthenticationSettings() {
   const navigate = useNavigate();
   const [candidate, setCandidate] = useState<OidcConfigurationCandidate>(DEFAULT_CANDIDATE);
-  const [configuration, setConfiguration] = useState<OidcAdminConfigurationRead | null>(null);
+  const [configuration, setConfiguration] = useState<OidcAdminConfigurationRead | null>(() =>
+    getCachedAsyncData<OidcAdminConfigurationRead>(SETTINGS_DATA_CACHE_KEYS.adminAuthentication)
+  );
+  const [authMode, setAuthMode] = useState<AuthenticationMode>("password_only");
+  const [noAuthenticationAcknowledged, setNoAuthenticationAcknowledged] = useState(false);
   const [clientSecret, setClientSecret] = useState("");
   const [showClientSecret, setShowClientSecret] = useState(false);
   const [testedIdentity, setTestedIdentity] = useState<OidcTestedIdentity | null>(null);
@@ -206,7 +216,7 @@ export function AuthenticationSettings() {
   const [finalizationUnresolved, setFinalizationUnresolved] = useState(() => storedPendingFinalization() !== undefined);
   const previewRequestSequence = useRef(0);
   const selectedMappings = testedIdentity?.replacement_mappings.filter((mapping) => mappingReview[mapping.target_user_id]?.selected) ?? [];
-  const replacementUsernames = selectedMappings.map((mapping) => mappingReview[mapping.target_user_id].expectedUsername.trim());
+  const replacementUsernames = selectedMappings.map((mapping) => mappingReview[mapping.target_user_id]?.expectedUsername.trim() ?? "");
   const requiredOmissions =
     testedIdentity?.replacement_mappings.filter(
       (mapping) =>
@@ -226,7 +236,6 @@ export function AuthenticationSettings() {
     replacementUsernames.some((username) => !username || username === testedIdentity?.username.trim()) ||
     new Set(replacementUsernames).size !== replacementUsernames.length ||
     requiredOmissions.length > 0;
-  const mappingAttestationMissing = selectedMappings.length > 0 && !candidate.username_claim_uniqueness_confirmed;
   const duplicateAdmissionGroups = duplicateGroupKeys(candidate.admission_groups);
   const duplicateAdminGroups = duplicateGroupKeys(candidate.role_mappings.admin);
   const duplicateEditorGroups = duplicateGroupKeys(candidate.role_mappings.editor);
@@ -235,7 +244,7 @@ export function AuthenticationSettings() {
   const crossRoleGroupKeys = new Set([...adminGroupKeys].filter((key) => editorGroupKeys.has(key)));
   const admissionGroupError =
     candidate.admission_mode === "selected_groups" && candidate.admission_groups.length === 0
-      ? "Add at least one admission group."
+      ? "Members of these groups can sign in. Enter at least one group name. Separate multiple groups by commas."
       : duplicateAdmissionGroups.size > 0
         ? "Admission groups must be unique after normalization."
         : "";
@@ -253,6 +262,7 @@ export function AuthenticationSettings() {
         : "";
   const groupConfigurationInvalid = Boolean(admissionGroupError || adminGroupError || editorGroupError);
   const testedIdentityCanAdminister = !reviewPending && testedIdentity?.admitted === true && testedIdentity.resulting_role === "admin";
+  const isOidcMode = authMode === "oidc_or_password" || authMode === "oidc_only";
 
   useEffect(() => {
     let active = true;
@@ -304,9 +314,10 @@ export function AuthenticationSettings() {
         }
       }
 
-      const response = await api.getOidcConfiguration();
+      const response = await primeCachedAsyncData(SETTINGS_DATA_CACHE_KEYS.adminAuthentication, loadAuthenticationSettingsData);
       if (!active) return;
       setConfiguration(response);
+      setAuthMode(response.auth_mode);
       if (response.configuration) setCandidate(editableCandidate(response.configuration));
       if (recoveredFinalization || replayFailure === "configuration_changed") return;
       const flowId = fragmentFlowId ?? sessionStorage.getItem(OIDC_SETUP_FLOW_STORAGE_KEY);
@@ -362,7 +373,6 @@ export function AuthenticationSettings() {
     const nextCandidate = {
       ...candidate,
       [key]: value,
-      ...(["issuer_url", "client_id", "username_claim"].includes(key) ? { username_claim_uniqueness_confirmed: false } : {}),
     };
     setCandidate(nextCandidate);
     if (testedIdentity && REVIEWABLE_POLICY_KEYS.has(key)) {
@@ -432,8 +442,7 @@ export function AuthenticationSettings() {
   };
 
   const activate = async () => {
-    if (finalizationUnresolved || !testedIdentity || replacementPlanInvalid || mappingAttestationMissing || !testedIdentityCanAdminister)
-      return;
+    if (finalizationUnresolved || !testedIdentity || replacementPlanInvalid || !testedIdentityCanAdminister) return;
     const signInPath = testedIdentity.candidate.sign_in_mode === "oidc_only" ? "OIDC only" : "OIDC or password";
     const affectedAccountMessage =
       testedIdentity.affected_account_count === 0
@@ -459,7 +468,7 @@ export function AuthenticationSettings() {
       reviewed_policy: reviewedPolicyFor(candidate),
       replacement_mappings: selectedMappings.map(({ target_user_id }) => ({
         target_user_id,
-        expected_username: mappingReview[target_user_id].expectedUsername.trim(),
+        expected_username: mappingReview[target_user_id]?.expectedUsername.trim() ?? "",
       })),
       expected_identity_mapping_revision: testedIdentity.expected_identity_mapping_revision,
       omitted_account_acknowledgements: testedIdentity.replacement_mappings
@@ -545,7 +554,7 @@ export function AuthenticationSettings() {
     }
     setNotice("Authentication configuration activated.");
     try {
-      const refreshed = await api.getOidcConfiguration();
+      const refreshed = await primeCachedAsyncData(SETTINGS_DATA_CACHE_KEYS.adminAuthentication, loadAuthenticationSettingsData, true);
       setConfiguration(refreshed);
       if (refreshed.configuration) setCandidate(editableCandidate(refreshed.configuration));
     } catch {
@@ -599,7 +608,7 @@ export function AuthenticationSettings() {
       const errorCode = getApiErrorMessage(caught, "");
       if (errorCode === "oidc_configuration_changed" || errorCode === "passwordless_account_count_changed") {
         try {
-          const refreshed = await api.getOidcConfiguration();
+          const refreshed = await primeCachedAsyncData(SETTINGS_DATA_CACHE_KEYS.adminAuthentication, loadAuthenticationSettingsData, true);
           setConfiguration(refreshed);
           if (refreshed.configuration) setCandidate(editableCandidate(refreshed.configuration));
           setError("Authentication settings changed. Review the current Password-only impact and confirm again.");
@@ -616,407 +625,531 @@ export function AuthenticationSettings() {
     }
   };
 
-  if (busy && !configuration) return <CircularProgress aria-label="Loading authentication settings" />;
+  const activateNonOidcMode = async () => {
+    if (finalizationUnresolved || isOidcMode) return;
+    if (authMode === "password_only" && configuration?.configuration) {
+      await setPasswordOnly();
+      return;
+    }
+    if (authMode === "none" && !noAuthenticationAcknowledged) return;
+    const confirmation =
+      authMode === "none"
+        ? "Activate No authentication and revoke all active sessions? Sambee will rely entirely on the reverse proxy or network perimeter."
+        : "Activate Password-only mode and revoke all active sessions?";
+    if (!window.confirm(confirmation)) return;
+    setBusy(true);
+    setError("");
+    try {
+      await api.activateAuthenticationMode(authMode, noAuthenticationAcknowledged);
+      clearAuthConfigCache();
+      localStorage.removeItem("access_token");
+      navigate(loginPath(window.location.pathname + window.location.search), { replace: true });
+    } catch (caught: unknown) {
+      setError(getApiErrorMessage(caught, "Authentication mode could not be activated."));
+      setBusy(false);
+    }
+  };
 
   return (
-    <Box sx={{ width: "100%", maxWidth: 820 }}>
-      <Typography variant="h5" component="h1">
-        Authentication
-      </Typography>
-      <Typography color="text.secondary" sx={{ mt: 1, mb: 3 }}>
-        Configure local password and OpenID Connect sign-in.
-      </Typography>
-      {error && (
-        <Alert severity="error" sx={{ mb: 2 }}>
-          {error}
-        </Alert>
-      )}
-      {notice && (
-        <Alert severity="success" sx={{ mb: 2 }}>
-          {notice}
-        </Alert>
-      )}
-      {configuration?.health.status === "unhealthy" && (
-        <Alert severity="warning" sx={{ mb: 3 }}>
-          Complete the server prerequisites before testing: {configuration.health.reasons.join(", ")}.
-        </Alert>
-      )}
-
-      <Stack spacing={2.5}>
-        <Typography variant="h6">Provider</Typography>
-        {configuration?.health.redirect_uri && (
-          <TextField
-            label="Redirect URI"
-            value={configuration.health.redirect_uri}
-            slotProps={{
-              input: {
-                readOnly: true,
-                endAdornment: (
-                  <InputAdornment position="end">
-                    <Tooltip title="Copy redirect URI">
-                      <IconButton
-                        aria-label="Copy redirect URI"
-                        edge="end"
-                        onClick={() => {
-                          void navigator.clipboard
-                            .writeText(configuration.health.redirect_uri ?? "")
-                            .then(() => setNotice("Redirect URI copied."))
-                            .catch(() => setError("The redirect URI could not be copied."));
-                        }}
-                      >
-                        <ContentCopy />
-                      </IconButton>
-                    </Tooltip>
-                  </InputAdornment>
-                ),
-              },
-            }}
-          />
-        )}
-        <TextField
-          label="Provider name"
-          value={candidate.display_name}
-          onChange={(event) => update("display_name", event.target.value)}
-          disabled={finalizationUnresolved}
-          required
+    <SettingsPage
+      category="admin-authentication"
+      description={
+        <Trans
+          i18nKey="settings.categories.adminAuthentication.descriptionWithGuide"
+          components={{ guide: <Link href={OIDC_SETUP_GUIDE_URL} target="_blank" rel="noreferrer" /> }}
         />
-        <TextField
-          label="Issuer URL"
-          value={candidate.issuer_url}
-          onChange={(event) => update("issuer_url", event.target.value)}
-          disabled={finalizationUnresolved}
-          required
-        />
-        <TextField
-          label="Client ID"
-          value={candidate.client_id}
-          onChange={(event) => update("client_id", event.target.value)}
-          disabled={finalizationUnresolved}
-          required
-        />
-        <TextField
-          label="Client secret"
-          type={showClientSecret ? "text" : "password"}
-          value={clientSecret}
-          disabled={finalizationUnresolved}
-          onChange={(event) => {
-            setClientSecret(event.target.value);
-            setTestedIdentity(null);
-          }}
-          helperText={
-            configuration?.configuration?.client_secret_configured
-              ? "Leave blank to keep the stored secret."
-              : "Required for the first test."
-          }
-          slotProps={{
-            input: {
-              endAdornment: (
-                <InputAdornment position="end">
-                  <Tooltip title={showClientSecret ? "Hide client secret" : "Show client secret"}>
-                    <IconButton
-                      aria-label={showClientSecret ? "Hide client secret" : "Show client secret"}
-                      edge="end"
-                      onClick={() => setShowClientSecret((current) => !current)}
-                      onMouseDown={(event) => event.preventDefault()}
-                    >
-                      {showClientSecret ? <VisibilityOff /> : <Visibility />}
-                    </IconButton>
-                  </Tooltip>
-                </InputAdornment>
-              ),
-            },
-          }}
-        />
-        <TextField
-          label="Scopes"
-          value={listValue(candidate.scopes)}
-          onChange={(event) => update("scopes", parseList(event.target.value))}
-          disabled={finalizationUnresolved}
-          helperText="Comma-separated; openid is required."
-        />
-
-        <Divider />
-        <Typography variant="h6">Claims and access</Typography>
-        <TextField
-          label="Username claim"
-          value={candidate.username_claim}
-          onChange={(event) => update("username_claim", event.target.value)}
-          disabled={finalizationUnresolved}
-          required
-        />
-        <FormControlLabel
-          control={
-            <Checkbox
-              checked={candidate.username_claim_uniqueness_confirmed}
-              onChange={(event) => update("username_claim_uniqueness_confirmed", event.target.checked)}
-              disabled={finalizationUnresolved}
-            />
-          }
-          label="I confirmed this claim is stable and unique for every user"
-        />
-        <TextField
-          label="Name claim"
-          value={candidate.name_claim ?? ""}
-          onChange={(event) => update("name_claim", optionalClaim(event.target.value))}
-          disabled={finalizationUnresolved}
-        />
-        <TextField
-          label="Email claim"
-          value={candidate.email_claim ?? ""}
-          onChange={(event) => update("email_claim", optionalClaim(event.target.value))}
-          disabled={finalizationUnresolved}
-        />
-        <TextField
-          label="Groups claim"
-          value={candidate.groups_claim ?? ""}
-          onChange={(event) => update("groups_claim", optionalClaim(event.target.value))}
-          disabled={finalizationUnresolved}
-        />
-        <TextField
-          select
-          label="Admission"
-          value={candidate.admission_mode}
-          onChange={(event) => update("admission_mode", event.target.value as OidcConfigurationCandidate["admission_mode"])}
-          disabled={finalizationUnresolved}
-        >
-          <MenuItem value="all_idp_users">All authenticated users</MenuItem>
-          <MenuItem value="selected_groups">Only selected groups</MenuItem>
-        </TextField>
-        {candidate.admission_mode === "selected_groups" && (
-          <TextField
-            label="Admission groups"
-            value={listValue(candidate.admission_groups)}
-            onChange={(event) => update("admission_groups", parseList(event.target.value))}
-            disabled={finalizationUnresolved}
-            error={Boolean(admissionGroupError)}
-            helperText={admissionGroupError || "Comma-separated, exact group names."}
-          />
-        )}
-        <TextField
-          label="Administrator groups"
-          value={listValue(candidate.role_mappings.admin)}
-          onChange={(event) => update("role_mappings", { ...candidate.role_mappings, admin: parseList(event.target.value) })}
-          disabled={finalizationUnresolved}
-          error={Boolean(adminGroupError)}
-          helperText={adminGroupError}
-          required
-        />
-        <TextField
-          label="Editor groups"
-          value={listValue(candidate.role_mappings.editor)}
-          onChange={(event) => update("role_mappings", { ...candidate.role_mappings, editor: parseList(event.target.value) })}
-          disabled={finalizationUnresolved}
-          error={Boolean(editorGroupError)}
-          helperText={editorGroupError}
-        />
-        <TextField
-          select
-          label="Sign-in mode"
-          value={candidate.sign_in_mode}
-          onChange={(event) => update("sign_in_mode", event.target.value as OidcConfigurationCandidate["sign_in_mode"])}
-          disabled={finalizationUnresolved}
-        >
-          <MenuItem value="oidc_or_password">OIDC or password</MenuItem>
-          <MenuItem value="oidc_only">OIDC only</MenuItem>
-        </TextField>
-
-        <Button
-          variant="outlined"
-          disabled={busy || finalizationUnresolved || configuration?.health.status !== "healthy" || groupConfigurationInvalid}
-          onClick={() => void startTest()}
-        >
-          Connect and test
-        </Button>
-
-        {testedIdentity && (
-          <Box sx={{ borderLeft: 3, borderColor: "success.main", pl: 2, py: 1 }}>
-            <Typography variant="h6">Tested identity</Typography>
-            <Typography>Username: {testedIdentity.username}</Typography>
-            {testedIdentity.email && <Typography>Email: {testedIdentity.email}</Typography>}
-            <Typography>Groups: {testedIdentity.groups.join(", ") || "None"}</Typography>
-            <Typography>Admission: {testedIdentity.admitted ? "Allowed" : "Denied"}</Typography>
-            {testedIdentity.matching_admission_group && (
-              <Typography>Matching admission group: {testedIdentity.matching_admission_group}</Typography>
-            )}
-            <Typography>Resulting role: {testedIdentity.resulting_role ?? "None"}</Typography>
-            <Typography color="text.secondary">Account mapping does not override the admission policy.</Typography>
-            {!testedIdentityCanAdminister && (
-              <Alert severity="error" sx={{ mt: 1 }}>
-                The tested identity must be admitted as an administrator before this configuration can be activated.
+      }
+    >
+      <Box sx={{ maxWidth: 820 }}>
+        {busy && !configuration ? (
+          <Box sx={{ display: "flex", justifyContent: "center", pt: 5 }}>
+            <CircularProgress aria-label="Loading authentication settings" />
+          </Box>
+        ) : null}
+        {!(busy && !configuration) && (
+          <>
+            {error && (
+              <Alert severity="error" sx={{ mb: 2 }}>
+                {error}
               </Alert>
             )}
-            {testedIdentity.replacement_mappings.length > 0 && (
-              <Stack spacing={2} sx={{ mt: 2 }}>
-                <Typography variant="subtitle1">Review existing accounts</Typography>
-                {omittedPasswordlessMappings.length > 0 && (
-                  <Alert severity="warning">
-                    {omittedPasswordlessMappings.length} active passwordless account
-                    {omittedPasswordlessMappings.length === 1 ? " is" : "s are"} omitted. These users cannot sign in until mapped. An
-                    unmapped OIDC login may collide with an existing username or create a separate account.
-                  </Alert>
-                )}
-                {testedIdentity.replacement_mappings
-                  .filter((mapping) => mapping.selectable)
-                  .map((mapping) => {
-                    const review = mappingReview[mapping.target_user_id];
-                    const serverError = mappingErrors[mapping.target_user_id];
-                    const expectedUsername = review?.expectedUsername ?? "";
-                    const hintLabel =
-                      mapping.prefill_source === "pending"
-                        ? "Previous pending"
-                        : mapping.prefill_source === "last_seen"
-                          ? "Last seen"
-                          : "Unverified";
-                    return (
-                      <Box key={mapping.target_user_id} sx={{ borderBottom: 1, borderColor: "divider", pb: 2 }}>
-                        <FormControlLabel
-                          control={
-                            <Checkbox
-                              checked={review?.selected ?? false}
-                              disabled={finalizationUnresolved}
-                              onChange={(event) => {
-                                if (!event.target.checked) {
-                                  setMappingErrors((current) => {
-                                    const next = { ...current };
-                                    delete next[mapping.target_user_id];
-                                    return next;
-                                  });
-                                }
-                                setMappingReview((current) => ({
-                                  ...current,
-                                  [mapping.target_user_id]: {
-                                    ...current[mapping.target_user_id],
-                                    selected: event.target.checked,
-                                    expectedUsername:
-                                      event.target.checked && !current[mapping.target_user_id]?.expectedUsername
-                                        ? mapping.suggested_username
-                                        : (current[mapping.target_user_id]?.expectedUsername ?? ""),
-                                    omissionAcknowledged: false,
-                                  },
-                                }));
-                              }}
-                            />
-                          }
-                          label={`Map ${mapping.local_username}`}
+            {notice && (
+              <Alert severity="success" sx={{ mb: 2 }}>
+                {notice}
+              </Alert>
+            )}
+            {isOidcMode && configuration?.health.status === "unhealthy" && (
+              <Alert severity="warning" sx={{ mb: 3 }}>
+                {configuration.health.reasons.includes("public_url_missing")
+                  ? "Set Sambee's externally reachable public URL in network settings."
+                  : "Complete the required configuration before testing this provider."}
+              </Alert>
+            )}
+
+            <Stack spacing={2.5}>
+              <TextField
+                select
+                label="Authentication mode"
+                value={authMode}
+                onChange={(event) => {
+                  const mode = event.target.value as AuthenticationMode;
+                  setAuthMode(mode);
+                  setNoAuthenticationAcknowledged(false);
+                  if (mode === "oidc_or_password" || mode === "oidc_only") {
+                    update("sign_in_mode", mode);
+                    return;
+                  }
+                  ++previewRequestSequence.current;
+                  setReviewPending(false);
+                  setTestedIdentity(null);
+                  setMappingReview({});
+                  setMappingErrors({});
+                  sessionStorage.removeItem(OIDC_SETUP_FLOW_STORAGE_KEY);
+                  sessionStorage.removeItem(OIDC_REVIEWED_POLICY_STORAGE_KEY);
+                }}
+                disabled={finalizationUnresolved}
+                helperText={
+                  configuration?.auth_mode_source === "config_file"
+                    ? "Currently inherited from the configuration file. Activating a mode here makes this page authoritative."
+                    : undefined
+                }
+              >
+                <MenuItem value="none">No authentication</MenuItem>
+                <MenuItem value="password_only">Password only</MenuItem>
+                <MenuItem value="oidc_or_password">OIDC or password</MenuItem>
+                <MenuItem value="oidc_only">OIDC only</MenuItem>
+              </TextField>
+
+              {isOidcMode ? (
+                <>
+                  <Typography color="text.secondary">
+                    {authMode === "oidc_only"
+                      ? "Users are redirected to the identity provider when they sign in."
+                      : "Users can sign in with the identity provider or a local password."}
+                  </Typography>
+                  <Typography variant="h6">Provider</Typography>
+                  {configuration?.health.redirect_uri && (
+                    <TextField
+                      label="Redirect URI"
+                      value={configuration.health.redirect_uri}
+                      slotProps={{
+                        input: {
+                          readOnly: true,
+                          endAdornment: (
+                            <InputAdornment position="end">
+                              <Tooltip title="Copy redirect URI">
+                                <IconButton
+                                  aria-label="Copy redirect URI"
+                                  edge="end"
+                                  onClick={() => {
+                                    void navigator.clipboard
+                                      .writeText(configuration.health.redirect_uri ?? "")
+                                      .then(() => setNotice("Redirect URI copied."))
+                                      .catch(() => setError("The redirect URI could not be copied."));
+                                  }}
+                                >
+                                  <ContentCopy />
+                                </IconButton>
+                              </Tooltip>
+                            </InputAdornment>
+                          ),
+                        },
+                      }}
+                    />
+                  )}
+                  <TextField
+                    label="Provider name"
+                    value={candidate.display_name}
+                    onChange={(event) => update("display_name", event.target.value)}
+                    disabled={finalizationUnresolved}
+                    required
+                  />
+                  <TextField
+                    label="Issuer URL"
+                    value={candidate.issuer_url}
+                    onChange={(event) => update("issuer_url", event.target.value)}
+                    disabled={finalizationUnresolved}
+                    required
+                  />
+                  <TextField
+                    label="Client ID"
+                    value={candidate.client_id}
+                    onChange={(event) => update("client_id", event.target.value)}
+                    disabled={finalizationUnresolved}
+                    required
+                  />
+                  <TextField
+                    label="Client secret"
+                    type={showClientSecret ? "text" : "password"}
+                    value={clientSecret}
+                    disabled={finalizationUnresolved}
+                    onChange={(event) => {
+                      setClientSecret(event.target.value);
+                      setTestedIdentity(null);
+                    }}
+                    helperText={
+                      configuration?.configuration?.client_secret_configured
+                        ? "Leave blank to keep the stored secret."
+                        : "Required for the first test."
+                    }
+                    slotProps={{
+                      input: {
+                        endAdornment: (
+                          <InputAdornment position="end">
+                            <Tooltip title={showClientSecret ? "Hide client secret" : "Show client secret"}>
+                              <IconButton
+                                aria-label={showClientSecret ? "Hide client secret" : "Show client secret"}
+                                edge="end"
+                                onClick={() => setShowClientSecret((current) => !current)}
+                                onMouseDown={(event) => event.preventDefault()}
+                              >
+                                {showClientSecret ? <VisibilityOff /> : <Visibility />}
+                              </IconButton>
+                            </Tooltip>
+                          </InputAdornment>
+                        ),
+                      },
+                    }}
+                  />
+                  <TextField
+                    label="Scopes"
+                    value={listValue(candidate.scopes)}
+                    onChange={(event) => update("scopes", parseList(event.target.value))}
+                    disabled={finalizationUnresolved}
+                    helperText="Comma-separated; openid is required."
+                  />
+
+                  <Typography variant="h6">Access</Typography>
+                  <TextField
+                    select
+                    label="Admission"
+                    value={candidate.admission_mode}
+                    onChange={(event) => update("admission_mode", event.target.value as OidcConfigurationCandidate["admission_mode"])}
+                    disabled={finalizationUnresolved}
+                  >
+                    <MenuItem value="all_idp_users">All authenticated users</MenuItem>
+                    <MenuItem value="selected_groups">Only selected groups</MenuItem>
+                  </TextField>
+                  {candidate.admission_mode === "selected_groups" && (
+                    <TextField
+                      label="Admission groups"
+                      value={listValue(candidate.admission_groups)}
+                      onChange={(event) => update("admission_groups", parseList(event.target.value))}
+                      disabled={finalizationUnresolved}
+                      error={Boolean(admissionGroupError)}
+                      helperText={
+                        admissionGroupError ||
+                        "Only members of these identity-provider groups can sign in. Enter exact group names, separated by commas."
+                      }
+                    />
+                  )}
+                  <TextField
+                    label="Administrator groups"
+                    value={listValue(candidate.role_mappings.admin)}
+                    onChange={(event) => update("role_mappings", { ...candidate.role_mappings, admin: parseList(event.target.value) })}
+                    disabled={finalizationUnresolved}
+                    error={Boolean(adminGroupError)}
+                    helperText={
+                      adminGroupError || "Members of these groups are Sambee administrators. Enter exact group names, separated by commas."
+                    }
+                    required
+                  />
+                  <TextField
+                    label="Editor groups"
+                    value={listValue(candidate.role_mappings.editor)}
+                    onChange={(event) => update("role_mappings", { ...candidate.role_mappings, editor: parseList(event.target.value) })}
+                    disabled={finalizationUnresolved}
+                    error={Boolean(editorGroupError)}
+                    helperText={
+                      editorGroupError ||
+                      "Members of these groups can edit content but cannot administer Sambee. Enter exact group names, separated by commas."
+                    }
+                  />
+                  <Accordion disableGutters elevation={0} sx={{ "&::before": { display: "none" } }}>
+                    <AccordionSummary
+                      expandIcon={<ExpandMore />}
+                      aria-controls="advanced-claims-content"
+                      id="advanced-claims-header"
+                      sx={{ px: 0 }}
+                    >
+                      <Box>
+                        <Typography variant="h6">Advanced claims</Typography>
+                        <Typography aria-hidden="true" color="text.secondary" variant="body2">
+                          Optional claim names
+                        </Typography>
+                      </Box>
+                    </AccordionSummary>
+                    <AccordionDetails sx={{ px: 0 }}>
+                      <Stack spacing={2}>
+                        <Typography color="text.secondary">The default claim names work with most OpenID Connect providers.</Typography>
+                        <TextField
+                          label="Username claim"
+                          value={candidate.username_claim}
+                          onChange={(event) => update("username_claim", event.target.value)}
+                          disabled={finalizationUnresolved}
+                          required
                         />
                         <TextField
-                          fullWidth
-                          label={`Provider username for ${mapping.local_username}`}
-                          value={expectedUsername}
-                          placeholder={mapping.suggested_username}
-                          helperText={serverError ?? `${hintLabel}: ${mapping.suggested_username}`}
-                          disabled={finalizationUnresolved || !review?.selected}
-                          error={
-                            Boolean(serverError) ||
-                            (Boolean(review?.selected) &&
-                              (!expectedUsername.trim() ||
-                                expectedUsername.trim() === testedIdentity.username.trim() ||
-                                replacementUsernames.filter((value) => value === expectedUsername.trim()).length > 1))
-                          }
-                          onChange={(event) => {
-                            setMappingErrors((current) => {
-                              const next = { ...current };
-                              delete next[mapping.target_user_id];
-                              return next;
-                            });
-                            setMappingReview((current) => ({
-                              ...current,
-                              [mapping.target_user_id]: {
-                                ...current[mapping.target_user_id],
-                                expectedUsername: event.target.value,
-                              },
-                            }));
-                          }}
-                          required={review?.selected}
+                          label="Name claim"
+                          value={candidate.name_claim ?? ""}
+                          onChange={(event) => update("name_claim", optionalClaim(event.target.value))}
+                          disabled={finalizationUnresolved}
                         />
-                        {mapping.omission_acknowledgement_required && !review?.selected && (
-                          <FormControlLabel
-                            control={
-                              <Checkbox
-                                checked={review?.omissionAcknowledged ?? false}
-                                disabled={finalizationUnresolved}
-                                onChange={(event) =>
-                                  setMappingReview((current) => ({
-                                    ...current,
-                                    [mapping.target_user_id]: {
-                                      ...current[mapping.target_user_id],
-                                      omissionAcknowledged: event.target.checked,
-                                    },
-                                  }))
-                                }
-                              />
-                            }
-                            label={`I understand ${mapping.local_username} cannot use a local password in OIDC only mode`}
-                          />
-                        )}
-                      </Box>
-                    );
-                  })}
-                {testedIdentity.replacement_mappings.some((mapping) => !mapping.selectable) && (
-                  <Box>
-                    <Typography variant="subtitle2">Inactive or expired accounts</Typography>
-                    {testedIdentity.replacement_mappings
-                      .filter((mapping) => !mapping.selectable)
-                      .map((mapping) => (
-                        <Typography key={mapping.target_user_id} color="text.secondary">
-                          {mapping.local_username} ({mapping.target_state}) must be reactivated before mapping.
-                        </Typography>
-                      ))}
-                  </Box>
-                )}
-                {mappingAttestationMissing && (
-                  <Alert severity="error">
-                    Confirm that the username claim is stable and unique before activating selected account mappings.
-                  </Alert>
-                )}
-              </Stack>
-            )}
-            <Button
-              variant="contained"
-              sx={{ mt: 2 }}
-              disabled={
-                busy ||
-                finalizationUnresolved ||
-                reviewPending ||
-                replacementPlanInvalid ||
-                mappingAttestationMissing ||
-                !testedIdentityCanAdminister
-              }
-              onClick={activate}
-            >
-              Activate configuration
-            </Button>
-            <Button variant="text" sx={{ mt: 2, ml: 1 }} disabled={busy || finalizationUnresolved} onClick={() => void cancelTestFlow()}>
-              Cancel
-            </Button>
-          </Box>
-        )}
+                        <TextField
+                          label="Email claim"
+                          value={candidate.email_claim ?? ""}
+                          onChange={(event) => update("email_claim", optionalClaim(event.target.value))}
+                          disabled={finalizationUnresolved}
+                        />
+                        <TextField
+                          label="Groups claim"
+                          value={candidate.groups_claim ?? ""}
+                          onChange={(event) => update("groups_claim", optionalClaim(event.target.value))}
+                          disabled={finalizationUnresolved}
+                        />
+                      </Stack>
+                    </AccordionDetails>
+                  </Accordion>
+                  <Button
+                    variant="contained"
+                    sx={settingsPrimaryButtonSx}
+                    disabled={busy || finalizationUnresolved || configuration?.health.status !== "healthy" || groupConfigurationInvalid}
+                    onClick={() => void startTest()}
+                  >
+                    Connect and test
+                  </Button>
 
-        {configuration?.configuration && (
-          <>
-            <Divider />
-            <Typography variant="h6">Recovery</Typography>
-            <Button
-              variant="outlined"
-              disabled={busy || finalizationUnresolved || configuration.health.status !== "healthy"}
-              onClick={() => {
-                if (
-                  window.confirm(
-                    "Remap all OIDC accounts? Current OIDC links will be removed, affected users signed out, and local users and data preserved."
-                  )
-                ) {
-                  void startTest(true);
-                }
-              }}
-            >
-              Remap all OIDC accounts
-            </Button>
-            <Button color="warning" variant="outlined" disabled={busy || finalizationUnresolved} onClick={setPasswordOnly}>
-              Switch to Password only
-            </Button>
+                  {testedIdentity && (
+                    <Box sx={{ borderLeft: 3, borderColor: "success.main", pl: 2, py: 1 }}>
+                      <Typography variant="h6">Tested identity</Typography>
+                      <Typography>Username: {testedIdentity.username}</Typography>
+                      {testedIdentity.email && <Typography>Email: {testedIdentity.email}</Typography>}
+                      <Typography>Groups: {testedIdentity.groups.join(", ") || "None"}</Typography>
+                      <Typography>Admission: {testedIdentity.admitted ? "Allowed" : "Denied"}</Typography>
+                      {testedIdentity.matching_admission_group && (
+                        <Typography>Matching admission group: {testedIdentity.matching_admission_group}</Typography>
+                      )}
+                      <Typography>Resulting role: {testedIdentity.resulting_role ?? "None"}</Typography>
+                      <Typography color="text.secondary">Account mapping does not override the admission policy.</Typography>
+                      {!testedIdentityCanAdminister && (
+                        <Alert severity="error" sx={{ mt: 1 }}>
+                          The tested identity must be admitted as an administrator before this configuration can be activated.
+                        </Alert>
+                      )}
+                      {testedIdentity.replacement_mappings.length > 0 && (
+                        <Stack spacing={2} sx={{ mt: 2 }}>
+                          <Typography variant="subtitle1">Review existing accounts</Typography>
+                          {omittedPasswordlessMappings.length > 0 && (
+                            <Alert severity="warning">
+                              {omittedPasswordlessMappings.length} active passwordless account
+                              {omittedPasswordlessMappings.length === 1 ? " is" : "s are"} omitted. These users cannot sign in until mapped.
+                              An unmapped OIDC login may collide with an existing username or create a separate account.
+                            </Alert>
+                          )}
+                          {testedIdentity.replacement_mappings
+                            .filter((mapping) => mapping.selectable)
+                            .map((mapping) => {
+                              const review = mappingReview[mapping.target_user_id];
+                              const serverError = mappingErrors[mapping.target_user_id];
+                              const expectedUsername = review?.expectedUsername ?? "";
+                              const hintLabel =
+                                mapping.prefill_source === "pending"
+                                  ? "Previous pending"
+                                  : mapping.prefill_source === "last_seen"
+                                    ? "Last seen"
+                                    : "Unverified";
+                              return (
+                                <Box key={mapping.target_user_id} sx={{ borderBottom: 1, borderColor: "divider", pb: 2 }}>
+                                  <FormControlLabel
+                                    control={
+                                      <Checkbox
+                                        checked={review?.selected ?? false}
+                                        disabled={finalizationUnresolved}
+                                        onChange={(event) => {
+                                          if (!event.target.checked) {
+                                            setMappingErrors((current) => {
+                                              const next = { ...current };
+                                              delete next[mapping.target_user_id];
+                                              return next;
+                                            });
+                                          }
+                                          setMappingReview((current) => ({
+                                            ...current,
+                                            [mapping.target_user_id]: {
+                                              ...(current[mapping.target_user_id] ?? {
+                                                selected: false,
+                                                expectedUsername: "",
+                                                omissionAcknowledged: false,
+                                              }),
+                                              selected: event.target.checked,
+                                              expectedUsername:
+                                                event.target.checked && !current[mapping.target_user_id]?.expectedUsername
+                                                  ? mapping.suggested_username
+                                                  : (current[mapping.target_user_id]?.expectedUsername ?? ""),
+                                              omissionAcknowledged: false,
+                                            },
+                                          }));
+                                        }}
+                                      />
+                                    }
+                                    label={`Map ${mapping.local_username}`}
+                                  />
+                                  <TextField
+                                    fullWidth
+                                    label={`Provider username for ${mapping.local_username}`}
+                                    value={expectedUsername}
+                                    placeholder={mapping.suggested_username}
+                                    helperText={serverError ?? `${hintLabel}: ${mapping.suggested_username}`}
+                                    disabled={finalizationUnresolved || !review?.selected}
+                                    error={
+                                      Boolean(serverError) ||
+                                      (Boolean(review?.selected) &&
+                                        (!expectedUsername.trim() ||
+                                          expectedUsername.trim() === testedIdentity.username.trim() ||
+                                          replacementUsernames.filter((value) => value === expectedUsername.trim()).length > 1))
+                                    }
+                                    onChange={(event) => {
+                                      setMappingErrors((current) => {
+                                        const next = { ...current };
+                                        delete next[mapping.target_user_id];
+                                        return next;
+                                      });
+                                      setMappingReview((current) => ({
+                                        ...current,
+                                        [mapping.target_user_id]: {
+                                          ...(current[mapping.target_user_id] ?? {
+                                            selected: false,
+                                            expectedUsername: "",
+                                            omissionAcknowledged: false,
+                                          }),
+                                          expectedUsername: event.target.value,
+                                        },
+                                      }));
+                                    }}
+                                    required={review?.selected}
+                                  />
+                                  {mapping.omission_acknowledgement_required && !review?.selected && (
+                                    <FormControlLabel
+                                      control={
+                                        <Checkbox
+                                          checked={review?.omissionAcknowledged ?? false}
+                                          disabled={finalizationUnresolved}
+                                          onChange={(event) =>
+                                            setMappingReview((current) => ({
+                                              ...current,
+                                              [mapping.target_user_id]: {
+                                                ...(current[mapping.target_user_id] ?? {
+                                                  selected: false,
+                                                  expectedUsername: "",
+                                                  omissionAcknowledged: false,
+                                                }),
+                                                omissionAcknowledged: event.target.checked,
+                                              },
+                                            }))
+                                          }
+                                        />
+                                      }
+                                      label={`I understand ${mapping.local_username} cannot use a local password in OIDC only mode`}
+                                    />
+                                  )}
+                                </Box>
+                              );
+                            })}
+                          {testedIdentity.replacement_mappings.some((mapping) => !mapping.selectable) && (
+                            <Box>
+                              <Typography variant="subtitle2">Inactive or expired accounts</Typography>
+                              {testedIdentity.replacement_mappings
+                                .filter((mapping) => !mapping.selectable)
+                                .map((mapping) => (
+                                  <Typography key={mapping.target_user_id} color="text.secondary">
+                                    {mapping.local_username} ({mapping.target_state}) must be reactivated before mapping.
+                                  </Typography>
+                                ))}
+                            </Box>
+                          )}
+                        </Stack>
+                      )}
+                      <Button
+                        variant="contained"
+                        sx={{ mt: 2 }}
+                        disabled={busy || finalizationUnresolved || reviewPending || replacementPlanInvalid || !testedIdentityCanAdminister}
+                        onClick={activate}
+                      >
+                        Activate configuration
+                      </Button>
+                      <Button
+                        variant="text"
+                        sx={{ mt: 2, ml: 1 }}
+                        disabled={busy || finalizationUnresolved}
+                        onClick={() => void cancelTestFlow()}
+                      >
+                        Cancel
+                      </Button>
+                    </Box>
+                  )}
+
+                  {configuration?.configuration && (
+                    <>
+                      <Typography variant="h6">Recovery</Typography>
+                      <Button
+                        variant="outlined"
+                        disabled={busy || finalizationUnresolved || configuration.health.status !== "healthy"}
+                        onClick={() => {
+                          if (
+                            window.confirm(
+                              "Remap all OIDC accounts? Current OIDC links will be removed, affected users signed out, and local users and data preserved."
+                            )
+                          ) {
+                            void startTest(true);
+                          }
+                        }}
+                      >
+                        Remap all OIDC accounts
+                      </Button>
+                    </>
+                  )}
+                </>
+              ) : (
+                <Stack spacing={2}>
+                  {authMode === "none" ? (
+                    <>
+                      <Alert severity="warning">
+                        Sambee will not authenticate users. Only activate this mode when a trusted reverse proxy or network perimeter
+                        controls access.
+                      </Alert>
+                      <FormControlLabel
+                        control={
+                          <Checkbox
+                            checked={noAuthenticationAcknowledged}
+                            disabled={finalizationUnresolved}
+                            onChange={(event) => setNoAuthenticationAcknowledged(event.target.checked)}
+                          />
+                        }
+                        label="I understand that Sambee will rely on external systems for authentication."
+                      />
+                    </>
+                  ) : (
+                    <Alert severity="warning">
+                      {configuration?.active_passwordless_user_count
+                        ? `${configuration.active_passwordless_user_count} active account${configuration.active_passwordless_user_count === 1 ? "" : "s"} without a local password will lose sign-in access.`
+                        : "Only local username and password sign-in will be available."}
+                    </Alert>
+                  )}
+                  <Button
+                    color={authMode === "none" ? "warning" : "primary"}
+                    variant="contained"
+                    sx={{ alignSelf: "flex-start" }}
+                    disabled={busy || finalizationUnresolved || (authMode === "none" && !noAuthenticationAcknowledged)}
+                    onClick={() => void activateNonOidcMode()}
+                  >
+                    {authMode === "none" ? "Activate No authentication" : "Activate Password-only mode"}
+                  </Button>
+                </Stack>
+              )}
+            </Stack>
           </>
         )}
-      </Stack>
-    </Box>
+      </Box>
+    </SettingsPage>
   );
 }

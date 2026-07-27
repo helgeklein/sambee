@@ -17,6 +17,7 @@ from app.services.oidc_configuration import (
     decrypt_candidate_snapshot,
     derive_oidc_redirect_uri,
     encrypt_candidate_snapshot,
+    get_oidc_secret_cipher,
     normalize_candidate,
     redacted_configuration,
 )
@@ -66,7 +67,6 @@ def test_redirect_uri_uses_canonical_deployment_url() -> None:
 
 def test_authentication_health_reason_order_is_stable() -> None:
     health = build_authentication_health(
-        oidc_secret_key="invalid",
         public_url="http://sambee.example.com?unsafe=true",
         encrypted_client_secret="invalid-ciphertext",
         has_active_administrator=False,
@@ -75,18 +75,16 @@ def test_authentication_health_reason_order_is_stable() -> None:
 
     assert health.status == AuthenticationHealthStatus.UNHEALTHY
     assert health.reasons == [
-        AuthenticationHealthReason.OIDC_SECRET_KEY_INVALID,
+        AuthenticationHealthReason.OIDC_SECRET_DECRYPTION_FAILED,
         AuthenticationHealthReason.PUBLIC_URL_INVALID,
         AuthenticationHealthReason.NO_ACTIVE_ADMINISTRATOR,
     ]
 
 
 def test_authentication_health_is_healthy_for_valid_inputs() -> None:
-    key = Fernet.generate_key().decode("ascii")
-    ciphertext = OidcSecretCipher(key).encrypt("client-secret")
+    ciphertext = get_oidc_secret_cipher().encrypt("client-secret")
 
     health = build_authentication_health(
-        oidc_secret_key=key,
         public_url="https://sambee.example.com",
         encrypted_client_secret=ciphertext,
         has_active_administrator=True,
@@ -176,20 +174,19 @@ def test_username_claim_change_preserves_identity_namespace() -> None:
     assert normalized.identity_namespace_changed is False
 
 
-def test_username_claim_change_requires_fresh_uniqueness_confirmation_from_caller() -> None:
+def test_username_claim_change_does_not_require_an_acknowledgement() -> None:
     cipher = OidcSecretCipher(Fernet.generate_key().decode("ascii"))
     active = _active_configuration(cipher)
     candidate = OidcConfigurationCandidate(
         issuer_url=active.issuer_url,
         client_id=active.client_id,
         username_claim="email",
-        username_claim_uniqueness_confirmed=False,
         sign_in_mode=SignInMode.OIDC_OR_PASSWORD,
     )
 
     normalized = normalize_candidate(candidate, active, cipher, development=False)
 
-    assert normalized.username_claim_uniqueness_confirmed is False
+    assert normalized.username_claim == "email"
 
 
 def test_redacted_configuration_never_contains_secret() -> None:

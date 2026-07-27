@@ -17,6 +17,15 @@ class AuthMethod(StrEnum):
     PASSWORD = "password"
 
 
+class AuthenticationMode(StrEnum):
+    """Canonical runtime authentication modes."""
+
+    NONE = "none"
+    PASSWORD_ONLY = "password_only"
+    OIDC_OR_PASSWORD = "oidc_or_password"
+    OIDC_ONLY = "oidc_only"
+
+
 #
 # parse_auth_method
 #

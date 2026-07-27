@@ -2,6 +2,8 @@ import { render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { MemoryRouter, Route, Routes } from "react-router-dom";
 import { beforeEach, describe, expect, it, vi } from "vitest";
+import { loadAuthenticationSettingsData, SETTINGS_DATA_CACHE_KEYS } from "../../components/Settings/settingsDataSources";
+import { clearCachedAsyncData, primeCachedAsyncData } from "../../hooks/useCachedAsyncData";
 import api from "../../services/api";
 import type { OidcAdminConfigurationRead, OidcReviewedPolicy, OidcTestedIdentity, RedactedOidcConfiguration } from "../../types";
 import { AuthenticationSettings } from "../AuthenticationSettings";
@@ -13,6 +15,7 @@ vi.mock("../../services/api", () => ({
     finalizeOidcConfiguration: vi.fn(),
     startOidcTest: vi.fn(),
     setPasswordOnlyAuthentication: vi.fn(),
+    activateAuthenticationMode: vi.fn(),
     cancelOidcTestFlow: vi.fn(),
   },
 }));
@@ -21,12 +24,11 @@ vi.mock("../../services/authConfig", () => ({ clearAuthConfigCache: vi.fn() }));
 
 const configuration = (displayName: string): RedactedOidcConfiguration => ({
   display_name: displayName,
-  issuer_url: `https://${displayName.toLowerCase().replaceAll(" ", "-")}.example.test`,
+  issuer_url: `https://${displayName.toLowerCase().replace(/ /g, "-")}.example.test`,
   client_id: "sambee",
   client_secret_configured: true,
   scopes: ["openid", "profile", "groups"],
   username_claim: "preferred_username",
-  username_claim_uniqueness_confirmed: true,
   name_claim: "name",
   email_claim: "email",
   groups_claim: "groups",
@@ -41,8 +43,9 @@ const configuration = (displayName: string): RedactedOidcConfiguration => ({
 const response = (value: RedactedOidcConfiguration): OidcAdminConfigurationRead => ({
   configuration: value,
   active_passwordless_user_count: 2,
+  auth_mode: value.sign_in_mode,
+  auth_mode_source: "ui",
   health: {
-    oidc_secret_key_configured: true,
     public_url_configured: true,
     public_url: "https://sambee.example.test",
     redirect_uri: "https://sambee.example.test/api/auth/oidc/callback",
@@ -56,7 +59,6 @@ const reviewedPolicy = (value: RedactedOidcConfiguration): OidcReviewedPolicy =>
   admission_mode: value.admission_mode,
   admission_groups: value.admission_groups,
   role_mappings: value.role_mappings,
-  username_claim_uniqueness_confirmed: value.username_claim_uniqueness_confirmed,
 });
 
 const testedIdentity = (overrides: Partial<OidcTestedIdentity> = {}): OidcTestedIdentity => ({
@@ -90,8 +92,35 @@ const renderSettings = () =>
 describe("Authentication settings", () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    clearCachedAsyncData();
     sessionStorage.clear();
     window.history.replaceState(null, "", "/settings/admin/authentication#flow=test-flow");
+  });
+
+  it("uses prefetched Authentication settings without a second request", async () => {
+    const active = configuration("Active Provider");
+    vi.mocked(api.getOidcConfiguration).mockResolvedValue(response(active));
+    await primeCachedAsyncData(SETTINGS_DATA_CACHE_KEYS.adminAuthentication, loadAuthenticationSettingsData);
+    vi.mocked(api.getOidcConfiguration).mockClear();
+    window.history.replaceState(null, "", "/settings/admin/authentication");
+
+    renderSettings();
+
+    expect(await screen.findByDisplayValue("Active Provider")).toBeInTheDocument();
+    expect(api.getOidcConfiguration).not.toHaveBeenCalled();
+  });
+
+  it("links to the OpenID Connect setup guide in the page description", async () => {
+    vi.mocked(api.getOidcConfiguration).mockResolvedValue(response(configuration("Active Provider")));
+    window.history.replaceState(null, "", "/settings/admin/authentication");
+
+    renderSettings();
+
+    expect(await screen.findByText("Configure password and OpenID Connect sign-in (see the", { exact: false })).toBeInTheDocument();
+    const guide = await screen.findByRole("link", { name: "OpenID Connect setup guide" });
+    expect(guide).toHaveAttribute("href", "https://sambee.net/mr/help-oidc-setup");
+    expect(guide).toHaveAttribute("target", "_blank");
+    expect(guide).toHaveAttribute("rel", "noreferrer");
   });
 
   it("reviews the tested candidate and synchronizes the activated configuration", async () => {
@@ -199,17 +228,82 @@ describe("Authentication settings", () => {
     expect(sessionStorage.getItem("sambee.oidc.setupFlowId")).toBe("retryable-flow");
   });
 
-  it("offers only OIDC activation modes in provider setup", async () => {
+  it("places all authentication modes before the provider setup", async () => {
     const user = userEvent.setup();
     vi.mocked(api.getOidcConfiguration).mockResolvedValue(response(configuration("Active Provider")));
     window.location.hash = "";
     renderSettings();
 
-    await user.click(await screen.findByRole("combobox", { name: "Sign-in mode" }));
+    await user.click(await screen.findByRole("combobox", { name: "Authentication mode" }));
 
+    expect(screen.getByRole("option", { name: "No authentication" })).toBeInTheDocument();
+    expect(screen.getByRole("option", { name: "Password only" })).toBeInTheDocument();
     expect(screen.getByRole("option", { name: "OIDC or password" })).toBeInTheDocument();
     expect(screen.getByRole("option", { name: "OIDC only" })).toBeInTheDocument();
-    expect(screen.queryByRole("option", { name: "Password only" })).not.toBeInTheDocument();
+  });
+
+  it("explains when the public URL is missing", async () => {
+    vi.mocked(api.getOidcConfiguration).mockResolvedValue({
+      ...response(configuration("Active Provider")),
+      health: {
+        public_url_configured: false,
+        public_url: null,
+        redirect_uri: null,
+        status: "unhealthy",
+        reasons: ["public_url_missing"],
+      },
+    });
+    window.location.hash = "";
+    renderSettings();
+
+    expect(await screen.findByText("Set Sambee's externally reachable public URL in network settings.")).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Open Network settings" })).not.toBeInTheDocument();
+    expect(screen.queryByText(/public_url_missing/i)).not.toBeInTheDocument();
+  });
+
+  it("shows OIDC prerequisites only while an OIDC mode is selected", async () => {
+    const user = userEvent.setup();
+    vi.mocked(api.getOidcConfiguration).mockResolvedValue({
+      ...response(configuration("Active Provider")),
+      health: {
+        public_url_configured: false,
+        public_url: null,
+        redirect_uri: null,
+        status: "unhealthy",
+        reasons: ["public_url_missing"],
+      },
+    });
+    window.location.hash = "";
+    renderSettings();
+
+    expect(await screen.findByText("Set Sambee's externally reachable public URL in network settings.")).toBeInTheDocument();
+    await user.click(screen.getByRole("combobox", { name: "Authentication mode" }));
+    await user.click(screen.getByRole("option", { name: "Password only" }));
+    expect(screen.queryByText("Set Sambee's externally reachable public URL in network settings.")).not.toBeInTheDocument();
+  });
+
+  it("requires acknowledgement before activating No authentication", async () => {
+    const user = userEvent.setup();
+    vi.spyOn(window, "confirm").mockReturnValue(true);
+    vi.mocked(api.getOidcConfiguration).mockResolvedValue(response(configuration("Active Provider")));
+    vi.mocked(api.activateAuthenticationMode).mockResolvedValue({ auth_mode: "none", reauthentication_required: true });
+    window.location.hash = "";
+    renderSettings();
+
+    await user.click(await screen.findByRole("combobox", { name: "Authentication mode" }));
+    await user.click(screen.getByRole("option", { name: "No authentication" }));
+
+    expect(await screen.findByText(/sambee will not authenticate users/i)).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Activate No authentication" })).toBeDisabled();
+    await user.click(
+      screen.getByRole("checkbox", {
+        name: /i understand that sambee will rely on external systems/i,
+      })
+    );
+    await user.click(screen.getByRole("button", { name: "Activate No authentication" }));
+
+    expect(api.activateAuthenticationMode).toHaveBeenCalledWith("none", true);
+    expect(await screen.findByText("Sign in again")).toBeInTheDocument();
   });
 
   it("shows identity evaluation and requires explicit administrator activation confirmation", async () => {
@@ -245,7 +339,7 @@ describe("Authentication settings", () => {
     window.location.hash = "flow=test-flow";
     renderSettings();
 
-    await user.click(await screen.findByRole("combobox", { name: "Sign-in mode" }));
+    await user.click(await screen.findByRole("combobox", { name: "Authentication mode" }));
     await user.click(screen.getByRole("option", { name: "OIDC only" }));
 
     await waitFor(() => expect(api.getOidcTestResult).toHaveBeenNthCalledWith(2, "test-flow", reviewedPolicy(reviewedCandidate)));
@@ -410,8 +504,10 @@ describe("Authentication settings", () => {
     );
   });
 
-  it("requires username uniqueness attestation for selected account mappings", async () => {
-    const candidate = { ...configuration("New Provider"), username_claim_uniqueness_confirmed: false };
+  it("allows selected account mappings without a claim acknowledgement", async () => {
+    const user = userEvent.setup();
+    vi.spyOn(window, "confirm").mockReturnValue(true);
+    const candidate = configuration("New Provider");
     vi.mocked(api.getOidcConfiguration).mockResolvedValue(response(configuration("Old Provider")));
     vi.mocked(api.getOidcTestResult).mockResolvedValue(
       testedIdentity({
@@ -437,9 +533,8 @@ describe("Authentication settings", () => {
 
     renderSettings();
 
-    expect(await screen.findByText(/confirm that the username claim is stable and unique/i)).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: "Activate configuration" })).toBeDisabled();
-    expect(api.finalizeOidcConfiguration).not.toHaveBeenCalled();
+    await user.click(await screen.findByRole("button", { name: "Activate configuration" }));
+    expect(api.finalizeOidcConfiguration).toHaveBeenCalled();
   });
 
   it("retries the same finalization after a lost response and accepts its completion receipt", async () => {
@@ -483,7 +578,7 @@ describe("Authentication settings", () => {
     expect(screen.getByRole("button", { name: "Activate configuration" })).toBeDisabled();
     expect(screen.getByRole("button", { name: "Cancel" })).toBeDisabled();
     expect(screen.getByRole("button", { name: "Remap all OIDC accounts" })).toBeDisabled();
-    expect(screen.getByRole("button", { name: "Switch to Password only" })).toBeDisabled();
+    expect(screen.getByRole("combobox", { name: "Authentication mode" })).toHaveAttribute("aria-disabled", "true");
   });
 
   it("replays a persisted finalization before loading configuration after reload", async () => {
@@ -766,7 +861,9 @@ describe("Authentication settings", () => {
     window.location.hash = "";
     renderSettings();
 
-    await user.click(await screen.findByRole("button", { name: "Switch to Password only" }));
+    await user.click(await screen.findByRole("combobox", { name: "Authentication mode" }));
+    await user.click(screen.getByRole("option", { name: "Password only" }));
+    await user.click(await screen.findByRole("button", { name: "Activate Password-only mode" }));
 
     expect(await screen.findByText("Sign in again")).toBeInTheDocument();
     expect(localStorage.getItem("access_token")).toBeNull();
@@ -785,7 +882,9 @@ describe("Authentication settings", () => {
     });
     renderSettings();
 
-    await user.click(await screen.findByRole("button", { name: "Switch to Password only" }));
+    await user.click(await screen.findByRole("combobox", { name: "Authentication mode" }));
+    await user.click(screen.getByRole("option", { name: "Password only" }));
+    await user.click(await screen.findByRole("button", { name: "Activate Password-only mode" }));
 
     expect(
       await screen.findByText("Authentication settings changed. Review the current Password-only impact and confirm again.")
@@ -829,21 +928,34 @@ describe("Authentication settings", () => {
 
     await user.clear(screen.getByRole("textbox", { name: "Editor groups" }));
     await user.clear(screen.getByRole("textbox", { name: "Admission groups" }));
-    expect(screen.getByText("Add at least one admission group.")).toBeInTheDocument();
+    expect(
+      screen.getByText("Members of these groups can sign in. Enter at least one group name. Separate multiple groups by commas.")
+    ).toBeInTheDocument();
     expect(connect).toBeDisabled();
   });
 
-  it("requires uniqueness to be reconfirmed when the username claim changes", async () => {
+  it("keeps default claims collapsed and explains group mappings", async () => {
     const user = userEvent.setup();
     vi.mocked(api.getOidcConfiguration).mockResolvedValue(response(configuration("Active Provider")));
     window.location.hash = "";
     renderSettings();
 
-    const confirmation = await screen.findByRole("checkbox", { name: "I confirmed this claim is stable and unique for every user" });
-    expect(confirmation).toBeChecked();
-    await user.clear(screen.getByRole("textbox", { name: "Username claim" }));
-    await user.type(screen.getByRole("textbox", { name: "Username claim" }), "email");
-    expect(confirmation).not.toBeChecked();
+    expect(await screen.findByRole("button", { name: "Advanced claims" })).toHaveAttribute("aria-expanded", "false");
+    expect(screen.queryByRole("textbox", { name: "Username claim" })).not.toBeInTheDocument();
+    expect(
+      screen.getByText("Only members of these identity-provider groups can sign in. Enter exact group names, separated by commas.")
+    ).toBeInTheDocument();
+    expect(
+      screen.getByText("Members of these groups are Sambee administrators. Enter exact group names, separated by commas.")
+    ).toBeInTheDocument();
+    expect(
+      screen.getByText(
+        "Members of these groups can edit content but cannot administer Sambee. Enter exact group names, separated by commas."
+      )
+    ).toBeInTheDocument();
+
+    await user.click(screen.getByRole("button", { name: "Advanced claims" }));
+    expect(screen.getByRole("textbox", { name: "Username claim" })).toHaveValue("preferred_username");
   });
 
   it("discards the validated flow when a provider-bound claim changes", async () => {
@@ -855,6 +967,7 @@ describe("Authentication settings", () => {
 
     await screen.findByText("Tested identity");
     expect(sessionStorage.getItem("sambee.oidc.setupFlowId")).toBe("test-flow");
+    await user.click(screen.getByRole("button", { name: "Advanced claims" }));
     await user.clear(screen.getByRole("textbox", { name: "Username claim" }));
     await user.type(screen.getByRole("textbox", { name: "Username claim" }), "email");
 

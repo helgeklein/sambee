@@ -153,6 +153,16 @@ export interface AdvancedSystemSettingsUpdate {
   reset_keys?: string[];
 }
 
+export interface NetworkSettings {
+  public_url: string;
+  trusted_proxy_cidrs: string[];
+}
+
+export interface NetworkSettingsUpdate {
+  public_url: string;
+  trusted_proxy_cidrs: string[];
+}
+
 export interface CurrentUserSettings {
   appearance: {
     theme_id: string;
@@ -253,6 +263,7 @@ export interface AuthToken {
   return_path?: string;
 }
 
+export type AuthenticationMode = "none" | "password_only" | "oidc_or_password" | "oidc_only";
 export type SignInMode = "password_only" | "oidc_or_password" | "oidc_only";
 export type OidcAdmissionMode = "all_idp_users" | "selected_groups";
 
@@ -266,7 +277,6 @@ export interface OidcReviewedPolicy {
   admission_mode: OidcAdmissionMode;
   admission_groups: string[];
   role_mappings: OidcRoleMappings;
-  username_claim_uniqueness_confirmed: boolean;
 }
 
 export interface OidcConfigurationCandidate {
@@ -276,7 +286,6 @@ export interface OidcConfigurationCandidate {
   client_secret?: string;
   scopes: string[];
   username_claim: string;
-  username_claim_uniqueness_confirmed: boolean;
   name_claim: string | null;
   email_claim: string | null;
   groups_claim: string | null;
@@ -293,7 +302,6 @@ export interface RedactedOidcConfiguration extends Omit<OidcConfigurationCandida
 }
 
 export interface AuthenticationHealth {
-  oidc_secret_key_configured: boolean;
   public_url_configured: boolean;
   public_url: string | null;
   redirect_uri: string | null;
@@ -305,6 +313,13 @@ export interface OidcAdminConfigurationRead {
   configuration: RedactedOidcConfiguration | null;
   health: AuthenticationHealth;
   active_passwordless_user_count: number;
+  auth_mode: AuthenticationMode;
+  auth_mode_source: "ui" | "config_file";
+}
+
+export interface AuthenticationModeActivationResponse {
+  auth_mode: AuthenticationMode;
+  reauthentication_required: boolean;
 }
 
 export interface OidcTestStartResponse {

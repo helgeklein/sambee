@@ -36,6 +36,10 @@ vi.mock("../../../pages/LocalDrivesSettings", () => ({
   LocalDrivesSettings: () => <div>Local Drives Settings Content</div>,
 }));
 
+vi.mock("../../../pages/AuthenticationSettings", () => ({
+  AuthenticationSettings: () => <div>Authentication Settings Content</div>,
+}));
+
 vi.mock("../../../pages/UserManagementSettings", () => ({
   UserManagementSettings: () => <div>User Management Settings Content</div>,
 }));
@@ -112,6 +116,7 @@ describe("SettingsDialog Component", () => {
     const fileBrowserOption = screen.getByRole("option", { name: /file browser/i });
     const textEditorOption = screen.getByRole("option", { name: /text editor/i });
     const connectionsOption = screen.getByRole("option", { name: /^connections$/i });
+    const authenticationOption = await screen.findByRole("option", { name: /^authentication$/i });
     const userManagementOption = await screen.findByRole("option", { name: /user management/i });
     const systemOption = await screen.findByRole("option", { name: /system/i });
 
@@ -120,6 +125,8 @@ describe("SettingsDialog Component", () => {
     expect(textEditorOption).toBeInTheDocument();
     expect(connectionsOption).toBeInTheDocument();
     expect(screen.getByRole("option", { name: /local drives/i })).toBeInTheDocument();
+    expect(authenticationOption).toBeInTheDocument();
+    expect(authenticationOption.querySelector("svg")).toBeInTheDocument();
     expect(userManagementOption).toBeInTheDocument();
     expect(systemOption).toBeInTheDocument();
     expect(screen.getByText("Administration")).toBeInTheDocument();
@@ -156,6 +163,17 @@ describe("SettingsDialog Component", () => {
     await user.click(connectionsOption);
 
     expect(screen.getByText("Connections Settings Content")).toBeInTheDocument();
+  });
+
+  it("renders Authentication settings when selected", async () => {
+    const user = userEvent.setup();
+    vi.mocked(api.getCurrentUser).mockResolvedValue({ id: "admin-id", username: "admin", role: "admin" });
+    renderWithTheme(<SettingsDialog open={true} onClose={mockOnClose} />);
+
+    await user.click(await screen.findByRole("option", { name: /^authentication$/i }));
+
+    const authenticationContent = screen.getByText("Authentication Settings Content");
+    expect(authenticationContent).toBeInTheDocument();
   });
 
   it("switches to File Browser when clicked", async () => {

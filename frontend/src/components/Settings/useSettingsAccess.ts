@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { createContext, createElement, type ReactNode, useContext, useEffect, useState } from "react";
 import api from "../../services/api";
 import { canUserWrite, isAdminUser } from "../../utils/userAccess";
 
@@ -7,14 +7,21 @@ interface SettingsAccessState {
   canWrite: boolean;
 }
 
+const SettingsAccessContext = createContext<SettingsAccessState | null>(null);
+
+export function SettingsAccessProvider({ value, children }: { value: SettingsAccessState; children: ReactNode }) {
+  return createElement(SettingsAccessContext.Provider, { value }, children);
+}
+
 export function useSettingsAccess(enabled = true): SettingsAccessState {
+  const contextualAccess = useContext(SettingsAccessContext);
   const [isAdmin, setIsAdmin] = useState(false);
   const [canWrite, setCanWrite] = useState(false);
 
   useEffect(() => {
     let isCancelled = false;
 
-    if (!enabled) {
+    if (!enabled || contextualAccess) {
       setIsAdmin(false);
       setCanWrite(false);
       return () => {
@@ -40,7 +47,7 @@ export function useSettingsAccess(enabled = true): SettingsAccessState {
     return () => {
       isCancelled = true;
     };
-  }, [enabled]);
+  }, [contextualAccess, enabled]);
 
-  return { isAdmin, canWrite };
+  return contextualAccess ?? { isAdmin, canWrite };
 }

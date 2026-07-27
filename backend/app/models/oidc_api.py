@@ -6,6 +6,7 @@ from typing import Literal
 from pydantic import BaseModel, ConfigDict, SecretStr
 from sqlmodel import Field, SQLModel
 
+from app.core.auth_methods import AuthenticationMode
 from app.models.oidc import OidcAdmissionMode, SignInMode
 from app.models.user import UserRole
 
@@ -16,8 +17,6 @@ class AuthenticationHealthStatus(StrEnum):
 
 
 class AuthenticationHealthReason(StrEnum):
-    OIDC_SECRET_KEY_MISSING = "oidc_secret_key_missing"
-    OIDC_SECRET_KEY_INVALID = "oidc_secret_key_invalid"
     OIDC_SECRET_DECRYPTION_FAILED = "oidc_secret_decryption_failed"
     PUBLIC_URL_MISSING = "public_url_missing"
     PUBLIC_URL_INVALID = "public_url_invalid"
@@ -30,12 +29,11 @@ class PublicOidcConfiguration(SQLModel):
 
 
 class PublicAuthConfiguration(SQLModel):
-    sign_in_mode: SignInMode
+    sign_in_mode: AuthenticationMode
     oidc: PublicOidcConfiguration | None = None
 
 
 class AuthenticationHealth(SQLModel):
-    oidc_secret_key_configured: bool
     public_url_configured: bool
     public_url: str | None
     redirect_uri: str | None
@@ -57,7 +55,6 @@ class OidcConfigurationCandidate(BaseModel):
     client_secret: SecretStr | None = Field(default=None, exclude=True, repr=False)
     scopes: list[str] = Field(default_factory=lambda: ["openid", "profile", "email", "groups"], max_length=100)
     username_claim: str = Field(default="preferred_username", min_length=1, max_length=200)
-    username_claim_uniqueness_confirmed: bool = False
     name_claim: str | None = Field(default="name", max_length=200)
     email_claim: str | None = Field(default="email", max_length=200)
     groups_claim: str | None = Field(default="groups", max_length=200)
@@ -74,7 +71,6 @@ class RedactedOidcConfiguration(SQLModel):
     client_secret_configured: bool
     scopes: list[str]
     username_claim: str
-    username_claim_uniqueness_confirmed: bool
     name_claim: str | None
     email_claim: str | None
     groups_claim: str | None
@@ -94,6 +90,18 @@ class OidcAdminConfigurationRead(SQLModel):
     configuration: RedactedOidcConfiguration | None
     health: AuthenticationHealth
     active_passwordless_user_count: int
+    auth_mode: AuthenticationMode
+    auth_mode_source: Literal["ui", "config_file"]
+
+
+class AuthenticationModeActivationRequest(SQLModel):
+    mode: AuthenticationMode
+    acknowledge_no_authentication: bool = False
+
+
+class AuthenticationModeActivationResponse(SQLModel):
+    auth_mode: AuthenticationMode
+    reauthentication_required: bool
 
 
 class OidcTestStartResponse(SQLModel):
@@ -125,7 +133,6 @@ class OidcReviewedPolicy(SQLModel):
     admission_mode: OidcAdmissionMode
     admission_groups: list[str] = Field(default_factory=list, max_length=500)
     role_mappings: OidcRoleMappings = Field(default_factory=OidcRoleMappings)
-    username_claim_uniqueness_confirmed: bool
 
 
 class OidcTestPreviewRequest(SQLModel):

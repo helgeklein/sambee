@@ -156,7 +156,9 @@ class TestLoginEndpoint:
         assert data["role"] == "admin"
 
     def test_auth_config_uses_canonical_database_mode(self, client: TestClient, session: Session):
+        from app.core.auth_methods import AuthenticationMode
         from app.models.oidc import OidcProviderConfiguration, SignInMode
+        from app.services.authentication_config import set_ui_authentication_mode
 
         configuration = OidcProviderConfiguration(
             display_name="Company SSO",
@@ -168,6 +170,13 @@ class TestLoginEndpoint:
         session.flush()
 
         try:
+            response = client.get("/api/auth/config")
+
+            assert response.status_code == 200
+            assert response.json() == {"sign_in_mode": "password_only", "oidc": None}
+
+            set_ui_authentication_mode(session, mode=AuthenticationMode.OIDC_OR_PASSWORD, updated_by_user_id=None)
+            session.commit()
             response = client.get("/api/auth/config")
 
             assert response.status_code == 200
@@ -184,7 +193,9 @@ class TestLoginEndpoint:
             assert session.exec(select(OidcProviderConfiguration)).first() is None
 
     def test_oidc_only_password_login_returns_404_before_form_validation(self, client: TestClient, session: Session):
+        from app.core.auth_methods import AuthenticationMode
         from app.models.oidc import OidcProviderConfiguration, SignInMode
+        from app.services.authentication_config import set_ui_authentication_mode
 
         configuration = OidcProviderConfiguration(
             display_name="Company SSO",
@@ -193,7 +204,8 @@ class TestLoginEndpoint:
             sign_in_mode=SignInMode.OIDC_ONLY,
         )
         session.add(configuration)
-        session.flush()
+        set_ui_authentication_mode(session, mode=AuthenticationMode.OIDC_ONLY, updated_by_user_id=None)
+        session.commit()
 
         try:
             response = client.post(
@@ -324,7 +336,9 @@ class TestLoginEndpoint:
         assert response.headers["Cache-Control"] == "no-store"
 
     def test_oidc_authorization_failure_uses_stable_error_redirect(self, client: TestClient, session: Session):
+        from app.core.auth_methods import AuthenticationMode
         from app.models.oidc import OidcProviderConfiguration, SignInMode
+        from app.services.authentication_config import set_ui_authentication_mode
 
         session.add(
             OidcProviderConfiguration(
@@ -334,6 +348,7 @@ class TestLoginEndpoint:
                 sign_in_mode=SignInMode.OIDC_ONLY,
             )
         )
+        set_ui_authentication_mode(session, mode=AuthenticationMode.OIDC_ONLY, updated_by_user_id=None)
         session.commit()
 
         response = client.get("/api/auth/oidc/authorize", follow_redirects=False)
@@ -684,7 +699,7 @@ class TestAuthMethodNone:
 
         response = client.get("/api/auth/config")
         assert response.status_code == 200
-        assert response.json() == {"auth_method": "none"}
+        assert response.json() == {"sign_in_mode": "none", "oidc": None}
 
     def test_login_endpoint_disabled_with_none(self, client: TestClient, config_admin_user: User, monkeypatch):
         """Test that login endpoint returns 404 when auth_method is 'none'."""

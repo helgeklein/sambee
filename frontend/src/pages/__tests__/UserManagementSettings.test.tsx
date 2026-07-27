@@ -132,7 +132,7 @@ describe("UserManagementSettings", () => {
     expect(screen.queryByText("Local password")).not.toBeInTheDocument();
   });
 
-  it("disables pending mapping actions until username uniqueness is confirmed", async () => {
+  it("allows pending mapping actions without a claim acknowledgement", async () => {
     vi.mocked(api.getUsers).mockResolvedValue([
       {
         id: "user-1",
@@ -167,7 +167,6 @@ describe("UserManagementSettings", () => {
         client_secret_configured: true,
         scopes: ["openid", "groups"],
         username_claim: "preferred_username",
-        username_claim_uniqueness_confirmed: false,
         name_claim: "name",
         email_claim: "email",
         groups_claim: "groups",
@@ -180,7 +179,6 @@ describe("UserManagementSettings", () => {
       },
       active_passwordless_user_count: 0,
       health: {
-        oidc_secret_key_configured: true,
         public_url_configured: true,
         public_url: "https://sambee.example.test",
         redirect_uri: "https://sambee.example.test/api/auth/oidc/callback",
@@ -195,8 +193,8 @@ describe("UserManagementSettings", () => {
       </SambeeThemeProvider>
     );
 
-    expect(await screen.findByRole("button", { name: "Change OIDC account for linked-admin" })).toBeDisabled();
-    expect(screen.getByRole("button", { name: "Map OIDC account for unmapped-user" })).toBeDisabled();
+    expect(await screen.findByRole("button", { name: "Change OIDC account for linked-admin" })).toBeEnabled();
+    expect(screen.getByRole("button", { name: "Map OIDC account for unmapped-user" })).toBeEnabled();
   });
 
   it("lets the admin enter a new password for a reset", async () => {

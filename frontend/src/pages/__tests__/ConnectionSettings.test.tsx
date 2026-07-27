@@ -84,6 +84,20 @@ describe("ConnectionSettings", () => {
     expect(screen.getByRole("progressbar")).toBeInTheDocument();
   });
 
+  it("shows Add connection immediately when administrator access is already known", () => {
+    vi.mocked(api.getCurrentUser).mockReturnValue(new Promise(() => undefined));
+    vi.mocked(api.getConnections).mockReturnValue(new Promise(() => undefined));
+
+    render(
+      <SambeeThemeProvider>
+        <ConnectionSettings isAdmin />
+      </SambeeThemeProvider>
+    );
+
+    expect(screen.getByRole("button", { name: /add connection/i })).toBeInTheDocument();
+    expect(api.getCurrentUser).not.toHaveBeenCalled();
+  });
+
   it("shows backend-defined visibility options when the dialog opens", async () => {
     const user = userEvent.setup();
 

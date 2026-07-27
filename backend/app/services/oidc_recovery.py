@@ -1,17 +1,17 @@
 import json
 import uuid
 from datetime import datetime, timezone
-from pathlib import Path
 from typing import TextIO
 
 from sqlalchemy import update
 from sqlmodel import Session, select
 
+from app.core.auth_methods import AuthenticationMode
 from app.models.audit import AuditEvent
-from app.models.oidc import OidcFlow, OidcProviderConfiguration, SignInMode
+from app.models.oidc import OidcProviderConfiguration, SignInMode
 from app.models.user import User, UserRole
 from app.services.audit import AuditDetails, AuditEventName, AuditResult, write_audit_event
-from app.services.oidc_configuration import OidcSecretCipher
+from app.services.authentication_config import set_ui_authentication_mode
 
 
 class OidcRecoveryError(ValueError):
@@ -79,6 +79,11 @@ def activate_password_only(
     if local_administrator_count == 0 and not force_no_local_administrator:
         raise OidcRecoveryError("password_only_no_local_administrator")
     configuration.sign_in_mode = SignInMode.PASSWORD_ONLY
+    set_ui_authentication_mode(
+        session,
+        mode=AuthenticationMode.PASSWORD_ONLY,
+        updated_by_user_id=acting_user_id,
+    )
     if expected_configuration_revision is None:
         configuration.configuration_revision += 1
     configuration.updated_by_user_id = acting_user_id
@@ -98,20 +103,6 @@ def activate_password_only(
     return configuration
 
 
-def rotate_oidc_secret_key(session: Session, *, old_key: str, new_key: str) -> None:
-    old_cipher = OidcSecretCipher(old_key)
-    new_cipher = OidcSecretCipher(new_key)
-    configuration = session.get(OidcProviderConfiguration, 1)
-    if configuration is not None and configuration.encrypted_client_secret is not None:
-        plaintext = old_cipher.decrypt(configuration.encrypted_client_secret)
-        configuration.encrypted_client_secret = new_cipher.encrypt(plaintext)
-        configuration.configuration_revision += 1
-        session.add(configuration)
-    for flow in session.exec(select(OidcFlow)).all():
-        session.delete(flow)
-    session.commit()
-
-
 def export_audit_events(session: Session, output: TextIO) -> int:
     events = list(session.exec(select(AuditEvent)).all())
     events.sort(key=lambda event: (event.created_at, str(event.id)))
@@ -119,10 +110,3 @@ def export_audit_events(session: Session, output: TextIO) -> int:
         output.write(json.dumps(event.model_dump(mode="json"), separators=(",", ":"), sort_keys=True))
         output.write("\n")
     return len(events)
-
-
-def read_secret_file(path: Path) -> str:
-    value = path.read_text(encoding="utf-8").strip()
-    if not value:
-        raise OidcRecoveryError("OIDC key file is empty")
-    return value
