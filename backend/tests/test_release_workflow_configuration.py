@@ -216,6 +216,7 @@ def test_docker_candidate_aliases_use_the_post_sign_verifier_digest() -> None:
     assert signer_checkout_index < signer_index
     signer_step = signer_steps[signer_index]
     assert "ensure_candidate_signature.sh" in signer_step["run"]
+    assert '--signature-repository "${{ needs.prepare.outputs.signature_repository }}"' in signer_step["run"]
 
     for job_name in ("publish-immutable-markers", "promote-test-tag"):
         job = workflow["jobs"][job_name]

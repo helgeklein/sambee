@@ -74,7 +74,7 @@ bash "$(dirname "${BASH_SOURCE[0]}")/verify_candidate_metadata_bundle.sh" \
   --expected-source "$expected_source"
 
 expected_identity="https://github.com/$github_repository/.github/workflows/docker-image-preview-publish.yml@refs/heads/main"
-cosign verify \
+COSIGN_REPOSITORY="$metadata_repository" cosign verify \
   --certificate-identity "$expected_identity" \
   --certificate-oidc-issuer "https://token.actions.githubusercontent.com" \
   "$candidate_ref_by_digest" >/dev/null

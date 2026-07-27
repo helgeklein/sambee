@@ -24,7 +24,7 @@ printf 'nested-bash %s\n' "$*" >> "$TOOL_LOG"
     )
     (directory / "cosign").write_text(
         """#!/bin/sh
-printf 'cosign %s\n' "$*" >> "$TOOL_LOG"
+printf 'cosign repository=%s %s\n' "$COSIGN_REPOSITORY" "$*" >> "$TOOL_LOG"
 """,
         encoding="utf-8",
     )
@@ -81,6 +81,7 @@ def test_digest_mode_verifies_without_resolving_candidate_marker(tmp_path: Path)
     assert f"digest example.test/sambee@{DIGEST}" in tool_log
     assert "example.test/sambee:build-v1.2.3" not in tool_log
     assert tool_log.count(f"example.test/sambee@{DIGEST}") == 4
+    assert "cosign repository=example.test/sambee-signatures" in tool_log
 
 
 def test_digest_mode_rejects_registry_digest_mismatch(tmp_path: Path) -> None:

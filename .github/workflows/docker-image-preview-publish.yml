@@ -676,11 +676,10 @@ jobs:
 
     - name: Sign preview digest
       shell: bash
-      env:
-        COSIGN_REPOSITORY: ${{ needs.prepare.outputs.signature_repository }}
       run: |
         bash .github/scripts/ensure_candidate_signature.sh \
           --image-ref "${{ needs.prepare.outputs.image_name }}@${{ needs.build-and-publish-immutable.outputs.digest }}" \
+          --signature-repository "${{ needs.prepare.outputs.signature_repository }}" \
           --github-repository "${{ github.repository }}"
 
   verify-signed-candidate:

@@ -13,9 +13,14 @@ def write_fake_cosign(directory: Path) -> None:
 set -euo pipefail
 command="$1"
 shift
+printf '%s\n' "${COSIGN_REPOSITORY:-}" >> "${COSIGN_REPOSITORY_LOG}"
 case "$command" in
   verify)
         [[ "${COSIGN_MODE}" == "reuse" || ( ( "${COSIGN_MODE}" == "missing" || "${COSIGN_MODE}" == "missing-associated" ) && -f "${COSIGN_SIGN_MARKER}" ) ]] && exit 0
+        if [[ "${COSIGN_MODE}" == "delayed" && -f "${COSIGN_SIGN_MARKER}" ]]; then
+            [[ -f "${COSIGN_VERIFY_ATTEMPT_MARKER}" ]] && exit 0
+            touch "${COSIGN_VERIFY_ATTEMPT_MARKER}"
+        fi
     exit 1
     ;;
   download)
@@ -42,12 +47,15 @@ def run_script(tmp_path: Path, mode: str) -> subprocess.CompletedProcess[str]:
     bin_dir.mkdir()
     write_fake_cosign(bin_dir)
     sign_marker = tmp_path / "sign"
+    repository_log = tmp_path / "cosign-repositories"
     return subprocess.run(
         [
             "bash",
             str(SCRIPT),
             "--image-ref",
             IMAGE_REF,
+            "--signature-repository",
+            "example.test/sambee-signatures",
             "--github-repository",
             "example/sambee",
         ],
@@ -58,6 +66,9 @@ def run_script(tmp_path: Path, mode: str) -> subprocess.CompletedProcess[str]:
             "PATH": f"{bin_dir}:{os.environ['PATH']}",
             "COSIGN_MODE": mode,
             "COSIGN_SIGN_MARKER": str(sign_marker),
+            "COSIGN_VERIFY_ATTEMPT_MARKER": str(tmp_path / "verify-attempt"),
+            "COSIGN_REPOSITORY_LOG": str(repository_log),
+            "SIGNATURE_VERIFY_RETRY_DELAY_SECONDS": "0",
         },
     )
 
@@ -76,6 +87,7 @@ def test_signs_and_verifies_when_no_signature_exists(tmp_path: Path) -> None:
     assert result.returncode == 0, result.stderr
     assert "Published and verified candidate signature" in result.stdout
     assert (tmp_path / "sign").exists()
+    assert set((tmp_path / "cosign-repositories").read_text(encoding="utf-8").splitlines()) == {"example.test/sambee-signatures"}
 
 
 def test_signs_when_cosign_reports_no_signatures_associated(tmp_path: Path) -> None:
@@ -84,6 +96,14 @@ def test_signs_when_cosign_reports_no_signatures_associated(tmp_path: Path) -> N
     assert result.returncode == 0, result.stderr
     assert "Published and verified candidate signature" in result.stdout
     assert (tmp_path / "sign").exists()
+
+
+def test_retries_post_sign_verification_until_signature_is_visible(tmp_path: Path) -> None:
+    result = run_script(tmp_path, "delayed")
+
+    assert result.returncode == 0, result.stderr
+    assert "retrying verification" in result.stderr
+    assert "Published and verified candidate signature" in result.stdout
 
 
 def test_rejects_existing_signature_that_fails_policy(tmp_path: Path) -> None:
