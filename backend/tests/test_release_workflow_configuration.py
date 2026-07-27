@@ -87,6 +87,20 @@ def test_all_local_actions_follow_checkout_in_their_job() -> None:
                 )
 
 
+def test_all_repository_scripts_follow_checkout_in_their_job() -> None:
+    workflow_directory = WORKSPACE / ".github/workflows"
+    for workflow_path in workflow_directory.glob("*.yml"):
+        workflow = load_workflow(workflow_path.name)
+        for job_name, job in workflow.get("jobs", {}).items():
+            steps = job.get("steps", [])
+            for index, step in enumerate(steps):
+                if ".github/scripts/" not in step.get("run", ""):
+                    continue
+                assert any(previous_step.get("uses", "").startswith("actions/checkout@") for previous_step in steps[:index]), (
+                    f"{workflow_path.name}:{job_name} runs a repository script before checkout"
+                )
+
+
 def test_release_mutation_workflows_share_the_expected_locks() -> None:
     docker_candidate = load_workflow("docker-image-preview-publish.yml")
     docker_promotion = load_workflow("docker-image-publish.yml")
@@ -196,8 +210,11 @@ def test_docker_candidate_aliases_use_the_post_sign_verifier_digest() -> None:
     assert "verify_published_candidate_image.sh" in verification_step["run"]
     assert '--candidate-digest "${{ needs.build-and-publish-immutable.outputs.digest }}"' in verification_step["run"]
 
-    signer_job = workflow["jobs"]["sign-preview"]
-    signer_step = next(step for step in signer_job["steps"] if step.get("name") == "Sign preview digest")
+    signer_steps = workflow["jobs"]["sign-preview"]["steps"]
+    signer_checkout_index = next(index for index, step in enumerate(signer_steps) if step.get("uses", "").startswith("actions/checkout@"))
+    signer_index = next(index for index, step in enumerate(signer_steps) if step.get("name") == "Sign preview digest")
+    assert signer_checkout_index < signer_index
+    signer_step = signer_steps[signer_index]
     assert "ensure_candidate_signature.sh" in signer_step["run"]
 
     for job_name in ("publish-immutable-markers", "promote-test-tag"):
