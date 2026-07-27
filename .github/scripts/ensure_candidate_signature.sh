@@ -19,6 +19,7 @@ github_repository=""
 readonly SIGNATURE_VERIFY_ATTEMPTS="${SIGNATURE_VERIFY_ATTEMPTS:-6}"
 readonly SIGNATURE_VERIFY_RETRY_DELAY_SECONDS="${SIGNATURE_VERIFY_RETRY_DELAY_SECONDS:-2}"
 readonly SIGNATURE_STORAGE_MODE="legacy"
+readonly SIGNATURE_NEW_BUNDLE_FORMAT="false"
 
 while [[ $# -gt 0 ]]; do
   case "$1" in
@@ -44,6 +45,7 @@ verify_signature() {
   COSIGN_REPOSITORY="$signature_repository" cosign verify \
     --certificate-identity "$expected_identity" \
     --certificate-oidc-issuer "https://token.actions.githubusercontent.com" \
+    --new-bundle-format "$SIGNATURE_NEW_BUNDLE_FORMAT" \
     "$image_ref" >/dev/null
 }
 
@@ -90,6 +92,7 @@ if [[ -s "$signature_output" ]]; then
 fi
 
 COSIGN_REPOSITORY="$signature_repository" cosign sign \
+  --new-bundle-format "$SIGNATURE_NEW_BUNDLE_FORMAT" \
   --registry-referrers-mode "$SIGNATURE_STORAGE_MODE" \
   --yes "$image_ref"
 

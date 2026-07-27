@@ -82,6 +82,7 @@ def test_digest_mode_verifies_without_resolving_candidate_marker(tmp_path: Path)
     assert "example.test/sambee:build-v1.2.3" not in tool_log
     assert tool_log.count(f"example.test/sambee@{DIGEST}") == 4
     assert "cosign repository=example.test/sambee-signatures" in tool_log
+    assert "--new-bundle-format=false" in tool_log
 
 
 def test_digest_mode_rejects_registry_digest_mismatch(tmp_path: Path) -> None:

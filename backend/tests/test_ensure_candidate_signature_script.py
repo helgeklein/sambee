@@ -91,7 +91,10 @@ def test_signs_and_verifies_when_no_signature_exists(tmp_path: Path) -> None:
     assert "Published and verified candidate signature" in result.stdout
     assert (tmp_path / "sign").exists()
     assert set((tmp_path / "cosign-repositories").read_text(encoding="utf-8").splitlines()) == {"example.test/sambee-signatures"}
-    assert "sign --registry-referrers-mode legacy --yes" in (tmp_path / "cosign-commands").read_text(encoding="utf-8")
+    command_log = (tmp_path / "cosign-commands").read_text(encoding="utf-8")
+    assert "sign --new-bundle-format false --registry-referrers-mode legacy --yes" in command_log
+    assert "verify --certificate-identity" in command_log
+    assert "--new-bundle-format false" in command_log
 
 
 def test_signs_when_cosign_reports_no_signatures_associated(tmp_path: Path) -> None:

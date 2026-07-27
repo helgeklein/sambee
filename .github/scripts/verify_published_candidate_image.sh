@@ -77,6 +77,7 @@ expected_identity="https://github.com/$github_repository/.github/workflows/docke
 COSIGN_REPOSITORY="$metadata_repository" cosign verify \
   --certificate-identity "$expected_identity" \
   --certificate-oidc-issuer "https://token.actions.githubusercontent.com" \
+  --new-bundle-format=false \
   "$candidate_ref_by_digest" >/dev/null
 
 if [[ -n "${GITHUB_OUTPUT:-}" ]]; then
