@@ -928,7 +928,9 @@ describe("Authentication settings", () => {
 
     await user.clear(screen.getByRole("textbox", { name: "Editor groups" }));
     await user.clear(screen.getByRole("textbox", { name: "Admission groups" }));
-    expect(screen.getByText("Members of these groups can sign in. Enter at least one group name. Separate multiple groups by commas.")).toBeInTheDocument();
+    expect(
+      screen.getByText("Members of these groups can sign in. Enter at least one group name. Separate multiple groups by commas.")
+    ).toBeInTheDocument();
     expect(connect).toBeDisabled();
   });
 
