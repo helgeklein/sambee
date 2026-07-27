@@ -93,6 +93,7 @@ fi
 COSIGN_REPOSITORY="$signature_repository" cosign sign \
   --new-bundle-format=false \
   --registry-referrers-mode "$SIGNATURE_STORAGE_MODE" \
+  --use-signing-config=false \
   --yes "$image_ref"
 
 if ! verify_signature_after_signing; then
