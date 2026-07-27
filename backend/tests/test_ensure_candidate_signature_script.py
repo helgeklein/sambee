@@ -14,6 +14,7 @@ set -euo pipefail
 command="$1"
 shift
 printf '%s\n' "${COSIGN_REPOSITORY:-}" >> "${COSIGN_REPOSITORY_LOG}"
+printf '%s %s\n' "$command" "$*" >> "${COSIGN_COMMAND_LOG}"
 case "$command" in
   verify)
         [[ "${COSIGN_MODE}" == "reuse" || ( ( "${COSIGN_MODE}" == "missing" || "${COSIGN_MODE}" == "missing-associated" ) && -f "${COSIGN_SIGN_MARKER}" ) ]] && exit 0
@@ -48,6 +49,7 @@ def run_script(tmp_path: Path, mode: str) -> subprocess.CompletedProcess[str]:
     write_fake_cosign(bin_dir)
     sign_marker = tmp_path / "sign"
     repository_log = tmp_path / "cosign-repositories"
+    command_log = tmp_path / "cosign-commands"
     return subprocess.run(
         [
             "bash",
@@ -68,6 +70,7 @@ def run_script(tmp_path: Path, mode: str) -> subprocess.CompletedProcess[str]:
             "COSIGN_SIGN_MARKER": str(sign_marker),
             "COSIGN_VERIFY_ATTEMPT_MARKER": str(tmp_path / "verify-attempt"),
             "COSIGN_REPOSITORY_LOG": str(repository_log),
+            "COSIGN_COMMAND_LOG": str(command_log),
             "SIGNATURE_VERIFY_RETRY_DELAY_SECONDS": "0",
         },
     )
@@ -88,6 +91,7 @@ def test_signs_and_verifies_when_no_signature_exists(tmp_path: Path) -> None:
     assert "Published and verified candidate signature" in result.stdout
     assert (tmp_path / "sign").exists()
     assert set((tmp_path / "cosign-repositories").read_text(encoding="utf-8").splitlines()) == {"example.test/sambee-signatures"}
+    assert "sign --registry-referrers-mode legacy --yes" in (tmp_path / "cosign-commands").read_text(encoding="utf-8")
 
 
 def test_signs_when_cosign_reports_no_signatures_associated(tmp_path: Path) -> None:

@@ -18,6 +18,7 @@ github_repository=""
 
 readonly SIGNATURE_VERIFY_ATTEMPTS="${SIGNATURE_VERIFY_ATTEMPTS:-6}"
 readonly SIGNATURE_VERIFY_RETRY_DELAY_SECONDS="${SIGNATURE_VERIFY_RETRY_DELAY_SECONDS:-2}"
+readonly SIGNATURE_STORAGE_MODE="legacy"
 
 while [[ $# -gt 0 ]]; do
   case "$1" in
@@ -88,7 +89,9 @@ if [[ -s "$signature_output" ]]; then
   exit 1
 fi
 
-COSIGN_REPOSITORY="$signature_repository" cosign sign --yes "$image_ref"
+COSIGN_REPOSITORY="$signature_repository" cosign sign \
+  --registry-referrers-mode "$SIGNATURE_STORAGE_MODE" \
+  --yes "$image_ref"
 
 if ! verify_signature_after_signing; then
   echo "Candidate signature for $image_ref did not satisfy the required GitHub Actions identity policy after $SIGNATURE_VERIFY_ATTEMPTS verification attempts." >&2
