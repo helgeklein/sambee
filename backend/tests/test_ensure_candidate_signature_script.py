@@ -15,12 +15,13 @@ command="$1"
 shift
 case "$command" in
   verify)
-    [[ "${COSIGN_MODE}" == "reuse" || ( "${COSIGN_MODE}" == "missing" && -f "${COSIGN_SIGN_MARKER}" ) ]] && exit 0
+        [[ "${COSIGN_MODE}" == "reuse" || ( ( "${COSIGN_MODE}" == "missing" || "${COSIGN_MODE}" == "missing-associated" ) && -f "${COSIGN_SIGN_MARKER}" ) ]] && exit 0
     exit 1
     ;;
   download)
     case "${COSIGN_MODE}" in
-      missing) exit 0 ;;
+      missing) printf 'Error: no signatures found\nerror during command execution: no signatures found\n' >&2; exit 1 ;;
+      missing-associated) printf 'Error: %s: no signatures associated\n' "$*" >&2; exit 1 ;;
       conflict) printf '{"signature":"conflict"}\\n' ;;
       download-error) printf 'registry unavailable\\n' >&2; exit 2 ;;
     esac
@@ -71,6 +72,14 @@ def test_reuses_existing_valid_signature(tmp_path: Path) -> None:
 
 def test_signs_and_verifies_when_no_signature_exists(tmp_path: Path) -> None:
     result = run_script(tmp_path, "missing")
+
+    assert result.returncode == 0, result.stderr
+    assert "Published and verified candidate signature" in result.stdout
+    assert (tmp_path / "sign").exists()
+
+
+def test_signs_when_cosign_reports_no_signatures_associated(tmp_path: Path) -> None:
+    result = run_script(tmp_path, "missing-associated")
 
     assert result.returncode == 0, result.stderr
     assert "Published and verified candidate signature" in result.stdout

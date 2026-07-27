@@ -38,14 +38,22 @@ if verify_signature; then
   exit 0
 fi
 
+is_missing_signature_error() {
+  grep -Eiq 'no signatures (found|associated)' "$1"
+}
+
 signature_output="$(mktemp)"
 signature_error="$(mktemp)"
 trap 'rm -f "$signature_output" "$signature_error"' EXIT
 
 if ! cosign download signature "$image_ref" >"$signature_output" 2>"$signature_error"; then
-  echo "Unable to inspect existing signatures for $image_ref; refusing to sign." >&2
-  cat "$signature_error" >&2
-  exit 1
+  if is_missing_signature_error "$signature_error"; then
+    : >"$signature_output"
+  else
+    echo "Unable to inspect existing signatures for $image_ref; refusing to sign." >&2
+    cat "$signature_error" >&2
+    exit 1
+  fi
 fi
 
 if [[ -s "$signature_output" ]]; then
