@@ -122,6 +122,7 @@ def test_docker_candidate_workflow_selects_build_or_repair_before_build_jobs() -
     assert 'echo "state=build"' in state_step["run"]
     assert 'echo "state=repair"' in state_step["run"]
     assert "verify_published_candidate_image.sh" in state_step["run"]
+    assert '--candidate-digest "$candidate_digest"' in state_step["run"]
     assert "Published candidate verifier resolved" in state_step["run"]
 
     for job_name in ("validate-tests", "build-and-validate-platforms", "build-and-publish-immutable"):

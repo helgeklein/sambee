@@ -108,6 +108,7 @@ jobs:
         GITHUB_OUTPUT="$verified_output" bash .github/scripts/verify_published_candidate_image.sh \
           --image-name "${{ steps.metadata.outputs.image_name }}" \
           --metadata-repository "${{ steps.metadata.outputs.signature_repository }}" \
+          --candidate-digest "$candidate_digest" \
           --expected-description "${{ steps.metadata.outputs.image_description }}" \
           --expected-revision "${{ steps.metadata.outputs.full_sha }}" \
           --expected-version "${{ steps.preflight.outputs.version }}" \
