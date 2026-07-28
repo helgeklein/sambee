@@ -115,6 +115,53 @@ def test_test_tag_is_protected() -> None:
 
 
 @pytest.mark.unit
+def test_only_channel_and_minor_series_tags_are_retained() -> None:
+    module = load_cleanup_module()
+
+    for tag in ("test", "beta", "stable", "0.9"):
+        assert module.is_protected_tag(tag)
+
+    for tag in (
+        "0.9.14",
+        "build-v0.9.14",
+        "sha-0123456789abcdef0123456789abcdef01234567",
+        "stage-123456-2-index",
+        "staging-123456-2-index",
+    ):
+        assert not module.is_protected_tag(tag)
+
+
+@pytest.mark.unit
+def test_cleanup_deletes_tagged_versions_without_retained_tag() -> None:
+    module = load_cleanup_module()
+
+    assert (
+        module.classify(
+            module.PackageVersion(
+                version_id=1,
+                created_at="2026-05-17T00:00:00Z",
+                tags=[
+                    "0.9.14",
+                    "build-v0.9.14",
+                    "sha-0123456789abcdef0123456789abcdef01234567",
+                ],
+            )
+        )
+        == "deletable"
+    )
+    assert (
+        module.classify(
+            module.PackageVersion(
+                version_id=2,
+                created_at="2026-05-17T00:00:00Z",
+                tags=["build-v0.9.14", "test"],
+            )
+        )
+        == "protected"
+    )
+
+
+@pytest.mark.unit
 def test_delete_exact_staging_tag_deletes_only_matching_staging_version(monkeypatch: pytest.MonkeyPatch) -> None:
     module = load_cleanup_module()
     staging_tag = "stage-123456-2-index"

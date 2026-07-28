@@ -13,7 +13,6 @@ import urllib.parse
 import urllib.request
 from dataclasses import dataclass
 
-SEMVER_RE = re.compile(r"^\d+\.\d+\.\d+(?:-[0-9A-Za-z.-]+)?(?:\+[0-9A-Za-z.-]+)?$")
 MINOR_RE = re.compile(r"^\d+\.\d+$")
 SHA_TAG_RE = re.compile(r"^sha-[0-9a-f]{40}$")
 ARCH_PREVIEW_TAG_RE = re.compile(r"^sha-[0-9a-f]{40}-(?:amd64|arm64)$")
@@ -116,13 +115,7 @@ def is_protected_tag(tag: str) -> bool:
     if tag in {"stable", "beta", "test"}:
         return True
 
-    if MINOR_RE.match(tag):
-        return True
-
-    if SEMVER_RE.match(tag):
-        return "-" not in tag
-
-    return False
+    return bool(MINOR_RE.fullmatch(tag))
 
 
 def is_test_only_tag(tag: str) -> bool:
@@ -144,9 +137,7 @@ def classify(version: PackageVersion) -> str:
         return "protected"
     if any(is_protected_tag(tag) for tag in version.tags):
         return "protected"
-    if all(is_test_only_tag(tag) for tag in version.tags):
-        return "deletable"
-    return "protected"
+    return "deletable"
 
 
 def emit_log(version: PackageVersion, classification: str, action: str) -> None:
