@@ -190,6 +190,7 @@ describe("NameInputDialog", () => {
     render(<NameInputDialog {...defaultProps} onConfirm={onConfirm} extraValidate={extraValidate} />);
 
     const input = screen.getByLabelText("Name");
+    await waitFor(() => expect(input).toHaveFocus());
     await user.type(input, "taken");
     await user.click(screen.getByRole("button", { name: "Submit" }));
 
@@ -204,6 +205,7 @@ describe("NameInputDialog", () => {
     render(<NameInputDialog {...defaultProps} onConfirm={onConfirm} extraValidate={extraValidate} />);
 
     const input = screen.getByLabelText("Name");
+    await waitFor(() => expect(input).toHaveFocus());
     await user.type(input, "valid-name");
     await user.click(screen.getByRole("button", { name: "Submit" }));
 
