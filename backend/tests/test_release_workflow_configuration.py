@@ -149,7 +149,10 @@ def test_ghcr_staging_transfer_proof_is_explicitly_guarded_and_disposable() -> N
     assert "sambee-transfer-proof-signatures-" in proof_steps
     assert 'crane cp --no-clobber "$staging_repository@$staging_digest" "$final_repository:final-$proof_id"' in proof_steps
     assert "cosign verify" in proof_steps
-    assert 'delete_package_versions "sambee-transfer-proof-staging-$proof_id"' in proof_steps
+    assert "delete_disposable_package()" in proof_steps
+    assert 'delete_disposable_package "sambee-transfer-proof-staging-$proof_id"' in proof_steps
+    assert '/packages/container/$package_name"' in proof_steps
+    assert '404) echo "Disposable package $package_name is already absent."' in proof_steps
 
 
 def test_docker_candidate_workflow_selects_build_or_repair_before_build_jobs() -> None:

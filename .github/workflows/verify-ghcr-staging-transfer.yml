@@ -94,42 +94,43 @@ jobs:
           --new-bundle-format=false \
           "$final_repository@$final_digest" >/dev/null
 
-    - name: Delete staging package versions and retain final image
+    - name: Delete staging package and retain final image
       shell: bash
       env:
         GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
       run: |
-        delete_package_versions() {
+        delete_disposable_package() {
           local package_name="$1"
-          local owner_type endpoint versions version_id
+          local owner_type endpoint response_file status
           owner_type="$(curl --fail-with-body --silent --show-error \
             -H 'Accept: application/vnd.github+json' \
             -H "Authorization: Bearer $GITHUB_TOKEN" \
             -H 'X-GitHub-Api-Version: 2022-11-28' \
             "https://api.github.com/users/$GITHUB_REPOSITORY_OWNER" | jq -r '.type')"
           if [[ "$owner_type" == "Organization" ]]; then
-            endpoint="https://api.github.com/orgs/$GITHUB_REPOSITORY_OWNER/packages/container/$package_name/versions"
+            endpoint="https://api.github.com/orgs/$GITHUB_REPOSITORY_OWNER/packages/container/$package_name"
           elif [[ "$owner_type" == "User" ]]; then
-            endpoint="https://api.github.com/users/$GITHUB_REPOSITORY_OWNER/packages/container/$package_name/versions"
+            endpoint="https://api.github.com/users/$GITHUB_REPOSITORY_OWNER/packages/container/$package_name"
           else
             echo "Unsupported package owner type: $owner_type" >&2
             return 1
           fi
-          versions="$(curl --fail-with-body --silent --show-error \
+          response_file="$(mktemp)"
+          status="$(curl --silent --show-error --output "$response_file" --write-out '%{http_code}' --request DELETE \
             -H 'Accept: application/vnd.github+json' \
             -H "Authorization: Bearer $GITHUB_TOKEN" \
             -H 'X-GitHub-Api-Version: 2022-11-28' \
-            "$endpoint?per_page=100")"
-          while IFS= read -r version_id; do
-            curl --fail-with-body --silent --show-error --request DELETE \
-              -H 'Accept: application/vnd.github+json' \
-              -H "Authorization: Bearer $GITHUB_TOKEN" \
-              -H 'X-GitHub-Api-Version: 2022-11-28' \
-              "$endpoint/$version_id"
-          done < <(jq -r '.[].id' <<<"$versions")
+            "$endpoint")"
+          if [[ "$status" != "204" ]]; then
+            cat "$response_file" >&2
+            rm -f "$response_file"
+            echo "Unable to delete disposable package $package_name: GitHub API returned HTTP $status." >&2
+            return 1
+          fi
+          rm -f "$response_file"
         }
 
-        delete_package_versions "sambee-transfer-proof-staging-$proof_id"
+        delete_disposable_package "sambee-transfer-proof-staging-$proof_id"
         resolved_final_digest="$(crane digest "$final_repository:final-$proof_id")"
         if [[ "$resolved_final_digest" != "$final_digest" ]]; then
           echo "Deleting the staging package changed or removed the final image." >&2
@@ -156,37 +157,41 @@ jobs:
       env:
         GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
       run: |
-        delete_package_versions() {
+        delete_disposable_package() {
           local package_name="$1"
-          local owner_type endpoint versions version_id
+          local owner_type endpoint response_file status
           owner_type="$(curl --fail-with-body --silent --show-error \
             -H 'Accept: application/vnd.github+json' \
             -H "Authorization: Bearer $GITHUB_TOKEN" \
             -H 'X-GitHub-Api-Version: 2022-11-28' \
             "https://api.github.com/users/$GITHUB_REPOSITORY_OWNER" | jq -r '.type')"
           if [[ "$owner_type" == "Organization" ]]; then
-            endpoint="https://api.github.com/orgs/$GITHUB_REPOSITORY_OWNER/packages/container/$package_name/versions"
+            endpoint="https://api.github.com/orgs/$GITHUB_REPOSITORY_OWNER/packages/container/$package_name"
           elif [[ "$owner_type" == "User" ]]; then
-            endpoint="https://api.github.com/users/$GITHUB_REPOSITORY_OWNER/packages/container/$package_name/versions"
+            endpoint="https://api.github.com/users/$GITHUB_REPOSITORY_OWNER/packages/container/$package_name"
           else
             echo "Unsupported package owner type: $owner_type" >&2
             return 1
           fi
-          versions="$(curl --fail-with-body --silent --show-error \
+          response_file="$(mktemp)"
+          status="$(curl --silent --show-error --output "$response_file" --write-out '%{http_code}' --request DELETE \
             -H 'Accept: application/vnd.github+json' \
             -H "Authorization: Bearer $GITHUB_TOKEN" \
             -H 'X-GitHub-Api-Version: 2022-11-28' \
-            "$endpoint?per_page=100" || true)"
-          [[ -n "$versions" ]] || return 0
-          while IFS= read -r version_id; do
-            curl --fail-with-body --silent --show-error --request DELETE \
-              -H 'Accept: application/vnd.github+json' \
-              -H "Authorization: Bearer $GITHUB_TOKEN" \
-              -H 'X-GitHub-Api-Version: 2022-11-28' \
-              "$endpoint/$version_id"
-          done < <(jq -r '.[].id' <<<"$versions")
+            "$endpoint")"
+          case "$status" in
+            204) ;;
+            404) echo "Disposable package $package_name is already absent." ;;
+            *)
+              cat "$response_file" >&2
+              rm -f "$response_file"
+              echo "Unable to delete disposable package $package_name: GitHub API returned HTTP $status." >&2
+              return 1
+              ;;
+          esac
+          rm -f "$response_file"
         }
 
-        delete_package_versions "sambee-transfer-proof-staging-$proof_id"
-        delete_package_versions "sambee-transfer-proof-final-$proof_id"
-        delete_package_versions "sambee-transfer-proof-signatures-$proof_id"
+        delete_disposable_package "sambee-transfer-proof-staging-$proof_id"
+        delete_disposable_package "sambee-transfer-proof-final-$proof_id"
+        delete_disposable_package "sambee-transfer-proof-signatures-$proof_id"
