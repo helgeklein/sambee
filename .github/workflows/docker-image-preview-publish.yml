@@ -684,7 +684,7 @@ jobs:
           --github-repository "${{ github.repository }}"
 
   verify-signed-candidate:
-    needs: [prepare, sign-preview]
+    needs: [prepare, build-and-publish-immutable, sign-preview]
     if: ${{ needs.prepare.outputs.publication_state == 'build' }}
     runs-on: ubuntu-latest
     permissions:

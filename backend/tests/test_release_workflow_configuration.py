@@ -1,3 +1,4 @@
+import re
 from pathlib import Path
 
 import yaml
@@ -99,6 +100,25 @@ def test_all_repository_scripts_follow_checkout_in_their_job() -> None:
                 assert any(previous_step.get("uses", "").startswith("actions/checkout@") for previous_step in steps[:index]), (
                     f"{workflow_path.name}:{job_name} runs a repository script before checkout"
                 )
+
+
+def test_workflow_output_references_use_direct_dependencies() -> None:
+    dependency_pattern = re.compile(r"needs\.([A-Za-z0-9_-]+)\.outputs")
+    workflow_directory = WORKSPACE / ".github/workflows"
+
+    for workflow_path in workflow_directory.glob("*.yml"):
+        workflow = load_workflow(workflow_path.name)
+        for job_name, job in workflow.get("jobs", {}).items():
+            needs = job.get("needs", [])
+            if isinstance(needs, str):
+                needs = [needs]
+            assert isinstance(needs, list)
+            direct_dependencies = set(needs)
+            references = dependency_pattern.findall(yaml.safe_dump(job))
+            assert set(references) <= direct_dependencies, (
+                f"{workflow_path.name}:{job_name} reads outputs from non-direct dependencies: "
+                f"{sorted(set(references) - direct_dependencies)}"
+            )
 
 
 def test_release_mutation_workflows_share_the_expected_locks() -> None:
@@ -208,6 +228,7 @@ def test_docker_promotion_has_a_beta_only_manual_path() -> None:
 def test_docker_candidate_aliases_use_the_post_sign_verifier_digest() -> None:
     workflow = load_workflow("docker-image-preview-publish.yml")
     verifier_job = workflow["jobs"]["verify-signed-candidate"]
+    assert "build-and-publish-immutable" in verifier_job["needs"]
     assert verifier_job["outputs"]["candidate_digest"] == "${{ steps.verify.outputs.resolved_digest }}"
 
     verifier_steps = verifier_job["steps"]
