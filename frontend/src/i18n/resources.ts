@@ -146,6 +146,11 @@ export const EN_TRANSLATIONS = {
       adminAuthentication: {
         label: "Authentication",
         description: "Configure password and OpenID Connect sign-in.",
+        descriptionWithGuide: "Configure password and OpenID Connect sign-in (see the <guide>OpenID Connect setup guide</guide>).",
+      },
+      adminNetwork: {
+        label: "Network",
+        description: "Configure Sambee's external URL and trusted reverse proxies.",
       },
       adminSystem: {
         label: "System",

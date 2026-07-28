@@ -16,6 +16,7 @@ import {
 import type { SelectChangeEvent } from "@mui/material/Select";
 import { useMemo } from "react";
 import { useTranslation } from "react-i18next";
+import { SettingsFieldHelp } from "../components/Settings/SettingsFieldHelp";
 import { SettingsGroup } from "../components/Settings/SettingsGroup";
 import { SettingsSectionHeader } from "../components/Settings/SettingsSectionHeader";
 import { getSettingsCategoryDescription, getSettingsCategoryLabel } from "../components/Settings/settingsNavigation";
@@ -250,9 +251,7 @@ export function AppearanceSettings() {
                   </MenuItem>
                 ))}
               </Select>
-              <Typography variant="body2" color="text.secondary" sx={{ mt: 1 }}>
-                {t("settings.appearancePage.languageDescription")}
-              </Typography>
+              <SettingsFieldHelp>{t("settings.appearancePage.languageDescription")}</SettingsFieldHelp>
             </FormControl>
 
             <FormControl fullWidth>
@@ -269,9 +268,7 @@ export function AppearanceSettings() {
                   </MenuItem>
                 ))}
               </Select>
-              <Typography variant="body2" color="text.secondary" sx={{ mt: 1 }}>
-                {t("settings.appearancePage.regionalLocaleDescription")}
-              </Typography>
+              <SettingsFieldHelp>{t("settings.appearancePage.regionalLocaleDescription")}</SettingsFieldHelp>
             </FormControl>
           </Box>
 

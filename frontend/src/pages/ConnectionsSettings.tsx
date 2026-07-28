@@ -4,12 +4,14 @@ import { getSettingsCategoryDescription, getSettingsCategoryLabel } from "../com
 import { ConnectionSettings } from "./ConnectionSettings";
 
 interface ConnectionsSettingsProps {
+  isAdmin?: boolean;
   onConnectionsChanged?: () => void;
   dialogSafeHeader?: boolean;
   forceDesktopLayout?: boolean;
 }
 
 export function ConnectionsSettings({
+  isAdmin,
   onConnectionsChanged,
   dialogSafeHeader = false,
   forceDesktopLayout = false,
@@ -29,6 +31,7 @@ export function ConnectionsSettings({
 
       <Box sx={{ flex: 1, minWidth: 0, overflow: isDesktop ? "hidden" : "auto" }}>
         <ConnectionSettings
+          isAdmin={isAdmin}
           onConnectionsChanged={onConnectionsChanged}
           forceDesktopLayout={forceDesktopLayout}
           showHeader={false}

@@ -1,7 +1,6 @@
 import sys
 import tomllib
 from dataclasses import dataclass
-from ipaddress import ip_network
 from pathlib import Path
 from typing import Any
 from urllib.parse import urlparse, urlunparse
@@ -204,9 +203,6 @@ class Settings(BaseModel):
     access_token_expire_minutes: int = 1440
     secret_key: str = ""  # Set dynamically from database
     encryption_key: str = ""  # Set dynamically from database
-    oidc_secret_key: str = ""
-    public_url: str = ""
-    trusted_proxy_cidrs: str = ""
 
     # Admin settings
     admin_username: str = "admin"
@@ -264,14 +260,6 @@ class Settings(BaseModel):
             return value
         if value < definition.min_value or value > definition.max_value:
             raise ValueError(f"{definition.config_attr} must be between {definition.min_value} and {definition.max_value}")
-        return value
-
-    @field_validator("trusted_proxy_cidrs")
-    @classmethod
-    def validate_trusted_proxy_cidrs(cls, value: str) -> str:
-        for item in value.split(","):
-            if item.strip():
-                ip_network(item.strip(), strict=False)
         return value
 
     @field_validator(
@@ -343,9 +331,6 @@ def load_settings() -> Settings:
 
     toml_config = load_toml_config(config_path)
     configured_setting_keys = frozenset(toml_config.keys())
-    toml_config["oidc_secret_key"] = os.environ.get("SAMBEE_OIDC_SECRET_KEY", "")
-    toml_config["public_url"] = os.environ.get("SAMBEE_PUBLIC_URL", "")
-    toml_config["trusted_proxy_cidrs"] = os.environ.get("SAMBEE_TRUSTED_PROXY_CIDRS", "")
     return Settings(**toml_config)
 
 

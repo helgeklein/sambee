@@ -10,9 +10,12 @@
 log_level = "INFO"
 
 [security]
-# Authentication method: "password" or "none"
-# - password: Standard username/password authentication (default)
-# - none: No authentication required (use only if reverse proxy handles authentication)
+# Initial authentication mode before an administrator first selects a mode in the UI.
+# - password: Start with local username/password authentication (default)
+# - none: Start with no Sambee authentication; use only when a trusted reverse proxy
+#   or network perimeter controls all access.
+# After the first UI activation under Settings > Administration > Authentication,
+# Sambee stores the mode in its database and ignores this setting.
 auth_method = "password"
 
 # JWT token expiration time in minutes (default: 24 hours)

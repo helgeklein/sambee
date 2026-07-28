@@ -18,7 +18,7 @@ import {
   type SettingsCategory,
   type SettingsNavItem,
 } from "./settingsNavigation";
-import { useSettingsAccess } from "./useSettingsAccess";
+import { SettingsAccessProvider, useSettingsAccess } from "./useSettingsAccess";
 
 const SETTINGS_CATEGORY_FIRST_INDEX = 0;
 
@@ -46,7 +46,7 @@ const SettingsDialog: React.FC<SettingsDialogProps> = ({
 }) => {
   const [selectedItem, setSelectedItem] = useState<SettingsNavItem>(initialCategory);
   const [versionInfo, setVersionInfo] = useState<VersionInfo | null>(null);
-  const { isAdmin } = useSettingsAccess(open);
+  const { isAdmin, canWrite } = useSettingsAccess(open);
   const { t } = useTranslation();
 
   // Refs for category list items (for arrow key navigation and initial focus)
@@ -225,13 +225,15 @@ const SettingsDialog: React.FC<SettingsDialogProps> = ({
             bgcolor: "background.default",
           }}
         >
-          <SettingsCategoryContent
-            item={selectedItem}
-            isAdmin={isAdmin}
-            onConnectionsChanged={onConnectionsChanged}
-            dialogSafeHeader
-            forceDesktopLayout
-          />
+          <SettingsAccessProvider value={{ isAdmin, canWrite }}>
+            <SettingsCategoryContent
+              item={selectedItem}
+              isAdmin={isAdmin}
+              onConnectionsChanged={onConnectionsChanged}
+              dialogSafeHeader
+              forceDesktopLayout
+            />
+          </SettingsAccessProvider>
         </Box>
       </Box>
     </Dialog>

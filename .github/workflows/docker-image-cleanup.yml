@@ -13,7 +13,7 @@ on:
   workflow_dispatch:
 
 concurrency:
-  group: cleanup-docker-package-versions
+  group: docker-release-publication
   cancel-in-progress: false
 
 permissions:
@@ -47,6 +47,11 @@ jobs:
         python3 .github/scripts/cleanup_test_container_versions.py \
           --owner "${{ github.repository_owner }}" \
           --package-name sambee
+
+        python3 .github/scripts/cleanup_test_container_versions.py \
+          --owner "${{ github.repository_owner }}" \
+          --package-name sambee-staging \
+          --allow-package-delete
 
         python3 .github/scripts/cleanup_signature_container_versions.py \
           --owner "${{ github.repository_owner }}" \

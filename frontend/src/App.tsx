@@ -15,6 +15,7 @@ import { AuthenticationSettings } from "./pages/AuthenticationSettings";
 import { ConnectionsSettings } from "./pages/ConnectionsSettings";
 import { FileBrowserSettings } from "./pages/FileBrowserSettings";
 import { LocalDrivesSettings } from "./pages/LocalDrivesSettings";
+import { NetworkSettings } from "./pages/NetworkSettings";
 import { AppearanceSettings } from "./pages/PreferencesSettings";
 import { Settings } from "./pages/Settings";
 import { TextEditorSettings } from "./pages/TextEditorSettings";
@@ -79,6 +80,7 @@ function AppContent() {
                 <Route path="connections/smb" element={<Navigate to="/settings/connections" replace />} />
                 <Route path="admin/users" element={<UserManagementSettings />} />
                 <Route path="admin/authentication" element={<AuthenticationSettings />} />
+                <Route path="admin/network" element={<NetworkSettings />} />
                 <Route path="admin/system" element={<AdvancedSettings />} />
               </Route>
               <Route path="/" element={<Navigate to="/browse" replace />} />

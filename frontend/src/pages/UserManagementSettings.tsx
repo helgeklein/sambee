@@ -155,7 +155,7 @@ export function UserManagementSettings({ dialogSafeHeader = false }: UserManagem
   const users = cachedUserManagementData?.users ?? [];
   const currentUserId = cachedUserManagementData?.currentUserId ?? null;
   const oidcConfiguration = cachedUserManagementData?.oidcConfiguration.configuration ?? null;
-  const pendingOidcMappingsAllowed = oidcConfiguration?.username_claim_uniqueness_confirmed === true;
+  const pendingOidcMappingsAllowed = oidcConfiguration !== null;
   const [editorOpen, setEditorOpen] = useState(false);
   const [deleteDialogOpen, setDeleteDialogOpen] = useState(false);
   const [resetPasswordEditorOpen, setResetPasswordEditorOpen] = useState(false);

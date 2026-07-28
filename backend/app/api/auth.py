@@ -9,17 +9,20 @@ from fastapi.responses import RedirectResponse
 from sqlalchemy.exc import IntegrityError
 from sqlmodel import Session, select
 
-from app.core.auth_methods import AuthMethod
 from app.core.config import settings
 from app.core.logging import get_logger, set_user
 from app.core.security import build_user_access_token, get_current_user_with_auth_check, get_password_hash, is_user_expired, verify_password
 from app.db.database import get_session
-from app.models.oidc import OidcFlowPurpose, OidcProviderConfiguration, SignInMode
+from app.models.oidc import OidcFlowPurpose, OidcProviderConfiguration
 from app.models.oidc_api import OidcGrantExchangeRequest
 from app.models.user import CurrentUserRead, PasswordChangeRequest, User, build_current_user_read, normalize_utc_datetime
 from app.models.user_settings import CurrentUserSettingsRead, CurrentUserSettingsUpdate
 from app.services.audit import AuditDetails, AuditEventName, AuditResult, write_audit_event
-from app.services.authentication_config import build_public_auth_configuration, is_password_login_enabled
+from app.services.authentication_config import (
+    build_public_auth_configuration,
+    get_effective_authentication_mode,
+    is_password_login_enabled,
+)
 from app.services.authentication_rate_limit import RateLimitDecision, authentication_rate_limiter, resolve_source_ip
 from app.services.oidc_client import (
     OidcClaimMapping,
@@ -30,7 +33,7 @@ from app.services.oidc_client import (
     load_provider_metadata,
     refresh_provider_jwks,
 )
-from app.services.oidc_configuration import OidcSecretCipher, decrypt_candidate_snapshot, derive_oidc_redirect_uri
+from app.services.oidc_configuration import decrypt_candidate_snapshot, derive_oidc_redirect_uri, get_oidc_secret_cipher
 from app.services.oidc_flow import (
     OidcFlowError,
     claim_oidc_callback,
@@ -42,6 +45,7 @@ from app.services.oidc_flow import (
 )
 from app.services.oidc_http import ValidatedOidcHttpClient
 from app.services.oidc_identity import OidcIdentityError, OidcIdentityErrorCode, resolve_or_provision_oidc_user
+from app.services.system_settings import build_network_settings_read
 from app.services.user_settings import build_current_user_settings_read, update_current_user_settings
 
 router = APIRouter()
@@ -81,9 +85,10 @@ def _build_login_response(user: User, *, expires_minutes: int, return_path: str 
     return response
 
 
-def _request_source_ip(request: Request) -> str:
+def _request_source_ip(request: Request, session: Session) -> str:
     direct_peer = request.client.host if request.client is not None else None
-    return resolve_source_ip(direct_peer, request.headers.get("x-forwarded-for"), settings.trusted_proxy_cidrs)
+    network = build_network_settings_read(session)
+    return resolve_source_ip(direct_peer, request.headers.get("x-forwarded-for"), ",".join(network.trusted_proxy_cidrs))
 
 
 def _rate_limited_response(decision: RateLimitDecision, *, detail: str) -> None:
@@ -159,10 +164,7 @@ async def get_auth_config(
     Frontend uses this to determine whether to show login form.
     """
 
-    configuration = build_public_auth_configuration(session)
-    if isinstance(configuration, dict):
-        return configuration
-    return configuration.model_dump(mode="json")
+    return build_public_auth_configuration(session).model_dump(mode="json")
 
 
 #
@@ -189,7 +191,7 @@ async def login(
         raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail="Username and password are required")
 
     _rate_limited_response(
-        authentication_rate_limiter.check_password(_request_source_ip(request), username),
+        authentication_rate_limiter.check_password(_request_source_ip(request, session), username),
         detail="Incorrect username or password",
     )
 
@@ -222,18 +224,19 @@ async def oidc_authorize(
     return_path: str | None = Query(default=None),
     session: Session = Depends(get_session),
 ) -> RedirectResponse:
-    limited = _rate_limited_redirect(authentication_rate_limiter.check_authorization(_request_source_ip(request)))
+    limited = _rate_limited_redirect(authentication_rate_limiter.check_authorization(_request_source_ip(request, session)))
     if limited is not None:
         return limited
     configuration = session.get(OidcProviderConfiguration, 1)
-    if configuration is None or configuration.sign_in_mode not in (SignInMode.OIDC_OR_PASSWORD, SignInMode.OIDC_ONLY):
+    effective_mode = get_effective_authentication_mode(session).mode
+    if configuration is None or effective_mode.value not in {"oidc_or_password", "oidc_only"}:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="OIDC authentication is not enabled")
     try:
-        cipher = OidcSecretCipher(settings.oidc_secret_key)
+        cipher = get_oidc_secret_cipher()
         if configuration.encrypted_client_secret is None:
             raise ValueError("OIDC client secret is unavailable")
         cipher.decrypt(configuration.encrypted_client_secret)
-        redirect_uri = derive_oidc_redirect_uri(settings.public_url)
+        redirect_uri = derive_oidc_redirect_uri(build_network_settings_read(session).public_url)
         async with ValidatedOidcHttpClient() as http_client:
             metadata, _ = await load_provider_metadata(http_client, configuration.issuer_url)
         started = start_login_flow(
@@ -273,12 +276,12 @@ async def oidc_callback(
     provider_error: str | None = Query(default=None, alias="error"),
     session: Session = Depends(get_session),
 ) -> RedirectResponse:
-    limited = _rate_limited_redirect(authentication_rate_limiter.check_callback(_request_source_ip(request)))
+    limited = _rate_limited_redirect(authentication_rate_limiter.check_callback(_request_source_ip(request, session)))
     if limited is not None:
         return limited
     claimed_flow_id: uuid.UUID | None = None
     try:
-        cipher = OidcSecretCipher(settings.oidc_secret_key)
+        cipher = get_oidc_secret_cipher()
         claimed = claim_oidc_callback(session, state=state_value, cipher=cipher)
         claimed_flow_id = claimed.flow_id
         if provider_error is not None or code is None:
@@ -288,7 +291,7 @@ async def oidc_callback(
         if claimed.purpose == OidcFlowPurpose.LOGIN:
             if (
                 active_configuration is None
-                or active_configuration.sign_in_mode not in (SignInMode.OIDC_OR_PASSWORD, SignInMode.OIDC_ONLY)
+                or get_effective_authentication_mode(session).mode.value not in {"oidc_or_password", "oidc_only"}
                 or active_configuration.configuration_revision != claimed.configuration_revision
                 or active_configuration.encrypted_client_secret is None
             ):
@@ -317,7 +320,7 @@ async def oidc_callback(
                 name=candidate.name_claim,
                 email=candidate.email_claim,
             )
-        redirect_uri = derive_oidc_redirect_uri(settings.public_url)
+        redirect_uri = derive_oidc_redirect_uri(build_network_settings_read(session).public_url)
         async with ValidatedOidcHttpClient() as http_client:
             metadata, jwks = await load_provider_metadata(http_client, issuer_url)
 
@@ -391,7 +394,7 @@ async def oidc_exchange(
     session: Session = Depends(get_session),
 ) -> dict[str, Any]:
     _rate_limited_response(
-        authentication_rate_limiter.check_exchange(_request_source_ip(request)),
+        authentication_rate_limiter.check_exchange(_request_source_ip(request, session)),
         detail="OIDC login grant is invalid",
     )
     try:
@@ -460,7 +463,7 @@ async def change_password(
         raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail="Current and new passwords are required")
 
     # Reject password changes when auth_method is "none"
-    if settings.auth_method == AuthMethod.NONE:
+    if get_effective_authentication_mode(session).mode.value == "none":
         logger.warning("Password change rejected: auth_method is 'none' (reverse proxy handles auth)")
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,

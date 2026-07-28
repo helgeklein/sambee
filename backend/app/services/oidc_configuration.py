@@ -1,3 +1,4 @@
+import base64
 import json
 import unicodedata
 from dataclasses import asdict, dataclass, field
@@ -5,8 +6,11 @@ from typing import Any, cast
 from urllib.parse import urlparse, urlsplit, urlunparse
 
 from cryptography.fernet import Fernet, InvalidToken
+from cryptography.hazmat.primitives import hashes
+from cryptography.hazmat.primitives.kdf.hkdf import HKDF
 from pydantic import SecretStr
 
+import app.core.config as config_module
 from app.core.environment import IS_PRODUCTION
 from app.models.oidc import OidcAdmissionMode, OidcProviderConfiguration, SignInMode
 from app.models.oidc_api import (
@@ -43,7 +47,6 @@ class NormalizedOidcCandidate:
     client_secret: str | None = field(repr=False)
     scopes: tuple[str, ...]
     username_claim: str
-    username_claim_uniqueness_confirmed: bool
     name_claim: str | None
     email_claim: str | None
     groups_claim: str | None
@@ -77,6 +80,19 @@ class OidcSecretCipher:
             raise OidcSecretDecryptionError("OIDC secret could not be decrypted") from exc
 
 
+def get_oidc_secret_cipher() -> OidcSecretCipher:
+    encryption_key = config_module.settings.encryption_key
+    if not encryption_key:
+        raise OidcSecretKeyError("Application encryption key is not loaded")
+    derived_key = HKDF(
+        algorithm=hashes.SHA256(),
+        length=32,
+        salt=None,
+        info=b"sambee/oidc/v1",
+    ).derive(encryption_key.encode("ascii"))
+    return OidcSecretCipher(base64.urlsafe_b64encode(derived_key).decode("ascii"))
+
+
 def apply_reviewed_policy(
     tested: NormalizedOidcCandidate,
     reviewed: OidcReviewedPolicy,
@@ -92,7 +108,6 @@ def apply_reviewed_policy(
         client_secret=SecretStr(tested.client_secret) if tested.client_secret is not None else None,
         scopes=list(tested.scopes),
         username_claim=tested.username_claim,
-        username_claim_uniqueness_confirmed=reviewed.username_claim_uniqueness_confirmed,
         name_claim=tested.name_claim,
         email_claim=tested.email_claim,
         groups_claim=tested.groups_claim,
@@ -197,7 +212,6 @@ def normalize_candidate(
         raise OidcConfigurationError("OIDC sign-in requires a configured client secret")
 
     namespace_changed = active is not None and (issuer_url != active.issuer_url or client_id != active.client_id)
-    uniqueness_confirmed = candidate.username_claim_uniqueness_confirmed
     active_values = _active_values(active)
     candidate_values: dict[str, Any] = {
         "display_name": display_name,
@@ -224,7 +238,6 @@ def normalize_candidate(
         client_secret=client_secret,
         scopes=scopes,
         username_claim=username_claim,
-        username_claim_uniqueness_confirmed=uniqueness_confirmed,
         name_claim=_optional_claim(candidate.name_claim),
         email_claim=_optional_claim(candidate.email_claim),
         groups_claim=groups_claim,
@@ -268,7 +281,6 @@ def redacted_configuration(configuration: OidcProviderConfiguration) -> Redacted
         client_secret_configured=configuration.encrypted_client_secret is not None,
         scopes=cast(list[str], json.loads(configuration.scopes_json)),
         username_claim=configuration.username_claim,
-        username_claim_uniqueness_confirmed=configuration.username_claim_uniqueness_confirmed,
         name_claim=configuration.name_claim,
         email_claim=configuration.email_claim,
         groups_claim=configuration.groups_claim,
@@ -289,7 +301,6 @@ def redacted_candidate(candidate: NormalizedOidcCandidate) -> RedactedOidcConfig
         client_secret_configured=candidate.client_secret is not None,
         scopes=list(candidate.scopes),
         username_claim=candidate.username_claim,
-        username_claim_uniqueness_confirmed=candidate.username_claim_uniqueness_confirmed,
         name_claim=candidate.name_claim,
         email_claim=candidate.email_claim,
         groups_claim=candidate.groups_claim,
@@ -321,26 +332,21 @@ def derive_oidc_redirect_uri(public_url: str, *, production: bool = IS_PRODUCTIO
 
 def build_authentication_health(
     *,
-    oidc_secret_key: str,
     public_url: str,
     encrypted_client_secret: str | None,
     has_active_administrator: bool,
     production: bool = IS_PRODUCTION,
 ) -> AuthenticationHealth:
     reasons: list[AuthenticationHealthReason] = []
-    key_configured = bool(oidc_secret_key)
     public_url_configured = bool(public_url)
     canonical_public_url: str | None = None
     redirect_uri: str | None = None
 
     cipher: OidcSecretCipher | None = None
-    if not key_configured:
-        reasons.append(AuthenticationHealthReason.OIDC_SECRET_KEY_MISSING)
-    else:
-        try:
-            cipher = OidcSecretCipher(oidc_secret_key)
-        except OidcSecretKeyError:
-            reasons.append(AuthenticationHealthReason.OIDC_SECRET_KEY_INVALID)
+    try:
+        cipher = get_oidc_secret_cipher()
+    except OidcSecretKeyError:
+        reasons.append(AuthenticationHealthReason.OIDC_SECRET_DECRYPTION_FAILED)
 
     if cipher is not None and encrypted_client_secret is not None:
         try:
@@ -362,7 +368,6 @@ def build_authentication_health(
 
     status = AuthenticationHealthStatus.HEALTHY if not reasons else AuthenticationHealthStatus.UNHEALTHY
     return AuthenticationHealth(
-        oidc_secret_key_configured=key_configured,
         public_url_configured=public_url_configured,
         public_url=canonical_public_url,
         redirect_uri=redirect_uri,

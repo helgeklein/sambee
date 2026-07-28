@@ -15,7 +15,7 @@ export interface AuthConfig {
 }
 
 interface CanonicalAuthConfigResponse {
-  sign_in_mode: Exclude<SignInMode, "none">;
+  sign_in_mode: SignInMode;
   oidc?: OidcPublicConfig | null;
 }
 
@@ -60,12 +60,13 @@ export function parseAuthConfig(value: unknown): AuthConfig {
 
   const candidate = value as Partial<CanonicalAuthConfigResponse & LegacyAuthConfigResponse>;
   if (
+    candidate.sign_in_mode === "none" ||
     candidate.sign_in_mode === "password_only" ||
     candidate.sign_in_mode === "oidc_or_password" ||
     candidate.sign_in_mode === "oidc_only"
   ) {
     const oidc = candidate.oidc ?? null;
-    if (candidate.sign_in_mode !== "password_only" && !isOidcPublicConfig(oidc)) {
+    if (candidate.sign_in_mode !== "none" && candidate.sign_in_mode !== "password_only" && !isOidcPublicConfig(oidc)) {
       throw new Error("OIDC authentication configuration is incomplete");
     }
     if (oidc !== null && !isOidcPublicConfig(oidc)) {

@@ -297,6 +297,28 @@ export function SambeeThemeProvider({ children }: ThemeProviderProps) {
             },
           },
         },
+        // Checkboxes use a compact hit area and focus the glyph itself, rather than a large halo.
+        MuiCheckbox: {
+          defaultProps: {
+            disableRipple: true,
+          },
+          styleOverrides: {
+            root: {
+              padding: 4,
+              color: currentTheme.text?.secondary,
+              "&.Mui-checked, &.MuiCheckbox-indeterminate": {
+                color: currentTheme.primary.main,
+              },
+              "&.Mui-focusVisible": {
+                backgroundColor: "transparent",
+                color: focusColor,
+              },
+              "&.Mui-focusVisible.Mui-checked, &.Mui-focusVisible.MuiCheckbox-indeterminate": {
+                color: focusColor,
+              },
+            },
+          },
+        },
         // Keep form labels readable when focused (don't use primary yellow color)
         MuiInputLabel: {
           styleOverrides: {
@@ -312,6 +334,9 @@ export function SambeeThemeProvider({ children }: ThemeProviderProps) {
           styleOverrides: {
             root: {
               color: currentTheme.text?.secondary,
+              marginTop: 8,
+              marginLeft: 0,
+              marginRight: 0,
             },
           },
         },

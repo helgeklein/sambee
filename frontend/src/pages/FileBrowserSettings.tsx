@@ -1,5 +1,6 @@
-import { Box, FormControlLabel, Switch, Typography, useMediaQuery, useTheme } from "@mui/material";
+import { Box, Checkbox, FormControlLabel, useMediaQuery, useTheme } from "@mui/material";
 import { useTranslation } from "react-i18next";
+import { SettingsFieldHelp } from "../components/Settings/SettingsFieldHelp";
 import { SettingsGroup } from "../components/Settings/SettingsGroup";
 import { SettingsSectionHeader } from "../components/Settings/SettingsSectionHeader";
 import { getSettingsCategoryDescription, getSettingsCategoryLabel } from "../components/Settings/settingsNavigation";
@@ -24,21 +25,11 @@ export function FileBrowserSettings() {
           description={t("settings.fileBrowserPage.quickNavigationDescription")}
         >
           <FormControlLabel
-            control={<Switch checked={includeDotDirectories} onChange={(_event, checked) => setIncludeDotDirectories(checked)} />}
+            control={<Checkbox checked={includeDotDirectories} onChange={(event) => setIncludeDotDirectories(event.target.checked)} />}
             label={t("settings.fileBrowserPage.includeDotDirectoriesLabel")}
-            sx={{ alignItems: "flex-start", m: 0 }}
-            slotProps={{
-              typography: {
-                sx: {
-                  fontWeight: 500,
-                  mt: 0.25,
-                },
-              },
-            }}
+            sx={{ m: 0 }}
           />
-          <Typography variant="body2" color="text.secondary" sx={{ mt: 1, maxWidth: 640 }}>
-            {t("settings.fileBrowserPage.includeDotDirectoriesDescription")}
-          </Typography>
+          <SettingsFieldHelp sx={{ maxWidth: 640 }}>{t("settings.fileBrowserPage.includeDotDirectoriesDescription")}</SettingsFieldHelp>
         </SettingsGroup>
       </Box>
     </Box>
