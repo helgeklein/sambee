@@ -73,7 +73,7 @@
     "@vitejs/plugin-react": "6.0.4",
     "@vitest/coverage-v8": "^4.1.10",
     "@vitest/ui": "^4.1.0",
-    "jsdom": "^30.0.0",
+    "jsdom": "^29.1.1",
     "msw": "^2.15.0",
     "patch-package": "^8.0.1",
     "playwright": "^1.59.1",

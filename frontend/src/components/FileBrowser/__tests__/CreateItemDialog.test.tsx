@@ -187,6 +187,7 @@ describe("CreateItemDialog", () => {
     render(<CreateItemDialog {...defaultProps} onConfirm={onConfirm} />);
 
     const input = screen.getByLabelText(CREATE_ITEM_DIALOG_STRINGS.INPUT_LABEL);
+    await waitFor(() => expect(input).toHaveFocus());
     await user.type(input, "valid-name");
     await user.click(screen.getByRole("button", { name: CREATE_ITEM_DIALOG_STRINGS.BUTTON_CREATE }));
 
