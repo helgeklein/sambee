@@ -8,7 +8,8 @@ usage() {
   cat <<'EOF' >&2
 Usage: assemble_metadata_bundle.sh \
   --input-dir <directory> \
-  --image-ref <repo@sha256:...> \
+  --inspect-image-ref <repo@sha256:...> \
+  --subject-image-ref <repo@sha256:...> \
   --metadata-repository <repo> \
   --version <version> \
   --revision <git-sha> \
@@ -19,7 +20,8 @@ EOF
 }
 
 input_dir=""
-image_ref=""
+inspect_image_ref=""
+subject_image_ref=""
 metadata_repository=""
 version=""
 revision=""
@@ -39,8 +41,12 @@ while [[ $# -gt 0 ]]; do
       input_dir="$2"
       shift 2
       ;;
-    --image-ref)
-      image_ref="$2"
+    --inspect-image-ref)
+      inspect_image_ref="$2"
+      shift 2
+      ;;
+    --subject-image-ref)
+      subject_image_ref="$2"
       shift 2
       ;;
     --metadata-repository)
@@ -69,16 +75,21 @@ while [[ $# -gt 0 ]]; do
   esac
 done
 
-if [[ -z "$input_dir" || -z "$image_ref" || -z "$metadata_repository" || -z "$version" || -z "$revision" || -z "$source_url" || -z "$output_dir" ]]; then
+if [[ -z "$input_dir" || -z "$inspect_image_ref" || -z "$subject_image_ref" || -z "$metadata_repository" || -z "$version" || -z "$revision" || -z "$source_url" || -z "$output_dir" ]]; then
   usage
 fi
 
-if [[ "$image_ref" != *@sha256:* ]]; then
-  fail "Image reference must use the form <repo>@sha256:..."
+if [[ "$inspect_image_ref" != *@sha256:* || "$subject_image_ref" != *@sha256:* ]]; then
+  fail "Inspect and subject image references must use the form <repo>@sha256:..."
 fi
 
-image_name="${image_ref%@*}"
-image_digest="${image_ref#*@}"
+inspect_image_digest="${inspect_image_ref#*@}"
+subject_image_name="${subject_image_ref%@*}"
+subject_image_digest="${subject_image_ref#*@}"
+if [[ "$inspect_image_digest" != "$subject_image_digest" ]]; then
+  fail "Inspect and subject image digests must match: inspect=$inspect_image_digest subject=$subject_image_digest"
+fi
+image_digest="$subject_image_digest"
 metadata_tag="$(bash "$script_dir/metadata_bundle_tag.sh" --image-digest "$image_digest")"
 
 platforms_dir="$input_dir/platforms"
@@ -91,7 +102,7 @@ if [[ ${#platform_metadata_files[@]} -eq 0 ]]; then
   fail "No platform metadata files found in $platforms_dir"
 fi
 
-remote_index_json="$(crane manifest "$image_ref")"
+remote_index_json="$(crane manifest "$inspect_image_ref")"
 
 mkdir -p "$output_dir/provenance" "$output_dir/sbom"
 provenance_path="$output_dir/provenance/intoto.jsonl"
@@ -158,7 +169,7 @@ platforms_json="$(jq -cs 'sort_by(.platform)' "$platforms_jsonl")"
 created="$(date -u +"%Y-%m-%dT%H:%M:%SZ")"
 
 jq -n \
-  --arg image_repository "$image_name" \
+  --arg image_repository "$subject_image_name" \
   --arg image_digest "$image_digest" \
   --arg metadata_repository "$metadata_repository" \
   --arg metadata_tag "$metadata_tag" \

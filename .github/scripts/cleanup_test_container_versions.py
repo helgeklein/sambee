@@ -17,7 +17,7 @@ SEMVER_RE = re.compile(r"^\d+\.\d+\.\d+(?:-[0-9A-Za-z.-]+)?(?:\+[0-9A-Za-z.-]+)?
 MINOR_RE = re.compile(r"^\d+\.\d+$")
 SHA_TAG_RE = re.compile(r"^sha-[0-9a-f]{40}$")
 ARCH_PREVIEW_TAG_RE = re.compile(r"^sha-[0-9a-f]{40}-(?:amd64|arm64)$")
-STAGING_TAG_RE = re.compile(r"^staging-[0-9]+-[0-9]+-(?:amd64|arm64|index)$")
+STAGING_TAG_RE = re.compile(r"^(?:staging|stage)-[0-9]+-[0-9]+-(?:amd64|arm64|index)$")
 
 
 @dataclass
@@ -71,15 +71,29 @@ def build_delete_endpoint(
     return f"https://api.github.com/users/{owner}/packages/container/{encoded_package}/versions/{version_id}"
 
 
+def build_package_endpoint(owner: str, owner_type: str, package_name: str) -> str:
+    encoded_package = urllib.parse.quote(package_name, safe="")
+    if owner_type == "Organization":
+        return (
+            f"https://api.github.com/orgs/{owner}/packages/container/{encoded_package}"
+        )
+    return f"https://api.github.com/users/{owner}/packages/container/{encoded_package}"
+
+
 def load_versions(
     owner: str, owner_type: str, package_name: str, token: str
 ) -> list[PackageVersion]:
     versions: list[PackageVersion] = []
     page = 1
     while True:
-        payload = api_request(
-            build_versions_endpoint(owner, owner_type, package_name, page), token
-        )
+        try:
+            payload = api_request(
+                build_versions_endpoint(owner, owner_type, package_name, page), token
+            )
+        except urllib.error.HTTPError as exc:
+            if exc.code == 404 and page == 1:
+                return []
+            raise
         if not payload:
             break
         for item in payload:
@@ -118,6 +132,12 @@ def is_test_only_tag(tag: str) -> bool:
     )
 
 
+def is_disposable_staging_version(version: PackageVersion) -> bool:
+    return not version.tags or all(
+        STAGING_TAG_RE.fullmatch(tag) for tag in version.tags
+    )
+
+
 def classify(version: PackageVersion) -> str:
     if not version.tags:
         return "protected"
@@ -149,6 +169,25 @@ def delete_version(
     api_request(endpoint, token, method="DELETE")
 
 
+def delete_package(owner: str, owner_type: str, package_name: str, token: str) -> None:
+    try:
+        api_request(
+            build_package_endpoint(owner, owner_type, package_name),
+            token,
+            method="DELETE",
+        )
+    except urllib.error.HTTPError as exc:
+        if exc.code != 404:
+            raise
+
+
+def current_run_staging_pattern(staging_tag: str) -> re.Pattern[str]:
+    match = re.fullmatch(r"stage-([0-9]+-[0-9]+)-index", staging_tag)
+    if match is None:
+        raise ValueError(f"Refusing to delete non-index stage tag: {staging_tag}")
+    return re.compile(rf"^stage-{re.escape(match.group(1))}-(?:amd64|arm64|index)$")
+
+
 def delete_exact_staging_tag(
     versions: list[PackageVersion],
     staging_tag: str,
@@ -157,18 +196,24 @@ def delete_exact_staging_tag(
     package_name: str,
     token: str,
 ) -> bool:
-    if not STAGING_TAG_RE.fullmatch(staging_tag):
-        raise ValueError(f"Refusing to delete non-staging tag: {staging_tag}")
+    run_tag_pattern = current_run_staging_pattern(staging_tag)
 
     matches = [version for version in versions if staging_tag in version.tags]
     if not matches:
         return False
 
+    if all(
+        not version.tags or all(run_tag_pattern.fullmatch(tag) for tag in version.tags)
+        for version in versions
+    ):
+        delete_package(owner, owner_type, package_name, token)
+        return True
+
     for version in matches:
-        if not all(STAGING_TAG_RE.fullmatch(tag) for tag in version.tags):
+        if not all(run_tag_pattern.fullmatch(tag) for tag in version.tags):
             raise RuntimeError(
                 f"Refusing to delete package version {version.version_id}: "
-                f"{staging_tag} shares it with non-staging tags {version.tags}"
+                f"{staging_tag} shares it with tags outside the current run {version.tags}"
             )
         delete_version(owner, owner_type, package_name, version.version_id, token)
     return True
@@ -179,6 +224,7 @@ def main() -> int:
     parser.add_argument("--owner", required=True)
     parser.add_argument("--package-name", required=True)
     parser.add_argument("--exact-staging-tag")
+    parser.add_argument("--allow-package-delete", action="store_true")
     args = parser.parse_args()
 
     token = os.environ.get("GITHUB_TOKEN")
@@ -205,6 +251,17 @@ def main() -> int:
             print(
                 f"Run-scoped staging index {args.exact_staging_tag} was not present; nothing to delete."
             )
+        return 0
+
+    if (
+        args.allow_package_delete
+        and versions
+        and all(is_disposable_staging_version(version) for version in versions)
+    ):
+        for version in versions:
+            emit_log(version, "deletable", "delete-package-candidate")
+        delete_package(args.owner, owner_type, args.package_name, token)
+        print(f"Deleted disposable package {args.package_name}.")
         return 0
 
     deletable: list[PackageVersion] = []

@@ -12,7 +12,8 @@ readonly ARM64_SBOM_BUNDLE_PATH="sbom/linux-arm64.spdx.json"
 usage() {
   cat <<'EOF' >&2
 Usage: verify_candidate_metadata_bundle.sh \
-  --image-ref <repo@sha256:...> \
+  --image-ref <repo@sha256:...> | \
+  --inspect-image-ref <repo@sha256:...> --subject-image-ref <repo@sha256:...> \
   --metadata-repository <repo> \
   --expected-version <version> \
   --expected-revision <git-sha> \
@@ -22,6 +23,8 @@ EOF
 }
 
 image_ref=""
+inspect_image_ref=""
+subject_image_ref=""
 metadata_repository=""
 expected_version=""
 expected_revision=""
@@ -64,6 +67,14 @@ while [[ $# -gt 0 ]]; do
       image_ref="$2"
       shift 2
       ;;
+    --inspect-image-ref)
+      inspect_image_ref="$2"
+      shift 2
+      ;;
+    --subject-image-ref)
+      subject_image_ref="$2"
+      shift 2
+      ;;
     --metadata-repository)
       metadata_repository="$2"
       shift 2
@@ -86,16 +97,28 @@ while [[ $# -gt 0 ]]; do
   esac
 done
 
-if [[ -z "$image_ref" || -z "$metadata_repository" || -z "$expected_version" || -z "$expected_revision" || -z "$expected_source" ]]; then
+if [[ -n "$image_ref" ]]; then
+  if [[ -n "$inspect_image_ref" || -n "$subject_image_ref" ]]; then
+    fail "Use either --image-ref or both --inspect-image-ref and --subject-image-ref"
+  fi
+  inspect_image_ref="$image_ref"
+  subject_image_ref="$image_ref"
+fi
+
+if [[ -z "$inspect_image_ref" || -z "$subject_image_ref" || -z "$metadata_repository" || -z "$expected_version" || -z "$expected_revision" || -z "$expected_source" ]]; then
   usage
 fi
 
-if [[ "$image_ref" != *@sha256:* ]]; then
-  fail "Image reference must use the form <repo>@sha256:..."
+if [[ "$inspect_image_ref" != *@sha256:* || "$subject_image_ref" != *@sha256:* ]]; then
+  fail "Inspect and subject image references must use the form <repo>@sha256:..."
 fi
 
-image_name="${image_ref%@*}"
-image_digest="${image_ref#*@}"
+image_name="${subject_image_ref%@*}"
+image_digest="${subject_image_ref#*@}"
+inspect_image_digest="${inspect_image_ref#*@}"
+if [[ "$inspect_image_digest" != "$image_digest" ]]; then
+  fail "Inspect and subject image digests must match: inspect=$inspect_image_digest subject=$image_digest"
+fi
 metadata_tag="$(bash "$script_dir/metadata_bundle_tag.sh" --image-digest "$image_digest")"
 bundle_ref="${metadata_repository}:${metadata_tag}"
 
@@ -140,7 +163,7 @@ while IFS=$'\t' read -r platform digest; do
   expected_manifest_by_platform["$platform"]="$digest"
   expected_sbom_path_by_platform["$platform"]="$(platform_to_sbom_path "$platform")"
 done < <(
-  crane manifest "$image_ref" | jq -r '
+  crane manifest "$inspect_image_ref" | jq -r '
     .manifests[]
     | select((.platform.os // "") != "unknown")
     | select((.platform.architecture // "") != "unknown")
@@ -150,7 +173,7 @@ done < <(
 )
 
 if [[ ${#expected_manifest_by_platform[@]} -eq 0 ]]; then
-  fail "Candidate image index does not contain any runnable platform manifests: $image_ref"
+  fail "Candidate image index does not contain any runnable platform manifests: $inspect_image_ref"
 fi
 
 declare -A metadata_manifest_by_platform=()
@@ -172,7 +195,7 @@ done < <(
 )
 
 if [[ ${#metadata_manifest_by_platform[@]} -ne ${#expected_manifest_by_platform[@]} ]]; then
-  fail "metadata.json platform entries do not match the runnable platforms in $image_ref"
+  fail "metadata.json platform entries do not match the runnable platforms in $inspect_image_ref"
 fi
 
 for platform in "${!expected_manifest_by_platform[@]}"; do

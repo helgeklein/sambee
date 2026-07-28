@@ -85,6 +85,7 @@ def test_run_scoped_staging_tags_are_test_only() -> None:
 
     for platform in ("amd64", "arm64", "index"):
         assert module.is_test_only_tag(f"staging-123456-2-{platform}")
+        assert module.is_test_only_tag(f"stage-123456-2-{platform}")
 
 
 @pytest.mark.unit
@@ -116,7 +117,7 @@ def test_test_tag_is_protected() -> None:
 @pytest.mark.unit
 def test_delete_exact_staging_tag_deletes_only_matching_staging_version(monkeypatch: pytest.MonkeyPatch) -> None:
     module = load_cleanup_module()
-    staging_tag = "staging-123456-2-index"
+    staging_tag = "stage-123456-2-index"
     deleted_version_ids: list[int] = []
     monkeypatch.setattr(
         module, "delete_version", lambda _owner, _owner_type, _package, version_id, _token: deleted_version_ids.append(version_id)
@@ -141,10 +142,10 @@ def test_delete_exact_staging_tag_deletes_only_matching_staging_version(monkeypa
 @pytest.mark.unit
 def test_delete_exact_staging_tag_rejects_shared_protected_version(monkeypatch: pytest.MonkeyPatch) -> None:
     module = load_cleanup_module()
-    staging_tag = "staging-123456-2-index"
+    staging_tag = "stage-123456-2-index"
     monkeypatch.setattr(module, "delete_version", pytest.fail)
 
-    with pytest.raises(RuntimeError, match="shares it with non-staging tags"):
+    with pytest.raises(RuntimeError, match="shares it with tags outside the current run"):
         module.delete_exact_staging_tag(
             [module.PackageVersion(version_id=1, created_at="2026-05-17T00:00:00Z", tags=[staging_tag, "test"])],
             staging_tag,
@@ -159,5 +160,62 @@ def test_delete_exact_staging_tag_rejects_shared_protected_version(monkeypatch: 
 def test_delete_exact_staging_tag_rejects_non_staging_tag() -> None:
     module = load_cleanup_module()
 
-    with pytest.raises(ValueError, match="Refusing to delete non-staging tag"):
+    with pytest.raises(ValueError, match="Refusing to delete non-index stage tag"):
         module.delete_exact_staging_tag([], "test", "example", "User", "sambee", "token")
+
+
+@pytest.mark.unit
+def test_delete_exact_staging_tag_deletes_whole_package_when_current_run_owns_every_version(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    module = load_cleanup_module()
+    staging_tag = "stage-123456-2-index"
+    deleted_packages: list[str] = []
+    monkeypatch.setattr(module, "delete_version", pytest.fail)
+    monkeypatch.setattr(
+        module,
+        "delete_package",
+        lambda _owner, _owner_type, package_name, _token: deleted_packages.append(package_name),
+    )
+
+    deleted = module.delete_exact_staging_tag(
+        [
+            module.PackageVersion(version_id=1, created_at="2026-05-17T00:00:00Z", tags=[staging_tag]),
+            module.PackageVersion(version_id=2, created_at="2026-05-17T00:00:00Z", tags=["stage-123456-2-amd64"]),
+            module.PackageVersion(version_id=3, created_at="2026-05-17T00:00:00Z", tags=[]),
+        ],
+        staging_tag,
+        "example",
+        "User",
+        "sambee-staging",
+        "token",
+    )
+
+    assert deleted
+    assert deleted_packages == ["sambee-staging"]
+
+
+@pytest.mark.unit
+def test_scheduled_cleanup_deletes_fully_disposable_package_when_explicitly_allowed(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    module = load_cleanup_module()
+    versions = [
+        module.PackageVersion(version_id=1, created_at="2026-05-17T00:00:00Z", tags=["stage-123456-2-index"]),
+        module.PackageVersion(version_id=2, created_at="2026-05-17T00:00:00Z", tags=["stage-123456-2-amd64"]),
+        module.PackageVersion(version_id=3, created_at="2026-05-17T00:00:00Z", tags=[]),
+    ]
+    deleted_packages: list[str] = []
+    monkeypatch.setattr(module, "get_owner_type", lambda _owner, _token: "User")
+    monkeypatch.setattr(module, "load_versions", lambda *_args: versions)
+    monkeypatch.setattr(
+        module,
+        "delete_package",
+        lambda _owner, _owner_type, package_name, _token: deleted_packages.append(package_name),
+    )
+    monkeypatch.setattr(module, "delete_version", pytest.fail)
+    monkeypatch.setattr(sys, "argv", ["cleanup", "--owner", "example", "--package-name", "sambee-staging", "--allow-package-delete"])
+    monkeypatch.setenv("GITHUB_TOKEN", "token")
+
+    assert module.main() == 0
+    assert deleted_packages == ["sambee-staging"]

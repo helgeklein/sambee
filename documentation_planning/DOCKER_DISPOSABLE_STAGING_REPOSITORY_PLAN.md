@@ -139,7 +139,7 @@ The cleanup helper must:
 - List versions only in `sambee-staging`.
 - Delete only versions whose complete tag set matches the current run's `stage-<run>-<attempt>-*` pattern.
 - Refuse versions with any unexpected tag.
-- Before deleting the whole package, require every remaining version and tag to belong to the current run; otherwise leave the last version for a later cleanup attempt.
+- Before deleting the whole package during immediate cleanup, require every tagged version to belong to the current run; untagged digest-only platform manifests are allowed because they are internal staging children. The shared Docker publication lock prevents overlap with another candidate run.
 - Use the package endpoint only for that exclusive-last-version case, and treat an already-absent package as successful cleanup.
 - Be idempotent when versions are already absent.
 - Emit package version IDs, tags, and deletion result to the Actions summary.
@@ -242,7 +242,7 @@ This proves the cross-repository copy, signature-verification, and package-isola
 - Cross-repository promotion rejects a missing staging digest, mismatched digest, existing conflicting final marker, changed platform descriptor, or missing required OCI label.
 - Metadata construction records final image identity while validating the staging inspection index.
 - Final verifier rejects metadata that names staging as the published image repository.
-- Cleanup only addresses `sambee-staging`; it refuses any version with tags outside the current run pattern and deletes a last version only by safely deleting an exclusively owned package.
+- Cleanup only addresses `sambee-staging`; immediate cleanup refuses tagged versions outside the current run pattern and deletes a last version only by safely deleting the isolated package together with its untagged digest-only children.
 - A failed staging build leaves no final image marker, source-SHA alias, exact version, or channel mutation.
 - A retry with the same early Git reservation builds a new staging attempt and can publish the final marker.
 

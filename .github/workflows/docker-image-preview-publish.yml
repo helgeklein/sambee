@@ -31,6 +31,7 @@ jobs:
       version: ${{ steps.metadata.outputs.version }}
       image_description: ${{ steps.metadata.outputs.image_description }}
       image_name: ${{ steps.metadata.outputs.image_name }}
+      staging_image_name: ${{ steps.metadata.outputs.staging_image_name }}
       signature_repository: ${{ steps.metadata.outputs.signature_repository }}
       full_sha: ${{ steps.metadata.outputs.full_sha }}
       source_url: ${{ steps.metadata.outputs.source_url }}
@@ -66,6 +67,7 @@ jobs:
           echo 'EOF'
         } >> "$GITHUB_OUTPUT"
         echo "image_name=ghcr.io/$owner_lower/sambee" >> "$GITHUB_OUTPUT"
+        echo "staging_image_name=ghcr.io/$owner_lower/sambee-staging" >> "$GITHUB_OUTPUT"
         echo "signature_repository=ghcr.io/$owner_lower/sambee-signatures" >> "$GITHUB_OUTPUT"
         echo "full_sha=${{ steps.preflight.outputs.source_sha }}" >> "$GITHUB_OUTPUT"
         echo "source_url=https://github.com/${GITHUB_REPOSITORY}" >> "$GITHUB_OUTPUT"
@@ -248,7 +250,7 @@ jobs:
         context: .
         file: ./Dockerfile
         platforms: ${{ matrix.docker_platform }}
-        outputs: type=image,name=${{ needs.prepare.outputs.image_name }},push-by-digest=true,name-canonical=true,push=true
+        outputs: type=image,name=${{ needs.prepare.outputs.staging_image_name }},push-by-digest=true,name-canonical=true,push=true
         labels: ${{ steps.image.outputs.labels }}
         build-args: |
           BUILD_CREATED_AT=${{ needs.prepare.outputs.created }}
@@ -277,7 +279,7 @@ jobs:
 
     - name: Pull preview platform image for validation
       shell: bash
-      run: docker pull --platform ${{ matrix.docker_platform }} "${{ needs.prepare.outputs.image_name }}@${{ steps.build.outputs.digest }}"
+      run: docker pull --platform ${{ matrix.docker_platform }} "${{ needs.prepare.outputs.staging_image_name }}@${{ steps.build.outputs.digest }}"
 
     - name: Start preview platform validation container
       shell: bash
@@ -288,7 +290,7 @@ jobs:
           -p 8000:8000 \
           -e SECRET_KEY=test-secret-key-for-ci-only-not-for-production-use \
           -e ENCRYPTION_KEY=YYFPojCh_1WUExv5xXVEyFe0ITw_5dgZZ-fC-iZk3nU= \
-          "${{ needs.prepare.outputs.image_name }}@${{ steps.build.outputs.digest }}"
+          "${{ needs.prepare.outputs.staging_image_name }}@${{ steps.build.outputs.digest }}"
 
     - name: Wait for preview health endpoint
       shell: bash
@@ -347,7 +349,7 @@ jobs:
           --pkg-types os,library \
           --format table \
           --exit-code 1 \
-          "${{ needs.prepare.outputs.image_name }}@${{ steps.build.outputs.digest }}"
+          "${{ needs.prepare.outputs.staging_image_name }}@${{ steps.build.outputs.digest }}"
 
         scan_status=$?
         set -e
@@ -420,7 +422,7 @@ jobs:
       id: assemble
       shell: bash
       env:
-        IMAGE_NAME: ${{ needs.prepare.outputs.image_name }}
+        STAGING_IMAGE_NAME: ${{ needs.prepare.outputs.staging_image_name }}
         IMAGE_CREATED: ${{ needs.prepare.outputs.created }}
         IMAGE_DESCRIPTION: ${{ needs.prepare.outputs.image_description }}
         IMAGE_REF_NAME: ${{ needs.prepare.outputs.source_ref_name }}
@@ -430,8 +432,8 @@ jobs:
         IMAGE_VERSION: ${{ needs.prepare.outputs.version }}
         IMAGE_BUILD_TAG: ${{ needs.prepare.outputs.build_tag }}
       run: |
-        image_name="$IMAGE_NAME"
-        index_ref="$image_name:staging-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}-index"
+        image_name="$STAGING_IMAGE_NAME"
+        index_ref="$image_name:stage-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}-index"
         platform_digest_dir="${{ runner.temp }}/platform-digests"
         amd64_digest="$(tr -d '[:space:]' < "$platform_digest_dir/digest-amd64")"
         arm64_digest="$(tr -d '[:space:]' < "$platform_digest_dir/digest-arm64")"
@@ -578,7 +580,7 @@ jobs:
         platform_bundle_dir="${{ runner.temp }}/metadata-platform-${{ matrix.platform_id }}"
         bash .github/scripts/extract_metadata_platform_from_oci.sh \
           --oci-layout "${{ runner.temp }}/attested-image-${{ matrix.platform_id }}" \
-          --image-ref "${{ needs.prepare.outputs.image_name }}@${{ needs.build-and-publish-immutable.outputs.digest }}" \
+          --image-ref "${{ needs.prepare.outputs.staging_image_name }}@${{ needs.build-and-publish-immutable.outputs.digest }}" \
           --platform "${{ matrix.docker_platform }}" \
           --output-dir "$platform_bundle_dir"
 
@@ -638,7 +640,8 @@ jobs:
         bundle_dir="${{ runner.temp }}/metadata-bundle"
         bash .github/scripts/assemble_metadata_bundle.sh \
           --input-dir "${{ runner.temp }}/metadata-platforms" \
-          --image-ref "${{ needs.prepare.outputs.image_name }}@${{ needs.build-and-publish-immutable.outputs.digest }}" \
+          --inspect-image-ref "${{ needs.prepare.outputs.staging_image_name }}@${{ needs.build-and-publish-immutable.outputs.digest }}" \
+          --subject-image-ref "${{ needs.prepare.outputs.image_name }}@${{ needs.build-and-publish-immutable.outputs.digest }}" \
           --metadata-repository "${{ needs.prepare.outputs.signature_repository }}" \
           --version "${{ needs.prepare.outputs.version }}" \
           --revision "${{ needs.prepare.outputs.full_sha }}" \
@@ -679,12 +682,12 @@ jobs:
       shell: bash
       run: |
         bash .github/scripts/ensure_candidate_signature.sh \
-          --image-ref "${{ needs.prepare.outputs.image_name }}@${{ needs.build-and-publish-immutable.outputs.digest }}" \
+          --image-ref "${{ needs.prepare.outputs.staging_image_name }}@${{ needs.build-and-publish-immutable.outputs.digest }}" \
           --signature-repository "${{ needs.prepare.outputs.signature_repository }}" \
           --github-repository "${{ github.repository }}"
 
-  verify-signed-candidate:
-    needs: [prepare, build-and-publish-immutable, sign-preview]
+  verify-staged-candidate:
+    needs: [prepare, build-and-publish-immutable, build-metadata-bundle, sign-preview]
     if: ${{ needs.prepare.outputs.publication_state == 'build' }}
     runs-on: ubuntu-latest
     permissions:
@@ -717,14 +720,104 @@ jobs:
       shell: bash
       run: oras login ghcr.io -u "${{ github.actor }}" -p "${{ secrets.GITHUB_TOKEN }}"
 
-    - name: Verify signed candidate
+    - name: Verify signed staged candidate
+      id: verify
+      shell: bash
+      run: |
+        staging_ref="${{ needs.prepare.outputs.staging_image_name }}@${{ needs.build-and-publish-immutable.outputs.digest }}"
+        final_ref="${{ needs.prepare.outputs.image_name }}@${{ needs.build-and-publish-immutable.outputs.digest }}"
+        bash .github/scripts/verify_candidate_image.sh \
+          --image-ref "$staging_ref" \
+          --expected-description "${{ needs.prepare.outputs.image_description }}" \
+          --expected-revision "${{ needs.prepare.outputs.full_sha }}" \
+          --expected-version "${{ needs.prepare.outputs.version }}" \
+          --expected-source "${{ needs.prepare.outputs.source_url }}" \
+          --expected-title "${{ env.IMAGE_TITLE }}" \
+          --expected-build-tag "${{ needs.prepare.outputs.build_tag }}"
+        bash .github/scripts/verify_candidate_metadata_bundle.sh \
+          --inspect-image-ref "$staging_ref" \
+          --subject-image-ref "$final_ref" \
+          --metadata-repository "${{ needs.prepare.outputs.signature_repository }}" \
+          --expected-revision "${{ needs.prepare.outputs.full_sha }}" \
+          --expected-version "${{ needs.prepare.outputs.version }}" \
+          --expected-source "${{ needs.prepare.outputs.source_url }}" \
+        bash .github/scripts/ensure_candidate_signature.sh \
+          --image-ref "$staging_ref" \
+          --signature-repository "${{ needs.prepare.outputs.signature_repository }}" \
+          --github-repository "${{ github.repository }}"
+        echo "resolved_digest=${{ needs.build-and-publish-immutable.outputs.digest }}" >> "$GITHUB_OUTPUT"
+
+  publish-final-marker:
+    needs: [prepare, verify-staged-candidate]
+    if: ${{ needs.prepare.outputs.publication_state == 'build' }}
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
+    steps:
+    - name: Checkout repository
+      uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+    - name: Set up crane
+      uses: ./.github/actions/setup-crane
+      with:
+        install-dir: ${{ runner.temp }}/bin
+
+    - name: Log in to GHCR with crane
+      shell: bash
+      run: crane auth login ghcr.io -u "${{ github.actor }}" -p "${{ secrets.GITHUB_TOKEN }}"
+
+    - name: Copy verified staging index to immutable final marker
+      shell: bash
+      run: |
+        bash .github/scripts/promote_staged_container_image.sh \
+          --source-image "${{ needs.prepare.outputs.staging_image_name }}" \
+          --source-digest "${{ needs.verify-staged-candidate.outputs.candidate_digest }}" \
+          --target-image "${{ needs.prepare.outputs.image_name }}" \
+          --target-tag "${{ needs.prepare.outputs.build_tag }}"
+
+  verify-signed-candidate:
+    needs: [prepare, verify-staged-candidate, publish-final-marker]
+    if: ${{ needs.prepare.outputs.publication_state == 'build' }}
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
+    outputs:
+      candidate_digest: ${{ steps.verify.outputs.resolved_digest }}
+    steps:
+    - name: Checkout repository
+      uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+    - name: Set up crane
+      uses: ./.github/actions/setup-crane
+      with:
+        install-dir: ${{ runner.temp }}/bin
+
+    - name: Set up ORAS
+      uses: ./.github/actions/setup-oras
+      with:
+        install-dir: ${{ runner.temp }}/bin
+
+    - name: Install Cosign
+      uses: sigstore/cosign-installer@6f9f17788090df1f26f669e9d70d6ae9567deba6 # v4.1.2
+
+    - name: Log in to GHCR with crane
+      shell: bash
+      run: crane auth login ghcr.io -u "${{ github.actor }}" -p "${{ secrets.GITHUB_TOKEN }}"
+
+    - name: Log in to GHCR with ORAS
+      shell: bash
+      run: oras login ghcr.io -u "${{ github.actor }}" -p "${{ secrets.GITHUB_TOKEN }}"
+
+    - name: Verify signed published candidate
       id: verify
       shell: bash
       run: |
         bash .github/scripts/verify_published_candidate_image.sh \
           --image-name "${{ needs.prepare.outputs.image_name }}" \
           --metadata-repository "${{ needs.prepare.outputs.signature_repository }}" \
-          --candidate-digest "${{ needs.build-and-publish-immutable.outputs.digest }}" \
+          --candidate-digest "${{ needs.verify-staged-candidate.outputs.candidate_digest }}" \
           --expected-description "${{ needs.prepare.outputs.image_description }}" \
           --expected-revision "${{ needs.prepare.outputs.full_sha }}" \
           --expected-version "${{ needs.prepare.outputs.version }}" \
@@ -817,10 +910,10 @@ jobs:
       env:
         GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
       run: |
-        staging_tag="staging-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}-index"
+        staging_tag="stage-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}-index"
         python3 .github/scripts/cleanup_test_container_versions.py \
           --owner "${{ github.repository_owner }}" \
-          --package-name sambee \
+          --package-name sambee-staging \
           --exact-staging-tag "$staging_tag"
 
   repair-candidate-aliases:
@@ -883,7 +976,7 @@ jobs:
           echo "- Docker version marker: \`${{ needs.prepare.outputs.image_name }}:${{ needs.prepare.outputs.build_tag }}\`"
           echo "- Movable test tag: \`${{ needs.prepare.outputs.image_name }}:test\`"
           if [[ "${{ needs.prepare.outputs.publication_state }}" == "build" ]]; then
-            echo "- Staging reference: \`${{ needs.prepare.outputs.image_name }}:staging-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}-index\`"
+            echo "- Staging reference: \`${{ needs.prepare.outputs.staging_image_name }}:stage-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}-index\`"
           else
             echo '- Staging reference: not created during repair-only publication.'
           fi
