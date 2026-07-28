@@ -1,0 +1,192 @@
+name: "Proof: Verify GHCR Staging Transfer"
+
+env:
+  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
+
+on:
+  workflow_dispatch:
+    inputs:
+      confirmation:
+        description: Enter RUN_GHCR_TRANSFER_PROOF to create and delete disposable GHCR packages.
+        required: true
+        type: string
+
+permissions:
+  contents: read
+  packages: write
+  id-token: write
+
+jobs:
+  proof:
+    if: ${{ github.ref == 'refs/heads/main' && inputs.confirmation == 'RUN_GHCR_TRANSFER_PROOF' }}
+    runs-on: ubuntu-latest
+    steps:
+    - name: Checkout repository
+      uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+    - name: Set up crane
+      uses: ./.github/actions/setup-crane
+      with:
+        install-dir: ${{ runner.temp }}/bin
+
+    - name: Install Cosign
+      uses: sigstore/cosign-installer@6f9f17788090df1f26f669e9d70d6ae9567deba6 # v4.1.2
+
+    - name: Log in to GHCR with crane
+      shell: bash
+      run: crane auth login ghcr.io -u "${{ github.actor }}" -p "${{ secrets.GITHUB_TOKEN }}"
+
+    - name: Define disposable proof repositories
+      shell: bash
+      run: |
+        owner_lower="$(printf '%s' "$GITHUB_REPOSITORY_OWNER" | tr '[:upper:]' '[:lower:]')"
+        proof_id="${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}"
+        echo "proof_id=$proof_id" >> "$GITHUB_ENV"
+        echo "staging_repository=ghcr.io/$owner_lower/sambee-transfer-proof-staging-$proof_id" >> "$GITHUB_ENV"
+        echo "final_repository=ghcr.io/$owner_lower/sambee-transfer-proof-final-$proof_id" >> "$GITHUB_ENV"
+        echo "signature_repository=ghcr.io/$owner_lower/sambee-transfer-proof-signatures-$proof_id" >> "$GITHUB_ENV"
+
+    - name: Copy a public multi-platform image to staging
+      shell: bash
+      run: |
+        source_image="registry.k8s.io/pause:3.10"
+        crane cp --all "$source_image" "$staging_repository:stage-$proof_id"
+        staging_digest="$(crane digest "$staging_repository:stage-$proof_id")"
+        if ! [[ "$staging_digest" =~ ^sha256:[0-9a-f]{64}$ ]]; then
+          echo "Staging copy produced an invalid digest: $staging_digest" >&2
+          exit 1
+        fi
+        echo "staging_digest=$staging_digest" >> "$GITHUB_ENV"
+
+    - name: Copy the staging index to final
+      shell: bash
+      run: |
+        crane cp --all "$staging_repository@$staging_digest" "$final_repository:final-$proof_id"
+        final_digest="$(crane digest "$final_repository:final-$proof_id")"
+        if [[ "$final_digest" != "$staging_digest" ]]; then
+          echo "Cross-repository copy changed the index digest: staging=$staging_digest final=$final_digest" >&2
+          exit 1
+        fi
+        echo "final_digest=$final_digest" >> "$GITHUB_ENV"
+
+    - name: Verify copied platform descriptors
+      shell: bash
+      run: |
+        staging_descriptors="$(crane manifest "$staging_repository@$staging_digest" | jq -cS '[.manifests[] | select((.platform.os // "") != "unknown") | select((.platform.architecture // "") != "unknown") | {digest, mediaType, platform}] | sort_by(.digest)')"
+        final_descriptors="$(crane manifest "$final_repository@$final_digest" | jq -cS '[.manifests[] | select((.platform.os // "") != "unknown") | select((.platform.architecture // "") != "unknown") | {digest, mediaType, platform}] | sort_by(.digest)')"
+        if [[ "$staging_descriptors" != "$final_descriptors" ]]; then
+          echo "Cross-repository copy changed runnable platform descriptors." >&2
+          exit 1
+        fi
+
+    - name: Sign staging digest and verify final digest
+      shell: bash
+      run: |
+        identity="https://github.com/${GITHUB_REPOSITORY}/.github/workflows/verify-ghcr-staging-transfer.yml@refs/heads/main"
+        COSIGN_REPOSITORY="$signature_repository" cosign sign \
+          --new-bundle-format=false \
+          --registry-referrers-mode legacy \
+          --use-signing-config=false \
+          --yes "$staging_repository@$staging_digest"
+        COSIGN_REPOSITORY="$signature_repository" cosign verify \
+          --certificate-identity "$identity" \
+          --certificate-oidc-issuer "https://token.actions.githubusercontent.com" \
+          --new-bundle-format=false \
+          "$final_repository@$final_digest" >/dev/null
+
+    - name: Delete staging package versions and retain final image
+      shell: bash
+      env:
+        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      run: |
+        delete_package_versions() {
+          local package_name="$1"
+          local owner_type endpoint versions version_id
+          owner_type="$(curl --fail-with-body --silent --show-error \
+            -H 'Accept: application/vnd.github+json' \
+            -H "Authorization: Bearer $GITHUB_TOKEN" \
+            -H 'X-GitHub-Api-Version: 2022-11-28' \
+            "https://api.github.com/users/$GITHUB_REPOSITORY_OWNER" | jq -r '.type')"
+          if [[ "$owner_type" == "Organization" ]]; then
+            endpoint="https://api.github.com/orgs/$GITHUB_REPOSITORY_OWNER/packages/container/$package_name/versions"
+          elif [[ "$owner_type" == "User" ]]; then
+            endpoint="https://api.github.com/users/$GITHUB_REPOSITORY_OWNER/packages/container/$package_name/versions"
+          else
+            echo "Unsupported package owner type: $owner_type" >&2
+            return 1
+          fi
+          versions="$(curl --fail-with-body --silent --show-error \
+            -H 'Accept: application/vnd.github+json' \
+            -H "Authorization: Bearer $GITHUB_TOKEN" \
+            -H 'X-GitHub-Api-Version: 2022-11-28' \
+            "$endpoint?per_page=100")"
+          while IFS= read -r version_id; do
+            curl --fail-with-body --silent --show-error --request DELETE \
+              -H 'Accept: application/vnd.github+json' \
+              -H "Authorization: Bearer $GITHUB_TOKEN" \
+              -H 'X-GitHub-Api-Version: 2022-11-28' \
+              "$endpoint/$version_id"
+          done < <(jq -r '.[].id' <<<"$versions")
+        }
+
+        delete_package_versions "sambee-transfer-proof-staging-$proof_id"
+        resolved_final_digest="$(crane digest "$final_repository:final-$proof_id")"
+        if [[ "$resolved_final_digest" != "$final_digest" ]]; then
+          echo "Deleting the staging package changed or removed the final image." >&2
+          exit 1
+        fi
+
+    - name: Summarize proof result
+      if: ${{ success() }}
+      shell: bash
+      run: |
+        {
+          echo '## GHCR Staging Transfer Proof'
+          echo
+          echo "- Staging digest: \`$staging_digest\`"
+          echo "- Final digest: \`$final_digest\`"
+          echo '- Cross-repository index copy preserved the digest and runnable platform descriptors.'
+          echo '- A staging-repository Cosign signature verified against the final-repository digest.'
+          echo '- Deleting the isolated staging package left the final package available.'
+        } >> "$GITHUB_STEP_SUMMARY"
+
+    - name: Delete remaining proof packages
+      if: ${{ always() }}
+      shell: bash
+      env:
+        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      run: |
+        delete_package_versions() {
+          local package_name="$1"
+          local owner_type endpoint versions version_id
+          owner_type="$(curl --fail-with-body --silent --show-error \
+            -H 'Accept: application/vnd.github+json' \
+            -H "Authorization: Bearer $GITHUB_TOKEN" \
+            -H 'X-GitHub-Api-Version: 2022-11-28' \
+            "https://api.github.com/users/$GITHUB_REPOSITORY_OWNER" | jq -r '.type')"
+          if [[ "$owner_type" == "Organization" ]]; then
+            endpoint="https://api.github.com/orgs/$GITHUB_REPOSITORY_OWNER/packages/container/$package_name/versions"
+          elif [[ "$owner_type" == "User" ]]; then
+            endpoint="https://api.github.com/users/$GITHUB_REPOSITORY_OWNER/packages/container/$package_name/versions"
+          else
+            echo "Unsupported package owner type: $owner_type" >&2
+            return 1
+          fi
+          versions="$(curl --fail-with-body --silent --show-error \
+            -H 'Accept: application/vnd.github+json' \
+            -H "Authorization: Bearer $GITHUB_TOKEN" \
+            -H 'X-GitHub-Api-Version: 2022-11-28' \
+            "$endpoint?per_page=100" || true)"
+          [[ -n "$versions" ]] || return 0
+          while IFS= read -r version_id; do
+            curl --fail-with-body --silent --show-error --request DELETE \
+              -H 'Accept: application/vnd.github+json' \
+              -H "Authorization: Bearer $GITHUB_TOKEN" \
+              -H 'X-GitHub-Api-Version: 2022-11-28' \
+              "$endpoint/$version_id"
+          done < <(jq -r '.[].id' <<<"$versions")
+        }
+
+        delete_package_versions "sambee-transfer-proof-staging-$proof_id"
+        delete_package_versions "sambee-transfer-proof-final-$proof_id"
+        delete_package_versions "sambee-transfer-proof-signatures-$proof_id"

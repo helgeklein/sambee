@@ -134,6 +134,24 @@ def test_release_mutation_workflows_share_the_expected_locks() -> None:
     assert companion["concurrency"]["cancel-in-progress"] is False
 
 
+def test_ghcr_staging_transfer_proof_is_explicitly_guarded_and_disposable() -> None:
+    workflow = load_workflow("verify-ghcr-staging-transfer.yml")
+    inputs = workflow_inputs(workflow)
+    assert set(inputs) == {"confirmation"}
+    assert inputs["confirmation"]["required"] is True
+
+    proof_job = workflow["jobs"]["proof"]
+    assert proof_job["if"] == "${{ github.ref == 'refs/heads/main' && inputs.confirmation == 'RUN_GHCR_TRANSFER_PROOF' }}"
+    assert workflow["permissions"] == {"contents": "read", "packages": "write", "id-token": "write"}
+    proof_steps = "\n".join(step.get("run", "") for step in proof_job["steps"] if isinstance(step, dict))
+    assert "sambee-transfer-proof-staging-" in proof_steps
+    assert "sambee-transfer-proof-final-" in proof_steps
+    assert "sambee-transfer-proof-signatures-" in proof_steps
+    assert 'crane cp --all "$staging_repository@$staging_digest" "$final_repository:final-$proof_id"' in proof_steps
+    assert "cosign verify" in proof_steps
+    assert 'delete_package_versions "sambee-transfer-proof-staging-$proof_id"' in proof_steps
+
+
 def test_docker_candidate_workflow_selects_build_or_repair_before_build_jobs() -> None:
     workflow = load_workflow("docker-image-preview-publish.yml")
     prepare_steps = workflow["jobs"]["prepare"]["steps"]
