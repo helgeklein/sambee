@@ -3,8 +3,10 @@ from __future__ import annotations
 import uuid
 from dataclasses import dataclass
 from datetime import datetime, timezone
+from ipaddress import ip_network
 from threading import RLock
 from typing import Optional
+from urllib.parse import urlparse
 
 from sqlalchemy import inspect
 from sqlalchemy.exc import OperationalError
@@ -19,17 +21,23 @@ from app.core.system_setting_definitions import (
     SystemSettingKey,
     SystemSettingSource,
 )
+from app.models.oidc import OidcFlow
 from app.models.system_settings import (
     AdvancedSystemSettingsRead,
     AdvancedSystemSettingsUpdate,
     IntegerSystemSettingRead,
+    NetworkSettingsRead,
+    NetworkSettingsUpdate,
     PreprocessorAdvancedSettingsRead,
     SmbAdvancedSettingsRead,
     SystemSetting,
 )
+from app.services.oidc_configuration import canonicalize_public_url
 
 logger = get_logger(__name__)
 SYSTEM_SETTINGS_TABLE_NAME = "systemsetting"
+NETWORK_PUBLIC_URL_KEY = "network.public_url"
+NETWORK_TRUSTED_PROXY_CIDRS_KEY = "network.trusted_proxy_cidrs"
 
 
 @dataclass(frozen=True)
@@ -210,3 +218,60 @@ def update_advanced_system_settings(
 
     session.commit()
     store.refresh_from_session(session)
+
+
+def _normalized_trusted_proxy_cidrs(values: list[str]) -> list[str]:
+    normalized: list[str] = []
+    seen: set[str] = set()
+    for value in values:
+        for item in value.split(","):
+            candidate = item.strip()
+            if not candidate:
+                continue
+            canonical = str(ip_network(candidate, strict=False))
+            if canonical not in seen:
+                seen.add(canonical)
+                normalized.append(canonical)
+    return normalized
+
+
+def _network_setting_value(session: Session, key: str) -> str:
+    setting = session.get(SystemSetting, key)
+    return setting.value if setting is not None else ""
+
+
+def build_network_settings_read(session: Session) -> NetworkSettingsRead:
+    public_url = _network_setting_value(session, NETWORK_PUBLIC_URL_KEY)
+    trusted_proxy_cidrs = _normalized_trusted_proxy_cidrs([_network_setting_value(session, NETWORK_TRUSTED_PROXY_CIDRS_KEY)])
+    return NetworkSettingsRead(public_url=public_url, trusted_proxy_cidrs=trusted_proxy_cidrs)
+
+
+def update_network_settings(
+    payload: NetworkSettingsUpdate, *, updated_by_user_id: Optional[uuid.UUID], session: Session
+) -> NetworkSettingsRead:
+    public_url = canonicalize_public_url(payload.public_url)
+    if urlparse(public_url).path:
+        raise ValueError("Public URL must not include a path")
+    trusted_proxy_cidrs = _normalized_trusted_proxy_cidrs(payload.trusted_proxy_cidrs)
+    current_public_url = _network_setting_value(session, NETWORK_PUBLIC_URL_KEY)
+    now = datetime.now(timezone.utc)
+
+    for key, value in (
+        (NETWORK_PUBLIC_URL_KEY, public_url),
+        (NETWORK_TRUSTED_PROXY_CIDRS_KEY, ",".join(trusted_proxy_cidrs)),
+    ):
+        setting = session.get(SystemSetting, key)
+        if setting is None:
+            session.add(SystemSetting(key=key, value=value, updated_by_user_id=updated_by_user_id))
+        else:
+            setting.value = value
+            setting.updated_at = now
+            setting.updated_by_user_id = updated_by_user_id
+            session.add(setting)
+
+    if current_public_url and current_public_url != public_url:
+        for flow in session.exec(select(OidcFlow)).all():
+            session.delete(flow)
+
+    session.commit()
+    return build_network_settings_read(session)

@@ -15,7 +15,7 @@ If you want to publish a new Docker image:
    - If the workflow's source version field is left blank, the image is built from the current commit in `main` and the Git tag `build-vX.Y.Z` is created to reserve the version for the commit the image is built from.
    - If a source version field is specified, the workflow verifies and repairs the image associated with the version via the Git tag used for reservation.
 1. The workflow:
-   - assures concurrency via unique `staging-<run>-<attempt>-<platform>` Docker tags
+   - assures concurrency via unique `stage-<run>-<attempt>-<platform>` Docker tags in the internal staging repository
    - builds the image
    - validates and signs the image
    - creates immutable `build-vX.Y.Z` Git commit and Docker image tags
@@ -53,7 +53,7 @@ Each candidate creates immutable tags:
 - Git: `build-vX.Y.Z`
 - Docker: `build-vX.Y.Z`, `X.Y.Z`, and `sha-<full-commit-sha>`
 
-During publication, the workflow pushes native platform manifests by digest before it assembles the final multi-platform index. Those digest-only platform pushes are implementation details of the publish workflow and are not user-facing tags.
+During publication, the workflow pushes native platform manifests by digest and assembles a multi-platform index in `ghcr.io/<owner>/sambee-staging`. It verifies metadata and signatures there, then copies the verified index by digest to the final immutable marker in `ghcr.io/<owner>/sambee`. Staging references are implementation details and are not user-facing tags.
 
 Release workflows identify the target image by resolving the immutable Docker tag and attaching the appropriate release tags to the same image.
 

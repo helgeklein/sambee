@@ -24,7 +24,7 @@ printf 'nested-bash %s\n' "$*" >> "$TOOL_LOG"
     )
     (directory / "cosign").write_text(
         """#!/bin/sh
-printf 'cosign %s\n' "$*" >> "$TOOL_LOG"
+printf 'cosign repository=%s %s\n' "$COSIGN_REPOSITORY" "$*" >> "$TOOL_LOG"
 """,
         encoding="utf-8",
     )
@@ -81,6 +81,8 @@ def test_digest_mode_verifies_without_resolving_candidate_marker(tmp_path: Path)
     assert f"digest example.test/sambee@{DIGEST}" in tool_log
     assert "example.test/sambee:build-v1.2.3" not in tool_log
     assert tool_log.count(f"example.test/sambee@{DIGEST}") == 4
+    assert "cosign repository=example.test/sambee-signatures" in tool_log
+    assert "--new-bundle-format=false" in tool_log
 
 
 def test_digest_mode_rejects_registry_digest_mismatch(tmp_path: Path) -> None:
@@ -90,3 +92,32 @@ def test_digest_mode_rejects_registry_digest_mismatch(tmp_path: Path) -> None:
     assert "Candidate digest mismatch" in result.stderr
     assert "nested-bash" not in tool_log
     assert "cosign" not in tool_log
+
+
+def test_rejects_missing_candidate_digest(tmp_path: Path) -> None:
+    bin_dir = tmp_path / "bin"
+    bin_dir.mkdir()
+    write_fake_tools(bin_dir)
+    tool_log = tmp_path / "tools.log"
+    result = subprocess.run(
+        [
+            "/bin/bash",
+            str(SCRIPT),
+            "--image-name",
+            "example.test/sambee",
+            "--metadata-repository",
+            "example.test/sambee-signatures",
+        ],
+        capture_output=True,
+        text=True,
+        env={
+            **os.environ,
+            "PATH": f"{bin_dir}:{os.environ['PATH']}",
+            "CRANE_DIGEST": DIGEST,
+            "TOOL_LOG": str(tool_log),
+        },
+    )
+
+    assert result.returncode != 0
+    assert "Usage: verify_published_candidate_image.sh" in result.stderr
+    assert not tool_log.exists()

@@ -138,6 +138,7 @@ def test_run_scoped_staging_tags_are_not_retained() -> None:
     ]
 
     assert module.is_test_only_image_tag("staging-123456-2-index")
+    assert module.is_test_only_image_tag("stage-123456-2-index")
     assert module.retained_image_digests(versions) == set()
 
 

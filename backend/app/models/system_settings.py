@@ -59,3 +59,13 @@ class AdvancedSystemSettingsUpdate(SQLModel):
     smb: Optional[SmbAdvancedSettingsUpdate] = None
     preprocessors: Optional[AdvancedSystemSettingsPreprocessorsUpdate] = None
     reset_keys: list[SystemSettingKey] = Field(default_factory=list)
+
+
+class NetworkSettingsRead(SQLModel):
+    public_url: str
+    trusted_proxy_cidrs: list[str]
+
+
+class NetworkSettingsUpdate(SQLModel):
+    public_url: str = Field(max_length=2048)
+    trusted_proxy_cidrs: list[str] = Field(default_factory=list, max_length=100)

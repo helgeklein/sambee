@@ -1,7 +1,9 @@
 import { AdvancedSettings } from "../../pages/AdvancedSettings";
+import { AuthenticationSettings } from "../../pages/AuthenticationSettings";
 import { ConnectionsSettings } from "../../pages/ConnectionsSettings";
 import { FileBrowserSettings } from "../../pages/FileBrowserSettings";
 import { LocalDrivesSettings } from "../../pages/LocalDrivesSettings";
+import { NetworkSettings } from "../../pages/NetworkSettings";
 import { AppearanceSettings } from "../../pages/PreferencesSettings";
 import { TextEditorSettings } from "../../pages/TextEditorSettings";
 import { UserManagementSettings } from "../../pages/UserManagementSettings";
@@ -33,6 +35,7 @@ export function SettingsCategoryContent({
     case "connections":
       return (
         <ConnectionsSettings
+          isAdmin={isAdmin}
           onConnectionsChanged={onConnectionsChanged}
           dialogSafeHeader={dialogSafeHeader}
           forceDesktopLayout={forceDesktopLayout}
@@ -46,6 +49,10 @@ export function SettingsCategoryContent({
           sectionDescription={getSettingsNavItemDescription("local-drives")}
         />
       );
+    case "admin-network":
+      return isAdmin ? <NetworkSettings /> : null;
+    case "admin-authentication":
+      return isAdmin ? <AuthenticationSettings /> : null;
     case "admin-system":
       return isAdmin ? <AdvancedSettings dialogSafeHeader={dialogSafeHeader} /> : null;
     case "admin-users":

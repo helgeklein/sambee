@@ -1,6 +1,7 @@
-import { Box, TextField, Typography, useMediaQuery, useTheme } from "@mui/material";
+import { Box, TextField, useMediaQuery, useTheme } from "@mui/material";
 import { useEffect, useState } from "react";
 import { useTranslation } from "react-i18next";
+import { SettingsFieldHelp } from "../components/Settings/SettingsFieldHelp";
 import { SettingsGroup } from "../components/Settings/SettingsGroup";
 import { SettingsSectionHeader } from "../components/Settings/SettingsSectionHeader";
 import { getSettingsCategoryDescription, getSettingsCategoryLabel } from "../components/Settings/settingsNavigation";
@@ -53,9 +54,7 @@ export function TextEditorSettings() {
             }}
             sx={{ maxWidth: 280 }}
           />
-          <Typography variant="body2" color="text.secondary" sx={{ mt: 1, maxWidth: 720 }}>
-            {t("settings.textEditorPage.maxFileSizeDescription")}
-          </Typography>
+          <SettingsFieldHelp sx={{ maxWidth: 720 }}>{t("settings.textEditorPage.maxFileSizeDescription")}</SettingsFieldHelp>
         </SettingsGroup>
       </Box>
     </Box>

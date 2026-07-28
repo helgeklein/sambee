@@ -296,6 +296,7 @@ items = [
   "media-publishing-workflow",
   "typography-system",
   "typography-usage-and-boundaries",
+  "managed-redirects",
 ]
 
 [[sections.website-dev-guide.items]]

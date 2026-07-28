@@ -63,7 +63,6 @@ class OidcProviderConfiguration(SQLModel, table=True):
     encrypted_client_secret: str | None = Field(default=None)
     scopes_json: str = Field(default='["openid","profile","email","groups"]')
     username_claim: str = Field(default="preferred_username")
-    username_claim_uniqueness_confirmed: bool = Field(default=False)
     name_claim: str | None = Field(default="name")
     email_claim: str | None = Field(default="email")
     groups_claim: str | None = Field(default="groups")

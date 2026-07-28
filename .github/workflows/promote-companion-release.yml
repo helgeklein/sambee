@@ -127,9 +127,15 @@ jobs:
           source_url="https://github.com/${GITHUB_REPOSITORY}"
           crane auth login ghcr.io -u "${{ github.actor }}" -p "${{ secrets.GITHUB_TOKEN }}"
           oras login ghcr.io -u "${{ github.actor }}" -p "${{ secrets.GITHUB_TOKEN }}"
+          if ! candidate_digest="$(crane digest "$image_name:${{ steps.scope.outputs.build_tag }}" 2>/dev/null)"; then
+            echo "Published Docker candidate is missing for ${{ steps.scope.outputs.build_tag }}." >&2
+            echo "Run 'Release: Create Docker Image' for this canonical build before promoting the coordinated Companion release." >&2
+            exit 1
+          fi
           bash .github/scripts/verify_published_candidate_image.sh \
             --image-name "$image_name" \
             --metadata-repository "$signature_repository" \
+            --candidate-digest "$candidate_digest" \
             --expected-description "$image_description" \
             --expected-revision "${{ steps.scope.outputs.source_sha }}" \
             --expected-version "${{ steps.scope.outputs.version }}" \

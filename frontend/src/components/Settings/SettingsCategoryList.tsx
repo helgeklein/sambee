@@ -4,9 +4,11 @@ import {
   FolderOpen as FolderOpenIcon,
   Palette as PaletteIcon,
   PeopleAlt as PeopleAltIcon,
+  Public as PublicIcon,
   Storage as StorageIcon,
   Tune as TuneIcon,
   Usb as UsbIcon,
+  VpnKey as VpnKeyIcon,
 } from "@mui/icons-material";
 import {
   Box,
@@ -118,6 +120,10 @@ function renderCategoryIcon(item: SettingsNavItem, iconGlyphSx?: SxProps<Theme>)
       return <StorageIcon sx={iconGlyphSx} />;
     case "local-drives":
       return <UsbIcon sx={iconGlyphSx} />;
+    case "admin-network":
+      return <PublicIcon sx={iconGlyphSx} />;
+    case "admin-authentication":
+      return <VpnKeyIcon sx={iconGlyphSx} />;
     case "admin-users":
       return <PeopleAltIcon sx={iconGlyphSx} />;
     case "admin-system":

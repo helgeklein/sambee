@@ -1,6 +1,5 @@
 import uuid
 from datetime import datetime, timezone
-from typing import Protocol
 
 from sqlalchemy import update
 from sqlmodel import Session, select
@@ -29,22 +28,9 @@ class OidcMappingError(ValueError):
         self.validation_errors = validation_errors
 
 
-class PendingMappingPolicy(Protocol):
-    @property
-    def username_claim_uniqueness_confirmed(self) -> bool: ...
-
-
 def _raise_mapping_validation_errors(errors: list[OidcMappingError]) -> None:
     if errors:
         raise OidcMappingError("OIDC mapping validation failed", validation_errors=tuple(errors))
-
-
-def ensure_pending_mapping_allowed(configuration: PendingMappingPolicy) -> None:
-    if not configuration.username_claim_uniqueness_confirmed:
-        raise OidcMappingError(
-            "OIDC username claim uniqueness is not confirmed",
-            error_code="oidc_username_claim_uniqueness_not_confirmed",
-        )
 
 
 def _target_state(user: User, now: datetime) -> str:
@@ -304,8 +290,6 @@ def create_pending_mappings(
     mappings: dict[uuid.UUID, str],
     acting_user_id: uuid.UUID,
 ) -> None:
-    if mappings:
-        ensure_pending_mapping_allowed(configuration)
     for user_id, expected_username in mappings.items():
         session.add(
             OidcPendingIdentityMapping(
@@ -508,7 +492,6 @@ def change_identity(
     expected_username: str,
     acting_user_id: uuid.UUID,
 ) -> None:
-    ensure_pending_mapping_allowed(configuration)
     identity = session.exec(
         select(OidcIdentity).where(OidcIdentity.issuer == configuration.issuer_url, OidcIdentity.user_id == target_user_id)
     ).first()

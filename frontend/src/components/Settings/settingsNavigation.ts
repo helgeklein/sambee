@@ -6,6 +6,7 @@ export type SettingsCategory =
   | "text-editor"
   | "connections"
   | "local-drives"
+  | "admin-network"
   | "admin-authentication"
   | "admin-users"
   | "admin-system";
@@ -36,6 +37,7 @@ export const SETTINGS_ROUTE_BY_CATEGORY: Record<SettingsCategory, string> = {
   "text-editor": "/settings/text-editor",
   connections: "/settings/connections",
   "local-drives": "/settings/connections/local-drives",
+  "admin-network": "/settings/admin/network",
   "admin-authentication": "/settings/admin/authentication",
   "admin-users": "/settings/admin/users",
   "admin-system": "/settings/admin/system",
@@ -103,6 +105,17 @@ export const SETTINGS_CATEGORY_META: Record<SettingsCategory, SettingsCategoryMe
     route: SETTINGS_ROUTE_BY_CATEGORY["local-drives"],
     section: "personal",
   },
+  "admin-network": {
+    get label() {
+      return translate("settings.categories.adminNetwork.label");
+    },
+    get description() {
+      return translate("settings.categories.adminNetwork.description");
+    },
+    route: SETTINGS_ROUTE_BY_CATEGORY["admin-network"],
+    section: "administration",
+    adminOnly: true,
+  },
   "admin-users": {
     get label() {
       return translate("settings.categories.adminUsers.label");
@@ -144,6 +157,7 @@ export const SETTINGS_CATEGORY_ORDER: SettingsCategory[] = [
   "text-editor",
   "connections",
   "local-drives",
+  "admin-network",
   "admin-authentication",
   "admin-users",
   "admin-system",

@@ -2,7 +2,14 @@ import { primeCachedAsyncData } from "../../hooks/useCachedAsyncData";
 import api from "../../services/api";
 import companionService, { type PairStatusResponse } from "../../services/companion";
 import { logger } from "../../services/logger";
-import type { AdminUser, AdvancedSystemSettings, CompanionDownloadMetadata, Connection, OidcAdminConfigurationRead } from "../../types";
+import type {
+  AdminUser,
+  AdvancedSystemSettings,
+  CompanionDownloadMetadata,
+  Connection,
+  NetworkSettings,
+  OidcAdminConfigurationRead,
+} from "../../types";
 import { getApiErrorMessage } from "../../utils/apiErrors";
 import { LOCAL_DRIVES_PAGE_COPY } from "./localDrivesCopy";
 import type { SettingsNavItem } from "./settingsNavigation";
@@ -12,6 +19,8 @@ export const SETTINGS_DATA_CACHE_KEYS = {
   localDrives: "settings-data/local-drives",
   adminUsers: "settings-data/admin-users",
   adminSystem: "settings-data/admin-system",
+  adminNetwork: "settings-data/admin-network",
+  adminAuthentication: "settings-data/admin-authentication",
 } as const;
 
 export interface LocalDrivesSettingsData {
@@ -43,6 +52,14 @@ export async function loadUserManagementSettingsData(): Promise<UserManagementSe
 
 export async function loadAdvancedSettingsData(): Promise<AdvancedSystemSettings> {
   return api.getAdvancedSettings();
+}
+
+export async function loadNetworkSettingsData(): Promise<NetworkSettings> {
+  return api.getNetworkSettings();
+}
+
+export async function loadAuthenticationSettingsData(): Promise<OidcAdminConfigurationRead> {
+  return api.getOidcConfiguration();
 }
 
 export async function loadLocalDrivesSettingsData(): Promise<LocalDrivesSettingsData> {
@@ -87,6 +104,10 @@ export function prefetchSettingsDataForItem(item: SettingsNavItem) {
       return primeCachedAsyncData(SETTINGS_DATA_CACHE_KEYS.adminUsers, loadUserManagementSettingsData);
     case "admin-system":
       return primeCachedAsyncData(SETTINGS_DATA_CACHE_KEYS.adminSystem, loadAdvancedSettingsData);
+    case "admin-network":
+      return primeCachedAsyncData(SETTINGS_DATA_CACHE_KEYS.adminNetwork, loadNetworkSettingsData);
+    case "admin-authentication":
+      return primeCachedAsyncData(SETTINGS_DATA_CACHE_KEYS.adminAuthentication, loadAuthenticationSettingsData);
     default:
       return null;
   }

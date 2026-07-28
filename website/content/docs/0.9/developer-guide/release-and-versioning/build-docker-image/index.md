@@ -34,27 +34,27 @@ The workflow forces a fresh rebuild of the Dockerfile layer that installs Debian
 
 After validation, the workflow:
 
-1. Builds and pushes native `linux/amd64` and `linux/arm64` platform manifests.
+1. Builds and pushes native `linux/amd64` and `linux/arm64` platform manifests to the internal `ghcr.io/<owner>/sambee-staging` repository.
 2. Starts those same images and waits for the health endpoint to succeed.
 3. Scans those same images with Trivy.
-4. Assembles the platform manifests into one multi-platform candidate index.
-5. Publishes the candidate index under immutable `build-vX.Y.Z`, `X.Y.Z`, and `sha-<full-commit-sha>` markers.
-6. Extracts per-platform SBOM and provenance payloads on native runners, then assembles and publishes the metadata bundle under the digest-derived `.meta` tag in `ghcr.io/<owner>/sambee-signatures`.
-7. Signs the digest with Cosign using GitHub Actions OIDC and verifies the signature, image labels, and metadata bundle.
-8. Moves `test` to that same verified image.
+4. Assembles the platform manifests into one multi-platform staging index and verifies its image labels.
+5. Extracts per-platform SBOM and provenance payloads on native runners, then assembles and publishes a metadata bundle that names the final `sambee` image identity under the digest-derived `.meta` tag in `ghcr.io/<owner>/sambee-signatures`.
+6. Signs and verifies the staging digest with Cosign using GitHub Actions OIDC.
+7. Copies the verified multi-platform index by digest to the immutable `sambee:build-vX.Y.Z` marker, then verifies the final image, metadata bundle, and signature again.
+8. Creates immutable `X.Y.Z` and `sha-<full-commit-sha>` aliases and moves `test` to that same verified image.
 
 The digest is the real artifact identity. The canonical `build-vX.Y.Z` tag is the candidate source of truth; `test` is only a moving alias.
 
 Later promotion may move `stable`, `beta`, or both channel aliases to that same image, depending on the release type and the current `beta` version.
 
-The workflow uses digest-only platform pushes while assembling the final candidate index. Treat those platform manifests as internal publish artifacts, not release candidates.
+The workflow uses digest-only platform pushes and run-scoped `stage-<run>-<attempt>-*` tags in `sambee-staging`. Treat them as internal transport artifacts, not release candidates.
 
 Cosign writes the signature artifact into a dedicated signature repository so the main `sambee` package page stays centered on deployable image versions.
 That signature repository can still show both digest-derived signature tags and referenced untagged bundle manifests, which are part of Cosign's current storage model rather than extra preview image variants.
 
 ## Retry Behavior
 
-Before the late candidate marker is written, a failed run may be retried with the same `Z` version. The run uses a unique `staging-<run>-<attempt>-<platform>` tag and cleans it up after promotion or failure. If that immediate deletion fails, the workflow emits a warning; the Docker package cleanup workflow reclaims the disposable staging tags and their unreferenced signature and metadata artifacts. It runs after successful candidate publication and on Sunday and Tuesday schedules, so stale artifacts are retained for no more than six days.
+Before the late candidate marker is written, a failed run may be retried with the same `Z` version. The run uses a unique `stage-<run>-<attempt>-<platform>` tag in `sambee-staging` and cleans up its staging versions after promotion or failure. That package can also contain untagged digest-only platform manifests. The Docker publication lock serializes candidate and maintenance cleanup, so the cleanup may delete the whole isolated package when every tagged version is a staging tag; GHCR requires that package-level operation when the last tagged version remains. Scheduled cleanup reclaims stale staging artifacts and unreferenced signature and metadata artifacts.
 
 After a valid candidate marker exists, a matching dispatch takes the repair-only path. It verifies the signed digest and restores only missing matching immutable aliases or the `test` pointer; it does not rebuild the image. A conflicting immutable marker requires incrementing `Z` and publishing a new candidate.
 

@@ -45,8 +45,6 @@ password = "changeme"
 
     # Set environment variable to redirect config loading
     os.environ["SAMBEE_CONFIG_PATH"] = str(test_config)
-    os.environ["SAMBEE_OIDC_SECRET_KEY"] = "797e7kOP_3m-d9nguKSO5ctIGg8AG5BmNIla9TMEZzE="
-    os.environ["SAMBEE_PUBLIC_URL"] = "https://sambee.example.test"
 
 
 @pytest.fixture(scope="session", autouse=True)

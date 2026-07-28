@@ -1,3 +1,4 @@
+import re
 from pathlib import Path
 
 import yaml
@@ -87,6 +88,39 @@ def test_all_local_actions_follow_checkout_in_their_job() -> None:
                 )
 
 
+def test_all_repository_scripts_follow_checkout_in_their_job() -> None:
+    workflow_directory = WORKSPACE / ".github/workflows"
+    for workflow_path in workflow_directory.glob("*.yml"):
+        workflow = load_workflow(workflow_path.name)
+        for job_name, job in workflow.get("jobs", {}).items():
+            steps = job.get("steps", [])
+            for index, step in enumerate(steps):
+                if ".github/scripts/" not in step.get("run", ""):
+                    continue
+                assert any(previous_step.get("uses", "").startswith("actions/checkout@") for previous_step in steps[:index]), (
+                    f"{workflow_path.name}:{job_name} runs a repository script before checkout"
+                )
+
+
+def test_workflow_output_references_use_direct_dependencies() -> None:
+    dependency_pattern = re.compile(r"needs\.([A-Za-z0-9_-]+)\.outputs")
+    workflow_directory = WORKSPACE / ".github/workflows"
+
+    for workflow_path in workflow_directory.glob("*.yml"):
+        workflow = load_workflow(workflow_path.name)
+        for job_name, job in workflow.get("jobs", {}).items():
+            needs = job.get("needs", [])
+            if isinstance(needs, str):
+                needs = [needs]
+            assert isinstance(needs, list)
+            direct_dependencies = set(needs)
+            references = dependency_pattern.findall(yaml.safe_dump(job))
+            assert set(references) <= direct_dependencies, (
+                f"{workflow_path.name}:{job_name} reads outputs from non-direct dependencies: "
+                f"{sorted(set(references) - direct_dependencies)}"
+            )
+
+
 def test_release_mutation_workflows_share_the_expected_locks() -> None:
     docker_candidate = load_workflow("docker-image-preview-publish.yml")
     docker_promotion = load_workflow("docker-image-publish.yml")
@@ -108,6 +142,7 @@ def test_docker_candidate_workflow_selects_build_or_repair_before_build_jobs() -
     assert 'echo "state=build"' in state_step["run"]
     assert 'echo "state=repair"' in state_step["run"]
     assert "verify_published_candidate_image.sh" in state_step["run"]
+    assert '--candidate-digest "$candidate_digest"' in state_step["run"]
     assert "Published candidate verifier resolved" in state_step["run"]
 
     for job_name in ("validate-tests", "build-and-validate-platforms", "build-and-publish-immutable"):
@@ -122,6 +157,8 @@ def test_coordinated_companion_promotion_uses_signed_docker_verifier() -> None:
     steps = workflow["jobs"]["promote"]["steps"]
     coordinated_step = next(step for step in steps if step.get("name") == "Verify coordinated Docker candidate")
     assert "verify_published_candidate_image.sh" in coordinated_step["run"]
+    assert 'candidate_digest="$(crane digest "$image_name:${{ steps.scope.outputs.build_tag }}"' in coordinated_step["run"]
+    assert '--candidate-digest "$candidate_digest"' in coordinated_step["run"]
     assert any(step.get("name") == "Install Cosign" for step in steps)
 
 
@@ -132,6 +169,7 @@ def test_docker_backfill_uses_signed_candidate_verifier() -> None:
     assert any(step.get("name") == "Install Cosign" for step in steps)
     verifier_step = next(step for step in steps if step.get("name") == "Verify signed published candidate")
     assert "verify_published_candidate_image.sh" in verifier_step["run"]
+    assert '--candidate-digest "${{ needs.resolve-candidate-artifact.outputs.candidate_digest }}"' in verifier_step["run"]
 
 
 def test_docker_promotion_uses_only_the_verifier_digest_for_aliases() -> None:
@@ -171,6 +209,8 @@ def test_docker_promotion_has_a_beta_only_manual_path() -> None:
     assert "promote-release-tags" in workflow["jobs"]["upload-metadata-release-assets"]["needs"]
 
     verifier_steps = workflow["jobs"]["verify-candidate-artifact"]["steps"]
+    verifier_step = next(step for step in verifier_steps if step.get("name") == "Verify signed published candidate")
+    assert '--candidate-digest "${{ needs.resolve-candidate-artifact.outputs.candidate_digest }}"' in verifier_step["run"]
     coordinated_step = next(step for step in verifier_steps if step.get("name") == "Verify coordinated Companion release")
     assert "release_type == 'stable'" in coordinated_step["if"]
 
@@ -187,18 +227,50 @@ def test_docker_promotion_has_a_beta_only_manual_path() -> None:
 
 def test_docker_candidate_aliases_use_the_post_sign_verifier_digest() -> None:
     workflow = load_workflow("docker-image-preview-publish.yml")
+    assembled_image_job = workflow["jobs"]["build-and-publish-immutable"]
+    assembled_image_step = next(
+        step for step in assembled_image_job["steps"] if step.get("name") == "Verify assembled preview image metadata"
+    )
+    assert (
+        '--image-ref "${{ needs.prepare.outputs.staging_image_name }}@${{ steps.assemble.outputs.digest }}"' in assembled_image_step["run"]
+    )
+    assert "${{ needs.prepare.outputs.image_name }}@${{ steps.assemble.outputs.digest }}" not in assembled_image_step["run"]
+
     verifier_job = workflow["jobs"]["verify-signed-candidate"]
+    assert verifier_job["needs"] == ["prepare", "verify-staged-candidate", "publish-final-marker"]
     assert verifier_job["outputs"]["candidate_digest"] == "${{ steps.verify.outputs.resolved_digest }}"
 
     verifier_steps = verifier_job["steps"]
     assert any(step.get("name") == "Install Cosign" for step in verifier_steps)
-    verification_step = next(step for step in verifier_steps if step.get("name") == "Verify signed candidate")
+    verification_step = next(step for step in verifier_steps if step.get("name") == "Verify signed published candidate")
     assert "verify_published_candidate_image.sh" in verification_step["run"]
-    assert '--candidate-digest "${{ needs.build-and-publish-immutable.outputs.digest }}"' in verification_step["run"]
+    assert '--candidate-digest "${{ needs.verify-staged-candidate.outputs.candidate_digest }}"' in verification_step["run"]
 
-    signer_job = workflow["jobs"]["sign-preview"]
-    signer_step = next(step for step in signer_job["steps"] if step.get("name") == "Sign preview digest")
+    staged_verifier_job = workflow["jobs"]["verify-staged-candidate"]
+    assert staged_verifier_job["needs"] == ["prepare", "build-and-publish-immutable", "build-metadata-bundle", "sign-preview"]
+    staged_verifier_step = next(step for step in staged_verifier_job["steps"] if step.get("name") == "Verify signed staged candidate")
+    assert '--inspect-image-ref "$staging_ref"' in staged_verifier_step["run"]
+    assert '--subject-image-ref "$final_ref"' in staged_verifier_step["run"]
+    assert re.search(
+        r'--expected-source "\$\{\{ needs\.prepare\.outputs\.source_url \}\}"\n\s*bash \.github/scripts/ensure_candidate_signature\.sh',
+        staged_verifier_step["run"],
+    )
+
+    final_marker_job = workflow["jobs"]["publish-final-marker"]
+    assert final_marker_job["needs"] == ["prepare", "verify-staged-candidate"]
+    final_marker_step = next(
+        step for step in final_marker_job["steps"] if step.get("name") == "Copy verified staging index to immutable final marker"
+    )
+    assert "promote_staged_container_image.sh" in final_marker_step["run"]
+    assert '--target-tag "${{ needs.prepare.outputs.build_tag }}"' in final_marker_step["run"]
+
+    signer_steps = workflow["jobs"]["sign-preview"]["steps"]
+    signer_checkout_index = next(index for index, step in enumerate(signer_steps) if step.get("uses", "").startswith("actions/checkout@"))
+    signer_index = next(index for index, step in enumerate(signer_steps) if step.get("name") == "Sign preview digest")
+    assert signer_checkout_index < signer_index
+    signer_step = signer_steps[signer_index]
     assert "ensure_candidate_signature.sh" in signer_step["run"]
+    assert '--signature-repository "${{ needs.prepare.outputs.signature_repository }}"' in signer_step["run"]
 
     for job_name in ("publish-immutable-markers", "promote-test-tag"):
         job = workflow["jobs"][job_name]
@@ -211,18 +283,20 @@ def test_docker_candidate_cleanup_and_summary_cover_staging_lifecycle() -> None:
     workflow = load_workflow("docker-image-preview-publish.yml")
     platform_job = workflow["jobs"]["build-and-validate-platforms"]
     build_step = next(step for step in platform_job["steps"] if step.get("name") == "Build and push preview platform image")
-    expected_output = "type=image,name=${{ needs.prepare.outputs.image_name }},push-by-digest=true,name-canonical=true,push=true"
+    expected_output = "type=image,name=${{ needs.prepare.outputs.staging_image_name }},push-by-digest=true,name-canonical=true,push=true"
     assert build_step["with"]["outputs"] == expected_output
 
     cleanup_job = workflow["jobs"]["cleanup-staging-image"]
     assert cleanup_job["if"] == "${{ always() && needs.prepare.outputs.publication_state == 'build' }}"
     cleanup_step = next(step for step in cleanup_job["steps"] if step.get("name") == "Delete run-scoped staging index")
-    assert "staging-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}-index" in cleanup_step["run"]
+    assert "stage-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}-index" in cleanup_step["run"]
     assert "amd64" not in cleanup_step["run"]
     assert "arm64" not in cleanup_step["run"]
-    assert 'crane digest "$staging_ref"' in cleanup_step["run"]
-    assert "was not created; nothing to delete" in cleanup_step["run"]
-    assert "crane delete" in cleanup_step["run"]
+    assert "cleanup_test_container_versions.py" in cleanup_step["run"]
+    assert '--exact-staging-tag "$staging_tag"' in cleanup_step["run"]
+    assert "--package-name sambee-staging" in cleanup_step["run"]
+    assert "crane delete" not in cleanup_step["run"]
+    assert cleanup_step["env"]["GITHUB_TOKEN"] == "${{ secrets.GITHUB_TOKEN }}"
 
     summary_job = workflow["jobs"]["summarize-candidate"]
     assert summary_job["if"] == "${{ always() }}"
@@ -237,6 +311,16 @@ def test_docker_candidate_cleanup_and_summary_cover_staging_lifecycle() -> None:
         "Movable test tag",
     ):
         assert expected_detail in summary_step["run"]
+
+
+def test_scheduled_cleanup_includes_the_isolated_staging_package() -> None:
+    workflow = load_workflow("docker-image-cleanup.yml")
+    assert workflow["concurrency"]["group"] == "docker-release-publication"
+    cleanup_step = next(
+        step for step in workflow["jobs"]["cleanup"]["steps"] if step.get("name") == "Delete unprotected and unreferenced package versions"
+    )
+    assert "--package-name sambee-staging" in cleanup_step["run"]
+    assert "--allow-package-delete" in cleanup_step["run"]
 
 
 def test_docker_backfill_does_not_sign_after_alias_promotion() -> None:
