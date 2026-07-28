@@ -227,6 +227,15 @@ def test_docker_promotion_has_a_beta_only_manual_path() -> None:
 
 def test_docker_candidate_aliases_use_the_post_sign_verifier_digest() -> None:
     workflow = load_workflow("docker-image-preview-publish.yml")
+    assembled_image_job = workflow["jobs"]["build-and-publish-immutable"]
+    assembled_image_step = next(
+        step for step in assembled_image_job["steps"] if step.get("name") == "Verify assembled preview image metadata"
+    )
+    assert (
+        '--image-ref "${{ needs.prepare.outputs.staging_image_name }}@${{ steps.assemble.outputs.digest }}"' in assembled_image_step["run"]
+    )
+    assert "${{ needs.prepare.outputs.image_name }}@${{ steps.assemble.outputs.digest }}" not in assembled_image_step["run"]
+
     verifier_job = workflow["jobs"]["verify-signed-candidate"]
     assert verifier_job["needs"] == ["prepare", "verify-staged-candidate", "publish-final-marker"]
     assert verifier_job["outputs"]["candidate_digest"] == "${{ steps.verify.outputs.resolved_digest }}"
@@ -242,6 +251,10 @@ def test_docker_candidate_aliases_use_the_post_sign_verifier_digest() -> None:
     staged_verifier_step = next(step for step in staged_verifier_job["steps"] if step.get("name") == "Verify signed staged candidate")
     assert '--inspect-image-ref "$staging_ref"' in staged_verifier_step["run"]
     assert '--subject-image-ref "$final_ref"' in staged_verifier_step["run"]
+    assert re.search(
+        r'--expected-source "\$\{\{ needs\.prepare\.outputs\.source_url \}\}"\n\s*bash \.github/scripts/ensure_candidate_signature\.sh',
+        staged_verifier_step["run"],
+    )
 
     final_marker_job = workflow["jobs"]["publish-final-marker"]
     assert final_marker_job["needs"] == ["prepare", "verify-staged-candidate"]
