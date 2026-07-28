@@ -18,6 +18,7 @@ MINOR_RE = re.compile(r"^\d+\.\d+$")
 SHA_TAG_RE = re.compile(r"^sha-[0-9a-f]{40}$")
 ARCH_PREVIEW_TAG_RE = re.compile(r"^sha-[0-9a-f]{40}-(?:amd64|arm64)$")
 STAGING_TAG_RE = re.compile(r"^(?:staging|stage)-[0-9]+-[0-9]+-(?:amd64|arm64|index)$")
+ISOLATED_STAGING_PACKAGE_NAME = "sambee-staging"
 
 
 @dataclass
@@ -170,6 +171,11 @@ def delete_version(
 
 
 def delete_package(owner: str, owner_type: str, package_name: str, token: str) -> None:
+    if package_name != ISOLATED_STAGING_PACKAGE_NAME:
+        raise RuntimeError(
+            "Refusing to delete an entire package outside the isolated staging "
+            f"package {ISOLATED_STAGING_PACKAGE_NAME!r}: {package_name!r}"
+        )
     try:
         api_request(
             build_package_endpoint(owner, owner_type, package_name),
@@ -226,6 +232,12 @@ def main() -> int:
     parser.add_argument("--exact-staging-tag")
     parser.add_argument("--allow-package-delete", action="store_true")
     args = parser.parse_args()
+
+    if args.allow_package_delete and args.package_name != ISOLATED_STAGING_PACKAGE_NAME:
+        raise RuntimeError(
+            "--allow-package-delete is only valid for the isolated staging "
+            f"package {ISOLATED_STAGING_PACKAGE_NAME!r}"
+        )
 
     token = os.environ.get("GITHUB_TOKEN")
     if not token:

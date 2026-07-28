@@ -196,6 +196,31 @@ def test_delete_exact_staging_tag_deletes_whole_package_when_current_run_owns_ev
 
 
 @pytest.mark.unit
+def test_delete_exact_staging_tag_refuses_whole_package_deletion_outside_staging(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    module = load_cleanup_module()
+    staging_tag = "stage-123456-2-index"
+    monkeypatch.setattr(module, "delete_version", pytest.fail)
+
+    with pytest.raises(RuntimeError, match="outside the isolated staging package"):
+        module.delete_exact_staging_tag(
+            [
+                module.PackageVersion(
+                    version_id=1,
+                    created_at="2026-05-17T00:00:00Z",
+                    tags=[staging_tag],
+                )
+            ],
+            staging_tag,
+            "example",
+            "User",
+            "sambee",
+            "token",
+        )
+
+
+@pytest.mark.unit
 def test_scheduled_cleanup_deletes_fully_disposable_package_when_explicitly_allowed(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -219,3 +244,25 @@ def test_scheduled_cleanup_deletes_fully_disposable_package_when_explicitly_allo
 
     assert module.main() == 0
     assert deleted_packages == ["sambee-staging"]
+
+
+@pytest.mark.unit
+def test_scheduled_cleanup_rejects_package_delete_outside_staging(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    module = load_cleanup_module()
+    monkeypatch.setattr(
+        sys,
+        "argv",
+        [
+            "cleanup",
+            "--owner",
+            "example",
+            "--package-name",
+            "sambee",
+            "--allow-package-delete",
+        ],
+    )
+
+    with pytest.raises(RuntimeError, match="only valid for the isolated staging package"):
+        module.main()
