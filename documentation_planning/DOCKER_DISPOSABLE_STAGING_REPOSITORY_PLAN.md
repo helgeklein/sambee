@@ -57,7 +57,7 @@ flowchart LR
   F --> G[Verify final repository digest and metadata/signature contract]
   G --> H[Create sha and exact-version aliases]
   H --> I[Move test channel]
-  I --> J[Delete staging package versions]
+   I --> J[Delete staging package versions or empty package]
 ```
 
 ### 1. Reserve the source identity
@@ -103,7 +103,7 @@ Publish the digest-keyed bundle to `sambee-signatures` before the final image ma
 
 ### 4. Sign and verify the staged digest
 
-This phase requires a controlled GHCR proof before production rollout. The proof must establish whether a signature made for the staging image digest can be verified by the existing final-image policy after the same digest is copied to `sambee`.
+This phase required a controlled GHCR proof before production rollout. The proof established that a signature made for the staging image digest verifies under the existing final-image policy after the same digest is copied to `sambee`; Cosign's legacy signature verification is digest-based in this configuration and did not enforce the staging repository name.
 
 Required proof matrix:
 
@@ -115,7 +115,7 @@ Required proof matrix:
 6. Inspect the signature payload and Cosign behavior to determine whether repository identity is enforced in addition to digest.
 7. Delete the temporary staging package version and confirm the copied final image remains intact.
 
-If cross-repository Cosign verification succeeds, sign and verify while the image is still staging-only. If it fails because Cosign binds the repository identity, do not publish an early final tag as a workaround. Instead, add a separate, non-user-facing final-candidate repository, for example `ghcr.io/<owner>/sambee-candidates`, and repeat the proof using a signature policy that binds the final production identity without exposing a production alias. Production implementation may proceed only once the signature and metadata contracts support a no-early-marker flow.
+Sign and verify while the image is still staging-only. The completed proof removed the need for a separate final-candidate repository: the dedicated signature repository and required workflow identity/issuer policy remained valid after the cross-repository digest hand-off.
 
 ### 5. Publish the final marker
 
@@ -132,13 +132,15 @@ If final copy or post-copy verification fails, fail closed. The marker must neve
 
 ### 6. Remove staging artifacts
 
-After successful final publication, delete the staging package versions for the current run through the GitHub Packages REST API. This is safe because the staging repository has no final aliases.
+After successful final publication, delete the staging package versions for the current run through the GitHub Packages REST API. This is safe because the staging repository has no final aliases. GHCR does not allow deleting a package's last tagged version through the version endpoint. When the current run owns every remaining staging version, delete the whole staging package through the package endpoint instead.
 
 The cleanup helper must:
 
 - List versions only in `sambee-staging`.
 - Delete only versions whose complete tag set matches the current run's `stage-<run>-<attempt>-*` pattern.
 - Refuse versions with any unexpected tag.
+- Before deleting the whole package, require every remaining version and tag to belong to the current run; otherwise leave the last version for a later cleanup attempt.
+- Use the package endpoint only for that exclusive-last-version case, and treat an already-absent package as successful cleanup.
 - Be idempotent when versions are already absent.
 - Emit package version IDs, tags, and deletion result to the Actions summary.
 
@@ -218,6 +220,19 @@ If the only concern is permanent tags after failed Docker work, retain the early
 
 ## Test Plan
 
+### Completed GHCR transfer proof
+
+On 2026-07-28, the guarded `verify-ghcr-staging-transfer.yml` workflow completed successfully against GHCR using disposable, per-run package repositories.
+
+- Staging and final index digest: `sha256:ee6521f290b2168b6e0935a181d4cff9be1ac3f505666ef0e3c98fae8199917a`.
+- `crane cp --no-clobber` preserved the top-level index digest and all runnable platform descriptors across repositories.
+- A Cosign signature for the staging digest, stored in the dedicated disposable signature repository, verified against the final repository digest under the workflow's GitHub Actions identity and issuer policy.
+- Deleting the isolated staging package did not change or remove the final package.
+- The proof cleanup removed the remaining disposable staging, final, and signature packages.
+- GHCR rejected an attempt to delete a package's last tagged version through the version endpoint; deleting the uniquely named disposable package through the package endpoint succeeded.
+
+This proves the cross-repository copy, signature-verification, and package-isolation assumptions required for the staging design. It does not replace the production candidate workflow tests below, including final-identity metadata construction, retry behavior, failure recovery, and measured release-CI overhead.
+
 ### Unit and static tests
 
 - Staging and final repository names are distinct and derived from the same lowercase owner.
@@ -227,7 +242,7 @@ If the only concern is permanent tags after failed Docker work, retain the early
 - Cross-repository promotion rejects a missing staging digest, mismatched digest, existing conflicting final marker, changed platform descriptor, or missing required OCI label.
 - Metadata construction records final image identity while validating the staging inspection index.
 - Final verifier rejects metadata that names staging as the published image repository.
-- Cleanup only addresses `sambee-staging`; it refuses any version with tags outside the current run pattern.
+- Cleanup only addresses `sambee-staging`; it refuses any version with tags outside the current run pattern and deletes a last version only by safely deleting an exclusively owned package.
 - A failed staging build leaves no final image marker, source-SHA alias, exact version, or channel mutation.
 - A retry with the same early Git reservation builds a new staging attempt and can publish the final marker.
 
