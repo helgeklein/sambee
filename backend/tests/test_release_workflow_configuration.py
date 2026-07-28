@@ -137,6 +137,8 @@ def test_coordinated_companion_promotion_uses_signed_docker_verifier() -> None:
     steps = workflow["jobs"]["promote"]["steps"]
     coordinated_step = next(step for step in steps if step.get("name") == "Verify coordinated Docker candidate")
     assert "verify_published_candidate_image.sh" in coordinated_step["run"]
+    assert 'candidate_digest="$(crane digest "$image_name:${{ steps.scope.outputs.build_tag }}"' in coordinated_step["run"]
+    assert '--candidate-digest "$candidate_digest"' in coordinated_step["run"]
     assert any(step.get("name") == "Install Cosign" for step in steps)
 
 
@@ -147,6 +149,7 @@ def test_docker_backfill_uses_signed_candidate_verifier() -> None:
     assert any(step.get("name") == "Install Cosign" for step in steps)
     verifier_step = next(step for step in steps if step.get("name") == "Verify signed published candidate")
     assert "verify_published_candidate_image.sh" in verifier_step["run"]
+    assert '--candidate-digest "${{ needs.resolve-candidate-artifact.outputs.candidate_digest }}"' in verifier_step["run"]
 
 
 def test_docker_promotion_uses_only_the_verifier_digest_for_aliases() -> None:
@@ -186,6 +189,8 @@ def test_docker_promotion_has_a_beta_only_manual_path() -> None:
     assert "promote-release-tags" in workflow["jobs"]["upload-metadata-release-assets"]["needs"]
 
     verifier_steps = workflow["jobs"]["verify-candidate-artifact"]["steps"]
+    verifier_step = next(step for step in verifier_steps if step.get("name") == "Verify signed published candidate")
+    assert '--candidate-digest "${{ needs.resolve-candidate-artifact.outputs.candidate_digest }}"' in verifier_step["run"]
     coordinated_step = next(step for step in verifier_steps if step.get("name") == "Verify coordinated Companion release")
     assert "release_type == 'stable'" in coordinated_step["if"]
 

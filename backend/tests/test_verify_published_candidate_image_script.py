@@ -92,3 +92,32 @@ def test_digest_mode_rejects_registry_digest_mismatch(tmp_path: Path) -> None:
     assert "Candidate digest mismatch" in result.stderr
     assert "nested-bash" not in tool_log
     assert "cosign" not in tool_log
+
+
+def test_rejects_missing_candidate_digest(tmp_path: Path) -> None:
+    bin_dir = tmp_path / "bin"
+    bin_dir.mkdir()
+    write_fake_tools(bin_dir)
+    tool_log = tmp_path / "tools.log"
+    result = subprocess.run(
+        [
+            "/bin/bash",
+            str(SCRIPT),
+            "--image-name",
+            "example.test/sambee",
+            "--metadata-repository",
+            "example.test/sambee-signatures",
+        ],
+        capture_output=True,
+        text=True,
+        env={
+            **os.environ,
+            "PATH": f"{bin_dir}:{os.environ['PATH']}",
+            "CRANE_DIGEST": DIGEST,
+            "TOOL_LOG": str(tool_log),
+        },
+    )
+
+    assert result.returncode != 0
+    assert "Usage: verify_published_candidate_image.sh" in result.stderr
+    assert not tool_log.exists()

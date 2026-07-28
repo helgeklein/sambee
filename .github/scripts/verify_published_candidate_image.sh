@@ -6,7 +6,7 @@ usage() {
   cat <<'EOF' >&2
 Usage: verify_published_candidate_image.sh \
   --image-name <repository> --metadata-repository <repository> \
-  [--candidate-digest <sha256:...>] \
+  --candidate-digest <sha256:...> \
   --expected-description <text> --expected-revision <sha> \
   --expected-version <version> --expected-source <url> --expected-title <text> \
   --expected-build-tag <build-vX.Y.Z> --github-repository <owner/repo>
@@ -41,19 +41,14 @@ while [[ $# -gt 0 ]]; do
   esac
 done
 
-if [[ -z "$image_name" || -z "$metadata_repository" || -z "$expected_description" || -z "$expected_revision" || -z "$expected_version" || -z "$expected_source" || -z "$expected_title" || -z "$expected_build_tag" || -z "$github_repository" ]]; then
+if [[ -z "$image_name" || -z "$metadata_repository" || -z "$candidate_digest" || -z "$expected_description" || -z "$expected_revision" || -z "$expected_version" || -z "$expected_source" || -z "$expected_title" || -z "$expected_build_tag" || -z "$github_repository" ]]; then
   usage
 fi
 
-if [[ -n "$candidate_digest" ]]; then
-  resolved_candidate_digest="$(crane digest "$image_name@$candidate_digest")"
-  if [[ "$resolved_candidate_digest" != "$candidate_digest" ]]; then
-    echo "Candidate digest mismatch: expected $candidate_digest, resolved $resolved_candidate_digest" >&2
-    exit 1
-  fi
-else
-  candidate_ref="$image_name:$expected_build_tag"
-  candidate_digest="$(crane digest "$candidate_ref")"
+resolved_candidate_digest="$(crane digest "$image_name@$candidate_digest")"
+if [[ "$resolved_candidate_digest" != "$candidate_digest" ]]; then
+  echo "Candidate digest mismatch: expected $candidate_digest, resolved $resolved_candidate_digest" >&2
+  exit 1
 fi
 candidate_ref_by_digest="$image_name@$candidate_digest"
 
