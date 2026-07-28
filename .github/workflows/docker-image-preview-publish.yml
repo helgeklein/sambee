@@ -814,14 +814,14 @@ jobs:
 
     - name: Delete run-scoped staging index
       shell: bash
+      env:
+        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
       run: |
         staging_tag="staging-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}-index"
-        staging_ref="${{ needs.prepare.outputs.image_name }}:$staging_tag"
-        if ! crane digest "$staging_ref" >/dev/null 2>&1; then
-          echo "Run-scoped staging index $staging_tag was not created; nothing to delete."
-        elif ! crane delete "$staging_ref"; then
-          echo "::warning::Unable to delete run-scoped staging index $staging_tag. Registry retention must remove it."
-        fi
+        python3 .github/scripts/cleanup_test_container_versions.py \
+          --owner "${{ github.repository_owner }}" \
+          --package-name sambee \
+          --exact-staging-tag "$staging_tag"
 
   repair-candidate-aliases:
     needs: prepare

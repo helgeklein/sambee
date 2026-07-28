@@ -111,3 +111,53 @@ def test_test_tag_is_protected() -> None:
         )
         == "protected"
     )
+
+
+@pytest.mark.unit
+def test_delete_exact_staging_tag_deletes_only_matching_staging_version(monkeypatch: pytest.MonkeyPatch) -> None:
+    module = load_cleanup_module()
+    staging_tag = "staging-123456-2-index"
+    deleted_version_ids: list[int] = []
+    monkeypatch.setattr(
+        module, "delete_version", lambda _owner, _owner_type, _package, version_id, _token: deleted_version_ids.append(version_id)
+    )
+
+    deleted = module.delete_exact_staging_tag(
+        [
+            module.PackageVersion(version_id=1, created_at="2026-05-17T00:00:00Z", tags=[staging_tag]),
+            module.PackageVersion(version_id=2, created_at="2026-05-17T00:00:00Z", tags=["test"]),
+        ],
+        staging_tag,
+        "example",
+        "User",
+        "sambee",
+        "token",
+    )
+
+    assert deleted
+    assert deleted_version_ids == [1]
+
+
+@pytest.mark.unit
+def test_delete_exact_staging_tag_rejects_shared_protected_version(monkeypatch: pytest.MonkeyPatch) -> None:
+    module = load_cleanup_module()
+    staging_tag = "staging-123456-2-index"
+    monkeypatch.setattr(module, "delete_version", pytest.fail)
+
+    with pytest.raises(RuntimeError, match="shares it with non-staging tags"):
+        module.delete_exact_staging_tag(
+            [module.PackageVersion(version_id=1, created_at="2026-05-17T00:00:00Z", tags=[staging_tag, "test"])],
+            staging_tag,
+            "example",
+            "User",
+            "sambee",
+            "token",
+        )
+
+
+@pytest.mark.unit
+def test_delete_exact_staging_tag_rejects_non_staging_tag() -> None:
+    module = load_cleanup_module()
+
+    with pytest.raises(ValueError, match="Refusing to delete non-staging tag"):
+        module.delete_exact_staging_tag([], "test", "example", "User", "sambee", "token")

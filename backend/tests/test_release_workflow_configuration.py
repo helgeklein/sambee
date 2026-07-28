@@ -265,9 +265,10 @@ def test_docker_candidate_cleanup_and_summary_cover_staging_lifecycle() -> None:
     assert "staging-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}-index" in cleanup_step["run"]
     assert "amd64" not in cleanup_step["run"]
     assert "arm64" not in cleanup_step["run"]
-    assert 'crane digest "$staging_ref"' in cleanup_step["run"]
-    assert "was not created; nothing to delete" in cleanup_step["run"]
-    assert "crane delete" in cleanup_step["run"]
+    assert "cleanup_test_container_versions.py" in cleanup_step["run"]
+    assert '--exact-staging-tag "$staging_tag"' in cleanup_step["run"]
+    assert "crane delete" not in cleanup_step["run"]
+    assert cleanup_step["env"]["GITHUB_TOKEN"] == "${{ secrets.GITHUB_TOKEN }}"
 
     summary_job = workflow["jobs"]["summarize-candidate"]
     assert summary_job["if"] == "${{ always() }}"

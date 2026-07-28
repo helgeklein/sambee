@@ -149,10 +149,36 @@ def delete_version(
     api_request(endpoint, token, method="DELETE")
 
 
+def delete_exact_staging_tag(
+    versions: list[PackageVersion],
+    staging_tag: str,
+    owner: str,
+    owner_type: str,
+    package_name: str,
+    token: str,
+) -> bool:
+    if not STAGING_TAG_RE.fullmatch(staging_tag):
+        raise ValueError(f"Refusing to delete non-staging tag: {staging_tag}")
+
+    matches = [version for version in versions if staging_tag in version.tags]
+    if not matches:
+        return False
+
+    for version in matches:
+        if not all(STAGING_TAG_RE.fullmatch(tag) for tag in version.tags):
+            raise RuntimeError(
+                f"Refusing to delete package version {version.version_id}: "
+                f"{staging_tag} shares it with non-staging tags {version.tags}"
+            )
+        delete_version(owner, owner_type, package_name, version.version_id, token)
+    return True
+
+
 def main() -> int:
     parser = argparse.ArgumentParser()
     parser.add_argument("--owner", required=True)
     parser.add_argument("--package-name", required=True)
+    parser.add_argument("--exact-staging-tag")
     args = parser.parse_args()
 
     token = os.environ.get("GITHUB_TOKEN")
@@ -161,6 +187,25 @@ def main() -> int:
 
     owner_type = get_owner_type(args.owner, token)
     versions = load_versions(args.owner, owner_type, args.package_name, token)
+
+    if args.exact_staging_tag:
+        deleted = delete_exact_staging_tag(
+            versions,
+            args.exact_staging_tag,
+            args.owner,
+            owner_type,
+            args.package_name,
+            token,
+        )
+        if deleted:
+            print(
+                f"Deleted run-scoped staging package version for {args.exact_staging_tag}."
+            )
+        else:
+            print(
+                f"Run-scoped staging index {args.exact_staging_tag} was not present; nothing to delete."
+            )
+        return 0
 
     deletable: list[PackageVersion] = []
     for version in versions:
