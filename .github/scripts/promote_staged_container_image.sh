@@ -58,8 +58,33 @@ if [[ "$resolved_target_digest" != "$source_digest" ]]; then
   exit 1
 fi
 
-source_descriptors="$(crane manifest "$source_ref" | jq -cS '[.manifests[] | select((.platform.os // "") != "unknown") | select((.platform.architecture // "") != "unknown") | {digest, mediaType, platform}] | sort_by(.digest)')"
-target_descriptors="$(crane manifest "$target_image@$source_digest" | jq -cS '[.manifests[] | select((.platform.os // "") != "unknown") | select((.platform.architecture // "") != "unknown") | {digest, mediaType, platform}] | sort_by(.digest)')"
+normalize_runnable_descriptors() {
+  python3 -c '
+import json
+import sys
+
+manifest = json.load(sys.stdin)
+descriptors = []
+for descriptor in manifest.get("manifests", []):
+    platform = descriptor.get("platform") or {}
+    if platform.get("os") in (None, "unknown"):
+        continue
+    if platform.get("architecture") in (None, "unknown"):
+        continue
+    descriptors.append(
+        {
+            "digest": descriptor.get("digest"),
+            "mediaType": descriptor.get("mediaType"),
+            "platform": platform,
+        }
+    )
+
+print(json.dumps(sorted(descriptors, key=lambda descriptor: descriptor["digest"]), separators=(",", ":"), sort_keys=True))
+'
+}
+
+source_descriptors="$(crane manifest "$source_ref" | normalize_runnable_descriptors)"
+target_descriptors="$(crane manifest "$target_image@$source_digest" | normalize_runnable_descriptors)"
 if [[ "$source_descriptors" != "$target_descriptors" ]]; then
   echo "Final marker platform descriptors differ from the verified staging index." >&2
   exit 1

@@ -13,11 +13,11 @@ import urllib.parse
 import urllib.request
 from dataclasses import dataclass
 
-SEMVER_RE = re.compile(r"^\d+\.\d+\.\d+(?:-[0-9A-Za-z.-]+)?(?:\+[0-9A-Za-z.-]+)?$")
 MINOR_RE = re.compile(r"^\d+\.\d+$")
 SHA_TAG_RE = re.compile(r"^sha-[0-9a-f]{40}$")
 ARCH_PREVIEW_TAG_RE = re.compile(r"^sha-[0-9a-f]{40}-(?:amd64|arm64)$")
 STAGING_TAG_RE = re.compile(r"^(?:staging|stage)-[0-9]+-[0-9]+-(?:amd64|arm64|index)$")
+ISOLATED_STAGING_PACKAGE_NAME = "sambee-staging"
 
 
 @dataclass
@@ -115,13 +115,7 @@ def is_protected_tag(tag: str) -> bool:
     if tag in {"stable", "beta", "test"}:
         return True
 
-    if MINOR_RE.match(tag):
-        return True
-
-    if SEMVER_RE.match(tag):
-        return "-" not in tag
-
-    return False
+    return bool(MINOR_RE.fullmatch(tag))
 
 
 def is_test_only_tag(tag: str) -> bool:
@@ -143,9 +137,7 @@ def classify(version: PackageVersion) -> str:
         return "protected"
     if any(is_protected_tag(tag) for tag in version.tags):
         return "protected"
-    if all(is_test_only_tag(tag) for tag in version.tags):
-        return "deletable"
-    return "protected"
+    return "deletable"
 
 
 def emit_log(version: PackageVersion, classification: str, action: str) -> None:
@@ -170,6 +162,11 @@ def delete_version(
 
 
 def delete_package(owner: str, owner_type: str, package_name: str, token: str) -> None:
+    if package_name != ISOLATED_STAGING_PACKAGE_NAME:
+        raise RuntimeError(
+            "Refusing to delete an entire package outside the isolated staging "
+            f"package {ISOLATED_STAGING_PACKAGE_NAME!r}: {package_name!r}"
+        )
     try:
         api_request(
             build_package_endpoint(owner, owner_type, package_name),
@@ -226,6 +223,12 @@ def main() -> int:
     parser.add_argument("--exact-staging-tag")
     parser.add_argument("--allow-package-delete", action="store_true")
     args = parser.parse_args()
+
+    if args.allow_package_delete and args.package_name != ISOLATED_STAGING_PACKAGE_NAME:
+        raise RuntimeError(
+            "--allow-package-delete is only valid for the isolated staging "
+            f"package {ISOLATED_STAGING_PACKAGE_NAME!r}"
+        )
 
     token = os.environ.get("GITHUB_TOKEN")
     if not token:
