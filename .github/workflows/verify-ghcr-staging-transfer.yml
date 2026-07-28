@@ -50,7 +50,7 @@ jobs:
       shell: bash
       run: |
         source_image="registry.k8s.io/pause:3.10"
-        crane cp --all "$source_image" "$staging_repository:stage-$proof_id"
+        crane cp --no-clobber "$source_image" "$staging_repository:stage-$proof_id"
         staging_digest="$(crane digest "$staging_repository:stage-$proof_id")"
         if ! [[ "$staging_digest" =~ ^sha256:[0-9a-f]{64}$ ]]; then
           echo "Staging copy produced an invalid digest: $staging_digest" >&2
@@ -61,7 +61,7 @@ jobs:
     - name: Copy the staging index to final
       shell: bash
       run: |
-        crane cp --all "$staging_repository@$staging_digest" "$final_repository:final-$proof_id"
+        crane cp --no-clobber "$staging_repository@$staging_digest" "$final_repository:final-$proof_id"
         final_digest="$(crane digest "$final_repository:final-$proof_id")"
         if [[ "$final_digest" != "$staging_digest" ]]; then
           echo "Cross-repository copy changed the index digest: staging=$staging_digest final=$final_digest" >&2

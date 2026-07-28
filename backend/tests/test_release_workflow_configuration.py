@@ -147,7 +147,7 @@ def test_ghcr_staging_transfer_proof_is_explicitly_guarded_and_disposable() -> N
     assert "sambee-transfer-proof-staging-" in proof_steps
     assert "sambee-transfer-proof-final-" in proof_steps
     assert "sambee-transfer-proof-signatures-" in proof_steps
-    assert 'crane cp --all "$staging_repository@$staging_digest" "$final_repository:final-$proof_id"' in proof_steps
+    assert 'crane cp --no-clobber "$staging_repository@$staging_digest" "$final_repository:final-$proof_id"' in proof_steps
     assert "cosign verify" in proof_steps
     assert 'delete_package_versions "sambee-transfer-proof-staging-$proof_id"' in proof_steps
 
