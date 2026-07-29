@@ -79,10 +79,10 @@ async def list_connections(
     """List all configured connections visible to the current user."""
 
     set_user(current_user.username)
-    logger.info(f"Listing connections: user={current_user.username}")
+    logger.debug(f"Listing connections: user={current_user.username}")
 
     connections = list_accessible_connections(session, current_user)
-    logger.info(f"Found {len(connections)} visible connections")
+    logger.debug(f"Found {len(connections)} visible connections")
     return [build_connection_read(connection, current_user) for connection in connections]
 
 
@@ -93,7 +93,7 @@ async def list_visibility_options(
     """Return connection visibility options supported by the system for the current user."""
 
     set_user(current_user.username)
-    logger.info(f"Listing connection visibility options: user={current_user.username}")
+    logger.debug(f"Listing connection visibility options: user={current_user.username}")
     return list_connection_visibility_options(current_user)
 
 

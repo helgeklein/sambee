@@ -16,7 +16,6 @@ from datetime import datetime, timedelta, timezone
 from typing import Any, cast
 from unittest.mock import AsyncMock, patch
 
-import jwt
 import pytest
 from fastapi.testclient import TestClient
 from sqlmodel import Session, select
@@ -36,7 +35,7 @@ from app.api.companion import (
     URI_TOKEN_PURPOSE,
     _is_version_compatible,
 )
-from app.core.security import create_access_token
+from app.core.security import create_access_token, decode_access_token
 from app.models.companion_uri_token_jti import CompanionUriTokenJti
 from app.models.connection import Connection
 from app.models.edit_lock import HEARTBEAT_TIMEOUT_SECONDS, EditLock
@@ -273,7 +272,7 @@ class TestCompanionTokenExchange:
         assert data["connection_id"]
         assert data["path"] == "/docs/report.docx"
 
-        payload = jwt.decode(data["token"], options={"verify_signature": False})
+        payload = decode_access_token(data["token"])
         assert payload[COMPANION_TOKEN_CLAIM] is True
         assert payload["token_class"] == COMPANION_TOKEN_CLASS
         assert payload["purpose"] == COMPANION_BOOTSTRAP_PURPOSE
@@ -386,7 +385,7 @@ class TestLockLifecycle:
         assert data["operation_token"]
         assert data["operation_expires_in"] == OPERATION_TOKEN_EXPIRE_MINUTES * 60
 
-        payload = jwt.decode(data["operation_token"], options={"verify_signature": False})
+        payload = decode_access_token(data["operation_token"])
         assert payload[COMPANION_TOKEN_CLAIM] is True
         assert payload["token_class"] == COMPANION_TOKEN_CLASS
         assert payload["purpose"] == COMPANION_OPERATION_PURPOSE
@@ -1132,7 +1131,7 @@ class TestLockLifecycle:
         assert data["expires_in"] == OPERATION_TOKEN_EXPIRE_MINUTES * 60
         assert data["renew_after_seconds"] == OPERATION_TOKEN_RENEW_AFTER_SECONDS
 
-        payload = jwt.decode(data["token"], options={"verify_signature": False})
+        payload = decode_access_token(data["token"])
         assert payload["purpose"] == COMPANION_OPERATION_PURPOSE
         assert payload["op_id"] == lock_data["operation_id"]
         assert payload["lock_id"] == lock_data["lock_id"]

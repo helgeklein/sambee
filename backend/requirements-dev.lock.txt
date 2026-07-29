@@ -586,7 +586,9 @@ jedi==0.20.0 \
 joserfc==1.7.4 \
     --hash=sha256:32d46c2cd5e3203c13e87a6c61333cab310b1ba80cd54b4c4f386a848a122463 \
     --hash=sha256:b3bc561672ae541b17a9237053b48a03dacddd92d68047b3ecdfb4b5714a88ed
-    # via authlib
+    # via
+    #   -r requirements.txt
+    #   authlib
 librt==0.13.0 \
     --hash=sha256:05d96b80b95d3a2721b619f8982b8558848b04875bb4772fd54842b59f61dd97 \
     --hash=sha256:0763ca2ab66058174f9dee426dc64f5e0a89c24a7df8d3fe3f1836c04e25de4b \
@@ -957,10 +959,6 @@ pygments==2.20.0 \
     #   ipython-pygments-lexers
     #   pytest
     #   rich
-pyjwt==2.13.0 \
-    --hash=sha256:41571c89ca91598c79e8ef18a2d07367d4810fbbd6f637794879baf1b7703423 \
-    --hash=sha256:66adcc2aff09b3f1bbd95fc1e1577df8ac8723c978552fd43304c8a290ac5728
-    # via -r requirements.txt
 pyspnego==0.12.1 \
     --hash=sha256:7237cb47985ccf5da512106ddb2731e4f9cefec00991f76c054488eb95fb1a2d \
     --hash=sha256:ff4fb6df38202a012ea2a0f43091ae9680878443f0ea61c9ea0e2e8152a4b810

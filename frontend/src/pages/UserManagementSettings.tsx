@@ -38,6 +38,7 @@ import { useTranslation } from "react-i18next";
 import DeleteDialog from "../components/Admin/DeleteDialog";
 import { adminDialogActionButtonSx, adminDialogEndActionRowSx } from "../components/Admin/dialogActionStyles";
 import { ResponsiveFormDialog } from "../components/Admin/ResponsiveFormDialog";
+import { SettingsCategoryDescription } from "../components/Settings/SettingsCategoryDescription";
 import { SettingsInlineAlert, SettingsNotificationSnackbar, type SettingsNotificationState } from "../components/Settings/SettingsFeedback";
 import { SettingsSectionHeader } from "../components/Settings/SettingsSectionHeader";
 import { SettingsEmptyState, SettingsLoadingState } from "../components/Settings/SettingsState";
@@ -50,7 +51,7 @@ import {
   settingsUtilityIconButtonSx,
 } from "../components/Settings/settingsButtonStyles";
 import { loadUserManagementSettingsData, SETTINGS_DATA_CACHE_KEYS } from "../components/Settings/settingsDataSources";
-import { getSettingsCategoryDescription, getSettingsCategoryLabel } from "../components/Settings/settingsNavigation";
+import { getSettingsCategoryLabel } from "../components/Settings/settingsNavigation";
 import { useCachedAsyncData } from "../hooks/useCachedAsyncData";
 import api from "../services/api";
 import type {
@@ -69,6 +70,7 @@ interface UserFormState {
   name: string;
   email: string;
   role: UserRole;
+  oidcRoleAssignment: UserRole | "";
   isActive: boolean;
   password: string;
   mustChangePassword: boolean;
@@ -91,6 +93,7 @@ const DEFAULT_USER_FORM: UserFormState = {
   name: "",
   email: "",
   role: "editor",
+  oidcRoleAssignment: "",
   isActive: true,
   password: "",
   mustChangePassword: true,
@@ -292,6 +295,7 @@ export function UserManagementSettings({ dialogSafeHeader = false }: UserManagem
       name: user.name ?? "",
       email: user.email ?? "",
       role: user.role,
+      oidcRoleAssignment: user.oidc_role_assignment ?? "",
       isActive: user.is_active,
       password: "",
       mustChangePassword: user.must_change_password,
@@ -329,6 +333,7 @@ export function UserManagementSettings({ dialogSafeHeader = false }: UserManagem
           name: name || undefined,
           email: email || undefined,
           role: formState.role,
+          ...(selectedUser.oidc || selectedUser.pending_oidc ? { oidc_role_assignment: formState.oidcRoleAssignment || null } : {}),
           is_active: formState.isActive,
           expires_at: expiresAt ?? null,
         };
@@ -525,6 +530,23 @@ export function UserManagementSettings({ dialogSafeHeader = false }: UserManagem
           <MenuItem value="admin">{t("settings.userManagement.adminRole")}</MenuItem>
         </Select>
       </FormControl>
+      {isEditing && (selectedUser?.oidc || selectedUser?.pending_oidc) && (
+        <FormControl fullWidth variant="outlined">
+          <InputLabel id="oidc-role-assignment-label">OIDC role assignment</InputLabel>
+          <Select
+            labelId="oidc-role-assignment-label"
+            label="OIDC role assignment"
+            value={formState.oidcRoleAssignment}
+            disabled={isEditingSelf}
+            onChange={(event) => setFormState((current) => ({ ...current, oidcRoleAssignment: event.target.value as UserRole | "" }))}
+          >
+            <MenuItem value="">Use configured role assignment</MenuItem>
+            <MenuItem value="viewer">Viewer</MenuItem>
+            <MenuItem value="editor">Editor</MenuItem>
+            <MenuItem value="admin">Administrator</MenuItem>
+          </Select>
+        </FormControl>
+      )}
       <TextField
         label={t("settings.userManagement.editor.expiresAtLabel")}
         type="datetime-local"
@@ -673,7 +695,7 @@ export function UserManagementSettings({ dialogSafeHeader = false }: UserManagem
     >
       <SettingsSectionHeader
         title={getSettingsCategoryLabel("admin-users")}
-        description={getSettingsCategoryDescription("admin-users")}
+        description={<SettingsCategoryDescription category="admin-users" />}
         dialogSafe={dialogSafeHeader}
         showTitle={isDesktop}
         actions={
@@ -790,6 +812,18 @@ export function UserManagementSettings({ dialogSafeHeader = false }: UserManagem
                           label={`Waiting for first OIDC login: ${user.pending_oidc.expected_username}, created by ${
                             user.pending_oidc.created_by_username
                           } on ${new Date(user.pending_oidc.created_at).toLocaleString()}`}
+                          variant="outlined"
+                          sx={settingsMetadataChipSx}
+                        />
+                      )}
+                      {(user.oidc || user.pending_oidc) && (
+                        <Chip
+                          size="small"
+                          label={
+                            user.oidc_role_assignment
+                              ? `OIDC role: ${user.oidc_role_assignment} (individual)`
+                              : `OIDC role: ${oidcConfiguration?.role_assignment_mode === "group_based" ? "group-based" : "uniform"}`
+                          }
                           variant="outlined"
                           sx={settingsMetadataChipSx}
                         />

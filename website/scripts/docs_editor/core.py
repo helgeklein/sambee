@@ -683,6 +683,51 @@ class DocsEditor:
             "pages": updated_pages,
         }
 
+    def move_page_in_nav(
+        self,
+        document: dict[str, Any],
+        book: str,
+        from_section: str,
+        to_section: str,
+        old_page: str,
+        new_page: str,
+        position: str | None,
+    ) -> dict[str, Any]:
+        """Return a nav document with a page moved between sections."""
+        if from_section == to_section:
+            raise DocsEditorError(
+                "page move requires different source and destination sections"
+            )
+
+        updated_pages = {
+            book_slug: dict(book_pages)
+            for book_slug, book_pages in document.get("pages", {}).items()
+        }
+        book_pages = updated_pages.setdefault(book, {})
+        source_pages = list(book_pages.get(from_section, []))
+        destination_pages = list(book_pages.get(to_section, []))
+
+        if old_page not in source_pages:
+            raise DocsEditorError(
+                f"page is not listed in nav: {book}/{from_section}/{old_page}"
+            )
+        if new_page in destination_pages:
+            raise DocsEditorError(
+                f"page already exists in nav for {book}/{to_section}: {new_page}"
+            )
+
+        source_pages.remove(old_page)
+        book_pages[from_section] = source_pages
+        book_pages[to_section] = self.insert_at_position(
+            destination_pages, new_page, position
+        )
+
+        return {
+            "books": list(document.get("books", [])),
+            "sections": dict(document.get("sections", {})),
+            "pages": updated_pages,
+        }
+
     def insert_section_entry_at_position(
         self,
         existing: list[dict[str, str]],
@@ -1091,6 +1136,71 @@ class DocsEditor:
                 + ", ".join(modified)
             )
 
+        return inherited_only
+
+    def inherited_only_page_move_descendants(
+        self,
+        version: str,
+        book: str,
+        from_section: str,
+        to_section: str,
+        old_page: str,
+        new_page: str,
+    ) -> list[str]:
+        """Return later versions that can safely follow a page move automatically."""
+        version_order = self.version_slugs()
+        try:
+            start_index = version_order.index(version)
+        except ValueError as error:
+            raise DocsEditorError(f"unknown docs version: {version}") from error
+
+        inherited_only: list[str] = []
+        modified: list[str] = []
+        for later_version in version_order[start_index + 1 :]:
+            old_page_dir = self.page_root(later_version, book, from_section, old_page)
+            new_page_dir = self.page_root(later_version, book, to_section, new_page)
+            later_nav = self.load_nav_document(later_version)
+            source_pages = (
+                later_nav.get("pages", {}).get(book, {}).get(from_section, [])
+            )
+            destination_pages = (
+                later_nav.get("pages", {}).get(book, {}).get(to_section, [])
+            )
+            old_exists = old_page_dir.exists() or old_page in source_pages
+            new_exists = new_page_dir.exists() or new_page in destination_pages
+
+            if old_exists and new_exists:
+                raise DocsEditorError(
+                    f"cannot move page {book}/{from_section}/{old_page} to "
+                    f"{to_section}/{new_page}: later version {later_version} contains both page paths"
+                )
+            if new_exists or not old_exists:
+                continue
+            if to_section not in later_nav.get("pages", {}).get(book, {}):
+                raise DocsEditorError(
+                    f"later version {later_version} is missing destination section: "
+                    f"{book}/{to_section}"
+                )
+            if not old_page_dir.exists() or old_page not in source_pages:
+                raise DocsEditorError(
+                    f"version {later_version} has an inconsistent page node for "
+                    f"{book}/{from_section}/{old_page}"
+                )
+            if not self.has_page_marker(old_page_dir):
+                raise DocsEditorError(
+                    f"later version {later_version} page {book}/{from_section}/{old_page} "
+                    "is missing index.md or inherit.md"
+                )
+            if self.page_has_real_content(old_page_dir):
+                modified.append(later_version)
+            else:
+                inherited_only.append(later_version)
+
+        if modified:
+            raise DocsEditorError(
+                "cannot move page across later versions with real content: "
+                + ", ".join(modified)
+            )
         return inherited_only
 
     def deletable_page_descendants(
@@ -2312,6 +2422,57 @@ python3 scripts/docs-editor.py page materialize --version {version} --book {book
             },
         )
 
+    def plan_book_materialize(
+        self, version: str, *, book: str, title: str | None
+    ) -> OperationPlan:
+        """Build a plan for replacing an inherited book marker with real content."""
+        if version not in self.version_slugs():
+            raise DocsEditorError(f"unknown docs version: {version}")
+
+        book_dir = self.book_root(version, book)
+        if not book_dir.exists():
+            raise DocsEditorError(f"book folder is missing: {version}/{book}")
+        if book not in self.load_nav_document(version).get("books", []):
+            raise DocsEditorError(f"book is not listed in nav: {version}/{book}")
+        book_state = self.classify_branch_node_state(book_dir)
+        if book_state is BranchNodeState.AUTHORED:
+            raise DocsEditorError(f"book already has real content: {version}/{book}")
+        if book_state is not BranchNodeState.INHERITED:
+            raise DocsEditorError(
+                f"book node is invalid: {version}/{book}; expected _inherit.md"
+            )
+
+        book_index_text = self.resolve_branch_source_file(version, (book,)).read_text(
+            encoding="utf-8"
+        )
+        if title is not None:
+            book_index_text = self.replace_title_in_markdown(book_index_text, title)
+
+        return OperationPlan(
+            summary=f"Materialize inherited book {book} in docs version {version}",
+            destructive=False,
+            changes=[
+                PlannedChange(
+                    "delete_file",
+                    book_dir / BRANCH_INHERIT,
+                    f"Remove inherited book marker for {version}/{book}",
+                ),
+                PlannedChange(
+                    "write_text",
+                    book_dir / DOCS_ROOT_INDEX,
+                    f"Create real book landing content for {version}/{book}",
+                    book_index_text,
+                ),
+            ],
+            metadata={
+                "entity": "book",
+                "operation": "materialize",
+                "version": version,
+                "book": book,
+                "title": title,
+            },
+        )
+
     def plan_page_inherit(
         self,
         version: str,
@@ -2546,6 +2707,144 @@ python3 scripts/docs-editor.py page materialize --version {version} --book {book
                 "version": version,
                 "book": book,
                 "section": section,
+                "page": old_page,
+                "new_page": new_page,
+                "propagated_versions": descendant_versions,
+            },
+        )
+
+    def plan_page_move(
+        self,
+        version: str,
+        *,
+        book: str,
+        from_section: str,
+        to_section: str,
+        old_page: str,
+        new_page: str,
+        title: str | None,
+        position: str | None,
+    ) -> OperationPlan:
+        """Build a plan for moving a page between sections in one book."""
+        if version not in self.version_slugs():
+            raise DocsEditorError(f"unknown docs version: {version}")
+        if from_section == to_section:
+            raise DocsEditorError(
+                "page move requires different source and destination sections"
+            )
+
+        old_page_dir = self.page_root(version, book, from_section, old_page)
+        new_page_dir = self.page_root(version, book, to_section, new_page)
+        if not old_page_dir.exists():
+            raise DocsEditorError(
+                f"page folder is missing: {version}/{book}/{from_section}/{old_page}"
+            )
+        if new_page_dir.exists():
+            raise DocsEditorError(
+                f"destination page already exists: {version}/{book}/{to_section}/{new_page}"
+            )
+
+        nav_document = self.load_nav_document(version)
+        if to_section not in nav_document.get("pages", {}).get(book, {}):
+            raise DocsEditorError(
+                f"destination section is not listed in nav: {book}/{to_section}"
+            )
+        updated_nav = self.move_page_in_nav(
+            nav_document,
+            book,
+            from_section,
+            to_section,
+            old_page,
+            new_page,
+            position,
+        )
+        descendant_versions = self.inherited_only_page_move_descendants(
+            version, book, from_section, to_section, old_page, new_page
+        )
+
+        changes: list[PlannedChange] = [
+            PlannedChange(
+                "write_text",
+                self.nav_path(version),
+                f"Move page {book}/{from_section}/{old_page} to {to_section}/{new_page} in nav for version {version}",
+                self.render_nav_document(updated_nav),
+            )
+        ]
+        page_index_text = self.resolve_page_source_file(
+            version, (book, from_section, old_page)
+        ).read_text(encoding="utf-8")
+        if title is not None:
+            page_index_text = self.replace_title_in_markdown(page_index_text, title)
+        changes.extend(
+            [
+                PlannedChange(
+                    "create_dir",
+                    new_page_dir,
+                    f"Create moved page directory {version}/{book}/{to_section}/{new_page}",
+                ),
+                PlannedChange(
+                    "write_text",
+                    new_page_dir / PAGE_INDEX,
+                    f"Materialize moved page content for {version}/{book}/{to_section}/{new_page}",
+                    page_index_text,
+                ),
+                PlannedChange(
+                    "delete_dir",
+                    old_page_dir,
+                    f"Delete old page directory {version}/{book}/{from_section}/{old_page} after move materialization",
+                ),
+            ]
+        )
+
+        for later_version in descendant_versions:
+            later_old_page_dir = self.page_root(
+                later_version, book, from_section, old_page
+            )
+            later_new_page_dir = self.page_root(
+                later_version, book, to_section, new_page
+            )
+            later_nav = self.load_nav_document(later_version)
+            changes.extend(
+                [
+                    PlannedChange(
+                        "write_text",
+                        self.nav_path(later_version),
+                        f"Move inherited-only descendant page {book}/{from_section}/{old_page} to {to_section}/{new_page} in nav for version {later_version}",
+                        self.render_nav_document(
+                            self.move_page_in_nav(
+                                later_nav,
+                                book,
+                                from_section,
+                                to_section,
+                                old_page,
+                                new_page,
+                                None,
+                            )
+                        ),
+                    ),
+                    PlannedChange(
+                        "rename_path",
+                        later_old_page_dir,
+                        f"Move inherited-only descendant page directory {later_version}/{book}/{from_section}/{old_page} to {to_section}/{new_page}",
+                        target=later_new_page_dir,
+                    ),
+                ]
+            )
+
+        return OperationPlan(
+            summary=(
+                f"Move page {book}/{from_section}/{old_page} to {to_section}/{new_page} "
+                f"in docs version {version}"
+            ),
+            destructive=True,
+            changes=changes,
+            metadata={
+                "entity": "page",
+                "operation": "move",
+                "version": version,
+                "book": book,
+                "from_section": from_section,
+                "to_section": to_section,
                 "page": old_page,
                 "new_page": new_page,
                 "propagated_versions": descendant_versions,
@@ -3021,6 +3320,17 @@ def build_parser() -> argparse.ArgumentParser:
         "--title",
         help="new book landing-page title for real content in the target version",
     )
+    book_materialize_parser = book_commands.add_parser(
+        "materialize", help="convert an inherited book landing page into real content"
+    )
+    book_materialize_parser.add_argument(
+        "--version", required=True, help="docs version slug"
+    )
+    book_materialize_parser.add_argument("--book", required=True, help="book slug")
+    book_materialize_parser.add_argument(
+        "--title",
+        help="optional replacement title for the new real book landing content",
+    )
 
     section_create_parser = section_commands.add_parser(
         "create", help="create a docs section"
@@ -3171,6 +3481,29 @@ def build_parser() -> argparse.ArgumentParser:
             "repeat for each independently authored version"
         ),
     )
+    page_move_parser = page_commands.add_parser(
+        "move", help="move a docs page to another section in the same book"
+    )
+    page_move_parser.add_argument("--version", required=True, help="docs version slug")
+    page_move_parser.add_argument("--book", required=True, help="book slug")
+    page_move_parser.add_argument(
+        "--from-section", required=True, help="current section slug"
+    )
+    page_move_parser.add_argument(
+        "--to-section", required=True, help="destination section slug"
+    )
+    page_move_parser.add_argument("--page", required=True, help="existing page slug")
+    page_move_parser.add_argument(
+        "--to-page", help="destination page slug; defaults to --page"
+    )
+    page_move_parser.add_argument("--title", help="new page title for real content")
+    page_move_parser.add_argument(
+        "--position",
+        help=(
+            "destination position in the selected version: start, end, before:<slug>, "
+            "after:<slug>, or a zero-based index"
+        ),
+    )
 
     return parser
 
@@ -3229,6 +3562,10 @@ def execute(args: argparse.Namespace) -> int:
                 old_book=args.from_book,
                 new_book=args.to_book,
                 title=args.title,
+            )
+        elif args.operation == "materialize":
+            plan = editor.plan_book_materialize(
+                args.version, book=args.book, title=args.title
             )
         else:
             raise DocsEditorError(f"unsupported book operation: {args.operation}")
@@ -3298,6 +3635,17 @@ def execute(args: argparse.Namespace) -> int:
                 old_page=args.from_page,
                 new_page=args.to_page,
                 title=args.title,
+            )
+        elif args.operation == "move":
+            plan = editor.plan_page_move(
+                args.version,
+                book=args.book,
+                from_section=args.from_section,
+                to_section=args.to_section,
+                old_page=args.page,
+                new_page=args.to_page or args.page,
+                title=args.title,
+                position=args.position,
             )
         else:
             raise DocsEditorError(f"unsupported page operation: {args.operation}")

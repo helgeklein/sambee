@@ -40,3 +40,11 @@
 ## Frontend testing / issue reproduction
 
 - Only ever use the following connection for testing in the VS Code browser: http://localhost:3000/browse/smb/demo
+
+## Backend Python
+
+- From the repository root, run backend Python code and tools as `backend/.venv/bin/python -m <module>`.
+- From `backend/`, run them as `.venv/bin/python -m <module>`.
+- Run backend tests with the corresponding `python -m pytest <args>` form for the current directory.
+- Never activate the virtual environment with `source`.
+- Run `scripts/setup-backend-venv` only to create or rebuild that environment.

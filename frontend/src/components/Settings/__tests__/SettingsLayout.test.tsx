@@ -20,8 +20,8 @@ function renderSettingsLayout(initialEntries: string[]) {
     <SambeeThemeProvider>
       <MemoryRouter initialEntries={initialEntries}>
         <Routes>
+          <Route path="/browse" element={<div>File browser</div>} />
           <Route path="/settings" element={<SettingsLayout />}>
-            <Route index element={<div>Settings home</div>} />
             <Route path="appearance" element={<div>Appearance page</div>} />
             <Route path="connections" element={<div>Connections page</div>} />
             <Route path="connections/local-drives" element={<div>Local Drives page</div>} />
@@ -46,16 +46,16 @@ describe("SettingsLayout", () => {
     expect(screen.queryByText("Local Drives page")).not.toBeInTheDocument();
   });
 
-  it("returns from a top-level settings page to the settings list on mobile", async () => {
+  it("returns from a top-level settings page through browser history on mobile", async () => {
     const user = userEvent.setup();
 
-    renderSettingsLayout(["/settings/appearance"]);
+    renderSettingsLayout(["/browse", "/settings/appearance"]);
 
     expect(screen.getByText("Appearance page")).toBeInTheDocument();
 
     await user.click(screen.getByRole("button", { name: /go back/i }));
 
-    expect(screen.getByText("Settings home")).toBeInTheDocument();
+    expect(screen.getByText("File browser")).toBeInTheDocument();
     expect(screen.queryByText("Appearance page")).not.toBeInTheDocument();
   });
 });

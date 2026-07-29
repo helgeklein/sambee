@@ -1,6 +1,7 @@
 import { Box, useMediaQuery, useTheme } from "@mui/material";
+import { SettingsCategoryDescription } from "../components/Settings/SettingsCategoryDescription";
 import { SettingsSectionHeader } from "../components/Settings/SettingsSectionHeader";
-import { getSettingsCategoryDescription, getSettingsCategoryLabel } from "../components/Settings/settingsNavigation";
+import { getSettingsCategoryLabel } from "../components/Settings/settingsNavigation";
 import { ConnectionSettings } from "./ConnectionSettings";
 
 interface ConnectionsSettingsProps {
@@ -24,7 +25,7 @@ export function ConnectionsSettings({
     <Box sx={{ height: "100%", display: "flex", flexDirection: "column", bgcolor: "background.default", overflow: "hidden" }}>
       <SettingsSectionHeader
         title={getSettingsCategoryLabel("connections")}
-        description={getSettingsCategoryDescription("connections")}
+        description={<SettingsCategoryDescription category="connections" />}
         dialogSafe={dialogSafeHeader}
         showTitle={isDesktop}
       />

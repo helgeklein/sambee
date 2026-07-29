@@ -25,12 +25,7 @@ import {
   type TypographyProps,
 } from "@mui/material";
 import type { KeyboardEventHandler, Ref } from "react";
-import {
-  getSettingsCategoryDescription,
-  getSettingsCategoryLabel,
-  type SettingsNavItem,
-  type VisibleSettingsSection,
-} from "./settingsNavigation";
+import { getSettingsCategoryLabel, type SettingsNavItem, type VisibleSettingsSection } from "./settingsNavigation";
 
 type Resolvable<T> = T | ((selected: boolean, item: SettingsNavItem) => T);
 
@@ -60,7 +55,6 @@ interface SettingsCategoryListProps {
   sections: VisibleSettingsSection[];
   onSelect: (item: SettingsNavItem) => void;
   selectedItem?: SettingsNavItem;
-  showDescriptions?: boolean;
   showChevron?: boolean;
   showDividers?: boolean;
   wrapItemsInListItem?: boolean;
@@ -135,7 +129,6 @@ export function SettingsCategoryList({
   sections,
   onSelect,
   selectedItem,
-  showDescriptions = false,
   showChevron = false,
   showDividers = false,
   wrapItemsInListItem = false,
@@ -198,10 +191,7 @@ export function SettingsCategoryList({
                 <ListItemIcon sx={resolveProp(itemIconSx, isSelected, category)}>
                   {renderCategoryIcon(category, parentIconGlyphSx)}
                 </ListItemIcon>
-                <ListItemText
-                  primary={<Typography {...parentTypographyProps}>{getSettingsCategoryLabel(category)}</Typography>}
-                  secondary={showDescriptions ? getSettingsCategoryDescription(category) : undefined}
-                />
+                <ListItemText primary={<Typography {...parentTypographyProps}>{getSettingsCategoryLabel(category)}</Typography>} />
                 {showChevron && <ChevronRightIcon sx={{ color: "text.secondary" }} />}
               </ListItemButton>
             );

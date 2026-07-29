@@ -98,6 +98,8 @@ OIDC_SESSION_INVALIDATING_FIELDS = frozenset(
         "groups_claim",
         "admission_mode",
         "admission_groups",
+        "role_assignment_mode",
+        "uniform_role",
         "role_mappings",
     }
 )
@@ -195,7 +197,11 @@ def _proposed_configuration(
         sign_in_mode=candidate.sign_in_mode,
         admission_mode=candidate.admission_mode,
         admission_groups_json=json.dumps(candidate.admission_groups),
-        role_mappings_json=json.dumps({"admin": candidate.admin_groups, "editor": candidate.editor_groups}),
+        role_assignment_mode=candidate.role_assignment_mode,
+        uniform_role=candidate.uniform_role,
+        role_mappings_json=json.dumps(
+            {"admin": candidate.admin_groups, "editor": candidate.editor_groups, "viewer": candidate.viewer_groups}
+        ),
         configuration_revision=candidate.configuration_revision,
         identity_mapping_revision=identity_mapping_revision,
         updated_by_user_id=updated_by_user_id,
@@ -364,7 +370,7 @@ async def get_oidc_test_result(
         identity_mapping_revision=active.identity_mapping_revision if active is not None else 0,
     )
     try:
-        evaluation = evaluate_oidc_access(proposed, claims.groups)
+        evaluation = evaluate_oidc_access(proposed, claims.groups, individual_role=UserRole.ADMIN)
     except OidcIdentityError:
         evaluation = None
     needs_mapping_review = active is None or flow.intent == OidcFlowIntent.REPLACE_IDENTITY_NAMESPACE
@@ -398,7 +404,6 @@ async def get_oidc_test_result(
         groups=list(claims.groups),
         admitted=evaluation is not None,
         matching_admission_group=evaluation.matching_admission_group if evaluation is not None else None,
-        resulting_role=evaluation.role if evaluation is not None else None,
         affected_account_count=len(affected_user_ids),
         acting_administrator_affected=current_user.id in affected_user_ids,
         expires_at=flow.expires_at,
@@ -512,7 +517,7 @@ async def finalize_oidc_configuration(
         identity_mapping_revision=active.identity_mapping_revision if active is not None else 0,
     )
     try:
-        role = resolve_oidc_role(proposed, tested.groups)
+        role = resolve_oidc_role(proposed, tested.groups, individual_role=UserRole.ADMIN)
     except OidcIdentityError as error:
         raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="Tested administrator is not admitted") from error
     if role != UserRole.ADMIN:
@@ -600,6 +605,23 @@ async def finalize_oidc_configuration(
     ):
         session.rollback()
         raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="oidc_initiating_administrator_unavailable")
+    if initiating_admin.oidc_role_assignment != UserRole.ADMIN:
+        previous_assignment = initiating_admin.oidc_role_assignment
+        initiating_admin.oidc_role_assignment = UserRole.ADMIN
+        initiating_admin.token_version += 1
+        session.add(initiating_admin)
+        write_audit_event(
+            session,
+            event_name=AuditEventName.USER_ROLE_ASSIGNMENT_CHANGED,
+            result=AuditResult.SUCCEEDED,
+            details=AuditDetails(
+                selected_role=UserRole.ADMIN.value,
+                changed_fields=(previous_assignment.value if previous_assignment is not None else "group_based",),
+            ),
+            acting_user_id=current_user.id,
+            affected_user_id=current_user.id,
+            provider_configuration_id=active.id if active is not None else None,
+        )
 
     immutable_mapping_affected_user_ids: set[uuid.UUID] = set()
     mappings_changed = False

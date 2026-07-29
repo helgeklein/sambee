@@ -1,10 +1,11 @@
 import { Box, TextField, useMediaQuery, useTheme } from "@mui/material";
 import { useEffect, useState } from "react";
 import { useTranslation } from "react-i18next";
+import { SettingsCategoryDescription } from "../components/Settings/SettingsCategoryDescription";
 import { SettingsFieldHelp } from "../components/Settings/SettingsFieldHelp";
 import { SettingsGroup } from "../components/Settings/SettingsGroup";
 import { SettingsSectionHeader } from "../components/Settings/SettingsSectionHeader";
-import { getSettingsCategoryDescription, getSettingsCategoryLabel } from "../components/Settings/settingsNavigation";
+import { getSettingsCategoryLabel } from "../components/Settings/settingsNavigation";
 import { useTextEditorMaxFileSizeBytesPreference } from "./FileBrowser/preferences";
 
 const BYTES_PER_MEGABYTE = 1024 * 1024;
@@ -26,7 +27,7 @@ export function TextEditorSettings() {
     <Box sx={{ height: "100%", display: "flex", flexDirection: "column", bgcolor: "background.default", overflow: "hidden" }}>
       <SettingsSectionHeader
         title={getSettingsCategoryLabel("text-editor")}
-        description={getSettingsCategoryDescription("text-editor")}
+        description={<SettingsCategoryDescription category="text-editor" />}
         showTitle={!isMobile}
       />
       <Box sx={{ flex: 1, overflow: "auto", px: { xs: 2, sm: 3, md: 4 }, pb: 3 }}>

@@ -51,6 +51,10 @@ def load_toml_config(config_file: Path) -> dict[str, Any]:
         app = toml_data["app"]
         if "log_level" in app:
             flat_config["log_level"] = app["log_level"]
+        if "access_log_level" in app:
+            flat_config["access_log_level"] = app["access_log_level"]
+        if "protocol_log_level" in app:
+            flat_config["protocol_log_level"] = app["protocol_log_level"]
 
     # Auth settings (check here first, then security section for backwards compatibility)
     if "auth" in toml_data:
@@ -172,11 +176,13 @@ class Settings(BaseModel):
 
     # App settings
     log_level: str = "INFO"
+    access_log_level: str = "WARNING"
+    protocol_log_level: str = "WARNING"
 
     # Auth method - must be set via config or environment variable
     auth_method: AuthMethod = AuthMethod.PASSWORD
 
-    @field_validator("log_level", "frontend_log_level", "frontend_tracing_level")
+    @field_validator("log_level", "access_log_level", "protocol_log_level", "frontend_log_level", "frontend_tracing_level")
     @classmethod
     def validate_log_level(cls, v: str) -> str:
         """Validate and normalize log level to uppercase.

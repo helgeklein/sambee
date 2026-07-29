@@ -3,12 +3,10 @@ import { useCallback, useEffect, useState } from "react";
 import { SettingsGroup } from "../components/Settings/SettingsGroup";
 import { SettingsPage } from "../components/Settings/SettingsPage";
 import { loadNetworkSettingsData, SETTINGS_DATA_CACHE_KEYS } from "../components/Settings/settingsDataSources";
-import { useCachedAsyncData } from "../hooks/useCachedAsyncData";
+import { clearCachedAsyncData, useCachedAsyncData } from "../hooks/useCachedAsyncData";
 import api from "../services/api";
 import type { NetworkSettings as NetworkSettingsData } from "../types";
 import { getApiErrorMessage } from "../utils/apiErrors";
-
-const CALLBACK_PATH = "/api/auth/oidc/callback";
 
 export function NetworkSettings() {
   const [publicUrl, setPublicUrl] = useState("");
@@ -48,6 +46,7 @@ export function NetworkSettings() {
           .map((value) => value.trim())
           .filter(Boolean),
       });
+      clearCachedAsyncData(SETTINGS_DATA_CACHE_KEYS.adminAuthentication);
       setSettings(updated);
       setPublicUrl(updated.public_url);
       setTrustedProxyCidrs(updated.trusted_proxy_cidrs.join("\n"));
@@ -69,7 +68,7 @@ export function NetworkSettings() {
       <Stack spacing={2.5}>
         {error && <Alert severity="error">{error}</Alert>}
         {notice && <Alert severity="success">{notice}</Alert>}
-        <SettingsGroup title="External origin" description="Set the HTTPS origin Sambee presents to OpenID Connect providers.">
+        <SettingsGroup title="External origin" description="Set the URL Sambee presents to external services.">
           <Stack spacing={2}>
             <TextField
               required
@@ -79,14 +78,6 @@ export function NetworkSettings() {
               onChange={(event) => setPublicUrl(event.target.value)}
               helperText="The externally reachable HTTPS origin, without a path. Changing it cancels incomplete OIDC sign-ins."
             />
-            {publicUrl.trim() && (
-              <TextField
-                fullWidth
-                label="OIDC callback URI"
-                value={`${publicUrl.trim().replace(/\/$/, "")}${CALLBACK_PATH}`}
-                slotProps={{ input: { readOnly: true } }}
-              />
-            )}
           </Stack>
         </SettingsGroup>
         <SettingsGroup

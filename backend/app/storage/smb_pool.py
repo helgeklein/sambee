@@ -119,10 +119,10 @@ class SMBConnectionPool:
                 conn = self._connections[pool_key]
                 conn.reference_count += 1
                 conn.last_used = datetime.now()
-                logger.info(f"Reusing pooled connection: {host}:{port}/{share_name} (refs={conn.reference_count})")
+                logger.debug(f"Reusing pooled connection: {host}:{port}/{share_name} (refs={conn.reference_count})")
             else:
                 # Create new connection
-                logger.info(f"Creating new pooled connection: {host}:{port}/{share_name}")
+                logger.debug(f"Creating new pooled connection: {host}:{port}/{share_name}")
 
                 # Register session with smbclient (establishes connection)
                 try:
@@ -154,7 +154,7 @@ class SMBConnectionPool:
                 )
                 self._connections[pool_key] = conn
 
-                logger.info(f"SMB connection pooled: {host}:{port}/{share_name}")
+                logger.debug(f"SMB connection pooled: {host}:{port}/{share_name}")
 
         try:
             # Yield control to caller (connection is ready)
@@ -193,7 +193,7 @@ class SMBConnectionPool:
             # Remove idle connections
             for pool_key in to_remove:
                 conn = self._connections[pool_key]
-                logger.info(
+                logger.debug(
                     f"Removing idle connection: {conn.host}:{conn.port}/{conn.share_name} "
                     f"(idle for {(now - conn.last_used).total_seconds():.0f}s)"
                 )

@@ -30,18 +30,16 @@ from datetime import datetime, timedelta, timezone
 from secrets import token_urlsafe
 from typing import Any, Literal, NoReturn
 
-import jwt
 from fastapi import APIRouter, Body, Depends, File, Form, HTTPException, Query, UploadFile, status
 from fastapi.responses import StreamingResponse
-from jwt.exceptions import ExpiredSignatureError, InvalidTokenError
+from joserfc.errors import ExpiredTokenError, JoseError
 from pydantic import BaseModel
 from sqlalchemy.exc import IntegrityError
 from sqlmodel import Session, select
 
 from app.api._smb_helpers import build_smb_backend, disconnect_backend_safely
-from app.core.config import settings, static
 from app.core.logging import format_audit_fields, get_logger, set_user
-from app.core.security import create_access_token, get_current_user_with_auth_check, is_user_expired, oauth2_scheme
+from app.core.security import create_access_token, decode_access_token, get_current_user_with_auth_check, is_user_expired, oauth2_scheme
 from app.db.database import get_session
 from app.models.companion_uri_token_jti import CompanionUriTokenJti
 from app.models.edit_lock import HEARTBEAT_TIMEOUT_SECONDS, EditLock
@@ -349,8 +347,8 @@ def _get_current_companion_bootstrap_user(
     )
 
     try:
-        payload = jwt.decode(companion_bootstrap_token, settings.secret_key, algorithms=[static.algorithm])
-    except InvalidTokenError:
+        payload = decode_access_token(companion_bootstrap_token)
+    except JoseError:
         logger.warning("Companion lock bootstrap failed: invalid JWT")
         raise credentials_exception
 
@@ -448,15 +446,15 @@ def _get_current_companion_operation_claims(
     """Validate an operation-scoped companion token and return the user plus decoded claims."""
 
     try:
-        payload: dict[str, Any] = jwt.decode(operation_session, settings.secret_key, algorithms=[static.algorithm])
-    except ExpiredSignatureError:
+        payload = decode_access_token(operation_session)
+    except ExpiredTokenError:
         logger.warning("Companion operation request failed: operation token expired")
         _raise_companion_operation_error(
             status_code=status.HTTP_401_UNAUTHORIZED,
             code=COMPANION_ERROR_RECOVERY_REQUIRED,
             message="The companion edit session expired and can no longer be resumed. Reopen the file from Sambee and try again.",
         )
-    except InvalidTokenError:
+    except JoseError:
         logger.warning("Companion operation request failed: invalid JWT")
         _raise_companion_operation_error(
             status_code=status.HTTP_401_UNAUTHORIZED,
@@ -725,8 +723,8 @@ async def exchange_companion_token(
     )
 
     try:
-        payload = jwt.decode(body.token, settings.secret_key, algorithms=[static.algorithm])
-    except InvalidTokenError:
+        payload = decode_access_token(body.token)
+    except JoseError:
         logger.warning("Companion token exchange failed: invalid JWT")
         raise credentials_exception
 

@@ -87,7 +87,7 @@ async def list_directory(
         # Feed discovered directories into the directory cache (if active)
         _update_directory_cache_from_listing(str(connection_id), listing)
 
-        logger.info(f"Successfully listed directory: connection_id={connection_id}, path='{path}', items={len(listing.items)}")
+        logger.debug(f"Successfully listed directory: connection_id={connection_id}, path='{path}', items={len(listing.items)}")
         return listing
 
     except asyncio.TimeoutError:
@@ -162,7 +162,7 @@ async def get_file_info(
     # Set user context for logging
     set_user(current_user.username)
 
-    logger.info(f"Getting file info: connection_id={connection_id}, path='{path}'")
+    logger.debug(f"Getting file info: connection_id={connection_id}, path='{path}'")
 
     connection = _get_connection_or_404(session, current_user, connection_id)
 
@@ -179,7 +179,7 @@ async def get_file_info(
                 context=f"file info request: connection_id={connection_id}, path='{path}'",
             )
 
-        logger.info(f"Successfully retrieved file info: connection_id={connection_id}, path='{path}', type={file_info.type}")
+        logger.debug(f"Successfully retrieved file info: connection_id={connection_id}, path='{path}', type={file_info.type}")
         return file_info
 
     except FileNotFoundError:

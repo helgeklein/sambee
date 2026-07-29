@@ -14,13 +14,14 @@ import {
 } from "@mui/material";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { useTranslation } from "react-i18next";
+import { SettingsCategoryDescription } from "../components/Settings/SettingsCategoryDescription";
 import { SettingsInlineAlert, SettingsNotificationSnackbar, type SettingsNotificationState } from "../components/Settings/SettingsFeedback";
 import { SettingsGroup } from "../components/Settings/SettingsGroup";
 import { SettingsSectionHeader } from "../components/Settings/SettingsSectionHeader";
 import { SettingsLoadingState } from "../components/Settings/SettingsState";
 import { settingsPrimaryButtonSx, settingsUtilityButtonSx } from "../components/Settings/settingsButtonStyles";
 import { loadAdvancedSettingsData, SETTINGS_DATA_CACHE_KEYS } from "../components/Settings/settingsDataSources";
-import { getSettingsCategoryDescription, getSettingsCategoryLabel } from "../components/Settings/settingsNavigation";
+import { getSettingsCategoryLabel } from "../components/Settings/settingsNavigation";
 import { useCachedAsyncData } from "../hooks/useCachedAsyncData";
 import { translate } from "../i18n";
 import api from "../services/api";
@@ -535,7 +536,7 @@ export function AdvancedSettings({ dialogSafeHeader = false }: AdvancedSettingsP
     >
       <SettingsSectionHeader
         title={getSettingsCategoryLabel("admin-system")}
-        description={getSettingsCategoryDescription("admin-system")}
+        description={<SettingsCategoryDescription category="admin-system" />}
         dialogSafe={dialogSafeHeader}
         showTitle={!isMobile}
         actions={isMobile ? undefined : saveAction}

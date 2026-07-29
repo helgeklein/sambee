@@ -1,7 +1,8 @@
 import { Box, type SxProps, type Theme, useMediaQuery, useTheme } from "@mui/material";
 import type { ReactNode } from "react";
+import { SettingsCategoryDescription } from "./SettingsCategoryDescription";
 import { SettingsSectionHeader } from "./SettingsSectionHeader";
-import { getSettingsCategoryDescription, getSettingsCategoryLabel, type SettingsCategory } from "./settingsNavigation";
+import { getSettingsCategoryLabel, type SettingsCategory } from "./settingsNavigation";
 
 interface SettingsPageProps {
   category: SettingsCategory;
@@ -33,7 +34,7 @@ export function SettingsPage({ category, children, description, actions, dialogS
     <Box sx={{ height: "100%", display: "flex", flexDirection: "column", bgcolor: "background.default", overflow: "hidden" }}>
       <SettingsSectionHeader
         title={getSettingsCategoryLabel(category)}
-        description={description ?? getSettingsCategoryDescription(category)}
+        description={description ?? <SettingsCategoryDescription category={category} />}
         actions={isMobile ? undefined : actions}
         dialogSafe={dialogSafeHeader}
         showTitle={!isMobile}

@@ -92,7 +92,7 @@ class DirectoryMonitor:
             # If already monitoring, just update subscriber count
             if key in self._monitors:
                 self._monitors[key].subscriber_count += 1
-                logger.info(f"Increased subscriber count for {key} to {self._monitors[key].subscriber_count}")
+                logger.debug(f"Increased subscriber count for {key} to {self._monitors[key].subscriber_count}")
                 return
 
             # Create new monitor
@@ -109,7 +109,7 @@ class DirectoryMonitor:
                 )
                 monitor.start()
                 self._monitors[key] = monitor
-                logger.info(f"Started monitoring: {key}")
+                logger.debug(f"Started monitoring: {key}")
             except Exception as e:
                 logger.error(f"Failed to start monitoring {key}: {e}", exc_info=True)
                 raise
@@ -130,14 +130,14 @@ class DirectoryMonitor:
 
         with self._lock:
             if key not in self._monitors:
-                logger.warning(f"Attempted to stop monitoring non-existent key: {key}")
+                logger.debug(f"Attempted to stop monitoring non-existent key: {key}")
                 return
 
             monitor = self._monitors[key]
             monitor.subscriber_count -= 1
 
             if monitor.subscriber_count <= 0:
-                logger.info(f"Stopping monitoring: {key}")
+                logger.debug(f"Stopping monitoring: {key}")
                 try:
                     monitor.stop()
                 except Exception as e:
@@ -145,7 +145,7 @@ class DirectoryMonitor:
                 finally:
                     del self._monitors[key]
             else:
-                logger.info(f"Decreased subscriber count for {key} to {monitor.subscriber_count}")
+                logger.debug(f"Decreased subscriber count for {key} to {monitor.subscriber_count}")
 
     #
     # stop_all
@@ -486,7 +486,7 @@ class MonitoredDirectory:
                 exc_info=True,
             )
         finally:
-            logger.info("Monitor loop stopped for %s:%s", self.connection_id, self.path)
+            logger.debug("Monitor loop stopped for %s:%s", self.connection_id, self.path)
 
     #
     # _get_action_name

@@ -112,15 +112,17 @@ title = "Network and Reverse Proxy"
 [pages.admin-guide.network-and-reverse-proxy]
 items = [
   "put-sambee-behind-a-reverse-proxy",
+  "network-settings",
 ]
 
 [[sections.admin-guide.items]]
-slug = "configuration"
-title = "Configuration"
+slug = "authentication"
+title = "Authentication"
 
-[pages.admin-guide.configuration]
+[pages.admin-guide.authentication]
 items = [
-  "configuration-key-reference",
+  "authentication-overview",
+  "password-authentication",
   "openid-connect",
 ]
 
@@ -141,6 +143,7 @@ title = "Reference"
 
 [pages.admin-guide.reference]
 items = [
+  "configuration-file-reference",
   "port-and-path-reference",
   "companion-support-reference",
 ]

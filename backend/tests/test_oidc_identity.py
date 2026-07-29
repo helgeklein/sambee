@@ -4,7 +4,13 @@ import pytest
 from sqlmodel import Session, select
 
 from app.models.audit import AuditEvent
-from app.models.oidc import OidcAdmissionMode, OidcIdentity, OidcPendingIdentityMapping, OidcProviderConfiguration
+from app.models.oidc import (
+    OidcAdmissionMode,
+    OidcIdentity,
+    OidcPendingIdentityMapping,
+    OidcProviderConfiguration,
+    OidcRoleAssignmentMode,
+)
 from app.models.user import User, UserRole
 from app.services.oidc_client import NormalizedOidcClaims
 from app.services.oidc_identity import (
@@ -22,6 +28,7 @@ def _configuration(
     admission_groups: list[str] | None = None,
     admin_groups: list[str] | None = None,
     editor_groups: list[str] | None = None,
+    viewer_groups: list[str] | None = None,
 ) -> OidcProviderConfiguration:
     configuration = OidcProviderConfiguration(
         display_name="Example IDP",
@@ -29,7 +36,8 @@ def _configuration(
         client_id="sambee",
         admission_mode=OidcAdmissionMode.SELECTED_GROUPS,
         admission_groups_json=json.dumps(admission_groups or ["Sambee Users"]),
-        role_mappings_json=json.dumps({"admin": admin_groups or [], "editor": editor_groups or []}),
+        role_assignment_mode=OidcRoleAssignmentMode.GROUP_BASED,
+        role_mappings_json=json.dumps({"admin": admin_groups or [], "editor": editor_groups or [], "viewer": viewer_groups or []}),
     )
     session.add(configuration)
     session.commit()
@@ -59,6 +67,58 @@ def test_role_resolution_normalizes_groups_and_uses_highest_privilege(session: S
     role = resolve_oidc_role(configuration, ("sambee users", "editors", "PLATFORM ADMINS"))
 
     assert role == UserRole.ADMIN
+
+
+def test_role_resolution_grants_viewer_and_denies_nonmatching_groups(session: Session) -> None:
+    configuration = _configuration(session, viewer_groups=["Viewers"])
+    configuration.admission_mode = OidcAdmissionMode.ALL_IDP_USERS
+    session.add(configuration)
+    session.commit()
+
+    assert resolve_oidc_role(configuration, ("viewers",)) == UserRole.VIEWER
+    with pytest.raises(OidcIdentityError) as error:
+        resolve_oidc_role(configuration, ("other users",))
+    assert error.value.code == OidcIdentityErrorCode.NO_ROLE_ASSIGNMENT
+
+
+def test_individual_role_assignment_allows_access_without_groups(session: Session) -> None:
+    configuration = _configuration(session, admission_groups=[])
+    configuration.admission_mode = OidcAdmissionMode.ALL_IDP_USERS
+    session.add(configuration)
+    session.commit()
+
+    assert resolve_oidc_role(configuration, (), individual_role=UserRole.EDITOR) == UserRole.EDITOR
+
+
+def test_uniform_role_assignment_applies_without_groups(session: Session) -> None:
+    configuration = _configuration(session)
+    configuration.admission_mode = OidcAdmissionMode.ALL_IDP_USERS
+    configuration.role_assignment_mode = OidcRoleAssignmentMode.UNIFORM
+    configuration.uniform_role = UserRole.EDITOR
+    session.add(configuration)
+    session.commit()
+
+    assert resolve_oidc_role(configuration, ()) == UserRole.EDITOR
+
+
+def test_individual_role_assignment_overrides_uniform_and_group_roles(session: Session) -> None:
+    configuration = _configuration(session, admin_groups=["Administrators"])
+    configuration.admission_mode = OidcAdmissionMode.ALL_IDP_USERS
+    configuration.role_assignment_mode = OidcRoleAssignmentMode.UNIFORM
+    configuration.uniform_role = UserRole.VIEWER
+    session.add(configuration)
+    session.commit()
+
+    assert resolve_oidc_role(configuration, ("administrators",), individual_role=UserRole.EDITOR) == UserRole.EDITOR
+
+
+def test_individual_role_assignment_does_not_bypass_selected_group_admission(session: Session) -> None:
+    configuration = _configuration(session, admission_groups=["Sambee Users"])
+
+    with pytest.raises(OidcIdentityError) as error:
+        resolve_oidc_role(configuration, ("other users",), individual_role=UserRole.ADMIN)
+
+    assert error.value.code == OidcIdentityErrorCode.NOT_ADMITTED
 
 
 def test_all_provider_users_does_not_report_an_admission_group_match(session: Session) -> None:
@@ -93,7 +153,7 @@ def test_unmapped_identity_provisions_passwordless_user_and_audits(session: Sess
 
 
 def test_unmapped_identity_never_auto_links_username_collision(session: Session) -> None:
-    configuration = _configuration(session)
+    configuration = _configuration(session, viewer_groups=["Sambee Users"])
     session.add(User(username="alice", password_hash="local-password-hash"))
     session.commit()
 
