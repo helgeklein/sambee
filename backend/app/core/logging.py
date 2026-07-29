@@ -93,6 +93,68 @@ def format_audit_fields(**fields: Any) -> str:
     return ", ".join(formatted_fields)
 
 
+class UvicornProtocolLogFilter(logging.Filter):
+    """Apply a separate threshold to routine Uvicorn WebSocket lifecycle records."""
+
+    _FRAME_PREFIXES = (
+        "> TEXT ",
+        "< TEXT ",
+        "> BINARY ",
+        "< BINARY ",
+        "> PING ",
+        "< PING ",
+        "> PONG ",
+        "< PONG ",
+        "> CLOSE ",
+        "< CLOSE ",
+    )
+
+    def __init__(self, protocol_log_level: int) -> None:
+        super().__init__()
+        self.protocol_log_level = protocol_log_level
+
+    def filter(self, record: logging.LogRecord) -> bool:
+        message = record.getMessage()
+        is_protocol_message = (
+            message in {"connection open", "connection closed"}
+            or ("WebSocket " in message and "[accepted]" in message)
+            or message.startswith(self._FRAME_PREFIXES)
+        )
+        return not is_protocol_message or record.levelno >= self.protocol_log_level
+
+
+def configure_uvicorn_loggers(
+    handlers: list[logging.Handler],
+    log_format: str,
+    application_log_level: int,
+    access_log_level: int,
+    protocol_log_level: int,
+) -> None:
+    """Configure Uvicorn access, protocol, and lifecycle log routing."""
+
+    def configure_logger(logger_name: str, level: int, protocol_filter: UvicornProtocolLogFilter | None = None) -> None:
+        logger = logging.getLogger(logger_name)
+        logger.setLevel(level)
+        logger.handlers.clear()
+        for handler in handlers:
+            configured_handler = logging.StreamHandler(handler.stream) if isinstance(handler, logging.StreamHandler) else handler
+            formatter = (
+                logging.Formatter(log_format.replace("%(name)s", "uvicorn"))
+                if logger_name == "uvicorn.error"
+                else logging.Formatter(log_format)
+            )
+            configured_handler.setFormatter(formatter)
+            if protocol_filter is not None:
+                configured_handler.addFilter(protocol_filter)
+            logger.addHandler(configured_handler)
+        logger.propagate = False
+
+    protocol_filter = UvicornProtocolLogFilter(protocol_log_level)
+    configure_logger("uvicorn", application_log_level, protocol_filter)
+    configure_logger("uvicorn.error", application_log_level, protocol_filter)
+    configure_logger("uvicorn.access", access_log_level)
+
+
 class ContextAdapter(logging.LoggerAdapter[logging.Logger]):
     """
     Logging adapter that automatically adds request context to log messages.

@@ -35,7 +35,9 @@ const configuration = (displayName: string): RedactedOidcConfiguration => ({
   sign_in_mode: "oidc_or_password",
   admission_mode: "selected_groups",
   admission_groups: ["sambee-users"],
-  role_mappings: { admin: ["sambee-admins"], editor: [] },
+  role_assignment_mode: "group_based",
+  uniform_role: "editor",
+  role_mappings: { admin: ["sambee-admins"], editor: [], viewer: [] },
   configuration_revision: 2,
   identity_mapping_revision: 1,
 });
@@ -58,6 +60,8 @@ const reviewedPolicy = (value: RedactedOidcConfiguration): OidcReviewedPolicy =>
   sign_in_mode: value.sign_in_mode,
   admission_mode: value.admission_mode,
   admission_groups: value.admission_groups,
+  role_assignment_mode: value.role_assignment_mode,
+  uniform_role: value.uniform_role,
   role_mappings: value.role_mappings,
 });
 
@@ -68,7 +72,6 @@ const testedIdentity = (overrides: Partial<OidcTestedIdentity> = {}): OidcTested
   expected_identity_mapping_revision: 1,
   admitted: true,
   matching_admission_group: "sambee-users",
-  resulting_role: "admin",
   affected_account_count: 1,
   acting_administrator_affected: true,
   username: "admin",
@@ -116,7 +119,7 @@ describe("Authentication settings", () => {
 
     renderSettings();
 
-    expect(await screen.findByText("Configure password and OpenID Connect sign-in (see the", { exact: false })).toBeInTheDocument();
+    expect(await screen.findByText("Configure sign-in methods", { exact: false })).toBeInTheDocument();
     const guide = await screen.findByRole("link", { name: "OpenID Connect setup guide" });
     expect(guide).toHaveAttribute("href", "https://sambee.net/mr/help-oidc-setup");
     expect(guide).toHaveAttribute("target", "_blank");
@@ -137,7 +140,6 @@ describe("Authentication settings", () => {
       expected_identity_mapping_revision: 1,
       admitted: true,
       matching_admission_group: "sambee-users",
-      resulting_role: "admin",
       affected_account_count: 1,
       acting_administrator_affected: true,
       username: "admin",
@@ -173,7 +175,6 @@ describe("Authentication settings", () => {
       expected_identity_mapping_revision: 1,
       admitted: true,
       matching_admission_group: "sambee-users",
-      resulting_role: "admin",
       affected_account_count: 1,
       acting_administrator_affected: true,
       username: "admin",
@@ -306,7 +307,7 @@ describe("Authentication settings", () => {
     expect(await screen.findByText("Sign in again")).toBeInTheDocument();
   });
 
-  it("shows identity evaluation and requires explicit administrator activation confirmation", async () => {
+  it("shows identity evaluation and requires explicit activation confirmation", async () => {
     const user = userEvent.setup();
     const confirm = vi.spyOn(window, "confirm").mockReturnValue(false);
     vi.mocked(api.getOidcConfiguration).mockResolvedValue(response(configuration("Active Provider")));
@@ -316,7 +317,6 @@ describe("Authentication settings", () => {
 
     expect(await screen.findByText("Admission: Allowed")).toBeInTheDocument();
     expect(screen.getByText("Matching admission group: sambee-users")).toBeInTheDocument();
-    expect(screen.getByText("Resulting role: admin")).toBeInTheDocument();
     expect(screen.getByText("Account mapping does not override the admission policy.")).toBeInTheDocument();
     await user.click(screen.getByRole("button", { name: "Activate configuration" }));
 
@@ -348,14 +348,14 @@ describe("Authentication settings", () => {
     expect(screen.getByRole("button", { name: "Activate configuration" })).toBeEnabled();
   });
 
-  it("blocks activation when the tested identity is not an admitted administrator", async () => {
+  it("blocks activation when the tested identity does not pass admission", async () => {
     vi.mocked(api.getOidcConfiguration).mockResolvedValue(response(configuration("Active Provider")));
-    vi.mocked(api.getOidcTestResult).mockResolvedValue(testedIdentity({ admitted: false, resulting_role: null }));
+    vi.mocked(api.getOidcTestResult).mockResolvedValue(testedIdentity({ admitted: false }));
     window.location.hash = "flow=test-flow";
     renderSettings();
 
     expect(await screen.findByText("Admission: Denied")).toBeInTheDocument();
-    expect(screen.getByText(/must be admitted as an administrator/i)).toBeInTheDocument();
+    expect(screen.getByText(/must pass the admission rule/i)).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Activate configuration" })).toBeDisabled();
   });
 
@@ -408,7 +408,6 @@ describe("Authentication settings", () => {
       expected_identity_mapping_revision: 1,
       admitted: true,
       matching_admission_group: "sambee-users",
-      resulting_role: "admin",
       affected_account_count: 1,
       acting_administrator_affected: true,
       username: "admin",
@@ -466,7 +465,6 @@ describe("Authentication settings", () => {
       expected_identity_mapping_revision: 4,
       admitted: true,
       matching_admission_group: "sambee-users",
-      resulting_role: "admin",
       affected_account_count: 2,
       acting_administrator_affected: true,
       username: "admin",
@@ -923,10 +921,14 @@ describe("Authentication settings", () => {
     const connect = await screen.findByRole("button", { name: "Connect and test" });
     expect(connect).toBeEnabled();
     await user.type(screen.getByRole("textbox", { name: "Editor groups" }), "ＳＡＭＢＥＥ－ＡＤＭＩＮＳ");
-    expect(screen.getAllByText("A group cannot grant both administrator and editor roles.")).toHaveLength(2);
+    expect(screen.getAllByText("A group cannot grant more than one role.")).toHaveLength(3);
     expect(connect).toBeDisabled();
 
-    await user.clear(screen.getByRole("textbox", { name: "Editor groups" }));
+    await user.click(screen.getByRole("combobox", { name: "Role assignment" }));
+    await user.click(screen.getByRole("option", { name: "All users are assigned to the same role" }));
+    expect(screen.queryByRole("textbox", { name: "Editor groups" })).not.toBeInTheDocument();
+    expect(connect).toBeEnabled();
+
     await user.clear(screen.getByRole("textbox", { name: "Admission groups" }));
     expect(
       screen.getByText("Members of these groups can sign in. Enter at least one group name. Separate multiple groups by commas.")
@@ -934,7 +936,7 @@ describe("Authentication settings", () => {
     expect(connect).toBeDisabled();
   });
 
-  it("keeps default claims collapsed and explains group mappings", async () => {
+  it("keeps advanced claims collapsed and shows group mappings in role assignment", async () => {
     const user = userEvent.setup();
     vi.mocked(api.getOidcConfiguration).mockResolvedValue(response(configuration("Active Provider")));
     window.location.hash = "";
@@ -945,17 +947,9 @@ describe("Authentication settings", () => {
     expect(
       screen.getByText("Only members of these identity-provider groups can sign in. Enter exact group names, separated by commas.")
     ).toBeInTheDocument();
-    expect(
-      screen.getByText("Members of these groups are Sambee administrators. Enter exact group names, separated by commas.")
-    ).toBeInTheDocument();
-    expect(
-      screen.getByText(
-        "Members of these groups can edit content but cannot administer Sambee. Enter exact group names, separated by commas."
-      )
-    ).toBeInTheDocument();
-
     await user.click(screen.getByRole("button", { name: "Advanced claims" }));
     expect(screen.getByRole("textbox", { name: "Username claim" })).toHaveValue("preferred_username");
+    expect(screen.getByRole("textbox", { name: "Viewer groups" })).toBeInTheDocument();
   });
 
   it("discards the validated flow when a provider-bound claim changes", async () => {
@@ -999,7 +993,6 @@ describe("Authentication settings", () => {
       expected_identity_mapping_revision: 1,
       admitted: true,
       matching_admission_group: "sambee-users",
-      resulting_role: "admin",
       affected_account_count: 1,
       acting_administrator_affected: true,
       username: "admin",

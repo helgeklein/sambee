@@ -23,6 +23,7 @@ from app.models.user import (
     UserRole,
     build_admin_user_read,
 )
+from app.services.audit import AuditDetails, AuditEventName, AuditResult, write_audit_event
 from app.services.oidc_mapping import OidcMappingError, remove_user_oidc_state
 
 router = APIRouter()
@@ -168,6 +169,12 @@ async def update_user(
     next_name = user_data.name.strip() if user_data.name is not None else user.name
     next_email = user_data.email.strip().lower() if user_data.email is not None else user.email
     next_role = user_data.role or user.role
+    assignment_requested = "oidc_role_assignment" in user_data.model_fields_set
+    next_oidc_role_assignment = user_data.oidc_role_assignment if assignment_requested else user.oidc_role_assignment
+    if next_oidc_role_assignment is not None:
+        next_role = next_oidc_role_assignment
+    elif assignment_requested and user.oidc_role_assignment is not None:
+        next_role = UserRole.VIEWER
     next_is_active = user.is_active if user_data.is_active is None else user_data.is_active
     next_expires_at = user.expires_at if user_data.expires_at is None else user_data.expires_at
 
@@ -193,6 +200,21 @@ async def update_user(
     user.name = next_name
     user.email = next_email
     user.role = next_role
+    if assignment_requested and user.oidc_role_assignment != next_oidc_role_assignment:
+        previous_assignment = user.oidc_role_assignment
+        user.oidc_role_assignment = next_oidc_role_assignment
+        user.token_version += 1
+        write_audit_event(
+            session,
+            event_name=AuditEventName.USER_ROLE_ASSIGNMENT_CHANGED,
+            result=AuditResult.SUCCEEDED,
+            details=AuditDetails(
+                selected_role=next_oidc_role_assignment.value if next_oidc_role_assignment is not None else None,
+                changed_fields=(previous_assignment.value if previous_assignment is not None else "configured",),
+            ),
+            acting_user_id=current_user.id,
+            affected_user_id=user.id,
+        )
     user.is_active = next_is_active
     user.expires_at = next_expires_at
     user.updated_at = datetime.now(timezone.utc)

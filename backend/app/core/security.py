@@ -4,13 +4,15 @@ from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
 from typing import Any, Optional
 
-import jwt
 from argon2 import PasswordHasher
 from argon2.exceptions import VerifyMismatchError
 from cryptography.fernet import Fernet
 from fastapi import Depends, HTTPException, status
 from fastapi.security import OAuth2PasswordBearer
-from jwt.exceptions import InvalidTokenError
+from joserfc import jwt
+from joserfc.errors import JoseError
+from joserfc.jwk import OctKey
+from joserfc.jwt import JWTClaimsRegistry
 from sqlmodel import Session, select
 
 from app.core.authorization import Capability, user_has_capability
@@ -161,8 +163,25 @@ def create_access_token(data: dict[str, Any], expires_delta: Optional[timedelta]
     else:
         expire = datetime.now(timezone.utc) + timedelta(minutes=15)
     to_encode.update({"exp": expire})
-    encoded_jwt: str = jwt.encode(to_encode, settings.secret_key, algorithm=static.algorithm)
-    return encoded_jwt
+    return jwt.encode(
+        {"alg": static.algorithm},
+        to_encode,
+        OctKey.import_key(settings.secret_key),
+        algorithms=[static.algorithm],
+    )
+
+
+def decode_access_token(token: str) -> dict[str, Any]:
+    """Decode and validate a locally issued JWT."""
+
+    decoded = jwt.decode(
+        token,
+        OctKey.import_key(settings.secret_key),
+        algorithms=[static.algorithm],
+    )
+    claims = dict(decoded.claims)
+    JWTClaimsRegistry().validate(claims)
+    return claims
 
 
 def build_user_access_token(user: User, expires_delta: Optional[timedelta] = None) -> str:
@@ -202,11 +221,11 @@ def _authenticate_browser_token(token: str, session: Session) -> BrowserAuthenti
     credentials_exception = _build_credentials_exception()
 
     try:
-        payload = jwt.decode(token, settings.secret_key, algorithms=[static.algorithm])
+        payload = decode_access_token(token)
         subject: str | None = payload.get("sub")
         if subject is None:
             raise credentials_exception
-    except InvalidTokenError:
+    except JoseError:
         raise credentials_exception
 
     _reject_non_browser_token(payload, credentials_exception)

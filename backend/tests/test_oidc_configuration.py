@@ -1,13 +1,14 @@
 import pytest
 from cryptography.fernet import Fernet
 
-from app.models.oidc import OidcProviderConfiguration, SignInMode
+from app.models.oidc import OidcProviderConfiguration, OidcRoleAssignmentMode, SignInMode
 from app.models.oidc_api import (
     AuthenticationHealthReason,
     AuthenticationHealthStatus,
     OidcConfigurationCandidate,
     OidcRoleMappings,
 )
+from app.models.user import UserRole
 from app.services.oidc_configuration import (
     OidcConfigurationError,
     OidcSecretCipher,
@@ -112,6 +113,15 @@ def test_candidate_omitted_secret_preserves_existing_ciphertext_value() -> None:
     assert "existing-secret" not in repr(normalized)
 
 
+def test_candidate_defaults_uniform_role_to_editor() -> None:
+    candidate = OidcConfigurationCandidate(
+        issuer_url="https://idp.example.test",
+        client_id="sambee",
+    )
+
+    assert candidate.uniform_role == UserRole.EDITOR
+
+
 def test_candidate_replacement_secret_is_tracked_and_snapshot_is_encrypted() -> None:
     cipher = OidcSecretCipher(Fernet.generate_key().decode("ascii"))
     active = _active_configuration(cipher)
@@ -136,7 +146,8 @@ def test_candidate_rejects_normalized_cross_role_group_collision() -> None:
     candidate = OidcConfigurationCandidate(
         issuer_url="https://idp.example.test",
         client_id="sambee",
-        role_mappings=OidcRoleMappings(admin=["Admin"], editor=["Ａｄｍｉｎ"]),
+        role_assignment_mode=OidcRoleAssignmentMode.GROUP_BASED,
+        role_mappings=OidcRoleMappings(admin=["Admin"], editor=["Ａｄｍｉｎ"], viewer=[]),
     )
 
     with pytest.raises(OidcConfigurationError):

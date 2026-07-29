@@ -1,4 +1,6 @@
 import base64
+import hashlib
+import hmac
 import json
 import time
 from collections import OrderedDict
@@ -10,8 +12,9 @@ from urllib.parse import urlsplit
 
 import httpx
 from authlib.integrations.httpx_client import OAuth2Client
-from authlib.jose import JsonWebKey, JsonWebToken
-from authlib.oidc.core import CodeIDToken
+from joserfc import jwt
+from joserfc.jwk import KeySet, KeySetSerialization
+from joserfc.jwt import JWTClaimsRegistry
 
 from app.core.environment import IS_DEVELOPMENT
 from app.services.oidc_http import (
@@ -280,6 +283,56 @@ def _jwks_contains_key(jwks: Mapping[str, Any], key_id: str | None) -> bool:
     return isinstance(keys, list) and any(isinstance(key, dict) and key.get("kid") == key_id for key in keys)
 
 
+def _validate_oidc_claims(
+    claims: dict[str, Any],
+    header: Mapping[str, Any],
+    *,
+    issuer: str,
+    client_id: str,
+    nonce: str,
+    access_token: str | None,
+    now: int,
+) -> None:
+    JWTClaimsRegistry(
+        now=now,
+        leeway=ID_TOKEN_CLOCK_SKEW_SECONDS,
+        iss={"essential": True, "value": issuer},
+        sub={"essential": True},
+        aud={"essential": True, "value": client_id},
+        exp={"essential": True},
+        iat={"essential": True},
+    ).validate(claims)
+    if claims.get("nonce") != nonce:
+        raise ValueError("OIDC ID token nonce does not match the authorization request")
+    auth_time = claims.get("auth_time")
+    if auth_time is not None and (isinstance(auth_time, bool) or not isinstance(auth_time, (int, float))):
+        raise ValueError("OIDC ID token authentication time is invalid")
+    authentication_methods = claims.get("amr")
+    if authentication_methods is not None and (
+        not isinstance(authentication_methods, list) or any(not isinstance(method, str) for method in authentication_methods)
+    ):
+        raise ValueError("OIDC ID token authentication methods are invalid")
+
+    audience = claims["aud"]
+    if isinstance(audience, list) and len(audience) == 1:
+        audience = audience[0]
+    if "azp" in claims:
+        authorized_party = claims["azp"]
+        if not isinstance(authorized_party, str) or authorized_party != client_id:
+            raise ValueError("OIDC ID token authorized party does not match the client")
+    elif audience != client_id:
+        raise ValueError("OIDC ID token is missing its authorized party")
+
+    access_token_hash = claims.get("at_hash")
+    if access_token_hash is not None:
+        if access_token is None or not isinstance(access_token_hash, str) or header.get("alg") != "RS256":
+            raise ValueError("OIDC ID token has an invalid access-token hash")
+        digest = hashlib.sha256(access_token.encode("ascii")).digest()
+        expected_hash = base64.urlsafe_b64encode(digest[: len(digest) // 2]).rstrip(b"=").decode("ascii")
+        if not hmac.compare_digest(access_token_hash, expected_hash):
+            raise ValueError("OIDC ID token access-token hash does not match")
+
+
 def _decode_id_token(
     encoded_token: str,
     jwks: dict[str, Any],
@@ -290,28 +343,27 @@ def _decode_id_token(
     access_token: str | None,
     now: int,
 ) -> dict[str, Any]:
-    validator = JsonWebToken(list(ALLOWED_ID_TOKEN_ALGORITHMS))
     try:
-        claims = validator.decode(
+        token = jwt.decode(
             encoded_token,
-            JsonWebKey.import_key_set(jwks),
-            claims_cls=CodeIDToken,
-            claims_options={
-                "iss": {"essential": True, "value": metadata.issuer},
-                "aud": {"essential": True, "value": client_id},
-                "sub": {"essential": True},
-                "exp": {"essential": True},
-                "iat": {"essential": True},
-            },
-            claims_params={"client_id": client_id, "nonce": nonce, "access_token": access_token},
+            KeySet.import_key_set(cast(KeySetSerialization, jwks)),
+            algorithms=ALLOWED_ID_TOKEN_ALGORITHMS,
         )
-        claims.validate(now=now, leeway=ID_TOKEN_CLOCK_SKEW_SECONDS)
+        _validate_oidc_claims(
+            token.claims,
+            token.header,
+            issuer=metadata.issuer,
+            client_id=client_id,
+            nonce=nonce,
+            access_token=access_token,
+            now=now,
+        )
     except Exception as error:
         raise OidcClientError(OidcClientErrorCode.INVALID_ID_TOKEN, "OIDC ID token validation failed") from error
-    issued_at = claims.get("iat")
+    issued_at = token.claims.get("iat")
     if not isinstance(issued_at, (int, float)) or issued_at > now + MAX_FUTURE_IAT_SECONDS:
         raise OidcClientError(OidcClientErrorCode.INVALID_ID_TOKEN, "OIDC ID token issued-at time is invalid")
-    return dict(claims)
+    return dict(token.claims)
 
 
 async def _load_userinfo(

@@ -11,9 +11,11 @@ Tests cover:
 - Error handling and edge cases
 """
 
+import asyncio
 import stat as stat_module
 from contextlib import asynccontextmanager
 from datetime import datetime
+from threading import Event
 from unittest.mock import MagicMock, patch
 
 import pytest
@@ -1309,23 +1311,60 @@ class TestDeleteItem:
         mock_rmdir.assert_called_once_with(r"\\server.local\share\folder")
 
     @pytest.mark.asyncio
-    @patch("app.storage.smb.smbclient.stat")
-    async def test_delete_timeout_raises(self, mock_stat):
-        """Test that a slow delete operation raises TimeoutError."""
-        import asyncio
-
-        mock_stat.return_value = MagicMock(st_mode=0)
-
+    async def test_delete_timeout_raises(self):
+        """Test that a slow delete operation raises TimeoutError without starting a worker."""
         backend = SMBBackend(
             host="server.local",
             share_name="share",
             username="user",
             password="pass",
         )
+        pending_operation = asyncio.get_running_loop().create_future()
 
-        with patch("asyncio.wait_for", side_effect=asyncio.TimeoutError()):
+        with (
+            patch("app.storage.smb.asyncio.get_running_loop") as mock_get_running_loop,
+            patch("app.storage.smb.asyncio.wait_for", side_effect=asyncio.TimeoutError()),
+        ):
+            mock_get_running_loop.return_value.run_in_executor.return_value = pending_operation
             with pytest.raises(TimeoutError, match="timed out"):
                 await backend.delete_item("/big-file.zip")
+
+        mock_get_running_loop.return_value.run_in_executor.assert_called_once()
+
+    @pytest.mark.asyncio
+    async def test_late_smb_worker_failure_is_logged_after_timeout(self):
+        started = Event()
+        complete = Event()
+
+        def delayed_failure() -> None:
+            started.set()
+            complete.wait()
+            raise OSError("late SMB failure")
+
+        backend = SMBBackend(host="server.local", share_name="share", username="user", password="pass")
+        operation_future = asyncio.get_running_loop().run_in_executor(None, delayed_failure)
+
+        with patch("app.storage.smb.logger.warning") as mock_warning:
+            with pytest.raises(asyncio.TimeoutError):
+                await backend._wait_for_blocking_smb_operation(
+                    operation_future,
+                    operation_name="test operation",
+                    smb_path=r"\\server.local\share\file.txt",
+                    timeout_seconds=0.001,
+                )
+
+            assert started.wait(timeout=1.0)
+            complete.set()
+            with pytest.raises(OSError, match="late SMB failure"):
+                await operation_future
+            await asyncio.sleep(0)
+
+        mock_warning.assert_any_call(
+            "SMB %s for '%s' failed after timing out",
+            "test operation",
+            r"\\server.local\share\file.txt",
+            exc_info=True,
+        )
 
     @pytest.mark.asyncio
     @patch("app.storage.smb.smbclient.stat")

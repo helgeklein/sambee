@@ -33,6 +33,18 @@ class User(SQLModel, table=True):
             default=UserRole.EDITOR,
         ),
     )
+    oidc_role_assignment: UserRole | None = Field(
+        default=None,
+        sa_column=Column(
+            SqlEnum(
+                UserRole,
+                values_callable=lambda enum_cls: [member.value for member in enum_cls],
+                native_enum=False,
+                validate_strings=True,
+            ),
+            nullable=True,
+        ),
+    )
     is_active: bool = Field(default=True, index=True)
     must_change_password: bool = Field(default=False)
     token_version: int = Field(default=0)
@@ -84,6 +96,7 @@ class AdminUserPendingOidcRead(SQLModel):
 class AdminUserRead(CurrentUserRead):
     updated_at: datetime
     has_local_password: bool
+    oidc_role_assignment: UserRole | None = None
     oidc: AdminUserOidcRead | None = None
     pending_oidc: AdminUserPendingOidcRead | None = None
 
@@ -103,6 +116,7 @@ class AdminUserUpdate(SQLModel):
     name: str | None = None
     email: str | None = None
     role: UserRole | None = None
+    oidc_role_assignment: UserRole | None = None
     is_active: bool | None = None
     expires_at: datetime | None = None
 
@@ -160,4 +174,5 @@ def build_admin_user_read(user: User) -> AdminUserRead:
         created_at=normalize_utc_datetime(user.created_at),
         updated_at=normalize_utc_datetime(user.updated_at),
         has_local_password=user.password_hash is not None,
+        oidc_role_assignment=user.oidc_role_assignment,
     )

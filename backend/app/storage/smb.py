@@ -25,6 +25,7 @@ SMB_READ_CHUNK_TIMEOUT_SECONDS = 30.0
 SMB_FILE_CLOSE_TIMEOUT_SECONDS = 5.0
 SMB_WRITE_FILE_TIMEOUT_SECONDS = 120.0
 SMB_EXISTS_TIMEOUT_SECONDS = 10.0
+SMB_DELETE_TIMEOUT_SECONDS = 120.0
 
 BlockingResultT = TypeVar("BlockingResultT")
 
@@ -162,7 +163,12 @@ class SMBBackend(StorageBackend):
         loop = asyncio.get_running_loop()
 
         try:
-            return await asyncio.wait_for(loop.run_in_executor(None, operation), timeout=timeout_seconds)
+            return await self._wait_for_blocking_smb_operation(
+                loop.run_in_executor(None, operation),
+                operation_name=operation_name,
+                smb_path=smb_path,
+                timeout_seconds=timeout_seconds,
+            )
         except asyncio.TimeoutError as exc:
             logger.error(
                 "Timeout during SMB %s for '%s' after %.1fs",
@@ -180,6 +186,42 @@ class SMBBackend(StorageBackend):
                 )
             raise TimeoutError(f"SMB operation timed out during {operation_name}") from exc
 
+    async def _wait_for_blocking_smb_operation(
+        self,
+        operation_future: asyncio.Future[BlockingResultT],
+        *,
+        operation_name: str,
+        smb_path: str,
+        timeout_seconds: float,
+    ) -> BlockingResultT:
+        try:
+            return await asyncio.wait_for(asyncio.shield(operation_future), timeout=timeout_seconds)
+        except asyncio.TimeoutError:
+            operation_future.add_done_callback(
+                lambda completed_operation: self._report_late_smb_operation_result(
+                    completed_operation,
+                    operation_name=operation_name,
+                    smb_path=smb_path,
+                )
+            )
+            raise
+
+    @staticmethod
+    def _report_late_smb_operation_result(
+        operation_future: asyncio.Future[BlockingResultT],
+        *,
+        operation_name: str,
+        smb_path: str,
+    ) -> None:
+        try:
+            operation_future.result()
+        except asyncio.CancelledError:
+            logger.warning("SMB %s for '%s' was cancelled after timing out", operation_name, smb_path)
+        except Exception:
+            logger.warning("SMB %s for '%s' failed after timing out", operation_name, smb_path, exc_info=True)
+        else:
+            logger.warning("SMB %s for '%s' completed after timing out", operation_name, smb_path)
+
     #
     # list_directory
     #
@@ -187,7 +229,7 @@ class SMBBackend(StorageBackend):
         """List contents of a directory"""
 
         smb_path = self._build_smb_path(path)
-        logger.info(f"Listing directory: path='{path}' -> smb_path='{smb_path}'")
+        logger.debug(f"Listing directory: path='{path}' -> smb_path='{smb_path}'")
 
         try:
             # Acquire connection from pool
@@ -531,13 +573,12 @@ class SMBBackend(StorageBackend):
     #
     # _remove_if_exists
     #
-    async def _remove_if_exists(self, loop: asyncio.AbstractEventLoop, smb_path: str) -> None:
+    async def _remove_if_exists(self, smb_path: str) -> None:
         """Remove *smb_path* (file or directory) if it exists.
 
         Used internally by copy/move/write operations when the caller
-        has requested overwrite semantics.  The caller must already hold
-        a pool connection — this helper runs synchronous SMB calls inside
-        the provided *loop* executor.
+        has requested overwrite semantics. The caller must already hold
+        a pool connection.
 
         Directory removal is depth-first (recursive).
         """
@@ -556,9 +597,11 @@ class SMBBackend(StorageBackend):
             else:
                 smbclient.remove(target)
 
-        await asyncio.wait_for(
-            loop.run_in_executor(None, _remove, smb_path),
-            timeout=120.0,
+        await self._run_blocking_smb_call(
+            "remove existing destination",
+            lambda: _remove(smb_path),
+            SMB_DELETE_TIMEOUT_SECONDS,
+            smb_path=smb_path,
         )
 
     #
@@ -633,7 +676,6 @@ class SMBBackend(StorageBackend):
                 password=self.password,
                 share_name=self.share_name,
             ):
-                loop = asyncio.get_event_loop()
 
                 def _delete_recursive(target: str) -> None:
                     """Depth-first removal of *target* (file or directory).
@@ -657,16 +699,18 @@ class SMBBackend(StorageBackend):
                     else:
                         smbclient.remove(target)
 
-                await asyncio.wait_for(
-                    loop.run_in_executor(None, _delete_recursive, smb_path),
-                    timeout=120.0,
+                await self._run_blocking_smb_call(
+                    "delete",
+                    lambda: _delete_recursive(smb_path),
+                    SMB_DELETE_TIMEOUT_SECONDS,
+                    smb_path=smb_path,
                 )
 
                 logger.info(f"Successfully deleted: path='{path}'")
 
-        except asyncio.TimeoutError:
-            logger.error(f"Timeout deleting '{path}' after 120 seconds")
-            raise TimeoutError(f"SMB operation timed out while deleting: {path}")
+        except TimeoutError as error:
+            logger.error(f"Timeout deleting '{path}' after {SMB_DELETE_TIMEOUT_SECONDS:.0f} seconds")
+            raise TimeoutError(f"SMB operation timed out while deleting: {path}") from error
         except OSError as e:
             error_str = str(e)
             # 0xc0000034 = STATUS_OBJECT_NAME_NOT_FOUND
@@ -977,7 +1021,7 @@ class SMBBackend(StorageBackend):
                 else:
                     # When overwrite is requested, remove the existing
                     # destination so the copy can proceed cleanly.
-                    await self._remove_if_exists(loop, smb_dst)
+                    await self._remove_if_exists(smb_dst)
 
                 def _copy_recursive(src: str, dst: str) -> None:
                     """Copy *src* to *dst*, creating directories as needed.
@@ -1091,7 +1135,7 @@ class SMBBackend(StorageBackend):
                 else:
                     # When overwrite is requested, remove the existing
                     # destination so the rename can proceed cleanly.
-                    await self._remove_if_exists(loop, smb_dst)
+                    await self._remove_if_exists(smb_dst)
 
                 await asyncio.wait_for(
                     loop.run_in_executor(None, smbclient.rename, smb_src, smb_dst),
@@ -1193,7 +1237,7 @@ class SMBBackend(StorageBackend):
                 else:
                     # When overwrite is requested, remove the existing
                     # destination so the write can proceed cleanly.
-                    await self._remove_if_exists(loop, smb_path)
+                    await self._remove_if_exists(smb_path)
 
                 # Open the file handle once — we keep it open while streaming.
                 file_handle = await asyncio.wait_for(

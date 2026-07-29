@@ -17,7 +17,6 @@ import { FileBrowserSettings } from "./pages/FileBrowserSettings";
 import { LocalDrivesSettings } from "./pages/LocalDrivesSettings";
 import { NetworkSettings } from "./pages/NetworkSettings";
 import { AppearanceSettings } from "./pages/PreferencesSettings";
-import { Settings } from "./pages/Settings";
 import { TextEditorSettings } from "./pages/TextEditorSettings";
 import { UserManagementSettings } from "./pages/UserManagementSettings";
 import { useBackendAvailability } from "./services/backendAvailability";
@@ -70,7 +69,7 @@ function AppContent() {
               <Route path="/browse/:targetType/:targetId/*" element={<FileBrowser />} />
               <Route path="/browse" element={<FileBrowser />} />
               <Route path="/settings" element={<SettingsLayout />}>
-                <Route index element={<Settings />} />
+                <Route index element={<Navigate to="/settings/appearance" replace />} />
                 <Route path="appearance" element={<AppearanceSettings />} />
                 <Route path="file-browser" element={<FileBrowserSettings />} />
                 <Route path="text-editor" element={<TextEditorSettings />} />

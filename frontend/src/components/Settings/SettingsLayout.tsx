@@ -16,12 +16,10 @@ import {
 import { SettingsSidebar } from "./SettingsSidebar";
 import { prefetchSettingsDataForItems } from "./settingsDataSources";
 import {
-  DEFAULT_SETTINGS_CATEGORY,
   getSettingsMobileBackTarget,
   getSettingsNavItemByPath,
   getSettingsViewTitle,
   getVisibleSettingsNavItems,
-  SETTINGS_ROUTE_BY_CATEGORY,
 } from "./settingsNavigation";
 import { SettingsAccessProvider, useSettingsAccess } from "./useSettingsAccess";
 
@@ -40,13 +38,6 @@ export function SettingsLayout() {
   const { isAdmin, canWrite } = useSettingsAccess();
   const { t } = useTranslation();
 
-  // On desktop, redirect from /settings to the topmost settings page.
-  useEffect(() => {
-    if (isDesktop && location.pathname === "/settings") {
-      navigate(SETTINGS_ROUTE_BY_CATEGORY[DEFAULT_SETTINGS_CATEGORY], { replace: true });
-    }
-  }, [isDesktop, location.pathname, navigate]);
-
   useEffect(() => {
     prefetchSettingsDataForItems(getVisibleSettingsNavItems(isAdmin));
   }, [isAdmin]);
@@ -61,18 +52,18 @@ export function SettingsLayout() {
   };
 
   const handleMobileBack = () => {
-    if (location.pathname === "/settings") {
-      navigate(-1);
-      return;
-    }
-
     const backTarget = getSettingsMobileBackTarget(location.pathname);
     if (backTarget) {
       navigate(backTarget);
       return;
     }
 
-    navigate("/settings");
+    if (window.history.length > 1) {
+      navigate(-1);
+      return;
+    }
+
+    navigate("/browse", { replace: true });
   };
 
   if (isDesktop) {

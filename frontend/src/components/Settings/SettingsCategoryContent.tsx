@@ -7,7 +7,8 @@ import { NetworkSettings } from "../../pages/NetworkSettings";
 import { AppearanceSettings } from "../../pages/PreferencesSettings";
 import { TextEditorSettings } from "../../pages/TextEditorSettings";
 import { UserManagementSettings } from "../../pages/UserManagementSettings";
-import { getSettingsNavItemDescription, getSettingsNavItemLabel, type SettingsNavItem } from "./settingsNavigation";
+import { SettingsCategoryDescription } from "./SettingsCategoryDescription";
+import { getSettingsNavItemLabel, type SettingsNavItem } from "./settingsNavigation";
 
 interface SettingsCategoryContentProps {
   item: SettingsNavItem;
@@ -46,7 +47,7 @@ export function SettingsCategoryContent({
         <LocalDrivesSettings
           onConnectionsChanged={onConnectionsChanged}
           sectionTitle={getSettingsNavItemLabel("local-drives")}
-          sectionDescription={getSettingsNavItemDescription("local-drives")}
+          sectionDescription={<SettingsCategoryDescription category="local-drives" />}
         />
       );
     case "admin-network":

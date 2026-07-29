@@ -114,7 +114,11 @@ def _reviewed_policy_for_flow(flow: OidcFlow) -> dict[str, object]:
         "sign_in_mode": candidate.sign_in_mode,
         "admission_mode": candidate.admission_mode,
         "admission_groups": list(candidate.admission_groups),
-        "role_mappings": {"admin": list(candidate.admin_groups), "editor": list(candidate.editor_groups)},
+        "role_mappings": {
+            "admin": list(candidate.admin_groups),
+            "editor": list(candidate.editor_groups),
+            "viewer": list(candidate.viewer_groups),
+        },
     }
 
 
@@ -272,7 +276,6 @@ def test_oidc_test_preview_is_not_cached_and_includes_identity_evaluation(
     assert response.headers["cache-control"] == "no-store"
     assert response.json()["admitted"] is True
     assert response.json()["matching_admission_group"] is None
-    assert response.json()["resulting_role"] == "admin"
     assert response.json()["affected_account_count"] == 1
     assert response.json()["acting_administrator_affected"] is True
 
@@ -307,7 +310,6 @@ def test_oidc_test_preview_reevaluates_reviewed_policy_and_reports_impact(
     assert result["candidate"]["sign_in_mode"] == "oidc_only"
     assert result["candidate"]["admission_mode"] == "selected_groups"
     assert result["matching_admission_group"] == "SAMBEE-ADMINS"
-    assert result["resulting_role"] == "admin"
     assert result["affected_account_count"] == 2
     assert result["acting_administrator_affected"] is True
 
@@ -792,6 +794,7 @@ def test_namespace_replacement_stages_existing_identity_for_exact_relink(
         admission_groups=(),
         admin_groups=("sambee-admins",),
         editor_groups=(),
+        viewer_groups=("sambee-users",),
         configuration_revision=4,
         identity_mapping_revision=4,
         identity_namespace_changed=True,
@@ -832,6 +835,7 @@ def test_namespace_replacement_stages_existing_identity_for_exact_relink(
     assert response.status_code == 200
     pending = session.exec(select(OidcPendingIdentityMapping).where(OidcPendingIdentityMapping.target_user_id == existing_user.id)).one()
     assert pending.expected_username == "provider-alice"
+    session.refresh(active)
     resolved = resolve_or_provision_oidc_user(
         session,
         configuration=active,
@@ -960,7 +964,7 @@ def test_username_claim_change_removes_pending_mappings_and_revokes_affected_use
         client_id="sambee",
         encrypted_client_secret=cipher.encrypt("secret"),
         sign_in_mode=SignInMode.OIDC_OR_PASSWORD,
-        role_mappings_json=json.dumps({"admin": ["sambee-admins"], "editor": []}),
+        role_mappings_json=json.dumps({"admin": ["sambee-admins"], "editor": [], "viewer": []}),
         configuration_revision=7,
         identity_mapping_revision=3,
     )
@@ -992,6 +996,7 @@ def test_username_claim_change_removes_pending_mappings_and_revokes_affected_use
         admission_groups=(),
         admin_groups=("sambee-admins",),
         editor_groups=(),
+        viewer_groups=(),
         configuration_revision=8,
         identity_mapping_revision=3,
         identity_namespace_changed=False,
@@ -1036,7 +1041,7 @@ def test_username_claim_change_removes_pending_mappings_and_revokes_affected_use
     session.refresh(target)
     session.refresh(unrelated_user)
     assert active.identity_mapping_revision == 4
-    assert admin_user.token_version == 1
+    assert admin_user.token_version == 2
     assert target.token_version == 0
     assert unrelated_user.token_version == 0
     cancellation_event = session.exec(select(AuditEvent).where(AuditEvent.event_name == "oidc.identity.pending_mapping_canceled")).one()

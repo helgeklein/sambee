@@ -2,7 +2,7 @@ import { render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { loadNetworkSettingsData, SETTINGS_DATA_CACHE_KEYS } from "../../components/Settings/settingsDataSources";
-import { clearCachedAsyncData, primeCachedAsyncData } from "../../hooks/useCachedAsyncData";
+import { clearCachedAsyncData, getCachedAsyncData, primeCachedAsyncData } from "../../hooks/useCachedAsyncData";
 import api from "../../services/api";
 import { SambeeThemeProvider } from "../../theme";
 import { NetworkSettings } from "../NetworkSettings";
@@ -33,7 +33,7 @@ describe("NetworkSettings", () => {
 
     expect(await screen.findByDisplayValue("https://files.example.test")).toBeInTheDocument();
     expect(screen.getByDisplayValue("10.0.0.0/24")).toBeInTheDocument();
-    expect(screen.getByDisplayValue("https://files.example.test/api/auth/oidc/callback")).toBeInTheDocument();
+    expect(screen.queryByRole("textbox", { name: "OIDC callback URI" })).not.toBeInTheDocument();
   });
 
   it("uses prefetched Network settings without a second request", async () => {
@@ -52,6 +52,7 @@ describe("NetworkSettings", () => {
 
   it("saves normalized Network settings", async () => {
     const user = userEvent.setup();
+    await primeCachedAsyncData(SETTINGS_DATA_CACHE_KEYS.adminAuthentication, async () => ({ public_url_configured: false }));
     vi.mocked(api.updateNetworkSettings).mockResolvedValue({
       public_url: "https://new.example.test",
       trusted_proxy_cidrs: ["10.0.0.0/24", "2001:db8::/64"],
@@ -77,5 +78,6 @@ describe("NetworkSettings", () => {
       });
     });
     expect(await screen.findByText("Network settings saved.")).toBeInTheDocument();
+    expect(getCachedAsyncData(SETTINGS_DATA_CACHE_KEYS.adminAuthentication)).toBeNull();
   });
 });

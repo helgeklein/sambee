@@ -9,6 +9,16 @@
 # Backend log level: DEBUG, INFO, WARNING, ERROR (case-insensitive)
 log_level = "INFO"
 
+# Uvicorn HTTP access log level: DEBUG, INFO, WARNING, ERROR.
+# Defaults to WARNING so successful requests do not obscure application-level INFO events.
+# Set to INFO for request auditing.
+# access_log_level = "WARNING"
+
+# Uvicorn WebSocket protocol log level: DEBUG, INFO, WARNING, ERROR.
+# Defaults to WARNING so connection open, accepted, and closed messages stay quiet.
+# Uvicorn startup, shutdown, and error messages continue to use log_level.
+# protocol_log_level = "WARNING"
+
 [security]
 # Initial authentication mode before an administrator first selects a mode in the UI.
 # - password: Start with local username/password authentication (default)

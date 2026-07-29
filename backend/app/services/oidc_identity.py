@@ -6,7 +6,13 @@ from typing import cast
 
 from sqlmodel import Session, select
 
-from app.models.oidc import OidcAdmissionMode, OidcIdentity, OidcPendingIdentityMapping, OidcProviderConfiguration
+from app.models.oidc import (
+    OidcAdmissionMode,
+    OidcIdentity,
+    OidcPendingIdentityMapping,
+    OidcProviderConfiguration,
+    OidcRoleAssignmentMode,
+)
 from app.models.user import User, UserRole
 from app.services.audit import (
     AuditDetails,
@@ -21,6 +27,7 @@ from app.services.oidc_configuration import normalize_group_key
 
 class OidcIdentityErrorCode(StrEnum):
     NOT_ADMITTED = "oidc_not_admitted"
+    NO_ROLE_ASSIGNMENT = "oidc_no_role_assignment"
     USERNAME_COLLISION = "oidc_username_collision"
     ACCOUNT_UNAVAILABLE = "oidc_account_unavailable"
     LAST_ADMIN_ROLE_CONFLICT = "oidc_last_administrator_role_conflict"
@@ -48,27 +55,33 @@ def _json_strings(value: str) -> list[str]:
 
 def _role_mappings(value: str) -> dict[str, list[str]]:
     decoded = json.loads(value)
-    if not isinstance(decoded, dict) or set(decoded) != {"admin", "editor"}:
+    if not isinstance(decoded, dict) or set(decoded) != {"admin", "editor", "viewer"}:
         raise ValueError("Stored OIDC role mappings are invalid")
     admin = decoded.get("admin")
     editor = decoded.get("editor")
-    if not isinstance(admin, list) or not isinstance(editor, list):
+    viewer = decoded.get("viewer")
+    if not isinstance(admin, list) or not isinstance(editor, list) or not isinstance(viewer, list):
         raise ValueError("Stored OIDC role mappings are invalid")
-    if any(not isinstance(item, str) for item in admin + editor):
+    if any(not isinstance(item, str) for item in admin + editor + viewer):
         raise ValueError("Stored OIDC role mappings are invalid")
-    return {"admin": cast(list[str], admin), "editor": cast(list[str], editor)}
+    return {"admin": cast(list[str], admin), "editor": cast(list[str], editor), "viewer": cast(list[str], viewer)}
 
 
-def evaluate_oidc_access(configuration: OidcProviderConfiguration, groups: tuple[str, ...]) -> OidcAccessEvaluation:
+def evaluate_oidc_access(
+    configuration: OidcProviderConfiguration,
+    groups: tuple[str, ...],
+    *,
+    individual_role: UserRole | None = None,
+) -> OidcAccessEvaluation:
     normalized_groups = {normalize_group_key(group) for group in groups}
     configured_admission_groups = _json_strings(configuration.admission_groups_json)
     admission_groups = {normalize_group_key(group) for group in configured_admission_groups}
     mappings = _role_mappings(configuration.role_mappings_json)
     admin_groups = {normalize_group_key(group) for group in mappings["admin"]}
     editor_groups = {normalize_group_key(group) for group in mappings["editor"]}
+    viewer_groups = {normalize_group_key(group) for group in mappings["viewer"]}
 
-    groups_required = configuration.admission_mode == OidcAdmissionMode.SELECTED_GROUPS or bool(admin_groups or editor_groups)
-    if groups_required and not groups:
+    if configuration.admission_mode == OidcAdmissionMode.SELECTED_GROUPS and not groups:
         raise OidcIdentityError(OidcIdentityErrorCode.NOT_ADMITTED)
     if configuration.admission_mode == OidcAdmissionMode.SELECTED_GROUPS and not normalized_groups.intersection(admission_groups):
         raise OidcIdentityError(OidcIdentityErrorCode.NOT_ADMITTED)
@@ -80,15 +93,28 @@ def evaluate_oidc_access(configuration: OidcProviderConfiguration, groups: tuple
         if configuration.admission_mode == OidcAdmissionMode.SELECTED_GROUPS
         else None
     )
+    if individual_role is not None:
+        return OidcAccessEvaluation(role=individual_role, matching_admission_group=matching_admission_group)
+    if configuration.role_assignment_mode == OidcRoleAssignmentMode.UNIFORM:
+        return OidcAccessEvaluation(role=configuration.uniform_role, matching_admission_group=matching_admission_group)
+    if not groups:
+        raise OidcIdentityError(OidcIdentityErrorCode.NO_ROLE_ASSIGNMENT)
     if normalized_groups.intersection(admin_groups):
         return OidcAccessEvaluation(role=UserRole.ADMIN, matching_admission_group=matching_admission_group)
     if normalized_groups.intersection(editor_groups):
         return OidcAccessEvaluation(role=UserRole.EDITOR, matching_admission_group=matching_admission_group)
-    return OidcAccessEvaluation(role=UserRole.VIEWER, matching_admission_group=matching_admission_group)
+    if normalized_groups.intersection(viewer_groups):
+        return OidcAccessEvaluation(role=UserRole.VIEWER, matching_admission_group=matching_admission_group)
+    raise OidcIdentityError(OidcIdentityErrorCode.NO_ROLE_ASSIGNMENT)
 
 
-def resolve_oidc_role(configuration: OidcProviderConfiguration, groups: tuple[str, ...]) -> UserRole:
-    return evaluate_oidc_access(configuration, groups).role
+def resolve_oidc_role(
+    configuration: OidcProviderConfiguration,
+    groups: tuple[str, ...],
+    *,
+    individual_role: UserRole | None = None,
+) -> UserRole:
+    return evaluate_oidc_access(configuration, groups, individual_role=individual_role).role
 
 
 def _is_unexpired(user: User, now: datetime) -> bool:
@@ -175,7 +201,6 @@ def resolve_or_provision_oidc_user(
     username = claims.username.strip()
     if not username:
         raise OidcIdentityError(OidcIdentityErrorCode.USERNAME_COLLISION)
-    role = resolve_oidc_role(configuration, claims.groups)
     identity = session.exec(
         select(OidcIdentity).where(OidcIdentity.issuer == claims.issuer, OidcIdentity.subject == claims.subject)
     ).first()
@@ -183,6 +208,7 @@ def resolve_or_provision_oidc_user(
         user = session.get(User, identity.user_id)
         if user is None:
             raise OidcIdentityError(OidcIdentityErrorCode.ACCOUNT_UNAVAILABLE)
+        role = resolve_oidc_role(configuration, claims.groups, individual_role=user.oidc_role_assignment)
         user = _sync_existing_user(
             session,
             user=user,
@@ -220,6 +246,7 @@ def resolve_or_provision_oidc_user(
         user = session.get(User, pending.target_user_id)
         if user is None or not user.is_active or not _is_unexpired(user, current_time):
             raise OidcIdentityError(OidcIdentityErrorCode.ACCOUNT_UNAVAILABLE)
+        role = resolve_oidc_role(configuration, claims.groups, individual_role=user.oidc_role_assignment)
         identity = OidcIdentity(
             user_id=user.id,
             issuer=claims.issuer,
@@ -255,6 +282,7 @@ def resolve_or_provision_oidc_user(
             correlation_id=correlation_id,
         )
     else:
+        role = resolve_oidc_role(configuration, claims.groups)
         collision = session.exec(select(User.id).where(User.username == username)).first()
         if collision is not None:
             raise OidcIdentityError(OidcIdentityErrorCode.USERNAME_COLLISION)

@@ -485,6 +485,24 @@ def _apply_nullable_oidc_mapping_creator_migration(connection: Connection) -> No
     )
 
 
+def _apply_oidc_individual_role_assignment_migration(connection: Connection) -> None:
+    if not inspect(connection).has_table("user"):
+        return
+    columns = {column[1] for column in connection.execute(text("PRAGMA table_info('user')"))}
+    if "oidc_role_assignment" not in columns:
+        connection.execute(text('ALTER TABLE "user" ADD COLUMN oidc_role_assignment VARCHAR'))
+
+
+def _apply_oidc_role_assignment_mode_migration(connection: Connection) -> None:
+    if not inspect(connection).has_table("oidcproviderconfiguration"):
+        return
+    columns = {column[1] for column in connection.execute(text("PRAGMA table_info('oidcproviderconfiguration')"))}
+    if "role_assignment_mode" not in columns:
+        connection.execute(text("ALTER TABLE oidcproviderconfiguration ADD COLUMN role_assignment_mode VARCHAR NOT NULL DEFAULT 'uniform'"))
+    if "uniform_role" not in columns:
+        connection.execute(text("ALTER TABLE oidcproviderconfiguration ADD COLUMN uniform_role VARCHAR NOT NULL DEFAULT 'editor'"))
+
+
 MIGRATIONS: tuple[Migration, ...] = (
     Migration(version=1, name="ensure_connection_slugs", apply=_apply_connection_slug_migration),
     Migration(version=2, name="add_user_role_and_session_fields", apply=_apply_user_role_migration),
@@ -501,6 +519,8 @@ MIGRATIONS: tuple[Migration, ...] = (
     Migration(version=13, name="add_oidc_and_audit_schema", apply=_apply_oidc_schema_migration),
     Migration(version=14, name="add_oidc_reauthentication_receipt", apply=_apply_oidc_reauthentication_receipt_migration),
     Migration(version=15, name="allow_nullable_oidc_mapping_creator", apply=_apply_nullable_oidc_mapping_creator_migration),
+    Migration(version=16, name="add_oidc_individual_role_assignment", apply=_apply_oidc_individual_role_assignment_migration),
+    Migration(version=17, name="add_oidc_role_assignment_mode", apply=_apply_oidc_role_assignment_mode_migration),
 )
 
 

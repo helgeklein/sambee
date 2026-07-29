@@ -1,9 +1,13 @@
 """Tests for backend log level validation and usage."""
 
+import io
+import logging
+
 import pytest
 from pydantic import ValidationError
 
-from app.core.config import Settings
+from app.core.config import Settings, load_toml_config
+from app.core.logging import UvicornProtocolLogFilter, configure_uvicorn_loggers
 
 
 #
@@ -27,6 +31,10 @@ def test_valid_log_levels():
     for input_level, expected_output in valid_levels:
         settings = Settings(log_level=input_level)
         assert settings.log_level == expected_output
+        settings = Settings(access_log_level=input_level)
+        assert settings.access_log_level == expected_output
+        settings = Settings(protocol_log_level=input_level)
+        assert settings.protocol_log_level == expected_output
 
 
 #
@@ -47,11 +55,11 @@ def test_invalid_log_levels():
 
     for invalid_level in invalid_levels:
         with pytest.raises(ValidationError) as exc_info:
-            Settings(log_level=invalid_level)
+            Settings(protocol_log_level=invalid_level)
 
         # Verify error message is clear
         error = exc_info.value.errors()[0]
-        assert error["loc"] == ("log_level",)
+        assert error["loc"] == ("protocol_log_level",)
         assert "Invalid log level" in error["msg"]
         assert invalid_level in str(error["input"])
         assert "Must be one of:" in error["msg"]
@@ -65,6 +73,8 @@ def test_default_log_level():
 
     settings = Settings()
     assert settings.log_level == "INFO"
+    assert settings.access_log_level == "WARNING"
+    assert settings.protocol_log_level == "WARNING"
 
 
 #
@@ -79,3 +89,66 @@ def test_log_level_case_insensitive():
     for test_case in test_cases:
         settings = Settings(log_level=test_case)
         assert settings.log_level == "DEBUG"
+
+
+def test_access_log_level_loads_from_app_config(tmp_path):
+    """Load the Uvicorn access/protocol log level from the app TOML section."""
+
+    config_file = tmp_path / "config.toml"
+    config_file.write_text('[app]\naccess_log_level = "info"\nprotocol_log_level = "debug"\n')
+
+    settings = Settings(**load_toml_config(config_file))
+
+    assert settings.access_log_level == "INFO"
+    assert settings.protocol_log_level == "DEBUG"
+
+
+def test_configure_uvicorn_loggers_separates_access_from_lifecycle_logs():
+    """Keep Uvicorn lifecycle logs at the app level while quieting access records."""
+
+    logger_names = ("uvicorn", "uvicorn.access", "uvicorn.error")
+    output = io.StringIO()
+    previous_states = {
+        name: (logging.getLogger(name).level, list(logging.getLogger(name).handlers), logging.getLogger(name).propagate)
+        for name in logger_names
+    }
+    try:
+        configure_uvicorn_loggers(
+            handlers=[logging.StreamHandler(output)],
+            log_format="%(name)s - %(levelname)s - %(message)s",
+            application_log_level=logging.INFO,
+            access_log_level=logging.WARNING,
+            protocol_log_level=logging.WARNING,
+        )
+
+        assert logging.getLogger("uvicorn.access").level == logging.WARNING
+        assert logging.getLogger("uvicorn.error").level == logging.INFO
+        assert logging.getLogger("uvicorn").level == logging.INFO
+
+        uvicorn_error_logger = logging.getLogger("uvicorn.error")
+        uvicorn_error_logger.info("connection open")
+        uvicorn_error_logger.info("Application startup complete.")
+
+        assert "connection open" not in output.getvalue()
+        assert "Application startup complete." in output.getvalue()
+    finally:
+        for name, (level, handlers, propagate) in previous_states.items():
+            logger = logging.getLogger(name)
+            logger.setLevel(level)
+            logger.handlers = handlers
+            logger.propagate = propagate
+
+
+def test_uvicorn_protocol_log_filter_hides_routine_protocol_messages():
+    """Hide routine WebSocket protocol logs without hiding Uvicorn errors."""
+
+    log_filter = UvicornProtocolLogFilter(logging.WARNING)
+
+    assert not log_filter.filter(logging.LogRecord("uvicorn.error", logging.INFO, "", 0, "connection open", (), None))
+    assert not log_filter.filter(logging.LogRecord("uvicorn.error", logging.INFO, "", 0, 'WebSocket /api/ws" [accepted]', (), None))
+    assert not log_filter.filter(
+        logging.LogRecord("uvicorn.error", logging.DEBUG, "", 0, '> TEXT \'{"type":"subscribed"}\' [21 bytes]', (), None)
+    )
+    assert not log_filter.filter(logging.LogRecord("uvicorn.error", logging.DEBUG, "", 0, "> PING 4c 2a f7 4f [binary, 4 bytes]", (), None))
+    assert log_filter.filter(logging.LogRecord("uvicorn.error", logging.INFO, "", 0, "Application startup complete.", (), None))
+    assert log_filter.filter(logging.LogRecord("uvicorn.error", logging.ERROR, "", 0, "connection failed", (), None))

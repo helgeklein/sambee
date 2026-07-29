@@ -16,10 +16,11 @@ import {
 import type { SelectChangeEvent } from "@mui/material/Select";
 import { useMemo } from "react";
 import { useTranslation } from "react-i18next";
+import { SettingsCategoryDescription } from "../components/Settings/SettingsCategoryDescription";
 import { SettingsFieldHelp } from "../components/Settings/SettingsFieldHelp";
 import { SettingsGroup } from "../components/Settings/SettingsGroup";
 import { SettingsSectionHeader } from "../components/Settings/SettingsSectionHeader";
-import { getSettingsCategoryDescription, getSettingsCategoryLabel } from "../components/Settings/settingsNavigation";
+import { getSettingsCategoryLabel } from "../components/Settings/settingsNavigation";
 import { getAvailableLanguages } from "../i18n";
 import { useLocalePreferences } from "../i18n/LocalePreferencesProvider";
 import { PSEUDO_LANGUAGE } from "../i18n/resources";
@@ -153,7 +154,7 @@ export function AppearanceSettings() {
     <Box sx={{ height: "100%", display: "flex", flexDirection: "column", bgcolor: "background.default", overflow: "hidden" }}>
       <SettingsSectionHeader
         title={getSettingsCategoryLabel("appearance")}
-        description={getSettingsCategoryDescription("appearance")}
+        description={<SettingsCategoryDescription category="appearance" />}
         showTitle={!isMobile}
       />
       <Box sx={{ flex: 1, overflow: "auto", px: { xs: 2, sm: 3, md: 4 }, pb: 3 }}>

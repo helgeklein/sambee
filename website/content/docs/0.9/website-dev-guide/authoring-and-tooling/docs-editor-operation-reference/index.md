@@ -222,6 +222,15 @@ cd website
 python3 scripts/docs-editor.py book rename --version 1.1 --from end-user --to user-guide --title "User Guide"
 ```
 
+`book materialize` replaces an inherited book `_inherit.md` marker with a real `_index.md` using the currently resolved landing-page content. Use `--title` to replace the title while materializing.
+
+Example:
+
+```bash
+cd website
+python3 scripts/docs-editor.py book materialize --version 0.9 --book admin-guide
+```
+
 ### Section Operations
 
 `section create` creates a section directory, adds a section entry in nav data, and initializes an empty `pages.<book>.<section>.items` array.
@@ -319,6 +328,17 @@ Example:
 ```bash
 cd website
 python3 scripts/docs-editor.py page rename --version 1.1 --also-version 1.3 --book end-user --section getting-started --from install --to setup --title "Setup Sambee"
+```
+
+`page move` moves a page to another section in the same book. It updates both page lists, materializes the selected version's destination page, and removes the source directory. `--to-page` optionally changes the slug; otherwise the source slug is retained. `--position` controls the destination order in the selected version.
+
+Inherited-only descendants move automatically. The operation refuses if the destination exists, a later source page has real content, or a later version lacks the destination section. Links and managed redirects remain explicit content or deployment changes.
+
+Example:
+
+```bash
+cd website
+python3 scripts/docs-editor.py page move --version 0.9 --book admin-guide --from-section configuration --to-section reference --page configuration-key-reference --to-page configuration-file-reference --position start
 ```
 
 ## Notes

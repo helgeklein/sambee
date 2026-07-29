@@ -25,6 +25,7 @@ class AuditEventName(StrEnum):
     IDENTITY_MAPPING_CHANGED = "oidc.identity.mapping_changed"
     IDENTITY_NAMESPACE_REPLACED = "oidc.provider.identity_namespace_replaced"
     USER_ROLE_CHANGED = "oidc.user.role_changed"
+    USER_ROLE_ASSIGNMENT_CHANGED = "oidc.user.role_assignment_changed"
     USER_ROLE_SYNC_BLOCKED = "oidc.user.role_sync_blocked"
 
 

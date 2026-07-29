@@ -1,9 +1,10 @@
 import { Box, Checkbox, FormControlLabel, useMediaQuery, useTheme } from "@mui/material";
 import { useTranslation } from "react-i18next";
+import { SettingsCategoryDescription } from "../components/Settings/SettingsCategoryDescription";
 import { SettingsFieldHelp } from "../components/Settings/SettingsFieldHelp";
 import { SettingsGroup } from "../components/Settings/SettingsGroup";
 import { SettingsSectionHeader } from "../components/Settings/SettingsSectionHeader";
-import { getSettingsCategoryDescription, getSettingsCategoryLabel } from "../components/Settings/settingsNavigation";
+import { getSettingsCategoryLabel } from "../components/Settings/settingsNavigation";
 import { useQuickNavIncludeDotDirectoriesPreference } from "./FileBrowser/preferences";
 
 export function FileBrowserSettings() {
@@ -16,7 +17,7 @@ export function FileBrowserSettings() {
     <Box sx={{ height: "100%", display: "flex", flexDirection: "column", bgcolor: "background.default", overflow: "hidden" }}>
       <SettingsSectionHeader
         title={getSettingsCategoryLabel("file-browser")}
-        description={getSettingsCategoryDescription("file-browser")}
+        description={<SettingsCategoryDescription category="file-browser" />}
         showTitle={!isMobile}
       />
       <Box sx={{ flex: 1, overflow: "auto", px: { xs: 2, sm: 3, md: 4 }, pb: 3 }}>

@@ -820,6 +820,25 @@ class DocsEditorForwardImpactFixtureTests(DocsEditorTestCase):
 class DocsEditorBookTests(DocsEditorTestCase):
     """Exercise book-level create, delete, and rename behavior."""
 
+    def test_book_materialize_replaces_inherited_marker_with_real_content(self) -> None:
+        """Materializing an inherited book should preserve its resolved landing content."""
+        tempdir, root = self.build_temp_website()
+        self.addCleanup(tempdir.cleanup)
+
+        editor = self.make_editor(root)
+        plan = editor.plan_book_materialize(
+            "1.0", book="website-dev-guide", title="Website Dev Guide 1.0"
+        )
+        editor.apply_plan(plan)
+
+        book_dir = self.docs_content_path(root, "1.0", "website-dev-guide")
+        self.assert_paths_missing(book_dir / DOCS_EDITOR.BRANCH_INHERIT)
+        self.assertIn(
+            'title = "Website Dev Guide 1.0"',
+            (book_dir / DOCS_EDITOR.DOCS_ROOT_INDEX).read_text(encoding="utf-8"),
+        )
+        self.assertEqual(editor.validate(), [])
+
     def test_book_create_adds_nav_and_real_landing_content(self) -> None:
         """Creating a real-content book should add nav and _index.md."""
         tempdir, root = self.build_temp_website()
@@ -1490,6 +1509,196 @@ class DocsEditorPageTests(DocsEditorTestCase):
             )
         )
         self.assertEqual(editor.validate(), [])
+
+    def test_page_move_propagates_into_inherited_only_descendants(self) -> None:
+        """Moving a page should preserve content and move inherited descendants."""
+        tempdir, root = self.build_temp_website()
+        self.addCleanup(tempdir.cleanup)
+
+        editor = self.make_editor(root)
+        editor.apply_plan(
+            editor.plan_section_create(
+                "1.1",
+                book="end-user",
+                section="reference",
+                title="Reference",
+                position="end",
+                inherit=False,
+                structural_only=True,
+            )
+        )
+        self.create_inherited_version(root, source_version="1.1", new_version="1.2")
+        plan = editor.plan_page_move(
+            "1.1",
+            book="end-user",
+            from_section="getting-started",
+            to_section="reference",
+            old_page="install",
+            new_page="setup",
+            title="Setup Sambee",
+            position="start",
+        )
+        editor.apply_plan(plan)
+
+        for version in ("1.1", "1.2"):
+            nav = tomllib.loads(
+                (root / "data" / "docs-nav" / f"{version}.toml").read_text(
+                    encoding="utf-8"
+                )
+            )
+            self.assertNotIn(
+                "install", nav["pages"]["end-user"]["getting-started"]["items"]
+            )
+            self.assertIn("setup", nav["pages"]["end-user"]["reference"]["items"])
+        self.assert_paths_exist(
+            self.docs_content_path(
+                root, "1.1", "end-user", "reference", "setup", "index.md"
+            ),
+            self.docs_content_path(
+                root, "1.2", "end-user", "reference", "setup", "inherit.md"
+            ),
+        )
+        self.assert_paths_missing(
+            self.docs_content_path(
+                root, "1.1", "end-user", "getting-started", "install"
+            ),
+            self.docs_content_path(
+                root, "1.2", "end-user", "getting-started", "install"
+            ),
+        )
+        self.assertEqual(editor.validate(), [])
+
+    def test_page_move_refuses_when_later_descendant_has_real_content(self) -> None:
+        """A move must not silently relocate a later authored page."""
+        tempdir, root = self.build_temp_website()
+        self.addCleanup(tempdir.cleanup)
+
+        editor = self.make_editor(root)
+        editor.apply_plan(
+            editor.plan_section_create(
+                "1.1",
+                book="end-user",
+                section="reference",
+                title="Reference",
+                position="end",
+                inherit=False,
+                structural_only=True,
+            )
+        )
+        self.create_inherited_version(root, source_version="1.1", new_version="1.2")
+        self.promote_inherited_page_to_real_content(
+            root,
+            version="1.2",
+            book="end-user",
+            section="getting-started",
+            page="install",
+            title="Install Sambee 1.2",
+            body="Version-specific instructions.",
+        )
+
+        with self.assertRaisesRegex(
+            DOCS_EDITOR.DocsEditorError,
+            "cannot move page across later versions with real content: 1.2",
+        ):
+            editor.plan_page_move(
+                "1.1",
+                book="end-user",
+                from_section="getting-started",
+                to_section="reference",
+                old_page="install",
+                new_page="setup",
+                title="Setup Sambee",
+                position=None,
+            )
+
+    def test_cli_page_move_preview_reports_destination_and_propagation(self) -> None:
+        """CLI preview should describe an inherited page move without writing files."""
+        tempdir, root = self.build_temp_website()
+        self.addCleanup(tempdir.cleanup)
+
+        editor = self.make_editor(root)
+        editor.apply_plan(
+            editor.plan_section_create(
+                "1.1",
+                book="end-user",
+                section="reference",
+                title="Reference",
+                position="end",
+                inherit=False,
+                structural_only=True,
+            )
+        )
+        self.create_inherited_version(root, source_version="1.1", new_version="1.2")
+
+        result = self.run_cli(
+            root,
+            "--json",
+            "page",
+            "move",
+            "--version",
+            "1.1",
+            "--book",
+            "end-user",
+            "--from-section",
+            "getting-started",
+            "--to-section",
+            "reference",
+            "--page",
+            "install",
+        )
+
+        self.assert_preview_json_payload(
+            result,
+            destructive=True,
+            entity="page",
+            operation="move",
+            metadata={
+                "version": "1.1",
+                "book": "end-user",
+                "from_section": "getting-started",
+                "to_section": "reference",
+                "page": "install",
+                "new_page": "install",
+                "propagated_versions": ["1.2"],
+            },
+        )
+        self.assert_paths_exist(
+            self.docs_content_path(
+                root, "1.1", "end-user", "getting-started", "install"
+            ),
+            self.docs_content_path(
+                root, "1.2", "end-user", "getting-started", "install"
+            ),
+        )
+
+    def test_cli_book_materialize_apply_writes_real_content(self) -> None:
+        """CLI apply should replace an inherited book marker with an index page."""
+        tempdir, root = self.build_temp_website()
+        self.addCleanup(tempdir.cleanup)
+
+        result = self.run_cli(
+            root,
+            "--apply",
+            "book",
+            "materialize",
+            "--version",
+            "1.0",
+            "--book",
+            "website-dev-guide",
+            "--title",
+            "Website Dev Guide 1.0",
+        )
+
+        self.assertEqual(result.returncode, 0, msg=result.stderr)
+        self.assertIn(
+            "Applied: Materialize inherited book website-dev-guide in docs version 1.0",
+            result.stdout,
+        )
+        self.assert_paths_exist(
+            self.docs_content_path(
+                root, "1.0", "website-dev-guide", DOCS_EDITOR.DOCS_ROOT_INDEX
+            )
+        )
 
     def test_page_rename_materializes_inherited_target_and_preserves_descendant_markers(
         self,

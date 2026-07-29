@@ -11,7 +11,6 @@ import {
   FormControlLabel,
   IconButton,
   InputAdornment,
-  Link,
   MenuItem,
   Stack,
   TextField,
@@ -19,7 +18,6 @@ import {
   Typography,
 } from "@mui/material";
 import { useEffect, useRef, useState } from "react";
-import { Trans } from "react-i18next";
 import { useNavigate } from "react-router-dom";
 import { SettingsPage } from "../components/Settings/SettingsPage";
 import { settingsPrimaryButtonSx } from "../components/Settings/settingsButtonStyles";
@@ -42,15 +40,17 @@ const DEFAULT_CANDIDATE: OidcConfigurationCandidate = {
   display_name: "",
   issuer_url: "",
   client_id: "",
-  scopes: ["openid", "profile", "email", "groups"],
+  scopes: ["openid", "profile", "email"],
   username_claim: "preferred_username",
   name_claim: "name",
   email_claim: "email",
   groups_claim: "groups",
   sign_in_mode: "oidc_or_password",
-  admission_mode: "selected_groups",
+  admission_mode: "all_idp_users",
   admission_groups: [],
-  role_mappings: { admin: [], editor: [] },
+  role_assignment_mode: "uniform",
+  uniform_role: "editor",
+  role_mappings: { admin: [], editor: [], viewer: [] },
 };
 
 const listValue = (values: string[]) => values.join(", ");
@@ -63,11 +63,12 @@ const optionalClaim = (value: string) => value.trim() || null;
 const OIDC_SETUP_FLOW_STORAGE_KEY = "sambee.oidc.setupFlowId";
 const OIDC_REVIEWED_POLICY_STORAGE_KEY = "sambee.oidc.reviewedPolicy";
 const OIDC_PENDING_FINALIZATION_STORAGE_KEY = "sambee.oidc.pendingFinalization";
-const OIDC_SETUP_GUIDE_URL = "https://sambee.net/mr/help-oidc-setup";
 const REVIEWABLE_POLICY_KEYS = new Set<keyof OidcConfigurationCandidate>([
   "sign_in_mode",
   "admission_mode",
   "admission_groups",
+  "role_assignment_mode",
+  "uniform_role",
   "role_mappings",
 ]);
 const normalizedGroupKey = (value: string) => value.normalize("NFKC").trim().toLowerCase();
@@ -79,12 +80,18 @@ const editableCandidate = ({
   client_secret_configured: _,
   configuration_revision: __,
   identity_mapping_revision: ___,
+  role_mappings,
   ...candidate
-}: NonNullable<OidcAdminConfigurationRead["configuration"]>): OidcConfigurationCandidate => candidate;
+}: NonNullable<OidcAdminConfigurationRead["configuration"]>): OidcConfigurationCandidate => ({
+  ...candidate,
+  role_mappings: { ...role_mappings, viewer: role_mappings.viewer ?? [] },
+});
 const reviewedPolicyFor = (candidate: OidcConfigurationCandidate): OidcReviewedPolicy => ({
   sign_in_mode: candidate.sign_in_mode,
   admission_mode: candidate.admission_mode,
   admission_groups: candidate.admission_groups,
+  role_assignment_mode: candidate.role_assignment_mode,
+  uniform_role: candidate.uniform_role,
   role_mappings: candidate.role_mappings,
 });
 const isStringArray = (value: unknown): value is string[] => Array.isArray(value) && value.every((entry) => typeof entry === "string");
@@ -96,10 +103,13 @@ const isReviewedPolicy = (value: unknown): value is OidcReviewedPolicy => {
     (policy["sign_in_mode"] === "oidc_or_password" || policy["sign_in_mode"] === "oidc_only") &&
     (policy["admission_mode"] === "all_idp_users" || policy["admission_mode"] === "selected_groups") &&
     isStringArray(policy["admission_groups"]) &&
+    (policy["role_assignment_mode"] === "uniform" || policy["role_assignment_mode"] === "group_based") &&
+    (policy["uniform_role"] === "admin" || policy["uniform_role"] === "editor" || policy["uniform_role"] === "viewer") &&
     typeof roleMappings === "object" &&
     roleMappings !== null &&
     isStringArray((roleMappings as Record<string, unknown>)["admin"]) &&
-    isStringArray((roleMappings as Record<string, unknown>)["editor"])
+    isStringArray((roleMappings as Record<string, unknown>)["editor"]) &&
+    isStringArray((roleMappings as Record<string, unknown>)["viewer"])
   );
 };
 const storedReviewedPolicy = (): OidcReviewedPolicy | undefined => {
@@ -239,9 +249,13 @@ export function AuthenticationSettings() {
   const duplicateAdmissionGroups = duplicateGroupKeys(candidate.admission_groups);
   const duplicateAdminGroups = duplicateGroupKeys(candidate.role_mappings.admin);
   const duplicateEditorGroups = duplicateGroupKeys(candidate.role_mappings.editor);
+  const duplicateViewerGroups = duplicateGroupKeys(candidate.role_mappings.viewer);
   const adminGroupKeys = new Set(candidate.role_mappings.admin.map(normalizedGroupKey));
   const editorGroupKeys = new Set(candidate.role_mappings.editor.map(normalizedGroupKey));
-  const crossRoleGroupKeys = new Set([...adminGroupKeys].filter((key) => editorGroupKeys.has(key)));
+  const viewerGroupKeys = new Set(candidate.role_mappings.viewer.map(normalizedGroupKey));
+  const allRoleGroupKeys = [...adminGroupKeys, ...editorGroupKeys, ...viewerGroupKeys];
+  const crossRoleGroupKeys = new Set(allRoleGroupKeys.filter((key, index) => allRoleGroupKeys.indexOf(key) !== index));
+  const usesGroupBasedRoleAssignment = candidate.role_assignment_mode === "group_based";
   const admissionGroupError =
     candidate.admission_mode === "selected_groups" && candidate.admission_groups.length === 0
       ? "Members of these groups can sign in. Enter at least one group name. Separate multiple groups by commas."
@@ -249,19 +263,25 @@ export function AuthenticationSettings() {
         ? "Admission groups must be unique after normalization."
         : "";
   const adminGroupError =
-    duplicateAdminGroups.size > 0
+    usesGroupBasedRoleAssignment && duplicateAdminGroups.size > 0
       ? "Administrator groups must be unique after normalization."
-      : crossRoleGroupKeys.size > 0
-        ? "A group cannot grant both administrator and editor roles."
+      : usesGroupBasedRoleAssignment && crossRoleGroupKeys.size > 0
+        ? "A group cannot grant more than one role."
         : "";
   const editorGroupError =
-    duplicateEditorGroups.size > 0
+    usesGroupBasedRoleAssignment && duplicateEditorGroups.size > 0
       ? "Editor groups must be unique after normalization."
-      : crossRoleGroupKeys.size > 0
-        ? "A group cannot grant both administrator and editor roles."
+      : usesGroupBasedRoleAssignment && crossRoleGroupKeys.size > 0
+        ? "A group cannot grant more than one role."
         : "";
-  const groupConfigurationInvalid = Boolean(admissionGroupError || adminGroupError || editorGroupError);
-  const testedIdentityCanAdminister = !reviewPending && testedIdentity?.admitted === true && testedIdentity.resulting_role === "admin";
+  const viewerGroupError =
+    usesGroupBasedRoleAssignment && duplicateViewerGroups.size > 0
+      ? "Viewer groups must be unique after normalization."
+      : usesGroupBasedRoleAssignment && crossRoleGroupKeys.size > 0
+        ? "A group cannot grant more than one role."
+        : "";
+  const groupConfigurationInvalid = Boolean(admissionGroupError || adminGroupError || editorGroupError || viewerGroupError);
+  const testedIdentityCanActivate = !reviewPending && testedIdentity?.admitted === true;
   const isOidcMode = authMode === "oidc_or_password" || authMode === "oidc_only";
 
   useEffect(() => {
@@ -442,7 +462,7 @@ export function AuthenticationSettings() {
   };
 
   const activate = async () => {
-    if (finalizationUnresolved || !testedIdentity || replacementPlanInvalid || !testedIdentityCanAdminister) return;
+    if (finalizationUnresolved || !testedIdentity || replacementPlanInvalid || !testedIdentityCanActivate) return;
     const signInPath = testedIdentity.candidate.sign_in_mode === "oidc_only" ? "OIDC only" : "OIDC or password";
     const affectedAccountMessage =
       testedIdentity.affected_account_count === 0
@@ -651,15 +671,7 @@ export function AuthenticationSettings() {
   };
 
   return (
-    <SettingsPage
-      category="admin-authentication"
-      description={
-        <Trans
-          i18nKey="settings.categories.adminAuthentication.descriptionWithGuide"
-          components={{ guide: <Link href={OIDC_SETUP_GUIDE_URL} target="_blank" rel="noreferrer" /> }}
-        />
-      }
-    >
+    <SettingsPage category="admin-authentication">
       <Box sx={{ maxWidth: 820 }}>
         {busy && !configuration ? (
           <Box sx={{ display: "flex", justifyContent: "center", pt: 5 }}>
@@ -843,45 +855,85 @@ export function AuthenticationSettings() {
                       }
                     />
                   )}
+                  <Typography variant="h6">Role assignment</Typography>
                   <TextField
-                    label="Administrator groups"
-                    value={listValue(candidate.role_mappings.admin)}
-                    onChange={(event) => update("role_mappings", { ...candidate.role_mappings, admin: parseList(event.target.value) })}
-                    disabled={finalizationUnresolved}
-                    error={Boolean(adminGroupError)}
-                    helperText={
-                      adminGroupError || "Members of these groups are Sambee administrators. Enter exact group names, separated by commas."
+                    select
+                    label="Role assignment"
+                    value={candidate.role_assignment_mode}
+                    onChange={(event) =>
+                      update("role_assignment_mode", event.target.value as OidcConfigurationCandidate["role_assignment_mode"])
                     }
-                    required
-                  />
-                  <TextField
-                    label="Editor groups"
-                    value={listValue(candidate.role_mappings.editor)}
-                    onChange={(event) => update("role_mappings", { ...candidate.role_mappings, editor: parseList(event.target.value) })}
                     disabled={finalizationUnresolved}
-                    error={Boolean(editorGroupError)}
-                    helperText={
-                      editorGroupError ||
-                      "Members of these groups can edit content but cannot administer Sambee. Enter exact group names, separated by commas."
-                    }
-                  />
+                  >
+                    <MenuItem value="uniform">All users are assigned to the same role</MenuItem>
+                    <MenuItem value="group_based">Group-based</MenuItem>
+                  </TextField>
+                  {candidate.role_assignment_mode === "uniform" ? (
+                    <TextField
+                      select
+                      label="Assigned role"
+                      value={candidate.uniform_role}
+                      onChange={(event) => update("uniform_role", event.target.value as OidcConfigurationCandidate["uniform_role"])}
+                      disabled={finalizationUnresolved}
+                    >
+                      <MenuItem value="admin">Administrator</MenuItem>
+                      <MenuItem value="editor">Editor</MenuItem>
+                      <MenuItem value="viewer">Viewer</MenuItem>
+                    </TextField>
+                  ) : (
+                    <Stack spacing={2}>
+                      <TextField
+                        label="Administrator groups"
+                        value={listValue(candidate.role_mappings.admin)}
+                        onChange={(event) => update("role_mappings", { ...candidate.role_mappings, admin: parseList(event.target.value) })}
+                        disabled={finalizationUnresolved}
+                        error={Boolean(adminGroupError)}
+                        helperText={
+                          adminGroupError || "Members receive administrator access. Enter exact group names, separated by commas."
+                        }
+                      />
+                      <TextField
+                        label="Editor groups"
+                        value={listValue(candidate.role_mappings.editor)}
+                        onChange={(event) => update("role_mappings", { ...candidate.role_mappings, editor: parseList(event.target.value) })}
+                        disabled={finalizationUnresolved}
+                        error={Boolean(editorGroupError)}
+                        helperText={editorGroupError || "Members can edit content. Enter exact group names, separated by commas."}
+                      />
+                      <TextField
+                        label="Viewer groups"
+                        value={listValue(candidate.role_mappings.viewer)}
+                        onChange={(event) => update("role_mappings", { ...candidate.role_mappings, viewer: parseList(event.target.value) })}
+                        disabled={finalizationUnresolved}
+                        error={Boolean(viewerGroupError)}
+                        helperText={viewerGroupError || "Members receive viewer access. Enter exact group names, separated by commas."}
+                      />
+                    </Stack>
+                  )}
+                  <Alert severity="info">
+                    The administrator connecting this provider keeps an individual Administrator assignment. Individual assignments always
+                    override this configured role policy.
+                  </Alert>
                   <Accordion disableGutters elevation={0} sx={{ "&::before": { display: "none" } }}>
                     <AccordionSummary
                       expandIcon={<ExpandMore />}
-                      aria-controls="advanced-claims-content"
-                      id="advanced-claims-header"
+                      aria-controls="advanced-oidc-claims-content"
+                      id="advanced-oidc-claims-header"
                       sx={{ px: 0 }}
                     >
                       <Box>
                         <Typography variant="h6">Advanced claims</Typography>
                         <Typography aria-hidden="true" color="text.secondary" variant="body2">
-                          Optional claim names
+                          Claim names supplied by your identity provider
                         </Typography>
                       </Box>
                     </AccordionSummary>
                     <AccordionDetails sx={{ px: 0 }}>
                       <Stack spacing={2}>
-                        <Typography color="text.secondary">The default claim names work with most OpenID Connect providers.</Typography>
+                        <Typography color="text.secondary">
+                          The default claim names work with most providers. A groups claim is only needed for selected-group admission or
+                          group-based role assignment.
+                        </Typography>
                         <TextField
                           label="Username claim"
                           value={candidate.username_claim}
@@ -929,11 +981,10 @@ export function AuthenticationSettings() {
                       {testedIdentity.matching_admission_group && (
                         <Typography>Matching admission group: {testedIdentity.matching_admission_group}</Typography>
                       )}
-                      <Typography>Resulting role: {testedIdentity.resulting_role ?? "None"}</Typography>
                       <Typography color="text.secondary">Account mapping does not override the admission policy.</Typography>
-                      {!testedIdentityCanAdminister && (
+                      {!testedIdentityCanActivate && (
                         <Alert severity="error" sx={{ mt: 1 }}>
-                          The tested identity must be admitted as an administrator before this configuration can be activated.
+                          The tested identity must pass the admission rule before this configuration can be activated.
                         </Alert>
                       )}
                       {testedIdentity.replacement_mappings.length > 0 && (
@@ -1072,7 +1123,7 @@ export function AuthenticationSettings() {
                       <Button
                         variant="contained"
                         sx={{ mt: 2 }}
-                        disabled={busy || finalizationUnresolved || reviewPending || replacementPlanInvalid || !testedIdentityCanAdminister}
+                        disabled={busy || finalizationUnresolved || reviewPending || replacementPlanInvalid || !testedIdentityCanActivate}
                         onClick={activate}
                       >
                         Activate configuration

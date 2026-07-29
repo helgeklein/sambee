@@ -7,7 +7,7 @@ from pydantic import BaseModel, ConfigDict, SecretStr
 from sqlmodel import Field, SQLModel
 
 from app.core.auth_methods import AuthenticationMode
-from app.models.oidc import OidcAdmissionMode, SignInMode
+from app.models.oidc import OidcAdmissionMode, OidcRoleAssignmentMode, SignInMode
 from app.models.user import UserRole
 
 
@@ -44,6 +44,7 @@ class AuthenticationHealth(SQLModel):
 class OidcRoleMappings(SQLModel):
     admin: list[str] = Field(default_factory=list, max_length=500)
     editor: list[str] = Field(default_factory=list, max_length=500)
+    viewer: list[str] = Field(default_factory=list, max_length=500)
 
 
 class OidcConfigurationCandidate(BaseModel):
@@ -53,14 +54,16 @@ class OidcConfigurationCandidate(BaseModel):
     issuer_url: str = Field(min_length=1, max_length=2048)
     client_id: str = Field(min_length=1, max_length=500)
     client_secret: SecretStr | None = Field(default=None, exclude=True, repr=False)
-    scopes: list[str] = Field(default_factory=lambda: ["openid", "profile", "email", "groups"], max_length=100)
+    scopes: list[str] = Field(default_factory=lambda: ["openid", "profile", "email"], max_length=100)
     username_claim: str = Field(default="preferred_username", min_length=1, max_length=200)
     name_claim: str | None = Field(default="name", max_length=200)
     email_claim: str | None = Field(default="email", max_length=200)
     groups_claim: str | None = Field(default="groups", max_length=200)
     sign_in_mode: SignInMode = SignInMode.PASSWORD_ONLY
-    admission_mode: OidcAdmissionMode = OidcAdmissionMode.SELECTED_GROUPS
+    admission_mode: OidcAdmissionMode = OidcAdmissionMode.ALL_IDP_USERS
     admission_groups: list[str] = Field(default_factory=list, max_length=500)
+    role_assignment_mode: OidcRoleAssignmentMode = OidcRoleAssignmentMode.UNIFORM
+    uniform_role: UserRole = UserRole.EDITOR
     role_mappings: OidcRoleMappings = Field(default_factory=OidcRoleMappings)
 
 
@@ -77,6 +80,8 @@ class RedactedOidcConfiguration(SQLModel):
     sign_in_mode: SignInMode
     admission_mode: OidcAdmissionMode
     admission_groups: list[str]
+    role_assignment_mode: OidcRoleAssignmentMode
+    uniform_role: UserRole
     role_mappings: OidcRoleMappings
     configuration_revision: int
     identity_mapping_revision: int
@@ -132,6 +137,8 @@ class OidcReviewedPolicy(SQLModel):
     sign_in_mode: SignInMode
     admission_mode: OidcAdmissionMode
     admission_groups: list[str] = Field(default_factory=list, max_length=500)
+    role_assignment_mode: OidcRoleAssignmentMode = OidcRoleAssignmentMode.UNIFORM
+    uniform_role: UserRole = UserRole.EDITOR
     role_mappings: OidcRoleMappings = Field(default_factory=OidcRoleMappings)
 
 
@@ -150,7 +157,6 @@ class OidcTestedIdentityRead(SQLModel):
     groups: list[str]
     admitted: bool
     matching_admission_group: str | None
-    resulting_role: UserRole | None
     affected_account_count: int
     acting_administrator_affected: bool
     expires_at: datetime

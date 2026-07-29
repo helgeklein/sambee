@@ -70,37 +70,18 @@ class TestCORSMiddleware:
 class TestRequestLoggingMiddleware:
     """Test request logging middleware."""
 
-    def test_request_logging_success(self, client: TestClient, caplog):
-        """Test that successful requests are logged."""
-        with caplog.at_level(logging.INFO):
+    def test_smb_pool_logger_inherits_application_log_level(self):
+        """Allow SMB pool diagnostics when the application log level is DEBUG."""
+
+        assert logging.getLogger("app.storage.smb_pool").level == logging.NOTSET
+
+    def test_successful_requests_do_not_duplicate_uvicorn_access_logs(self, client: TestClient, caplog):
+        """Successful requests rely on Uvicorn access logs instead of application duplicates."""
+        with caplog.at_level(logging.INFO, logger="app.main"):
             response = client.get("/api/health")
             assert response.status_code == 200
 
-        # Check that request and response were logged
-        log_messages = [record.message for record in caplog.records]
-        assert any("← GET /api/health" in msg for msg in log_messages)
-        assert any("→ GET /api/health - 200" in msg for msg in log_messages)
-
-    def test_request_logging_includes_duration(self, client: TestClient, caplog):
-        """Test that request logging includes duration."""
-        with caplog.at_level(logging.INFO):
-            client.get("/api/health")
-
-        # Check that response log includes duration in ms
-        log_messages = [record.message for record in caplog.records]
-        response_logs = [msg for msg in log_messages if "→ GET /api/health" in msg]
-        assert len(response_logs) > 0
-        assert "ms)" in response_logs[0]
-
-    def test_request_logging_not_found(self, client: TestClient, caplog):
-        """Test that 404 responses are logged."""
-        with caplog.at_level(logging.INFO):
-            response = client.get("/api/nonexistent")
-            assert response.status_code == 404
-
-        log_messages = [record.message for record in caplog.records]
-        assert any("← GET /api/nonexistent" in msg for msg in log_messages)
-        assert any("404" in msg for msg in log_messages)
+        assert not [record for record in caplog.records if record.name == "app.main"]
 
 
 @pytest.mark.integration

@@ -13,15 +13,17 @@ import base64
 import json
 from datetime import datetime, timedelta, timezone
 
-import jwt
 import pytest
 from cryptography.fernet import Fernet, InvalidToken
 from fastapi.testclient import TestClient
+from joserfc import jwt
+from joserfc.jwk import OctKey
 from sqlmodel import Session
 
-from app.core.config import settings, static
+from app.core.config import settings
 from app.core.security import (
     create_access_token,
+    decode_access_token,
     decrypt_password,
     encrypt_password,
     get_password_hash,
@@ -173,7 +175,12 @@ class TestAuthenticationBypass:
             "exp": datetime.now(timezone.utc) + timedelta(hours=1),
         }
         # Sign with a different secret
-        invalid_token = jwt.encode(payload, "wrong_secret_key_that_is_at_least_32_bytes_long", algorithm="HS256")
+        invalid_token = jwt.encode(
+            {"alg": "HS256"},
+            payload,
+            OctKey.import_key("wrong_secret_key_that_is_at_least_32_bytes_long"),
+            algorithms=["HS256"],
+        )
 
         response = client.get("/api/auth/me", headers={"Authorization": f"Bearer {invalid_token}"})
         assert response.status_code == 401
@@ -365,8 +372,7 @@ class TestEncryptionSecurity:
         """Test JWT token doesn't leak sensitive information"""
         token = create_access_token(data={"sub": "testuser"})
 
-        # Decode without verification to inspect payload
-        payload = jwt.decode(token, settings.secret_key, algorithms=[static.algorithm])
+        payload = decode_access_token(token)
 
         # Should only contain necessary fields
         assert "sub" in payload  # Subject (username)

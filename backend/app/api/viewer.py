@@ -234,7 +234,7 @@ async def read_and_normalize_pdf(
         )
 
         if was_modified:
-            logger.info(
+            logger.debug(
                 f"PDF normalized: {filename} ({len(pdf_bytes) / 1024:.0f} → {len(normalized_bytes) / 1024:.0f} KB) in {duration_ms:.0f} ms"
             )
         else:
@@ -336,7 +336,7 @@ async def view_file(
         # Check if image needs processing for browser compatibility and viewing speed
         if needs_processing(file_info.name, file_info.size):
             size_string = f"{file_info.size / 1024:.0f} KB" if file_info.size else "unknown"
-            logger.info(f"Image requires processing: connection_id={connection_id}, path='{path}', size={size_string}")
+            logger.debug(f"Image requires processing: connection_id={connection_id}, path='{path}', size={size_string}")
             return await read_and_convert_image(
                 backend=backend,
                 path=path,
@@ -350,7 +350,7 @@ async def view_file(
         # Check if PDF needs normalization for browser compatibility
         if needs_pdf_normalization(file_info.name) and is_pdf_normalization_available():
             size_string = f"{file_info.size / 1024:.0f} KB" if file_info.size else "unknown"
-            logger.info(f"PDF normalization: connection_id={connection_id}, path='{path}', size={size_string}")
+            logger.debug(f"PDF normalization: connection_id={connection_id}, path='{path}', size={size_string}")
             return await read_and_normalize_pdf(
                 backend=backend,
                 path=path,
@@ -359,7 +359,7 @@ async def view_file(
             )
 
         # Stream the file (browser-native format or non-image/non-PDF)
-        logger.info(f"Streaming file for viewing: connection_id={connection_id}, path='{path}', mime_type={file_info.mime_type}")
+        logger.debug(f"Streaming file for viewing: connection_id={connection_id}, path='{path}', mime_type={file_info.mime_type}")
         return StreamingResponse(
             create_file_streamer(backend, path),
             media_type=file_info.mime_type,

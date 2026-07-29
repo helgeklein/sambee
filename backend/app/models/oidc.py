@@ -6,6 +6,8 @@ from sqlalchemy import CheckConstraint, Column, UniqueConstraint
 from sqlalchemy import Enum as SqlEnum
 from sqlmodel import Field, SQLModel
 
+from app.models.user import UserRole
+
 
 class SignInMode(StrEnum):
     PASSWORD_ONLY = "password_only"
@@ -16,6 +18,11 @@ class SignInMode(StrEnum):
 class OidcAdmissionMode(StrEnum):
     SELECTED_GROUPS = "selected_groups"
     ALL_IDP_USERS = "all_idp_users"
+
+
+class OidcRoleAssignmentMode(StrEnum):
+    UNIFORM = "uniform"
+    GROUP_BASED = "group_based"
 
 
 class OidcFlowPurpose(StrEnum):
@@ -61,17 +68,34 @@ class OidcProviderConfiguration(SQLModel, table=True):
     issuer_url: str
     client_id: str
     encrypted_client_secret: str | None = Field(default=None)
-    scopes_json: str = Field(default='["openid","profile","email","groups"]')
+    scopes_json: str = Field(default='["openid","profile","email"]')
     username_claim: str = Field(default="preferred_username")
     name_claim: str | None = Field(default="name")
     email_claim: str | None = Field(default="email")
     groups_claim: str | None = Field(default="groups")
     admission_mode: OidcAdmissionMode = Field(
-        default=OidcAdmissionMode.SELECTED_GROUPS,
-        sa_column=_enum_column(OidcAdmissionMode, OidcAdmissionMode.SELECTED_GROUPS),
+        default=OidcAdmissionMode.ALL_IDP_USERS,
+        sa_column=_enum_column(OidcAdmissionMode, OidcAdmissionMode.ALL_IDP_USERS),
     )
     admission_groups_json: str = Field(default="[]")
-    role_mappings_json: str = Field(default='{"admin":[],"editor":[]}')
+    role_assignment_mode: OidcRoleAssignmentMode = Field(
+        default=OidcRoleAssignmentMode.UNIFORM,
+        sa_column=_enum_column(OidcRoleAssignmentMode, OidcRoleAssignmentMode.UNIFORM),
+    )
+    uniform_role: UserRole = Field(
+        default=UserRole.EDITOR,
+        sa_column=Column(
+            SqlEnum(
+                UserRole,
+                values_callable=lambda enum_cls: [member.value for member in enum_cls],
+                native_enum=False,
+                validate_strings=True,
+            ),
+            nullable=False,
+            default=UserRole.EDITOR,
+        ),
+    )
+    role_mappings_json: str = Field(default='{"admin":[],"editor":[],"viewer":[]}')
     configuration_revision: int = Field(default=0)
     identity_mapping_revision: int = Field(default=0)
     created_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))

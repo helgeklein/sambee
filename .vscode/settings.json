@@ -160,18 +160,29 @@
     "/^cargo\\s+search\\b/": true,
     "/^pip3?\\s+index\\s+versions\\b/": true,
     // Python tests and static analysis
-    "pytest": true,
     "mypy": true,
+    "pytest": true,
+    // Backend virtualenv Python from the repository root
+    "/^backend\\/\\.venv\\/bin\\/python\\s+-m\\s+pytest\\b/": true,
+    "/^backend\\/\\.venv\\/bin\\/python\\s+-m\\s+mypy\\b/": true,
+    // Backend virtualenv Python from the repository root with an explicit prefix
+    "/^\\.\\/backend\\/\\.venv\\/bin\\/python\\s+-m\\s+pytest\\b/": true,
+    "/^\\.\\/backend\\/\\.venv\\/bin\\/python\\s+-m\\s+mypy\\b/": true,
+    // Backend virtualenv Python from the backend directory
+    "/^\\.venv\\/bin\\/python\\s+-m\\s+pytest\\b/": true,
+    "/^\\.venv\\/bin\\/python\\s+-m\\s+mypy\\b/": true,
+    // Backend virtualenv Python from the backend directory with an explicit prefix
+    "/^\\.\\/\\.venv\\/bin\\/python\\s+-m\\s+pytest\\b/": true,
+    "/^\\.\\/\\.venv\\/bin\\/python\\s+-m\\s+mypy\\b/": true,
     "ruff": true,
     "/^python3 -m unittest\\b/": true,
     // Frontend tests and static analysis
-    "npm run lint": true,
     "npm test": true,
     "npx vitest": true,
     "npx tsc": true,
     "npx biome": true,
     // Frontend validation and builds
-    "/^npm\\s+run\\s+(?:test|lint|format|check|typecheck|build)\\b/": true,
+    "/^npm\\s+run\\s+(?:build|check|docs\\:validate|format|lint|redirects\\:generate|test|typecheck)\\b/": true,
     // Rust validation and read-only inspection
     "/^cargo\\s+(?:test|check|clippy|fmt|metadata|tree|doc)\\b/": true,
     // Known repository validation scripts

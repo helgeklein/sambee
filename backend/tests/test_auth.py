@@ -5,7 +5,6 @@ Tests login, token generation/validation, password hashing, and encryption.
 
 from datetime import datetime, timedelta, timezone
 
-import jwt
 import pytest
 from fastapi.testclient import TestClient
 from sqlmodel import Session, delete, select
@@ -13,6 +12,7 @@ from sqlmodel import Session, delete, select
 import app.api.auth as auth_module
 from app.core.security import (
     create_access_token,
+    decode_access_token,
     decrypt_password,
     encrypt_password,
     get_password_hash,
@@ -125,13 +125,11 @@ class TestTokenGeneration:
 
     def test_token_contains_username(self):
         """Test that token can be decoded to retrieve username."""
-        from app.core.config import settings, static
 
         username = "testuser"
         token = create_access_token(data={"sub": username})
 
-        # Decode without verification (just to check content)
-        payload = jwt.decode(token, settings.secret_key, algorithms=[static.algorithm])
+        payload = decode_access_token(token)
         assert payload["sub"] == username
 
 

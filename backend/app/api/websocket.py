@@ -45,7 +45,7 @@ class ConnectionManager:
         await websocket.accept()
         self.subscriptions[websocket] = set()
         self.users[websocket] = user
-        logger.info(f"WebSocket connected: {id(websocket)}")
+        logger.debug(f"WebSocket connected: {id(websocket)}")
 
     #
     # disconnect
@@ -74,14 +74,14 @@ class ConnectionManager:
                         resolved = self._resolved_paths.pop(key, path)
                         monitor = get_monitor()
                         monitor.stop_monitoring(connection_id, resolved)
-                        logger.info(f"Stopped SMB monitoring for {key} (last subscriber disconnected)")
+                        logger.debug(f"Stopped SMB monitoring for {key} (last subscriber disconnected)")
                     except Exception as e:
                         logger.error(
                             f"Failed to stop SMB monitoring for {key}: {e}",
                             exc_info=True,
                         )
 
-        logger.info(f"WebSocket disconnected: {id(websocket)}")
+        logger.debug(f"WebSocket disconnected: {id(websocket)}")
 
     #
     # subscribe
@@ -118,7 +118,7 @@ class ConnectionManager:
             self.active_connections[key] = set()
         self.active_connections[key].add(websocket)
 
-        logger.info(f"WebSocket {id(websocket)} subscribed to {key}")
+        logger.debug(f"WebSocket {id(websocket)} subscribed to {key}")
 
         # Start SMB monitoring if this is the first subscriber for this directory
         if is_new_subscription:
@@ -153,7 +153,7 @@ class ConnectionManager:
                     port=conn.port or 445,
                     on_change_callback=self._make_change_callback(connection_id, path),
                 )
-                logger.info(f"Started SMB monitoring for {key} (resolved: {resolved_path})")
+                logger.debug(f"Started SMB monitoring for {key} (resolved: {resolved_path})")
             except Exception as e:
                 logger.error(f"Failed to start SMB monitoring for {key}: {e}", exc_info=True)
 
@@ -180,11 +180,11 @@ class ConnectionManager:
                     monitor = get_monitor()
                     resolved = self._resolved_paths.pop(key, path)
                     monitor.stop_monitoring(connection_id, resolved)
-                    logger.info(f"Stopped SMB monitoring for {key}")
+                    logger.debug(f"Stopped SMB monitoring for {key}")
                 except Exception as e:
                     logger.error(f"Failed to stop SMB monitoring for {key}: {e}", exc_info=True)
 
-        logger.info(f"WebSocket {id(websocket)} unsubscribed from {key}")
+        logger.debug(f"WebSocket {id(websocket)} unsubscribed from {key}")
 
     #
     # _make_change_callback

@@ -32,6 +32,7 @@ export interface AdminUser {
   created_at: string;
   updated_at: string;
   has_local_password: boolean;
+  oidc_role_assignment: UserRole | null;
   oidc: {
     identity_id: string;
     provider_display_name: string;
@@ -59,6 +60,7 @@ export interface AdminUserUpdateInput {
   name?: string;
   email?: string;
   role?: UserRole;
+  oidc_role_assignment?: UserRole | null;
   is_active?: boolean;
   expires_at?: string | null;
 }
@@ -266,16 +268,20 @@ export interface AuthToken {
 export type AuthenticationMode = "none" | "password_only" | "oidc_or_password" | "oidc_only";
 export type SignInMode = "password_only" | "oidc_or_password" | "oidc_only";
 export type OidcAdmissionMode = "all_idp_users" | "selected_groups";
+export type OidcRoleAssignmentMode = "uniform" | "group_based";
 
 export interface OidcRoleMappings {
   admin: string[];
   editor: string[];
+  viewer: string[];
 }
 
 export interface OidcReviewedPolicy {
   sign_in_mode: SignInMode;
   admission_mode: OidcAdmissionMode;
   admission_groups: string[];
+  role_assignment_mode: OidcRoleAssignmentMode;
+  uniform_role: UserRole;
   role_mappings: OidcRoleMappings;
 }
 
@@ -292,6 +298,8 @@ export interface OidcConfigurationCandidate {
   sign_in_mode: SignInMode;
   admission_mode: OidcAdmissionMode;
   admission_groups: string[];
+  role_assignment_mode: OidcRoleAssignmentMode;
+  uniform_role: UserRole;
   role_mappings: OidcRoleMappings;
 }
 
@@ -348,7 +356,6 @@ export interface OidcTestedIdentity {
   expected_identity_mapping_revision: number | null;
   admitted: boolean;
   matching_admission_group: string | null;
-  resulting_role: UserRole | null;
   affected_account_count: number;
   acting_administrator_affected: boolean;
   username: string;

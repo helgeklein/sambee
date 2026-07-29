@@ -25,7 +25,7 @@ export interface VisibleSettingsSection {
 
 interface SettingsCategoryMeta {
   label: string;
-  description: string;
+  descriptionKey: string;
   route: string;
   section: SettingsSection;
   adminOnly?: boolean;
@@ -59,9 +59,7 @@ export const SETTINGS_CATEGORY_META: Record<SettingsCategory, SettingsCategoryMe
     get label() {
       return translate("settings.categories.appearance.label");
     },
-    get description() {
-      return translate("settings.categories.appearance.description");
-    },
+    descriptionKey: "settings.categories.appearance.description",
     route: SETTINGS_ROUTE_BY_CATEGORY.appearance,
     section: "personal",
   },
@@ -69,9 +67,7 @@ export const SETTINGS_CATEGORY_META: Record<SettingsCategory, SettingsCategoryMe
     get label() {
       return translate("settings.categories.fileBrowser.label");
     },
-    get description() {
-      return translate("settings.categories.fileBrowser.description");
-    },
+    descriptionKey: "settings.categories.fileBrowser.description",
     route: SETTINGS_ROUTE_BY_CATEGORY["file-browser"],
     section: "personal",
   },
@@ -79,9 +75,7 @@ export const SETTINGS_CATEGORY_META: Record<SettingsCategory, SettingsCategoryMe
     get label() {
       return translate("settings.categories.textEditor.label");
     },
-    get description() {
-      return translate("settings.categories.textEditor.description");
-    },
+    descriptionKey: "settings.categories.textEditor.description",
     route: SETTINGS_ROUTE_BY_CATEGORY["text-editor"],
     section: "personal",
   },
@@ -89,9 +83,7 @@ export const SETTINGS_CATEGORY_META: Record<SettingsCategory, SettingsCategoryMe
     get label() {
       return translate("settings.categories.connections.label");
     },
-    get description() {
-      return translate("settings.categories.connections.description");
-    },
+    descriptionKey: "settings.categories.connections.description",
     route: SETTINGS_ROUTE_BY_CATEGORY.connections,
     section: "personal",
   },
@@ -99,9 +91,7 @@ export const SETTINGS_CATEGORY_META: Record<SettingsCategory, SettingsCategoryMe
     get label() {
       return translate("settings.connectionsSubgroups.localDrives.label");
     },
-    get description() {
-      return translate("settings.connectionsSubgroups.localDrives.description");
-    },
+    descriptionKey: "settings.connectionsSubgroups.localDrives.description",
     route: SETTINGS_ROUTE_BY_CATEGORY["local-drives"],
     section: "personal",
   },
@@ -109,9 +99,7 @@ export const SETTINGS_CATEGORY_META: Record<SettingsCategory, SettingsCategoryMe
     get label() {
       return translate("settings.categories.adminNetwork.label");
     },
-    get description() {
-      return translate("settings.categories.adminNetwork.description");
-    },
+    descriptionKey: "settings.categories.adminNetwork.description",
     route: SETTINGS_ROUTE_BY_CATEGORY["admin-network"],
     section: "administration",
     adminOnly: true,
@@ -120,9 +108,7 @@ export const SETTINGS_CATEGORY_META: Record<SettingsCategory, SettingsCategoryMe
     get label() {
       return translate("settings.categories.adminUsers.label");
     },
-    get description() {
-      return translate("settings.categories.adminUsers.description");
-    },
+    descriptionKey: "settings.categories.adminUsers.description",
     route: SETTINGS_ROUTE_BY_CATEGORY["admin-users"],
     section: "administration",
     adminOnly: true,
@@ -131,9 +117,7 @@ export const SETTINGS_CATEGORY_META: Record<SettingsCategory, SettingsCategoryMe
     get label() {
       return translate("settings.categories.adminAuthentication.label");
     },
-    get description() {
-      return translate("settings.categories.adminAuthentication.description");
-    },
+    descriptionKey: "settings.categories.adminAuthentication.description",
     route: SETTINGS_ROUTE_BY_CATEGORY["admin-authentication"],
     section: "administration",
     adminOnly: true,
@@ -142,9 +126,7 @@ export const SETTINGS_CATEGORY_META: Record<SettingsCategory, SettingsCategoryMe
     get label() {
       return translate("settings.categories.adminSystem.label");
     },
-    get description() {
-      return translate("settings.categories.adminSystem.description");
-    },
+    descriptionKey: "settings.categories.adminSystem.description",
     route: SETTINGS_ROUTE_BY_CATEGORY["admin-system"],
     section: "administration",
     adminOnly: true,
@@ -177,12 +159,8 @@ export function getSettingsViewTitle(view: MobileSettingsView): string {
   return view === "main" ? translate("settings.shell.title") : getSettingsNavItemLabel(view);
 }
 
-export function getSettingsCategoryDescription(category: SettingsCategory): string {
-  return SETTINGS_CATEGORY_META[category].description;
-}
-
-export function getSettingsNavItemDescription(item: SettingsNavItem): string {
-  return SETTINGS_CATEGORY_META[item].description;
+export function getSettingsCategoryDescriptionKey(category: SettingsCategory): string {
+  return SETTINGS_CATEGORY_META[category].descriptionKey;
 }
 
 export function getSettingsContentItem(item: SettingsNavItem): SettingsContentItem {
@@ -226,14 +204,14 @@ export function getSettingsMobileBackTarget(pathname: string): string | null {
   const item = getSettingsNavItemByPath(pathname);
 
   if (!item) {
-    return "/settings";
+    return null;
   }
 
   if (item === "local-drives") {
     return SETTINGS_ROUTE_BY_CATEGORY.connections;
   }
 
-  return "/settings";
+  return null;
 }
 
 export function getSettingsCategoryByPath(pathname: string): SettingsCategory | null {

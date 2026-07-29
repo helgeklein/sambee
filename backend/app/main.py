@@ -21,7 +21,7 @@ from app.api import admin, admin_auth, auth, browser, companion, connections, lo
 from app.core.config import settings
 from app.core.environment import DEV_CORS_ORIGINS, IS_DEVELOPMENT, IS_PRODUCTION
 from app.core.exceptions import ConfigurationError, SambeeError
-from app.core.logging import log_error, set_request_id
+from app.core.logging import configure_uvicorn_loggers, log_error, set_request_id
 from app.core.secrets import generate_admin_password
 from app.core.security import get_password_hash
 from app.db.database import DATABASE_FILE_PATH, engine, init_db
@@ -68,31 +68,18 @@ def bootstrap_admin_if_pristine(session: Session) -> tuple[User | None, str | No
 log_level = getattr(logging, settings.log_level)
 logging.basicConfig(level=log_level, format=log_format, handlers=handlers)
 
-# Configure Uvicorn's loggers to use our format and rename uvicorn.error -> uvicorn
-# Keep Uvicorn at INFO level to avoid verbose header logging even when app is in DEBUG mode
-uvicorn_formatter = logging.Formatter(log_format)
-uvicorn_log_level = max(log_level, logging.INFO)  # INFO or higher, never DEBUG
-for logger_name in ["uvicorn", "uvicorn.access", "uvicorn.error"]:
-    uvicorn_logger = logging.getLogger(logger_name)
-    uvicorn_logger.setLevel(uvicorn_log_level)
-    # Replace handlers with our formatted ones
-    uvicorn_logger.handlers.clear()
-    for handler in handlers:
-        new_handler = logging.StreamHandler(handler.stream) if isinstance(handler, logging.StreamHandler) else handler
-        # Rename uvicorn.error to just uvicorn for cleaner logs
-        if logger_name == "uvicorn.error":
-            renamed_formatter = logging.Formatter(log_format.replace("%(name)s", "uvicorn"))
-            new_handler.setFormatter(renamed_formatter)
-        else:
-            new_handler.setFormatter(uvicorn_formatter)
-        uvicorn_logger.addHandler(new_handler)
-    uvicorn_logger.propagate = False
+configure_uvicorn_loggers(
+    handlers=handlers,
+    log_format=log_format,
+    application_log_level=log_level,
+    access_log_level=getattr(logging, settings.access_log_level),
+    protocol_log_level=getattr(logging, settings.protocol_log_level),
+)
 
 # Reduce noise from third-party libraries (only show warnings/errors)
 logging.getLogger("smbprotocol").setLevel(logging.WARNING)
 logging.getLogger("sqlalchemy.engine.Engine").setLevel(logging.WARNING)
 logging.getLogger("pyvips").setLevel(logging.WARNING)
-logging.getLogger("app.storage.smb_pool").setLevel(logging.WARNING)
 
 # Logger for this module
 logger = logging.getLogger(__name__)
@@ -381,18 +368,11 @@ async def log_requests(request: Request, call_next: Callable[[Request], Awaitabl
             filename = PurePosixPath(file_path).name
             path_suffix = f" ({filename})"
 
-    # Log request
-    logger.info(f"← {request.method} {request.url.path}{path_suffix}")
-
     try:
         response = await call_next(request)
 
         # Add request ID to response headers for client-side correlation
         response.headers["X-Request-ID"] = request_id
-
-        # Log response
-        duration = (datetime.now() - start_time).total_seconds() * 1000
-        logger.info(f"→ {request.method} {request.url.path} - {response.status_code} ({duration:.0f} ms){path_suffix}")
 
         return response
     except Exception as e:

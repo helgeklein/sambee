@@ -6,7 +6,7 @@ import OpenInNewIcon from "@mui/icons-material/OpenInNew";
 import RadioButtonUncheckedIcon from "@mui/icons-material/RadioButtonUnchecked";
 import UsbIcon from "@mui/icons-material/Usb";
 import { Box, Button, Chip, Stack, Typography, useMediaQuery, useTheme } from "@mui/material";
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { type ReactNode, useCallback, useEffect, useMemo, useState } from "react";
 import CompanionPairingDialog from "../components/FileBrowser/CompanionPairingDialog";
 import { LOCAL_DRIVES_PAGE_COPY } from "../components/Settings/localDrivesCopy";
 import { SettingsInlineAlert, SettingsNotificationSnackbar, type SettingsNotificationState } from "../components/Settings/SettingsFeedback";
@@ -88,7 +88,7 @@ function isUnsupportedMobileCompanionPlatform(): boolean {
 interface LocalDrivesSettingsProps {
   onConnectionsChanged?: () => void;
   sectionTitle?: string;
-  sectionDescription?: string;
+  sectionDescription?: ReactNode;
 }
 
 type LocalDrivesViewState = "unavailable" | "unpaired" | "pending_local_approval" | "needs_repair" | "paired";

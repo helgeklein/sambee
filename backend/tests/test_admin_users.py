@@ -120,6 +120,28 @@ class TestAdminUsers:
         assert regular_user.role == UserRole.ADMIN
         assert regular_user.is_active is False
 
+    def test_clearing_oidc_role_assignment_downgrades_stored_role(
+        self, client: TestClient, auth_headers_admin: dict, regular_user: User, session: Session
+    ):
+        regular_user.role = UserRole.ADMIN
+        regular_user.oidc_role_assignment = UserRole.ADMIN
+        session.add(regular_user)
+        session.commit()
+
+        response = client.patch(
+            f"/api/admin/users/{regular_user.id}",
+            headers=auth_headers_admin,
+            json={"role": "admin", "oidc_role_assignment": None},
+        )
+
+        assert response.status_code == 200
+        assert response.json()["role"] == "viewer"
+        assert response.json()["oidc_role_assignment"] is None
+        session.refresh(regular_user)
+        assert regular_user.role == UserRole.VIEWER
+        assert regular_user.oidc_role_assignment is None
+        assert regular_user.token_version == 1
+
     def test_reset_password_invalidates_existing_token(
         self,
         client: TestClient,

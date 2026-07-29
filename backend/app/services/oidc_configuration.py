@@ -12,7 +12,7 @@ from pydantic import SecretStr
 
 import app.core.config as config_module
 from app.core.environment import IS_PRODUCTION
-from app.models.oidc import OidcAdmissionMode, OidcProviderConfiguration, SignInMode
+from app.models.oidc import OidcAdmissionMode, OidcProviderConfiguration, OidcRoleAssignmentMode, SignInMode
 from app.models.oidc_api import (
     AuthenticationHealth,
     AuthenticationHealthReason,
@@ -22,6 +22,7 @@ from app.models.oidc_api import (
     OidcRoleMappings,
     RedactedOidcConfiguration,
 )
+from app.models.user import UserRole
 from app.services.oidc_http import validate_oidc_url
 
 OIDC_CALLBACK_PATH = "/api/auth/oidc/callback"
@@ -59,6 +60,9 @@ class NormalizedOidcCandidate:
     identity_mapping_revision: int
     identity_namespace_changed: bool
     changed_fields: tuple[str, ...]
+    viewer_groups: tuple[str, ...] = ()
+    role_assignment_mode: OidcRoleAssignmentMode = OidcRoleAssignmentMode.UNIFORM
+    uniform_role: UserRole = UserRole.EDITOR
 
 
 class OidcSecretCipher:
@@ -114,6 +118,8 @@ def apply_reviewed_policy(
         sign_in_mode=reviewed.sign_in_mode,
         admission_mode=reviewed.admission_mode,
         admission_groups=reviewed.admission_groups,
+        role_assignment_mode=reviewed.role_assignment_mode,
+        uniform_role=reviewed.uniform_role,
         role_mappings=reviewed.role_mappings,
     )
     return normalize_candidate(candidate, active, cipher)
@@ -166,6 +172,8 @@ def _active_values(active: OidcProviderConfiguration | None) -> dict[str, Any]:
         "sign_in_mode": active.sign_in_mode,
         "admission_mode": active.admission_mode,
         "admission_groups": tuple(cast(list[str], json.loads(active.admission_groups_json))),
+        "role_assignment_mode": active.role_assignment_mode,
+        "uniform_role": active.uniform_role,
         "role_mappings": cast(dict[str, list[str]], json.loads(active.role_mappings_json)),
     }
 
@@ -193,12 +201,19 @@ def normalize_candidate(
     admission_groups = _normalize_unique_strings(candidate.admission_groups, field_name="admission groups")
     admin_groups = _normalize_unique_strings(candidate.role_mappings.admin, field_name="administrator role groups")
     editor_groups = _normalize_unique_strings(candidate.role_mappings.editor, field_name="editor role groups")
-    admin_keys = {normalize_group_key(group) for group in admin_groups}
-    editor_keys = {normalize_group_key(group) for group in editor_groups}
-    if admin_keys.intersection(editor_keys):
-        raise OidcConfigurationError("One normalized group cannot map to both administrator and editor roles")
+    viewer_groups = _normalize_unique_strings(candidate.role_mappings.viewer, field_name="viewer role groups")
+    if candidate.role_assignment_mode == OidcRoleAssignmentMode.GROUP_BASED:
+        role_group_keys = [
+            {normalize_group_key(group) for group in admin_groups},
+            {normalize_group_key(group) for group in editor_groups},
+            {normalize_group_key(group) for group in viewer_groups},
+        ]
+        if any(first.intersection(second) for index, first in enumerate(role_group_keys) for second in role_group_keys[index + 1 :]):
+            raise OidcConfigurationError("One normalized group cannot map to more than one role")
     groups_claim = _optional_claim(candidate.groups_claim)
-    groups_required = candidate.admission_mode == OidcAdmissionMode.SELECTED_GROUPS or bool(admin_groups or editor_groups)
+    groups_required = candidate.admission_mode == OidcAdmissionMode.SELECTED_GROUPS or (
+        candidate.role_assignment_mode == OidcRoleAssignmentMode.GROUP_BASED and bool(admin_groups or editor_groups or viewer_groups)
+    )
     if groups_required and groups_claim is None:
         raise OidcConfigurationError("A groups claim is required by the selected access policy")
 
@@ -225,7 +240,9 @@ def normalize_candidate(
         "sign_in_mode": candidate.sign_in_mode,
         "admission_mode": candidate.admission_mode,
         "admission_groups": admission_groups,
-        "role_mappings": {"admin": list(admin_groups), "editor": list(editor_groups)},
+        "role_assignment_mode": candidate.role_assignment_mode,
+        "uniform_role": candidate.uniform_role,
+        "role_mappings": {"admin": list(admin_groups), "editor": list(editor_groups), "viewer": list(viewer_groups)},
     }
     changed_fields = tuple(key for key, value in candidate_values.items() if active_values.get(key) != value)
     if submitted_secret is not None:
@@ -244,8 +261,11 @@ def normalize_candidate(
         sign_in_mode=candidate.sign_in_mode,
         admission_mode=candidate.admission_mode,
         admission_groups=admission_groups,
+        role_assignment_mode=candidate.role_assignment_mode,
+        uniform_role=candidate.uniform_role,
         admin_groups=admin_groups,
         editor_groups=editor_groups,
+        viewer_groups=viewer_groups,
         configuration_revision=(active.configuration_revision if active is not None else 0) + 1,
         identity_mapping_revision=active.identity_mapping_revision if active is not None else 0,
         identity_namespace_changed=namespace_changed,
@@ -265,7 +285,9 @@ def decrypt_candidate_snapshot(ciphertext: str, cipher: OidcSecretCipher) -> Nor
         data = json.loads(cipher.decrypt(ciphertext))
         data["sign_in_mode"] = SignInMode(data["sign_in_mode"])
         data["admission_mode"] = OidcAdmissionMode(data["admission_mode"])
-        for key in ("scopes", "admission_groups", "admin_groups", "editor_groups", "changed_fields"):
+        data["role_assignment_mode"] = OidcRoleAssignmentMode(data.get("role_assignment_mode", OidcRoleAssignmentMode.UNIFORM))
+        data["uniform_role"] = UserRole(data.get("uniform_role", UserRole.EDITOR))
+        for key in ("scopes", "admission_groups", "admin_groups", "editor_groups", "viewer_groups", "changed_fields"):
             data[key] = tuple(data[key])
         return NormalizedOidcCandidate(**data)
     except (KeyError, TypeError, ValueError, json.JSONDecodeError) as error:
@@ -287,7 +309,9 @@ def redacted_configuration(configuration: OidcProviderConfiguration) -> Redacted
         sign_in_mode=configuration.sign_in_mode,
         admission_mode=configuration.admission_mode,
         admission_groups=cast(list[str], json.loads(configuration.admission_groups_json)),
-        role_mappings=OidcRoleMappings(admin=role_mappings["admin"], editor=role_mappings["editor"]),
+        role_assignment_mode=configuration.role_assignment_mode,
+        uniform_role=configuration.uniform_role,
+        role_mappings=OidcRoleMappings(admin=role_mappings["admin"], editor=role_mappings["editor"], viewer=role_mappings["viewer"]),
         configuration_revision=configuration.configuration_revision,
         identity_mapping_revision=configuration.identity_mapping_revision,
     )
@@ -307,7 +331,13 @@ def redacted_candidate(candidate: NormalizedOidcCandidate) -> RedactedOidcConfig
         sign_in_mode=candidate.sign_in_mode,
         admission_mode=candidate.admission_mode,
         admission_groups=list(candidate.admission_groups),
-        role_mappings=OidcRoleMappings(admin=list(candidate.admin_groups), editor=list(candidate.editor_groups)),
+        role_assignment_mode=candidate.role_assignment_mode,
+        uniform_role=candidate.uniform_role,
+        role_mappings=OidcRoleMappings(
+            admin=list(candidate.admin_groups),
+            editor=list(candidate.editor_groups),
+            viewer=list(candidate.viewer_groups),
+        ),
         configuration_revision=candidate.configuration_revision,
         identity_mapping_revision=candidate.identity_mapping_revision,
     )

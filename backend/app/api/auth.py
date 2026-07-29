@@ -414,7 +414,7 @@ async def get_current_user_info(
     """Get current user information"""
 
     set_user(current_user.username)
-    logger.info(f"User info requested: username={current_user.username}")
+    logger.debug(f"User info requested: username={current_user.username}")
 
     return build_current_user_read(current_user)
 
