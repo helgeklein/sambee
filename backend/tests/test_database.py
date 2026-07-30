@@ -143,7 +143,7 @@ class TestSessionManagement:
             # Create a user with invalid data (duplicate username)
             user1 = User(username="test_rollback", password_hash="hash1")
             session.add(user1)
-            session.commit()
+            session.flush()
 
             # Try to create duplicate - should fail
             user2 = User(username="test_rollback", password_hash="hash2")
