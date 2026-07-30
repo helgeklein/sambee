@@ -912,6 +912,48 @@ describe("Authentication settings", () => {
     expect(secret).toHaveAttribute("type", "password");
   });
 
+  it("retains a comma while editing scopes", async () => {
+    const user = userEvent.setup();
+    vi.mocked(api.getOidcConfiguration).mockResolvedValue(response(configuration("Active Provider")));
+    window.location.hash = "";
+    renderSettings();
+
+    const scopes = await screen.findByRole("textbox", { name: "Scopes" });
+    await user.click(scopes);
+    await user.keyboard("{End},email");
+
+    expect(scopes).toHaveValue("openid, profile, groups,email");
+  });
+
+  it("requires the openid scope before testing", async () => {
+    const user = userEvent.setup();
+    vi.mocked(api.getOidcConfiguration).mockResolvedValue(response(configuration("Active Provider")));
+    window.location.hash = "";
+    renderSettings();
+
+    const scopes = await screen.findByRole("textbox", { name: "Scopes" });
+    await user.clear(scopes);
+    await user.type(scopes, "aa");
+    await user.tab();
+
+    expect(await screen.findByText("Scopes must include openid.")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Connect and test" })).toBeDisabled();
+  });
+
+  it("shows the OIDC test validation error returned by the API", async () => {
+    const user = userEvent.setup();
+    vi.mocked(api.getOidcConfiguration).mockResolvedValue(response(configuration("Active Provider")));
+    vi.mocked(api.startOidcTest).mockRejectedValue({
+      response: { status: 400, data: { detail: "OIDC discovery issuer does not exactly match configuration" } },
+    });
+    window.location.hash = "";
+    renderSettings();
+
+    await user.click(await screen.findByRole("button", { name: "Connect and test" }));
+
+    expect(await screen.findByText("OIDC discovery issuer does not exactly match configuration")).toBeInTheDocument();
+  });
+
   it("blocks testing for normalized group collisions and empty selected-group admission", async () => {
     const user = userEvent.setup();
     vi.mocked(api.getOidcConfiguration).mockResolvedValue(response(configuration("Active Provider")));

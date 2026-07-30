@@ -49,6 +49,7 @@ from app.services.audit import AuditDetails, AuditEventName, AuditResult, write_
 from app.services.authentication_config import get_effective_authentication_mode, set_ui_authentication_mode
 from app.services.oidc_client import (
     NormalizedOidcClaims,
+    OidcClientError,
     build_authorization_request,
     clear_oidc_provider_cache,
     load_provider_metadata,
@@ -68,7 +69,7 @@ from app.services.oidc_configuration import (
     redacted_configuration,
 )
 from app.services.oidc_flow import start_test_flow
-from app.services.oidc_http import ValidatedOidcHttpClient
+from app.services.oidc_http import OidcHttpError, ValidatedOidcHttpClient
 from app.services.oidc_identity import OidcIdentityError, evaluate_oidc_access, resolve_oidc_role
 from app.services.oidc_mapping import (
     OidcMappingError,
@@ -320,7 +321,10 @@ async def start_oidc_test(
         )
         session.commit()
         return OidcTestStartResponse(flow_id=started.flow_id, authorization_url=authorization.url)
-    except (OidcConfigurationError, ValueError) as error:
+    except (OidcConfigurationError, OidcClientError, OidcHttpError) as error:
+        session.rollback()
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(error)) from error
+    except ValueError as error:
         session.rollback()
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="OIDC configuration validation failed") from error
 

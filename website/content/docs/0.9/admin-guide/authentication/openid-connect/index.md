@@ -2,9 +2,7 @@
 title = "OpenID Connect Authentication"
 +++
 
-Sambee can authenticate users through OpenID Connect (OIDC). OIDC identities resolve to local Sambee users.
-
-Review [Authentication Overview](../authentication-overview/) before selecting **OIDC or password** or **OIDC only**. Configure the external HTTPS origin and trusted proxy addresses in [Network Settings](../../network-and-reverse-proxy/network-settings/) before starting a provider test.
+OpenID Connect (OIDC) is Sambee's preferred authentication method.
 
 ## Preparation
 
@@ -18,28 +16,24 @@ https://files.example.com/api/auth/oidc/callback
 
 ## Configure the OpenID Connect Identity Provider (IdP)
 
-Prepare the IAM server (the machine that acts as OpenID Connect provider for Sambee) by creating a new OpenID Connect IdP with the following properties:
+In your identity provider, create a new OpenID Connect IdP with the following properties:
 
 - Confidential web client
 - Authorization code flow
 - PKCE with `S256`
-- Client authentication with `client_secret_basic` at the token endpoint
-- ID tokens signed with `RS256`
+- `client_secret_basic` token endpoint authentication
+- `RS256`-signed ID tokens
 - Sambee's callback URI (see above)
-- The scopes `openid`, `profile`, and `email`; add `groups` only when using group admission or group-based role mappings
+- The scopes `openid`, `profile`, and `email`
+   - Add `groups` only when using group admission or group-based role mappings
 
-### Choose the Username Claim
+### Verify the Username Claim
 
-Sambee needs to know which field from the user data returned from the provider it can use to match the IdP's user account to an account in Sambee's local database of users. This field is called the username claim.
+Sambee needs to match OIDC provider usernames to its own usernames. Many OIDC providers return a username in the field `preferred_username` when the `profile` scope is enabled. To ensure that username claim is suitable, verify the following with your OIDC provider:
 
-The username claim value must be present for every person who can sign in, stable for that person, and unique across all provider users. Confirm this from the identity provider's attribute documentation and user data.
-
-Sambee uses the username claim:
-
-- to create and review pending mappings between IdP users and Sambee users, and
-- to match an IdP account to a pending mapping when the person first signs in.
-
-Once a person first signed in, Sambee creates an identity link from the provider's immutable issuer and subject field values.
+- How to enable returning the username claim (typically through the `profile` scope).
+- The field name of the username claim (typically `preferred_username`).
+- The username claim is present for every person who can sign in, stable for that person, and unique across all provider users.
 
 ### Authelia Example
 
@@ -47,33 +41,27 @@ The relevant Authelia client entry can look like this:
 
 ```yaml
 identity_providers:
-	oidc:
-		clients:
-			- client_id: sambee
-				client_name: Sambee
-				client_secret: '$plaintext$replace-with-a-long-random-secret'
-				public: false
-				authorization_policy: two_factor
-				redirect_uris:
-					- https://files.example.com/api/auth/oidc/callback
-				scopes:
-					- openid
-					- profile
-					- email
-					# Add groups when using group admission or group-based role mappings.
-				response_types:
-					- code
-				grant_types:
-					- authorization_code
-				token_endpoint_auth_method: client_secret_basic
-				id_token_signed_response_alg: RS256
+  oidc:
+    clients:
+      - client_id: sambee
+        client_name: Sambee
+        client_secret: '$pbkdf2-sha512$replace-with-a-hashed-random-secret'
+        redirect_uris:
+          - https://files.example.com/api/auth/oidc/callback
+        scopes:
+          - openid
+          - profile
+          - email
+          # Add groups when using group admission or group-based role mappings.
+          - groups
 ```
 
 Notes:
 
-- Use your own values for the following fields: `client_secret`, `authorization_policy`, `redirect_uris`.
+- See Authelia's instructions for generating a [hashed client secret](https://www.authelia.com/integration/openid-connect/frequently-asked-questions/#how-do-i-generate-a-client-identifier-or-client-secret).
+- Use your own values for the following fields: `redirect_uris`.
 - The `profile` scope makes Authelia's `preferred_username` claim available from the username used to sign in, which is exactly what Sambee expects in its default OIDC settings (see below).
-- Consult the Authelia documentation for syntax supported by your installed Authelia version.
+- See the [Authelia documentation](https://www.authelia.com/configuration/identity-providers/openid-connect/clients/) more details and default values.
 
 ## Configure Sambee
 
@@ -95,7 +83,7 @@ Complete these fields in the **Provider** section:
 | **Provider name** | A recognizable name for the provider, such as `Authelia` or `Microsoft Entra ID`. |
 | **Issuer URL** | The provider's HTTPS issuer URL. For Authelia, this is normally the externally reachable URL of the Authelia portal, such as `https://auth.example.com`. <br />Open `https://auth.example.com/.well-known/openid-configuration` and enter the exact value of its `issuer` field. |
 | **Client ID** | The client ID configured in the OIDC IdP. |
-| **Client secret** | The matching client secret. <br />On later changes, leave this blank to retain the stored secret. <br />The visibility button only reveals the value currently typed in the browser; Sambee never returns the stored secret. |
+| **Client secret** | The matching client secret as plain text (unhashed).<br />On later changes, leave this blank to retain the stored secret. <br />The visibility button only reveals the value currently typed in the browser; Sambee never returns the stored secret. |
 | **Scopes** | A comma-separated list. Include `openid` and every scope required to return the claims configured below, such as `profile` and `email`. Add `groups` when using group admission or group-based role mappings. |
 
 ### 3. Configure Access

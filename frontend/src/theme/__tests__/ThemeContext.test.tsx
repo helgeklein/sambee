@@ -75,6 +75,12 @@ describe("Theme System - ThemeContext", () => {
       expect(result.current.muiTheme.palette.primary).toBeDefined();
     });
 
+    it("does not override Material UI checkbox defaults", () => {
+      const { result } = renderHook(() => useSambeeTheme(), { wrapper });
+
+      expect(result.current.muiTheme.components?.MuiCheckbox).toBeUndefined();
+    });
+
     it("should restore theme from localStorage", () => {
       localStorageMock.setItem("theme-id-current", "sambee-dark");
 

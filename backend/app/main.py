@@ -260,7 +260,6 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
                 logger.info("Database already initialized; administrator bootstrap skipped")
 
         logger.info("Sambee application startup complete!")
-        logger.info("API Documentation: http://localhost:8000/docs")
 
         # Start background lock monitor for orphaned edit locks
         from app.services.lock_manager import start_lock_monitor
@@ -328,6 +327,9 @@ app = FastAPI(
     description="Modern SMB share file browser",
     version=__version__,
     lifespan=lifespan,
+    docs_url=None,
+    redoc_url=None,
+    openapi_url=None,
 )
 app.add_middleware(PasswordFormBodyLimitMiddleware)
 

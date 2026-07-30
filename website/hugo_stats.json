@@ -1196,6 +1196,7 @@
       "verification-builds",
       "verify-the-deployment",
       "verify-the-upgraded-deployment",
+      "verify-the-username-claim",
       "version-folders",
       "version-operations",
       "version-order-and-current-version",

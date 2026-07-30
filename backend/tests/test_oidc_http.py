@@ -1,4 +1,6 @@
 import asyncio
+from types import SimpleNamespace
+from unittest.mock import AsyncMock
 
 import httpx
 import pytest
@@ -9,6 +11,7 @@ from app.services.oidc_http import (
     OidcHttpErrorCode,
     ValidatedNetworkBackend,
     ValidatedOidcHttpClient,
+    ValidatedOidcTransport,
     validate_oidc_url,
     validate_resolved_address,
 )
@@ -49,6 +52,31 @@ def test_resolved_address_rejects_forbidden_production_ranges(address: str) -> N
 
 def test_resolved_address_allows_private_unicast() -> None:
     validate_resolved_address("10.20.30.40", development=False)
+
+
+@pytest.mark.asyncio
+async def test_transport_adapts_httpcore_response_streams_for_httpx() -> None:
+    class CoreStream:
+        def __init__(self) -> None:
+            self.closed = False
+
+        async def __aiter__(self):
+            yield b"{}"
+
+        async def aclose(self) -> None:
+            self.closed = True
+
+    stream = CoreStream()
+    transport = ValidatedOidcTransport(development=False)
+    transport._pool.handle_async_request = AsyncMock(
+        return_value=SimpleNamespace(status=200, headers=[(b"content-type", b"application/json")], stream=stream, extensions={})
+    )
+
+    response = await transport.handle_async_request(httpx.Request("GET", "https://idp.example.test/metadata"))
+
+    assert await response.aread() == b"{}"
+    assert stream.closed is True
+    await transport.aclose()
 
 
 @pytest.mark.asyncio
