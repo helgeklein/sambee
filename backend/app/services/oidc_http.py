@@ -2,11 +2,11 @@ import ipaddress
 import json
 import socket
 import ssl
-from collections.abc import Awaitable, Callable, Iterable
+from collections.abc import AsyncIterator, Awaitable, Callable, Iterable
 from dataclasses import dataclass
 from enum import IntEnum
 from types import TracebackType
-from typing import Any, Final, cast
+from typing import Any, Final, Protocol, cast
 from urllib.parse import urlsplit
 
 import anyio
@@ -34,6 +34,12 @@ _OIDC_REQUEST_LIMITER = anyio.CapacityLimiter(MAX_CONCURRENT_OIDC_REQUESTS)
 
 SocketOption = tuple[int, int, int] | tuple[int, int, bytes | bytearray] | tuple[int, int, None, int]
 AddressResolver = Callable[[str, int], Awaitable[list[str]]]
+
+
+class _CoreAsyncByteStream(Protocol):
+    def __aiter__(self) -> AsyncIterator[bytes]: ...
+
+    async def aclose(self) -> None: ...
 
 
 class OidcHttpErrorCode(IntEnum):
@@ -168,12 +174,26 @@ class ValidatedOidcTransport(httpx.AsyncBaseTransport):
         return httpx.Response(
             status_code=response.status,
             headers=response.headers,
-            stream=cast(httpx.AsyncByteStream, response.stream),
+            stream=_HttpcoreAsyncByteStream(cast(_CoreAsyncByteStream, response.stream)),
             extensions=response.extensions,
         )
 
     async def aclose(self) -> None:
         await self._pool.aclose()
+
+
+class _HttpcoreAsyncByteStream(httpx.AsyncByteStream):
+    """Bridge HTTPCore's stream protocol to the interface HTTPX enforces."""
+
+    def __init__(self, stream: _CoreAsyncByteStream) -> None:
+        self._stream = stream
+
+    async def __aiter__(self) -> AsyncIterator[bytes]:
+        async for chunk in self._stream:
+            yield chunk
+
+    async def aclose(self) -> None:
+        await self._stream.aclose()
 
 
 class ValidatedOidcHttpClient:

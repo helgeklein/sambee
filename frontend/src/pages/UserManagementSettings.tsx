@@ -26,7 +26,6 @@ import {
   MenuItem,
   Select,
   Stack,
-  Switch,
   TextField,
   Tooltip,
   Typography,
@@ -560,13 +559,14 @@ export function UserManagementSettings({ dialogSafeHeader = false }: UserManagem
       {isEditing ? (
         <FormControlLabel
           control={
-            <Switch
+            <Checkbox
               checked={formState.isActive}
               disabled={isEditingSelf}
               onChange={(event) => setFormState((current) => ({ ...current, isActive: event.target.checked }))}
             />
           }
           label={t("settings.userManagement.editor.accountActiveLabel")}
+          sx={{ alignSelf: "flex-start", m: 0 }}
         />
       ) : (
         <>
@@ -592,6 +592,7 @@ export function UserManagementSettings({ dialogSafeHeader = false }: UserManagem
               />
             }
             label={t("settings.userManagement.editor.requirePasswordChangeLabel")}
+            sx={{ alignSelf: "flex-start", m: 0 }}
           />
         </>
       )}
@@ -679,6 +680,7 @@ export function UserManagementSettings({ dialogSafeHeader = false }: UserManagem
           />
         }
         label={t("settings.userManagement.resetPasswordEditor.requirePasswordChangeLabel")}
+        sx={{ alignSelf: "flex-start", m: 0 }}
       />
     </Box>
   );

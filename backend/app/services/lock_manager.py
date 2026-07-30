@@ -45,7 +45,7 @@ def start_lock_monitor() -> None:
         return
 
     _orphan_task = asyncio.create_task(_orphan_check_loop())
-    logger.info(f"Lock monitor started (check interval: {ORPHAN_CHECK_INTERVAL_SECONDS}s, timeout: {HEARTBEAT_TIMEOUT_SECONDS}s)")
+    logger.debug(f"Lock monitor started (check interval: {ORPHAN_CHECK_INTERVAL_SECONDS}s, timeout: {HEARTBEAT_TIMEOUT_SECONDS}s)")
 
 
 #

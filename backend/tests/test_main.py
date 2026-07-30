@@ -198,29 +198,23 @@ class TestApplicationLifecycle:
 
 
 @pytest.mark.integration
-class TestAPIDocumentation:
-    """Test API documentation endpoints."""
+class TestAPIDocumentationDisabled:
+    """Test that generated API documentation endpoints are disabled."""
 
-    def test_openapi_schema_accessible(self, client: TestClient):
-        """Test that OpenAPI schema is accessible."""
+    def test_openapi_schema_is_not_served(self, client: TestClient):
+        """The OpenAPI schema must not be publicly served."""
         response = client.get("/openapi.json")
-        assert response.status_code == 200
-        schema = response.json()
-        assert "openapi" in schema
-        assert "info" in schema
-        assert schema["info"]["title"] == "Sambee"
+        assert response.status_code == 404
 
-    def test_swagger_ui_accessible(self, client: TestClient):
-        """Test that Swagger UI is accessible."""
+    def test_swagger_ui_is_not_served(self, client: TestClient):
+        """The Swagger UI must not be publicly served."""
         response = client.get("/docs")
-        assert response.status_code == 200
-        assert "text/html" in response.headers["content-type"]
+        assert response.status_code == 404
 
-    def test_redoc_accessible(self, client: TestClient):
-        """Test that ReDoc is accessible."""
+    def test_redoc_is_not_served(self, client: TestClient):
+        """The ReDoc UI must not be publicly served."""
         response = client.get("/redoc")
-        assert response.status_code == 200
-        assert "text/html" in response.headers["content-type"]
+        assert response.status_code == 404
 
 
 @pytest.mark.integration

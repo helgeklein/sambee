@@ -200,6 +200,7 @@ export function SambeeThemeProvider({ children }: ThemeProviderProps) {
                 color: currentTheme.components?.link?.hover ?? currentTheme.primary.dark,
               },
               "&.Mui-focusVisible": {
+                outline: "none",
                 textDecoration: "underline",
                 textDecorationThickness: "2px",
                 textUnderlineOffset: "3px",
@@ -294,28 +295,6 @@ export function SambeeThemeProvider({ children }: ThemeProviderProps) {
           styleOverrides: {
             root: {
               "&.Mui-focusVisible": buttonFocusOutline,
-            },
-          },
-        },
-        // Checkboxes use a compact hit area and focus the glyph itself, rather than a large halo.
-        MuiCheckbox: {
-          defaultProps: {
-            disableRipple: true,
-          },
-          styleOverrides: {
-            root: {
-              padding: 4,
-              color: currentTheme.text?.secondary,
-              "&.Mui-checked, &.MuiCheckbox-indeterminate": {
-                color: currentTheme.primary.main,
-              },
-              "&.Mui-focusVisible": {
-                backgroundColor: "transparent",
-                color: focusColor,
-              },
-              "&.Mui-focusVisible.Mui-checked, &.Mui-focusVisible.MuiCheckbox-indeterminate": {
-                color: focusColor,
-              },
             },
           },
         },

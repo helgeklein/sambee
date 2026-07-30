@@ -210,6 +210,7 @@ export function AuthenticationSettings() {
   const [configuration, setConfiguration] = useState<OidcAdminConfigurationRead | null>(() =>
     getCachedAsyncData<OidcAdminConfigurationRead>(SETTINGS_DATA_CACHE_KEYS.adminAuthentication)
   );
+  const [scopesInput, setScopesInput] = useState(() => listValue(DEFAULT_CANDIDATE.scopes));
   const [authMode, setAuthMode] = useState<AuthenticationMode>("password_only");
   const [noAuthenticationAcknowledged, setNoAuthenticationAcknowledged] = useState(false);
   const [clientSecret, setClientSecret] = useState("");
@@ -224,6 +225,11 @@ export function AuthenticationSettings() {
   const [error, setError] = useState("");
   const [notice, setNotice] = useState("");
   const [finalizationUnresolved, setFinalizationUnresolved] = useState(() => storedPendingFinalization() !== undefined);
+
+  useEffect(() => {
+    setScopesInput(listValue(candidate.scopes));
+  }, [candidate.scopes]);
+
   const previewRequestSequence = useRef(0);
   const selectedMappings = testedIdentity?.replacement_mappings.filter((mapping) => mappingReview[mapping.target_user_id]?.selected) ?? [];
   const replacementUsernames = selectedMappings.map((mapping) => mappingReview[mapping.target_user_id]?.expectedUsername.trim() ?? "");
@@ -280,6 +286,7 @@ export function AuthenticationSettings() {
       : usesGroupBasedRoleAssignment && crossRoleGroupKeys.size > 0
         ? "A group cannot grant more than one role."
         : "";
+  const scopesError = candidate.scopes.includes("openid") ? "" : "Scopes must include openid.";
   const groupConfigurationInvalid = Boolean(admissionGroupError || adminGroupError || editorGroupError || viewerGroupError);
   const testedIdentityCanActivate = !reviewPending && testedIdentity?.admitted === true;
   const isOidcMode = authMode === "oidc_or_password" || authMode === "oidc_only";
@@ -455,8 +462,8 @@ export function AuthenticationSettings() {
       sessionStorage.setItem(OIDC_SETUP_FLOW_STORAGE_KEY, result.flow_id);
       sessionStorage.setItem(OIDC_REVIEWED_POLICY_STORAGE_KEY, JSON.stringify(reviewedPolicyFor(candidate)));
       window.location.assign(result.authorization_url);
-    } catch {
-      setError("The OIDC configuration could not be validated.");
+    } catch (caught: unknown) {
+      setError(getApiErrorMessage(caught, "The OIDC configuration could not be validated."));
       setBusy(false);
     }
   };
@@ -825,10 +832,12 @@ export function AuthenticationSettings() {
                   />
                   <TextField
                     label="Scopes"
-                    value={listValue(candidate.scopes)}
-                    onChange={(event) => update("scopes", parseList(event.target.value))}
+                    value={scopesInput}
+                    onChange={(event) => setScopesInput(event.target.value)}
+                    onBlur={() => update("scopes", parseList(scopesInput))}
                     disabled={finalizationUnresolved}
-                    helperText="Comma-separated; openid is required."
+                    error={Boolean(scopesError)}
+                    helperText={scopesError || "Comma-separated; openid is required."}
                   />
 
                   <Typography variant="h6">Access</Typography>
@@ -965,7 +974,13 @@ export function AuthenticationSettings() {
                   <Button
                     variant="contained"
                     sx={settingsPrimaryButtonSx}
-                    disabled={busy || finalizationUnresolved || configuration?.health.status !== "healthy" || groupConfigurationInvalid}
+                    disabled={
+                      busy ||
+                      finalizationUnresolved ||
+                      configuration?.health.status !== "healthy" ||
+                      groupConfigurationInvalid ||
+                      Boolean(scopesError)
+                    }
                     onClick={() => void startTest()}
                   >
                     Connect and test

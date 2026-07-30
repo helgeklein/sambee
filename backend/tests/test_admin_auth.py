@@ -58,6 +58,24 @@ def test_no_authentication_mode_requires_acknowledgement_and_persists(
     assert client.get("/api/auth/config").json() == {"sign_in_mode": "none", "oidc": None}
 
 
+def test_oidc_test_returns_specific_configuration_validation_error(
+    client: TestClient,
+    admin_token: str,
+) -> None:
+    response = client.post(
+        "/api/admin/auth/oidc/test",
+        headers={"Authorization": f"Bearer {admin_token}"},
+        json={
+            "issuer_url": "https://idp.example.test",
+            "client_id": "sambee",
+            "scopes": ["profile"],
+        },
+    )
+
+    assert response.status_code == 400
+    assert response.json()["detail"] == "OIDC scopes must include openid"
+
+
 def _create_validated_test_flow(
     session: Session,
     admin_user: User,
