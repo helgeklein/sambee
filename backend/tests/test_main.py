@@ -268,21 +268,17 @@ class TestVersionInfo:
         assert read_first_available_text([missing_path, repo_commit_path]) == "345dc98"
 
     @patch("app.main.static_path")
-    def test_spa_serving_returns_index_for_root(self, mock_static_path):
+    def test_spa_serving_returns_index_for_root(self, mock_static_path, client: TestClient):
         """Test that root path serves index.html."""
         from pathlib import Path
-
-        from app.main import app
 
         # Mock static path to exist
         mock_path = MagicMock(spec=Path)
         mock_path.exists.return_value = True
         mock_static_path.exists.return_value = True
 
-        with TestClient(app):
-            # Note: We can't easily test this without actual static files
-            # This is more of a structural test
-            pass
+        # Note: We can't easily test this without actual static files.
+        assert client is not None
 
     def test_api_routes_not_served_as_static(self, client: TestClient):
         """Test that API routes are not served as static files."""

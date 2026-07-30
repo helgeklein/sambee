@@ -38,8 +38,8 @@ import { MobileSettingsDrawer } from "../components/Mobile/MobileSettingsDrawer"
 import SettingsDialog from "../components/Settings/SettingsDialog";
 import {
   DEFAULT_SETTINGS_CATEGORY,
-  SETTINGS_CATEGORY_ORDER,
   type MobileSettingsView,
+  SETTINGS_CATEGORY_ORDER,
   type SettingsCategory,
 } from "../components/Settings/settingsNavigation";
 import { getEnabledBrowserCommands } from "../config/browserCommands";
