@@ -509,7 +509,7 @@ class MonitoredDirectory:
     def stop(self) -> None:
         """Stop monitoring and clean up resources."""
 
-        logger.info(f"Stopping monitor for {self.connection_id}:{self.path}")
+        logger.debug(f"Stopping monitor for {self.connection_id}:{self.path}")
         self._stop_event.set()
 
         # Cancel any pending watcher

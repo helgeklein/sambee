@@ -1,9 +1,7 @@
-import { ContentCopy, ExpandMore, Visibility, VisibilityOff } from "@mui/icons-material";
+import { ContentCopy, Visibility, VisibilityOff } from "@mui/icons-material";
 import {
-  Accordion,
-  AccordionDetails,
-  AccordionSummary,
   Alert,
+  AlertTitle,
   Box,
   Button,
   Checkbox,
@@ -223,12 +221,18 @@ export function AuthenticationSettings() {
   const [reviewPending, setReviewPending] = useState(false);
   const [busy, setBusy] = useState(true);
   const [error, setError] = useState("");
+  const [testError, setTestError] = useState("");
   const [notice, setNotice] = useState("");
   const [finalizationUnresolved, setFinalizationUnresolved] = useState(() => storedPendingFinalization() !== undefined);
+  const testErrorRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
     setScopesInput(listValue(candidate.scopes));
   }, [candidate.scopes]);
+
+  useEffect(() => {
+    if (testError) testErrorRef.current?.focus();
+  }, [testError]);
 
   const previewRequestSequence = useRef(0);
   const selectedMappings = testedIdentity?.replacement_mappings.filter((mapping) => mappingReview[mapping.target_user_id]?.selected) ?? [];
@@ -353,6 +357,7 @@ export function AuthenticationSettings() {
         const identity = await api.getOidcTestResult(flowId, storedReviewedPolicy());
         if (!active) return;
         setCandidate(editableCandidate(identity.candidate));
+        setAuthMode(identity.candidate.sign_in_mode);
         setTestedIdentity(identity);
         setMappingErrors(
           replayFailure === "validation"
@@ -402,6 +407,7 @@ export function AuthenticationSettings() {
       [key]: value,
     };
     setCandidate(nextCandidate);
+    setTestError("");
     if (testedIdentity && REVIEWABLE_POLICY_KEYS.has(key)) {
       const requestSequence = ++previewRequestSequence.current;
       const reviewedPolicy = reviewedPolicyFor(nextCandidate);
@@ -455,6 +461,7 @@ export function AuthenticationSettings() {
     if (finalizationUnresolved) return;
     setBusy(true);
     setError("");
+    setTestError("");
     try {
       const payload = { ...candidate };
       if (clientSecret.trim()) payload.client_secret = clientSecret;
@@ -463,7 +470,7 @@ export function AuthenticationSettings() {
       sessionStorage.setItem(OIDC_REVIEWED_POLICY_STORAGE_KEY, JSON.stringify(reviewedPolicyFor(candidate)));
       window.location.assign(result.authorization_url);
     } catch (caught: unknown) {
-      setError(getApiErrorMessage(caught, "The OIDC configuration could not be validated."));
+      setTestError(getApiErrorMessage(caught, "The OIDC configuration could not be validated."));
       setBusy(false);
     }
   };
@@ -713,6 +720,7 @@ export function AuthenticationSettings() {
                 onChange={(event) => {
                   const mode = event.target.value as AuthenticationMode;
                   setAuthMode(mode);
+                  setTestError("");
                   setNoAuthenticationAcknowledged(false);
                   if (mode === "oidc_or_password" || mode === "oidc_only") {
                     update("sign_in_mode", mode);
@@ -804,6 +812,7 @@ export function AuthenticationSettings() {
                     disabled={finalizationUnresolved}
                     onChange={(event) => {
                       setClientSecret(event.target.value);
+                      setTestError("");
                       setTestedIdentity(null);
                     }}
                     helperText={
@@ -923,54 +932,36 @@ export function AuthenticationSettings() {
                     The administrator connecting this provider keeps an individual Administrator assignment. Individual assignments always
                     override this configured role policy.
                   </Alert>
-                  <Accordion disableGutters elevation={0} sx={{ "&::before": { display: "none" } }}>
-                    <AccordionSummary
-                      expandIcon={<ExpandMore />}
-                      aria-controls="advanced-oidc-claims-content"
-                      id="advanced-oidc-claims-header"
-                      sx={{ px: 0 }}
-                    >
-                      <Box>
-                        <Typography variant="h6">Advanced claims</Typography>
-                        <Typography aria-hidden="true" color="text.secondary" variant="body2">
-                          Claim names supplied by your identity provider
-                        </Typography>
-                      </Box>
-                    </AccordionSummary>
-                    <AccordionDetails sx={{ px: 0 }}>
-                      <Stack spacing={2}>
-                        <Typography color="text.secondary">
-                          The default claim names work with most providers. A groups claim is only needed for selected-group admission or
-                          group-based role assignment.
-                        </Typography>
-                        <TextField
-                          label="Username claim"
-                          value={candidate.username_claim}
-                          onChange={(event) => update("username_claim", event.target.value)}
-                          disabled={finalizationUnresolved}
-                          required
-                        />
-                        <TextField
-                          label="Name claim"
-                          value={candidate.name_claim ?? ""}
-                          onChange={(event) => update("name_claim", optionalClaim(event.target.value))}
-                          disabled={finalizationUnresolved}
-                        />
-                        <TextField
-                          label="Email claim"
-                          value={candidate.email_claim ?? ""}
-                          onChange={(event) => update("email_claim", optionalClaim(event.target.value))}
-                          disabled={finalizationUnresolved}
-                        />
-                        <TextField
-                          label="Groups claim"
-                          value={candidate.groups_claim ?? ""}
-                          onChange={(event) => update("groups_claim", optionalClaim(event.target.value))}
-                          disabled={finalizationUnresolved}
-                        />
-                      </Stack>
-                    </AccordionDetails>
-                  </Accordion>
+                  <Typography variant="h6">Advanced claims</Typography>
+                  <Typography color="text.secondary">
+                    The default claim names work with most providers. A groups claim is only needed for selected-group admission or
+                    group-based role assignment.
+                  </Typography>
+                  <TextField
+                    label="Username claim"
+                    value={candidate.username_claim}
+                    onChange={(event) => update("username_claim", event.target.value)}
+                    disabled={finalizationUnresolved}
+                    required
+                  />
+                  <TextField
+                    label="Name claim"
+                    value={candidate.name_claim ?? ""}
+                    onChange={(event) => update("name_claim", optionalClaim(event.target.value))}
+                    disabled={finalizationUnresolved}
+                  />
+                  <TextField
+                    label="Email claim"
+                    value={candidate.email_claim ?? ""}
+                    onChange={(event) => update("email_claim", optionalClaim(event.target.value))}
+                    disabled={finalizationUnresolved}
+                  />
+                  <TextField
+                    label="Groups claim"
+                    value={candidate.groups_claim ?? ""}
+                    onChange={(event) => update("groups_claim", optionalClaim(event.target.value))}
+                    disabled={finalizationUnresolved}
+                  />
                   <Button
                     variant="contained"
                     sx={settingsPrimaryButtonSx}
@@ -985,6 +976,13 @@ export function AuthenticationSettings() {
                   >
                     Connect and test
                   </Button>
+
+                  {testError && (
+                    <Alert ref={testErrorRef} severity="error" role="alert" aria-live="assertive" tabIndex={-1}>
+                      <AlertTitle>Connection test failed</AlertTitle>
+                      {testError}
+                    </Alert>
+                  )}
 
                   {testedIdentity && (
                     <Box sx={{ borderLeft: 3, borderColor: "success.main", pl: 2, py: 1 }}>

@@ -15,6 +15,9 @@ from unittest.mock import MagicMock, patch
 import pytest
 from fastapi import Response
 from fastapi.testclient import TestClient
+from sqlmodel import Session, select
+
+from app.models.user import User
 
 
 @pytest.mark.integration
@@ -26,6 +29,12 @@ class TestHealthCheck:
         response = client.get("/api/health")
         assert response.status_code == 200
         assert response.json() == {"status": "healthy"}
+
+    def test_client_lifespan_does_not_bootstrap_administrator(self, client: TestClient, session: Session):
+        response = client.get("/api/health")
+
+        assert response.status_code == 200
+        assert session.exec(select(User)).all() == []
 
 
 @pytest.mark.integration

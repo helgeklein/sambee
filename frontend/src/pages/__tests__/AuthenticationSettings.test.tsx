@@ -164,6 +164,22 @@ describe("Authentication settings", () => {
     expect(api.finalizeOidcConfiguration).toHaveBeenCalledWith("test-flow", reviewedPolicy(tested), [], 1, []);
   });
 
+  it("shows the OIDC review after a test when the current mode is no authentication", async () => {
+    vi.mocked(api.getOidcConfiguration).mockResolvedValue({
+      ...response(configuration("Tested Provider")),
+      configuration: null,
+      auth_mode: "none",
+    });
+    vi.mocked(api.getOidcTestResult).mockResolvedValue(testedIdentity());
+    window.location.hash = "flow=test-flow";
+
+    renderSettings();
+
+    expect(await screen.findByText("Tested identity")).toBeInTheDocument();
+    expect(screen.getByRole("combobox", { name: "Authentication mode" })).toHaveTextContent("OIDC or password");
+    expect(screen.getByRole("button", { name: "Activate configuration" })).toBeEnabled();
+  });
+
   it("restores the current tab's OIDC setup flow from session storage", async () => {
     sessionStorage.setItem("sambee.oidc.setupFlowId", "stored-flow");
     window.location.hash = "";
@@ -942,6 +958,8 @@ describe("Authentication settings", () => {
 
   it("shows the OIDC test validation error returned by the API", async () => {
     const user = userEvent.setup();
+    const writeText = vi.fn().mockRejectedValue(new Error("Clipboard unavailable"));
+    Object.defineProperty(navigator, "clipboard", { configurable: true, value: { writeText } });
     vi.mocked(api.getOidcConfiguration).mockResolvedValue(response(configuration("Active Provider")));
     vi.mocked(api.startOidcTest).mockRejectedValue({
       response: { status: 400, data: { detail: "OIDC discovery issuer does not exactly match configuration" } },
@@ -949,9 +967,18 @@ describe("Authentication settings", () => {
     window.location.hash = "";
     renderSettings();
 
+    await user.click(await screen.findByRole("button", { name: "Copy redirect URI" }));
+    expect(await screen.findByText("The redirect URI could not be copied.")).toBeInTheDocument();
+
     await user.click(await screen.findByRole("button", { name: "Connect and test" }));
 
-    expect(await screen.findByText("OIDC discovery issuer does not exactly match configuration")).toBeInTheDocument();
+    const testErrorTitle = await screen.findByText("Connection test failed");
+    const testError = testErrorTitle.closest('[role="alert"]');
+    if (!testError) throw new Error("OIDC connection test error alert was not rendered.");
+    expect(testError).toHaveTextContent("Connection test failed");
+    expect(testError).toHaveTextContent("OIDC discovery issuer does not exactly match configuration");
+    await waitFor(() => expect(testError).toHaveFocus());
+    expect(screen.queryByText("The redirect URI could not be copied.")).not.toBeInTheDocument();
   });
 
   it("blocks testing for normalized group collisions and empty selected-group admission", async () => {
@@ -978,19 +1005,16 @@ describe("Authentication settings", () => {
     expect(connect).toBeDisabled();
   });
 
-  it("keeps advanced claims collapsed and shows group mappings in role assignment", async () => {
-    const user = userEvent.setup();
+  it("shows advanced claims and group mappings in role assignment", async () => {
     vi.mocked(api.getOidcConfiguration).mockResolvedValue(response(configuration("Active Provider")));
     window.location.hash = "";
     renderSettings();
 
-    expect(await screen.findByRole("button", { name: "Advanced claims" })).toHaveAttribute("aria-expanded", "false");
-    expect(screen.queryByRole("textbox", { name: "Username claim" })).not.toBeInTheDocument();
+    expect(await screen.findByRole("heading", { name: "Advanced claims" })).toBeInTheDocument();
+    expect(screen.getByRole("textbox", { name: "Username claim" })).toHaveValue("preferred_username");
     expect(
       screen.getByText("Only members of these identity-provider groups can sign in. Enter exact group names, separated by commas.")
     ).toBeInTheDocument();
-    await user.click(screen.getByRole("button", { name: "Advanced claims" }));
-    expect(screen.getByRole("textbox", { name: "Username claim" })).toHaveValue("preferred_username");
     expect(screen.getByRole("textbox", { name: "Viewer groups" })).toBeInTheDocument();
   });
 
@@ -1003,7 +1027,6 @@ describe("Authentication settings", () => {
 
     await screen.findByText("Tested identity");
     expect(sessionStorage.getItem("sambee.oidc.setupFlowId")).toBe("test-flow");
-    await user.click(screen.getByRole("button", { name: "Advanced claims" }));
     await user.clear(screen.getByRole("textbox", { name: "Username claim" }));
     await user.type(screen.getByRole("textbox", { name: "Username claim" }), "email");
 

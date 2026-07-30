@@ -2,6 +2,7 @@ import base64
 import hashlib
 import time
 from typing import Any
+from unittest.mock import patch
 from urllib.parse import parse_qs, urlsplit
 
 import httpx
@@ -168,9 +169,18 @@ async def test_metadata_rejects_issuer_mismatch() -> None:
         )
     )
     async with ValidatedOidcHttpClient(transport=transport, development=False) as client:
-        with pytest.raises(OidcClientError) as error:
-            await load_provider_metadata(client, ISSUER, development=False)
+        with patch("app.services.oidc_client.logger.warning") as log_warning:
+            with pytest.raises(OidcClientError) as error:
+                await load_provider_metadata(client, ISSUER, development=False)
     assert error.value.code == OidcClientErrorCode.INVALID_ISSUER
+    assert str(error.value) == (
+        f"OIDC discovery issuer does not exactly match the configured issuer: configured {ISSUER!r}, discovered {f'{ISSUER}/different'!r}"
+    )
+    log_warning.assert_called_once_with(
+        "OIDC discovery issuer does not match configured issuer: configured %r, discovered %r",
+        ISSUER,
+        f"{ISSUER}/different",
+    )
 
 
 @pytest.mark.asyncio

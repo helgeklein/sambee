@@ -36,7 +36,12 @@ import { KeyboardShortcutsHelp } from "../components/KeyboardShortcutsHelp";
 import HamburgerMenu from "../components/Mobile/HamburgerMenu";
 import { MobileSettingsDrawer } from "../components/Mobile/MobileSettingsDrawer";
 import SettingsDialog from "../components/Settings/SettingsDialog";
-import { DEFAULT_SETTINGS_CATEGORY, type MobileSettingsView, type SettingsCategory } from "../components/Settings/settingsNavigation";
+import {
+  DEFAULT_SETTINGS_CATEGORY,
+  SETTINGS_CATEGORY_ORDER,
+  type MobileSettingsView,
+  type SettingsCategory,
+} from "../components/Settings/settingsNavigation";
 import { getEnabledBrowserCommands } from "../config/browserCommands";
 import { BROWSER_SHORTCUTS, COMMON_SHORTCUTS, COPY_MOVE_SHORTCUTS, PANE_SHORTCUTS, SELECTION_SHORTCUTS } from "../config/keyboardShortcuts";
 import { useCompanion } from "../hooks/useCompanion";
@@ -240,6 +245,34 @@ const Browser: React.FC = () => {
   const [quickBarPaneId, setQuickBarPaneId] = useState<PaneId>("left");
   const [companionHintOpen, setCompanionHintOpen] = useState(false);
   const backendAvailability = useBackendAvailability();
+
+  useEffect(() => {
+    const requestedCategory = searchParams.get("settings");
+    if (!requestedCategory || !SETTINGS_CATEGORY_ORDER.includes(requestedCategory as SettingsCategory)) {
+      return;
+    }
+
+    const category = requestedCategory as SettingsCategory;
+    if (useCompactLayout) {
+      setMobileSettingsInitialView(category);
+      setMobileSettingsOpen(true);
+    } else {
+      setSettingsInitialCategory(category);
+      setSettingsOpen(true);
+    }
+
+    const nextSearchParams = new URLSearchParams(searchParams);
+    nextSearchParams.delete("settings");
+    const nextSearch = nextSearchParams.toString();
+    navigate(
+      {
+        pathname: location.pathname,
+        search: nextSearch ? `?${nextSearch}` : "",
+        hash: location.hash,
+      },
+      { replace: true }
+    );
+  }, [location.hash, location.pathname, navigate, searchParams, useCompactLayout]);
 
   // ── Companion detection & drive management ──────────────────────────────
   const companion = useCompanion();

@@ -2,6 +2,7 @@ import base64
 import hashlib
 import hmac
 import json
+import logging
 import time
 from collections import OrderedDict
 from collections.abc import Awaitable, Callable, Mapping
@@ -32,6 +33,8 @@ from app.services.oidc_http import (
 ALLOWED_ID_TOKEN_ALGORITHMS: Final = ("RS256",)
 DISCOVERY_SUFFIX: Final = "/.well-known/openid-configuration"
 OIDC_PROVIDER_CACHE_MAX_ENTRIES: Final = 64
+
+logger = logging.getLogger(__name__)
 
 
 class OidcClientErrorCode(StrEnum):
@@ -186,7 +189,15 @@ async def load_provider_metadata(
     data = response.data
     discovered_issuer = _required_string(data, "issuer", OidcClientErrorCode.INVALID_METADATA)
     if discovered_issuer != issuer:
-        raise OidcClientError(OidcClientErrorCode.INVALID_ISSUER, "OIDC discovery issuer does not exactly match configuration")
+        logger.warning(
+            "OIDC discovery issuer does not match configured issuer: configured %r, discovered %r",
+            issuer,
+            discovered_issuer,
+        )
+        raise OidcClientError(
+            OidcClientErrorCode.INVALID_ISSUER,
+            f"OIDC discovery issuer does not exactly match the configured issuer: configured {issuer!r}, discovered {discovered_issuer!r}",
+        )
 
     authorization_endpoint = _required_string(data, "authorization_endpoint", OidcClientErrorCode.INVALID_METADATA)
     token_endpoint = _required_string(data, "token_endpoint", OidcClientErrorCode.INVALID_METADATA)

@@ -63,6 +63,16 @@ describe("FileBrowser — URL Routing (Phase 3)", () => {
     });
   });
 
+  describe("settings dialog routing", () => {
+    it("opens the requested settings category from the settings query parameter", async () => {
+      renderBrowser("/browse/smb/test-server-1?settings=admin-authentication#flow=test-flow");
+
+      const dialog = await screen.findByTestId("settings-dialog");
+
+      expect(dialog).toHaveAttribute("data-category", "admin-authentication");
+    });
+  });
+
   // --------------------------------------------------------------------------
   // Single-pane backward compatibility
   // --------------------------------------------------------------------------

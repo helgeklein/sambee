@@ -190,16 +190,22 @@ def session_fixture(engine, patch_db_engine) -> Generator[Session, None, None]:
 
 
 @pytest.fixture(name="client")
-def client_fixture(session: Session) -> Generator[TestClient, None, None]:
+def client_fixture(session: Session, monkeypatch: pytest.MonkeyPatch) -> Generator[TestClient, None, None]:
     """Create a test client with database session override."""
+
+    import app.main as main_module
+
+    monkeypatch.setattr(main_module, "bootstrap_admin_if_pristine", lambda _session: (None, None))
 
     def get_session_override():
         return session
 
     app.dependency_overrides[get_session] = get_session_override
-    client = TestClient(app)
-    yield client
-    app.dependency_overrides.clear()
+    try:
+        with TestClient(app) as client:
+            yield client
+    finally:
+        app.dependency_overrides.clear()
 
 
 @pytest.fixture(autouse=True)

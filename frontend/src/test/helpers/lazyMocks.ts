@@ -76,11 +76,11 @@ export function createPDFViewerMock() {
  */
 export function createSettingsDialogMock() {
   return {
-    default: ({ open, onClose }: { open: boolean; onClose: () => void }) =>
+    default: ({ open, onClose, initialCategory }: { open: boolean; onClose: () => void; initialCategory: string }) =>
       open
         ? React.createElement(
             "div",
-            { "data-testid": "settings-dialog" },
+            { "data-testid": "settings-dialog", "data-category": initialCategory },
             React.createElement("button", { type: "button", onClick: onClose }, "Close Settings")
           )
         : null,

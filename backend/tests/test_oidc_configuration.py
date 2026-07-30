@@ -113,6 +113,21 @@ def test_candidate_omitted_secret_preserves_existing_ciphertext_value() -> None:
     assert "existing-secret" not in repr(normalized)
 
 
+def test_candidate_normalizes_a_trailing_slash_in_the_issuer_url() -> None:
+    cipher = OidcSecretCipher(Fernet.generate_key().decode("ascii"))
+    active = _active_configuration(cipher)
+    candidate = OidcConfigurationCandidate(
+        issuer_url=f"{active.issuer_url}/",
+        client_id=active.client_id,
+        sign_in_mode=SignInMode.OIDC_OR_PASSWORD,
+    )
+
+    normalized = normalize_candidate(candidate, active, cipher, development=False)
+
+    assert normalized.issuer_url == active.issuer_url
+    assert normalized.identity_namespace_changed is False
+
+
 def test_candidate_defaults_uniform_role_to_editor() -> None:
     candidate = OidcConfigurationCandidate(
         issuer_url="https://idp.example.test",

@@ -235,7 +235,7 @@ class SMBConnectionPool:
                     logger.error(f"Error in cleanup task: {e}", exc_info=True)
 
         self._cleanup_task = asyncio.create_task(cleanup_loop())
-        logger.info("Started SMB connection pool cleanup task")
+        logger.debug("Started SMB connection pool cleanup task")
 
     #
     # stop_cleanup_task

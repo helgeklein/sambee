@@ -104,6 +104,12 @@ export function SambeeThemeProvider({ children }: ThemeProviderProps) {
     const focusColor =
       currentTheme.action?.focus ??
       (isDark ? (currentTheme.primary.light ?? currentTheme.primary.main) : (currentTheme.primary.dark ?? currentTheme.primary.main));
+    const muiAction = currentTheme.action
+      ? {
+          selected: currentTheme.action.selected,
+          selectedDarker: currentTheme.action.selectedDarker,
+        }
+      : undefined;
 
     // Scrollbar colors derived from theme
     const scrollbarThumb = isDark ? "#6b6b6b" : "#c1c1c1";
@@ -131,7 +137,7 @@ export function SambeeThemeProvider({ children }: ThemeProviderProps) {
         primary: currentTheme.primary,
         ...(currentTheme.background && { background: currentTheme.background }),
         ...(currentTheme.text && { text: currentTheme.text }),
-        ...(currentTheme.action && { action: currentTheme.action }),
+        ...(muiAction && { action: muiAction }),
         // Add component semantic tokens to palette for direct access
         ...(currentTheme.components && {
           appBar: currentTheme.components.appBar,

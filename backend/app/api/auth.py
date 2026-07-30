@@ -347,7 +347,7 @@ async def oidc_callback(
                 encrypted_tested_identity=cipher.encrypt(json.dumps(asdict(claims), separators=(",", ":"), sort_keys=True)),
             )
             response = RedirectResponse(
-                f"/settings/admin/authentication#flow={claimed.flow_id}",
+                f"/browse?settings=admin-authentication#flow={claimed.flow_id}",
                 status_code=status.HTTP_303_SEE_OTHER,
             )
             response.headers["Referrer-Policy"] = "no-referrer"
