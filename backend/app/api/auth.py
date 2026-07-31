@@ -89,6 +89,7 @@ OIDC_REFRESH_WAIT_INTERVAL_SECONDS = 0.1
 OIDC_REFRESH_RECENT_COMPLETION_SECONDS = 5
 OIDC_REFRESH_GENERATION_HEADER = "x-sambee-oidc-refresh-generation"
 OIDC_RATE_LIMIT_REDIRECT = "/login#error=oidc_rate_limited"
+OIDC_RENEWABLE_SESSION_SCOPE = "offline_access"
 _OIDC_BROWSER_SESSION_TABLE = SQLModel.metadata.tables["oidcbrowsersession"]
 OIDC_PUBLIC_ERROR_CODES = frozenset(
     {
@@ -329,6 +330,17 @@ def _oidc_error_redirect(error: Exception) -> RedirectResponse:
     return response
 
 
+def _authorization_scopes(scopes_json: str) -> tuple[str, ...]:
+    try:
+        stored_scopes = json.loads(scopes_json)
+    except json.JSONDecodeError as error:
+        raise ValueError("OIDC configuration contains invalid scopes") from error
+    if not isinstance(stored_scopes, list) or any(not isinstance(scope, str) or not scope for scope in stored_scopes):
+        raise ValueError("OIDC configuration contains invalid scopes")
+    scopes = tuple(stored_scopes)
+    return scopes if OIDC_RENEWABLE_SESSION_SCOPE in scopes else (*scopes, OIDC_RENEWABLE_SESSION_SCOPE)
+
+
 #
 # get_auth_config
 #
@@ -441,7 +453,7 @@ async def oidc_authorize(
             metadata,
             client_id=configuration.client_id,
             redirect_uri=redirect_uri,
-            scopes=tuple(json.loads(configuration.scopes_json)),
+            scopes=_authorization_scopes(configuration.scopes_json),
             state=started.state,
             nonce=started.nonce,
             code_verifier=started.code_verifier,

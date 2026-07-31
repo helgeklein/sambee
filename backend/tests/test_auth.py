@@ -42,6 +42,21 @@ def test_oidc_failure_category_uses_safe_userinfo_reason(error_code: OidcClientE
     assert auth_module._oidc_failure_category(error) == expected_category
 
 
+def test_authorization_scopes_adds_offline_access_for_legacy_configuration() -> None:
+    assert auth_module._authorization_scopes('["openid", "profile", "email"]') == (
+        "openid",
+        "profile",
+        "email",
+        "offline_access",
+    )
+
+
+@pytest.mark.parametrize("scopes_json", ('{"openid": true}', '["openid", 1]', "not-json"))
+def test_authorization_scopes_rejects_invalid_stored_configuration(scopes_json: str) -> None:
+    with pytest.raises(ValueError, match="invalid scopes"):
+        auth_module._authorization_scopes(scopes_json)
+
+
 def test_oidc_session_controls_revoke_only_owned_sessions(client: TestClient, session: Session) -> None:
     configuration = OidcProviderConfiguration(
         display_name="Example identity",
