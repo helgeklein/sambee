@@ -65,6 +65,14 @@ def _build_credentials_exception(detail: str = "Could not validate credentials")
     )
 
 
+def _build_oidc_reauthentication_exception() -> HTTPException:
+    return HTTPException(
+        status_code=status.HTTP_401_UNAUTHORIZED,
+        detail={"code": "oidc_reauthentication_required"},
+        headers={"WWW-Authenticate": "Bearer"},
+    )
+
+
 def _ensure_user_is_current(user: User | None, failure_exception: HTTPException) -> User:
     if user is None:
         raise failure_exception
@@ -184,12 +192,20 @@ def decode_access_token(token: str) -> dict[str, Any]:
     return claims
 
 
-def build_user_access_token(user: User, expires_delta: Optional[timedelta] = None) -> str:
+def build_user_access_token(
+    user: User,
+    expires_delta: Optional[timedelta] = None,
+    *,
+    oidc_browser_session_id: uuid.UUID | None = None,
+) -> str:
+    claims: dict[str, Any] = {
+        "sub": str(user.id),
+        "tv": user.token_version,
+    }
+    if oidc_browser_session_id is not None:
+        claims["sid"] = str(oidc_browser_session_id)
     return create_access_token(
-        data={
-            "sub": str(user.id),
-            "tv": user.token_version,
-        },
+        data=claims,
         expires_delta=expires_delta,
     )
 
@@ -232,6 +248,26 @@ def _authenticate_browser_token(token: str, session: Session) -> BrowserAuthenti
 
     user = _get_user_from_subject(subject, session)
     user = _ensure_user_is_current(user, credentials_exception)
+
+    session_id = payload.get("sid")
+    if session_id is not None:
+        try:
+            from app.models.oidc import OidcBrowserSession
+            from app.services.oidc_browser_session import OidcBrowserSessionError, validate_browser_session
+
+            browser_session = session.get(OidcBrowserSession, uuid.UUID(str(session_id)))
+            if browser_session is None:
+                raise _build_oidc_reauthentication_exception()
+            validate_browser_session(
+                session,
+                browser_session=browser_session,
+                expected_user_id=user.id,
+                allow_refresh_uncertain=True,
+            )
+        except HTTPException:
+            raise
+        except (ValueError, OidcBrowserSessionError):
+            raise _build_oidc_reauthentication_exception()
 
     try:
         token_version = int(payload.get("tv", 0))

@@ -18,6 +18,7 @@ import { checkIsTransientError, getTransientErrorMessage, useApiRetry } from "..
 import { useKeyboardShortcuts } from "../../hooks/useKeyboardShortcuts";
 import { readTextEditorMaxFileSizeBytesPreference } from "../../pages/FileBrowser/preferences";
 import apiService from "../../services/api";
+import { clearDraft, type DraftSnapshot, loadDraft, registerDraftSnapshot, saveDraft } from "../../services/draftRecovery";
 import { error as logError, info as logInfo } from "../../services/logger";
 import { useSambeeTheme } from "../../theme";
 import { getSearchHighlightColors } from "../../theme/commonStyles";
@@ -101,6 +102,8 @@ export const TextViewer: React.FC<ViewerComponentProps> = ({ connectionId, path,
   const [error, setError] = useState<string | null>(null);
   const [editError, setEditError] = useState<string | null>(null);
   const [shareError, setShareError] = useState<string | null>(null);
+  const [draftStorageWarning, setDraftStorageWarning] = useState<string | null>(null);
+  const [recoveryDraft, setRecoveryDraft] = useState<DraftSnapshot | null>(null);
   const [showHelp, setShowHelp] = useState(false);
   const [isEditing, setIsEditing] = useState(false);
   const [isSaving, setIsSaving] = useState(false);
@@ -230,8 +233,15 @@ export const TextViewer: React.FC<ViewerComponentProps> = ({ connectionId, path,
         });
         setContent(data);
         if (!isEditingRef.current) {
-          setDraftContent(data);
+          const recoveredDraft = loadDraft(connectionId, path, "text");
+          const nextDraft = recoveredDraft?.baseline === data ? recoveredDraft.content : data;
+          setDraftContent(nextDraft);
           setEditBaselineContent(data);
+          if (recoveredDraft?.baseline === data && recoveredDraft.content !== data) {
+            setIsEditing(true);
+          } else if (recoveredDraft && recoveredDraft.content !== recoveredDraft.baseline) {
+            setRecoveryDraft(recoveredDraft);
+          }
         }
       } catch (err) {
         if (abortController.signal.aborted) {
@@ -256,6 +266,34 @@ export const TextViewer: React.FC<ViewerComponentProps> = ({ connectionId, path,
       abortController.abort();
     };
   }, [connectionId, fetchWithRetry, path, setEditBaselineContent, t]);
+
+  useEffect(() => {
+    if (!isEditing || draftContent === editBaselineContentRef.current) {
+      return;
+    }
+    const result = saveDraft(connectionId, path, "text", editBaselineContentRef.current, draftContent);
+    if (!result.saved && result.reason !== "no-user") {
+      setDraftStorageWarning(
+        result.reason === "too-large"
+          ? "Draft recovery is unavailable because this edit is too large."
+          : "Draft recovery is unavailable in this browser session."
+      );
+    }
+  }, [connectionId, draftContent, isEditing, path]);
+
+  useEffect(() => {
+    const snapshot = () => {
+      if (isEditingRef.current && draftContent !== editBaselineContentRef.current) {
+        saveDraft(connectionId, path, "text", editBaselineContentRef.current, draftContent);
+      }
+    };
+    const unregister = registerDraftSnapshot(snapshot);
+    window.addEventListener("pagehide", snapshot);
+    return () => {
+      unregister();
+      window.removeEventListener("pagehide", snapshot);
+    };
+  }, [connectionId, draftContent, path]);
 
   const releaseEditLock = useCallback(async () => {
     if (!editLockInfo) {
@@ -467,9 +505,11 @@ export const TextViewer: React.FC<ViewerComponentProps> = ({ connectionId, path,
 
         await apiService.saveTextFile(connectionId, path, savedContent, { filename });
         setContent(savedContent);
+        setDraftContent(savedContent);
         setEditBaselineContent(savedContent);
         clearBaselineSyncWindow();
         markEditSessionPristine();
+        clearDraft(connectionId, path, "text");
 
         if (afterSave === "close-viewer") {
           await closeViewer();
@@ -854,6 +894,11 @@ export const TextViewer: React.FC<ViewerComponentProps> = ({ connectionId, path,
               {shareError}
             </Alert>
           ) : null}
+          {draftStorageWarning ? (
+            <Alert severity="warning" sx={{ m: 2, flexShrink: 0 }}>
+              {draftStorageWarning}
+            </Alert>
+          ) : null}
 
           <Box
             ref={contentRef}
@@ -951,6 +996,38 @@ export const TextViewer: React.FC<ViewerComponentProps> = ({ connectionId, path,
             )}
           </Box>
         </Box>
+      </Dialog>
+
+      <Dialog open={recoveryDraft !== null} aria-labelledby="text-draft-recovery-title">
+        <DialogTitle id="text-draft-recovery-title">Recovered draft needs review</DialogTitle>
+        <DialogContent>
+          <DialogContentText sx={{ color: "text.primary" }}>
+            This file changed since the draft was saved. Choose whether to resume the recovered draft or discard it.
+          </DialogContentText>
+        </DialogContent>
+        <DialogActions>
+          <Button
+            color="warning"
+            onClick={() => {
+              clearDraft(connectionId, path, "text");
+              setRecoveryDraft(null);
+            }}
+          >
+            Discard draft
+          </Button>
+          <Button
+            variant="contained"
+            onClick={() => {
+              const recovered = recoveryDraft;
+              setRecoveryDraft(null);
+              if (recovered) {
+                void handleEnterEditMode().then(() => setDraftContent(recovered.content));
+              }
+            }}
+          >
+            Resume draft
+          </Button>
+        </DialogActions>
       </Dialog>
 
       <Dialog

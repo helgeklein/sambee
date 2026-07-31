@@ -29,6 +29,7 @@ from app.services.oidc_configuration import (
     NormalizedOidcCandidate,
     decrypt_candidate_snapshot,
     encrypt_candidate_snapshot,
+    get_active_oidc_session_cipher,
     get_oidc_secret_cipher,
 )
 from app.services.oidc_identity import resolve_or_provision_oidc_user
@@ -76,6 +77,80 @@ def test_oidc_test_returns_specific_configuration_validation_error(
     assert response.json()["detail"] == "OIDC scopes must include openid"
 
 
+def test_get_oidc_configuration_returns_the_admin_configuration(
+    client: TestClient,
+    admin_token: str,
+) -> None:
+    response = client.get("/api/admin/auth/oidc", headers={"Authorization": f"Bearer {admin_token}"})
+
+    assert response.status_code == 200
+    assert response.json()["configuration"] is None
+    assert "health" in response.json()
+
+
+def test_oidc_session_cipher_key_rotation_is_admin_only_and_audited(
+    client: TestClient,
+    session: Session,
+    admin_token: str,
+    user_token: str,
+) -> None:
+    first = get_active_oidc_session_cipher(session)
+    session.commit()
+
+    denied = client.post("/api/admin/auth/oidc/session-cipher-key/rotate", headers={"Authorization": f"Bearer {user_token}"})
+    assert denied.status_code == 403
+
+    response = client.post("/api/admin/auth/oidc/session-cipher-key/rotate", headers={"Authorization": f"Bearer {admin_token}"})
+
+    assert response.status_code == 200
+    assert response.json()["active_key_id"] != first.key_id
+    assert get_active_oidc_session_cipher(session).key_id == response.json()["active_key_id"]
+    audit_event = session.exec(select(AuditEvent).order_by(AuditEvent.created_at.desc())).first()
+    assert audit_event is not None
+    assert audit_event.event_name == "oidc.browser_session.cipher_key_rotated"
+
+
+def test_client_secret_only_update_preserves_session_validation_revision(session: Session, admin_user: User) -> None:
+    cipher = get_oidc_secret_cipher()
+    active = OidcProviderConfiguration(
+        display_name="Example",
+        issuer_url="https://id.example.test",
+        client_id="sambee",
+        encrypted_client_secret=cipher.encrypt("old-secret"),
+        session_validation_revision=4,
+    )
+    candidate = NormalizedOidcCandidate(
+        display_name=active.display_name,
+        issuer_url=active.issuer_url,
+        client_id=active.client_id,
+        client_secret="new-secret",
+        scopes=("openid", "profile", "email", "offline_access"),
+        username_claim=active.username_claim,
+        name_claim=active.name_claim,
+        email_claim=active.email_claim,
+        groups_claim=active.groups_claim,
+        sign_in_mode=active.sign_in_mode,
+        admission_mode=active.admission_mode,
+        admission_groups=(),
+        admin_groups=(),
+        editor_groups=(),
+        changed_fields=("client_secret",),
+        configuration_revision=active.configuration_revision + 1,
+        identity_mapping_revision=active.identity_mapping_revision,
+        identity_namespace_changed=False,
+    )
+
+    proposed = admin_auth_module._proposed_configuration(
+        candidate,
+        cipher,
+        active=active,
+        updated_by_user_id=admin_user.id,
+        identity_mapping_revision=active.identity_mapping_revision,
+    )
+
+    assert proposed.session_validation_revision == active.session_validation_revision
+
+
 def _create_validated_test_flow(
     session: Session,
     admin_user: User,
@@ -88,7 +163,7 @@ def _create_validated_test_flow(
         issuer_url="https://id.example.test",
         client_id="sambee",
         client_secret="secret",
-        scopes=("openid", "profile", "groups"),
+        scopes=("openid", "profile", "groups", "offline_access"),
         username_claim="preferred_username",
         name_claim="name",
         email_claim="email",
@@ -158,7 +233,7 @@ def test_finalize_oidc_configuration_is_idempotent(
         issuer_url="https://id.example.test",
         client_id="sambee",
         client_secret="secret",
-        scopes=("openid", "profile", "groups"),
+        scopes=("openid", "profile", "groups", "offline_access"),
         username_claim="preferred_username",
         name_claim="name",
         email_claim="email",
@@ -802,7 +877,7 @@ def test_namespace_replacement_stages_existing_identity_for_exact_relink(
         issuer_url="https://new-id.example.test",
         client_id="new-client",
         client_secret="new-secret",
-        scopes=("openid", "profile", "groups"),
+        scopes=("openid", "profile", "groups", "offline_access"),
         username_claim="preferred_username",
         name_claim="name",
         email_claim="email",
@@ -901,7 +976,7 @@ def test_namespace_replacement_rejects_duplicate_reviewed_usernames_before_mutat
         issuer_url="https://new-id.example.test",
         client_id="new-client",
         client_secret="new-secret",
-        scopes=("openid",),
+        scopes=("openid", "offline_access"),
         username_claim="preferred_username",
         name_claim=None,
         email_claim=None,
@@ -1004,7 +1079,7 @@ def test_username_claim_change_removes_pending_mappings_and_revokes_affected_use
         issuer_url=active.issuer_url,
         client_id=active.client_id,
         client_secret="secret",
-        scopes=("openid", "profile", "groups"),
+        scopes=("openid", "profile", "groups", "offline_access"),
         username_claim="email",
         name_claim="name",
         email_claim="email",
@@ -1088,7 +1163,7 @@ def test_mapping_context_change_rejects_concurrent_mapping_revision(
         issuer_url=active.issuer_url,
         client_id=active.client_id,
         client_secret="secret",
-        scopes=("openid",),
+        scopes=("openid", "offline_access"),
         username_claim="email",
         name_claim="name",
         email_claim="email",

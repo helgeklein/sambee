@@ -21,7 +21,7 @@ Use `config.example.toml` as the source of truth for supported keys. This page e
 | `[app]` | `access_log_level` | Sets Uvicorn HTTP request access-log verbosity. |
 | `[app]` | `protocol_log_level` | Sets Uvicorn WebSocket connection, frame, and keepalive log verbosity. |
 | `[security]` | `auth_method` | Chooses between built-in password auth and proxy-managed auth. |
-| `[security]` | `access_token_expire_minutes` | Changes session-token lifetime. |
+| `[security]` | `access_token_expire_minutes` | Changes the short-lived API-token lifetime. OIDC sessions refresh this token in the background; configure the OIDC interactive sign-in interval separately in Authentication settings. |
 | `[admin]` | `username` | Sets the initial administrator username. |
 | `[image_viewer]` | `conv_size_thresh` | Controls when large images are always converted for viewing. |
 | `[frontend_logging]` | `logging_enabled`, `log_level` | Controls browser-console logging behavior. |

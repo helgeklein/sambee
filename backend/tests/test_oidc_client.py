@@ -19,9 +19,12 @@ from app.services.oidc_client import (
     OidcClientError,
     OidcClientErrorCode,
     OidcProviderMetadata,
+    OidcRefreshError,
+    OidcRefreshErrorCode,
     build_authorization_request,
     clear_oidc_provider_cache,
     exchange_and_validate_callback,
+    exchange_and_validate_refresh_token,
     load_provider_metadata,
     refresh_provider_jwks,
 )
@@ -39,7 +42,7 @@ def _metadata_document(issuer: str = ISSUER, **overrides: Any) -> dict[str, Any]
         "token_endpoint": f"{issuer}/token",
         "jwks_uri": f"{issuer}/jwks",
         "userinfo_endpoint": f"{issuer}/userinfo",
-        "grant_types_supported": ["authorization_code"],
+        "grant_types_supported": ["authorization_code", "refresh_token"],
         "token_endpoint_auth_methods_supported": ["client_secret_basic"],
         "id_token_signing_alg_values_supported": ["RS256"],
     }
@@ -121,6 +124,37 @@ async def _exchange_callback(
 
 
 @pytest.mark.asyncio
+async def test_refresh_marks_post_grant_token_validation_failure_uncertain() -> None:
+    transport = httpx.MockTransport(
+        lambda request: httpx.Response(
+            200,
+            headers={"content-type": "application/json"},
+            json={"access_token": "provider-access-token", "id_token": "not-a-valid-jwt", "refresh_token": "rotated-token"},
+        )
+    )
+
+    async def refresh_jwks() -> dict[str, Any]:
+        return {"keys": []}
+
+    async with ValidatedOidcHttpClient(transport=transport, development=False) as client:
+        with pytest.raises(OidcRefreshError) as error:
+            await exchange_and_validate_refresh_token(
+                client,
+                _metadata(),
+                {"keys": []},
+                client_id=CLIENT_ID,
+                client_secret="client-secret",
+                refresh_token="previous-token",
+                expected_issuer=ISSUER,
+                expected_subject="provider-subject",
+                mapping=OidcClaimMapping(username="preferred_username", groups="groups", name="name", email="email"),
+                refresh_jwks=refresh_jwks,
+            )
+
+    assert error.value.refresh_code == OidcRefreshErrorCode.AMBIGUOUS
+
+
+@pytest.mark.asyncio
 async def test_metadata_requires_exact_issuer_and_loads_jwks_through_injected_transport() -> None:
     clear_oidc_provider_cache()
     requested_urls: list[str] = []
@@ -137,7 +171,7 @@ async def test_metadata_requires_exact_issuer_and_loads_jwks_through_injected_tr
                     "token_endpoint": f"{ISSUER}/token",
                     "jwks_uri": f"{ISSUER}/jwks",
                     "userinfo_endpoint": f"{ISSUER}/userinfo",
-                    "grant_types_supported": ["authorization_code"],
+                    "grant_types_supported": ["authorization_code", "refresh_token"],
                     "token_endpoint_auth_methods_supported": ["client_secret_basic"],
                     "id_token_signing_alg_values_supported": ["RS256"],
                 },
@@ -435,6 +469,7 @@ async def test_callback_rejects_invalid_id_token_signature() -> None:
     "overrides",
     [
         {"grant_types_supported": ["implicit"]},
+        {"grant_types_supported": ["authorization_code"]},
         {"token_endpoint_auth_methods_supported": ["none"]},
         {"id_token_signing_alg_values_supported": ["ES256"]},
         {"grant_types_supported": "authorization_code"},

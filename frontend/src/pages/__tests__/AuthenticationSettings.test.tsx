@@ -5,6 +5,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 import { loadAuthenticationSettingsData, SETTINGS_DATA_CACHE_KEYS } from "../../components/Settings/settingsDataSources";
 import { clearCachedAsyncData, primeCachedAsyncData } from "../../hooks/useCachedAsyncData";
 import api from "../../services/api";
+import { authSession } from "../../services/authSession";
 import type { OidcAdminConfigurationRead, OidcReviewedPolicy, OidcTestedIdentity, RedactedOidcConfiguration } from "../../types";
 import { AuthenticationSettings } from "../AuthenticationSettings";
 
@@ -33,6 +34,7 @@ const configuration = (displayName: string): RedactedOidcConfiguration => ({
   email_claim: "email",
   groups_claim: "groups",
   sign_in_mode: "oidc_or_password",
+  interactive_reauthentication_max_age_days: 30,
   admission_mode: "selected_groups",
   admission_groups: ["sambee-users"],
   role_assignment_mode: "group_based",
@@ -58,6 +60,7 @@ const response = (value: RedactedOidcConfiguration): OidcAdminConfigurationRead 
 
 const reviewedPolicy = (value: RedactedOidcConfiguration): OidcReviewedPolicy => ({
   sign_in_mode: value.sign_in_mode,
+  interactive_reauthentication_max_age_days: value.interactive_reauthentication_max_age_days,
   admission_mode: value.admission_mode,
   admission_groups: value.admission_groups,
   role_assignment_mode: value.role_assignment_mode,
@@ -871,7 +874,7 @@ describe("Authentication settings", () => {
       identity_mapping_revision: 1,
       reauthentication_required: true,
     });
-    localStorage.setItem("access_token", "revoked-token");
+    authSession.setAuthenticated({ access_token: "revoked-token", token_type: "bearer" }, false);
     window.location.hash = "";
     renderSettings();
 
@@ -880,7 +883,7 @@ describe("Authentication settings", () => {
     await user.click(await screen.findByRole("button", { name: "Activate Password-only mode" }));
 
     expect(await screen.findByText("Sign in again")).toBeInTheDocument();
-    expect(localStorage.getItem("access_token")).toBeNull();
+    expect(authSession.getAccessToken()).toBeNull();
     expect(api.getOidcConfiguration).toHaveBeenCalledTimes(1);
     expect(api.setPasswordOnlyAuthentication).toHaveBeenCalledWith(2, 2, true);
   });

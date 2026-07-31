@@ -92,10 +92,12 @@ def init_db() -> None:
     from app.models.companion_uri_token_jti import CompanionUriTokenJti  # noqa: F401 - Required for table creation
     from app.models.edit_lock import EditLock  # noqa: F401 - Required for table creation
     from app.models.oidc import (  # noqa: F401 - Required for table creation
+        OidcBrowserSession,
         OidcFlow,
         OidcIdentity,
         OidcPendingIdentityMapping,
         OidcProviderConfiguration,
+        OidcSessionCipherKey,
     )
     from app.models.system_settings import SystemSetting  # noqa: F401 - Required for table creation
     from app.models.user_settings import UserSetting  # noqa: F401 - Required for table creation

@@ -1,5 +1,6 @@
 import pytest
 from cryptography.fernet import Fernet
+from sqlmodel import Session
 
 from app.models.oidc import OidcProviderConfiguration, OidcRoleAssignmentMode, SignInMode
 from app.models.oidc_api import (
@@ -18,9 +19,12 @@ from app.services.oidc_configuration import (
     decrypt_candidate_snapshot,
     derive_oidc_redirect_uri,
     encrypt_candidate_snapshot,
+    get_active_oidc_session_cipher,
     get_oidc_secret_cipher,
+    get_oidc_session_cipher_for_key,
     normalize_candidate,
     redacted_configuration,
+    rotate_oidc_session_cipher_key,
 )
 
 
@@ -60,6 +64,16 @@ def test_oidc_secret_cipher_rejects_missing_and_invalid_keys() -> None:
             pass
         else:
             raise AssertionError("Invalid OIDC key must be rejected")
+
+
+def test_oidc_session_cipher_keyring_rotates_and_retains_old_keys(session: Session) -> None:
+    first = get_active_oidc_session_cipher(session)
+    ciphertext = first.cipher.encrypt("refresh-token")
+    second = rotate_oidc_session_cipher_key(session)
+
+    assert first.key_id != second.key_id
+    assert get_oidc_session_cipher_for_key(session, first.key_id).decrypt(ciphertext) == "refresh-token"
+    assert get_active_oidc_session_cipher(session).key_id == second.key_id
 
 
 def test_redirect_uri_uses_canonical_deployment_url() -> None:

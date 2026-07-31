@@ -67,7 +67,7 @@ describe("MSW Setup Verification", () => {
 
   it("should handle API errors from MSW", async () => {
     // Mock API error for login endpoint
-    mockApiError("http://localhost:8000/api/auth/token", 500);
+    mockApiError("/api/auth/token", 500);
 
     renderLogin();
 
@@ -90,7 +90,7 @@ describe("MSW Setup Verification", () => {
 
   it("should handle unauthorized responses from MSW", async () => {
     // Mock unauthorized response
-    mockUnauthorized("http://localhost:8000/api/auth/token");
+    mockUnauthorized("/api/auth/token");
 
     renderLogin();
 

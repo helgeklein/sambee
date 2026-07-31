@@ -56,6 +56,7 @@ items = [
   "edit-markdown",
   "edit-files-in-desktop-apps",
   "file-locking-and-conflict-resolution",
+  "recover-unsaved-edits",
 ]
 
 [[sections.user-guide.items]]
@@ -123,7 +124,8 @@ title = "Authentication"
 items = [
   "authentication-overview",
   "password-authentication",
-  "openid-connect",
+  "openid-connect-authentication-setup",
+  "openid-connect-authentication-operations",
 ]
 
 [[sections.admin-guide.items]]

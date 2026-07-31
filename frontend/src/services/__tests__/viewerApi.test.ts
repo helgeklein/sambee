@@ -366,9 +366,7 @@ describe("Viewer API Contract Tests", () => {
   });
 
   describe("Contract Tests - GET /viewer/{connection_id}/download", () => {
-    it("should generate correct download URL with token", async () => {
-      localStorage.setItem("access_token", "test-token-123");
-
+    it("does not expose a bearer token in the download URL", async () => {
       const url = await apiService.getDownloadUrl(testConnectionId, testPath);
 
       // Verify URL structure
@@ -376,12 +374,10 @@ describe("Viewer API Contract Tests", () => {
       expect(url).toContain(testConnectionId);
       expect(url).toContain("/download");
       expect(url).toContain("path=");
-      expect(url).toContain("token=test-token-123");
+      expect(url).not.toContain("token=");
     });
 
     it("should encode path parameter correctly", async () => {
-      localStorage.setItem("access_token", "token");
-
       const specialPath = "/folder/file with spaces & special.txt";
       const url = await apiService.getDownloadUrl(testConnectionId, specialPath);
 
@@ -391,9 +387,7 @@ describe("Viewer API Contract Tests", () => {
   });
 
   describe("Contract Tests - GET /viewer/{connection_id}/file (View URL)", () => {
-    it("should generate correct view URL with token", async () => {
-      localStorage.setItem("access_token", "view-token-456");
-
+    it("does not expose a bearer token in the view URL", async () => {
       const url = await apiService.getViewUrl(testConnectionId, "/image.jpg");
 
       // Verify URL structure
@@ -401,12 +395,10 @@ describe("Viewer API Contract Tests", () => {
       expect(url).toContain(testConnectionId);
       expect(url).toContain("/file");
       expect(url).toContain("path=");
-      expect(url).toContain("token=view-token-456");
+      expect(url).not.toContain("token=");
     });
 
     it("should encode path parameter in view URL", async () => {
-      localStorage.setItem("access_token", "token");
-
       const pathWithUnicode = "/files/文档.pdf";
       const url = await apiService.getViewUrl(testConnectionId, pathWithUnicode);
 

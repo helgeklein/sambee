@@ -17,7 +17,15 @@ export interface User {
   is_active?: boolean;
   must_change_password?: boolean;
   expires_at?: string | null;
+  access_token_expires_at?: string;
   created_at?: string;
+}
+
+export interface AuthToken extends User {
+  access_token: string;
+  token_type: string;
+  oidc_refresh_generation?: number;
+  return_path?: string;
 }
 
 export interface AdminUser {
@@ -263,6 +271,26 @@ export interface AuthToken {
   expires_at?: string | null;
   must_change_password?: boolean;
   return_path?: string;
+  access_token_expires_at?: string;
+  oidc_refresh_generation?: number;
+}
+
+export interface OidcBrowserSession {
+  id: string;
+  status: "active" | "refresh_uncertain";
+  created_at: string;
+  authenticated_at: string;
+  last_seen_at: string | null;
+  last_refreshed_at: string | null;
+  current: boolean;
+}
+
+export interface OidcBrowserSessionList {
+  sessions: OidcBrowserSession[];
+}
+
+export interface OidcBrowserSessionRevokeResult {
+  revoked_count: number;
 }
 
 export type AuthenticationMode = "none" | "password_only" | "oidc_or_password" | "oidc_only";
@@ -278,6 +306,7 @@ export interface OidcRoleMappings {
 
 export interface OidcReviewedPolicy {
   sign_in_mode: SignInMode;
+  interactive_reauthentication_max_age_days: number;
   admission_mode: OidcAdmissionMode;
   admission_groups: string[];
   role_assignment_mode: OidcRoleAssignmentMode;
@@ -296,6 +325,7 @@ export interface OidcConfigurationCandidate {
   email_claim: string | null;
   groups_claim: string | null;
   sign_in_mode: SignInMode;
+  interactive_reauthentication_max_age_days: number;
   admission_mode: OidcAdmissionMode;
   admission_groups: string[];
   role_assignment_mode: OidcRoleAssignmentMode;

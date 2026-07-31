@@ -199,8 +199,9 @@ export function mockSlowNetwork(endpoint: string, delay = 3000) {
  * Mock unauthorized response
  */
 export function mockUnauthorized(endpoint: string) {
+  const fullEndpoint = endpoint.startsWith("http") ? endpoint : `http://localhost:3000${endpoint}`;
   server.use(
-    http.all(endpoint, () => {
+    http.all(fullEndpoint, () => {
       return HttpResponse.json({ error: "Unauthorized" }, { status: 401 });
     })
   );

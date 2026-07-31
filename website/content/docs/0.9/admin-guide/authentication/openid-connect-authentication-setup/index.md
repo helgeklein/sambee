@@ -1,5 +1,5 @@
 +++
-title = "OpenID Connect Authentication"
+title = "OpenID Connect Authentication Setup"
 +++
 
 OpenID Connect (OIDC) is Sambee's preferred authentication method.
@@ -16,6 +16,8 @@ https://files.example.com/api/auth/oidc/callback
 
 ## Configure the OpenID Connect Identity Provider (IdP)
 
+### Provider Properties
+
 In your identity provider, create a new OpenID Connect IdP with the following properties:
 
 - Confidential web client
@@ -24,8 +26,18 @@ In your identity provider, create a new OpenID Connect IdP with the following pr
 - `client_secret_basic` token endpoint authentication
 - `RS256`-signed ID tokens
 - Sambee's callback URI (see above)
-- The scopes `openid`, `profile`, and `email`
+- The scopes `openid`, `profile`, `email`, and `offline_access`
    - Add `groups` only when using group admission or group-based role mappings
+- Authorization-code and refresh-token grants
+
+Configure token lifetimes:
+
+- Refresh token:
+   - A shorter lifetime requires users to sign in again sooner.
+   - A longer lifetime increases the impact period if the token is compromised.
+   - Maximum useful length: slightly longer than Sambee's interactive sign-in interval (default: 30 days).
+- Access token and ID token:
+   - Lifetimes should be short, e.g., 1 hour.
 
 ### Verify the Username Claim
 
@@ -42,16 +54,26 @@ The relevant Authelia client entry can look like this:
 ```yaml
 identity_providers:
   oidc:
+      lifespans:
+         custom:
+            sambee:
+               # Maximum useful length: Sambee's interactive sign-in interval + 1 day
+               refresh_token: '31d'
     clients:
       - client_id: sambee
         client_name: Sambee
         client_secret: '$pbkdf2-sha512$replace-with-a-hashed-random-secret'
         redirect_uris:
           - https://files.example.com/api/auth/oidc/callback
+            grant_types:
+               - authorization_code
+               - refresh_token
+            lifespan: sambee
         scopes:
           - openid
           - profile
           - email
+          - offline_access
           # Add groups when using group admission or group-based role mappings.
           - groups
 ```
@@ -84,9 +106,15 @@ Complete these fields in the **Provider** section:
 | **Issuer URL** | The provider's HTTPS issuer URL. For Authelia, this is normally the externally reachable URL of the Authelia portal, such as `https://auth.example.com`. <br />Open `https://auth.example.com/.well-known/openid-configuration` and enter the exact value of its `issuer` field. |
 | **Client ID** | The client ID configured in the OIDC IdP. |
 | **Client secret** | The matching client secret as plain text (unhashed).<br />On later changes, leave this blank to retain the stored secret. <br />The visibility button only reveals the value currently typed in the browser; Sambee never returns the stored secret. |
-| **Scopes** | A comma-separated list. Include `openid` and every scope required to return the claims configured below, such as `profile` and `email`. Add `groups` when using group admission or group-based role mappings. |
+| **Scopes** | A comma-separated list. Include `openid`, `offline_access`, and every scope required to return the claims configured below, such as `profile` and `email`. Add `groups` when using group admission or group-based role mappings. |
 
-### 3. Configure Access
+### 3. Configure Session Policy
+
+Set **Interactive sign-in interval (days)** to control how long a verified IdP sign-in can be renewed in the background. The default is 30 days.
+
+During this interval, Sambee refreshes its short-lived API token in the background. At the interval deadline, Sambee requires a fresh interactive IdP sign-in.
+
+### 4. Configure Access
 
 Complete these fields in the **Access** section:
 
@@ -95,7 +123,7 @@ Complete these fields in the **Access** section:
 | **Admission** | **All authenticated users** is the default. Select **Only selected groups** to require membership in named groups before Sambee evaluates the person's role. |
 | **Admission groups** | When **Admission** is **Only selected groups**, enter the exact identity-provider groups that may sign in, separated by commas. |
 
-### 4. Configure Role Assignment
+### 5. Configure Role Assignment
 
 Choose how Sambee assigns roles after an identity passes the admission policy:
 
@@ -108,7 +136,7 @@ In group-based mode, a group can appear in only one role mapping. When a person 
 
 During activation (see below), Sambee gives the administrator completing the test an individual **Administrator** assignment. Individual assignments for linked or pending accounts always take precedence over the configured role assignment.
 
-### 5. Advanced Claims
+### 6. Advanced Claims
 
 The default claim names work with most OpenID Connect providers. Expand **Advanced claims** only when the provider returns different claim names.
 
@@ -123,7 +151,7 @@ The default claim names work with most OpenID Connect providers. Expand **Advanc
 
 Sambee binds an OIDC identity using its immutable issuer and subject. It does not link an existing local account merely because the returned username matches.
 
-### 6. Connect and Test
+### 7. Connect and Test
 
 Select **Connect and test**. This verifies that:
 
@@ -138,7 +166,7 @@ Review the resulting identity before activation:
 
 OIDC activation remains unavailable unless the tested OIDC identity passes the admission rule to prevent the local admin making the changes from locking themselves out.
 
-### 7. Review Account Mappings and Activate
+### 8. Review Account Mappings and Activate
 
 On first activation, or when you replace the provider's identity namespace, Sambee asks you to review existing local accounts and map them to the correct OIDC provider usernames. If this mapping isn't correct, those people may not be able to sign in.
 
@@ -157,46 +185,4 @@ Select **Activate configuration** when the review is complete, then confirm the 
 
 Use **Remap all OIDC accounts** when provider subjects change but the issuer, client ID, and claim names stay the same, for example after rebuilding the identity provider. Sambee repeats this review, replaces the existing OIDC links, and signs out affected users. Local accounts and their data remain unchanged.
 
-## Manage Account Mappings
-
-Open **Settings** > **Administration** > **Users** to review how each local account authenticates. An account may show **Local password**, **OIDC linked**, or both. Established mappings show the provider name and last successful OIDC login. A pending mapping shows the exact provider username that must complete the first admitted OIDC login, who created the mapping, and when it was created.
-
-For a linked or pending account, set **OIDC role assignment** to **Administrator**, **Editor**, or **Viewer** to give that person an individual override. Select **Use configured role assignment** to apply the provider's uniform or group-based policy instead. Individual assignments take precedence over the configured policy and work without a groups claim unless selected-group admission requires one.
-
-Administrators can perform these operations:
-
-- Map an unlinked local account to an expected provider username.
-- Cancel a pending mapping.
-- Change a linked account to a different provider username. This removes the existing immutable identity and creates a pending mapping.
-- Use **Advanced OIDC actions** to move an established identity to another active, unlinked local account.
-- Use **Advanced OIDC actions** to detach an established identity from a local account.
-
-Changing, moving, or detaching an established identity revokes affected Sambee sessions. Detaching does not revoke access at the identity provider. Remove provider admission separately when the person must no longer sign in.
-
-Mapping updates are atomic and revision checked. If another administrator changes mappings while the page is open, Sambee rejects the stale update; reload the users page and review the current state. In **OIDC only** mode, Sambee prevents removal of the last active OIDC administrator mapping.
-
-Deleting a local user also removes their established identity, pending mappings targeting that user, and incomplete OIDC flows in the same transaction. Pending mappings that the deleted user created for other accounts remain active and show **Deleted user** as their creator. Deletion remains subject to the last-administrator guard.
-
-## Export Audit Events
-
-OIDC configuration and identity events are stored in the Sambee database. They do not contain raw subjects, provider tokens, client secrets, authorization codes, nonces, verifiers, or one-time login grants. Events are retained until the database is removed or an external retention process deletes them.
-
-Export the complete audit stream as JSON Lines:
-
-```bash
-cd backend
-python -m app.oidc_admin export-audit --output sambee-audit.jsonl
-```
-
-## Authentication Request Limits
-
-Sambee enforces authentication limits in the application. A reverse proxy may add stricter limits but does not replace these defaults:
-
-| Request | Default limit |
-|---|---|
-| Start OIDC authorization | 20 requests per source IP per 5 minutes |
-| Process OIDC callback | 60 requests per source IP per 5 minutes |
-| Exchange OIDC login grant | 30 requests per source IP per 5 minutes |
-| Password sign-in | 10 attempts per source IP per 5 minutes and 10 attempts per submitted username per 15 minutes |
-
-Limits refill continuously. A rejected API request returns `Retry-After`; browser-based OIDC requests return to the login page with a generic retry message. Password forms larger than 64 KiB are rejected before parsing. These responses do not expose account existence, the active sign-in mode, provider payloads, or submitted credentials.
+After activation, see [OpenID Connect Authentication Operations](../openid-connect-authentication-operations/) for session, account-mapping, auditing, and request-limit administration.

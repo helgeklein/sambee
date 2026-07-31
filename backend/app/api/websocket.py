@@ -222,7 +222,7 @@ class ConnectionManager:
                             "path": path,
                         }
                     )
-                    logger.info(f"Notified WebSocket {id(websocket)} about change in {key}")
+                    logger.debug(f"Notified WebSocket {id(websocket)} about change in {key}")
                 except Exception as e:
                     logger.error(f"Failed to notify WebSocket {id(websocket)}: {e}")
                     disconnected.append(websocket)

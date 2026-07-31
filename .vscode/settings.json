@@ -162,18 +162,8 @@
     // Python tests and static analysis
     "mypy": true,
     "pytest": true,
-    // Backend virtualenv Python from the repository root
-    "/^backend\\/\\.venv\\/bin\\/python\\s+-m\\s+pytest\\b/": true,
-    "/^backend\\/\\.venv\\/bin\\/python\\s+-m\\s+mypy\\b/": true,
-    // Backend virtualenv Python from the repository root with an explicit prefix
-    "/^\\.\\/backend\\/\\.venv\\/bin\\/python\\s+-m\\s+pytest\\b/": true,
-    "/^\\.\\/backend\\/\\.venv\\/bin\\/python\\s+-m\\s+mypy\\b/": true,
-    // Backend virtualenv Python from the backend directory
-    "/^\\.venv\\/bin\\/python\\s+-m\\s+pytest\\b/": true,
-    "/^\\.venv\\/bin\\/python\\s+-m\\s+mypy\\b/": true,
-    // Backend virtualenv Python from the backend directory with an explicit prefix
-    "/^\\.\\/\\.venv\\/bin\\/python\\s+-m\\s+pytest\\b/": true,
-    "/^\\.\\/\\.venv\\/bin\\/python\\s+-m\\s+mypy\\b/": true,
+    // Virtualenv Python
+    "/^((\\.\\/)?backend\\/|\\.\\/)?\\.venv\\/bin\\/python\\s+-m\\s+(mypy|py_compile|pytest|ruff)\\b/": true,
     "ruff": true,
     "/^python3 -m unittest\\b/": true,
     // Frontend tests and static analysis
@@ -187,8 +177,8 @@
     "/^cargo\\s+(?:test|check|clippy|fmt|metadata|tree|doc)\\b/": true,
     // Known repository validation scripts
     "/^(?:\\.\\/)?scripts\\/(?:lint|test|format)(?:\\s|$)/": true,
-    "/^python3\\s+scripts\\/(?:generate-managed-redirects|update-docs-derived-artifacts|validate-docs-content)\\.py(?:\\s|$)/": true,
-    "/^python3\\s+(?:website\\/)?scripts\\/(?:docs-report|docs-editor)\\.py(?:\\s|$)/": true,
+    "/^python3\\s+scripts\\/(?:generate-managed-redirects|update-docs-derived-artifacts)\\.py(?:\\s|$)/": true,
+    "/^python3\\s+(?:website\\/)?scripts\\/(?:docs-report|docs-editor|validate-docs-content)\\.py(?:\\s|$)/": true,
     // Always require approval for destructive or privileged tools
     "chmod": false,
     "chown": false,

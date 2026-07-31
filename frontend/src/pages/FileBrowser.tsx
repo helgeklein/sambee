@@ -47,6 +47,7 @@ import { BROWSER_SHORTCUTS, COMMON_SHORTCUTS, COPY_MOVE_SHORTCUTS, PANE_SHORTCUT
 import { useCompanion } from "../hooks/useCompanion";
 import { type KeyboardShortcut, useKeyboardShortcuts } from "../hooks/useKeyboardShortcuts";
 import api from "../services/api";
+import { authSession } from "../services/authSession";
 import { markBackendAvailable, useBackendAvailability } from "../services/backendAvailability";
 import { subscribeBackendRecoveryConfirmed, subscribeBackendRecoveryReconnect } from "../services/backendRecoveryEvents";
 import { isLocalDrive, mergeConnections } from "../services/backendRouter";
@@ -56,6 +57,7 @@ import {
   saveBrowserRecoverySnapshot,
 } from "../services/browserRecoverySnapshot";
 import companionService, { buildCompanionWsUrl, type DriveInfo, hasStoredSecret } from "../services/companion";
+import { clearCurrentUserDrafts } from "../services/draftRecovery";
 import { logger } from "../services/logger";
 import { loginPath, OIDC_LOGOUT_MARKER } from "../services/oidcAuth";
 import { scheduleRuntimeWarmup } from "../services/runtimeWarmup";
@@ -779,7 +781,7 @@ const Browser: React.FC = () => {
           setLoadingConnections(true);
         }
 
-        const token = localStorage.getItem("access_token");
+        const token = authSession.getAccessToken();
         if (!token) {
           const { isAuthRequired } = await import("../services/authConfig");
           const authRequired = await isAuthRequired();
@@ -962,7 +964,7 @@ const Browser: React.FC = () => {
 
       clearReconnectTimer();
 
-      const accessToken = localStorage.getItem("access_token");
+      const accessToken = authSession.getAccessToken();
       const wsUrl = buildServerWebSocketUrl(window.location, accessToken);
 
       logger.info("Connecting to WebSocket", { wsUrl, reason }, "websocket");
@@ -2118,9 +2120,10 @@ const Browser: React.FC = () => {
   // Render Helpers
   // ──────────────────────────────────────────────────────────────────────────
 
-  const handleLogout = () => {
+  const handleLogout = async () => {
     clearBrowserRecoverySnapshot();
-    localStorage.removeItem("access_token");
+    clearCurrentUserDrafts();
+    await authSession.logout();
     sessionStorage.setItem(OIDC_LOGOUT_MARKER, "1");
     navigate("/login");
   };

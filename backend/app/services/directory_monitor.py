@@ -345,7 +345,7 @@ class MonitoredDirectory:
             action = action_info["action"].get_value()
             filename = action_info["file_name"].get_value()
             action_name = self._get_action_name(action)
-            logger.info(
+            logger.debug(
                 "Change detected in %s:%s - %s: %s",
                 self.connection_id,
                 self.path,

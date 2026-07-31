@@ -5,6 +5,7 @@
  * Uses fetch API directly to avoid circular dependencies with api.ts.
  */
 
+import { authSession } from "./authSession";
 import type { LogBatch } from "./logBuffer";
 
 //
@@ -32,7 +33,7 @@ export class LogTransport {
     const url = `${this.apiBaseUrl}/logs/mobile`;
 
     // Get authentication token if available
-    const token = localStorage.getItem("access_token");
+    const token = authSession.getAccessToken();
 
     const headers: Record<string, string> = {
       "Content-Type": "application/json",

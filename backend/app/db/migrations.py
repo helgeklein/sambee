@@ -397,6 +397,7 @@ def _apply_oidc_schema_migration(connection: Connection) -> None:
 
     from app.models.audit import AuditEvent  # noqa: F401 - Registers metadata
     from app.models.oidc import (  # noqa: F401 - Registers metadata
+        OidcBrowserSession,
         OidcFlow,
         OidcIdentity,
         OidcPendingIdentityMapping,
@@ -414,10 +415,84 @@ def _apply_oidc_schema_migration(connection: Connection) -> None:
         SQLModel.metadata.tables[table_name].create(bind=connection, checkfirst=True)
 
 
+def _apply_oidc_browser_session_migration(connection: Connection) -> None:
+    from sqlmodel import SQLModel
+
+    from app.models.oidc import OidcBrowserSession  # noqa: F401 - Registers metadata
+
+    SQLModel.metadata.tables["oidcbrowsersession"].create(bind=connection, checkfirst=True)
+
+
+def _apply_oidc_browser_session_fields_migration(connection: Connection) -> None:
+    if inspect(connection).has_table("oidcproviderconfiguration"):
+        configuration_columns = {column[1] for column in connection.execute(text("PRAGMA table_info('oidcproviderconfiguration')"))}
+        if "interactive_reauthentication_max_age_days" not in configuration_columns:
+            connection.execute(
+                text(
+                    "ALTER TABLE oidcproviderconfiguration ADD COLUMN interactive_reauthentication_max_age_days INTEGER NOT NULL DEFAULT 30"
+                )
+            )
+
+    if not inspect(connection).has_table("oidcbrowsersession"):
+        return
+    session_columns = {column[1] for column in connection.execute(text("PRAGMA table_info('oidcbrowsersession')"))}
+    additions = (
+        ("user_token_version", "INTEGER NOT NULL DEFAULT 0"),
+        ("configuration_revision", "INTEGER NOT NULL DEFAULT 0"),
+        ("identity_mapping_revision", "INTEGER NOT NULL DEFAULT 0"),
+        ("pending_expires_at", "DATETIME"),
+    )
+    for column_name, definition in additions:
+        if column_name not in session_columns:
+            connection.execute(text(f"ALTER TABLE oidcbrowsersession ADD COLUMN {column_name} {definition}"))
+
+    if not inspect(connection).has_table("oidcflow"):
+        return
+    flow_columns = {column[1] for column in connection.execute(text("PRAGMA table_info('oidcflow')"))}
+    if "oidc_browser_session_id" not in flow_columns:
+        connection.execute(text("ALTER TABLE oidcflow ADD COLUMN oidc_browser_session_id CHAR(32)"))
+    if "encrypted_browser_session_secret" not in flow_columns:
+        connection.execute(text("ALTER TABLE oidcflow ADD COLUMN encrypted_browser_session_secret VARCHAR"))
+
+
 def _apply_oidc_reauthentication_receipt_migration(connection: Connection) -> None:
     columns = {column[1] for column in connection.execute(text("PRAGMA table_info('oidcflow')"))}
     if "finalized_reauthentication_required" not in columns:
         connection.execute(text("ALTER TABLE oidcflow ADD COLUMN finalized_reauthentication_required BOOLEAN"))
+
+
+def _apply_oidc_forced_reauthentication_migration(connection: Connection) -> None:
+    if not inspect(connection).has_table("oidcflow"):
+        return
+    columns = {column[1] for column in connection.execute(text("PRAGMA table_info('oidcflow')"))}
+    if "interactive_reauthentication_required" not in columns:
+        connection.execute(text("ALTER TABLE oidcflow ADD COLUMN interactive_reauthentication_required BOOLEAN NOT NULL DEFAULT 0"))
+
+
+def _apply_oidc_session_validation_revision_migration(connection: Connection) -> None:
+    if not inspect(connection).has_table("oidcproviderconfiguration"):
+        return
+    columns = {column[1] for column in connection.execute(text("PRAGMA table_info('oidcproviderconfiguration')"))}
+    if "session_validation_revision" in columns:
+        return
+    connection.execute(text("ALTER TABLE oidcproviderconfiguration ADD COLUMN session_validation_revision INTEGER NOT NULL DEFAULT 0"))
+    if "configuration_revision" not in columns:
+        return
+    connection.execute(
+        text(
+            "UPDATE oidcproviderconfiguration "
+            "SET session_validation_revision = configuration_revision "
+            "WHERE session_validation_revision = 0"
+        )
+    )
+
+
+def _apply_oidc_session_cipher_keyring_migration(connection: Connection) -> None:
+    from sqlmodel import SQLModel
+
+    from app.models.oidc import OidcSessionCipherKey  # noqa: F401 - Registers metadata
+
+    SQLModel.metadata.tables["oidcsessioncipherkey"].create(bind=connection, checkfirst=True)
 
 
 def _apply_nullable_oidc_mapping_creator_migration(connection: Connection) -> None:
@@ -521,6 +596,11 @@ MIGRATIONS: tuple[Migration, ...] = (
     Migration(version=15, name="allow_nullable_oidc_mapping_creator", apply=_apply_nullable_oidc_mapping_creator_migration),
     Migration(version=16, name="add_oidc_individual_role_assignment", apply=_apply_oidc_individual_role_assignment_migration),
     Migration(version=17, name="add_oidc_role_assignment_mode", apply=_apply_oidc_role_assignment_mode_migration),
+    Migration(version=18, name="add_oidc_browser_sessions", apply=_apply_oidc_browser_session_migration),
+    Migration(version=19, name="add_oidc_renewable_session_fields", apply=_apply_oidc_browser_session_fields_migration),
+    Migration(version=20, name="add_oidc_forced_reauthentication", apply=_apply_oidc_forced_reauthentication_migration),
+    Migration(version=21, name="add_oidc_session_validation_revision", apply=_apply_oidc_session_validation_revision_migration),
+    Migration(version=22, name="add_oidc_session_cipher_keyring", apply=_apply_oidc_session_cipher_keyring_migration),
 )
 
 

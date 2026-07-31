@@ -9,6 +9,7 @@ import { MemoryRouter, Route, Routes } from "react-router-dom";
 import type { MockedObject } from "vitest";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import apiService from "../../services/api";
+import { authSession } from "../../services/authSession";
 import { SambeeThemeProvider } from "../../theme/ThemeContext";
 import { FileType } from "../../types";
 import FileBrowser from "../FileBrowser";
@@ -140,7 +141,7 @@ describe("Browser - PDF Viewer Integration", () => {
     vi.clearAllMocks();
 
     // Set up authentication
-    localStorage.setItem("access_token", "fake-token");
+    authSession.setAuthenticated({ access_token: "fake-token", token_type: "bearer" }, false);
 
     // Mock successful API responses
     mockedApi.getConnections.mockResolvedValue([

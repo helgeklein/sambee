@@ -32,7 +32,7 @@ Add an entry to `website/data/managed-redirects.toml`:
 [[redirects]]
 id = "help-oidc-setup"
 source = "/mr/help-oidc-setup"
-target = "https://sambee.net/docs/admin-guide/authentication/openid-connect/"
+target = "https://sambee.net/docs/admin-guide/authentication/openid-connect-authentication-setup/"
 ```
 
 Each entry requires:

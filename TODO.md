@@ -51,3 +51,7 @@
 
 - Additional formats
    - DCM (medical image format)
+
+## PDF viewer
+
+- On mobile, allow swiping to move from page to page. Currently, only the arrows in the top bar can be used for browsing back/forward.

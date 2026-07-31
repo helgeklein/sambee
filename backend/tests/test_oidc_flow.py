@@ -77,6 +77,22 @@ def test_expired_flow_cannot_be_claimed(session: Session) -> None:
         claim_login_callback(session, state=started.state, cipher=cipher, now=now)
 
 
+def test_login_flow_preserves_interactive_reauthentication_requirement(session: Session) -> None:
+    cipher = _cipher()
+    started = start_login_flow(
+        session,
+        configuration_revision=1,
+        cipher=cipher,
+        return_path=None,
+        interactive_reauthentication_required=True,
+    )
+    session.commit()
+
+    claimed = claim_login_callback(session, state=started.state, cipher=cipher)
+
+    assert claimed.interactive_reauthentication_required is True
+
+
 def test_callback_grant_is_hashed_single_use_and_deletes_flow(session: Session) -> None:
     cipher = _cipher()
     user = _user(session)

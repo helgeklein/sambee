@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useRef } from "react";
+import { authSession } from "../services/authSession";
 import {
   type BackendAvailabilityStatus,
   getBackendAvailabilitySnapshot,
@@ -36,7 +37,7 @@ interface RecoveryProbeRequest {
 
 function buildRecoveryProbeRequest(): RecoveryProbeRequest {
   const baseUrl = getServerBaseUrl();
-  const accessToken = localStorage.getItem("access_token");
+  const accessToken = authSession.getAccessToken();
 
   if (accessToken) {
     return {

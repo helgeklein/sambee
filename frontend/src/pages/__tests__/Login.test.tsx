@@ -98,11 +98,7 @@ describe("Login Component", () => {
     // Submit form
     await user.click(screen.getByRole("button", { name: /sign in/i }));
 
-    // Wait for successful login - check that NO error appears
-    await waitFor(() => {
-      // Token should be stored in localStorage (done by Login component and API service)
-      expect(localStorage.getItem("access_token")).toBe("mock-admin-token");
-    });
+    await waitFor(() => expect(mockLogin).toHaveBeenCalledWith("admin", "admin"));
 
     // Verify login was called with correct credentials
     expect(mockLogin).toHaveBeenCalledWith("admin", "admin");
@@ -170,10 +166,7 @@ describe("Login Component", () => {
     await user.type(screen.getByLabelText(/password/i), "admin");
     await user.click(screen.getByRole("button", { name: /sign in/i }));
 
-    // Error should be cleared and login should succeed
-    await waitFor(() => {
-      expect(localStorage.getItem("access_token")).toBe("mock-admin-token");
-    });
+    await waitFor(() => expect(mockLogin).toHaveBeenCalledTimes(2));
   });
 
   it("submits form when pressing Enter key", async () => {
@@ -203,10 +196,7 @@ describe("Login Component", () => {
     // Press Enter in password field
     await user.keyboard("{Enter}");
 
-    // Wait for successful login
-    await waitFor(() => {
-      expect(localStorage.getItem("access_token")).toBe("mock-admin-token");
-    });
+    await waitFor(() => expect(mockLogin).toHaveBeenCalledWith("admin", "admin"));
   });
 
   it("works with different valid user credentials", async () => {
@@ -231,10 +221,7 @@ describe("Login Component", () => {
     await user.type(screen.getByLabelText(/password/i), "testpass");
     await user.click(screen.getByRole("button", { name: /sign in/i }));
 
-    // Wait for successful login
-    await waitFor(() => {
-      expect(localStorage.getItem("access_token")).toBe("mock-user-token");
-    });
+    await waitFor(() => expect(mockLogin).toHaveBeenCalledWith("testuser", "testpass"));
   });
 
   it("shows provider and password sign-in together in OIDC or password mode", async () => {

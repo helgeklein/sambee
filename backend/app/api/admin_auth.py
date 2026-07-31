@@ -39,6 +39,7 @@ from app.models.oidc_api import (
     OidcPendingMappingBatchRequest,
     OidcPendingMappingRead,
     OidcReviewedPolicy,
+    OidcSessionCipherKeyRotationRead,
     OidcTestedIdentityRead,
     OidcTestPreviewRequest,
     OidcTestStartResponse,
@@ -67,6 +68,7 @@ from app.services.oidc_configuration import (
     normalize_candidate,
     redacted_candidate,
     redacted_configuration,
+    rotate_oidc_session_cipher_key,
 )
 from app.services.oidc_flow import start_test_flow
 from app.services.oidc_http import OidcHttpError, ValidatedOidcHttpClient
@@ -180,6 +182,7 @@ def _proposed_configuration(
     candidate: NormalizedOidcCandidate,
     cipher: OidcSecretCipher,
     *,
+    active: OidcProviderConfiguration | None,
     updated_by_user_id: uuid.UUID,
     identity_mapping_revision: int,
 ) -> OidcProviderConfiguration:
@@ -196,6 +199,7 @@ def _proposed_configuration(
         email_claim=candidate.email_claim,
         groups_claim=candidate.groups_claim,
         sign_in_mode=candidate.sign_in_mode,
+        interactive_reauthentication_max_age_days=candidate.interactive_reauthentication_max_age_days,
         admission_mode=candidate.admission_mode,
         admission_groups_json=json.dumps(candidate.admission_groups),
         role_assignment_mode=candidate.role_assignment_mode,
@@ -204,6 +208,11 @@ def _proposed_configuration(
             {"admin": candidate.admin_groups, "editor": candidate.editor_groups, "viewer": candidate.viewer_groups}
         ),
         configuration_revision=candidate.configuration_revision,
+        session_validation_revision=(
+            (active.session_validation_revision if active is not None else 0) + 1
+            if active is None or set(candidate.changed_fields).intersection(OIDC_SESSION_INVALIDATING_FIELDS)
+            else active.session_validation_revision
+        ),
         identity_mapping_revision=identity_mapping_revision,
         updated_by_user_id=updated_by_user_id,
     )
@@ -274,6 +283,24 @@ async def get_oidc_configuration(
         auth_mode=effective_mode.mode,
         auth_mode_source=effective_mode.source,
     )
+
+
+@router.post("/auth/oidc/session-cipher-key/rotate", response_model=OidcSessionCipherKeyRotationRead)
+async def rotate_oidc_session_cipher_key_endpoint(
+    current_user: User = Depends(get_current_admin_user),
+    session: Session = Depends(get_session),
+) -> OidcSessionCipherKeyRotationRead:
+    """Rotate the active session-secret key while retaining retired decrypt-only keys."""
+
+    active_key = rotate_oidc_session_cipher_key(session)
+    write_audit_event(
+        session,
+        event_name=AuditEventName.BROWSER_SESSION_CIPHER_KEY_ROTATED,
+        result=AuditResult.SUCCEEDED,
+        acting_user_id=current_user.id,
+    )
+    session.commit()
+    return OidcSessionCipherKeyRotationRead(active_key_id=active_key.key_id)
 
 
 @router.post("/auth/oidc/test", response_model=OidcTestStartResponse)
@@ -370,6 +397,7 @@ async def get_oidc_test_result(
     proposed = _proposed_configuration(
         candidate,
         cipher,
+        active=active,
         updated_by_user_id=current_user.id,
         identity_mapping_revision=active.identity_mapping_revision if active is not None else 0,
     )
@@ -517,6 +545,7 @@ async def finalize_oidc_configuration(
     proposed = _proposed_configuration(
         candidate,
         cipher,
+        active=active,
         updated_by_user_id=current_user.id,
         identity_mapping_revision=active.identity_mapping_revision if active is not None else 0,
     )

@@ -3,6 +3,7 @@ Tests for authentication and authorization.
 Tests login, token generation/validation, password hashing, and encryption.
 """
 
+import hashlib
 from datetime import datetime, timedelta, timezone
 
 import pytest
@@ -11,6 +12,7 @@ from sqlmodel import Session, delete, select
 
 import app.api.auth as auth_module
 from app.core.security import (
+    build_user_access_token,
     create_access_token,
     decode_access_token,
     decrypt_password,
@@ -19,7 +21,9 @@ from app.core.security import (
     verify_password,
 )
 from app.middleware.authentication import PASSWORD_FORM_BODY_LIMIT_BYTES
+from app.models.oidc import OidcBrowserSession, OidcBrowserSessionStatus, OidcProviderConfiguration
 from app.models.user import User, UserRole
+from app.services.oidc_browser_session import OIDC_BROWSER_SESSION_COOKIE_NAME, build_cookie_value
 from app.services.oidc_client import OidcClientError, OidcClientErrorCode
 
 
@@ -36,6 +40,73 @@ def test_oidc_failure_category_uses_safe_userinfo_reason(error_code: OidcClientE
     error = OidcClientError(error_code, "provider detail must not be logged")
 
     assert auth_module._oidc_failure_category(error) == expected_category
+
+
+def test_oidc_session_controls_revoke_only_owned_sessions(client: TestClient, session: Session) -> None:
+    configuration = OidcProviderConfiguration(
+        display_name="Example identity",
+        issuer_url="https://id.example.test",
+        client_id="sambee",
+    )
+    current_user = User(username="oidc-current", role=UserRole.EDITOR, password_hash=None)
+    other_user = User(username="oidc-other", role=UserRole.EDITOR, password_hash=None)
+    session.add_all([configuration, current_user, other_user])
+    session.commit()
+    now = datetime.now(timezone.utc)
+    current_session = OidcBrowserSession(
+        user_id=current_user.id,
+        user_token_version=current_user.token_version,
+        provider_configuration_id=configuration.id,
+        configuration_revision=configuration.session_validation_revision,
+        identity_mapping_revision=configuration.identity_mapping_revision,
+        issuer=configuration.issuer_url,
+        subject="current-subject",
+        secret_hash=hashlib.sha256(b"current-secret").hexdigest(),
+        encrypted_refresh_token="encrypted",
+        status=OidcBrowserSessionStatus.ACTIVE,
+        authenticated_at=now,
+        absolute_expires_at=now + timedelta(days=30),
+    )
+    other_session = OidcBrowserSession(
+        user_id=other_user.id,
+        user_token_version=other_user.token_version,
+        provider_configuration_id=configuration.id,
+        configuration_revision=configuration.session_validation_revision,
+        identity_mapping_revision=configuration.identity_mapping_revision,
+        issuer=configuration.issuer_url,
+        subject="other-subject",
+        secret_hash="other-secret-hash",
+        encrypted_refresh_token="encrypted",
+        status=OidcBrowserSessionStatus.ACTIVE,
+        authenticated_at=now,
+        absolute_expires_at=now + timedelta(days=30),
+    )
+    session.add_all([current_session, other_session])
+    session.commit()
+    token = build_user_access_token(current_user, oidc_browser_session_id=current_session.id)
+    headers = {"Authorization": f"Bearer {token}"}
+    client.cookies.set(OIDC_BROWSER_SESSION_COOKIE_NAME, build_cookie_value(current_session.id, "current-secret"))
+
+    listed = client.get("/api/auth/oidc/sessions", headers=headers)
+    assert listed.status_code == 200
+    sessions = listed.json()["sessions"]
+    assert len(sessions) == 1
+    assert sessions[0]["id"] == str(current_session.id)
+    assert sessions[0]["status"] == "active"
+    assert sessions[0]["current"] is True
+
+    rejected = client.post(f"/api/auth/oidc/sessions/{other_session.id}/revoke", headers=headers)
+    assert rejected.status_code == 200
+    assert rejected.json() == {"revoked_count": 0}
+    session.refresh(other_session)
+    assert other_session.status == OidcBrowserSessionStatus.ACTIVE
+
+    revoked = client.post(f"/api/auth/oidc/sessions/{current_session.id}/revoke", headers=headers)
+    assert revoked.status_code == 200
+    assert revoked.json() == {"revoked_count": 1}
+    session.refresh(current_session)
+    assert current_session.status == OidcBrowserSessionStatus.REVOKED
+    assert client.get("/api/auth/me", headers=headers).status_code == 401
 
 
 @pytest.mark.unit

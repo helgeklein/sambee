@@ -5,6 +5,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 import type { UseCompanionResult } from "../../hooks/useCompanion";
 import { LocalePreferencesProvider } from "../../i18n/LocalePreferencesProvider";
 import api from "../../services/api";
+import { authSession } from "../../services/authSession";
 import { getBackendAvailabilitySnapshot, resetBackendAvailabilityForTests } from "../../services/backendAvailability";
 import { type ApiMock, setupSuccessfulApiMocks } from "../../test/helpers";
 import { SambeeThemeProvider } from "../../theme/ThemeContext";
@@ -118,7 +119,7 @@ describe("FileBrowser WebSocket behavior", () => {
   beforeEach(() => {
     vi.clearAllMocks();
     resetBackendAvailabilityForTests();
-    localStorage.setItem("access_token", "fake-token");
+    authSession.setAuthenticated({ access_token: "fake-token", token_type: "bearer" }, false);
     InspectableWebSocket.instances = [];
     Object.defineProperty(globalThis, "WebSocket", {
       configurable: true,

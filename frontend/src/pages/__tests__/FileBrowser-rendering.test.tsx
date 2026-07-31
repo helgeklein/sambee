@@ -7,6 +7,7 @@ import { act, render, screen, waitFor } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { FileBrowserAlerts } from "../../components/FileBrowser/FileBrowserAlerts";
 import api from "../../services/api";
+import { authSession } from "../../services/authSession";
 import { markBackendAvailable, markBackendReconnecting, resetBackendAvailabilityForTests } from "../../services/backendAvailability";
 import { emitBackendRecoveryConfirmed } from "../../services/backendRecoveryEvents";
 import { saveBrowserRecoverySnapshot } from "../../services/browserRecoverySnapshot";
@@ -43,7 +44,7 @@ describe("Browser Component - Rendering", () => {
   beforeEach(() => {
     vi.clearAllMocks();
     resetBackendAvailabilityForTests();
-    localStorage.setItem("access_token", "fake-token");
+    authSession.setAuthenticated({ access_token: "fake-token", token_type: "bearer" }, false);
     localStorage.removeItem("selectedConnectionId");
     sessionStorage.clear();
 

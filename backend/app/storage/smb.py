@@ -493,7 +493,7 @@ class SMBBackend(StorageBackend):
         # Write chunk size — 4 MB matches read_file for consistency
         write_chunk_size: int = 4 * 1024 * 1024
         smb_path = self._build_smb_path(path)
-        logger.info(f"Writing file: path='{path}' -> smb_path='{smb_path}'")
+        logger.debug(f"Writing file: path='{path}' -> smb_path='{smb_path}'")
 
         try:
             pool = await get_connection_pool()
@@ -524,7 +524,7 @@ class SMBBackend(StorageBackend):
                     smb_path=smb_path,
                 )
 
-                logger.info(f"Successfully wrote {bytes_written} bytes: path='{path}'")
+                logger.debug(f"Successfully wrote {bytes_written} bytes: path='{path}'")
                 return bytes_written
 
         except TimeoutError:
@@ -664,7 +664,7 @@ class SMBBackend(StorageBackend):
         """
 
         smb_path = self._build_smb_path(path)
-        logger.info(f"Deleting item: path='{path}' -> smb_path='{smb_path}'")
+        logger.debug(f"Deleting item: path='{path}' -> smb_path='{smb_path}'")
 
         try:
             pool = await get_connection_pool()
@@ -706,7 +706,7 @@ class SMBBackend(StorageBackend):
                     smb_path=smb_path,
                 )
 
-                logger.info(f"Successfully deleted: path='{path}'")
+                logger.debug(f"Successfully deleted: path='{path}'")
 
         except TimeoutError as error:
             logger.error(f"Timeout deleting '{path}' after {SMB_DELETE_TIMEOUT_SECONDS:.0f} seconds")
@@ -765,7 +765,7 @@ class SMBBackend(StorageBackend):
         parent = smb_src.rsplit("\\", 1)[0]
         smb_dst = f"{parent}\\{new_name}"
 
-        logger.info(f"Renaming item: path='{path}' -> new_name='{new_name}' (smb: '{smb_src}' -> '{smb_dst}')")
+        logger.debug(f"Renaming item: path='{path}' -> new_name='{new_name}' (smb: '{smb_src}' -> '{smb_dst}')")
 
         try:
             pool = await get_connection_pool()
@@ -783,7 +783,7 @@ class SMBBackend(StorageBackend):
                     timeout=30.0,
                 )
 
-                logger.info(f"Successfully renamed: '{path}' -> '{new_name}'")
+                logger.debug(f"Successfully renamed: '{path}' -> '{new_name}'")
 
         except asyncio.TimeoutError:
             logger.error(f"Timeout renaming '{path}' after 30 seconds")
@@ -824,7 +824,7 @@ class SMBBackend(StorageBackend):
         """
 
         smb_path = self._build_smb_path(path)
-        logger.info(f"Creating directory: path='{path}' -> smb_path='{smb_path}'")
+        logger.debug(f"Creating directory: path='{path}' -> smb_path='{smb_path}'")
 
         try:
             pool = await get_connection_pool()
@@ -842,7 +842,7 @@ class SMBBackend(StorageBackend):
                     timeout=30.0,
                 )
 
-                logger.info(f"Successfully created directory: '{path}'")
+                logger.debug(f"Successfully created directory: '{path}'")
 
         except asyncio.TimeoutError:
             logger.error(f"Timeout creating directory '{path}' after 30 seconds")
@@ -885,7 +885,7 @@ class SMBBackend(StorageBackend):
         """
 
         smb_path = self._build_smb_path(path)
-        logger.info(f"Creating file: path='{path}' -> smb_path='{smb_path}'")
+        logger.debug(f"Creating file: path='{path}' -> smb_path='{smb_path}'")
 
         try:
             pool = await get_connection_pool()
@@ -908,7 +908,7 @@ class SMBBackend(StorageBackend):
                     timeout=30.0,
                 )
 
-                logger.info(f"Successfully created file: '{path}'")
+                logger.debug(f"Successfully created file: '{path}'")
 
         except asyncio.TimeoutError:
             logger.error(f"Timeout creating file '{path}' after 30 seconds")
@@ -992,7 +992,7 @@ class SMBBackend(StorageBackend):
 
         smb_src = self._build_smb_path(source_path)
         smb_dst = self._build_smb_path(dest_path)
-        logger.info(f"Copying item: '{source_path}' -> '{dest_path}' (smb: '{smb_src}' -> '{smb_dst}')")
+        logger.debug(f"Copying item: '{source_path}' -> '{dest_path}' (smb: '{smb_src}' -> '{smb_dst}')")
 
         try:
             pool = await get_connection_pool()
@@ -1055,7 +1055,7 @@ class SMBBackend(StorageBackend):
                     timeout=300.0,  # Large copies may take time
                 )
 
-                logger.info(f"Successfully copied: '{source_path}' -> '{dest_path}'")
+                logger.debug(f"Successfully copied: '{source_path}' -> '{dest_path}'")
 
         except asyncio.TimeoutError:
             logger.error(f"Timeout copying '{source_path}' after 300 seconds")
@@ -1106,7 +1106,7 @@ class SMBBackend(StorageBackend):
 
         smb_src = self._build_smb_path(source_path)
         smb_dst = self._build_smb_path(dest_path)
-        logger.info(f"Moving item: '{source_path}' -> '{dest_path}' (smb: '{smb_src}' -> '{smb_dst}')")
+        logger.debug(f"Moving item: '{source_path}' -> '{dest_path}' (smb: '{smb_src}' -> '{smb_dst}')")
 
         try:
             pool = await get_connection_pool()
@@ -1142,7 +1142,7 @@ class SMBBackend(StorageBackend):
                     timeout=30.0,
                 )
 
-                logger.info(f"Successfully moved: '{source_path}' -> '{dest_path}'")
+                logger.debug(f"Successfully moved: '{source_path}' -> '{dest_path}'")
 
         except asyncio.TimeoutError:
             logger.error(f"Timeout moving '{source_path}' after 30 seconds")
@@ -1208,7 +1208,7 @@ class SMBBackend(StorageBackend):
         chunk_write_timeout_s: float = 60.0
 
         smb_path = self._build_smb_path(path)
-        logger.info(f"write_file_from_stream: path='{path}' -> smb_path='{smb_path}'")
+        logger.debug(f"write_file_from_stream: path='{path}' -> smb_path='{smb_path}'")
 
         try:
             pool = await get_connection_pool()
@@ -1282,7 +1282,7 @@ class SMBBackend(StorageBackend):
                     except Exception as utime_err:
                         logger.warning(f"Could not preserve modification time for '{path}': {utime_err}")
 
-                logger.info(f"write_file_from_stream: wrote {bytes_written} bytes to '{path}'")
+                logger.debug(f"write_file_from_stream: wrote {bytes_written} bytes to '{path}'")
                 return bytes_written
 
         except asyncio.TimeoutError:

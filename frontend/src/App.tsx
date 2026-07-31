@@ -1,6 +1,6 @@
 import { ThemeProvider } from "@mui/material";
 import CssBaseline from "@mui/material/CssBaseline";
-import { lazy, Suspense, useRef } from "react";
+import { lazy, Suspense, useEffect, useRef, useState } from "react";
 import { Navigate, Route, BrowserRouter as Router, Routes } from "react-router-dom";
 import AppUpdatePrompt from "./components/AppUpdatePrompt";
 import ErrorBoundary from "./components/ErrorBoundary";
@@ -17,8 +17,10 @@ import { FileBrowserSettings } from "./pages/FileBrowserSettings";
 import { LocalDrivesSettings } from "./pages/LocalDrivesSettings";
 import { NetworkSettings } from "./pages/NetworkSettings";
 import { AppearanceSettings } from "./pages/PreferencesSettings";
+import { SessionSettings } from "./pages/SessionSettings";
 import { TextEditorSettings } from "./pages/TextEditorSettings";
 import { UserManagementSettings } from "./pages/UserManagementSettings";
+import { authSession } from "./services/authSession";
 import { useBackendAvailability } from "./services/backendAvailability";
 import { emitBackendRecoveryConfirmed, emitBackendRecoveryReconnect } from "./services/backendRecoveryEvents";
 import { SambeeThemeProvider, useSambeeTheme } from "./theme";
@@ -38,8 +40,13 @@ const FileBrowser = lazy(() => import("./pages/FileBrowser"));
 function AppContent() {
   const { muiTheme } = useSambeeTheme();
   const appRef = useRef<HTMLDivElement>(null);
+  const [authBootstrapComplete, setAuthBootstrapComplete] = useState(authSession.isBootstrapComplete());
   const backendAvailability = useBackendAvailability();
   useFocusTrap(appRef);
+
+  useEffect(() => {
+    void authSession.bootstrap().finally(() => setAuthBootstrapComplete(true));
+  }, []);
 
   useBackendRecoveryMonitor({
     status: backendAvailability.status,
@@ -66,11 +73,15 @@ function AppContent() {
             <Routes>
               <Route path="/login" element={<Login />} />
               <Route path="/login/oidc/callback" element={<OidcCallback />} />
-              <Route path="/browse/:targetType/:targetId/*" element={<FileBrowser />} />
-              <Route path="/browse" element={<FileBrowser />} />
-              <Route path="/settings" element={<SettingsLayout />}>
+              <Route
+                path="/browse/:targetType/:targetId/*"
+                element={authBootstrapComplete ? <FileBrowser /> : <div>{translate("app.loading")}</div>}
+              />
+              <Route path="/browse" element={authBootstrapComplete ? <FileBrowser /> : <div>{translate("app.loading")}</div>} />
+              <Route path="/settings" element={authBootstrapComplete ? <SettingsLayout /> : <div>{translate("app.loading")}</div>}>
                 <Route index element={<Navigate to="/settings/appearance" replace />} />
                 <Route path="appearance" element={<AppearanceSettings />} />
+                <Route path="sessions" element={<SessionSettings />} />
                 <Route path="file-browser" element={<FileBrowserSettings />} />
                 <Route path="text-editor" element={<TextEditorSettings />} />
                 <Route path="preferences" element={<Navigate to="/settings/appearance" replace />} />

@@ -4,10 +4,15 @@ title = "Docs Style Guide"
 
 Use this page as the canonical copy style reference for published docs.
 
-## Language
+## Language and Writing Style
 
+- Clarity and readability are paramount.
 - Use simple but correct language.
-- Don't be nitpicky.
+- Don't be nitpicky or wordy.
+- Explain (as appropriate) the following:
+  - why things are the way they are
+  - how to use things
+  - when to use things
 
 ## Lists
 

@@ -62,7 +62,7 @@ describe("Login Flow Integration", () => {
 
     it("should handle server errors", async () => {
       // Mock 500 error
-      mockApiError("http://localhost:8000/api/auth/token", 500);
+      mockApiError("/api/auth/token", 500);
 
       renderLogin();
 
