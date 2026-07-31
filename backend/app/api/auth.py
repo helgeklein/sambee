@@ -820,6 +820,7 @@ async def oidc_refresh(request: Request, session: Session = Depends(get_session)
                     cipher_key_id=active_session_cipher.key_id,
                     refresh_generation=observed_generation + 1,
                     last_refreshed_at=datetime.now(timezone.utc),
+                    last_seen_at=datetime.now(timezone.utc),
                     refresh_lease_until=None,
                 )
                 .execution_options(synchronize_session=False)

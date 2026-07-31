@@ -230,8 +230,6 @@ def validate_browser_session(
         raise OidcBrowserSessionError(OidcBrowserSessionErrorCode.REAUTHENTICATION_REQUIRED, "OIDC session requires reauthentication")
     if effective_deadline < stored_deadline:
         browser_session.absolute_expires_at = effective_deadline
-    browser_session.last_seen_at = current_time
-    session.add(browser_session)
     return user
 
 

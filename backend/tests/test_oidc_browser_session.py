@@ -118,6 +118,8 @@ def test_policy_increase_does_not_extend_a_session_deadline(session: Session) ->
 
     assert validate_browser_session(session, browser_session=browser_session, now=current_time) == user
     assert browser_session_cookie_expiry(browser_session) == authenticated_at + timedelta(days=30)
+    assert browser_session.last_seen_at is None
+    assert not session.is_modified(browser_session)
 
     browser_session.absolute_expires_at = current_time - timedelta(seconds=1)
     session.add(browser_session)
