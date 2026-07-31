@@ -23,6 +23,10 @@ vi.mock("../../../pages/LocalDrivesSettings", () => ({
   LocalDrivesSettings: ({ sectionTitle }: { sectionTitle?: string }) => <div>Local Drives Content: {sectionTitle}</div>,
 }));
 
+vi.mock("../../../pages/AccountSettings", () => ({
+  AccountSettings: () => <div>Account Settings Content</div>,
+}));
+
 function renderDrawer() {
   return render(
     <SambeeThemeProvider>
@@ -63,6 +67,15 @@ describe("MobileSettingsDrawer", () => {
 
     expect(screen.queryByText(/manage smb shares and local-drive access in one place\./i)).not.toBeInTheDocument();
     expect(screen.queryByText(/customize the application theme and language behavior\./i)).not.toBeInTheDocument();
+  });
+
+  it("renders Account settings when Account is selected", async () => {
+    const user = userEvent.setup();
+    renderDrawer();
+
+    await user.click(screen.getByText(/^Account$/i));
+
+    expect(screen.getByText("Account Settings Content")).toBeInTheDocument();
   });
 
   it("adds breathing room above the mobile section headers", () => {

@@ -28,6 +28,7 @@ const OIDC_ERROR_MESSAGES: Readonly<Record<string, string>> = {
     "Your administrator access changed and no local password exists. Restore the administrator group at the identity provider.",
   oidc_rate_limited: "Too many sign-in attempts. Wait and try again.",
 };
+const PASSWORD_CHANGED_MARKER = "sambee_password_changed";
 
 const oidcErrorFromFragment = (): string => {
   const code = new URLSearchParams(window.location.hash.replace(/^#/, "")).get("error");
@@ -46,6 +47,11 @@ const Login: React.FC = () => {
   const [authConfig, setAuthConfig] = useState<AuthConfig | null>(null);
   const [oidcOnlyState, setOidcOnlyState] = useState<"redirecting" | "failed" | "signed-out" | null>(null);
   const [returnPath] = useState(() => loginReturnPath(window.location.search));
+  const [passwordChanged] = useState(() => {
+    const changed = sessionStorage.getItem(PASSWORD_CHANGED_MARKER) === "1";
+    sessionStorage.removeItem(PASSWORD_CHANGED_MARKER);
+    return changed;
+  });
 
   useEffect(() => {
     if (oidcErrorFromFragment()) {
@@ -168,6 +174,11 @@ const Login: React.FC = () => {
           <Typography component="h1" variant="h5" align="center" gutterBottom>
             {t("auth.login.title")}
           </Typography>
+          {passwordChanged && (
+            <Alert severity="success" sx={{ mb: 2 }}>
+              Password changed. Sign in with your new password.
+            </Alert>
+          )}
           {error && (
             <Alert severity="error" sx={{ mb: 2 }}>
               {error}

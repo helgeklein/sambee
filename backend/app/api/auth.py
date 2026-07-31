@@ -20,7 +20,7 @@ from app.core.security import build_user_access_token, get_current_user_with_aut
 from app.db.database import get_session
 from app.models.oidc import OidcBrowserSession, OidcBrowserSessionStatus, OidcFlowPurpose, OidcProviderConfiguration
 from app.models.oidc_api import OidcBrowserSessionListRead, OidcBrowserSessionRead, OidcBrowserSessionRevokeRead, OidcGrantExchangeRequest
-from app.models.user import CurrentUserRead, PasswordChangeRequest, User, build_current_user_read, normalize_utc_datetime
+from app.models.user import CurrentAccountRead, CurrentUserRead, PasswordChangeRequest, User, build_current_user_read, normalize_utc_datetime
 from app.models.user_settings import CurrentUserSettingsRead, CurrentUserSettingsUpdate
 from app.services.audit import AuditDetails, AuditEventName, AuditResult, write_audit_event
 from app.services.authentication_config import (
@@ -1041,6 +1041,24 @@ async def get_current_user_info(
     logger.debug(f"User info requested: username={current_user.username}")
 
     return build_current_user_read(current_user)
+
+
+@router.get("/account", response_model=CurrentAccountRead)
+async def get_current_account(
+    current_user: User = Depends(get_current_user_with_auth_check),
+    session: Session = Depends(get_session),
+) -> CurrentAccountRead:
+    authentication_mode = get_effective_authentication_mode(session).mode
+    oidc_enabled = authentication_mode.value in {"oidc_or_password", "oidc_only"}
+    configuration = session.get(OidcProviderConfiguration, 1) if oidc_enabled else None
+    current_user_data = build_current_user_read(current_user).model_dump()
+    return CurrentAccountRead(
+        **current_user_data,
+        has_local_password=current_user.password_hash is not None,
+        password_change_available=current_user.password_hash is not None and is_password_login_enabled(session),
+        browser_session_management_available=configuration is not None,
+        oidc_provider_name=configuration.display_name if configuration is not None else None,
+    )
 
 
 @router.get("/me/settings", response_model=CurrentUserSettingsRead)

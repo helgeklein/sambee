@@ -2,6 +2,7 @@ import {
   Article as ArticleIcon,
   ChevronRight as ChevronRightIcon,
   FolderOpen as FolderOpenIcon,
+  ManageAccounts as ManageAccountsIcon,
   Palette as PaletteIcon,
   PeopleAlt as PeopleAltIcon,
   Public as PublicIcon,
@@ -106,6 +107,8 @@ function renderCategoryIcon(item: SettingsNavItem, iconGlyphSx?: SxProps<Theme>)
   switch (item) {
     case "appearance":
       return <PaletteIcon sx={iconGlyphSx} />;
+    case "account":
+      return <ManageAccountsIcon sx={iconGlyphSx} />;
     case "file-browser":
       return <FolderOpenIcon sx={iconGlyphSx} />;
     case "text-editor":

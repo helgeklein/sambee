@@ -127,9 +127,9 @@ export const EN_TRANSLATIONS = {
         label: "Appearance",
         description: "Customize the application theme and language behavior.",
       },
-      sessions: {
-        label: "Sessions",
-        description: "Review and revoke signed-in browser sessions.",
+      account: {
+        label: "Account",
+        description: "Manage your identity, password, browser sessions, and sign-out.",
       },
       fileBrowser: {
         label: "File Browser",

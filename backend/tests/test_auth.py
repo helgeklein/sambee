@@ -594,6 +594,54 @@ class TestGetCurrentUserEndpoint:
         assert response.status_code == 401
 
 
+    def test_get_current_account_reports_password_capabilities(self, client: TestClient, auth_headers_user: dict):
+        response = client.get("/api/auth/account", headers=auth_headers_user)
+
+        assert response.status_code == 200
+        assert response.json() == {
+            "id": response.json()["id"],
+            "username": "testuser",
+            "name": None,
+            "email": None,
+            "role": "editor",
+            "is_active": True,
+            "must_change_password": False,
+            "expires_at": None,
+            "created_at": response.json()["created_at"],
+            "has_local_password": True,
+            "password_change_available": True,
+            "browser_session_management_available": False,
+            "oidc_provider_name": None,
+        }
+
+    def test_get_current_account_reports_oidc_session_capabilities(self, client: TestClient, session: Session, auth_headers_user: dict):
+        from app.core.auth_methods import AuthenticationMode
+        from app.models.oidc import OidcProviderConfiguration, SignInMode
+        from app.services.authentication_config import set_ui_authentication_mode
+
+        configuration = OidcProviderConfiguration(
+            display_name="Company SSO",
+            issuer_url="https://idp.example.com",
+            client_id="sambee",
+            sign_in_mode=SignInMode.OIDC_ONLY,
+        )
+        session.add(configuration)
+        set_ui_authentication_mode(session, mode=AuthenticationMode.OIDC_ONLY, updated_by_user_id=None)
+        session.commit()
+
+        try:
+            response = client.get("/api/auth/account", headers=auth_headers_user)
+
+            assert response.status_code == 200
+            assert response.json()["password_change_available"] is False
+            assert response.json()["browser_session_management_available"] is True
+            assert response.json()["oidc_provider_name"] == "Company SSO"
+        finally:
+            set_ui_authentication_mode(session, mode=AuthenticationMode.PASSWORD_ONLY, updated_by_user_id=None)
+            session.exec(delete(OidcProviderConfiguration))
+            session.commit()
+
+
 @pytest.mark.integration
 class TestChangePasswordEndpoint:
     """Test password change functionality."""

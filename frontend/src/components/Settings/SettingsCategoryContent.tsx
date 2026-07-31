@@ -1,3 +1,4 @@
+import { AccountSettings } from "../../pages/AccountSettings";
 import { AdvancedSettings } from "../../pages/AdvancedSettings";
 import { AuthenticationSettings } from "../../pages/AuthenticationSettings";
 import { ConnectionsSettings } from "../../pages/ConnectionsSettings";
@@ -29,6 +30,8 @@ export function SettingsCategoryContent({
   switch (item) {
     case "appearance":
       return <AppearanceSettings />;
+    case "account":
+      return <AccountSettings dialogSafe={dialogSafeHeader} />;
     case "file-browser":
       return <FileBrowserSettings />;
     case "text-editor":

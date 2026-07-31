@@ -21,6 +21,19 @@ export interface User {
   created_at?: string;
 }
 
+export interface CurrentAccount extends User {
+  id: string;
+  role: UserRole;
+  is_active: boolean;
+  must_change_password: boolean;
+  expires_at: string | null;
+  created_at: string;
+  has_local_password: boolean;
+  password_change_available: boolean;
+  browser_session_management_available: boolean;
+  oidc_provider_name: string | null;
+}
+
 export interface AuthToken extends User {
   access_token: string;
   token_type: string;

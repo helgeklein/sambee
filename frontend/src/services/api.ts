@@ -15,6 +15,7 @@ import type {
   Connection,
   ConnectionCreate,
   ConnectionVisibilityOption,
+  CurrentAccount,
   CurrentUserSettings,
   CurrentUserSettingsUpdate,
   DirectoryListing,
@@ -394,6 +395,11 @@ class ApiService {
     logger.debug("Fetching current user info", {}, "api");
     const response = await this.api.get<User>("/auth/me");
     return normalizeUser(response.data);
+  }
+
+  async getCurrentAccount(): Promise<CurrentAccount> {
+    const response = await this.api.get<CurrentAccount>("/auth/account");
+    return normalizeUser(response.data) as CurrentAccount;
   }
 
   async getOidcBrowserSessions(): Promise<OidcBrowserSessionList> {
