@@ -102,6 +102,19 @@ def test_all_repository_scripts_follow_checkout_in_their_job() -> None:
                 )
 
 
+def test_version_only_updates_skip_the_companion_package_build() -> None:
+    workflow = load_workflow("verify-companion-build.yml")
+    jobs = workflow["jobs"]
+
+    change_scope = jobs["change-scope"]
+    assert ".github/scripts/companion_build_required.py" in change_scope["steps"][-1]["run"]
+    assert change_scope["outputs"]["requires-build"] == "${{ steps.scope.outputs.requires-build }}"
+
+    package_build = jobs["windows-x64"]
+    assert package_build["needs"] == "change-scope"
+    assert package_build["if"] == "needs.change-scope.outputs.requires-build == 'true'"
+
+
 def test_workflow_output_references_use_direct_dependencies() -> None:
     dependency_pattern = re.compile(r"needs\.([A-Za-z0-9_-]+)\.outputs")
     workflow_directory = WORKSPACE / ".github/workflows"

@@ -1112,6 +1112,7 @@
       "server-side-conversion-contract",
       "service-ports-and-urls",
       "session-lifecycle",
+      "settings",
       "shared-recipe-layer",
       "shared-token-layer",
       "shared-viewer-ui",

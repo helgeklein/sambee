@@ -37,6 +37,7 @@
 
 ## Markdown editor
 
+- Keyboard shortcut for bold and italic formatting (does it already exist?)
 - Search + replace (Ctrl+H)
 
 ## Theme

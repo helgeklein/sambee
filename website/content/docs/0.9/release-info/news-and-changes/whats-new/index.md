@@ -14,6 +14,15 @@ Sambee's [OIDC implementation](../../../admin-guide/authentication/openid-connec
 
 - Lists are normalized (formatted) when saved, using `-` for unordered lists and `1.` for every ordered-list item.
 - The editor now updates to display the normalized Markdown written to disk after a successful save.
+- Unsaved edits are stored in the browser's local storage so they're not lost when re-authenticating, for example.
+
+## Miscellaneous
+
+### Settings
+
+- New personal **Account** settings page
+- New admin **Network** settings page
+- New admin **Authentication** settings page
 
 ## Under the Hood
 

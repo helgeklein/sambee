@@ -17,7 +17,31 @@ permissions:
   contents: read
 
 jobs:
+  change-scope:
+    runs-on: ubuntu-latest
+    outputs:
+      requires-build: ${{ steps.scope.outputs.requires-build }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          fetch-depth: 0
+
+      - id: scope
+        name: Determine whether a package build is required
+        shell: bash
+        run: |
+          if [[ "${{ github.event_name }}" != "pull_request" ]]; then
+            echo "requires-build=true" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+
+          requires_build="$(python3 .github/scripts/companion_build_required.py \
+            "${{ github.event.pull_request.base.sha }}" "${{ github.sha }}")"
+          echo "requires-build=$requires_build" >> "$GITHUB_OUTPUT"
+
   windows-x64:
+    needs: change-scope
+    if: needs.change-scope.outputs.requires-build == 'true'
     runs-on: windows-latest
     env:
       CARGO_REGISTRIES_CRATES_IO_PROTOCOL: sparse
