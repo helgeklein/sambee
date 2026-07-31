@@ -22,5 +22,4 @@ The **Browser sessions** section appears for OIDC sign-ins. It identifies the cu
 - Select **Revoke** to end another browser session.
 - Select **Revoke all other sessions** to end every other active OIDC browser session.
 
-Revoking a browser session immediately invalidates its Sambee API tokens. It does not sign the user out of the identity provider itself.
-
+Revoking a browser session immediately invalidates its Sambee API tokens. It does not sign the user out of the identity provider itself. See [OpenID Connect Authentication Operations](../../../admin-guide/authentication/openid-connect-authentication-operations/) for session lifecycle details.

@@ -96,6 +96,48 @@ describe("AccountSettings", () => {
     expect(screen.queryByRole("heading", { name: "Password" })).not.toBeInTheDocument();
   });
 
+  it("shows a retry action instead of loading indefinitely when account loading fails", async () => {
+    const user = userEvent.setup();
+    vi.mocked(api.getCurrentAccount).mockRejectedValueOnce(new Error("Offline"));
+    renderAccount();
+
+    expect(await screen.findByText("Account information could not be loaded.")).toBeInTheDocument();
+    expect(screen.queryByLabelText("Loading account")).not.toBeInTheDocument();
+    await user.click(screen.getByRole("button", { name: "Try again" }));
+
+    expect(await screen.findByText("Alex Example")).toBeInTheDocument();
+  });
+
+  it("does not report an empty session list when OIDC session loading fails", async () => {
+    const user = userEvent.setup();
+    vi.mocked(api.getCurrentAccount).mockResolvedValue({
+      ...PASSWORD_ACCOUNT,
+      password_change_available: false,
+      browser_session_management_available: true,
+    });
+    vi.mocked(api.getOidcBrowserSessions).mockRejectedValueOnce(new Error("Offline"));
+    vi.mocked(api.getOidcBrowserSessions).mockResolvedValueOnce({
+      sessions: [
+        {
+          id: "session-id",
+          status: "active",
+          created_at: "2026-01-01T00:00:00Z",
+          authenticated_at: "2026-01-01T00:00:00Z",
+          last_seen_at: null,
+          last_refreshed_at: null,
+          current: true,
+        },
+      ],
+    });
+    renderAccount();
+
+    expect(await screen.findAllByText("Browser sessions could not be loaded.")).toHaveLength(2);
+    expect(screen.queryByText("No renewable OIDC sessions are active.")).not.toBeInTheDocument();
+    await user.click(screen.getByRole("button", { name: "Try again" }));
+
+    expect(await screen.findByText("This browser")).toBeInTheDocument();
+  });
+
   it("validates a matching password confirmation before submitting", async () => {
     const user = userEvent.setup();
     renderAccount();

@@ -46,7 +46,7 @@ export function AccountSettings({ dialogSafe = false }: { dialogSafe?: boolean }
   const isMobile = useMediaQuery(theme.breakpoints.down("sm"));
   const navigate = useNavigate();
   const [account, setAccount] = useState<CurrentAccount | null>(null);
-  const [sessions, setSessions] = useState<OidcBrowserSession[]>([]);
+  const [sessions, setSessions] = useState<OidcBrowserSession[] | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [passwordForm, setPasswordForm] = useState<PasswordForm>(EMPTY_PASSWORD_FORM);
@@ -58,12 +58,22 @@ export function AccountSettings({ dialogSafe = false }: { dialogSafe?: boolean }
   const loadAccount = useEffectEvent(async () => {
     setLoading(true);
     setError(null);
+    setAccount(null);
+    setSessions(null);
     try {
       const currentAccount = await api.getCurrentAccount();
       setAccount(currentAccount);
-      setSessions(currentAccount.browser_session_management_available ? (await api.getOidcBrowserSessions()).sessions : []);
-    } catch (loadError) {
-      setError(getApiErrorMessage(loadError, "Account information could not be loaded."));
+      if (!currentAccount.browser_session_management_available) {
+        setSessions([]);
+        return;
+      }
+      try {
+        setSessions((await api.getOidcBrowserSessions()).sessions);
+      } catch (sessionLoadError) {
+        setError(getApiErrorMessage(sessionLoadError, "Browser sessions could not be loaded."));
+      }
+    } catch (accountLoadError) {
+      setError(getApiErrorMessage(accountLoadError, "Account information could not be loaded."));
     } finally {
       setLoading(false);
     }
@@ -151,9 +161,15 @@ export function AccountSettings({ dialogSafe = false }: { dialogSafe?: boolean }
             {error}
           </Alert>
         )}
-        {loading || account === null ? (
+        {loading ? (
           <Box sx={{ display: "flex", justifyContent: "center", py: 4 }}>
             <CircularProgress aria-label="Loading account" size={28} />
+          </Box>
+        ) : account === null ? (
+          <Box>
+            <Button variant="outlined" onClick={() => void loadAccount()}>
+              Try again
+            </Button>
           </Box>
         ) : (
           <>
@@ -234,7 +250,14 @@ export function AccountSettings({ dialogSafe = false }: { dialogSafe?: boolean }
                 }
                 sx={{ mb: 4 }}
               >
-                {sessions.length === 0 ? (
+                {sessions === null ? (
+                  <Box>
+                    <Typography color="text.secondary">Browser sessions could not be loaded.</Typography>
+                    <Button sx={{ mt: 2 }} variant="outlined" onClick={() => void loadAccount()} disabled={revoking !== null || signingOut}>
+                      Try again
+                    </Button>
+                  </Box>
+                ) : sessions.length === 0 ? (
                   <Typography color="text.secondary">No renewable OIDC sessions are active.</Typography>
                 ) : (
                   <>
