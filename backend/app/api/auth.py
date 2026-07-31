@@ -20,7 +20,14 @@ from app.core.security import build_user_access_token, get_current_user_with_aut
 from app.db.database import get_session
 from app.models.oidc import OidcBrowserSession, OidcBrowserSessionStatus, OidcFlowPurpose, OidcProviderConfiguration
 from app.models.oidc_api import OidcBrowserSessionListRead, OidcBrowserSessionRead, OidcBrowserSessionRevokeRead, OidcGrantExchangeRequest
-from app.models.user import CurrentAccountRead, CurrentUserRead, PasswordChangeRequest, User, build_current_user_read, normalize_utc_datetime
+from app.models.user import (
+    CurrentAccountRead,
+    CurrentUserRead,
+    PasswordChangeRequest,
+    User,
+    build_current_user_read,
+    normalize_utc_datetime,
+)
 from app.models.user_settings import CurrentUserSettingsRead, CurrentUserSettingsUpdate
 from app.services.audit import AuditDetails, AuditEventName, AuditResult, write_audit_event
 from app.services.authentication_config import (

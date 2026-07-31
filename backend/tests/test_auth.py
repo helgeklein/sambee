@@ -593,7 +593,6 @@ class TestGetCurrentUserEndpoint:
         response = client.get("/api/auth/me")
         assert response.status_code == 401
 
-
     def test_get_current_account_reports_password_capabilities(self, client: TestClient, auth_headers_user: dict):
         response = client.get("/api/auth/account", headers=auth_headers_user)
 
