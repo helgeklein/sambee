@@ -1,5 +1,6 @@
 import type { CurrentUserSettings, CurrentUserSettingsUpdate } from "../types";
 import { isAuthRequired } from "./authConfig";
+import { authSession } from "./authSession";
 
 export const USER_SETTINGS_CHANGED_EVENT = "sambee:user-settings-changed";
 
@@ -24,7 +25,7 @@ function mergeViewerAssociations(settings: CurrentUserSettings | null, payload: 
 }
 
 function hasAccessToken(): boolean {
-  return Boolean(localStorage.getItem("access_token"));
+  return authSession.hasUsableAccessToken();
 }
 
 async function canAccessCurrentUserSettings(): Promise<boolean> {

@@ -20,6 +20,7 @@ vi.mock("axios", () => {
     post: vi.fn(),
     put: vi.fn(),
     delete: vi.fn(),
+    request: vi.fn(),
     interceptors: {
       request: {
         use: vi.fn(),
@@ -44,7 +45,9 @@ vi.mock("axios", () => {
 import axios from "axios";
 // Now import the API service (it will use the mocked axios.create)
 import apiService, { LOCAL_DRIVE_EDIT_LOCKS_UNSUPPORTED_MESSAGE, OIDC_FINALIZATION_REQUEST_TIMEOUT_MS } from "../api";
+import { authSession } from "../authSession";
 import { getBackendAvailabilitySnapshot, markBackendUnavailable, resetBackendAvailabilityForTests } from "../backendAvailability";
+import * as draftRecovery from "../draftRecovery";
 import { logger } from "../logger";
 
 const mockedAxios = vi.mocked(axios);
@@ -53,7 +56,12 @@ const mockAxiosInstance = mockedAxios.create() as ReturnType<typeof mockedAxios.
   post: ReturnType<typeof vi.fn>;
   put: ReturnType<typeof vi.fn>;
   delete: ReturnType<typeof vi.fn>;
+  request: ReturnType<typeof vi.fn>;
 };
+const requestInterceptorHandlers = mockAxiosInstance.interceptors.request.use.mock.calls[0] as
+  | [((config: { url?: string; headers: Record<string, string> }) => Promise<unknown>)?, ((error: unknown) => Promise<never>)?]
+  | undefined;
+const requestHandler = requestInterceptorHandlers?.[0];
 const responseInterceptorHandlers = mockAxiosInstance.interceptors.response.use.mock.calls[0] as
   | [((response: AxiosResponse) => AxiosResponse | Promise<AxiosResponse>)?, ((error: unknown) => Promise<never>)?]
   | undefined;
@@ -66,6 +74,7 @@ describe("API Service", () => {
   beforeEach(() => {
     // Clear localStorage
     localStorage.clear();
+    authSession.clear();
     resetBackendAvailabilityForTests();
 
     vi.stubGlobal("fetch", fetchMock);
@@ -77,6 +86,56 @@ describe("API Service", () => {
   afterEach(() => {
     vi.unstubAllGlobals();
     vi.clearAllMocks();
+  });
+
+  describe("OIDC request classification", () => {
+    it("refreshes before authenticated OIDC session-control requests", async () => {
+      const refreshIfNeeded = vi.spyOn(authSession, "refreshIfNeeded").mockResolvedValue();
+
+      await requestHandler?.({ url: "/auth/oidc/sessions", headers: {} });
+
+      expect(refreshIfNeeded).toHaveBeenCalledOnce();
+    });
+
+    it("does not refresh before the public OIDC grant exchange", async () => {
+      const refreshIfNeeded = vi.spyOn(authSession, "refreshIfNeeded").mockResolvedValue();
+
+      await requestHandler?.({ url: "/auth/oidc/exchange", headers: {} });
+
+      expect(refreshIfNeeded).not.toHaveBeenCalled();
+    });
+
+    it("retries a session-control 401 after refreshing the OIDC token", async () => {
+      const requestRefresh = vi
+        .spyOn(authSession, "requestRefresh")
+        .mockResolvedValue({ access_token: "renewed-token", token_type: "bearer" });
+      mockAxiosInstance.request.mockResolvedValue({ data: { sessions: [] } });
+      const error = {
+        response: { status: 401, headers: {} },
+        message: "Unauthorized",
+        config: { url: "/auth/oidc/sessions", method: "get", headers: {} },
+      };
+
+      await expect(responseErrorHandler?.(error as never)).resolves.toEqual({ data: { sessions: [] } });
+
+      expect(requestRefresh).toHaveBeenCalledOnce();
+      expect(mockAxiosInstance.request).toHaveBeenCalledWith(expect.objectContaining({ _oidcRetried: true }));
+    });
+
+    it("preserves drafts and redirects after a confirmed reauthentication response to a write", async () => {
+      const snapshotDrafts = vi.spyOn(draftRecovery, "snapshotRegisteredDrafts");
+      const error = {
+        response: { status: 401, data: { detail: { code: "oidc_reauthentication_required" } }, headers: {} },
+        message: "Unauthorized",
+        config: { url: "/auth/change-password", method: "post", headers: {} },
+      };
+
+      await expect(responseErrorHandler?.(error as never)).rejects.toEqual(error);
+
+      expect(snapshotDrafts).toHaveBeenCalledOnce();
+      expect(window.location.assign).toHaveBeenCalledWith("/login?return_path=%2F");
+      expect(authSession.requestRefresh).not.toHaveBeenCalled();
+    });
   });
 
   it("uses a bounded timeout for OIDC finalization", async () => {
@@ -131,7 +190,7 @@ describe("API Service", () => {
       const result = await apiService.login("testuser", "password123");
 
       expect(result).toEqual(mockAuthToken);
-      expect(localStorage.getItem("access_token")).toBe("test-token");
+      expect(authSession.getAccessToken()).toBe("test-token");
       expect(mockAxiosInstance.post).toHaveBeenCalledWith("/auth/token", expect.any(FormData));
     });
 
@@ -701,24 +760,20 @@ describe("API Service", () => {
   });
 
   describe("Viewer Operations", () => {
-    it("getViewUrl() constructs correct URL with token", async () => {
-      localStorage.setItem("access_token", "viewer-token");
-
+    it("getViewUrl() constructs a token-free server URL", async () => {
       const url = await apiService.getViewUrl("conn1", "/test.pdf");
 
       expect(url).toContain("/viewer/conn1/file");
       expect(url).toContain("path=%2Ftest.pdf");
-      expect(url).toContain("token=viewer-token");
+      expect(url).not.toContain("token=");
     });
 
-    it("getDownloadUrl() constructs correct URL with token", async () => {
-      localStorage.setItem("access_token", "download-token");
-
+    it("getDownloadUrl() constructs a token-free server URL", async () => {
       const url = await apiService.getDownloadUrl("conn1", "/data.zip");
 
       expect(url).toContain("/viewer/conn1/download");
       expect(url).toContain("path=%2Fdata.zip");
-      expect(url).toContain("token=download-token");
+      expect(url).not.toContain("token=");
     });
 
     it("getFileContent() fetches file content as text", async () => {
@@ -743,7 +798,7 @@ describe("API Service", () => {
     });
 
     it("saveTextFile() uploads text content to the same path", async () => {
-      localStorage.setItem("access_token", "save-token");
+      authSession.setAuthenticated({ access_token: "save-token", token_type: "bearer" }, false);
       fetchMock.mockResolvedValueOnce({
         ok: true,
       });
@@ -1045,7 +1100,7 @@ describe("API Service", () => {
       const result = await login("user", "pass");
 
       expect(result).toEqual(authResponse.data);
-      expect(localStorage.getItem("access_token")).toBe("token123");
+      expect(authSession.getAccessToken()).toBe("token123");
     });
 
     it("browseFiles() convenience function returns items from first connection", async () => {

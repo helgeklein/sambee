@@ -7,6 +7,7 @@ import { screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import api from "../../services/api";
+import { authSession } from "../../services/authSession";
 import { type ApiMock, createMarkdownViewerMock, createSettingsDialogMock, setupNavigationApiMocks } from "../../test/helpers";
 import type { FileInfo } from "../../types";
 import { FileType } from "../../types";
@@ -34,7 +35,7 @@ vi.mock("@tanstack/react-virtual", () => import("../../__mocks__/@tanstack/react
 describe("Browser Component - Navigation", () => {
   beforeEach(() => {
     vi.clearAllMocks();
-    localStorage.setItem("access_token", "fake-token");
+    authSession.setAuthenticated({ access_token: "fake-token", token_type: "bearer" }, false);
     localStorage.removeItem("selectedConnectionId");
 
     // Use navigation mock factory for directory navigation tests

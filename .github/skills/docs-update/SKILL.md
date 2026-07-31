@@ -28,7 +28,6 @@ Docs update process:
 
 - Review the existing documentation to understand its structure and content.
 - Focus on the big picture. Don't sprinkle isolated edits.
-- Clarity and readability are paramount.
 - Fix what's broken, but also improve what is already working:
   - If you find a section that is confusing, consider rewriting it for better clarity.
   - If you find outdated information, update it to reflect the current state of the project.

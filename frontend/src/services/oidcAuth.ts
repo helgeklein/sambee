@@ -1,4 +1,5 @@
 import type { AuthToken } from "../types";
+import { authSession } from "./authSession";
 import { logger } from "./logger";
 
 export const OIDC_ATTEMPT_MARKER = "sambee_oidc_attempted";
@@ -25,8 +26,8 @@ export function startOidcAuthorization(path: string, returnPath = "/browse"): vo
   window.location.assign(`${path}${separator}return_path=${encodeURIComponent(sanitizedReturnPath)}`);
 }
 
-export async function completeAuthentication(response: AuthToken, fallbackReturnPath?: string): Promise<string> {
-  localStorage.setItem("access_token", response.access_token);
+export async function completeAuthentication(response: AuthToken, fallbackReturnPath?: string, renewable = true): Promise<string> {
+  authSession.setAuthenticated(response, renewable);
   sessionStorage.removeItem(OIDC_ATTEMPT_MARKER);
   sessionStorage.removeItem(OIDC_LOGOUT_MARKER);
   await logger.initializeBackendTracing();

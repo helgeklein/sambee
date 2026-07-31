@@ -20,6 +20,7 @@ vi.mock("../authConfig", () => ({
   isAuthRequired: isAuthRequiredMock,
 }));
 
+import { authSession } from "../authSession";
 import { clearCurrentUserSettingsCache, loadCurrentUserSettings, patchCurrentUserSettings } from "../userSettingsSync";
 
 async function flushAsyncWork(): Promise<void> {
@@ -32,7 +33,7 @@ describe("userSettingsSync", () => {
   beforeEach(() => {
     vi.clearAllMocks();
     clearCurrentUserSettingsCache();
-    localStorage.setItem("access_token", "fake-token");
+    authSession.setAuthenticated({ access_token: "fake-token", token_type: "bearer" }, false);
     isAuthRequiredMock.mockResolvedValue(true);
   });
 
@@ -82,7 +83,7 @@ describe("userSettingsSync", () => {
   });
 
   it("still updates user settings when auth is disabled and no access token exists", async () => {
-    localStorage.removeItem("access_token");
+    authSession.clear();
     isAuthRequiredMock.mockResolvedValue(false);
 
     const initialSettings = {

@@ -3,6 +3,7 @@ import type { ReactNode } from "react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 import api from "../../services/api";
+import { authSession } from "../../services/authSession";
 import { clearCurrentUserSettingsCache } from "../../services/userSettingsSync";
 import { type ApiMock, setupSuccessfulApiMocks } from "../../test/helpers";
 import { SambeeThemeProvider } from "../../theme/ThemeContext";
@@ -17,7 +18,7 @@ describe("useFileBrowserPane", () => {
   beforeEach(() => {
     vi.clearAllMocks();
     clearCurrentUserSettingsCache();
-    localStorage.setItem("access_token", "fake-token");
+    authSession.setAuthenticated({ access_token: "fake-token", token_type: "bearer" }, false);
     setupSuccessfulApiMocks(api as unknown as ApiMock);
   });
 

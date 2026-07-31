@@ -13,6 +13,8 @@ CALLBACK_CAPACITY = 60
 CALLBACK_REFILL_SECONDS = 5 * 60
 EXCHANGE_CAPACITY = 30
 EXCHANGE_REFILL_SECONDS = 5 * 60
+REFRESH_CAPACITY = 120
+REFRESH_REFILL_SECONDS = 5 * 60
 PASSWORD_IP_CAPACITY = 10
 PASSWORD_IP_REFILL_SECONDS = 5 * 60
 PASSWORD_USERNAME_CAPACITY = 10
@@ -79,6 +81,7 @@ class AuthenticationRateLimiter:
         self._authorization = _BucketStore(AUTHORIZATION_CAPACITY, AUTHORIZATION_REFILL_SECONDS, max_keys)
         self._callback = _BucketStore(CALLBACK_CAPACITY, CALLBACK_REFILL_SECONDS, max_keys)
         self._exchange = _BucketStore(EXCHANGE_CAPACITY, EXCHANGE_REFILL_SECONDS, max_keys)
+        self._refresh = _BucketStore(REFRESH_CAPACITY, REFRESH_REFILL_SECONDS, max_keys)
         self._password_ip = _BucketStore(PASSWORD_IP_CAPACITY, PASSWORD_IP_REFILL_SECONDS, max_keys)
         self._password_username = _BucketStore(PASSWORD_USERNAME_CAPACITY, PASSWORD_USERNAME_REFILL_SECONDS, max_keys)
 
@@ -90,6 +93,9 @@ class AuthenticationRateLimiter:
 
     def check_exchange(self, source_ip: str) -> RateLimitDecision:
         return self._check_single(self._exchange, source_ip)
+
+    def check_refresh(self, source_ip: str) -> RateLimitDecision:
+        return self._check_single(self._refresh, source_ip)
 
     def check_password(self, source_ip: str, username: str) -> RateLimitDecision:
         username_key = hashlib.sha256(username.strip().encode("utf-8")).hexdigest()
@@ -114,6 +120,7 @@ class AuthenticationRateLimiter:
                 self._authorization,
                 self._callback,
                 self._exchange,
+                self._refresh,
                 self._password_ip,
                 self._password_username,
             ):

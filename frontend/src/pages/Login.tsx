@@ -98,7 +98,7 @@ const Login: React.FC = () => {
 
     try {
       const response = await login(username, password);
-      const authenticatedReturnPath = await completeAuthentication(response, returnPath);
+      const authenticatedReturnPath = await completeAuthentication(response, returnPath, false);
       navigate(authenticatedReturnPath);
     } catch (_err) {
       setError(t("auth.login.invalidCredentials"));

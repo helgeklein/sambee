@@ -127,6 +127,10 @@ export const EN_TRANSLATIONS = {
         label: "Appearance",
         description: "Customize the application theme and language behavior.",
       },
+      sessions: {
+        label: "Sessions",
+        description: "Review and revoke signed-in browser sessions.",
+      },
       fileBrowser: {
         label: "File Browser",
         description: "Set defaults for how the file browser behaves.",

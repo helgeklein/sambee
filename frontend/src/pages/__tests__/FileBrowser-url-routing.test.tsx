@@ -15,6 +15,7 @@
 import { screen, waitFor } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import api from "../../services/api";
+import { authSession } from "../../services/authSession";
 import { type ApiMock, createMarkdownViewerMock, createSettingsDialogMock, setupSuccessfulApiMocks } from "../../test/helpers";
 import { ACTIVE_PANE_QUERY_KEY, RIGHT_PANE_QUERY_KEY } from "../FileBrowser/types";
 import { renderBrowser } from "./FileBrowser.test.utils";
@@ -41,7 +42,7 @@ vi.mock("@tanstack/react-virtual", () => import("../../__mocks__/@tanstack/react
 describe("FileBrowser — URL Routing (Phase 3)", () => {
   beforeEach(() => {
     vi.clearAllMocks();
-    localStorage.setItem("access_token", "fake-token");
+    authSession.setAuthenticated({ access_token: "fake-token", token_type: "bearer" }, false);
     localStorage.removeItem("selectedConnectionId");
     localStorage.removeItem("dual-pane-mode");
     localStorage.removeItem("active-pane");

@@ -30,6 +30,7 @@ import { BROWSER_SHORTCUTS, COMMON_SHORTCUTS, MARKDOWN_EDITOR_SHORTCUTS, VIEWER_
 import { checkIsTransientError, getTransientErrorMessage, useApiRetry } from "../../hooks/useApiRetry";
 import { useKeyboardShortcuts } from "../../hooks/useKeyboardShortcuts";
 import apiService from "../../services/api";
+import { clearDraft, type DraftSnapshot, loadDraft, registerDraftSnapshot, saveDraft } from "../../services/draftRecovery";
 import { error as logError, info as logInfo } from "../../services/logger";
 import { useSambeeTheme } from "../../theme";
 import { getSearchHighlightColors } from "../../theme/commonStyles";
@@ -183,6 +184,8 @@ export const MarkdownViewer: React.FC<ViewerComponentProps> = ({ connectionId, p
   const [error, setError] = useState<string | null>(null);
   const [editError, setEditError] = useState<string | null>(null);
   const [shareError, setShareError] = useState<string | null>(null);
+  const [draftStorageWarning, setDraftStorageWarning] = useState<string | null>(null);
+  const [recoveryDraft, setRecoveryDraft] = useState<DraftSnapshot | null>(null);
   const [showHelp, setShowHelp] = useState(false);
   const [isEditing, setIsEditing] = useState(false);
   const [isSaving, setIsSaving] = useState(false);
@@ -409,8 +412,15 @@ export const MarkdownViewer: React.FC<ViewerComponentProps> = ({ connectionId, p
         const normalizedData = normalizeMarkdownTableCellLineBreaks(data);
         setContent(normalizedData);
         if (!isEditingRef.current) {
-          setDraftContent(normalizedData);
+          const recoveredDraft = loadDraft(connectionId, path, "markdown");
+          const nextDraft = recoveredDraft?.baseline === normalizedData ? recoveredDraft.content : normalizedData;
+          setDraftContent(nextDraft);
           setEditBaselineContent(normalizedData);
+          if (recoveredDraft?.baseline === normalizedData && recoveredDraft.content !== normalizedData) {
+            setIsEditing(true);
+          } else if (recoveredDraft && recoveredDraft.content !== recoveredDraft.baseline) {
+            setRecoveryDraft(recoveredDraft);
+          }
         }
       } catch (err) {
         if (abortController.signal.aborted) {
@@ -441,6 +451,34 @@ export const MarkdownViewer: React.FC<ViewerComponentProps> = ({ connectionId, p
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [connectionId, fetchWithRetry, path, setEditBaselineContent]);
+
+  useEffect(() => {
+    if (!isEditing || draftContent === editBaselineContentRef.current) {
+      return;
+    }
+    const result = saveDraft(connectionId, path, "markdown", editBaselineContentRef.current, draftContent);
+    if (!result.saved && result.reason !== "no-user") {
+      setDraftStorageWarning(
+        result.reason === "too-large"
+          ? "Draft recovery is unavailable because this edit is too large."
+          : "Draft recovery is unavailable in this browser session."
+      );
+    }
+  }, [connectionId, draftContent, isEditing, path]);
+
+  useEffect(() => {
+    const snapshot = () => {
+      if (isEditingRef.current && draftContent !== editBaselineContentRef.current) {
+        saveDraft(connectionId, path, "markdown", editBaselineContentRef.current, draftContent);
+      }
+    };
+    const unregister = registerDraftSnapshot(snapshot);
+    window.addEventListener("pagehide", snapshot);
+    return () => {
+      unregister();
+      window.removeEventListener("pagehide", snapshot);
+    };
+  }, [connectionId, draftContent, path]);
 
   // Auto-focus the content when loaded so keyboard scrolling works
   useEffect(() => {
@@ -857,6 +895,7 @@ export const MarkdownViewer: React.FC<ViewerComponentProps> = ({ connectionId, p
         setDraftContent(savedContent);
         setEditBaselineContent(savedContent);
         markEditSessionPristine();
+        clearDraft(connectionId, path, "markdown");
 
         if (afterSave === "close-viewer") {
           await closeViewer();
@@ -1528,6 +1567,12 @@ export const MarkdownViewer: React.FC<ViewerComponentProps> = ({ connectionId, p
             </Alert>
           )}
 
+          {draftStorageWarning && (
+            <Alert severity="warning" sx={{ m: 2, flexShrink: 0 }}>
+              {draftStorageWarning}
+            </Alert>
+          )}
+
           {/* Markdown content area - flex grows to fill remaining space */}
           <Box
             ref={contentRef}
@@ -1709,6 +1754,38 @@ export const MarkdownViewer: React.FC<ViewerComponentProps> = ({ connectionId, p
             )}
           </Box>
         </Box>
+      </Dialog>
+
+      <Dialog open={recoveryDraft !== null} aria-labelledby="markdown-draft-recovery-title">
+        <DialogTitle id="markdown-draft-recovery-title">Recovered draft needs review</DialogTitle>
+        <DialogContent>
+          <DialogContentText sx={{ color: "text.primary" }}>
+            This file changed since the draft was saved. Choose whether to resume the recovered draft or discard it.
+          </DialogContentText>
+        </DialogContent>
+        <DialogActions>
+          <Button
+            color="warning"
+            onClick={() => {
+              clearDraft(connectionId, path, "markdown");
+              setRecoveryDraft(null);
+            }}
+          >
+            Discard draft
+          </Button>
+          <Button
+            variant="contained"
+            onClick={() => {
+              const recovered = recoveryDraft;
+              setRecoveryDraft(null);
+              if (recovered) {
+                void handleEnterEditMode().then(() => setDraftContent(recovered.content));
+              }
+            }}
+          >
+            Resume draft
+          </Button>
+        </DialogActions>
       </Dialog>
 
       <Dialog

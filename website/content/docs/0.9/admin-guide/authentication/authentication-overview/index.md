@@ -17,7 +17,7 @@ To configure Sambee authenticaion, open **Settings** > **Administration** > **Au
 
 Use **OIDC or password** while introducing OIDC. Switch to **OIDC only** only after an administrator has completed the interactive test and verified the recovery procedure. Select **Password only** when local credentials should be the only sign-in method.
 
-For local-password setup and recovery, see [Password Authentication](../password-authentication/). For provider setup, see [OpenID Connect Authentication](../openid-connect/).
+For local-password setup and recovery, see [Password Authentication](../password-authentication/). For provider setup, see [OpenID Connect Authentication Setup](../openid-connect-authentication-setup/).
 
 ## Initial Setting From the Configuration File
 

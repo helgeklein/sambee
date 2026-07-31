@@ -26,6 +26,7 @@ from app.services.oidc_http import (
     OIDC_CACHE_MAX_AGE_SECONDS,
     TOKEN_RESPONSE_LIMIT_BYTES,
     USERINFO_RESPONSE_LIMIT_BYTES,
+    OidcHttpError,
     ValidatedOidcHttpClient,
     validate_oidc_url,
 )
@@ -63,6 +64,8 @@ class OidcProviderMetadata:
     userinfo_endpoint: str | None
     id_token_signing_alg_values_supported: tuple[str, ...]
     scopes_supported: tuple[str, ...]
+    grant_types_supported: tuple[str, ...] = ()
+    code_challenge_methods_supported: tuple[str, ...] = ()
 
 
 @dataclass(frozen=True)
@@ -87,6 +90,49 @@ class NormalizedOidcClaims:
     groups: tuple[str, ...]
     name: str | None
     email: str | None
+
+
+@dataclass(frozen=True)
+class ValidatedOidcTokenSet:
+    claims: NormalizedOidcClaims
+    authenticated_at: int | None
+    provider_access_token: str | None
+    refresh_token: str | None
+
+    @property
+    def issuer(self) -> str:
+        return self.claims.issuer
+
+    @property
+    def subject(self) -> str:
+        return self.claims.subject
+
+    @property
+    def username(self) -> str:
+        return self.claims.username
+
+    @property
+    def groups(self) -> tuple[str, ...]:
+        return self.claims.groups
+
+    @property
+    def name(self) -> str | None:
+        return self.claims.name
+
+    @property
+    def email(self) -> str | None:
+        return self.claims.email
+
+
+class OidcRefreshErrorCode(StrEnum):
+    PERMANENT = "permanent"
+    AMBIGUOUS = "ambiguous"
+
+
+class OidcRefreshError(OidcClientError):
+    def __init__(self, code: OidcRefreshErrorCode, message: str) -> None:
+        super().__init__(OidcClientErrorCode.TOKEN_EXCHANGE_FAILED, message)
+        self.refresh_code = code
 
 
 @dataclass(frozen=True)
@@ -210,9 +256,14 @@ async def load_provider_metadata(
     grant_types = _string_tuple(data, "grant_types_supported")
     if grant_types and "authorization_code" not in grant_types:
         raise OidcClientError(OidcClientErrorCode.INVALID_METADATA, "OIDC provider does not advertise authorization code support")
+    if grant_types and "refresh_token" not in grant_types:
+        raise OidcClientError(OidcClientErrorCode.INVALID_METADATA, "OIDC provider does not advertise refresh token support")
     auth_methods = _string_tuple(data, "token_endpoint_auth_methods_supported")
     if auth_methods and "client_secret_basic" not in auth_methods:
         raise OidcClientError(OidcClientErrorCode.INVALID_METADATA, "OIDC provider does not support client_secret_basic")
+    code_challenge_methods = _string_tuple(data, "code_challenge_methods_supported")
+    if code_challenge_methods and "S256" not in code_challenge_methods:
+        raise OidcClientError(OidcClientErrorCode.INVALID_METADATA, "OIDC provider does not support PKCE S256")
     algorithms = _string_tuple(data, "id_token_signing_alg_values_supported")
     if not set(algorithms).intersection(ALLOWED_ID_TOKEN_ALGORITHMS):
         raise OidcClientError(OidcClientErrorCode.INVALID_METADATA, "OIDC provider does not support an allowed ID-token algorithm")
@@ -226,6 +277,8 @@ async def load_provider_metadata(
         userinfo_endpoint=userinfo_endpoint,
         id_token_signing_alg_values_supported=algorithms,
         scopes_supported=_string_tuple(data, "scopes_supported"),
+        grant_types_supported=grant_types,
+        code_challenge_methods_supported=code_challenge_methods,
     )
     jwks = _validate_jwks(jwks_response.data)
     _store_cached_provider(issuer, metadata, jwks, min(_cache_ttl(response.headers), _cache_ttl(jwks_response.headers)))
@@ -256,6 +309,8 @@ def build_authorization_request(
     state: str,
     nonce: str,
     code_verifier: str,
+    max_age: int | None = None,
+    prompt: str | None = None,
 ) -> OidcAuthorizationRequest:
     client = OAuth2Client(
         client_id=client_id,
@@ -269,6 +324,8 @@ def build_authorization_request(
         nonce=nonce,
         code_verifier=code_verifier,
         response_type="code",
+        **({"max_age": max_age} if max_age is not None else {}),
+        **({"prompt": prompt} if prompt is not None else {}),
     )
     cast(httpx.Client, client).close()
     if returned_state != state:
@@ -300,7 +357,7 @@ def _validate_oidc_claims(
     *,
     issuer: str,
     client_id: str,
-    nonce: str,
+    nonce: str | None,
     access_token: str | None,
     now: int,
 ) -> None:
@@ -313,7 +370,7 @@ def _validate_oidc_claims(
         exp={"essential": True},
         iat={"essential": True},
     ).validate(claims)
-    if claims.get("nonce") != nonce:
+    if nonce is not None and claims.get("nonce") != nonce:
         raise ValueError("OIDC ID token nonce does not match the authorization request")
     auth_time = claims.get("auth_time")
     if auth_time is not None and (isinstance(auth_time, bool) or not isinstance(auth_time, (int, float))):
@@ -350,7 +407,7 @@ def _decode_id_token(
     *,
     metadata: OidcProviderMetadata,
     client_id: str,
-    nonce: str,
+    nonce: str | None,
     access_token: str | None,
     now: int,
 ) -> dict[str, Any]:
@@ -426,7 +483,7 @@ async def exchange_and_validate_callback(
     mapping: OidcClaimMapping,
     refresh_jwks: JwksLoader,
     now: int | None = None,
-) -> NormalizedOidcClaims:
+) -> ValidatedOidcTokenSet:
     token_response = await http_client.request_json(
         "POST",
         metadata.token_endpoint,
@@ -457,6 +514,39 @@ async def exchange_and_validate_callback(
         access_token=access_token,
         now=int(time.time()) if now is None else now,
     )
+    normalized_claims = await _normalize_oidc_claims(
+        http_client,
+        metadata,
+        claims=claims,
+        access_token=access_token,
+        mapping=mapping,
+    )
+    refresh_token_value = token_response.data.get("refresh_token")
+    return ValidatedOidcTokenSet(
+        claims=normalized_claims,
+        authenticated_at=_authentication_time(claims),
+        provider_access_token=access_token,
+        refresh_token=refresh_token_value if isinstance(refresh_token_value, str) and refresh_token_value else None,
+    )
+
+
+def _authentication_time(claims: Mapping[str, Any]) -> int | None:
+    value = claims.get("auth_time")
+    if value is None:
+        return None
+    if isinstance(value, bool) or not isinstance(value, (int, float)):
+        raise OidcClientError(OidcClientErrorCode.INVALID_ID_TOKEN, "OIDC ID token authentication time is invalid")
+    return int(value)
+
+
+async def _normalize_oidc_claims(
+    http_client: ValidatedOidcHttpClient,
+    metadata: OidcProviderMetadata,
+    *,
+    claims: dict[str, Any],
+    access_token: str | None,
+    mapping: OidcClaimMapping,
+) -> NormalizedOidcClaims:
     subject = _required_string(claims, "sub", OidcClientErrorCode.INVALID_ID_TOKEN)
     username = _claim_string(claims, mapping.username)
     groups = _claim_groups(claims, mapping.groups)
@@ -475,3 +565,82 @@ async def exchange_and_validate_callback(
         name=_claim_string(claims, mapping.name),
         email=_claim_string(claims, mapping.email),
     )
+
+
+async def exchange_and_validate_refresh_token(
+    http_client: ValidatedOidcHttpClient,
+    metadata: OidcProviderMetadata,
+    jwks: dict[str, Any],
+    *,
+    client_id: str,
+    client_secret: str,
+    refresh_token: str,
+    expected_issuer: str,
+    expected_subject: str,
+    mapping: OidcClaimMapping,
+    refresh_jwks: JwksLoader,
+    now: int | None = None,
+) -> ValidatedOidcTokenSet:
+    """Exchange a refresh token without replaying a failed token-grant request."""
+
+    try:
+        token_response = await http_client.request_json(
+            "POST",
+            metadata.token_endpoint,
+            response_limit=TOKEN_RESPONSE_LIMIT_BYTES,
+            data={"grant_type": "refresh_token", "refresh_token": refresh_token},
+            auth=httpx.BasicAuth(client_id, client_secret),
+            accepted_error_statuses=frozenset({400, 401}),
+        )
+    except OidcHttpError as error:
+        raise OidcRefreshError(OidcRefreshErrorCode.AMBIGUOUS, "OIDC refresh token delivery outcome is unknown") from error
+    if token_response.status_code >= 400:
+        error_code = token_response.data.get("error")
+        if error_code in {"invalid_grant", "invalid_client", "unauthorized_client"}:
+            raise OidcRefreshError(OidcRefreshErrorCode.PERMANENT, "OIDC refresh token was rejected")
+        raise OidcRefreshError(OidcRefreshErrorCode.AMBIGUOUS, "OIDC refresh token delivery outcome is unknown")
+
+    try:
+        access_token_value = token_response.data.get("access_token")
+        access_token = access_token_value if isinstance(access_token_value, str) and access_token_value else None
+        encoded_id_token = token_response.data.get("id_token")
+        if isinstance(encoded_id_token, str) and encoded_id_token:
+            key_id = _token_key_id(encoded_id_token)
+            if not _jwks_contains_key(jwks, key_id):
+                jwks = _validate_jwks(await refresh_jwks())
+            claims = _decode_id_token(
+                encoded_id_token,
+                jwks,
+                metadata=metadata,
+                client_id=client_id,
+                nonce=None,
+                access_token=access_token,
+                now=int(time.time()) if now is None else now,
+            )
+        else:
+            if access_token is None:
+                raise OidcRefreshError(OidcRefreshErrorCode.PERMANENT, "OIDC refresh response is incomplete")
+            claims = await _load_userinfo(http_client, metadata, access_token, expected_subject)
+            claims = {**claims, "iss": expected_issuer, "sub": expected_subject}
+        normalized_claims = await _normalize_oidc_claims(
+            http_client,
+            metadata,
+            claims=claims,
+            access_token=access_token,
+            mapping=mapping,
+        )
+        if normalized_claims.issuer != expected_issuer or normalized_claims.subject != expected_subject:
+            raise OidcRefreshError(OidcRefreshErrorCode.PERMANENT, "OIDC refresh identity changed")
+        rotated_token = token_response.data.get("refresh_token")
+        return ValidatedOidcTokenSet(
+            claims=normalized_claims,
+            authenticated_at=_authentication_time(claims),
+            provider_access_token=access_token,
+            refresh_token=rotated_token if isinstance(rotated_token, str) and rotated_token else None,
+        )
+    except OidcRefreshError:
+        raise
+    except Exception as error:
+        # The provider may have rotated the submitted refresh token before a
+        # response-validation or userinfo failure. Retrying the old token is unsafe.
+        raise OidcRefreshError(OidcRefreshErrorCode.AMBIGUOUS, "OIDC refresh result could not be validated") from error

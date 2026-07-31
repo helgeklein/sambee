@@ -458,18 +458,14 @@ describe("Mobile Logging API Contract Tests", () => {
   });
 
   describe("Contract Tests - GET /logs/download/{filename}", () => {
-    it("should generate correct download URL with token", () => {
-      localStorage.setItem("access_token", "test-token");
-
+    it("should generate a token-free download URL", () => {
       const url = apiService.getLogDownloadUrl("mobile_logs_20240115_abc123de.jsonl");
 
       expect(url).toContain("/logs/download/mobile_logs_20240115_abc123de.jsonl");
-      expect(url).toContain("token=test-token");
+      expect(url).not.toContain("token=");
     });
 
     it("should encode filename parameter correctly", () => {
-      localStorage.setItem("access_token", "test-token");
-
       const url = apiService.getLogDownloadUrl("mobile logs with spaces.jsonl");
 
       expect(url).toContain(encodeURIComponent("mobile logs with spaces.jsonl"));

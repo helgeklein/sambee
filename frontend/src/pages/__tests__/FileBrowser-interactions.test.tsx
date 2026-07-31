@@ -7,6 +7,7 @@ import { createEvent, fireEvent, screen, waitFor, within } from "@testing-librar
 import userEvent from "@testing-library/user-event";
 import { beforeEach, describe, expect, it, type Mock, vi } from "vitest";
 import api from "../../services/api";
+import { authSession } from "../../services/authSession";
 import { clearCurrentUserSettingsCache } from "../../services/userSettingsSync";
 import {
   type ApiMock,
@@ -44,7 +45,7 @@ describe("Browser Component - Interactions", () => {
   beforeEach(() => {
     vi.clearAllMocks();
     clearCurrentUserSettingsCache();
-    localStorage.setItem("access_token", "fake-token");
+    authSession.setAuthenticated({ access_token: "fake-token", token_type: "bearer" }, false);
     localStorage.removeItem("selectedConnectionId");
     localStorage.removeItem(QUICK_NAV_INCLUDE_DOT_DIRECTORIES_STORAGE_KEY);
 

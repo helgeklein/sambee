@@ -20,7 +20,7 @@ describe("settingsNavigation", () => {
       {
         section: "personal",
         label: "Personal",
-        categories: ["appearance", "file-browser", "text-editor", "connections", "local-drives"],
+        categories: ["appearance", "sessions", "file-browser", "text-editor", "connections", "local-drives"],
       },
     ]);
   });
@@ -30,7 +30,7 @@ describe("settingsNavigation", () => {
       {
         section: "personal",
         label: "Personal",
-        categories: ["appearance", "file-browser", "text-editor", "connections", "local-drives"],
+        categories: ["appearance", "sessions", "file-browser", "text-editor", "connections", "local-drives"],
       },
       {
         section: "administration",
@@ -61,7 +61,14 @@ describe("settingsNavigation", () => {
   });
 
   it("returns visible settings nav items as a flat list", () => {
-    expect(getVisibleSettingsNavItems(false)).toEqual(["appearance", "file-browser", "text-editor", "connections", "local-drives"]);
+    expect(getVisibleSettingsNavItems(false)).toEqual([
+      "appearance",
+      "sessions",
+      "file-browser",
+      "text-editor",
+      "connections",
+      "local-drives",
+    ]);
   });
 
   it("does not resolve retired legacy settings routes", () => {

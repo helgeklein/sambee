@@ -54,12 +54,13 @@ class OidcConfigurationCandidate(BaseModel):
     issuer_url: str = Field(min_length=1, max_length=2048)
     client_id: str = Field(min_length=1, max_length=500)
     client_secret: SecretStr | None = Field(default=None, exclude=True, repr=False)
-    scopes: list[str] = Field(default_factory=lambda: ["openid", "profile", "email"], max_length=100)
+    scopes: list[str] = Field(default_factory=lambda: ["openid", "profile", "email", "offline_access"], max_length=100)
     username_claim: str = Field(default="preferred_username", min_length=1, max_length=200)
     name_claim: str | None = Field(default="name", max_length=200)
     email_claim: str | None = Field(default="email", max_length=200)
     groups_claim: str | None = Field(default="groups", max_length=200)
     sign_in_mode: SignInMode = SignInMode.PASSWORD_ONLY
+    interactive_reauthentication_max_age_days: int = Field(default=30, ge=1, le=365)
     admission_mode: OidcAdmissionMode = OidcAdmissionMode.ALL_IDP_USERS
     admission_groups: list[str] = Field(default_factory=list, max_length=500)
     role_assignment_mode: OidcRoleAssignmentMode = OidcRoleAssignmentMode.UNIFORM
@@ -78,6 +79,7 @@ class RedactedOidcConfiguration(SQLModel):
     email_claim: str | None
     groups_claim: str | None
     sign_in_mode: SignInMode
+    interactive_reauthentication_max_age_days: int
     admission_mode: OidcAdmissionMode
     admission_groups: list[str]
     role_assignment_mode: OidcRoleAssignmentMode
@@ -89,6 +91,28 @@ class RedactedOidcConfiguration(SQLModel):
 
 class OidcGrantExchangeRequest(SQLModel):
     grant: str = Field(min_length=32, max_length=500)
+
+
+class OidcBrowserSessionRead(SQLModel):
+    id: uuid.UUID
+    status: str
+    created_at: datetime
+    authenticated_at: datetime
+    last_seen_at: datetime | None
+    last_refreshed_at: datetime | None
+    current: bool
+
+
+class OidcBrowserSessionListRead(SQLModel):
+    sessions: list[OidcBrowserSessionRead]
+
+
+class OidcBrowserSessionRevokeRead(SQLModel):
+    revoked_count: int
+
+
+class OidcSessionCipherKeyRotationRead(SQLModel):
+    active_key_id: str
 
 
 class OidcAdminConfigurationRead(SQLModel):
@@ -135,6 +159,7 @@ class OidcReplacementMappingInput(SQLModel):
 
 class OidcReviewedPolicy(SQLModel):
     sign_in_mode: SignInMode
+    interactive_reauthentication_max_age_days: int = Field(default=30, ge=1, le=365)
     admission_mode: OidcAdmissionMode
     admission_groups: list[str] = Field(default_factory=list, max_length=500)
     role_assignment_mode: OidcRoleAssignmentMode = OidcRoleAssignmentMode.UNIFORM

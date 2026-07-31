@@ -1,7 +1,9 @@
 import base64
 import json
 import unicodedata
+import uuid
 from dataclasses import asdict, dataclass, field
+from datetime import datetime, timezone
 from typing import Any, cast
 from urllib.parse import urlparse, urlsplit, urlunparse
 
@@ -9,10 +11,11 @@ from cryptography.fernet import Fernet, InvalidToken
 from cryptography.hazmat.primitives import hashes
 from cryptography.hazmat.primitives.kdf.hkdf import HKDF
 from pydantic import SecretStr
+from sqlmodel import Session, select
 
 import app.core.config as config_module
 from app.core.environment import IS_PRODUCTION
-from app.models.oidc import OidcAdmissionMode, OidcProviderConfiguration, OidcRoleAssignmentMode, SignInMode
+from app.models.oidc import OidcAdmissionMode, OidcProviderConfiguration, OidcRoleAssignmentMode, OidcSessionCipherKey, SignInMode
 from app.models.oidc_api import (
     AuthenticationHealth,
     AuthenticationHealthReason,
@@ -33,6 +36,10 @@ class OidcSecretKeyError(ValueError):
 
 
 class OidcSecretDecryptionError(ValueError):
+    pass
+
+
+class OidcSessionCipherKeyError(ValueError):
     pass
 
 
@@ -63,6 +70,7 @@ class NormalizedOidcCandidate:
     viewer_groups: tuple[str, ...] = ()
     role_assignment_mode: OidcRoleAssignmentMode = OidcRoleAssignmentMode.UNIFORM
     uniform_role: UserRole = UserRole.EDITOR
+    interactive_reauthentication_max_age_days: int = 30
 
 
 class OidcSecretCipher:
@@ -84,7 +92,85 @@ class OidcSecretCipher:
             raise OidcSecretDecryptionError("OIDC secret could not be decrypted") from exc
 
 
+@dataclass(frozen=True)
+class ActiveOidcSessionCipher:
+    key_id: str
+    cipher: OidcSecretCipher
+
+
+LEGACY_OIDC_SESSION_CIPHER_KEY_ID = "v1"
+INITIAL_OIDC_SESSION_CIPHER_KEY_ID = "v2"
+
+
 def get_oidc_secret_cipher() -> OidcSecretCipher:
+    return _derive_oidc_cipher(b"sambee/oidc/v1")
+
+
+def get_oidc_session_cipher() -> OidcSecretCipher:
+    """Return the cipher dedicated to long-lived OIDC browser-session secrets."""
+
+    return _derive_oidc_cipher(b"sambee/oidc-session/v1")
+
+
+def _session_cipher_from_key_record(key: OidcSessionCipherKey) -> OidcSecretCipher:
+    try:
+        return OidcSecretCipher(get_oidc_secret_cipher().decrypt(key.encrypted_key))
+    except (OidcSecretDecryptionError, OidcSecretKeyError) as error:
+        raise OidcSessionCipherKeyError("OIDC session cipher key is unavailable") from error
+
+
+def get_active_oidc_session_cipher(session: Session) -> ActiveOidcSessionCipher:
+    """Return the active key, creating the first independently-rotatable key as needed."""
+
+    key = session.exec(select(OidcSessionCipherKey).where(OidcSessionCipherKey.is_active)).one_or_none()
+    if key is None:
+        key = session.get(OidcSessionCipherKey, INITIAL_OIDC_SESSION_CIPHER_KEY_ID)
+        if key is None:
+            key = OidcSessionCipherKey(
+                key_id=INITIAL_OIDC_SESSION_CIPHER_KEY_ID,
+                encrypted_key=get_oidc_secret_cipher().encrypt(Fernet.generate_key().decode("ascii")),
+                is_active=True,
+            )
+            session.add(key)
+            session.flush()
+        elif not key.is_active:
+            key.is_active = True
+            key.retired_at = None
+            session.add(key)
+            session.flush()
+    return ActiveOidcSessionCipher(key_id=key.key_id, cipher=_session_cipher_from_key_record(key))
+
+
+def get_oidc_session_cipher_for_key(session: Session, key_id: str) -> OidcSecretCipher:
+    """Resolve an active or retired key without exposing its raw material."""
+
+    key = session.get(OidcSessionCipherKey, key_id)
+    if key is None:
+        if key_id == LEGACY_OIDC_SESSION_CIPHER_KEY_ID:
+            return get_oidc_session_cipher()
+        raise OidcSessionCipherKeyError("OIDC session cipher key is unavailable")
+    return _session_cipher_from_key_record(key)
+
+
+def rotate_oidc_session_cipher_key(session: Session) -> ActiveOidcSessionCipher:
+    """Create a new active key and retain all prior keys for decryption."""
+
+    current_time = datetime.now(timezone.utc)
+    for key in session.exec(select(OidcSessionCipherKey).where(OidcSessionCipherKey.is_active)).all():
+        key.is_active = False
+        key.retired_at = current_time
+        session.add(key)
+    key = OidcSessionCipherKey(
+        key_id=f"key-{uuid.uuid4().hex}",
+        encrypted_key=get_oidc_secret_cipher().encrypt(Fernet.generate_key().decode("ascii")),
+        is_active=True,
+    )
+    session.add(key)
+    session.flush()
+    return ActiveOidcSessionCipher(key_id=key.key_id, cipher=_session_cipher_from_key_record(key))
+
+
+def _derive_oidc_cipher(info: bytes) -> OidcSecretCipher:
     encryption_key = config_module.settings.encryption_key
     if not encryption_key:
         raise OidcSecretKeyError("Application encryption key is not loaded")
@@ -92,7 +178,7 @@ def get_oidc_secret_cipher() -> OidcSecretCipher:
         algorithm=hashes.SHA256(),
         length=32,
         salt=None,
-        info=b"sambee/oidc/v1",
+        info=info,
     ).derive(encryption_key.encode("ascii"))
     return OidcSecretCipher(base64.urlsafe_b64encode(derived_key).decode("ascii"))
 
@@ -116,6 +202,7 @@ def apply_reviewed_policy(
         email_claim=tested.email_claim,
         groups_claim=tested.groups_claim,
         sign_in_mode=reviewed.sign_in_mode,
+        interactive_reauthentication_max_age_days=reviewed.interactive_reauthentication_max_age_days,
         admission_mode=reviewed.admission_mode,
         admission_groups=reviewed.admission_groups,
         role_assignment_mode=reviewed.role_assignment_mode,
@@ -170,6 +257,7 @@ def _active_values(active: OidcProviderConfiguration | None) -> dict[str, Any]:
         "email_claim": active.email_claim,
         "groups_claim": active.groups_claim,
         "sign_in_mode": active.sign_in_mode,
+        "interactive_reauthentication_max_age_days": active.interactive_reauthentication_max_age_days,
         "admission_mode": active.admission_mode,
         "admission_groups": tuple(cast(list[str], json.loads(active.admission_groups_json))),
         "role_assignment_mode": active.role_assignment_mode,
@@ -198,6 +286,8 @@ def normalize_candidate(
         raise OidcConfigurationError("OIDC client ID and username claim are required")
     display_name = candidate.display_name.strip() or cast(str, urlsplit(issuer_url).hostname)
     scopes = _normalize_scopes(candidate.scopes)
+    if candidate.sign_in_mode != SignInMode.PASSWORD_ONLY and "offline_access" not in scopes:
+        raise OidcConfigurationError("OIDC renewable sessions require the offline_access scope")
     admission_groups = _normalize_unique_strings(candidate.admission_groups, field_name="admission groups")
     admin_groups = _normalize_unique_strings(candidate.role_mappings.admin, field_name="administrator role groups")
     editor_groups = _normalize_unique_strings(candidate.role_mappings.editor, field_name="editor role groups")
@@ -238,6 +328,7 @@ def normalize_candidate(
         "email_claim": _optional_claim(candidate.email_claim),
         "groups_claim": groups_claim,
         "sign_in_mode": candidate.sign_in_mode,
+        "interactive_reauthentication_max_age_days": candidate.interactive_reauthentication_max_age_days,
         "admission_mode": candidate.admission_mode,
         "admission_groups": admission_groups,
         "role_assignment_mode": candidate.role_assignment_mode,
@@ -259,6 +350,7 @@ def normalize_candidate(
         email_claim=_optional_claim(candidate.email_claim),
         groups_claim=groups_claim,
         sign_in_mode=candidate.sign_in_mode,
+        interactive_reauthentication_max_age_days=candidate.interactive_reauthentication_max_age_days,
         admission_mode=candidate.admission_mode,
         admission_groups=admission_groups,
         role_assignment_mode=candidate.role_assignment_mode,
@@ -307,6 +399,7 @@ def redacted_configuration(configuration: OidcProviderConfiguration) -> Redacted
         email_claim=configuration.email_claim,
         groups_claim=configuration.groups_claim,
         sign_in_mode=configuration.sign_in_mode,
+        interactive_reauthentication_max_age_days=configuration.interactive_reauthentication_max_age_days,
         admission_mode=configuration.admission_mode,
         admission_groups=cast(list[str], json.loads(configuration.admission_groups_json)),
         role_assignment_mode=configuration.role_assignment_mode,
@@ -329,6 +422,7 @@ def redacted_candidate(candidate: NormalizedOidcCandidate) -> RedactedOidcConfig
         email_claim=candidate.email_claim,
         groups_claim=candidate.groups_claim,
         sign_in_mode=candidate.sign_in_mode,
+        interactive_reauthentication_max_age_days=candidate.interactive_reauthentication_max_age_days,
         admission_mode=candidate.admission_mode,
         admission_groups=list(candidate.admission_groups),
         role_assignment_mode=candidate.role_assignment_mode,

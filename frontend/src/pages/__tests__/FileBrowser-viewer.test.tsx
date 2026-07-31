@@ -7,6 +7,7 @@ import { screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import api from "../../services/api";
+import { authSession } from "../../services/authSession";
 import { type ApiMock, createMarkdownViewMock, createSettingsDialogMock, setupSuccessfulApiMocks } from "../../test/helpers";
 import { FileType } from "../../types";
 import { mockDirectoryListing, renderBrowser } from "./FileBrowser.test.utils";
@@ -33,7 +34,7 @@ vi.mock("@tanstack/react-virtual", () => import("../../__mocks__/@tanstack/react
 describe("Browser Component - View and Advanced", () => {
   beforeEach(() => {
     vi.clearAllMocks();
-    localStorage.setItem("access_token", "fake-token");
+    authSession.setAuthenticated({ access_token: "fake-token", token_type: "bearer" }, false);
     localStorage.removeItem("selectedConnectionId");
 
     // Use mock factory for successful API responses

@@ -23,6 +23,7 @@ import { loadAuthenticationSettingsData, SETTINGS_DATA_CACHE_KEYS } from "../com
 import { getCachedAsyncData, primeCachedAsyncData } from "../hooks/useCachedAsyncData";
 import api from "../services/api";
 import { clearAuthConfigCache } from "../services/authConfig";
+import { authSession } from "../services/authSession";
 import { loginPath } from "../services/oidcAuth";
 import {
   type AuthenticationMode,
@@ -38,12 +39,13 @@ const DEFAULT_CANDIDATE: OidcConfigurationCandidate = {
   display_name: "",
   issuer_url: "",
   client_id: "",
-  scopes: ["openid", "profile", "email"],
+  scopes: ["openid", "profile", "email", "offline_access"],
   username_claim: "preferred_username",
   name_claim: "name",
   email_claim: "email",
   groups_claim: "groups",
   sign_in_mode: "oidc_or_password",
+  interactive_reauthentication_max_age_days: 30,
   admission_mode: "all_idp_users",
   admission_groups: [],
   role_assignment_mode: "uniform",
@@ -63,6 +65,7 @@ const OIDC_REVIEWED_POLICY_STORAGE_KEY = "sambee.oidc.reviewedPolicy";
 const OIDC_PENDING_FINALIZATION_STORAGE_KEY = "sambee.oidc.pendingFinalization";
 const REVIEWABLE_POLICY_KEYS = new Set<keyof OidcConfigurationCandidate>([
   "sign_in_mode",
+  "interactive_reauthentication_max_age_days",
   "admission_mode",
   "admission_groups",
   "role_assignment_mode",
@@ -86,6 +89,7 @@ const editableCandidate = ({
 });
 const reviewedPolicyFor = (candidate: OidcConfigurationCandidate): OidcReviewedPolicy => ({
   sign_in_mode: candidate.sign_in_mode,
+  interactive_reauthentication_max_age_days: candidate.interactive_reauthentication_max_age_days,
   admission_mode: candidate.admission_mode,
   admission_groups: candidate.admission_groups,
   role_assignment_mode: candidate.role_assignment_mode,
@@ -99,6 +103,7 @@ const isReviewedPolicy = (value: unknown): value is OidcReviewedPolicy => {
   const roleMappings = policy["role_mappings"];
   return (
     (policy["sign_in_mode"] === "oidc_or_password" || policy["sign_in_mode"] === "oidc_only") &&
+    typeof policy["interactive_reauthentication_max_age_days"] === "number" &&
     (policy["admission_mode"] === "all_idp_users" || policy["admission_mode"] === "selected_groups") &&
     isStringArray(policy["admission_groups"]) &&
     (policy["role_assignment_mode"] === "uniform" || policy["role_assignment_mode"] === "group_based") &&
@@ -319,6 +324,7 @@ export function AuthenticationSettings() {
           sessionStorage.removeItem(OIDC_REVIEWED_POLICY_STORAGE_KEY);
           if (result.reauthentication_required) {
             localStorage.removeItem("access_token");
+            authSession.clear();
             navigate(loginPath(window.location.pathname + window.location.search), { replace: true });
             return;
           }
@@ -582,6 +588,7 @@ export function AuthenticationSettings() {
     setShowClientSecret(false);
     if (result.reauthentication_required) {
       localStorage.removeItem("access_token");
+      authSession.clear();
       navigate(loginPath(window.location.pathname + window.location.search), { replace: true });
       setBusy(false);
       return;
@@ -637,6 +644,7 @@ export function AuthenticationSettings() {
       setClientSecret("");
       setShowClientSecret(false);
       localStorage.removeItem("access_token");
+      authSession.clear();
       navigate(loginPath(window.location.pathname + window.location.search), { replace: true });
     } catch (caught: unknown) {
       const errorCode = getApiErrorMessage(caught, "");
@@ -677,6 +685,7 @@ export function AuthenticationSettings() {
       await api.activateAuthenticationMode(authMode, noAuthenticationAcknowledged);
       clearAuthConfigCache();
       localStorage.removeItem("access_token");
+      authSession.clear();
       navigate(loginPath(window.location.pathname + window.location.search), { replace: true });
     } catch (caught: unknown) {
       setError(getApiErrorMessage(caught, "Authentication mode could not be activated."));
@@ -846,7 +855,17 @@ export function AuthenticationSettings() {
                     onBlur={() => update("scopes", parseList(scopesInput))}
                     disabled={finalizationUnresolved}
                     error={Boolean(scopesError)}
-                    helperText={scopesError || "Comma-separated; openid is required."}
+                    helperText={scopesError || "Comma-separated; openid and offline_access are required."}
+                  />
+
+                  <TextField
+                    label="Interactive sign-in interval (days)"
+                    type="number"
+                    value={candidate.interactive_reauthentication_max_age_days}
+                    onChange={(event) => update("interactive_reauthentication_max_age_days", Number(event.target.value))}
+                    disabled={finalizationUnresolved}
+                    slotProps={{ htmlInput: { min: 1, max: 365 } }}
+                    helperText="Background renewal continues until this interval expires."
                   />
 
                   <Typography variant="h6">Access</Typography>

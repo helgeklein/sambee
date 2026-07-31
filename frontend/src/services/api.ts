@@ -24,9 +24,12 @@ import type {
   FileInfo,
   NetworkSettings,
   NetworkSettingsUpdate,
+  OidcBrowserSessionList,
+  OidcBrowserSessionRevokeResult,
   User,
 } from "../types";
 import { FileType } from "../types";
+import { AuthSessionError, authSession } from "./authSession";
 import {
   getBackendAvailabilitySnapshot,
   isBackendConnectivityError,
@@ -38,6 +41,7 @@ import {
 import { getBaseUrl, getBrowseSegment, isLocalDrive } from "./backendRouter";
 import { clearBrowserRecoverySnapshot } from "./browserRecoverySnapshot";
 import { COMPANION_BASE_URL } from "./companion";
+import { snapshotRegisteredDrafts } from "./draftRecovery";
 import { logger } from "./logger";
 
 export interface DirectorySearchOptions {
@@ -50,6 +54,28 @@ const API_PATH_SUFFIX = "/api";
 const LOCAL_DRIVE_EDIT_LOCKS_UNSUPPORTED_MESSAGE = "Edit locks are not supported for local drives";
 const DIRECTORY_LIST_REQUEST_TIMEOUT_MS = 40_000;
 export const OIDC_FINALIZATION_REQUEST_TIMEOUT_MS = 15_000;
+
+function isPublicAuthRequest(url: string): boolean {
+  try {
+    const pathname = new URL(url, window.location.origin).pathname;
+    return pathname.endsWith("/auth/token") || pathname.endsWith("/auth/oidc/exchange");
+  } catch {
+    return false;
+  }
+}
+
+function startControlledReauthentication(): void {
+  clearBrowserRecoverySnapshot();
+  snapshotRegisteredDrafts();
+  if (window.location.pathname !== "/login") {
+    window.location.assign(`/login?return_path=${encodeURIComponent(window.location.pathname + window.location.search)}`);
+  }
+}
+
+function isConfirmedOidcReauthentication(error: AxiosError): boolean {
+  const data = error.response?.data as { detail?: { code?: string } } | undefined;
+  return data?.detail?.code === "oidc_reauthentication_required";
+}
 
 function isViewerBlobRequest(config: AxiosError["config"] | undefined): boolean {
   const method = config?.method?.toLowerCase();
@@ -98,7 +124,6 @@ class ApiService {
   private api: AxiosInstance;
   /** Separate axios instance for companion requests (no Bearer interceptor). */
   private companionApi: AxiosInstance;
-  private skipRedirectOnce = false;
 
   constructor() {
     // Use absolute URL for tests (required by MSW), relative for production
@@ -109,8 +134,23 @@ class ApiService {
 
     // Add auth token to requests
     this.api.interceptors.request.use(
-      (config) => {
-        const token = localStorage.getItem("access_token");
+      async (config) => {
+        const url = config.url ?? "";
+        const publicAuthRequest = isPublicAuthRequest(url);
+        if (!publicAuthRequest) {
+          try {
+            await authSession.refreshIfNeeded();
+          } catch (error) {
+            if (error instanceof AuthSessionError && error.code === "reauthentication-required") {
+              startControlledReauthentication();
+              return Promise.reject(error);
+            }
+            if (!(error instanceof AuthSessionError)) {
+              return Promise.reject(error);
+            }
+          }
+        }
+        const token = authSession.getAccessToken();
         if (token) {
           config.headers["Authorization"] = `Bearer ${token}`;
         }
@@ -185,10 +225,9 @@ class ApiService {
             "api"
           );
         }
-        // Redirect to login on any 401 Unauthorized response
-        // This includes expired tokens, invalid credentials, etc.
         if (error.response?.status === 401) {
-          if (backendSnapshot.recoveryLock) {
+          const confirmedOidcReauthentication = isConfirmedOidcReauthentication(error);
+          if (backendSnapshot.recoveryLock && !confirmedOidcReauthentication) {
             logger.warn(
               "Suppressing logout redirect during backend recovery",
               {
@@ -200,33 +239,34 @@ class ApiService {
             return Promise.reject(error);
           }
 
-          clearBrowserRecoverySnapshot();
-          localStorage.removeItem("access_token");
-
-          // Skip redirect if we're validating token
-          if (this.skipRedirectOnce) {
-            this.skipRedirectOnce = false;
-            logger.debug("Skipping redirect during token validation", {}, "api");
+          const config = error.config as (AxiosRequestConfig & { _oidcRetried?: boolean }) | undefined;
+          const method = config?.method?.toLowerCase();
+          const safeMethod = method === "get" || method === "head" || method === "options";
+          const url = config?.url ?? "";
+          const publicAuthRequest = isPublicAuthRequest(url);
+          if (!publicAuthRequest && confirmedOidcReauthentication) {
+            startControlledReauthentication();
             return Promise.reject(error);
           }
-
-          // Only redirect to login if password auth is enabled
-          // If auth_method is "none", 401 shouldn't happen (but if it does, don't redirect)
-          import("./authConfig").then(({ isAuthRequired }) => {
-            isAuthRequired().then((authRequired) => {
-              if (authRequired && window.location.pathname !== "/login") {
-                logger.warn(
-                  "Authentication failed (401), redirecting to login",
-                  {
-                    detail: (error.response?.data as { detail?: string })?.detail,
-                    requestId,
-                  },
-                  "api"
-                );
-                window.location.href = "/login";
+          if (safeMethod && !publicAuthRequest && config !== undefined && !config._oidcRetried) {
+            const retryConfig = config;
+            return authSession.requestRefresh().then(
+              () => {
+                retryConfig._oidcRetried = true;
+                return this.api.request(retryConfig);
+              },
+              (refreshError: unknown) => {
+                if (
+                  refreshError instanceof AuthSessionError &&
+                  (refreshError.code === "transient" || (refreshError.code === "refresh-uncertain" && authSession.hasUsableAccessToken()))
+                ) {
+                  return Promise.reject(error);
+                }
+                startControlledReauthentication();
+                return Promise.reject(error);
               }
-            });
-          });
+            );
+          }
         }
         return Promise.reject(error);
       }
@@ -330,7 +370,7 @@ class ApiService {
     formData.append("password", password);
 
     const response = await this.api.post<AuthToken>("/auth/token", formData);
-    localStorage.setItem("access_token", response.data.access_token);
+    authSession.setAuthenticated(response.data, false);
 
     logger.info(
       "Login successful",
@@ -346,7 +386,7 @@ class ApiService {
 
   async exchangeOidcGrant(grant: string): Promise<AuthToken> {
     const response = await this.api.post<AuthToken>("/auth/oidc/exchange", { grant });
-    localStorage.setItem("access_token", response.data.access_token);
+    authSession.setAuthenticated(response.data, true);
     return response.data;
   }
 
@@ -354,6 +394,21 @@ class ApiService {
     logger.debug("Fetching current user info", {}, "api");
     const response = await this.api.get<User>("/auth/me");
     return normalizeUser(response.data);
+  }
+
+  async getOidcBrowserSessions(): Promise<OidcBrowserSessionList> {
+    const response = await this.api.get<OidcBrowserSessionList>("/auth/oidc/sessions");
+    return response.data;
+  }
+
+  async revokeOidcBrowserSession(sessionId: string): Promise<OidcBrowserSessionRevokeResult> {
+    const response = await this.api.post<OidcBrowserSessionRevokeResult>(`/auth/oidc/sessions/${sessionId}/revoke`);
+    return response.data;
+  }
+
+  async revokeOtherOidcBrowserSessions(): Promise<OidcBrowserSessionRevokeResult> {
+    const response = await this.api.post<OidcBrowserSessionRevokeResult>("/auth/oidc/sessions/revoke-others");
+    return response.data;
   }
 
   async getCurrentUserSettings(): Promise<CurrentUserSettings> {
@@ -761,7 +816,7 @@ class ApiService {
     if (isLocalDrive(connectionId)) {
       Object.assign(headers, await this.buildCompanionHeaders());
     } else {
-      const token = localStorage.getItem("access_token");
+      const token = authSession.getAccessToken();
       if (token) headers["Authorization"] = `Bearer ${token}`;
     }
 
@@ -791,7 +846,7 @@ class ApiService {
     if (isLocalDrive(connectionId)) {
       Object.assign(headers, await this.buildCompanionHeaders());
     } else {
-      const token = localStorage.getItem("access_token");
+      const token = authSession.getAccessToken();
       if (token) headers["Authorization"] = `Bearer ${token}`;
     }
 
@@ -900,8 +955,7 @@ class ApiService {
       const authParams = await this.buildCompanionQueryAuth();
       return `${baseUrl}/viewer/${segment}/file?path=${encodeURIComponent(path)}&${authParams}`;
     }
-    const token = localStorage.getItem("access_token");
-    return `${baseUrl}/viewer/${segment}/file?path=${encodeURIComponent(path)}&token=${token}`;
+    return `${baseUrl}/viewer/${segment}/file?path=${encodeURIComponent(path)}`;
   }
 
   async getDownloadUrl(connectionId: string, path: string): Promise<string> {
@@ -911,8 +965,7 @@ class ApiService {
       const authParams = await this.buildCompanionQueryAuth();
       return `${baseUrl}/viewer/${segment}/download?path=${encodeURIComponent(path)}&${authParams}`;
     }
-    const token = localStorage.getItem("access_token");
-    return `${baseUrl}/viewer/${segment}/download?path=${encodeURIComponent(path)}&token=${token}`;
+    return `${baseUrl}/viewer/${segment}/download?path=${encodeURIComponent(path)}`;
   }
 
   async getFileBlob(connectionId: string, path: string, options: { signal?: AbortSignal } = {}): Promise<Blob> {
@@ -982,7 +1035,7 @@ class ApiService {
       const companionHeaders = await this.buildCompanionHeaders();
       Object.assign(headers, companionHeaders);
     } else {
-      const token = localStorage.getItem("access_token");
+      const token = authSession.getAccessToken();
       if (token) headers["Authorization"] = `Bearer ${token}`;
     }
 
@@ -1357,9 +1410,8 @@ class ApiService {
    * Get download URL for a mobile log file
    */
   getLogDownloadUrl(filename: string): string {
-    const token = localStorage.getItem("access_token");
     const baseURL = this.api.defaults.baseURL || "/api";
-    return `${baseURL}/logs/download/${encodeURIComponent(filename)}?token=${token}`;
+    return `${baseURL}/logs/download/${encodeURIComponent(filename)}`;
   }
 }
 

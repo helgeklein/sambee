@@ -3,6 +3,7 @@ import secrets
 import uuid
 from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
+from typing import Iterator
 from urllib.parse import urlsplit
 
 from sqlalchemy import delete, update
@@ -10,6 +11,7 @@ from sqlmodel import Session, SQLModel, select
 
 from app.models.oidc import OidcFlow, OidcFlowIntent, OidcFlowPurpose, OidcFlowStatus
 from app.models.user import User
+from app.services.oidc_browser_session import revoke_expired_pending_browser_sessions
 from app.services.oidc_configuration import OidcSecretCipher
 from app.services.oidc_http import LOGIN_GRANT_LIFETIME_SECONDS, PRE_CALLBACK_FLOW_LIFETIME_SECONDS, VALIDATED_TEST_FLOW_LIFETIME_SECONDS
 
@@ -37,6 +39,8 @@ class ClaimedOidcFlow:
     code_verifier: str
     configuration_revision: int | None
     return_path: str
+    created_at: datetime
+    interactive_reauthentication_required: bool
     initiating_admin_id: uuid.UUID | None
     encrypted_candidate_configuration: str | None
 
@@ -45,6 +49,20 @@ class ClaimedOidcFlow:
 class ValidatedLoginGrant:
     grant: str
     return_path: str
+
+
+@dataclass(frozen=True)
+class ConsumedLoginGrant:
+    user: User
+    return_path: str
+    oidc_browser_session_id: uuid.UUID | None
+    encrypted_browser_session_secret: str | None
+
+    def __iter__(self) -> Iterator[User | str]:
+        """Retain tuple-unpacking compatibility for existing callers."""
+
+        yield self.user
+        yield self.return_path
 
 
 def _now_utc() -> datetime:
@@ -70,6 +88,7 @@ def start_login_flow(
     configuration_revision: int,
     cipher: OidcSecretCipher,
     return_path: str | None,
+    interactive_reauthentication_required: bool = False,
     now: datetime | None = None,
 ) -> StartedOidcFlow:
     current_time = now or _now_utc()
@@ -85,6 +104,7 @@ def start_login_flow(
         encrypted_nonce=cipher.encrypt(nonce),
         configuration_revision=configuration_revision,
         return_path=normalized_return_path,
+        interactive_reauthentication_required=interactive_reauthentication_required,
         expires_at=current_time + timedelta(seconds=PRE_CALLBACK_FLOW_LIFETIME_SECONDS),
     )
     session.add(flow)
@@ -168,6 +188,8 @@ def claim_oidc_callback(
         code_verifier=cipher.decrypt(flow.encrypted_verifier),
         configuration_revision=flow.configuration_revision,
         return_path=flow.return_path,
+        created_at=flow.created_at,
+        interactive_reauthentication_required=flow.interactive_reauthentication_required,
         initiating_admin_id=flow.initiating_admin_id,
         encrypted_candidate_configuration=flow.encrypted_candidate_configuration,
     )
@@ -231,6 +253,8 @@ def complete_login_callback(
     *,
     flow_id: uuid.UUID,
     user: User,
+    oidc_browser_session_id: uuid.UUID | None = None,
+    encrypted_browser_session_secret: str | None = None,
     now: datetime | None = None,
 ) -> ValidatedLoginGrant:
     current_time = now or _now_utc()
@@ -246,6 +270,8 @@ def complete_login_callback(
             grant_hash=hash_flow_secret(grant),
             user_id=user.id,
             user_token_version=user.token_version,
+            oidc_browser_session_id=oidc_browser_session_id,
+            encrypted_browser_session_secret=encrypted_browser_session_secret,
             encrypted_nonce=None,
             encrypted_verifier=None,
             grant_expires_at=current_time + timedelta(seconds=LOGIN_GRANT_LIFETIME_SECONDS),
@@ -265,7 +291,7 @@ def consume_login_grant(
     *,
     grant: str,
     now: datetime | None = None,
-) -> tuple[User, str]:
+) -> ConsumedLoginGrant:
     current_time = now or _now_utc()
     statement = (
         update(_FLOW_TABLE)
@@ -290,16 +316,23 @@ def consume_login_grant(
         session.delete(flow)
         session.commit()
         raise OidcFlowError("OIDC login grant is invalid")
-    return_path = flow.return_path
+    consumed = ConsumedLoginGrant(
+        user=user,
+        return_path=flow.return_path,
+        oidc_browser_session_id=flow.oidc_browser_session_id,
+        encrypted_browser_session_secret=flow.encrypted_browser_session_secret,
+    )
     session.delete(flow)
-    session.commit()
-    return user, return_path
+    session.flush()
+    return consumed
 
 
 def cleanup_expired_flows(session: Session, *, now: datetime | None = None) -> int:
     current_time = now or _now_utc()
+    revoke_expired_pending_browser_sessions(session, now=current_time)
     expired_ids = session.exec(select(OidcFlow.id).where(OidcFlow.expires_at <= current_time)).all()
     if not expired_ids:
+        session.commit()
         return 0
     session.connection().execute(delete(_FLOW_TABLE).where(_FLOW_TABLE.c.id.in_(expired_ids)))
     session.commit()

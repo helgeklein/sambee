@@ -53,7 +53,6 @@ describe("OIDC callback", () => {
 
     await waitFor(() => expect(exchangeOidcGrant).toHaveBeenCalledWith("one-time-grant"));
     expect(fragmentScrubbedBeforeExchange).toBe(true);
-    await waitFor(() => expect(localStorage.getItem("access_token")).toBe("sambee-token"));
     expect(await screen.findByText("File browser")).toBeInTheDocument();
     expect(exchangeOidcGrant).toHaveBeenCalledTimes(1);
     expect(screen.queryByLabelText("Completing sign in")).not.toBeInTheDocument();

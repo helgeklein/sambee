@@ -39,6 +39,7 @@ import { forwardRef, useImperativeHandle } from "react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import MarkdownViewer from "../../components/Viewer/MarkdownViewer";
 import apiService from "../../services/api";
+import { authSession } from "../../services/authSession";
 import { SambeeThemeProvider } from "../../theme";
 
 vi.mock("../../components/Viewer/MarkdownRichEditor", () => {
@@ -89,8 +90,7 @@ describe("Browse → View Flow", () => {
   beforeEach(() => {
     // Clear any previous state
     localStorage.clear();
-    // Set up auth token for API requests
-    localStorage.setItem("access_token", "mock-token");
+    authSession.setAuthenticated({ access_token: "mock-token", token_type: "bearer" }, false);
   });
 
   const renderMarkdownViewer = (props: { connectionId: string; path: string; onClose: () => void }) => {

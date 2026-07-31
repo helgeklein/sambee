@@ -1,5 +1,6 @@
 import { act, renderHook } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { authSession } from "../../services/authSession";
 import { getBackendAvailabilitySnapshot, resetBackendAvailabilityForTests } from "../../services/backendAvailability";
 import { useBackendRecoveryMonitor } from "../useBackendRecoveryMonitor";
 
@@ -158,7 +159,7 @@ describe("useBackendRecoveryMonitor", () => {
   it("uses an authenticated recovery probe when an access token is present", async () => {
     const fetchMock = vi.fn<typeof fetch>().mockResolvedValue(new Response(null, { status: 200 }));
 
-    localStorage.setItem("access_token", "token-123");
+    authSession.setAuthenticated({ access_token: "token-123", token_type: "bearer" }, false);
     vi.stubGlobal("fetch", fetchMock);
 
     const { rerender } = renderHook(({ status }) => useBackendRecoveryMonitor({ status }), {

@@ -63,6 +63,7 @@ class OidcHttpError(Exception):
 class OidcJsonResponse:
     data: dict[str, Any]
     headers: httpx.Headers
+    status_code: int
 
 
 def _is_literal_loopback(hostname: str) -> bool:
@@ -234,6 +235,7 @@ class ValidatedOidcHttpClient:
         headers: dict[str, str] | None = None,
         data: dict[str, str] | None = None,
         auth: httpx.Auth | None = None,
+        accepted_error_statuses: frozenset[int] = frozenset(),
     ) -> OidcJsonResponse:
         validate_oidc_url(url, development=self._development)
         try:
@@ -241,7 +243,8 @@ class ValidatedOidcHttpClient:
                 async with self._client.stream(method, url, headers=headers, data=data, auth=auth) as response:
                     if response.is_redirect:
                         raise OidcHttpError(OidcHttpErrorCode.REDIRECT_REJECTED, "OIDC endpoint redirects are not allowed")
-                    response.raise_for_status()
+                    if response.status_code not in accepted_error_statuses:
+                        response.raise_for_status()
                     content_type = response.headers.get("content-type", "").partition(";")[0].strip().lower()
                     if content_type not in {"application/json", "application/jwk-set+json"}:
                         raise OidcHttpError(OidcHttpErrorCode.INVALID_CONTENT_TYPE, "OIDC endpoint returned a non-JSON response")
@@ -261,4 +264,4 @@ class ValidatedOidcHttpClient:
             raise OidcHttpError(OidcHttpErrorCode.INVALID_JSON, "OIDC endpoint returned invalid JSON") from error
         if not isinstance(decoded, dict):
             raise OidcHttpError(OidcHttpErrorCode.INVALID_JSON, "OIDC endpoint JSON must be an object")
-        return OidcJsonResponse(data=decoded, headers=response.headers)
+        return OidcJsonResponse(data=decoded, headers=response.headers, status_code=response.status_code)
