@@ -2,7 +2,7 @@ import { translate } from "../../i18n";
 
 export type SettingsCategory =
   | "appearance"
-  | "sessions"
+  | "account"
   | "file-browser"
   | "text-editor"
   | "connections"
@@ -34,7 +34,7 @@ interface SettingsCategoryMeta {
 
 export const SETTINGS_ROUTE_BY_CATEGORY: Record<SettingsCategory, string> = {
   appearance: "/settings/appearance",
-  sessions: "/settings/sessions",
+  account: "/settings/account",
   "file-browser": "/settings/file-browser",
   "text-editor": "/settings/text-editor",
   connections: "/settings/connections",
@@ -65,12 +65,12 @@ export const SETTINGS_CATEGORY_META: Record<SettingsCategory, SettingsCategoryMe
     route: SETTINGS_ROUTE_BY_CATEGORY.appearance,
     section: "personal",
   },
-  sessions: {
+  account: {
     get label() {
-      return translate("settings.categories.sessions.label");
+      return translate("settings.categories.account.label");
     },
-    descriptionKey: "settings.categories.sessions.description",
-    route: SETTINGS_ROUTE_BY_CATEGORY.sessions,
+    descriptionKey: "settings.categories.account.description",
+    route: SETTINGS_ROUTE_BY_CATEGORY.account,
     section: "personal",
   },
   "file-browser": {
@@ -145,7 +145,7 @@ export const SETTINGS_CATEGORY_META: Record<SettingsCategory, SettingsCategoryMe
 
 export const SETTINGS_CATEGORY_ORDER: SettingsCategory[] = [
   "appearance",
-  "sessions",
+  "account",
   "file-browser",
   "text-editor",
   "connections",

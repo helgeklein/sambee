@@ -81,6 +81,13 @@ class CurrentUserRead(SQLModel):
     created_at: datetime
 
 
+class CurrentAccountRead(CurrentUserRead):
+    has_local_password: bool
+    password_change_available: bool
+    browser_session_management_available: bool
+    oidc_provider_name: str | None
+
+
 class AdminUserOidcRead(SQLModel):
     identity_id: uuid.UUID
     provider_display_name: str

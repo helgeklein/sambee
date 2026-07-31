@@ -14,7 +14,7 @@ An interactive sign-in is required when the interval ends, the identity provider
 
 ## Manage Browser Sessions
 
-Users can open **Settings** > **Sessions** to review active OIDC browser sessions. The page identifies the current browser and shows when each session was created and last active without exposing device fingerprints or token details.
+Users can open **Settings** > **Account** to review active OIDC browser sessions. The page identifies the current browser and shows when each session was created and last active without exposing device fingerprints or token details. See [Manage Your Account](../../../user-guide/getting-started/manage-your-account/) for the user-facing controls.
 
 - Select **Sign out** to revoke the current browser session and return to the sign-in page.
 - Select **Revoke** to end another browser session.

@@ -46,20 +46,16 @@ import { getEnabledBrowserCommands } from "../config/browserCommands";
 import { BROWSER_SHORTCUTS, COMMON_SHORTCUTS, COPY_MOVE_SHORTCUTS, PANE_SHORTCUTS, SELECTION_SHORTCUTS } from "../config/keyboardShortcuts";
 import { useCompanion } from "../hooks/useCompanion";
 import { type KeyboardShortcut, useKeyboardShortcuts } from "../hooks/useKeyboardShortcuts";
+import { signOutCurrentBrowser } from "../services/accountSession";
 import api from "../services/api";
 import { authSession } from "../services/authSession";
 import { markBackendAvailable, useBackendAvailability } from "../services/backendAvailability";
 import { subscribeBackendRecoveryConfirmed, subscribeBackendRecoveryReconnect } from "../services/backendRecoveryEvents";
 import { isLocalDrive, mergeConnections } from "../services/backendRouter";
-import {
-  clearBrowserRecoverySnapshot,
-  loadBrowserRecoverySnapshot,
-  saveBrowserRecoverySnapshot,
-} from "../services/browserRecoverySnapshot";
+import { loadBrowserRecoverySnapshot, saveBrowserRecoverySnapshot } from "../services/browserRecoverySnapshot";
 import companionService, { buildCompanionWsUrl, type DriveInfo, hasStoredSecret } from "../services/companion";
-import { clearCurrentUserDrafts } from "../services/draftRecovery";
 import { logger } from "../services/logger";
-import { loginPath, OIDC_LOGOUT_MARKER } from "../services/oidcAuth";
+import { loginPath } from "../services/oidcAuth";
 import { scheduleRuntimeWarmup } from "../services/runtimeWarmup";
 import { buildServerWebSocketUrl } from "../services/serverWebsocket";
 import { loadCurrentUserSettings } from "../services/userSettingsSync";
@@ -2121,10 +2117,7 @@ const Browser: React.FC = () => {
   // ──────────────────────────────────────────────────────────────────────────
 
   const handleLogout = async () => {
-    clearBrowserRecoverySnapshot();
-    clearCurrentUserDrafts();
-    await authSession.logout();
-    sessionStorage.setItem(OIDC_LOGOUT_MARKER, "1");
+    await signOutCurrentBrowser();
     navigate("/login");
   };
 

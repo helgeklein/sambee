@@ -10,6 +10,7 @@ import { useFocusTrap } from "./hooks/useFocusTrap";
 import { translate } from "./i18n";
 import { CompanionLocalizationSync } from "./i18n/CompanionLocalizationSync";
 import { LocalePreferencesProvider } from "./i18n/LocalePreferencesProvider";
+import { AccountSettings } from "./pages/AccountSettings";
 import { AdvancedSettings } from "./pages/AdvancedSettings";
 import { AuthenticationSettings } from "./pages/AuthenticationSettings";
 import { ConnectionsSettings } from "./pages/ConnectionsSettings";
@@ -17,7 +18,6 @@ import { FileBrowserSettings } from "./pages/FileBrowserSettings";
 import { LocalDrivesSettings } from "./pages/LocalDrivesSettings";
 import { NetworkSettings } from "./pages/NetworkSettings";
 import { AppearanceSettings } from "./pages/PreferencesSettings";
-import { SessionSettings } from "./pages/SessionSettings";
 import { TextEditorSettings } from "./pages/TextEditorSettings";
 import { UserManagementSettings } from "./pages/UserManagementSettings";
 import { authSession } from "./services/authSession";
@@ -81,7 +81,8 @@ function AppContent() {
               <Route path="/settings" element={authBootstrapComplete ? <SettingsLayout /> : <div>{translate("app.loading")}</div>}>
                 <Route index element={<Navigate to="/settings/appearance" replace />} />
                 <Route path="appearance" element={<AppearanceSettings />} />
-                <Route path="sessions" element={<SessionSettings />} />
+                <Route path="account" element={<AccountSettings />} />
+                <Route path="sessions" element={<Navigate to="/settings/account" replace />} />
                 <Route path="file-browser" element={<FileBrowserSettings />} />
                 <Route path="text-editor" element={<TextEditorSettings />} />
                 <Route path="preferences" element={<Navigate to="/settings/appearance" replace />} />

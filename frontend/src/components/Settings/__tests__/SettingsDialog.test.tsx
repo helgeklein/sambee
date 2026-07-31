@@ -20,6 +20,10 @@ vi.mock("../../../pages/PreferencesSettings", () => ({
   AppearanceSettings: () => <div>Appearance Settings Content</div>,
 }));
 
+vi.mock("../../../pages/AccountSettings", () => ({
+  AccountSettings: () => <div>Account Settings Content</div>,
+}));
+
 vi.mock("../../../pages/ConnectionsSettings", () => ({
   ConnectionsSettings: () => <div>Connections Settings Content</div>,
 }));
@@ -163,6 +167,15 @@ describe("SettingsDialog Component", () => {
     await user.click(connectionsOption);
 
     expect(screen.getByText("Connections Settings Content")).toBeInTheDocument();
+  });
+
+  it("renders Account settings when selected", async () => {
+    const user = userEvent.setup();
+    renderWithTheme(<SettingsDialog open={true} onClose={mockOnClose} />);
+
+    await user.click(await screen.findByRole("option", { name: /^account$/i }));
+
+    expect(screen.getByText("Account Settings Content")).toBeInTheDocument();
   });
 
   it("renders Authentication settings when selected", async () => {

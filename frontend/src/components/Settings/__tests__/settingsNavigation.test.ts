@@ -20,7 +20,7 @@ describe("settingsNavigation", () => {
       {
         section: "personal",
         label: "Personal",
-        categories: ["appearance", "sessions", "file-browser", "text-editor", "connections", "local-drives"],
+        categories: ["appearance", "account", "file-browser", "text-editor", "connections", "local-drives"],
       },
     ]);
   });
@@ -30,7 +30,7 @@ describe("settingsNavigation", () => {
       {
         section: "personal",
         label: "Personal",
-        categories: ["appearance", "sessions", "file-browser", "text-editor", "connections", "local-drives"],
+        categories: ["appearance", "account", "file-browser", "text-editor", "connections", "local-drives"],
       },
       {
         section: "administration",
@@ -42,6 +42,7 @@ describe("settingsNavigation", () => {
 
   it("maps current settings routes to their categories", () => {
     expect(getSettingsCategoryByPath("/settings/appearance")).toBe("appearance");
+    expect(getSettingsCategoryByPath("/settings/account")).toBe("account");
     expect(getSettingsCategoryByPath("/settings/file-browser")).toBe("file-browser");
     expect(getSettingsCategoryByPath("/settings/text-editor")).toBe("text-editor");
     expect(getSettingsCategoryByPath("/settings/connections")).toBe("connections");
@@ -54,6 +55,7 @@ describe("settingsNavigation", () => {
 
   it("maps nested settings routes to the correct nav items", () => {
     expect(getSettingsNavItemByPath("/settings/appearance")).toBe("appearance");
+    expect(getSettingsNavItemByPath("/settings/account")).toBe("account");
     expect(getSettingsNavItemByPath("/settings/file-browser")).toBe("file-browser");
     expect(getSettingsNavItemByPath("/settings/text-editor")).toBe("text-editor");
     expect(getSettingsNavItemByPath("/settings/connections")).toBe("connections");
@@ -63,7 +65,7 @@ describe("settingsNavigation", () => {
   it("returns visible settings nav items as a flat list", () => {
     expect(getVisibleSettingsNavItems(false)).toEqual([
       "appearance",
-      "sessions",
+      "account",
       "file-browser",
       "text-editor",
       "connections",
@@ -81,6 +83,7 @@ describe("settingsNavigation", () => {
 
   it("returns translated labels when the locale changes", async () => {
     expect(getSettingsCategoryLabel("appearance")).toBe("Appearance");
+    expect(getSettingsCategoryLabel("account")).toBe("Account");
     expect(getSettingsCategoryLabel("file-browser")).toBe("File Browser");
     expect(getSettingsCategoryLabel("text-editor")).toBe("Text Editor");
     expect(getSettingsNavItemLabel("local-drives")).toBe("Local Drives");
