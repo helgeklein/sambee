@@ -22,21 +22,32 @@ describe("TextEditorSettings", () => {
 
     expect(screen.getByText("Text Editor")).toBeInTheDocument();
     expect(screen.getByText("Limits")).toBeInTheDocument();
-    expect(screen.getByRole("spinbutton", { name: "Maximum rich editor file size (MB)" })).toBeInTheDocument();
+    expect(screen.getByRole("textbox", { name: "Maximum rich editor file size (MB)" })).toBeInTheDocument();
   });
 
   it("updates the max file size preference in megabytes", async () => {
     const user = userEvent.setup();
     render(<TextEditorSettings />);
 
-    const input = screen.getByRole("spinbutton", { name: "Maximum rich editor file size (MB)" });
+    const input = screen.getByRole("textbox", { name: "Maximum rich editor file size (MB)" });
     await user.clear(input);
     await user.type(input, "8");
 
     expect(setTextEditorMaxFileSizeBytesMock).not.toHaveBeenCalled();
 
-    await user.tab();
+    await user.click(screen.getByRole("button", { name: "Save changes" }));
 
     expect(setTextEditorMaxFileSizeBytesMock).toHaveBeenLastCalledWith(8388608);
+  });
+
+  it("rejects non-numeric input", async () => {
+    const user = userEvent.setup();
+    render(<TextEditorSettings />);
+
+    const input = screen.getByRole("textbox", { name: "Maximum rich editor file size (MB)" });
+    await user.clear(input);
+    await user.type(input, "8MB");
+
+    expect(input).toHaveValue("8");
   });
 });

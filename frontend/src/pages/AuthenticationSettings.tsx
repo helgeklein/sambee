@@ -667,7 +667,55 @@ export function AuthenticationSettings() {
   };
 
   return (
-    <SettingsPage category="admin-authentication">
+    <SettingsPage
+      category="admin-authentication"
+      footerPrimaryActions={
+        isOidcMode ? (
+          <>
+            <Button
+              variant="contained"
+              sx={settingsPrimaryButtonSx}
+              disabled={
+                busy ||
+                finalizationUnresolved ||
+                configuration?.health.status !== "healthy" ||
+                groupConfigurationInvalid ||
+                Boolean(scopesError)
+              }
+              onClick={() => void startTest()}
+            >
+              Connect and test
+            </Button>
+            {testedIdentity ? (
+              <Button
+                variant="contained"
+                sx={settingsPrimaryButtonSx}
+                disabled={busy || finalizationUnresolved || reviewPending || replacementPlanInvalid || !testedIdentityCanActivate}
+                onClick={activate}
+              >
+                Activate configuration
+              </Button>
+            ) : null}
+          </>
+        ) : (
+          <Button
+            variant="contained"
+            sx={settingsPrimaryButtonSx}
+            disabled={busy || finalizationUnresolved || isSelectedNonOidcModeActive}
+            onClick={() => void activateNonOidcMode()}
+          >
+            {authMode === "none" ? "Activate No authentication" : "Activate Password-only mode"}
+          </Button>
+        )
+      }
+      footerSecondaryActions={
+        isOidcMode && testedIdentity ? (
+          <Button variant="text" disabled={busy || finalizationUnresolved} onClick={() => void cancelTestFlow()}>
+            Cancel
+          </Button>
+        ) : undefined
+      }
+    >
       <Box sx={{ maxWidth: 820 }}>
         {busy && !configuration ? (
           <Box sx={{ display: "flex", justifyContent: "center", pt: 5 }}>
@@ -970,21 +1018,6 @@ export function AuthenticationSettings() {
                     onChange={(event) => update("groups_claim", optionalClaim(event.target.value))}
                     disabled={finalizationUnresolved}
                   />
-                  <Button
-                    variant="contained"
-                    sx={settingsPrimaryButtonSx}
-                    disabled={
-                      busy ||
-                      finalizationUnresolved ||
-                      configuration?.health.status !== "healthy" ||
-                      groupConfigurationInvalid ||
-                      Boolean(scopesError)
-                    }
-                    onClick={() => void startTest()}
-                  >
-                    Connect and test
-                  </Button>
-
                   {testError && (
                     <Alert ref={testErrorRef} severity="error" role="alert" aria-live="assertive" tabIndex={-1}>
                       <AlertTitle>Connection test failed</AlertTitle>
@@ -1141,22 +1174,6 @@ export function AuthenticationSettings() {
                           )}
                         </Stack>
                       )}
-                      <Button
-                        variant="contained"
-                        sx={{ mt: 2 }}
-                        disabled={busy || finalizationUnresolved || reviewPending || replacementPlanInvalid || !testedIdentityCanActivate}
-                        onClick={activate}
-                      >
-                        Activate configuration
-                      </Button>
-                      <Button
-                        variant="text"
-                        sx={{ mt: 2, ml: 1 }}
-                        disabled={busy || finalizationUnresolved}
-                        onClick={() => void cancelTestFlow()}
-                      >
-                        Cancel
-                      </Button>
                     </Box>
                   )}
                     </Stack>
@@ -1195,14 +1212,6 @@ export function AuthenticationSettings() {
                         : "Only local username and password sign-in will be available."}
                     </Alert>
                   )}
-                  <Button
-                    variant="contained"
-                    sx={[settingsPrimaryButtonSx, { alignSelf: "flex-start" }]}
-                    disabled={busy || finalizationUnresolved || isSelectedNonOidcModeActive}
-                    onClick={() => void activateNonOidcMode()}
-                  >
-                    {authMode === "none" ? "Activate No authentication" : "Activate Password-only mode"}
-                  </Button>
                 </Stack>
               )}
             </Stack>

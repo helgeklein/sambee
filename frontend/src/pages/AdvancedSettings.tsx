@@ -13,6 +13,7 @@ import {
 } from "@mui/material";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { useTranslation } from "react-i18next";
+import { SettingsActionBar } from "../components/Settings/SettingsActionBar";
 import { SettingsCategoryDescription } from "../components/Settings/SettingsCategoryDescription";
 import { SettingsInlineAlert, SettingsNotificationSnackbar, type SettingsNotificationState } from "../components/Settings/SettingsFeedback";
 import { SettingsGroup } from "../components/Settings/SettingsGroup";
@@ -43,7 +44,6 @@ const DESKTOP_FIELD_ROW_MAX_WIDTH = 440;
 const DESKTOP_VALUE_FIELD_MAX_WIDTH = 220;
 const DESKTOP_UNIT_FIELD_WIDTH = 120;
 const DESKTOP_NUMERIC_FIELD_MAX_WIDTH = 240;
-const MOBILE_ACTION_BAR_PADDING_BOTTOM_PX = 12;
 
 const BYTE_UNITS = [
   { label: "B", factor: 1 },
@@ -527,7 +527,7 @@ export function AdvancedSettings({ dialogSafeHeader = false }: AdvancedSettingsP
         description={<SettingsCategoryDescription category="admin-system" />}
         dialogSafe={dialogSafeHeader}
         showTitle={!isMobile}
-        actions={isMobile ? undefined : saveAction}
+        actions={undefined}
       />
 
       <Box sx={{ flex: 1, overflow: "auto", px: { xs: 2, sm: 3, md: 4 }, pb: isMobile ? 2 : 3 }}>
@@ -590,20 +590,7 @@ export function AdvancedSettings({ dialogSafeHeader = false }: AdvancedSettingsP
         )}
       </Box>
 
-      {isMobile && (
-        <Box
-          sx={{
-            px: 2,
-            pt: 1.5,
-            pb: `calc(${MOBILE_ACTION_BAR_PADDING_BOTTOM_PX}px + env(safe-area-inset-bottom))`,
-            borderTop: 1,
-            borderColor: "divider",
-            bgcolor: "background.default",
-          }}
-        >
-          {saveAction}
-        </Box>
-      )}
+      <SettingsActionBar primaryActions={saveAction} />
 
       <SettingsNotificationSnackbar
         notification={notification}

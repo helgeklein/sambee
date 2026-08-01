@@ -152,7 +152,7 @@ describe("ThemeSelector Component", () => {
       expect(colorBoxes.length).toBeGreaterThanOrEqual(2); // At least 2 themes × 1 color
     });
 
-    it("should close dialog when theme is selected", async () => {
+    it("keeps the dialog open while previewing a selected theme", async () => {
       const user = userEvent.setup();
       const mockOnClose = vi.fn();
       renderWithProvider(<ThemeSelectorDialog open={true} onClose={mockOnClose} />);
@@ -162,10 +162,10 @@ describe("ThemeSelector Component", () => {
       expect(lightThemeCard).toBeInTheDocument();
       await user.click(lightThemeCard!);
 
-      expect(mockOnClose).toHaveBeenCalledTimes(1);
+      expect(mockOnClose).not.toHaveBeenCalled();
     });
 
-    it("should switch theme when different theme is selected", async () => {
+    it("persists a selected theme only after saving", async () => {
       const user = userEvent.setup();
       const mockOnClose = vi.fn();
       renderWithProvider(<ThemeSelectorDialog open={true} onClose={mockOnClose} />);
@@ -176,9 +176,12 @@ describe("ThemeSelector Component", () => {
 
       await user.click(darkThemeCard!);
 
-      expect(mockOnClose).toHaveBeenCalled();
+      expect(mockOnClose).not.toHaveBeenCalled();
+      expect(localStorageMock.getItem("theme-id-current")).toBeNull();
 
-      // Theme should be persisted to localStorage
+      await user.click(screen.getByRole("button", { name: "Save changes" }));
+
+      expect(mockOnClose).toHaveBeenCalledTimes(1);
       expect(localStorageMock.getItem("theme-id-current")).toBe("sambee-dark");
     });
 
@@ -203,6 +206,8 @@ describe("ThemeSelector Component", () => {
       // Select dark theme
       const darkThemeCard = screen.getByText(/Sambee dark/i).closest("button");
       await user.click(darkThemeCard!);
+
+      await user.click(screen.getByRole("button", { name: "Save changes" }));
 
       // Check localStorage
       expect(localStorageMock.getItem("theme-id-current")).toBe("sambee-dark");

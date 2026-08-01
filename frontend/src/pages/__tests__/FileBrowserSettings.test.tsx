@@ -31,6 +31,9 @@ describe("FileBrowserSettings", () => {
     render(<FileBrowserSettings />);
 
     await user.click(screen.getByRole("checkbox", { name: "Include dot directories in quick nav" }));
+    expect(setIncludeDotDirectoriesMock).not.toHaveBeenCalled();
+
+    await user.click(screen.getByRole("button", { name: "Save changes" }));
 
     expect(setIncludeDotDirectoriesMock).toHaveBeenCalledWith(true);
   });

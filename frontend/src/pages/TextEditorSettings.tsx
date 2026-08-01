@@ -1,78 +1,82 @@
-import { Box, TextField, useMediaQuery, useTheme } from "@mui/material";
-import { useEffect, useState } from "react";
+import { Button, TextField } from "@mui/material";
+import { useEffect, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
-import { SettingsCategoryDescription } from "../components/Settings/SettingsCategoryDescription";
 import { SettingsFieldHelp } from "../components/Settings/SettingsFieldHelp";
 import { SettingsGroup } from "../components/Settings/SettingsGroup";
-import { SettingsSectionHeader } from "../components/Settings/SettingsSectionHeader";
-import { getSettingsCategoryLabel } from "../components/Settings/settingsNavigation";
+import { SettingsPage } from "../components/Settings/SettingsPage";
 import { useTextEditorMaxFileSizeBytesPreference } from "./FileBrowser/preferences";
 
 const BYTES_PER_MEGABYTE = 1024 * 1024;
+const POSITIVE_INTEGER_PATTERN = /^[1-9]\d*$/;
+
+function formatMegabytes(maxFileSizeBytes: number): string {
+  return String(Math.max(1, Math.round(maxFileSizeBytes / BYTES_PER_MEGABYTE)));
+}
 
 export function TextEditorSettings() {
   const [maxFileSizeBytes, setMaxFileSizeBytes] = useTextEditorMaxFileSizeBytesPreference();
-  const theme = useTheme();
-  const isMobile = useMediaQuery(theme.breakpoints.down("sm"));
   const { t } = useTranslation();
-  const [maxFileSizeMegabytesInput, setMaxFileSizeMegabytesInput] = useState(() =>
-    String(Math.max(1, Math.round(maxFileSizeBytes / BYTES_PER_MEGABYTE)))
-  );
-  const [isEditingMaxFileSize, setIsEditingMaxFileSize] = useState(false);
+  const [savedMaxFileSizeBytes, setSavedMaxFileSizeBytes] = useState(maxFileSizeBytes);
+  const savedMaxFileSizeBytesRef = useRef(savedMaxFileSizeBytes);
+  const [maxFileSizeMegabytesInput, setMaxFileSizeMegabytesInput] = useState(() => formatMegabytes(maxFileSizeBytes));
+  const maxFileSizeMegabytesInputRef = useRef(maxFileSizeMegabytesInput);
 
   useEffect(() => {
-    if (!isEditingMaxFileSize) {
-      setMaxFileSizeMegabytesInput(String(Math.max(1, Math.round(maxFileSizeBytes / BYTES_PER_MEGABYTE))));
+    const wasClean = maxFileSizeMegabytesInputRef.current === formatMegabytes(savedMaxFileSizeBytesRef.current);
+    savedMaxFileSizeBytesRef.current = maxFileSizeBytes;
+    setSavedMaxFileSizeBytes(maxFileSizeBytes);
+
+    if (wasClean) {
+      const nextInput = formatMegabytes(maxFileSizeBytes);
+      maxFileSizeMegabytesInputRef.current = nextInput;
+      setMaxFileSizeMegabytesInput(nextInput);
     }
-  }, [isEditingMaxFileSize, maxFileSizeBytes]);
+  }, [maxFileSizeBytes]);
 
-  const commitMaxFileSize = () => {
-    setIsEditingMaxFileSize(false);
-
-    const parsedValue = Number.parseInt(maxFileSizeMegabytesInput, 10);
-    if (!Number.isFinite(parsedValue)) {
-      setMaxFileSizeMegabytesInput(String(Math.max(1, Math.round(maxFileSizeBytes / BYTES_PER_MEGABYTE))));
+  const updateMaxFileSizeMegabytesInput = (value: string) => {
+    if (value && !POSITIVE_INTEGER_PATTERN.test(value)) {
       return;
     }
 
-    const nextMaxFileSizeBytes = Math.max(1, parsedValue) * BYTES_PER_MEGABYTE;
-    if (nextMaxFileSizeBytes !== maxFileSizeBytes) {
-      setMaxFileSizeBytes(nextMaxFileSizeBytes);
-    }
+    maxFileSizeMegabytesInputRef.current = value;
+    setMaxFileSizeMegabytesInput(value);
   };
 
+  const draftMaxFileSizeMegabytes = Number(maxFileSizeMegabytesInput);
+  const draftMaxFileSizeBytes =
+    POSITIVE_INTEGER_PATTERN.test(maxFileSizeMegabytesInput) && Number.isSafeInteger(draftMaxFileSizeMegabytes)
+      ? draftMaxFileSizeMegabytes * BYTES_PER_MEGABYTE
+      : null;
+
   return (
-    <Box sx={{ height: "100%", display: "flex", flexDirection: "column", bgcolor: "background.default", overflow: "hidden" }}>
-      <SettingsSectionHeader
-        title={getSettingsCategoryLabel("text-editor")}
-        description={<SettingsCategoryDescription category="text-editor" />}
-        showTitle={!isMobile}
-      />
-      <Box sx={{ flex: 1, overflow: "auto", px: { xs: 2, sm: 3, md: 4 }, pb: 3 }}>
-        <SettingsGroup title={t("settings.textEditorPage.limitsTitle")}>
-          <TextField
-            label={t("settings.textEditorPage.maxFileSizeLabel")}
-            type="number"
-            value={maxFileSizeMegabytesInput}
-            onFocus={() => setIsEditingMaxFileSize(true)}
-            onChange={(event) => setMaxFileSizeMegabytesInput(event.target.value)}
-            onBlur={commitMaxFileSize}
-            onKeyDown={(event) => {
-              if (event.key === "Enter") {
-                event.currentTarget.blur();
-              }
-            }}
-            slotProps={{
-              htmlInput: {
-                min: 1,
-                step: 1,
-              },
-            }}
-            sx={{ maxWidth: 280 }}
-          />
-          <SettingsFieldHelp sx={{ maxWidth: 720 }}>{t("settings.textEditorPage.maxFileSizeDescription")}</SettingsFieldHelp>
-        </SettingsGroup>
-      </Box>
-    </Box>
+    <SettingsPage
+      category="text-editor"
+      footerPrimaryActions={
+        <Button
+          variant="contained"
+          disabled={draftMaxFileSizeBytes === null || draftMaxFileSizeBytes === savedMaxFileSizeBytes}
+          onClick={() => draftMaxFileSizeBytes !== null && setMaxFileSizeBytes(draftMaxFileSizeBytes)}
+        >
+          {t("settings.advanced.saveChanges")}
+        </Button>
+      }
+    >
+      <SettingsGroup title={t("settings.textEditorPage.limitsTitle")}>
+        <TextField
+          label={t("settings.textEditorPage.maxFileSizeLabel")}
+          type="text"
+          value={maxFileSizeMegabytesInput}
+          onChange={(event) => updateMaxFileSizeMegabytesInput(event.target.value)}
+          slotProps={{
+            htmlInput: {
+              inputMode: "numeric",
+              pattern: "[0-9]*",
+            },
+          }}
+          sx={{ maxWidth: 280 }}
+        />
+        <SettingsFieldHelp sx={{ maxWidth: 720 }}>{t("settings.textEditorPage.maxFileSizeDescription")}</SettingsFieldHelp>
+      </SettingsGroup>
+    </SettingsPage>
   );
 }

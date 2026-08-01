@@ -15,7 +15,6 @@ import {
   Checkbox,
   Chip,
   CircularProgress,
-  Fab,
   FormControl,
   FormControlLabel,
   IconButton,
@@ -37,6 +36,7 @@ import { useTranslation } from "react-i18next";
 import DeleteDialog from "../components/Admin/DeleteDialog";
 import { adminDialogActionButtonSx, adminDialogEndActionRowSx } from "../components/Admin/dialogActionStyles";
 import { ResponsiveFormDialog } from "../components/Admin/ResponsiveFormDialog";
+import { SettingsActionBar } from "../components/Settings/SettingsActionBar";
 import { SettingsCategoryDescription } from "../components/Settings/SettingsCategoryDescription";
 import { SettingsInlineAlert, SettingsNotificationSnackbar, type SettingsNotificationState } from "../components/Settings/SettingsFeedback";
 import { SettingsSectionHeader } from "../components/Settings/SettingsSectionHeader";
@@ -45,7 +45,6 @@ import {
   settingsDestructiveIconButtonSx,
   settingsMetadataChipSx,
   settingsPrimaryButtonSx,
-  settingsPrimaryFabSx,
   settingsUtilityButtonSx,
   settingsUtilityIconButtonSx,
 } from "../components/Settings/settingsButtonStyles";
@@ -701,13 +700,7 @@ export function UserManagementSettings({ dialogSafeHeader = false }: UserManagem
         description={<SettingsCategoryDescription category="admin-users" />}
         dialogSafe={dialogSafeHeader}
         showTitle={isDesktop}
-        actions={
-          isDesktop ? (
-            <Button variant="contained" startIcon={<AddIcon />} onClick={openCreateDialog} sx={settingsPrimaryButtonSx}>
-              {t("settings.userManagement.addUserButton")}
-            </Button>
-          ) : undefined
-        }
+        actions={undefined}
       />
 
       <Box sx={{ px: { xs: 2, sm: 3, md: 4 }, pb: 2 }}>
@@ -952,16 +945,13 @@ export function UserManagementSettings({ dialogSafeHeader = false }: UserManagem
         )}
       </Box>
 
-      {!isDesktop && (
-        <Fab
-          color="primary"
-          aria-label={t("settings.userManagement.addUserFabAriaLabel")}
-          onClick={openCreateDialog}
-          sx={settingsPrimaryFabSx}
-        >
-          <AddIcon />
-        </Fab>
-      )}
+      <SettingsActionBar
+        secondaryActions={
+          <Button variant="outlined" startIcon={<AddIcon />} onClick={openCreateDialog} sx={settingsUtilityButtonSx}>
+            {t("settings.userManagement.addUserButton")}
+          </Button>
+        }
+      />
 
       <Menu
         anchorEl={advancedMappingMenu.anchor}

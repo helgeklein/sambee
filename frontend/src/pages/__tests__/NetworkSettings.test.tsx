@@ -40,6 +40,7 @@ describe("NetworkSettings", () => {
     expect(screen.queryByRole("heading", { name: "External origin" })).not.toBeInTheDocument();
     expect(screen.queryByRole("heading", { name: "Trusted reverse proxies" })).not.toBeInTheDocument();
     expect(screen.queryByRole("textbox", { name: "OIDC callback URI" })).not.toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Save network settings" })).toBeDisabled();
   });
 
   it("uses prefetched Network settings without a second request", async () => {
@@ -70,8 +71,10 @@ describe("NetworkSettings", () => {
     );
 
     const publicUrl = await screen.findByRole("textbox", { name: /public url/i });
+    expect(screen.getByRole("button", { name: "Save network settings" })).toBeDisabled();
     await user.clear(publicUrl);
     await user.type(publicUrl, "https://new.example.test");
+    expect(screen.getByRole("button", { name: "Save network settings" })).toBeEnabled();
     const proxyCidrs = screen.getByRole("textbox", { name: /trusted proxy cidrs/i });
     await user.clear(proxyCidrs);
     await user.type(proxyCidrs, "10.0.0.4/24{enter}2001:db8::1/64");

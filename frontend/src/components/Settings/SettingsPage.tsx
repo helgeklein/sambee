@@ -1,5 +1,6 @@
 import { Box, type SxProps, type Theme, useMediaQuery, useTheme } from "@mui/material";
 import type { ReactNode } from "react";
+import { SettingsActionBar } from "./SettingsActionBar";
 import { SettingsCategoryDescription } from "./SettingsCategoryDescription";
 import { SettingsSectionHeader } from "./SettingsSectionHeader";
 import { getSettingsCategoryLabel, type SettingsCategory } from "./settingsNavigation";
@@ -9,12 +10,23 @@ interface SettingsPageProps {
   children: ReactNode;
   description?: ReactNode;
   actions?: ReactNode;
+  footerPrimaryActions?: ReactNode;
+  footerSecondaryActions?: ReactNode;
   dialogSafeHeader?: boolean;
   contentSx?: SxProps<Theme>;
 }
 
 /** Shared category frame so settings pages inherit consistent sizing and spacing. */
-export function SettingsPage({ category, children, description, actions, dialogSafeHeader = false, contentSx }: SettingsPageProps) {
+export function SettingsPage({
+  category,
+  children,
+  description,
+  actions,
+  footerPrimaryActions,
+  footerSecondaryActions,
+  dialogSafeHeader = false,
+  contentSx,
+}: SettingsPageProps) {
   const theme = useTheme();
   const isMobile = useMediaQuery(theme.breakpoints.down("sm"));
   const baseContentSx: SxProps<Theme> = {
@@ -40,6 +52,9 @@ export function SettingsPage({ category, children, description, actions, dialogS
         showTitle={!isMobile}
       />
       <Box sx={resolvedContentSx}>{children}</Box>
+      {(footerPrimaryActions || footerSecondaryActions) && (
+        <SettingsActionBar primaryActions={footerPrimaryActions} secondaryActions={footerSecondaryActions} />
+      )}
     </Box>
   );
 }

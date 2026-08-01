@@ -1,3 +1,4 @@
+import { SettingsActionBar } from "../components/Settings/SettingsActionBar";
 //
 // ConnectionSettings
 //
@@ -14,7 +15,6 @@ import {
   Button,
   Chip,
   Divider,
-  Fab,
   IconButton,
   ListItem,
   Menu,
@@ -37,8 +37,7 @@ import { SettingsEmptyState, SettingsLoadingState } from "../components/Settings
 import {
   settingsDestructiveIconButtonSx,
   settingsMetadataChipSx,
-  settingsPrimaryButtonSx,
-  settingsPrimaryFabSx,
+  settingsUtilityButtonSx,
   settingsUtilityIconButtonSx,
 } from "../components/Settings/settingsButtonStyles";
 import { loadConnectionsSettingsData, SETTINGS_DATA_CACHE_KEYS } from "../components/Settings/settingsDataSources";
@@ -69,7 +68,6 @@ interface ConnectionSettingsProps {
   forceDesktopLayout?: boolean;
   showHeader?: boolean;
   sectionTitle?: string;
-  showMobileFab?: boolean;
 }
 
 const CONNECTION_ROW_VERTICAL_PADDING = 2.5;
@@ -80,7 +78,6 @@ export function ConnectionSettings({
   forceDesktopLayout = false,
   showHeader = true,
   sectionTitle,
-  showMobileFab = true,
 }: ConnectionSettingsProps) {
   const theme = useTheme();
   const isLargeScreen = useMediaQuery(theme.breakpoints.up("sm"));
@@ -457,26 +454,11 @@ export function ConnectionSettings({
           description={t("settings.connectionManagement.headerDescription")}
           dialogSafe={forceDesktopLayout}
           showTitle={isDesktop}
-          actions={
-            isDesktop && canCreateConnections ? (
-              <Button variant="contained" startIcon={<AddIcon />} onClick={handleAddClick} sx={settingsPrimaryButtonSx}>
-                {t("settings.connectionManagement.addConnectionButton")}
-              </Button>
-            ) : undefined
-          }
+          actions={undefined}
         />
       ) : shouldRenderInlineGroupHeader ? (
         <Box data-testid="connection-settings-inline-header" sx={{ px: { xs: 2, sm: 3, md: 4 }, pt: 2, pb: 2 }}>
-          <SettingsGroup
-            title={sectionTitle}
-            actions={
-              isDesktop && canCreateConnections ? (
-                <Button variant="contained" startIcon={<AddIcon />} onClick={handleAddClick} sx={settingsPrimaryButtonSx}>
-                  {t("settings.connectionManagement.addConnectionButton")}
-                </Button>
-              ) : null
-            }
-          />
+          <SettingsGroup title={sectionTitle} actions={null} />
         </Box>
       ) : null}
 
@@ -513,16 +495,14 @@ export function ConnectionSettings({
         )}
       </Box>
 
-      {/* Mobile: FAB for adding connections */}
-      {!isDesktop && showMobileFab && canCreateConnections && (
-        <Fab
-          color="primary"
-          aria-label={t("settings.connectionManagement.addConnectionFabAriaLabel")}
-          onClick={handleAddClick}
-          sx={settingsPrimaryFabSx}
-        >
-          <AddIcon />
-        </Fab>
+      {showHeader && canCreateConnections && (
+        <SettingsActionBar
+          secondaryActions={
+            <Button variant="outlined" startIcon={<AddIcon />} onClick={handleAddClick} sx={settingsUtilityButtonSx}>
+              {t("settings.connectionManagement.addConnectionButton")}
+            </Button>
+          }
+        />
       )}
 
       {/* Actions Menu */}

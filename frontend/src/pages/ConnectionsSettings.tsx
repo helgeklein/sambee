@@ -36,7 +36,6 @@ export function ConnectionsSettings({
           onConnectionsChanged={onConnectionsChanged}
           forceDesktopLayout={forceDesktopLayout}
           showHeader={false}
-          showMobileFab={!isDesktop}
         />
       </Box>
     </Box>
