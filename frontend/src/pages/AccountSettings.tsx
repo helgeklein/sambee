@@ -177,7 +177,7 @@ export function AccountSettings({ dialogSafe = false }: { dialogSafe?: boolean }
                 Your administrator requires you to change your local password.
               </Alert>
             )}
-            <SettingsGroup title="Account" description="Your signed-in identity and access level." sx={{ mb: 4 }}>
+            <SettingsGroup title="Identity" description="Your signed-in identity and access level." sx={{ mb: 4 }}>
               <List disablePadding>
                 <ListItem divider disableGutters>
                   <ListItemText primary="Username" secondary={account.username} />

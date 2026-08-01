@@ -62,6 +62,8 @@ describe("AccountSettings", () => {
     renderAccount();
 
     expect(await screen.findByText("Alex Example")).toBeInTheDocument();
+    expect(screen.getAllByRole("heading", { name: "Account" })).toHaveLength(1);
+    expect(screen.getByRole("heading", { name: "Identity" })).toBeInTheDocument();
     expect(screen.getByRole("heading", { name: "Password" })).toBeInTheDocument();
     expect(screen.queryByRole("heading", { name: "Browser sessions" })).not.toBeInTheDocument();
     expect(api.getOidcBrowserSessions).not.toHaveBeenCalled();
