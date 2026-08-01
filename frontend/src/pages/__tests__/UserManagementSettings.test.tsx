@@ -116,6 +116,19 @@ describe("UserManagementSettings", () => {
     expect(window.getComputedStyle(userName).fontWeight).toBe("600");
   });
 
+  it("uses flex gaps when user-status chips wrap", async () => {
+    render(
+      <SambeeThemeProvider>
+        <UserManagementSettings />
+      </SambeeThemeProvider>
+    );
+
+    const localPasswordChip = await screen.findByText("Local password", { exact: true });
+    const chipRow = localPasswordChip.closest(".MuiStack-root");
+
+    expect(chipRow).toHaveStyle({ display: "flex", flexWrap: "wrap", gap: "8px", rowGap: "8px" });
+  });
+
   it("shows OIDC state and hides password reset for a passwordless account", async () => {
     vi.mocked(api.getUsers).mockResolvedValue([
       {

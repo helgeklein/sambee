@@ -760,7 +760,7 @@ export function UserManagementSettings({ dialogSafeHeader = false }: UserManagem
                         {[user.username, user.email].filter(Boolean).join(" • ")}
                       </Typography>
                     )}
-                    <Stack direction="row" spacing={1} alignItems="center" sx={{ flexWrap: "wrap", mt: 0.75, mb: 1 }}>
+                    <Stack direction="row" spacing={1} useFlexGap alignItems="center" sx={{ flexWrap: "wrap", rowGap: 1, mt: 0.75, mb: 1 }}>
                       {isSelf && (
                         <Chip
                           size="small"
