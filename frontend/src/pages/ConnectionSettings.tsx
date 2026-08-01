@@ -42,6 +42,7 @@ import {
   settingsUtilityIconButtonSx,
 } from "../components/Settings/settingsButtonStyles";
 import { loadConnectionsSettingsData, SETTINGS_DATA_CACHE_KEYS } from "../components/Settings/settingsDataSources";
+import { settingsListItemTitleSx } from "../components/Settings/settingsTypographyStyles";
 import { useSettingsAccess } from "../components/Settings/useSettingsAccess";
 import { useCachedAsyncData } from "../hooks/useCachedAsyncData";
 import api from "../services/api";
@@ -72,7 +73,6 @@ interface ConnectionSettingsProps {
 }
 
 const CONNECTION_ROW_VERTICAL_PADDING = 2.5;
-const CONNECTION_NAME_SX = { fontWeight: 600 };
 
 export function ConnectionSettings({
   isAdmin,
@@ -277,7 +277,7 @@ export function ConnectionSettings({
                     flexWrap: "wrap",
                   }}
                 >
-                  <Typography component="div" variant="body1" sx={CONNECTION_NAME_SX}>
+                  <Typography component="div" variant="body1" sx={settingsListItemTitleSx}>
                     {connection.name}
                   </Typography>
                   {renderMetadataChips(connection)}
@@ -381,7 +381,7 @@ export function ConnectionSettings({
                     flexWrap: "wrap",
                   }}
                 >
-                  <Typography component="div" variant="body1" sx={CONNECTION_NAME_SX}>
+                  <Typography component="div" variant="body1" sx={settingsListItemTitleSx}>
                     {connection.name}
                   </Typography>
                   {renderMetadataChips(connection)}

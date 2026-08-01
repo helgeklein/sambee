@@ -51,6 +51,7 @@ import {
 } from "../components/Settings/settingsButtonStyles";
 import { loadUserManagementSettingsData, SETTINGS_DATA_CACHE_KEYS } from "../components/Settings/settingsDataSources";
 import { getSettingsCategoryLabel } from "../components/Settings/settingsNavigation";
+import { settingsListItemTitleSx } from "../components/Settings/settingsTypographyStyles";
 import { useCachedAsyncData } from "../hooks/useCachedAsyncData";
 import api from "../services/api";
 import type {
@@ -751,7 +752,7 @@ export function UserManagementSettings({ dialogSafeHeader = false }: UserManagem
                   }}
                 >
                   <Box sx={{ minWidth: 0, flex: 1 }}>
-                    <Typography variant="h6" fontWeight="medium">
+                    <Typography component="div" variant="body1" sx={settingsListItemTitleSx}>
                       {user.name?.trim() ? user.name : user.username}
                     </Typography>
                     {(user.name || user.email) && (

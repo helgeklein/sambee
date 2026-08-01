@@ -101,6 +101,21 @@ describe("UserManagementSettings", () => {
     expect(screen.getByText("Use the person's full name as they want it displayed in Sambee.")).toBeInTheDocument();
   });
 
+  it("renders user names as bold body text instead of headings", async () => {
+    render(
+      <SambeeThemeProvider>
+        <UserManagementSettings />
+      </SambeeThemeProvider>
+    );
+
+    const userName = await screen.findByText("admin", { exact: true });
+
+    expect(screen.queryByRole("heading", { name: "admin" })).not.toBeInTheDocument();
+    expect(userName.tagName).toBe("DIV");
+    expect(window.getComputedStyle(userName).fontSize).toBe("1rem");
+    expect(window.getComputedStyle(userName).fontWeight).toBe("600");
+  });
+
   it("shows OIDC state and hides password reset for a passwordless account", async () => {
     vi.mocked(api.getUsers).mockResolvedValue([
       {

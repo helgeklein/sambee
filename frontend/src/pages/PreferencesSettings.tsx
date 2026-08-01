@@ -113,7 +113,7 @@ export function AppearanceSettings() {
   );
 
   const regionalLocaleOptions = useMemo(() => {
-    const options = [
+    const options: Array<{ value: string; label: string }> = [
       {
         value: "browser",
         label: t("settings.appearancePage.browserDefaultOption"),
@@ -170,7 +170,7 @@ export function AppearanceSettings() {
                         <Box sx={{ display: "flex", alignItems: "flex-start", width: "100%", gap: 2 }}>
                           <Radio checked={currentTheme.id === themeOption.id} sx={{ mt: -0.5 }} />
                           <Box sx={{ flex: 1 }}>
-                            <Typography variant="h6" fontWeight="medium">
+                            <Typography variant="h6" sx={{ fontWeight: 500 }}>
                               {themeOption.name}
                             </Typography>
                             {themeOption.description && (
