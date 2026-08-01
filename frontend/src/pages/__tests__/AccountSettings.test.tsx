@@ -67,7 +67,7 @@ describe("AccountSettings", () => {
     expect(api.getOidcBrowserSessions).not.toHaveBeenCalled();
   });
 
-  it("loads OIDC sessions only when the account supports them", async () => {
+  it("loads OIDC sessions only when the account supports them without adding a duplicate section divider", async () => {
     vi.mocked(api.getCurrentAccount).mockResolvedValue({
       ...PASSWORD_ACCOUNT,
       password_change_available: false,
@@ -88,10 +88,11 @@ describe("AccountSettings", () => {
       ],
     });
 
-    renderAccount();
+    const { container } = renderAccount();
 
     expect(await screen.findByRole("heading", { name: "Browser sessions" })).toBeInTheDocument();
     expect(await screen.findByText("This browser")).toBeInTheDocument();
+    expect(container.querySelectorAll("hr")).toHaveLength(0);
     expect(api.getOidcBrowserSessions).toHaveBeenCalledTimes(1);
     expect(screen.queryByRole("heading", { name: "Password" })).not.toBeInTheDocument();
   });

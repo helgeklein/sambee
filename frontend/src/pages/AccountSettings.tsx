@@ -3,7 +3,6 @@ import {
   Box,
   Button,
   CircularProgress,
-  Divider,
   List,
   ListItem,
   ListItemText,
@@ -299,7 +298,6 @@ export function AccountSettings({ dialogSafe = false }: { dialogSafe?: boolean }
               </SettingsGroup>
             )}
 
-            <Divider sx={{ mb: 3 }} />
             <SettingsGroup title="Sign out" description="End this browser's Sambee session.">
               <Box>
                 <Button color="error" variant="outlined" onClick={() => void signOut()} disabled={signingOut || passwordSubmitting}>
