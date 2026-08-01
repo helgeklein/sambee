@@ -72,7 +72,8 @@ describe("AppearanceSettings", () => {
     expect(screen.getByText("Localization")).toBeInTheDocument();
     expect(screen.getByRole("combobox", { name: "Language" })).toBeInTheDocument();
     expect(screen.getByRole("combobox", { name: "Regional settings" })).toBeInTheDocument();
-    expect(screen.getByText("Preview")).toBeInTheDocument();
+    expect(screen.getByRole("group", { name: "Preview" })).toBeInTheDocument();
+    expect(screen.getByText("Preview").tagName).toBe("LABEL");
     expect(screen.queryByText("Quick navigation")).not.toBeInTheDocument();
   });
 

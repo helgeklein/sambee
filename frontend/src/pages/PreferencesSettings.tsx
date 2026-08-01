@@ -267,30 +267,38 @@ export function AppearanceSettings() {
               </FormControl>
             </Box>
 
-            <Box
+            <FormControl
+              fullWidth
+              role="group"
+              aria-labelledby="appearance-regional-preview-label"
               sx={{
                 mt: 2.5,
-                p: 2,
-                borderRadius: 1,
-                border: "1px solid",
-                borderColor: "divider",
               }}
             >
-              <Typography variant="body2" fontWeight={600} sx={{ mb: 1.5 }}>
+              <InputLabel id="appearance-regional-preview-label" shrink sx={{ px: 0.5, bgcolor: "background.default" }}>
                 {t("settings.appearancePage.regionalSettingsPreviewTitle")}
-              </Typography>
-              <Typography variant="body2" color="text.secondary">
-                {formatLocalizedDateTime(PREVIEW_DATE, {
-                  dateStyle: "full",
-                  timeStyle: "short",
-                })}
-              </Typography>
-              <Typography variant="body2" color="text.secondary" sx={{ mt: 0.75 }}>
-                {formatLocalizedNumber(1234567.89, {
-                  maximumFractionDigits: 2,
-                })}
-              </Typography>
-            </Box>
+              </InputLabel>
+              <Box
+                sx={{
+                  p: 2,
+                  borderRadius: 1,
+                  border: "1px solid",
+                  borderColor: "divider",
+                }}
+              >
+                <Typography variant="body2" color="text.secondary">
+                  {formatLocalizedDateTime(PREVIEW_DATE, {
+                    dateStyle: "full",
+                    timeStyle: "short",
+                  })}
+                </Typography>
+                <Typography variant="body2" color="text.secondary" sx={{ mt: 0.75 }}>
+                  {formatLocalizedNumber(1234567.89, {
+                    maximumFractionDigits: 2,
+                  })}
+                </Typography>
+              </Box>
+            </FormControl>
           </SettingsGroup>
         </SettingsSectionList>
       </Box>
