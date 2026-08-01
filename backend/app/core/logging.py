@@ -155,7 +155,7 @@ def configure_uvicorn_loggers(
 ) -> None:
     """Configure Uvicorn access, protocol, and lifecycle log routing."""
 
-    def configure_logger(logger_name: str, level: int, protocol_filter: UvicornProtocolLogFilter | None = None) -> None:
+    def configure_logger(logger_name: str, level: int, log_filter: logging.Filter | None = None) -> None:
         logger = logging.getLogger(logger_name)
         logger.setLevel(level)
         logger.handlers.clear()
@@ -167,8 +167,8 @@ def configure_uvicorn_loggers(
                 else logging.Formatter(log_format)
             )
             configured_handler.setFormatter(formatter)
-            if protocol_filter is not None:
-                configured_handler.addFilter(protocol_filter)
+            if log_filter is not None:
+                configured_handler.addFilter(log_filter)
             logger.addHandler(configured_handler)
         logger.propagate = False
 
