@@ -5,13 +5,13 @@ import LinkOffIcon from "@mui/icons-material/LinkOff";
 import OpenInNewIcon from "@mui/icons-material/OpenInNew";
 import RadioButtonUncheckedIcon from "@mui/icons-material/RadioButtonUnchecked";
 import UsbIcon from "@mui/icons-material/Usb";
-import { Box, Button, Chip, Stack, Typography, useMediaQuery, useTheme } from "@mui/material";
+import { Box, Button, Chip, Stack, Typography } from "@mui/material";
 import { type ReactNode, useCallback, useEffect, useMemo, useState } from "react";
 import CompanionPairingDialog from "../components/FileBrowser/CompanionPairingDialog";
 import { LOCAL_DRIVES_PAGE_COPY } from "../components/Settings/localDrivesCopy";
 import { SettingsInlineAlert, SettingsNotificationSnackbar, type SettingsNotificationState } from "../components/Settings/SettingsFeedback";
 import { SettingsGroup } from "../components/Settings/SettingsGroup";
-import { SettingsSectionHeader } from "../components/Settings/SettingsSectionHeader";
+import { SettingsPage } from "../components/Settings/SettingsPage";
 import { SettingsSectionList } from "../components/Settings/SettingsSectionList";
 import { SettingsLoadingState } from "../components/Settings/SettingsState";
 import {
@@ -108,8 +108,6 @@ const EMPTY_LOCAL_DRIVES_STATE: LocalDrivesSettingsData = {
  * local drives inside the file browser.
  */
 export function LocalDrivesSettings({ onConnectionsChanged, sectionTitle, sectionDescription }: LocalDrivesSettingsProps) {
-  const theme = useTheme();
-  const isMobile = useMediaQuery(theme.breakpoints.down("sm"));
   const companionUnsupportedOnCurrentDevice = useMemo(() => isUnsupportedMobileCompanionPlatform(), []);
   const [testing, setTesting] = useState(false);
   const [pairingDialogOpen, setPairingDialogOpen] = useState(false);
@@ -369,14 +367,11 @@ export function LocalDrivesSettings({ onConnectionsChanged, sectionTitle, sectio
   const shouldShowVerificationSection = showStatusContent && !loading && viewState === "paired";
 
   return (
-    <Box sx={{ height: "100%", display: "flex", flexDirection: "column", bgcolor: "background.default", overflow: "hidden" }}>
-      <SettingsSectionHeader
-        title={sectionTitle ?? LOCAL_DRIVES_PAGE_COPY.headerTitle}
-        description={sectionDescription ?? LOCAL_DRIVES_PAGE_COPY.headerDescription}
-        showTitle={!isMobile}
-      />
-
-      <Box sx={{ flex: 1, overflow: "auto", px: { xs: 2, sm: 3, md: 4 }, pb: 3 }}>
+    <SettingsPage
+      category="local-drives"
+      title={sectionTitle ?? LOCAL_DRIVES_PAGE_COPY.headerTitle}
+      description={sectionDescription ?? LOCAL_DRIVES_PAGE_COPY.headerDescription}
+    >
         {companionUnsupportedOnCurrentDevice ? (
           <SettingsGroup
             title={LOCAL_DRIVES_PAGE_COPY.unsupportedMobileTitle}
@@ -576,8 +571,6 @@ export function LocalDrivesSettings({ onConnectionsChanged, sectionTitle, sectio
             )}
           </SettingsSectionList>
         )}
-      </Box>
-
       {!companionUnsupportedOnCurrentDevice && (
         <CompanionPairingDialog
           open={pairingDialogOpen}
@@ -592,6 +585,6 @@ export function LocalDrivesSettings({ onConnectionsChanged, sectionTitle, sectio
         notification={notification}
         onClose={() => setNotification((current) => ({ ...current, open: false }))}
       />
-    </Box>
+    </SettingsPage>
   );
 }

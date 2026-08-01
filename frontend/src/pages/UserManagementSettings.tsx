@@ -28,18 +28,14 @@ import {
   TextField,
   Tooltip,
   Typography,
-  useMediaQuery,
-  useTheme,
 } from "@mui/material";
 import { useCallback, useMemo, useState } from "react";
 import { useTranslation } from "react-i18next";
 import DeleteDialog from "../components/Admin/DeleteDialog";
 import { adminDialogActionButtonSx, adminDialogEndActionRowSx } from "../components/Admin/dialogActionStyles";
 import { ResponsiveFormDialog } from "../components/Admin/ResponsiveFormDialog";
-import { SettingsActionBar } from "../components/Settings/SettingsActionBar";
-import { SettingsCategoryDescription } from "../components/Settings/SettingsCategoryDescription";
 import { SettingsInlineAlert, SettingsNotificationSnackbar, type SettingsNotificationState } from "../components/Settings/SettingsFeedback";
-import { SettingsSectionHeader } from "../components/Settings/SettingsSectionHeader";
+import { SettingsPage } from "../components/Settings/SettingsPage";
 import { SettingsEmptyState, SettingsLoadingState } from "../components/Settings/SettingsState";
 import {
   settingsDestructiveIconButtonSx,
@@ -49,7 +45,6 @@ import {
   settingsUtilityIconButtonSx,
 } from "../components/Settings/settingsButtonStyles";
 import { loadUserManagementSettingsData, SETTINGS_DATA_CACHE_KEYS } from "../components/Settings/settingsDataSources";
-import { getSettingsCategoryLabel } from "../components/Settings/settingsNavigation";
 import { settingsListItemTitleSx } from "../components/Settings/settingsTypographyStyles";
 import { useCachedAsyncData } from "../hooks/useCachedAsyncData";
 import api from "../services/api";
@@ -127,8 +122,6 @@ const DEFAULT_RESET_PASSWORD_FORM: ResetPasswordFormState = {
 };
 
 export function UserManagementSettings({ dialogSafeHeader = false }: UserManagementSettingsProps) {
-  const theme = useTheme();
-  const isDesktop = useMediaQuery(theme.breakpoints.up("sm"));
   const { t } = useTranslation();
   const [notification, setNotification] = useState<SettingsNotificationState>({
     open: false,
@@ -686,24 +679,16 @@ export function UserManagementSettings({ dialogSafeHeader = false }: UserManagem
   );
 
   return (
-    <Box
-      sx={{
-        height: "100%",
-        display: "flex",
-        flexDirection: "column",
-        bgcolor: "background.default",
-        overflow: "hidden",
-      }}
+    <SettingsPage
+      category="admin-users"
+      dialogSafeHeader={dialogSafeHeader}
+      footerSecondaryActions={
+        <Button variant="outlined" startIcon={<AddIcon />} onClick={openCreateDialog} sx={settingsUtilityButtonSx}>
+          {t("settings.userManagement.addUserButton")}
+        </Button>
+      }
     >
-      <SettingsSectionHeader
-        title={getSettingsCategoryLabel("admin-users")}
-        description={<SettingsCategoryDescription category="admin-users" />}
-        dialogSafe={dialogSafeHeader}
-        showTitle={isDesktop}
-        actions={undefined}
-      />
-
-      <Box sx={{ px: { xs: 2, sm: 3, md: 4 }, pb: 2 }}>
+      <Stack spacing={2}>
         <Stack direction="row" spacing={1.5} useFlexGap sx={{ flexWrap: "wrap" }}>
           <Chip
             label={t("settings.userManagement.totalUsers", { count: users.length })}
@@ -718,9 +703,6 @@ export function UserManagementSettings({ dialogSafeHeader = false }: UserManagem
             sx={settingsMetadataChipSx}
           />
         </Stack>
-      </Box>
-
-      <Box sx={{ flex: 1, overflow: "auto", px: { xs: 2, sm: 3, md: 4 }, pb: 4 }}>
         {loading ? (
           <SettingsLoadingState />
         ) : users.length === 0 ? (
@@ -943,15 +925,7 @@ export function UserManagementSettings({ dialogSafeHeader = false }: UserManagem
             })}
           </List>
         )}
-      </Box>
-
-      <SettingsActionBar
-        secondaryActions={
-          <Button variant="outlined" startIcon={<AddIcon />} onClick={openCreateDialog} sx={settingsUtilityButtonSx}>
-            {t("settings.userManagement.addUserButton")}
-          </Button>
-        }
-      />
+      </Stack>
 
       <Menu
         anchorEl={advancedMappingMenu.anchor}
@@ -1096,6 +1070,6 @@ export function UserManagementSettings({ dialogSafeHeader = false }: UserManagem
         notification={notification}
         onClose={() => setNotification((current) => ({ ...current, open: false }))}
       />
-    </Box>
+    </SettingsPage>
   );
 }

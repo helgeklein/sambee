@@ -8,21 +8,16 @@ import {
   MenuItem,
   Stack,
   TextField,
-  useMediaQuery,
-  useTheme,
 } from "@mui/material";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { useTranslation } from "react-i18next";
-import { SettingsActionBar } from "../components/Settings/SettingsActionBar";
-import { SettingsCategoryDescription } from "../components/Settings/SettingsCategoryDescription";
 import { SettingsInlineAlert, SettingsNotificationSnackbar, type SettingsNotificationState } from "../components/Settings/SettingsFeedback";
 import { SettingsGroup } from "../components/Settings/SettingsGroup";
-import { SettingsSectionHeader } from "../components/Settings/SettingsSectionHeader";
+import { SettingsPage } from "../components/Settings/SettingsPage";
 import { SettingsSectionList } from "../components/Settings/SettingsSectionList";
 import { SettingsLoadingState } from "../components/Settings/SettingsState";
 import { settingsPrimaryButtonSx, settingsUtilityButtonSx } from "../components/Settings/settingsButtonStyles";
 import { loadAdvancedSettingsData, SETTINGS_DATA_CACHE_KEYS } from "../components/Settings/settingsDataSources";
-import { getSettingsCategoryLabel } from "../components/Settings/settingsNavigation";
 import { useCachedAsyncData } from "../hooks/useCachedAsyncData";
 import { translate } from "../i18n";
 import api from "../services/api";
@@ -370,8 +365,6 @@ function ByteSizeSettingField({
 }
 
 export function AdvancedSettings({ dialogSafeHeader = false }: AdvancedSettingsProps) {
-  const theme = useTheme();
-  const isMobile = useMediaQuery(theme.breakpoints.down("sm"));
   const { t } = useTranslation();
   const [pageError, setPageError] = useState<string | null>(null);
   const handleAdvancedSettingsLoadError = useCallback(
@@ -513,24 +506,7 @@ export function AdvancedSettings({ dialogSafeHeader = false }: AdvancedSettingsP
   );
 
   return (
-    <Box
-      sx={{
-        height: "100%",
-        display: "flex",
-        flexDirection: "column",
-        bgcolor: "background.default",
-        overflow: "hidden",
-      }}
-    >
-      <SettingsSectionHeader
-        title={getSettingsCategoryLabel("admin-system")}
-        description={<SettingsCategoryDescription category="admin-system" />}
-        dialogSafe={dialogSafeHeader}
-        showTitle={!isMobile}
-        actions={undefined}
-      />
-
-      <Box sx={{ flex: 1, overflow: "auto", px: { xs: 2, sm: 3, md: 4 }, pb: isMobile ? 2 : 3 }}>
+    <SettingsPage category="admin-system" dialogSafeHeader={dialogSafeHeader} footerPrimaryActions={saveAction}>
         {loading && !settings && <SettingsLoadingState />}
 
         {pageError && <SettingsInlineAlert>{pageError}</SettingsInlineAlert>}
@@ -588,14 +564,10 @@ export function AdvancedSettings({ dialogSafeHeader = false }: AdvancedSettingsP
             </SettingsGroup>
           </SettingsSectionList>
         )}
-      </Box>
-
-      <SettingsActionBar primaryActions={saveAction} />
-
       <SettingsNotificationSnackbar
         notification={notification}
         onClose={() => setNotification((current) => ({ ...current, open: false }))}
       />
-    </Box>
+    </SettingsPage>
   );
 }

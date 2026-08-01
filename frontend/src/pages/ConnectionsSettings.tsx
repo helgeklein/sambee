@@ -21,7 +21,7 @@ export function ConnectionsSettings({
     <SettingsPage
       category="connections"
       dialogSafeHeader={dialogSafeHeader}
-      contentSx={{ px: 0, py: 0, minWidth: 0 }}
+      contentSx={{ px: 0, minWidth: 0 }}
       footerSecondaryActions={footerSecondaryActions}
     >
       <ConnectionSettings

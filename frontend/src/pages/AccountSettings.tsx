@@ -11,17 +11,13 @@ import {
   TableRow,
   TextField,
   Typography,
-  useMediaQuery,
-  useTheme,
 } from "@mui/material";
 import { useEffect, useEffectEvent, useState } from "react";
 import { useNavigate } from "react-router-dom";
-import { SettingsCategoryDescription } from "../components/Settings/SettingsCategoryDescription";
 import { SettingsGroup } from "../components/Settings/SettingsGroup";
 import { SettingsList } from "../components/Settings/SettingsList";
-import { SettingsSectionHeader } from "../components/Settings/SettingsSectionHeader";
+import { SettingsPage } from "../components/Settings/SettingsPage";
 import { SettingsSectionList } from "../components/Settings/SettingsSectionList";
-import { getSettingsCategoryLabel } from "../components/Settings/settingsNavigation";
 import { signOutCurrentBrowser } from "../services/accountSession";
 import api from "../services/api";
 import type { CurrentAccount, OidcBrowserSession } from "../types";
@@ -85,8 +81,6 @@ function AccountIdentityRow({ label, value, isLast = false }: AccountIdentityRow
 }
 
 export function AccountSettings({ dialogSafe = false }: { dialogSafe?: boolean }) {
-  const theme = useTheme();
-  const isMobile = useMediaQuery(theme.breakpoints.down("sm"));
   const navigate = useNavigate();
   const [account, setAccount] = useState<CurrentAccount | null>(null);
   const [sessions, setSessions] = useState<OidcBrowserSession[] | null>(null);
@@ -191,14 +185,7 @@ export function AccountSettings({ dialogSafe = false }: { dialogSafe?: boolean }
   };
 
   return (
-    <Box sx={{ height: "100%", display: "flex", flexDirection: "column", bgcolor: "background.default", overflow: "hidden" }}>
-      <SettingsSectionHeader
-        title={getSettingsCategoryLabel("account")}
-        description={<SettingsCategoryDescription category="account" />}
-        dialogSafe={dialogSafe}
-        showTitle={!isMobile}
-      />
-      <Box sx={{ flex: 1, overflow: "auto", px: { xs: 2, sm: 3, md: 4 }, pb: 3 }}>
+    <SettingsPage category="account" dialogSafeHeader={dialogSafe}>
         {error && (
           <Alert severity="error" sx={{ mb: 3 }}>
             {error}
@@ -329,7 +316,6 @@ export function AccountSettings({ dialogSafe = false }: { dialogSafe?: boolean }
             </Box>
           </SettingsSectionList>
         )}
-      </Box>
-    </Box>
+    </SettingsPage>
   );
 }

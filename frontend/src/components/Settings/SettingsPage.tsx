@@ -7,6 +7,7 @@ import { getSettingsCategoryLabel, type SettingsCategory } from "./settingsNavig
 
 interface SettingsPageProps {
   category: SettingsCategory;
+  title?: string;
   children: ReactNode;
   description?: ReactNode;
   actions?: ReactNode;
@@ -19,6 +20,7 @@ interface SettingsPageProps {
 /** Shared category frame so settings pages inherit consistent sizing and spacing. */
 export function SettingsPage({
   category,
+  title,
   children,
   description,
   actions,
@@ -45,7 +47,7 @@ export function SettingsPage({
   return (
     <Box sx={{ height: "100%", display: "flex", flexDirection: "column", bgcolor: "background.default", overflow: "hidden" }}>
       <SettingsSectionHeader
-        title={getSettingsCategoryLabel(category)}
+        title={title ?? getSettingsCategoryLabel(category)}
         description={description ?? <SettingsCategoryDescription category={category} />}
         actions={isMobile ? undefined : actions}
         dialogSafe={dialogSafeHeader}
