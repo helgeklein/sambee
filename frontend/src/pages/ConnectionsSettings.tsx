@@ -1,7 +1,5 @@
-import { Box, useMediaQuery, useTheme } from "@mui/material";
-import { SettingsCategoryDescription } from "../components/Settings/SettingsCategoryDescription";
-import { SettingsSectionHeader } from "../components/Settings/SettingsSectionHeader";
-import { getSettingsCategoryLabel } from "../components/Settings/settingsNavigation";
+import { type ReactNode, useState } from "react";
+import { SettingsPage } from "../components/Settings/SettingsPage";
 import { ConnectionSettings } from "./ConnectionSettings";
 
 interface ConnectionsSettingsProps {
@@ -17,28 +15,23 @@ export function ConnectionsSettings({
   dialogSafeHeader = false,
   forceDesktopLayout = false,
 }: ConnectionsSettingsProps) {
-  const theme = useTheme();
-  const isLargeScreen = useMediaQuery(theme.breakpoints.up("sm"));
-  const isDesktop = forceDesktopLayout || isLargeScreen;
+  const [footerSecondaryActions, setFooterSecondaryActions] = useState<ReactNode>(null);
 
   return (
-    <Box sx={{ height: "100%", display: "flex", flexDirection: "column", bgcolor: "background.default", overflow: "hidden" }}>
-      <SettingsSectionHeader
-        title={getSettingsCategoryLabel("connections")}
-        description={<SettingsCategoryDescription category="connections" />}
-        dialogSafe={dialogSafeHeader}
-        showTitle={isDesktop}
+    <SettingsPage
+      category="connections"
+      dialogSafeHeader={dialogSafeHeader}
+      contentSx={{ px: 0, minWidth: 0 }}
+      footerSecondaryActions={footerSecondaryActions}
+    >
+      <ConnectionSettings
+        isAdmin={isAdmin}
+        onConnectionsChanged={onConnectionsChanged}
+        forceDesktopLayout={forceDesktopLayout}
+        showHeader={false}
+        contentPadding="none"
+        onFooterSecondaryActionsChange={setFooterSecondaryActions}
       />
-
-      <Box sx={{ flex: 1, minWidth: 0, overflow: isDesktop ? "hidden" : "auto" }}>
-        <ConnectionSettings
-          isAdmin={isAdmin}
-          onConnectionsChanged={onConnectionsChanged}
-          forceDesktopLayout={forceDesktopLayout}
-          showHeader={false}
-          showMobileFab={!isDesktop}
-        />
-      </Box>
-    </Box>
+    </SettingsPage>
   );
 }

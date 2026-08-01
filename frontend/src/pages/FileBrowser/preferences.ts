@@ -1,5 +1,6 @@
 import { useEffect, useState } from "react";
-import { loadCurrentUserSettings, patchCurrentUserSettings } from "../../services/userSettingsSync";
+import { loadCurrentUserSettings, patchCurrentUserSettings, USER_SETTINGS_CHANGED_EVENT } from "../../services/userSettingsSync";
+import type { CurrentUserSettings } from "../../types";
 import type { PaneMode, ViewMode } from "./types";
 
 export const QUICK_NAV_INCLUDE_DOT_DIRECTORIES_STORAGE_KEY = "quick-nav-include-dot-directories";
@@ -154,6 +155,16 @@ export function useQuickNavIncludeDotDirectoriesPreference(): [boolean, (enabled
   useEffect(() => {
     let cancelled = false;
 
+    const applyBackendPreference = (settings: CurrentUserSettings | null) => {
+      if (!settings) {
+        return;
+      }
+
+      const backendValue = settings.browser.quick_nav_include_dot_directories;
+      setQuickNavIncludeDotDirectoriesPreference(backendValue, true);
+      setEnabled(backendValue);
+    };
+
     const updatePreference = () => {
       setEnabled(readQuickNavIncludeDotDirectoriesPreference());
     };
@@ -164,23 +175,27 @@ export function useQuickNavIncludeDotDirectoriesPreference(): [boolean, (enabled
       }
     };
 
+    const handleUserSettingsChanged = (event: Event) => {
+      applyBackendPreference((event as CustomEvent<CurrentUserSettings>).detail);
+    };
+
     window.addEventListener("storage", handleStorage);
     window.addEventListener(QUICK_NAV_PREFERENCE_EVENT, updatePreference);
+    window.addEventListener(USER_SETTINGS_CHANGED_EVENT, handleUserSettingsChanged);
 
     void loadCurrentUserSettings().then((settings) => {
-      if (cancelled || !settings) {
+      if (cancelled) {
         return;
       }
 
-      const backendValue = settings.browser.quick_nav_include_dot_directories;
-      setQuickNavIncludeDotDirectoriesPreference(backendValue, true);
-      setEnabled(backendValue);
+      applyBackendPreference(settings);
     });
 
     return () => {
       cancelled = true;
       window.removeEventListener("storage", handleStorage);
       window.removeEventListener(QUICK_NAV_PREFERENCE_EVENT, updatePreference);
+      window.removeEventListener(USER_SETTINGS_CHANGED_EVENT, handleUserSettingsChanged);
     };
   }, []);
 
@@ -193,6 +208,16 @@ export function useFileBrowserViewModePreference(): [ViewMode, (viewMode: ViewMo
   useEffect(() => {
     let cancelled = false;
 
+    const applyBackendPreference = (settings: CurrentUserSettings | null) => {
+      if (!settings) {
+        return;
+      }
+
+      const backendValue = settings.browser.file_browser_view_mode;
+      setFileBrowserViewModePreference(backendValue, true);
+      setViewMode(backendValue);
+    };
+
     const updatePreference = () => {
       setViewMode(readFileBrowserViewModePreference());
     };
@@ -203,23 +228,27 @@ export function useFileBrowserViewModePreference(): [ViewMode, (viewMode: ViewMo
       }
     };
 
+    const handleUserSettingsChanged = (event: Event) => {
+      applyBackendPreference((event as CustomEvent<CurrentUserSettings>).detail);
+    };
+
     window.addEventListener("storage", handleStorage);
     window.addEventListener(VIEW_MODE_PREFERENCE_EVENT, updatePreference);
+    window.addEventListener(USER_SETTINGS_CHANGED_EVENT, handleUserSettingsChanged);
 
     void loadCurrentUserSettings().then((settings) => {
-      if (cancelled || !settings) {
+      if (cancelled) {
         return;
       }
 
-      const backendValue = settings.browser.file_browser_view_mode;
-      setFileBrowserViewModePreference(backendValue, true);
-      setViewMode(backendValue);
+      applyBackendPreference(settings);
     });
 
     return () => {
       cancelled = true;
       window.removeEventListener("storage", handleStorage);
       window.removeEventListener(VIEW_MODE_PREFERENCE_EVENT, updatePreference);
+      window.removeEventListener(USER_SETTINGS_CHANGED_EVENT, handleUserSettingsChanged);
     };
   }, []);
 
@@ -232,6 +261,16 @@ export function useTextEditorMaxFileSizeBytesPreference(): [number, (maxFileSize
   useEffect(() => {
     let cancelled = false;
 
+    const applyBackendPreference = (settings: CurrentUserSettings | null) => {
+      if (!settings) {
+        return;
+      }
+
+      const backendValue = settings.text_editor.max_file_size_bytes;
+      setTextEditorMaxFileSizeBytesPreference(backendValue, true);
+      setMaxFileSizeBytes(backendValue);
+    };
+
     const updatePreference = () => {
       setMaxFileSizeBytes(readTextEditorMaxFileSizeBytesPreference());
     };
@@ -242,23 +281,27 @@ export function useTextEditorMaxFileSizeBytesPreference(): [number, (maxFileSize
       }
     };
 
+    const handleUserSettingsChanged = (event: Event) => {
+      applyBackendPreference((event as CustomEvent<CurrentUserSettings>).detail);
+    };
+
     window.addEventListener("storage", handleStorage);
     window.addEventListener(TEXT_EDITOR_MAX_FILE_SIZE_PREFERENCE_EVENT, updatePreference);
+    window.addEventListener(USER_SETTINGS_CHANGED_EVENT, handleUserSettingsChanged);
 
     void loadCurrentUserSettings().then((settings) => {
-      if (cancelled || !settings) {
+      if (cancelled) {
         return;
       }
 
-      const backendValue = settings.text_editor.max_file_size_bytes;
-      setTextEditorMaxFileSizeBytesPreference(backendValue, true);
-      setMaxFileSizeBytes(backendValue);
+      applyBackendPreference(settings);
     });
 
     return () => {
       cancelled = true;
       window.removeEventListener("storage", handleStorage);
       window.removeEventListener(TEXT_EDITOR_MAX_FILE_SIZE_PREFERENCE_EVENT, updatePreference);
+      window.removeEventListener(USER_SETTINGS_CHANGED_EVENT, handleUserSettingsChanged);
     };
   }, []);
 

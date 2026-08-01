@@ -1,3 +1,4 @@
+import { SettingsActionBar } from "../components/Settings/SettingsActionBar";
 //
 // ConnectionSettings
 //
@@ -14,9 +15,7 @@ import {
   Button,
   Chip,
   Divider,
-  Fab,
   IconButton,
-  List,
   ListItem,
   Menu,
   MenuItem,
@@ -25,22 +24,24 @@ import {
   useMediaQuery,
   useTheme,
 } from "@mui/material";
-import { useCallback, useState } from "react";
+import { type ReactNode, useCallback, useEffect, useMemo, useState } from "react";
 import { useTranslation } from "react-i18next";
 import ConnectionDialog from "../components/Admin/ConnectionDialog";
 import DeleteDialog from "../components/Admin/DeleteDialog";
 import { SettingsNotificationSnackbar, type SettingsNotificationState } from "../components/Settings/SettingsFeedback";
 import { SettingsGroup } from "../components/Settings/SettingsGroup";
+import { SettingsList } from "../components/Settings/SettingsList";
 import { SettingsSectionHeader } from "../components/Settings/SettingsSectionHeader";
+import { SettingsSectionList } from "../components/Settings/SettingsSectionList";
 import { SettingsEmptyState, SettingsLoadingState } from "../components/Settings/SettingsState";
 import {
   settingsDestructiveIconButtonSx,
   settingsMetadataChipSx,
-  settingsPrimaryButtonSx,
-  settingsPrimaryFabSx,
+  settingsUtilityButtonSx,
   settingsUtilityIconButtonSx,
 } from "../components/Settings/settingsButtonStyles";
 import { loadConnectionsSettingsData, SETTINGS_DATA_CACHE_KEYS } from "../components/Settings/settingsDataSources";
+import { settingsListItemTitleSx } from "../components/Settings/settingsTypographyStyles";
 import { useSettingsAccess } from "../components/Settings/useSettingsAccess";
 import { useCachedAsyncData } from "../hooks/useCachedAsyncData";
 import api from "../services/api";
@@ -67,9 +68,11 @@ interface ConnectionSettingsProps {
   forceDesktopLayout?: boolean;
   showHeader?: boolean;
   sectionTitle?: string;
-  sectionDescription?: string;
-  showMobileFab?: boolean;
+  onFooterSecondaryActionsChange?: (actions: ReactNode) => void;
+  contentPadding?: "responsive" | "none";
 }
+
+const CONNECTION_ROW_VERTICAL_PADDING = 2.5;
 
 export function ConnectionSettings({
   isAdmin,
@@ -77,8 +80,8 @@ export function ConnectionSettings({
   forceDesktopLayout = false,
   showHeader = true,
   sectionTitle,
-  sectionDescription,
-  showMobileFab = true,
+  onFooterSecondaryActionsChange,
+  contentPadding = "responsive",
 }: ConnectionSettingsProps) {
   const theme = useTheme();
   const isLargeScreen = useMediaQuery(theme.breakpoints.up("sm"));
@@ -86,7 +89,7 @@ export function ConnectionSettings({
   const { isAdmin: detectedIsAdmin, canWrite: detectedCanWrite } = useSettingsAccess(isAdmin !== true);
   // Use desktop layout if forced or on large screens
   const isDesktop = forceDesktopLayout || isLargeScreen;
-  const shouldRenderInlineGroupHeader = Boolean(sectionTitle || sectionDescription || isDesktop);
+  const shouldRenderInlineGroupHeader = Boolean(sectionTitle);
   const effectiveIsAdmin = Boolean(isAdmin || detectedIsAdmin);
   const canCreateConnections = effectiveIsAdmin || detectedCanWrite;
   const [notification, setNotification] = useState<SettingsNotificationState>({
@@ -122,10 +125,29 @@ export function ConnectionSettings({
     element: HTMLElement;
     connection: Connection;
   } | null>(null);
-  const handleAddClick = () => {
+  const handleAddClick = useCallback(() => {
     setSelectedConnection(null);
     setConnectionDialogOpen(true);
-  };
+  }, []);
+
+  const addConnectionAction = useMemo(
+    () =>
+      canCreateConnections ? (
+        <Button variant="outlined" startIcon={<AddIcon />} onClick={handleAddClick} sx={settingsUtilityButtonSx}>
+          {t("settings.connectionManagement.addConnectionButton")}
+        </Button>
+      ) : null,
+    [canCreateConnections, handleAddClick, t]
+  );
+
+  useEffect(() => {
+    if (!onFooterSecondaryActionsChange) {
+      return;
+    }
+
+    onFooterSecondaryActionsChange(addConnectionAction);
+    return () => onFooterSecondaryActionsChange(null);
+  }, [addConnectionAction, onFooterSecondaryActionsChange]);
 
   const handleEdit = (connection: Connection) => {
     if (!connection.can_manage) return;
@@ -253,15 +275,16 @@ export function ConnectionSettings({
 
     if (isDesktop) {
       return (
-        <List sx={{ py: 0 }}>
-          {sectionConnections.map((connection) => (
+        <SettingsList>
+          {sectionConnections.map((connection, index) => (
             <Box key={connection.id}>
               <ListItem
                 sx={{
                   display: "flex",
                   flexDirection: "column",
                   alignItems: "stretch",
-                  py: 2.5,
+                  pt: index === 0 ? 0 : CONNECTION_ROW_VERTICAL_PADDING,
+                  pb: CONNECTION_ROW_VERTICAL_PADDING,
                   px: 0,
                 }}
               >
@@ -274,7 +297,7 @@ export function ConnectionSettings({
                     flexWrap: "wrap",
                   }}
                 >
-                  <Typography variant="h6" fontWeight="medium">
+                  <Typography component="div" variant="body1" sx={settingsListItemTitleSx}>
                     {connection.name}
                   </Typography>
                   {renderMetadataChips(connection)}
@@ -342,20 +365,21 @@ export function ConnectionSettings({
               <Divider />
             </Box>
           ))}
-        </List>
+        </SettingsList>
       );
     }
 
     return (
-      <List sx={{ py: 0 }}>
-        {sectionConnections.map((connection) => (
+      <SettingsList>
+        {sectionConnections.map((connection, index) => (
           <Box key={connection.id}>
             <ListItem
               sx={{
                 display: "flex",
                 flexDirection: "column",
                 alignItems: "stretch",
-                py: 2.5,
+                pt: index === 0 ? 0 : CONNECTION_ROW_VERTICAL_PADDING,
+                pb: CONNECTION_ROW_VERTICAL_PADDING,
                 px: 0,
               }}
             >
@@ -377,7 +401,7 @@ export function ConnectionSettings({
                     flexWrap: "wrap",
                   }}
                 >
-                  <Typography variant="h6" fontWeight="medium">
+                  <Typography component="div" variant="body1" sx={settingsListItemTitleSx}>
                     {connection.name}
                   </Typography>
                   {renderMetadataChips(connection)}
@@ -421,29 +445,19 @@ export function ConnectionSettings({
             <Divider />
           </Box>
         ))}
-      </List>
+      </SettingsList>
     );
   };
 
-  const renderSection = (
-    title: string,
-    description: string,
-    sectionConnections: Connection[],
-    emptyMessage: string,
-    options?: { disableTopMargin?: boolean; testId?: string }
-  ) => (
-    <Box data-testid={options?.testId} sx={{ mt: options?.disableTopMargin ? 0 : 3 }}>
-      <Typography variant="subtitle1" fontWeight={700} sx={{ mb: 0.5 }}>
-        {title}
-      </Typography>
-      <Typography variant="body2" color="text.secondary" sx={{ mb: 1.5 }}>
-        {description}
-      </Typography>
-      {sectionConnections.length === 0 ? (
-        <SettingsEmptyState description={emptyMessage} compact sx={{ py: 2, maxWidth: "none", mx: 0, textAlign: "left" }} />
-      ) : (
-        renderConnectionList(sectionConnections)
-      )}
+  const renderSection = (title: string, sectionConnections: Connection[], emptyMessage: string, testId?: string) => (
+    <Box data-testid={testId}>
+      <SettingsGroup title={title}>
+        {sectionConnections.length === 0 ? (
+          <SettingsEmptyState description={emptyMessage} compact sx={{ py: 2, maxWidth: "none", mx: 0, textAlign: "left" }} />
+        ) : (
+          renderConnectionList(sectionConnections)
+        )}
+      </SettingsGroup>
     </Box>
   );
 
@@ -463,32 +477,22 @@ export function ConnectionSettings({
           description={t("settings.connectionManagement.headerDescription")}
           dialogSafe={forceDesktopLayout}
           showTitle={isDesktop}
-          actions={
-            isDesktop && canCreateConnections ? (
-              <Button variant="contained" startIcon={<AddIcon />} onClick={handleAddClick} sx={settingsPrimaryButtonSx}>
-                {t("settings.connectionManagement.addConnectionButton")}
-              </Button>
-            ) : undefined
-          }
+          actions={undefined}
         />
       ) : shouldRenderInlineGroupHeader ? (
         <Box data-testid="connection-settings-inline-header" sx={{ px: { xs: 2, sm: 3, md: 4 }, pt: 2, pb: 2 }}>
-          <SettingsGroup
-            title={sectionTitle}
-            description={sectionDescription}
-            actions={
-              isDesktop && canCreateConnections ? (
-                <Button variant="contained" startIcon={<AddIcon />} onClick={handleAddClick} sx={settingsPrimaryButtonSx}>
-                  {t("settings.connectionManagement.addConnectionButton")}
-                </Button>
-              ) : null
-            }
-          />
+          <SettingsGroup title={sectionTitle} actions={null} />
         </Box>
       ) : null}
 
       {/* Connection List */}
-      <Box sx={{ flex: showHeader ? 1 : undefined, overflow: showHeader ? "auto" : "visible", px: { xs: 2, sm: 3, md: 4 }, pb: 3 }}>
+      <Box
+        sx={{
+          flex: showHeader ? 1 : undefined,
+          overflow: showHeader ? "auto" : "visible",
+          ...(contentPadding === "responsive" ? { px: { xs: 2, sm: 3, md: 4 }, pb: 3 } : { p: 0 }),
+        }}
+      >
         {loading ? (
           <SettingsLoadingState />
         ) : connections.length === 0 ? (
@@ -503,41 +507,24 @@ export function ConnectionSettings({
             }
           />
         ) : (
-          <>
+          <SettingsSectionList sx={{ mt: showHeader ? 3 : 0 }}>
             {renderSection(
               t("settings.connectionManagement.sharedSectionTitle"),
-              t("settings.connectionManagement.sharedSectionDescription"),
               sharedConnections,
               t("settings.connectionManagement.sharedSectionEmpty"),
-              {
-                disableTopMargin: !showHeader,
-                testId: "connection-settings-shared-section",
-              }
+              "connection-settings-shared-section"
             )}
             {renderSection(
               t("settings.connectionManagement.privateSectionTitle"),
-              t("settings.connectionManagement.privateSectionDescription"),
               privateConnections,
               t("settings.connectionManagement.privateSectionEmpty"),
-              {
-                testId: "connection-settings-private-section",
-              }
+              "connection-settings-private-section"
             )}
-          </>
+          </SettingsSectionList>
         )}
       </Box>
 
-      {/* Mobile: FAB for adding connections */}
-      {!isDesktop && showMobileFab && canCreateConnections && (
-        <Fab
-          color="primary"
-          aria-label={t("settings.connectionManagement.addConnectionFabAriaLabel")}
-          onClick={handleAddClick}
-          sx={settingsPrimaryFabSx}
-        >
-          <AddIcon />
-        </Fab>
-      )}
+      {!onFooterSecondaryActionsChange && addConnectionAction && <SettingsActionBar secondaryActions={addConnectionAction} />}
 
       {/* Actions Menu */}
       <Menu

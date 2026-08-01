@@ -193,13 +193,11 @@ export const EN_TRANSLATIONS = {
     },
     fileBrowserPage: {
       quickNavigationTitle: "Quick navigation",
-      quickNavigationDescription: "Choose how quick navigation discovers folders in the file browser.",
       includeDotDirectoriesLabel: "Include dot directories in quick nav",
       includeDotDirectoriesDescription: "Show folders like .git, .cache, and other dot-prefixed directories in quick navigation results.",
     },
     textEditorPage: {
       limitsTitle: "Limits",
-      limitsDescription: "Control when Sambee opens files in the rich text editor instead of falling back to safer alternatives.",
       maxFileSizeLabel: "Maximum rich editor file size (MB)",
       maxFileSizeDescription:
         "Files larger than this limit will not open in the full CodeMirror-based text editor. Use this to avoid slow or memory-heavy editing sessions for very large files.",
@@ -216,7 +214,6 @@ export const EN_TRANSLATIONS = {
       headerDescription: "Pair Sambee Companion and control local-drive access from this browser.",
       intro: "Manage Sambee Companion pairing for this browser and verify local-drive access on this computer.",
       summaryTitle: "Current status",
-      summaryDescription: "See whether local drives are ready and take the next recommended action.",
       unsupportedMobileTitle: "Local drives require a desktop browser",
       unsupportedMobileDescription: "Sambee Companion is not available on iOS or Android.",
       unsupportedMobileAlert:
@@ -234,7 +231,6 @@ export const EN_TRANSLATIONS = {
       accessSectionTitle: "Local access",
       accessSectionDescription: "Manage pairing for this browser and confirm whether local-drive access is currently available.",
       pairingSectionTitle: "Pair this browser",
-      pairingSectionDescription: "Connect this browser to Sambee Companion to browse drives from your computer, too.",
       pairingSectionReady: "This browser is already paired with Sambee Companion.",
       pairingSectionUnavailable: "Start Sambee Companion on this computer, then return here to pair this browser.",
       pairingSectionRequired: "Approve a pairing request in Sambee Companion to unlock local-drive browsing.",
@@ -307,10 +303,8 @@ export const EN_TRANSLATIONS = {
       userLabel: "User:",
       pathLabel: "Path:",
       sharedSectionTitle: "Shared connections",
-      sharedSectionDescription: "Admins can create these for everyone. You can browse them, but only admins can change them.",
       sharedSectionEmpty: "No shared connections are available.",
       privateSectionTitle: "My connections",
-      privateSectionDescription: "These connections are visible only to your account.",
       privateSectionEmpty: "You have no private connections yet.",
       emptyTitle: "No connections configured",
       emptyAdminDescription: "Click the + button to create a shared or private SMB connection.",
@@ -491,11 +485,8 @@ export const EN_TRANSLATIONS = {
       resetSuccess: "{{label}} reset to inherited value",
       sections: {
         smbBackends: "SMB backends",
-        smbBackendsDescription: "Control how the server reads data from SMB shares during file access.",
         preprocessors: "Preprocessors",
-        preprocessorsDescription: "Configure limits for server-side preprocessing services.",
         imageMagick: "ImageMagick",
-        imageMagickDescription: "Set the file-size and runtime limits used when ImageMagick conversions run.",
       },
       fields: {
         value: "Value",

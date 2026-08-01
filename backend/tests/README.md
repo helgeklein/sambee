@@ -100,22 +100,15 @@ Example test structure:
 import pytest
 from fastapi.testclient import TestClient
 
+
 @pytest.mark.integration
 class TestMyFeature:
     """Test description."""
-    
-    def test_something(
-        self,
-        client: TestClient,
-        auth_headers_admin: dict
-    ):
+
+    def test_something(self, client: TestClient, auth_headers_admin: dict):
         """Test a specific behavior."""
-        response = client.post(
-            "/api/endpoint",
-            headers=auth_headers_admin,
-            json={"data": "value"}
-        )
-        
+        response = client.post("/api/endpoint", headers=auth_headers_admin, json={"data": "value"})
+
         assert response.status_code == 200
         data = response.json()
         assert data["field"] == "expected"

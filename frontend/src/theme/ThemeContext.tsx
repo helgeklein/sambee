@@ -47,12 +47,16 @@ interface ThemeContextValue {
   muiTheme: Theme;
   /** All available themes */
   availableThemes: ThemeConfig[];
-  /** Switch to a different theme by ID */
+  /** Preview a different theme by ID without persisting it. */
   setThemeById: (themeId: string) => void;
-  /** Add a custom theme */
+  /** Persist a theme selection after it has been explicitly confirmed. */
+  saveThemeById: (themeId: string) => void;
+  /** Add or update a custom theme draft. */
   addCustomTheme: (theme: ThemeConfig) => void;
-  /** Remove a custom theme */
+  /** Remove a custom theme draft. */
   removeCustomTheme: (themeId: string) => void;
+  /** Persist custom-theme edits after they have been explicitly confirmed. */
+  saveCustomThemes: () => void;
 }
 
 const ThemeContext = createContext<ThemeContextValue | undefined>(undefined);
@@ -345,11 +349,6 @@ export function SambeeThemeProvider({ children }: ThemeProviderProps) {
     }
   }, [currentTheme.primary.main]);
 
-  // Persist theme selection
-  useEffect(() => {
-    localStorage.setItem(THEME_ID_STORAGE_KEY, currentThemeId);
-  }, [currentThemeId]);
-
   useEffect(() => {
     let cancelled = false;
 
@@ -389,42 +388,33 @@ export function SambeeThemeProvider({ children }: ThemeProviderProps) {
     };
   }, []);
 
-  // Persist custom themes
-  useEffect(() => {
-    localStorage.setItem(CUSTOM_THEMES_STORAGE_KEY, JSON.stringify(customThemes));
-  }, [customThemes]);
-
   const setThemeById = (themeId: string) => {
     if (availableThemes.find((t) => t.id === themeId)) {
       setCurrentThemeId(themeId);
-      void patchCurrentUserSettings({
-        appearance: {
-          theme_id: themeId,
-        },
-      });
     }
   };
 
-  const addCustomTheme = (theme: ThemeConfig) => {
-    let nextCustomThemes: ThemeConfig[] = [];
+  const saveThemeById = (themeId: string) => {
+    if (!availableThemes.find((theme) => theme.id === themeId)) {
+      return;
+    }
 
+    setCurrentThemeId(themeId);
+    localStorage.setItem(THEME_ID_STORAGE_KEY, themeId);
+    localStorage.setItem(CUSTOM_THEMES_STORAGE_KEY, JSON.stringify(customThemes));
+    void patchCurrentUserSettings({ appearance: { theme_id: themeId, custom_themes: customThemes } });
+  };
+
+  const addCustomTheme = (theme: ThemeConfig) => {
     setCustomThemes((prev) => {
       // Replace if exists, add if new
       const existing = prev.findIndex((t) => t.id === theme.id);
       if (existing >= 0) {
         const updated = [...prev];
         updated[existing] = theme;
-        nextCustomThemes = updated;
         return updated;
       }
-      nextCustomThemes = [...prev, theme];
-      return nextCustomThemes;
-    });
-
-    void patchCurrentUserSettings({
-      appearance: {
-        custom_themes: nextCustomThemes,
-      },
+      return [...prev, theme];
     });
   };
 
@@ -433,25 +423,22 @@ export function SambeeThemeProvider({ children }: ThemeProviderProps) {
       return;
     }
 
-    let nextCustomThemes: ThemeConfig[] = [];
     const nextThemeId = currentThemeId === themeId ? getDefaultTheme().id : undefined;
 
     setCustomThemes((prev) => {
-      nextCustomThemes = prev.filter((t) => t.id !== themeId);
-      return nextCustomThemes;
+      return prev.filter((theme) => theme.id !== themeId);
     });
 
     // If removing current theme, switch to default
     if (nextThemeId) {
       setCurrentThemeId(nextThemeId);
     }
+  };
 
-    void patchCurrentUserSettings({
-      appearance: {
-        ...(nextThemeId ? { theme_id: nextThemeId } : {}),
-        custom_themes: nextCustomThemes,
-      },
-    });
+  const saveCustomThemes = () => {
+    localStorage.setItem(CUSTOM_THEMES_STORAGE_KEY, JSON.stringify(customThemes));
+    localStorage.setItem(THEME_ID_STORAGE_KEY, currentThemeId);
+    void patchCurrentUserSettings({ appearance: { theme_id: currentThemeId, custom_themes: customThemes } });
   };
 
   const value: ThemeContextValue = {
@@ -459,8 +446,10 @@ export function SambeeThemeProvider({ children }: ThemeProviderProps) {
     muiTheme,
     availableThemes,
     setThemeById,
+    saveThemeById,
     addCustomTheme,
     removeCustomTheme,
+    saveCustomThemes,
   };
 
   return <ThemeContext.Provider value={value}>{children}</ThemeContext.Provider>;

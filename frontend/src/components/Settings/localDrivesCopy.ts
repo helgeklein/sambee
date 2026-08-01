@@ -22,9 +22,6 @@ export const LOCAL_DRIVES_PAGE_COPY = {
   get summaryTitle() {
     return translate("settings.localDrives.summaryTitle");
   },
-  get summaryDescription() {
-    return translate("settings.localDrives.summaryDescription");
-  },
   get unsupportedMobileTitle() {
     return translate("settings.localDrives.unsupportedMobileTitle");
   },
@@ -72,9 +69,6 @@ export const LOCAL_DRIVES_PAGE_COPY = {
   },
   get pairingSectionTitle() {
     return translate("settings.localDrives.pairingSectionTitle");
-  },
-  get pairingSectionDescription() {
-    return translate("settings.localDrives.pairingSectionDescription");
   },
   get pairingSectionReady() {
     return translate("settings.localDrives.pairingSectionReady");

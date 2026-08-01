@@ -1,6 +1,5 @@
 import { Alert, Box, Button, CircularProgress, Stack, TextField } from "@mui/material";
 import { useCallback, useEffect, useState } from "react";
-import { SettingsGroup } from "../components/Settings/SettingsGroup";
 import { SettingsPage } from "../components/Settings/SettingsPage";
 import { loadNetworkSettingsData, SETTINGS_DATA_CACHE_KEYS } from "../components/Settings/settingsDataSources";
 import { clearCachedAsyncData, useCachedAsyncData } from "../hooks/useCachedAsyncData";
@@ -8,9 +7,17 @@ import api from "../services/api";
 import type { NetworkSettings as NetworkSettingsData } from "../types";
 import { getApiErrorMessage } from "../utils/apiErrors";
 
+const TRUSTED_PROXY_CIDRS_LABEL = "Trusted proxy CIDRs";
+
+function formatTrustedProxyCidrs(cidrs: string[]): string {
+  return cidrs.join("\n");
+}
+
 export function NetworkSettings() {
   const [publicUrl, setPublicUrl] = useState("");
   const [trustedProxyCidrs, setTrustedProxyCidrs] = useState("");
+  const [savedPublicUrl, setSavedPublicUrl] = useState("");
+  const [savedTrustedProxyCidrs, setSavedTrustedProxyCidrs] = useState("");
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
@@ -32,8 +39,12 @@ export function NetworkSettings() {
   useEffect(() => {
     if (!settings) return;
     setPublicUrl(settings.public_url);
-    setTrustedProxyCidrs(settings.trusted_proxy_cidrs.join("\n"));
+    setTrustedProxyCidrs(formatTrustedProxyCidrs(settings.trusted_proxy_cidrs));
+    setSavedPublicUrl(settings.public_url);
+    setSavedTrustedProxyCidrs(formatTrustedProxyCidrs(settings.trusted_proxy_cidrs));
   }, [settings]);
+
+  const hasUnsavedChanges = publicUrl !== savedPublicUrl || trustedProxyCidrs !== savedTrustedProxyCidrs;
 
   const save = async () => {
     try {
@@ -49,7 +60,9 @@ export function NetworkSettings() {
       clearCachedAsyncData(SETTINGS_DATA_CACHE_KEYS.adminAuthentication);
       setSettings(updated);
       setPublicUrl(updated.public_url);
-      setTrustedProxyCidrs(updated.trusted_proxy_cidrs.join("\n"));
+      setTrustedProxyCidrs(formatTrustedProxyCidrs(updated.trusted_proxy_cidrs));
+      setSavedPublicUrl(updated.public_url);
+      setSavedTrustedProxyCidrs(formatTrustedProxyCidrs(updated.trusted_proxy_cidrs));
       setNotice("Network settings saved.");
     } catch (saveError: unknown) {
       setError(getApiErrorMessage(saveError, "Network settings could not be saved."));
@@ -59,7 +72,14 @@ export function NetworkSettings() {
   };
 
   return (
-    <SettingsPage category="admin-network">
+    <SettingsPage
+      category="admin-network"
+      footerPrimaryActions={
+        <Button variant="contained" onClick={() => void save()} disabled={saving || !publicUrl.trim() || !hasUnsavedChanges}>
+          {saving ? "Saving..." : "Save network settings"}
+        </Button>
+      }
+    >
       {loading && !settings ? (
         <Box sx={{ display: "flex", justifyContent: "center", pt: 5 }}>
           <CircularProgress aria-label="Loading network settings" />
@@ -68,35 +88,24 @@ export function NetworkSettings() {
       <Stack spacing={2.5}>
         {error && <Alert severity="error">{error}</Alert>}
         {notice && <Alert severity="success">{notice}</Alert>}
-        <SettingsGroup title="External origin" description="Set the URL Sambee presents to external services.">
-          <Stack spacing={2}>
-            <TextField
-              required
-              fullWidth
-              label="Public URL"
-              value={publicUrl}
-              onChange={(event) => setPublicUrl(event.target.value)}
-              helperText="The externally reachable HTTPS origin, without a path. Changing it cancels incomplete OIDC sign-ins."
-            />
-          </Stack>
-        </SettingsGroup>
-        <SettingsGroup
-          title="Trusted reverse proxies"
-          description="List only proxies you operate that forward client IP addresses to Sambee."
-        >
-          <TextField
-            fullWidth
-            multiline
-            minRows={3}
-            label="Trusted reverse proxy CIDRs"
-            value={trustedProxyCidrs}
-            onChange={(event) => setTrustedProxyCidrs(event.target.value)}
-            helperText="One CIDR per line. Leave empty unless a reverse proxy you operate forwards client IP addresses."
-          />
-        </SettingsGroup>
-        <Button variant="contained" sx={{ alignSelf: "flex-start" }} onClick={() => void save()} disabled={saving || !publicUrl.trim()}>
-          {saving ? "Saving..." : "Save network settings"}
-        </Button>
+        <TextField
+          required
+          fullWidth
+          label="Public URL"
+          value={publicUrl}
+          onChange={(event) => setPublicUrl(event.target.value)}
+          helperText="The externally reachable HTTPS origin, without a path. Changing it cancels incomplete OIDC sign-ins."
+        />
+        <TextField
+          fullWidth
+          multiline
+          minRows={3}
+          label={TRUSTED_PROXY_CIDRS_LABEL}
+          value={trustedProxyCidrs}
+          onChange={(event) => setTrustedProxyCidrs(event.target.value)}
+          helperText="One CIDR per line. Leave empty unless a reverse proxy you operate forwards client IP addresses."
+          slotProps={{ inputLabel: { shrink: true } }}
+        />
       </Stack>
     </SettingsPage>
   );

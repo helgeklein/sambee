@@ -5,12 +5,14 @@ import { setLocale, setRegionalLocalePreference } from "../../i18n";
 import { render } from "../../test/utils/test-utils";
 import { AppearanceSettings } from "../PreferencesSettings";
 
-const { setThemeByIdMock, setIncludeDotDirectoriesMock, patchCurrentUserSettingsMock, loadCurrentUserSettingsMock } = vi.hoisted(() => ({
-  setThemeByIdMock: vi.fn(),
-  setIncludeDotDirectoriesMock: vi.fn(),
-  patchCurrentUserSettingsMock: vi.fn(),
-  loadCurrentUserSettingsMock: vi.fn(),
-}));
+const { saveThemeByIdMock, setThemeByIdMock, setIncludeDotDirectoriesMock, patchCurrentUserSettingsMock, loadCurrentUserSettingsMock } =
+  vi.hoisted(() => ({
+    saveThemeByIdMock: vi.fn(),
+    setThemeByIdMock: vi.fn(),
+    setIncludeDotDirectoriesMock: vi.fn(),
+    patchCurrentUserSettingsMock: vi.fn(),
+    loadCurrentUserSettingsMock: vi.fn(),
+  }));
 
 vi.mock("../../theme", () => ({
   useSambeeTheme: () => ({
@@ -31,6 +33,7 @@ vi.mock("../../theme", () => ({
         text: { primary: "#111111" },
       },
     ],
+    saveThemeById: saveThemeByIdMock,
     setThemeById: setThemeByIdMock,
   }),
 }));
@@ -72,7 +75,8 @@ describe("AppearanceSettings", () => {
     expect(screen.getByText("Localization")).toBeInTheDocument();
     expect(screen.getByRole("combobox", { name: "Language" })).toBeInTheDocument();
     expect(screen.getByRole("combobox", { name: "Regional settings" })).toBeInTheDocument();
-    expect(screen.getByText("Preview")).toBeInTheDocument();
+    expect(screen.getByRole("group", { name: "Preview" })).toBeInTheDocument();
+    expect(screen.getByText("Preview").tagName).toBe("LABEL");
     expect(screen.queryByText("Quick navigation")).not.toBeInTheDocument();
   });
 
@@ -91,32 +95,38 @@ describe("AppearanceSettings", () => {
     expect(await screen.findByRole("option", { name: "Browser default" })).toBeInTheDocument();
   });
 
-  it("persists the selected language preference", async () => {
+  it("persists the selected language preference only after saving", async () => {
     const user = userEvent.setup();
     render(<AppearanceSettings />);
 
     await user.click(screen.getByRole("combobox", { name: "Language" }));
     await user.click(await screen.findByRole("option", { name: "Pseudo-English (for localization testing)" }));
 
+    expect(patchCurrentUserSettingsMock).not.toHaveBeenCalled();
+    await user.click(screen.getByRole("button"));
     await waitFor(() => {
       expect(patchCurrentUserSettingsMock).toHaveBeenCalledWith({
         localization: {
           language: "en-XA",
+          regional_locale: "browser",
         },
       });
     });
   });
 
-  it("persists the selected regional locale preference", async () => {
+  it("persists the selected regional locale preference only after saving", async () => {
     const user = userEvent.setup();
     render(<AppearanceSettings />);
 
     await user.click(screen.getByRole("combobox", { name: "Regional settings" }));
     await user.click(await screen.findByRole("option", { name: "German (Germany)" }));
 
+    expect(patchCurrentUserSettingsMock).not.toHaveBeenCalled();
+    await user.click(screen.getByRole("button"));
     await waitFor(() => {
       expect(patchCurrentUserSettingsMock).toHaveBeenCalledWith({
         localization: {
+          language: "en",
           regional_locale: "de-DE",
         },
       });

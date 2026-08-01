@@ -3,21 +3,21 @@ import {
   Box,
   Button,
   CircularProgress,
-  Divider,
-  List,
   ListItem,
   ListItemText,
+  Table,
+  TableBody,
+  TableCell,
+  TableRow,
   TextField,
   Typography,
-  useMediaQuery,
-  useTheme,
 } from "@mui/material";
 import { useEffect, useEffectEvent, useState } from "react";
 import { useNavigate } from "react-router-dom";
-import { SettingsCategoryDescription } from "../components/Settings/SettingsCategoryDescription";
 import { SettingsGroup } from "../components/Settings/SettingsGroup";
-import { SettingsSectionHeader } from "../components/Settings/SettingsSectionHeader";
-import { getSettingsCategoryLabel } from "../components/Settings/settingsNavigation";
+import { SettingsList } from "../components/Settings/SettingsList";
+import { SettingsPage } from "../components/Settings/SettingsPage";
+import { SettingsSectionList } from "../components/Settings/SettingsSectionList";
 import { signOutCurrentBrowser } from "../services/accountSession";
 import api from "../services/api";
 import type { CurrentAccount, OidcBrowserSession } from "../types";
@@ -41,9 +41,46 @@ const EMPTY_PASSWORD_FORM: PasswordForm = {
   confirmation: "",
 };
 
+interface AccountIdentityRowProps {
+  label: string;
+  value: string;
+  isLast?: boolean;
+}
+
+function AccountIdentityRow({ label, value, isLast = false }: AccountIdentityRowProps) {
+  return (
+    <TableRow
+      sx={
+        isLast
+          ? {
+              "& th, & td": { borderBottom: 0 },
+            }
+          : undefined
+      }
+    >
+      <TableCell
+        component="th"
+        scope="row"
+        sx={{
+          width: { xs: "42%", sm: "32%" },
+          px: 0,
+          py: 1,
+          pr: 2,
+          verticalAlign: "top",
+          color: "text.secondary",
+          fontWeight: 500,
+        }}
+      >
+        {label}
+      </TableCell>
+      <TableCell align="right" sx={{ px: 0, py: 1, verticalAlign: "top", overflowWrap: "anywhere" }}>
+        {value}
+      </TableCell>
+    </TableRow>
+  );
+}
+
 export function AccountSettings({ dialogSafe = false }: { dialogSafe?: boolean }) {
-  const theme = useTheme();
-  const isMobile = useMediaQuery(theme.breakpoints.down("sm"));
   const navigate = useNavigate();
   const [account, setAccount] = useState<CurrentAccount | null>(null);
   const [sessions, setSessions] = useState<OidcBrowserSession[] | null>(null);
@@ -148,168 +185,133 @@ export function AccountSettings({ dialogSafe = false }: { dialogSafe?: boolean }
   };
 
   return (
-    <Box sx={{ height: "100%", display: "flex", flexDirection: "column", bgcolor: "background.default", overflow: "hidden" }}>
-      <SettingsSectionHeader
-        title={getSettingsCategoryLabel("account")}
-        description={<SettingsCategoryDescription category="account" />}
-        dialogSafe={dialogSafe}
-        showTitle={!isMobile}
-      />
-      <Box sx={{ flex: 1, overflow: "auto", px: { xs: 2, sm: 3, md: 4 }, pb: 3 }}>
-        {error && (
-          <Alert severity="error" sx={{ mb: 3 }}>
-            {error}
-          </Alert>
-        )}
-        {loading ? (
-          <Box sx={{ display: "flex", justifyContent: "center", py: 4 }}>
-            <CircularProgress aria-label="Loading account" size={28} />
-          </Box>
-        ) : account === null ? (
-          <Box>
-            <Button variant="outlined" onClick={() => void loadAccount()}>
-              Try again
-            </Button>
-          </Box>
-        ) : (
-          <>
-            {account.must_change_password && account.password_change_available && (
-              <Alert severity="warning" sx={{ mb: 3 }}>
-                Your administrator requires you to change your local password.
-              </Alert>
-            )}
-            <SettingsGroup title="Account" description="Your signed-in identity and access level." sx={{ mb: 4 }}>
-              <List disablePadding>
-                <ListItem divider disableGutters>
-                  <ListItemText primary="Username" secondary={account.username} />
-                </ListItem>
-                {account.name && (
-                  <ListItem divider disableGutters>
-                    <ListItemText primary="Name" secondary={account.name} />
-                  </ListItem>
-                )}
-                {account.email && (
-                  <ListItem divider disableGutters>
-                    <ListItemText primary="Email" secondary={account.email} />
-                  </ListItem>
-                )}
-                <ListItem disableGutters>
-                  <ListItemText primary="Role" secondary={account.role} />
-                </ListItem>
-              </List>
-            </SettingsGroup>
+    <SettingsPage category="account" dialogSafeHeader={dialogSafe}>
+      {error && (
+        <Alert severity="error" sx={{ mb: 3 }}>
+          {error}
+        </Alert>
+      )}
+      {loading ? (
+        <Box sx={{ display: "flex", justifyContent: "center", py: 4 }}>
+          <CircularProgress aria-label="Loading account" size={28} />
+        </Box>
+      ) : account === null ? (
+        <Box>
+          <Button variant="outlined" onClick={() => void loadAccount()}>
+            Try again
+          </Button>
+        </Box>
+      ) : (
+        <SettingsSectionList>
+          {account.must_change_password && account.password_change_available && (
+            <Alert severity="warning">Your administrator requires you to change your local password.</Alert>
+          )}
+          <SettingsGroup title="Your identity" contentSpacing="compact">
+            <Table aria-label="Your identity" size="small" sx={{ tableLayout: "fixed", width: "100%" }}>
+              <TableBody>
+                <AccountIdentityRow label="Username" value={account.username} />
+                {account.name && <AccountIdentityRow label="Name" value={account.name} />}
+                {account.email && <AccountIdentityRow label="Email" value={account.email} />}
+                <AccountIdentityRow label="Role" value={account.role} isLast />
+              </TableBody>
+            </Table>
+          </SettingsGroup>
 
-            {account.password_change_available && (
-              <SettingsGroup title="Password" description="Change the local password used to sign in." sx={{ mb: 4 }}>
-                <Box
-                  component="form"
-                  onSubmit={(event) => void submitPasswordChange(event)}
-                  sx={{ display: "grid", gap: 2, maxWidth: 440 }}
-                >
-                  {passwordError && <Alert severity="error">{passwordError}</Alert>}
-                  <TextField
-                    label="Current password"
-                    type="password"
-                    autoComplete="current-password"
-                    value={passwordForm.currentPassword}
-                    onChange={(event) => setPasswordForm((current) => ({ ...current, currentPassword: event.target.value }))}
-                    disabled={passwordSubmitting}
-                  />
-                  <TextField
-                    label="New password"
-                    type="password"
-                    autoComplete="new-password"
-                    value={passwordForm.newPassword}
-                    onChange={(event) => setPasswordForm((current) => ({ ...current, newPassword: event.target.value }))}
-                    disabled={passwordSubmitting}
-                  />
-                  <TextField
-                    label="Confirm new password"
-                    type="password"
-                    autoComplete="new-password"
-                    value={passwordForm.confirmation}
-                    onChange={(event) => setPasswordForm((current) => ({ ...current, confirmation: event.target.value }))}
-                    disabled={passwordSubmitting}
-                  />
-                  <Box>
-                    <Button type="submit" variant="contained" disabled={passwordSubmitting}>
-                      {passwordSubmitting ? "Changing password" : "Change password"}
-                    </Button>
-                  </Box>
+          {account.password_change_available && (
+            <SettingsGroup title="Password">
+              <Box component="form" onSubmit={(event) => void submitPasswordChange(event)} sx={{ display: "grid", gap: 2, maxWidth: 440 }}>
+                {passwordError && <Alert severity="error">{passwordError}</Alert>}
+                <TextField
+                  label="Current password"
+                  type="password"
+                  autoComplete="current-password"
+                  value={passwordForm.currentPassword}
+                  onChange={(event) => setPasswordForm((current) => ({ ...current, currentPassword: event.target.value }))}
+                  disabled={passwordSubmitting}
+                />
+                <TextField
+                  label="New password"
+                  type="password"
+                  autoComplete="new-password"
+                  value={passwordForm.newPassword}
+                  onChange={(event) => setPasswordForm((current) => ({ ...current, newPassword: event.target.value }))}
+                  disabled={passwordSubmitting}
+                />
+                <TextField
+                  label="Confirm new password"
+                  type="password"
+                  autoComplete="new-password"
+                  value={passwordForm.confirmation}
+                  onChange={(event) => setPasswordForm((current) => ({ ...current, confirmation: event.target.value }))}
+                  disabled={passwordSubmitting}
+                />
+                <Box>
+                  <Button type="submit" variant="contained" disabled={passwordSubmitting}>
+                    {passwordSubmitting ? "Changing password" : "Change password"}
+                  </Button>
                 </Box>
-              </SettingsGroup>
-            )}
-
-            {account.browser_session_management_available && (
-              <SettingsGroup
-                title="Browser sessions"
-                description={
-                  account.oidc_provider_name
-                    ? `Active sessions for ${account.oidc_provider_name} can be revoked immediately.`
-                    : "Active OIDC sessions can be revoked immediately."
-                }
-                sx={{ mb: 4 }}
-              >
-                {sessions === null ? (
-                  <Box>
-                    <Typography color="text.secondary">Browser sessions could not be loaded.</Typography>
-                    <Button sx={{ mt: 2 }} variant="outlined" onClick={() => void loadAccount()} disabled={revoking !== null || signingOut}>
-                      Try again
-                    </Button>
-                  </Box>
-                ) : sessions.length === 0 ? (
-                  <Typography color="text.secondary">No renewable OIDC sessions are active.</Typography>
-                ) : (
-                  <>
-                    <List disablePadding>
-                      {sessions.map((browserSession) => (
-                        <ListItem
-                          key={browserSession.id}
-                          divider
-                          secondaryAction={
-                            <Button
-                              color="error"
-                              onClick={() => void revokeSession(browserSession)}
-                              disabled={revoking !== null || signingOut}
-                            >
-                              {browserSession.current ? "Sign out" : "Revoke"}
-                            </Button>
-                          }
-                          sx={{ px: 0, pr: 12 }}
-                        >
-                          <ListItemText
-                            primary={browserSession.current ? "This browser" : "Browser session"}
-                            secondary={`Created ${formatTimestamp(browserSession.created_at)}. Last active ${formatTimestamp(browserSession.last_seen_at)}.`}
-                          />
-                        </ListItem>
-                      ))}
-                    </List>
-                    {sessions.some((browserSession) => !browserSession.current) && (
-                      <Button
-                        sx={{ mt: 2 }}
-                        color="error"
-                        onClick={() => void revokeOtherSessions()}
-                        disabled={revoking !== null || signingOut}
-                      >
-                        Revoke all other sessions
-                      </Button>
-                    )}
-                  </>
-                )}
-              </SettingsGroup>
-            )}
-
-            <Divider sx={{ mb: 3 }} />
-            <SettingsGroup title="Sign out" description="End this browser's Sambee session.">
-              <Box>
-                <Button color="error" variant="outlined" onClick={() => void signOut()} disabled={signingOut || passwordSubmitting}>
-                  {signingOut ? "Signing out" : "Sign out"}
-                </Button>
               </Box>
             </SettingsGroup>
-          </>
-        )}
-      </Box>
-    </Box>
+          )}
+
+          {account.browser_session_management_available && (
+            <SettingsGroup title="Browser sessions">
+              {sessions === null ? (
+                <Box>
+                  <Typography color="text.secondary">Browser sessions could not be loaded.</Typography>
+                  <Button sx={{ mt: 2 }} variant="outlined" onClick={() => void loadAccount()} disabled={revoking !== null || signingOut}>
+                    Try again
+                  </Button>
+                </Box>
+              ) : sessions.length === 0 ? (
+                <Typography color="text.secondary">No renewable OIDC sessions are active.</Typography>
+              ) : (
+                <>
+                  <SettingsList>
+                    {sessions.map((browserSession) => (
+                      <ListItem
+                        key={browserSession.id}
+                        divider
+                        secondaryAction={
+                          <Button
+                            color="error"
+                            onClick={() => void revokeSession(browserSession)}
+                            disabled={revoking !== null || signingOut}
+                          >
+                            {browserSession.current ? "Sign out" : "Revoke"}
+                          </Button>
+                        }
+                        sx={{ px: 0, pr: 12 }}
+                      >
+                        <ListItemText
+                          primary={browserSession.current ? "This browser" : "Browser session"}
+                          secondary={`Created ${formatTimestamp(browserSession.created_at)}. Last active ${formatTimestamp(browserSession.last_seen_at)}.`}
+                        />
+                      </ListItem>
+                    ))}
+                  </SettingsList>
+                  {sessions.some((browserSession) => !browserSession.current) && (
+                    <Button
+                      sx={{ mt: 2 }}
+                      color="error"
+                      onClick={() => void revokeOtherSessions()}
+                      disabled={revoking !== null || signingOut}
+                    >
+                      Revoke all other sessions
+                    </Button>
+                  )}
+                </>
+              )}
+            </SettingsGroup>
+          )}
+
+          <Box>
+            <Button color="error" variant="outlined" onClick={() => void signOut()} disabled={signingOut || passwordSubmitting}>
+              {signingOut ? "Signing out" : "Sign out"}
+            </Button>
+          </Box>
+        </SettingsSectionList>
+      )}
+    </SettingsPage>
   );
 }

@@ -127,14 +127,14 @@ describe("Theme System - ThemeContext", () => {
       expect(result.current.currentTheme.mode).toBe("light");
     });
 
-    it("should persist theme change to localStorage", () => {
+    it("should not persist a previewed theme change", () => {
       const { result } = renderHook(() => useSambeeTheme(), { wrapper });
 
       act(() => {
         result.current.setThemeById("sambee-dark");
       });
 
-      expect(localStorageMock.getItem("theme-id-current")).toBe("sambee-dark");
+      expect(localStorageMock.getItem("theme-id-current")).toBeNull();
     });
 
     it("should not change theme if ID is invalid", () => {
@@ -184,7 +184,7 @@ describe("Theme System - ThemeContext", () => {
       expect(result.current.availableThemes.some((t) => t.id === "custom-test")).toBe(true);
     });
 
-    it("should persist custom theme to localStorage", () => {
+    it("should not persist a custom theme draft", () => {
       const { result } = renderHook(() => useSambeeTheme(), { wrapper });
 
       const customTheme = {
@@ -199,10 +199,7 @@ describe("Theme System - ThemeContext", () => {
         result.current.addCustomTheme(customTheme);
       });
 
-      const stored = localStorageMock.getItem("themes-custom");
-      expect(stored).toBeTruthy();
-      const parsed = JSON.parse(stored!);
-      expect(parsed.some((t: { id: string }) => t.id === "custom-test")).toBe(true);
+      expect(localStorageMock.getItem("themes-custom")).toBeNull();
     });
 
     it("should allow switching to custom theme", async () => {
@@ -298,7 +295,7 @@ describe("Theme System - ThemeContext", () => {
       renderHook(() => useSambeeTheme(), { wrapper });
 
       expect(localStorageMock.getItem("themes-builtin")).toBeNull();
-      expect(localStorageMock.getItem("theme-id-current")).toBe("sambee-light");
+      expect(localStorageMock.getItem("theme-id-current")).toBeNull();
     });
 
     it("should restore custom themes from localStorage", () => {
@@ -352,17 +349,10 @@ describe("Theme System - ThemeContext", () => {
       });
 
       expect(result.current.currentTheme.id).toBe("custom-1");
-      expect(JSON.parse(localStorageMock.getItem("themes-custom") || "[]")).toEqual([
-        {
-          id: "custom-1",
-          name: "Custom 1",
-          mode: "light",
-          primary: { main: "#ff0000" },
-        },
-      ]);
+      expect(localStorageMock.getItem("themes-custom")).toBeNull();
     });
 
-    it("should patch backend when custom themes change", () => {
+    it("should patch backend only after custom themes are explicitly saved", () => {
       const { result } = renderHook(() => useSambeeTheme(), { wrapper });
 
       const customTheme = {
@@ -376,8 +366,15 @@ describe("Theme System - ThemeContext", () => {
         result.current.addCustomTheme(customTheme);
       });
 
+      expect(patchCurrentUserSettingsMock).not.toHaveBeenCalled();
+
+      act(() => {
+        result.current.saveCustomThemes();
+      });
+
       expect(patchCurrentUserSettingsMock).toHaveBeenCalledWith({
         appearance: {
+          theme_id: "sambee-light",
           custom_themes: [customTheme],
         },
       });

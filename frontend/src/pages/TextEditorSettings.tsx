@@ -1,63 +1,82 @@
-import { Box, TextField, useMediaQuery, useTheme } from "@mui/material";
-import { useEffect, useState } from "react";
+import { Button, TextField } from "@mui/material";
+import { useEffect, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
-import { SettingsCategoryDescription } from "../components/Settings/SettingsCategoryDescription";
 import { SettingsFieldHelp } from "../components/Settings/SettingsFieldHelp";
 import { SettingsGroup } from "../components/Settings/SettingsGroup";
-import { SettingsSectionHeader } from "../components/Settings/SettingsSectionHeader";
-import { getSettingsCategoryLabel } from "../components/Settings/settingsNavigation";
+import { SettingsPage } from "../components/Settings/SettingsPage";
 import { useTextEditorMaxFileSizeBytesPreference } from "./FileBrowser/preferences";
 
 const BYTES_PER_MEGABYTE = 1024 * 1024;
+const POSITIVE_INTEGER_PATTERN = /^[1-9]\d*$/;
+
+function formatMegabytes(maxFileSizeBytes: number): string {
+  return String(Math.max(1, Math.round(maxFileSizeBytes / BYTES_PER_MEGABYTE)));
+}
 
 export function TextEditorSettings() {
   const [maxFileSizeBytes, setMaxFileSizeBytes] = useTextEditorMaxFileSizeBytesPreference();
-  const theme = useTheme();
-  const isMobile = useMediaQuery(theme.breakpoints.down("sm"));
   const { t } = useTranslation();
-  const [maxFileSizeMegabytesInput, setMaxFileSizeMegabytesInput] = useState(() =>
-    String(Math.max(1, Math.round(maxFileSizeBytes / BYTES_PER_MEGABYTE)))
-  );
+  const [savedMaxFileSizeBytes, setSavedMaxFileSizeBytes] = useState(maxFileSizeBytes);
+  const savedMaxFileSizeBytesRef = useRef(savedMaxFileSizeBytes);
+  const [maxFileSizeMegabytesInput, setMaxFileSizeMegabytesInput] = useState(() => formatMegabytes(maxFileSizeBytes));
+  const maxFileSizeMegabytesInputRef = useRef(maxFileSizeMegabytesInput);
 
   useEffect(() => {
-    setMaxFileSizeMegabytesInput(String(Math.max(1, Math.round(maxFileSizeBytes / BYTES_PER_MEGABYTE))));
+    const wasClean = maxFileSizeMegabytesInputRef.current === formatMegabytes(savedMaxFileSizeBytesRef.current);
+    savedMaxFileSizeBytesRef.current = maxFileSizeBytes;
+    setSavedMaxFileSizeBytes(maxFileSizeBytes);
+
+    if (wasClean) {
+      const nextInput = formatMegabytes(maxFileSizeBytes);
+      maxFileSizeMegabytesInputRef.current = nextInput;
+      setMaxFileSizeMegabytesInput(nextInput);
+    }
   }, [maxFileSizeBytes]);
 
+  const updateMaxFileSizeMegabytesInput = (value: string) => {
+    if (value && !POSITIVE_INTEGER_PATTERN.test(value)) {
+      return;
+    }
+
+    maxFileSizeMegabytesInputRef.current = value;
+    setMaxFileSizeMegabytesInput(value);
+  };
+
+  const draftMaxFileSizeMegabytes = Number(maxFileSizeMegabytesInput);
+  const draftMaxFileSizeBytes =
+    POSITIVE_INTEGER_PATTERN.test(maxFileSizeMegabytesInput) && Number.isSafeInteger(draftMaxFileSizeMegabytes)
+      ? draftMaxFileSizeMegabytes * BYTES_PER_MEGABYTE
+      : null;
+
   return (
-    <Box sx={{ height: "100%", display: "flex", flexDirection: "column", bgcolor: "background.default", overflow: "hidden" }}>
-      <SettingsSectionHeader
-        title={getSettingsCategoryLabel("text-editor")}
-        description={<SettingsCategoryDescription category="text-editor" />}
-        showTitle={!isMobile}
-      />
-      <Box sx={{ flex: 1, overflow: "auto", px: { xs: 2, sm: 3, md: 4 }, pb: 3 }}>
-        <SettingsGroup title={t("settings.textEditorPage.limitsTitle")} description={t("settings.textEditorPage.limitsDescription")}>
-          <TextField
-            label={t("settings.textEditorPage.maxFileSizeLabel")}
-            type="number"
-            value={maxFileSizeMegabytesInput}
-            onChange={(event) => {
-              const nextValue = event.target.value;
-              setMaxFileSizeMegabytesInput(nextValue);
-
-              const parsedValue = Number.parseInt(nextValue, 10);
-              if (!Number.isFinite(parsedValue)) {
-                return;
-              }
-
-              setMaxFileSizeBytes(Math.max(1, parsedValue) * BYTES_PER_MEGABYTE);
-            }}
-            slotProps={{
-              htmlInput: {
-                min: 1,
-                step: 1,
-              },
-            }}
-            sx={{ maxWidth: 280 }}
-          />
-          <SettingsFieldHelp sx={{ maxWidth: 720 }}>{t("settings.textEditorPage.maxFileSizeDescription")}</SettingsFieldHelp>
-        </SettingsGroup>
-      </Box>
-    </Box>
+    <SettingsPage
+      category="text-editor"
+      footerPrimaryActions={
+        <Button
+          variant="contained"
+          disabled={draftMaxFileSizeBytes === null || draftMaxFileSizeBytes === savedMaxFileSizeBytes}
+          onClick={() => draftMaxFileSizeBytes !== null && setMaxFileSizeBytes(draftMaxFileSizeBytes)}
+        >
+          {t("settings.advanced.saveChanges")}
+        </Button>
+      }
+    >
+      <SettingsGroup title={t("settings.textEditorPage.limitsTitle")}>
+        <TextField
+          label={t("settings.textEditorPage.maxFileSizeLabel")}
+          type="text"
+          value={maxFileSizeMegabytesInput}
+          onChange={(event) => updateMaxFileSizeMegabytesInput(event.target.value)}
+          slotProps={{
+            htmlInput: {
+              inputMode: "numeric",
+              pattern: "[0-9]*",
+            },
+          }}
+          sx={{ maxWidth: 280 }}
+        />
+        <SettingsFieldHelp sx={{ maxWidth: 720 }}>{t("settings.textEditorPage.maxFileSizeDescription")}</SettingsFieldHelp>
+      </SettingsGroup>
+    </SettingsPage>
   );
 }

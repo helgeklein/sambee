@@ -1,10 +1,12 @@
 import { Palette as PaletteIcon } from "@mui/icons-material";
 import {
   Box,
+  Button,
   Card,
   CardActionArea,
   CardContent,
   Dialog,
+  DialogActions,
   DialogContent,
   DialogTitle,
   IconButton,
@@ -14,7 +16,7 @@ import {
   useMediaQuery,
   useTheme,
 } from "@mui/material";
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useSambeeTheme } from "../theme";
 import { THEME_SELECTOR_STRINGS } from "./themeSelectorStrings";
 
@@ -60,15 +62,34 @@ interface ThemeSelectorDialogProps {
  * Dialog that displays all available themes for selection
  */
 export function ThemeSelectorDialog({ open, onClose }: ThemeSelectorDialogProps) {
-  const { currentTheme, availableThemes, setThemeById } = useSambeeTheme();
+  const { currentTheme, availableThemes, saveThemeById, setThemeById } = useSambeeTheme();
+  const savedThemeIdRef = useRef(currentTheme.id);
+  const [draftThemeId, setDraftThemeId] = useState(currentTheme.id);
+
+  useEffect(() => {
+    if (open) {
+      savedThemeIdRef.current = currentTheme.id;
+      setDraftThemeId(currentTheme.id);
+    }
+  }, [currentTheme.id, open]);
 
   const handleSelect = (themeId: string) => {
+    setDraftThemeId(themeId);
     setThemeById(themeId);
+  };
+
+  const handleCancel = () => {
+    setThemeById(savedThemeIdRef.current);
+    onClose();
+  };
+
+  const handleSave = () => {
+    saveThemeById(draftThemeId);
     onClose();
   };
 
   return (
-    <Dialog open={open} onClose={onClose} maxWidth="md" fullWidth>
+    <Dialog open={open} onClose={handleCancel} maxWidth="md" fullWidth>
       <DialogTitle>{THEME_SELECTOR_STRINGS.DIALOG_TITLE}</DialogTitle>
       <DialogContent>
         <Box
@@ -84,14 +105,14 @@ export function ThemeSelectorDialog({ open, onClose }: ThemeSelectorDialogProps)
               key={theme.id}
               variant="outlined"
               sx={{
-                border: currentTheme.id === theme.id ? 2 : 1,
-                borderColor: currentTheme.id === theme.id ? "primary.main" : "divider",
+                border: draftThemeId === theme.id ? 2 : 1,
+                borderColor: draftThemeId === theme.id ? "primary.main" : "divider",
               }}
             >
               <CardActionArea onClick={() => handleSelect(theme.id)}>
                 <CardContent>
                   <Box sx={{ display: "flex", alignItems: "center", mb: 1 }}>
-                    <Radio checked={currentTheme.id === theme.id} />
+                    <Radio checked={draftThemeId === theme.id} />
                     <Typography variant="h6" sx={{ ml: 1 }}>
                       {THEME_SELECTOR_STRINGS.themeName(theme)}
                     </Typography>
@@ -108,6 +129,12 @@ export function ThemeSelectorDialog({ open, onClose }: ThemeSelectorDialogProps)
           ))}
         </Box>
       </DialogContent>
+      <DialogActions>
+        <Button onClick={handleCancel}>Cancel</Button>
+        <Button variant="contained" onClick={handleSave} disabled={draftThemeId === savedThemeIdRef.current}>
+          Save changes
+        </Button>
+      </DialogActions>
     </Dialog>
   );
 }

@@ -62,12 +62,20 @@ describe("AccountSettings", () => {
     renderAccount();
 
     expect(await screen.findByText("Alex Example")).toBeInTheDocument();
+    expect(screen.getAllByRole("heading", { name: "Account" })).toHaveLength(1);
+    expect(screen.getByText("Manage your identity, password, browser sessions, and sign-out.")).toBeInTheDocument();
+    expect(screen.getByRole("heading", { name: "Your identity" })).toBeInTheDocument();
+    expect(screen.queryByText("Your signed-in identity and access level.")).not.toBeInTheDocument();
+    expect(screen.getByRole("table", { name: "Your identity" })).toBeInTheDocument();
+    expect(screen.getByRole("rowheader", { name: "Username" })).toBeInTheDocument();
     expect(screen.getByRole("heading", { name: "Password" })).toBeInTheDocument();
     expect(screen.queryByRole("heading", { name: "Browser sessions" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("heading", { name: "Sign out" })).not.toBeInTheDocument();
+    expect(screen.queryByText("End this browser's Sambee session.")).not.toBeInTheDocument();
     expect(api.getOidcBrowserSessions).not.toHaveBeenCalled();
   });
 
-  it("loads OIDC sessions only when the account supports them", async () => {
+  it("loads OIDC sessions only when the account supports them without adding a duplicate section divider", async () => {
     vi.mocked(api.getCurrentAccount).mockResolvedValue({
       ...PASSWORD_ACCOUNT,
       password_change_available: false,
@@ -88,10 +96,11 @@ describe("AccountSettings", () => {
       ],
     });
 
-    renderAccount();
+    const { container } = renderAccount();
 
     expect(await screen.findByRole("heading", { name: "Browser sessions" })).toBeInTheDocument();
     expect(await screen.findByText("This browser")).toBeInTheDocument();
+    expect(container.querySelectorAll("hr")).toHaveLength(0);
     expect(api.getOidcBrowserSessions).toHaveBeenCalledTimes(1);
     expect(screen.queryByRole("heading", { name: "Password" })).not.toBeInTheDocument();
   });

@@ -1,34 +1,51 @@
 import { Box, type SxProps, type Theme, Typography, type TypographyProps } from "@mui/material";
 import type { ReactNode } from "react";
 
+export type SettingsSectionLevel = "section" | "subsection";
+export type SettingsGroupContentSpacing = "normal" | "compact";
+
+const SETTINGS_SECTION_TITLE_VARIANT: Record<SettingsSectionLevel, TypographyProps["variant"]> = {
+  section: "h6",
+  subsection: "subtitle1",
+};
+const SETTINGS_SECTION_TITLE_COMPONENT: Record<SettingsSectionLevel, "h2" | "h3"> = {
+  section: "h2",
+  subsection: "h3",
+};
+const SETTINGS_SECTION_TITLE_SX: SxProps<Theme> = {
+  fontWeight: 500,
+};
+const SETTINGS_SECTION_CONTENT_GAP: Record<SettingsGroupContentSpacing, number> = {
+  normal: 2,
+  compact: 1,
+};
+const SETTINGS_SUBSECTION_CONTENT_GAP: Record<SettingsGroupContentSpacing, number> = {
+  normal: 1.5,
+  compact: 1,
+};
+
 interface SettingsGroupProps {
   title?: ReactNode;
-  description?: ReactNode;
   actions?: ReactNode;
   children?: ReactNode;
-  titleVariant?: TypographyProps["variant"];
+  level?: SettingsSectionLevel;
+  contentSpacing?: SettingsGroupContentSpacing;
   sx?: SxProps<Theme>;
   headerSx?: SxProps<Theme>;
-  titleSx?: SxProps<Theme>;
-  descriptionSx?: SxProps<Theme>;
   actionsSx?: SxProps<Theme>;
   contentSx?: SxProps<Theme>;
-  descriptionMaxWidth?: number | string;
 }
 
 export function SettingsGroup({
   title,
-  description,
   actions,
   children,
-  titleVariant = "h6",
+  level = "section",
+  contentSpacing = "normal",
   sx,
   headerSx,
-  titleSx,
-  descriptionSx,
   actionsSx,
   contentSx,
-  descriptionMaxWidth = 720,
 }: SettingsGroupProps) {
   const resolvedSx: SxProps<Theme> = Array.isArray(sx)
     ? [{ display: "flex", flexDirection: "column" }, ...sx]
@@ -38,27 +55,26 @@ export function SettingsGroup({
 
   return (
     <Box sx={resolvedSx}>
-      {(title || description || actions) && (
+      {(title || actions) && (
         <Box sx={headerSx}>
-          {(title || description) && (
-            <Box sx={{ minWidth: 0, mb: actions ? 1.5 : 2 }}>
-              {title ? (
-                <Typography variant={titleVariant} fontWeight="medium" sx={titleSx}>
-                  {title}
-                </Typography>
-              ) : null}
-              {description ? (
-                <Typography
-                  color="text.secondary"
-                  sx={[
-                    { mt: title ? 0.5 : 0, maxWidth: descriptionMaxWidth },
-                    ...(Array.isArray(descriptionSx) ? descriptionSx : descriptionSx ? [descriptionSx] : []),
-                  ]}
-                  variant="body2"
-                >
-                  {description}
-                </Typography>
-              ) : null}
+          {title && (
+            <Box
+              sx={{
+                minWidth: 0,
+                mb: actions
+                  ? 1.5
+                  : level === "section"
+                    ? SETTINGS_SECTION_CONTENT_GAP[contentSpacing]
+                    : SETTINGS_SUBSECTION_CONTENT_GAP[contentSpacing],
+              }}
+            >
+              <Typography
+                component={SETTINGS_SECTION_TITLE_COMPONENT[level]}
+                variant={SETTINGS_SECTION_TITLE_VARIANT[level]}
+                sx={SETTINGS_SECTION_TITLE_SX}
+              >
+                {title}
+              </Typography>
             </Box>
           )}
           {actions ? (

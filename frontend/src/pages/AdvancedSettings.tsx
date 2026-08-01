@@ -1,27 +1,13 @@
-import {
-  Box,
-  Button,
-  CircularProgress,
-  FormControl,
-  FormHelperText,
-  InputAdornment,
-  MenuItem,
-  Stack,
-  TextField,
-  Typography,
-  useMediaQuery,
-  useTheme,
-} from "@mui/material";
+import { Box, Button, CircularProgress, FormControl, FormHelperText, InputAdornment, MenuItem, Stack, TextField } from "@mui/material";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { useTranslation } from "react-i18next";
-import { SettingsCategoryDescription } from "../components/Settings/SettingsCategoryDescription";
 import { SettingsInlineAlert, SettingsNotificationSnackbar, type SettingsNotificationState } from "../components/Settings/SettingsFeedback";
 import { SettingsGroup } from "../components/Settings/SettingsGroup";
-import { SettingsSectionHeader } from "../components/Settings/SettingsSectionHeader";
+import { SettingsPage } from "../components/Settings/SettingsPage";
+import { SettingsSectionList } from "../components/Settings/SettingsSectionList";
 import { SettingsLoadingState } from "../components/Settings/SettingsState";
 import { settingsPrimaryButtonSx, settingsUtilityButtonSx } from "../components/Settings/settingsButtonStyles";
 import { loadAdvancedSettingsData, SETTINGS_DATA_CACHE_KEYS } from "../components/Settings/settingsDataSources";
-import { getSettingsCategoryLabel } from "../components/Settings/settingsNavigation";
 import { useCachedAsyncData } from "../hooks/useCachedAsyncData";
 import { translate } from "../i18n";
 import api from "../services/api";
@@ -43,19 +29,6 @@ const DESKTOP_FIELD_ROW_MAX_WIDTH = 440;
 const DESKTOP_VALUE_FIELD_MAX_WIDTH = 220;
 const DESKTOP_UNIT_FIELD_WIDTH = 120;
 const DESKTOP_NUMERIC_FIELD_MAX_WIDTH = 240;
-const MOBILE_ACTION_BAR_PADDING_BOTTOM_PX = 12;
-
-const fieldLabelTypographyProps = {
-  variant: "body2" as const,
-  fontWeight: 600,
-};
-
-const subsectionHeadingSx = {
-  mb: 1.25,
-  fontWeight: 700,
-  color: "text.primary",
-  lineHeight: 1.3,
-};
 
 const BYTE_UNITS = [
   { label: "B", factor: 1 },
@@ -160,7 +133,7 @@ function buildUpdatePayload(formState: AdvancedSettingsFormState): AdvancedSyste
   };
 }
 
-function SettingFieldHeader({
+function SettingFieldResetAction({
   setting,
   onReset,
   resetDisabled,
@@ -171,17 +144,16 @@ function SettingFieldHeader({
 }) {
   const { t } = useTranslation();
 
+  if (setting.source !== "database" || !onReset) {
+    return null;
+  }
+
   return (
-    <Box sx={{ display: "flex", flexDirection: "column", gap: 1 }}>
-      <Typography {...fieldLabelTypographyProps}>{setting.label}</Typography>
-      {setting.source === "database" && onReset ? (
-        <Stack direction="row" spacing={1} alignItems="center" flexWrap="wrap" useFlexGap>
-          <Button size="small" variant="outlined" onClick={onReset} disabled={resetDisabled} sx={settingsUtilityButtonSx}>
-            {t("settings.advanced.resetOverride")}
-          </Button>
-        </Stack>
-      ) : null}
-    </Box>
+    <Stack direction="row" spacing={1} alignItems="center" flexWrap="wrap" useFlexGap>
+      <Button size="small" variant="outlined" onClick={onReset} disabled={resetDisabled} sx={settingsUtilityButtonSx}>
+        {t("settings.advanced.resetOverride")}
+      </Button>
+    </Stack>
   );
 }
 
@@ -224,9 +196,10 @@ function SettingField({
 
   return (
     <Box sx={{ display: "flex", flexDirection: "column", gap: 1.5, py: 1.5 }}>
-      <SettingFieldHeader setting={setting} onReset={onReset} resetDisabled={resetDisabled} />
+      <SettingFieldResetAction setting={setting} onReset={onReset} resetDisabled={resetDisabled} />
       <TextField
         type="text"
+        label={setting.label}
         value={displayValue}
         onChange={(event) => {
           const nextValue = event.target.value;
@@ -343,12 +316,12 @@ function ByteSizeSettingField({
 
   return (
     <Box sx={{ display: "flex", flexDirection: "column", gap: 1.5, py: 1.5 }}>
-      <SettingFieldHeader setting={setting} onReset={onReset} resetDisabled={resetDisabled} />
+      <SettingFieldResetAction setting={setting} onReset={onReset} resetDisabled={resetDisabled} />
       <FormControl error={displayError} sx={{ width: "100%", maxWidth: { xs: "100%", sm: DESKTOP_FIELD_ROW_MAX_WIDTH } }}>
         <Stack direction={{ xs: "column", sm: "row" }} spacing={1.5}>
           <TextField
             type="text"
-            label={t("settings.advanced.fields.value")}
+            label={setting.label}
             value={displayValue}
             onChange={(event) => handleValueChange(event.target.value)}
             onBlur={handleValueBlur}
@@ -382,8 +355,6 @@ function ByteSizeSettingField({
 }
 
 export function AdvancedSettings({ dialogSafeHeader = false }: AdvancedSettingsProps) {
-  const theme = useTheme();
-  const isMobile = useMediaQuery(theme.breakpoints.down("sm"));
   const { t } = useTranslation();
   const [pageError, setPageError] = useState<string | null>(null);
   const handleAdvancedSettingsLoadError = useCallback(
@@ -525,113 +496,66 @@ export function AdvancedSettings({ dialogSafeHeader = false }: AdvancedSettingsP
   );
 
   return (
-    <Box
-      sx={{
-        height: "100%",
-        display: "flex",
-        flexDirection: "column",
-        bgcolor: "background.default",
-        overflow: "hidden",
-      }}
-    >
-      <SettingsSectionHeader
-        title={getSettingsCategoryLabel("admin-system")}
-        description={<SettingsCategoryDescription category="admin-system" />}
-        dialogSafe={dialogSafeHeader}
-        showTitle={!isMobile}
-        actions={isMobile ? undefined : saveAction}
-      />
+    <SettingsPage category="admin-system" dialogSafeHeader={dialogSafeHeader} footerPrimaryActions={saveAction}>
+      {loading && !settings && <SettingsLoadingState />}
 
-      <Box sx={{ flex: 1, overflow: "auto", px: { xs: 2, sm: 3, md: 4 }, pb: isMobile ? 2 : 3 }}>
-        {loading && !settings && <SettingsLoadingState />}
+      {pageError && <SettingsInlineAlert>{pageError}</SettingsInlineAlert>}
 
-        {pageError && <SettingsInlineAlert>{pageError}</SettingsInlineAlert>}
+      {settings && formState && (
+        <SettingsSectionList>
+          <SettingsGroup title={t("settings.advanced.sections.smbBackends")}>
+            <ByteSizeSettingField
+              setting={settings.smb.read_chunk_size_bytes}
+              value={formState.smbReadChunkSizeBytes}
+              onChange={(value) => setFormState((current) => (current ? { ...current, smbReadChunkSizeBytes: value } : current))}
+              errorText={validationErrors?.smbReadChunkSizeBytes}
+              showErrors={submitAttempted}
+              onReset={() => handleReset(settings.smb.read_chunk_size_bytes.key, settings.smb.read_chunk_size_bytes.label)}
+              resetDisabled={saving || loading || hasUnsavedChanges}
+            />
+          </SettingsGroup>
 
-        {settings && formState && (
-          <Stack spacing={4}>
-            <SettingsGroup
-              title={t("settings.advanced.sections.smbBackends")}
-              description={t("settings.advanced.sections.smbBackendsDescription")}
-            >
-              <ByteSizeSettingField
-                setting={settings.smb.read_chunk_size_bytes}
-                value={formState.smbReadChunkSizeBytes}
-                onChange={(value) => setFormState((current) => (current ? { ...current, smbReadChunkSizeBytes: value } : current))}
-                errorText={validationErrors?.smbReadChunkSizeBytes}
-                showErrors={submitAttempted}
-                onReset={() => handleReset(settings.smb.read_chunk_size_bytes.key, settings.smb.read_chunk_size_bytes.label)}
-                resetDisabled={saving || loading || hasUnsavedChanges}
-              />
-            </SettingsGroup>
-
-            <SettingsGroup
-              title={t("settings.advanced.sections.preprocessors")}
-              description={t("settings.advanced.sections.preprocessorsDescription")}
-            >
-              <Stack spacing={3.5}>
-                <SettingsGroup
-                  title={t("settings.advanced.sections.imageMagick")}
-                  description={t("settings.advanced.sections.imageMagickDescription")}
-                  titleVariant="subtitle2"
-                  titleSx={subsectionHeadingSx}
-                >
-                  <ByteSizeSettingField
-                    setting={settings.preprocessors.imagemagick.max_file_size_bytes}
-                    value={formState.imagemagickMaxFileSizeBytes}
-                    onChange={(value) =>
-                      setFormState((current) => (current ? { ...current, imagemagickMaxFileSizeBytes: value } : current))
-                    }
-                    errorText={validationErrors?.imagemagickMaxFileSizeBytes}
-                    showErrors={submitAttempted}
-                    onReset={() =>
-                      handleReset(
-                        settings.preprocessors.imagemagick.max_file_size_bytes.key,
-                        settings.preprocessors.imagemagick.max_file_size_bytes.label
-                      )
-                    }
-                    resetDisabled={saving || loading || hasUnsavedChanges}
-                  />
-                  <SettingField
-                    setting={settings.preprocessors.imagemagick.timeout_seconds}
-                    value={formState.imagemagickTimeoutSeconds}
-                    onChange={(value) => setFormState((current) => (current ? { ...current, imagemagickTimeoutSeconds: value } : current))}
-                    errorText={validationErrors?.imagemagickTimeoutSeconds}
-                    showErrors={submitAttempted}
-                    unitAdornment={t("settings.advanced.fields.seconds")}
-                    onReset={() =>
-                      handleReset(
-                        settings.preprocessors.imagemagick.timeout_seconds.key,
-                        settings.preprocessors.imagemagick.timeout_seconds.label
-                      )
-                    }
-                    resetDisabled={saving || loading || hasUnsavedChanges}
-                  />
-                </SettingsGroup>
-              </Stack>
-            </SettingsGroup>
-          </Stack>
-        )}
-      </Box>
-
-      {isMobile && (
-        <Box
-          sx={{
-            px: 2,
-            pt: 1.5,
-            pb: `calc(${MOBILE_ACTION_BAR_PADDING_BOTTOM_PX}px + env(safe-area-inset-bottom))`,
-            borderTop: 1,
-            borderColor: "divider",
-            bgcolor: "background.paper",
-          }}
-        >
-          {saveAction}
-        </Box>
+          <SettingsGroup title={t("settings.advanced.sections.preprocessors")}>
+            <Stack spacing={3.5}>
+              <SettingsGroup title={t("settings.advanced.sections.imageMagick")} level="subsection">
+                <ByteSizeSettingField
+                  setting={settings.preprocessors.imagemagick.max_file_size_bytes}
+                  value={formState.imagemagickMaxFileSizeBytes}
+                  onChange={(value) => setFormState((current) => (current ? { ...current, imagemagickMaxFileSizeBytes: value } : current))}
+                  errorText={validationErrors?.imagemagickMaxFileSizeBytes}
+                  showErrors={submitAttempted}
+                  onReset={() =>
+                    handleReset(
+                      settings.preprocessors.imagemagick.max_file_size_bytes.key,
+                      settings.preprocessors.imagemagick.max_file_size_bytes.label
+                    )
+                  }
+                  resetDisabled={saving || loading || hasUnsavedChanges}
+                />
+                <SettingField
+                  setting={settings.preprocessors.imagemagick.timeout_seconds}
+                  value={formState.imagemagickTimeoutSeconds}
+                  onChange={(value) => setFormState((current) => (current ? { ...current, imagemagickTimeoutSeconds: value } : current))}
+                  errorText={validationErrors?.imagemagickTimeoutSeconds}
+                  showErrors={submitAttempted}
+                  unitAdornment={t("settings.advanced.fields.seconds")}
+                  onReset={() =>
+                    handleReset(
+                      settings.preprocessors.imagemagick.timeout_seconds.key,
+                      settings.preprocessors.imagemagick.timeout_seconds.label
+                    )
+                  }
+                  resetDisabled={saving || loading || hasUnsavedChanges}
+                />
+              </SettingsGroup>
+            </Stack>
+          </SettingsGroup>
+        </SettingsSectionList>
       )}
-
       <SettingsNotificationSnackbar
         notification={notification}
         onClose={() => setNotification((current) => ({ ...current, open: false }))}
       />
-    </Box>
+    </SettingsPage>
   );
 }
