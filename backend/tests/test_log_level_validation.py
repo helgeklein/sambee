@@ -146,9 +146,7 @@ def test_uvicorn_protocol_log_filter_hides_routine_protocol_messages():
 
     assert not log_filter.filter(logging.LogRecord("uvicorn.error", logging.INFO, "", 0, "connection open", (), None))
     assert not log_filter.filter(logging.LogRecord("uvicorn.error", logging.INFO, "", 0, 'WebSocket /api/ws" [accepted]', (), None))
-    assert not log_filter.filter(
-        logging.LogRecord("uvicorn.error", logging.INFO, "", 0, "connection rejected (403 Forbidden)", (), None)
-    )
+    assert not log_filter.filter(logging.LogRecord("uvicorn.error", logging.INFO, "", 0, "connection rejected (403 Forbidden)", (), None))
     assert not log_filter.filter(
         logging.LogRecord("uvicorn.error", logging.DEBUG, "", 0, '> TEXT \'{"type":"subscribed"}\' [21 bytes]', (), None)
     )
