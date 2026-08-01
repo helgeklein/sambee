@@ -50,7 +50,7 @@ export function SettingsSidebar() {
         sections={sections}
         onSelect={(item) => navigate(SETTINGS_ROUTE_BY_NAV_ITEM[item])}
         selectedItem={selectedItem ?? undefined}
-        listSx={{ flex: 1, py: 1 }}
+        listSx={{ flex: 1, minHeight: 0, overflowY: "auto", py: 1 }}
         sectionSx={{ mb: 1.5 }}
         itemButtonSx={{
           mx: 1,

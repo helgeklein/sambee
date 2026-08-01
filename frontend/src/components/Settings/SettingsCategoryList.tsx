@@ -156,7 +156,9 @@ export function SettingsCategoryList({
     <List sx={listSx} role={listRole} aria-label={listAriaLabel}>
       {sections.map((section) => (
         <Box key={section.section} sx={sectionSx}>
-          <ListSubheader sx={resolvedSubheaderSx}>{section.label}</ListSubheader>
+          <ListSubheader disableSticky sx={resolvedSubheaderSx}>
+            {section.label}
+          </ListSubheader>
           {section.categories.map((category) => {
             const isSelected = selectedItem === category;
             const parentTypographyProps = mergeTypographyProps(
