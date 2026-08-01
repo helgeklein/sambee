@@ -749,6 +749,11 @@ export function AuthenticationSettings() {
                     ? "Currently inherited from the configuration file. Activating a mode here makes this page authoritative."
                     : undefined
                 }
+                slotProps={{
+                  select: {
+                    SelectDisplayProps: { tabIndex: 0 },
+                  },
+                }}
               >
                 <MenuItem value="none">No authentication</MenuItem>
                 <MenuItem value="password_only">Password only</MenuItem>

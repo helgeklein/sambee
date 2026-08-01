@@ -129,6 +129,22 @@ describe("Authentication settings", () => {
     expect(guide).toHaveAttribute("rel", "noreferrer");
   });
 
+  it("tabs directly from the setup guide to the Authentication mode control", async () => {
+    const user = userEvent.setup();
+    vi.mocked(api.getOidcConfiguration).mockResolvedValue(response(configuration("Active Provider")));
+    window.history.replaceState(null, "", "/settings/admin/authentication");
+
+    renderSettings();
+
+    const guide = await screen.findByRole("link", { name: "OpenID Connect setup guide" });
+    const authenticationMode = screen.getByRole("combobox", { name: "Authentication mode" });
+    guide.focus();
+    await user.tab();
+
+    expect(authenticationMode).toHaveFocus();
+    expect(authenticationMode.parentElement?.querySelector("input.MuiSelect-nativeInput")).toHaveAttribute("tabindex", "-1");
+  });
+
   it("reviews the tested candidate and synchronizes the activated configuration", async () => {
     const user = userEvent.setup();
     vi.spyOn(window, "confirm").mockReturnValue(true);
