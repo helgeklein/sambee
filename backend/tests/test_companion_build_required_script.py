@@ -1,7 +1,6 @@
 import importlib.util
 from pathlib import Path
 
-
 WORKSPACE = Path(__file__).parents[2]
 SCRIPT_PATH = WORKSPACE / ".github/scripts/companion_build_required.py"
 SPEC = importlib.util.spec_from_file_location("companion_build_required", SCRIPT_PATH)
@@ -27,9 +26,7 @@ def test_version_sync_only_accepts_version_field_changes() -> None:
         (head, path): '[package]\nname = "sambee-companion"\nversion = "0.9.23"\n',
     }
 
-    assert companion_build_required.is_version_sync_only(
-        {"VERSION", path}, make_reader(files), base, head
-    )
+    assert companion_build_required.is_version_sync_only({"VERSION", path}, make_reader(files), base, head)
 
 
 def test_version_sync_only_rejects_non_version_metadata_changes() -> None:
@@ -41,9 +38,7 @@ def test_version_sync_only_rejects_non_version_metadata_changes() -> None:
         (head, path): '{"version": "0.9.23", "scripts": {"test": "vitest --run"}}',
     }
 
-    assert not companion_build_required.is_version_sync_only(
-        {"VERSION", path}, make_reader(files), base, head
-    )
+    assert not companion_build_required.is_version_sync_only({"VERSION", path}, make_reader(files), base, head)
 
 
 def test_version_sync_only_rejects_companion_source_changes() -> None:

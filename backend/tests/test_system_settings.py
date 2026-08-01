@@ -2,7 +2,7 @@ from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
 from fastapi.testclient import TestClient
-from sqlmodel import Session, create_engine
+from sqlmodel import Session, create_engine, select
 from sqlmodel.pool import StaticPool
 
 import app.db.database as database_module
@@ -174,4 +174,4 @@ class TestNetworkSettingsApi:
         )
 
         assert response.status_code == 200
-        assert session.query(OidcFlow).count() == 0
+        assert session.exec(select(OidcFlow)).first() is None

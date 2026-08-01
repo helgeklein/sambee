@@ -176,7 +176,7 @@ async def read_and_convert_image(
             f"Image conversion failed: connection_id={connection_id}, path='{path}', error={error_msg}",
         )
         raise HTTPException(
-            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
             detail=error_msg,
         )
     except Exception as e:

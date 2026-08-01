@@ -385,7 +385,7 @@ async def login(
     username = form_data.get("username")
     password = form_data.get("password")
     if not isinstance(username, str) or not isinstance(password, str) or not username or not password:
-        raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail="Username and password are required")
+        raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_CONTENT, detail="Username and password are required")
 
     _rate_limited_response(
         authentication_rate_limiter.check_password(_request_source_ip(request, session), username),
@@ -1109,7 +1109,7 @@ async def change_password(
     effective_new_password = payload.new_password if payload else new_password
 
     if not effective_current_password or not effective_new_password:
-        raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail="Current and new passwords are required")
+        raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_CONTENT, detail="Current and new passwords are required")
 
     # Reject password changes when auth_method is "none"
     if get_effective_authentication_mode(session).mode.value == "none":
