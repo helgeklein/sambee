@@ -33,6 +33,12 @@ describe("NetworkSettings", () => {
 
     expect(await screen.findByDisplayValue("https://files.example.test")).toBeInTheDocument();
     expect(screen.getByDisplayValue("10.0.0.0/24")).toBeInTheDocument();
+    const proxyCidrs = screen.getByLabelText("Trusted proxy CIDRs");
+    expect(proxyCidrs).toBe(screen.getByRole("textbox", { name: "Trusted proxy CIDRs" }));
+    expect(proxyCidrs.tagName).toBe("TEXTAREA");
+    expect(proxyCidrs.closest(".MuiFormControl-root")?.querySelector("label")).toHaveAttribute("data-shrink", "true");
+    expect(screen.queryByRole("heading", { name: "External origin" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("heading", { name: "Trusted reverse proxies" })).not.toBeInTheDocument();
     expect(screen.queryByRole("textbox", { name: "OIDC callback URI" })).not.toBeInTheDocument();
   });
 
@@ -66,7 +72,7 @@ describe("NetworkSettings", () => {
     const publicUrl = await screen.findByRole("textbox", { name: /public url/i });
     await user.clear(publicUrl);
     await user.type(publicUrl, "https://new.example.test");
-    const proxyCidrs = screen.getByRole("textbox", { name: /trusted reverse proxy cidrs/i });
+    const proxyCidrs = screen.getByRole("textbox", { name: /trusted proxy cidrs/i });
     await user.clear(proxyCidrs);
     await user.type(proxyCidrs, "10.0.0.4/24{enter}2001:db8::1/64");
     await user.click(screen.getByRole("button", { name: "Save network settings" }));
