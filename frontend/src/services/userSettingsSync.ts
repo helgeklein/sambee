@@ -4,8 +4,27 @@ import { authSession } from "./authSession";
 
 export const USER_SETTINGS_CHANGED_EVENT = "sambee:user-settings-changed";
 
+const USER_SETTINGS_CHANNEL_NAME = "sambee-user-settings";
+const USER_SETTINGS_UPDATED_MESSAGE_TYPE = "settings-updated";
+
 let cachedSettings: CurrentUserSettings | null = null;
 let pendingLoad: Promise<CurrentUserSettings | null> | null = null;
+const userSettingsChannel = typeof BroadcastChannel === "undefined" ? null : new BroadcastChannel(USER_SETTINGS_CHANNEL_NAME);
+
+userSettingsChannel?.addEventListener("message", (event: MessageEvent<{ type?: unknown }>) => {
+  if (event.data?.type === USER_SETTINGS_UPDATED_MESSAGE_TYPE) {
+    void loadCurrentUserSettings(true);
+  }
+});
+
+function refreshCurrentUserSettingsOnReturn(): void {
+  if (document.visibilityState === "visible") {
+    void loadCurrentUserSettings(true);
+  }
+}
+
+window.addEventListener("focus", refreshCurrentUserSettingsOnReturn);
+window.addEventListener("visibilitychange", refreshCurrentUserSettingsOnReturn);
 
 function mergeViewerAssociations(settings: CurrentUserSettings | null, payload: CurrentUserSettingsUpdate): CurrentUserSettings | null {
   if (!settings || !payload.browser || !("viewer_associations" in payload.browser) || !payload.browser.viewer_associations) {
@@ -118,6 +137,7 @@ export async function patchCurrentUserSettings(payload: CurrentUserSettingsUpdat
     cachedSettings = settings;
     if (settings) {
       publish(settings);
+      userSettingsChannel?.postMessage({ type: USER_SETTINGS_UPDATED_MESSAGE_TYPE });
     }
     return settings;
   } catch {

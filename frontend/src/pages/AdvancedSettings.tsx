@@ -598,7 +598,7 @@ export function AdvancedSettings({ dialogSafeHeader = false }: AdvancedSettingsP
             pb: `calc(${MOBILE_ACTION_BAR_PADDING_BOTTOM_PX}px + env(safe-area-inset-bottom))`,
             borderTop: 1,
             borderColor: "divider",
-            bgcolor: "background.paper",
+            bgcolor: "background.default",
           }}
         >
           {saveAction}

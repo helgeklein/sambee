@@ -33,6 +33,10 @@ describe("TextEditorSettings", () => {
     await user.clear(input);
     await user.type(input, "8");
 
+    expect(setTextEditorMaxFileSizeBytesMock).not.toHaveBeenCalled();
+
+    await user.tab();
+
     expect(setTextEditorMaxFileSizeBytesMock).toHaveBeenLastCalledWith(8388608);
   });
 });

@@ -9,6 +9,32 @@ const { isAuthRequiredMock } = vi.hoisted(() => ({
   isAuthRequiredMock: vi.fn(),
 }));
 
+const { getUserSettingsChannel, getUserSettingsMessageHandler } = vi.hoisted(() => {
+  let userSettingsMessageHandler: ((event: MessageEvent<{ type?: unknown }>) => void) | null = null;
+  let userSettingsChannel: MockBroadcastChannel | null = null;
+
+  class MockBroadcastChannel {
+    addEventListener = vi.fn((eventName: string, listener: (event: MessageEvent<{ type?: unknown }>) => void) => {
+      if (eventName === "message") {
+        userSettingsMessageHandler = listener;
+      }
+    });
+    postMessage = vi.fn();
+
+    constructor(name: string) {
+      if (name === "sambee-user-settings") {
+        userSettingsChannel = this;
+      }
+    }
+  }
+
+  vi.stubGlobal("BroadcastChannel", MockBroadcastChannel);
+  return {
+    getUserSettingsChannel: () => userSettingsChannel,
+    getUserSettingsMessageHandler: () => userSettingsMessageHandler,
+  };
+});
+
 vi.mock("../api", () => ({
   default: {
     getCurrentUserSettings: getCurrentUserSettingsMock,
@@ -129,6 +155,63 @@ describe("userSettingsSync", () => {
         },
       },
     });
+    const userSettingsChannel = getUserSettingsChannel();
+    expect(userSettingsChannel).not.toBeNull();
+    expect(userSettingsChannel?.postMessage).toHaveBeenCalledWith({ type: "settings-updated" });
+  });
+
+  it("refreshes cached settings when another app instance broadcasts an update", async () => {
+    const updatedSettings = {
+      appearance: { theme_id: "sambee-dark", custom_themes: [] },
+      localization: {
+        language: "browser" as const,
+        regional_locale: "browser",
+      },
+      browser: {
+        quick_nav_include_dot_directories: true,
+        file_browser_view_mode: "details" as const,
+        pane_mode: "dual" as const,
+        selected_connection_id: null,
+        viewer_associations: {},
+      },
+      text_editor: {
+        max_file_size_bytes: 104857600,
+      },
+    };
+    getCurrentUserSettingsMock.mockResolvedValue(updatedSettings);
+
+    getUserSettingsMessageHandler()?.(new MessageEvent("message", { data: { type: "settings-updated" } }));
+    await flushAsyncWork();
+
+    expect(getCurrentUserSettingsMock).toHaveBeenCalledTimes(1);
+    await expect(loadCurrentUserSettings()).resolves.toEqual(updatedSettings);
+  });
+
+  it("refreshes settings from the backend when an app instance regains focus", async () => {
+    const updatedSettings = {
+      appearance: { theme_id: "sambee-dark", custom_themes: [] },
+      localization: {
+        language: "browser" as const,
+        regional_locale: "browser",
+      },
+      browser: {
+        quick_nav_include_dot_directories: true,
+        file_browser_view_mode: "details" as const,
+        pane_mode: "dual" as const,
+        selected_connection_id: null,
+        viewer_associations: {},
+      },
+      text_editor: {
+        max_file_size_bytes: 104857600,
+      },
+    };
+    getCurrentUserSettingsMock.mockResolvedValue(updatedSettings);
+
+    window.dispatchEvent(new Event("focus"));
+    await flushAsyncWork();
+
+    expect(getCurrentUserSettingsMock).toHaveBeenCalledTimes(1);
+    await expect(loadCurrentUserSettings()).resolves.toEqual(updatedSettings);
   });
 
   it("coalesces concurrent forced and non-forced settings loads into a single request", async () => {

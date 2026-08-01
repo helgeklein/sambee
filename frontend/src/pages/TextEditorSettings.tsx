@@ -18,10 +18,28 @@ export function TextEditorSettings() {
   const [maxFileSizeMegabytesInput, setMaxFileSizeMegabytesInput] = useState(() =>
     String(Math.max(1, Math.round(maxFileSizeBytes / BYTES_PER_MEGABYTE)))
   );
+  const [isEditingMaxFileSize, setIsEditingMaxFileSize] = useState(false);
 
   useEffect(() => {
-    setMaxFileSizeMegabytesInput(String(Math.max(1, Math.round(maxFileSizeBytes / BYTES_PER_MEGABYTE))));
-  }, [maxFileSizeBytes]);
+    if (!isEditingMaxFileSize) {
+      setMaxFileSizeMegabytesInput(String(Math.max(1, Math.round(maxFileSizeBytes / BYTES_PER_MEGABYTE))));
+    }
+  }, [isEditingMaxFileSize, maxFileSizeBytes]);
+
+  const commitMaxFileSize = () => {
+    setIsEditingMaxFileSize(false);
+
+    const parsedValue = Number.parseInt(maxFileSizeMegabytesInput, 10);
+    if (!Number.isFinite(parsedValue)) {
+      setMaxFileSizeMegabytesInput(String(Math.max(1, Math.round(maxFileSizeBytes / BYTES_PER_MEGABYTE))));
+      return;
+    }
+
+    const nextMaxFileSizeBytes = Math.max(1, parsedValue) * BYTES_PER_MEGABYTE;
+    if (nextMaxFileSizeBytes !== maxFileSizeBytes) {
+      setMaxFileSizeBytes(nextMaxFileSizeBytes);
+    }
+  };
 
   return (
     <Box sx={{ height: "100%", display: "flex", flexDirection: "column", bgcolor: "background.default", overflow: "hidden" }}>
@@ -36,16 +54,13 @@ export function TextEditorSettings() {
             label={t("settings.textEditorPage.maxFileSizeLabel")}
             type="number"
             value={maxFileSizeMegabytesInput}
-            onChange={(event) => {
-              const nextValue = event.target.value;
-              setMaxFileSizeMegabytesInput(nextValue);
-
-              const parsedValue = Number.parseInt(nextValue, 10);
-              if (!Number.isFinite(parsedValue)) {
-                return;
+            onFocus={() => setIsEditingMaxFileSize(true)}
+            onChange={(event) => setMaxFileSizeMegabytesInput(event.target.value)}
+            onBlur={commitMaxFileSize}
+            onKeyDown={(event) => {
+              if (event.key === "Enter") {
+                event.currentTarget.blur();
               }
-
-              setMaxFileSizeBytes(Math.max(1, parsedValue) * BYTES_PER_MEGABYTE);
             }}
             slotProps={{
               htmlInput: {
