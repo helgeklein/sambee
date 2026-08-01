@@ -5,6 +5,10 @@ import {
   CircularProgress,
   ListItem,
   ListItemText,
+  Table,
+  TableBody,
+  TableCell,
+  TableRow,
   TextField,
   Typography,
   useMediaQuery,
@@ -40,6 +44,45 @@ const EMPTY_PASSWORD_FORM: PasswordForm = {
   newPassword: "",
   confirmation: "",
 };
+
+interface AccountIdentityRowProps {
+  label: string;
+  value: string;
+  isLast?: boolean;
+}
+
+function AccountIdentityRow({ label, value, isLast = false }: AccountIdentityRowProps) {
+  return (
+    <TableRow
+      sx={
+        isLast
+          ? {
+              "& th, & td": { borderBottom: 0 },
+            }
+          : undefined
+      }
+    >
+      <TableCell
+        component="th"
+        scope="row"
+        sx={{
+          width: { xs: "42%", sm: "32%" },
+          px: 0,
+          py: 1,
+          pr: 2,
+          verticalAlign: "top",
+          color: "text.secondary",
+          fontWeight: 500,
+        }}
+      >
+        {label}
+      </TableCell>
+      <TableCell align="right" sx={{ px: 0, py: 1, verticalAlign: "top", overflowWrap: "anywhere" }}>
+        {value}
+      </TableCell>
+    </TableRow>
+  );
+}
 
 export function AccountSettings({ dialogSafe = false }: { dialogSafe?: boolean }) {
   const theme = useTheme();
@@ -177,24 +220,14 @@ export function AccountSettings({ dialogSafe = false }: { dialogSafe?: boolean }
               <Alert severity="warning">Your administrator requires you to change your local password.</Alert>
             )}
             <SettingsGroup title="Your identity" contentSpacing="compact">
-              <SettingsList>
-                <ListItem divider disableGutters>
-                  <ListItemText primary="Username" secondary={account.username} />
-                </ListItem>
-                {account.name && (
-                  <ListItem divider disableGutters>
-                    <ListItemText primary="Name" secondary={account.name} />
-                  </ListItem>
-                )}
-                {account.email && (
-                  <ListItem divider disableGutters>
-                    <ListItemText primary="Email" secondary={account.email} />
-                  </ListItem>
-                )}
-                <ListItem disableGutters>
-                  <ListItemText primary="Role" secondary={account.role} />
-                </ListItem>
-              </SettingsList>
+              <Table aria-label="Your identity" size="small" sx={{ tableLayout: "fixed", width: "100%" }}>
+                <TableBody>
+                  <AccountIdentityRow label="Username" value={account.username} />
+                  {account.name && <AccountIdentityRow label="Name" value={account.name} />}
+                  {account.email && <AccountIdentityRow label="Email" value={account.email} />}
+                  <AccountIdentityRow label="Role" value={account.role} isLast />
+                </TableBody>
+              </Table>
             </SettingsGroup>
 
             {account.password_change_available && (
