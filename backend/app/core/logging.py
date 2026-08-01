@@ -5,6 +5,7 @@ Provides request ID tracking and context-aware logging throughout the applicatio
 """
 
 import logging
+import re
 import uuid
 from collections.abc import MutableMapping
 from contextvars import ContextVar
@@ -116,11 +117,33 @@ class UvicornProtocolLogFilter(logging.Filter):
     def filter(self, record: logging.LogRecord) -> bool:
         message = record.getMessage()
         is_protocol_message = (
-            message in {"connection open", "connection closed"}
+            message in {"connection open", "connection closed", "connection rejected (403 Forbidden)"}
             or ("WebSocket " in message and "[accepted]" in message)
             or message.startswith(self._FRAME_PREFIXES)
         )
         return not is_protocol_message or record.levelno >= self.protocol_log_level
+
+
+class UvicornAccessLogFilter(logging.Filter):
+    """Redact query strings and apply protocol verbosity to rejected WebSockets."""
+
+    _QUERY_STRING_PATTERN = re.compile(r'(?P<method>"?(?:GET|POST|PUT|PATCH|DELETE|OPTIONS|HEAD|WebSocket)\s+)(?P<path>[^\s?]+)\?[^\s"]+')
+
+    def __init__(self, protocol_log_level: int) -> None:
+        super().__init__()
+        self.protocol_log_level = protocol_log_level
+
+    def filter(self, record: logging.LogRecord) -> bool:
+        message = record.getMessage()
+        is_rejected_websocket = "WebSocket " in message and message.endswith('" 403')
+        if is_rejected_websocket and record.levelno < self.protocol_log_level:
+            return False
+
+        redacted_message = self._QUERY_STRING_PATTERN.sub(r"\g<method>\g<path>?<redacted>", message)
+        if redacted_message != message:
+            record.msg = redacted_message
+            record.args = ()
+        return True
 
 
 def configure_uvicorn_loggers(
@@ -150,9 +173,10 @@ def configure_uvicorn_loggers(
         logger.propagate = False
 
     protocol_filter = UvicornProtocolLogFilter(protocol_log_level)
+    access_filter = UvicornAccessLogFilter(protocol_log_level)
     configure_logger("uvicorn", application_log_level, protocol_filter)
     configure_logger("uvicorn.error", application_log_level, protocol_filter)
-    configure_logger("uvicorn.access", access_log_level)
+    configure_logger("uvicorn.access", access_log_level, access_filter)
 
 
 class ContextAdapter(logging.LoggerAdapter[logging.Logger]):

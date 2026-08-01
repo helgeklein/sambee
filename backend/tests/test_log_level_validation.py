@@ -7,7 +7,7 @@ import pytest
 from pydantic import ValidationError
 
 from app.core.config import Settings, load_toml_config
-from app.core.logging import UvicornProtocolLogFilter, configure_uvicorn_loggers
+from app.core.logging import UvicornAccessLogFilter, UvicornProtocolLogFilter, configure_uvicorn_loggers
 
 
 #
@@ -147,8 +147,39 @@ def test_uvicorn_protocol_log_filter_hides_routine_protocol_messages():
     assert not log_filter.filter(logging.LogRecord("uvicorn.error", logging.INFO, "", 0, "connection open", (), None))
     assert not log_filter.filter(logging.LogRecord("uvicorn.error", logging.INFO, "", 0, 'WebSocket /api/ws" [accepted]', (), None))
     assert not log_filter.filter(
+        logging.LogRecord("uvicorn.error", logging.INFO, "", 0, "connection rejected (403 Forbidden)", (), None)
+    )
+    assert not log_filter.filter(
         logging.LogRecord("uvicorn.error", logging.DEBUG, "", 0, '> TEXT \'{"type":"subscribed"}\' [21 bytes]', (), None)
     )
     assert not log_filter.filter(logging.LogRecord("uvicorn.error", logging.DEBUG, "", 0, "> PING 4c 2a f7 4f [binary, 4 bytes]", (), None))
     assert log_filter.filter(logging.LogRecord("uvicorn.error", logging.INFO, "", 0, "Application startup complete.", (), None))
     assert log_filter.filter(logging.LogRecord("uvicorn.error", logging.ERROR, "", 0, "connection failed", (), None))
+
+
+def test_uvicorn_access_log_filter_hides_rejected_websockets_and_redacts_query_strings():
+    """Keep stale WebSocket tokens out of routine upgrade logs."""
+
+    log_filter = UvicornAccessLogFilter(logging.WARNING)
+    rejected_websocket = logging.LogRecord(
+        "uvicorn.access",
+        logging.INFO,
+        "",
+        0,
+        '172.19.0.11 - "WebSocket /api/ws?token=secret-token" 403',
+        (),
+        None,
+    )
+    retained_request = logging.LogRecord(
+        "uvicorn.access",
+        logging.INFO,
+        "",
+        0,
+        '172.19.0.11 - "GET /api/files?cursor=sensitive-value HTTP/1.1" 200',
+        (),
+        None,
+    )
+
+    assert not log_filter.filter(rejected_websocket)
+    assert log_filter.filter(retained_request)
+    assert retained_request.getMessage() == '172.19.0.11 - "GET /api/files?<redacted> HTTP/1.1" 200'
