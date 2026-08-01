@@ -24,7 +24,7 @@ import {
   useMediaQuery,
   useTheme,
 } from "@mui/material";
-import { useCallback, useState } from "react";
+import { useCallback, useEffect, useMemo, useState, type ReactNode } from "react";
 import { useTranslation } from "react-i18next";
 import ConnectionDialog from "../components/Admin/ConnectionDialog";
 import DeleteDialog from "../components/Admin/DeleteDialog";
@@ -68,6 +68,8 @@ interface ConnectionSettingsProps {
   forceDesktopLayout?: boolean;
   showHeader?: boolean;
   sectionTitle?: string;
+  onFooterSecondaryActionsChange?: (actions: ReactNode) => void;
+  contentPadding?: "responsive" | "none";
 }
 
 const CONNECTION_ROW_VERTICAL_PADDING = 2.5;
@@ -78,6 +80,8 @@ export function ConnectionSettings({
   forceDesktopLayout = false,
   showHeader = true,
   sectionTitle,
+  onFooterSecondaryActionsChange,
+  contentPadding = "responsive",
 }: ConnectionSettingsProps) {
   const theme = useTheme();
   const isLargeScreen = useMediaQuery(theme.breakpoints.up("sm"));
@@ -85,7 +89,7 @@ export function ConnectionSettings({
   const { isAdmin: detectedIsAdmin, canWrite: detectedCanWrite } = useSettingsAccess(isAdmin !== true);
   // Use desktop layout if forced or on large screens
   const isDesktop = forceDesktopLayout || isLargeScreen;
-  const shouldRenderInlineGroupHeader = Boolean(sectionTitle || isDesktop);
+  const shouldRenderInlineGroupHeader = Boolean(sectionTitle);
   const effectiveIsAdmin = Boolean(isAdmin || detectedIsAdmin);
   const canCreateConnections = effectiveIsAdmin || detectedCanWrite;
   const [notification, setNotification] = useState<SettingsNotificationState>({
@@ -121,10 +125,29 @@ export function ConnectionSettings({
     element: HTMLElement;
     connection: Connection;
   } | null>(null);
-  const handleAddClick = () => {
+  const handleAddClick = useCallback(() => {
     setSelectedConnection(null);
     setConnectionDialogOpen(true);
-  };
+  }, []);
+
+  const addConnectionAction = useMemo(
+    () =>
+      canCreateConnections ? (
+        <Button variant="outlined" startIcon={<AddIcon />} onClick={handleAddClick} sx={settingsUtilityButtonSx}>
+          {t("settings.connectionManagement.addConnectionButton")}
+        </Button>
+      ) : null,
+    [canCreateConnections, handleAddClick, t]
+  );
+
+  useEffect(() => {
+    if (!onFooterSecondaryActionsChange) {
+      return;
+    }
+
+    onFooterSecondaryActionsChange(addConnectionAction);
+    return () => onFooterSecondaryActionsChange(null);
+  }, [addConnectionAction, onFooterSecondaryActionsChange]);
 
   const handleEdit = (connection: Connection) => {
     if (!connection.can_manage) return;
@@ -463,7 +486,13 @@ export function ConnectionSettings({
       ) : null}
 
       {/* Connection List */}
-      <Box sx={{ flex: showHeader ? 1 : undefined, overflow: showHeader ? "auto" : "visible", px: { xs: 2, sm: 3, md: 4 }, pb: 3 }}>
+      <Box
+        sx={{
+          flex: showHeader ? 1 : undefined,
+          overflow: showHeader ? "auto" : "visible",
+          ...(contentPadding === "responsive" ? { px: { xs: 2, sm: 3, md: 4 }, pb: 3 } : { p: 0 }),
+        }}
+      >
         {loading ? (
           <SettingsLoadingState />
         ) : connections.length === 0 ? (
@@ -495,13 +524,9 @@ export function ConnectionSettings({
         )}
       </Box>
 
-      {showHeader && canCreateConnections && (
+      {!onFooterSecondaryActionsChange && addConnectionAction && (
         <SettingsActionBar
-          secondaryActions={
-            <Button variant="outlined" startIcon={<AddIcon />} onClick={handleAddClick} sx={settingsUtilityButtonSx}>
-              {t("settings.connectionManagement.addConnectionButton")}
-            </Button>
-          }
+          secondaryActions={addConnectionAction}
         />
       )}
 

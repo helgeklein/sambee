@@ -1,7 +1,12 @@
 import { Box, type SxProps, type Theme } from "@mui/material";
 import type { ReactNode } from "react";
 
-export const SETTINGS_ACTION_BAR_MIN_HEIGHT_PX = 61;
+const SETTINGS_ACTION_BAR_BUTTON_HEIGHT_PX = 40;
+const SETTINGS_ACTION_BAR_VERTICAL_PADDING_PX = 12;
+const SETTINGS_ACTION_BAR_DIVIDER_HEIGHT_PX = 1;
+
+export const SETTINGS_ACTION_BAR_MIN_HEIGHT_PX =
+  SETTINGS_ACTION_BAR_BUTTON_HEIGHT_PX + SETTINGS_ACTION_BAR_VERTICAL_PADDING_PX * 2 + SETTINGS_ACTION_BAR_DIVIDER_HEIGHT_PX;
 
 interface SettingsActionBarProps {
   primaryActions?: ReactNode;

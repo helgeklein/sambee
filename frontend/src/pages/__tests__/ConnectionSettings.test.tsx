@@ -98,6 +98,18 @@ describe("ConnectionSettings", () => {
     expect(api.getCurrentUser).not.toHaveBeenCalled();
   });
 
+  it("keeps Add connection in the footer when the parent renders the page header", () => {
+    vi.mocked(api.getConnections).mockReturnValue(new Promise(() => undefined));
+
+    render(
+      <SambeeThemeProvider>
+        <ConnectionSettings isAdmin showHeader={false} />
+      </SambeeThemeProvider>
+    );
+
+    expect(screen.getByRole("button", { name: /add connection/i })).toBeInTheDocument();
+  });
+
   it("shows backend-defined visibility options when the dialog opens", async () => {
     const user = userEvent.setup();
 
@@ -152,7 +164,7 @@ describe("ConnectionSettings", () => {
     expect(screen.getByTestId("connection-settings-private-section")).toHaveStyle({ marginTop: "32px" });
   });
 
-  it("does not add top margin before the first section in headerless desktop mode", async () => {
+  it("does not render an empty header or add top margin in headerless desktop mode", async () => {
     vi.mocked(api.getConnections).mockResolvedValue([
       {
         id: "shared-1",
@@ -177,7 +189,7 @@ describe("ConnectionSettings", () => {
 
     await screen.findByText("Shared connections");
 
-    expect(screen.getByTestId("connection-settings-inline-header")).toBeInTheDocument();
+    expect(screen.queryByTestId("connection-settings-inline-header")).not.toBeInTheDocument();
     expect(screen.getByRole("heading", { name: "Shared connections", level: 2 })).toBeInTheDocument();
     expect(screen.getByTestId("connection-settings-shared-section")).toHaveStyle({ marginTop: "0px" });
     expect(screen.getByTestId("connection-settings-private-section")).toHaveStyle({ marginTop: "32px" });
