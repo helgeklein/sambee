@@ -23,7 +23,6 @@ export function FileBrowserSettings() {
       <Box sx={{ flex: 1, overflow: "auto", px: { xs: 2, sm: 3, md: 4 }, pb: 3 }}>
         <SettingsGroup
           title={t("settings.fileBrowserPage.quickNavigationTitle")}
-          description={t("settings.fileBrowserPage.quickNavigationDescription")}
         >
           <FormControlLabel
             control={<Checkbox checked={includeDotDirectories} onChange={(event) => setIncludeDotDirectories(event.target.checked)} />}

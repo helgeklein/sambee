@@ -551,7 +551,6 @@ export function AdvancedSettings({ dialogSafeHeader = false }: AdvancedSettingsP
           <Stack spacing={4}>
             <SettingsGroup
               title={t("settings.advanced.sections.smbBackends")}
-              description={t("settings.advanced.sections.smbBackendsDescription")}
             >
               <ByteSizeSettingField
                 setting={settings.smb.read_chunk_size_bytes}
@@ -566,12 +565,10 @@ export function AdvancedSettings({ dialogSafeHeader = false }: AdvancedSettingsP
 
             <SettingsGroup
               title={t("settings.advanced.sections.preprocessors")}
-              description={t("settings.advanced.sections.preprocessorsDescription")}
             >
               <Stack spacing={3.5}>
                 <SettingsGroup
                   title={t("settings.advanced.sections.imageMagick")}
-                  description={t("settings.advanced.sections.imageMagickDescription")}
                   titleVariant="subtitle2"
                   titleSx={subsectionHeadingSx}
                 >

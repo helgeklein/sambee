@@ -31,7 +31,7 @@ export function TextEditorSettings() {
         showTitle={!isMobile}
       />
       <Box sx={{ flex: 1, overflow: "auto", px: { xs: 2, sm: 3, md: 4 }, pb: 3 }}>
-        <SettingsGroup title={t("settings.textEditorPage.limitsTitle")} description={t("settings.textEditorPage.limitsDescription")}>
+        <SettingsGroup title={t("settings.textEditorPage.limitsTitle")}>
           <TextField
             label={t("settings.textEditorPage.maxFileSizeLabel")}
             type="number"

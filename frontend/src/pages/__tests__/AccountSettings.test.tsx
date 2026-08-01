@@ -63,9 +63,13 @@ describe("AccountSettings", () => {
 
     expect(await screen.findByText("Alex Example")).toBeInTheDocument();
     expect(screen.getAllByRole("heading", { name: "Account" })).toHaveLength(1);
-    expect(screen.getByRole("heading", { name: "Identity" })).toBeInTheDocument();
+    expect(screen.getByText("Manage your identity, password, browser sessions, and sign-out.")).toBeInTheDocument();
+    expect(screen.getByRole("heading", { name: "Your identity" })).toBeInTheDocument();
+    expect(screen.queryByText("Your signed-in identity and access level.")).not.toBeInTheDocument();
     expect(screen.getByRole("heading", { name: "Password" })).toBeInTheDocument();
     expect(screen.queryByRole("heading", { name: "Browser sessions" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("heading", { name: "Sign out" })).not.toBeInTheDocument();
+    expect(screen.queryByText("End this browser's Sambee session.")).not.toBeInTheDocument();
     expect(api.getOidcBrowserSessions).not.toHaveBeenCalled();
   });
 

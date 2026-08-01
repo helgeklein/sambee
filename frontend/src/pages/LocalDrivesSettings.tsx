@@ -379,7 +379,6 @@ export function LocalDrivesSettings({ onConnectionsChanged, sectionTitle, sectio
         {companionUnsupportedOnCurrentDevice ? (
           <SettingsGroup
             title={LOCAL_DRIVES_PAGE_COPY.unsupportedMobileTitle}
-            description={LOCAL_DRIVES_PAGE_COPY.unsupportedMobileDescription}
             sx={{ mb: 0 }}
           >
             <SettingsInlineAlert severity="info" sx={{ mb: 0 }}>
@@ -390,7 +389,6 @@ export function LocalDrivesSettings({ onConnectionsChanged, sectionTitle, sectio
           <>
             <SettingsGroup
               title={LOCAL_DRIVES_PAGE_COPY.summaryTitle}
-              description={LOCAL_DRIVES_PAGE_COPY.summaryDescription}
               sx={{ mb: 4 }}
             >
               <Box sx={{ ...sectionCardSx, px: { xs: 2, sm: 3 }, py: 3 }}>
@@ -433,7 +431,6 @@ export function LocalDrivesSettings({ onConnectionsChanged, sectionTitle, sectio
             {shouldShowInstallSection && (
               <SettingsGroup
                 title={LOCAL_DRIVES_PAGE_COPY.downloadSectionTitle}
-                description={LOCAL_DRIVES_PAGE_COPY.downloadSectionDescription}
                 sx={{ mb: 4 }}
               >
                 <Box sx={sectionCardSx}>
@@ -510,7 +507,6 @@ export function LocalDrivesSettings({ onConnectionsChanged, sectionTitle, sectio
             {shouldShowPairingSection && (
               <SettingsGroup
                 title={LOCAL_DRIVES_PAGE_COPY.pairingSectionTitle}
-                description={LOCAL_DRIVES_PAGE_COPY.pairingSectionDescription}
                 sx={{ mb: 4 }}
               >
                 <Box sx={sectionCardSx}>
@@ -543,7 +539,6 @@ export function LocalDrivesSettings({ onConnectionsChanged, sectionTitle, sectio
             {shouldShowVerificationSection && (
               <SettingsGroup
                 title={LOCAL_DRIVES_PAGE_COPY.verificationSectionTitle}
-                description={LOCAL_DRIVES_PAGE_COPY.verificationSectionDescription}
                 sx={{ mb: 4 }}
               >
                 <Box sx={sectionCardSx}>
@@ -570,7 +565,6 @@ export function LocalDrivesSettings({ onConnectionsChanged, sectionTitle, sectio
             {showUnpairAction && (
               <SettingsGroup
                 title={LOCAL_DRIVES_PAGE_COPY.troubleshootingSectionTitle}
-                description={LOCAL_DRIVES_PAGE_COPY.troubleshootingSectionDescription}
                 sx={{ mb: 0 }}
               >
                 <Box sx={sectionCardSx}>

@@ -68,7 +68,7 @@ export function NetworkSettings() {
       <Stack spacing={2.5}>
         {error && <Alert severity="error">{error}</Alert>}
         {notice && <Alert severity="success">{notice}</Alert>}
-        <SettingsGroup title="External origin" description="Set the URL Sambee presents to external services.">
+        <SettingsGroup title="External origin">
           <Stack spacing={2}>
             <TextField
               required
@@ -80,10 +80,7 @@ export function NetworkSettings() {
             />
           </Stack>
         </SettingsGroup>
-        <SettingsGroup
-          title="Trusted reverse proxies"
-          description="List only proxies you operate that forward client IP addresses to Sambee."
-        >
+        <SettingsGroup title="Trusted reverse proxies">
           <TextField
             fullWidth
             multiline

@@ -89,6 +89,9 @@ describe("AdvancedSettings", () => {
 
     expect(await screen.findByRole("heading", { name: /smb backends/i })).toBeInTheDocument();
     expect(screen.getByRole("heading", { name: /preprocessors/i })).toBeInTheDocument();
+    expect(screen.queryByText("Control how the server reads data from SMB shares during file access.")).not.toBeInTheDocument();
+    expect(screen.queryByText("Configure limits for server-side preprocessing services.")).not.toBeInTheDocument();
+    expect(screen.queryByText("Set the file-size and runtime limits used when ImageMagick conversions run.")).not.toBeInTheDocument();
     expect(screen.getByDisplayValue("4")).toBeInTheDocument();
     expect(screen.getAllByDisplayValue("MiB").length).toBeGreaterThan(0);
     expect(screen.getByText(/default: 4 mib \(4,194,304 bytes\)/i)).toBeInTheDocument();

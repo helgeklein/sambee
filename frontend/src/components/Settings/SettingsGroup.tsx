@@ -3,32 +3,26 @@ import type { ReactNode } from "react";
 
 interface SettingsGroupProps {
   title?: ReactNode;
-  description?: ReactNode;
   actions?: ReactNode;
   children?: ReactNode;
   titleVariant?: TypographyProps["variant"];
   sx?: SxProps<Theme>;
   headerSx?: SxProps<Theme>;
   titleSx?: SxProps<Theme>;
-  descriptionSx?: SxProps<Theme>;
   actionsSx?: SxProps<Theme>;
   contentSx?: SxProps<Theme>;
-  descriptionMaxWidth?: number | string;
 }
 
 export function SettingsGroup({
   title,
-  description,
   actions,
   children,
   titleVariant = "h6",
   sx,
   headerSx,
   titleSx,
-  descriptionSx,
   actionsSx,
   contentSx,
-  descriptionMaxWidth = 720,
 }: SettingsGroupProps) {
   const resolvedSx: SxProps<Theme> = Array.isArray(sx)
     ? [{ display: "flex", flexDirection: "column" }, ...sx]
@@ -38,27 +32,13 @@ export function SettingsGroup({
 
   return (
     <Box sx={resolvedSx}>
-      {(title || description || actions) && (
+      {(title || actions) && (
         <Box sx={headerSx}>
-          {(title || description) && (
+          {title && (
             <Box sx={{ minWidth: 0, mb: actions ? 1.5 : 2 }}>
-              {title ? (
-                <Typography variant={titleVariant} fontWeight="medium" sx={titleSx}>
-                  {title}
-                </Typography>
-              ) : null}
-              {description ? (
-                <Typography
-                  color="text.secondary"
-                  sx={[
-                    { mt: title ? 0.5 : 0, maxWidth: descriptionMaxWidth },
-                    ...(Array.isArray(descriptionSx) ? descriptionSx : descriptionSx ? [descriptionSx] : []),
-                  ]}
-                  variant="body2"
-                >
-                  {description}
-                </Typography>
-              ) : null}
+              <Typography variant={titleVariant} fontWeight="medium" sx={titleSx}>
+                {title}
+              </Typography>
             </Box>
           )}
           {actions ? (

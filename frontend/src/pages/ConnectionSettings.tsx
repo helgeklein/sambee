@@ -67,7 +67,6 @@ interface ConnectionSettingsProps {
   forceDesktopLayout?: boolean;
   showHeader?: boolean;
   sectionTitle?: string;
-  sectionDescription?: string;
   showMobileFab?: boolean;
 }
 
@@ -77,7 +76,6 @@ export function ConnectionSettings({
   forceDesktopLayout = false,
   showHeader = true,
   sectionTitle,
-  sectionDescription,
   showMobileFab = true,
 }: ConnectionSettingsProps) {
   const theme = useTheme();
@@ -86,7 +84,7 @@ export function ConnectionSettings({
   const { isAdmin: detectedIsAdmin, canWrite: detectedCanWrite } = useSettingsAccess(isAdmin !== true);
   // Use desktop layout if forced or on large screens
   const isDesktop = forceDesktopLayout || isLargeScreen;
-  const shouldRenderInlineGroupHeader = Boolean(sectionTitle || sectionDescription || isDesktop);
+  const shouldRenderInlineGroupHeader = Boolean(sectionTitle || isDesktop);
   const effectiveIsAdmin = Boolean(isAdmin || detectedIsAdmin);
   const canCreateConnections = effectiveIsAdmin || detectedCanWrite;
   const [notification, setNotification] = useState<SettingsNotificationState>({
@@ -427,7 +425,6 @@ export function ConnectionSettings({
 
   const renderSection = (
     title: string,
-    description: string,
     sectionConnections: Connection[],
     emptyMessage: string,
     options?: { disableTopMargin?: boolean; testId?: string }
@@ -435,9 +432,6 @@ export function ConnectionSettings({
     <Box data-testid={options?.testId} sx={{ mt: options?.disableTopMargin ? 0 : 3 }}>
       <Typography variant="subtitle1" fontWeight={700} sx={{ mb: 0.5 }}>
         {title}
-      </Typography>
-      <Typography variant="body2" color="text.secondary" sx={{ mb: 1.5 }}>
-        {description}
       </Typography>
       {sectionConnections.length === 0 ? (
         <SettingsEmptyState description={emptyMessage} compact sx={{ py: 2, maxWidth: "none", mx: 0, textAlign: "left" }} />
@@ -475,7 +469,6 @@ export function ConnectionSettings({
         <Box data-testid="connection-settings-inline-header" sx={{ px: { xs: 2, sm: 3, md: 4 }, pt: 2, pb: 2 }}>
           <SettingsGroup
             title={sectionTitle}
-            description={sectionDescription}
             actions={
               isDesktop && canCreateConnections ? (
                 <Button variant="contained" startIcon={<AddIcon />} onClick={handleAddClick} sx={settingsPrimaryButtonSx}>
@@ -506,7 +499,6 @@ export function ConnectionSettings({
           <>
             {renderSection(
               t("settings.connectionManagement.sharedSectionTitle"),
-              t("settings.connectionManagement.sharedSectionDescription"),
               sharedConnections,
               t("settings.connectionManagement.sharedSectionEmpty"),
               {
@@ -516,7 +508,6 @@ export function ConnectionSettings({
             )}
             {renderSection(
               t("settings.connectionManagement.privateSectionTitle"),
-              t("settings.connectionManagement.privateSectionDescription"),
               privateConnections,
               t("settings.connectionManagement.privateSectionEmpty"),
               {

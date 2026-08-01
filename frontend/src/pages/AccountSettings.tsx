@@ -177,7 +177,7 @@ export function AccountSettings({ dialogSafe = false }: { dialogSafe?: boolean }
                 Your administrator requires you to change your local password.
               </Alert>
             )}
-            <SettingsGroup title="Identity" description="Your signed-in identity and access level." sx={{ mb: 4 }}>
+            <SettingsGroup title="Your identity" sx={{ mb: 4 }}>
               <List disablePadding>
                 <ListItem divider disableGutters>
                   <ListItemText primary="Username" secondary={account.username} />
@@ -199,7 +199,7 @@ export function AccountSettings({ dialogSafe = false }: { dialogSafe?: boolean }
             </SettingsGroup>
 
             {account.password_change_available && (
-              <SettingsGroup title="Password" description="Change the local password used to sign in." sx={{ mb: 4 }}>
+              <SettingsGroup title="Password" sx={{ mb: 4 }}>
                 <Box
                   component="form"
                   onSubmit={(event) => void submitPasswordChange(event)}
@@ -242,11 +242,6 @@ export function AccountSettings({ dialogSafe = false }: { dialogSafe?: boolean }
             {account.browser_session_management_available && (
               <SettingsGroup
                 title="Browser sessions"
-                description={
-                  account.oidc_provider_name
-                    ? `Active sessions for ${account.oidc_provider_name} can be revoked immediately.`
-                    : "Active OIDC sessions can be revoked immediately."
-                }
                 sx={{ mb: 4 }}
               >
                 {sessions === null ? (
@@ -298,13 +293,13 @@ export function AccountSettings({ dialogSafe = false }: { dialogSafe?: boolean }
               </SettingsGroup>
             )}
 
-            <SettingsGroup title="Sign out" description="End this browser's Sambee session.">
+            <Box>
               <Box>
                 <Button color="error" variant="outlined" onClick={() => void signOut()} disabled={signingOut || passwordSubmitting}>
                   {signingOut ? "Signing out" : "Sign out"}
                 </Button>
               </Box>
-            </SettingsGroup>
+            </Box>
           </>
         )}
       </Box>

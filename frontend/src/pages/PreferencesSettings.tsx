@@ -160,7 +160,6 @@ export function AppearanceSettings() {
       <Box sx={{ flex: 1, overflow: "auto", px: { xs: 2, sm: 3, md: 4 }, pb: 3 }}>
         <SettingsGroup
           title={t("settings.appearancePage.themeTitle")}
-          description={t("settings.appearancePage.themeDescription")}
           sx={{ mb: 4 }}
         >
           {isMobile ? (
@@ -234,7 +233,6 @@ export function AppearanceSettings() {
 
         <SettingsGroup
           title={t("settings.appearancePage.localizationTitle")}
-          description={t("settings.appearancePage.localizationDescription")}
           sx={{ mb: 4 }}
         >
           <Box sx={{ display: "grid", gridTemplateColumns: { xs: "1fr", md: "repeat(2, minmax(0, 1fr))" }, gap: 2.5 }}>
