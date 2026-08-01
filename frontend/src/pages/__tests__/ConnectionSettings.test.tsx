@@ -147,8 +147,9 @@ describe("ConnectionSettings", () => {
     await screen.findByText("Shared connections");
 
     expect(screen.queryByTestId("connection-settings-inline-header")).not.toBeInTheDocument();
+    expect(screen.getByRole("heading", { name: "Shared connections", level: 2 })).toBeInTheDocument();
     expect(screen.getByTestId("connection-settings-shared-section")).toHaveStyle({ marginTop: "0px" });
-    expect(screen.getByTestId("connection-settings-private-section")).toHaveStyle({ marginTop: "24px" });
+    expect(screen.getByTestId("connection-settings-private-section")).toHaveStyle({ marginTop: "32px" });
   });
 
   it("does not add top margin before the first section in headerless desktop mode", async () => {
@@ -177,8 +178,37 @@ describe("ConnectionSettings", () => {
     await screen.findByText("Shared connections");
 
     expect(screen.getByTestId("connection-settings-inline-header")).toBeInTheDocument();
+    expect(screen.getByRole("heading", { name: "Shared connections", level: 2 })).toBeInTheDocument();
     expect(screen.getByTestId("connection-settings-shared-section")).toHaveStyle({ marginTop: "0px" });
-    expect(screen.getByTestId("connection-settings-private-section")).toHaveStyle({ marginTop: "24px" });
+    expect(screen.getByTestId("connection-settings-private-section")).toHaveStyle({ marginTop: "32px" });
+  });
+
+  it("uses bold body text for connection names and aligns each group's first row with its section", async () => {
+    vi.mocked(api.getConnections).mockResolvedValue([
+      {
+        id: "shared-1",
+        name: "Accounting",
+        type: "smb",
+        host: "fileserver.local",
+        port: 445,
+        share_name: "accounting",
+        username: "sambee",
+        path_prefix: "/",
+        scope: "shared",
+        access_mode: "read_write",
+        can_manage: true,
+      },
+    ]);
+
+    renderSettings();
+
+    const connectionName = await screen.findByText("Accounting");
+
+    expect(screen.queryByRole("heading", { name: "Accounting" })).not.toBeInTheDocument();
+    expect(connectionName.tagName).toBe("DIV");
+    expect(window.getComputedStyle(connectionName).fontSize).toBe("1rem");
+    expect(window.getComputedStyle(connectionName).fontWeight).toBe("600");
+    expect(connectionName.closest("li")).toHaveStyle({ paddingTop: "0px" });
   });
 
   it("shows a read-only badge for read-only connections", async () => {

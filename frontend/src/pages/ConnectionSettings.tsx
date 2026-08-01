@@ -71,6 +71,9 @@ interface ConnectionSettingsProps {
   showMobileFab?: boolean;
 }
 
+const CONNECTION_ROW_VERTICAL_PADDING = 2.5;
+const CONNECTION_NAME_SX = { fontWeight: 600 };
+
 export function ConnectionSettings({
   isAdmin,
   onConnectionsChanged,
@@ -253,14 +256,15 @@ export function ConnectionSettings({
     if (isDesktop) {
       return (
         <SettingsList>
-          {sectionConnections.map((connection) => (
+          {sectionConnections.map((connection, index) => (
             <Box key={connection.id}>
               <ListItem
                 sx={{
                   display: "flex",
                   flexDirection: "column",
                   alignItems: "stretch",
-                  py: 2.5,
+                  pt: index === 0 ? 0 : CONNECTION_ROW_VERTICAL_PADDING,
+                  pb: CONNECTION_ROW_VERTICAL_PADDING,
                   px: 0,
                 }}
               >
@@ -273,7 +277,7 @@ export function ConnectionSettings({
                     flexWrap: "wrap",
                   }}
                 >
-                  <Typography variant="h6" fontWeight="medium">
+                  <Typography component="div" variant="body1" sx={CONNECTION_NAME_SX}>
                     {connection.name}
                   </Typography>
                   {renderMetadataChips(connection)}
@@ -347,14 +351,15 @@ export function ConnectionSettings({
 
     return (
       <SettingsList>
-        {sectionConnections.map((connection) => (
+        {sectionConnections.map((connection, index) => (
           <Box key={connection.id}>
             <ListItem
               sx={{
                 display: "flex",
                 flexDirection: "column",
                 alignItems: "stretch",
-                py: 2.5,
+                pt: index === 0 ? 0 : CONNECTION_ROW_VERTICAL_PADDING,
+                pb: CONNECTION_ROW_VERTICAL_PADDING,
                 px: 0,
               }}
             >
@@ -376,7 +381,7 @@ export function ConnectionSettings({
                     flexWrap: "wrap",
                   }}
                 >
-                  <Typography variant="h6" fontWeight="medium">
+                  <Typography component="div" variant="body1" sx={CONNECTION_NAME_SX}>
                     {connection.name}
                   </Typography>
                   {renderMetadataChips(connection)}
@@ -426,7 +431,7 @@ export function ConnectionSettings({
 
   const renderSection = (title: string, sectionConnections: Connection[], emptyMessage: string, testId?: string) => (
     <Box data-testid={testId}>
-      <SettingsGroup title={title} level="subsection">
+      <SettingsGroup title={title}>
         {sectionConnections.length === 0 ? (
           <SettingsEmptyState description={emptyMessage} compact sx={{ py: 2, maxWidth: "none", mx: 0, textAlign: "left" }} />
         ) : (
@@ -491,7 +496,7 @@ export function ConnectionSettings({
             }
           />
         ) : (
-          <SettingsSectionList level="subsection" sx={{ mt: showHeader ? 3 : 0 }}>
+          <SettingsSectionList sx={{ mt: showHeader ? 3 : 0 }}>
             {renderSection(
               t("settings.connectionManagement.sharedSectionTitle"),
               sharedConnections,
