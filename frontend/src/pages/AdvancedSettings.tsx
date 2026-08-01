@@ -8,7 +8,6 @@ import {
   MenuItem,
   Stack,
   TextField,
-  Typography,
   useMediaQuery,
   useTheme,
 } from "@mui/material";
@@ -45,18 +44,6 @@ const DESKTOP_VALUE_FIELD_MAX_WIDTH = 220;
 const DESKTOP_UNIT_FIELD_WIDTH = 120;
 const DESKTOP_NUMERIC_FIELD_MAX_WIDTH = 240;
 const MOBILE_ACTION_BAR_PADDING_BOTTOM_PX = 12;
-
-const fieldLabelTypographyProps = {
-  variant: "body2" as const,
-  fontWeight: 600,
-};
-
-const subsectionHeadingSx = {
-  mb: 1.25,
-  fontWeight: 700,
-  color: "text.primary",
-  lineHeight: 1.3,
-};
 
 const BYTE_UNITS = [
   { label: "B", factor: 1 },
@@ -161,7 +148,7 @@ function buildUpdatePayload(formState: AdvancedSettingsFormState): AdvancedSyste
   };
 }
 
-function SettingFieldHeader({
+function SettingFieldResetAction({
   setting,
   onReset,
   resetDisabled,
@@ -172,17 +159,16 @@ function SettingFieldHeader({
 }) {
   const { t } = useTranslation();
 
+  if (setting.source !== "database" || !onReset) {
+    return null;
+  }
+
   return (
-    <Box sx={{ display: "flex", flexDirection: "column", gap: 1 }}>
-      <Typography {...fieldLabelTypographyProps}>{setting.label}</Typography>
-      {setting.source === "database" && onReset ? (
-        <Stack direction="row" spacing={1} alignItems="center" flexWrap="wrap" useFlexGap>
-          <Button size="small" variant="outlined" onClick={onReset} disabled={resetDisabled} sx={settingsUtilityButtonSx}>
-            {t("settings.advanced.resetOverride")}
-          </Button>
-        </Stack>
-      ) : null}
-    </Box>
+    <Stack direction="row" spacing={1} alignItems="center" flexWrap="wrap" useFlexGap>
+      <Button size="small" variant="outlined" onClick={onReset} disabled={resetDisabled} sx={settingsUtilityButtonSx}>
+        {t("settings.advanced.resetOverride")}
+      </Button>
+    </Stack>
   );
 }
 
@@ -225,9 +211,10 @@ function SettingField({
 
   return (
     <Box sx={{ display: "flex", flexDirection: "column", gap: 1.5, py: 1.5 }}>
-      <SettingFieldHeader setting={setting} onReset={onReset} resetDisabled={resetDisabled} />
+      <SettingFieldResetAction setting={setting} onReset={onReset} resetDisabled={resetDisabled} />
       <TextField
         type="text"
+        label={setting.label}
         value={displayValue}
         onChange={(event) => {
           const nextValue = event.target.value;
@@ -344,12 +331,12 @@ function ByteSizeSettingField({
 
   return (
     <Box sx={{ display: "flex", flexDirection: "column", gap: 1.5, py: 1.5 }}>
-      <SettingFieldHeader setting={setting} onReset={onReset} resetDisabled={resetDisabled} />
+      <SettingFieldResetAction setting={setting} onReset={onReset} resetDisabled={resetDisabled} />
       <FormControl error={displayError} sx={{ width: "100%", maxWidth: { xs: "100%", sm: DESKTOP_FIELD_ROW_MAX_WIDTH } }}>
         <Stack direction={{ xs: "column", sm: "row" }} spacing={1.5}>
           <TextField
             type="text"
-            label={t("settings.advanced.fields.value")}
+            label={setting.label}
             value={displayValue}
             onChange={(event) => handleValueChange(event.target.value)}
             onBlur={handleValueBlur}
@@ -550,9 +537,7 @@ export function AdvancedSettings({ dialogSafeHeader = false }: AdvancedSettingsP
 
         {settings && formState && (
           <SettingsSectionList>
-            <SettingsGroup
-              title={t("settings.advanced.sections.smbBackends")}
-            >
+            <SettingsGroup title={t("settings.advanced.sections.smbBackends")}>
               <ByteSizeSettingField
                 setting={settings.smb.read_chunk_size_bytes}
                 value={formState.smbReadChunkSizeBytes}
@@ -564,14 +549,9 @@ export function AdvancedSettings({ dialogSafeHeader = false }: AdvancedSettingsP
               />
             </SettingsGroup>
 
-            <SettingsGroup
-              title={t("settings.advanced.sections.preprocessors")}
-            >
+            <SettingsGroup title={t("settings.advanced.sections.preprocessors")}>
               <Stack spacing={3.5}>
-                <SettingsGroup
-                  title={t("settings.advanced.sections.imageMagick")}
-                  level="subsection"
-                >
+                <SettingsGroup title={t("settings.advanced.sections.imageMagick")} level="subsection">
                   <ByteSizeSettingField
                     setting={settings.preprocessors.imagemagick.max_file_size_bytes}
                     value={formState.imagemagickMaxFileSizeBytes}
