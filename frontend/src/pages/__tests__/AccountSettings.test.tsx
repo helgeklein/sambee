@@ -66,6 +66,7 @@ describe("AccountSettings", () => {
     expect(screen.getByText("Manage your identity, password, browser sessions, and sign-out.")).toBeInTheDocument();
     expect(screen.getByRole("heading", { name: "Your identity" })).toBeInTheDocument();
     expect(screen.queryByText("Your signed-in identity and access level.")).not.toBeInTheDocument();
+    expect(screen.getByText("Username").closest("li")).toHaveStyle({ paddingTop: "0px" });
     expect(screen.getByRole("heading", { name: "Password" })).toBeInTheDocument();
     expect(screen.queryByRole("heading", { name: "Browser sessions" })).not.toBeInTheDocument();
     expect(screen.queryByRole("heading", { name: "Sign out" })).not.toBeInTheDocument();

@@ -3,7 +3,6 @@ import {
   Box,
   Button,
   CircularProgress,
-  List,
   ListItem,
   ListItemText,
   TextField,
@@ -15,7 +14,9 @@ import { useEffect, useEffectEvent, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { SettingsCategoryDescription } from "../components/Settings/SettingsCategoryDescription";
 import { SettingsGroup } from "../components/Settings/SettingsGroup";
+import { SettingsList } from "../components/Settings/SettingsList";
 import { SettingsSectionHeader } from "../components/Settings/SettingsSectionHeader";
+import { SettingsSectionList } from "../components/Settings/SettingsSectionList";
 import { getSettingsCategoryLabel } from "../components/Settings/settingsNavigation";
 import { signOutCurrentBrowser } from "../services/accountSession";
 import api from "../services/api";
@@ -171,14 +172,12 @@ export function AccountSettings({ dialogSafe = false }: { dialogSafe?: boolean }
             </Button>
           </Box>
         ) : (
-          <>
+          <SettingsSectionList>
             {account.must_change_password && account.password_change_available && (
-              <Alert severity="warning" sx={{ mb: 3 }}>
-                Your administrator requires you to change your local password.
-              </Alert>
+              <Alert severity="warning">Your administrator requires you to change your local password.</Alert>
             )}
-            <SettingsGroup title="Your identity" sx={{ mb: 4 }}>
-              <List disablePadding>
+            <SettingsGroup title="Your identity" contentSpacing="compact">
+              <SettingsList>
                 <ListItem divider disableGutters>
                   <ListItemText primary="Username" secondary={account.username} />
                 </ListItem>
@@ -195,11 +194,11 @@ export function AccountSettings({ dialogSafe = false }: { dialogSafe?: boolean }
                 <ListItem disableGutters>
                   <ListItemText primary="Role" secondary={account.role} />
                 </ListItem>
-              </List>
+              </SettingsList>
             </SettingsGroup>
 
             {account.password_change_available && (
-              <SettingsGroup title="Password" sx={{ mb: 4 }}>
+              <SettingsGroup title="Password">
                 <Box
                   component="form"
                   onSubmit={(event) => void submitPasswordChange(event)}
@@ -240,10 +239,7 @@ export function AccountSettings({ dialogSafe = false }: { dialogSafe?: boolean }
             )}
 
             {account.browser_session_management_available && (
-              <SettingsGroup
-                title="Browser sessions"
-                sx={{ mb: 4 }}
-              >
+              <SettingsGroup title="Browser sessions">
                 {sessions === null ? (
                   <Box>
                     <Typography color="text.secondary">Browser sessions could not be loaded.</Typography>
@@ -255,7 +251,7 @@ export function AccountSettings({ dialogSafe = false }: { dialogSafe?: boolean }
                   <Typography color="text.secondary">No renewable OIDC sessions are active.</Typography>
                 ) : (
                   <>
-                    <List disablePadding>
+                    <SettingsList>
                       {sessions.map((browserSession) => (
                         <ListItem
                           key={browserSession.id}
@@ -277,7 +273,7 @@ export function AccountSettings({ dialogSafe = false }: { dialogSafe?: boolean }
                           />
                         </ListItem>
                       ))}
-                    </List>
+                    </SettingsList>
                     {sessions.some((browserSession) => !browserSession.current) && (
                       <Button
                         sx={{ mt: 2 }}
@@ -294,13 +290,11 @@ export function AccountSettings({ dialogSafe = false }: { dialogSafe?: boolean }
             )}
 
             <Box>
-              <Box>
-                <Button color="error" variant="outlined" onClick={() => void signOut()} disabled={signingOut || passwordSubmitting}>
-                  {signingOut ? "Signing out" : "Sign out"}
-                </Button>
-              </Box>
+              <Button color="error" variant="outlined" onClick={() => void signOut()} disabled={signingOut || passwordSubmitting}>
+                {signingOut ? "Signing out" : "Sign out"}
+              </Button>
             </Box>
-          </>
+          </SettingsSectionList>
         )}
       </Box>
     </Box>

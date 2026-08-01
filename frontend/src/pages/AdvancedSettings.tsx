@@ -18,6 +18,7 @@ import { SettingsCategoryDescription } from "../components/Settings/SettingsCate
 import { SettingsInlineAlert, SettingsNotificationSnackbar, type SettingsNotificationState } from "../components/Settings/SettingsFeedback";
 import { SettingsGroup } from "../components/Settings/SettingsGroup";
 import { SettingsSectionHeader } from "../components/Settings/SettingsSectionHeader";
+import { SettingsSectionList } from "../components/Settings/SettingsSectionList";
 import { SettingsLoadingState } from "../components/Settings/SettingsState";
 import { settingsPrimaryButtonSx, settingsUtilityButtonSx } from "../components/Settings/settingsButtonStyles";
 import { loadAdvancedSettingsData, SETTINGS_DATA_CACHE_KEYS } from "../components/Settings/settingsDataSources";
@@ -548,7 +549,7 @@ export function AdvancedSettings({ dialogSafeHeader = false }: AdvancedSettingsP
         {pageError && <SettingsInlineAlert>{pageError}</SettingsInlineAlert>}
 
         {settings && formState && (
-          <Stack spacing={4}>
+          <SettingsSectionList>
             <SettingsGroup
               title={t("settings.advanced.sections.smbBackends")}
             >
@@ -569,8 +570,7 @@ export function AdvancedSettings({ dialogSafeHeader = false }: AdvancedSettingsP
               <Stack spacing={3.5}>
                 <SettingsGroup
                   title={t("settings.advanced.sections.imageMagick")}
-                  titleVariant="subtitle2"
-                  titleSx={subsectionHeadingSx}
+                  level="subsection"
                 >
                   <ByteSizeSettingField
                     setting={settings.preprocessors.imagemagick.max_file_size_bytes}
@@ -606,7 +606,7 @@ export function AdvancedSettings({ dialogSafeHeader = false }: AdvancedSettingsP
                 </SettingsGroup>
               </Stack>
             </SettingsGroup>
-          </Stack>
+          </SettingsSectionList>
         )}
       </Box>
 

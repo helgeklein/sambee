@@ -17,7 +17,9 @@ import {
 } from "@mui/material";
 import { useEffect, useRef, useState } from "react";
 import { useNavigate } from "react-router-dom";
+import { SettingsGroup } from "../components/Settings/SettingsGroup";
 import { SettingsPage } from "../components/Settings/SettingsPage";
+import { SettingsSectionList } from "../components/Settings/SettingsSectionList";
 import { settingsPrimaryButtonSx } from "../components/Settings/settingsButtonStyles";
 import { loadAuthenticationSettingsData, SETTINGS_DATA_CACHE_KEYS } from "../components/Settings/settingsDataSources";
 import { getCachedAsyncData, primeCachedAsyncData } from "../hooks/useCachedAsyncData";
@@ -762,13 +764,14 @@ export function AuthenticationSettings() {
               </TextField>
 
               {isOidcMode ? (
-                <>
-                  <Typography color="text.secondary">
+                <SettingsSectionList>
+                  <SettingsGroup title="Provider">
+                    <Stack spacing={2.5}>
+                      <Typography color="text.secondary">
                     {authMode === "oidc_only"
                       ? "Users are redirected to the identity provider when they sign in."
                       : "Users can sign in with the identity provider or a local password."}
-                  </Typography>
-                  <Typography variant="h6">Provider</Typography>
+                      </Typography>
                   {configuration?.health.redirect_uri && (
                     <TextField
                       label="Redirect URI"
@@ -872,8 +875,11 @@ export function AuthenticationSettings() {
                     slotProps={{ htmlInput: { min: 1, max: 365 } }}
                     helperText="Background renewal continues until this interval expires."
                   />
+                    </Stack>
+                  </SettingsGroup>
 
-                  <Typography variant="h6">Access</Typography>
+                  <SettingsGroup title="Access">
+                    <Stack spacing={2.5}>
                   <TextField
                     select
                     label="Admission"
@@ -897,7 +903,11 @@ export function AuthenticationSettings() {
                       }
                     />
                   )}
-                  <Typography variant="h6">Role assignment</Typography>
+                    </Stack>
+                  </SettingsGroup>
+
+                  <SettingsGroup title="Role assignment">
+                    <Stack spacing={2.5}>
                   <TextField
                     select
                     label="Role assignment"
@@ -956,11 +966,15 @@ export function AuthenticationSettings() {
                     The administrator connecting this provider keeps an individual Administrator assignment. Individual assignments always
                     override this configured role policy.
                   </Alert>
-                  <Typography variant="h6">Advanced claims</Typography>
-                  <Typography color="text.secondary">
+                    </Stack>
+                  </SettingsGroup>
+
+                  <SettingsGroup title="Advanced claims">
+                    <Stack spacing={2.5}>
+                      <Typography color="text.secondary">
                     The default claim names work with most providers. A groups claim is only needed for selected-group admission or
                     group-based role assignment.
-                  </Typography>
+                      </Typography>
                   <TextField
                     label="Username claim"
                     value={candidate.username_claim}
@@ -1010,7 +1024,7 @@ export function AuthenticationSettings() {
 
                   {testedIdentity && (
                     <Box sx={{ borderLeft: 3, borderColor: "success.main", pl: 2, py: 1 }}>
-                      <Typography variant="h6">Tested identity</Typography>
+                      <Typography variant="subtitle1" fontWeight="medium">Tested identity</Typography>
                       <Typography>Username: {testedIdentity.username}</Typography>
                       {testedIdentity.email && <Typography>Email: {testedIdentity.email}</Typography>}
                       <Typography>Groups: {testedIdentity.groups.join(", ") || "None"}</Typography>
@@ -1175,10 +1189,11 @@ export function AuthenticationSettings() {
                       </Button>
                     </Box>
                   )}
+                    </Stack>
+                  </SettingsGroup>
 
                   {configuration?.configuration && (
-                    <>
-                      <Typography variant="h6">Recovery</Typography>
+                    <SettingsGroup title="Recovery">
                       <Button
                         variant="outlined"
                         disabled={busy || finalizationUnresolved || configuration.health.status !== "healthy"}
@@ -1194,9 +1209,9 @@ export function AuthenticationSettings() {
                       >
                         Remap all OIDC accounts
                       </Button>
-                    </>
+                    </SettingsGroup>
                   )}
-                </>
+                </SettingsSectionList>
               ) : (
                 <Stack spacing={2}>
                   {authMode === "none" ? (

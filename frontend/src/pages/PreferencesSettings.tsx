@@ -3,7 +3,6 @@ import {
   Divider,
   FormControl,
   InputLabel,
-  List,
   ListItem,
   ListItemButton,
   MenuItem,
@@ -19,7 +18,9 @@ import { useTranslation } from "react-i18next";
 import { SettingsCategoryDescription } from "../components/Settings/SettingsCategoryDescription";
 import { SettingsFieldHelp } from "../components/Settings/SettingsFieldHelp";
 import { SettingsGroup } from "../components/Settings/SettingsGroup";
+import { SettingsList } from "../components/Settings/SettingsList";
 import { SettingsSectionHeader } from "../components/Settings/SettingsSectionHeader";
+import { SettingsSectionList } from "../components/Settings/SettingsSectionList";
 import { getSettingsCategoryLabel } from "../components/Settings/settingsNavigation";
 import { getAvailableLanguages } from "../i18n";
 import { useLocalePreferences } from "../i18n/LocalePreferencesProvider";
@@ -158,144 +159,140 @@ export function AppearanceSettings() {
         showTitle={!isMobile}
       />
       <Box sx={{ flex: 1, overflow: "auto", px: { xs: 2, sm: 3, md: 4 }, pb: 3 }}>
-        <SettingsGroup
-          title={t("settings.appearancePage.themeTitle")}
-          sx={{ mb: 4 }}
-        >
-          {isMobile ? (
-            <List sx={{ py: 0 }}>
-              {availableThemes.map((themeOption) => (
-                <Box key={themeOption.id}>
-                  <ListItem disablePadding>
-                    <ListItemButton onClick={() => setThemeById(themeOption.id)} sx={{ py: 2, px: 0 }}>
-                      <Box sx={{ display: "flex", alignItems: "flex-start", width: "100%", gap: 2 }}>
-                        <Radio checked={currentTheme.id === themeOption.id} sx={{ mt: -0.5 }} />
-                        <Box sx={{ flex: 1 }}>
-                          <Typography variant="h6" fontWeight="medium">
-                            {themeOption.name}
-                          </Typography>
-                          {themeOption.description && (
-                            <Typography variant="body2" color="text.secondary" sx={{ mt: 0.5 }}>
-                              {themeOption.description}
+        <SettingsSectionList>
+          <SettingsGroup title={t("settings.appearancePage.themeTitle")}>
+            {isMobile ? (
+              <SettingsList>
+                {availableThemes.map((themeOption) => (
+                  <Box key={themeOption.id}>
+                    <ListItem disablePadding>
+                      <ListItemButton onClick={() => setThemeById(themeOption.id)} sx={{ py: 2, px: 0 }}>
+                        <Box sx={{ display: "flex", alignItems: "flex-start", width: "100%", gap: 2 }}>
+                          <Radio checked={currentTheme.id === themeOption.id} sx={{ mt: -0.5 }} />
+                          <Box sx={{ flex: 1 }}>
+                            <Typography variant="h6" fontWeight="medium">
+                              {themeOption.name}
                             </Typography>
-                          )}
-                          <ThemePreview theme={themeOption} />
+                            {themeOption.description && (
+                              <Typography variant="body2" color="text.secondary" sx={{ mt: 0.5 }}>
+                                {themeOption.description}
+                              </Typography>
+                            )}
+                            <ThemePreview theme={themeOption} />
+                          </Box>
                         </Box>
-                      </Box>
-                    </ListItemButton>
-                  </ListItem>
-                  <Divider />
-                </Box>
-              ))}
-            </List>
-          ) : (
+                      </ListItemButton>
+                    </ListItem>
+                    <Divider />
+                  </Box>
+                ))}
+              </SettingsList>
+            ) : (
+              <Box
+                sx={{
+                  display: "grid",
+                  gridTemplateColumns: { xs: "1fr", sm: "repeat(2, 1fr)", md: "repeat(3, 1fr)" },
+                  gap: 2,
+                }}
+              >
+                {availableThemes.map((themeOption) => (
+                  <Box
+                    key={themeOption.id}
+                    onClick={() => setThemeById(themeOption.id)}
+                    sx={{
+                      p: 3,
+                      border: currentTheme.id === themeOption.id ? 2 : 1,
+                      borderColor: currentTheme.id === themeOption.id ? "primary.main" : "divider",
+                      borderRadius: 1,
+                      cursor: "pointer",
+                      transition: "all 0.2s",
+                      "&:hover": {
+                        borderColor: currentTheme.id === themeOption.id ? "primary.main" : "text.secondary",
+                        bgcolor: "action.selected",
+                      },
+                    }}
+                  >
+                    <Box sx={{ display: "flex", alignItems: "center", mb: 1 }}>
+                      <Radio checked={currentTheme.id === themeOption.id} />
+                      <Typography variant="h6" sx={{ ml: 1 }}>
+                        {themeOption.name}
+                      </Typography>
+                    </Box>
+                    {themeOption.description && (
+                      <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
+                        {themeOption.description}
+                      </Typography>
+                    )}
+                    <ThemePreview theme={themeOption} />
+                  </Box>
+                ))}
+              </Box>
+            )}
+          </SettingsGroup>
+
+          <SettingsGroup title={t("settings.appearancePage.localizationTitle")}>
+            <Box sx={{ display: "grid", gridTemplateColumns: { xs: "1fr", md: "repeat(2, minmax(0, 1fr))" }, gap: 2.5 }}>
+              <FormControl fullWidth>
+                <InputLabel id="appearance-language-label">{t("settings.appearancePage.languageLabel")}</InputLabel>
+                <Select
+                  labelId="appearance-language-label"
+                  value={languagePreference}
+                  label={t("settings.appearancePage.languageLabel")}
+                  onChange={handleLanguageChange}
+                >
+                  {languageOptions.map((option) => (
+                    <MenuItem key={option.value} value={option.value}>
+                      {option.label}
+                    </MenuItem>
+                  ))}
+                </Select>
+                <SettingsFieldHelp>{t("settings.appearancePage.languageDescription")}</SettingsFieldHelp>
+              </FormControl>
+
+              <FormControl fullWidth>
+                <InputLabel id="appearance-regional-locale-label">{t("settings.appearancePage.regionalLocaleLabel")}</InputLabel>
+                <Select
+                  labelId="appearance-regional-locale-label"
+                  value={regionalLocalePreference}
+                  label={t("settings.appearancePage.regionalLocaleLabel")}
+                  onChange={handleRegionalLocaleChange}
+                >
+                  {regionalLocaleOptions.map((option) => (
+                    <MenuItem key={option.value} value={option.value}>
+                      {option.label}
+                    </MenuItem>
+                  ))}
+                </Select>
+                <SettingsFieldHelp>{t("settings.appearancePage.regionalLocaleDescription")}</SettingsFieldHelp>
+              </FormControl>
+            </Box>
+
             <Box
               sx={{
-                display: "grid",
-                gridTemplateColumns: { xs: "1fr", sm: "repeat(2, 1fr)", md: "repeat(3, 1fr)" },
-                gap: 2,
+                mt: 2.5,
+                p: 2,
+                borderRadius: 1,
+                border: "1px solid",
+                borderColor: "divider",
               }}
             >
-              {availableThemes.map((themeOption) => (
-                <Box
-                  key={themeOption.id}
-                  onClick={() => setThemeById(themeOption.id)}
-                  sx={{
-                    p: 3,
-                    border: currentTheme.id === themeOption.id ? 2 : 1,
-                    borderColor: currentTheme.id === themeOption.id ? "primary.main" : "divider",
-                    borderRadius: 1,
-                    cursor: "pointer",
-                    transition: "all 0.2s",
-                    "&:hover": {
-                      borderColor: currentTheme.id === themeOption.id ? "primary.main" : "text.secondary",
-                      bgcolor: "action.selected",
-                    },
-                  }}
-                >
-                  <Box sx={{ display: "flex", alignItems: "center", mb: 1 }}>
-                    <Radio checked={currentTheme.id === themeOption.id} />
-                    <Typography variant="h6" sx={{ ml: 1 }}>
-                      {themeOption.name}
-                    </Typography>
-                  </Box>
-                  {themeOption.description && (
-                    <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
-                      {themeOption.description}
-                    </Typography>
-                  )}
-                  <ThemePreview theme={themeOption} />
-                </Box>
-              ))}
+              <Typography variant="body2" fontWeight={600} sx={{ mb: 1.5 }}>
+                {t("settings.appearancePage.regionalSettingsPreviewTitle")}
+              </Typography>
+              <Typography variant="body2" color="text.secondary">
+                {formatLocalizedDateTime(PREVIEW_DATE, {
+                  dateStyle: "full",
+                  timeStyle: "short",
+                })}
+              </Typography>
+              <Typography variant="body2" color="text.secondary" sx={{ mt: 0.75 }}>
+                {formatLocalizedNumber(1234567.89, {
+                  maximumFractionDigits: 2,
+                })}
+              </Typography>
             </Box>
-          )}
-        </SettingsGroup>
-
-        <SettingsGroup
-          title={t("settings.appearancePage.localizationTitle")}
-          sx={{ mb: 4 }}
-        >
-          <Box sx={{ display: "grid", gridTemplateColumns: { xs: "1fr", md: "repeat(2, minmax(0, 1fr))" }, gap: 2.5 }}>
-            <FormControl fullWidth>
-              <InputLabel id="appearance-language-label">{t("settings.appearancePage.languageLabel")}</InputLabel>
-              <Select
-                labelId="appearance-language-label"
-                value={languagePreference}
-                label={t("settings.appearancePage.languageLabel")}
-                onChange={handleLanguageChange}
-              >
-                {languageOptions.map((option) => (
-                  <MenuItem key={option.value} value={option.value}>
-                    {option.label}
-                  </MenuItem>
-                ))}
-              </Select>
-              <SettingsFieldHelp>{t("settings.appearancePage.languageDescription")}</SettingsFieldHelp>
-            </FormControl>
-
-            <FormControl fullWidth>
-              <InputLabel id="appearance-regional-locale-label">{t("settings.appearancePage.regionalLocaleLabel")}</InputLabel>
-              <Select
-                labelId="appearance-regional-locale-label"
-                value={regionalLocalePreference}
-                label={t("settings.appearancePage.regionalLocaleLabel")}
-                onChange={handleRegionalLocaleChange}
-              >
-                {regionalLocaleOptions.map((option) => (
-                  <MenuItem key={option.value} value={option.value}>
-                    {option.label}
-                  </MenuItem>
-                ))}
-              </Select>
-              <SettingsFieldHelp>{t("settings.appearancePage.regionalLocaleDescription")}</SettingsFieldHelp>
-            </FormControl>
-          </Box>
-
-          <Box
-            sx={{
-              mt: 2.5,
-              p: 2,
-              borderRadius: 1,
-              border: "1px solid",
-              borderColor: "divider",
-            }}
-          >
-            <Typography variant="body2" fontWeight={600} sx={{ mb: 1.5 }}>
-              {t("settings.appearancePage.regionalSettingsPreviewTitle")}
-            </Typography>
-            <Typography variant="body2" color="text.secondary">
-              {formatLocalizedDateTime(PREVIEW_DATE, {
-                dateStyle: "full",
-                timeStyle: "short",
-              })}
-            </Typography>
-            <Typography variant="body2" color="text.secondary" sx={{ mt: 0.75 }}>
-              {formatLocalizedNumber(1234567.89, {
-                maximumFractionDigits: 2,
-              })}
-            </Typography>
-          </Box>
-        </SettingsGroup>
+          </SettingsGroup>
+        </SettingsSectionList>
       </Box>
     </Box>
   );

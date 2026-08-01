@@ -16,7 +16,6 @@ import {
   Divider,
   Fab,
   IconButton,
-  List,
   ListItem,
   Menu,
   MenuItem,
@@ -31,7 +30,9 @@ import ConnectionDialog from "../components/Admin/ConnectionDialog";
 import DeleteDialog from "../components/Admin/DeleteDialog";
 import { SettingsNotificationSnackbar, type SettingsNotificationState } from "../components/Settings/SettingsFeedback";
 import { SettingsGroup } from "../components/Settings/SettingsGroup";
+import { SettingsList } from "../components/Settings/SettingsList";
 import { SettingsSectionHeader } from "../components/Settings/SettingsSectionHeader";
+import { SettingsSectionList } from "../components/Settings/SettingsSectionList";
 import { SettingsEmptyState, SettingsLoadingState } from "../components/Settings/SettingsState";
 import {
   settingsDestructiveIconButtonSx,
@@ -251,7 +252,7 @@ export function ConnectionSettings({
 
     if (isDesktop) {
       return (
-        <List sx={{ py: 0 }}>
+        <SettingsList>
           {sectionConnections.map((connection) => (
             <Box key={connection.id}>
               <ListItem
@@ -340,12 +341,12 @@ export function ConnectionSettings({
               <Divider />
             </Box>
           ))}
-        </List>
+        </SettingsList>
       );
     }
 
     return (
-      <List sx={{ py: 0 }}>
+      <SettingsList>
         {sectionConnections.map((connection) => (
           <Box key={connection.id}>
             <ListItem
@@ -419,25 +420,19 @@ export function ConnectionSettings({
             <Divider />
           </Box>
         ))}
-      </List>
+      </SettingsList>
     );
   };
 
-  const renderSection = (
-    title: string,
-    sectionConnections: Connection[],
-    emptyMessage: string,
-    options?: { disableTopMargin?: boolean; testId?: string }
-  ) => (
-    <Box data-testid={options?.testId} sx={{ mt: options?.disableTopMargin ? 0 : 3 }}>
-      <Typography variant="subtitle1" fontWeight={700} sx={{ mb: 0.5 }}>
-        {title}
-      </Typography>
-      {sectionConnections.length === 0 ? (
-        <SettingsEmptyState description={emptyMessage} compact sx={{ py: 2, maxWidth: "none", mx: 0, textAlign: "left" }} />
-      ) : (
-        renderConnectionList(sectionConnections)
-      )}
+  const renderSection = (title: string, sectionConnections: Connection[], emptyMessage: string, testId?: string) => (
+    <Box data-testid={testId}>
+      <SettingsGroup title={title} level="subsection">
+        {sectionConnections.length === 0 ? (
+          <SettingsEmptyState description={emptyMessage} compact sx={{ py: 2, maxWidth: "none", mx: 0, textAlign: "left" }} />
+        ) : (
+          renderConnectionList(sectionConnections)
+        )}
+      </SettingsGroup>
     </Box>
   );
 
@@ -496,25 +491,20 @@ export function ConnectionSettings({
             }
           />
         ) : (
-          <>
+          <SettingsSectionList level="subsection" sx={{ mt: showHeader ? 3 : 0 }}>
             {renderSection(
               t("settings.connectionManagement.sharedSectionTitle"),
               sharedConnections,
               t("settings.connectionManagement.sharedSectionEmpty"),
-              {
-                disableTopMargin: !showHeader,
-                testId: "connection-settings-shared-section",
-              }
+              "connection-settings-shared-section"
             )}
             {renderSection(
               t("settings.connectionManagement.privateSectionTitle"),
               privateConnections,
               t("settings.connectionManagement.privateSectionEmpty"),
-              {
-                testId: "connection-settings-private-section",
-              }
+              "connection-settings-private-section"
             )}
-          </>
+          </SettingsSectionList>
         )}
       </Box>
 

@@ -12,6 +12,7 @@ import { LOCAL_DRIVES_PAGE_COPY } from "../components/Settings/localDrivesCopy";
 import { SettingsInlineAlert, SettingsNotificationSnackbar, type SettingsNotificationState } from "../components/Settings/SettingsFeedback";
 import { SettingsGroup } from "../components/Settings/SettingsGroup";
 import { SettingsSectionHeader } from "../components/Settings/SettingsSectionHeader";
+import { SettingsSectionList } from "../components/Settings/SettingsSectionList";
 import { SettingsLoadingState } from "../components/Settings/SettingsState";
 import {
   settingsDestructiveButtonSx,
@@ -386,11 +387,8 @@ export function LocalDrivesSettings({ onConnectionsChanged, sectionTitle, sectio
             </SettingsInlineAlert>
           </SettingsGroup>
         ) : (
-          <>
-            <SettingsGroup
-              title={LOCAL_DRIVES_PAGE_COPY.summaryTitle}
-              sx={{ mb: 4 }}
-            >
+          <SettingsSectionList>
+            <SettingsGroup title={LOCAL_DRIVES_PAGE_COPY.summaryTitle}>
               <Box sx={{ ...sectionCardSx, px: { xs: 2, sm: 3 }, py: 3 }}>
                 {showStatusContent ? (
                   <Stack spacing={2.5}>
@@ -429,10 +427,7 @@ export function LocalDrivesSettings({ onConnectionsChanged, sectionTitle, sectio
             </SettingsGroup>
 
             {shouldShowInstallSection && (
-              <SettingsGroup
-                title={LOCAL_DRIVES_PAGE_COPY.downloadSectionTitle}
-                sx={{ mb: 4 }}
-              >
+              <SettingsGroup title={LOCAL_DRIVES_PAGE_COPY.downloadSectionTitle}>
                 <Box sx={sectionCardSx}>
                   <Stack spacing={2}>
                     {state.downloadMetadata ? (
@@ -505,10 +500,7 @@ export function LocalDrivesSettings({ onConnectionsChanged, sectionTitle, sectio
             )}
 
             {shouldShowPairingSection && (
-              <SettingsGroup
-                title={LOCAL_DRIVES_PAGE_COPY.pairingSectionTitle}
-                sx={{ mb: 4 }}
-              >
+              <SettingsGroup title={LOCAL_DRIVES_PAGE_COPY.pairingSectionTitle}>
                 <Box sx={sectionCardSx}>
                   <Stack spacing={2}>
                     <Typography variant="body2" color="text.secondary">
@@ -537,10 +529,7 @@ export function LocalDrivesSettings({ onConnectionsChanged, sectionTitle, sectio
             )}
 
             {shouldShowVerificationSection && (
-              <SettingsGroup
-                title={LOCAL_DRIVES_PAGE_COPY.verificationSectionTitle}
-                sx={{ mb: 4 }}
-              >
+              <SettingsGroup title={LOCAL_DRIVES_PAGE_COPY.verificationSectionTitle}>
                 <Box sx={sectionCardSx}>
                   <Stack spacing={2}>
                     <Typography variant="body2" color="text.secondary">
@@ -563,10 +552,7 @@ export function LocalDrivesSettings({ onConnectionsChanged, sectionTitle, sectio
             )}
 
             {showUnpairAction && (
-              <SettingsGroup
-                title={LOCAL_DRIVES_PAGE_COPY.troubleshootingSectionTitle}
-                sx={{ mb: 0 }}
-              >
+              <SettingsGroup title={LOCAL_DRIVES_PAGE_COPY.troubleshootingSectionTitle}>
                 <Box sx={sectionCardSx}>
                   <Stack spacing={2}>
                     <Typography variant="body2" color="text.secondary">
@@ -588,7 +574,7 @@ export function LocalDrivesSettings({ onConnectionsChanged, sectionTitle, sectio
                 </Box>
               </SettingsGroup>
             )}
-          </>
+          </SettingsSectionList>
         )}
       </Box>
 
