@@ -318,9 +318,8 @@ describe("Authentication settings", () => {
     expect(screen.queryByText("Set Sambee's externally reachable public URL in network settings.")).not.toBeInTheDocument();
   });
 
-  it("requires acknowledgement before activating No authentication", async () => {
+  it("activates No authentication without a checkbox or native confirmation gate", async () => {
     const user = userEvent.setup();
-    vi.spyOn(window, "confirm").mockReturnValue(true);
     vi.mocked(api.getOidcConfiguration).mockResolvedValue(response(configuration("Active Provider")));
     vi.mocked(api.activateAuthenticationMode).mockResolvedValue({ auth_mode: "none", reauthentication_required: true });
     window.location.hash = "";
@@ -330,23 +329,51 @@ describe("Authentication settings", () => {
     await user.click(screen.getByRole("option", { name: "No authentication" }));
 
     expect(await screen.findByText(/sambee will not authenticate users/i)).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: "Activate No authentication" })).toBeDisabled();
-    await user.click(
-      screen.getByRole("checkbox", {
-        name: /i understand that sambee will rely on external systems/i,
-      })
-    );
+    expect(screen.queryByRole("checkbox")).not.toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Activate No authentication" })).toBeEnabled();
     await user.click(screen.getByRole("button", { name: "Activate No authentication" }));
 
     expect(api.activateAuthenticationMode).toHaveBeenCalledWith("none", true);
     expect(await screen.findByText("Sign in again")).toBeInTheDocument();
   });
 
-  it("shows identity evaluation and requires explicit activation confirmation", async () => {
+  it("disables the non-OIDC activation button when the selected mode is already active", async () => {
+    vi.mocked(api.getOidcConfiguration).mockResolvedValue({
+      ...response(configuration("Active Provider")),
+      configuration: null,
+      auth_mode: "none",
+    });
+    window.location.hash = "";
+    renderSettings();
+
+    expect(await screen.findByText(/sambee will not authenticate users/i)).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Activate No authentication" })).toBeDisabled();
+  });
+
+  it("allows a config-file-sourced active mode to be activated from the UI", async () => {
+    vi.mocked(api.getOidcConfiguration).mockResolvedValue({
+      ...response(configuration("Active Provider")),
+      configuration: null,
+      auth_mode: "none",
+      auth_mode_source: "config_file",
+    });
+    window.location.hash = "";
+    renderSettings();
+
+    expect(await screen.findByText(/sambee will not authenticate users/i)).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Activate No authentication" })).toBeEnabled();
+  });
+
+  it("activates an approved OIDC configuration without a native confirmation", async () => {
     const user = userEvent.setup();
-    const confirm = vi.spyOn(window, "confirm").mockReturnValue(false);
+    const confirm = vi.spyOn(window, "confirm");
     vi.mocked(api.getOidcConfiguration).mockResolvedValue(response(configuration("Active Provider")));
     vi.mocked(api.getOidcTestResult).mockResolvedValue(testedIdentity());
+    vi.mocked(api.finalizeOidcConfiguration).mockResolvedValue({
+      configuration_revision: 3,
+      identity_mapping_revision: 1,
+      reauthentication_required: false,
+    });
     window.location.hash = "flow=test-flow";
     renderSettings();
 
@@ -355,12 +382,8 @@ describe("Authentication settings", () => {
     expect(screen.getByText("Account mapping does not override the admission policy.")).toBeInTheDocument();
     await user.click(screen.getByRole("button", { name: "Activate configuration" }));
 
-    expect(confirm).toHaveBeenCalledWith(
-      expect.stringMatching(
-        /linked to your current administrator account.*1 account will be signed out.*This includes your account.*sign in through Tested Provider/i
-      )
-    );
-    expect(api.finalizeOidcConfiguration).not.toHaveBeenCalled();
+    await waitFor(() => expect(api.finalizeOidcConfiguration).toHaveBeenCalled());
+    expect(confirm).not.toHaveBeenCalled();
   });
 
   it("reevaluates reviewed policy without another interactive provider test", async () => {
@@ -883,7 +906,6 @@ describe("Authentication settings", () => {
 
   it("returns to login without a privileged refresh after Password-only recovery", async () => {
     const user = userEvent.setup();
-    vi.spyOn(window, "confirm").mockReturnValue(true);
     vi.mocked(api.getOidcConfiguration).mockResolvedValue(response(configuration("Active Provider")));
     vi.mocked(api.setPasswordOnlyAuthentication).mockResolvedValue({
       configuration_revision: 3,
@@ -906,7 +928,6 @@ describe("Authentication settings", () => {
 
   it("refreshes Password-only impact when the reviewed count is stale", async () => {
     const user = userEvent.setup();
-    vi.spyOn(window, "confirm").mockReturnValue(true);
     vi.mocked(api.getOidcConfiguration)
       .mockResolvedValueOnce(response(configuration("Active Provider")))
       .mockResolvedValueOnce({ ...response(configuration("Active Provider")), active_passwordless_user_count: 3 });

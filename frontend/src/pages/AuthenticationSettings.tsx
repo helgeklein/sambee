@@ -217,7 +217,6 @@ export function AuthenticationSettings() {
   );
   const [scopesInput, setScopesInput] = useState(() => listValue(DEFAULT_CANDIDATE.scopes));
   const [authMode, setAuthMode] = useState<AuthenticationMode>("password_only");
-  const [noAuthenticationAcknowledged, setNoAuthenticationAcknowledged] = useState(false);
   const [clientSecret, setClientSecret] = useState("");
   const [showClientSecret, setShowClientSecret] = useState(false);
   const [testedIdentity, setTestedIdentity] = useState<OidcTestedIdentity | null>(null);
@@ -301,6 +300,8 @@ export function AuthenticationSettings() {
   const groupConfigurationInvalid = Boolean(admissionGroupError || adminGroupError || editorGroupError || viewerGroupError);
   const testedIdentityCanActivate = !reviewPending && testedIdentity?.admitted === true;
   const isOidcMode = authMode === "oidc_or_password" || authMode === "oidc_only";
+  const isSelectedNonOidcModeActive =
+    !isOidcMode && configuration?.auth_mode === authMode && configuration.auth_mode_source !== "config_file";
 
   useEffect(() => {
     let active = true;
@@ -485,24 +486,6 @@ export function AuthenticationSettings() {
 
   const activate = async () => {
     if (finalizationUnresolved || !testedIdentity || replacementPlanInvalid || !testedIdentityCanActivate) return;
-    const signInPath = testedIdentity.candidate.sign_in_mode === "oidc_only" ? "OIDC only" : "OIDC or password";
-    const affectedAccountMessage =
-      testedIdentity.affected_account_count === 0
-        ? "No accounts will be signed out."
-        : `${testedIdentity.affected_account_count} account${testedIdentity.affected_account_count === 1 ? "" : "s"} will be signed out.`;
-    const actingAdministratorMessage = testedIdentity.acting_administrator_affected
-      ? ` This includes your account. You must sign in through ${testedIdentity.candidate.display_name} to continue.`
-      : "";
-    const provisioningMessage =
-      testedIdentity.candidate.admission_mode === "all_idp_users"
-        ? " Any identity-provider user is admitted and a new local account is created on first sign-in when no mapping exists."
-        : " Only members of the selected admission groups are admitted; an admitted user gets a new local account on first sign-in when no mapping exists.";
-    if (
-      !window.confirm(
-        `Activate ${testedIdentity.candidate.display_name} in ${signInPath} mode? The tested identity ${testedIdentity.username} will be linked to your current administrator account. ${affectedAccountMessage}${actingAdministratorMessage}${provisioningMessage}`
-      )
-    )
-      return;
     setBusy(true);
     setError("");
     const finalizationRequest: PendingOidcFinalization = {
@@ -631,12 +614,6 @@ export function AuthenticationSettings() {
     const activeConfiguration = configuration?.configuration;
     if (!activeConfiguration) return;
     const passwordlessCount = configuration.active_passwordless_user_count;
-    if (
-      !window.confirm(
-        `Switch to Password only and revoke all active sessions? ${passwordlessCount} active account${passwordlessCount === 1 ? "" : "s"} without a local password will lose sign-in access.`
-      )
-    )
-      return;
     setBusy(true);
     setError("");
     try {
@@ -675,16 +652,10 @@ export function AuthenticationSettings() {
       await setPasswordOnly();
       return;
     }
-    if (authMode === "none" && !noAuthenticationAcknowledged) return;
-    const confirmation =
-      authMode === "none"
-        ? "Activate No authentication and revoke all active sessions? Sambee will rely entirely on the reverse proxy or network perimeter."
-        : "Activate Password-only mode and revoke all active sessions?";
-    if (!window.confirm(confirmation)) return;
     setBusy(true);
     setError("");
     try {
-      await api.activateAuthenticationMode(authMode, noAuthenticationAcknowledged);
+      await api.activateAuthenticationMode(authMode, authMode === "none");
       clearAuthConfigCache();
       localStorage.removeItem("access_token");
       authSession.clear();
@@ -732,7 +703,6 @@ export function AuthenticationSettings() {
                   const mode = event.target.value as AuthenticationMode;
                   setAuthMode(mode);
                   setTestError("");
-                  setNoAuthenticationAcknowledged(false);
                   if (mode === "oidc_or_password" || mode === "oidc_only") {
                     update("sign_in_mode", mode);
                     return;
@@ -1215,22 +1185,9 @@ export function AuthenticationSettings() {
               ) : (
                 <Stack spacing={2}>
                   {authMode === "none" ? (
-                    <>
-                      <Alert severity="warning">
-                        Sambee will not authenticate users. Only activate this mode when a trusted reverse proxy or network perimeter
-                        controls access.
-                      </Alert>
-                      <FormControlLabel
-                        control={
-                          <Checkbox
-                            checked={noAuthenticationAcknowledged}
-                            disabled={finalizationUnresolved}
-                            onChange={(event) => setNoAuthenticationAcknowledged(event.target.checked)}
-                          />
-                        }
-                        label="I understand that Sambee will rely on external systems for authentication."
-                      />
-                    </>
+                    <Alert severity="warning">
+                      Sambee will not authenticate users. Only activate this mode when a trusted reverse proxy or network perimeter controls access.
+                    </Alert>
                   ) : (
                     <Alert severity="warning">
                       {configuration?.active_passwordless_user_count
@@ -1239,10 +1196,9 @@ export function AuthenticationSettings() {
                     </Alert>
                   )}
                   <Button
-                    color={authMode === "none" ? "warning" : "primary"}
                     variant="contained"
-                    sx={{ alignSelf: "flex-start" }}
-                    disabled={busy || finalizationUnresolved || (authMode === "none" && !noAuthenticationAcknowledged)}
+                    sx={[settingsPrimaryButtonSx, { alignSelf: "flex-start" }]}
+                    disabled={busy || finalizationUnresolved || isSelectedNonOidcModeActive}
                     onClick={() => void activateNonOidcMode()}
                   >
                     {authMode === "none" ? "Activate No authentication" : "Activate Password-only mode"}
