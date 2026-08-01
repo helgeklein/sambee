@@ -8,9 +8,9 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 import type { VersionInfo } from "../../utils/version";
 import { fetchVersionInfo } from "../../utils/version";
+import { SETTINGS_ACTION_BAR_MIN_HEIGHT_PX } from "./SettingsActionBar";
 import { SettingsCategoryContent } from "./SettingsCategoryContent";
 import { SettingsCategoryList } from "./SettingsCategoryList";
-import { SETTINGS_ACTION_BAR_MIN_HEIGHT_PX } from "./SettingsActionBar";
 import { prefetchSettingsDataForItems } from "./settingsDataSources";
 import {
   DEFAULT_SETTINGS_CATEGORY,

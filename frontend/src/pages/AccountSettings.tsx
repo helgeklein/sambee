@@ -186,136 +186,132 @@ export function AccountSettings({ dialogSafe = false }: { dialogSafe?: boolean }
 
   return (
     <SettingsPage category="account" dialogSafeHeader={dialogSafe}>
-        {error && (
-          <Alert severity="error" sx={{ mb: 3 }}>
-            {error}
-          </Alert>
-        )}
-        {loading ? (
-          <Box sx={{ display: "flex", justifyContent: "center", py: 4 }}>
-            <CircularProgress aria-label="Loading account" size={28} />
-          </Box>
-        ) : account === null ? (
+      {error && (
+        <Alert severity="error" sx={{ mb: 3 }}>
+          {error}
+        </Alert>
+      )}
+      {loading ? (
+        <Box sx={{ display: "flex", justifyContent: "center", py: 4 }}>
+          <CircularProgress aria-label="Loading account" size={28} />
+        </Box>
+      ) : account === null ? (
+        <Box>
+          <Button variant="outlined" onClick={() => void loadAccount()}>
+            Try again
+          </Button>
+        </Box>
+      ) : (
+        <SettingsSectionList>
+          {account.must_change_password && account.password_change_available && (
+            <Alert severity="warning">Your administrator requires you to change your local password.</Alert>
+          )}
+          <SettingsGroup title="Your identity" contentSpacing="compact">
+            <Table aria-label="Your identity" size="small" sx={{ tableLayout: "fixed", width: "100%" }}>
+              <TableBody>
+                <AccountIdentityRow label="Username" value={account.username} />
+                {account.name && <AccountIdentityRow label="Name" value={account.name} />}
+                {account.email && <AccountIdentityRow label="Email" value={account.email} />}
+                <AccountIdentityRow label="Role" value={account.role} isLast />
+              </TableBody>
+            </Table>
+          </SettingsGroup>
+
+          {account.password_change_available && (
+            <SettingsGroup title="Password">
+              <Box component="form" onSubmit={(event) => void submitPasswordChange(event)} sx={{ display: "grid", gap: 2, maxWidth: 440 }}>
+                {passwordError && <Alert severity="error">{passwordError}</Alert>}
+                <TextField
+                  label="Current password"
+                  type="password"
+                  autoComplete="current-password"
+                  value={passwordForm.currentPassword}
+                  onChange={(event) => setPasswordForm((current) => ({ ...current, currentPassword: event.target.value }))}
+                  disabled={passwordSubmitting}
+                />
+                <TextField
+                  label="New password"
+                  type="password"
+                  autoComplete="new-password"
+                  value={passwordForm.newPassword}
+                  onChange={(event) => setPasswordForm((current) => ({ ...current, newPassword: event.target.value }))}
+                  disabled={passwordSubmitting}
+                />
+                <TextField
+                  label="Confirm new password"
+                  type="password"
+                  autoComplete="new-password"
+                  value={passwordForm.confirmation}
+                  onChange={(event) => setPasswordForm((current) => ({ ...current, confirmation: event.target.value }))}
+                  disabled={passwordSubmitting}
+                />
+                <Box>
+                  <Button type="submit" variant="contained" disabled={passwordSubmitting}>
+                    {passwordSubmitting ? "Changing password" : "Change password"}
+                  </Button>
+                </Box>
+              </Box>
+            </SettingsGroup>
+          )}
+
+          {account.browser_session_management_available && (
+            <SettingsGroup title="Browser sessions">
+              {sessions === null ? (
+                <Box>
+                  <Typography color="text.secondary">Browser sessions could not be loaded.</Typography>
+                  <Button sx={{ mt: 2 }} variant="outlined" onClick={() => void loadAccount()} disabled={revoking !== null || signingOut}>
+                    Try again
+                  </Button>
+                </Box>
+              ) : sessions.length === 0 ? (
+                <Typography color="text.secondary">No renewable OIDC sessions are active.</Typography>
+              ) : (
+                <>
+                  <SettingsList>
+                    {sessions.map((browserSession) => (
+                      <ListItem
+                        key={browserSession.id}
+                        divider
+                        secondaryAction={
+                          <Button
+                            color="error"
+                            onClick={() => void revokeSession(browserSession)}
+                            disabled={revoking !== null || signingOut}
+                          >
+                            {browserSession.current ? "Sign out" : "Revoke"}
+                          </Button>
+                        }
+                        sx={{ px: 0, pr: 12 }}
+                      >
+                        <ListItemText
+                          primary={browserSession.current ? "This browser" : "Browser session"}
+                          secondary={`Created ${formatTimestamp(browserSession.created_at)}. Last active ${formatTimestamp(browserSession.last_seen_at)}.`}
+                        />
+                      </ListItem>
+                    ))}
+                  </SettingsList>
+                  {sessions.some((browserSession) => !browserSession.current) && (
+                    <Button
+                      sx={{ mt: 2 }}
+                      color="error"
+                      onClick={() => void revokeOtherSessions()}
+                      disabled={revoking !== null || signingOut}
+                    >
+                      Revoke all other sessions
+                    </Button>
+                  )}
+                </>
+              )}
+            </SettingsGroup>
+          )}
+
           <Box>
-            <Button variant="outlined" onClick={() => void loadAccount()}>
-              Try again
+            <Button color="error" variant="outlined" onClick={() => void signOut()} disabled={signingOut || passwordSubmitting}>
+              {signingOut ? "Signing out" : "Sign out"}
             </Button>
           </Box>
-        ) : (
-          <SettingsSectionList>
-            {account.must_change_password && account.password_change_available && (
-              <Alert severity="warning">Your administrator requires you to change your local password.</Alert>
-            )}
-            <SettingsGroup title="Your identity" contentSpacing="compact">
-              <Table aria-label="Your identity" size="small" sx={{ tableLayout: "fixed", width: "100%" }}>
-                <TableBody>
-                  <AccountIdentityRow label="Username" value={account.username} />
-                  {account.name && <AccountIdentityRow label="Name" value={account.name} />}
-                  {account.email && <AccountIdentityRow label="Email" value={account.email} />}
-                  <AccountIdentityRow label="Role" value={account.role} isLast />
-                </TableBody>
-              </Table>
-            </SettingsGroup>
-
-            {account.password_change_available && (
-              <SettingsGroup title="Password">
-                <Box
-                  component="form"
-                  onSubmit={(event) => void submitPasswordChange(event)}
-                  sx={{ display: "grid", gap: 2, maxWidth: 440 }}
-                >
-                  {passwordError && <Alert severity="error">{passwordError}</Alert>}
-                  <TextField
-                    label="Current password"
-                    type="password"
-                    autoComplete="current-password"
-                    value={passwordForm.currentPassword}
-                    onChange={(event) => setPasswordForm((current) => ({ ...current, currentPassword: event.target.value }))}
-                    disabled={passwordSubmitting}
-                  />
-                  <TextField
-                    label="New password"
-                    type="password"
-                    autoComplete="new-password"
-                    value={passwordForm.newPassword}
-                    onChange={(event) => setPasswordForm((current) => ({ ...current, newPassword: event.target.value }))}
-                    disabled={passwordSubmitting}
-                  />
-                  <TextField
-                    label="Confirm new password"
-                    type="password"
-                    autoComplete="new-password"
-                    value={passwordForm.confirmation}
-                    onChange={(event) => setPasswordForm((current) => ({ ...current, confirmation: event.target.value }))}
-                    disabled={passwordSubmitting}
-                  />
-                  <Box>
-                    <Button type="submit" variant="contained" disabled={passwordSubmitting}>
-                      {passwordSubmitting ? "Changing password" : "Change password"}
-                    </Button>
-                  </Box>
-                </Box>
-              </SettingsGroup>
-            )}
-
-            {account.browser_session_management_available && (
-              <SettingsGroup title="Browser sessions">
-                {sessions === null ? (
-                  <Box>
-                    <Typography color="text.secondary">Browser sessions could not be loaded.</Typography>
-                    <Button sx={{ mt: 2 }} variant="outlined" onClick={() => void loadAccount()} disabled={revoking !== null || signingOut}>
-                      Try again
-                    </Button>
-                  </Box>
-                ) : sessions.length === 0 ? (
-                  <Typography color="text.secondary">No renewable OIDC sessions are active.</Typography>
-                ) : (
-                  <>
-                    <SettingsList>
-                      {sessions.map((browserSession) => (
-                        <ListItem
-                          key={browserSession.id}
-                          divider
-                          secondaryAction={
-                            <Button
-                              color="error"
-                              onClick={() => void revokeSession(browserSession)}
-                              disabled={revoking !== null || signingOut}
-                            >
-                              {browserSession.current ? "Sign out" : "Revoke"}
-                            </Button>
-                          }
-                          sx={{ px: 0, pr: 12 }}
-                        >
-                          <ListItemText
-                            primary={browserSession.current ? "This browser" : "Browser session"}
-                            secondary={`Created ${formatTimestamp(browserSession.created_at)}. Last active ${formatTimestamp(browserSession.last_seen_at)}.`}
-                          />
-                        </ListItem>
-                      ))}
-                    </SettingsList>
-                    {sessions.some((browserSession) => !browserSession.current) && (
-                      <Button
-                        sx={{ mt: 2 }}
-                        color="error"
-                        onClick={() => void revokeOtherSessions()}
-                        disabled={revoking !== null || signingOut}
-                      >
-                        Revoke all other sessions
-                      </Button>
-                    )}
-                  </>
-                )}
-              </SettingsGroup>
-            )}
-
-            <Box>
-              <Button color="error" variant="outlined" onClick={() => void signOut()} disabled={signingOut || passwordSubmitting}>
-                {signingOut ? "Signing out" : "Sign out"}
-              </Button>
-            </Box>
-          </SettingsSectionList>
-        )}
+        </SettingsSectionList>
+      )}
     </SettingsPage>
   );
 }

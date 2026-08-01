@@ -14,5 +14,9 @@ interface SettingsSectionListProps {
 
 /** Provides consistent vertical rhythm between sibling settings sections. */
 export function SettingsSectionList({ children, level = "section", sx }: SettingsSectionListProps) {
-  return <Stack spacing={level === "section" ? SETTINGS_SECTION_GAP : SETTINGS_SUBSECTION_GAP} sx={sx}>{children}</Stack>;
+  return (
+    <Stack spacing={level === "section" ? SETTINGS_SECTION_GAP : SETTINGS_SUBSECTION_GAP} sx={sx}>
+      {children}
+    </Stack>
+  );
 }

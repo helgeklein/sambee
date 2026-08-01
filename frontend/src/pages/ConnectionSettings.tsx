@@ -24,7 +24,7 @@ import {
   useMediaQuery,
   useTheme,
 } from "@mui/material";
-import { useCallback, useEffect, useMemo, useState, type ReactNode } from "react";
+import { type ReactNode, useCallback, useEffect, useMemo, useState } from "react";
 import { useTranslation } from "react-i18next";
 import ConnectionDialog from "../components/Admin/ConnectionDialog";
 import DeleteDialog from "../components/Admin/DeleteDialog";
@@ -524,11 +524,7 @@ export function ConnectionSettings({
         )}
       </Box>
 
-      {!onFooterSecondaryActionsChange && addConnectionAction && (
-        <SettingsActionBar
-          secondaryActions={addConnectionAction}
-        />
-      )}
+      {!onFooterSecondaryActionsChange && addConnectionAction && <SettingsActionBar secondaryActions={addConnectionAction} />}
 
       {/* Actions Menu */}
       <Menu

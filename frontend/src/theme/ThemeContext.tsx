@@ -433,7 +433,6 @@ export function SambeeThemeProvider({ children }: ThemeProviderProps) {
     if (nextThemeId) {
       setCurrentThemeId(nextThemeId);
     }
-
   };
 
   const saveCustomThemes = () => {

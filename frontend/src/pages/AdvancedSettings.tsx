@@ -1,14 +1,4 @@
-import {
-  Box,
-  Button,
-  CircularProgress,
-  FormControl,
-  FormHelperText,
-  InputAdornment,
-  MenuItem,
-  Stack,
-  TextField,
-} from "@mui/material";
+import { Box, Button, CircularProgress, FormControl, FormHelperText, InputAdornment, MenuItem, Stack, TextField } from "@mui/material";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { SettingsInlineAlert, SettingsNotificationSnackbar, type SettingsNotificationState } from "../components/Settings/SettingsFeedback";
@@ -507,63 +497,61 @@ export function AdvancedSettings({ dialogSafeHeader = false }: AdvancedSettingsP
 
   return (
     <SettingsPage category="admin-system" dialogSafeHeader={dialogSafeHeader} footerPrimaryActions={saveAction}>
-        {loading && !settings && <SettingsLoadingState />}
+      {loading && !settings && <SettingsLoadingState />}
 
-        {pageError && <SettingsInlineAlert>{pageError}</SettingsInlineAlert>}
+      {pageError && <SettingsInlineAlert>{pageError}</SettingsInlineAlert>}
 
-        {settings && formState && (
-          <SettingsSectionList>
-            <SettingsGroup title={t("settings.advanced.sections.smbBackends")}>
-              <ByteSizeSettingField
-                setting={settings.smb.read_chunk_size_bytes}
-                value={formState.smbReadChunkSizeBytes}
-                onChange={(value) => setFormState((current) => (current ? { ...current, smbReadChunkSizeBytes: value } : current))}
-                errorText={validationErrors?.smbReadChunkSizeBytes}
-                showErrors={submitAttempted}
-                onReset={() => handleReset(settings.smb.read_chunk_size_bytes.key, settings.smb.read_chunk_size_bytes.label)}
-                resetDisabled={saving || loading || hasUnsavedChanges}
-              />
-            </SettingsGroup>
+      {settings && formState && (
+        <SettingsSectionList>
+          <SettingsGroup title={t("settings.advanced.sections.smbBackends")}>
+            <ByteSizeSettingField
+              setting={settings.smb.read_chunk_size_bytes}
+              value={formState.smbReadChunkSizeBytes}
+              onChange={(value) => setFormState((current) => (current ? { ...current, smbReadChunkSizeBytes: value } : current))}
+              errorText={validationErrors?.smbReadChunkSizeBytes}
+              showErrors={submitAttempted}
+              onReset={() => handleReset(settings.smb.read_chunk_size_bytes.key, settings.smb.read_chunk_size_bytes.label)}
+              resetDisabled={saving || loading || hasUnsavedChanges}
+            />
+          </SettingsGroup>
 
-            <SettingsGroup title={t("settings.advanced.sections.preprocessors")}>
-              <Stack spacing={3.5}>
-                <SettingsGroup title={t("settings.advanced.sections.imageMagick")} level="subsection">
-                  <ByteSizeSettingField
-                    setting={settings.preprocessors.imagemagick.max_file_size_bytes}
-                    value={formState.imagemagickMaxFileSizeBytes}
-                    onChange={(value) =>
-                      setFormState((current) => (current ? { ...current, imagemagickMaxFileSizeBytes: value } : current))
-                    }
-                    errorText={validationErrors?.imagemagickMaxFileSizeBytes}
-                    showErrors={submitAttempted}
-                    onReset={() =>
-                      handleReset(
-                        settings.preprocessors.imagemagick.max_file_size_bytes.key,
-                        settings.preprocessors.imagemagick.max_file_size_bytes.label
-                      )
-                    }
-                    resetDisabled={saving || loading || hasUnsavedChanges}
-                  />
-                  <SettingField
-                    setting={settings.preprocessors.imagemagick.timeout_seconds}
-                    value={formState.imagemagickTimeoutSeconds}
-                    onChange={(value) => setFormState((current) => (current ? { ...current, imagemagickTimeoutSeconds: value } : current))}
-                    errorText={validationErrors?.imagemagickTimeoutSeconds}
-                    showErrors={submitAttempted}
-                    unitAdornment={t("settings.advanced.fields.seconds")}
-                    onReset={() =>
-                      handleReset(
-                        settings.preprocessors.imagemagick.timeout_seconds.key,
-                        settings.preprocessors.imagemagick.timeout_seconds.label
-                      )
-                    }
-                    resetDisabled={saving || loading || hasUnsavedChanges}
-                  />
-                </SettingsGroup>
-              </Stack>
-            </SettingsGroup>
-          </SettingsSectionList>
-        )}
+          <SettingsGroup title={t("settings.advanced.sections.preprocessors")}>
+            <Stack spacing={3.5}>
+              <SettingsGroup title={t("settings.advanced.sections.imageMagick")} level="subsection">
+                <ByteSizeSettingField
+                  setting={settings.preprocessors.imagemagick.max_file_size_bytes}
+                  value={formState.imagemagickMaxFileSizeBytes}
+                  onChange={(value) => setFormState((current) => (current ? { ...current, imagemagickMaxFileSizeBytes: value } : current))}
+                  errorText={validationErrors?.imagemagickMaxFileSizeBytes}
+                  showErrors={submitAttempted}
+                  onReset={() =>
+                    handleReset(
+                      settings.preprocessors.imagemagick.max_file_size_bytes.key,
+                      settings.preprocessors.imagemagick.max_file_size_bytes.label
+                    )
+                  }
+                  resetDisabled={saving || loading || hasUnsavedChanges}
+                />
+                <SettingField
+                  setting={settings.preprocessors.imagemagick.timeout_seconds}
+                  value={formState.imagemagickTimeoutSeconds}
+                  onChange={(value) => setFormState((current) => (current ? { ...current, imagemagickTimeoutSeconds: value } : current))}
+                  errorText={validationErrors?.imagemagickTimeoutSeconds}
+                  showErrors={submitAttempted}
+                  unitAdornment={t("settings.advanced.fields.seconds")}
+                  onReset={() =>
+                    handleReset(
+                      settings.preprocessors.imagemagick.timeout_seconds.key,
+                      settings.preprocessors.imagemagick.timeout_seconds.label
+                    )
+                  }
+                  resetDisabled={saving || loading || hasUnsavedChanges}
+                />
+              </SettingsGroup>
+            </Stack>
+          </SettingsGroup>
+        </SettingsSectionList>
+      )}
       <SettingsNotificationSnackbar
         notification={notification}
         onClose={() => setNotification((current) => ({ ...current, open: false }))}
