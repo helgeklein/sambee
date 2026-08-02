@@ -19,6 +19,8 @@ interface SettingsInlineAlertProps {
   children: ReactNode;
   severity?: AlertColor;
   sx?: SxProps<Theme>;
+  action?: ReactNode;
+  role?: "alert" | "status";
 }
 
 export function SettingsNotificationSnackbar({
@@ -40,9 +42,9 @@ export function SettingsNotificationSnackbar({
   );
 }
 
-export function SettingsInlineAlert({ children, severity = "error", sx }: SettingsInlineAlertProps) {
+export function SettingsInlineAlert({ children, severity = "error", sx, action, role }: SettingsInlineAlertProps) {
   return (
-    <Alert severity={severity} sx={[{ mb: 2 }, ...(Array.isArray(sx) ? sx : sx ? [sx] : [])]}>
+    <Alert role={role} severity={severity} action={action} sx={[{ mb: 2 }, ...(Array.isArray(sx) ? sx : sx ? [sx] : [])]}>
       {children}
     </Alert>
   );

@@ -274,6 +274,7 @@ export const EN_TRANSLATIONS = {
       pairingCreated: "Local drive pairing created.",
       pairingRemoved: "This browser has been unpaired.",
       pairingRemoveFailed: "Failed to remove pairing.",
+      pairingTestSucceeded: "Pairing verified. This browser can access local drives.",
       pairingTestFailed: "Pairing test failed. Pair this browser again to restore local drive access.",
       statusUnavailable:
         "Sambee Companion is not running on this computer. Start it, then return here to pair this browser, test local-drive access, or launch local files from Sambee.",
