@@ -23,6 +23,7 @@ Sambee's [OIDC implementation](../../../admin-guide/authentication/openid-connec
 - New personal **Account** settings page
 - New admin **Network** settings page
 - New admin **Authentication** settings page
+- New admin **About** settings page
 
 ## Under the Hood
 

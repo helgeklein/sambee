@@ -181,11 +181,11 @@ export interface AboutSettings {
   build_time: string;
   git_commit: string;
   started_at: string;
-  operating_system: string;
   architecture: string;
-  python_version: string;
-  containerized: boolean;
   logical_cpu_count: number | null;
+  memory_bytes: number | null;
+  python_runtime: string;
+  database_version: string;
 }
 
 export interface NetworkSettings {

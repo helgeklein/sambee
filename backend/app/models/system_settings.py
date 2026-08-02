@@ -76,8 +76,8 @@ class AboutSettingsRead(SQLModel):
     build_time: str
     git_commit: str
     started_at: datetime
-    operating_system: str
     architecture: str
-    python_version: str
-    containerized: bool
     logical_cpu_count: Optional[int] = None
+    memory_bytes: Optional[int] = None
+    python_runtime: str
+    database_version: str

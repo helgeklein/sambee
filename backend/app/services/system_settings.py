@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import os
 import platform
+import sqlite3
 import uuid
 from dataclasses import dataclass
 from datetime import datetime, timezone
@@ -47,6 +48,8 @@ APP_ROOT = Path(__file__).resolve().parents[3]
 BUILD_TIME_PATH = Path("/BUILD_TIME")
 GIT_COMMIT_PATH = Path("/GIT_COMMIT")
 PROCESS_STARTED_AT = datetime.now(timezone.utc)
+CGROUP_MEMORY_LIMIT_PATHS = (Path("/sys/fs/cgroup/memory.max"), Path("/sys/fs/cgroup/memory/memory.limit_in_bytes"))
+UNLIMITED_MEMORY_THRESHOLD_BYTES = 1 << 60
 
 
 @dataclass(frozen=True)
@@ -67,16 +70,31 @@ def _read_first_available_text(paths: list[Path], fallback: str = "unknown") -> 
     return fallback
 
 
-def _is_containerized() -> bool:
-    if Path("/.dockerenv").exists():
-        return True
+def _get_memory_bytes() -> Optional[int]:
+    for path in CGROUP_MEMORY_LIMIT_PATHS:
+        try:
+            raw_value = path.read_text().strip()
+        except OSError:
+            continue
+
+        if raw_value == "max":
+            continue
+
+        try:
+            memory_limit = int(raw_value)
+        except ValueError:
+            continue
+
+        if 0 < memory_limit < UNLIMITED_MEMORY_THRESHOLD_BYTES:
+            return memory_limit
 
     try:
-        cgroup_content = Path("/proc/1/cgroup").read_text()
-    except OSError:
-        return False
+        page_size = os.sysconf("SC_PAGE_SIZE")
+        page_count = os.sysconf("SC_PHYS_PAGES")
+    except (AttributeError, OSError, ValueError):
+        return None
 
-    return any(marker in cgroup_content for marker in ("docker", "containerd", "kubepods", "podman"))
+    return page_size * page_count if page_size > 0 and page_count > 0 else None
 
 
 class SystemSettingsStore:
@@ -200,11 +218,11 @@ def build_about_settings_read() -> AboutSettingsRead:
         build_time=_read_first_available_text([BUILD_TIME_PATH]),
         git_commit=_read_first_available_text([GIT_COMMIT_PATH, APP_ROOT / "GIT_COMMIT"]),
         started_at=PROCESS_STARTED_AT,
-        operating_system=platform.system() or "unknown",
         architecture=platform.machine() or "unknown",
-        python_version=platform.python_version(),
-        containerized=_is_containerized(),
         logical_cpu_count=os.cpu_count(),
+        memory_bytes=_get_memory_bytes(),
+        python_runtime=f"{platform.python_implementation()} {platform.python_version()}",
+        database_version=sqlite3.sqlite_version,
     )
 
 

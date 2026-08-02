@@ -48,4 +48,22 @@ describe("SettingsGroup", () => {
 
     expect(window.getComputedStyle(secondHeading.parentElement!.parentElement!.parentElement!).marginTop).toBe("24px");
   });
+
+  it("keeps inline actions aligned with the standard heading-to-content spacing", () => {
+    render(
+      <SettingsGroup
+        title="Section with action"
+        contentSpacing="compact"
+        actionsLayout="inline"
+        actions={<button type="button">Copy</button>}
+      >
+        <div>Section content</div>
+      </SettingsGroup>
+    );
+
+    const heading = screen.getByRole("heading", { name: "Section with action", level: 2 });
+
+    expect(window.getComputedStyle(heading.parentElement!).marginBottom).toBe("0px");
+    expect(window.getComputedStyle(heading.parentElement!.parentElement!).marginBottom).toBe("8px");
+  });
 });

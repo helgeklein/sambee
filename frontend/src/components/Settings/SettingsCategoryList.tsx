@@ -2,6 +2,7 @@ import {
   Article as ArticleIcon,
   ChevronRight as ChevronRightIcon,
   FolderOpen as FolderOpenIcon,
+  InfoOutlined as InfoOutlinedIcon,
   ManageAccounts as ManageAccountsIcon,
   Palette as PaletteIcon,
   PeopleAlt as PeopleAltIcon,
@@ -125,6 +126,8 @@ function renderCategoryIcon(item: SettingsNavItem, iconGlyphSx?: SxProps<Theme>)
       return <PeopleAltIcon sx={iconGlyphSx} />;
     case "admin-system":
       return <TuneIcon sx={iconGlyphSx} />;
+    case "admin-about":
+      return <InfoOutlinedIcon sx={iconGlyphSx} />;
   }
 }
 

@@ -139,6 +139,7 @@ describe("SettingsDialog Component", () => {
     expect(userManagementOption).toBeInTheDocument();
     expect(systemOption).toBeInTheDocument();
     expect(aboutOption).toBeInTheDocument();
+    expect(aboutOption.querySelector("svg")).toBeInTheDocument();
     expect(screen.getByText("Administration")).toBeInTheDocument();
   });
 

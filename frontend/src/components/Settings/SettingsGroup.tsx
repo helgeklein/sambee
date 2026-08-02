@@ -3,6 +3,7 @@ import type { ReactNode } from "react";
 
 export type SettingsSectionLevel = "section" | "subsection";
 export type SettingsGroupContentSpacing = "normal" | "compact";
+export type SettingsGroupActionLayout = "stacked" | "inline";
 
 const SETTINGS_SECTION_TITLE_VARIANT: Record<SettingsSectionLevel, TypographyProps["variant"]> = {
   section: "h6",
@@ -30,6 +31,7 @@ interface SettingsGroupProps {
   children?: ReactNode;
   level?: SettingsSectionLevel;
   contentSpacing?: SettingsGroupContentSpacing;
+  actionsLayout?: SettingsGroupActionLayout;
   sx?: SxProps<Theme>;
   headerSx?: SxProps<Theme>;
   actionsSx?: SxProps<Theme>;
@@ -42,6 +44,7 @@ export function SettingsGroup({
   children,
   level = "section",
   contentSpacing = "normal",
+  actionsLayout = "stacked",
   sx,
   headerSx,
   actionsSx,
@@ -52,17 +55,32 @@ export function SettingsGroup({
     : sx
       ? [{ display: "flex", flexDirection: "column" }, sx]
       : { display: "flex", flexDirection: "column" };
+  const resolvedHeaderSx: SxProps<Theme> =
+    actions && actionsLayout === "inline"
+      ? [
+          {
+            display: "flex",
+            alignItems: "center",
+            justifyContent: "space-between",
+            gap: 1,
+            mb: level === "section" ? SETTINGS_SECTION_CONTENT_GAP[contentSpacing] : SETTINGS_SUBSECTION_CONTENT_GAP[contentSpacing],
+          },
+          ...(Array.isArray(headerSx) ? headerSx : headerSx ? [headerSx] : []),
+        ]
+      : (headerSx ?? {});
 
   return (
     <Box sx={resolvedSx}>
       {(title || actions) && (
-        <Box sx={headerSx}>
+        <Box sx={resolvedHeaderSx}>
           {title && (
             <Box
               sx={{
                 minWidth: 0,
                 mb: actions
-                  ? 1.5
+                  ? actionsLayout === "inline"
+                    ? 0
+                    : 1.5
                   : level === "section"
                     ? SETTINGS_SECTION_CONTENT_GAP[contentSpacing]
                     : SETTINGS_SUBSECTION_CONTENT_GAP[contentSpacing],
@@ -86,7 +104,7 @@ export function SettingsGroup({
                   gap: 1,
                   justifyContent: "flex-start",
                   alignItems: "center",
-                  mb: 2,
+                  mb: actionsLayout === "inline" ? 0 : 2,
                 },
                 ...(Array.isArray(actionsSx) ? actionsSx : actionsSx ? [actionsSx] : []),
               ]}

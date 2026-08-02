@@ -21,11 +21,10 @@ class TestAboutSettingsApi:
         data = response.json()
         assert data["version"]
         assert data["started_at"]
-        assert data["operating_system"]
         assert data["architecture"]
-        assert data["python_version"]
-        assert isinstance(data["containerized"], bool)
-        assert {"hostname", "environment", "mounts", "network"}.isdisjoint(data)
+        assert data["python_runtime"]
+        assert data["database_version"]
+        assert {"containerized", "environment", "hostname", "mounts", "network", "operating_system"}.isdisjoint(data)
 
     def test_regular_user_cannot_fetch_about_information(self, client: TestClient, auth_headers_user: dict[str, str]) -> None:
         response = client.get("/api/admin/settings/about", headers=auth_headers_user)
