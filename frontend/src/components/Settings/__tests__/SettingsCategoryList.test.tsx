@@ -31,8 +31,8 @@ describe("SettingsCategoryList", () => {
     const label = screen.getByText("Appearance", { exact: true });
     const icon = appearanceOption.querySelector("svg");
 
-    expect(label).toHaveStyle({ fontSize: "0.875rem" });
-    expect(icon).toHaveStyle({ fontSize: "1.25rem" });
+    expect(label).toHaveStyle({ fontSize: "1rem" });
+    expect(icon).toHaveStyle({ fontSize: "1.5rem" });
   });
 
   it("shows local drives as a top-level category without child UI", () => {
