@@ -123,10 +123,24 @@ describe("ConnectionDialog Component", () => {
       render(<ConnectionDialog open={true} onClose={mockOnClose} onSave={mockOnSave} />);
 
       expect(screen.getByText("Connection name", { selector: "label" })).toHaveAttribute("for", "connection-name");
-      expect(screen.getByTestId("connection-dialog-fields")).toBeInTheDocument();
+      const primaryFieldGroup = screen.getByTestId("connection-dialog-fields");
+      expect(primaryFieldGroup).toBeInTheDocument();
+      for (const inputId of [
+        "connection-name",
+        "connection-host",
+        "connection-share-name",
+        "connection-username",
+        "connection-password",
+        "connection-path-prefix",
+      ]) {
+        expect(primaryFieldGroup.querySelector(`#${inputId}`)).not.toBeNull();
+      }
+      expect(primaryFieldGroup.querySelector("#connection-scope")).toBeNull();
+      expect(primaryFieldGroup.querySelector("#connection-access-mode")).toBeNull();
       expect(screen.getByLabelText(/connection name/i).parentElement).toHaveClass("MuiOutlinedInput-root");
       expect(screen.getByLabelText(/connection name/i).parentElement).toHaveClass("MuiInputBase-sizeSmall");
       expect(document.querySelector(".MuiDialog-paperWidthSm")).not.toBeNull();
+      expect(screen.getByRole("heading", { name: "Access", level: 3 })).toBeInTheDocument();
       expect(screen.getByText("A name to identify this connection in Sambee")).not.toHaveClass("MuiFormHelperText-root");
       const visibilitySelect = screen.getByRole("combobox", { name: /visibility/i });
       expect(visibilitySelect.closest(".MuiFormControl-root")).not.toHaveClass("MuiFormControl-fullWidth");
@@ -141,6 +155,7 @@ describe("ConnectionDialog Component", () => {
         expect(hostInput).toHaveAttribute("aria-describedby", "connection-host-description");
         expect(hostError).toHaveAttribute("id", "connection-host-description");
         expect(hostError).not.toHaveClass("MuiFormHelperText-root");
+        expect(screen.getByLabelText(/connection name/i)).toHaveFocus();
       });
     } finally {
       window.matchMedia = originalMatchMedia;

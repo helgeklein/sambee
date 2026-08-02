@@ -382,6 +382,9 @@ export const EN_TRANSLATIONS = {
         visibility: "Visibility",
         accessMode: "Access mode",
       },
+      sections: {
+        access: "Access",
+      },
       helpers: {
         name: "A name to identify this connection in Sambee",
         host: "IP address or hostname of the SMB server",

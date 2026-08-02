@@ -14,11 +14,14 @@ import {
   InputLabel,
   MenuItem,
   Select,
+  type SxProps,
   TextField,
+  type Theme,
   Typography,
   useMediaQuery,
   useTheme,
 } from "@mui/material";
+import type { TFunction } from "i18next";
 import type React from "react";
 import { useEffect, useMemo, useState } from "react";
 import { useTranslation } from "react-i18next";
@@ -26,6 +29,7 @@ import api from "../../services/api";
 import type { Connection, ConnectionAccessMode, ConnectionCreate, ConnectionScope, ConnectionVisibilityOption } from "../../types";
 import { getApiErrorMessage } from "../../utils/apiErrors";
 import { dialogEnterKeyHandler } from "../../utils/keyboardUtils";
+import { SettingsGroup } from "../Settings/SettingsGroup";
 import { settingsPrimaryButtonSx, settingsUtilityButtonSx } from "../Settings/settingsButtonStyles";
 import { CONNECTION_DIALOG_STRINGS } from "./connectionDialogConstants";
 import {
@@ -43,7 +47,21 @@ interface ConnectionDialogProps {
   connection?: Connection | null;
 }
 
-function getFallbackVisibilityOptions(t: (key: string) => string): ConnectionVisibilityOption[] {
+const REQUIRED_CONNECTION_FIELDS = [
+  { name: "name", inputId: "connection-name" },
+  { name: "host", inputId: "connection-host" },
+  { name: "share_name", inputId: "connection-share-name" },
+  { name: "username", inputId: "connection-username" },
+  { name: "password", inputId: "connection-password" },
+] as const;
+
+type SingleSxProp = Exclude<SxProps<Theme>, ReadonlyArray<unknown>>;
+
+function combineSx(...styles: SxProps<Theme>[]): SingleSxProp[] {
+  return styles.flatMap((style) => (Array.isArray(style) ? style : [style])) as SingleSxProp[];
+}
+
+function getFallbackVisibilityOptions(t: TFunction): ConnectionVisibilityOption[] {
   return [
     {
       value: "private",
@@ -210,6 +228,10 @@ const ConnectionDialog: React.FC<ConnectionDialogProps> = ({ open, onClose, onSa
     }
 
     setErrors(newErrors);
+    const firstInvalidField = REQUIRED_CONNECTION_FIELDS.find(({ name }) => newErrors[name]);
+    if (firstInvalidField) {
+      requestAnimationFrame(() => document.getElementById(firstInvalidField.inputId)?.focus());
+    }
     return Object.keys(newErrors).length === 0;
   };
 
@@ -288,7 +310,10 @@ const ConnectionDialog: React.FC<ConnectionDialogProps> = ({ open, onClose, onSa
     alignItems: "start",
   };
   const desktopFieldLabelSx = { textAlign: "left" };
-  const desktopFieldDescriptionSx = { mt: 0.25 };
+  const desktopFieldDescriptionSx = (hasError: boolean) => ({
+    mt: 0,
+    color: (currentTheme: typeof theme) => (hasError ? currentTheme.palette.error.main : alpha(currentTheme.palette.text.primary, 0.72)),
+  });
   const desktopFieldControlSx = { justifySelf: { md: "end" }, width: "100%" };
   const desktopSelectControlSx = { justifySelf: { md: "end" }, width: { md: "fit-content" } };
   const desktopFieldGroupSx = (currentTheme: typeof theme) => ({
@@ -339,13 +364,7 @@ const ConnectionDialog: React.FC<ConnectionDialogProps> = ({ open, onClose, onSa
         <FormLabel id={id} htmlFor={htmlFor} required={required} sx={desktopFieldLabelSx}>
           {label}
         </FormLabel>
-        <Typography
-          id={descriptionId}
-          variant="caption"
-          component="p"
-          color={hasError ? "error" : "text.secondary"}
-          sx={desktopFieldDescriptionSx}
-        >
+        <Typography id={descriptionId} variant="caption" component="p" sx={desktopFieldDescriptionSx(hasError)}>
           {description}
         </Typography>
       </Box>
@@ -387,7 +406,6 @@ const ConnectionDialog: React.FC<ConnectionDialogProps> = ({ open, onClose, onSa
             />
           </Box>
         </Box>
-
         <Box sx={desktopFieldRowSx}>
           {renderDesktopLabel(
             CONNECTION_DIALOG_STRINGS.LABEL_HOST,
@@ -420,7 +438,6 @@ const ConnectionDialog: React.FC<ConnectionDialogProps> = ({ open, onClose, onSa
             />
           </Box>
         </Box>
-
         <Box sx={desktopFieldRowSx}>
           {renderDesktopLabel(
             CONNECTION_DIALOG_STRINGS.LABEL_SHARE_NAME,
@@ -453,7 +470,6 @@ const ConnectionDialog: React.FC<ConnectionDialogProps> = ({ open, onClose, onSa
             />
           </Box>
         </Box>
-
         <Box sx={desktopFieldRowSx}>
           {renderDesktopLabel(
             CONNECTION_DIALOG_STRINGS.LABEL_USERNAME,
@@ -568,7 +584,11 @@ const ConnectionDialog: React.FC<ConnectionDialogProps> = ({ open, onClose, onSa
             />
           </Box>
         </Box>
-
+      </Box>
+      {usesDesktopFormLayout && (
+        <SettingsGroup title={t("settings.connectionDialog.sections.access")} level="subsection" contentSpacing="compact" />
+      )}
+      <Box sx={desktopFieldGroupSx}>
         <Box sx={desktopFieldRowSx}>
           {renderDesktopLabel(
             t("settings.connectionDialog.labels.visibility"),
@@ -667,7 +687,7 @@ const ConnectionDialog: React.FC<ConnectionDialogProps> = ({ open, onClose, onSa
         disabled={testing || saving}
         variant="outlined"
         startIcon={testing ? <CircularProgress size={18} color="inherit" /> : undefined}
-        sx={[settingsUtilityButtonSx, adminDialogStandaloneSecondaryActionSx]}
+        sx={combineSx(settingsUtilityButtonSx, adminDialogStandaloneSecondaryActionSx)}
       >
         {CONNECTION_DIALOG_STRINGS.BUTTON_TEST}
       </Button>
@@ -676,7 +696,7 @@ const ConnectionDialog: React.FC<ConnectionDialogProps> = ({ open, onClose, onSa
           onClick={handleDialogClose}
           disabled={closeDisabled}
           variant="outlined"
-          sx={[settingsUtilityButtonSx, adminDialogActionButtonSx]}
+          sx={combineSx(settingsUtilityButtonSx, adminDialogActionButtonSx)}
         >
           {CONNECTION_DIALOG_STRINGS.BUTTON_CANCEL}
         </Button>
@@ -685,7 +705,7 @@ const ConnectionDialog: React.FC<ConnectionDialogProps> = ({ open, onClose, onSa
           variant="contained"
           disabled={saving || testing}
           startIcon={saving ? <CircularProgress size={18} color="inherit" /> : undefined}
-          sx={[settingsPrimaryButtonSx, adminDialogActionButtonSx]}
+          sx={combineSx(settingsPrimaryButtonSx, adminDialogActionButtonSx)}
         >
           {CONNECTION_DIALOG_STRINGS.BUTTON_SAVE}
         </Button>
