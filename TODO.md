@@ -1,5 +1,13 @@
 # TODO
 
+## Settings
+
+### Butttons
+
+- Default button focused state:
+   - Dark mode: state change not discernible at all
+   - Light mode: state change too subtle
+
 ## Quick bar
 
 - Add a quick bar mode to open recent files
