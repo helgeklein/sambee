@@ -79,7 +79,7 @@ describe("UserManagementSettings", () => {
     expect(screen.getByRole("button", { name: /create user/i })).toBeInTheDocument();
   });
 
-  it("uses explicit username and full-name guidance in the editor", async () => {
+  it("uses consistent field descriptions in the add-user editor", async () => {
     const user = userEvent.setup();
 
     render(
@@ -96,9 +96,45 @@ describe("UserManagementSettings", () => {
     await user.click(screen.getByRole("button", { name: /add user/i }));
 
     expect(await screen.findByLabelText(/^username$/i)).toBeInTheDocument();
-    expect(screen.getByText("Used to sign in and uniquely identify the account.")).toBeInTheDocument();
     expect(screen.getByLabelText(/^full name$/i)).toBeInTheDocument();
-    expect(screen.getByText("Use the person's full name as they want it displayed in Sambee.")).toBeInTheDocument();
+    expect(screen.getByLabelText(/^email$/i)).toBeInTheDocument();
+    expect(screen.getByRole("combobox", { name: /^role$/i })).toBeInTheDocument();
+    expect(screen.getByLabelText(/expiration time/i)).toBeInTheDocument();
+    expect(screen.getByLabelText(/initial password/i)).toBeInTheDocument();
+
+    const descriptions = [
+      "Used to sign in and uniquely identify the account.",
+      "Use the person's full name as they want it displayed in Sambee.",
+      "Optional. Record an email address for this account.",
+      "Admins manage settings and users. Editors can modify content. Viewers can browse content.",
+      "Leave blank if this account should not expire.",
+      "Optional. If left blank, the server will generate a secure temporary password.",
+      "The user must choose a new password when they next sign in.",
+    ];
+
+    for (const description of descriptions) {
+      expect(screen.getByText(description)).toHaveClass("MuiFormHelperText-root");
+    }
+  });
+
+  it("uses consistent field descriptions in the edit-user editor", async () => {
+    const user = userEvent.setup();
+
+    render(
+      <SambeeThemeProvider>
+        <UserManagementSettings />
+      </SambeeThemeProvider>
+    );
+
+    await user.click(await screen.findByRole("button", { name: /edit admin/i }));
+
+    expect(screen.getByLabelText(/^email$/i)).toBeInTheDocument();
+    expect(screen.getByRole("combobox", { name: /^role$/i })).toBeInTheDocument();
+    expect(screen.getByText("Optional. Record an email address for this account.")).toHaveClass("MuiFormHelperText-root");
+    expect(screen.getByText("Admins manage settings and users. Editors can modify content. Viewers can browse content.")).toHaveClass(
+      "MuiFormHelperText-root"
+    );
+    expect(screen.getByText("Disabled accounts cannot sign in or access Sambee.")).toHaveClass("MuiFormHelperText-root");
   });
 
   it("renders user names as bold body text instead of headings", async () => {
@@ -259,6 +295,7 @@ describe("UserManagementSettings", () => {
 
     const passwordInput = await screen.findByLabelText(/new password/i);
     expect(passwordInput).toBeInTheDocument();
+    expect(screen.getByText("Choose the password the user should use the next time they sign in.")).toHaveClass("MuiFormHelperText-root");
 
     await user.type(passwordInput, "BrandNewPass123!");
     await user.click(screen.getByRole("checkbox", { name: /require password change after next sign-in/i }));

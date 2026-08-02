@@ -17,6 +17,7 @@ import {
   CircularProgress,
   FormControl,
   FormControlLabel,
+  FormHelperText,
   IconButton,
   InputLabel,
   List,
@@ -483,11 +484,6 @@ export function UserManagementSettings({ dialogSafeHeader = false }: UserManagem
         fullWidth
         variant="outlined"
         helperText={t("settings.userManagement.editor.usernameHelp")}
-        slotProps={{
-          formHelperText: {
-            sx: { fontSize: "0.875rem" },
-          },
-        }}
       />
       <TextField
         label={t("settings.userManagement.editor.nameLabel")}
@@ -496,11 +492,6 @@ export function UserManagementSettings({ dialogSafeHeader = false }: UserManagem
         fullWidth
         variant="outlined"
         helperText={t("settings.userManagement.editor.nameHelp")}
-        slotProps={{
-          formHelperText: {
-            sx: { fontSize: "0.875rem" },
-          },
-        }}
       />
       <TextField
         label={t("settings.userManagement.editor.emailLabel")}
@@ -509,6 +500,7 @@ export function UserManagementSettings({ dialogSafeHeader = false }: UserManagem
         onChange={(event) => setFormState((current) => ({ ...current, email: event.target.value }))}
         fullWidth
         variant="outlined"
+        helperText={t("settings.userManagement.editor.emailHelp")}
       />
       <FormControl fullWidth variant="outlined">
         <InputLabel id="user-role-label">{t("settings.userManagement.editor.roleLabel")}</InputLabel>
@@ -523,6 +515,7 @@ export function UserManagementSettings({ dialogSafeHeader = false }: UserManagem
           <MenuItem value="viewer">{t("settings.userManagement.viewerRole")}</MenuItem>
           <MenuItem value="admin">{t("settings.userManagement.adminRole")}</MenuItem>
         </Select>
+        <FormHelperText>{t("settings.userManagement.editor.roleHelp")}</FormHelperText>
       </FormControl>
       {isEditing && (selectedUser?.oidc || selectedUser?.pending_oidc) && (
         <FormControl fullWidth variant="outlined">
@@ -539,6 +532,7 @@ export function UserManagementSettings({ dialogSafeHeader = false }: UserManagem
             <MenuItem value="editor">Editor</MenuItem>
             <MenuItem value="admin">Administrator</MenuItem>
           </Select>
+          <FormHelperText>{t("settings.userManagement.editor.oidcRoleAssignmentHelp")}</FormHelperText>
         </FormControl>
       )}
       <TextField
@@ -552,17 +546,20 @@ export function UserManagementSettings({ dialogSafeHeader = false }: UserManagem
         slotProps={{ inputLabel: { shrink: true } }}
       />
       {isEditing ? (
-        <FormControlLabel
-          control={
-            <Checkbox
-              checked={formState.isActive}
-              disabled={isEditingSelf}
-              onChange={(event) => setFormState((current) => ({ ...current, isActive: event.target.checked }))}
-            />
-          }
-          label={t("settings.userManagement.editor.accountActiveLabel")}
-          sx={{ alignSelf: "flex-start", m: 0 }}
-        />
+        <Box sx={{ alignSelf: "flex-start" }}>
+          <FormControlLabel
+            control={
+              <Checkbox
+                checked={formState.isActive}
+                disabled={isEditingSelf}
+                onChange={(event) => setFormState((current) => ({ ...current, isActive: event.target.checked }))}
+              />
+            }
+            label={t("settings.userManagement.editor.accountActiveLabel")}
+            sx={{ m: 0 }}
+          />
+          <FormHelperText>{t("settings.userManagement.editor.accountActiveHelp")}</FormHelperText>
+        </Box>
       ) : (
         <>
           <TextField
@@ -573,22 +570,20 @@ export function UserManagementSettings({ dialogSafeHeader = false }: UserManagem
             helperText={t("settings.userManagement.editor.initialPasswordHelp")}
             fullWidth
             variant="outlined"
-            slotProps={{
-              formHelperText: {
-                sx: { fontSize: "0.875rem" },
-              },
-            }}
           />
-          <FormControlLabel
-            control={
-              <Checkbox
-                checked={formState.mustChangePassword}
-                onChange={(event) => setFormState((current) => ({ ...current, mustChangePassword: event.target.checked }))}
-              />
-            }
-            label={t("settings.userManagement.editor.requirePasswordChangeLabel")}
-            sx={{ alignSelf: "flex-start", m: 0 }}
-          />
+          <Box sx={{ alignSelf: "flex-start" }}>
+            <FormControlLabel
+              control={
+                <Checkbox
+                  checked={formState.mustChangePassword}
+                  onChange={(event) => setFormState((current) => ({ ...current, mustChangePassword: event.target.checked }))}
+                />
+              }
+              label={t("settings.userManagement.editor.requirePasswordChangeLabel")}
+              sx={{ m: 0 }}
+            />
+            <FormHelperText>{t("settings.userManagement.editor.requirePasswordChangeHelp")}</FormHelperText>
+          </Box>
         </>
       )}
     </Box>
@@ -661,11 +656,6 @@ export function UserManagementSettings({ dialogSafeHeader = false }: UserManagem
         autoFocus
         fullWidth
         variant="outlined"
-        slotProps={{
-          formHelperText: {
-            sx: { fontSize: "0.875rem" },
-          },
-        }}
       />
       <FormControlLabel
         control={
