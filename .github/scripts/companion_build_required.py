@@ -9,7 +9,6 @@ import subprocess
 import sys
 from collections.abc import Callable, Iterable
 
-
 ROOT_VERSION_FILE = "VERSION"
 SYNCED_VERSION_FILES = frozenset(
     {
@@ -34,6 +33,17 @@ PACKAGE_LOCK_FILES = frozenset(
         "frontend/package-lock.json",
         "companion/package-lock.json",
     }
+)
+COMPANION_BUILD_INPUT_FILES = frozenset(
+    {
+        "scripts/sync-version",
+        "scripts/check_tauri_version_alignment.py",
+        ".github/workflows/verify-companion-build.yml",
+    }
+)
+COMPANION_BUILD_INPUT_PREFIXES = (
+    "companion/",
+    ".github/actions/sync-version-check/",
 )
 CARGO_PACKAGE_VERSION = re.compile(r'^version\s*=\s*"[^"]*"\s*$')
 
@@ -94,27 +104,38 @@ def normalize_version_metadata(path: str, contents: str) -> object:
     raise ValueError(f"{path} is not version metadata")
 
 
-def is_version_sync_only(
+def is_companion_build_input(path: str) -> bool:
+    return path in COMPANION_BUILD_INPUT_FILES or path.startswith(
+        COMPANION_BUILD_INPUT_PREFIXES
+    )
+
+
+def requires_companion_build(
     changed_paths: Iterable[str],
     read_file: Callable[[str, str], str],
     base_revision: str,
     head_revision: str,
 ) -> bool:
-    paths = set(changed_paths)
-    if not paths or not paths <= SYNCED_VERSION_FILES:
+    build_input_paths = {
+        path for path in changed_paths if is_companion_build_input(path)
+    }
+    if not build_input_paths:
         return False
 
-    for path in paths - {ROOT_VERSION_FILE}:
+    if not build_input_paths <= SYNCED_VERSION_FILES:
+        return True
+
+    for path in build_input_paths - {ROOT_VERSION_FILE}:
         try:
             base_contents = read_file(base_revision, path)
             head_contents = read_file(head_revision, path)
-            if normalize_version_metadata(path, base_contents) != normalize_version_metadata(
-                path, head_contents
-            ):
-                return False
+            if normalize_version_metadata(
+                path, base_contents
+            ) != normalize_version_metadata(path, head_contents):
+                return True
         except (OSError, ValueError, json.JSONDecodeError):
-            return False
-    return True
+            return True
+    return False
 
 
 def git_file(revision: str, path: str) -> str:
@@ -143,7 +164,7 @@ def main() -> int:
 
     base_revision, head_revision = sys.argv[1:]
     try:
-        version_sync_only = is_version_sync_only(
+        build_required = requires_companion_build(
             changed_paths(base_revision, head_revision),
             git_file,
             base_revision,
@@ -153,7 +174,7 @@ def main() -> int:
         print(f"Could not inspect pull request changes: {error}", file=sys.stderr)
         return 1
 
-    print("false" if version_sync_only else "true")
+    print(str(build_required).lower())
     return 0
 
 

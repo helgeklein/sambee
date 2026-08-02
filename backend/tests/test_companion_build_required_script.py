@@ -17,7 +17,7 @@ def make_reader(files: dict[tuple[str, str], str]):
     return read_file
 
 
-def test_version_sync_only_accepts_version_field_changes() -> None:
+def test_version_sync_changes_do_not_require_a_companion_build() -> None:
     base = "base"
     head = "head"
     path = "companion/src-tauri/Cargo.toml"
@@ -26,10 +26,27 @@ def test_version_sync_only_accepts_version_field_changes() -> None:
         (head, path): '[package]\nname = "sambee-companion"\nversion = "0.9.23"\n',
     }
 
-    assert companion_build_required.is_version_sync_only({"VERSION", path}, make_reader(files), base, head)
+    assert not companion_build_required.requires_companion_build({"VERSION", path}, make_reader(files), base, head)
 
 
-def test_version_sync_only_rejects_non_version_metadata_changes() -> None:
+def test_version_sync_changes_ignore_unrelated_pull_request_files() -> None:
+    base = "base"
+    head = "head"
+    path = "companion/package.json"
+    files = {
+        (base, path): '{"version": "0.9.22"}',
+        (head, path): '{"version": "0.9.23"}',
+    }
+
+    assert not companion_build_required.requires_companion_build(
+        {"VERSION", path, "backend/app/api/connections.py", "frontend/src/App.tsx"},
+        make_reader(files),
+        base,
+        head,
+    )
+
+
+def test_non_version_companion_metadata_changes_require_a_build() -> None:
     base = "base"
     head = "head"
     path = "companion/package.json"
@@ -38,10 +55,19 @@ def test_version_sync_only_rejects_non_version_metadata_changes() -> None:
         (head, path): '{"version": "0.9.23", "scripts": {"test": "vitest --run"}}',
     }
 
-    assert not companion_build_required.is_version_sync_only({"VERSION", path}, make_reader(files), base, head)
+    assert companion_build_required.requires_companion_build({"VERSION", path}, make_reader(files), base, head)
 
 
-def test_version_sync_only_rejects_companion_source_changes() -> None:
-    assert not companion_build_required.is_version_sync_only(
+def test_companion_source_changes_require_a_build() -> None:
+    assert companion_build_required.requires_companion_build(
         {"VERSION", "companion/src/App.tsx"}, lambda _revision, _path: "", "base", "head"
+    )
+
+
+def test_companion_build_input_changes_require_a_build() -> None:
+    assert companion_build_required.requires_companion_build(
+        {"VERSION", "scripts/check_tauri_version_alignment.py"},
+        lambda _revision, _path: "",
+        "base",
+        "head",
     )
