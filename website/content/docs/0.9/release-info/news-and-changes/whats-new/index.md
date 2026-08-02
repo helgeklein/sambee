@@ -18,11 +18,16 @@ Sambee's [OIDC implementation](../../../admin-guide/authentication/openid-connec
 
 ## Miscellaneous
 
-### Settings
+## Settings Overhaul
+
+The settings got a good UX overhaul that should make them much more consistent, accessible and, hopefully, much nicer to look at. They're fully responsive, of course, adapting flexibly to phone and desktop screen dimensions. They're also very optimized for efficient keyboard usage while offering touch-friendly sizing on mobile devices.
+
+The settings also gained several new category pages:
 
 - New personal **Account** settings page
 - New admin **Network** settings page
 - New admin **Authentication** settings page
+- New admin **About** settings page
 
 ## Under the Hood
 

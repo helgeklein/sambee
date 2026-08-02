@@ -203,7 +203,12 @@ export function ResponsiveFormDialog({
         {renderedDescription}
         {children}
       </DialogContent>
-      <DialogActions sx={{ bgcolor: "background.default" }}>{actions}</DialogActions>
+      <DialogActions
+        data-testid="responsive-form-dialog-desktop-actions"
+        sx={{ borderTop: 1, borderColor: "divider", bgcolor: "background.default" }}
+      >
+        {actions}
+      </DialogActions>
     </Dialog>
   );
 }

@@ -23,6 +23,7 @@
 
 - Add docstrings and comments for non-obvious code.
 - Don't use magic strings or magic numbers. Use centrally defined constants, enums, or similar instead.
+- Before changing any form, settings surface, or dialog, read `website/content/docs/0.9/developer-guide/frontend-architecture/settings-form-dialog-pattern/index.md`.
 
 ## Git Commits
 
@@ -40,6 +41,11 @@
 ## Frontend testing / issue reproduction
 
 - Only ever use the following connection for testing in the VS Code browser: http://localhost:3000/browse/smb/demo
+
+## Command execution
+
+- Run `npm` exclusively in the form: `npm run <command> <arguments>`.
+   - Exceptions: `npm install`, `npm ci`, `npm update`.
 
 ## Backend Python
 

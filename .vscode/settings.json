@@ -156,7 +156,6 @@
     // DNS and reachability queries
     "/^(dig|host|nslookup|ping)\\b/": true,
     // Read-only package registry queries
-    "/^npm\\s+(view|info|search)\\b/": true,
     "/^cargo\\s+search\\b/": true,
     "/^pip3?\\s+index\\s+versions\\b/": true,
     // Python tests and static analysis
@@ -172,7 +171,7 @@
     "npx tsc": true,
     "npx biome": true,
     // Frontend validation and builds
-    "/^npm\\s+run\\s+(?:build|check|docs\\:validate|format|lint|redirects\\:generate|test|typecheck)\\b/": true,
+    "/^npm\\s+run\\s+(?:build|check|docs\\:validate|format|info|lint|redirects\\:generate|search|test|typecheck|view)\\b/": true,
     // Rust validation and read-only inspection
     "/^cargo\\s+(?:test|check|clippy|fmt|metadata|tree|doc)\\b/": true,
     // Known repository validation scripts

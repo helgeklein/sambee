@@ -7,9 +7,16 @@ from app.core.authorization import Capability
 from app.core.logging import set_user
 from app.core.security import require_capability
 from app.db.database import get_session
-from app.models.system_settings import AdvancedSystemSettingsRead, AdvancedSystemSettingsUpdate, NetworkSettingsRead, NetworkSettingsUpdate
+from app.models.system_settings import (
+    AboutSettingsRead,
+    AdvancedSystemSettingsRead,
+    AdvancedSystemSettingsUpdate,
+    NetworkSettingsRead,
+    NetworkSettingsUpdate,
+)
 from app.models.user import User
 from app.services.system_settings import (
+    build_about_settings_read,
     build_advanced_system_settings_read,
     build_network_settings_read,
     update_advanced_system_settings,
@@ -17,6 +24,14 @@ from app.services.system_settings import (
 )
 
 router = APIRouter()
+
+
+@router.get("/settings/about", response_model=AboutSettingsRead)
+async def get_about_settings(
+    current_user: User = Depends(require_capability(Capability.ACCESS_ADMIN_SETTINGS)),
+) -> AboutSettingsRead:
+    set_user(current_user.username)
+    return build_about_settings_read()
 
 
 @router.get("/settings/advanced", response_model=AdvancedSystemSettingsRead)

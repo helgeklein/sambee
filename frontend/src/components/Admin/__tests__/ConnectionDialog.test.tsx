@@ -52,6 +52,31 @@ const mockConnection: Connection = {
   updated_at: "2024-01-01T00:00:00",
 };
 
+function mockViewportWidth(width: number) {
+  const originalMatchMedia = window.matchMedia;
+
+  window.matchMedia = vi.fn().mockImplementation((query: string) => {
+    const minWidth = Number(query.match(/min-width:\s*([\d.]+)px/)?.[1]);
+    const maxWidth = Number(query.match(/max-width:\s*([\d.]+)px/)?.[1]);
+    const matches = (Number.isNaN(minWidth) || width >= minWidth) && (Number.isNaN(maxWidth) || width <= maxWidth);
+
+    return {
+      matches,
+      media: query,
+      onchange: null,
+      addListener: vi.fn(),
+      removeListener: vi.fn(),
+      addEventListener: vi.fn(),
+      removeEventListener: vi.fn(),
+      dispatchEvent: vi.fn(),
+    };
+  });
+
+  return () => {
+    window.matchMedia = originalMatchMedia;
+  };
+}
+
 describe("ConnectionDialog Component", () => {
   const mockOnClose = vi.fn();
   const mockOnSave = vi.fn();
@@ -64,6 +89,29 @@ describe("ConnectionDialog Component", () => {
       role: "editor",
     });
     vi.mocked(api.getConnectionVisibilityOptions).mockResolvedValue(mockVisibilityOptions);
+  });
+
+  it("uses consistent field descriptions in add and edit modes", () => {
+    const addDialog = render(<ConnectionDialog open={true} onClose={mockOnClose} onSave={mockOnSave} />);
+    const addDescriptions = [
+      "A name to identify this connection in Sambee",
+      "IP address or hostname of the SMB server",
+      "Name of the share on the server",
+      "Use DOMAIN\\USER format if needed",
+      "Password for the SMB account",
+      "Base path within the share (optional)",
+      "Choose private or shared access",
+      "Choose read-only or read-write access",
+    ];
+
+    for (const description of addDescriptions) {
+      expect(screen.getByText(description)).toHaveClass("MuiFormHelperText-root");
+    }
+
+    addDialog.unmount();
+    render(<ConnectionDialog open={true} onClose={mockOnClose} onSave={mockOnSave} connection={mockConnection} />);
+
+    expect(screen.getByText("Leave blank to keep existing password")).toHaveClass("MuiFormHelperText-root");
   });
 
   it("renders form fields for new connection", () => {
@@ -80,6 +128,114 @@ describe("ConnectionDialog Component", () => {
     expect(passwordInput).toBeInTheDocument();
     expect(screen.getByLabelText(/path prefix/i)).toBeInTheDocument();
     expect(screen.getByRole("combobox", { name: /access mode/i })).toBeInTheDocument();
+  });
+
+  it("uses the shared one-column form design in a small-width dialog", () => {
+    const restoreViewport = mockViewportWidth(800);
+
+    try {
+      render(<ConnectionDialog open={true} onClose={mockOnClose} onSave={mockOnSave} />);
+
+      const nameLabel = screen.getByText("Connection name", { selector: "label" });
+      const nameInput = screen.getByLabelText(/connection name/i);
+
+      expect(screen.queryByTestId("responsive-form-dialog-mobile-actions")).not.toBeInTheDocument();
+      expect(document.querySelector(".MuiDialog-paperWidthSm")).not.toBeNull();
+      expect(nameLabel).toHaveClass("MuiInputLabel-root");
+      expect(nameInput.parentElement).not.toHaveClass("MuiInputBase-sizeSmall");
+      expect(screen.getByText("A name to identify this connection in Sambee")).toHaveClass("MuiFormHelperText-root");
+      expect(screen.getByRole("heading", { name: "Access", level: 2 })).toBeInTheDocument();
+    } finally {
+      restoreViewport();
+    }
+  });
+
+  it("keeps standard MUI floating labels and helper text in the mobile drawer", async () => {
+    const restoreViewport = mockViewportWidth(390);
+
+    try {
+      const user = userEvent.setup();
+      render(<ConnectionDialog open={true} onClose={mockOnClose} onSave={mockOnSave} />);
+
+      const nameLabel = screen.getByText("Connection name", { selector: "label" });
+      const nameInput = screen.getByLabelText(/connection name/i);
+
+      expect(screen.getByTestId("responsive-form-dialog-mobile-actions")).toBeInTheDocument();
+      expect(nameLabel).toHaveClass("MuiInputLabel-root");
+      expect(nameLabel).not.toHaveClass("MuiInputLabel-shrink");
+      expect(nameInput.parentElement).not.toHaveClass("MuiInputBase-sizeSmall");
+      expect(screen.getByText("A name to identify this connection in Sambee")).toHaveClass("MuiFormHelperText-root");
+      expect(screen.getByRole("heading", { name: "Access", level: 2 })).toBeInTheDocument();
+
+      await user.type(nameInput, "Server");
+
+      expect(nameLabel).toHaveClass("MuiInputLabel-shrink");
+    } finally {
+      restoreViewport();
+    }
+  });
+
+  it("uses external labels, compact outlined fields, and label-column errors at the md breakpoint", async () => {
+    const originalMatchMedia = window.matchMedia;
+    window.matchMedia = vi.fn().mockImplementation((query: string) => ({
+      matches: query.includes("min-width"),
+      media: query,
+      onchange: null,
+      addListener: vi.fn(),
+      removeListener: vi.fn(),
+      addEventListener: vi.fn(),
+      removeEventListener: vi.fn(),
+      dispatchEvent: vi.fn(),
+    }));
+
+    try {
+      const user = userEvent.setup();
+      render(<ConnectionDialog open={true} onClose={mockOnClose} onSave={mockOnSave} />);
+
+      expect(screen.getByText("Connection name", { selector: "label" })).toHaveAttribute("for", "connection-name");
+      const primaryFieldGroup = screen.getByTestId("connection-dialog-fields");
+      expect(primaryFieldGroup).toBeInTheDocument();
+      for (const inputId of [
+        "connection-name",
+        "connection-host",
+        "connection-share-name",
+        "connection-username",
+        "connection-password",
+        "connection-path-prefix",
+      ]) {
+        expect(primaryFieldGroup.querySelector(`#${inputId}`)).not.toBeNull();
+      }
+      expect(primaryFieldGroup.querySelector("#connection-scope")).toBeNull();
+      expect(primaryFieldGroup.querySelector("#connection-access-mode")).toBeNull();
+      const formSurface = screen.getByTestId("connection-dialog-form-surface");
+      expect(formSurface).toContainElement(primaryFieldGroup);
+      const accessHeading = screen.getByRole("heading", { name: "Access", level: 2 });
+      expect(formSurface).toContainElement(accessHeading);
+      expect(window.getComputedStyle(accessHeading.parentElement!).marginBottom).toBe("0px");
+      expect(window.getComputedStyle(accessHeading.parentElement!.parentElement!).borderTopWidth).toBe("1px");
+      expect(window.getComputedStyle(accessHeading.parentElement!.parentElement!).paddingTop).toBe("16px");
+      expect(screen.getByLabelText(/connection name/i).parentElement).toHaveClass("MuiOutlinedInput-root");
+      expect(screen.getByLabelText(/connection name/i).parentElement).toHaveClass("MuiInputBase-sizeSmall");
+      expect(document.querySelector(".MuiDialog-paperWidthSm")).not.toBeNull();
+      expect(screen.getByText("A name to identify this connection in Sambee")).not.toHaveClass("MuiFormHelperText-root");
+      const visibilitySelect = screen.getByRole("combobox", { name: /visibility/i });
+      expect(visibilitySelect.closest(".MuiFormControl-root")).not.toHaveClass("MuiFormControl-fullWidth");
+      expect(visibilitySelect.parentElement).toHaveClass("MuiOutlinedInput-root");
+
+      await user.click(screen.getByRole("button", { name: /^save$/i }));
+
+      await waitFor(() => {
+        const hostInput = screen.getByLabelText(/host/i);
+        const hostError = screen.getByText("Host is required");
+
+        expect(hostInput).toHaveAttribute("aria-describedby", "connection-host-description");
+        expect(hostError).toHaveAttribute("id", "connection-host-description");
+        expect(hostError).not.toHaveClass("MuiFormHelperText-root");
+        expect(screen.getByLabelText(/connection name/i)).toHaveFocus();
+      });
+    } finally {
+      window.matchMedia = originalMatchMedia;
+    }
   });
 
   it("shows server-defined visibility options", async () => {
@@ -341,21 +497,83 @@ describe("ConnectionDialog Component", () => {
   });
 
   it("tests connection successfully", async () => {
+    const restoreViewport = mockViewportWidth(1000);
     vi.mocked(api.testConnection).mockResolvedValueOnce({
       status: "success",
       message: "Connection test successful",
     });
 
-    const user = userEvent.setup();
-    render(<ConnectionDialog open={true} onClose={mockOnClose} onSave={mockOnSave} connection={mockConnection} />);
+    try {
+      const user = userEvent.setup();
+      render(<ConnectionDialog open={true} onClose={mockOnClose} onSave={mockOnSave} connection={mockConnection} />);
 
-    // Click test connection button
-    const testButton = screen.getByRole("button", { name: /test connection/i });
-    await user.click(testButton);
+      // Click test connection button
+      const testButton = screen.getByRole("button", { name: /test connection/i });
+      await user.click(testButton);
 
-    await waitFor(() => {
-      expect(screen.getByText(/connection test successful/i)).toBeInTheDocument();
+      await waitFor(() => {
+        expect(api.testConnection).toHaveBeenCalledWith("1", {
+          host: "192.168.1.100",
+          port: 445,
+          share_name: "share1",
+          username: "testuser",
+          path_prefix: "/",
+        });
+        expect(screen.getByText("Connection successful")).toBeInTheDocument();
+        expect(screen.queryByRole("dialog", { name: "Connection test failed" })).not.toBeInTheDocument();
+      });
+    } finally {
+      restoreViewport();
+    }
+  });
+
+  it("shows an acknowledged error dialog when a connection test fails", async () => {
+    const restoreViewport = mockViewportWidth(1000);
+    vi.mocked(api.testConnection).mockResolvedValueOnce({
+      status: "error",
+      message: "Authentication failed for testuser",
     });
+
+    try {
+      const user = userEvent.setup();
+      render(<ConnectionDialog open={true} onClose={mockOnClose} onSave={mockOnSave} connection={mockConnection} />);
+
+      await user.click(screen.getByRole("button", { name: /test connection/i }));
+
+      const resultDialog = await screen.findByRole("dialog", { name: "Connection test failed" });
+      expect(resultDialog).toHaveTextContent("Authentication failed for testuser");
+      await user.keyboard("{Escape}");
+
+      await waitFor(() => {
+        expect(screen.queryByRole("dialog", { name: "Connection test failed" })).not.toBeInTheDocument();
+        expect(screen.getByText("Connection failed")).toBeInTheDocument();
+      });
+    } finally {
+      restoreViewport();
+    }
+  });
+
+  it("shows only the test outcome icon inside the button below the md breakpoint", async () => {
+    const restoreViewport = mockViewportWidth(800);
+    vi.mocked(api.testConnection).mockResolvedValueOnce({
+      status: "success",
+      message: "Connection test successful",
+    });
+
+    try {
+      const user = userEvent.setup();
+      render(<ConnectionDialog open={true} onClose={mockOnClose} onSave={mockOnSave} connection={mockConnection} />);
+
+      const testButton = screen.getByRole("button", { name: /test connection/i });
+      await user.click(testButton);
+
+      await waitFor(() => {
+        expect(testButton.querySelector("svg[data-testid='CheckCircleOutlinedIcon']")).not.toBeNull();
+        expect(screen.queryByText("Connection successful")).not.toBeInTheDocument();
+      });
+    } finally {
+      restoreViewport();
+    }
   });
 
   it("toggles password visibility", async () => {

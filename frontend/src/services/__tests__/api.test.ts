@@ -549,6 +549,26 @@ describe("API Service", () => {
       expect(mockAxiosInstance.get).toHaveBeenCalledWith("/admin/settings/advanced");
     });
 
+    it("getAboutSettings() returns safe admin runtime information", async () => {
+      const aboutSettings = {
+        version: "0.9.24",
+        build_time: "2026-08-02T10:00:00Z",
+        git_commit: "5966e38",
+        started_at: "2026-08-02T09:00:00Z",
+        architecture: "x86_64",
+        logical_cpu_count: 4,
+        memory_bytes: 8589934592,
+        python_runtime: "CPython 3.13.12",
+        database_version: "3.48.0",
+      };
+      mockAxiosInstance.get.mockResolvedValueOnce({ data: aboutSettings } as AxiosResponse);
+
+      const result = await apiService.getAboutSettings();
+
+      expect(result).toEqual(aboutSettings);
+      expect(mockAxiosInstance.get).toHaveBeenCalledWith("/admin/settings/about");
+    });
+
     it("updateAdvancedSettings() forwards reset keys", async () => {
       const advancedSettings: AdvancedSystemSettings = {
         smb: {

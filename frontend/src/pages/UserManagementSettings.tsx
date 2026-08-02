@@ -17,6 +17,7 @@ import {
   CircularProgress,
   FormControl,
   FormControlLabel,
+  FormHelperText,
   IconButton,
   InputLabel,
   List,
@@ -120,6 +121,8 @@ const DEFAULT_RESET_PASSWORD_FORM: ResetPasswordFormState = {
   password: "",
   mustChangePassword: true,
 };
+const USER_ROW_COMPACT_MAX_WIDTH_PX = 640;
+const USER_ROW_COMPACT_CONTAINER_QUERY = `@container (max-width: ${USER_ROW_COMPACT_MAX_WIDTH_PX}px)`;
 
 export function UserManagementSettings({ dialogSafeHeader = false }: UserManagementSettingsProps) {
   const { t } = useTranslation();
@@ -167,6 +170,10 @@ export function UserManagementSettings({ dialogSafeHeader = false }: UserManagem
   const [mappingSubmitting, setMappingSubmitting] = useState(false);
   const [mappingError, setMappingError] = useState<string | null>(null);
   const [advancedMappingMenu, setAdvancedMappingMenu] = useState<{
+    anchor: HTMLElement | null;
+    user: AdminUser | null;
+  }>({ anchor: null, user: null });
+  const [userActionsMenu, setUserActionsMenu] = useState<{
     anchor: HTMLElement | null;
     user: AdminUser | null;
   }>({ anchor: null, user: null });
@@ -295,6 +302,10 @@ export function UserManagementSettings({ dialogSafeHeader = false }: UserManagem
     });
     setFormError(null);
     setEditorOpen(true);
+  };
+
+  const closeUserActionsMenu = () => {
+    setUserActionsMenu({ anchor: null, user: null });
   };
 
   const closeEditor = useCallback(() => {
@@ -481,11 +492,6 @@ export function UserManagementSettings({ dialogSafeHeader = false }: UserManagem
         fullWidth
         variant="outlined"
         helperText={t("settings.userManagement.editor.usernameHelp")}
-        slotProps={{
-          formHelperText: {
-            sx: { fontSize: "0.875rem" },
-          },
-        }}
       />
       <TextField
         label={t("settings.userManagement.editor.nameLabel")}
@@ -494,11 +500,6 @@ export function UserManagementSettings({ dialogSafeHeader = false }: UserManagem
         fullWidth
         variant="outlined"
         helperText={t("settings.userManagement.editor.nameHelp")}
-        slotProps={{
-          formHelperText: {
-            sx: { fontSize: "0.875rem" },
-          },
-        }}
       />
       <TextField
         label={t("settings.userManagement.editor.emailLabel")}
@@ -507,6 +508,7 @@ export function UserManagementSettings({ dialogSafeHeader = false }: UserManagem
         onChange={(event) => setFormState((current) => ({ ...current, email: event.target.value }))}
         fullWidth
         variant="outlined"
+        helperText={t("settings.userManagement.editor.emailHelp")}
       />
       <FormControl fullWidth variant="outlined">
         <InputLabel id="user-role-label">{t("settings.userManagement.editor.roleLabel")}</InputLabel>
@@ -521,6 +523,7 @@ export function UserManagementSettings({ dialogSafeHeader = false }: UserManagem
           <MenuItem value="viewer">{t("settings.userManagement.viewerRole")}</MenuItem>
           <MenuItem value="admin">{t("settings.userManagement.adminRole")}</MenuItem>
         </Select>
+        <FormHelperText>{t("settings.userManagement.editor.roleHelp")}</FormHelperText>
       </FormControl>
       {isEditing && (selectedUser?.oidc || selectedUser?.pending_oidc) && (
         <FormControl fullWidth variant="outlined">
@@ -537,6 +540,7 @@ export function UserManagementSettings({ dialogSafeHeader = false }: UserManagem
             <MenuItem value="editor">Editor</MenuItem>
             <MenuItem value="admin">Administrator</MenuItem>
           </Select>
+          <FormHelperText>{t("settings.userManagement.editor.oidcRoleAssignmentHelp")}</FormHelperText>
         </FormControl>
       )}
       <TextField
@@ -550,17 +554,20 @@ export function UserManagementSettings({ dialogSafeHeader = false }: UserManagem
         slotProps={{ inputLabel: { shrink: true } }}
       />
       {isEditing ? (
-        <FormControlLabel
-          control={
-            <Checkbox
-              checked={formState.isActive}
-              disabled={isEditingSelf}
-              onChange={(event) => setFormState((current) => ({ ...current, isActive: event.target.checked }))}
-            />
-          }
-          label={t("settings.userManagement.editor.accountActiveLabel")}
-          sx={{ alignSelf: "flex-start", m: 0 }}
-        />
+        <Box sx={{ alignSelf: "flex-start" }}>
+          <FormControlLabel
+            control={
+              <Checkbox
+                checked={formState.isActive}
+                disabled={isEditingSelf}
+                onChange={(event) => setFormState((current) => ({ ...current, isActive: event.target.checked }))}
+              />
+            }
+            label={t("settings.userManagement.editor.accountActiveLabel")}
+            sx={{ m: 0 }}
+          />
+          <FormHelperText>{t("settings.userManagement.editor.accountActiveHelp")}</FormHelperText>
+        </Box>
       ) : (
         <>
           <TextField
@@ -571,22 +578,20 @@ export function UserManagementSettings({ dialogSafeHeader = false }: UserManagem
             helperText={t("settings.userManagement.editor.initialPasswordHelp")}
             fullWidth
             variant="outlined"
-            slotProps={{
-              formHelperText: {
-                sx: { fontSize: "0.875rem" },
-              },
-            }}
           />
-          <FormControlLabel
-            control={
-              <Checkbox
-                checked={formState.mustChangePassword}
-                onChange={(event) => setFormState((current) => ({ ...current, mustChangePassword: event.target.checked }))}
-              />
-            }
-            label={t("settings.userManagement.editor.requirePasswordChangeLabel")}
-            sx={{ alignSelf: "flex-start", m: 0 }}
-          />
+          <Box sx={{ alignSelf: "flex-start" }}>
+            <FormControlLabel
+              control={
+                <Checkbox
+                  checked={formState.mustChangePassword}
+                  onChange={(event) => setFormState((current) => ({ ...current, mustChangePassword: event.target.checked }))}
+                />
+              }
+              label={t("settings.userManagement.editor.requirePasswordChangeLabel")}
+              sx={{ m: 0 }}
+            />
+            <FormHelperText>{t("settings.userManagement.editor.requirePasswordChangeHelp")}</FormHelperText>
+          </Box>
         </>
       )}
     </Box>
@@ -659,11 +664,6 @@ export function UserManagementSettings({ dialogSafeHeader = false }: UserManagem
         autoFocus
         fullWidth
         variant="outlined"
-        slotProps={{
-          formHelperText: {
-            sx: { fontSize: "0.875rem" },
-          },
-        }}
       />
       <FormControlLabel
         control={
@@ -719,207 +719,260 @@ export function UserManagementSettings({ dialogSafeHeader = false }: UserManagem
                     py: 2,
                     borderBottom: 1,
                     borderColor: "divider",
-                    display: "flex",
-                    alignItems: { xs: "flex-start", sm: "center" },
-                    justifyContent: "space-between",
-                    gap: 2,
-                    flexWrap: "wrap",
                   }}
                 >
-                  <Box sx={{ minWidth: 0, flex: 1 }}>
-                    <Typography component="div" variant="body1" sx={settingsListItemTitleSx}>
-                      {user.name?.trim() ? user.name : user.username}
-                    </Typography>
-                    {(user.name || user.email) && (
-                      <Typography variant="body2" color="text.secondary" sx={{ mt: 0.5 }}>
-                        {[user.username, user.email].filter(Boolean).join(" • ")}
+                  <Box
+                    data-testid="user-row"
+                    sx={{
+                      display: "flex",
+                      alignItems: "center",
+                      gap: 2,
+                      flexWrap: "wrap",
+                      width: "100%",
+                      containerType: "inline-size",
+                    }}
+                  >
+                    <Box
+                      sx={{
+                        minWidth: 0,
+                        flex: "1 1 0",
+                      }}
+                    >
+                      <Typography component="div" variant="body1" sx={settingsListItemTitleSx}>
+                        {user.name?.trim() ? user.name : user.username}
                       </Typography>
-                    )}
-                    <Stack direction="row" spacing={1} useFlexGap alignItems="center" sx={{ flexWrap: "wrap", rowGap: 1, mt: 0.75, mb: 1 }}>
-                      {isSelf && (
+                      {(user.name || user.email) && (
+                        <Typography variant="body2" color="text.secondary" sx={{ mt: 0.5 }}>
+                          {[user.username, user.email].filter(Boolean).join(" • ")}
+                        </Typography>
+                      )}
+                      <Stack
+                        data-testid="user-metadata"
+                        direction="row"
+                        spacing={1}
+                        useFlexGap
+                        alignItems="center"
+                        sx={{
+                          flexWrap: "wrap",
+                          rowGap: 1,
+                          mt: 0.75,
+                          mb: 1,
+                          "& .MuiChip-root": { maxWidth: "100%" },
+                          "& .MuiChip-label": { overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" },
+                        }}
+                      >
+                        {isSelf && (
+                          <Chip
+                            size="small"
+                            label={t("settings.userManagement.currentUserChip")}
+                            variant="outlined"
+                            sx={settingsMetadataChipSx}
+                          />
+                        )}
                         <Chip
                           size="small"
-                          label={t("settings.userManagement.currentUserChip")}
-                          variant="outlined"
-                          sx={settingsMetadataChipSx}
-                        />
-                      )}
-                      <Chip
-                        size="small"
-                        icon={user.role === "admin" ? <AdminIcon /> : <PersonIcon />}
-                        label={
-                          user.role === "admin"
-                            ? t("settings.userManagement.adminRole")
-                            : user.role === "viewer"
-                              ? t("settings.userManagement.viewerRole")
-                              : t("settings.userManagement.editorRole")
-                        }
-                        variant="outlined"
-                        sx={settingsMetadataChipSx}
-                      />
-                      <Chip
-                        size="small"
-                        label={user.is_active ? t("settings.userManagement.activeStatus") : t("settings.userManagement.disabledStatus")}
-                        variant="outlined"
-                        sx={settingsMetadataChipSx}
-                      />
-                      {user.must_change_password && (
-                        <Chip
-                          size="small"
-                          label={t("settings.userManagement.passwordResetPending")}
-                          variant="outlined"
-                          sx={settingsMetadataChipSx}
-                        />
-                      )}
-                      {user.has_local_password && (
-                        <Chip size="small" label="Local password" variant="outlined" sx={settingsMetadataChipSx} />
-                      )}
-                      {user.oidc && (
-                        <Chip
-                          size="small"
-                          label={`OIDC linked: ${user.oidc.provider_display_name}${
-                            user.oidc.last_login_at ? `, last login ${new Date(user.oidc.last_login_at).toLocaleString()}` : ""
-                          }`}
-                          variant="outlined"
-                          sx={settingsMetadataChipSx}
-                        />
-                      )}
-                      {user.pending_oidc && (
-                        <Chip
-                          size="small"
-                          label={`Waiting for first OIDC login: ${user.pending_oidc.expected_username}, created by ${
-                            user.pending_oidc.created_by_username
-                          } on ${new Date(user.pending_oidc.created_at).toLocaleString()}`}
-                          variant="outlined"
-                          sx={settingsMetadataChipSx}
-                        />
-                      )}
-                      {(user.oidc || user.pending_oidc) && (
-                        <Chip
-                          size="small"
+                          icon={user.role === "admin" ? <AdminIcon /> : <PersonIcon />}
                           label={
-                            user.oidc_role_assignment
-                              ? `OIDC role: ${user.oidc_role_assignment} (individual)`
-                              : `OIDC role: ${oidcConfiguration?.role_assignment_mode === "group_based" ? "group-based" : "uniform"}`
+                            user.role === "admin"
+                              ? t("settings.userManagement.adminRole")
+                              : user.role === "viewer"
+                                ? t("settings.userManagement.viewerRole")
+                                : t("settings.userManagement.editorRole")
                           }
                           variant="outlined"
                           sx={settingsMetadataChipSx}
                         />
-                      )}
-                      {user.expires_at && (
                         <Chip
                           size="small"
-                          label={t("settings.userManagement.expiresAt", { timestamp: user.expires_at })}
+                          label={user.is_active ? t("settings.userManagement.activeStatus") : t("settings.userManagement.disabledStatus")}
                           variant="outlined"
                           sx={settingsMetadataChipSx}
                         />
-                      )}
-                    </Stack>
-                  </Box>
+                        {user.must_change_password && (
+                          <Chip
+                            size="small"
+                            label={t("settings.userManagement.passwordResetPending")}
+                            variant="outlined"
+                            sx={settingsMetadataChipSx}
+                          />
+                        )}
+                        {user.has_local_password && (
+                          <Chip size="small" label="Local password" variant="outlined" sx={settingsMetadataChipSx} />
+                        )}
+                        {user.oidc && (
+                          <Chip
+                            size="small"
+                            label={`OIDC linked: ${user.oidc.provider_display_name}${
+                              user.oidc.last_login_at ? `, last login ${new Date(user.oidc.last_login_at).toLocaleString()}` : ""
+                            }`}
+                            variant="outlined"
+                            sx={settingsMetadataChipSx}
+                          />
+                        )}
+                        {user.pending_oidc && (
+                          <Chip
+                            size="small"
+                            label={`Waiting for first OIDC login: ${user.pending_oidc.expected_username}, created by ${
+                              user.pending_oidc.created_by_username
+                            } on ${new Date(user.pending_oidc.created_at).toLocaleString()}`}
+                            variant="outlined"
+                            sx={settingsMetadataChipSx}
+                          />
+                        )}
+                        {(user.oidc || user.pending_oidc) && (
+                          <Chip
+                            size="small"
+                            label={
+                              user.oidc_role_assignment
+                                ? `OIDC role: ${user.oidc_role_assignment} (individual)`
+                                : `OIDC role: ${oidcConfiguration?.role_assignment_mode === "group_based" ? "group-based" : "uniform"}`
+                            }
+                            variant="outlined"
+                            sx={settingsMetadataChipSx}
+                          />
+                        )}
+                        {user.expires_at && (
+                          <Chip
+                            size="small"
+                            label={t("settings.userManagement.expiresAt", { timestamp: user.expires_at })}
+                            variant="outlined"
+                            sx={settingsMetadataChipSx}
+                          />
+                        )}
+                      </Stack>
+                    </Box>
 
-                  <Stack direction="row" spacing={1} sx={{ alignSelf: { xs: "stretch", sm: "center" } }}>
-                    {oidcConfiguration && !user.oidc && !user.pending_oidc && (
-                      <Tooltip
-                        title={
-                          pendingOidcMappingsAllowed
-                            ? "Map OIDC account"
-                            : "Confirm username claim uniqueness in Authentication settings before mapping accounts"
-                        }
-                      >
-                        <span>
-                          <IconButton
-                            aria-label={`Map OIDC account for ${user.username}`}
-                            disabled={!pendingOidcMappingsAllowed}
-                            onClick={() => openMappingEditor(user, "create")}
-                          >
-                            <LinkIcon />
-                          </IconButton>
-                        </span>
-                      </Tooltip>
-                    )}
-                    {oidcConfiguration && user.pending_oidc && (
-                      <Tooltip title="Cancel pending OIDC mapping">
-                        <IconButton
-                          aria-label={`Cancel pending OIDC mapping for ${user.username}`}
-                          onClick={() => void handleCancelPendingMapping(user)}
-                        >
-                          <LinkOffIcon />
-                        </IconButton>
-                      </Tooltip>
-                    )}
-                    {oidcConfiguration && user.oidc && (
-                      <>
+                    <Stack
+                      data-testid="user-row-actions"
+                      direction="row"
+                      spacing={1}
+                      sx={{
+                        alignSelf: "center",
+                        [USER_ROW_COMPACT_CONTAINER_QUERY]: { display: "none" },
+                      }}
+                    >
+                      {oidcConfiguration && !user.oidc && !user.pending_oidc && (
                         <Tooltip
                           title={
                             pendingOidcMappingsAllowed
-                              ? "Change OIDC account"
-                              : "Confirm username claim uniqueness in Authentication settings before changing accounts"
+                              ? "Map OIDC account"
+                              : "Confirm username claim uniqueness in Authentication settings before mapping accounts"
                           }
                         >
                           <span>
                             <IconButton
-                              aria-label={`Change OIDC account for ${user.username}`}
+                              aria-label={`Map OIDC account for ${user.username}`}
                               disabled={!pendingOidcMappingsAllowed}
-                              onClick={() => openMappingEditor(user, "change")}
+                              onClick={() => openMappingEditor(user, "create")}
                             >
                               <LinkIcon />
                             </IconButton>
                           </span>
                         </Tooltip>
-                        <Tooltip title="Advanced OIDC actions">
+                      )}
+                      {oidcConfiguration && user.pending_oidc && (
+                        <Tooltip title="Cancel pending OIDC mapping">
                           <IconButton
-                            aria-label={`Advanced OIDC actions for ${user.username}`}
-                            onClick={(event) => setAdvancedMappingMenu({ anchor: event.currentTarget, user })}
+                            aria-label={`Cancel pending OIDC mapping for ${user.username}`}
+                            onClick={() => void handleCancelPendingMapping(user)}
                           >
-                            <MoreVertIcon />
+                            <LinkOffIcon />
                           </IconButton>
                         </Tooltip>
-                      </>
-                    )}
-                    <Tooltip title={t("settings.userManagement.actions.editUser")}>
-                      <span>
-                        <IconButton
-                          aria-label={t("settings.userManagement.aria.editUser", { username: user.username })}
-                          onClick={() => openEditDialog(user)}
-                          sx={settingsUtilityIconButtonSx}
-                        >
-                          <EditIcon />
-                        </IconButton>
-                      </span>
-                    </Tooltip>
-                    {user.has_local_password && (
-                      <Tooltip title={t("settings.userManagement.actions.resetPassword")}>
+                      )}
+                      {oidcConfiguration && user.oidc && (
+                        <>
+                          <Tooltip
+                            title={
+                              pendingOidcMappingsAllowed
+                                ? "Change OIDC account"
+                                : "Confirm username claim uniqueness in Authentication settings before changing accounts"
+                            }
+                          >
+                            <span>
+                              <IconButton
+                                aria-label={`Change OIDC account for ${user.username}`}
+                                disabled={!pendingOidcMappingsAllowed}
+                                onClick={() => openMappingEditor(user, "change")}
+                              >
+                                <LinkIcon />
+                              </IconButton>
+                            </span>
+                          </Tooltip>
+                          <Tooltip title="Advanced OIDC actions">
+                            <IconButton
+                              aria-label={`Advanced OIDC actions for ${user.username}`}
+                              onClick={(event) => setAdvancedMappingMenu({ anchor: event.currentTarget, user })}
+                            >
+                              <MoreVertIcon />
+                            </IconButton>
+                          </Tooltip>
+                        </>
+                      )}
+                      <Tooltip title={t("settings.userManagement.actions.editUser")}>
                         <span>
                           <IconButton
-                            aria-label={t("settings.userManagement.aria.resetPassword", { username: user.username })}
-                            onClick={() => openResetPasswordDialog(user)}
+                            aria-label={t("settings.userManagement.aria.editUser", { username: user.username })}
+                            onClick={() => openEditDialog(user)}
                             sx={settingsUtilityIconButtonSx}
                           >
-                            <LockResetIcon />
+                            <EditIcon />
                           </IconButton>
                         </span>
                       </Tooltip>
-                    )}
-                    <Tooltip
-                      title={
-                        isSelf ? t("settings.userManagement.actions.deleteSelfDisabled") : t("settings.userManagement.actions.deleteUser")
-                      }
+                      {user.has_local_password && (
+                        <Tooltip title={t("settings.userManagement.actions.resetPassword")}>
+                          <span>
+                            <IconButton
+                              aria-label={t("settings.userManagement.aria.resetPassword", { username: user.username })}
+                              onClick={() => openResetPasswordDialog(user)}
+                              sx={settingsUtilityIconButtonSx}
+                            >
+                              <LockResetIcon />
+                            </IconButton>
+                          </span>
+                        </Tooltip>
+                      )}
+                      <Tooltip
+                        title={
+                          isSelf ? t("settings.userManagement.actions.deleteSelfDisabled") : t("settings.userManagement.actions.deleteUser")
+                        }
+                      >
+                        <span>
+                          <IconButton
+                            aria-label={t("settings.userManagement.aria.deleteUser", { username: user.username })}
+                            disabled={isSelf}
+                            onClick={() => {
+                              setSelectedUser(user);
+                              setDeleteDialogOpen(true);
+                            }}
+                            sx={settingsDestructiveIconButtonSx}
+                          >
+                            <DeleteIcon />
+                          </IconButton>
+                        </span>
+                      </Tooltip>
+                    </Stack>
+                    <Box
+                      data-testid="user-row-action-menu"
+                      sx={{
+                        display: "none",
+                        flexShrink: 0,
+                        alignSelf: "flex-start",
+                        [USER_ROW_COMPACT_CONTAINER_QUERY]: { display: "flex" },
+                      }}
                     >
-                      <span>
+                      <Tooltip title="User actions">
                         <IconButton
-                          aria-label={t("settings.userManagement.aria.deleteUser", { username: user.username })}
-                          disabled={isSelf}
-                          onClick={() => {
-                            setSelectedUser(user);
-                            setDeleteDialogOpen(true);
-                          }}
-                          sx={settingsDestructiveIconButtonSx}
+                          aria-label={`User actions for ${user.username}`}
+                          onClick={(event) => setUserActionsMenu({ anchor: event.currentTarget, user })}
+                          sx={settingsUtilityIconButtonSx}
                         >
-                          <DeleteIcon />
+                          <MoreVertIcon />
                         </IconButton>
-                      </span>
-                    </Tooltip>
-                  </Stack>
+                      </Tooltip>
+                    </Box>
+                  </Box>
                 </ListItem>
               );
             })}
@@ -950,6 +1003,110 @@ export function UserManagementSettings({ dialogSafeHeader = false }: UserManagem
         >
           Detach OIDC identity
         </MenuItem>
+      </Menu>
+
+      <Menu anchorEl={userActionsMenu.anchor} open={Boolean(userActionsMenu.anchor)} onClose={closeUserActionsMenu}>
+        {userActionsMenu.user && (
+          <>
+            {oidcConfiguration && !userActionsMenu.user.oidc && !userActionsMenu.user.pending_oidc && (
+              <MenuItem
+                disabled={!pendingOidcMappingsAllowed}
+                onClick={() => {
+                  const user = userActionsMenu.user;
+                  closeUserActionsMenu();
+                  if (user) openMappingEditor(user, "create");
+                }}
+              >
+                <LinkIcon fontSize="small" sx={{ mr: 1.5 }} />
+                Map OIDC account
+              </MenuItem>
+            )}
+            {oidcConfiguration && userActionsMenu.user.pending_oidc && (
+              <MenuItem
+                onClick={() => {
+                  const user = userActionsMenu.user;
+                  closeUserActionsMenu();
+                  if (user) void handleCancelPendingMapping(user);
+                }}
+              >
+                <LinkOffIcon fontSize="small" sx={{ mr: 1.5 }} />
+                Cancel pending OIDC mapping
+              </MenuItem>
+            )}
+            {oidcConfiguration && userActionsMenu.user.oidc && (
+              <>
+                <MenuItem
+                  disabled={!pendingOidcMappingsAllowed}
+                  onClick={() => {
+                    const user = userActionsMenu.user;
+                    closeUserActionsMenu();
+                    if (user) openMappingEditor(user, "change");
+                  }}
+                >
+                  <LinkIcon fontSize="small" sx={{ mr: 1.5 }} />
+                  Change OIDC account
+                </MenuItem>
+                <MenuItem
+                  onClick={() => {
+                    const user = userActionsMenu.user;
+                    closeUserActionsMenu();
+                    if (user) openMappingEditor(user, "move");
+                  }}
+                >
+                  <MoreVertIcon fontSize="small" sx={{ mr: 1.5 }} />
+                  Move identity to another local user
+                </MenuItem>
+                <MenuItem
+                  onClick={() => {
+                    const user = userActionsMenu.user;
+                    closeUserActionsMenu();
+                    if (user) void handleDetachIdentity(user);
+                  }}
+                >
+                  <LinkOffIcon fontSize="small" sx={{ mr: 1.5 }} />
+                  Detach OIDC identity
+                </MenuItem>
+              </>
+            )}
+            <MenuItem
+              onClick={() => {
+                const user = userActionsMenu.user;
+                closeUserActionsMenu();
+                if (user) openEditDialog(user);
+              }}
+            >
+              <EditIcon fontSize="small" sx={{ mr: 1.5 }} />
+              {t("settings.userManagement.actions.editUser")}
+            </MenuItem>
+            {userActionsMenu.user.has_local_password && (
+              <MenuItem
+                onClick={() => {
+                  const user = userActionsMenu.user;
+                  closeUserActionsMenu();
+                  if (user) openResetPasswordDialog(user);
+                }}
+              >
+                <LockResetIcon fontSize="small" sx={{ mr: 1.5 }} />
+                {t("settings.userManagement.actions.resetPassword")}
+              </MenuItem>
+            )}
+            <MenuItem
+              disabled={Boolean(currentUserId && userActionsMenu.user.id === currentUserId)}
+              onClick={() => {
+                const user = userActionsMenu.user;
+                closeUserActionsMenu();
+                if (user) {
+                  setSelectedUser(user);
+                  setDeleteDialogOpen(true);
+                }
+              }}
+              sx={{ color: "error.main" }}
+            >
+              <DeleteIcon fontSize="small" sx={{ mr: 1.5 }} />
+              {t("settings.userManagement.actions.deleteUser")}
+            </MenuItem>
+          </>
+        )}
       </Menu>
 
       <ResponsiveFormDialog

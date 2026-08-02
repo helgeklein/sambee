@@ -6,9 +6,6 @@ import CloseIcon from "@mui/icons-material/Close";
 import { Box, Dialog, Divider, IconButton, Typography } from "@mui/material";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
-import type { VersionInfo } from "../../utils/version";
-import { fetchVersionInfo } from "../../utils/version";
-import { SETTINGS_ACTION_BAR_MIN_HEIGHT_PX } from "./SettingsActionBar";
 import { SettingsCategoryContent } from "./SettingsCategoryContent";
 import { SettingsCategoryList } from "./SettingsCategoryList";
 import { prefetchSettingsDataForItems } from "./settingsDataSources";
@@ -46,7 +43,6 @@ const SettingsDialog: React.FC<SettingsDialogProps> = ({
   onConnectionsChanged,
 }) => {
   const [selectedItem, setSelectedItem] = useState<SettingsNavItem>(initialCategory);
-  const [versionInfo, setVersionInfo] = useState<VersionInfo | null>(null);
   const { isAdmin, canWrite } = useSettingsAccess(open);
   const { t } = useTranslation();
 
@@ -105,13 +101,6 @@ const SettingsDialog: React.FC<SettingsDialogProps> = ({
   useEffect(() => {
     if (open) {
       prefetchSettingsDataForItems(availableItems);
-
-      // Fetch version info
-      void fetchVersionInfo().then((info) => {
-        if (info) {
-          setVersionInfo(info);
-        }
-      });
     }
   }, [availableItems, open]);
 
@@ -182,6 +171,7 @@ const SettingsDialog: React.FC<SettingsDialogProps> = ({
             listRole="listbox"
             listAriaLabel={t("settings.shell.categoriesAriaLabel")}
             sectionSx={{ mb: 1 }}
+            subheaderSx={{ px: 1.5 }}
             wrapItemsInListItem
             getItemRef={(item) => (element) => {
               categoryRefs.current[item] = element;
@@ -193,33 +183,9 @@ const SettingsDialog: React.FC<SettingsDialogProps> = ({
             itemButtonSx={() => ({ py: 0.5, px: 1.5 })}
             itemIconSx={(selected: boolean) => ({ minWidth: 40, color: selected ? "primary.main" : "text.secondary" })}
             primaryTypographyProps={(selected) => ({
-              fontWeight: selected ? "medium" : "normal",
+              sx: { fontWeight: selected ? "medium" : "normal" },
             })}
           />
-
-          {/* Version Information */}
-          {versionInfo && (
-            <>
-              <Divider />
-              <Box
-                sx={{
-                  minHeight: SETTINGS_ACTION_BAR_MIN_HEIGHT_PX,
-                  px: 2,
-                  py: 0.5,
-                  display: "flex",
-                  flexDirection: "column",
-                  justifyContent: "center",
-                }}
-              >
-                <Typography variant="caption" color="text.secondary" sx={{ display: "block" }}>
-                  {t("settings.shell.versionLabel")}: {versionInfo.version} ({versionInfo.git_commit.substring(0, 7)})
-                </Typography>
-                <Typography variant="caption" color="text.secondary" sx={{ display: "block" }}>
-                  {t("settings.shell.buildLabel")}: {versionInfo.build_time}
-                </Typography>
-              </Box>
-            </>
-          )}
         </Box>
 
         {/* Right Content Area */}

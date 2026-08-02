@@ -1,4 +1,4 @@
-import { render, screen, waitFor } from "@testing-library/react";
+import { fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { clearCachedAsyncData } from "../../hooks/useCachedAsyncData";
@@ -79,7 +79,7 @@ describe("UserManagementSettings", () => {
     expect(screen.getByRole("button", { name: /create user/i })).toBeInTheDocument();
   });
 
-  it("uses explicit username and full-name guidance in the editor", async () => {
+  it("uses consistent field descriptions in the add-user editor", async () => {
     const user = userEvent.setup();
 
     render(
@@ -96,9 +96,45 @@ describe("UserManagementSettings", () => {
     await user.click(screen.getByRole("button", { name: /add user/i }));
 
     expect(await screen.findByLabelText(/^username$/i)).toBeInTheDocument();
-    expect(screen.getByText("Used to sign in and uniquely identify the account.")).toBeInTheDocument();
     expect(screen.getByLabelText(/^full name$/i)).toBeInTheDocument();
-    expect(screen.getByText("Use the person's full name as they want it displayed in Sambee.")).toBeInTheDocument();
+    expect(screen.getByLabelText(/^email$/i)).toBeInTheDocument();
+    expect(screen.getByRole("combobox", { name: /^role$/i })).toBeInTheDocument();
+    expect(screen.getByLabelText(/expiration time/i)).toBeInTheDocument();
+    expect(screen.getByLabelText(/initial password/i)).toBeInTheDocument();
+
+    const descriptions = [
+      "Used to sign in and uniquely identify the account.",
+      "Use the person's full name as they want it displayed in Sambee.",
+      "Optional. Record an email address for this account.",
+      "Admins manage settings and users. Editors can modify content. Viewers can browse content.",
+      "Leave blank if this account should not expire.",
+      "Optional. If left blank, the server will generate a secure temporary password.",
+      "The user must choose a new password when they next sign in.",
+    ];
+
+    for (const description of descriptions) {
+      expect(screen.getByText(description)).toHaveClass("MuiFormHelperText-root");
+    }
+  });
+
+  it("uses consistent field descriptions in the edit-user editor", async () => {
+    const user = userEvent.setup();
+
+    render(
+      <SambeeThemeProvider>
+        <UserManagementSettings />
+      </SambeeThemeProvider>
+    );
+
+    await user.click(await screen.findByRole("button", { name: /edit admin/i }));
+
+    expect(screen.getByLabelText(/^email$/i)).toBeInTheDocument();
+    expect(screen.getByRole("combobox", { name: /^role$/i })).toBeInTheDocument();
+    expect(screen.getByText("Optional. Record an email address for this account.")).toHaveClass("MuiFormHelperText-root");
+    expect(screen.getByText("Admins manage settings and users. Editors can modify content. Viewers can browse content.")).toHaveClass(
+      "MuiFormHelperText-root"
+    );
+    expect(screen.getByText("Disabled accounts cannot sign in or access Sambee.")).toHaveClass("MuiFormHelperText-root");
   });
 
   it("renders user names as bold body text instead of headings", async () => {
@@ -127,6 +163,39 @@ describe("UserManagementSettings", () => {
     const chipRow = localPasswordChip.closest(".MuiStack-root");
 
     expect(chipRow).toHaveStyle({ display: "flex", flexWrap: "wrap", gap: "8px", rowGap: "8px" });
+  });
+
+  it("keeps metadata and actions responsive within each user row", async () => {
+    render(
+      <SambeeThemeProvider>
+        <UserManagementSettings />
+      </SambeeThemeProvider>
+    );
+
+    const userRow = await screen.findByTestId("user-row");
+    const metadata = screen.getByTestId("user-metadata");
+    const actions = screen.getByTestId("user-row-actions");
+    const compactActionMenu = screen.getByTestId("user-row-action-menu");
+
+    expect(userRow).toHaveStyle({ containerType: "inline-size", display: "flex", flexWrap: "wrap" });
+    expect(metadata).toHaveStyle({ flexWrap: "wrap" });
+    expect(actions).toHaveStyle({ display: "flex" });
+    expect(compactActionMenu).toHaveStyle({ display: "none" });
+  });
+
+  it("provides compact user actions through one overflow menu", async () => {
+    render(
+      <SambeeThemeProvider>
+        <UserManagementSettings />
+      </SambeeThemeProvider>
+    );
+
+    const compactActionMenu = await screen.findByTestId("user-row-action-menu");
+    fireEvent.click(within(compactActionMenu).getByRole("button", { hidden: true, name: "User actions for admin" }));
+
+    expect(screen.getByRole("menuitem", { name: /^edit user$/i })).toBeInTheDocument();
+    expect(screen.getByRole("menuitem", { name: /^reset password$/i })).toBeInTheDocument();
+    expect(screen.getByRole("menuitem", { name: /^delete user$/i })).toHaveAttribute("aria-disabled", "true");
   });
 
   it("shows OIDC state and hides password reset for a passwordless account", async () => {
@@ -243,6 +312,7 @@ describe("UserManagementSettings", () => {
 
     const passwordInput = await screen.findByLabelText(/new password/i);
     expect(passwordInput).toBeInTheDocument();
+    expect(screen.getByText("Choose the password the user should use the next time they sign in.")).toHaveClass("MuiFormHelperText-root");
 
     await user.type(passwordInput, "BrandNewPass123!");
     await user.click(screen.getByRole("checkbox", { name: /require password change after next sign-in/i }));

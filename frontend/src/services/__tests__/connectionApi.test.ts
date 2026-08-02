@@ -536,6 +536,13 @@ describe("Connection Management API Contract Tests", () => {
   describe("Contract Tests - POST /connections/{id}/test", () => {
     it("should return test result format with success status", async () => {
       const connectionId = "b23e4567-e89b-12d3-a456-426614174010";
+      const connectionDraft = {
+        host: "draft-host.invalid",
+        port: 445,
+        share_name: "draft-share",
+        username: "draft-user",
+        path_prefix: "/draft-path",
+      };
 
       const backendResponse = {
         status: "success",
@@ -546,7 +553,7 @@ describe("Connection Management API Contract Tests", () => {
         data: backendResponse,
       } as AxiosResponse);
 
-      const result = await apiService.testConnection(connectionId);
+      const result = await apiService.testConnection(connectionId, connectionDraft);
 
       // Verify structure
       expect(result).toHaveProperty("status");
@@ -559,6 +566,7 @@ describe("Connection Management API Contract Tests", () => {
       // Verify values
       expect(result.status).toBe("success");
       expect(result.message).toBeTruthy();
+      expect(mockAxiosInstance.post).toHaveBeenCalledWith(`/connections/${connectionId}/test`, connectionDraft);
     });
 
     it("should handle error status", async () => {

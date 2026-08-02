@@ -6,13 +6,15 @@ import { clearCachedAsyncData } from "../../hooks/useCachedAsyncData";
 import { SambeeThemeProvider } from "../../theme";
 import { LocalDrivesSettings } from "../LocalDrivesSettings";
 
-const { mockCheckHealth, mockGetPairStatus, mockGetCompanionDownloads, mockHasStoredSecret, mockUnpairCurrentOrigin } = vi.hoisted(() => ({
-  mockCheckHealth: vi.fn(),
-  mockGetPairStatus: vi.fn(),
-  mockGetCompanionDownloads: vi.fn(),
-  mockHasStoredSecret: vi.fn(),
-  mockUnpairCurrentOrigin: vi.fn(),
-}));
+const { mockCheckHealth, mockGetPairStatus, mockGetCompanionDownloads, mockHasStoredSecret, mockTestPairing, mockUnpairCurrentOrigin } =
+  vi.hoisted(() => ({
+    mockCheckHealth: vi.fn(),
+    mockGetPairStatus: vi.fn(),
+    mockGetCompanionDownloads: vi.fn(),
+    mockHasStoredSecret: vi.fn(),
+    mockTestPairing: vi.fn(),
+    mockUnpairCurrentOrigin: vi.fn(),
+  }));
 
 vi.mock("../../components/FileBrowser/CompanionPairingDialog", () => ({
   __esModule: true,
@@ -39,7 +41,7 @@ vi.mock("../../services/companion", () => ({
     checkHealth: mockCheckHealth,
     getPairStatus: mockGetPairStatus,
     confirmPairing: vi.fn(),
-    testPairing: vi.fn(),
+    testPairing: mockTestPairing,
     unpairCurrentOrigin: mockUnpairCurrentOrigin,
     cancelPairing: vi.fn(),
     initiatePairing: vi.fn(),
@@ -131,6 +133,44 @@ describe("LocalDrivesSettings", () => {
     expect(screen.queryByText(LOCAL_DRIVES_PAGE_COPY.downloadSectionTitle)).not.toBeInTheDocument();
     expect(screen.queryByText(LOCAL_DRIVES_PAGE_COPY.pairingSectionTitle)).not.toBeInTheDocument();
     expect(screen.getByText(LOCAL_DRIVES_PAGE_COPY.statusPaired)).toBeInTheDocument();
+  });
+
+  it("shows a persistent inline success status after testing the current pairing", async () => {
+    const user = userEvent.setup();
+    mockGetPairStatus.mockResolvedValue({
+      current_origin: window.location.origin,
+      current_origin_paired: true,
+      status: "paired",
+    });
+    mockHasStoredSecret.mockReturnValue(true);
+    mockTestPairing.mockResolvedValue({ message: "Pairing with http://localhost:3000 is working." });
+
+    renderSettings();
+
+    await user.click(await screen.findByRole("button", { name: LOCAL_DRIVES_PAGE_COPY.testCurrentPairingButton }));
+
+    const successStatus = await screen.findByRole("status");
+    expect(successStatus).toHaveTextContent(LOCAL_DRIVES_PAGE_COPY.pairingTestSucceeded);
+    expect(screen.queryByText("Pairing with http://localhost:3000 is working.")).not.toBeInTheDocument();
+  });
+
+  it("shows an inline recovery action when testing the current pairing fails", async () => {
+    const user = userEvent.setup();
+    mockGetPairStatus.mockResolvedValue({
+      current_origin: window.location.origin,
+      current_origin_paired: true,
+      status: "paired",
+    });
+    mockHasStoredSecret.mockReturnValue(true);
+    mockTestPairing.mockRejectedValue(new Error("Pairing test failed"));
+
+    renderSettings();
+
+    await user.click(await screen.findByRole("button", { name: LOCAL_DRIVES_PAGE_COPY.testCurrentPairingButton }));
+
+    const errorAlert = await screen.findByRole("alert");
+    expect(errorAlert).toHaveTextContent(LOCAL_DRIVES_PAGE_COPY.pairingTestFailed);
+    expect(screen.getByRole("button", { name: LOCAL_DRIVES_PAGE_COPY.pairThisBrowserButton })).toBeInTheDocument();
   });
 
   it("shows Pair This Browser and hides browser-only actions when re-pair is required", async () => {

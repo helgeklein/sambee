@@ -5,6 +5,7 @@ import "../../../i18n";
 import HamburgerMenu from "../../../components/Mobile/HamburgerMenu";
 import { SambeeThemeProvider } from "../../../theme/ThemeContext";
 import type { Connection } from "../../../types";
+import { fetchVersionInfo } from "../../../utils/version";
 
 // Mock useNavigate
 const mockNavigate = vi.fn();
@@ -98,6 +99,30 @@ describe("HamburgerMenu", () => {
     const documentationIndex = menuItems.findIndex((item) => item.textContent?.includes("Documentation"));
     expect(settingsIndex).toBeGreaterThan(-1);
     expect(documentationIndex).toBeGreaterThan(settingsIndex);
+  });
+
+  test("does not fetch or display version information", () => {
+    render(
+      <SambeeThemeProvider>
+        <BrowserRouter>
+          <HamburgerMenu
+            open={true}
+            onClose={mockOnClose}
+            connections={mockConnections}
+            selectedConnectionId="1"
+            onConnectionChange={mockOnConnectionChange}
+            onNavigateToRoot={mockOnNavigateToRoot}
+            onOpenDocumentation={mockOnOpenDocumentation}
+            onOpenSettings={mockOnOpenSettings}
+            onLogout={mockOnLogout}
+          />
+        </BrowserRouter>
+      </SambeeThemeProvider>
+    );
+
+    expect(fetchVersionInfo).not.toHaveBeenCalled();
+    expect(screen.queryByText("Version: 0.1.0")).not.toBeInTheDocument();
+    expect(screen.queryByText("Build: 2024-01-01T00:00:00Z")).not.toBeInTheDocument();
   });
 
   test("does not render when closed", () => {

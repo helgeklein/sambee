@@ -26,7 +26,7 @@ import {
   SETTINGS_DATA_CACHE_KEYS,
 } from "../components/Settings/settingsDataSources";
 import { useCachedAsyncData } from "../hooks/useCachedAsyncData";
-import companionService, { clearStoredSecret, hasStoredSecret, type PairTestResponse } from "../services/companion";
+import companionService, { clearStoredSecret, hasStoredSecret } from "../services/companion";
 import { logger } from "../services/logger";
 import type { CompanionDownloadPlatform } from "../types";
 
@@ -93,6 +93,10 @@ interface LocalDrivesSettingsProps {
 }
 
 type LocalDrivesViewState = "unavailable" | "unpaired" | "pending_local_approval" | "needs_repair" | "paired";
+type PairingTestResult = {
+  severity: "success" | "error";
+  message: string;
+};
 
 const EMPTY_LOCAL_DRIVES_STATE: LocalDrivesSettingsData = {
   companionAvailable: false,
@@ -110,6 +114,7 @@ const EMPTY_LOCAL_DRIVES_STATE: LocalDrivesSettingsData = {
 export function LocalDrivesSettings({ onConnectionsChanged, sectionTitle, sectionDescription }: LocalDrivesSettingsProps) {
   const companionUnsupportedOnCurrentDevice = useMemo(() => isUnsupportedMobileCompanionPlatform(), []);
   const [testing, setTesting] = useState(false);
+  const [pairingTestResult, setPairingTestResult] = useState<PairingTestResult | null>(null);
   const [pairingDialogOpen, setPairingDialogOpen] = useState(false);
   const [unpairing, setUnpairing] = useState(false);
   const [notification, setNotification] = useState<SettingsNotificationState>({
@@ -210,17 +215,18 @@ export function LocalDrivesSettings({ onConnectionsChanged, sectionTitle, sectio
 
   const handleTestPairing = useCallback(async () => {
     setTesting(true);
+    setPairingTestResult(null);
     try {
-      const result: PairTestResponse = await companionService.testPairing();
+      await companionService.testPairing();
       await refresh();
-      showNotification(result.message, "success");
+      setPairingTestResult({ severity: "success", message: LOCAL_DRIVES_PAGE_COPY.pairingTestSucceeded });
     } catch (error) {
       logger.error("Companion pairing test failed", { error }, "companion");
-      showNotification(LOCAL_DRIVES_PAGE_COPY.pairingTestFailed, "error");
+      setPairingTestResult({ severity: "error", message: LOCAL_DRIVES_PAGE_COPY.pairingTestFailed });
     } finally {
       setTesting(false);
     }
-  }, [refresh, showNotification]);
+  }, [refresh]);
 
   const handleUnpairCurrentBrowser = useCallback(async () => {
     setUnpairing(true);
@@ -538,6 +544,22 @@ export function LocalDrivesSettings({ onConnectionsChanged, sectionTitle, sectio
                       {testing ? LOCAL_DRIVES_PAGE_COPY.testingButton : LOCAL_DRIVES_PAGE_COPY.testCurrentPairingButton}
                     </Button>
                   </Box>
+                  {pairingTestResult && (
+                    <SettingsInlineAlert
+                      role={pairingTestResult.severity === "success" ? "status" : "alert"}
+                      severity={pairingTestResult.severity}
+                      sx={{ mb: 0 }}
+                      action={
+                        pairingTestResult.severity === "error" ? (
+                          <Button color="inherit" size="small" onClick={() => setPairingDialogOpen(true)}>
+                            {LOCAL_DRIVES_PAGE_COPY.pairThisBrowserButton}
+                          </Button>
+                        ) : undefined
+                      }
+                    >
+                      {pairingTestResult.message}
+                    </SettingsInlineAlert>
+                  )}
                 </Stack>
               </Box>
             </SettingsGroup>

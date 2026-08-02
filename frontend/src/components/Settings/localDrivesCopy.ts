@@ -121,6 +121,9 @@ export const LOCAL_DRIVES_PAGE_COPY = {
   get pairingTestFailed() {
     return translate("settings.localDrives.pairingTestFailed");
   },
+  get pairingTestSucceeded() {
+    return translate("settings.localDrives.pairingTestSucceeded");
+  },
   get statusUnavailable() {
     return translate("settings.localDrives.statusUnavailable");
   },

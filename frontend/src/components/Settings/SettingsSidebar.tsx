@@ -52,6 +52,7 @@ export function SettingsSidebar() {
         selectedItem={selectedItem ?? undefined}
         listSx={{ flex: 1, minHeight: 0, overflowY: "auto", py: 1 }}
         sectionSx={{ mb: 1.5 }}
+        subheaderSx={{ px: 3 }}
         itemButtonSx={{
           mx: 1,
           borderRadius: 1,
@@ -63,7 +64,7 @@ export function SettingsSidebar() {
           },
         }}
         itemIconSx={(selected: boolean) => ({ minWidth: 40, color: selected ? "primary.main" : "text.secondary" })}
-        primaryTypographyProps={(selected: boolean) => ({ fontWeight: selected ? 600 : 400 })}
+        primaryTypographyProps={(selected: boolean) => ({ sx: { fontWeight: selected ? 600 : 400 } })}
       />
     </Box>
   );

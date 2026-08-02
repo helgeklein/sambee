@@ -195,6 +195,7 @@ items = [
   "file-browser-and-navigation-model",
   "keyboard-shortcuts-and-command-model",
   "viewer-architecture-and-preview-contracts",
+  "settings-form-dialog-pattern",
 ]
 
 [[sections.developer-guide.items]]

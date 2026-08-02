@@ -1,9 +1,13 @@
 from __future__ import annotations
 
+import os
+import platform
+import sqlite3
 import uuid
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from ipaddress import ip_network
+from pathlib import Path
 from threading import RLock
 from typing import Optional
 from urllib.parse import urlparse
@@ -14,6 +18,7 @@ from sqlmodel import Session, select
 
 import app.core.config as config_module
 import app.db.database as database_module
+from app import __version__
 from app.core.logging import get_logger
 from app.core.system_setting_definitions import (
     SYSTEM_SETTING_DEFINITIONS,
@@ -23,6 +28,7 @@ from app.core.system_setting_definitions import (
 )
 from app.models.oidc import OidcFlow
 from app.models.system_settings import (
+    AboutSettingsRead,
     AdvancedSystemSettingsRead,
     AdvancedSystemSettingsUpdate,
     IntegerSystemSettingRead,
@@ -38,6 +44,12 @@ logger = get_logger(__name__)
 SYSTEM_SETTINGS_TABLE_NAME = "systemsetting"
 NETWORK_PUBLIC_URL_KEY = "network.public_url"
 NETWORK_TRUSTED_PROXY_CIDRS_KEY = "network.trusted_proxy_cidrs"
+APP_ROOT = Path(__file__).resolve().parents[3]
+BUILD_TIME_PATH = Path("/BUILD_TIME")
+GIT_COMMIT_PATH = Path("/GIT_COMMIT")
+PROCESS_STARTED_AT = datetime.now(timezone.utc)
+CGROUP_MEMORY_LIMIT_PATHS = (Path("/sys/fs/cgroup/memory.max"), Path("/sys/fs/cgroup/memory/memory.limit_in_bytes"))
+UNLIMITED_MEMORY_THRESHOLD_BYTES = 1 << 60
 
 
 @dataclass(frozen=True)
@@ -45,6 +57,44 @@ class ResolvedIntegerSystemSetting:
     definition: IntegerSystemSettingDefinition
     value: int
     source: SystemSettingSource
+
+
+def _read_first_available_text(paths: list[Path], fallback: str = "unknown") -> str:
+    for path in paths:
+        try:
+            value = path.read_text().strip()
+        except OSError:
+            continue
+        if value:
+            return value
+    return fallback
+
+
+def _get_memory_bytes() -> Optional[int]:
+    for path in CGROUP_MEMORY_LIMIT_PATHS:
+        try:
+            raw_value = path.read_text().strip()
+        except OSError:
+            continue
+
+        if raw_value == "max":
+            continue
+
+        try:
+            memory_limit = int(raw_value)
+        except ValueError:
+            continue
+
+        if 0 < memory_limit < UNLIMITED_MEMORY_THRESHOLD_BYTES:
+            return memory_limit
+
+    try:
+        page_size = os.sysconf("SC_PAGE_SIZE")
+        page_count = os.sysconf("SC_PHYS_PAGES")
+    except (AttributeError, OSError, ValueError):
+        return None
+
+    return page_size * page_count if page_size > 0 and page_count > 0 else None
 
 
 class SystemSettingsStore:
@@ -159,6 +209,20 @@ def build_advanced_system_settings_read() -> AdvancedSystemSettingsRead:
                 timeout_seconds=_build_integer_read(SYSTEM_SETTING_DEFINITIONS[SystemSettingKey.PREPROCESSOR_IMAGEMAGICK_TIMEOUT_SECONDS]),
             ),
         },
+    )
+
+
+def build_about_settings_read() -> AboutSettingsRead:
+    return AboutSettingsRead(
+        version=__version__,
+        build_time=_read_first_available_text([BUILD_TIME_PATH]),
+        git_commit=_read_first_available_text([GIT_COMMIT_PATH, APP_ROOT / "GIT_COMMIT"]),
+        started_at=PROCESS_STARTED_AT,
+        architecture=platform.machine() or "unknown",
+        logical_cpu_count=os.cpu_count(),
+        memory_bytes=_get_memory_bytes(),
+        python_runtime=f"{platform.python_implementation()} {platform.python_version()}",
+        database_version=sqlite3.sqlite_version,
     )
 
 

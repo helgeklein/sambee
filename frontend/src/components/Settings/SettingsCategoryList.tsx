@@ -2,6 +2,7 @@ import {
   Article as ArticleIcon,
   ChevronRight as ChevronRightIcon,
   FolderOpen as FolderOpenIcon,
+  InfoOutlined as InfoOutlinedIcon,
   ManageAccounts as ManageAccountsIcon,
   Palette as PaletteIcon,
   PeopleAlt as PeopleAltIcon,
@@ -32,21 +33,23 @@ type Resolvable<T> = T | ((selected: boolean, item: SettingsNavItem) => T);
 
 const SETTINGS_PARENT_ICON_GLYPH_SX: SxProps<Theme> = {
   fontSize: {
-    xs: 24,
-    sm: 22,
+    xs: "1.5rem",
+    sm: "1.25rem",
   },
   transition: "none",
 };
 const SETTINGS_PARENT_TYPOGRAPHY_PROPS: Partial<TypographyProps> = {
   variant: "body1",
   sx: {
-    fontSize: "1rem",
+    fontSize: {
+      xs: "1rem",
+      sm: "0.875rem",
+    },
   },
 };
 const SETTINGS_SUBHEADER_SX: SxProps<Theme> = {
   bgcolor: "transparent",
   fontWeight: 600,
-  fontSize: "12px",
   lineHeight: 2.5,
   textTransform: "uppercase",
   letterSpacing: 0.8,
@@ -125,6 +128,8 @@ function renderCategoryIcon(item: SettingsNavItem, iconGlyphSx?: SxProps<Theme>)
       return <PeopleAltIcon sx={iconGlyphSx} />;
     case "admin-system":
       return <TuneIcon sx={iconGlyphSx} />;
+    case "admin-about":
+      return <InfoOutlinedIcon sx={iconGlyphSx} />;
   }
 }
 

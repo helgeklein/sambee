@@ -16,12 +16,9 @@ import {
   Typography,
 } from "@mui/material";
 import type React from "react";
-import { useEffect, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { SAFE_AREA_INSET } from "../../theme/mobileShell";
 import type { Connection } from "../../types";
-import type { VersionInfo } from "../../utils/version";
-import { fetchVersionInfo } from "../../utils/version";
 
 interface HamburgerMenuProps {
   open: boolean;
@@ -46,17 +43,7 @@ const HamburgerMenu: React.FC<HamburgerMenuProps> = ({
   onOpenSettings,
   onLogout,
 }) => {
-  const [versionInfo, setVersionInfo] = useState<VersionInfo | null>(null);
   const { t } = useTranslation();
-
-  // Fetch version info on mount
-  useEffect(() => {
-    void fetchVersionInfo().then((info) => {
-      if (info) {
-        setVersionInfo(info);
-      }
-    });
-  }, []);
 
   const handleConnectionChange = (connectionId: string) => {
     onConnectionChange(connectionId);
@@ -177,25 +164,6 @@ const HamburgerMenu: React.FC<HamburgerMenuProps> = ({
           </ListItemButton>
         </ListItem>
       </List>
-
-      {/* Version Information */}
-      {versionInfo && (
-        <>
-          <Box sx={{ flexGrow: 1 }} />
-          <Divider />
-          <Box sx={{ p: 2, pt: 1 }}>
-            <Typography variant="caption" color="text.secondary" sx={{ display: "block", mb: 0.5 }}>
-              {t("settings.shell.versionLabel")}: {versionInfo.version}
-            </Typography>
-            <Typography variant="caption" color="text.secondary" sx={{ display: "block", mb: 0.5 }}>
-              {t("settings.shell.buildLabel")}: {versionInfo.build_time}
-            </Typography>
-            <Typography variant="caption" color="text.secondary" sx={{ display: "block" }}>
-              {t("settings.shell.commitLabel")}: {versionInfo.git_commit.substring(0, 7)}
-            </Typography>
-          </Box>
-        </>
-      )}
     </Drawer>
   );
 };

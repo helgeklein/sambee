@@ -10,7 +10,8 @@ export type SettingsCategory =
   | "admin-network"
   | "admin-authentication"
   | "admin-users"
-  | "admin-system";
+  | "admin-system"
+  | "admin-about";
 export type SettingsNavItem = SettingsCategory;
 export type SettingsContentItem = SettingsNavItem;
 
@@ -43,6 +44,7 @@ export const SETTINGS_ROUTE_BY_CATEGORY: Record<SettingsCategory, string> = {
   "admin-authentication": "/settings/admin/authentication",
   "admin-users": "/settings/admin/users",
   "admin-system": "/settings/admin/system",
+  "admin-about": "/settings/admin/about",
 };
 
 export const SETTINGS_ROUTE_BY_NAV_ITEM: Record<SettingsNavItem, string> = SETTINGS_ROUTE_BY_CATEGORY;
@@ -141,6 +143,15 @@ export const SETTINGS_CATEGORY_META: Record<SettingsCategory, SettingsCategoryMe
     section: "administration",
     adminOnly: true,
   },
+  "admin-about": {
+    get label() {
+      return translate("settings.categories.adminAbout.label");
+    },
+    descriptionKey: "settings.categories.adminAbout.description",
+    route: SETTINGS_ROUTE_BY_CATEGORY["admin-about"],
+    section: "administration",
+    adminOnly: true,
+  },
 };
 
 export const SETTINGS_CATEGORY_ORDER: SettingsCategory[] = [
@@ -154,6 +165,7 @@ export const SETTINGS_CATEGORY_ORDER: SettingsCategory[] = [
   "admin-authentication",
   "admin-users",
   "admin-system",
+  "admin-about",
 ];
 
 export const DEFAULT_SETTINGS_CATEGORY: SettingsCategory = SETTINGS_CATEGORY_ORDER[0]!;

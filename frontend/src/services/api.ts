@@ -1,5 +1,6 @@
 import axios, { type AxiosError, type AxiosInstance, type AxiosRequestConfig } from "axios";
 import type {
+  AboutSettings,
   AdminUser,
   AdminUserCreateInput,
   AdminUserCreateResult,
@@ -469,8 +470,10 @@ class ApiService {
     await this.api.delete(`${CONNECTIONS_API_BASE}/${connectionId}`);
   }
 
-  async testConnection(connectionId: string): Promise<{ status: string; message: string }> {
-    const response = await this.api.post(`${CONNECTIONS_API_BASE}/${connectionId}/test`);
+  async testConnection(connectionId: string, connection?: Partial<ConnectionCreate>): Promise<{ status: string; message: string }> {
+    const response = connection
+      ? await this.api.post(`${CONNECTIONS_API_BASE}/${connectionId}/test`, connection)
+      : await this.api.post(`${CONNECTIONS_API_BASE}/${connectionId}/test`);
     return response.data;
   }
 
@@ -624,6 +627,11 @@ class ApiService {
 
   async getAdvancedSettings(): Promise<AdvancedSystemSettings> {
     const response = await this.api.get<AdvancedSystemSettings>("/admin/settings/advanced");
+    return response.data;
+  }
+
+  async getAboutSettings(): Promise<AboutSettings> {
+    const response = await this.api.get<AboutSettings>("/admin/settings/about");
     return response.data;
   }
 

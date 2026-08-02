@@ -24,6 +24,17 @@ function renderList() {
 }
 
 describe("SettingsCategoryList", () => {
+  it("uses the shared category label and icon sizes", () => {
+    renderList();
+
+    const appearanceOption = screen.getByRole("option", { name: /^appearance$/i });
+    const label = screen.getByText("Appearance", { exact: true });
+    const icon = appearanceOption.querySelector("svg");
+
+    expect(label).toHaveStyle({ fontSize: "1rem" });
+    expect(icon).toHaveStyle({ fontSize: "1.5rem" });
+  });
+
   it("shows local drives as a top-level category without child UI", () => {
     renderList();
 

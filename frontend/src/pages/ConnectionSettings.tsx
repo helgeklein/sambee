@@ -3,13 +3,7 @@ import { SettingsActionBar } from "../components/Settings/SettingsActionBar";
 // ConnectionSettings
 //
 
-import {
-  Add as AddIcon,
-  Delete as DeleteIcon,
-  Edit as EditIcon,
-  MoreVert as MoreVertIcon,
-  CheckCircle as TestIcon,
-} from "@mui/icons-material";
+import { Add as AddIcon, Delete as DeleteIcon, Edit as EditIcon, MoreVert as MoreVertIcon } from "@mui/icons-material";
 import {
   Box,
   Button,
@@ -208,18 +202,6 @@ export function ConnectionSettings({
     }
   };
 
-  const handleTestConnection = async (connection: Connection) => {
-    if (!connection.can_manage) return;
-
-    try {
-      const result = await api.testConnection(connection.id);
-      showNotification(result.message, result.status as "success" | "error");
-    } catch (error: unknown) {
-      const message = getApiErrorMessage(error, t("settings.connectionManagement.notifications.testFailed"));
-      showNotification(message, "error");
-    }
-  };
-
   const handleMenuOpen = (event: React.MouseEvent<HTMLElement>, connection: Connection) => {
     if (!connection.can_manage) return;
     setMenuAnchor({ element: event.currentTarget, connection });
@@ -227,13 +209,6 @@ export function ConnectionSettings({
 
   const handleMenuClose = () => {
     setMenuAnchor(null);
-  };
-
-  const handleMenuTest = () => {
-    if (menuAnchor) {
-      handleTestConnection(menuAnchor.connection);
-    }
-    handleMenuClose();
   };
 
   const handleMenuEdit = () => {
@@ -331,15 +306,6 @@ export function ConnectionSettings({
                   </Box>
                   {connection.can_manage ? (
                     <Box sx={{ display: "flex", gap: 1, ml: 2 }}>
-                      <Tooltip title={t("settings.connectionManagement.tooltipTest")}>
-                        <IconButton
-                          onClick={() => handleTestConnection(connection)}
-                          aria-label={t("settings.connectionManagement.ariaTest")}
-                          sx={settingsUtilityIconButtonSx}
-                        >
-                          <TestIcon />
-                        </IconButton>
-                      </Tooltip>
                       <Tooltip title={t("settings.connectionManagement.tooltipEdit")}>
                         <IconButton
                           onClick={() => handleEdit(connection)}
@@ -548,10 +514,6 @@ export function ConnectionSettings({
           },
         }}
       >
-        <MenuItem onClick={handleMenuTest}>
-          <TestIcon fontSize="small" sx={{ mr: 1.5, color: "primary.main" }} />
-          {t("settings.connectionManagement.menuTest")}
-        </MenuItem>
         <MenuItem onClick={handleMenuEdit}>
           <EditIcon fontSize="small" sx={{ mr: 1.5, color: "primary.main" }} />
           {t("settings.connectionManagement.menuEdit")}
