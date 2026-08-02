@@ -41,6 +41,11 @@
 
 - Only ever use the following connection for testing in the VS Code browser: http://localhost:3000/browse/smb/demo
 
+## Command execution
+
+- Run `npm` exclusively in the form: `npm run <command> <arguments>`.
+   - Exceptions: `npm install`, `npm ci`, `npm update`.
+
 ## Backend Python
 
 - From the repository root, run backend Python code and tools as `backend/.venv/bin/python -m <module>`.

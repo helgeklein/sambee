@@ -129,6 +129,22 @@ describe("UserManagementSettings", () => {
     expect(chipRow).toHaveStyle({ display: "flex", flexWrap: "wrap", gap: "8px", rowGap: "8px" });
   });
 
+  it("keeps metadata and actions responsive within each user row", async () => {
+    render(
+      <SambeeThemeProvider>
+        <UserManagementSettings />
+      </SambeeThemeProvider>
+    );
+
+    const userRow = await screen.findByTestId("user-row");
+    const metadata = screen.getByTestId("user-metadata");
+    const actions = screen.getByTestId("user-row-actions");
+
+    expect(userRow).toHaveStyle({ containerType: "inline-size", display: "flex", flexWrap: "wrap" });
+    expect(metadata).toHaveStyle({ flexWrap: "wrap" });
+    expect(actions).toHaveStyle({ flexWrap: "wrap" });
+  });
+
   it("shows OIDC state and hides password reset for a passwordless account", async () => {
     vi.mocked(api.getUsers).mockResolvedValue([
       {
