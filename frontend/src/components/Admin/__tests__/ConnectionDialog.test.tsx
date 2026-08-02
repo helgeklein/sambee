@@ -52,6 +52,31 @@ const mockConnection: Connection = {
   updated_at: "2024-01-01T00:00:00",
 };
 
+function mockViewportWidth(width: number) {
+  const originalMatchMedia = window.matchMedia;
+
+  window.matchMedia = vi.fn().mockImplementation((query: string) => {
+    const minWidth = Number(query.match(/min-width:\s*([\d.]+)px/)?.[1]);
+    const maxWidth = Number(query.match(/max-width:\s*([\d.]+)px/)?.[1]);
+    const matches = (Number.isNaN(minWidth) || width >= minWidth) && (Number.isNaN(maxWidth) || width <= maxWidth);
+
+    return {
+      matches,
+      media: query,
+      onchange: null,
+      addListener: vi.fn(),
+      removeListener: vi.fn(),
+      addEventListener: vi.fn(),
+      removeEventListener: vi.fn(),
+      dispatchEvent: vi.fn(),
+    };
+  });
+
+  return () => {
+    window.matchMedia = originalMatchMedia;
+  };
+}
+
 describe("ConnectionDialog Component", () => {
   const mockOnClose = vi.fn();
   const mockOnSave = vi.fn();
@@ -103,6 +128,51 @@ describe("ConnectionDialog Component", () => {
     expect(passwordInput).toBeInTheDocument();
     expect(screen.getByLabelText(/path prefix/i)).toBeInTheDocument();
     expect(screen.getByRole("combobox", { name: /access mode/i })).toBeInTheDocument();
+  });
+
+  it("uses the shared one-column form design in a small-width dialog", () => {
+    const restoreViewport = mockViewportWidth(800);
+
+    try {
+      render(<ConnectionDialog open={true} onClose={mockOnClose} onSave={mockOnSave} />);
+
+      const nameLabel = screen.getByText("Connection name", { selector: "label" });
+      const nameInput = screen.getByLabelText(/connection name/i);
+
+      expect(screen.queryByTestId("responsive-form-dialog-mobile-actions")).not.toBeInTheDocument();
+      expect(document.querySelector(".MuiDialog-paperWidthSm")).not.toBeNull();
+      expect(nameLabel).toHaveClass("MuiInputLabel-root");
+      expect(nameInput.parentElement).not.toHaveClass("MuiInputBase-sizeSmall");
+      expect(screen.getByText("A name to identify this connection in Sambee")).toHaveClass("MuiFormHelperText-root");
+      expect(screen.getByRole("heading", { name: "Access", level: 2 })).toBeInTheDocument();
+    } finally {
+      restoreViewport();
+    }
+  });
+
+  it("keeps standard MUI floating labels and helper text in the mobile drawer", async () => {
+    const restoreViewport = mockViewportWidth(390);
+
+    try {
+      const user = userEvent.setup();
+      render(<ConnectionDialog open={true} onClose={mockOnClose} onSave={mockOnSave} />);
+
+      const nameLabel = screen.getByText("Connection name", { selector: "label" });
+      const nameInput = screen.getByLabelText(/connection name/i);
+
+      expect(screen.getByTestId("responsive-form-dialog-mobile-actions")).toBeInTheDocument();
+      expect(nameLabel).toHaveClass("MuiInputLabel-root");
+      expect(nameLabel).not.toHaveClass("MuiInputLabel-shrink");
+      expect(nameInput.parentElement).not.toHaveClass("MuiInputBase-sizeSmall");
+      expect(screen.getByText("A name to identify this connection in Sambee")).toHaveClass("MuiFormHelperText-root");
+      expect(screen.getByRole("heading", { name: "Access", level: 2 })).toBeInTheDocument();
+
+      await user.type(nameInput, "Server");
+
+      expect(nameLabel).toHaveClass("MuiInputLabel-shrink");
+    } finally {
+      restoreViewport();
+    }
   });
 
   it("uses external labels, compact outlined fields, and label-column errors at the md breakpoint", async () => {

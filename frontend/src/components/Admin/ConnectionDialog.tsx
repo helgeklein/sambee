@@ -83,7 +83,6 @@ function getFallbackVisibilityOptions(t: TFunction): ConnectionVisibilityOption[
 const ConnectionDialog: React.FC<ConnectionDialogProps> = ({ open, onClose, onSave, connection }) => {
   const handleKeyDown = useMemo(() => dialogEnterKeyHandler(), []);
   const theme = useTheme();
-  const isMobile = useMediaQuery(theme.breakpoints.down("sm"));
   const usesDesktopFormLayout = useMediaQuery(theme.breakpoints.up("md"));
   const { t } = useTranslation();
   const [formData, setFormData] = useState<ConnectionCreate>({
@@ -306,7 +305,7 @@ const ConnectionDialog: React.FC<ConnectionDialogProps> = ({ open, onClose, onSa
     display: { md: "grid" },
     gridTemplateColumns: { md: "minmax(0, 1fr) minmax(0, 1fr)" },
     columnGap: { md: 2 },
-    py: { md: 2 },
+    py: 2,
     alignItems: "start",
   };
   const desktopFieldLabelSx = { textAlign: "left" };
@@ -319,21 +318,17 @@ const ConnectionDialog: React.FC<ConnectionDialogProps> = ({ open, onClose, onSa
   const desktopFormSurfaceSx = (currentTheme: typeof theme) => ({
     display: "flex",
     flexDirection: "column",
-    gap: 3,
-    mt: isMobile ? 0 : 1,
-    [currentTheme.breakpoints.up("md")]: {
-      gap: 0,
-      p: 2,
-      bgcolor: darken(currentTheme.palette.background.default, 0.04),
-      borderRadius: 1,
-    },
+    gap: 0,
+    mt: { md: 1 },
+    p: 2,
+    bgcolor: darken(currentTheme.palette.background.default, 0.04),
+    borderRadius: 1,
   });
   const desktopFieldGroupSx = (currentTheme: typeof theme) => ({
     display: "flex",
     flexDirection: "column",
-    gap: 3,
+    gap: 0,
     [currentTheme.breakpoints.up("md")]: {
-      gap: 0,
       "& > :not(:last-child)": {
         borderBottom: `1px solid ${alpha(currentTheme.palette.text.primary, 0.2)}`,
       },
@@ -406,7 +401,7 @@ const ConnectionDialog: React.FC<ConnectionDialogProps> = ({ open, onClose, onSa
               required
               variant="outlined"
               size={usesDesktopFormLayout ? "small" : "medium"}
-              sx={usesDesktopFormLayout ? desktopOutlinedFieldSx : undefined}
+              sx={desktopOutlinedFieldSx}
               slotProps={{
                 htmlInput: {
                   "aria-describedby": usesDesktopFormLayout ? "connection-name-description" : undefined,
@@ -438,7 +433,7 @@ const ConnectionDialog: React.FC<ConnectionDialogProps> = ({ open, onClose, onSa
               required
               variant="outlined"
               size={usesDesktopFormLayout ? "small" : "medium"}
-              sx={usesDesktopFormLayout ? desktopOutlinedFieldSx : undefined}
+              sx={desktopOutlinedFieldSx}
               slotProps={{
                 htmlInput: {
                   "aria-describedby": usesDesktopFormLayout ? "connection-host-description" : undefined,
@@ -470,7 +465,7 @@ const ConnectionDialog: React.FC<ConnectionDialogProps> = ({ open, onClose, onSa
               required
               variant="outlined"
               size={usesDesktopFormLayout ? "small" : "medium"}
-              sx={usesDesktopFormLayout ? desktopOutlinedFieldSx : undefined}
+              sx={desktopOutlinedFieldSx}
               slotProps={{
                 htmlInput: {
                   "aria-describedby": usesDesktopFormLayout ? "connection-share-name-description" : undefined,
@@ -502,7 +497,7 @@ const ConnectionDialog: React.FC<ConnectionDialogProps> = ({ open, onClose, onSa
               required
               variant="outlined"
               size={usesDesktopFormLayout ? "small" : "medium"}
-              sx={usesDesktopFormLayout ? desktopOutlinedFieldSx : undefined}
+              sx={desktopOutlinedFieldSx}
               slotProps={{
                 htmlInput: {
                   "aria-describedby": usesDesktopFormLayout ? "connection-username-description" : undefined,
@@ -542,7 +537,7 @@ const ConnectionDialog: React.FC<ConnectionDialogProps> = ({ open, onClose, onSa
               required={!connection}
               variant="outlined"
               size={usesDesktopFormLayout ? "small" : "medium"}
-              sx={usesDesktopFormLayout ? desktopOutlinedFieldSx : undefined}
+              sx={desktopOutlinedFieldSx}
               slotProps={{
                 htmlInput: {
                   "aria-describedby": usesDesktopFormLayout ? "connection-password-description" : undefined,
@@ -584,7 +579,7 @@ const ConnectionDialog: React.FC<ConnectionDialogProps> = ({ open, onClose, onSa
               fullWidth
               variant="outlined"
               size={usesDesktopFormLayout ? "small" : "medium"}
-              sx={usesDesktopFormLayout ? desktopOutlinedFieldSx : undefined}
+              sx={desktopOutlinedFieldSx}
               slotProps={{
                 htmlInput: {
                   "aria-describedby": usesDesktopFormLayout ? "connection-path-prefix-description" : undefined,
@@ -594,16 +589,14 @@ const ConnectionDialog: React.FC<ConnectionDialogProps> = ({ open, onClose, onSa
           </Box>
         </Box>
       </Box>
-      {usesDesktopFormLayout && (
-        <SettingsGroup
-          title={t("settings.connectionDialog.sections.access")}
-          headerSx={{
-            borderTop: (currentTheme) => `1px solid ${alpha(currentTheme.palette.text.primary, 0.2)}`,
-            pt: 2,
-          }}
-          titleSx={{ mb: 0 }}
-        />
-      )}
+      <SettingsGroup
+        title={t("settings.connectionDialog.sections.access")}
+        headerSx={{
+          borderTop: (currentTheme) => `1px solid ${alpha(currentTheme.palette.text.primary, 0.2)}`,
+          pt: 2,
+        }}
+        titleSx={{ mb: 0 }}
+      />
       <Box sx={desktopFieldGroupSx}>
         <Box sx={desktopFieldRowSx}>
           {renderDesktopLabel(
@@ -618,7 +611,7 @@ const ConnectionDialog: React.FC<ConnectionDialogProps> = ({ open, onClose, onSa
             fullWidth={!usesDesktopFormLayout}
             variant="outlined"
             size={usesDesktopFormLayout ? "small" : "medium"}
-            sx={usesDesktopFormLayout ? [desktopOutlinedFieldSx, desktopSelectControlSx] : undefined}
+            sx={usesDesktopFormLayout ? [desktopOutlinedFieldSx, desktopSelectControlSx] : desktopOutlinedFieldSx}
           >
             {!usesDesktopFormLayout && (
               <InputLabel id="connection-scope-label">{t("settings.connectionDialog.labels.visibility")}</InputLabel>
@@ -663,7 +656,7 @@ const ConnectionDialog: React.FC<ConnectionDialogProps> = ({ open, onClose, onSa
             fullWidth={!usesDesktopFormLayout}
             variant="outlined"
             size={usesDesktopFormLayout ? "small" : "medium"}
-            sx={usesDesktopFormLayout ? [desktopOutlinedFieldSx, desktopSelectControlSx] : undefined}
+            sx={usesDesktopFormLayout ? [desktopOutlinedFieldSx, desktopSelectControlSx] : desktopOutlinedFieldSx}
           >
             {!usesDesktopFormLayout && (
               <InputLabel id="connection-access-mode-label">{t("settings.connectionDialog.labels.accessMode")}</InputLabel>
@@ -737,7 +730,7 @@ const ConnectionDialog: React.FC<ConnectionDialogProps> = ({ open, onClose, onSa
       title={connection ? CONNECTION_DIALOG_STRINGS.TITLE_EDIT : CONNECTION_DIALOG_STRINGS.TITLE_ADD}
       actions={actionButtons}
       maxWidth="sm"
-      contentSx={{ p: isMobile ? 2 : undefined }}
+      contentSx={usesDesktopFormLayout ? undefined : { p: 2 }}
       onKeyDown={handleKeyDown}
     >
       {formContent}
