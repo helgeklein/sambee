@@ -1,13 +1,12 @@
 from __future__ import annotations
 
+import os
+import platform
 import uuid
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from ipaddress import ip_network
-import os
-import platform
 from pathlib import Path
-import sys
 from threading import RLock
 from typing import Optional
 from urllib.parse import urlparse
