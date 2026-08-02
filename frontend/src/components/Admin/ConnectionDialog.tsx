@@ -4,8 +4,10 @@ import {
   Box,
   Button,
   CircularProgress,
+  darken,
   FormControl,
   FormHelperText,
+  FormLabel,
   IconButton,
   InputAdornment,
   InputLabel,
@@ -63,6 +65,7 @@ const ConnectionDialog: React.FC<ConnectionDialogProps> = ({ open, onClose, onSa
   const handleKeyDown = useMemo(() => dialogEnterKeyHandler(), []);
   const theme = useTheme();
   const isMobile = useMediaQuery(theme.breakpoints.down("sm"));
+  const usesDesktopFormLayout = useMediaQuery(theme.breakpoints.up("md"));
   const { t } = useTranslation();
   const [formData, setFormData] = useState<ConnectionCreate>({
     name: "",
@@ -276,133 +279,215 @@ const ConnectionDialog: React.FC<ConnectionDialogProps> = ({ open, onClose, onSa
     }
   };
 
+  const desktopFieldRowSx = {
+    display: { md: "grid" },
+    gridTemplateColumns: { md: "12rem minmax(0, 1fr)" },
+    columnGap: { md: 3 },
+    alignItems: "start",
+  };
+  const desktopFieldLabelSx = { pt: 1.25, textAlign: "right" };
+  const desktopFilledFieldSx = {
+    "& .MuiFilledInput-root": {
+      backgroundColor: (currentTheme: typeof theme) => darken(currentTheme.palette.background.default, 0.04),
+      "&:hover": {
+        backgroundColor: (currentTheme: typeof theme) => darken(currentTheme.palette.background.default, 0.06),
+      },
+      "&.Mui-focused": {
+        backgroundColor: (currentTheme: typeof theme) => darken(currentTheme.palette.background.default, 0.04),
+      },
+    },
+  };
+
+  const renderDesktopLabel = (label: string, htmlFor?: string, required = false, id?: string) =>
+    usesDesktopFormLayout ? (
+      <FormLabel id={id} htmlFor={htmlFor} required={required} sx={desktopFieldLabelSx}>
+        {label}
+      </FormLabel>
+    ) : null;
+
   // Form content (shared between Dialog and Drawer)
   const formContent = (
     <Box sx={{ display: "flex", flexDirection: "column", gap: 3, mt: isMobile ? 0 : 1 }}>
-      <TextField
-        label={CONNECTION_DIALOG_STRINGS.LABEL_NAME}
-        value={formData.name}
-        onChange={(e) => handleChange("name", e.target.value)}
-        error={!!errors["name"]}
-        helperText={errors["name"] || CONNECTION_DIALOG_STRINGS.HELPER_NAME}
-        fullWidth
-        required
-        variant="outlined"
-      />
+      <Box sx={desktopFieldRowSx}>
+        {renderDesktopLabel(CONNECTION_DIALOG_STRINGS.LABEL_NAME, "connection-name", true)}
+        <TextField
+          id="connection-name"
+          label={usesDesktopFormLayout ? undefined : CONNECTION_DIALOG_STRINGS.LABEL_NAME}
+          hiddenLabel={usesDesktopFormLayout}
+          value={formData.name}
+          onChange={(e) => handleChange("name", e.target.value)}
+          error={!!errors["name"]}
+          helperText={errors["name"] || CONNECTION_DIALOG_STRINGS.HELPER_NAME}
+          fullWidth
+          required
+          variant={usesDesktopFormLayout ? "filled" : "outlined"}
+          sx={usesDesktopFormLayout ? desktopFilledFieldSx : undefined}
+        />
+      </Box>
 
-      <TextField
-        label={CONNECTION_DIALOG_STRINGS.LABEL_HOST}
-        value={formData.host}
-        onChange={(e) => handleChange("host", e.target.value)}
-        error={!!errors["host"]}
-        helperText={errors["host"] || CONNECTION_DIALOG_STRINGS.HELPER_HOST}
-        fullWidth
-        required
-        variant="outlined"
-      />
+      <Box sx={desktopFieldRowSx}>
+        {renderDesktopLabel(CONNECTION_DIALOG_STRINGS.LABEL_HOST, "connection-host", true)}
+        <TextField
+          id="connection-host"
+          label={usesDesktopFormLayout ? undefined : CONNECTION_DIALOG_STRINGS.LABEL_HOST}
+          hiddenLabel={usesDesktopFormLayout}
+          value={formData.host}
+          onChange={(e) => handleChange("host", e.target.value)}
+          error={!!errors["host"]}
+          helperText={errors["host"] || CONNECTION_DIALOG_STRINGS.HELPER_HOST}
+          fullWidth
+          required
+          variant={usesDesktopFormLayout ? "filled" : "outlined"}
+          sx={usesDesktopFormLayout ? desktopFilledFieldSx : undefined}
+        />
+      </Box>
 
-      <TextField
-        label={CONNECTION_DIALOG_STRINGS.LABEL_SHARE_NAME}
-        value={formData.share_name}
-        onChange={(e) => handleChange("share_name", e.target.value)}
-        error={!!errors["share_name"]}
-        helperText={errors["share_name"] || CONNECTION_DIALOG_STRINGS.HELPER_SHARE_NAME}
-        fullWidth
-        required
-        variant="outlined"
-      />
+      <Box sx={desktopFieldRowSx}>
+        {renderDesktopLabel(CONNECTION_DIALOG_STRINGS.LABEL_SHARE_NAME, "connection-share-name", true)}
+        <TextField
+          id="connection-share-name"
+          label={usesDesktopFormLayout ? undefined : CONNECTION_DIALOG_STRINGS.LABEL_SHARE_NAME}
+          hiddenLabel={usesDesktopFormLayout}
+          value={formData.share_name}
+          onChange={(e) => handleChange("share_name", e.target.value)}
+          error={!!errors["share_name"]}
+          helperText={errors["share_name"] || CONNECTION_DIALOG_STRINGS.HELPER_SHARE_NAME}
+          fullWidth
+          required
+          variant={usesDesktopFormLayout ? "filled" : "outlined"}
+          sx={usesDesktopFormLayout ? desktopFilledFieldSx : undefined}
+        />
+      </Box>
 
-      <TextField
-        label={CONNECTION_DIALOG_STRINGS.LABEL_USERNAME}
-        value={formData.username}
-        onChange={(e) => handleChange("username", e.target.value)}
-        error={!!errors["username"]}
-        helperText={errors["username"] || CONNECTION_DIALOG_STRINGS.HELPER_USERNAME}
-        fullWidth
-        required
-        variant="outlined"
-      />
+      <Box sx={desktopFieldRowSx}>
+        {renderDesktopLabel(CONNECTION_DIALOG_STRINGS.LABEL_USERNAME, "connection-username", true)}
+        <TextField
+          id="connection-username"
+          label={usesDesktopFormLayout ? undefined : CONNECTION_DIALOG_STRINGS.LABEL_USERNAME}
+          hiddenLabel={usesDesktopFormLayout}
+          value={formData.username}
+          onChange={(e) => handleChange("username", e.target.value)}
+          error={!!errors["username"]}
+          helperText={errors["username"] || CONNECTION_DIALOG_STRINGS.HELPER_USERNAME}
+          fullWidth
+          required
+          variant={usesDesktopFormLayout ? "filled" : "outlined"}
+          sx={usesDesktopFormLayout ? desktopFilledFieldSx : undefined}
+        />
+      </Box>
 
-      <TextField
-        label={CONNECTION_DIALOG_STRINGS.LABEL_PASSWORD}
-        type={showPassword ? "text" : "password"}
-        value={formData.password}
-        onChange={(e) => handleChange("password", e.target.value)}
-        error={!!errors["password"]}
-        helperText={
-          errors["password"] ||
-          (connection ? CONNECTION_DIALOG_STRINGS.HELPER_PASSWORD_EDIT : CONNECTION_DIALOG_STRINGS.HELPER_PASSWORD_ADD)
-        }
-        fullWidth
-        required={!connection}
-        variant="outlined"
-        slotProps={{
-          input: {
-            endAdornment: (
-              <InputAdornment position="end">
-                <IconButton
-                  aria-label={CONNECTION_DIALOG_STRINGS.ARIA_TOGGLE_PASSWORD}
-                  onClick={() => setShowPassword(!showPassword)}
-                  onMouseDown={(e) => e.preventDefault()}
-                  edge="end"
-                >
-                  {showPassword ? <VisibilityOff /> : <Visibility />}
-                </IconButton>
-              </InputAdornment>
-            ),
-          },
-        }}
-      />
+      <Box sx={desktopFieldRowSx}>
+        {renderDesktopLabel(CONNECTION_DIALOG_STRINGS.LABEL_PASSWORD, "connection-password", !connection)}
+        <TextField
+          id="connection-password"
+          label={usesDesktopFormLayout ? undefined : CONNECTION_DIALOG_STRINGS.LABEL_PASSWORD}
+          hiddenLabel={usesDesktopFormLayout}
+          type={showPassword ? "text" : "password"}
+          value={formData.password}
+          onChange={(e) => handleChange("password", e.target.value)}
+          error={!!errors["password"]}
+          helperText={
+            errors["password"] ||
+            (connection ? CONNECTION_DIALOG_STRINGS.HELPER_PASSWORD_EDIT : CONNECTION_DIALOG_STRINGS.HELPER_PASSWORD_ADD)
+          }
+          fullWidth
+          required={!connection}
+          variant={usesDesktopFormLayout ? "filled" : "outlined"}
+          sx={usesDesktopFormLayout ? desktopFilledFieldSx : undefined}
+          slotProps={{
+            input: {
+              endAdornment: (
+                <InputAdornment position="end">
+                  <IconButton
+                    aria-label={CONNECTION_DIALOG_STRINGS.ARIA_TOGGLE_PASSWORD}
+                    onClick={() => setShowPassword(!showPassword)}
+                    onMouseDown={(e) => e.preventDefault()}
+                    edge="end"
+                  >
+                    {showPassword ? <VisibilityOff /> : <Visibility />}
+                  </IconButton>
+                </InputAdornment>
+              ),
+            },
+          }}
+        />
+      </Box>
 
-      <TextField
-        label={CONNECTION_DIALOG_STRINGS.LABEL_PATH_PREFIX}
-        value={formData.path_prefix}
-        onChange={(e) => handleChange("path_prefix", e.target.value)}
-        helperText={CONNECTION_DIALOG_STRINGS.HELPER_PATH_PREFIX}
-        fullWidth
-        variant="outlined"
-      />
+      <Box sx={desktopFieldRowSx}>
+        {renderDesktopLabel(CONNECTION_DIALOG_STRINGS.LABEL_PATH_PREFIX, "connection-path-prefix")}
+        <TextField
+          id="connection-path-prefix"
+          label={usesDesktopFormLayout ? undefined : CONNECTION_DIALOG_STRINGS.LABEL_PATH_PREFIX}
+          hiddenLabel={usesDesktopFormLayout}
+          value={formData.path_prefix}
+          onChange={(e) => handleChange("path_prefix", e.target.value)}
+          helperText={CONNECTION_DIALOG_STRINGS.HELPER_PATH_PREFIX}
+          fullWidth
+          variant={usesDesktopFormLayout ? "filled" : "outlined"}
+          sx={usesDesktopFormLayout ? desktopFilledFieldSx : undefined}
+        />
+      </Box>
 
-      <FormControl fullWidth variant="outlined">
-        <InputLabel id="connection-scope-label">{t("settings.connectionDialog.labels.visibility")}</InputLabel>
-        <Select
-          labelId="connection-scope-label"
-          label={t("settings.connectionDialog.labels.visibility")}
-          value={formData.scope}
-          onChange={(event) => handleChange("scope", event.target.value as ConnectionScope)}
-          renderValue={(selected) => visibilityOptions.find((option) => option.value === selected)?.label ?? selected}
+      <Box sx={desktopFieldRowSx}>
+        {renderDesktopLabel(t("settings.connectionDialog.labels.visibility"), undefined, false, "connection-scope-external-label")}
+        <FormControl
+          fullWidth
+          variant={usesDesktopFormLayout ? "filled" : "outlined"}
+          sx={usesDesktopFormLayout ? desktopFilledFieldSx : undefined}
         >
-          {visibilityOptions.map((option) => (
-            <MenuItem key={option.value} value={option.value} disabled={!option.available}>
-              <Box sx={{ display: "flex", flexDirection: "column", alignItems: "flex-start", py: 0.25 }}>
-                <Typography variant="body1">{option.label}</Typography>
-                <Typography variant="caption" color="text.secondary">
-                  {option.available ? option.description : option.unavailable_reason || option.description}
-                </Typography>
-              </Box>
-            </MenuItem>
-          ))}
-        </Select>
-        <FormHelperText>{CONNECTION_DIALOG_STRINGS.HELPER_VISIBILITY}</FormHelperText>
-      </FormControl>
+          {!usesDesktopFormLayout && (
+            <InputLabel id="connection-scope-label">{t("settings.connectionDialog.labels.visibility")}</InputLabel>
+          )}
+          <Select
+            id="connection-scope"
+            labelId={usesDesktopFormLayout ? "connection-scope-external-label" : "connection-scope-label"}
+            label={usesDesktopFormLayout ? undefined : t("settings.connectionDialog.labels.visibility")}
+            value={formData.scope}
+            onChange={(event) => handleChange("scope", event.target.value as ConnectionScope)}
+            renderValue={(selected) => visibilityOptions.find((option) => option.value === selected)?.label ?? selected}
+          >
+            {visibilityOptions.map((option) => (
+              <MenuItem key={option.value} value={option.value} disabled={!option.available}>
+                <Box sx={{ display: "flex", flexDirection: "column", alignItems: "flex-start", py: 0.25 }}>
+                  <Typography variant="body1">{option.label}</Typography>
+                  <Typography variant="caption" color="text.secondary">
+                    {option.available ? option.description : option.unavailable_reason || option.description}
+                  </Typography>
+                </Box>
+              </MenuItem>
+            ))}
+          </Select>
+          <FormHelperText>{CONNECTION_DIALOG_STRINGS.HELPER_VISIBILITY}</FormHelperText>
+        </FormControl>
+      </Box>
 
-      <FormControl fullWidth variant="outlined">
-        <InputLabel id="connection-access-mode-label">{t("settings.connectionDialog.labels.accessMode")}</InputLabel>
-        <Select
-          labelId="connection-access-mode-label"
-          label={t("settings.connectionDialog.labels.accessMode")}
-          value={formData.access_mode}
-          onChange={(event) => handleChange("access_mode", event.target.value as ConnectionAccessMode)}
+      <Box sx={desktopFieldRowSx}>
+        {renderDesktopLabel(t("settings.connectionDialog.labels.accessMode"), undefined, true, "connection-access-mode-external-label")}
+        <FormControl
+          fullWidth
+          variant={usesDesktopFormLayout ? "filled" : "outlined"}
+          sx={usesDesktopFormLayout ? desktopFilledFieldSx : undefined}
         >
-          <MenuItem value="read_write">{t("settings.connectionDialog.accessMode.readWriteLabel")}</MenuItem>
-          <MenuItem value="read_only">{t("settings.connectionDialog.accessMode.readOnlyLabel")}</MenuItem>
-        </Select>
-        <FormHelperText>
-          {formData.access_mode === "read_only"
-            ? t("settings.connectionDialog.helpers.accessModeReadOnly")
-            : t("settings.connectionDialog.helpers.accessModeReadWrite")}
-        </FormHelperText>
-      </FormControl>
+          {!usesDesktopFormLayout && (
+            <InputLabel id="connection-access-mode-label">{t("settings.connectionDialog.labels.accessMode")}</InputLabel>
+          )}
+          <Select
+            id="connection-access-mode"
+            labelId={usesDesktopFormLayout ? "connection-access-mode-external-label" : "connection-access-mode-label"}
+            label={usesDesktopFormLayout ? undefined : t("settings.connectionDialog.labels.accessMode")}
+            value={formData.access_mode}
+            onChange={(event) => handleChange("access_mode", event.target.value as ConnectionAccessMode)}
+          >
+            <MenuItem value="read_write">{t("settings.connectionDialog.accessMode.readWriteLabel")}</MenuItem>
+            <MenuItem value="read_only">{t("settings.connectionDialog.accessMode.readOnlyLabel")}</MenuItem>
+          </Select>
+          <FormHelperText>
+            {formData.access_mode === "read_only"
+              ? t("settings.connectionDialog.helpers.accessModeReadOnly")
+              : t("settings.connectionDialog.helpers.accessModeReadWrite")}
+          </FormHelperText>
+        </FormControl>
+      </Box>
 
       {testResult && <Alert severity={testResult.status}>{testResult.message}</Alert>}
     </Box>
@@ -449,6 +534,7 @@ const ConnectionDialog: React.FC<ConnectionDialogProps> = ({ open, onClose, onSa
       disableClose={closeDisabled}
       title={connection ? CONNECTION_DIALOG_STRINGS.TITLE_EDIT : CONNECTION_DIALOG_STRINGS.TITLE_ADD}
       actions={actionButtons}
+      maxWidth={usesDesktopFormLayout ? "md" : "sm"}
       contentSx={{ p: isMobile ? 2 : undefined }}
       onKeyDown={handleKeyDown}
     >

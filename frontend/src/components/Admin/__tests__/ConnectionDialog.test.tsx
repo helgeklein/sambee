@@ -105,6 +105,30 @@ describe("ConnectionDialog Component", () => {
     expect(screen.getByRole("combobox", { name: /access mode/i })).toBeInTheDocument();
   });
 
+  it("uses external labels and filled fields at the md breakpoint", () => {
+    const originalMatchMedia = window.matchMedia;
+    window.matchMedia = vi.fn().mockImplementation((query: string) => ({
+      matches: query.includes("min-width"),
+      media: query,
+      onchange: null,
+      addListener: vi.fn(),
+      removeListener: vi.fn(),
+      addEventListener: vi.fn(),
+      removeEventListener: vi.fn(),
+      dispatchEvent: vi.fn(),
+    }));
+
+    try {
+      render(<ConnectionDialog open={true} onClose={mockOnClose} onSave={mockOnSave} />);
+
+      expect(screen.getByText("Connection name", { selector: "label" })).toHaveAttribute("for", "connection-name");
+      expect(screen.getByLabelText(/connection name/i).parentElement).toHaveClass("MuiFilledInput-root");
+      expect(screen.getByRole("combobox", { name: /visibility/i })).toBeInTheDocument();
+    } finally {
+      window.matchMedia = originalMatchMedia;
+    }
+  });
+
   it("shows server-defined visibility options", async () => {
     const user = userEvent.setup();
 
