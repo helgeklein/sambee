@@ -64,7 +64,7 @@ export function SettingsSidebar() {
           },
         }}
         itemIconSx={(selected: boolean) => ({ minWidth: 40, color: selected ? "primary.main" : "text.secondary" })}
-        primaryTypographyProps={(selected: boolean) => ({ fontWeight: selected ? 600 : 400 })}
+        primaryTypographyProps={(selected: boolean) => ({ sx: { fontWeight: selected ? 600 : 400 } })}
       />
     </Box>
   );
