@@ -32,16 +32,13 @@ import { getSettingsCategoryLabel, type SettingsNavItem, type VisibleSettingsSec
 type Resolvable<T> = T | ((selected: boolean, item: SettingsNavItem) => T);
 
 const SETTINGS_PARENT_ICON_GLYPH_SX: SxProps<Theme> = {
-  fontSize: {
-    xs: 24,
-    sm: 22,
-  },
+  fontSize: "1.25rem",
   transition: "none",
 };
 const SETTINGS_PARENT_TYPOGRAPHY_PROPS: Partial<TypographyProps> = {
   variant: "body1",
   sx: {
-    fontSize: "1rem",
+    fontSize: "0.875rem",
   },
 };
 const SETTINGS_SUBHEADER_SX: SxProps<Theme> = {
