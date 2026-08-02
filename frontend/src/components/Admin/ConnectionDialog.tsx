@@ -305,7 +305,7 @@ const ConnectionDialog: React.FC<ConnectionDialogProps> = ({ open, onClose, onSa
     display: { md: "grid" },
     gridTemplateColumns: { md: "minmax(0, 1fr) minmax(0, 1fr)" },
     columnGap: { md: 2 },
-    py: 2,
+    py: { xs: 1, md: 2 },
     alignItems: "start",
   };
   const desktopFieldLabelSx = { textAlign: "left" };
@@ -337,6 +337,11 @@ const ConnectionDialog: React.FC<ConnectionDialogProps> = ({ open, onClose, onSa
   const desktopOutlinedFieldSx = {
     "& .MuiOutlinedInput-root": {
       bgcolor: "background.default",
+    },
+    "& .MuiInputLabel-root.MuiInputLabel-shrink": {
+      bgcolor: "background.default",
+      px: 0.5,
+      ml: -0.5,
     },
     "& .MuiOutlinedInput-notchedOutline": {
       borderColor: (currentTheme: typeof theme) => alpha(currentTheme.palette.text.primary, 0.2),
