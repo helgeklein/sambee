@@ -285,7 +285,7 @@ const ConnectionDialog: React.FC<ConnectionDialogProps> = ({ open, onClose, onSa
     columnGap: { md: 3 },
     alignItems: "start",
   };
-  const desktopFieldLabelSx = { pt: 1.25, textAlign: "right" };
+  const desktopFieldLabelSx = { pt: 0.75, textAlign: "right" };
   const desktopFilledFieldSx = {
     "& .MuiFilledInput-root": {
       backgroundColor: (currentTheme: typeof theme) => darken(currentTheme.palette.background.default, 0.04),
@@ -321,6 +321,7 @@ const ConnectionDialog: React.FC<ConnectionDialogProps> = ({ open, onClose, onSa
           fullWidth
           required
           variant={usesDesktopFormLayout ? "filled" : "outlined"}
+          size={usesDesktopFormLayout ? "small" : "medium"}
           sx={usesDesktopFormLayout ? desktopFilledFieldSx : undefined}
         />
       </Box>
@@ -338,6 +339,7 @@ const ConnectionDialog: React.FC<ConnectionDialogProps> = ({ open, onClose, onSa
           fullWidth
           required
           variant={usesDesktopFormLayout ? "filled" : "outlined"}
+          size={usesDesktopFormLayout ? "small" : "medium"}
           sx={usesDesktopFormLayout ? desktopFilledFieldSx : undefined}
         />
       </Box>
@@ -355,6 +357,7 @@ const ConnectionDialog: React.FC<ConnectionDialogProps> = ({ open, onClose, onSa
           fullWidth
           required
           variant={usesDesktopFormLayout ? "filled" : "outlined"}
+          size={usesDesktopFormLayout ? "small" : "medium"}
           sx={usesDesktopFormLayout ? desktopFilledFieldSx : undefined}
         />
       </Box>
@@ -372,6 +375,7 @@ const ConnectionDialog: React.FC<ConnectionDialogProps> = ({ open, onClose, onSa
           fullWidth
           required
           variant={usesDesktopFormLayout ? "filled" : "outlined"}
+          size={usesDesktopFormLayout ? "small" : "medium"}
           sx={usesDesktopFormLayout ? desktopFilledFieldSx : undefined}
         />
       </Box>
@@ -393,6 +397,7 @@ const ConnectionDialog: React.FC<ConnectionDialogProps> = ({ open, onClose, onSa
           fullWidth
           required={!connection}
           variant={usesDesktopFormLayout ? "filled" : "outlined"}
+          size={usesDesktopFormLayout ? "small" : "medium"}
           sx={usesDesktopFormLayout ? desktopFilledFieldSx : undefined}
           slotProps={{
             input: {
@@ -424,6 +429,7 @@ const ConnectionDialog: React.FC<ConnectionDialogProps> = ({ open, onClose, onSa
           helperText={CONNECTION_DIALOG_STRINGS.HELPER_PATH_PREFIX}
           fullWidth
           variant={usesDesktopFormLayout ? "filled" : "outlined"}
+          size={usesDesktopFormLayout ? "small" : "medium"}
           sx={usesDesktopFormLayout ? desktopFilledFieldSx : undefined}
         />
       </Box>
@@ -433,6 +439,7 @@ const ConnectionDialog: React.FC<ConnectionDialogProps> = ({ open, onClose, onSa
         <FormControl
           fullWidth
           variant={usesDesktopFormLayout ? "filled" : "outlined"}
+          size={usesDesktopFormLayout ? "small" : "medium"}
           sx={usesDesktopFormLayout ? desktopFilledFieldSx : undefined}
         >
           {!usesDesktopFormLayout && (
@@ -443,6 +450,7 @@ const ConnectionDialog: React.FC<ConnectionDialogProps> = ({ open, onClose, onSa
             labelId={usesDesktopFormLayout ? "connection-scope-external-label" : "connection-scope-label"}
             label={usesDesktopFormLayout ? undefined : t("settings.connectionDialog.labels.visibility")}
             value={formData.scope}
+            size={usesDesktopFormLayout ? "small" : "medium"}
             onChange={(event) => handleChange("scope", event.target.value as ConnectionScope)}
             renderValue={(selected) => visibilityOptions.find((option) => option.value === selected)?.label ?? selected}
           >
@@ -466,6 +474,7 @@ const ConnectionDialog: React.FC<ConnectionDialogProps> = ({ open, onClose, onSa
         <FormControl
           fullWidth
           variant={usesDesktopFormLayout ? "filled" : "outlined"}
+          size={usesDesktopFormLayout ? "small" : "medium"}
           sx={usesDesktopFormLayout ? desktopFilledFieldSx : undefined}
         >
           {!usesDesktopFormLayout && (
@@ -476,6 +485,7 @@ const ConnectionDialog: React.FC<ConnectionDialogProps> = ({ open, onClose, onSa
             labelId={usesDesktopFormLayout ? "connection-access-mode-external-label" : "connection-access-mode-label"}
             label={usesDesktopFormLayout ? undefined : t("settings.connectionDialog.labels.accessMode")}
             value={formData.access_mode}
+            size={usesDesktopFormLayout ? "small" : "medium"}
             onChange={(event) => handleChange("access_mode", event.target.value as ConnectionAccessMode)}
           >
             <MenuItem value="read_write">{t("settings.connectionDialog.accessMode.readWriteLabel")}</MenuItem>
@@ -534,7 +544,7 @@ const ConnectionDialog: React.FC<ConnectionDialogProps> = ({ open, onClose, onSa
       disableClose={closeDisabled}
       title={connection ? CONNECTION_DIALOG_STRINGS.TITLE_EDIT : CONNECTION_DIALOG_STRINGS.TITLE_ADD}
       actions={actionButtons}
-      maxWidth={usesDesktopFormLayout ? "md" : "sm"}
+      maxWidth="sm"
       contentSx={{ p: isMobile ? 2 : undefined }}
       onKeyDown={handleKeyDown}
     >

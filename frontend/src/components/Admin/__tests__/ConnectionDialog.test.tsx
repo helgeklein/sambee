@@ -123,6 +123,8 @@ describe("ConnectionDialog Component", () => {
 
       expect(screen.getByText("Connection name", { selector: "label" })).toHaveAttribute("for", "connection-name");
       expect(screen.getByLabelText(/connection name/i).parentElement).toHaveClass("MuiFilledInput-root");
+      expect(screen.getByLabelText(/connection name/i).parentElement).toHaveClass("MuiInputBase-sizeSmall");
+      expect(document.querySelector(".MuiDialog-paperWidthSm")).not.toBeNull();
       expect(screen.getByRole("combobox", { name: /visibility/i })).toBeInTheDocument();
     } finally {
       window.matchMedia = originalMatchMedia;
