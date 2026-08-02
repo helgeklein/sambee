@@ -66,4 +66,16 @@ describe("SettingsGroup", () => {
     expect(window.getComputedStyle(heading.parentElement!).marginBottom).toBe("0px");
     expect(window.getComputedStyle(heading.parentElement!.parentElement!).marginBottom).toBe("8px");
   });
+
+  it("allows a caller to override the title-to-content spacing", () => {
+    render(
+      <SettingsGroup title="Compact heading" titleSx={{ mb: 0 }}>
+        <div>Content</div>
+      </SettingsGroup>
+    );
+
+    const heading = screen.getByRole("heading", { name: "Compact heading", level: 2 });
+
+    expect(window.getComputedStyle(heading.parentElement!).marginBottom).toBe("0px");
+  });
 });

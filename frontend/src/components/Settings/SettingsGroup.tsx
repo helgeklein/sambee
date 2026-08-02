@@ -34,6 +34,7 @@ interface SettingsGroupProps {
   actionsLayout?: SettingsGroupActionLayout;
   sx?: SxProps<Theme>;
   headerSx?: SxProps<Theme>;
+  titleSx?: SxProps<Theme>;
   actionsSx?: SxProps<Theme>;
   contentSx?: SxProps<Theme>;
 }
@@ -47,6 +48,7 @@ export function SettingsGroup({
   actionsLayout = "stacked",
   sx,
   headerSx,
+  titleSx,
   actionsSx,
   contentSx,
 }: SettingsGroupProps) {
@@ -75,16 +77,19 @@ export function SettingsGroup({
         <Box sx={resolvedHeaderSx}>
           {title && (
             <Box
-              sx={{
-                minWidth: 0,
-                mb: actions
-                  ? actionsLayout === "inline"
-                    ? 0
-                    : 1.5
-                  : level === "section"
-                    ? SETTINGS_SECTION_CONTENT_GAP[contentSpacing]
-                    : SETTINGS_SUBSECTION_CONTENT_GAP[contentSpacing],
-              }}
+              sx={[
+                {
+                  minWidth: 0,
+                  mb: actions
+                    ? actionsLayout === "inline"
+                      ? 0
+                      : 1.5
+                    : level === "section"
+                      ? SETTINGS_SECTION_CONTENT_GAP[contentSpacing]
+                      : SETTINGS_SUBSECTION_CONTENT_GAP[contentSpacing],
+                },
+                ...(Array.isArray(titleSx) ? titleSx : titleSx ? [titleSx] : []),
+              ]}
             >
               <Typography
                 component={SETTINGS_SECTION_TITLE_COMPONENT[level]}

@@ -316,15 +316,24 @@ const ConnectionDialog: React.FC<ConnectionDialogProps> = ({ open, onClose, onSa
   });
   const desktopFieldControlSx = { justifySelf: { md: "end" }, width: "100%" };
   const desktopSelectControlSx = { justifySelf: { md: "end" }, width: { md: "fit-content" } };
+  const desktopFormSurfaceSx = (currentTheme: typeof theme) => ({
+    display: "flex",
+    flexDirection: "column",
+    gap: 3,
+    mt: isMobile ? 0 : 1,
+    [currentTheme.breakpoints.up("md")]: {
+      gap: 0,
+      p: 2,
+      bgcolor: darken(currentTheme.palette.background.default, 0.04),
+      borderRadius: 1,
+    },
+  });
   const desktopFieldGroupSx = (currentTheme: typeof theme) => ({
     display: "flex",
     flexDirection: "column",
     gap: 3,
     [currentTheme.breakpoints.up("md")]: {
       gap: 0,
-      p: 2,
-      bgcolor: darken(currentTheme.palette.background.default, 0.04),
-      borderRadius: 1,
       "& > :not(:last-child)": {
         borderBottom: `1px solid ${alpha(currentTheme.palette.text.primary, 0.2)}`,
       },
@@ -372,7 +381,7 @@ const ConnectionDialog: React.FC<ConnectionDialogProps> = ({ open, onClose, onSa
 
   // Form content (shared between Dialog and Drawer)
   const formContent = (
-    <Box sx={{ display: "flex", flexDirection: "column", gap: 3, mt: isMobile ? 0 : 1 }}>
+    <Box data-testid="connection-dialog-form-surface" sx={desktopFormSurfaceSx}>
       <Box data-testid="connection-dialog-fields" sx={desktopFieldGroupSx}>
         <Box sx={desktopFieldRowSx}>
           {renderDesktopLabel(
@@ -586,7 +595,14 @@ const ConnectionDialog: React.FC<ConnectionDialogProps> = ({ open, onClose, onSa
         </Box>
       </Box>
       {usesDesktopFormLayout && (
-        <SettingsGroup title={t("settings.connectionDialog.sections.access")} level="subsection" contentSpacing="compact" />
+        <SettingsGroup
+          title={t("settings.connectionDialog.sections.access")}
+          headerSx={{
+            borderTop: (currentTheme) => `1px solid ${alpha(currentTheme.palette.text.primary, 0.2)}`,
+            pt: 2,
+          }}
+          titleSx={{ mb: 0 }}
+        />
       )}
       <Box sx={desktopFieldGroupSx}>
         <Box sx={desktopFieldRowSx}>

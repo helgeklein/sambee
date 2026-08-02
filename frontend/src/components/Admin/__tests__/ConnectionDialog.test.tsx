@@ -137,10 +137,16 @@ describe("ConnectionDialog Component", () => {
       }
       expect(primaryFieldGroup.querySelector("#connection-scope")).toBeNull();
       expect(primaryFieldGroup.querySelector("#connection-access-mode")).toBeNull();
+      const formSurface = screen.getByTestId("connection-dialog-form-surface");
+      expect(formSurface).toContainElement(primaryFieldGroup);
+      const accessHeading = screen.getByRole("heading", { name: "Access", level: 2 });
+      expect(formSurface).toContainElement(accessHeading);
+      expect(window.getComputedStyle(accessHeading.parentElement!).marginBottom).toBe("0px");
+      expect(window.getComputedStyle(accessHeading.parentElement!.parentElement!).borderTopWidth).toBe("1px");
+      expect(window.getComputedStyle(accessHeading.parentElement!.parentElement!).paddingTop).toBe("16px");
       expect(screen.getByLabelText(/connection name/i).parentElement).toHaveClass("MuiOutlinedInput-root");
       expect(screen.getByLabelText(/connection name/i).parentElement).toHaveClass("MuiInputBase-sizeSmall");
       expect(document.querySelector(".MuiDialog-paperWidthSm")).not.toBeNull();
-      expect(screen.getByRole("heading", { name: "Access", level: 3 })).toBeInTheDocument();
       expect(screen.getByText("A name to identify this connection in Sambee")).not.toHaveClass("MuiFormHelperText-root");
       const visibilitySelect = screen.getByRole("combobox", { name: /visibility/i });
       expect(visibilitySelect.closest(".MuiFormControl-root")).not.toHaveClass("MuiFormControl-fullWidth");

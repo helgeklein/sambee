@@ -50,6 +50,7 @@ describe("ResponsiveFormDialog", () => {
     expect(screen.getByRole("heading", { name: /edit user/i })).toBeInTheDocument();
     expect(screen.getByText("Update the account details below.")).toBeInTheDocument();
     expect(screen.getByText("Dialog Body")).toBeInTheDocument();
+    expect(window.getComputedStyle(screen.getByTestId("responsive-form-dialog-desktop-actions")).borderTopWidth).toBe("1px");
   });
 
   it("renders the shared description in the mobile sheet body", () => {
