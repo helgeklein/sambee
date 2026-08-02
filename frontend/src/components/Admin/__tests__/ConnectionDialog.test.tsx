@@ -66,6 +66,29 @@ describe("ConnectionDialog Component", () => {
     vi.mocked(api.getConnectionVisibilityOptions).mockResolvedValue(mockVisibilityOptions);
   });
 
+  it("uses consistent field descriptions in add and edit modes", () => {
+    const addDialog = render(<ConnectionDialog open={true} onClose={mockOnClose} onSave={mockOnSave} />);
+    const addDescriptions = [
+      "A name to identify this connection in Sambee",
+      "IP address or hostname of the SMB server",
+      "Name of the share on the server",
+      "Use DOMAIN\\USER format if needed",
+      "Password for the SMB account",
+      "Base path within the share (optional)",
+      "Choose whether this connection is private to you or shared with everyone",
+      "Browse, preview, and modify content through Sambee.",
+    ];
+
+    for (const description of addDescriptions) {
+      expect(screen.getByText(description)).toHaveClass("MuiFormHelperText-root");
+    }
+
+    addDialog.unmount();
+    render(<ConnectionDialog open={true} onClose={mockOnClose} onSave={mockOnSave} connection={mockConnection} />);
+
+    expect(screen.getByText("Leave blank to keep existing password")).toHaveClass("MuiFormHelperText-root");
+  });
+
   it("renders form fields for new connection", () => {
     render(<ConnectionDialog open={true} onClose={mockOnClose} onSave={mockOnSave} />);
 

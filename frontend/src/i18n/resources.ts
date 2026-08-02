@@ -382,11 +382,14 @@ export const EN_TRANSLATIONS = {
         accessMode: "Access mode",
       },
       helpers: {
+        name: "A name to identify this connection in Sambee",
         host: "IP address or hostname of the SMB server",
         shareName: "Name of the share on the server",
+        passwordAdd: "Password for the SMB account",
         passwordEdit: "Leave blank to keep existing password",
         pathPrefix: "Base path within the share (optional)",
         username: "Use DOMAIN\\USER format if needed",
+        visibility: "Choose whether this connection is private to you or shared with everyone",
         visibilityAdmin: "Admins can create shared connections for everyone or private connections for themselves.",
         visibilityRegular:
           "Shared connections require admin access. If you choose shared without admin access, the server will save it as private.",

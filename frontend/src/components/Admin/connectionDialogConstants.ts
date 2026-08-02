@@ -39,6 +39,9 @@ export const CONNECTION_DIALOG_STRINGS = {
   },
 
   // Helper text / descriptions
+  get HELPER_NAME() {
+    return translate("settings.connectionDialog.helpers.name");
+  },
   get HELPER_HOST() {
     return translate("settings.connectionDialog.helpers.host");
   },
@@ -47,6 +50,9 @@ export const CONNECTION_DIALOG_STRINGS = {
   },
   get HELPER_PASSWORD_EDIT() {
     return translate("settings.connectionDialog.helpers.passwordEdit");
+  },
+  get HELPER_PASSWORD_ADD() {
+    return translate("settings.connectionDialog.helpers.passwordAdd");
   },
   get HELPER_PATH_PREFIX() {
     return translate("settings.connectionDialog.helpers.pathPrefix");
@@ -59,6 +65,9 @@ export const CONNECTION_DIALOG_STRINGS = {
   },
   get HELPER_VISIBILITY_REGULAR() {
     return translate("settings.connectionDialog.helpers.visibilityRegular");
+  },
+  get HELPER_VISIBILITY() {
+    return translate("settings.connectionDialog.helpers.visibility");
   },
 
   // Error messages

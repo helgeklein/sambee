@@ -122,6 +122,9 @@ describe("ConnectionSettings", () => {
 
     await user.click(screen.getByRole("button", { name: /add connection/i }));
 
+    expect(await screen.findByText("A name to identify this connection in Sambee")).toBeInTheDocument();
+    expect(screen.getByText("Password for the SMB account")).toBeInTheDocument();
+
     const visibilitySelect = await screen.findByRole("combobox", { name: /visibility/i });
     expect(visibilitySelect).toBeInTheDocument();
 

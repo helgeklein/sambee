@@ -5,6 +5,7 @@ import {
   Button,
   CircularProgress,
   FormControl,
+  FormHelperText,
   IconButton,
   InputAdornment,
   InputLabel,
@@ -283,15 +284,10 @@ const ConnectionDialog: React.FC<ConnectionDialogProps> = ({ open, onClose, onSa
         value={formData.name}
         onChange={(e) => handleChange("name", e.target.value)}
         error={!!errors["name"]}
-        helperText={errors["name"]}
+        helperText={errors["name"] || CONNECTION_DIALOG_STRINGS.HELPER_NAME}
         fullWidth
         required
         variant="outlined"
-        slotProps={{
-          formHelperText: {
-            sx: { fontSize: "0.875rem" },
-          },
-        }}
       />
 
       <TextField
@@ -303,11 +299,6 @@ const ConnectionDialog: React.FC<ConnectionDialogProps> = ({ open, onClose, onSa
         fullWidth
         required
         variant="outlined"
-        slotProps={{
-          formHelperText: {
-            sx: { fontSize: "0.875rem" },
-          },
-        }}
       />
 
       <TextField
@@ -319,11 +310,6 @@ const ConnectionDialog: React.FC<ConnectionDialogProps> = ({ open, onClose, onSa
         fullWidth
         required
         variant="outlined"
-        slotProps={{
-          formHelperText: {
-            sx: { fontSize: "0.875rem" },
-          },
-        }}
       />
 
       <TextField
@@ -335,11 +321,6 @@ const ConnectionDialog: React.FC<ConnectionDialogProps> = ({ open, onClose, onSa
         fullWidth
         required
         variant="outlined"
-        slotProps={{
-          formHelperText: {
-            sx: { fontSize: "0.875rem" },
-          },
-        }}
       />
 
       <TextField
@@ -348,14 +329,14 @@ const ConnectionDialog: React.FC<ConnectionDialogProps> = ({ open, onClose, onSa
         value={formData.password}
         onChange={(e) => handleChange("password", e.target.value)}
         error={!!errors["password"]}
-        helperText={errors["password"] || (connection ? CONNECTION_DIALOG_STRINGS.HELPER_PASSWORD_EDIT : "")}
+        helperText={
+          errors["password"] ||
+          (connection ? CONNECTION_DIALOG_STRINGS.HELPER_PASSWORD_EDIT : CONNECTION_DIALOG_STRINGS.HELPER_PASSWORD_ADD)
+        }
         fullWidth
         required={!connection}
         variant="outlined"
         slotProps={{
-          formHelperText: {
-            sx: { fontSize: "0.875rem" },
-          },
           input: {
             endAdornment: (
               <InputAdornment position="end">
@@ -380,11 +361,6 @@ const ConnectionDialog: React.FC<ConnectionDialogProps> = ({ open, onClose, onSa
         helperText={CONNECTION_DIALOG_STRINGS.HELPER_PATH_PREFIX}
         fullWidth
         variant="outlined"
-        slotProps={{
-          formHelperText: {
-            sx: { fontSize: "0.875rem" },
-          },
-        }}
       />
 
       <FormControl fullWidth variant="outlined">
@@ -407,6 +383,7 @@ const ConnectionDialog: React.FC<ConnectionDialogProps> = ({ open, onClose, onSa
             </MenuItem>
           ))}
         </Select>
+        <FormHelperText>{CONNECTION_DIALOG_STRINGS.HELPER_VISIBILITY}</FormHelperText>
       </FormControl>
 
       <FormControl fullWidth variant="outlined">
@@ -420,11 +397,11 @@ const ConnectionDialog: React.FC<ConnectionDialogProps> = ({ open, onClose, onSa
           <MenuItem value="read_write">{t("settings.connectionDialog.accessMode.readWriteLabel")}</MenuItem>
           <MenuItem value="read_only">{t("settings.connectionDialog.accessMode.readOnlyLabel")}</MenuItem>
         </Select>
-        <Typography variant="caption" color="text.secondary" sx={{ mt: 1.25, px: 1.75 }}>
+        <FormHelperText>
           {formData.access_mode === "read_only"
             ? t("settings.connectionDialog.helpers.accessModeReadOnly")
             : t("settings.connectionDialog.helpers.accessModeReadWrite")}
-        </Typography>
+        </FormHelperText>
       </FormControl>
 
       {testResult && <Alert severity={testResult.status}>{testResult.message}</Alert>}
