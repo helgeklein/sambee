@@ -171,6 +171,7 @@ const SettingsDialog: React.FC<SettingsDialogProps> = ({
             listRole="listbox"
             listAriaLabel={t("settings.shell.categoriesAriaLabel")}
             sectionSx={{ mb: 1 }}
+            subheaderSx={{ px: 1.5 }}
             wrapItemsInListItem
             getItemRef={(item) => (element) => {
               categoryRefs.current[item] = element;
@@ -182,7 +183,7 @@ const SettingsDialog: React.FC<SettingsDialogProps> = ({
             itemButtonSx={() => ({ py: 0.5, px: 1.5 })}
             itemIconSx={(selected: boolean) => ({ minWidth: 40, color: selected ? "primary.main" : "text.secondary" })}
             primaryTypographyProps={(selected) => ({
-              fontWeight: selected ? "medium" : "normal",
+              sx: { fontWeight: selected ? "medium" : "normal" },
             })}
           />
         </Box>

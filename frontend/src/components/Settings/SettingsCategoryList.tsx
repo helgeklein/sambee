@@ -50,7 +50,6 @@ const SETTINGS_PARENT_TYPOGRAPHY_PROPS: Partial<TypographyProps> = {
 const SETTINGS_SUBHEADER_SX: SxProps<Theme> = {
   bgcolor: "transparent",
   fontWeight: 600,
-  fontSize: "12px",
   lineHeight: 2.5,
   textTransform: "uppercase",
   letterSpacing: 0.8,

@@ -52,6 +52,7 @@ export function SettingsSidebar() {
         selectedItem={selectedItem ?? undefined}
         listSx={{ flex: 1, minHeight: 0, overflowY: "auto", py: 1 }}
         sectionSx={{ mb: 1.5 }}
+        subheaderSx={{ px: 3 }}
         itemButtonSx={{
           mx: 1,
           borderRadius: 1,
