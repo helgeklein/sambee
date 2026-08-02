@@ -1,4 +1,4 @@
-import { render, screen, waitFor } from "@testing-library/react";
+import { fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { clearCachedAsyncData } from "../../hooks/useCachedAsyncData";
@@ -175,10 +175,27 @@ describe("UserManagementSettings", () => {
     const userRow = await screen.findByTestId("user-row");
     const metadata = screen.getByTestId("user-metadata");
     const actions = screen.getByTestId("user-row-actions");
+    const compactActionMenu = screen.getByTestId("user-row-action-menu");
 
     expect(userRow).toHaveStyle({ containerType: "inline-size", display: "flex", flexWrap: "wrap" });
     expect(metadata).toHaveStyle({ flexWrap: "wrap" });
-    expect(actions).toHaveStyle({ flexWrap: "wrap" });
+    expect(actions).toHaveStyle({ display: "flex" });
+    expect(compactActionMenu).toHaveStyle({ display: "none" });
+  });
+
+  it("provides compact user actions through one overflow menu", async () => {
+    render(
+      <SambeeThemeProvider>
+        <UserManagementSettings />
+      </SambeeThemeProvider>
+    );
+
+    const compactActionMenu = await screen.findByTestId("user-row-action-menu");
+    fireEvent.click(within(compactActionMenu).getByRole("button", { hidden: true, name: "User actions for admin" }));
+
+    expect(screen.getByRole("menuitem", { name: /^edit user$/i })).toBeInTheDocument();
+    expect(screen.getByRole("menuitem", { name: /^reset password$/i })).toBeInTheDocument();
+    expect(screen.getByRole("menuitem", { name: /^delete user$/i })).toHaveAttribute("aria-disabled", "true");
   });
 
   it("shows OIDC state and hides password reset for a passwordless account", async () => {

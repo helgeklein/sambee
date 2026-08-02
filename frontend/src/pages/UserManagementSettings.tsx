@@ -173,6 +173,10 @@ export function UserManagementSettings({ dialogSafeHeader = false }: UserManagem
     anchor: HTMLElement | null;
     user: AdminUser | null;
   }>({ anchor: null, user: null });
+  const [userActionsMenu, setUserActionsMenu] = useState<{
+    anchor: HTMLElement | null;
+    user: AdminUser | null;
+  }>({ anchor: null, user: null });
   const [formState, setFormState] = useState<UserFormState>(DEFAULT_USER_FORM);
   const [formError, setFormError] = useState<string | null>(null);
   const [resetPasswordForm, setResetPasswordForm] = useState<ResetPasswordFormState>(DEFAULT_RESET_PASSWORD_FORM);
@@ -298,6 +302,10 @@ export function UserManagementSettings({ dialogSafeHeader = false }: UserManagem
     });
     setFormError(null);
     setEditorOpen(true);
+  };
+
+  const closeUserActionsMenu = () => {
+    setUserActionsMenu({ anchor: null, user: null });
   };
 
   const closeEditor = useCallback(() => {
@@ -728,7 +736,6 @@ export function UserManagementSettings({ dialogSafeHeader = false }: UserManagem
                       sx={{
                         minWidth: 0,
                         flex: "1 1 0",
-                        [USER_ROW_COMPACT_CONTAINER_QUERY]: { flexBasis: "100%" },
                       }}
                     >
                       <Typography component="div" variant="body1" sx={settingsListItemTitleSx}>
@@ -840,9 +847,8 @@ export function UserManagementSettings({ dialogSafeHeader = false }: UserManagem
                       direction="row"
                       spacing={1}
                       sx={{
-                        flexWrap: "wrap",
                         alignSelf: "center",
-                        [USER_ROW_COMPACT_CONTAINER_QUERY]: { flexBasis: "100%", justifyContent: "flex-end" },
+                        [USER_ROW_COMPACT_CONTAINER_QUERY]: { display: "none" },
                       }}
                     >
                       {oidcConfiguration && !user.oidc && !user.pending_oidc && (
@@ -947,6 +953,25 @@ export function UserManagementSettings({ dialogSafeHeader = false }: UserManagem
                         </span>
                       </Tooltip>
                     </Stack>
+                    <Box
+                      data-testid="user-row-action-menu"
+                      sx={{
+                        display: "none",
+                        flexShrink: 0,
+                        alignSelf: "flex-start",
+                        [USER_ROW_COMPACT_CONTAINER_QUERY]: { display: "flex" },
+                      }}
+                    >
+                      <Tooltip title="User actions">
+                        <IconButton
+                          aria-label={`User actions for ${user.username}`}
+                          onClick={(event) => setUserActionsMenu({ anchor: event.currentTarget, user })}
+                          sx={settingsUtilityIconButtonSx}
+                        >
+                          <MoreVertIcon />
+                        </IconButton>
+                      </Tooltip>
+                    </Box>
                   </Box>
                 </ListItem>
               );
@@ -978,6 +1003,110 @@ export function UserManagementSettings({ dialogSafeHeader = false }: UserManagem
         >
           Detach OIDC identity
         </MenuItem>
+      </Menu>
+
+      <Menu anchorEl={userActionsMenu.anchor} open={Boolean(userActionsMenu.anchor)} onClose={closeUserActionsMenu}>
+        {userActionsMenu.user && (
+          <>
+            {oidcConfiguration && !userActionsMenu.user.oidc && !userActionsMenu.user.pending_oidc && (
+              <MenuItem
+                disabled={!pendingOidcMappingsAllowed}
+                onClick={() => {
+                  const user = userActionsMenu.user;
+                  closeUserActionsMenu();
+                  if (user) openMappingEditor(user, "create");
+                }}
+              >
+                <LinkIcon fontSize="small" sx={{ mr: 1.5 }} />
+                Map OIDC account
+              </MenuItem>
+            )}
+            {oidcConfiguration && userActionsMenu.user.pending_oidc && (
+              <MenuItem
+                onClick={() => {
+                  const user = userActionsMenu.user;
+                  closeUserActionsMenu();
+                  if (user) void handleCancelPendingMapping(user);
+                }}
+              >
+                <LinkOffIcon fontSize="small" sx={{ mr: 1.5 }} />
+                Cancel pending OIDC mapping
+              </MenuItem>
+            )}
+            {oidcConfiguration && userActionsMenu.user.oidc && (
+              <>
+                <MenuItem
+                  disabled={!pendingOidcMappingsAllowed}
+                  onClick={() => {
+                    const user = userActionsMenu.user;
+                    closeUserActionsMenu();
+                    if (user) openMappingEditor(user, "change");
+                  }}
+                >
+                  <LinkIcon fontSize="small" sx={{ mr: 1.5 }} />
+                  Change OIDC account
+                </MenuItem>
+                <MenuItem
+                  onClick={() => {
+                    const user = userActionsMenu.user;
+                    closeUserActionsMenu();
+                    if (user) openMappingEditor(user, "move");
+                  }}
+                >
+                  <MoreVertIcon fontSize="small" sx={{ mr: 1.5 }} />
+                  Move identity to another local user
+                </MenuItem>
+                <MenuItem
+                  onClick={() => {
+                    const user = userActionsMenu.user;
+                    closeUserActionsMenu();
+                    if (user) void handleDetachIdentity(user);
+                  }}
+                >
+                  <LinkOffIcon fontSize="small" sx={{ mr: 1.5 }} />
+                  Detach OIDC identity
+                </MenuItem>
+              </>
+            )}
+            <MenuItem
+              onClick={() => {
+                const user = userActionsMenu.user;
+                closeUserActionsMenu();
+                if (user) openEditDialog(user);
+              }}
+            >
+              <EditIcon fontSize="small" sx={{ mr: 1.5 }} />
+              {t("settings.userManagement.actions.editUser")}
+            </MenuItem>
+            {userActionsMenu.user.has_local_password && (
+              <MenuItem
+                onClick={() => {
+                  const user = userActionsMenu.user;
+                  closeUserActionsMenu();
+                  if (user) openResetPasswordDialog(user);
+                }}
+              >
+                <LockResetIcon fontSize="small" sx={{ mr: 1.5 }} />
+                {t("settings.userManagement.actions.resetPassword")}
+              </MenuItem>
+            )}
+            <MenuItem
+              disabled={Boolean(currentUserId && userActionsMenu.user.id === currentUserId)}
+              onClick={() => {
+                const user = userActionsMenu.user;
+                closeUserActionsMenu();
+                if (user) {
+                  setSelectedUser(user);
+                  setDeleteDialogOpen(true);
+                }
+              }}
+              sx={{ color: "error.main" }}
+            >
+              <DeleteIcon fontSize="small" sx={{ mr: 1.5 }} />
+              {t("settings.userManagement.actions.deleteUser")}
+            </MenuItem>
+          </>
+        )}
       </Menu>
 
       <ResponsiveFormDialog
