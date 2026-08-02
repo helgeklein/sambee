@@ -1,9 +1,14 @@
 import { Visibility, VisibilityOff } from "@mui/icons-material";
+import CheckCircleOutlineIcon from "@mui/icons-material/CheckCircleOutlined";
+import ErrorOutlineIcon from "@mui/icons-material/ErrorOutlineOutlined";
 import {
-  Alert,
   Box,
   Button,
   CircularProgress,
+  Dialog,
+  DialogActions,
+  DialogContent,
+  DialogTitle,
   FormControl,
   FormHelperText,
   IconButton,
@@ -61,6 +66,16 @@ const REQUIRED_CONNECTION_FIELDS = [
   { name: "password", inputId: "connection-password" },
 ] as const;
 
+type TestResult = {
+  status: "success" | "error";
+  message: string;
+};
+
+type ResultDialog = {
+  title: string;
+  message: string;
+};
+
 type SingleSxProp = Exclude<SxProps<Theme>, ReadonlyArray<unknown>>;
 
 function combineSx(...styles: SxProps<Theme>[]): SingleSxProp[] {
@@ -106,10 +121,8 @@ const ConnectionDialog: React.FC<ConnectionDialogProps> = ({ open, onClose, onSa
 
   const [errors, setErrors] = useState<Record<string, string>>({});
   const [testing, setTesting] = useState(false);
-  const [testResult, setTestResult] = useState<{
-    status: "success" | "error";
-    message: string;
-  } | null>(null);
+  const [testResult, setTestResult] = useState<TestResult | null>(null);
+  const [resultDialog, setResultDialog] = useState<ResultDialog | null>(null);
   const [saving, setSaving] = useState(false);
   const [showPassword, setShowPassword] = useState(false);
   const [visibilityOptions, setVisibilityOptions] = useState<ConnectionVisibilityOption[]>(() => getFallbackVisibilityOptions(t));
@@ -121,6 +134,10 @@ const ConnectionDialog: React.FC<ConnectionDialogProps> = ({ open, onClose, onSa
     }
 
     onClose();
+  };
+
+  const dismissResultDialog = () => {
+    setResultDialog(null);
   };
 
   useEffect(() => {
@@ -197,11 +214,13 @@ const ConnectionDialog: React.FC<ConnectionDialogProps> = ({ open, onClose, onSa
     }
     setErrors({});
     setTestResult(null);
+    setResultDialog(null);
     setShowPassword(false); // Reset password visibility
   }, [connection]);
 
   const handleChange = (field: keyof ConnectionCreate, value: string | number) => {
     setFormData((prev) => ({ ...prev, [field]: value }));
+    setTestResult(null);
     // Clear error for this field
     if (errors[field]) {
       setErrors((prev) => {
@@ -249,18 +268,36 @@ const ConnectionDialog: React.FC<ConnectionDialogProps> = ({ open, onClose, onSa
     setTestResult(null);
 
     try {
+      let result: TestResult;
       if (connection) {
-        // For existing connections, use the test endpoint
-        const result = await api.testConnection(connection.id);
-        setTestResult(result as { status: "success" | "error"; message: string });
+        // Test the current draft, using the stored password when it remains blank.
+        result = (await api.testConnection(connection.id, {
+          host: formData.host,
+          port: formData.port,
+          share_name: formData.share_name,
+          username: formData.username,
+          ...(formData.password ? { password: formData.password } : {}),
+          path_prefix: formData.path_prefix,
+        })) as TestResult;
       } else {
-        const result = await api.testConnectionConfig(formData);
-        setTestResult(result as { status: "success" | "error"; message: string });
+        result = (await api.testConnectionConfig(formData)) as TestResult;
+      }
+
+      setTestResult(result);
+      if (result.status === "error") {
+        setResultDialog({
+          title: t("settings.connectionDialog.results.errorDialogTitle"),
+          message: result.message,
+        });
       }
     } catch (error: unknown) {
       const message = getApiErrorMessage(error, t("settings.connectionManagement.notifications.testFailed"));
       setTestResult({
         status: "error",
+        message,
+      });
+      setResultDialog({
+        title: t("settings.connectionDialog.results.errorDialogTitle"),
         message,
       });
     } finally {
@@ -298,8 +335,8 @@ const ConnectionDialog: React.FC<ConnectionDialogProps> = ({ open, onClose, onSa
       onClose();
     } catch (error: unknown) {
       const message = getApiErrorMessage(error, t("settings.connectionManagement.notifications.saveFailed"));
-      setTestResult({
-        status: "error",
+      setResultDialog({
+        title: t("settings.connectionManagement.notifications.saveFailed"),
         message,
       });
     } finally {
@@ -630,23 +667,45 @@ const ConnectionDialog: React.FC<ConnectionDialogProps> = ({ open, onClose, onSa
           </FormControl>
         </SettingsFormRow>
       </SettingsFormGroup>
-
-      {testResult && <Alert severity={testResult.status}>{testResult.message}</Alert>}
     </SettingsFormSurface>
   );
 
   // Action buttons (shared between Dialog and Drawer)
   const actionButtons = (
     <Box sx={adminDialogSplitActionRowSx}>
-      <Button
-        onClick={handleTestConnection}
-        disabled={testing || saving}
-        variant="outlined"
-        startIcon={testing ? <CircularProgress size={18} color="inherit" /> : undefined}
-        sx={combineSx(settingsUtilityButtonSx, adminDialogStandaloneSecondaryActionSx)}
-      >
-        {CONNECTION_DIALOG_STRINGS.BUTTON_TEST}
-      </Button>
+      <Box sx={{ display: "flex", alignItems: "center", gap: 1, width: { xs: "100%", sm: "auto" } }}>
+        <Button
+          onClick={handleTestConnection}
+          disabled={testing || saving}
+          variant="outlined"
+          startIcon={testing ? <CircularProgress size={18} color="inherit" /> : undefined}
+          endIcon={
+            !usesDesktopFormLayout && testResult ? (
+              testResult.status === "success" ? (
+                <CheckCircleOutlineIcon color="success" />
+              ) : (
+                <ErrorOutlineIcon color="error" />
+              )
+            ) : undefined
+          }
+          sx={combineSx(settingsUtilityButtonSx, adminDialogStandaloneSecondaryActionSx)}
+        >
+          {CONNECTION_DIALOG_STRINGS.BUTTON_TEST}
+        </Button>
+        {usesDesktopFormLayout && testResult && (
+          <Box
+            role={testResult.status === "error" ? "alert" : "status"}
+            sx={{ display: "flex", alignItems: "center", gap: 0.5, color: `${testResult.status}.main`, whiteSpace: "nowrap" }}
+          >
+            {testResult.status === "success" ? <CheckCircleOutlineIcon fontSize="small" /> : <ErrorOutlineIcon fontSize="small" />}
+            <Typography variant="body2">
+              {testResult.status === "success"
+                ? t("settings.connectionDialog.results.success")
+                : t("settings.connectionDialog.results.error")}
+            </Typography>
+          </Box>
+        )}
+      </Box>
       <Box sx={adminDialogActionGroupSx}>
         <Button
           onClick={handleDialogClose}
@@ -670,18 +729,41 @@ const ConnectionDialog: React.FC<ConnectionDialogProps> = ({ open, onClose, onSa
   );
 
   return (
-    <ResponsiveFormDialog
-      open={open}
-      onClose={handleDialogClose}
-      disableClose={closeDisabled}
-      title={connection ? CONNECTION_DIALOG_STRINGS.TITLE_EDIT : CONNECTION_DIALOG_STRINGS.TITLE_ADD}
-      actions={actionButtons}
-      maxWidth="sm"
-      contentSx={usesDesktopFormLayout ? undefined : { p: 2 }}
-      onKeyDown={handleKeyDown}
-    >
-      {formContent}
-    </ResponsiveFormDialog>
+    <>
+      <ResponsiveFormDialog
+        open={open}
+        onClose={handleDialogClose}
+        disableClose={closeDisabled}
+        title={connection ? CONNECTION_DIALOG_STRINGS.TITLE_EDIT : CONNECTION_DIALOG_STRINGS.TITLE_ADD}
+        actions={actionButtons}
+        maxWidth="sm"
+        contentSx={usesDesktopFormLayout ? undefined : { p: 2 }}
+        onKeyDown={handleKeyDown}
+      >
+        {formContent}
+      </ResponsiveFormDialog>
+      <Dialog
+        open={Boolean(resultDialog)}
+        onClose={(_event, reason) => {
+          if (reason === "escapeKeyDown") {
+            dismissResultDialog();
+          }
+        }}
+        aria-labelledby="connection-result-dialog-title"
+        aria-describedby="connection-result-dialog-description"
+        sx={{ zIndex: (currentTheme) => currentTheme.zIndex.modal + 2 }}
+      >
+        <DialogTitle id="connection-result-dialog-title">{resultDialog?.title}</DialogTitle>
+        <DialogContent>
+          <Typography id="connection-result-dialog-description">{resultDialog?.message}</Typography>
+        </DialogContent>
+        <DialogActions>
+          <Button autoFocus onClick={dismissResultDialog}>
+            {t("common.actions.close")}
+          </Button>
+        </DialogActions>
+      </Dialog>
+    </>
   );
 };
 

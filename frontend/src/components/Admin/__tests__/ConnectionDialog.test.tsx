@@ -497,21 +497,83 @@ describe("ConnectionDialog Component", () => {
   });
 
   it("tests connection successfully", async () => {
+    const restoreViewport = mockViewportWidth(1000);
     vi.mocked(api.testConnection).mockResolvedValueOnce({
       status: "success",
       message: "Connection test successful",
     });
 
-    const user = userEvent.setup();
-    render(<ConnectionDialog open={true} onClose={mockOnClose} onSave={mockOnSave} connection={mockConnection} />);
+    try {
+      const user = userEvent.setup();
+      render(<ConnectionDialog open={true} onClose={mockOnClose} onSave={mockOnSave} connection={mockConnection} />);
 
-    // Click test connection button
-    const testButton = screen.getByRole("button", { name: /test connection/i });
-    await user.click(testButton);
+      // Click test connection button
+      const testButton = screen.getByRole("button", { name: /test connection/i });
+      await user.click(testButton);
 
-    await waitFor(() => {
-      expect(screen.getByText(/connection test successful/i)).toBeInTheDocument();
+      await waitFor(() => {
+        expect(api.testConnection).toHaveBeenCalledWith("1", {
+          host: "192.168.1.100",
+          port: 445,
+          share_name: "share1",
+          username: "testuser",
+          path_prefix: "/",
+        });
+        expect(screen.getByText("Connection successful")).toBeInTheDocument();
+        expect(screen.queryByRole("dialog", { name: "Connection test failed" })).not.toBeInTheDocument();
+      });
+    } finally {
+      restoreViewport();
+    }
+  });
+
+  it("shows an acknowledged error dialog when a connection test fails", async () => {
+    const restoreViewport = mockViewportWidth(1000);
+    vi.mocked(api.testConnection).mockResolvedValueOnce({
+      status: "error",
+      message: "Authentication failed for testuser",
     });
+
+    try {
+      const user = userEvent.setup();
+      render(<ConnectionDialog open={true} onClose={mockOnClose} onSave={mockOnSave} connection={mockConnection} />);
+
+      await user.click(screen.getByRole("button", { name: /test connection/i }));
+
+      const resultDialog = await screen.findByRole("dialog", { name: "Connection test failed" });
+      expect(resultDialog).toHaveTextContent("Authentication failed for testuser");
+      await user.keyboard("{Escape}");
+
+      await waitFor(() => {
+        expect(screen.queryByRole("dialog", { name: "Connection test failed" })).not.toBeInTheDocument();
+        expect(screen.getByText("Connection failed")).toBeInTheDocument();
+      });
+    } finally {
+      restoreViewport();
+    }
+  });
+
+  it("shows only the test outcome icon inside the button below the md breakpoint", async () => {
+    const restoreViewport = mockViewportWidth(800);
+    vi.mocked(api.testConnection).mockResolvedValueOnce({
+      status: "success",
+      message: "Connection test successful",
+    });
+
+    try {
+      const user = userEvent.setup();
+      render(<ConnectionDialog open={true} onClose={mockOnClose} onSave={mockOnSave} connection={mockConnection} />);
+
+      const testButton = screen.getByRole("button", { name: /test connection/i });
+      await user.click(testButton);
+
+      await waitFor(() => {
+        expect(testButton.querySelector("svg[data-testid='CheckCircleOutlinedIcon']")).not.toBeNull();
+        expect(screen.queryByText("Connection successful")).not.toBeInTheDocument();
+      });
+    } finally {
+      restoreViewport();
+    }
   });
 
   it("toggles password visibility", async () => {

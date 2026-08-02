@@ -71,6 +71,28 @@ async def _test_connection_details(
     return 0
 
 
+def _resolve_connection_test_details(
+    connection: Connection,
+    connection_data: ConnectionUpdate | None = None,
+) -> tuple[str, str, str, str, int, str | None]:
+    """Merge an optional connection draft with stored values for an SMB test."""
+
+    update_data = connection_data.model_dump(exclude_unset=True) if connection_data else {}
+    share_name = update_data.get("share_name") or connection.share_name
+    if not share_name:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Share name is required")
+
+    password = update_data.get("password") or decrypt_password(connection.password_encrypted)
+    return (
+        update_data.get("host") or connection.host,
+        share_name,
+        update_data.get("username") or connection.username,
+        password,
+        update_data.get("port") or connection.port,
+        update_data.get("path_prefix", connection.path_prefix),
+    )
+
+
 @router.get("/connections", response_model=list[ConnectionRead])
 async def list_connections(
     current_user: User = Depends(get_current_user_with_auth_check),
@@ -241,24 +263,19 @@ async def update_connection(
     if new_password:
         connection.password_encrypted = encrypt_password(new_password)
 
-    test_host = update_dict.get("host", connection.host)
-    test_share = update_dict.get("share_name", connection.share_name)
-    test_username = update_dict.get("username", connection.username)
-    test_port = update_dict.get("port", connection.port)
-
     if any(key in update_dict for key in ["host", "share_name", "username", "port", "path_prefix"]) or new_password is not None:
-        if not test_share:
-            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Share name is required")
-
         try:
-            password_to_test = new_password if new_password else decrypt_password(connection.password_encrypted)
+            test_host, test_share, test_username, password_to_test, test_port, test_path_prefix = _resolve_connection_test_details(
+                connection,
+                connection_data,
+            )
             await _test_connection_details(
                 host=test_host,
                 share_name=test_share,
                 username=test_username,
                 password=password_to_test,
                 port=test_port,
-                path_prefix=update_dict.get("path_prefix", connection.path_prefix),
+                path_prefix=test_path_prefix,
             )
         except TimeoutError:
             raise HTTPException(
@@ -324,8 +341,9 @@ async def test_connection(
     connection_id: uuid.UUID,
     current_user: User = Depends(get_current_user_with_auth_check),
     session: Session = Depends(get_session),
+    connection_data: ConnectionUpdate | None = None,
 ) -> dict[str, str]:
-    """Test a persisted connection."""
+    """Test a persisted connection, optionally using unsaved draft values."""
 
     require_user_write_access(current_user, action="test_connection")
     connection = get_accessible_connection_or_404(session, current_user, connection_id)
@@ -338,13 +356,17 @@ async def test_connection(
         )
 
     try:
+        test_host, test_share, test_username, test_password, test_port, test_path_prefix = _resolve_connection_test_details(
+            connection,
+            connection_data,
+        )
         listing_total = await _test_connection_details(
-            host=connection.host,
-            share_name=connection.share_name,
-            username=connection.username,
-            password=decrypt_password(connection.password_encrypted),
-            port=connection.port,
-            path_prefix=connection.path_prefix,
+            host=test_host,
+            share_name=test_share,
+            username=test_username,
+            password=test_password,
+            port=test_port,
+            path_prefix=test_path_prefix,
         )
 
         return {

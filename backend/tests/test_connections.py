@@ -369,6 +369,37 @@ class TestTestConnection:
         assert response.status_code == 200
         assert response.json()["status"] == "success"
 
+    def test_persisted_connection_test_uses_unsaved_draft_values(
+        self,
+        client: TestClient,
+        auth_headers_user: dict,
+        user_private_connection: Connection,
+    ) -> None:
+        with patch("app.api.connections._test_connection_details", new_callable=AsyncMock) as mock_test_connection:
+            mock_test_connection.return_value = 0
+
+            response = client.post(
+                f"/api/connections/{user_private_connection.id}/test",
+                headers=auth_headers_user,
+                json={
+                    "host": "does-not-exist.invalid",
+                    "port": 1445,
+                    "share_name": "draft-share",
+                    "username": "draft-user",
+                    "path_prefix": "/draft-path",
+                },
+            )
+
+        assert response.status_code == 200
+        mock_test_connection.assert_awaited_once_with(
+            host="does-not-exist.invalid",
+            share_name="draft-share",
+            username="draft-user",
+            password="privatepass123",
+            port=1445,
+            path_prefix="/draft-path",
+        )
+
     def test_regular_user_cannot_test_shared_connection(
         self,
         client: TestClient,

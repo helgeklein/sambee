@@ -337,6 +337,61 @@ describe("ConnectionSettings", () => {
     expect(screen.queryByLabelText(/add connection/i)).not.toBeInTheDocument();
   });
 
+  it("omits Test Connection from the small-screen connection actions menu", async () => {
+    mockMobileMode(true);
+    vi.mocked(api.getConnections).mockResolvedValue([
+      {
+        id: "private-1",
+        name: "Managed Private Share",
+        type: "smb",
+        host: "fileserver.local",
+        port: 445,
+        share_name: "managed-private",
+        username: "managed-user",
+        path_prefix: "/",
+        scope: "private",
+        access_mode: "read_write",
+        can_manage: true,
+      },
+    ]);
+
+    const user = userEvent.setup();
+    renderSettings();
+
+    await screen.findByText("Managed Private Share");
+    await user.click(screen.getByRole("button", { name: /connection actions/i }));
+
+    expect(screen.queryByRole("menuitem", { name: /test connection/i })).not.toBeInTheDocument();
+    expect(screen.getByRole("menuitem", { name: /^edit$/i })).toBeInTheDocument();
+    expect(screen.getByRole("menuitem", { name: /^delete$/i })).toBeInTheDocument();
+  });
+
+  it("omits Test Connection from managed desktop actions", async () => {
+    vi.mocked(api.getConnections).mockResolvedValue([
+      {
+        id: "private-1",
+        name: "Managed Private Share",
+        type: "smb",
+        host: "fileserver.local",
+        port: 445,
+        share_name: "managed-private",
+        username: "managed-user",
+        path_prefix: "/",
+        scope: "private",
+        access_mode: "read_write",
+        can_manage: true,
+      },
+    ]);
+
+    renderSettings();
+
+    await screen.findByText("Managed Private Share");
+
+    expect(screen.queryByRole("button", { name: /test connection/i })).not.toBeInTheDocument();
+    expect(screen.getByRole("button", { name: /edit connection/i })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: /delete connection/i })).toBeInTheDocument();
+  });
+
   it("shows a viewer-specific empty state when the user cannot create connections", async () => {
     vi.mocked(api.getCurrentUser).mockResolvedValue({
       id: "viewer-id",

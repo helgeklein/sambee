@@ -372,6 +372,11 @@ export const EN_TRANSLATIONS = {
         add: "Add Connection",
         edit: "Edit Connection",
       },
+      results: {
+        success: "Connection successful",
+        error: "Connection failed",
+        errorDialogTitle: "Connection test failed",
+      },
       labels: {
         name: "Connection name",
         host: "Host",

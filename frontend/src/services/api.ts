@@ -470,8 +470,10 @@ class ApiService {
     await this.api.delete(`${CONNECTIONS_API_BASE}/${connectionId}`);
   }
 
-  async testConnection(connectionId: string): Promise<{ status: string; message: string }> {
-    const response = await this.api.post(`${CONNECTIONS_API_BASE}/${connectionId}/test`);
+  async testConnection(connectionId: string, connection?: Partial<ConnectionCreate>): Promise<{ status: string; message: string }> {
+    const response = connection
+      ? await this.api.post(`${CONNECTIONS_API_BASE}/${connectionId}/test`, connection)
+      : await this.api.post(`${CONNECTIONS_API_BASE}/${connectionId}/test`);
     return response.data;
   }
 
