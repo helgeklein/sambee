@@ -1,5 +1,6 @@
 import axios, { type AxiosError, type AxiosInstance, type AxiosRequestConfig } from "axios";
 import type {
+  AboutSettings,
   AdminUser,
   AdminUserCreateInput,
   AdminUserCreateResult,
@@ -624,6 +625,11 @@ class ApiService {
 
   async getAdvancedSettings(): Promise<AdvancedSystemSettings> {
     const response = await this.api.get<AdvancedSystemSettings>("/admin/settings/advanced");
+    return response.data;
+  }
+
+  async getAboutSettings(): Promise<AboutSettings> {
+    const response = await this.api.get<AboutSettings>("/admin/settings/about");
     return response.data;
   }
 

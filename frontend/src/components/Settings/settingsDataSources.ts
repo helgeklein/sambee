@@ -3,6 +3,7 @@ import api from "../../services/api";
 import companionService, { type PairStatusResponse } from "../../services/companion";
 import { logger } from "../../services/logger";
 import type {
+  AboutSettings,
   AdminUser,
   AdvancedSystemSettings,
   CompanionDownloadMetadata,
@@ -21,6 +22,7 @@ export const SETTINGS_DATA_CACHE_KEYS = {
   adminSystem: "settings-data/admin-system",
   adminNetwork: "settings-data/admin-network",
   adminAuthentication: "settings-data/admin-authentication",
+  adminAbout: "settings-data/admin-about",
 } as const;
 
 export interface LocalDrivesSettingsData {
@@ -52,6 +54,10 @@ export async function loadUserManagementSettingsData(): Promise<UserManagementSe
 
 export async function loadAdvancedSettingsData(): Promise<AdvancedSystemSettings> {
   return api.getAdvancedSettings();
+}
+
+export async function loadAboutSettingsData(): Promise<AboutSettings> {
+  return api.getAboutSettings();
 }
 
 export async function loadNetworkSettingsData(): Promise<NetworkSettings> {
@@ -104,6 +110,8 @@ export function prefetchSettingsDataForItem(item: SettingsNavItem) {
       return primeCachedAsyncData(SETTINGS_DATA_CACHE_KEYS.adminUsers, loadUserManagementSettingsData);
     case "admin-system":
       return primeCachedAsyncData(SETTINGS_DATA_CACHE_KEYS.adminSystem, loadAdvancedSettingsData);
+    case "admin-about":
+      return primeCachedAsyncData(SETTINGS_DATA_CACHE_KEYS.adminAbout, loadAboutSettingsData);
     case "admin-network":
       return primeCachedAsyncData(SETTINGS_DATA_CACHE_KEYS.adminNetwork, loadNetworkSettingsData);
     case "admin-authentication":

@@ -13,6 +13,26 @@ from app.services.system_settings import get_integer_setting_value
 from app.services.system_settings import store as system_settings_store
 
 
+class TestAboutSettingsApi:
+    def test_admin_can_fetch_safe_about_information(self, client: TestClient, auth_headers_admin: dict[str, str]) -> None:
+        response = client.get("/api/admin/settings/about", headers=auth_headers_admin)
+
+        assert response.status_code == 200
+        data = response.json()
+        assert data["version"]
+        assert data["started_at"]
+        assert data["operating_system"]
+        assert data["architecture"]
+        assert data["python_version"]
+        assert isinstance(data["containerized"], bool)
+        assert {"hostname", "environment", "mounts", "network"}.isdisjoint(data)
+
+    def test_regular_user_cannot_fetch_about_information(self, client: TestClient, auth_headers_user: dict[str, str]) -> None:
+        response = client.get("/api/admin/settings/about", headers=auth_headers_user)
+
+        assert response.status_code == 403
+
+
 class TestAdvancedSystemSettingsApi:
     def test_returns_default_when_system_settings_table_is_missing(self, tmp_path: Path, monkeypatch) -> None:
         test_engine = create_engine(

@@ -176,6 +176,18 @@ export interface AdvancedSystemSettingsUpdate {
   reset_keys?: string[];
 }
 
+export interface AboutSettings {
+  version: string;
+  build_time: string;
+  git_commit: string;
+  started_at: string;
+  operating_system: string;
+  architecture: string;
+  python_version: string;
+  containerized: boolean;
+  logical_cpu_count: number | null;
+}
+
 export interface NetworkSettings {
   public_url: string;
   trusted_proxy_cidrs: string[];

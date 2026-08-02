@@ -159,6 +159,28 @@ export const EN_TRANSLATIONS = {
         label: "System",
         description: "Manage system-wide SMB and preprocessing runtime settings.",
       },
+      adminAbout: {
+        label: "About",
+        description: "Review Sambee build, runtime, and platform information.",
+      },
+    },
+    aboutPage: {
+      applicationTitle: "Application",
+      runtimeTitle: "Runtime",
+      platformTitle: "Platform",
+      versionLabel: "Version",
+      buildLabel: "Build",
+      commitLabel: "Commit",
+      startedLabel: "Started",
+      pythonLabel: "Python",
+      containerLabel: "Container",
+      operatingSystemLabel: "Operating system",
+      architectureLabel: "Architecture",
+      cpuCountLabel: "Logical CPUs",
+      containerizedValue: "Containerized",
+      notContainerizedValue: "Not detected",
+      unavailableValue: "Unavailable",
+      loadError: "About information could not be loaded.",
     },
     connectionsSubgroups: {
       smb: {

@@ -69,3 +69,15 @@ class NetworkSettingsRead(SQLModel):
 class NetworkSettingsUpdate(SQLModel):
     public_url: str = Field(max_length=2048)
     trusted_proxy_cidrs: list[str] = Field(default_factory=list, max_length=100)
+
+
+class AboutSettingsRead(SQLModel):
+    version: str
+    build_time: str
+    git_commit: str
+    started_at: datetime
+    operating_system: str
+    architecture: str
+    python_version: str
+    containerized: bool
+    logical_cpu_count: Optional[int] = None

@@ -1,3 +1,4 @@
+import { AboutSettings } from "../../pages/AboutSettings";
 import { AccountSettings } from "../../pages/AccountSettings";
 import { AdvancedSettings } from "../../pages/AdvancedSettings";
 import { AuthenticationSettings } from "../../pages/AuthenticationSettings";
@@ -59,6 +60,8 @@ export function SettingsCategoryContent({
       return isAdmin ? <AuthenticationSettings /> : null;
     case "admin-system":
       return isAdmin ? <AdvancedSettings dialogSafeHeader={dialogSafeHeader} /> : null;
+    case "admin-about":
+      return isAdmin ? <AboutSettings dialogSafeHeader={dialogSafeHeader} /> : null;
     case "admin-users":
       return isAdmin ? <UserManagementSettings dialogSafeHeader={dialogSafeHeader} /> : null;
   }

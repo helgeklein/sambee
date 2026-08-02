@@ -52,6 +52,10 @@ vi.mock("../../../pages/AdvancedSettings", () => ({
   AdvancedSettings: () => <div>System Settings Content</div>,
 }));
 
+vi.mock("../../../pages/AboutSettings", () => ({
+  AboutSettings: () => <div>About Settings Content</div>,
+}));
+
 import api from "../../../services/api";
 
 describe("SettingsDialog Component", () => {
@@ -123,6 +127,7 @@ describe("SettingsDialog Component", () => {
     const authenticationOption = await screen.findByRole("option", { name: /^authentication$/i });
     const userManagementOption = await screen.findByRole("option", { name: /user management/i });
     const systemOption = await screen.findByRole("option", { name: /system/i });
+    const aboutOption = await screen.findByRole("option", { name: /^about$/i });
 
     expect(appearanceOption).toBeInTheDocument();
     expect(fileBrowserOption).toBeInTheDocument();
@@ -133,6 +138,7 @@ describe("SettingsDialog Component", () => {
     expect(authenticationOption.querySelector("svg")).toBeInTheDocument();
     expect(userManagementOption).toBeInTheDocument();
     expect(systemOption).toBeInTheDocument();
+    expect(aboutOption).toBeInTheDocument();
     expect(screen.getByText("Administration")).toBeInTheDocument();
   });
 
@@ -153,6 +159,7 @@ describe("SettingsDialog Component", () => {
     expect(screen.getByRole("option", { name: /local drives/i })).toBeInTheDocument();
     expect(screen.queryByRole("option", { name: /user management/i })).not.toBeInTheDocument();
     expect(screen.queryByRole("option", { name: /system/i })).not.toBeInTheDocument();
+    expect(screen.queryByRole("option", { name: /^about$/i })).not.toBeInTheDocument();
   });
 
   it("switches to Connections when clicked", async () => {
@@ -286,6 +293,16 @@ describe("SettingsDialog Component", () => {
     expect(screen.getByText("System Settings Content")).toBeInTheDocument();
   });
 
+  it("switches to About when an admin clicks it", async () => {
+    vi.mocked(api.getCurrentUser).mockResolvedValue({ id: "admin-id", username: "admin", role: "admin" });
+    const user = userEvent.setup();
+    renderWithTheme(<SettingsDialog open={true} onClose={mockOnClose} />);
+
+    await user.click(await screen.findByRole("option", { name: /^about$/i }));
+
+    expect(screen.getByText("About Settings Content")).toBeInTheDocument();
+  });
+
   it("supports Home and End keyboard navigation in the category list", async () => {
     const user = userEvent.setup();
 
@@ -326,8 +343,8 @@ describe("SettingsDialog Component", () => {
 
     await user.keyboard("{PageDown}");
 
-    expect(screen.getByText("System Settings Content")).toBeInTheDocument();
-    expect(screen.getByRole("option", { name: /system/i })).toHaveFocus();
+    expect(screen.getByText("About Settings Content")).toBeInTheDocument();
+    expect(screen.getByRole("option", { name: /^about$/i })).toHaveFocus();
 
     await user.keyboard("{PageUp}");
 
