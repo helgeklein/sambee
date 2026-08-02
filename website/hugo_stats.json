@@ -1118,6 +1118,7 @@
       "service-ports-and-urls",
       "session-lifecycle",
       "settings",
+      "settings-overhaul",
       "shared-building-blocks",
       "shared-recipe-layer",
       "shared-token-layer",
