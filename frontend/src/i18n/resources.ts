@@ -390,12 +390,12 @@ export const EN_TRANSLATIONS = {
         passwordEdit: "Leave blank to keep existing password",
         pathPrefix: "Base path within the share (optional)",
         username: "Use DOMAIN\\USER format if needed",
-        visibility: "Choose whether this connection is private to you or shared with everyone",
+        visibility: "Choose private or shared access",
         visibilityAdmin: "Admins can create shared connections for everyone or private connections for themselves.",
         visibilityRegular:
           "Shared connections require admin access. If you choose shared without admin access, the server will save it as private.",
-        accessModeReadWrite: "Browse, preview, and modify content through Sambee.",
-        accessModeReadOnly: "Browse and preview content, but block writes and edit flows through Sambee.",
+        accessModeReadWrite: "Choose read-only or read-write access",
+        accessModeReadOnly: "Choose read-only or read-write access",
       },
       errors: {
         nameRequired: "Connection name is required",

@@ -75,8 +75,8 @@ describe("ConnectionDialog Component", () => {
       "Use DOMAIN\\USER format if needed",
       "Password for the SMB account",
       "Base path within the share (optional)",
-      "Choose whether this connection is private to you or shared with everyone",
-      "Browse, preview, and modify content through Sambee.",
+      "Choose private or shared access",
+      "Choose read-only or read-write access",
     ];
 
     for (const description of addDescriptions) {
@@ -105,7 +105,7 @@ describe("ConnectionDialog Component", () => {
     expect(screen.getByRole("combobox", { name: /access mode/i })).toBeInTheDocument();
   });
 
-  it("uses external labels and filled fields at the md breakpoint", () => {
+  it("uses external labels, compact filled fields, and label-column errors at the md breakpoint", async () => {
     const originalMatchMedia = window.matchMedia;
     window.matchMedia = vi.fn().mockImplementation((query: string) => ({
       matches: query.includes("min-width"),
@@ -119,13 +119,28 @@ describe("ConnectionDialog Component", () => {
     }));
 
     try {
+      const user = userEvent.setup();
       render(<ConnectionDialog open={true} onClose={mockOnClose} onSave={mockOnSave} />);
 
       expect(screen.getByText("Connection name", { selector: "label" })).toHaveAttribute("for", "connection-name");
       expect(screen.getByLabelText(/connection name/i).parentElement).toHaveClass("MuiFilledInput-root");
       expect(screen.getByLabelText(/connection name/i).parentElement).toHaveClass("MuiInputBase-sizeSmall");
       expect(document.querySelector(".MuiDialog-paperWidthSm")).not.toBeNull();
-      expect(screen.getByRole("combobox", { name: /visibility/i })).toBeInTheDocument();
+      expect(screen.getByText("A name to identify this connection in Sambee")).not.toHaveClass("MuiFormHelperText-root");
+      const visibilitySelect = screen.getByRole("combobox", { name: /visibility/i });
+      expect(visibilitySelect.closest(".MuiFormControl-root")).not.toHaveClass("MuiFormControl-fullWidth");
+      expect(visibilitySelect.parentElement).toHaveClass("MuiFilledInput-hiddenLabel");
+
+      await user.click(screen.getByRole("button", { name: /^save$/i }));
+
+      await waitFor(() => {
+        const hostInput = screen.getByLabelText(/host/i);
+        const hostError = screen.getByText("Host is required");
+
+        expect(hostInput).toHaveAttribute("aria-describedby", "connection-host-description");
+        expect(hostError).toHaveAttribute("id", "connection-host-description");
+        expect(hostError).not.toHaveClass("MuiFormHelperText-root");
+      });
     } finally {
       window.matchMedia = originalMatchMedia;
     }

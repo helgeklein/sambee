@@ -5,6 +5,7 @@ import {
   Button,
   CircularProgress,
   darken,
+  FilledInput,
   FormControl,
   FormHelperText,
   FormLabel,
@@ -281,11 +282,14 @@ const ConnectionDialog: React.FC<ConnectionDialogProps> = ({ open, onClose, onSa
 
   const desktopFieldRowSx = {
     display: { md: "grid" },
-    gridTemplateColumns: { md: "12rem minmax(0, 1fr)" },
-    columnGap: { md: 3 },
+    gridTemplateColumns: { md: "minmax(0, 1fr) minmax(0, 1fr)" },
+    columnGap: { md: 2 },
     alignItems: "start",
   };
-  const desktopFieldLabelSx = { pt: 0.75, textAlign: "right" };
+  const desktopFieldLabelSx = { textAlign: "left" };
+  const desktopFieldDescriptionSx = { mt: 0.25 };
+  const desktopFieldControlSx = { justifySelf: { md: "end" }, width: "100%" };
+  const desktopSelectControlSx = { justifySelf: { md: "end" }, width: { md: "fit-content" } };
   const desktopFilledFieldSx = {
     "& .MuiFilledInput-root": {
       backgroundColor: (currentTheme: typeof theme) => darken(currentTheme.palette.background.default, 0.04),
@@ -298,156 +302,272 @@ const ConnectionDialog: React.FC<ConnectionDialogProps> = ({ open, onClose, onSa
     },
   };
 
-  const renderDesktopLabel = (label: string, htmlFor?: string, required = false, id?: string) =>
+  const renderDesktopLabel = (
+    label: string,
+    description: string,
+    descriptionId: string,
+    htmlFor?: string,
+    required = false,
+    id?: string,
+    hasError = false
+  ) =>
     usesDesktopFormLayout ? (
-      <FormLabel id={id} htmlFor={htmlFor} required={required} sx={desktopFieldLabelSx}>
-        {label}
-      </FormLabel>
+      <Box>
+        <FormLabel id={id} htmlFor={htmlFor} required={required} sx={desktopFieldLabelSx}>
+          {label}
+        </FormLabel>
+        <Typography
+          id={descriptionId}
+          variant="caption"
+          component="p"
+          color={hasError ? "error" : "text.secondary"}
+          sx={desktopFieldDescriptionSx}
+        >
+          {description}
+        </Typography>
+      </Box>
     ) : null;
 
   // Form content (shared between Dialog and Drawer)
   const formContent = (
     <Box sx={{ display: "flex", flexDirection: "column", gap: 3, mt: isMobile ? 0 : 1 }}>
       <Box sx={desktopFieldRowSx}>
-        {renderDesktopLabel(CONNECTION_DIALOG_STRINGS.LABEL_NAME, "connection-name", true)}
-        <TextField
-          id="connection-name"
-          label={usesDesktopFormLayout ? undefined : CONNECTION_DIALOG_STRINGS.LABEL_NAME}
-          hiddenLabel={usesDesktopFormLayout}
-          value={formData.name}
-          onChange={(e) => handleChange("name", e.target.value)}
-          error={!!errors["name"]}
-          helperText={errors["name"] || CONNECTION_DIALOG_STRINGS.HELPER_NAME}
-          fullWidth
-          required
-          variant={usesDesktopFormLayout ? "filled" : "outlined"}
-          size={usesDesktopFormLayout ? "small" : "medium"}
-          sx={usesDesktopFormLayout ? desktopFilledFieldSx : undefined}
-        />
+        {renderDesktopLabel(
+          CONNECTION_DIALOG_STRINGS.LABEL_NAME,
+          errors["name"] || CONNECTION_DIALOG_STRINGS.HELPER_NAME,
+          "connection-name-description",
+          "connection-name",
+          true,
+          undefined,
+          !!errors["name"]
+        )}
+        <Box sx={desktopFieldControlSx}>
+          <TextField
+            id="connection-name"
+            label={usesDesktopFormLayout ? undefined : CONNECTION_DIALOG_STRINGS.LABEL_NAME}
+            hiddenLabel={usesDesktopFormLayout}
+            value={formData.name}
+            onChange={(e) => handleChange("name", e.target.value)}
+            error={!!errors["name"]}
+            helperText={usesDesktopFormLayout ? undefined : errors["name"] || CONNECTION_DIALOG_STRINGS.HELPER_NAME}
+            fullWidth
+            required
+            variant={usesDesktopFormLayout ? "filled" : "outlined"}
+            size={usesDesktopFormLayout ? "small" : "medium"}
+            sx={usesDesktopFormLayout ? desktopFilledFieldSx : undefined}
+            slotProps={{
+              htmlInput: {
+                "aria-describedby": usesDesktopFormLayout ? "connection-name-description" : undefined,
+              },
+            }}
+          />
+        </Box>
       </Box>
 
       <Box sx={desktopFieldRowSx}>
-        {renderDesktopLabel(CONNECTION_DIALOG_STRINGS.LABEL_HOST, "connection-host", true)}
-        <TextField
-          id="connection-host"
-          label={usesDesktopFormLayout ? undefined : CONNECTION_DIALOG_STRINGS.LABEL_HOST}
-          hiddenLabel={usesDesktopFormLayout}
-          value={formData.host}
-          onChange={(e) => handleChange("host", e.target.value)}
-          error={!!errors["host"]}
-          helperText={errors["host"] || CONNECTION_DIALOG_STRINGS.HELPER_HOST}
-          fullWidth
-          required
-          variant={usesDesktopFormLayout ? "filled" : "outlined"}
-          size={usesDesktopFormLayout ? "small" : "medium"}
-          sx={usesDesktopFormLayout ? desktopFilledFieldSx : undefined}
-        />
+        {renderDesktopLabel(
+          CONNECTION_DIALOG_STRINGS.LABEL_HOST,
+          errors["host"] || CONNECTION_DIALOG_STRINGS.HELPER_HOST,
+          "connection-host-description",
+          "connection-host",
+          true,
+          undefined,
+          !!errors["host"]
+        )}
+        <Box sx={desktopFieldControlSx}>
+          <TextField
+            id="connection-host"
+            label={usesDesktopFormLayout ? undefined : CONNECTION_DIALOG_STRINGS.LABEL_HOST}
+            hiddenLabel={usesDesktopFormLayout}
+            value={formData.host}
+            onChange={(e) => handleChange("host", e.target.value)}
+            error={!!errors["host"]}
+            helperText={usesDesktopFormLayout ? undefined : errors["host"] || CONNECTION_DIALOG_STRINGS.HELPER_HOST}
+            fullWidth
+            required
+            variant={usesDesktopFormLayout ? "filled" : "outlined"}
+            size={usesDesktopFormLayout ? "small" : "medium"}
+            sx={usesDesktopFormLayout ? desktopFilledFieldSx : undefined}
+            slotProps={{
+              htmlInput: {
+                "aria-describedby": usesDesktopFormLayout ? "connection-host-description" : undefined,
+              },
+            }}
+          />
+        </Box>
       </Box>
 
       <Box sx={desktopFieldRowSx}>
-        {renderDesktopLabel(CONNECTION_DIALOG_STRINGS.LABEL_SHARE_NAME, "connection-share-name", true)}
-        <TextField
-          id="connection-share-name"
-          label={usesDesktopFormLayout ? undefined : CONNECTION_DIALOG_STRINGS.LABEL_SHARE_NAME}
-          hiddenLabel={usesDesktopFormLayout}
-          value={formData.share_name}
-          onChange={(e) => handleChange("share_name", e.target.value)}
-          error={!!errors["share_name"]}
-          helperText={errors["share_name"] || CONNECTION_DIALOG_STRINGS.HELPER_SHARE_NAME}
-          fullWidth
-          required
-          variant={usesDesktopFormLayout ? "filled" : "outlined"}
-          size={usesDesktopFormLayout ? "small" : "medium"}
-          sx={usesDesktopFormLayout ? desktopFilledFieldSx : undefined}
-        />
+        {renderDesktopLabel(
+          CONNECTION_DIALOG_STRINGS.LABEL_SHARE_NAME,
+          errors["share_name"] || CONNECTION_DIALOG_STRINGS.HELPER_SHARE_NAME,
+          "connection-share-name-description",
+          "connection-share-name",
+          true,
+          undefined,
+          !!errors["share_name"]
+        )}
+        <Box sx={desktopFieldControlSx}>
+          <TextField
+            id="connection-share-name"
+            label={usesDesktopFormLayout ? undefined : CONNECTION_DIALOG_STRINGS.LABEL_SHARE_NAME}
+            hiddenLabel={usesDesktopFormLayout}
+            value={formData.share_name}
+            onChange={(e) => handleChange("share_name", e.target.value)}
+            error={!!errors["share_name"]}
+            helperText={usesDesktopFormLayout ? undefined : errors["share_name"] || CONNECTION_DIALOG_STRINGS.HELPER_SHARE_NAME}
+            fullWidth
+            required
+            variant={usesDesktopFormLayout ? "filled" : "outlined"}
+            size={usesDesktopFormLayout ? "small" : "medium"}
+            sx={usesDesktopFormLayout ? desktopFilledFieldSx : undefined}
+            slotProps={{
+              htmlInput: {
+                "aria-describedby": usesDesktopFormLayout ? "connection-share-name-description" : undefined,
+              },
+            }}
+          />
+        </Box>
       </Box>
 
       <Box sx={desktopFieldRowSx}>
-        {renderDesktopLabel(CONNECTION_DIALOG_STRINGS.LABEL_USERNAME, "connection-username", true)}
-        <TextField
-          id="connection-username"
-          label={usesDesktopFormLayout ? undefined : CONNECTION_DIALOG_STRINGS.LABEL_USERNAME}
-          hiddenLabel={usesDesktopFormLayout}
-          value={formData.username}
-          onChange={(e) => handleChange("username", e.target.value)}
-          error={!!errors["username"]}
-          helperText={errors["username"] || CONNECTION_DIALOG_STRINGS.HELPER_USERNAME}
-          fullWidth
-          required
-          variant={usesDesktopFormLayout ? "filled" : "outlined"}
-          size={usesDesktopFormLayout ? "small" : "medium"}
-          sx={usesDesktopFormLayout ? desktopFilledFieldSx : undefined}
-        />
+        {renderDesktopLabel(
+          CONNECTION_DIALOG_STRINGS.LABEL_USERNAME,
+          errors["username"] || CONNECTION_DIALOG_STRINGS.HELPER_USERNAME,
+          "connection-username-description",
+          "connection-username",
+          true,
+          undefined,
+          !!errors["username"]
+        )}
+        <Box sx={desktopFieldControlSx}>
+          <TextField
+            id="connection-username"
+            label={usesDesktopFormLayout ? undefined : CONNECTION_DIALOG_STRINGS.LABEL_USERNAME}
+            hiddenLabel={usesDesktopFormLayout}
+            value={formData.username}
+            onChange={(e) => handleChange("username", e.target.value)}
+            error={!!errors["username"]}
+            helperText={usesDesktopFormLayout ? undefined : errors["username"] || CONNECTION_DIALOG_STRINGS.HELPER_USERNAME}
+            fullWidth
+            required
+            variant={usesDesktopFormLayout ? "filled" : "outlined"}
+            size={usesDesktopFormLayout ? "small" : "medium"}
+            sx={usesDesktopFormLayout ? desktopFilledFieldSx : undefined}
+            slotProps={{
+              htmlInput: {
+                "aria-describedby": usesDesktopFormLayout ? "connection-username-description" : undefined,
+              },
+            }}
+          />
+        </Box>
       </Box>
 
       <Box sx={desktopFieldRowSx}>
-        {renderDesktopLabel(CONNECTION_DIALOG_STRINGS.LABEL_PASSWORD, "connection-password", !connection)}
-        <TextField
-          id="connection-password"
-          label={usesDesktopFormLayout ? undefined : CONNECTION_DIALOG_STRINGS.LABEL_PASSWORD}
-          hiddenLabel={usesDesktopFormLayout}
-          type={showPassword ? "text" : "password"}
-          value={formData.password}
-          onChange={(e) => handleChange("password", e.target.value)}
-          error={!!errors["password"]}
-          helperText={
-            errors["password"] ||
-            (connection ? CONNECTION_DIALOG_STRINGS.HELPER_PASSWORD_EDIT : CONNECTION_DIALOG_STRINGS.HELPER_PASSWORD_ADD)
-          }
-          fullWidth
-          required={!connection}
-          variant={usesDesktopFormLayout ? "filled" : "outlined"}
-          size={usesDesktopFormLayout ? "small" : "medium"}
-          sx={usesDesktopFormLayout ? desktopFilledFieldSx : undefined}
-          slotProps={{
-            input: {
-              endAdornment: (
-                <InputAdornment position="end">
-                  <IconButton
-                    aria-label={CONNECTION_DIALOG_STRINGS.ARIA_TOGGLE_PASSWORD}
-                    onClick={() => setShowPassword(!showPassword)}
-                    onMouseDown={(e) => e.preventDefault()}
-                    edge="end"
-                  >
-                    {showPassword ? <VisibilityOff /> : <Visibility />}
-                  </IconButton>
-                </InputAdornment>
-              ),
-            },
-          }}
-        />
+        {renderDesktopLabel(
+          CONNECTION_DIALOG_STRINGS.LABEL_PASSWORD,
+          errors["password"] ||
+            (connection ? CONNECTION_DIALOG_STRINGS.HELPER_PASSWORD_EDIT : CONNECTION_DIALOG_STRINGS.HELPER_PASSWORD_ADD),
+          "connection-password-description",
+          "connection-password",
+          !connection,
+          undefined,
+          !!errors["password"]
+        )}
+        <Box sx={desktopFieldControlSx}>
+          <TextField
+            id="connection-password"
+            label={usesDesktopFormLayout ? undefined : CONNECTION_DIALOG_STRINGS.LABEL_PASSWORD}
+            hiddenLabel={usesDesktopFormLayout}
+            type={showPassword ? "text" : "password"}
+            value={formData.password}
+            onChange={(e) => handleChange("password", e.target.value)}
+            error={!!errors["password"]}
+            helperText={
+              usesDesktopFormLayout
+                ? undefined
+                : errors["password"] ||
+                  (connection ? CONNECTION_DIALOG_STRINGS.HELPER_PASSWORD_EDIT : CONNECTION_DIALOG_STRINGS.HELPER_PASSWORD_ADD)
+            }
+            fullWidth
+            required={!connection}
+            variant={usesDesktopFormLayout ? "filled" : "outlined"}
+            size={usesDesktopFormLayout ? "small" : "medium"}
+            sx={usesDesktopFormLayout ? desktopFilledFieldSx : undefined}
+            slotProps={{
+              htmlInput: {
+                "aria-describedby": usesDesktopFormLayout ? "connection-password-description" : undefined,
+              },
+              input: {
+                endAdornment: (
+                  <InputAdornment position="end">
+                    <IconButton
+                      aria-label={CONNECTION_DIALOG_STRINGS.ARIA_TOGGLE_PASSWORD}
+                      onClick={() => setShowPassword(!showPassword)}
+                      onMouseDown={(e) => e.preventDefault()}
+                      edge="end"
+                    >
+                      {showPassword ? <VisibilityOff /> : <Visibility />}
+                    </IconButton>
+                  </InputAdornment>
+                ),
+              },
+            }}
+          />
+        </Box>
       </Box>
 
       <Box sx={desktopFieldRowSx}>
-        {renderDesktopLabel(CONNECTION_DIALOG_STRINGS.LABEL_PATH_PREFIX, "connection-path-prefix")}
-        <TextField
-          id="connection-path-prefix"
-          label={usesDesktopFormLayout ? undefined : CONNECTION_DIALOG_STRINGS.LABEL_PATH_PREFIX}
-          hiddenLabel={usesDesktopFormLayout}
-          value={formData.path_prefix}
-          onChange={(e) => handleChange("path_prefix", e.target.value)}
-          helperText={CONNECTION_DIALOG_STRINGS.HELPER_PATH_PREFIX}
-          fullWidth
-          variant={usesDesktopFormLayout ? "filled" : "outlined"}
-          size={usesDesktopFormLayout ? "small" : "medium"}
-          sx={usesDesktopFormLayout ? desktopFilledFieldSx : undefined}
-        />
+        {renderDesktopLabel(
+          CONNECTION_DIALOG_STRINGS.LABEL_PATH_PREFIX,
+          CONNECTION_DIALOG_STRINGS.HELPER_PATH_PREFIX,
+          "connection-path-prefix-description",
+          "connection-path-prefix"
+        )}
+        <Box sx={desktopFieldControlSx}>
+          <TextField
+            id="connection-path-prefix"
+            label={usesDesktopFormLayout ? undefined : CONNECTION_DIALOG_STRINGS.LABEL_PATH_PREFIX}
+            hiddenLabel={usesDesktopFormLayout}
+            value={formData.path_prefix}
+            onChange={(e) => handleChange("path_prefix", e.target.value)}
+            helperText={usesDesktopFormLayout ? undefined : CONNECTION_DIALOG_STRINGS.HELPER_PATH_PREFIX}
+            fullWidth
+            variant={usesDesktopFormLayout ? "filled" : "outlined"}
+            size={usesDesktopFormLayout ? "small" : "medium"}
+            sx={usesDesktopFormLayout ? desktopFilledFieldSx : undefined}
+            slotProps={{
+              htmlInput: {
+                "aria-describedby": usesDesktopFormLayout ? "connection-path-prefix-description" : undefined,
+              },
+            }}
+          />
+        </Box>
       </Box>
 
       <Box sx={desktopFieldRowSx}>
-        {renderDesktopLabel(t("settings.connectionDialog.labels.visibility"), undefined, false, "connection-scope-external-label")}
+        {renderDesktopLabel(
+          t("settings.connectionDialog.labels.visibility"),
+          CONNECTION_DIALOG_STRINGS.HELPER_VISIBILITY,
+          "connection-scope-description",
+          undefined,
+          false,
+          "connection-scope-external-label"
+        )}
         <FormControl
-          fullWidth
+          fullWidth={!usesDesktopFormLayout}
           variant={usesDesktopFormLayout ? "filled" : "outlined"}
           size={usesDesktopFormLayout ? "small" : "medium"}
-          sx={usesDesktopFormLayout ? desktopFilledFieldSx : undefined}
+          sx={usesDesktopFormLayout ? [desktopFilledFieldSx, desktopSelectControlSx] : undefined}
         >
           {!usesDesktopFormLayout && (
             <InputLabel id="connection-scope-label">{t("settings.connectionDialog.labels.visibility")}</InputLabel>
           )}
           <Select
             id="connection-scope"
+            input={usesDesktopFormLayout ? <FilledInput hiddenLabel size="small" /> : undefined}
             labelId={usesDesktopFormLayout ? "connection-scope-external-label" : "connection-scope-label"}
+            aria-describedby={usesDesktopFormLayout ? "connection-scope-description" : undefined}
             label={usesDesktopFormLayout ? undefined : t("settings.connectionDialog.labels.visibility")}
             value={formData.scope}
             size={usesDesktopFormLayout ? "small" : "medium"}
@@ -465,24 +585,35 @@ const ConnectionDialog: React.FC<ConnectionDialogProps> = ({ open, onClose, onSa
               </MenuItem>
             ))}
           </Select>
-          <FormHelperText>{CONNECTION_DIALOG_STRINGS.HELPER_VISIBILITY}</FormHelperText>
+          {!usesDesktopFormLayout && <FormHelperText>{CONNECTION_DIALOG_STRINGS.HELPER_VISIBILITY}</FormHelperText>}
         </FormControl>
       </Box>
 
       <Box sx={desktopFieldRowSx}>
-        {renderDesktopLabel(t("settings.connectionDialog.labels.accessMode"), undefined, true, "connection-access-mode-external-label")}
+        {renderDesktopLabel(
+          t("settings.connectionDialog.labels.accessMode"),
+          formData.access_mode === "read_only"
+            ? t("settings.connectionDialog.helpers.accessModeReadOnly")
+            : t("settings.connectionDialog.helpers.accessModeReadWrite"),
+          "connection-access-mode-description",
+          undefined,
+          false,
+          "connection-access-mode-external-label"
+        )}
         <FormControl
-          fullWidth
+          fullWidth={!usesDesktopFormLayout}
           variant={usesDesktopFormLayout ? "filled" : "outlined"}
           size={usesDesktopFormLayout ? "small" : "medium"}
-          sx={usesDesktopFormLayout ? desktopFilledFieldSx : undefined}
+          sx={usesDesktopFormLayout ? [desktopFilledFieldSx, desktopSelectControlSx] : undefined}
         >
           {!usesDesktopFormLayout && (
             <InputLabel id="connection-access-mode-label">{t("settings.connectionDialog.labels.accessMode")}</InputLabel>
           )}
           <Select
             id="connection-access-mode"
+            input={usesDesktopFormLayout ? <FilledInput hiddenLabel size="small" /> : undefined}
             labelId={usesDesktopFormLayout ? "connection-access-mode-external-label" : "connection-access-mode-label"}
+            aria-describedby={usesDesktopFormLayout ? "connection-access-mode-description" : undefined}
             label={usesDesktopFormLayout ? undefined : t("settings.connectionDialog.labels.accessMode")}
             value={formData.access_mode}
             size={usesDesktopFormLayout ? "small" : "medium"}
@@ -491,11 +622,13 @@ const ConnectionDialog: React.FC<ConnectionDialogProps> = ({ open, onClose, onSa
             <MenuItem value="read_write">{t("settings.connectionDialog.accessMode.readWriteLabel")}</MenuItem>
             <MenuItem value="read_only">{t("settings.connectionDialog.accessMode.readOnlyLabel")}</MenuItem>
           </Select>
-          <FormHelperText>
-            {formData.access_mode === "read_only"
-              ? t("settings.connectionDialog.helpers.accessModeReadOnly")
-              : t("settings.connectionDialog.helpers.accessModeReadWrite")}
-          </FormHelperText>
+          {!usesDesktopFormLayout && (
+            <FormHelperText>
+              {formData.access_mode === "read_only"
+                ? t("settings.connectionDialog.helpers.accessModeReadOnly")
+                : t("settings.connectionDialog.helpers.accessModeReadWrite")}
+            </FormHelperText>
+          )}
         </FormControl>
       </Box>
 
