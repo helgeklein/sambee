@@ -121,7 +121,8 @@ RUN python -m venv /workspace/backend/.venv && \
     rm -rf /tmp/wheels
 COPY backend/ ./backend/
 COPY VERSION ./VERSION
-COPY scripts/setup-test-images ./scripts/setup-test-images
+COPY .github/ ./.github/
+COPY scripts/ ./scripts/
 ENV PYTHONPATH=/workspace/backend
 
 # Production target: Python backend with built frontend.

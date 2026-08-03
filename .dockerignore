@@ -4,7 +4,6 @@
 .gitattributes
 
 # Unused top-level content
-.github
 companion/
 data/
 images/
