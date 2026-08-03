@@ -80,4 +80,7 @@ class AboutSettingsRead(SQLModel):
     logical_cpu_count: Optional[int] = None
     memory_bytes: Optional[int] = None
     python_runtime: str
-    database_version: str
+
+
+class PublicSupportReportRead(SQLModel):
+    content: str

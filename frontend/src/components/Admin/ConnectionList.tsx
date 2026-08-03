@@ -39,10 +39,10 @@ const ConnectionList: React.FC<ConnectionListProps> = ({ connections, onEdit, on
   if (connections.length === 0) {
     return (
       <Box sx={{ p: 4, textAlign: "center" }}>
-        <Typography variant="h6" color="text.secondary">
+        <Typography variant="h6" sx={{ color: "text.secondary" }}>
           {t("settings.connectionManagement.emptyTitle")}
         </Typography>
-        <Typography variant="body2" color="text.secondary" sx={{ mt: 1 }}>
+        <Typography variant="body2" sx={{ mt: 1, color: "text.secondary" }}>
           {t("settings.connectionManagement.emptyAdminDescription")}
         </Typography>
       </Box>

@@ -1,5 +1,5 @@
 import ContentCopyIcon from "@mui/icons-material/ContentCopy";
-import { Alert, IconButton, Table, TableBody, TableCell, TableRow, Tooltip } from "@mui/material";
+import { Alert, IconButton, Menu, MenuItem, Table, TableBody, TableCell, TableRow, Tooltip } from "@mui/material";
 import { useCallback, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { SettingsNotificationSnackbar, type SettingsNotificationState } from "../components/Settings/SettingsFeedback";
@@ -9,6 +9,7 @@ import { SettingsSectionList } from "../components/Settings/SettingsSectionList"
 import { SettingsLoadingState } from "../components/Settings/SettingsState";
 import { loadAboutSettingsData, SETTINGS_DATA_CACHE_KEYS } from "../components/Settings/settingsDataSources";
 import { useCachedAsyncData } from "../hooks/useCachedAsyncData";
+import api from "../services/api";
 import type { AboutSettings as AboutSettingsData } from "../types";
 import { getApiErrorMessage } from "../utils/apiErrors";
 import { formatLocalizedNumber } from "../utils/localeFormatting";
@@ -62,6 +63,7 @@ export function AboutSettings({ dialogSafeHeader = false }: AboutSettingsProps) 
   const { t } = useTranslation();
   const [error, setError] = useState<string | null>(null);
   const [notification, setNotification] = useState<SettingsNotificationState>({ open: false, message: "", severity: "success" });
+  const [copyMenuAnchor, setCopyMenuAnchor] = useState<HTMLElement | null>(null);
   const handleLoadError = useCallback(
     (loadError: unknown) => setError(getApiErrorMessage(loadError, t("settings.aboutPage.loadError"))),
     [t]
@@ -89,7 +91,6 @@ export function AboutSettings({ dialogSafeHeader = false }: AboutSettingsProps) 
       t("settings.aboutPage.runtimeTitle"),
       `${t("settings.aboutPage.startedLabel")}: ${formatBuildTime(data.started_at)}`,
       `${t("settings.aboutPage.pythonLabel")}: ${data.python_runtime}`,
-      `${t("settings.aboutPage.databaseLabel")}: ${t("settings.aboutPage.databaseValue", { version: data.database_version })}`,
       "",
       t("settings.aboutPage.platformTitle"),
       `${t("settings.aboutPage.architectureLabel")}: ${data.architecture}`,
@@ -102,6 +103,22 @@ export function AboutSettings({ dialogSafeHeader = false }: AboutSettingsProps) 
       () => setNotification({ open: true, message: t("settings.aboutPage.copyError"), severity: "error" })
     );
   }, [data, formatOptionalMemory, t, unavailable]);
+  const copyPublicSupportReport = useCallback(() => {
+    setCopyMenuAnchor(null);
+    void api.getPublicSupportReport().then(
+      (report) =>
+        navigator.clipboard.writeText(report.content).then(
+          () => setNotification({ open: true, message: t("settings.aboutPage.copyPublicSupportReportSuccess"), severity: "success" }),
+          () => setNotification({ open: true, message: t("settings.aboutPage.copyPublicSupportReportError"), severity: "error" })
+        ),
+      () => setNotification({ open: true, message: t("settings.aboutPage.copyPublicSupportReportError"), severity: "error" })
+    );
+  }, [t]);
+
+  const handleCopyAboutInformation = useCallback(() => {
+    setCopyMenuAnchor(null);
+    copyAboutInformation();
+  }, [copyAboutInformation]);
 
   return (
     <SettingsPage category="admin-about" dialogSafeHeader={dialogSafeHeader}>
@@ -114,11 +131,20 @@ export function AboutSettings({ dialogSafeHeader = false }: AboutSettingsProps) 
             contentSpacing="compact"
             actionsLayout="inline"
             actions={
-              <Tooltip title={t("settings.aboutPage.copyTooltip")}>
-                <IconButton aria-label={t("settings.aboutPage.copyAriaLabel")} onClick={copyAboutInformation}>
-                  <ContentCopyIcon />
-                </IconButton>
-              </Tooltip>
+              <>
+                <Tooltip title={t("settings.aboutPage.copyTooltip")}>
+                  <IconButton
+                    aria-label={t("settings.aboutPage.copyAriaLabel")}
+                    onClick={(event) => setCopyMenuAnchor(event.currentTarget)}
+                  >
+                    <ContentCopyIcon />
+                  </IconButton>
+                </Tooltip>
+                <Menu anchorEl={copyMenuAnchor} open={Boolean(copyMenuAnchor)} onClose={() => setCopyMenuAnchor(null)}>
+                  <MenuItem onClick={handleCopyAboutInformation}>{t("settings.aboutPage.copyAboutMenuItem")}</MenuItem>
+                  <MenuItem onClick={copyPublicSupportReport}>{t("settings.aboutPage.copyPublicSupportReportMenuItem")}</MenuItem>
+                </Menu>
+              </>
             }
           >
             <Table aria-label={t("settings.aboutPage.applicationTitle")} size="small" sx={{ tableLayout: "fixed", width: "100%" }}>
@@ -133,12 +159,7 @@ export function AboutSettings({ dialogSafeHeader = false }: AboutSettingsProps) 
             <Table aria-label={t("settings.aboutPage.runtimeTitle")} size="small" sx={{ tableLayout: "fixed", width: "100%" }}>
               <TableBody>
                 <AboutValueRow label={t("settings.aboutPage.startedLabel")} value={formatBuildTime(data.started_at)} />
-                <AboutValueRow label={t("settings.aboutPage.pythonLabel")} value={data.python_runtime} />
-                <AboutValueRow
-                  label={t("settings.aboutPage.databaseLabel")}
-                  value={t("settings.aboutPage.databaseValue", { version: data.database_version })}
-                  isLast
-                />
+                <AboutValueRow label={t("settings.aboutPage.pythonLabel")} value={data.python_runtime} isLast />
               </TableBody>
             </Table>
           </SettingsGroup>

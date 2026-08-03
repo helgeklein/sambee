@@ -81,7 +81,7 @@ const HamburgerMenu: React.FC<HamburgerMenuProps> = ({
         {/* Connection Selector */}
         {connections.length > 0 && (
           <Box sx={{ mb: 2 }}>
-            <Typography variant="caption" color="text.secondary" sx={{ mb: 1, display: "block" }}>
+            <Typography variant="caption" sx={{ mb: 1, display: "block", color: "text.secondary" }}>
               {t("common.labels.connection")}
             </Typography>
             <FormControl fullWidth size="small">
@@ -95,7 +95,7 @@ const HamburgerMenu: React.FC<HamburgerMenuProps> = ({
                   <MenuItem key={conn.id} value={conn.id}>
                     {conn.name}
                     {selectedConnection && (
-                      <Typography variant="caption" color="text.secondary" sx={{ ml: 1 }}>
+                      <Typography variant="caption" sx={{ ml: 1, color: "text.secondary" }}>
                         ({conn.host}/{conn.share_name})
                       </Typography>
                     )}

@@ -1,4 +1,3 @@
-import { Visibility, VisibilityOff } from "@mui/icons-material";
 import CheckCircleOutlineIcon from "@mui/icons-material/CheckCircleOutlined";
 import ErrorOutlineIcon from "@mui/icons-material/ErrorOutlineOutlined";
 import {
@@ -11,8 +10,6 @@ import {
   DialogTitle,
   FormControl,
   FormHelperText,
-  IconButton,
-  InputAdornment,
   InputLabel,
   MenuItem,
   Select,
@@ -40,7 +37,11 @@ import {
   settingsFormFieldControlSx,
   settingsFormOutlinedControlSx,
   settingsFormSelectControlSx,
+  settingsSelectMenuProps,
+  settingsSelectSx,
 } from "../Settings/SettingsFormLayout";
+import { SettingsPasswordVisibilityToggle } from "../Settings/SettingsPasswordVisibilityToggle";
+import { SettingsSelectMenuItem } from "../Settings/SettingsSelectMenuItem";
 import { settingsPrimaryButtonSx, settingsUtilityButtonSx } from "../Settings/settingsButtonStyles";
 import { CONNECTION_DIALOG_STRINGS } from "./connectionDialogConstants";
 import {
@@ -535,16 +536,12 @@ const ConnectionDialog: React.FC<ConnectionDialogProps> = ({ open, onClose, onSa
                 },
                 input: {
                   endAdornment: (
-                    <InputAdornment position="end">
-                      <IconButton
-                        aria-label={CONNECTION_DIALOG_STRINGS.ARIA_TOGGLE_PASSWORD}
-                        onClick={() => setShowPassword(!showPassword)}
-                        onMouseDown={(e) => e.preventDefault()}
-                        edge="end"
-                      >
-                        {showPassword ? <VisibilityOff /> : <Visibility />}
-                      </IconButton>
-                    </InputAdornment>
+                    <SettingsPasswordVisibilityToggle
+                      visible={showPassword}
+                      onToggle={() => setShowPassword((current) => !current)}
+                      showLabel={CONNECTION_DIALOG_STRINGS.ARIA_TOGGLE_PASSWORD}
+                      hideLabel={CONNECTION_DIALOG_STRINGS.ARIA_TOGGLE_PASSWORD}
+                    />
                   ),
                 },
               }}
@@ -609,16 +606,17 @@ const ConnectionDialog: React.FC<ConnectionDialogProps> = ({ open, onClose, onSa
               size={usesDesktopFormLayout ? "small" : "medium"}
               onChange={(event) => handleChange("scope", event.target.value as ConnectionScope)}
               renderValue={(selected) => visibilityOptions.find((option) => option.value === selected)?.label ?? selected}
+              sx={settingsSelectSx}
+              MenuProps={settingsSelectMenuProps}
             >
               {visibilityOptions.map((option) => (
-                <MenuItem key={option.value} value={option.value} disabled={!option.available}>
-                  <Box sx={{ display: "flex", flexDirection: "column", alignItems: "flex-start", py: 0.25 }}>
-                    <Typography variant="body1">{option.label}</Typography>
-                    <Typography variant="caption" color="text.secondary">
-                      {option.available ? option.description : option.unavailable_reason || option.description}
-                    </Typography>
-                  </Box>
-                </MenuItem>
+                <SettingsSelectMenuItem
+                  key={option.value}
+                  value={option.value}
+                  label={option.label}
+                  description={option.available ? option.description : option.unavailable_reason || option.description}
+                  disabled={!option.available}
+                />
               ))}
             </Select>
             {!usesDesktopFormLayout && <FormHelperText>{CONNECTION_DIALOG_STRINGS.HELPER_VISIBILITY}</FormHelperText>}
@@ -653,6 +651,8 @@ const ConnectionDialog: React.FC<ConnectionDialogProps> = ({ open, onClose, onSa
               value={formData.access_mode}
               size={usesDesktopFormLayout ? "small" : "medium"}
               onChange={(event) => handleChange("access_mode", event.target.value as ConnectionAccessMode)}
+              sx={settingsSelectSx}
+              MenuProps={settingsSelectMenuProps}
             >
               <MenuItem value="read_write">{t("settings.connectionDialog.accessMode.readWriteLabel")}</MenuItem>
               <MenuItem value="read_only">{t("settings.connectionDialog.accessMode.readOnlyLabel")}</MenuItem>

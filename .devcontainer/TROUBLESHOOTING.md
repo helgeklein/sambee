@@ -78,7 +78,7 @@ tail -50 /tmp/backend.log
 1. **Start backend manually:**
    ```bash
    cd /workspace/backend
-   uvicorn app.main:app --reload --host 0.0.0.0 --port 8000 --no-proxy-headers
+   .venv/bin/python -m uvicorn app.main:app --reload --host 0.0.0.0 --port 8000 --no-proxy-headers
    ```
 
 2. **Check for Python errors:**
@@ -92,7 +92,7 @@ tail -50 /tmp/backend.log
    # If missing or corrupted, reset:
    cd /workspace/backend
    rm -f /workspace/data/sambee.db
-   python -c 'from app.db.database import init_db; init_db()'
+   .venv/bin/python -c 'from app.db.database import init_db; init_db()'
    ```
 
 4. **Run VS Code task:**
@@ -320,7 +320,7 @@ This archives current logs and starts fresh files. Useful when logs exceed sever
 cd /workspace/backend
 /workspace/scripts/dev-stop
 rm -f /workspace/data/sambee.db
-python -c 'from app.db.database import init_db; init_db()'
+.venv/bin/python -c 'from app.db.database import init_db; init_db()'
 /workspace/scripts/dev-start
 ```
 
@@ -344,7 +344,7 @@ Then restart backend:
 ```bash
 pkill -f uvicorn
 cd /workspace/backend
-uvicorn app.main:app --reload --host 0.0.0.0 --port 8000 --no-proxy-headers
+.venv/bin/python -m uvicorn app.main:app --reload --host 0.0.0.0 --port 8000 --no-proxy-headers
 ```
 
 ### Inspect database
@@ -369,7 +369,7 @@ SELECT id, username, is_admin FROM user;
 
 ```bash
 # Python version
-python --version
+.venv/bin/python --version
 
 # Node version
 node --version
@@ -378,7 +378,7 @@ node --version
 npm --version
 
 # Check Python packages
-pip list | grep -E "fastapi|uvicorn|smbclient"
+.venv/bin/python -m pip list | grep -E "fastapi|uvicorn|smbclient"
 
 # Check npm packages
 cd /workspace/frontend

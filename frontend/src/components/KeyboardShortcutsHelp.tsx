@@ -130,26 +130,11 @@ export const KeyboardShortcutsHelp: React.FC<KeyboardShortcutsHelpProps> = ({ op
   })();
 
   return (
-    <Dialog
-      open={open}
-      onClose={handleDialogClose}
-      onKeyDownCapture={handleDialogKeyDown}
-      maxWidth="sm"
-      fullWidth
-      slotProps={{
-        paper: {
-          sx: {
-            bgcolor: "background.default",
-          },
-        },
-      }}
-    >
+    <Dialog open={open} onClose={handleDialogClose} onKeyDownCapture={handleDialogKeyDown} maxWidth="sm" fullWidth>
       <DialogTitle>{dialogTitle}</DialogTitle>
-      <DialogContent sx={{ bgcolor: "background.default" }}>
+      <DialogContent>
         {groupedShortcuts.length === 0 ? (
-          <Box sx={{ py: 2, textAlign: "center", backgroundColor: "background.default", color: "text.secondary" }}>
-            {t("keyboardShortcutsHelp.emptyState")}
-          </Box>
+          <Box sx={{ py: 2, textAlign: "center", color: "text.secondary" }}>{t("keyboardShortcutsHelp.emptyState")}</Box>
         ) : (
           <Box>
             {groupedShortcuts.map((section, index) => (

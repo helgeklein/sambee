@@ -24,6 +24,7 @@ import {
   mobileScrollableContentSx,
   SAFE_AREA_INSET,
 } from "../../theme/mobileShell";
+import { DIALOG_FORM_SURFACE_CSS_VARIABLE, DIALOG_SURFACE_CSS_VARIABLE, getDialogSurfaceTokens } from "../../theme/palette";
 
 interface ResponsiveFormDialogProps {
   open: boolean;
@@ -64,7 +65,7 @@ export function ResponsiveFormDialog({
   const renderedDescription = description ? (
     <Box id={descriptionId} sx={{ mb: 3 }}>
       {typeof description === "string" ? (
-        <Typography variant="body2" color="text.secondary">
+        <Typography variant="body2" sx={{ color: "text.secondary" }}>
           {description}
         </Typography>
       ) : (
@@ -117,7 +118,16 @@ export function ResponsiveFormDialog({
         sx={{ zIndex: (currentTheme) => currentTheme.zIndex.modal + dialogZIndexOffset }}
         slotProps={{
           paper: {
-            sx: mobileFullscreenDrawerPaperSx,
+            sx: (currentTheme) => {
+              const dialogSurfaces = getDialogSurfaceTokens(currentTheme.palette.background.default, currentTheme.palette.mode);
+
+              return {
+                ...mobileFullscreenDrawerPaperSx,
+                backgroundColor: dialogSurfaces.paper,
+                [DIALOG_SURFACE_CSS_VARIABLE]: dialogSurfaces.paper,
+                [DIALOG_FORM_SURFACE_CSS_VARIABLE]: dialogSurfaces.form,
+              };
+            },
           },
         }}
       >
@@ -145,7 +155,6 @@ export function ResponsiveFormDialog({
                 ...mobileScrollableContentSx,
                 p: 2,
                 pb: `calc(16px + ${SAFE_AREA_INSET.BOTTOM})`,
-                bgcolor: "background.default",
               },
               ...(Array.isArray(contentSx) ? contentSx : contentSx ? [contentSx] : []),
             ]}
@@ -169,7 +178,6 @@ export function ResponsiveFormDialog({
               pr: `calc(16px + ${SAFE_AREA_INSET.RIGHT})`,
               borderTop: 1,
               borderColor: "divider",
-              bgcolor: "background.default",
               zIndex: 1,
             }}
           >
@@ -190,23 +198,13 @@ export function ResponsiveFormDialog({
       maxWidth={maxWidth}
       fullWidth
       sx={{ zIndex: (currentTheme) => currentTheme.zIndex.modal + dialogZIndexOffset }}
-      slotProps={{
-        paper: {
-          sx: {
-            bgcolor: "background.default",
-          },
-        },
-      }}
     >
       <DialogTitle id={titleId}>{title}</DialogTitle>
-      <DialogContent sx={[{ bgcolor: "background.default" }, ...(Array.isArray(contentSx) ? contentSx : contentSx ? [contentSx] : [])]}>
+      <DialogContent sx={Array.isArray(contentSx) ? contentSx : contentSx ? [contentSx] : undefined}>
         {renderedDescription}
         {children}
       </DialogContent>
-      <DialogActions
-        data-testid="responsive-form-dialog-desktop-actions"
-        sx={{ borderTop: 1, borderColor: "divider", bgcolor: "background.default" }}
-      >
+      <DialogActions data-testid="responsive-form-dialog-desktop-actions" sx={{ borderTop: 1, borderColor: "divider" }}>
         {actions}
       </DialogActions>
     </Dialog>

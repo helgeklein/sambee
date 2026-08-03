@@ -26,11 +26,14 @@ export interface ThemeConfig {
   /** Background colors */
   background?: {
     default?: string;
+    /** MUI compatibility value. Standard application surfaces use default instead. */
     paper?: string;
   };
-  /** Text colors */
+  /** Standard UI foreground colors. Use semantic exceptions for disabled, status, and content-rendering colors. */
   text?: {
+    /** High-emphasis text for headings, values, active labels, and primary task information. */
     primary?: string;
+    /** Supporting text and passive icons for descriptions, metadata, captions, and helper copy. */
     secondary?: string;
   };
   /** Action/interaction colors */
@@ -38,29 +41,11 @@ export interface ThemeConfig {
     selected?: string;
     /** Darker selected state for controls that need stronger contrast than the default selection fill. */
     selectedDarker?: string;
-    /** Focus outline color for keyboard navigation */
+    /** Legacy custom-theme focus override. New themes derive focus from the primary palette. */
     focus?: string;
   };
   /** Component-specific semantic colors */
   components?: {
-    /** App bar colors - adapts to theme mode */
-    appBar?: {
-      /** Background color for the app bar */
-      background: string;
-      /** Text color on the app bar */
-      text: string;
-      /** Focus outline color for buttons in the app bar */
-      focus?: string;
-    };
-    /** Status bar colors - adapts to theme mode */
-    statusBar?: {
-      /** Background color for the status bar */
-      background: string;
-      /** Text color on the status bar (primary) */
-      text: string;
-      /** Muted text color on the status bar (secondary) */
-      textSecondary: string;
-    };
     /** Link colors */
     link?: {
       /** Default link color */
@@ -106,10 +91,16 @@ export interface ThemeConfig {
       /** Selected-state background for the secondary markdown editor toolbar */
       secondaryToolbarSelected?: string;
     };
-    /** Alert message styles for info/warning/error states */
+    /** Alert message styles for info/success/warning/error states */
     alert?: {
       /** Info alert colors */
       info: {
+        background: string;
+        text: string;
+        icon: string;
+      };
+      /** Success alert colors */
+      success: {
         background: string;
         text: string;
         icon: string;
@@ -189,25 +180,25 @@ export const THEME_SCHEMA: Record<string, ThemeFieldSchema> = {
   },
   primary: {
     label: "Primary Color",
-    description: "Used for main interactive elements like buttons, links, and the app bar",
+    description: "Defines default, high-emphasis, and pressed interactive color roles",
     type: "color",
     required: true,
     fields: {
       main: {
         label: "Main",
-        description: "The dominant brand color used throughout the app",
+        description: "Default color for primary controls and selected navigation",
         type: "color",
         required: true,
       },
       light: {
         label: "Light Variant",
-        description: "Used for hover states and subtle highlights",
+        description: "High-emphasis color for dark-mode hover and emphasis states",
         type: "color",
         required: false,
       },
       dark: {
         label: "Dark Variant",
-        description: "Used for pressed states and emphasis",
+        description: "Pressed and contrast-sensitive color for light-mode controls",
         type: "color",
         required: false,
       },
@@ -221,7 +212,7 @@ export const THEME_SCHEMA: Record<string, ThemeFieldSchema> = {
   },
   background: {
     label: "Background Colors",
-    description: "Controls the overall page and surface colors",
+    description: "Controls the standard application surface and MUI compatibility values",
     type: "color",
     required: false,
     fields: {
@@ -233,7 +224,7 @@ export const THEME_SCHEMA: Record<string, ThemeFieldSchema> = {
       },
       paper: {
         label: "Paper Background",
-        description: "Color for elevated surfaces like cards and dialogs",
+        description: "Compatibility value for Material UI; standard app surfaces use Default Background",
         type: "color",
         required: false,
       },
@@ -285,52 +276,6 @@ export const THEME_SCHEMA: Record<string, ThemeFieldSchema> = {
     type: "color",
     required: false,
     fields: {
-      appBar: {
-        label: "App Bar",
-        description: "Colors for the top application bar",
-        type: "color",
-        required: false,
-        fields: {
-          background: {
-            label: "Background",
-            description: "App bar background color - typically primary color in light mode, paper in dark mode",
-            type: "color",
-            required: false,
-          },
-          text: {
-            label: "Text",
-            description: "Text color on app bar - must contrast with background",
-            type: "color",
-            required: false,
-          },
-        },
-      },
-      statusBar: {
-        label: "Status Bar",
-        description: "Colors for the bottom status bar",
-        type: "color",
-        required: false,
-        fields: {
-          background: {
-            label: "Background",
-            description: "Status bar background color - typically matches app bar styling",
-            type: "color",
-            required: false,
-          },
-          text: {
-            label: "Text",
-            description: "Primary text color on status bar",
-            type: "color",
-            required: false,
-          },
-          textSecondary: {
-            label: "Secondary Text",
-            description: "Muted text color on status bar for less important information",
-            type: "color",
-            required: false,
-          },
-        },
-      },
       search: {
         label: "Search Highlights",
         description: "Colors for current and non-current search matches across viewers and editors",

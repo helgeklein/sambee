@@ -85,7 +85,7 @@
     {
       "label": "Backend: Run Tests",
       "type": "shell",
-      "command": "pytest -v",
+      "command": ".venv/bin/python -m pytest -v",
       "options": {
         "cwd": "${workspaceFolder}/backend"
       },
@@ -98,7 +98,7 @@
     {
       "label": "Backend: Type Check (mypy)",
       "type": "shell",
-      "command": "mypy app",
+      "command": ".venv/bin/python -m mypy app",
       "options": {
         "cwd": "${workspaceFolder}/backend"
       },

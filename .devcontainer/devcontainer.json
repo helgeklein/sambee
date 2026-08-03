@@ -3,6 +3,10 @@
   "dockerComposeFile": "docker-compose.yml",
   "service": "devcontainer",
   "workspaceFolder": "/workspace",
+  "remoteEnv": {
+    "PATH": "/home/vscode/.local/cargo-tools/bin:${containerEnv:PATH}"
+  },
+  "waitFor": "postCreateCommand",
   "customizations": {
     "vscode": {
       "extensions": [
@@ -30,7 +34,11 @@
         "python.testing.pytestPath": "pytest",
         "python.testing.cwd": "${workspaceFolder}/backend",
         // Python Configuration
-        "python.defaultInterpreterPath": "/usr/local/bin/python",
+        "python.defaultInterpreterPath": "${workspaceFolder}/backend/.venv/bin/python",
+        "python-envs.workspaceSearchPaths": [
+          "backend/.venv"
+        ],
+        "python-envs.alwaysUseUv": false,
         "python.analysis.typeCheckingMode": "basic",
         // File Handling
         "files.eol": "\n",

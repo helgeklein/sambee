@@ -7,7 +7,8 @@ from sqlmodel.pool import StaticPool
 
 import app.db.database as database_module
 from app.core.system_setting_definitions import SystemSettingKey
-from app.models.oidc import OidcFlow, OidcFlowPurpose, OidcFlowStatus
+from app.models.connection import Connection
+from app.models.oidc import OidcFlow, OidcFlowPurpose, OidcFlowStatus, OidcProviderConfiguration
 from app.models.system_settings import SystemSetting
 from app.services.system_settings import get_integer_setting_value
 from app.services.system_settings import store as system_settings_store
@@ -23,11 +24,86 @@ class TestAboutSettingsApi:
         assert data["started_at"]
         assert data["architecture"]
         assert data["python_runtime"]
-        assert data["database_version"]
+        assert "database_version" not in data
         assert {"containerized", "environment", "hostname", "mounts", "network", "operating_system"}.isdisjoint(data)
 
     def test_regular_user_cannot_fetch_about_information(self, client: TestClient, auth_headers_user: dict[str, str]) -> None:
         response = client.get("/api/admin/settings/about", headers=auth_headers_user)
+
+        assert response.status_code == 403
+
+
+class TestPublicSupportReportApi:
+    def test_admin_can_fetch_public_safe_report(self, client: TestClient, auth_headers_admin: dict[str, str], session: Session) -> None:
+        public_url = "https://files.northwind.example"
+        trusted_proxy = "10.42.0.0/16"
+        issuer_url = "https://login.northwind.example/tenant-a"
+        client_id = "northwind-sambee-client"
+        client_secret = "northwind-oidc-super-secret"
+        group_name = "Northwind-Administrators"
+        connection_name = "Northwind Finance"
+        connection_host = "fileserver.northwind.internal"
+        connection_share = "Finance"
+        connection_username = "northwind-service"
+        connection_password = "encrypted-northwind-password"
+
+        session.add_all(
+            [
+                SystemSetting(key="network.public_url", value=public_url),
+                SystemSetting(key="network.trusted_proxy_cidrs", value=trusted_proxy),
+                SystemSetting(key="auth.mode", value="oidc_or_password"),
+                OidcProviderConfiguration(
+                    display_name="Northwind Identity",
+                    issuer_url=issuer_url,
+                    client_id=client_id,
+                    encrypted_client_secret=client_secret,
+                    scopes_json='["openid", "northwind.files.read"]',
+                    admission_groups_json=f'["{group_name}"]',
+                    role_mappings_json=f'{{"admin":["{group_name}"],"editor":[],"viewer":[]}}',
+                ),
+                Connection(
+                    name=connection_name,
+                    host=connection_host,
+                    share_name=connection_share,
+                    username=connection_username,
+                    password_encrypted=connection_password,
+                ),
+            ]
+        )
+        session.commit()
+
+        response = client.get("/api/admin/settings/support-report", headers=auth_headers_admin)
+
+        assert response.status_code == 200
+        report = response.json()["content"]
+        assert "# Sambee public support report" in report
+        assert 'public_url = "https://public-endpoint-1.invalid"' in report
+        assert 'trusted_proxy_cidrs = ["ipv4-network-1/16"]' in report
+        assert 'oidc.provider = "oidc-provider-1"' in report
+        assert 'oidc.issuer_url = "https://oidc-provider-1.invalid/oidc-provider-path-1"' in report
+        assert 'oidc.client_id = "oidc-client-1"' in report
+        assert 'oidc.admission_groups = ["oidc-group-1"]' in report
+        assert 'oidc.role_mappings.admin = ["oidc-group-1"]' in report
+        assert "total = 1 # source: ui" in report
+        assert 'by_type = {"smb": 1} # source: ui' in report
+
+        for sensitive_value in (
+            public_url,
+            trusted_proxy,
+            issuer_url,
+            client_id,
+            client_secret,
+            group_name,
+            connection_name,
+            connection_host,
+            connection_share,
+            connection_username,
+            connection_password,
+        ):
+            assert sensitive_value not in report
+
+    def test_regular_user_cannot_fetch_public_support_report(self, client: TestClient, auth_headers_user: dict[str, str]) -> None:
+        response = client.get("/api/admin/settings/support-report", headers=auth_headers_user)
 
         assert response.status_code == 403
 
@@ -152,7 +228,9 @@ class TestNetworkSettingsApi:
             "public_url": "https://files.example.test",
             "trusted_proxy_cidrs": ["10.0.0.0/24", "2001:db8::/64"],
         }
-        assert session.get(SystemSetting, "network.public_url").value == "https://files.example.test"
+        stored_public_url = session.get(SystemSetting, "network.public_url")
+        assert stored_public_url is not None
+        assert stored_public_url.value == "https://files.example.test"
 
     def test_network_settings_reject_public_url_path(self, client: TestClient, auth_headers_admin: dict[str, str]) -> None:
         response = client.put(

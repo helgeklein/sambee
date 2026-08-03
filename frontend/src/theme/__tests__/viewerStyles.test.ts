@@ -1,6 +1,6 @@
 import { createTheme, type Theme } from "@mui/material/styles";
 import { describe, expect, it } from "vitest";
-import { getMarkdownCodeSurfaceColors, getMarkdownContentStyles } from "../viewerStyles";
+import { getMarkdownCodeSurfaceColors, getMarkdownContentStyles, getViewerToolbarForegroundColors } from "../viewerStyles";
 
 function createMuiTheme(mode: "light" | "dark"): Theme {
   return createTheme({
@@ -15,6 +15,16 @@ function resolveThemeValue<T>(value: T | ((theme: Theme) => T), theme: Theme): T
 }
 
 describe("viewerStyles markdown regressions", () => {
+  it("derives toolbar foreground variants from the configured toolbar text", () => {
+    expect(getViewerToolbarForegroundColors("#ffffff")).toEqual({
+      border: "rgba(255, 255, 255, 0.3)",
+      borderHover: "rgba(255, 255, 255, 0.5)",
+      disabled: "rgba(255, 255, 255, 0.4)",
+      muted: "rgba(255, 255, 255, 0.7)",
+      subtleBackground: "rgba(255, 255, 255, 0.08)",
+    });
+  });
+
   it("uses the website dark code palette for markdown code surfaces", () => {
     const darkTheme = createMuiTheme("dark");
 

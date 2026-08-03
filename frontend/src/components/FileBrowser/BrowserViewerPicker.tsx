@@ -116,7 +116,7 @@ export function BrowserViewerPicker({
     <Dialog open={open} onClose={onClose} onKeyDown={handleDialogKeyDown} fullWidth maxWidth="sm" disableAutoFocus>
       <DialogTitle>{t("fileBrowser.viewerPicker.title")}</DialogTitle>
       <DialogContent>
-        <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
+        <Typography variant="body2" sx={{ mb: 2, color: "text.secondary" }}>
           {fileName}
         </Typography>
         <List

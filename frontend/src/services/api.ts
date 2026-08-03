@@ -26,8 +26,16 @@ import type {
   FileInfo,
   NetworkSettings,
   NetworkSettingsUpdate,
+  OidcAdminConfigurationRead,
   OidcBrowserSessionList,
   OidcBrowserSessionRevokeResult,
+  OidcConfigurationCandidate,
+  OidcFinalizeResponse,
+  OidcMappingMutationResponse,
+  OidcReviewedPolicy,
+  OidcTestedIdentity,
+  OidcTestStartResponse,
+  PublicSupportReport,
   User,
 } from "../types";
 import { FileType } from "../types";
@@ -100,6 +108,10 @@ function isViewerBlobRequest(config: AxiosError["config"] | undefined): boolean 
 
 function normalizeUser(user: User): User {
   return { ...user };
+}
+
+function getResponseContentType(value: unknown, fallback: string): string {
+  return typeof value === "string" ? value : fallback;
 }
 
 function getCompanionServerUrl(apiBaseUrl: string | undefined): string {
@@ -429,7 +441,6 @@ class ApiService {
   }
 
   async validateToken(): Promise<boolean> {
-    this.skipRedirectOnce = true;
     try {
       await this.getCurrentUser();
       return true;
@@ -632,6 +643,11 @@ class ApiService {
 
   async getAboutSettings(): Promise<AboutSettings> {
     const response = await this.api.get<AboutSettings>("/admin/settings/about");
+    return response.data;
+  }
+
+  async getPublicSupportReport(): Promise<PublicSupportReport> {
+    const response = await this.api.get<PublicSupportReport>("/admin/settings/support-report");
     return response.data;
   }
 
@@ -993,7 +1009,7 @@ class ApiService {
         signal: options.signal,
       });
 
-      const contentType = response.headers["content-type"] ?? "application/octet-stream";
+      const contentType = getResponseContentType(response.headers["content-type"], "application/octet-stream");
       const data = response.data instanceof ArrayBuffer ? response.data : new ArrayBuffer(0);
       return new Blob([data], { type: contentType });
     } catch (error) {
@@ -1203,7 +1219,7 @@ class ApiService {
         signal: options.signal,
       });
 
-      const contentType = response.headers["content-type"] ?? "application/octet-stream";
+      const contentType = getResponseContentType(response.headers["content-type"], "application/octet-stream");
       const data = response.data instanceof ArrayBuffer ? response.data : new ArrayBuffer(0);
       return new Blob([data], { type: contentType });
     } catch (error) {
@@ -1270,7 +1286,7 @@ class ApiService {
         signal: options.signal,
       });
 
-      const contentType = response.headers["content-type"] ?? "application/pdf";
+      const contentType = getResponseContentType(response.headers["content-type"], "application/pdf");
       // response.data is an ArrayBuffer when responseType is 'arraybuffer'
       return new Blob([response.data], { type: contentType });
     } catch (error) {

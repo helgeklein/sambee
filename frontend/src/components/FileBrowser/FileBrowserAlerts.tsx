@@ -5,7 +5,6 @@
 import { Alert, Box, Button, Link, Typography } from "@mui/material";
 import { useTranslation } from "react-i18next";
 import type { BackendAvailabilityStatus } from "../../services/backendAvailability";
-import { useSambeeTheme } from "../../theme/ThemeContext";
 import { EmptyStateIllustration } from "./EmptyStateIllustration";
 
 export type CompanionLifecycleStatus = "renewal_required" | "auth_failed" | "lock_lost" | "recovery_required";
@@ -56,24 +55,7 @@ export function FileBrowserAlerts({
   onDismissCompanionLifecycleStatus,
   onRetry,
 }: FileBrowserAlertsProps) {
-  const { currentTheme } = useSambeeTheme();
   const { t } = useTranslation();
-  const alertStyles = currentTheme.components?.alert;
-
-  // Get themed alert colors with fallbacks
-  const getAlertStyles = (severity: "info" | "warning" | "error") => {
-    const styles = alertStyles?.[severity];
-    if (styles) {
-      return {
-        backgroundColor: styles.background,
-        color: styles.text,
-        "& .MuiAlert-icon": {
-          color: styles.icon,
-        },
-      };
-    }
-    return {};
-  };
 
   // Show welcome/onboarding when no connections
   if (connectionsCount === 0 && !error && !loadingConnections && backendAvailabilityStatus === "available") {
@@ -97,7 +79,7 @@ export function FileBrowserAlerts({
         </Typography>
 
         {isAdmin ? (
-          <Typography variant="body1" color="text.secondary" sx={{ maxWidth: 400 }}>
+          <Typography variant="body1" sx={{ maxWidth: 400, color: "text.secondary" }}>
             {t("fileBrowser.chrome.alerts.adminOnboardingPrefix")}
             {onOpenConnectionsSettings ? (
               <Link
@@ -118,7 +100,7 @@ export function FileBrowserAlerts({
             {t("fileBrowser.chrome.alerts.adminOnboardingSuffix")}
           </Typography>
         ) : (
-          <Typography variant="body1" color="text.secondary" sx={{ maxWidth: 400 }}>
+          <Typography variant="body1" sx={{ maxWidth: 400, color: "text.secondary" }}>
             {t("fileBrowser.chrome.alerts.regularOnboarding")}
           </Typography>
         )}
@@ -131,7 +113,7 @@ export function FileBrowserAlerts({
       {error && (
         <Alert
           severity="error"
-          sx={{ mb: 2, mx: 2, ...getAlertStyles("error") }}
+          sx={{ mb: 2, mx: 2 }}
           action={
             onRetry ? (
               <Button color="inherit" size="small" onClick={onRetry}>
@@ -147,7 +129,7 @@ export function FileBrowserAlerts({
       {companionLifecycleStatus && !error && (
         <Alert
           severity={companionLifecycleStatus === "lock_lost" ? "error" : "warning"}
-          sx={{ mb: 2, mx: 2, ...getAlertStyles(companionLifecycleStatus === "lock_lost" ? "error" : "warning") }}
+          sx={{ mb: 2, mx: 2 }}
           action={
             onDismissCompanionLifecycleStatus ? (
               <Button color="inherit" size="small" onClick={onDismissCompanionLifecycleStatus}>
@@ -161,19 +143,19 @@ export function FileBrowserAlerts({
       )}
 
       {backendAvailabilityStatus === "unavailable" && (
-        <Alert severity="warning" sx={{ mb: 2, mx: 2, ...getAlertStyles("warning") }}>
+        <Alert severity="warning" sx={{ mb: 2, mx: 2 }}>
           {t("fileBrowser.chrome.alerts.backendUnavailable")}
         </Alert>
       )}
 
       {backendAvailabilityStatus === "reconnecting" && (
-        <Alert severity="info" sx={{ mb: 2, mx: 2, ...getAlertStyles("info") }}>
+        <Alert severity="info" sx={{ mb: 2, mx: 2 }}>
           {t("fileBrowser.chrome.alerts.backendReconnecting")}
         </Alert>
       )}
 
       {loadingConnections && !error && (
-        <Alert severity="info" sx={{ mb: 2, mx: 2, ...getAlertStyles("info") }}>
+        <Alert severity="info" sx={{ mb: 2, mx: 2 }}>
           {t("fileBrowser.chrome.alerts.loadingConnections")}
         </Alert>
       )}

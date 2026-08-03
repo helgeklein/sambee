@@ -25,7 +25,7 @@ function CommandResultRow({ command }: { command: BrowserCommandDefinition }) {
               <Typography variant="body2" noWrap>
                 {command.title}
               </Typography>
-              <Typography variant="caption" color="text.secondary" noWrap>
+              <Typography variant="caption" sx={{ color: "text.secondary" }} noWrap>
                 {command.category}
                 {command.description ? ` • ${command.description}` : ""}
               </Typography>

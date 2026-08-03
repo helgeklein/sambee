@@ -146,7 +146,7 @@ const OverwriteConflictDialog: React.FC<OverwriteConflictDialogProps> = ({ open,
           >
             {/* Incoming file (source — on the left) */}
             <Box>
-              <Typography variant="subtitle2" color="text.secondary" sx={{ mb: 0.5 }}>
+              <Typography variant="subtitle2" sx={{ mb: 0.5, color: "text.secondary" }}>
                 {S.LABEL_INCOMING}
               </Typography>
               <Typography variant="body2">{formatBytes(conflict.incoming_file.size)}</Typography>
@@ -158,7 +158,7 @@ const OverwriteConflictDialog: React.FC<OverwriteConflictDialogProps> = ({ open,
 
             {/* Existing file (destination — on the right) */}
             <Box>
-              <Typography variant="subtitle2" color="text.secondary" sx={{ mb: 0.5 }}>
+              <Typography variant="subtitle2" sx={{ mb: 0.5, color: "text.secondary" }}>
                 {S.LABEL_EXISTING}
               </Typography>
               <Typography variant="body2">{formatBytes(conflict.existing_file.size)}</Typography>
@@ -177,7 +177,7 @@ const OverwriteConflictDialog: React.FC<OverwriteConflictDialogProps> = ({ open,
             />
 
             {/* Progress context */}
-            <Typography variant="caption" color="text.secondary" display="block" sx={{ mt: 0.5 }}>
+            <Typography variant="caption" display="block" sx={{ mt: 0.5, color: "text.secondary" }}>
               {S.PROGRESS_CONTEXT(progress.current, progress.total, progress.conflictsSoFar)}
             </Typography>
           </>

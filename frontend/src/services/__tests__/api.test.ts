@@ -58,11 +58,13 @@ const mockAxiosInstance = mockedAxios.create() as ReturnType<typeof mockedAxios.
   delete: ReturnType<typeof vi.fn>;
   request: ReturnType<typeof vi.fn>;
 };
-const requestInterceptorHandlers = mockAxiosInstance.interceptors.request.use.mock.calls[0] as
+const requestInterceptorUse = vi.mocked(mockAxiosInstance.interceptors.request.use);
+const requestInterceptorHandlers = requestInterceptorUse.mock.calls[0] as
   | [((config: { url?: string; headers: Record<string, string> }) => Promise<unknown>)?, ((error: unknown) => Promise<never>)?]
   | undefined;
 const requestHandler = requestInterceptorHandlers?.[0];
-const responseInterceptorHandlers = mockAxiosInstance.interceptors.response.use.mock.calls[0] as
+const responseInterceptorUse = vi.mocked(mockAxiosInstance.interceptors.response.use);
+const responseInterceptorHandlers = responseInterceptorUse.mock.calls[0] as
   | [((response: AxiosResponse) => AxiosResponse | Promise<AxiosResponse>)?, ((error: unknown) => Promise<never>)?]
   | undefined;
 const responseSuccessHandler = responseInterceptorHandlers?.[0];
@@ -108,7 +110,7 @@ describe("API Service", () => {
     it("retries a session-control 401 after refreshing the OIDC token", async () => {
       const requestRefresh = vi
         .spyOn(authSession, "requestRefresh")
-        .mockResolvedValue({ access_token: "renewed-token", token_type: "bearer" });
+        .mockResolvedValue({ access_token: "renewed-token", token_type: "bearer", username: "testuser" });
       mockAxiosInstance.request.mockResolvedValue({ data: { sessions: [] } });
       const error = {
         response: { status: 401, headers: {} },
@@ -147,9 +149,12 @@ describe("API Service", () => {
       "flow-id",
       {
         sign_in_mode: "oidc_only",
+        interactive_reauthentication_max_age_days: 30,
         admission_mode: "selected_groups",
         admission_groups: ["users"],
-        role_mappings: { admin: ["admins"], editor: [] },
+        role_assignment_mode: "uniform",
+        uniform_role: "editor",
+        role_mappings: { admin: ["admins"], editor: [], viewer: [] },
       },
       [],
       1,
@@ -162,9 +167,12 @@ describe("API Service", () => {
         flow_id: "flow-id",
         reviewed_policy: {
           sign_in_mode: "oidc_only",
+          interactive_reauthentication_max_age_days: 30,
           admission_mode: "selected_groups",
           admission_groups: ["users"],
-          role_mappings: { admin: ["admins"], editor: [] },
+          role_assignment_mode: "uniform",
+          uniform_role: "editor",
+          role_mappings: { admin: ["admins"], editor: [], viewer: [] },
         },
         replacement_mappings: [],
         expected_identity_mapping_revision: 1,
@@ -274,6 +282,10 @@ describe("API Service", () => {
           file_browser_view_mode: "details",
           pane_mode: "dual",
           selected_connection_id: "conn-123",
+          viewer_associations: {},
+        },
+        text_editor: {
+          max_file_size_bytes: 1048576,
         },
       };
 
@@ -309,6 +321,10 @@ describe("API Service", () => {
           file_browser_view_mode: "details",
           pane_mode: "dual",
           selected_connection_id: "conn-123",
+          viewer_associations: {},
+        },
+        text_editor: {
+          max_file_size_bytes: 1048576,
         },
       };
 
@@ -559,7 +575,6 @@ describe("API Service", () => {
         logical_cpu_count: 4,
         memory_bytes: 8589934592,
         python_runtime: "CPython 3.13.12",
-        database_version: "3.48.0",
       };
       mockAxiosInstance.get.mockResolvedValueOnce({ data: aboutSettings } as AxiosResponse);
 
@@ -567,6 +582,16 @@ describe("API Service", () => {
 
       expect(result).toEqual(aboutSettings);
       expect(mockAxiosInstance.get).toHaveBeenCalledWith("/admin/settings/about");
+    });
+
+    it("getPublicSupportReport() returns public-safe support text", async () => {
+      const supportReport = { content: "# Sambee public support report" };
+      mockAxiosInstance.get.mockResolvedValueOnce({ data: supportReport } as AxiosResponse);
+
+      const result = await apiService.getPublicSupportReport();
+
+      expect(result).toEqual(supportReport);
+      expect(mockAxiosInstance.get).toHaveBeenCalledWith("/admin/settings/support-report");
     });
 
     it("updateAdvancedSettings() forwards reset keys", async () => {
@@ -818,7 +843,7 @@ describe("API Service", () => {
     });
 
     it("saveTextFile() uploads text content to the same path", async () => {
-      authSession.setAuthenticated({ access_token: "save-token", token_type: "bearer" }, false);
+      authSession.setAuthenticated({ access_token: "save-token", token_type: "bearer", username: "testuser" }, false);
       fetchMock.mockResolvedValueOnce({
         ok: true,
       });

@@ -1,13 +1,13 @@
 import type { SxProps, Theme } from "@mui/material";
 import { alpha } from "@mui/material";
-import { getContainedButtonFocusVisibleBoxShadow, getElevatedButtonFocusRing } from "../../theme/commonStyles";
+import { getContainedButtonFocusVisibleBoxShadow, getControlAccentColor, getElevatedButtonFocusRing } from "../../theme/commonStyles";
 
 const SETTINGS_BUTTON_MIN_HEIGHT_PX = 40;
 const SETTINGS_ICON_BUTTON_SIZE_PX = 36;
 const SETTINGS_FAB_OFFSET_PX = 16;
 
 function getSettingsAccentColor(theme: Theme): string {
-  return theme.palette.primary.dark ?? theme.palette.primary.main;
+  return getControlAccentColor(theme);
 }
 
 function getSettingsSurfaceTint(theme: Theme): string {
@@ -86,6 +86,13 @@ export const settingsUtilityIconButtonSx: SxProps<Theme> = {
     borderColor: (theme) => getSettingsAccentColor(theme),
     bgcolor: (theme) => alpha(theme.palette.primary.main, theme.palette.mode === "dark" ? 0.3 : 0.2),
     boxShadow: (theme) => getSettingsFocusRing(theme),
+  },
+};
+
+export const settingsSubduedIconButtonSx: SxProps<Theme> = {
+  color: "text.secondary",
+  "&:hover": {
+    color: "text.primary",
   },
 };
 

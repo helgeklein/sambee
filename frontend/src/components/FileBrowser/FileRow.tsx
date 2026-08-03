@@ -168,7 +168,7 @@ export const FileRow = React.memo(
                 <>
                   <Box sx={fileRowStyles.iconBox}>{icon}</Box>
                   <Box sx={fileRowStyles.contentBox}>
-                    <Typography variant="body2" noWrap title={file.name} color="text.primary" sx={rowTextSx}>
+                    <Typography variant="body2" noWrap title={file.name} sx={{ ...rowTextSx, color: "text.primary" }}>
                       {file.name}
                     </Typography>
                   </Box>
@@ -186,19 +186,18 @@ export const FileRow = React.memo(
                 >
                   <Box sx={fileRowStyles.iconBox}>{icon}</Box>
                   <Box sx={{ ...fileRowStyles.contentBox, minWidth: 0 }}>
-                    <Typography variant="body2" noWrap title={file.name} color="text.primary" sx={rowTextSx}>
+                    <Typography variant="body2" noWrap title={file.name} sx={{ ...rowTextSx, color: "text.primary" }}>
                       {file.name}
                     </Typography>
                   </Box>
                   <Typography
                     variant="body2"
-                    color="text.secondary"
-                    sx={{ textAlign: "right", minWidth: "80px", ml: 1, mr: 3, ...rowTextSx }}
+                    sx={{ textAlign: "right", minWidth: "80px", ml: 1, mr: 3, ...rowTextSx, color: "text.secondary" }}
                     noWrap
                   >
                     {file.type === "directory" ? "" : formatFileSize(file.size)}
                   </Typography>
-                  <Typography variant="body2" color="text.secondary" sx={rowTextSx} noWrap>
+                  <Typography variant="body2" sx={{ ...rowTextSx, color: "text.secondary" }} noWrap>
                     {formatDate(file.modified_at)}
                   </Typography>
                 </Box>

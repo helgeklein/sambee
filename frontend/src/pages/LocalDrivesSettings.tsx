@@ -5,7 +5,7 @@ import LinkOffIcon from "@mui/icons-material/LinkOff";
 import OpenInNewIcon from "@mui/icons-material/OpenInNew";
 import RadioButtonUncheckedIcon from "@mui/icons-material/RadioButtonUnchecked";
 import UsbIcon from "@mui/icons-material/Usb";
-import { Box, Button, Chip, Stack, Typography } from "@mui/material";
+import { alpha, Box, Button, Chip, Stack, Typography } from "@mui/material";
 import { type ReactNode, useCallback, useEffect, useMemo, useState } from "react";
 import CompanionPairingDialog from "../components/FileBrowser/CompanionPairingDialog";
 import { LOCAL_DRIVES_PAGE_COPY } from "../components/Settings/localDrivesCopy";
@@ -25,6 +25,7 @@ import {
   loadLocalDrivesSettingsData,
   SETTINGS_DATA_CACHE_KEYS,
 } from "../components/Settings/settingsDataSources";
+import { getSettingsPageSurfaceColor } from "../components/Settings/settingsSurface";
 import { useCachedAsyncData } from "../hooks/useCachedAsyncData";
 import companionService, { clearStoredSecret, hasStoredSecret } from "../services/companion";
 import { logger } from "../services/logger";
@@ -353,7 +354,7 @@ export function LocalDrivesSettings({ onConnectionsChanged, sectionTitle, sectio
     borderRadius: 2,
     px: { xs: 2, sm: 2.5 },
     py: 2,
-    bgcolor: "background.default",
+    bgcolor: getSettingsPageSurfaceColor,
   };
   const summaryBadgeSx =
     summaryState.badgeVariant === "themed"
@@ -364,8 +365,8 @@ export function LocalDrivesSettings({ onConnectionsChanged, sectionTitle, sectio
           borderColor: `${summaryState.badgeVariant}.main`,
           bgcolor: (theme: import("@mui/material").Theme) =>
             summaryState.badgeVariant === "success"
-              ? theme.palette.success.main + (theme.palette.mode === "dark" ? "29" : "14")
-              : theme.palette.warning.main + (theme.palette.mode === "dark" ? "29" : "14"),
+              ? alpha(theme.palette.success.main, theme.palette.mode === "dark" ? 0.16 : 0.08)
+              : alpha(theme.palette.warning.main, theme.palette.mode === "dark" ? 0.16 : 0.08),
         };
   const shouldShowInstallSection = showStatusContent && !loading && viewState === "unavailable";
   const shouldShowPairingSection =
@@ -398,7 +399,7 @@ export function LocalDrivesSettings({ onConnectionsChanged, sectionTitle, sectio
                     <Typography variant="h6" fontWeight="medium">
                       {summaryState.title}
                     </Typography>
-                    <Typography variant="body2" color="text.secondary" sx={{ mt: 0.75, maxWidth: 720 }}>
+                    <Typography variant="body2" sx={{ mt: 0.75, maxWidth: 720, color: "text.secondary" }}>
                       {summaryState.message}
                     </Typography>
                   </Box>
@@ -411,7 +412,7 @@ export function LocalDrivesSettings({ onConnectionsChanged, sectionTitle, sectio
                         ) : (
                           <RadioButtonUncheckedIcon sx={{ color: "text.disabled" }} fontSize="small" />
                         )}
-                        <Typography variant="body2" color={item.complete ? "text.primary" : "text.secondary"}>
+                        <Typography variant="body2" sx={{ color: item.complete ? "text.primary" : "text.secondary" }}>
                           {item.label}
                         </Typography>
                       </Stack>
@@ -430,10 +431,10 @@ export function LocalDrivesSettings({ onConnectionsChanged, sectionTitle, sectio
                 <Stack spacing={2}>
                   {state.downloadMetadata ? (
                     <Stack spacing={1.5}>
-                      <Typography variant="body2" color="text.secondary">
+                      <Typography variant="body2" sx={{ color: "text.secondary" }}>
                         {LOCAL_DRIVES_PAGE_COPY.downloadVersionLabel}: {state.downloadMetadata.version}
                       </Typography>
-                      <Typography variant="body2" color="text.secondary">
+                      <Typography variant="body2" sx={{ color: "text.secondary" }}>
                         {LOCAL_DRIVES_PAGE_COPY.downloadSectionSourcePrefix}: {downloadSourceLabel}
                       </Typography>
 
@@ -461,7 +462,7 @@ export function LocalDrivesSettings({ onConnectionsChanged, sectionTitle, sectio
 
                       {alternateDownloads.length > 0 && (
                         <Stack spacing={1}>
-                          <Typography variant="body2" color="text.secondary">
+                          <Typography variant="body2" sx={{ color: "text.secondary" }}>
                             {LOCAL_DRIVES_PAGE_COPY.downloadOtherPlatformsLabel}
                           </Typography>
                           <Box sx={cardActionRowSx}>
@@ -488,7 +489,7 @@ export function LocalDrivesSettings({ onConnectionsChanged, sectionTitle, sectio
                       {state.downloadError}
                     </SettingsInlineAlert>
                   ) : (
-                    <Typography variant="body2" color="text.secondary">
+                    <Typography variant="body2" sx={{ color: "text.secondary" }}>
                       {LOCAL_DRIVES_PAGE_COPY.downloadUnavailable}
                     </Typography>
                   )}
@@ -501,7 +502,7 @@ export function LocalDrivesSettings({ onConnectionsChanged, sectionTitle, sectio
             <SettingsGroup title={LOCAL_DRIVES_PAGE_COPY.pairingSectionTitle}>
               <Box sx={sectionCardSx}>
                 <Stack spacing={2}>
-                  <Typography variant="body2" color="text.secondary">
+                  <Typography variant="body2" sx={{ color: "text.secondary" }}>
                     {viewState === "pending_local_approval"
                       ? LOCAL_DRIVES_PAGE_COPY.pairingSectionPendingApproval
                       : viewState === "needs_repair"
@@ -530,7 +531,7 @@ export function LocalDrivesSettings({ onConnectionsChanged, sectionTitle, sectio
             <SettingsGroup title={LOCAL_DRIVES_PAGE_COPY.verificationSectionTitle}>
               <Box sx={sectionCardSx}>
                 <Stack spacing={2}>
-                  <Typography variant="body2" color="text.secondary">
+                  <Typography variant="body2" sx={{ color: "text.secondary" }}>
                     {LOCAL_DRIVES_PAGE_COPY.verificationSectionReady}
                   </Typography>
                   <Box sx={cardActionRowSx}>
@@ -569,7 +570,7 @@ export function LocalDrivesSettings({ onConnectionsChanged, sectionTitle, sectio
             <SettingsGroup title={LOCAL_DRIVES_PAGE_COPY.troubleshootingSectionTitle}>
               <Box sx={sectionCardSx}>
                 <Stack spacing={2}>
-                  <Typography variant="body2" color="text.secondary">
+                  <Typography variant="body2" sx={{ color: "text.secondary" }}>
                     {LOCAL_DRIVES_PAGE_COPY.troubleshootingSectionReady}
                   </Typography>
                   <Box sx={cardActionRowSx}>

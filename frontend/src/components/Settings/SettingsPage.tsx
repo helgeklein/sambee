@@ -4,6 +4,7 @@ import { SettingsActionBar } from "./SettingsActionBar";
 import { SettingsCategoryDescription } from "./SettingsCategoryDescription";
 import { SettingsSectionHeader } from "./SettingsSectionHeader";
 import { getSettingsCategoryLabel, type SettingsCategory } from "./settingsNavigation";
+import { getSettingsPageSurfaceColor } from "./settingsSurface";
 
 interface SettingsPageProps {
   category: SettingsCategory;
@@ -45,7 +46,7 @@ export function SettingsPage({
       : baseContentSx;
 
   return (
-    <Box sx={{ height: "100%", display: "flex", flexDirection: "column", bgcolor: "background.default", overflow: "hidden" }}>
+    <Box sx={{ height: "100%", display: "flex", flexDirection: "column", bgcolor: getSettingsPageSurfaceColor, overflow: "hidden" }}>
       <SettingsSectionHeader
         title={title ?? getSettingsCategoryLabel(category)}
         description={description ?? <SettingsCategoryDescription category={category} />}

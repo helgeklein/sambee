@@ -44,11 +44,11 @@ export function SettingsEmptyState({ title, description, compact = false, sx }: 
       ]}
     >
       {title ? (
-        <Typography variant="h6" color="text.secondary">
+        <Typography variant="h6" sx={{ color: "text.secondary" }}>
           {title}
         </Typography>
       ) : null}
-      <Typography variant="body2" color="text.secondary" sx={{ mt: title ? 1 : 0 }}>
+      <Typography variant="body2" sx={{ mt: title ? 1 : 0, color: "text.secondary" }}>
         {description}
       </Typography>
     </Box>

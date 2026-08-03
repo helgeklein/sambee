@@ -17,12 +17,10 @@ echo "Configuring Git hooks..."
 # Configure Git to use .githooks directory instead of .git/hooks
 git config core.hooksPath .githooks
 
-# Generate GIT_COMMIT file if it doesn't exist
-if [ ! -f GIT_COMMIT ]; then
-    echo "Generating GIT_COMMIT file..."
-    git rev-parse --short HEAD > GIT_COMMIT
-    echo "✓ Created GIT_COMMIT with current commit: $(cat GIT_COMMIT)"
-fi
+# Refresh GIT_COMMIT with the full hash of the current commit.
+echo "Updating GIT_COMMIT file..."
+git rev-parse HEAD > GIT_COMMIT
+echo "✓ Updated GIT_COMMIT with current commit: $(cat GIT_COMMIT)"
 
 echo "✓ Git hooks configured to use .githooks/"
 echo ""

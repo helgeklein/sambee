@@ -19,7 +19,12 @@ if pgrep -f "uvicorn.*app.main:app" > /dev/null; then
 else
     log "Starting backend server..."
     cd /workspace/backend
-    nohup uvicorn app.main:app --reload --host 0.0.0.0 --port 8000 --no-proxy-headers > /tmp/backend.log 2>&1 &
+    BACKEND_PYTHON="/workspace/backend/.venv/bin/python"
+    if ! "$BACKEND_PYTHON" -c "import uvicorn" >/dev/null 2>&1; then
+        log "Backend dependencies not found. Installing..."
+        /workspace/scripts/setup-backend-venv
+    fi
+    nohup "$BACKEND_PYTHON" -m uvicorn app.main:app --reload --host 0.0.0.0 --port 8000 --no-proxy-headers > /tmp/backend.log 2>&1 &
     BACKEND_PID=$!
     log "   Backend process started (PID: $BACKEND_PID)"
 

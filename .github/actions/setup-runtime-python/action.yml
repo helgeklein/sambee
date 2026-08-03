@@ -1,0 +1,27 @@
+name: Setup Runtime Python
+description: Set up the exact Python patch version declared by the Docker runtime image.
+
+inputs:
+  cache:
+    description: Dependency cache to configure for actions/setup-python.
+    required: true
+  cache-dependency-path:
+    description: File path or paths used to key the Python dependency cache.
+    required: true
+
+runs:
+  using: composite
+  steps:
+    - id: runtime-python
+      name: Read canonical Python version
+      shell: bash
+      run: |
+        python_version="$(python3 "$GITHUB_WORKSPACE/scripts/verify-python-runtime-image.py" --version)"
+        printf 'version=%s\n' "$python_version" >> "$GITHUB_OUTPUT"
+
+    - name: Set up Python
+      uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+      with:
+        python-version: ${{ steps.runtime-python.outputs.version }}
+        cache: ${{ inputs.cache }}
+        cache-dependency-path: ${{ inputs.cache-dependency-path }}
