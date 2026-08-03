@@ -120,6 +120,7 @@ RUN python -m venv /workspace/backend/.venv && \
         -r /tmp/requirements-dev.lock.txt && \
     rm -rf /tmp/wheels
 COPY backend/ ./backend/
+COPY VERSION ./VERSION
 COPY scripts/setup-test-images ./scripts/setup-test-images
 ENV PYTHONPATH=/workspace/backend
 
