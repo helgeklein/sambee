@@ -1,10 +1,10 @@
 fastapi==0.141.1
-uvicorn[standard]==0.51.0
+uvicorn[standard]==0.52.0
 python-multipart==0.0.32
 sqlmodel==0.0.39
 Authlib==1.7.2
 joserfc==1.7.4
-cryptography==49.0.0
+cryptography==50.0.0
 httpx==0.28.1
 argon2-cffi==25.1.0
 smbprotocol==1.17.0
