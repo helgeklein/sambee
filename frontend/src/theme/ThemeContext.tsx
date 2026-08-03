@@ -1,8 +1,15 @@
-import { createTheme, type Theme } from "@mui/material";
-import { createContext, type ReactNode, useContext, useEffect, useMemo, useState } from "react";
+import { alpha, createTheme, type Theme } from "@mui/material";
+import { createContext, type ReactNode, useContext, useEffect, useMemo, useRef, useState } from "react";
 import { loadCurrentUserSettings, patchCurrentUserSettings, USER_SETTINGS_CHANGED_EVENT } from "../services/userSettingsSync";
 import type { CurrentUserSettings } from "../types";
 import { getContainedButtonFocusVisibleBoxShadow } from "./commonStyles";
+import {
+  DIALOG_FORM_SURFACE_CSS_VARIABLE,
+  DIALOG_SURFACE_CSS_VARIABLE,
+  getDarkChromeSurfaceColor,
+  getDialogSurfaceTokens,
+  resolveThemePalette,
+} from "./palette";
 import { builtInThemes, getDefaultTheme } from "./themes";
 import type { ThemeConfig } from "./types";
 
@@ -83,6 +90,8 @@ export function SambeeThemeProvider({ children }: ThemeProviderProps) {
     // Load custom themes from localStorage
     return readStoredThemeConfigs(CUSTOM_THEMES_STORAGE_KEY);
   });
+  const previewThemeIdRef = useRef<string | null>(null);
+  const pendingSavedThemeIdRef = useRef<string | null>(null);
 
   // All available themes (built-in + custom)
   const availableThemes = useMemo(() => [...builtInThemes, ...customThemes], [customThemes]);
@@ -95,29 +104,34 @@ export function SambeeThemeProvider({ children }: ThemeProviderProps) {
 
   // Material-UI theme object
   const muiTheme = useMemo(() => {
-    // Derive colors once to avoid repetition
     const isDark = currentTheme.mode === "dark";
+    const palette = resolveThemePalette(currentTheme);
+    const { appBar, action, background, link, statusBar, text } = palette;
+    const focusColor = action.focus;
+    const dialogSurfaces = getDialogSurfaceTokens(background.default, currentTheme.mode);
+    const menuBackground = isDark ? getDarkChromeSurfaceColor() : background.default;
+    const alertColors = currentTheme.components?.alert;
+    const getStandardAlertStyle = (severity: "info" | "success" | "warning" | "error") => {
+      const alertColor = alertColors?.[severity];
 
-    // App bar derived colors
-    const appBarBackground =
-      currentTheme.components?.appBar?.background ?? (isDark ? currentTheme.background?.paper : currentTheme.primary.main);
-    const appBarText = currentTheme.components?.appBar?.text ?? (isDark ? currentTheme.text?.primary : currentTheme.primary.contrastText);
-    const appBarFocus = currentTheme.components?.appBar?.focus ?? appBarText ?? currentTheme.primary.contrastText;
+      if (!alertColor) {
+        return {};
+      }
 
-    // Focus color for general use
-    const focusColor =
-      currentTheme.action?.focus ??
-      (isDark ? (currentTheme.primary.light ?? currentTheme.primary.main) : (currentTheme.primary.dark ?? currentTheme.primary.main));
-    const muiAction = currentTheme.action
-      ? {
-          selected: currentTheme.action.selected,
-          selectedDarker: currentTheme.action.selectedDarker,
-        }
-      : undefined;
+      return {
+        "&&": {
+          backgroundColor: alertColor.background,
+          color: alertColor.text,
+          "& .MuiAlert-icon": {
+            color: alertColor.icon,
+          },
+        },
+      };
+    };
 
     // Scrollbar colors derived from theme
-    const scrollbarThumb = isDark ? "#6b6b6b" : "#c1c1c1";
-    const scrollbarTrack = isDark ? "#2b2b2b" : "#f1f1f1";
+    const scrollbarThumb = alpha(text.primary, isDark ? 0.4 : 0.28);
+    const scrollbarTrack = alpha(text.primary, isDark ? 0.12 : 0.08);
 
     // Shared focus outline style for buttons (outline ring only, no fill change)
     const buttonFocusOutline = {
@@ -139,14 +153,11 @@ export function SambeeThemeProvider({ children }: ThemeProviderProps) {
       palette: {
         mode: currentTheme.mode,
         primary: currentTheme.primary,
-        ...(currentTheme.background && { background: currentTheme.background }),
-        ...(currentTheme.text && { text: currentTheme.text }),
-        ...(muiAction && { action: muiAction }),
-        // Add component semantic tokens to palette for direct access
-        ...(currentTheme.components && {
-          appBar: currentTheme.components.appBar,
-          statusBar: currentTheme.components.statusBar,
-        }),
+        background,
+        text,
+        action,
+        appBar,
+        statusBar,
       },
       typography: {
         fontFamily: ["-apple-system", "BlinkMacSystemFont", '"Segoe UI"', "Roboto", '"Helvetica Neue"', "Arial", "sans-serif"].join(","),
@@ -175,17 +186,17 @@ export function SambeeThemeProvider({ children }: ThemeProviderProps) {
         MuiAppBar: {
           styleOverrides: {
             root: {
-              backgroundColor: appBarBackground,
-              color: appBarText,
+              backgroundColor: appBar.background,
+              color: appBar.text,
               // Remove default dark mode overlay gradient
               backgroundImage: "none",
               // Ensure Select components inside AppBar inherit the text color
-              "& .MuiSelect-select": { color: appBarText },
-              "& .MuiSelect-icon": { color: appBarText },
-              "& .MuiOutlinedInput-notchedOutline": { borderColor: appBarText },
+              "& .MuiSelect-select": { color: appBar.text },
+              "& .MuiSelect-icon": { color: appBar.text },
+              "& .MuiOutlinedInput-notchedOutline": { borderColor: appBar.text },
               // Focus outline for buttons inside AppBar
               "& .MuiButtonBase-root.Mui-focusVisible": {
-                outline: `${FOCUS_OUTLINE_WIDTH_PX}px solid ${appBarFocus}`,
+                outline: `${FOCUS_OUTLINE_WIDTH_PX}px solid ${appBar.focus}`,
                 outlineOffset: `${FOCUS_OUTLINE_OFFSET_PX}px`,
               },
             },
@@ -194,8 +205,24 @@ export function SambeeThemeProvider({ children }: ThemeProviderProps) {
         MuiPaper: {
           styleOverrides: {
             root: {
-              backgroundColor: currentTheme.background?.default,
+              backgroundColor: background.default,
               backgroundImage: "none",
+            },
+          },
+        },
+        MuiDialog: {
+          styleOverrides: {
+            root: {
+              "& .MuiBackdrop-root": {
+                backgroundColor: dialogSurfaces.backdrop,
+              },
+            },
+            paper: {
+              backgroundColor: dialogSurfaces.paper,
+              backgroundImage: "none",
+              boxShadow: "none",
+              [DIALOG_SURFACE_CSS_VARIABLE]: dialogSurfaces.paper,
+              [DIALOG_FORM_SURFACE_CSS_VARIABLE]: dialogSurfaces.form,
             },
           },
         },
@@ -205,9 +232,9 @@ export function SambeeThemeProvider({ children }: ThemeProviderProps) {
           },
           styleOverrides: {
             root: {
-              color: currentTheme.components?.link?.main ?? currentTheme.primary.main,
+              color: link.main,
               "&:hover": {
-                color: currentTheme.components?.link?.hover ?? currentTheme.primary.dark,
+                color: link.hover,
               },
               "&.Mui-focusVisible": {
                 outline: "none",
@@ -225,7 +252,7 @@ export function SambeeThemeProvider({ children }: ThemeProviderProps) {
               zIndex: theme.zIndex.modal + POPUP_OVERLAY_Z_INDEX_OFFSET,
             }),
             paper: {
-              backgroundColor: currentTheme.background?.default,
+              backgroundColor: menuBackground,
             },
           },
         },
@@ -247,22 +274,33 @@ export function SambeeThemeProvider({ children }: ThemeProviderProps) {
           styleOverrides: {
             root: {
               "&:hover": {
-                backgroundColor: currentTheme.action?.selected,
+                backgroundColor: action.selected,
               },
               "&.Mui-focusVisible": {
-                backgroundColor: currentTheme.action?.selected,
+                backgroundColor: action.selected,
               },
               "&.Mui-selected": {
                 fontWeight: 600,
-                backgroundColor: "transparent",
+                backgroundColor: action.selected,
                 "&:hover": {
-                  backgroundColor: currentTheme.action?.selected,
+                  backgroundColor: action.selected,
                 },
                 "&.Mui-focusVisible": {
-                  backgroundColor: currentTheme.action?.selected,
+                  backgroundColor: action.selected,
                 },
               },
             },
+          },
+        },
+        MuiAlert: {
+          styleOverrides: {
+            standard: ({ ownerState }) =>
+              ownerState.severity === "info" ||
+              ownerState.severity === "success" ||
+              ownerState.severity === "warning" ||
+              ownerState.severity === "error"
+                ? getStandardAlertStyle(ownerState.severity)
+                : {},
           },
         },
         // Focus styles for Button - clean outline ring (keyboard nav only)
@@ -280,13 +318,13 @@ export function SambeeThemeProvider({ children }: ThemeProviderProps) {
             text: {
               "&.Mui-focusVisible": {
                 backgroundColor: "transparent",
-                ...(isDark && { color: currentTheme.primary.main }),
+                ...(isDark && { color: action.focus }),
               },
             },
             outlined: {
               "&.Mui-focusVisible": {
                 backgroundColor: "transparent",
-                ...(isDark && { color: currentTheme.primary.main }),
+                ...(isDark && { color: action.focus }),
               },
             },
             contained: ({ theme }) => ({
@@ -313,7 +351,7 @@ export function SambeeThemeProvider({ children }: ThemeProviderProps) {
           styleOverrides: {
             root: {
               "&.Mui-focused": {
-                color: currentTheme.text?.primary,
+                color: text.primary,
               },
             },
           },
@@ -322,7 +360,7 @@ export function SambeeThemeProvider({ children }: ThemeProviderProps) {
         MuiFormHelperText: {
           styleOverrides: {
             root: {
-              color: currentTheme.text?.secondary,
+              color: text.secondary,
               marginTop: 8,
               marginLeft: 0,
               marginRight: 0,
@@ -365,9 +403,29 @@ export function SambeeThemeProvider({ children }: ThemeProviderProps) {
       );
 
       const backendThemeId = settings.appearance.theme_id;
-      if (resolvedThemes.some((theme) => theme.id === backendThemeId)) {
-        setCurrentThemeId(backendThemeId);
+      if (!resolvedThemes.some((theme) => theme.id === backendThemeId)) {
+        return;
       }
+
+      const pendingSavedThemeId = pendingSavedThemeIdRef.current;
+      if (pendingSavedThemeId) {
+        if (backendThemeId === pendingSavedThemeId) {
+          pendingSavedThemeIdRef.current = null;
+          setCurrentThemeId(backendThemeId);
+        }
+        return;
+      }
+
+      const previewThemeId = previewThemeIdRef.current;
+      if (previewThemeId) {
+        if (backendThemeId === previewThemeId) {
+          previewThemeIdRef.current = null;
+          setCurrentThemeId(backendThemeId);
+        }
+        return;
+      }
+
+      setCurrentThemeId(backendThemeId);
     };
 
     const syncFromBackend = async () => {
@@ -390,6 +448,8 @@ export function SambeeThemeProvider({ children }: ThemeProviderProps) {
 
   const setThemeById = (themeId: string) => {
     if (availableThemes.find((t) => t.id === themeId)) {
+      previewThemeIdRef.current = themeId;
+      pendingSavedThemeIdRef.current = null;
       setCurrentThemeId(themeId);
     }
   };
@@ -399,6 +459,8 @@ export function SambeeThemeProvider({ children }: ThemeProviderProps) {
       return;
     }
 
+    previewThemeIdRef.current = null;
+    pendingSavedThemeIdRef.current = themeId;
     setCurrentThemeId(themeId);
     localStorage.setItem(THEME_ID_STORAGE_KEY, themeId);
     localStorage.setItem(CUSTOM_THEMES_STORAGE_KEY, JSON.stringify(customThemes));

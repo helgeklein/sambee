@@ -185,7 +185,10 @@ export interface AboutSettings {
   logical_cpu_count: number | null;
   memory_bytes: number | null;
   python_runtime: string;
-  database_version: string;
+}
+
+export interface PublicSupportReport {
+  content: string;
 }
 
 export interface NetworkSettings {

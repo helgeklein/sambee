@@ -8,6 +8,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { SettingsCategoryContent } from "./SettingsCategoryContent";
 import { SettingsCategoryList } from "./SettingsCategoryList";
+import { settingsSubduedIconButtonSx } from "./settingsButtonStyles";
 import { prefetchSettingsDataForItems } from "./settingsDataSources";
 import {
   DEFAULT_SETTINGS_CATEGORY,
@@ -16,6 +17,7 @@ import {
   type SettingsCategory,
   type SettingsNavItem,
 } from "./settingsNavigation";
+import { getSettingsPageSurfaceColor } from "./settingsSurface";
 import { SettingsAccessProvider, useSettingsAccess } from "./useSettingsAccess";
 
 const SETTINGS_CATEGORY_FIRST_INDEX = 0;
@@ -128,7 +130,11 @@ const SettingsDialog: React.FC<SettingsDialogProps> = ({
       onClose={onClose}
       maxWidth="lg"
       fullWidth
-      slotProps={{ paper: { sx: { height: "80vh", bgcolor: "background.default" } } }}
+      slotProps={{
+        paper: {
+          sx: { height: "80vh" },
+        },
+      }}
     >
       {/* Close button in upper-right corner */}
       <IconButton
@@ -140,6 +146,7 @@ const SettingsDialog: React.FC<SettingsDialogProps> = ({
           right: 8,
           top: 8,
           zIndex: 1,
+          ...settingsSubduedIconButtonSx,
         }}
       >
         <CloseIcon />
@@ -154,7 +161,7 @@ const SettingsDialog: React.FC<SettingsDialogProps> = ({
             borderColor: "divider",
             display: "flex",
             flexDirection: "column",
-            bgcolor: "background.default",
+            bgcolor: getSettingsPageSurfaceColor,
           }}
         >
           <Box sx={{ p: 2 }}>
@@ -195,7 +202,7 @@ const SettingsDialog: React.FC<SettingsDialogProps> = ({
             display: "flex",
             flexDirection: "column",
             overflow: "hidden",
-            bgcolor: "background.default",
+            bgcolor: getSettingsPageSurfaceColor,
           }}
         >
           <SettingsAccessProvider value={{ isAdmin, canWrite }}>

@@ -40,7 +40,7 @@ export function SettingsSectionHeader({
           </Typography>
         )}
         {description && (
-          <Typography variant="body2" color="text.secondary" sx={{ mt: showTitle ? 0.5 : 0, maxWidth: 680 }}>
+          <Typography variant="body2" sx={{ mt: showTitle ? 0.5 : 0, maxWidth: 680, color: "text.secondary" }}>
             {description}
           </Typography>
         )}

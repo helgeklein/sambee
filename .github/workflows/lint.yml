@@ -40,6 +40,11 @@ jobs:
           "VERSION",
           "scripts/sync-version",
         }
+        backend_extras = {
+          "Dockerfile",
+          "scripts/verify-python-runtime-image.py",
+          ".github/actions/setup-runtime-python/action.yml",
+        }
         companion_extras = {
           "VERSION",
           "scripts/sync-version",
@@ -111,7 +116,7 @@ jobs:
         else:
             raise SystemExit(f"Unsupported event for change detection: {event_name}")
 
-        backend = any(name.startswith("backend/") for name in filenames)
+        backend = any(name.startswith("backend/") or name in backend_extras for name in filenames)
         frontend = any(name.startswith("frontend/") or name in frontend_extras for name in filenames)
         companion = any(name.startswith("companion/") or name in companion_extras for name in filenames)
 
@@ -134,10 +139,9 @@ jobs:
     - name: Checkout code
       uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
-    - name: Set up Python
-      uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+    - name: Set up runtime Python
+      uses: ./.github/actions/setup-runtime-python
       with:
-        python-version: '3.13.12'
         cache: 'pip'
         cache-dependency-path: 'backend/requirements*.txt'
 

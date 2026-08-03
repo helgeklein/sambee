@@ -2,13 +2,18 @@ services:
   devcontainer:
     build:
       context: ..
-      dockerfile: .devcontainer/Dockerfile
+      dockerfile: Dockerfile
+      target: devcontainer
     volumes:
       - ..:/workspace:cached
       - vscode-extensions:/home/vscode/.vscode-server/extensions
       - vscode-extensions-insiders:/home/vscode/.vscode-server-insiders/extensions
       - node_modules:/workspace/frontend/node_modules
       - pip-cache:/home/vscode/.cache/pip
+      - cargo-registry:/home/vscode/.cargo/registry
+      - cargo-git:/home/vscode/.cargo/git
+      - cargo-advisory-db:/home/vscode/.cargo/advisory-db
+      - cargo-tools:/home/vscode/.local/cargo-tools
     command: sleep infinity
     environment:
       - TZ=UTC
@@ -19,3 +24,7 @@ volumes:
   vscode-extensions-insiders:
   node_modules:
   pip-cache:
+  cargo-registry:
+  cargo-git:
+  cargo-advisory-db:
+  cargo-tools:

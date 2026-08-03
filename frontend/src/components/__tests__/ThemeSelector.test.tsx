@@ -185,6 +185,17 @@ describe("ThemeSelector Component", () => {
       expect(localStorageMock.getItem("theme-id-current")).toBe("sambee-dark");
     });
 
+    it("keeps the save action enabled after previewing a different theme", async () => {
+      const user = userEvent.setup();
+      renderWithProvider(<ThemeSelectorDialog open={true} onClose={vi.fn()} />);
+
+      const darkThemeCard = screen.getByText(/Sambee dark/i).closest("button");
+      expect(darkThemeCard).toBeInTheDocument();
+      await user.click(darkThemeCard!);
+
+      expect(screen.getByRole("button", { name: "Save changes" })).toBeEnabled();
+    });
+
     it("should show mode indicator (Light/Dark)", () => {
       const mockOnClose = vi.fn();
       renderWithProvider(<ThemeSelectorDialog open={true} onClose={mockOnClose} />);

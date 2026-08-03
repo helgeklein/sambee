@@ -38,21 +38,17 @@ if [ -f "/.dockerenv" ] || [ -n "$REMOTE_CONTAINERS" ] || [ -n "$CODESPACES" ]; 
     source /workspace/scripts/ensure-env
     ensure_config_file /workspace/config.toml
 
-    # Check if uvicorn is installed, install dependencies if not
-    if ! command -v uvicorn &> /dev/null; then
+    BACKEND_PYTHON="/workspace/backend/.venv/bin/python"
+    if ! "$BACKEND_PYTHON" -c "import uvicorn" &> /dev/null; then
         echo "⚠️  Backend dependencies not installed. Installing..."
-        if [ -f "requirements.lock.txt" ]; then
-            pip install -q --require-hashes -r requirements.lock.txt
-        else
-            pip install -q -r requirements.txt
-        fi
+        /workspace/scripts/setup-backend-venv
         echo "✅ Backend dependencies installed"
     fi
 
     # Export PYTHONPATH for uvicorn's reload subprocess (Python 3.13 multiprocessing fix)
     export PYTHONPATH="${PYTHONPATH:+${PYTHONPATH}:}/workspace/backend"
 
-    uvicorn app.main:app --reload --host 0.0.0.0 --port 8000 --no-proxy-headers
+    "$BACKEND_PYTHON" -m uvicorn app.main:app --reload --host 0.0.0.0 --port 8000 --no-proxy-headers
 else
     echo "⚠️  Not in a devcontainer. Skipping backend start."
     echo "Please reopen in container: Ctrl+Shift+P → 'Dev Containers: Reopen in Container'"

@@ -1,6 +1,7 @@
 import { act, renderHook, waitFor } from "@testing-library/react";
 import type { ReactNode } from "react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
+import type { CurrentUserSettings } from "../../types";
 import { SambeeThemeProvider, useSambeeTheme } from "../ThemeContext";
 
 const { loadCurrentUserSettingsMock, patchCurrentUserSettingsMock, userSettingsChangedEvent } = vi.hoisted(() => ({
@@ -73,12 +74,41 @@ describe("Theme System - ThemeContext", () => {
       expect(result.current.muiTheme).toBeDefined();
       expect(result.current.muiTheme.palette).toBeDefined();
       expect(result.current.muiTheme.palette.primary).toBeDefined();
+      expect(result.current.muiTheme.palette.background.paper).toBe(result.current.muiTheme.palette.background.default);
     });
 
     it("does not override Material UI checkbox defaults", () => {
       const { result } = renderHook(() => useSambeeTheme(), { wrapper });
 
       expect(result.current.muiTheme.components?.MuiCheckbox).toBeUndefined();
+    });
+
+    it("applies the semantic dark warning colors to standard alerts", () => {
+      localStorageMock.setItem("theme-id-current", "sambee-dark");
+
+      const { result } = renderHook(() => useSambeeTheme(), { wrapper });
+      const standardOverride = result.current.muiTheme.components?.MuiAlert?.styleOverrides?.standard as
+        | ((props: { ownerState: { severity: string } }) => object)
+        | undefined;
+
+      expect(standardOverride?.({ ownerState: { severity: "warning" } })).toEqual({
+        "&&": {
+          backgroundColor: "#E65100",
+          color: "#FFE0B2",
+          "& .MuiAlert-icon": {
+            color: "#FFB74D",
+          },
+        },
+      });
+      expect(standardOverride?.({ ownerState: { severity: "success" } })).toEqual({
+        "&&": {
+          backgroundColor: "#1B5E20",
+          color: "#C8E6C9",
+          "& .MuiAlert-icon": {
+            color: "#81C784",
+          },
+        },
+      });
     });
 
     it("should restore theme from localStorage", () => {
@@ -162,6 +192,73 @@ describe("Theme System - ThemeContext", () => {
 
       expect(lightPalette).toBe("light");
       expect(darkPalette).toBe("dark");
+      expect(result.current.muiTheme.palette.primary.main).toBe("#D4A020");
+      expect(result.current.muiTheme.palette.primary.light).toBe("#F4C430");
+      expect(result.current.muiTheme.palette.action.focus).toBe("#D4A020");
+      expect(result.current.muiTheme.palette.text.primary).toBe("#F6F1E8");
+      expect(result.current.muiTheme.palette.text.secondary).toBe("#F6F1E8B3");
+      expect(result.current.muiTheme.palette.background.paper).toBe(result.current.muiTheme.palette.background.default);
+      expect(result.current.muiTheme.palette.appBar?.background).toBe("#382c0a");
+      expect(result.current.muiTheme.palette.statusBar?.background).toBe("#382c0a");
+      expect(result.current.muiTheme.components?.MuiMenu?.styleOverrides?.paper).toMatchObject({
+        backgroundColor: "#382c0a",
+      });
+      expect(result.current.muiTheme.components?.MuiDialog?.styleOverrides?.paper).toMatchObject({
+        backgroundColor: "#382c0a",
+        boxShadow: "none",
+        ["--sambee-dialog-surface"]: "#382c0a",
+        ["--sambee-dialog-form-surface"]: "color-mix(in srgb, black 12%, #382c0a)",
+      });
+      expect(result.current.muiTheme.components?.MuiDialog?.styleOverrides?.root).toMatchObject({
+        "& .MuiBackdrop-root": {
+          backgroundColor: "rgba(31, 38, 43, 0.92)",
+        },
+      });
+      expect(result.current.muiTheme.palette.action.selected).toBe("#D4A02038");
+    });
+
+    it("keeps a saved theme when a stale settings sync resolves", async () => {
+      let resolveSettings: ((settings: CurrentUserSettings) => void) | undefined;
+      loadCurrentUserSettingsMock.mockImplementation(
+        () =>
+          new Promise<CurrentUserSettings>((resolve) => {
+            resolveSettings = resolve;
+          })
+      );
+
+      const { result } = renderHook(() => useSambeeTheme(), { wrapper });
+
+      await waitFor(() => {
+        expect(loadCurrentUserSettingsMock).toHaveBeenCalled();
+      });
+
+      act(() => {
+        result.current.setThemeById("sambee-dark");
+        result.current.saveThemeById("sambee-dark");
+      });
+
+      await act(async () => {
+        resolveSettings?.({
+          appearance: {
+            theme_id: "sambee-light",
+            custom_themes: [],
+          },
+          localization: {
+            language: "browser",
+            regional_locale: "browser",
+          },
+          browser: {
+            quick_nav_include_dot_directories: false,
+            file_browser_view_mode: "list",
+            pane_mode: "single",
+            selected_connection_id: null,
+            viewer_associations: {},
+          },
+        });
+      });
+
+      expect(result.current.currentTheme.id).toBe("sambee-dark");
+      expect(localStorageMock.getItem("theme-id-current")).toBe("sambee-dark");
     });
   });
 
@@ -223,6 +320,8 @@ describe("Theme System - ThemeContext", () => {
 
       expect(result.current.currentTheme.id).toBe("custom-test");
       expect(result.current.currentTheme.name).toBe("Test Theme");
+      expect(result.current.muiTheme.palette.background.paper).toBe(result.current.muiTheme.palette.background.default);
+      expect(result.current.muiTheme.palette.action.focus).toBe("#ff0000");
     });
   });
 

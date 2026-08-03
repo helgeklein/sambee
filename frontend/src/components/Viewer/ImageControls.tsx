@@ -4,6 +4,7 @@ import type React from "react";
 import { useTranslation } from "react-i18next";
 import { COMMON_SHORTCUTS, VIEWER_SHORTCUTS } from "../../config/keyboardShortcuts";
 import { withShortcut } from "../../hooks/useKeyboardShortcuts";
+import { getViewerToolbarForegroundColors, VIEWER_DEFAULTS } from "../../theme/viewerStyles";
 
 interface ImageControlsProps {
   filename: string;
@@ -16,6 +17,8 @@ interface ImageControlsProps {
   onPrevious?: () => void;
   currentIndex?: number;
   totalImages?: number;
+  toolbarBackground?: string;
+  toolbarText?: string;
 }
 
 /**
@@ -32,10 +35,13 @@ export const ImageControls: React.FC<ImageControlsProps> = ({
   onPrevious,
   currentIndex,
   totalImages,
+  toolbarBackground = VIEWER_DEFAULTS.TOOLBAR_BG,
+  toolbarText = VIEWER_DEFAULTS.TOOLBAR_TEXT,
 }) => {
   const theme = useTheme();
   const isMobile = useMediaQuery(theme.breakpoints.down("sm"));
   const { t } = useTranslation();
+  const toolbarForegrounds = getViewerToolbarForegroundColors(toolbarText);
 
   return (
     <Box
@@ -45,8 +51,8 @@ export const ImageControls: React.FC<ImageControlsProps> = ({
         left: isMobile ? undefined : 0,
         right: isMobile ? undefined : 0,
         width: "100%",
-        bgcolor: "rgba(0,0,0,0.8)",
-        color: "white",
+        bgcolor: toolbarBackground,
+        color: toolbarText,
         display: "flex",
         alignItems: "center",
         gap: isMobile ? theme.spacing(0.5) : theme.spacing(2),
@@ -76,7 +82,7 @@ export const ImageControls: React.FC<ImageControlsProps> = ({
             variant="caption"
             sx={{
               ml: { xs: 0.5, sm: 2 },
-              opacity: 0.7,
+              color: toolbarForegrounds.muted,
               fontSize: { xs: "0.7rem", sm: "0.875rem" },
               display: { xs: "block", sm: "inline" },
             }}

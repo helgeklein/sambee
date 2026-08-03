@@ -76,7 +76,7 @@ export const FileList = React.memo(
       >
         {files.length === 0 && showEmptyState ? (
           <Box sx={{ p: 4, textAlign: "center", flex: 1 }}>
-            <Typography color="text.secondary">{t("fileBrowser.list.emptyDirectory")}</Typography>
+            <Typography sx={{ color: "text.secondary" }}>{t("fileBrowser.list.emptyDirectory")}</Typography>
           </Box>
         ) : files.length === 0 ? null : (
           <div

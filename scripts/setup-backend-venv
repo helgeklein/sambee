@@ -7,6 +7,7 @@ BACKEND_DIR="$REPO_ROOT/backend"
 VENV_DIR="$BACKEND_DIR/.venv"
 LOCKFILE="$BACKEND_DIR/requirements-dev.lock.txt"
 STAMP_FILE="$VENV_DIR/.requirements-dev.lock.sha256"
+PYTHON_VERSION_STAMP_FILE="$VENV_DIR/.python-version"
 
 echo "Setting up backend virtual environment from pinned dependencies..."
 
@@ -15,12 +16,27 @@ if [[ ! -f "$LOCKFILE" ]]; then
     exit 1
 fi
 
+LOCKFILE_HASH="$(sha256sum "$LOCKFILE" | awk '{print $1}')"
+PYTHON_VERSION="$(python -c 'import sys; print(sys.version)')"
+
+if [[ -x "$VENV_DIR/bin/python" ]] \
+    && [[ -f "$STAMP_FILE" ]] \
+    && [[ -f "$PYTHON_VERSION_STAMP_FILE" ]] \
+    && [[ "$(cat "$STAMP_FILE")" == "$LOCKFILE_HASH" ]] \
+    && [[ "$(cat "$PYTHON_VERSION_STAMP_FILE")" == "$PYTHON_VERSION" ]] \
+    && [[ "$("$VENV_DIR/bin/python" -c 'import sys; print(sys.version)')" == "$PYTHON_VERSION" ]] \
+    && "$VENV_DIR/bin/python" -m pip check >/dev/null \
+    && "$VENV_DIR/bin/python" -c 'import uvicorn' >/dev/null; then
+    echo "Backend virtual environment already matches the pinned dependencies."
+    exit 0
+fi
+
+echo "Rebuilding backend virtual environment from pinned dependencies..."
 rm -rf "$VENV_DIR"
 python -m venv "$VENV_DIR"
-source "$VENV_DIR/bin/activate"
-pip install --upgrade pip
-pip install --require-hashes -r "$LOCKFILE"
-sha256sum "$LOCKFILE" | awk '{print $1}' > "$STAMP_FILE"
+"$VENV_DIR/bin/python" -m pip install --upgrade pip
+"$VENV_DIR/bin/python" -m pip install --require-hashes -r "$LOCKFILE"
+printf '%s\n' "$LOCKFILE_HASH" > "$STAMP_FILE"
+printf '%s\n' "$PYTHON_VERSION" > "$PYTHON_VERSION_STAMP_FILE"
 
 echo "Backend virtual environment is ready at $VENV_DIR"
-echo "Activate it with: source backend/.venv/bin/activate"

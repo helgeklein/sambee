@@ -5,7 +5,7 @@ import { useTranslation } from "react-i18next";
 import { COMMON_SHORTCUTS, VIEWER_SHORTCUTS } from "../../config/keyboardShortcuts";
 import { withShortcut } from "../../hooks/useKeyboardShortcuts";
 import { PAGE_INPUT, RESPONSIVE_FONT_SIZE, TOOLBAR_HEIGHT, Z_INDEX } from "../../theme/constants";
-import { VIEWER_DEFAULTS } from "../../theme/viewerStyles";
+import { getViewerToolbarForegroundColors, VIEWER_DEFAULTS } from "../../theme/viewerStyles";
 
 export const VIEWER_SEARCH_INPUT_ATTRIBUTE = "data-viewer-search-input";
 
@@ -148,6 +148,7 @@ export type ViewerToolbarAction = ViewerButtonToolbarAction | ViewerIconToolbarA
 export const ViewerFilenameBadge: React.FC<ViewerFilenameBadgeProps> = ({ label, toolbarText = VIEWER_DEFAULTS.TOOLBAR_TEXT }) => {
   const theme = useTheme();
   const isMobile = useMediaQuery(theme.breakpoints.down("sm"));
+  const toolbarForegrounds = getViewerToolbarForegroundColors(toolbarText);
 
   return (
     <Chip
@@ -158,8 +159,8 @@ export const ViewerFilenameBadge: React.FC<ViewerFilenameBadgeProps> = ({ label,
       sx={{
         height: isMobile ? 20 : 22,
         color: toolbarText,
-        borderColor: `${toolbarText}66`,
-        backgroundColor: `${toolbarText}14`,
+        borderColor: toolbarForegrounds.disabled,
+        backgroundColor: toolbarForegrounds.subtleBackground,
         "& .MuiChip-label": {
           px: isMobile ? 0.75 : 1,
           fontSize: isMobile ? "0.6875rem" : "0.75rem",
@@ -197,6 +198,7 @@ export const ViewerControls: React.FC<ViewerControlsProps> = ({
   const theme = useTheme();
   const isMobile = useMediaQuery(theme.breakpoints.down("sm"));
   const { t } = useTranslation();
+  const toolbarForegrounds = getViewerToolbarForegroundColors(toolbarText);
   const [pageInput, setPageInput] = useState(pageNavigation ? pageNavigation.currentPage.toString() : "");
   const [localShowSearch, setLocalShowSearch] = useState(false);
   const searchInputRef = useRef<HTMLInputElement>(null);
@@ -334,7 +336,7 @@ export const ViewerControls: React.FC<ViewerControlsProps> = ({
         variant={action.variant ?? "text"}
         sx={{
           color: toolbarText,
-          borderColor: `${toolbarText}66`,
+          borderColor: toolbarForegrounds.disabled,
           whiteSpace: "nowrap",
           minWidth: 0,
           px: isMobile ? 1 : 1.5,
@@ -417,7 +419,7 @@ export const ViewerControls: React.FC<ViewerControlsProps> = ({
               component="span"
               variant="caption"
               sx={{
-                opacity: 0.7,
+                color: toolbarForegrounds.muted,
                 fontSize: RESPONSIVE_FONT_SIZE.CAPTION,
                 whiteSpace: "nowrap",
                 flexShrink: 0,
@@ -510,10 +512,10 @@ export const ViewerControls: React.FC<ViewerControlsProps> = ({
                   fontSize: isMobile ? "0.75rem" : "0.875rem",
                 },
                 "& .MuiOutlinedInput-notchedOutline": {
-                  borderColor: `${toolbarText}4D`,
+                  borderColor: toolbarForegrounds.border,
                 },
                 "&:hover .MuiOutlinedInput-notchedOutline": {
-                  borderColor: `${toolbarText}80`,
+                  borderColor: toolbarForegrounds.borderHover,
                 },
                 "& .MuiOutlinedInput-root.Mui-focused .MuiOutlinedInput-notchedOutline": {
                   borderColor: "primary.main",
@@ -643,13 +645,13 @@ export const ViewerControls: React.FC<ViewerControlsProps> = ({
                     fontSize: "0.875rem",
                   },
                   "& .MuiOutlinedInput-notchedOutline": {
-                    borderColor: `${toolbarText}4D`,
+                    borderColor: toolbarForegrounds.border,
                   },
                   "&:hover .MuiOutlinedInput-notchedOutline": {
-                    borderColor: `${toolbarText}80`,
+                    borderColor: toolbarForegrounds.borderHover,
                   },
                   "& .MuiInputBase-input::placeholder": {
-                    color: `${toolbarText}80`,
+                    color: toolbarForegrounds.muted,
                     opacity: 1,
                   },
                 }}
@@ -671,7 +673,7 @@ export const ViewerControls: React.FC<ViewerControlsProps> = ({
                     minWidth: "4ch",
                     textAlign: "left",
                     fontVariantNumeric: "tabular-nums",
-                    opacity: canNavigateSearch ? 1 : 0.6,
+                    color: canNavigateSearch ? toolbarText : toolbarForegrounds.disabled,
                   }}
                 >
                   {currentMatch} / {searchMatches}
@@ -687,7 +689,7 @@ export const ViewerControls: React.FC<ViewerControlsProps> = ({
                   sx={{
                     flexShrink: 0,
                     "&.Mui-disabled": {
-                      color: `${toolbarText}66`,
+                      color: toolbarForegrounds.disabled,
                     },
                   }}
                 >
@@ -704,7 +706,7 @@ export const ViewerControls: React.FC<ViewerControlsProps> = ({
                   sx={{
                     flexShrink: 0,
                     "&.Mui-disabled": {
-                      color: `${toolbarText}66`,
+                      color: toolbarForegrounds.disabled,
                     },
                   }}
                 >

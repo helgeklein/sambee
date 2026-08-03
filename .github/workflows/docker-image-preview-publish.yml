@@ -28,6 +28,7 @@ jobs:
       checkout_ref: ${{ steps.preflight.outputs.source_sha }}
       source_ref_name: ${{ steps.preflight.outputs.build_tag }}
       build_tag: ${{ steps.preflight.outputs.build_tag }}
+      python_runtime_image: ${{ steps.runtime-python-image.outputs.image }}
       version: ${{ steps.metadata.outputs.version }}
       image_description: ${{ steps.metadata.outputs.image_description }}
       image_name: ${{ steps.metadata.outputs.image_name }}
@@ -51,6 +52,19 @@ jobs:
         dispatch-ref: ${{ github.ref }}
         dispatch-sha: ${{ github.sha }}
         run-url: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+
+    - name: Checkout resolved build source
+      uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      with:
+        ref: ${{ steps.preflight.outputs.source_sha }}
+        path: resolved-source
+
+    - name: Read canonical runtime Python image
+      id: runtime-python-image
+      shell: bash
+      run: |
+        image="$(python3 resolved-source/scripts/verify-python-runtime-image.py --image)"
+        printf 'image=%s\n' "$image" >> "$GITHUB_OUTPUT"
 
     - name: Resolve preview metadata
       id: metadata
@@ -132,7 +146,7 @@ jobs:
     if: ${{ needs.prepare.outputs.publication_state == 'build' }}
     runs-on: ubuntu-latest
     container:
-      image: python:3.13.12-slim@sha256:f1927c75e81efd1e091dbd64b6c0ecaa5630b38635a3d1c04034ac636e1f94c8
+      image: ${{ needs.prepare.outputs.python_runtime_image }}
     defaults:
       run:
         shell: bash

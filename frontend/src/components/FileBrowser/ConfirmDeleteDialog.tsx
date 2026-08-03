@@ -66,17 +66,7 @@ const ConfirmDeleteDialog: React.FC<ConfirmDeleteDialogProps> = ({ open, itemNam
   const handleKeyDown = useMemo(() => dialogEnterKeyHandler(), []);
 
   return (
-    <Dialog
-      open={open}
-      onClose={isDeleting ? undefined : onClose}
-      onKeyDown={handleKeyDown}
-      slots={{ transition: NoTransition }}
-      slotProps={{
-        paper: {
-          sx: { bgcolor: "background.default" },
-        },
-      }}
-    >
+    <Dialog open={open} onClose={isDeleting ? undefined : onClose} onKeyDown={handleKeyDown} slots={{ transition: NoTransition }}>
       <DialogTitle>{title}</DialogTitle>
       <DialogContent>
         <DialogContentText sx={{ color: "text.primary" }}>{confirmPrompt}</DialogContentText>

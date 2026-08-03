@@ -105,10 +105,11 @@ describe("Theme System - themes.ts", () => {
   });
 
   describe("Theme color consistency", () => {
-    it("sambee-light and sambee-dark should have same primary color", () => {
-      const lightTheme = getThemeById("sambee-light");
+    it("sambee-dark should use a subdued primary control color", () => {
       const darkTheme = getThemeById("sambee-dark");
-      expect(lightTheme?.primary.main).toBe(darkTheme?.primary.main);
+      expect(darkTheme?.primary.main).toBe("#D4A020");
+      expect(darkTheme?.primary.light).toBe("#F4C430");
+      expect(darkTheme?.primary.dark).toBe("#B8860B");
     });
 
     it("sambee-light should use golden yellow as primary", () => {
@@ -116,9 +117,10 @@ describe("Theme System - themes.ts", () => {
       expect(theme?.primary.main).toBe("#F4C430");
     });
 
-    it("sambee-dark should use golden yellow as primary", () => {
+    it("sambee-dark should reserve golden yellow for high-emphasis states", () => {
       const theme = getThemeById("sambee-dark");
-      expect(theme?.primary.main).toBe("#F4C430");
+      expect(theme?.primary.main).not.toBe(theme?.primary.light);
+      expect(theme?.primary.light).toBe("#F4C430");
     });
 
     it("sambee-light should have action colors defined", () => {
@@ -133,10 +135,11 @@ describe("Theme System - themes.ts", () => {
       expect(theme?.action?.selected).toBeDefined();
     });
 
-    it("sambee-light and sambee-dark should have same action colors", () => {
+    it("sambee themes should use selection colors matched to their primary roles", () => {
       const lightTheme = getThemeById("sambee-light");
       const darkTheme = getThemeById("sambee-dark");
-      expect(lightTheme?.action?.selected).toBe(darkTheme?.action?.selected);
+      expect(lightTheme?.action?.selected).toBe("#F4C43029");
+      expect(darkTheme?.action?.selected).toBe("#D4A02038");
     });
   });
 });

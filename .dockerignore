@@ -20,6 +20,7 @@ __pycache__
 .pytest_cache
 .mypy_cache
 .ruff_cache
+backend/.venv/
 
 # Documentation
 README.md
@@ -47,6 +48,8 @@ config.example.toml
 *.test.ts
 *.test.tsx
 backend/tests/
+!backend/tests/
+!backend/tests/**
 frontend/e2e/
 frontend/test-results/
 

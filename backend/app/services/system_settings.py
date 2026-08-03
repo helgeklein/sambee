@@ -1,16 +1,17 @@
 from __future__ import annotations
 
+import json
 import os
 import platform
-import sqlite3
 import uuid
+from collections import Counter
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from ipaddress import ip_network
 from pathlib import Path
 from threading import RLock
 from typing import Optional
-from urllib.parse import urlparse
+from urllib.parse import urlparse, urlsplit
 
 from sqlalchemy import inspect
 from sqlalchemy.exc import OperationalError
@@ -26,7 +27,8 @@ from app.core.system_setting_definitions import (
     SystemSettingKey,
     SystemSettingSource,
 )
-from app.models.oidc import OidcFlow
+from app.models.connection import Connection
+from app.models.oidc import OidcFlow, OidcProviderConfiguration
 from app.models.system_settings import (
     AboutSettingsRead,
     AdvancedSystemSettingsRead,
@@ -35,9 +37,11 @@ from app.models.system_settings import (
     NetworkSettingsRead,
     NetworkSettingsUpdate,
     PreprocessorAdvancedSettingsRead,
+    PublicSupportReportRead,
     SmbAdvancedSettingsRead,
     SystemSetting,
 )
+from app.services.authentication_config import get_effective_authentication_mode
 from app.services.oidc_configuration import canonicalize_public_url
 
 logger = get_logger(__name__)
@@ -50,6 +54,25 @@ GIT_COMMIT_PATH = Path("/GIT_COMMIT")
 PROCESS_STARTED_AT = datetime.now(timezone.utc)
 CGROUP_MEMORY_LIMIT_PATHS = (Path("/sys/fs/cgroup/memory.max"), Path("/sys/fs/cgroup/memory/memory.limit_in_bytes"))
 UNLIMITED_MEMORY_THRESHOLD_BYTES = 1 << 60
+PUBLIC_SUPPORT_REPORT_FORMAT_VERSION = 1
+PUBLIC_SUPPORT_REPORT_TITLE = "Sambee public support report"
+STANDARD_OIDC_CLAIMS = frozenset({"sub", "name", "email", "groups", "preferred_username"})
+STANDARD_OIDC_SCOPES = frozenset({"openid", "profile", "email", "address", "phone", "offline_access"})
+CONFIG_FILE_SETTING_FIELDS = (
+    ("app.log_level", "log_level"),
+    ("app.access_log_level", "access_log_level"),
+    ("app.protocol_log_level", "protocol_log_level"),
+    ("security.auth_method", "auth_method"),
+    ("security.access_token_expire_minutes", "access_token_expire_minutes"),
+    ("image_viewer.conv_size_thresh", "image_viewer_conv_size_thresh"),
+    ("frontend_logging.logging_enabled", "frontend_logging_enabled"),
+    ("frontend_logging.log_level", "frontend_log_level"),
+    ("frontend_logging.tracing_enabled", "frontend_tracing_enabled"),
+    ("frontend_logging.tracing_retention_hours", "frontend_tracing_retention_hours"),
+    ("frontend_logging.tracing_level", "frontend_tracing_level"),
+    ("directory_cache.coalesce_interval_seconds", "directory_cache_coalesce_interval_seconds"),
+    ("directory_cache.max_staleness_minutes", "directory_cache_max_staleness_minutes"),
+)
 
 
 @dataclass(frozen=True)
@@ -57,6 +80,36 @@ class ResolvedIntegerSystemSetting:
     definition: IntegerSystemSettingDefinition
     value: int
     source: SystemSettingSource
+
+
+class PublicSupportReportAliases:
+    def __init__(self) -> None:
+        self._aliases: dict[tuple[str, str], str] = {}
+        self._next_index_by_kind: Counter[str] = Counter()
+
+    def value(self, kind: str, value: str) -> str:
+        key = (kind, value)
+        alias = self._aliases.get(key)
+        if alias is not None:
+            return alias
+        self._next_index_by_kind[kind] += 1
+        alias = f"{kind}-{self._next_index_by_kind[kind]}"
+        self._aliases[key] = alias
+        return alias
+
+    def url(self, kind: str, value: str) -> str:
+        parsed = urlsplit(value)
+        scheme = parsed.scheme if parsed.scheme in {"http", "https"} else "https"
+        host = f"{self.value(kind, value)}.invalid"
+        path = f"/{self.value(f'{kind}-path', parsed.path)}" if parsed.path and parsed.path != "/" else ""
+        return f"{scheme}://{host}{path}"
+
+    def network(self, value: str) -> str:
+        try:
+            parsed = ip_network(value, strict=False)
+        except ValueError:
+            return self.value("network", value)
+        return f"{self.value(f'{parsed.version == 4 and "ipv4" or "ipv6"}-network', str(parsed))}/{parsed.prefixlen}"
 
 
 def _read_first_available_text(paths: list[Path], fallback: str = "unknown") -> str:
@@ -222,8 +275,225 @@ def build_about_settings_read() -> AboutSettingsRead:
         logical_cpu_count=os.cpu_count(),
         memory_bytes=_get_memory_bytes(),
         python_runtime=f"{platform.python_implementation()} {platform.python_version()}",
-        database_version=sqlite3.sqlite_version,
     )
+
+
+def _report_value(value: object) -> str:
+    return json.dumps(value, ensure_ascii=True, separators=(",", ": "))
+
+
+def _append_report_setting(lines: list[str], key: str, value: object, source: str | None = None) -> None:
+    source_suffix = f" # source: {source}" if source is not None else ""
+    lines.append(f"{key} = {_report_value(value)}{source_suffix}")
+
+
+def _config_file_source(config_attr: str) -> str:
+    return "config_file" if config_attr in config_module.configured_setting_keys else "default"
+
+
+def _settings_value(config_attr: str) -> object:
+    value = getattr(config_module.settings, config_attr)
+    return value.value if hasattr(value, "value") else value
+
+
+def _decode_string_list(value: str) -> list[str]:
+    try:
+        parsed = json.loads(value)
+    except json.JSONDecodeError:
+        logger.warning("Ignoring invalid JSON list while building public support report")
+        return []
+    return [item for item in parsed if isinstance(item, str)] if isinstance(parsed, list) else []
+
+
+def _decode_role_mappings(value: str) -> dict[str, list[str]]:
+    try:
+        parsed = json.loads(value)
+    except json.JSONDecodeError:
+        logger.warning("Ignoring invalid OIDC role mappings while building public support report")
+        return {}
+    if not isinstance(parsed, dict):
+        return {}
+    return {
+        role: [group for group in groups if isinstance(group, str)]
+        for role, groups in parsed.items()
+        if isinstance(role, str) and isinstance(groups, list)
+    }
+
+
+def _public_oidc_claim(value: str | None, aliases: PublicSupportReportAliases) -> str | None:
+    if value is None or value in STANDARD_OIDC_CLAIMS:
+        return value
+    return aliases.value("oidc-claim", value)
+
+
+def _public_oidc_scope(value: str, aliases: PublicSupportReportAliases) -> str:
+    return value if value in STANDARD_OIDC_SCOPES else aliases.value("oidc-scope", value)
+
+
+def _append_config_file_report(lines: list[str], aliases: PublicSupportReportAliases) -> None:
+    lines.append("[configuration_file]")
+    for key, config_attr in CONFIG_FILE_SETTING_FIELDS:
+        _append_report_setting(lines, key, _settings_value(config_attr), _config_file_source(config_attr))
+
+    _append_report_setting(
+        lines,
+        "admin.username_configured",
+        "admin_username" in config_module.configured_setting_keys,
+        _config_file_source("admin_username"),
+    )
+    _append_report_setting(
+        lines,
+        "frontend_logging.tracing_components_configured",
+        bool(config_module.settings.frontend_tracing_components),
+        _config_file_source("frontend_tracing_components"),
+    )
+    _append_report_setting(
+        lines,
+        "frontend_logging.tracing_username_filter_configured",
+        bool(config_module.settings.frontend_tracing_username_regex),
+        _config_file_source("frontend_tracing_username_regex"),
+    )
+    cache_location = config_module.settings.directory_cache_location
+    _append_report_setting(
+        lines,
+        "directory_cache.location",
+        aliases.value("directory-cache-path", cache_location) if cache_location else "default",
+        _config_file_source("directory_cache_location"),
+    )
+    metadata_source = _config_file_source("companion_metadata_feed_url")
+    _append_report_setting(
+        lines, "companion_downloads.metadata_feed", "custom" if metadata_source == "config_file" else "default", metadata_source
+    )
+
+    pin_asset_platforms = [
+        platform_name
+        for platform_name, setting_name in (
+            ("windows_x64", "companion_pin_windows_x64_url"),
+            ("windows_arm64", "companion_pin_windows_arm64_url"),
+            ("macos_arm64", "companion_pin_macos_arm64_url"),
+            ("linux_x64", "companion_pin_linux_x64_url"),
+        )
+        if getattr(config_module.settings, setting_name)
+    ]
+    pin_configured = bool(config_module.settings.companion_pin_version) or bool(pin_asset_platforms)
+    _append_report_setting(lines, "companion_downloads.pin_configured", pin_configured)
+    _append_report_setting(lines, "companion_downloads.pin_asset_platforms", pin_asset_platforms)
+
+
+def _append_advanced_settings_report(lines: list[str]) -> None:
+    advanced = build_advanced_system_settings_read()
+    lines.append("[ui_configuration.advanced]")
+    _append_report_setting(
+        lines,
+        advanced.smb.read_chunk_size_bytes.key.value,
+        advanced.smb.read_chunk_size_bytes.value,
+        advanced.smb.read_chunk_size_bytes.source.value,
+    )
+    imagemagick = advanced.preprocessors["imagemagick"]
+    _append_report_setting(
+        lines,
+        imagemagick.max_file_size_bytes.key.value,
+        imagemagick.max_file_size_bytes.value,
+        imagemagick.max_file_size_bytes.source.value,
+    )
+    _append_report_setting(
+        lines,
+        imagemagick.timeout_seconds.key.value,
+        imagemagick.timeout_seconds.value,
+        imagemagick.timeout_seconds.source.value,
+    )
+
+
+def _append_network_settings_report(lines: list[str], session: Session, aliases: PublicSupportReportAliases) -> None:
+    network = build_network_settings_read(session)
+    lines.append("[ui_configuration.network]")
+    _append_report_setting(lines, "public_url_configured", bool(network.public_url), "ui")
+    if network.public_url:
+        _append_report_setting(lines, "public_url", aliases.url("public-endpoint", network.public_url), "ui")
+    _append_report_setting(lines, "trusted_proxy_cidrs", [aliases.network(value) for value in network.trusted_proxy_cidrs], "ui")
+
+
+def _append_authentication_report(lines: list[str], session: Session, aliases: PublicSupportReportAliases) -> None:
+    effective_mode = get_effective_authentication_mode(session)
+    configuration = session.get(OidcProviderConfiguration, 1)
+    lines.append("[ui_configuration.authentication]")
+    _append_report_setting(lines, "mode", effective_mode.mode.value, effective_mode.source)
+    _append_report_setting(lines, "oidc_provider_configured", configuration is not None, "ui")
+    if configuration is None:
+        return
+
+    role_mappings = _decode_role_mappings(configuration.role_mappings_json)
+    _append_report_setting(lines, "oidc.provider", aliases.value("oidc-provider", configuration.issuer_url), "ui")
+    _append_report_setting(lines, "oidc.issuer_url", aliases.url("oidc-provider", configuration.issuer_url), "ui")
+    _append_report_setting(lines, "oidc.client_id", aliases.value("oidc-client", configuration.client_id), "ui")
+    _append_report_setting(lines, "oidc.client_secret_configured", configuration.encrypted_client_secret is not None, "ui")
+    _append_report_setting(
+        lines, "oidc.scopes", [_public_oidc_scope(scope, aliases) for scope in _decode_string_list(configuration.scopes_json)], "ui"
+    )
+    _append_report_setting(lines, "oidc.username_claim", _public_oidc_claim(configuration.username_claim, aliases), "ui")
+    _append_report_setting(lines, "oidc.name_claim", _public_oidc_claim(configuration.name_claim, aliases), "ui")
+    _append_report_setting(lines, "oidc.email_claim", _public_oidc_claim(configuration.email_claim, aliases), "ui")
+    _append_report_setting(lines, "oidc.groups_claim", _public_oidc_claim(configuration.groups_claim, aliases), "ui")
+    _append_report_setting(lines, "oidc.sign_in_mode", configuration.sign_in_mode.value, "ui")
+    _append_report_setting(lines, "oidc.reauthentication_max_age_days", configuration.interactive_reauthentication_max_age_days, "ui")
+    _append_report_setting(lines, "oidc.admission_mode", configuration.admission_mode.value, "ui")
+    _append_report_setting(
+        lines,
+        "oidc.admission_groups",
+        [aliases.value("oidc-group", group) for group in _decode_string_list(configuration.admission_groups_json)],
+        "ui",
+    )
+    _append_report_setting(lines, "oidc.role_assignment_mode", configuration.role_assignment_mode.value, "ui")
+    _append_report_setting(lines, "oidc.uniform_role", configuration.uniform_role.value, "ui")
+    for role in ("admin", "editor", "viewer"):
+        _append_report_setting(
+            lines,
+            f"oidc.role_mappings.{role}",
+            [aliases.value("oidc-group", group) for group in role_mappings.get(role, [])],
+            "ui",
+        )
+
+
+def _append_connection_summary_report(lines: list[str], session: Session) -> None:
+    connections = session.exec(select(Connection)).all()
+    lines.append("[ui_configuration.connections]")
+    _append_report_setting(lines, "total", len(connections), "ui")
+    _append_report_setting(lines, "by_type", dict(sorted(Counter(connection.type for connection in connections).items())), "ui")
+    _append_report_setting(lines, "by_scope", dict(sorted(Counter(connection.scope.value for connection in connections).items())), "ui")
+    _append_report_setting(
+        lines,
+        "by_access_mode",
+        dict(sorted(Counter(connection.access_mode.value for connection in connections).items())),
+        "ui",
+    )
+
+
+def build_public_support_report_read(session: Session) -> PublicSupportReportRead:
+    aliases = PublicSupportReportAliases()
+    about = build_about_settings_read()
+    lines = [
+        f"# {PUBLIC_SUPPORT_REPORT_TITLE}",
+        "# Safe to post publicly. Identifying values are report-local placeholders.",
+        f"format_version = {PUBLIC_SUPPORT_REPORT_FORMAT_VERSION}",
+        "",
+        "[application]",
+    ]
+    _append_report_setting(lines, "version", about.version)
+    _append_report_setting(lines, "build", about.build_time)
+    _append_report_setting(lines, "commit", about.git_commit)
+    _append_report_setting(lines, "architecture", about.architecture)
+    _append_report_setting(lines, "python", about.python_runtime)
+    lines.append("")
+    _append_config_file_report(lines, aliases)
+    lines.append("")
+    _append_advanced_settings_report(lines)
+    lines.append("")
+    _append_network_settings_report(lines, session, aliases)
+    lines.append("")
+    _append_authentication_report(lines, session, aliases)
+    lines.append("")
+    _append_connection_summary_report(lines, session)
+    return PublicSupportReportRead(content="\n".join(lines))
 
 
 def _extract_updates(payload: AdvancedSystemSettingsUpdate) -> dict[SystemSettingKey, int]:

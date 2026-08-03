@@ -73,10 +73,20 @@ describe("ResponsiveFormDialog", () => {
     expect(screen.getByRole("button", { name: /common\.navigation\.goBack/i })).toBeInTheDocument();
     expect(screen.getByText("Update the account details below.")).toBeInTheDocument();
     expect(screen.getByText("Dialog Body")).toBeInTheDocument();
-    expect(screen.getByTestId("responsive-form-dialog-mobile-actions")).toHaveStyle({
+    const actions = screen.getByTestId("responsive-form-dialog-mobile-actions");
+    const drawerPaper = actions.closest(".MuiDrawer-paper");
+
+    expect(actions).toHaveStyle({
       position: "sticky",
       bottom: "0px",
     });
+    const drawerStyles = window.getComputedStyle(drawerPaper as HTMLElement);
+
+    expect(drawerStyles.getPropertyValue("--sambee-dialog-surface")).not.toBe("");
+    expect(drawerStyles.getPropertyValue("--sambee-dialog-form-surface")).not.toBe("");
+    expect(drawerStyles.getPropertyValue("--sambee-dialog-form-surface")).not.toBe(
+      drawerStyles.getPropertyValue("--sambee-dialog-surface")
+    );
   });
 
   it("restores focus to the triggering element after the dialog closes", async () => {

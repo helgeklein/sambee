@@ -236,7 +236,7 @@ const CopyMoveDialog: React.FC<CopyMoveDialogProps> = ({
         {/* Overwrite strategy (multi-file operations only) */}
         {!isSingleItem && (
           <FormControl sx={{ mt: 2 }} disabled={isProcessing}>
-            <Typography variant="body2" color="text.secondary" sx={{ mb: 0.5 }}>
+            <Typography variant="body2" sx={{ mb: 0.5, color: "text.secondary" }}>
               {S.OVERWRITE_STRATEGY_LABEL}
             </Typography>
             <RadioGroup value={overwriteStrategy} onChange={(e) => setOverwriteStrategy(e.target.value as OverwriteStrategy)}>
@@ -267,7 +267,7 @@ const CopyMoveDialog: React.FC<CopyMoveDialogProps> = ({
         {/* Progress */}
         {isProcessing && progress && (
           <Box sx={{ mt: 2 }}>
-            <Typography variant="body2" color="text.secondary" sx={{ mb: 0.5 }}>
+            <Typography variant="body2" sx={{ mb: 0.5, color: "text.secondary" }}>
               {isCopy ? S.PROGRESS_COPY(progress.current, progress.total) : S.PROGRESS_MOVE(progress.current, progress.total)}
             </Typography>
             <LinearProgress variant="determinate" value={(progress.current / progress.total) * 100} />
@@ -277,7 +277,7 @@ const CopyMoveDialog: React.FC<CopyMoveDialogProps> = ({
         {/* Byte-level transfer progress (cross-connection) */}
         {isProcessing && transferProgress && (
           <Box sx={{ mt: 1 }}>
-            <Typography variant="body2" color="text.secondary" sx={{ mb: 0.5 }}>
+            <Typography variant="body2" sx={{ mb: 0.5, color: "text.secondary" }}>
               {transferProgress.itemName}:{" "}
               {transferProgress.totalBytes != null && transferProgress.totalBytes > 0
                 ? `${formatBytes(transferProgress.bytesTransferred)} / ${formatBytes(transferProgress.totalBytes)}`

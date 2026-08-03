@@ -253,7 +253,7 @@ export function UnifiedSearchBar({
           border: 1,
           borderColor: "divider",
           color: "text.disabled",
-          backgroundColor: theme.palette.mode === "dark" ? "rgba(255,255,255,0.06)" : "rgba(0,0,0,0.04)",
+          backgroundColor: theme.palette.action.selected,
           whiteSpace: "nowrap",
           pointerEvents: "none",
           userSelect: "none",
@@ -262,7 +262,7 @@ export function UnifiedSearchBar({
         {provider.shortcutHint}
       </Box>
     );
-  }, [provider.shortcutHint, useCompactLayout, theme.palette.mode]);
+  }, [provider.shortcutHint, theme.palette.action.selected, useCompactLayout]);
 
   const handleModeSelect = useCallback(
     (modeOption: UnifiedSearchBarModeOption) => {
@@ -864,7 +864,7 @@ export function UnifiedSearchBar({
             position: useCompactLayout ? "sticky" : "relative",
             top: 0,
             zIndex: 10,
-            backgroundColor: useCompactLayout ? "background.paper" : "background.default",
+            backgroundColor: "background.default",
           }}
         >
           <Box
@@ -984,7 +984,7 @@ export function UnifiedSearchBar({
                 }}
               >
                 {statusInfo.showSpinner && <CircularProgress size={14} />}
-                <Typography variant="caption" color="text.secondary">
+                <Typography variant="caption" sx={{ color: "text.secondary" }}>
                   {statusInfo.label}
                 </Typography>
               </Box>
@@ -1040,7 +1040,7 @@ export function UnifiedSearchBar({
             {/* Below minimum query length hint */}
             {showBelowMinimum && (
               <Box sx={{ px: 2, py: 1.5, textAlign: "center" }}>
-                <Typography variant="body2" color="text.secondary">
+                <Typography variant="body2" sx={{ color: "text.secondary" }}>
                   {effectiveBelowMinimumMessage}
                 </Typography>
               </Box>
@@ -1049,7 +1049,7 @@ export function UnifiedSearchBar({
             {/* No results */}
             {showNoResults && (
               <Box sx={{ px: 2, py: 2, textAlign: "center" }}>
-                <Typography variant="body2" color="text.secondary">
+                <Typography variant="body2" sx={{ color: "text.secondary" }}>
                   {t("fileBrowser.search.results.none", { query })}
                 </Typography>
               </Box>
@@ -1093,7 +1093,7 @@ export function UnifiedSearchBar({
                   </Box>
                 )}
                 {provider.footerInfo && (
-                  <Typography variant="caption" color="text.secondary">
+                  <Typography variant="caption" sx={{ color: "text.secondary" }}>
                     {provider.footerInfo(results.length)}
                   </Typography>
                 )}

@@ -258,13 +258,13 @@ export function AccountSettings({ dialogSafe = false }: { dialogSafe?: boolean }
             <SettingsGroup title="Browser sessions">
               {sessions === null ? (
                 <Box>
-                  <Typography color="text.secondary">Browser sessions could not be loaded.</Typography>
+                  <Typography sx={{ color: "text.secondary" }}>Browser sessions could not be loaded.</Typography>
                   <Button sx={{ mt: 2 }} variant="outlined" onClick={() => void loadAccount()} disabled={revoking !== null || signingOut}>
                     Try again
                   </Button>
                 </Box>
               ) : sessions.length === 0 ? (
-                <Typography color="text.secondary">No renewable OIDC sessions are active.</Typography>
+                <Typography sx={{ color: "text.secondary" }}>No renewable OIDC sessions are active.</Typography>
               ) : (
                 <>
                   <SettingsList>

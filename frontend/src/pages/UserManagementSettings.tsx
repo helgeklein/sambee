@@ -12,11 +12,9 @@ import {
 import {
   Box,
   Button,
-  Checkbox,
   Chip,
   CircularProgress,
   FormControl,
-  FormControlLabel,
   FormHelperText,
   IconButton,
   InputLabel,
@@ -26,9 +24,12 @@ import {
   MenuItem,
   Select,
   Stack,
+  Switch,
   TextField,
   Tooltip,
   Typography,
+  useMediaQuery,
+  useTheme,
 } from "@mui/material";
 import { useCallback, useMemo, useState } from "react";
 import { useTranslation } from "react-i18next";
@@ -36,7 +37,21 @@ import DeleteDialog from "../components/Admin/DeleteDialog";
 import { adminDialogActionButtonSx, adminDialogEndActionRowSx } from "../components/Admin/dialogActionStyles";
 import { ResponsiveFormDialog } from "../components/Admin/ResponsiveFormDialog";
 import { SettingsInlineAlert, SettingsNotificationSnackbar, type SettingsNotificationState } from "../components/Settings/SettingsFeedback";
+import {
+  SettingsFormFieldLabel,
+  SettingsFormGroup,
+  SettingsFormRow,
+  SettingsFormSection,
+  SettingsFormSurface,
+  settingsFormFieldControlSx,
+  settingsFormOutlinedControlSx,
+  settingsFormSelectControlSx,
+  settingsSelectMenuProps,
+  settingsSelectSx,
+} from "../components/Settings/SettingsFormLayout";
 import { SettingsPage } from "../components/Settings/SettingsPage";
+import { SettingsPasswordVisibilityToggle } from "../components/Settings/SettingsPasswordVisibilityToggle";
+import { SettingsSelectMenuItem } from "../components/Settings/SettingsSelectMenuItem";
 import { SettingsEmptyState, SettingsLoadingState } from "../components/Settings/SettingsState";
 import {
   settingsDestructiveIconButtonSx,
@@ -83,6 +98,33 @@ interface UserManagementSettingsProps {
 
 type OidcMappingEditorMode = "create" | "change" | "move";
 
+type UserEditorField = "username";
+
+const USER_EDITOR_IDS = {
+  username: "user-editor-username",
+  usernameDescription: "user-editor-username-description",
+  name: "user-editor-name",
+  nameDescription: "user-editor-name-description",
+  email: "user-editor-email",
+  emailDescription: "user-editor-email-description",
+  role: "user-editor-role",
+  roleLabel: "user-editor-role-label",
+  roleDescription: "user-editor-role-description",
+  oidcRoleAssignment: "user-editor-oidc-role-assignment",
+  oidcRoleAssignmentLabel: "user-editor-oidc-role-assignment-label",
+  oidcRoleAssignmentDescription: "user-editor-oidc-role-assignment-description",
+  expiresAt: "user-editor-expires-at",
+  expiresAtDescription: "user-editor-expires-at-description",
+  isActive: "user-editor-is-active",
+  isActiveLabel: "user-editor-is-active-label",
+  isActiveDescription: "user-editor-is-active-description",
+  password: "user-editor-password",
+  passwordDescription: "user-editor-password-description",
+  mustChangePassword: "user-editor-must-change-password",
+  mustChangePasswordLabel: "user-editor-must-change-password-label",
+  mustChangePasswordDescription: "user-editor-must-change-password-description",
+} as const;
+
 const DEFAULT_USER_FORM: UserFormState = {
   username: "",
   name: "",
@@ -126,6 +168,8 @@ const USER_ROW_COMPACT_CONTAINER_QUERY = `@container (max-width: ${USER_ROW_COMP
 
 export function UserManagementSettings({ dialogSafeHeader = false }: UserManagementSettingsProps) {
   const { t } = useTranslation();
+  const theme = useTheme();
+  const usesDesktopFormLayout = useMediaQuery(theme.breakpoints.up("md"));
   const [notification, setNotification] = useState<SettingsNotificationState>({
     open: false,
     message: "",
@@ -178,7 +222,10 @@ export function UserManagementSettings({ dialogSafeHeader = false }: UserManagem
     user: AdminUser | null;
   }>({ anchor: null, user: null });
   const [formState, setFormState] = useState<UserFormState>(DEFAULT_USER_FORM);
-  const [formError, setFormError] = useState<string | null>(null);
+  const [showInitialPassword, setShowInitialPassword] = useState(false);
+  const [showResetPassword, setShowResetPassword] = useState(false);
+  const [fieldErrors, setFieldErrors] = useState<Partial<Record<UserEditorField, string>>>({});
+  const [submissionError, setSubmissionError] = useState<string | null>(null);
   const [resetPasswordForm, setResetPasswordForm] = useState<ResetPasswordFormState>(DEFAULT_RESET_PASSWORD_FORM);
   const [resetPasswordError, setResetPasswordError] = useState<string | null>(null);
   const [submitting, setSubmitting] = useState(false);
@@ -283,7 +330,9 @@ export function UserManagementSettings({ dialogSafeHeader = false }: UserManagem
   const openCreateDialog = () => {
     setSelectedUser(null);
     setFormState(DEFAULT_USER_FORM);
-    setFormError(null);
+    setFieldErrors({});
+    setSubmissionError(null);
+    setShowInitialPassword(false);
     setEditorOpen(true);
   };
 
@@ -300,7 +349,9 @@ export function UserManagementSettings({ dialogSafeHeader = false }: UserManagem
       mustChangePassword: user.must_change_password,
       expiresAt: toDateTimeLocalValue(user.expires_at),
     });
-    setFormError(null);
+    setFieldErrors({});
+    setSubmissionError(null);
+    setShowInitialPassword(false);
     setEditorOpen(true);
   };
 
@@ -312,7 +363,9 @@ export function UserManagementSettings({ dialogSafeHeader = false }: UserManagem
     setEditorOpen(false);
     setSelectedUser(null);
     setFormState(DEFAULT_USER_FORM);
-    setFormError(null);
+    setFieldErrors({});
+    setSubmissionError(null);
+    setShowInitialPassword(false);
   }, []);
 
   const handleSave = useCallback(async () => {
@@ -320,7 +373,11 @@ export function UserManagementSettings({ dialogSafeHeader = false }: UserManagem
     const name = formState.name.trim();
     const email = formState.email.trim().toLowerCase();
     if (!username) {
-      setFormError(t("settings.userManagement.notifications.usernameRequired"));
+      setFieldErrors({ username: t("settings.userManagement.notifications.usernameRequired") });
+      setSubmissionError(null);
+      requestAnimationFrame(() => {
+        document.getElementById(USER_EDITOR_IDS.username)?.focus();
+      });
       return;
     }
 
@@ -328,7 +385,8 @@ export function UserManagementSettings({ dialogSafeHeader = false }: UserManagem
 
     try {
       setSubmitting(true);
-      setFormError(null);
+      setFieldErrors({});
+      setSubmissionError(null);
 
       if (selectedUser) {
         const updatePayload: AdminUserUpdateInput = {
@@ -372,7 +430,7 @@ export function UserManagementSettings({ dialogSafeHeader = false }: UserManagem
         error,
         isEditing ? t("settings.userManagement.notifications.updateFailed") : t("settings.userManagement.notifications.createFailed")
       );
-      setFormError(message);
+      setSubmissionError(message);
     } finally {
       setSubmitting(false);
     }
@@ -398,6 +456,7 @@ export function UserManagementSettings({ dialogSafeHeader = false }: UserManagem
     setSelectedUser(user);
     setResetPasswordForm(DEFAULT_RESET_PASSWORD_FORM);
     setResetPasswordError(null);
+    setShowResetPassword(false);
     setResetPasswordEditorOpen(true);
   };
 
@@ -405,6 +464,7 @@ export function UserManagementSettings({ dialogSafeHeader = false }: UserManagem
     setResetPasswordEditorOpen(false);
     setResetPasswordForm(DEFAULT_RESET_PASSWORD_FORM);
     setResetPasswordError(null);
+    setShowResetPassword(false);
     setSelectedUser(null);
   }, []);
 
@@ -481,119 +541,365 @@ export function UserManagementSettings({ dialogSafeHeader = false }: UserManagem
     </Box>
   );
 
+  const renderDesktopLabel = (
+    label: string,
+    description: string,
+    descriptionId: string,
+    htmlFor?: string,
+    required = false,
+    id?: string,
+    hasError = false
+  ) =>
+    usesDesktopFormLayout ? (
+      <SettingsFormFieldLabel
+        label={label}
+        description={description}
+        descriptionId={descriptionId}
+        htmlFor={htmlFor}
+        required={required}
+        id={id}
+        hasError={hasError}
+      />
+    ) : null;
+
   const editorContent = (
-    <Box sx={{ display: "flex", flexDirection: "column", gap: 3 }}>
-      {formError && <SettingsInlineAlert sx={{ mb: 0 }}>{formError}</SettingsInlineAlert>}
-      <TextField
-        label={t("settings.userManagement.editor.usernameLabel")}
-        value={formState.username}
-        onChange={(event) => setFormState((current) => ({ ...current, username: event.target.value }))}
-        autoFocus
-        fullWidth
-        variant="outlined"
-        helperText={t("settings.userManagement.editor.usernameHelp")}
-      />
-      <TextField
-        label={t("settings.userManagement.editor.nameLabel")}
-        value={formState.name}
-        onChange={(event) => setFormState((current) => ({ ...current, name: event.target.value }))}
-        fullWidth
-        variant="outlined"
-        helperText={t("settings.userManagement.editor.nameHelp")}
-      />
-      <TextField
-        label={t("settings.userManagement.editor.emailLabel")}
-        type="email"
-        value={formState.email}
-        onChange={(event) => setFormState((current) => ({ ...current, email: event.target.value }))}
-        fullWidth
-        variant="outlined"
-        helperText={t("settings.userManagement.editor.emailHelp")}
-      />
-      <FormControl fullWidth variant="outlined">
-        <InputLabel id="user-role-label">{t("settings.userManagement.editor.roleLabel")}</InputLabel>
-        <Select
-          labelId="user-role-label"
-          label={t("settings.userManagement.editor.roleLabel")}
-          value={formState.role}
-          disabled={isEditingSelf}
-          onChange={(event) => setFormState((current) => ({ ...current, role: event.target.value as UserRole }))}
-        >
-          <MenuItem value="editor">{t("settings.userManagement.editorRole")}</MenuItem>
-          <MenuItem value="viewer">{t("settings.userManagement.viewerRole")}</MenuItem>
-          <MenuItem value="admin">{t("settings.userManagement.adminRole")}</MenuItem>
-        </Select>
-        <FormHelperText>{t("settings.userManagement.editor.roleHelp")}</FormHelperText>
-      </FormControl>
-      {isEditing && (selectedUser?.oidc || selectedUser?.pending_oidc) && (
-        <FormControl fullWidth variant="outlined">
-          <InputLabel id="oidc-role-assignment-label">OIDC role assignment</InputLabel>
-          <Select
-            labelId="oidc-role-assignment-label"
-            label="OIDC role assignment"
-            value={formState.oidcRoleAssignment}
-            disabled={isEditingSelf}
-            onChange={(event) => setFormState((current) => ({ ...current, oidcRoleAssignment: event.target.value as UserRole | "" }))}
-          >
-            <MenuItem value="">Use configured role assignment</MenuItem>
-            <MenuItem value="viewer">Viewer</MenuItem>
-            <MenuItem value="editor">Editor</MenuItem>
-            <MenuItem value="admin">Administrator</MenuItem>
-          </Select>
-          <FormHelperText>{t("settings.userManagement.editor.oidcRoleAssignmentHelp")}</FormHelperText>
-        </FormControl>
-      )}
-      <TextField
-        label={t("settings.userManagement.editor.expiresAtLabel")}
-        type="datetime-local"
-        value={formState.expiresAt}
-        onChange={(event) => setFormState((current) => ({ ...current, expiresAt: event.target.value }))}
-        fullWidth
-        variant="outlined"
-        helperText={t("settings.userManagement.editor.expiresAtHelp")}
-        slotProps={{ inputLabel: { shrink: true } }}
-      />
-      {isEditing ? (
-        <Box sx={{ alignSelf: "flex-start" }}>
-          <FormControlLabel
-            control={
-              <Checkbox
-                checked={formState.isActive}
-                disabled={isEditingSelf}
-                onChange={(event) => setFormState((current) => ({ ...current, isActive: event.target.checked }))}
+    <Box sx={{ display: "flex", flexDirection: "column", gap: 2 }}>
+      {submissionError && <SettingsInlineAlert sx={{ mb: 0 }}>{submissionError}</SettingsInlineAlert>}
+      <SettingsFormSurface testId="user-editor-form-surface">
+        <SettingsFormGroup testId="user-editor-identity-fields">
+          <SettingsFormRow>
+            {renderDesktopLabel(
+              t("settings.userManagement.editor.usernameLabel"),
+              fieldErrors.username || t("settings.userManagement.editor.usernameHelp"),
+              USER_EDITOR_IDS.usernameDescription,
+              USER_EDITOR_IDS.username,
+              true,
+              undefined,
+              Boolean(fieldErrors.username)
+            )}
+            <Box sx={settingsFormFieldControlSx}>
+              <TextField
+                id={USER_EDITOR_IDS.username}
+                label={usesDesktopFormLayout ? undefined : t("settings.userManagement.editor.usernameLabel")}
+                hiddenLabel={usesDesktopFormLayout}
+                value={formState.username}
+                onChange={(event) => {
+                  setFormState((current) => ({ ...current, username: event.target.value }));
+                  if (fieldErrors.username) setFieldErrors({});
+                }}
+                autoFocus
+                error={Boolean(fieldErrors.username)}
+                helperText={usesDesktopFormLayout ? undefined : fieldErrors.username || t("settings.userManagement.editor.usernameHelp")}
+                fullWidth
+                required
+                variant="outlined"
+                size={usesDesktopFormLayout ? "small" : "medium"}
+                sx={settingsFormOutlinedControlSx}
+                slotProps={{
+                  htmlInput: { "aria-describedby": usesDesktopFormLayout ? USER_EDITOR_IDS.usernameDescription : undefined },
+                }}
               />
-            }
-            label={t("settings.userManagement.editor.accountActiveLabel")}
-            sx={{ m: 0 }}
-          />
-          <FormHelperText>{t("settings.userManagement.editor.accountActiveHelp")}</FormHelperText>
-        </Box>
-      ) : (
-        <>
-          <TextField
-            label={t("settings.userManagement.editor.initialPasswordLabel")}
-            type="password"
-            value={formState.password}
-            onChange={(event) => setFormState((current) => ({ ...current, password: event.target.value }))}
-            helperText={t("settings.userManagement.editor.initialPasswordHelp")}
-            fullWidth
-            variant="outlined"
-          />
-          <Box sx={{ alignSelf: "flex-start" }}>
-            <FormControlLabel
-              control={
-                <Checkbox
-                  checked={formState.mustChangePassword}
-                  onChange={(event) => setFormState((current) => ({ ...current, mustChangePassword: event.target.checked }))}
+            </Box>
+          </SettingsFormRow>
+          <SettingsFormRow>
+            {renderDesktopLabel(
+              t("settings.userManagement.editor.nameLabel"),
+              t("settings.userManagement.editor.nameHelp"),
+              USER_EDITOR_IDS.nameDescription,
+              USER_EDITOR_IDS.name
+            )}
+            <Box sx={settingsFormFieldControlSx}>
+              <TextField
+                id={USER_EDITOR_IDS.name}
+                label={usesDesktopFormLayout ? undefined : t("settings.userManagement.editor.nameLabel")}
+                hiddenLabel={usesDesktopFormLayout}
+                value={formState.name}
+                onChange={(event) => setFormState((current) => ({ ...current, name: event.target.value }))}
+                helperText={usesDesktopFormLayout ? undefined : t("settings.userManagement.editor.nameHelp")}
+                fullWidth
+                variant="outlined"
+                size={usesDesktopFormLayout ? "small" : "medium"}
+                sx={settingsFormOutlinedControlSx}
+                slotProps={{ htmlInput: { "aria-describedby": usesDesktopFormLayout ? USER_EDITOR_IDS.nameDescription : undefined } }}
+              />
+            </Box>
+          </SettingsFormRow>
+          <SettingsFormRow>
+            {renderDesktopLabel(
+              t("settings.userManagement.editor.emailLabel"),
+              t("settings.userManagement.editor.emailHelp"),
+              USER_EDITOR_IDS.emailDescription,
+              USER_EDITOR_IDS.email
+            )}
+            <Box sx={settingsFormFieldControlSx}>
+              <TextField
+                id={USER_EDITOR_IDS.email}
+                label={usesDesktopFormLayout ? undefined : t("settings.userManagement.editor.emailLabel")}
+                hiddenLabel={usesDesktopFormLayout}
+                type="email"
+                value={formState.email}
+                onChange={(event) => setFormState((current) => ({ ...current, email: event.target.value }))}
+                helperText={usesDesktopFormLayout ? undefined : t("settings.userManagement.editor.emailHelp")}
+                fullWidth
+                variant="outlined"
+                size={usesDesktopFormLayout ? "small" : "medium"}
+                sx={settingsFormOutlinedControlSx}
+                slotProps={{ htmlInput: { "aria-describedby": usesDesktopFormLayout ? USER_EDITOR_IDS.emailDescription : undefined } }}
+              />
+            </Box>
+          </SettingsFormRow>
+        </SettingsFormGroup>
+        <SettingsFormSection title={t("settings.userManagement.editor.sections.access")} />
+        <SettingsFormGroup>
+          <SettingsFormRow>
+            {renderDesktopLabel(
+              t("settings.userManagement.editor.roleLabel"),
+              t("settings.userManagement.editor.roleHelp"),
+              USER_EDITOR_IDS.roleDescription,
+              undefined,
+              false,
+              USER_EDITOR_IDS.roleLabel
+            )}
+            <FormControl
+              fullWidth={!usesDesktopFormLayout}
+              variant="outlined"
+              size={usesDesktopFormLayout ? "small" : "medium"}
+              sx={usesDesktopFormLayout ? [settingsFormOutlinedControlSx, settingsFormSelectControlSx] : settingsFormOutlinedControlSx}
+            >
+              {!usesDesktopFormLayout && (
+                <InputLabel id={USER_EDITOR_IDS.roleLabel}>{t("settings.userManagement.editor.roleLabel")}</InputLabel>
+              )}
+              <Select
+                id={USER_EDITOR_IDS.role}
+                labelId={USER_EDITOR_IDS.roleLabel}
+                aria-describedby={usesDesktopFormLayout ? USER_EDITOR_IDS.roleDescription : undefined}
+                label={usesDesktopFormLayout ? undefined : t("settings.userManagement.editor.roleLabel")}
+                value={formState.role}
+                size={usesDesktopFormLayout ? "small" : "medium"}
+                sx={settingsSelectSx}
+                MenuProps={settingsSelectMenuProps}
+                disabled={isEditingSelf}
+                onChange={(event) => setFormState((current) => ({ ...current, role: event.target.value as UserRole }))}
+                renderValue={(selected) => {
+                  if (selected === "admin") return t("settings.userManagement.adminRole");
+                  if (selected === "viewer") return t("settings.userManagement.viewerRole");
+                  return t("settings.userManagement.editorRole");
+                }}
+              >
+                <SettingsSelectMenuItem
+                  value="editor"
+                  label={t("settings.userManagement.editorRole")}
+                  description={t("settings.userManagement.editor.roleOptions.editor")}
                 />
-              }
-              label={t("settings.userManagement.editor.requirePasswordChangeLabel")}
-              sx={{ m: 0 }}
-            />
-            <FormHelperText>{t("settings.userManagement.editor.requirePasswordChangeHelp")}</FormHelperText>
-          </Box>
-        </>
-      )}
+                <SettingsSelectMenuItem
+                  value="viewer"
+                  label={t("settings.userManagement.viewerRole")}
+                  description={t("settings.userManagement.editor.roleOptions.viewer")}
+                />
+                <SettingsSelectMenuItem
+                  value="admin"
+                  label={t("settings.userManagement.adminRole")}
+                  description={t("settings.userManagement.editor.roleOptions.admin")}
+                />
+              </Select>
+              {!usesDesktopFormLayout && <FormHelperText>{t("settings.userManagement.editor.roleHelp")}</FormHelperText>}
+            </FormControl>
+          </SettingsFormRow>
+          {isEditing && (selectedUser?.oidc || selectedUser?.pending_oidc) && (
+            <SettingsFormRow>
+              {renderDesktopLabel(
+                t("settings.userManagement.editor.oidcRoleAssignmentLabel"),
+                t("settings.userManagement.editor.oidcRoleAssignmentHelp"),
+                USER_EDITOR_IDS.oidcRoleAssignmentDescription,
+                undefined,
+                false,
+                USER_EDITOR_IDS.oidcRoleAssignmentLabel
+              )}
+              <FormControl
+                fullWidth={!usesDesktopFormLayout}
+                variant="outlined"
+                size={usesDesktopFormLayout ? "small" : "medium"}
+                sx={usesDesktopFormLayout ? [settingsFormOutlinedControlSx, settingsFormSelectControlSx] : settingsFormOutlinedControlSx}
+              >
+                {!usesDesktopFormLayout && (
+                  <InputLabel id={USER_EDITOR_IDS.oidcRoleAssignmentLabel}>
+                    {t("settings.userManagement.editor.oidcRoleAssignmentLabel")}
+                  </InputLabel>
+                )}
+                <Select
+                  id={USER_EDITOR_IDS.oidcRoleAssignment}
+                  labelId={USER_EDITOR_IDS.oidcRoleAssignmentLabel}
+                  aria-describedby={usesDesktopFormLayout ? USER_EDITOR_IDS.oidcRoleAssignmentDescription : undefined}
+                  label={usesDesktopFormLayout ? undefined : t("settings.userManagement.editor.oidcRoleAssignmentLabel")}
+                  value={formState.oidcRoleAssignment}
+                  size={usesDesktopFormLayout ? "small" : "medium"}
+                  sx={settingsSelectSx}
+                  MenuProps={settingsSelectMenuProps}
+                  disabled={isEditingSelf}
+                  onChange={(event) => setFormState((current) => ({ ...current, oidcRoleAssignment: event.target.value as UserRole | "" }))}
+                >
+                  <MenuItem value="">{t("settings.userManagement.editor.oidcRoleAssignmentConfiguredRole")}</MenuItem>
+                  <MenuItem value="viewer">{t("settings.userManagement.viewerRole")}</MenuItem>
+                  <MenuItem value="editor">{t("settings.userManagement.editorRole")}</MenuItem>
+                  <MenuItem value="admin">{t("settings.userManagement.adminRole")}</MenuItem>
+                </Select>
+                {!usesDesktopFormLayout && <FormHelperText>{t("settings.userManagement.editor.oidcRoleAssignmentHelp")}</FormHelperText>}
+              </FormControl>
+            </SettingsFormRow>
+          )}
+          <SettingsFormRow>
+            {renderDesktopLabel(
+              t("settings.userManagement.editor.expiresAtLabel"),
+              t("settings.userManagement.editor.expiresAtHelp"),
+              USER_EDITOR_IDS.expiresAtDescription,
+              USER_EDITOR_IDS.expiresAt
+            )}
+            <Box sx={[settingsFormFieldControlSx, { maxWidth: { md: 260 } }]}>
+              <TextField
+                id={USER_EDITOR_IDS.expiresAt}
+                label={usesDesktopFormLayout ? undefined : t("settings.userManagement.editor.expiresAtLabel")}
+                hiddenLabel={usesDesktopFormLayout}
+                type="datetime-local"
+                value={formState.expiresAt}
+                onChange={(event) => setFormState((current) => ({ ...current, expiresAt: event.target.value }))}
+                fullWidth
+                variant="outlined"
+                size={usesDesktopFormLayout ? "small" : "medium"}
+                helperText={usesDesktopFormLayout ? undefined : t("settings.userManagement.editor.expiresAtHelp")}
+                sx={settingsFormOutlinedControlSx}
+                slotProps={{
+                  inputLabel: { shrink: true },
+                  htmlInput: { "aria-describedby": usesDesktopFormLayout ? USER_EDITOR_IDS.expiresAtDescription : undefined },
+                }}
+              />
+            </Box>
+          </SettingsFormRow>
+          {isEditing && (
+            <SettingsFormRow>
+              {renderDesktopLabel(
+                t("settings.userManagement.editor.accountActiveLabel"),
+                t("settings.userManagement.editor.accountActiveHelp"),
+                USER_EDITOR_IDS.isActiveDescription,
+                USER_EDITOR_IDS.isActive,
+                false,
+                USER_EDITOR_IDS.isActiveLabel
+              )}
+              <Box sx={settingsFormFieldControlSx}>
+                <Box sx={{ display: "flex", alignItems: "center", justifyContent: "flex-end", gap: 1 }}>
+                  {!usesDesktopFormLayout && (
+                    <Typography id={USER_EDITOR_IDS.isActiveLabel} variant="body2" sx={{ mr: "auto" }}>
+                      {t("settings.userManagement.editor.accountActiveLabel")}
+                    </Typography>
+                  )}
+                  <Typography component="span" variant="body2" aria-live="polite">
+                    {formState.isActive ? t("settings.userManagement.editor.switchOn") : t("settings.userManagement.editor.switchOff")}
+                  </Typography>
+                  <Switch
+                    checked={formState.isActive}
+                    disabled={isEditingSelf}
+                    onChange={(event) => setFormState((current) => ({ ...current, isActive: event.target.checked }))}
+                    slotProps={{
+                      input: {
+                        id: USER_EDITOR_IDS.isActive,
+                        "aria-label": `${t("settings.userManagement.editor.accountActiveLabel")}: ${
+                          formState.isActive ? t("settings.userManagement.editor.switchOn") : t("settings.userManagement.editor.switchOff")
+                        }`,
+                        "aria-describedby": USER_EDITOR_IDS.isActiveDescription,
+                      },
+                    }}
+                  />
+                </Box>
+                {!usesDesktopFormLayout && <FormHelperText>{t("settings.userManagement.editor.accountActiveHelp")}</FormHelperText>}
+              </Box>
+            </SettingsFormRow>
+          )}
+        </SettingsFormGroup>
+        {!isEditing && (
+          <>
+            <SettingsFormSection title={t("settings.userManagement.editor.sections.credentials")} />
+            <SettingsFormGroup>
+              <SettingsFormRow>
+                {renderDesktopLabel(
+                  t("settings.userManagement.editor.initialPasswordLabel"),
+                  t("settings.userManagement.editor.initialPasswordHelp"),
+                  USER_EDITOR_IDS.passwordDescription,
+                  USER_EDITOR_IDS.password
+                )}
+                <Box sx={settingsFormFieldControlSx}>
+                  <TextField
+                    id={USER_EDITOR_IDS.password}
+                    label={usesDesktopFormLayout ? undefined : t("settings.userManagement.editor.initialPasswordLabel")}
+                    hiddenLabel={usesDesktopFormLayout}
+                    type={showInitialPassword ? "text" : "password"}
+                    value={formState.password}
+                    onChange={(event) => setFormState((current) => ({ ...current, password: event.target.value }))}
+                    helperText={usesDesktopFormLayout ? undefined : t("settings.userManagement.editor.initialPasswordHelp")}
+                    fullWidth
+                    variant="outlined"
+                    size={usesDesktopFormLayout ? "small" : "medium"}
+                    sx={settingsFormOutlinedControlSx}
+                    slotProps={{
+                      htmlInput: { "aria-describedby": usesDesktopFormLayout ? USER_EDITOR_IDS.passwordDescription : undefined },
+                      input: {
+                        endAdornment: (
+                          <SettingsPasswordVisibilityToggle
+                            visible={showInitialPassword}
+                            onToggle={() => setShowInitialPassword((current) => !current)}
+                            showLabel={t("settings.userManagement.editor.showInitialPassword")}
+                            hideLabel={t("settings.userManagement.editor.hideInitialPassword")}
+                          />
+                        ),
+                      },
+                    }}
+                  />
+                </Box>
+              </SettingsFormRow>
+              <SettingsFormRow>
+                {renderDesktopLabel(
+                  t("settings.userManagement.editor.requirePasswordChangeLabel"),
+                  t("settings.userManagement.editor.requirePasswordChangeHelp"),
+                  USER_EDITOR_IDS.mustChangePasswordDescription,
+                  USER_EDITOR_IDS.mustChangePassword,
+                  false,
+                  USER_EDITOR_IDS.mustChangePasswordLabel
+                )}
+                <Box sx={settingsFormFieldControlSx}>
+                  <Box sx={{ display: "flex", alignItems: "center", justifyContent: "flex-end", gap: 1 }}>
+                    {!usesDesktopFormLayout && (
+                      <Typography id={USER_EDITOR_IDS.mustChangePasswordLabel} variant="body2" sx={{ mr: "auto" }}>
+                        {t("settings.userManagement.editor.requirePasswordChangeLabel")}
+                      </Typography>
+                    )}
+                    <Typography component="span" variant="body2" aria-live="polite">
+                      {formState.mustChangePassword
+                        ? t("settings.userManagement.editor.switchOn")
+                        : t("settings.userManagement.editor.switchOff")}
+                    </Typography>
+                    <Switch
+                      checked={formState.mustChangePassword}
+                      onChange={(event) => setFormState((current) => ({ ...current, mustChangePassword: event.target.checked }))}
+                      slotProps={{
+                        input: {
+                          id: USER_EDITOR_IDS.mustChangePassword,
+                          "aria-label": `${t("settings.userManagement.editor.requirePasswordChangeLabel")}: ${
+                            formState.mustChangePassword
+                              ? t("settings.userManagement.editor.switchOn")
+                              : t("settings.userManagement.editor.switchOff")
+                          }`,
+                          "aria-describedby": USER_EDITOR_IDS.mustChangePasswordDescription,
+                        },
+                      }}
+                    />
+                  </Box>
+                  {!usesDesktopFormLayout && (
+                    <FormHelperText>{t("settings.userManagement.editor.requirePasswordChangeHelp")}</FormHelperText>
+                  )}
+                </Box>
+              </SettingsFormRow>
+            </SettingsFormGroup>
+          </>
+        )}
+      </SettingsFormSurface>
     </Box>
   );
 
@@ -657,24 +963,49 @@ export function UserManagementSettings({ dialogSafeHeader = false }: UserManagem
       {resetPasswordError && <SettingsInlineAlert sx={{ mb: 0 }}>{resetPasswordError}</SettingsInlineAlert>}
       <TextField
         label={t("settings.userManagement.resetPasswordEditor.passwordLabel")}
-        type="password"
+        type={showResetPassword ? "text" : "password"}
         value={resetPasswordForm.password}
         onChange={(event) => setResetPasswordForm((current) => ({ ...current, password: event.target.value }))}
         helperText={t("settings.userManagement.resetPasswordEditor.passwordHelp")}
         autoFocus
         fullWidth
         variant="outlined"
+        slotProps={{
+          input: {
+            endAdornment: (
+              <SettingsPasswordVisibilityToggle
+                visible={showResetPassword}
+                onToggle={() => setShowResetPassword((current) => !current)}
+                showLabel={t("settings.userManagement.resetPasswordEditor.showPassword")}
+                hideLabel={t("settings.userManagement.resetPasswordEditor.hidePassword")}
+              />
+            ),
+          },
+        }}
       />
-      <FormControlLabel
-        control={
-          <Checkbox
-            checked={resetPasswordForm.mustChangePassword}
-            onChange={(event) => setResetPasswordForm((current) => ({ ...current, mustChangePassword: event.target.checked }))}
-          />
-        }
-        label={t("settings.userManagement.resetPasswordEditor.requirePasswordChangeLabel")}
-        sx={{ alignSelf: "flex-start", m: 0 }}
-      />
+      <Box sx={{ display: "flex", alignItems: "center", justifyContent: "flex-end", gap: 1 }}>
+        <Typography variant="body2" sx={{ mr: "auto" }}>
+          {t("settings.userManagement.resetPasswordEditor.requirePasswordChangeLabel")}
+        </Typography>
+        <Typography component="span" variant="body2" aria-live="polite">
+          {resetPasswordForm.mustChangePassword
+            ? t("settings.userManagement.editor.switchOn")
+            : t("settings.userManagement.editor.switchOff")}
+        </Typography>
+        <Switch
+          checked={resetPasswordForm.mustChangePassword}
+          onChange={(event) => setResetPasswordForm((current) => ({ ...current, mustChangePassword: event.target.checked }))}
+          slotProps={{
+            input: {
+              "aria-label": `${t("settings.userManagement.resetPasswordEditor.requirePasswordChangeLabel")}: ${
+                resetPasswordForm.mustChangePassword
+                  ? t("settings.userManagement.editor.switchOn")
+                  : t("settings.userManagement.editor.switchOff")
+              }`,
+            },
+          }}
+        />
+      </Box>
     </Box>
   );
 
@@ -742,7 +1073,7 @@ export function UserManagementSettings({ dialogSafeHeader = false }: UserManagem
                         {user.name?.trim() ? user.name : user.username}
                       </Typography>
                       {(user.name || user.email) && (
-                        <Typography variant="body2" color="text.secondary" sx={{ mt: 0.5 }}>
+                        <Typography variant="body2" sx={{ mt: 0.5, color: "text.secondary" }}>
                           {[user.username, user.email].filter(Boolean).join(" • ")}
                         </Typography>
                       )}
@@ -800,14 +1131,22 @@ export function UserManagementSettings({ dialogSafeHeader = false }: UserManagem
                           <Chip size="small" label="Local password" variant="outlined" sx={settingsMetadataChipSx} />
                         )}
                         {user.oidc && (
-                          <Chip
-                            size="small"
-                            label={`OIDC linked: ${user.oidc.provider_display_name}${
-                              user.oidc.last_login_at ? `, last login ${new Date(user.oidc.last_login_at).toLocaleString()}` : ""
-                            }`}
-                            variant="outlined"
-                            sx={settingsMetadataChipSx}
-                          />
+                          <>
+                            <Chip
+                              size="small"
+                              label={`OIDC linked: ${user.oidc.provider_display_name}`}
+                              variant="outlined"
+                              sx={settingsMetadataChipSx}
+                            />
+                            {user.oidc.last_login_at && (
+                              <Chip
+                                size="small"
+                                label={`OIDC last login: ${new Date(user.oidc.last_login_at).toLocaleString()}`}
+                                variant="outlined"
+                                sx={settingsMetadataChipSx}
+                              />
+                            )}
+                          </>
                         )}
                         {user.pending_oidc && (
                           <Chip
@@ -1141,6 +1480,8 @@ export function UserManagementSettings({ dialogSafeHeader = false }: UserManagem
               label="Target local account"
               value={mappingEditor.targetUserId}
               onChange={(event) => setMappingEditor((current) => ({ ...current, targetUserId: event.target.value }))}
+              sx={settingsSelectSx}
+              MenuProps={settingsSelectMenuProps}
             >
               {users
                 .filter((user) => user.is_active && !user.oidc && !user.pending_oidc && user.id !== mappingEditor.user?.id)
@@ -1168,9 +1509,6 @@ export function UserManagementSettings({ dialogSafeHeader = false }: UserManagem
         onClose={handleEditorClose}
         disableClose={submitting}
         title={isEditing ? t("settings.userManagement.editor.titleEdit") : t("settings.userManagement.editor.titleCreate")}
-        description={
-          isEditing ? t("settings.userManagement.editor.descriptionEdit") : t("settings.userManagement.editor.descriptionCreate")
-        }
         actions={editorActions}
         onKeyDown={handleEditorKeyDown}
       >

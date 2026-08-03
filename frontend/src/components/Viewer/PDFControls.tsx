@@ -4,6 +4,7 @@ import React, { useState } from "react";
 import { useTranslation } from "react-i18next";
 import { COMMON_SHORTCUTS, VIEWER_SHORTCUTS } from "../../config/keyboardShortcuts";
 import { withShortcut } from "../../hooks/useKeyboardShortcuts";
+import { getViewerToolbarForegroundColors, VIEWER_DEFAULTS } from "../../theme/viewerStyles";
 
 type ZoomMode = "fit-page" | "fit-width" | number;
 
@@ -23,6 +24,8 @@ interface PDFControlsProps {
   currentMatch: number;
   onSearchNext: () => void;
   onSearchPrevious: () => void;
+  toolbarBackground?: string;
+  toolbarText?: string;
 }
 
 /**
@@ -45,12 +48,15 @@ export const PDFControls: React.FC<PDFControlsProps> = ({
   currentMatch,
   onSearchNext,
   onSearchPrevious,
+  toolbarBackground = VIEWER_DEFAULTS.TOOLBAR_BG,
+  toolbarText = VIEWER_DEFAULTS.TOOLBAR_TEXT,
 }) => {
   const theme = useTheme();
   const isMobile = useMediaQuery(theme.breakpoints.down("sm"));
   const { t } = useTranslation();
   const [pageInput, setPageInput] = useState(currentPage.toString());
   const [showSearch, setShowSearch] = useState(false);
+  const toolbarForegrounds = getViewerToolbarForegroundColors(toolbarText);
 
   // Update page input when page changes externally
   React.useEffect(() => {
@@ -112,8 +118,8 @@ export const PDFControls: React.FC<PDFControlsProps> = ({
       sx={{
         position: "relative",
         width: "100%",
-        bgcolor: "rgba(0,0,0,0.8)",
-        color: "white",
+        bgcolor: toolbarBackground,
+        color: toolbarText,
         display: "flex",
         flexDirection: isMobile && showSearch ? "column" : "row",
         alignItems: isMobile && showSearch ? "stretch" : "center",
@@ -185,14 +191,14 @@ export const PDFControls: React.FC<PDFControlsProps> = ({
               sx={{
                 width: isMobile ? "40px" : "60px",
                 "& .MuiInputBase-root": {
-                  color: "white",
+                  color: toolbarText,
                   fontSize: isMobile ? "0.75rem" : "0.875rem",
                 },
                 "& .MuiOutlinedInput-notchedOutline": {
-                  borderColor: "rgba(255,255,255,0.3)",
+                  borderColor: toolbarForegrounds.border,
                 },
                 "&:hover .MuiOutlinedInput-notchedOutline": {
-                  borderColor: "rgba(255,255,255,0.5)",
+                  borderColor: toolbarForegrounds.borderHover,
                 },
                 "& .MuiInputBase-input": {
                   textAlign: "center",
@@ -300,17 +306,17 @@ export const PDFControls: React.FC<PDFControlsProps> = ({
               flex: 1,
               minWidth: 0,
               "& .MuiInputBase-root": {
-                color: "white",
+                color: toolbarText,
                 fontSize: "0.875rem",
               },
               "& .MuiOutlinedInput-notchedOutline": {
-                borderColor: "rgba(255,255,255,0.3)",
+                borderColor: toolbarForegrounds.border,
               },
               "&:hover .MuiOutlinedInput-notchedOutline": {
-                borderColor: "rgba(255,255,255,0.5)",
+                borderColor: toolbarForegrounds.borderHover,
               },
               "& .MuiInputBase-input::placeholder": {
-                color: "rgba(255,255,255,0.5)",
+                color: toolbarForegrounds.muted,
                 opacity: 1,
               },
             }}
