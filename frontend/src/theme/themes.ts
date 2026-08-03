@@ -30,19 +30,8 @@ export const builtInThemes: ThemeConfig[] = [
     },
     action: {
       selected: "#F4C43029", // 16% opacity
-      focus: "#F4C430", // Golden yellow - primary color for focus outlines
     },
     components: {
-      appBar: {
-        background: "#F4C430", // Golden yellow - primary color in light mode
-        text: "#1F262B", // Dark text for contrast on yellow background
-        focus: "#1F262BB3", // Dark outline for contrast on yellow background
-      },
-      statusBar: {
-        background: "#F4C430", // Matches app bar in light mode
-        text: "#1F262B", // Primary text - dark on yellow
-        textSecondary: "#1F262BB3", // 70% opacity
-      },
       link: {
         main: "#C24400", // Dark for readability
         hover: "#FF5900", // Lighter on hover for visual feedback
@@ -74,6 +63,11 @@ export const builtInThemes: ThemeConfig[] = [
           text: "#1565C0", // Dark blue
           icon: "#1976D2", // Blue
         },
+        success: {
+          background: "#E8F5E9", // Light green
+          text: "#2E7D32", // Dark green
+          icon: "#43A047", // Green
+        },
         warning: {
           background: "#FFF3E0", // Light orange
           text: "#E65100", // Dark orange
@@ -94,37 +88,26 @@ export const builtInThemes: ThemeConfig[] = [
     description: "Application default dark theme",
     mode: "dark",
     primary: {
-      main: "#F4C430", // Golden yellow
-      light: "#F6E58D",
-      dark: "#D4A020",
+      main: "#D4A020", // Muted golden yellow for default dark-mode controls
+      light: "#F4C430", // Brighter hover and high-emphasis shade
+      dark: "#B8860B", // Pressed and low-emphasis shade
       contrastText: "#1F262B",
     },
     background: {
       default: "#1F262B", // Dark charcoal
-      paper: "#2A3239",
+      paper: "#1F262B",
     },
     text: {
       primary: "#F6F1E8",
       secondary: "#F6F1E8B3", // 70% opacity
     },
     action: {
-      selected: "#F4C43029", // 16% opacity
-      focus: "#F4C430", // Golden yellow - primary color for focus outlines
+      selected: "#D4A02038", // 22% opacity
     },
     components: {
-      appBar: {
-        background: "#2A3239", // Dark paper color - not primary in dark mode
-        text: "#F6F1E8", // Light text for contrast on dark background
-        focus: "#F4C430", // Golden yellow for focus outlines on dark background
-      },
-      statusBar: {
-        background: "#2A3239", // Matches app bar in dark mode (paper color)
-        text: "#F6F1E8", // Primary text - light on dark
-        textSecondary: "#F6F1E8B3", // 70% opacity
-      },
       link: {
-        main: "#F4C430", // Golden yellow
-        hover: "#F6E58D", // Lighter yellow on hover
+        main: "#D4A020", // Default dark-mode primary shade
+        hover: "#F4C430", // Brighter hover shade
       },
       search: {
         otherMatch: "#FFB74D", // Brighter orange for non-current search matches on dark backgrounds
@@ -152,6 +135,11 @@ export const builtInThemes: ThemeConfig[] = [
           background: "#0D47A1", // Deep blue
           text: "#BBDEFB", // Light blue text
           icon: "#64B5F6", // Light blue icon
+        },
+        success: {
+          background: "#1B5E20", // Deep green
+          text: "#C8E6C9", // Light green text
+          icon: "#81C784", // Light green icon
         },
         warning: {
           background: "#E65100", // Deep orange

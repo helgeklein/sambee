@@ -16,8 +16,6 @@ Sambee's [OIDC implementation](../../../admin-guide/authentication/openid-connec
 - The editor now updates to display the normalized Markdown written to disk after a successful save.
 - Unsaved edits are stored in the browser's local storage so they're not lost when re-authenticating, for example.
 
-## Miscellaneous
-
 ## Settings Overhaul
 
 The settings got a good UX overhaul that should make them much more consistent, accessible and, hopefully, much nicer to look at. They're fully responsive, of course, adapting flexibly to phone and desktop screen dimensions. They're also very optimized for efficient keyboard usage while offering touch-friendly sizing on mobile devices.
@@ -28,6 +26,11 @@ The settings also gained several new category pages:
 - New admin **Network** settings page
 - New admin **Authentication** settings page
 - New admin **About** settings page
+   - Can create a support report with redacted diagnostic info safe for posting online.
+
+## Dark Theme Polishing
+
+The dark theme got a good new coat of paint. The colors of all elements, including backgrounds, texts, menus, and dialogs were tweaked to ensure visual clarity and eye-soothing contrasts.
 
 ## Under the Hood
 
@@ -48,3 +51,7 @@ This led to quite the architecture change that started with a redefinition of th
  1. Promote the build to the `beta` and/or `stable` channels.
 
  Crucially, in this new model a build is created only once. Releases happen through promoting existing builds. This guarantees that the version that was tested is exactly what is released later on.
+
+### Docker Dev/Prod Images: Shared Runtime Base Architecture
+
+The development (devcontainer) and production Docker images are now built off a common shared runtime base. This facilitates maintenance and ensures that the shipped image is identical to the environment the developer tested in.

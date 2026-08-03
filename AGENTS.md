@@ -23,7 +23,7 @@
 
 - Add docstrings and comments for non-obvious code.
 - Don't use magic strings or magic numbers. Use centrally defined constants, enums, or similar instead.
-- Before changing any form, settings surface, or dialog, read `website/content/docs/0.9/developer-guide/frontend-architecture/settings-form-dialog-pattern/index.md`.
+- Before changing any form, settings surface, or dialog, read `website/content/docs/<VERSION>/developer-guide/frontend-architecture/settings-form-dialog-pattern/index.md`.
 
 ## Git Commits
 

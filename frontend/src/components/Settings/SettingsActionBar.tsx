@@ -1,5 +1,6 @@
 import { Box, type SxProps, type Theme } from "@mui/material";
 import type { ReactNode } from "react";
+import { getSettingsPageSurfaceColor } from "./settingsSurface";
 
 const SETTINGS_ACTION_BAR_BUTTON_HEIGHT_PX = 40;
 const SETTINGS_ACTION_BAR_VERTICAL_PADDING_PX = 12;
@@ -28,7 +29,7 @@ export function SettingsActionBar({ primaryActions, secondaryActions, sx }: Sett
     pb: "calc(12px + env(safe-area-inset-bottom))",
     borderTop: 1,
     borderColor: "divider",
-    bgcolor: "background.default",
+    bgcolor: getSettingsPageSurfaceColor,
   };
   const resolvedSx: SxProps<Theme> = Array.isArray(sx) ? [baseSx, ...sx] : sx ? [baseSx, sx] : baseSx;
 

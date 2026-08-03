@@ -346,10 +346,8 @@ export function BreadcrumbsNavigation({
 
   const activeIndicatorSx = showActiveIndicator
     ? {
-        bgcolor: (theme: import("@mui/material").Theme) =>
-          theme.palette.statusBar?.background || (theme.palette.mode === "dark" ? "background.paper" : "primary.main"),
-        color: (theme: import("@mui/material").Theme) =>
-          theme.palette.statusBar?.text || (theme.palette.mode === "dark" ? "text.primary" : "primary.contrastText"),
+        bgcolor: (theme: import("@mui/material").Theme) => theme.palette.statusBar?.background ?? theme.palette.background.default,
+        color: (theme: import("@mui/material").Theme) => theme.palette.statusBar?.text ?? theme.palette.text.primary,
       }
     : {};
 
@@ -362,8 +360,7 @@ export function BreadcrumbsNavigation({
         flex: 1,
         minWidth: 0,
         "& .MuiBreadcrumbs-separator": {
-          color: "inherit",
-          opacity: 0.7,
+          color: (theme: import("@mui/material").Theme) => theme.palette.statusBar?.textSecondary ?? theme.palette.text.secondary,
           display: "flex",
           alignItems: "center",
           mx: 0.5,
@@ -407,7 +404,10 @@ export function BreadcrumbsNavigation({
           onClick={handleRootClick}
           onKeyDown={createEscapeHandler(onEscape)}
           tabIndex={disableTabFocus ? -1 : undefined}
-          sx={{ fontWeight: "regular", color: "inherit", opacity: 0.85 }}
+          sx={{
+            fontWeight: "regular",
+            color: (theme) => theme.palette.statusBar?.textSecondary ?? theme.palette.text.secondary,
+          }}
           aria-label={t("fileBrowser.chrome.breadcrumb.navigateRoot")}
         >
           {connectionName}
@@ -418,7 +418,14 @@ export function BreadcrumbsNavigation({
       {displaySegments.map((segment) => {
         if (segment.type === "ellipsis") {
           return (
-            <Typography key="breadcrumb-ellipsis" variant="caption" color="inherit" sx={{ userSelect: "none", opacity: 0.7 }}>
+            <Typography
+              key="breadcrumb-ellipsis"
+              variant="caption"
+              sx={{
+                userSelect: "none",
+                color: (theme) => theme.palette.statusBar?.textSecondary ?? theme.palette.text.secondary,
+              }}
+            >
               …
             </Typography>
           );
@@ -461,8 +468,7 @@ export function BreadcrumbsNavigation({
               textOverflow: "ellipsis",
               whiteSpace: "nowrap",
               fontWeight: "regular",
-              color: "inherit",
-              opacity: 0.85,
+              color: (theme) => theme.palette.statusBar?.textSecondary ?? theme.palette.text.secondary,
             }}
           >
             {segment.label}

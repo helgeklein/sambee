@@ -9,8 +9,8 @@ set -euo pipefail
 
 HOOK_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
-# Get the short commit hash of HEAD
-GIT_COMMIT=$(git rev-parse --short HEAD)
+# Get the full commit hash of HEAD
+GIT_COMMIT=$(git rev-parse HEAD)
 
 # Write to GIT_COMMIT file in repository root
 echo "$GIT_COMMIT" > GIT_COMMIT

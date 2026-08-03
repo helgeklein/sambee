@@ -6,6 +6,7 @@ import { translate } from "../../i18n";
 import { logger } from "../../services/logger";
 import type { ViewerComponentLoadResult, ViewerComponent as ViewerComponentType } from "../../utils/FileTypeRegistry";
 import { getViewerComponentLoadResult, getViewerLoadErrorDiagnostics } from "../../utils/FileTypeRegistry";
+import { settingsSubduedIconButtonSx } from "../Settings/settingsButtonStyles";
 
 interface DynamicViewerProps {
   connectionId: string;
@@ -64,7 +65,7 @@ function ViewerFallbackDialog({ mode, path, error, onClose, onRetry }: ViewerFal
           aria-label={t("viewer.fallback.closeAriaLabel")}
           onClick={onClose}
           size="small"
-          sx={{ position: "absolute", top: 12, right: 12 }}
+          sx={{ position: "absolute", top: 12, right: 12, ...settingsSubduedIconButtonSx }}
         >
           <CloseIcon />
         </IconButton>
@@ -74,7 +75,7 @@ function ViewerFallbackDialog({ mode, path, error, onClose, onRetry }: ViewerFal
           <Typography variant="h6">{filename}</Typography>
           <Alert severity={mode === "failed" ? "warning" : "info"}>{message}</Alert>
           <Box>
-            <Typography variant="body2" color="text.secondary">
+            <Typography variant="body2" sx={{ color: "text.secondary" }}>
               {t("viewer.fallback.stillAvailable")}
             </Typography>
           </Box>

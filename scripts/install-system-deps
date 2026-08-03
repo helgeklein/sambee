@@ -20,6 +20,7 @@ fi
 # - ghostscript: PostScript/PDF interpreter (required for EPS, AI, PS, PDF processing via ImageMagick)
 # - libgs-common: Ghostscript ICC color profiles for proper CMYK→RGB conversion
 SAMBEE_SYSTEM_PACKAGES=(
+    libsqlite3-0
     libmagic1
     libvips42
     libheif1

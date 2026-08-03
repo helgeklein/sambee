@@ -56,7 +56,7 @@ export function SearchBar({ value, onChange, inputRef, useCompactLayout = false,
         position: useCompactLayout ? "sticky" : "relative",
         top: 0,
         zIndex: 10,
-        backgroundColor: useCompactLayout ? "background.paper" : "background.default",
+        backgroundColor: "background.default",
       }}
     >
       <TextField

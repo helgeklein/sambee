@@ -785,7 +785,7 @@ export function AuthenticationSettings() {
                 <SettingsSectionList>
                   <SettingsGroup title="Provider">
                     <Stack spacing={2.5}>
-                      <Typography color="text.secondary">
+                      <Typography sx={{ color: "text.secondary" }}>
                         {authMode === "oidc_only"
                           ? "Users are redirected to the identity provider when they sign in."
                           : "Users can sign in with the identity provider or a local password."}
@@ -995,7 +995,7 @@ export function AuthenticationSettings() {
 
                   <SettingsGroup title="Advanced claims">
                     <Stack spacing={2.5}>
-                      <Typography color="text.secondary">
+                      <Typography sx={{ color: "text.secondary" }}>
                         The default claim names work with most providers. A groups claim is only needed for selected-group admission or
                         group-based role assignment.
                       </Typography>
@@ -1043,7 +1043,7 @@ export function AuthenticationSettings() {
                           {testedIdentity.matching_admission_group && (
                             <Typography>Matching admission group: {testedIdentity.matching_admission_group}</Typography>
                           )}
-                          <Typography color="text.secondary">Account mapping does not override the admission policy.</Typography>
+                          <Typography sx={{ color: "text.secondary" }}>Account mapping does not override the admission policy.</Typography>
                           {!testedIdentityCanActivate && (
                             <Alert severity="error" sx={{ mt: 1 }}>
                               The tested identity must pass the admission rule before this configuration can be activated.
@@ -1174,7 +1174,7 @@ export function AuthenticationSettings() {
                                   {testedIdentity.replacement_mappings
                                     .filter((mapping) => !mapping.selectable)
                                     .map((mapping) => (
-                                      <Typography key={mapping.target_user_id} color="text.secondary">
+                                      <Typography key={mapping.target_user_id} sx={{ color: "text.secondary" }}>
                                         {mapping.local_username} ({mapping.target_state}) must be reactivated before mapping.
                                       </Typography>
                                     ))}

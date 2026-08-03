@@ -7,8 +7,14 @@ readonly REPO_ROOT="$(cd "${SCRIPT_DIR}/.." && pwd)"
 readonly BACKEND_DIR="${REPO_ROOT}/backend"
 readonly EXPECTED_PYTHON_MINOR="3.13"
 readonly PIP_TOOLS_VERSION="7.5.3"
+readonly LOCKFILE_REFRESH_LOCALE="C.UTF-8"
 readonly REQUIREMENTS_LOCKFILE_NAME="requirements.lock.txt"
 readonly REQUIREMENTS_DEV_LOCKFILE_NAME="requirements-dev.lock.txt"
+
+# The dev container may inherit a locale that is not installed. Keep Python,
+# pip, and pip-tools deterministic without requiring host locale generation.
+export LANG="${LOCKFILE_REFRESH_LOCALE}"
+export LC_ALL="${LOCKFILE_REFRESH_LOCALE}"
 
 usage() {
     cat <<'EOF'

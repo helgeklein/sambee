@@ -17,10 +17,12 @@ import type { SelectChangeEvent } from "@mui/material/Select";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { SettingsFieldHelp } from "../components/Settings/SettingsFieldHelp";
+import { settingsSelectMenuProps, settingsSelectSx } from "../components/Settings/SettingsFormLayout";
 import { SettingsGroup } from "../components/Settings/SettingsGroup";
 import { SettingsList } from "../components/Settings/SettingsList";
 import { SettingsPage } from "../components/Settings/SettingsPage";
 import { SettingsSectionList } from "../components/Settings/SettingsSectionList";
+import { getSettingsPageSurfaceColor } from "../components/Settings/settingsSurface";
 import { getAvailableLanguages } from "../i18n";
 import { useLocalePreferences } from "../i18n/LocalePreferencesProvider";
 import { PSEUDO_LANGUAGE } from "../i18n/resources";
@@ -245,7 +247,7 @@ export function AppearanceSettings() {
                             {themeOption.name}
                           </Typography>
                           {themeOption.description && (
-                            <Typography variant="body2" color="text.secondary" sx={{ mt: 0.5 }}>
+                            <Typography variant="body2" sx={{ mt: 0.5, color: "text.secondary" }}>
                               {themeOption.description}
                             </Typography>
                           )}
@@ -294,7 +296,7 @@ export function AppearanceSettings() {
                     </Typography>
                   </Box>
                   {themeOption.description && (
-                    <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
+                    <Typography variant="body2" sx={{ mb: 2, color: "text.secondary" }}>
                       {themeOption.description}
                     </Typography>
                   )}
@@ -314,6 +316,8 @@ export function AppearanceSettings() {
                 value={draftLanguagePreference}
                 label={t("settings.appearancePage.languageLabel")}
                 onChange={handleLanguageChange}
+                sx={settingsSelectSx}
+                MenuProps={settingsSelectMenuProps}
               >
                 {languageOptions.map((option) => (
                   <MenuItem key={option.value} value={option.value}>
@@ -331,6 +335,8 @@ export function AppearanceSettings() {
                 value={draftRegionalLocalePreference}
                 label={t("settings.appearancePage.regionalLocaleLabel")}
                 onChange={handleRegionalLocaleChange}
+                sx={settingsSelectSx}
+                MenuProps={settingsSelectMenuProps}
               >
                 {regionalLocaleOptions.map((option) => (
                   <MenuItem key={option.value} value={option.value}>
@@ -350,7 +356,7 @@ export function AppearanceSettings() {
               mt: 2.5,
             }}
           >
-            <InputLabel id="appearance-regional-preview-label" shrink sx={{ px: 0.5, bgcolor: "background.default" }}>
+            <InputLabel id="appearance-regional-preview-label" shrink sx={{ px: 0.5, bgcolor: getSettingsPageSurfaceColor }}>
               {t("settings.appearancePage.regionalSettingsPreviewTitle")}
             </InputLabel>
             <Box
@@ -361,13 +367,13 @@ export function AppearanceSettings() {
                 borderColor: "divider",
               }}
             >
-              <Typography variant="body2" color="text.secondary">
+              <Typography variant="body2" sx={{ color: "text.secondary" }}>
                 {formatLocalizedDateTime(PREVIEW_DATE, {
                   dateStyle: "full",
                   timeStyle: "short",
                 })}
               </Typography>
-              <Typography variant="body2" color="text.secondary" sx={{ mt: 0.75 }}>
+              <Typography variant="body2" sx={{ mt: 0.75, color: "text.secondary" }}>
                 {formatLocalizedNumber(1234567.89, {
                   maximumFractionDigits: 2,
                 })}

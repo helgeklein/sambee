@@ -178,14 +178,7 @@ const NameInputDialog: React.FC<NameInputDialogProps> = ({
   const hasError = validationError !== null || (apiError != null && apiError !== "");
 
   return (
-    <Dialog
-      open={open}
-      onClose={isSubmitting ? undefined : onClose}
-      slots={{ transition: NoTransition }}
-      slotProps={{ paper: { sx: { bgcolor: "background.default" } } }}
-      maxWidth="sm"
-      fullWidth
-    >
+    <Dialog open={open} onClose={isSubmitting ? undefined : onClose} slots={{ transition: NoTransition }} maxWidth="sm" fullWidth>
       <DialogTitle>{title}</DialogTitle>
       <DialogContent>
         <TextField

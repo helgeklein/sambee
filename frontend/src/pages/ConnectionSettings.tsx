@@ -35,6 +35,7 @@ import {
   settingsUtilityIconButtonSx,
 } from "../components/Settings/settingsButtonStyles";
 import { loadConnectionsSettingsData, SETTINGS_DATA_CACHE_KEYS } from "../components/Settings/settingsDataSources";
+import { getSettingsPageSurfaceColor } from "../components/Settings/settingsSurface";
 import { settingsListItemTitleSx } from "../components/Settings/settingsTypographyStyles";
 import { useSettingsAccess } from "../components/Settings/useSettingsAccess";
 import { useCachedAsyncData } from "../hooks/useCachedAsyncData";
@@ -279,10 +280,10 @@ export function ConnectionSettings({
                 </Box>
 
                 <Box sx={{ display: "flex", mb: -0.5 }}>
-                  <Typography variant="body2" color="text.secondary" sx={{ minWidth: 48 }}>
+                  <Typography variant="body2" sx={{ minWidth: 48, color: "text.secondary" }}>
                     {t("settings.connectionManagement.userLabel")}
                   </Typography>
-                  <Typography variant="body2" color="text.secondary">
+                  <Typography variant="body2" sx={{ color: "text.secondary" }}>
                     {connection.username}
                   </Typography>
                 </Box>
@@ -296,10 +297,10 @@ export function ConnectionSettings({
                   }}
                 >
                   <Box sx={{ display: "flex" }}>
-                    <Typography variant="body2" color="text.secondary" sx={{ minWidth: 48 }}>
+                    <Typography variant="body2" sx={{ minWidth: 48, color: "text.secondary" }}>
                       {t("settings.connectionManagement.pathLabel")}
                     </Typography>
-                    <Typography variant="body2" color="text.secondary">
+                    <Typography variant="body2" sx={{ color: "text.secondary" }}>
                       \\{connection.host}\{connection.share_name}
                       {connection.path_prefix && connection.path_prefix !== "/" && connection.path_prefix.replace(/\//g, "\\")}
                     </Typography>
@@ -390,19 +391,19 @@ export function ConnectionSettings({
               </Box>
 
               <Box sx={{ display: "flex", mb: 1 }}>
-                <Typography variant="body2" color="text.secondary" sx={{ minWidth: 48 }}>
+                <Typography variant="body2" sx={{ minWidth: 48, color: "text.secondary" }}>
                   {t("settings.connectionManagement.userLabel")}
                 </Typography>
-                <Typography variant="body2" color="text.secondary">
+                <Typography variant="body2" sx={{ color: "text.secondary" }}>
                   {connection.username}
                 </Typography>
               </Box>
 
               <Box sx={{ display: "flex" }}>
-                <Typography variant="body2" color="text.secondary" sx={{ minWidth: 48 }}>
+                <Typography variant="body2" sx={{ minWidth: 48, color: "text.secondary" }}>
                   {t("settings.connectionManagement.pathLabel")}
                 </Typography>
-                <Typography variant="body2" color="text.secondary">
+                <Typography variant="body2" sx={{ color: "text.secondary" }}>
                   \\{connection.host}\{connection.share_name}
                   {connection.path_prefix && connection.path_prefix !== "/" && connection.path_prefix.replace(/\//g, "\\")}
                 </Typography>
@@ -433,7 +434,7 @@ export function ConnectionSettings({
         height: showHeader ? "100%" : "auto",
         display: "flex",
         flexDirection: "column",
-        bgcolor: "background.default",
+        bgcolor: getSettingsPageSurfaceColor,
         overflow: showHeader ? "hidden" : "visible",
       }}
     >
@@ -508,7 +509,6 @@ export function ConnectionSettings({
         slotProps={{
           paper: {
             sx: {
-              bgcolor: "background.default",
               minWidth: 180,
             },
           },

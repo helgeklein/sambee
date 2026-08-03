@@ -64,13 +64,15 @@ interface ThemeSelectorDialogProps {
 export function ThemeSelectorDialog({ open, onClose }: ThemeSelectorDialogProps) {
   const { currentTheme, availableThemes, saveThemeById, setThemeById } = useSambeeTheme();
   const savedThemeIdRef = useRef(currentTheme.id);
+  const wasOpenRef = useRef(false);
   const [draftThemeId, setDraftThemeId] = useState(currentTheme.id);
 
   useEffect(() => {
-    if (open) {
+    if (open && !wasOpenRef.current) {
       savedThemeIdRef.current = currentTheme.id;
       setDraftThemeId(currentTheme.id);
     }
+    wasOpenRef.current = open;
   }, [currentTheme.id, open]);
 
   const handleSelect = (themeId: string) => {
@@ -118,7 +120,7 @@ export function ThemeSelectorDialog({ open, onClose }: ThemeSelectorDialogProps)
                     </Typography>
                   </Box>
                   {theme.description && (
-                    <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
+                    <Typography variant="body2" sx={{ mb: 2, color: "text.secondary" }}>
                       {THEME_SELECTOR_STRINGS.themeDescription(theme)}
                     </Typography>
                   )}
@@ -153,7 +155,7 @@ interface ThemePreviewProps {
 function ThemePreview({ theme }: ThemePreviewProps) {
   return (
     <Box sx={{ display: "flex", gap: 1, alignItems: "center" }}>
-      <Typography variant="caption" color="text.secondary" sx={{ minWidth: 60 }}>
+      <Typography variant="caption" sx={{ minWidth: 60, color: "text.secondary" }}>
         {THEME_SELECTOR_STRINGS.modeLabel(theme.mode)}
       </Typography>
       <Box

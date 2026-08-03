@@ -10,26 +10,26 @@ import type { ThemeConfig } from "./types";
 const FOCUS_RING_WIDTH = 3;
 const CONTAINED_BUTTON_FOCUS_INNER_RING_WIDTH = 1;
 
-function getPrimaryAccentColor(theme: Theme): string {
-  return theme.palette.primary.dark ?? theme.palette.primary.main;
+export function getControlAccentColor(theme: Theme): string {
+  return theme.palette.mode === "dark" ? theme.palette.primary.main : (theme.palette.primary.dark ?? theme.palette.primary.main);
 }
 
-function getContainedButtonFocusAccentColor(theme: Theme): string {
-  return theme.palette.action.focus ?? getPrimaryAccentColor(theme);
+export function getFocusAccentColor(theme: Theme): string {
+  return theme.palette.action.focus ?? getControlAccentColor(theme);
 }
 
 export function getElevatedButtonFocusRing(theme: Theme): string {
-  const ringColor = alpha(getPrimaryAccentColor(theme), theme.palette.mode === "dark" ? 0.38 : 0.24);
+  const ringColor = alpha(getFocusAccentColor(theme), theme.palette.mode === "dark" ? 0.38 : 0.24);
 
   return `0 0 0 ${FOCUS_RING_WIDTH}px ${ringColor}`;
 }
 
 export function getContainedButtonFocusVisibleBoxShadow(theme: Theme, shadowIndex = 3): string {
-  return `${theme.shadows[shadowIndex]}, 0 0 0 ${CONTAINED_BUTTON_FOCUS_INNER_RING_WIDTH}px ${getContainedButtonFocusAccentColor(theme)}`;
+  return `${theme.shadows[shadowIndex]}, 0 0 0 ${CONTAINED_BUTTON_FOCUS_INNER_RING_WIDTH}px ${getFocusAccentColor(theme)}`;
 }
 
 export function getPillButtonFocusVisibleBoxShadow(theme: Theme): string {
-  return `0 0 0 ${FOCUS_RING_WIDTH - 1}px ${theme.palette.primary.main}`;
+  return `0 0 0 ${FOCUS_RING_WIDTH - 1}px ${getFocusAccentColor(theme)}`;
 }
 
 export interface SecondaryToolbarSurfaceColors {
@@ -103,7 +103,8 @@ export function getSecondaryActionStripStyle(theme: Theme) {
     color: colors.textColor,
     borderBottom: 1,
     borderColor: colors.borderColor,
-    boxShadow: "rgba(0, 0, 0, 0.2) 0px 3px 1px -2px, rgba(0, 0, 0, 0.14) 0px 2px 2px 0px, rgba(0, 0, 0, 0.12) 0px 1px 5px 0px",
+    boxShadow: theme.shadows[2],
+    position: "relative",
     zIndex: 1,
   };
 }

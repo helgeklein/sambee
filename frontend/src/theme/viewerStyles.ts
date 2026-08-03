@@ -5,7 +5,7 @@
  * (ImageViewer, PDFViewer, MarkdownViewer).
  */
 
-import type { Theme } from "@mui/material";
+import { alpha, type Theme } from "@mui/material";
 import type { SystemStyleObject } from "@mui/system";
 import type { ThemeConfig } from "./types";
 
@@ -49,6 +49,24 @@ export interface MarkdownViewerColors extends ViewerColors {
   viewerText: string;
   linkColor: string;
   linkHoverColor: string;
+}
+
+export interface ViewerToolbarForegroundColors {
+  border: string;
+  borderHover: string;
+  disabled: string;
+  muted: string;
+  subtleBackground: string;
+}
+
+export function getViewerToolbarForegroundColors(toolbarText: string): ViewerToolbarForegroundColors {
+  return {
+    border: alpha(toolbarText, 0.3),
+    borderHover: alpha(toolbarText, 0.5),
+    disabled: alpha(toolbarText, 0.4),
+    muted: alpha(toolbarText, 0.7),
+    subtleBackground: alpha(toolbarText, 0.08),
+  };
 }
 
 //

@@ -1,0 +1,188 @@
++++
+title = "CI Workflows and Repository Automation"
++++
+
+Use this page to understand the GitHub Actions workflows contributors hit most often and to keep the workflow list grouped predictably in the GitHub UI.
+
+## Naming Convention
+
+GitHub lists workflows by the top-level `name` field.
+
+Sambee groups workflow display names by operational purpose using `Area: Subject`.
+
+Current workflow groups are:
+
+- `CI`.
+- `Release`.
+- `Deploy`.
+- `Security`.
+- `Admin`.
+
+Keep new names short, stable, and grouped by what the workflow does rather than by how it is triggered.
+
+## Workflow Map
+
+| Display name | File | Role |
+|---|---|---|
+| `CI: Test` | `.github/workflows/test.yml` | Runs the main backend, frontend, and companion validation suites. |
+| `CI: Lint` | `.github/workflows/lint.yml` | Runs repository lint and formatting checks across backend, frontend, and companion. |
+| `CI: Check Backend Lockfiles` | `.github/workflows/check-backend-lockfiles.yml` | Verifies that committed backend lockfiles still match the reviewed requirement sources. |
+| `CI: Validate Docker Image` | `.github/workflows/docker-image-validate.yml` | Builds and smoke-tests the production container image on pull requests, pushes, and manual runs. |
+| `Release: Publish Docker Image` | `.github/workflows/docker-image-publish.yml` | Promotes an existing preview candidate onto release tags and the `stable` or `beta` channel, then signs the digest. |
+| `Release: Create Docker Image` | `.github/workflows/docker-image-preview-publish.yml` | Builds, validates, publishes, and signs a new preview image, forcing a fresh Debian package-layer rebuild for that run before moving the `test` channel tag. |
+| `Maintenance: Backfill Docker Release Tags` | `.github/workflows/docker-image-backfill.yml` | Reattaches release tags and release-channel aliases to an already published candidate digest for an existing release. |
+| `Maintenance: Clean Up Docker Package Versions` | `.github/workflows/docker-image-cleanup.yml` | Removes unprotected SHA-tagged preview GHCR package versions, prunes stale signature artifacts, and deletes unreferenced untagged package versions while preserving release-tagged and channel-protected versions including `test`. |
+| `Release: Build Companion Artifact` | `.github/workflows/build-companion.yml` | Builds companion release artifacts for a new unique version or prerelease candidate in the public distribution repository. |
+| `Release: Promote Companion Release` | `.github/workflows/promote-companion-release.yml` | Moves an existing companion release onto one or more update channels. |
+| `Deploy: Website` | `.github/workflows/website-deploy.yml` | Builds the website and deploys `website/public/` to Cloudflare Pages. |
+| `Security: Dependency Audit` | `.github/workflows/dependency-security.yml` | Runs scheduled and manual dependency vulnerability audits. |
+| `Security: Docker Image Scan` | `.github/workflows/docker-image-security-scan.yml` | Builds the current main image, forces a fresh Debian package-layer rebuild for that run, and scans it for newly disclosed vulnerabilities. |
+| `Admin: Sync Labels` | `.github/workflows/sync-labels.yml` | Synchronizes repository labels from `.github/labels.yml` without deleting unmanaged labels. |
+
+GitHub also shows repository-level features such as `Dependabot updates` and `Dependency graph`.
+
+Those are not repository workflows, so their display names are not controlled by these YAML files.
+
+## CI: Test
+
+`CI: Test` is the main validation workflow for pushes to `main`, pull requests against `main`, and manual dispatch.
+
+It first detects which top-level product areas changed, then fans out only the relevant jobs for:
+
+- backend
+- frontend
+- frontend Playwright Chromium smoke
+- frontend Playwright Firefox markdown coverage on pushes to `main` and manual runs
+- companion
+
+Manual dispatch runs all three areas.
+
+The workflow ends with a single gate job so branch protection can depend on one stable required check instead of a changing set of per-area jobs.
+
+In the backend job, regular tests run under `pytest-xdist` for throughput, while `@performance` tests run in a separate serial pass so wall-clock assertions are not distorted by parallel worker contention.
+
+For frontend coverage, the workflow is intentionally layered:
+
+- the `frontend` job keeps the fast TypeScript, lint, and Vitest checks in the main PR path
+- the `frontend-e2e` job runs a bounded Playwright Chromium smoke slice on frontend changes
+- the `frontend-e2e-firefox` job runs the markdown editor Playwright slice only on pushes to `main` and manual dispatch
+
+That split keeps pull-request runtime under control while still protecting the browser-sensitive editing workflows that unit tests do not cover.
+
+The current companion test job does not call `./scripts/test`.
+It runs explicit steps for Node install, companion TypeScript type checking, and `cargo test`.
+That means the local Windows GNU cross-check in `./scripts/test` does not currently run in `CI: Test`.
+
+### Caching Model
+
+The test workflow uses layered caching to reduce repeated setup work while keeping dependency inputs explicit.
+
+Current cache layers include:
+
+- `backend/.venv` caching keyed by the resolved backend requirement files and Python version.
+- `backend/.mypy_cache` caching keyed by backend Python source changes.
+- `actions/setup-node` npm download caching for frontend and companion jobs.
+- `frontend/node_modules` caching keyed by `frontend/package-lock.json`.
+- Rust build caching for `companion/src-tauri`.
+
+Treat those cache keys as reviewed dependency inputs, not as disposable generated noise.
+
+When dependency manifests or lockfiles change, commit the corresponding lockfile updates in the same pull request so cache invalidation and dependency review stay aligned.
+
+### Local Parity
+
+For fast local iteration, use `./scripts/test`.
+
+When you want a closer CI-style pass, run the per-subsystem checks from [Test Strategy Overview](../test-strategy-overview/) and keep lockfile-driven installs intact.
+
+For frontend work, that usually means:
+
+- `cd frontend && npm test` for the default Vitest suite
+- `cd frontend && npm run test:e2e` for the default Chromium browser pass
+
+`./scripts/test` now includes a local companion Windows GNU target compatibility check.
+That check is intentionally a local validation aid, not part of the current `CI: Test` workflow contract.
+
+## CI: Lint
+
+`CI: Lint` applies the same change-detection pattern, then runs the repository's static checks for only the affected areas.
+
+Current coverage includes:
+
+- backend Ruff checks and formatting validation.
+- frontend Biome validation.
+- companion Clippy, Rustfmt, and Biome validation.
+
+The lint workflow does not run the local companion Windows GNU cross-check either.
+That cross-target validation is currently a local developer workflow check, while actual Windows artifact creation remains in the release workflow.
+
+The workflow also ends with one gate job so branch protection can depend on a stable result.
+
+## Runner Distro Policy
+
+Sambee does not require every GitHub Actions job to run on the same base distro.
+
+Instead, the rule is:
+
+- jobs that validate production-like runtime behavior or install native runtime dependencies should follow the same Debian family used by the production image and the dev container
+- jobs that only run language-level checks, dependency audits, repository automation, or other host-agnostic validation can stay on `ubuntu-latest`
+
+Current Debian-family jobs include:
+
+- the backend job in `CI: Test`
+- the `validate-tests` job in `Release: Create Docker Image`
+
+The backend job builds the `backend-test` Docker target, which inherits the same runtime base as production. It runs mypy and the backend test suites inside that target, including when a Python image or other runtime input changes. The release validation job uses the pinned Debian-based Python container because `scripts/install-system-deps` requires distro-provided ImageMagick 7, while the default Ubuntu GitHub-hosted runner image still resolves `imagemagick` to ImageMagick 6.
+
+## Shared Runtime Targets
+
+The root `Dockerfile` defines a shared `runtime-base` target. Production and the VS Code dev container both inherit that target, so they use the same pinned Python image and shared runtime package-installation policy.
+
+Before building targets, Docker validation confirms that every Python image reference in the Dockerfile uses the same tag and digest. This keeps the native wheel-builder aligned with the shared runtime when Dependabot updates the Python image.
+
+`CI: Validate Docker Image` builds and reports the following values for the production target on each supported image platform and for the devcontainer target on Linux AMD64:
+
+- Python version.
+- `sqlite3` module version.
+- Debian `libsqlite3-0` package version.
+
+The workflow passes a unique APT refresh key to each build, which intentionally refreshes Debian packages instead of reusing an older cached upgrade layer. The reported versions are evidence of the resolved native runtime; they are not required to match across images built at different times.
+
+Current jobs that intentionally remain on `ubuntu-latest` include:
+
+- change-detection, label-sync, and website deployment workflows
+- pure Python lint, lockfile freshness, and dependency-audit workflows
+- frontend-only and companion-only validation workflows
+- Docker build, smoke-test, and vulnerability-scan workflows, where the distro-sensitive logic runs inside the built image rather than on the host runner
+
+When adding or changing a workflow, treat runner distro as part of the test contract whenever a job installs OS packages or validates native behavior.
+
+## CI: Check Backend Lockfiles
+
+`CI: Check Backend Lockfiles` protects the reviewed Python dependency workflow.
+
+It runs `scripts/refresh-backend-lockfiles --check` on pushes, pull requests, and manual runs that touch backend requirement inputs, generated lockfiles, or the refresh script itself.
+
+Use this as the fast failure signal when requirement files and generated lockfiles drift apart.
+
+For the broader dependency-update workflow, use [Dependency Update Workflow](../../release-and-versioning/dependency-update-workflow/).
+
+## Admin: Sync Labels
+
+`Admin: Sync Labels` keeps repository labels aligned with `.github/labels.yml`.
+
+It is intentionally conservative.
+
+- Dependabot-related labels should stay declared in `.github/labels.yml`.
+- The workflow uses `skip-delete: true`, so labels not declared there are left alone.
+
+That keeps automation-owned labels deterministic without forcing the repository to delete every manually created label.
+
+## Related Workflow Docs
+
+Use the more specific pages for the workflows that have dedicated operational guidance:
+
+- [Dependency Security and Dependabot](../../security/dependency-security-and-dependabot/)
+- [Docker Release Overview](../../release-and-versioning/docker-release-overview/)
+- [Companion Release Overview](../../release-and-versioning/companion-release-overview/)
+- [Set Up Cloudflare Pages Publishing](../../../website-dev-guide/setup-and-operations/set-up-cloudflare-pages-publishing/)

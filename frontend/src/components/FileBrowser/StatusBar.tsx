@@ -40,9 +40,8 @@ export function StatusBar({ files, focusedIndex, activeFilter }: StatusBarProps)
         alignItems: "center",
         borderTop: 1,
         borderColor: "divider",
-        // Use semantic component tokens from theme - fallback to mode-based logic for backwards compatibility
-        bgcolor: (theme) => theme.palette.statusBar?.background || (theme.palette.mode === "dark" ? "background.paper" : "primary.main"),
-        color: (theme) => theme.palette.statusBar?.text || (theme.palette.mode === "dark" ? "text.primary" : "primary.contrastText"),
+        bgcolor: (theme) => theme.palette.statusBar?.background ?? theme.palette.background.default,
+        color: (theme) => theme.palette.statusBar?.text ?? theme.palette.text.primary,
       }}
     >
       {/* Left side - Selected file info */}
@@ -53,8 +52,7 @@ export function StatusBar({ files, focusedIndex, activeFilter }: StatusBarProps)
               <Typography
                 variant="caption"
                 sx={{
-                  color: (theme) => theme.palette.statusBar?.textSecondary || "inherit",
-                  opacity: (theme) => (theme.palette.statusBar?.textSecondary ? 1 : 0.7),
+                  color: (theme) => theme.palette.statusBar?.textSecondary ?? theme.palette.text.secondary,
                 }}
               >
                 {STATUS_BAR_STRINGS.NO_SELECTION}
@@ -99,8 +97,7 @@ export function StatusBar({ files, focusedIndex, activeFilter }: StatusBarProps)
             noWrap
             sx={{
               maxWidth: 240,
-              color: (theme) => theme.palette.statusBar?.textSecondary || "inherit",
-              opacity: (theme) => (theme.palette.statusBar?.textSecondary ? 1 : 0.85),
+              color: (theme) => theme.palette.statusBar?.textSecondary ?? theme.palette.text.secondary,
             }}
           >
             {STATUS_BAR_STRINGS.filteredBy(activeFilter)}
@@ -111,8 +108,7 @@ export function StatusBar({ files, focusedIndex, activeFilter }: StatusBarProps)
           variant="caption"
           sx={{
             whiteSpace: "nowrap",
-            color: (theme) => theme.palette.statusBar?.textSecondary || "inherit",
-            opacity: (theme) => (theme.palette.statusBar?.textSecondary ? 1 : 0.7),
+            color: (theme) => theme.palette.statusBar?.textSecondary ?? theme.palette.text.secondary,
           }}
         >
           {STATUS_BAR_STRINGS.itemCount(files.length)}

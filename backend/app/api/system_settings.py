@@ -13,12 +13,14 @@ from app.models.system_settings import (
     AdvancedSystemSettingsUpdate,
     NetworkSettingsRead,
     NetworkSettingsUpdate,
+    PublicSupportReportRead,
 )
 from app.models.user import User
 from app.services.system_settings import (
     build_about_settings_read,
     build_advanced_system_settings_read,
     build_network_settings_read,
+    build_public_support_report_read,
     update_advanced_system_settings,
     update_network_settings,
 )
@@ -32,6 +34,15 @@ async def get_about_settings(
 ) -> AboutSettingsRead:
     set_user(current_user.username)
     return build_about_settings_read()
+
+
+@router.get("/settings/support-report", response_model=PublicSupportReportRead)
+async def get_public_support_report(
+    current_user: User = Depends(require_capability(Capability.ACCESS_ADMIN_SETTINGS)),
+    session: Session = Depends(get_session),
+) -> PublicSupportReportRead:
+    set_user(current_user.username)
+    return build_public_support_report_read(session)
 
 
 @router.get("/settings/advanced", response_model=AdvancedSystemSettingsRead)

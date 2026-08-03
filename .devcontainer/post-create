@@ -2,6 +2,20 @@
 
 PIP_AUDIT_VERSION="2.10.0"
 CARGO_AUDIT_VERSION="0.22.1"
+USER_LOCAL_DIR="/home/vscode/.local"
+CARGO_TOOL_ROOT="/home/vscode/.local/cargo-tools"
+CARGO_AUDIT_BIN="$CARGO_TOOL_ROOT/bin/cargo-audit"
+WINDOWS_GNU_TARGET="x86_64-pc-windows-gnu"
+
+ensure_vscode_owned_directory() {
+    local directory="$1"
+
+    sudo mkdir -p "$directory"
+    if [ "$(stat -c %U "$directory")" != "vscode" ]; then
+        echo "🔧 Fixing ownership for $directory..."
+        sudo chown -R vscode:vscode "$directory"
+    fi
+}
 
 echo "🚀 Setting up Sambee development environment..."
 
@@ -16,16 +30,26 @@ if [ -d /home/vscode/.cache ]; then
     sudo chown -R vscode:vscode /home/vscode/.cache
 fi
 
+echo "🔧 Preparing user-local tools directory..."
+sudo mkdir -p "$USER_LOCAL_DIR"
+sudo chown vscode:vscode "$USER_LOCAL_DIR"
+
+echo "🔧 Preparing Cargo caches..."
+for cargo_directory in \
+    /home/vscode/.cargo/registry \
+    /home/vscode/.cargo/git \
+    /home/vscode/.cargo/advisory-db \
+    "$CARGO_TOOL_ROOT"; do
+    ensure_vscode_owned_directory "$cargo_directory"
+done
+
 # Backend setup
 echo "📦 Installing Python dependencies..."
-cd /workspace/backend
-pip install --upgrade pip
-pip install -r requirements.txt
-pip install -r requirements-dev.txt
+/workspace/scripts/setup-backend-venv
 
 echo "🔍 Installing Python audit tooling..."
-if ! pip-audit --version 2>/dev/null | grep -q "${PIP_AUDIT_VERSION}"; then
-    python -m pip install --user "pip-audit==${PIP_AUDIT_VERSION}"
+if ! /home/vscode/.local/bin/pip-audit --version 2>/dev/null | grep -q "${PIP_AUDIT_VERSION}"; then
+    /usr/local/bin/python -m pip install --user "pip-audit==${PIP_AUDIT_VERSION}"
 fi
 
 # Create config.toml file if it doesn't exist (MUST happen before database init)
@@ -44,7 +68,7 @@ mkdir -p /workspace/data
 # Initialize database (now that config.toml exists)
 echo "🗄️ Initializing SQLite database..."
 cd /workspace/backend
-python -c "from app.db.database import init_db; init_db()"
+.venv/bin/python -c "from app.db.database import init_db; init_db()"
 
 # Frontend setup
 echo "📦 Installing Node dependencies..."
@@ -57,7 +81,7 @@ if [ -d node_modules ] && [ "$(stat -c %U node_modules 2>/dev/null)" = "root" ];
     sudo rm -rf node_modules  # Remove to ensure clean install
 fi
 
-npm install
+npm ci
 
 # Verify npm install succeeded
 if [ ! -d "node_modules" ] || [ -z "$(ls -A node_modules 2>/dev/null)" ]; then
@@ -71,15 +95,26 @@ fi
 if [ -d /workspace/companion ]; then
     echo "📦 Installing companion app dependencies..."
     cd /workspace/companion
-    npm install
+    npm ci
     echo "🎯 Installing Windows GNU Rust target..."
-    rustup target add x86_64-pc-windows-gnu
+    if ! rustup target add "$WINDOWS_GNU_TARGET"; then
+        echo "Failed to install the required Rust target: $WINDOWS_GNU_TARGET"
+        exit 1
+    fi
     echo "🦀 Fetching Rust dependencies..."
-    cd src-tauri && cargo fetch && cd ..
+    cd src-tauri
+    if ! cargo fetch; then
+        echo "Failed to fetch companion Rust dependencies."
+        exit 1
+    fi
+    cd ..
 
     echo "🔍 Installing Rust audit tooling..."
-    if ! cargo audit --version 2>/dev/null | grep -q "${CARGO_AUDIT_VERSION}"; then
-        cargo install cargo-audit --version "${CARGO_AUDIT_VERSION}" --locked
+    if ! "$CARGO_AUDIT_BIN" --version 2>/dev/null | grep -Fxq "cargo-audit ${CARGO_AUDIT_VERSION}"; then
+        if ! cargo install cargo-audit --root "$CARGO_TOOL_ROOT" --version "${CARGO_AUDIT_VERSION}" --locked --force; then
+            echo "Failed to install cargo-audit ${CARGO_AUDIT_VERSION}."
+            exit 1
+        fi
     fi
 
     echo "✅ Companion app dependencies installed"

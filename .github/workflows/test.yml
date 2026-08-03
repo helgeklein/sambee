@@ -38,8 +38,12 @@ jobs:
 
         output_path = os.environ["GITHUB_OUTPUT"]
         backend_extras = {
+          ".dockerignore",
+          "Dockerfile",
             "scripts/install-system-deps",
             "scripts/setup-test-images",
+          "scripts/verify-python-runtime-image.py",
+            ".github/actions/setup-runtime-python/action.yml",
         }
         frontend_extras = {
           "VERSION",
@@ -170,82 +174,66 @@ jobs:
     needs: changes
     if: needs.changes.outputs.backend == 'true' || github.event_name == 'workflow_dispatch'
     runs-on: ubuntu-latest
-    # Keep the backend test job on the same Debian family as production and the
-    # devcontainer because install-system-deps requires distro-provided
-    # ImageMagick 7, which Ubuntu's default runner image does not provide.
-    container:
-      image: python:3.13.12-slim@sha256:f1927c75e81efd1e091dbd64b6c0ecaa5630b38635a3d1c04034ac636e1f94c8
-    defaults:
-      run:
-        shell: bash
     steps:
     - name: Checkout code
       uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
-    - name: Cache Python virtual environment
-      uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v5
-      id: python-cache
+    - name: Verify shared Python runtime image
+      run: python3 scripts/verify-python-runtime-image.py
+
+    - name: Set up Docker Buildx
+      uses: docker/setup-buildx-action@bb05f3f5519dd87d3ba754cc423b652a5edd6d2c # v4.2.0
+
+    - name: Build backend test image
+      uses: docker/build-push-action@53b7df96c91f9c12dcc8a07bcb9ccacbed38856a # v7.3.0
       with:
-        path: backend/.venv
-        key: ${{ runner.os }}-python-3.13.12-slim-venv-${{ hashFiles('backend/requirements*.txt') }}
-        restore-keys: |
-          ${{ runner.os }}-python-3.13.12-slim-venv-
+        context: .
+        file: ./Dockerfile
+        target: backend-test
+        load: true
+        tags: sambee:backend-test
+        build-args: |
+            APT_REFRESH_KEY=${{ github.run_id }}-${{ github.run_attempt }}
+        cache-from: type=gha,scope=backend-test
+        cache-to: type=gha,mode=max,scope=backend-test
 
-    - name: Cache mypy
-      uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v5
-      with:
-        path: backend/.mypy_cache
-        key: ${{ runner.os }}-mypy-${{ hashFiles('backend/app/**/*.py') }}
-        restore-keys: |
-          ${{ runner.os }}-mypy-
-
-    - name: Install system dependencies (image processing)
-      run: bash scripts/install-system-deps
-
-    - name: Install Python dependencies
-      if: steps.python-cache.outputs.cache-hit != 'true'
-      run: |
-        cd backend
-        python -m venv .venv
-        source .venv/bin/activate
-        pip install --upgrade pip
-        pip install --require-hashes -r requirements-dev.lock.txt
-
-    - name: Generate test images
-      run: QUIET=1 scripts/setup-test-images
-
-    - name: Run mypy
-      run: |
-        cd backend
-        source .venv/bin/activate
-        mypy app
-
-    - name: Run pytest (excluding performance)
+    - name: Run backend checks
       env:
         SECRET_KEY: test-secret-key-for-ci-only-not-for-production-use
         ENCRYPTION_KEY: YYFPojCh_1WUExv5xXVEyFe0ITw_5dgZZ-fC-iZk3nU=
       run: |
-        cd backend
-        source .venv/bin/activate
-        pytest -n auto -m 'not performance' --cov=app --cov-report=term-missing --cov-report=xml
+        docker run \
+          --name sambee-backend-test \
+          -e SECRET_KEY \
+          -e ENCRYPTION_KEY \
+          sambee:backend-test \
+          sh -c '
+            QUIET=1 scripts/setup-test-images &&
+            cd backend &&
+            .venv/bin/python -m mypy app &&
+            .venv/bin/python -m pytest -n auto -m "not performance" --cov=app --cov-report=term-missing --cov-report=xml &&
+            .venv/bin/python -m pytest -m performance --cov=app --cov-append --cov-report=term-missing --cov-report=xml
+          '
 
-    - name: Run performance pytest
-      env:
-        SECRET_KEY: test-secret-key-for-ci-only-not-for-production-use
-        ENCRYPTION_KEY: YYFPojCh_1WUExv5xXVEyFe0ITw_5dgZZ-fC-iZk3nU=
+    - name: Export coverage report
+      if: always()
       run: |
-        cd backend
-        source .venv/bin/activate
-        pytest -m performance --cov=app --cov-append --cov-report=term-missing --cov-report=xml
+        mkdir -p "${{ runner.temp }}/coverage"
+        docker cp sambee-backend-test:/workspace/backend/coverage.xml "${{ runner.temp }}/coverage/coverage.xml" || true
 
     - name: Upload coverage reports
       if: always()
       uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
       with:
         name: coverage-reports
-        path: backend/coverage.xml
+        path: ${{ runner.temp }}/coverage/coverage.xml
         retention-days: 7
         compression-level: 6
+        if-no-files-found: warn
+
+    - name: Clean up backend test container
+      if: always()
+      run: docker rm -f sambee-backend-test || true
 
   # ──────────────────────────────────────────────
   # Frontend: Node.js + tsc + vitest

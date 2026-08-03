@@ -1,5 +1,7 @@
-import { alpha, Box, darken, FormLabel, type SxProps, type Theme, Typography } from "@mui/material";
+import { alpha, Box, FormLabel, type SxProps, type Theme, Typography } from "@mui/material";
 import type { ReactNode } from "react";
+import { getControlAccentColor } from "../../theme/commonStyles";
+import { DIALOG_FORM_SURFACE_CSS_VARIABLE, DIALOG_SURFACE_CSS_VARIABLE, getModeAdjustedSurfaceColor } from "../../theme/palette";
 import { SettingsGroup } from "./SettingsGroup";
 
 interface SettingsFormContainerProps {
@@ -24,12 +26,27 @@ interface SettingsFormSectionProps {
 
 export const settingsFormFieldControlSx = { justifySelf: { md: "end" }, width: "100%" };
 export const settingsFormSelectControlSx = { justifySelf: { md: "end" }, width: { md: "fit-content" } };
+export const settingsSelectSx: SxProps<Theme> = {
+  "& .MuiSelect-select, & .MuiSelect-icon": {
+    color: "text.primary",
+  },
+};
+export const settingsSelectMenuProps = {
+  sx: {
+    "& .MuiMenuItem-root": {
+      color: "text.primary",
+    },
+  },
+};
 export const settingsFormOutlinedControlSx = {
   "& .MuiOutlinedInput-root": {
-    bgcolor: "background.default",
+    bgcolor: (theme: Theme) => `var(${DIALOG_SURFACE_CSS_VARIABLE}, ${theme.palette.background.default})`,
+  },
+  '& input[type="date"], & input[type="datetime-local"], & input[type="month"], & input[type="time"], & input[type="week"]': {
+    colorScheme: (theme: Theme) => theme.palette.mode,
   },
   "& .MuiInputLabel-root.MuiInputLabel-shrink": {
-    bgcolor: "background.default",
+    bgcolor: (theme: Theme) => `var(${DIALOG_SURFACE_CSS_VARIABLE}, ${theme.palette.background.default})`,
     px: 0.5,
     ml: -0.5,
   },
@@ -40,7 +57,7 @@ export const settingsFormOutlinedControlSx = {
     borderColor: (theme: Theme) => alpha(theme.palette.text.primary, 0.35),
   },
   "& .MuiOutlinedInput-root.Mui-focused .MuiOutlinedInput-notchedOutline": {
-    borderColor: "primary.main",
+    borderColor: (theme: Theme) => getControlAccentColor(theme),
     borderWidth: 2,
   },
   "& .MuiOutlinedInput-root.Mui-error .MuiOutlinedInput-notchedOutline": {
@@ -60,7 +77,7 @@ export function SettingsFormSurface({ children, sx, testId }: SettingsFormContai
           gap: 0,
           mt: { md: 1 },
           p: 2,
-          bgcolor: darken(theme.palette.background.default, 0.04),
+          bgcolor: `var(${DIALOG_FORM_SURFACE_CSS_VARIABLE}, ${getModeAdjustedSurfaceColor(theme.palette.background.default, theme.palette.mode)})`,
           borderRadius: 1,
         }),
         ...(Array.isArray(sx) ? sx : sx ? [sx] : []),
@@ -133,7 +150,7 @@ export function SettingsFormFieldLabel({
         component="p"
         sx={{
           mt: 0,
-          color: (theme) => (hasError ? theme.palette.error.main : alpha(theme.palette.text.primary, 0.72)),
+          color: (theme) => (hasError ? theme.palette.error.main : theme.palette.text.secondary),
         }}
       >
         {description}

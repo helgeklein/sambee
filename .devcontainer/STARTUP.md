@@ -95,7 +95,7 @@ pgrep -f uvicorn
 **If not running, start it:**
 ```bash
 cd /workspace/backend
-uvicorn app.main:app --reload --host 0.0.0.0 --port 8000 --no-proxy-headers
+.venv/bin/python -m uvicorn app.main:app --reload --host 0.0.0.0 --port 8000 --no-proxy-headers
 # Or use the VS Code task
 ```
 
