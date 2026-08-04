@@ -9,6 +9,8 @@ import {
   SettingsFormRow,
   SettingsFormSection,
   SettingsFormSurface,
+  settingsFormFieldControlSx,
+  settingsFormOutlinedControlSx,
   settingsSelectMenuProps,
   settingsSelectSx,
 } from "../SettingsFormLayout";
@@ -53,5 +55,14 @@ describe("SettingsFormLayout", () => {
         },
       },
     });
+  });
+
+  it("leaves focused outlines to MUI and aligns desktop controls", () => {
+    expect(settingsFormFieldControlSx).toMatchObject({
+      display: "flex",
+      justifyContent: { md: "flex-end" },
+      width: "100%",
+    });
+    expect(settingsFormOutlinedControlSx).not.toHaveProperty("& .MuiOutlinedInput-root.Mui-focused .MuiOutlinedInput-notchedOutline");
   });
 });

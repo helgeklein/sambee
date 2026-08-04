@@ -234,6 +234,10 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
 
     try:
         logger.info("Starting Sambee application...")
+        if settings.disable_auth_enforcement:
+            logger.warning(
+                "Authentication enforcement is disabled by configuration; all requests are treated as the configured administrator"
+            )
 
         # Initialize database
         logger.info(f"Initializing database: {DATABASE_FILE_PATH.absolute()}")

@@ -221,7 +221,7 @@ describe("ConnectionSettings", () => {
 
     expect(screen.queryByRole("heading", { name: "Accounting" })).not.toBeInTheDocument();
     expect(connectionName.tagName).toBe("DIV");
-    expect(window.getComputedStyle(connectionName).fontSize).toBe("1rem");
+    expect(connectionName).toHaveClass("MuiTypography-body1");
     expect(window.getComputedStyle(connectionName).fontWeight).toBe("600");
     expect(connectionName.closest("li")).toHaveStyle({ paddingTop: "0px" });
   });

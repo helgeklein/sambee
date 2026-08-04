@@ -74,7 +74,7 @@ describe("UserManagementSettings", () => {
       health: { status: "healthy", public_url_configured: false, public_url: null, redirect_uri: null, reasons: [] },
       active_passwordless_user_count: 0,
       auth_mode: "password_only",
-      auth_mode_source: "config_file",
+      auth_enforcement_disabled: false,
     });
     vi.mocked(api.resetUserPassword).mockResolvedValue({
       message: "Password reset",
@@ -311,7 +311,7 @@ describe("UserManagementSettings", () => {
 
     expect(screen.queryByRole("heading", { name: "admin" })).not.toBeInTheDocument();
     expect(userName.tagName).toBe("DIV");
-    expect(window.getComputedStyle(userName).fontSize).toBe("1rem");
+    expect(userName).toHaveClass("MuiTypography-body1");
     expect(window.getComputedStyle(userName).fontWeight).toBe("600");
   });
 
@@ -446,7 +446,7 @@ describe("UserManagementSettings", () => {
       },
       active_passwordless_user_count: 0,
       auth_mode: "oidc_or_password",
-      auth_mode_source: "ui",
+      auth_enforcement_disabled: false,
       health: {
         public_url_configured: true,
         public_url: "https://sambee.example.test",

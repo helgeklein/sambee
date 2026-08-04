@@ -10,6 +10,12 @@ Sambee now sports a secure and comprehensive implementation of OpenID Connect to
 
 Sambee's [OIDC implementation](../../../admin-guide/authentication/openid-connect-authentication-setup/) comes with auto-provisioning, which creates Sambee user accounts automatically after successful OIDC authentication. This can (and often should) be gated by group membership so that only members of a specific group are allowed access to Sambee. Similarly, Sambee's user roles are assigned depending on group membership. This makes it possible to centrally manage access to Sambee's user roles (e.g., admin) in your IAM system.
 
+### Authentication Configuration Change
+
+Authentication mode is now selected only in **Settings** > **Administration** > **Authentication** and defaults to **Password only** for a new installation. The configuration file can only disable enforcement temporarily with `[auth] disable_enforcement = true`; the stored UI mode remains unchanged.
+
+This is a breaking configuration change. `auth_method` is rejected in both `[auth]` and `[security]`, and existing installations are not migrated automatically. Remove the retired key before upgrading.
+
 ## Markdown Editor
 
 - Lists are normalized (formatted) when saved, using `-` for unordered lists and `1.` for every ordered-list item.

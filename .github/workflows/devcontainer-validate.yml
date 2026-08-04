@@ -1,0 +1,75 @@
+name: "CI: Validate Devcontainer"
+
+env:
+  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
+
+on:
+  push:
+    branches: [ main ]
+    paths:
+      - '.github/workflows/devcontainer-validate.yml'
+      - 'Dockerfile'
+      - '.dockerignore'
+      - '.devcontainer/**'
+      - 'scripts/install-system-deps'
+  pull_request:
+    branches: [ main ]
+    paths:
+      - '.github/workflows/devcontainer-validate.yml'
+      - 'Dockerfile'
+      - '.dockerignore'
+      - '.devcontainer/**'
+      - 'scripts/install-system-deps'
+  schedule:
+    - cron: '17 3 * * 1'
+  workflow_dispatch:
+
+concurrency:
+  group: validate-devcontainer-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  prepare:
+    runs-on: ubuntu-24.04
+    outputs:
+      os_packages_refresh_key: ${{ steps.metadata.outputs.os_packages_refresh_key }}
+    steps:
+    - name: Capture package refresh timestamp
+      id: metadata
+      shell: bash
+      run: printf 'os_packages_refresh_key=%s\n' "$(date -u +'%Y-%m-%dT%H:%M:%SZ')" >> "$GITHUB_OUTPUT"
+
+  validate-devcontainer:
+    needs: prepare
+    runs-on: ubuntu-24.04
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+    - name: Set up Docker Buildx
+      uses: docker/setup-buildx-action@bb05f3f5519dd87d3ba754cc423b652a5edd6d2c # v4.2.0
+
+    - name: Build devcontainer target
+      uses: docker/build-push-action@53b7df96c91f9c12dcc8a07bcb9ccacbed38856a # v7.3.0
+      with:
+        context: .
+        file: ./Dockerfile
+        target: devcontainer
+        load: true
+        tags: sambee:devcontainer-validation
+        build-args: |
+          APT_REFRESH_KEY=${{ needs.prepare.outputs.os_packages_refresh_key }}
+        cache-from: type=gha,scope=devcontainer-validate
+        cache-to: type=gha,mode=max,scope=devcontainer-validate
+
+    - name: Report devcontainer runtime contract
+      shell: bash
+      run: |
+        docker run --rm --entrypoint sh sambee:devcontainer-validation -c '
+          python --version
+          python -c "import sqlite3; print(\"sqlite3 module: \" + sqlite3.sqlite_version)"
+          dpkg-query -W -f="\${Package} \${Version}\\n" libsqlite3-0
+        '

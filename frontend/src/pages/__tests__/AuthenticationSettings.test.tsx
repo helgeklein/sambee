@@ -1,9 +1,9 @@
 import { render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { MemoryRouter, Route, Routes } from "react-router-dom";
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { loadAuthenticationSettingsData, SETTINGS_DATA_CACHE_KEYS } from "../../components/Settings/settingsDataSources";
-import { clearCachedAsyncData, primeCachedAsyncData } from "../../hooks/useCachedAsyncData";
+import { clearCachedAsyncData, getCachedAsyncData, primeCachedAsyncData } from "../../hooks/useCachedAsyncData";
 import api from "../../services/api";
 import { authSession } from "../../services/authSession";
 import type { OidcAdminConfigurationRead, OidcReviewedPolicy, OidcTestedIdentity, RedactedOidcConfiguration } from "../../types";
@@ -48,7 +48,7 @@ const response = (value: RedactedOidcConfiguration): OidcAdminConfigurationRead 
   configuration: value,
   active_passwordless_user_count: 2,
   auth_mode: value.sign_in_mode,
-  auth_mode_source: "ui",
+  auth_enforcement_disabled: false,
   health: {
     public_url_configured: true,
     public_url: "https://sambee.example.test",
@@ -96,6 +96,10 @@ const renderSettings = () =>
   );
 
 describe("Authentication settings", () => {
+  afterEach(() => {
+    vi.unstubAllGlobals();
+  });
+
   beforeEach(() => {
     vi.clearAllMocks();
     clearCachedAsyncData();
@@ -127,6 +131,45 @@ describe("Authentication settings", () => {
     expect(guide).toHaveAttribute("href", "https://sambee.net/mr/help-oidc-setup");
     expect(guide).toHaveAttribute("target", "_blank");
     expect(guide).toHaveAttribute("rel", "noreferrer");
+  });
+
+  it("uses shared form surfaces with mobile labels and helper text", async () => {
+    vi.mocked(api.getOidcConfiguration).mockResolvedValue(response(configuration("Active Provider")));
+    window.history.replaceState(null, "", "/settings/admin/authentication");
+
+    renderSettings();
+
+    expect(await screen.findByTestId("authentication-mode-form-surface")).toBeInTheDocument();
+    expect(screen.getByTestId("authentication-provider-form-surface")).toBeInTheDocument();
+    expect(screen.getByTestId("authentication-access-form-surface")).toBeInTheDocument();
+    expect(screen.getByTestId("authentication-role-form-surface")).toBeInTheDocument();
+    expect(screen.getByTestId("authentication-claims-form-surface")).toBeInTheDocument();
+    const providerName = screen.getByRole("textbox", { name: "Provider name" });
+    expect(providerName).toBeInTheDocument();
+    expect(providerName.parentElement?.parentElement).toHaveClass("MuiFormControl-fullWidth");
+    expect(screen.getByText("Name shown for this provider")).toBeInTheDocument();
+  });
+
+  it("uses external desktop labels and descriptions for the OIDC form", async () => {
+    vi.stubGlobal("matchMedia", (query: string) => ({
+      matches: true,
+      media: query,
+      onchange: null,
+      addListener: vi.fn(),
+      removeListener: vi.fn(),
+      addEventListener: vi.fn(),
+      removeEventListener: vi.fn(),
+      dispatchEvent: vi.fn(),
+    }));
+    vi.mocked(api.getOidcConfiguration).mockResolvedValue(response(configuration("Active Provider")));
+    window.history.replaceState(null, "", "/settings/admin/authentication");
+
+    renderSettings();
+
+    const providerName = await screen.findByRole("textbox", { name: "Provider name" });
+    expect(providerName).toHaveAttribute("aria-describedby", "provider-name-description");
+    expect(providerName.parentElement).toHaveClass("MuiInputBase-sizeSmall");
+    expect(screen.getByText("Name shown for this provider")).toHaveAttribute("id", "provider-name-description");
   });
 
   it("tabs directly from the setup guide to the Authentication mode control", async () => {
@@ -272,10 +315,16 @@ describe("Authentication settings", () => {
 
     await user.click(await screen.findByRole("combobox", { name: "Authentication mode" }));
 
-    expect(screen.getByRole("option", { name: "No authentication" })).toBeInTheDocument();
-    expect(screen.getByRole("option", { name: "Password only" })).toBeInTheDocument();
-    expect(screen.getByRole("option", { name: "OIDC or password" })).toBeInTheDocument();
-    expect(screen.getByRole("option", { name: "OIDC only" })).toBeInTheDocument();
+    expect(screen.getByRole("option", { name: /^No authentication/ })).toHaveTextContent(
+      "No sign-in required; use only behind a trusted proxy or network perimeter"
+    );
+    expect(screen.getByRole("option", { name: /^Password only/ })).toHaveTextContent(
+      "2 active accounts without a local password will lose sign-in access"
+    );
+    expect(screen.getByRole("option", { name: /^OIDC or password/ })).toHaveTextContent(
+      "Sign in with the identity provider or a local password"
+    );
+    expect(screen.getByRole("option", { name: /^OIDC only/ })).toHaveTextContent("Redirect users to the identity provider");
   });
 
   it("explains when the public URL is missing", async () => {
@@ -314,7 +363,7 @@ describe("Authentication settings", () => {
 
     expect(await screen.findByText("Set Sambee's externally reachable public URL in network settings.")).toBeInTheDocument();
     await user.click(screen.getByRole("combobox", { name: "Authentication mode" }));
-    await user.click(screen.getByRole("option", { name: "Password only" }));
+    await user.click(screen.getByRole("option", { name: /^Password only/ }));
     expect(screen.queryByText("Set Sambee's externally reachable public URL in network settings.")).not.toBeInTheDocument();
   });
 
@@ -323,17 +372,18 @@ describe("Authentication settings", () => {
     vi.mocked(api.getOidcConfiguration).mockResolvedValue(response(configuration("Active Provider")));
     vi.mocked(api.activateAuthenticationMode).mockResolvedValue({ auth_mode: "none", reauthentication_required: true });
     window.location.hash = "";
+    await primeCachedAsyncData(SETTINGS_DATA_CACHE_KEYS.adminAuthentication, loadAuthenticationSettingsData);
     renderSettings();
 
     await user.click(await screen.findByRole("combobox", { name: "Authentication mode" }));
-    await user.click(screen.getByRole("option", { name: "No authentication" }));
+    await user.click(screen.getByRole("option", { name: /^No authentication/ }));
 
-    expect(await screen.findByText(/sambee will not authenticate users/i)).toBeInTheDocument();
     expect(screen.queryByRole("checkbox")).not.toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Activate No authentication" })).toBeEnabled();
     await user.click(screen.getByRole("button", { name: "Activate No authentication" }));
 
     expect(api.activateAuthenticationMode).toHaveBeenCalledWith("none", true);
+    expect(getCachedAsyncData(SETTINGS_DATA_CACHE_KEYS.adminAuthentication)).toBeNull();
     expect(await screen.findByText("Sign in again")).toBeInTheDocument();
   });
 
@@ -346,22 +396,21 @@ describe("Authentication settings", () => {
     window.location.hash = "";
     renderSettings();
 
-    expect(await screen.findByText(/sambee will not authenticate users/i)).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: "Activate No authentication" })).toBeDisabled();
+    expect(await screen.findByRole("button", { name: "Activate No authentication" })).toBeDisabled();
   });
 
-  it("allows a config-file-sourced active mode to be activated from the UI", async () => {
+  it("shows an enforcement override warning without changing the configured mode", async () => {
     vi.mocked(api.getOidcConfiguration).mockResolvedValue({
       ...response(configuration("Active Provider")),
       configuration: null,
       auth_mode: "none",
-      auth_mode_source: "config_file",
+      auth_enforcement_disabled: true,
     });
     window.location.hash = "";
     renderSettings();
 
-    expect(await screen.findByText(/sambee will not authenticate users/i)).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: "Activate No authentication" })).toBeEnabled();
+    expect(await screen.findByText(/authentication is disabled in the configuration file/i)).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Activate No authentication" })).toBeDisabled();
   });
 
   it("activates an approved OIDC configuration without a native confirmation", async () => {
@@ -398,7 +447,7 @@ describe("Authentication settings", () => {
     renderSettings();
 
     await user.click(await screen.findByRole("combobox", { name: "Authentication mode" }));
-    await user.click(screen.getByRole("option", { name: "OIDC only" }));
+    await user.click(screen.getByRole("option", { name: /^OIDC only/ }));
 
     await waitFor(() => expect(api.getOidcTestResult).toHaveBeenNthCalledWith(2, "test-flow", reviewedPolicy(reviewedCandidate)));
     expect(api.startOidcTest).not.toHaveBeenCalled();
@@ -912,12 +961,12 @@ describe("Authentication settings", () => {
       identity_mapping_revision: 1,
       reauthentication_required: true,
     });
-    authSession.setAuthenticated({ access_token: "revoked-token", token_type: "bearer" }, false);
+    authSession.setAuthenticated({ access_token: "revoked-token", token_type: "bearer", username: "admin" }, false);
     window.location.hash = "";
     renderSettings();
 
     await user.click(await screen.findByRole("combobox", { name: "Authentication mode" }));
-    await user.click(screen.getByRole("option", { name: "Password only" }));
+    await user.click(screen.getByRole("option", { name: /^Password only/ }));
     await user.click(await screen.findByRole("button", { name: "Activate Password-only mode" }));
 
     expect(await screen.findByText("Sign in again")).toBeInTheDocument();
@@ -937,7 +986,7 @@ describe("Authentication settings", () => {
     renderSettings();
 
     await user.click(await screen.findByRole("combobox", { name: "Authentication mode" }));
-    await user.click(screen.getByRole("option", { name: "Password only" }));
+    await user.click(screen.getByRole("option", { name: /^Password only/ }));
     await user.click(await screen.findByRole("button", { name: "Activate Password-only mode" }));
 
     expect(
@@ -1052,9 +1101,7 @@ describe("Authentication settings", () => {
 
     expect(await screen.findByRole("heading", { name: "Advanced claims" })).toBeInTheDocument();
     expect(screen.getByRole("textbox", { name: "Username claim" })).toHaveValue("preferred_username");
-    expect(
-      screen.getByText("Only members of these identity-provider groups can sign in. Enter exact group names, separated by commas.")
-    ).toBeInTheDocument();
+    expect(screen.getByText("Members of these groups can sign in; enter exact names, separated by commas")).toBeInTheDocument();
     expect(screen.getByRole("textbox", { name: "Viewer groups" })).toBeInTheDocument();
   });
 

@@ -14,8 +14,8 @@ function getSettingsSurfaceTint(theme: Theme): string {
   return theme.palette.action.selected ?? alpha(theme.palette.primary.main, theme.palette.mode === "dark" ? 0.22 : 0.12);
 }
 
-function getSettingsFocusRing(theme: Theme): string {
-  return getElevatedButtonFocusRing(theme);
+function getSettingsFocusRing(theme: Theme, color?: "error"): string {
+  return getElevatedButtonFocusRing(theme, color);
 }
 
 function getUtilityBorderColor(theme: Theme): string {
@@ -66,7 +66,7 @@ export const settingsDestructiveButtonSx: SxProps<Theme> = {
     outline: "none",
     borderColor: "error.main",
     bgcolor: (theme) => alpha(theme.palette.error.main, theme.palette.mode === "dark" ? 0.28 : 0.14),
-    boxShadow: (theme) => getSettingsFocusRing(theme),
+    boxShadow: (theme) => getSettingsFocusRing(theme, "error"),
   },
 };
 
@@ -109,7 +109,7 @@ export const settingsDestructiveIconButtonSx: SxProps<Theme> = {
     outline: "none",
     borderColor: "error.main",
     bgcolor: (theme) => alpha(theme.palette.error.main, theme.palette.mode === "dark" ? 0.28 : 0.14),
-    boxShadow: (theme) => getSettingsFocusRing(theme),
+    boxShadow: (theme) => getSettingsFocusRing(theme, "error"),
   },
 };
 
