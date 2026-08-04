@@ -7,7 +7,6 @@ from urllib.parse import urlparse, urlunparse
 
 from pydantic import BaseModel, field_validator, model_validator
 
-from app.core.auth_methods import AuthMethod
 from app.core.environment import IS_DEVELOPMENT
 from app.core.exceptions import ConfigurationError
 from app.core.system_setting_definitions import SYSTEM_SETTING_DEFINITIONS, SystemSettingKey
@@ -56,20 +55,25 @@ def load_toml_config(config_file: Path) -> dict[str, Any]:
         if "protocol_log_level" in app:
             flat_config["protocol_log_level"] = app["protocol_log_level"]
 
-    # Auth settings (check here first, then security section for backwards compatibility)
+    # Authentication enforcement override
     if "auth" in toml_data:
         auth = toml_data["auth"]
         if "auth_method" in auth:
-            flat_config["auth_method"] = auth["auth_method"]
+            raise ConfigurationError(
+                "'auth.auth_method' is no longer supported; use 'auth.disable_enforcement = true' only for a runtime override"
+            )
+        if "disable_enforcement" in auth:
+            flat_config["disable_auth_enforcement"] = auth["disable_enforcement"]
 
     # Security settings
     if "security" in toml_data:
         security = toml_data["security"]
         if "access_token_expire_minutes" in security:
             flat_config["access_token_expire_minutes"] = security["access_token_expire_minutes"]
-        # Only use security.auth_method if not already set from auth section
-        if "auth_method" in security and "auth_method" not in flat_config:
-            flat_config["auth_method"] = security["auth_method"]
+        if "auth_method" in security:
+            raise ConfigurationError(
+                "'security.auth_method' is no longer supported; use 'auth.disable_enforcement = true' only for a runtime override"
+            )
 
     # Admin settings
     if "admin" in toml_data:
@@ -179,8 +183,8 @@ class Settings(BaseModel):
     access_log_level: str = "WARNING"
     protocol_log_level: str = "WARNING"
 
-    # Auth method - must be set via config or environment variable
-    auth_method: AuthMethod = AuthMethod.PASSWORD
+    # Disables all application authentication checks; intended only for trusted development or perimeter-controlled deployments.
+    disable_auth_enforcement: bool = False
 
     @field_validator("log_level", "access_log_level", "protocol_log_level", "frontend_log_level", "frontend_tracing_level")
     @classmethod

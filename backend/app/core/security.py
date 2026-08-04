@@ -301,11 +301,10 @@ async def get_current_user_with_auth_check(
     token: Optional[str] = Depends(oauth2_scheme_optional),
     session: Session = Depends(get_session),
 ) -> User:
-    """Get the current authenticated user based on configured auth method.
+    """Get the current authenticated user based on the effective authentication mode.
 
-    - auth_method="password": Validates JWT token and returns user
-    - auth_method="none": Returns admin user without token validation
-      (assumes reverse proxy handles authentication)
+    Authentication enforcement can be disabled at runtime by configuration, in
+    which case requests resolve to the configured administrator without a token.
     """
 
     return await get_current_user_for_token(token, session)
@@ -318,9 +317,9 @@ async def get_current_user_for_token(token: Optional[str], session: Session) -> 
     authentication where FastAPI dependencies are not available.
     """
 
-    # For "none" auth method, return the admin user
-    if get_effective_authentication_mode(session).mode.value == "none":
-        logger.debug("Auth method is 'none' - returning admin user (assuming reverse proxy auth)")
+    # When enforcement is disabled or the UI-selected mode is none, return the administrator.
+    if get_effective_authentication_mode(session).value == "none":
+        logger.debug("Authentication is not enforced - returning admin user")
         statement = select(User).where(User.username == settings.admin_username)
         user = session.exec(statement).first()
         if not user:
@@ -332,7 +331,7 @@ async def get_current_user_for_token(token: Optional[str], session: Session) -> 
             )
         return _ensure_user_is_current(user, _build_credentials_exception(detail="Not authenticated"))
 
-    # For "password" auth method, require a valid token
+    # All other modes require a valid token.
     if not token:
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,

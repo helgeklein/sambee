@@ -7,6 +7,7 @@ import pytest
 from pydantic import ValidationError
 
 from app.core.config import Settings, load_toml_config
+from app.core.exceptions import ConfigurationError
 from app.core.logging import UvicornAccessLogFilter, UvicornProtocolLogFilter, configure_uvicorn_loggers
 
 
@@ -101,6 +102,27 @@ def test_access_log_level_loads_from_app_config(tmp_path):
 
     assert settings.access_log_level == "INFO"
     assert settings.protocol_log_level == "DEBUG"
+
+
+@pytest.mark.parametrize(
+    "section",
+    ("auth", "security"),
+)
+def test_retired_auth_method_configuration_is_rejected(tmp_path, section: str) -> None:
+    config_file = tmp_path / "config.toml"
+    config_file.write_text(f'[{section}]\nauth_method = "password"\n')
+
+    with pytest.raises(ConfigurationError, match="auth_method.*no longer supported"):
+        load_toml_config(config_file)
+
+
+def test_auth_enforcement_override_loads_from_auth_section(tmp_path) -> None:
+    config_file = tmp_path / "config.toml"
+    config_file.write_text("[auth]\ndisable_enforcement = true\n")
+
+    settings = Settings(**load_toml_config(config_file))
+
+    assert settings.disable_auth_enforcement is True
 
 
 def test_configure_uvicorn_loggers_separates_access_from_lifecycle_logs():

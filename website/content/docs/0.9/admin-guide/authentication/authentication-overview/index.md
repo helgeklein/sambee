@@ -19,11 +19,13 @@ Use **OIDC or password** while introducing OIDC. Switch to **OIDC only** only af
 
 For local-password setup and recovery, see [Password Authentication](../password-authentication/). For provider setup, see [OpenID Connect Authentication Setup](../openid-connect-authentication-setup/).
 
-## Initial Setting From the Configuration File
+## Authentication Configuration
 
-Before an administrator activates an authentication mode in the UI, Sambee uses the configuration file setting `security.auth_method`.
+Sambee stores the selected authentication mode in its database. New installations default to **Password only** until an administrator selects another mode in **Settings** > **Administration** > **Authentication**.
 
-The first successful authentication-mode activation in the UI stores the selected mode in Sambee's database. From then on, the UI setting is authoritative and Sambee ignores later changes to `security.auth_method` in the configuration file.
+The configuration file does not select an authentication mode. It has one authentication-related runtime override: `[auth] disable_enforcement = true`. This bypasses authentication enforcement without changing the mode saved in the UI. The Authentication page displays a warning while the override is active; UI changes are saved but cannot take effect until you remove the override and restart Sambee.
+
+`auth_method` is no longer supported in either `[auth]` or `[security]`. Sambee rejects it during startup. Update the configuration manually; existing installations are not migrated automatically.
 
 ## No Authentication
 

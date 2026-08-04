@@ -32,6 +32,14 @@ vi.mock("../../theme", () => ({
         background: { default: "#ffffff" },
         text: { primary: "#111111" },
       },
+      {
+        id: "sambee-dark",
+        name: "Sambee dark",
+        description: "Application default dark theme",
+        primary: { main: "#d4a020" },
+        background: { default: "#1f262b" },
+        text: { primary: "#f6f1e8" },
+      },
     ],
     saveThemeById: saveThemeByIdMock,
     setThemeById: setThemeByIdMock,
@@ -102,14 +110,11 @@ describe("AppearanceSettings", () => {
     await user.click(screen.getByRole("combobox", { name: "Language" }));
     await user.click(await screen.findByRole("option", { name: "Pseudo-English (for localization testing)" }));
 
-    expect(patchCurrentUserSettingsMock).not.toHaveBeenCalled();
+    expect(saveThemeByIdMock).not.toHaveBeenCalled();
     await user.click(screen.getByRole("button"));
     await waitFor(() => {
-      expect(patchCurrentUserSettingsMock).toHaveBeenCalledWith({
-        localization: {
-          language: "en-XA",
-          regional_locale: "browser",
-        },
+      expect(saveThemeByIdMock).toHaveBeenCalledWith("sambee-light", {
+        localization: { language: "en-XA", regional_locale: "browser" },
       });
     });
   });
@@ -121,15 +126,28 @@ describe("AppearanceSettings", () => {
     await user.click(screen.getByRole("combobox", { name: "Regional settings" }));
     await user.click(await screen.findByRole("option", { name: "German (Germany)" }));
 
-    expect(patchCurrentUserSettingsMock).not.toHaveBeenCalled();
+    expect(saveThemeByIdMock).not.toHaveBeenCalled();
     await user.click(screen.getByRole("button"));
     await waitFor(() => {
-      expect(patchCurrentUserSettingsMock).toHaveBeenCalledWith({
-        localization: {
-          language: "en",
-          regional_locale: "de-DE",
-        },
+      expect(saveThemeByIdMock).toHaveBeenCalledWith("sambee-light", {
+        localization: { language: "en", regional_locale: "de-DE" },
       });
     });
+  });
+
+  it("submits a changed theme and localization in one settings update", async () => {
+    const user = userEvent.setup();
+    render(<AppearanceSettings />);
+
+    await user.click(screen.getByText("Sambee dark"));
+    await user.click(screen.getByRole("combobox", { name: "Language" }));
+    await user.click(await screen.findByRole("option", { name: "Pseudo-English (for localization testing)" }));
+    await user.click(screen.getByRole("button"));
+
+    expect(saveThemeByIdMock).toHaveBeenCalledTimes(1);
+    expect(saveThemeByIdMock).toHaveBeenCalledWith("sambee-dark", {
+      localization: { language: "en-XA", regional_locale: "browser" },
+    });
+    expect(patchCurrentUserSettingsMock).not.toHaveBeenCalled();
   });
 });
