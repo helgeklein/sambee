@@ -11,7 +11,7 @@ To configure Sambee authenticaion, open **Settings** > **Administration** > **Au
 | Mode | Login behavior |
 |---|---|
 | No authentication | Sambee does not authenticate users. Use this only when a trusted reverse proxy or network perimeter controls all access to Sambee. |
-| Password only | Shows the local username and password form. |
+| Password only (default) | Shows the local username and password form. |
 | OIDC or password | Shows the OIDC login and local username/password fields on the same page. |
 | OIDC only | Starts the OIDC login transparently. |
 
@@ -23,9 +23,7 @@ For local-password setup and recovery, see [Password Authentication](../password
 
 Sambee stores the selected authentication mode in its database. New installations default to **Password only** until an administrator selects another mode in **Settings** > **Administration** > **Authentication**.
 
-The configuration file does not select an authentication mode. It has one authentication-related runtime override: `[auth] disable_enforcement = true`. This bypasses authentication enforcement without changing the mode saved in the UI. The Authentication page displays a warning while the override is active; UI changes are saved but cannot take effect until you remove the override and restart Sambee.
-
-`auth_method` is no longer supported in either `[auth]` or `[security]`. Sambee rejects it during startup. Update the configuration manually; existing installations are not migrated automatically.
+The [configuration file](../../reference/configuration-file-reference) has one authentication-related runtime override: it bypasses authentication enforcement without changing the mode saved in the UI. This override is useful mainly during development.
 
 ## No Authentication
 

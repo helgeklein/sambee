@@ -1,5 +1,6 @@
 import sys
 import tomllib
+from collections.abc import Iterator
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
@@ -9,10 +10,56 @@ from pydantic import BaseModel, field_validator, model_validator
 
 from app.core.environment import IS_DEVELOPMENT
 from app.core.exceptions import ConfigurationError
+from app.core.logging import get_logger
 from app.core.system_setting_definitions import SYSTEM_SETTING_DEFINITIONS, SystemSettingKey
 
 configured_setting_keys: frozenset[str] = frozenset()
 DEFAULT_COMPANION_METADATA_FEED_URL = "https://release-feeds.sambee.net/feeds/sambee/companion/latest.json"
+logger = get_logger(__name__)
+
+_SUPPORTED_CONFIG_PATHS = frozenset(
+    {
+        ("app", "log_level"),
+        ("app", "access_log_level"),
+        ("app", "protocol_log_level"),
+        ("auth", "disable_enforcement"),
+        ("security", "access_token_expire_minutes"),
+        ("admin", "username"),
+        ("image_viewer", "conv_size_thresh"),
+        ("frontend_logging", "logging_enabled"),
+        ("frontend_logging", "log_level"),
+        ("frontend_logging", "tracing_enabled"),
+        ("frontend_logging", "tracing_retention_hours"),
+        ("frontend_logging", "tracing_level"),
+        ("frontend_logging", "tracing_components"),
+        ("frontend_logging", "tracing_username_regex"),
+        ("directory_cache", "location"),
+        ("directory_cache", "coalesce_interval_seconds"),
+        ("directory_cache", "max_staleness_minutes"),
+        ("smb", "read_chunk_size_bytes"),
+        ("preprocessors", "imagemagick", "max_file_size_bytes"),
+        ("preprocessors", "imagemagick", "timeout_seconds"),
+        ("companion_downloads", "metadata_feed_url"),
+        ("companion_downloads", "pin", "version"),
+        ("companion_downloads", "pin", "published_at"),
+        ("companion_downloads", "pin", "notes"),
+        ("companion_downloads", "pin", "windows_x64_url"),
+        ("companion_downloads", "pin", "windows_arm64_url"),
+        ("companion_downloads", "pin", "macos_arm64_url"),
+        ("companion_downloads", "pin", "linux_x64_url"),
+    }
+)
+
+
+def _iter_config_paths(config: dict[str, Any], prefix: tuple[str, ...] = ()) -> Iterator[tuple[str, ...]]:
+    """Yield the paths to every configured TOML value."""
+
+    for key, value in config.items():
+        path = (*prefix, key)
+        if isinstance(value, dict):
+            yield from _iter_config_paths(value, path)
+        else:
+            yield path
 
 
 #
@@ -40,6 +87,10 @@ def load_toml_config(config_file: Path) -> dict[str, Any]:
             toml_data = tomllib.load(f)
     except tomllib.TOMLDecodeError as e:
         raise ConfigurationError(f"Invalid TOML syntax in '{config_file}': {e}") from e
+
+    ignored_paths = sorted(".".join(path) for path in _iter_config_paths(toml_data) if path not in _SUPPORTED_CONFIG_PATHS)
+    if ignored_paths:
+        logger.warning("Ignoring unsupported configuration settings in '%s': %s", config_file, ", ".join(ignored_paths))
 
     # Flatten nested TOML structure for Pydantic
     # Convert sections like [security] to flat keys like SECRET_KEY
@@ -353,8 +404,8 @@ except Exception as e:
     # Catch all config errors (TOML syntax, validation errors, etc.)
     from app.core.logging import setup_early_error_logging
 
-    logger = setup_early_error_logging()
-    logger.error(f"Configuration Error: {e}")
+    startup_logger = setup_early_error_logging()
+    startup_logger.error(f"Configuration Error: {e}")
     sys.exit(1)
 
 # Ensure data directory exists
@@ -363,6 +414,6 @@ try:
 except (PermissionError, OSError) as e:
     from app.core.logging import setup_early_error_logging
 
-    logger = setup_early_error_logging()
-    logger.error(f"Failed to create data directory '{static.data_dir}': {e}")
+    startup_logger = setup_early_error_logging()
+    startup_logger.error(f"Failed to create data directory '{static.data_dir}': {e}")
     sys.exit(1)
