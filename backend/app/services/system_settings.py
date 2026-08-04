@@ -41,7 +41,11 @@ from app.models.system_settings import (
     SmbAdvancedSettingsRead,
     SystemSetting,
 )
-from app.services.authentication_config import get_effective_authentication_mode
+from app.services.authentication_config import (
+    get_configured_authentication_mode,
+    get_effective_authentication_mode,
+    is_authentication_enforcement_disabled,
+)
 from app.services.oidc_configuration import canonicalize_public_url
 
 logger = get_logger(__name__)
@@ -62,7 +66,7 @@ CONFIG_FILE_SETTING_FIELDS = (
     ("app.log_level", "log_level"),
     ("app.access_log_level", "access_log_level"),
     ("app.protocol_log_level", "protocol_log_level"),
-    ("security.auth_method", "auth_method"),
+    ("auth.disable_enforcement", "disable_auth_enforcement"),
     ("security.access_token_expire_minutes", "access_token_expire_minutes"),
     ("image_viewer.conv_size_thresh", "image_viewer_conv_size_thresh"),
     ("frontend_logging.logging_enabled", "frontend_logging_enabled"),
@@ -414,10 +418,15 @@ def _append_network_settings_report(lines: list[str], session: Session, aliases:
 
 
 def _append_authentication_report(lines: list[str], session: Session, aliases: PublicSupportReportAliases) -> None:
+    configured_mode = get_configured_authentication_mode(session)
     effective_mode = get_effective_authentication_mode(session)
     configuration = session.get(OidcProviderConfiguration, 1)
     lines.append("[ui_configuration.authentication]")
-    _append_report_setting(lines, "mode", effective_mode.mode.value, effective_mode.source)
+    _append_report_setting(lines, "configured_mode", configured_mode.value, "ui")
+    _append_report_setting(
+        lines, "effective_mode", effective_mode.value, "config_file" if is_authentication_enforcement_disabled() else "ui"
+    )
+    _append_report_setting(lines, "enforcement_disabled", is_authentication_enforcement_disabled(), "config_file")
     _append_report_setting(lines, "oidc_provider_configured", configuration is not None, "ui")
     if configuration is None:
         return

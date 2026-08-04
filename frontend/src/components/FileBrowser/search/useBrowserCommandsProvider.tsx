@@ -15,7 +15,7 @@ function CommandResultRow({ command }: { command: BrowserCommandDefinition }) {
   return (
     <>
       <ListItemIcon sx={{ minWidth: 36 }}>
-        <KeyboardCommandKeyIcon fontSize="small" color="action" />
+        <KeyboardCommandKeyIcon fontSize="small" />
       </ListItemIcon>
       <ListItemText
         disableTypography

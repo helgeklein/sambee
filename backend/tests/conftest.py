@@ -29,9 +29,6 @@ def pytest_configure(config):
         """[app]
 log_level = "INFO"
 
-[auth]
-auth_method = "password"
-
 [security]
 secret_key = "test-secret-key-min-32-chars-long-for-testing"
 encryption_key = "797e7kOP_3m-d9nguKSO5ctIGg8AG5BmNIla9TMEZzE="

@@ -284,7 +284,7 @@ interface DirectorySearchProviderOptions {
 const ResultRow: React.FC<ResultRowProps> = ({ path, query }) => (
   <>
     <ListItemIcon sx={{ minWidth: 36 }}>
-      <FolderIcon fontSize="small" color="action" />
+      <FolderIcon fontSize="small" />
     </ListItemIcon>
     <ListItemText disableTypography primary={<SmartPathDisplay path={path} query={query} />} />
   </>

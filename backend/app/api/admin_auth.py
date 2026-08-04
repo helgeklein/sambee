@@ -47,7 +47,11 @@ from app.models.oidc_api import (
 )
 from app.models.user import User, UserRole
 from app.services.audit import AuditDetails, AuditEventName, AuditResult, write_audit_event
-from app.services.authentication_config import get_effective_authentication_mode, set_ui_authentication_mode
+from app.services.authentication_config import (
+    get_configured_authentication_mode,
+    is_authentication_enforcement_disabled,
+    set_ui_authentication_mode,
+)
 from app.services.oidc_client import (
     NormalizedOidcClaims,
     OidcClientError,
@@ -269,7 +273,7 @@ async def get_oidc_configuration(
     session: Session = Depends(get_session),
 ) -> OidcAdminConfigurationRead:
     configuration = session.get(OidcProviderConfiguration, 1)
-    effective_mode = get_effective_authentication_mode(session)
+    configured_mode = get_configured_authentication_mode(session)
     network = build_network_settings_read(session)
     health = build_authentication_health(
         public_url=network.public_url,
@@ -280,8 +284,8 @@ async def get_oidc_configuration(
         configuration=redacted_configuration(configuration) if configuration is not None else None,
         health=health,
         active_passwordless_user_count=count_active_passwordless_users(session),
-        auth_mode=effective_mode.mode,
-        auth_mode_source=effective_mode.source,
+        auth_mode=configured_mode,
+        auth_enforcement_disabled=is_authentication_enforcement_disabled(),
     )
 
 

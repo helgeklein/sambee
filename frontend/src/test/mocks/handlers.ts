@@ -115,7 +115,8 @@ export const handlers = [
   http.get(`${API_BASE}/auth/config`, () => {
     console.log("MSW: Auth config request received");
     return HttpResponse.json({
-      auth_method: "password",
+      sign_in_mode: "password_only",
+      oidc: null,
     });
   }),
 

@@ -1,6 +1,5 @@
 import { alpha, Box, FormLabel, type SxProps, type Theme, Typography } from "@mui/material";
 import type { ReactNode } from "react";
-import { getControlAccentColor } from "../../theme/commonStyles";
 import { DIALOG_FORM_SURFACE_CSS_VARIABLE, DIALOG_SURFACE_CSS_VARIABLE, getModeAdjustedSurfaceColor } from "../../theme/palette";
 import { SettingsGroup } from "./SettingsGroup";
 
@@ -24,7 +23,12 @@ interface SettingsFormSectionProps {
   title: ReactNode;
 }
 
-export const settingsFormFieldControlSx = { justifySelf: { md: "end" }, width: "100%" };
+export const settingsFormFieldControlSx = {
+  display: "flex",
+  justifyContent: { md: "flex-end" },
+  justifySelf: { md: "end" },
+  width: "100%",
+};
 export const settingsFormSelectControlSx = { justifySelf: { md: "end" }, width: { md: "fit-content" } };
 export const settingsSelectSx: SxProps<Theme> = {
   "& .MuiSelect-select, & .MuiSelect-icon": {
@@ -55,10 +59,6 @@ export const settingsFormOutlinedControlSx = {
   },
   "&:hover .MuiOutlinedInput-notchedOutline": {
     borderColor: (theme: Theme) => alpha(theme.palette.text.primary, 0.35),
-  },
-  "& .MuiOutlinedInput-root.Mui-focused .MuiOutlinedInput-notchedOutline": {
-    borderColor: (theme: Theme) => getControlAccentColor(theme),
-    borderWidth: 2,
   },
   "& .MuiOutlinedInput-root.Mui-error .MuiOutlinedInput-notchedOutline": {
     borderColor: "error.main",

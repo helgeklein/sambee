@@ -120,7 +120,7 @@ class OidcAdminConfigurationRead(SQLModel):
     health: AuthenticationHealth
     active_passwordless_user_count: int
     auth_mode: AuthenticationMode
-    auth_mode_source: Literal["ui", "config_file"]
+    auth_enforcement_disabled: bool
 
 
 class AuthenticationModeActivationRequest(SQLModel):

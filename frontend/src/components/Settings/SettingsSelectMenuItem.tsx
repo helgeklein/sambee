@@ -10,9 +10,11 @@ interface SettingsSelectMenuItemProps extends Omit<MenuItemProps, "children" | "
 export function SettingsSelectMenuItem({ value, label, description, disabled = false, ...menuItemProps }: SettingsSelectMenuItemProps) {
   return (
     <MenuItem {...menuItemProps} value={value} disabled={disabled}>
-      <Box sx={{ display: "flex", flexDirection: "column", alignItems: "flex-start", py: 0.25 }}>
-        <Typography variant="body1">{label}</Typography>
-        <Typography variant="caption" sx={{ color: "text.secondary" }}>
+      <Box sx={{ display: "flex", flexDirection: "column", alignItems: "flex-start", width: "100%", minWidth: 0, py: 0.25 }}>
+        <Typography variant="body1" sx={{ whiteSpace: "normal" }}>
+          {label}
+        </Typography>
+        <Typography variant="caption" sx={{ color: "text.secondary", whiteSpace: "normal", overflowWrap: "anywhere" }}>
           {description}
         </Typography>
       </Box>

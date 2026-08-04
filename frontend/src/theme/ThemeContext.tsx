@@ -1,8 +1,7 @@
 import { alpha, createTheme, type Theme } from "@mui/material";
 import { createContext, type ReactNode, useContext, useEffect, useMemo, useRef, useState } from "react";
 import { loadCurrentUserSettings, patchCurrentUserSettings, USER_SETTINGS_CHANGED_EVENT } from "../services/userSettingsSync";
-import type { CurrentUserSettings } from "../types";
-import { getContainedButtonFocusVisibleBoxShadow } from "./commonStyles";
+import type { CurrentUserSettings, CurrentUserSettingsUpdate } from "../types";
 import {
   DIALOG_FORM_SURFACE_CSS_VARIABLE,
   DIALOG_SURFACE_CSS_VARIABLE,
@@ -57,7 +56,7 @@ interface ThemeContextValue {
   /** Preview a different theme by ID without persisting it. */
   setThemeById: (themeId: string) => void;
   /** Persist a theme selection after it has been explicitly confirmed. */
-  saveThemeById: (themeId: string) => void;
+  saveThemeById: (themeId: string, additionalSettings?: Pick<CurrentUserSettingsUpdate, "localization">) => void;
   /** Add or update a custom theme draft. */
   addCustomTheme: (theme: ThemeConfig) => void;
   /** Remove a custom theme draft. */
@@ -133,10 +132,13 @@ export function SambeeThemeProvider({ children }: ThemeProviderProps) {
     const scrollbarThumb = alpha(text.primary, isDark ? 0.4 : 0.28);
     const scrollbarTrack = alpha(text.primary, isDark ? 0.12 : 0.08);
 
-    // Shared focus outline style for buttons (outline ring only, no fill change)
-    const buttonFocusOutline = {
-      outline: `${FOCUS_OUTLINE_WIDTH_PX}px solid ${focusColor}`,
-      outlineOffset: `${FOCUS_OUTLINE_OFFSET_PX}px`,
+    const getButtonFocusOutline = (theme: Theme, color?: string) => {
+      const outlineColor = color === "warning" ? theme.palette.warning.main : color === "error" ? theme.palette.error.main : focusColor;
+
+      return {
+        outline: `${FOCUS_OUTLINE_WIDTH_PX}px solid ${outlineColor}`,
+        outlineOffset: `${FOCUS_OUTLINE_OFFSET_PX}px`,
+      };
     };
 
     return createTheme({
@@ -292,6 +294,13 @@ export function SambeeThemeProvider({ children }: ThemeProviderProps) {
             },
           },
         },
+        MuiListItemIcon: {
+          styleOverrides: {
+            root: {
+              color: "inherit",
+            },
+          },
+        },
         MuiAlert: {
           styleOverrides: {
             standard: ({ ownerState }) =>
@@ -309,30 +318,21 @@ export function SambeeThemeProvider({ children }: ThemeProviderProps) {
             disableFocusRipple: true,
           },
           styleOverrides: {
-            root: {
+            root: ({ ownerState, theme }) => ({
               textTransform: "none",
-              "&.Mui-focusVisible": buttonFocusOutline,
-            },
-            // Text/outlined buttons: strip background on focus for a clean look.
-            // In dark mode, override text color for visibility.
+              "&.Mui-focusVisible": getButtonFocusOutline(theme, ownerState.color),
+            }),
+            // Text/outlined buttons retain their semantic color when focused.
             text: {
               "&.Mui-focusVisible": {
                 backgroundColor: "transparent",
-                ...(isDark && { color: action.focus }),
               },
             },
             outlined: {
               "&.Mui-focusVisible": {
                 backgroundColor: "transparent",
-                ...(isDark && { color: action.focus }),
               },
             },
-            contained: ({ theme }) => ({
-              "&.Mui-focusVisible": {
-                outline: "none",
-                boxShadow: getContainedButtonFocusVisibleBoxShadow(theme),
-              },
-            }),
           },
         },
         // Focus styles for IconButton - clean outline ring (keyboard nav only)
@@ -341,9 +341,12 @@ export function SambeeThemeProvider({ children }: ThemeProviderProps) {
             disableFocusRipple: true,
           },
           styleOverrides: {
-            root: {
-              "&.Mui-focusVisible": buttonFocusOutline,
-            },
+            root: ({ theme }) => ({
+              "&.Mui-focusVisible": {
+                outline: `${FOCUS_OUTLINE_WIDTH_PX}px solid ${theme.palette.primary.main}`,
+                outlineOffset: `${FOCUS_OUTLINE_OFFSET_PX}px`,
+              },
+            }),
           },
         },
         // Keep form labels readable when focused (don't use primary yellow color)
@@ -454,7 +457,7 @@ export function SambeeThemeProvider({ children }: ThemeProviderProps) {
     }
   };
 
-  const saveThemeById = (themeId: string) => {
+  const saveThemeById = (themeId: string, additionalSettings?: Pick<CurrentUserSettingsUpdate, "localization">) => {
     if (!availableThemes.find((theme) => theme.id === themeId)) {
       return;
     }
@@ -464,7 +467,10 @@ export function SambeeThemeProvider({ children }: ThemeProviderProps) {
     setCurrentThemeId(themeId);
     localStorage.setItem(THEME_ID_STORAGE_KEY, themeId);
     localStorage.setItem(CUSTOM_THEMES_STORAGE_KEY, JSON.stringify(customThemes));
-    void patchCurrentUserSettings({ appearance: { theme_id: themeId, custom_themes: customThemes } });
+    void patchCurrentUserSettings({
+      ...additionalSettings,
+      appearance: { theme_id: themeId, custom_themes: customThemes },
+    });
   };
 
   const addCustomTheme = (theme: ThemeConfig) => {
