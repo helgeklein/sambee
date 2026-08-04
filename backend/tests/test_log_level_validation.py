@@ -104,6 +104,22 @@ def test_access_log_level_loads_from_app_config(tmp_path):
     assert settings.protocol_log_level == "DEBUG"
 
 
+def test_ignored_configuration_settings_are_logged(tmp_path, caplog: pytest.LogCaptureFixture) -> None:
+    """Warn when a valid TOML value is not consumed by the configuration loader."""
+
+    config_file = tmp_path / "config.toml"
+    config_file.write_text('[app]\nlog_level = "info"\nignored_option = true\n[unrecognized]\noption = "value"\n')
+
+    with caplog.at_level(logging.WARNING, logger="app.core.config"):
+        config = load_toml_config(config_file)
+
+    assert config == {"log_level": "info"}
+    assert "Ignoring unsupported configuration settings" in caplog.text
+    assert "app.ignored_option" in caplog.text
+    assert "unrecognized.option" in caplog.text
+    assert '"value"' not in caplog.text
+
+
 @pytest.mark.parametrize(
     "section",
     ("auth", "security"),

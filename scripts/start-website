@@ -52,6 +52,34 @@ find_website_dev_pids() {
     done
 }
 
+find_listening_pid() {
+    local port_hex
+    local local_address
+    local socket_inode
+    local pid
+    local fd
+
+    printf -v port_hex '%04X' "$PORT"
+
+    for tcp_file in /proc/net/tcp /proc/net/tcp6; do
+        [ -r "$tcp_file" ] || continue
+
+        while read -r _ local_address _ state _ _ _ _ _ socket_inode _; do
+            [[ "$local_address" == *":${port_hex}" && "$state" == "0A" ]] || continue
+
+            for proc_dir in /proc/[0-9]*; do
+                pid="${proc_dir##*/}"
+                for fd in "/proc/$pid/fd/"*; do
+                    [ "$(readlink "$fd" 2>/dev/null || true)" = "socket:[$socket_inode]" ] && {
+                        echo "$pid"
+                        return 0
+                    }
+                done
+            done
+        done < "$tcp_file"
+    done
+}
+
 stop_existing_website_server() {
     local pids=()
 
@@ -88,7 +116,7 @@ stop_existing_website_server() {
 fail_on_port_conflict() {
     local pid
 
-    pid="$(lsof -ti TCP:"$PORT" -sTCP:LISTEN 2>/dev/null | head -n 1 || true)"
+    pid="$(find_listening_pid)"
     if [ -z "$pid" ]; then
         return 0
     fi
@@ -134,7 +162,6 @@ require_command npm
 require_command hugo
 require_command python3
 require_command magick
-require_command lsof
 
 cd "$PROJECT_DIR"
 
