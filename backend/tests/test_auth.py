@@ -276,6 +276,27 @@ class TestLoginEndpoint:
             session.flush()
             assert session.exec(select(OidcProviderConfiguration)).first() is None
 
+    def test_enforcement_override_does_not_replace_configured_ui_mode(
+        self, client: TestClient, session: Session, admin_token: str, monkeypatch
+    ) -> None:
+        from app.core.auth_methods import AuthenticationMode
+        from app.core.config import settings
+        from app.core.security import get_password_hash
+        from app.services.authentication_config import set_ui_authentication_mode
+
+        session.add(User(username=settings.admin_username, password_hash=get_password_hash("adminpass123"), role=UserRole.ADMIN))
+        set_ui_authentication_mode(session, mode=AuthenticationMode.OIDC_ONLY, updated_by_user_id=None)
+        session.commit()
+        monkeypatch.setattr(settings, "disable_auth_enforcement", True)
+
+        assert client.get("/api/auth/config").json() == {"sign_in_mode": "none", "oidc": None}
+
+        response = client.get("/api/admin/auth/oidc", headers={"Authorization": f"Bearer {admin_token}"})
+
+        assert response.status_code == 200
+        assert response.json()["auth_mode"] == "oidc_only"
+        assert response.json()["auth_enforcement_disabled"] is True
+
     def test_oidc_only_password_login_returns_404_before_form_validation(self, client: TestClient, session: Session):
         from app.core.auth_methods import AuthenticationMode
         from app.models.oidc import OidcProviderConfiguration, SignInMode
@@ -803,8 +824,8 @@ class TestPasswordHashingEdgeCases:
 
 
 @pytest.mark.integration
-class TestAuthMethodNone:
-    """Test authentication behavior when auth_method is set to 'none'."""
+class TestAuthenticationEnforcementOverride:
+    """Test authentication behavior when configuration disables enforcement."""
 
     @pytest.fixture
     def config_admin_user(self, session: Session):
@@ -822,22 +843,20 @@ class TestAuthMethodNone:
         return user
 
     def test_auth_config_returns_none(self, client: TestClient, monkeypatch):
-        """Test /api/auth/config returns 'none' when configured."""
-        from app.core.auth_methods import AuthMethod
+        """Test /api/auth/config returns 'none' while enforcement is disabled."""
         from app.core.config import settings
 
-        monkeypatch.setattr(settings, "auth_method", AuthMethod.NONE)
+        monkeypatch.setattr(settings, "disable_auth_enforcement", True)
 
         response = client.get("/api/auth/config")
         assert response.status_code == 200
         assert response.json() == {"sign_in_mode": "none", "oidc": None}
 
-    def test_login_endpoint_disabled_with_none(self, client: TestClient, config_admin_user: User, monkeypatch):
-        """Test that login endpoint returns 404 when auth_method is 'none'."""
-        from app.core.auth_methods import AuthMethod
+    def test_login_endpoint_disabled_with_override(self, client: TestClient, config_admin_user: User, monkeypatch):
+        """Test that login endpoint returns 404 when enforcement is disabled."""
         from app.core.config import settings
 
-        monkeypatch.setattr(settings, "auth_method", AuthMethod.NONE)
+        monkeypatch.setattr(settings, "disable_auth_enforcement", True)
 
         response = client.post(
             "/api/auth/token",
@@ -850,12 +869,11 @@ class TestAuthMethodNone:
         assert response.status_code == 404
         assert "not enabled" in response.json()["detail"].lower()
 
-    def test_change_password_disabled_with_none(self, client: TestClient, config_admin_user: User, monkeypatch):
-        """Test that change-password endpoint returns 400 when auth_method is 'none'."""
-        from app.core.auth_methods import AuthMethod
+    def test_change_password_disabled_with_override(self, client: TestClient, config_admin_user: User, monkeypatch):
+        """Test that change-password endpoint returns 400 when enforcement is disabled."""
         from app.core.config import settings
 
-        monkeypatch.setattr(settings, "auth_method", AuthMethod.NONE)
+        monkeypatch.setattr(settings, "disable_auth_enforcement", True)
 
         response = client.post(
             "/api/auth/change-password",
@@ -866,11 +884,10 @@ class TestAuthMethodNone:
         assert "not available" in response.json()["detail"].lower() or "reverse proxy" in response.json()["detail"].lower()
 
     def test_me_endpoint_returns_admin_without_token(self, client: TestClient, config_admin_user: User, monkeypatch):
-        """Test /api/auth/me returns admin user without token when auth_method is 'none'."""
-        from app.core.auth_methods import AuthMethod
+        """Test /api/auth/me returns admin user without token while enforcement is disabled."""
         from app.core.config import settings
 
-        monkeypatch.setattr(settings, "auth_method", AuthMethod.NONE)
+        monkeypatch.setattr(settings, "disable_auth_enforcement", True)
 
         response = client.get("/api/auth/me")
         assert response.status_code == 200
@@ -881,11 +898,10 @@ class TestAuthMethodNone:
     def test_me_endpoint_rejects_expired_admin_without_token(
         self, client: TestClient, config_admin_user: User, session: Session, monkeypatch
     ):
-        """Test auth_method none still rejects expired configured admin users."""
-        from app.core.auth_methods import AuthMethod
+        """Test the override still rejects an expired configured admin user."""
         from app.core.config import settings
 
-        monkeypatch.setattr(settings, "auth_method", AuthMethod.NONE)
+        monkeypatch.setattr(settings, "disable_auth_enforcement", True)
         config_admin_user.expires_at = datetime.now(timezone.utc) - timedelta(minutes=5)
         session.add(config_admin_user)
         session.commit()
@@ -894,22 +910,20 @@ class TestAuthMethodNone:
         assert response.status_code == 401
 
     def test_protected_endpoint_accessible_without_token(self, client: TestClient, config_admin_user: User, monkeypatch):
-        """Test that protected endpoints are accessible without token when auth_method is 'none'."""
-        from app.core.auth_methods import AuthMethod
+        """Test that protected endpoints are accessible without token while enforcement is disabled."""
         from app.core.config import settings
 
-        monkeypatch.setattr(settings, "auth_method", AuthMethod.NONE)
+        monkeypatch.setattr(settings, "disable_auth_enforcement", True)
 
         # Test connection endpoint (should be accessible as we're treated as admin)
         response = client.get("/api/connections")
         assert response.status_code == 200
 
     def test_browser_endpoint_accessible_without_token(self, client: TestClient, config_admin_user: User, test_connection, monkeypatch):
-        """Test that browser endpoints are accessible without token when auth_method is 'none'."""
-        from app.core.auth_methods import AuthMethod
+        """Test that browser endpoints are accessible without token while enforcement is disabled."""
         from app.core.config import settings
 
-        monkeypatch.setattr(settings, "auth_method", AuthMethod.NONE)
+        monkeypatch.setattr(settings, "disable_auth_enforcement", True)
 
         response = client.get(
             f"/api/browser/{test_connection.id}/list",
@@ -918,12 +932,11 @@ class TestAuthMethodNone:
         # Should not get 401 (may fail due to SMB connection, but not auth error)
         assert response.status_code != 401
 
-    def test_auth_method_password_still_requires_token(self, client: TestClient, admin_user: User, monkeypatch):
-        """Test that auth_method='password' still requires valid token."""
-        from app.core.auth_methods import AuthMethod
+    def test_enforcement_enabled_requires_token(self, client: TestClient, admin_user: User, monkeypatch):
+        """Test that disabled override still requires a token when set to false."""
         from app.core.config import settings
 
-        monkeypatch.setattr(settings, "auth_method", AuthMethod.PASSWORD)
+        monkeypatch.setattr(settings, "disable_auth_enforcement", False)
 
         # Without token should fail
         response = client.get("/api/auth/me")

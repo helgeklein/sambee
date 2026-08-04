@@ -18,11 +18,7 @@ function FilterResultRow({ file }: { file: FileEntry }) {
   return (
     <>
       <ListItemIcon sx={{ minWidth: 36 }}>
-        {file.type === "directory" ? (
-          <FolderOutlinedIcon fontSize="small" color="action" />
-        ) : (
-          <DescriptionOutlinedIcon fontSize="small" color="action" />
-        )}
+        {file.type === "directory" ? <FolderOutlinedIcon fontSize="small" /> : <DescriptionOutlinedIcon fontSize="small" />}
       </ListItemIcon>
       <ListItemText
         primary={<Typography variant="body2">{file.name}</Typography>}

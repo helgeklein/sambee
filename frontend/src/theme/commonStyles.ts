@@ -18,8 +18,9 @@ export function getFocusAccentColor(theme: Theme): string {
   return theme.palette.action.focus ?? getControlAccentColor(theme);
 }
 
-export function getElevatedButtonFocusRing(theme: Theme): string {
-  const ringColor = alpha(getFocusAccentColor(theme), theme.palette.mode === "dark" ? 0.38 : 0.24);
+export function getElevatedButtonFocusRing(theme: Theme, color?: "warning" | "error"): string {
+  const focusColor = color ? theme.palette[color].main : getFocusAccentColor(theme);
+  const ringColor = alpha(focusColor, theme.palette.mode === "dark" ? 0.38 : 0.24);
 
   return `0 0 0 ${FOCUS_RING_WIDTH}px ${ringColor}`;
 }

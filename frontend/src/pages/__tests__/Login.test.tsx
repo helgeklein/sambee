@@ -1,5 +1,6 @@
-import { screen, waitFor } from "@testing-library/react";
+import { render as renderWithMemoryRouter, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
+import { MemoryRouter, useLocation } from "react-router-dom";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { render } from "../../test/utils/test-utils";
 import Login from "../Login";
@@ -16,6 +17,11 @@ vi.mock("../../services/authConfig", () => ({
 // Import the mocked function so we can control it
 import { login as mockLogin } from "../../services/api";
 import { getAuthConfig as mockGetAuthConfig } from "../../services/authConfig";
+
+function CurrentPath() {
+  const location = useLocation();
+  return <output>{location.pathname}</output>;
+}
 
 describe("Login Component", () => {
   beforeEach(() => {
@@ -103,6 +109,21 @@ describe("Login Component", () => {
     // Verify login was called with correct credentials
     expect(mockLogin).toHaveBeenCalledWith("admin", "admin");
   });
+
+  it("preserves the requested connection route when authentication is disabled", async () => {
+    window.location.search = "?return_path=%2Fbrowse%2Fsmb%2Fdemo";
+    vi.mocked(mockGetAuthConfig).mockResolvedValueOnce({ sign_in_mode: "none", oidc: null });
+
+    renderWithMemoryRouter(
+      <MemoryRouter initialEntries={["/login?return_path=%2Fbrowse%2Fsmb%2Fdemo"]}>
+        <Login />
+        <CurrentPath />
+      </MemoryRouter>
+    );
+
+    expect(await screen.findByText("/browse/smb/demo")).toBeInTheDocument();
+  });
+
   it("displays error message with invalid credentials", async () => {
     // Mock failed login
     vi.mocked(mockLogin).mockRejectedValueOnce(new Error("Unauthorized"));

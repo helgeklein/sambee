@@ -380,7 +380,7 @@ export interface OidcAdminConfigurationRead {
   health: AuthenticationHealth;
   active_passwordless_user_count: number;
   auth_mode: AuthenticationMode;
-  auth_mode_source: "ui" | "config_file";
+  auth_enforcement_disabled: boolean;
 }
 
 export interface AuthenticationModeActivationResponse {

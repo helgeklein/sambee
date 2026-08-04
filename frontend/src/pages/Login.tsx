@@ -68,9 +68,9 @@ const Login: React.FC = () => {
       try {
         const config = await getAuthConfig();
         if (config.sign_in_mode === "none") {
-          logger.info("Auth method is 'none' - redirecting to browse", {}, "auth");
+          logger.info("Auth method is 'none' - redirecting to requested page", { returnPath }, "auth");
           await logger.initializeBackendTracing();
-          navigate("/browse", { replace: true });
+          navigate(returnPath, { replace: true });
           return;
         }
         setAuthConfig(config);

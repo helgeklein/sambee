@@ -26,7 +26,6 @@ import { getSettingsPageSurfaceColor } from "../components/Settings/settingsSurf
 import { getAvailableLanguages } from "../i18n";
 import { useLocalePreferences } from "../i18n/LocalePreferencesProvider";
 import { PSEUDO_LANGUAGE } from "../i18n/resources";
-import { patchCurrentUserSettings } from "../services/userSettingsSync";
 import { useSambeeTheme } from "../theme";
 import type { LanguagePreference } from "../types";
 import { formatLocalizedDateTime, formatLocalizedNumber } from "../utils/localeFormatting";
@@ -207,8 +206,7 @@ export function AppearanceSettings() {
     draftAppearanceRef.current = nextSavedAppearance;
     savedAppearanceRef.current = nextSavedAppearance;
     setSavedAppearance(nextSavedAppearance);
-    saveThemeById(draftThemeId);
-    void patchCurrentUserSettings({
+    saveThemeById(draftThemeId, {
       localization: {
         language: draftLanguagePreference,
         regional_locale: draftRegionalLocalePreference,

@@ -31,8 +31,20 @@ describe("SettingsCategoryList", () => {
     const label = screen.getByText("Appearance", { exact: true });
     const icon = appearanceOption.querySelector("svg");
 
-    expect(label).toHaveStyle({ fontSize: "1rem" });
-    expect(icon).toHaveStyle({ fontSize: "1.5rem" });
+    if (!icon) {
+      throw new Error("Appearance option is missing its category icon.");
+    }
+
+    expect(label).toHaveClass("MuiTypography-body1");
+    expect([
+      { label: "1rem", icon: "1.5rem" },
+      { label: "16px", icon: "24px" },
+      { label: "0.875rem", icon: "1.25rem" },
+      { label: "14px", icon: "20px" },
+    ]).toContainEqual({
+      label: window.getComputedStyle(label).fontSize,
+      icon: window.getComputedStyle(icon).fontSize,
+    });
   });
 
   it("shows local drives as a top-level category without child UI", () => {

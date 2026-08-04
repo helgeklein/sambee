@@ -425,7 +425,7 @@ async def oidc_authorize(
     if limited is not None:
         return limited
     configuration = session.get(OidcProviderConfiguration, 1)
-    effective_mode = get_effective_authentication_mode(session).mode
+    effective_mode = get_effective_authentication_mode(session)
     if configuration is None or effective_mode.value not in {"oidc_or_password", "oidc_only"}:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="OIDC authentication is not enabled")
     try:
@@ -504,7 +504,7 @@ async def oidc_callback(
         if claimed.purpose == OidcFlowPurpose.LOGIN:
             if (
                 active_configuration is None
-                or get_effective_authentication_mode(session).mode.value not in {"oidc_or_password", "oidc_only"}
+                or get_effective_authentication_mode(session).value not in {"oidc_or_password", "oidc_only"}
                 or active_configuration.configuration_revision != claimed.configuration_revision
                 or active_configuration.encrypted_client_secret is None
             ):
@@ -1055,7 +1055,7 @@ async def get_current_account(
     current_user: User = Depends(get_current_user_with_auth_check),
     session: Session = Depends(get_session),
 ) -> CurrentAccountRead:
-    authentication_mode = get_effective_authentication_mode(session).mode
+    authentication_mode = get_effective_authentication_mode(session)
     oidc_enabled = authentication_mode.value in {"oidc_or_password", "oidc_only"}
     configuration = session.get(OidcProviderConfiguration, 1) if oidc_enabled else None
     current_user_data = build_current_user_read(current_user).model_dump()
@@ -1111,9 +1111,8 @@ async def change_password(
     if not effective_current_password or not effective_new_password:
         raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_CONTENT, detail="Current and new passwords are required")
 
-    # Reject password changes when auth_method is "none"
-    if get_effective_authentication_mode(session).mode.value == "none":
-        logger.warning("Password change rejected: auth_method is 'none' (reverse proxy handles auth)")
+    if get_effective_authentication_mode(session).value == "none":
+        logger.warning("Password change rejected because authentication enforcement is disabled")
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail="Password changes are not available when authentication is handled by reverse proxy",

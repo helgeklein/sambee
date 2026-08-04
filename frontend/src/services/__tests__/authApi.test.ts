@@ -38,7 +38,6 @@ vi.mock("axios", () => {
 
 import axios from "axios";
 import { apiService } from "../api";
-import type { AuthMethod } from "../authConfig";
 import { clearAuthConfigCache, getAuthConfig, parseAuthConfig } from "../authConfig";
 
 const mockedAxios = vi.mocked(axios);
@@ -61,7 +60,8 @@ describe("Authentication API Contract Tests", () => {
     it("should return correct auth config format", async () => {
       clearAuthConfigCache();
       const backendResponse = {
-        auth_method: "password" as AuthMethod,
+        sign_in_mode: "password_only" as const,
+        oidc: null,
       };
 
       mockAxiosGet.mockResolvedValueOnce({
@@ -73,10 +73,11 @@ describe("Authentication API Contract Tests", () => {
       expect(config).toEqual({ sign_in_mode: "password_only", oidc: null });
     });
 
-    it("should handle 'none' auth method", async () => {
+    it("should handle canonical no-auth configuration", async () => {
       clearAuthConfigCache();
       const backendResponse = {
-        auth_method: "none" as AuthMethod,
+        sign_in_mode: "none" as const,
+        oidc: null,
       };
 
       mockAxiosGet.mockResolvedValueOnce({
@@ -87,26 +88,11 @@ describe("Authentication API Contract Tests", () => {
       expect(config.sign_in_mode).toBe("none");
     });
 
-    it("should handle 'password' auth method", async () => {
-      clearAuthConfigCache();
-      const backendResponse = {
-        auth_method: "password" as AuthMethod,
-      };
-
-      mockAxiosGet.mockResolvedValueOnce({
-        data: backendResponse,
-      } as AxiosResponse);
-
-      const config = await getAuthConfig();
-      expect(config.sign_in_mode).toBe("password_only");
-    });
-
-    it("should prefer canonical OIDC configuration", async () => {
+    it("should accept canonical OIDC configuration", async () => {
       mockAxiosGet.mockResolvedValueOnce({
         data: {
           sign_in_mode: "oidc_or_password",
           oidc: { display_name: "Company SSO", authorization_path: "/api/auth/oidc/authorize" },
-          auth_method: "password",
         },
       } as AxiosResponse);
 
@@ -118,6 +104,10 @@ describe("Authentication API Contract Tests", () => {
 
     it("should reject malformed canonical configuration", () => {
       expect(() => parseAuthConfig({ sign_in_mode: "oidc_only" })).toThrow("OIDC authentication configuration is incomplete");
+    });
+
+    it("should reject retired auth-method payloads", () => {
+      expect(() => parseAuthConfig({ auth_method: "password" })).toThrow("Invalid authentication configuration");
     });
   });
   describe("Contract Tests - POST /auth/token", () => {

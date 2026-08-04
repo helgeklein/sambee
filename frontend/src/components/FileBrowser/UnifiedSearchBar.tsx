@@ -1025,6 +1025,9 @@ export function UnifiedSearchBar({
                           left: 0,
                           width: "100%",
                           transform: `translateY(${virtualRow.start}px)`,
+                          "&.Mui-selected, &.Mui-selected:hover, &.Mui-selected.Mui-focusVisible": {
+                            backgroundColor: "action.selected",
+                          },
                         }}
                         role="option"
                         aria-selected={virtualRow.index === selectedIndex}

@@ -1,3 +1,4 @@
+import type { Theme } from "@mui/material";
 import { act, renderHook, waitFor } from "@testing-library/react";
 import type { ReactNode } from "react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
@@ -81,6 +82,71 @@ describe("Theme System - ThemeContext", () => {
       const { result } = renderHook(() => useSambeeTheme(), { wrapper });
 
       expect(result.current.muiTheme.components?.MuiCheckbox).toBeUndefined();
+    });
+
+    it("makes list icons inherit their item text color", () => {
+      const { result } = renderHook(() => useSambeeTheme(), { wrapper });
+
+      expect(result.current.muiTheme.components?.MuiListItemIcon?.styleOverrides?.root).toMatchObject({ color: "inherit" });
+    });
+
+    it("uses semantic warning and error colors for button focus rings in both built-in themes", () => {
+      const { result } = renderHook(() => useSambeeTheme(), { wrapper });
+      const buttonRootOverride = result.current.muiTheme.components?.MuiButton?.styleOverrides?.root as unknown as
+        | ((props: { ownerState: { color?: string }; theme: Theme }) => { "&.Mui-focusVisible": { outline: string } })
+        | undefined;
+
+      expect(buttonRootOverride).toBeTypeOf("function");
+      if (!buttonRootOverride) {
+        throw new Error("MuiButton root override is not configured");
+      }
+
+      const expectSemanticFocusOutlines = () => {
+        const theme = result.current.muiTheme;
+
+        expect(buttonRootOverride({ ownerState: { color: "warning" }, theme })["&.Mui-focusVisible"].outline).toBe(
+          `3px solid ${theme.palette.warning.main}`
+        );
+        expect(buttonRootOverride({ ownerState: { color: "error" }, theme })["&.Mui-focusVisible"].outline).toBe(
+          `3px solid ${theme.palette.error.main}`
+        );
+      };
+
+      expectSemanticFocusOutlines();
+
+      act(() => {
+        result.current.setThemeById("sambee-dark");
+      });
+
+      expectSemanticFocusOutlines();
+    });
+
+    it("uses the default primary color for every IconButton focus ring", () => {
+      const { result } = renderHook(() => useSambeeTheme(), { wrapper });
+
+      const expectFocusOutline = () => {
+        const theme = result.current.muiTheme;
+        const iconButtonRootOverride = theme.components?.MuiIconButton?.styleOverrides?.root as unknown as
+          | ((props: { ownerState: { color?: string }; theme: Theme }) => { "&.Mui-focusVisible": { outline: string } })
+          | undefined;
+
+        expect(iconButtonRootOverride).toBeTypeOf("function");
+        if (!iconButtonRootOverride) {
+          throw new Error("MuiIconButton root override is not configured");
+        }
+
+        expect(iconButtonRootOverride({ ownerState: {}, theme })["&.Mui-focusVisible"].outline).toBe(
+          `3px solid ${theme.palette.primary.main}`
+        );
+      };
+
+      expectFocusOutline();
+
+      act(() => {
+        result.current.setThemeById("sambee-dark");
+      });
+
+      expectFocusOutline();
     });
 
     it("applies the semantic dark warning colors to standard alerts", () => {
@@ -194,7 +260,7 @@ describe("Theme System - ThemeContext", () => {
       expect(darkPalette).toBe("dark");
       expect(result.current.muiTheme.palette.primary.main).toBe("#D4A020");
       expect(result.current.muiTheme.palette.primary.light).toBe("#F4C430");
-      expect(result.current.muiTheme.palette.action.focus).toBe("#D4A020");
+      expect(result.current.muiTheme.palette.action.focus).toBe("#F6F1E8F0");
       expect(result.current.muiTheme.palette.text.primary).toBe("#F6F1E8");
       expect(result.current.muiTheme.palette.text.secondary).toBe("#F6F1E8B3");
       expect(result.current.muiTheme.palette.background.paper).toBe(result.current.muiTheme.palette.background.default);

@@ -1,7 +1,6 @@
 import axios from "axios";
 import { logger } from "./logger";
 
-export type AuthMethod = "none" | "password";
 export type SignInMode = "none" | "password_only" | "oidc_or_password" | "oidc_only";
 
 export interface OidcPublicConfig {
@@ -17,10 +16,6 @@ export interface AuthConfig {
 interface CanonicalAuthConfigResponse {
   sign_in_mode: SignInMode;
   oidc?: OidcPublicConfig | null;
-}
-
-interface LegacyAuthConfigResponse {
-  auth_method: AuthMethod;
 }
 
 let authConfigCache: AuthConfig | null = null;
@@ -58,7 +53,7 @@ export function parseAuthConfig(value: unknown): AuthConfig {
     throw new Error("Invalid authentication configuration");
   }
 
-  const candidate = value as Partial<CanonicalAuthConfigResponse & LegacyAuthConfigResponse>;
+  const candidate = value as Partial<CanonicalAuthConfigResponse>;
   if (
     candidate.sign_in_mode === "none" ||
     candidate.sign_in_mode === "password_only" ||
@@ -73,13 +68,6 @@ export function parseAuthConfig(value: unknown): AuthConfig {
       throw new Error("Invalid OIDC authentication configuration");
     }
     return { sign_in_mode: candidate.sign_in_mode, oidc };
-  }
-
-  if (candidate.auth_method === "none") {
-    return { sign_in_mode: "none", oidc: null };
-  }
-  if (candidate.auth_method === "password") {
-    return { sign_in_mode: "password_only", oidc: null };
   }
 
   throw new Error("Invalid authentication configuration");

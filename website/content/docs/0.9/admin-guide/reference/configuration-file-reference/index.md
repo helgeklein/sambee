@@ -20,7 +20,7 @@ Use `config.example.toml` as the source of truth for supported keys. This page e
 | `[app]` | `log_level` | Sets application diagnostic verbosity and Uvicorn lifecycle logging. |
 | `[app]` | `access_log_level` | Sets Uvicorn HTTP request access-log verbosity. |
 | `[app]` | `protocol_log_level` | Sets Uvicorn WebSocket connection, frame, and keepalive log verbosity. |
-| `[security]` | `auth_method` | Chooses between built-in password auth and proxy-managed auth. |
+| `[auth]` | `disable_enforcement` | Temporarily bypasses all Sambee authentication enforcement at runtime. |
 | `[security]` | `access_token_expire_minutes` | Changes the short-lived API-token lifetime. OIDC sessions refresh this token in the background; configure the OIDC interactive sign-in interval separately in Authentication settings. |
 | `[admin]` | `username` | Sets the initial administrator username. |
 | `[image_viewer]` | `conv_size_thresh` | Controls when large images are always converted for viewing. |
@@ -50,7 +50,7 @@ protocol_log_level = "WARNING"
 
 These areas have the highest operational impact:
 
-- `auth_method`: Can change who is responsible for authentication at the deployment boundary.
+- `[auth].disable_enforcement`: Bypasses all Sambee authentication enforcement. Use it only with a trusted reverse proxy or network perimeter that already enforces access control. It does not change the mode selected in Authentication settings and requires a restart after removal. The retired `auth_method` key is rejected at startup.
 - Backend logging keys: Can significantly increase log volume, particularly `protocol_log_level = "DEBUG"`.
 - Frontend logging and tracing keys: Can change both local debugging visibility and backend trace collection volume.
 - `directory_cache.location`: Changes where the saved SMB directory index lives on disk.
