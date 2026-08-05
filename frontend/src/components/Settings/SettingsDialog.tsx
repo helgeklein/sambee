@@ -6,10 +6,12 @@ import CloseIcon from "@mui/icons-material/Close";
 import { Box, Dialog, Divider, IconButton, Typography } from "@mui/material";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
+import { RESIZABLE_DIALOG_VIEWPORT_GUTTER_PX, ResizableDialogHandle, useResizableDialogSize } from "../ResizableDialog";
 import { SettingsCategoryContent } from "./SettingsCategoryContent";
 import { SettingsCategoryList } from "./SettingsCategoryList";
 import { settingsSubduedIconButtonSx } from "./settingsButtonStyles";
 import { prefetchSettingsDataForItems } from "./settingsDataSources";
+import { SETTINGS_DIALOG_DEFAULT_MAX_HEIGHT_PX, SETTINGS_DIALOG_RESIZE_CONFIG } from "./settingsDialogSize";
 import {
   DEFAULT_SETTINGS_CATEGORY,
   getVisibleSettingsNavItems,
@@ -50,6 +52,7 @@ const SettingsDialog: React.FC<SettingsDialogProps> = ({
 
   // Refs for category list items (for arrow key navigation and initial focus)
   const categoryRefs = useRef<Partial<Record<SettingsNavItem, HTMLDivElement | null>>>({});
+  const { displayedSize, paperRef, resizeHandleProps } = useResizableDialogSize(SETTINGS_DIALOG_RESIZE_CONFIG);
 
   // Build list of available items based on admin status
   const availableItems = useMemo(() => getVisibleSettingsNavItems(isAdmin), [isAdmin]);
@@ -129,10 +132,18 @@ const SettingsDialog: React.FC<SettingsDialogProps> = ({
       open={open}
       onClose={onClose}
       maxWidth="lg"
-      fullWidth
       slotProps={{
         paper: {
-          sx: { height: "80vh" },
+          sx: {
+            height: displayedSize ? `${displayedSize.height}px` : `calc(100dvh - ${RESIZABLE_DIALOG_VIEWPORT_GUTTER_PX * 2}px)`,
+            width: displayedSize ? `${displayedSize.width}px` : `min(1200px, calc(100dvw - ${RESIZABLE_DIALOG_VIEWPORT_GUTTER_PX * 2}px))`,
+            maxHeight: displayedSize
+              ? `calc(100dvh - ${RESIZABLE_DIALOG_VIEWPORT_GUTTER_PX * 2}px)`
+              : SETTINGS_DIALOG_DEFAULT_MAX_HEIGHT_PX,
+            maxWidth: `calc(100dvw - ${RESIZABLE_DIALOG_VIEWPORT_GUTTER_PX * 2}px)`,
+            overflow: "hidden",
+          },
+          ref: paperRef,
         },
       }}
     >
@@ -151,6 +162,8 @@ const SettingsDialog: React.FC<SettingsDialogProps> = ({
       >
         <CloseIcon />
       </IconButton>
+
+      <ResizableDialogHandle {...resizeHandleProps} testId="settings-dialog-resize-handle" />
 
       <Box sx={{ display: "flex", height: "100%" }}>
         {/* Left Sidebar */}
@@ -201,6 +214,7 @@ const SettingsDialog: React.FC<SettingsDialogProps> = ({
             flex: 1,
             display: "flex",
             flexDirection: "column",
+            minWidth: 0,
             overflow: "hidden",
             bgcolor: getSettingsPageSurfaceColor,
           }}

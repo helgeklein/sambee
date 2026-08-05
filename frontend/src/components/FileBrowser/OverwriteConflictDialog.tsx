@@ -19,15 +19,15 @@
  * the current multi-file operation.
  */
 
-import { Box, Button, Checkbox, Dialog, DialogActions, DialogContent, DialogTitle, FormControlLabel, Typography } from "@mui/material";
+import { Box, Button, Checkbox, FormControlLabel, Typography } from "@mui/material";
 import type React from "react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { fileNamePillSx } from "../../theme/commonStyles";
 import { type ConflictInfo, FileType } from "../../types";
 import { dialogEnterKeyHandler } from "../../utils/keyboardUtils";
 import { formatLocalizedDateTime, formatLocalizedNumber } from "../../utils/localeFormatting";
+import { DialogReadOnlyField } from "../Admin/DialogReadOnlyField";
+import { ResponsiveFormDialog } from "../Admin/ResponsiveFormDialog";
 import { OVERWRITE_CONFLICT_STRINGS as S } from "./overwriteConflictStrings";
-import { NoTransition } from "./transitions";
 
 // ============================================================================
 // Types
@@ -117,82 +117,83 @@ const OverwriteConflictDialog: React.FC<OverwriteConflictDialogProps> = ({ open,
   const isDirectory = conflict?.existing_file.type === FileType.DIRECTORY;
 
   return (
-    <Dialog open={open} onClose={handleClose} onKeyDown={handleKeyDown} fullWidth maxWidth="sm" slots={{ transition: NoTransition }}>
-      <DialogTitle>{S.TITLE(isDirectory)}</DialogTitle>
+    <ResponsiveFormDialog
+      open={open}
+      onClose={handleClose}
+      onKeyDown={handleKeyDown}
+      title={S.TITLE(isDirectory)}
+      description={S.ALREADY_EXISTS(isDirectory)}
+      maxWidth="sm"
+      actions={
+        <>
+          <Button ref={skipButtonRef} onClick={handleSkip}>
+            {S.BUTTON_SKIP}
+          </Button>
+          <Button onClick={handleReplace} variant="contained" color="error">
+            {S.BUTTON_REPLACE}
+          </Button>
+        </>
+      }
+    >
+      <DialogReadOnlyField label={S.LABEL_TARGET} value={fileName} sx={{ mb: 2 }} />
+      <Typography variant="body1" sx={{ mb: 0.5 }}>
+        {S.LABEL_OPERATION}
+      </Typography>
 
-      <DialogContent>
-        {/* File name that conflicts */}
-        <Typography variant="body1" sx={{ mb: 0.5 }}>
-          {S.ALREADY_EXISTS(isDirectory)}
-        </Typography>
-        <Box sx={{ ...fileNamePillSx, mb: 2 }}>{fileName}</Box>
-
-        <Typography variant="body1" sx={{ mb: 0.5 }}>
-          {S.LABEL_OPERATION}
-        </Typography>
-
-        {/* Side-by-side metadata comparison with arrow */}
-        {conflict && (
+      {conflict ? (
+        <Box
+          sx={{
+            display: "grid",
+            gridTemplateColumns: { xs: "1fr", sm: "1fr auto 1fr" },
+            gap: 1.5,
+            mb: 2,
+            p: 1.5,
+            borderRadius: 1,
+            bgcolor: "action.selected",
+          }}
+        >
+          <Box>
+            <Typography variant="subtitle2" sx={{ mb: 0.5, color: "text.secondary" }}>
+              {S.LABEL_INCOMING}
+            </Typography>
+            <Typography variant="body2">{formatBytes(conflict.incoming_file.size)}</Typography>
+            <Typography variant="body2">{formatDate(conflict.incoming_file.modified_at)}</Typography>
+          </Box>
           <Box
+            aria-hidden="true"
             sx={{
-              display: "grid",
-              gridTemplateColumns: "1fr auto 1fr",
-              gap: 1.5,
-              mb: 2,
-              p: 1.5,
-              borderRadius: 1,
-              bgcolor: "action.selected",
+              alignItems: "center",
+              color: "text.secondary",
+              display: { xs: "none", sm: "flex" },
+              fontSize: "1.8rem",
+              px: 0.5,
             }}
           >
-            {/* Incoming file (source — on the left) */}
-            <Box>
-              <Typography variant="subtitle2" sx={{ mb: 0.5, color: "text.secondary" }}>
-                {S.LABEL_INCOMING}
-              </Typography>
-              <Typography variant="body2">{formatBytes(conflict.incoming_file.size)}</Typography>
-              <Typography variant="body2">{formatDate(conflict.incoming_file.modified_at)}</Typography>
-            </Box>
-
-            {/* Arrow pointing from source → target */}
-            <Box sx={{ display: "flex", alignItems: "center", px: 0.5, color: "text.secondary", fontSize: "1.8rem" }}>→</Box>
-
-            {/* Existing file (destination — on the right) */}
-            <Box>
-              <Typography variant="subtitle2" sx={{ mb: 0.5, color: "text.secondary" }}>
-                {S.LABEL_EXISTING}
-              </Typography>
-              <Typography variant="body2">{formatBytes(conflict.existing_file.size)}</Typography>
-              <Typography variant="body2">{formatDate(conflict.existing_file.modified_at)}</Typography>
-            </Box>
+            →
           </Box>
-        )}
-
-        {/* "Apply to all" checkbox */}
-        {progress && progress.total > 1 && (
-          <>
-            <FormControlLabel
-              control={<Checkbox checked={applyToAll} onChange={(e) => setApplyToAll(e.target.checked)} size="small" />}
-              label={S.APPLY_TO_ALL}
-              sx={{ mt: 0.5 }}
-            />
-
-            {/* Progress context */}
-            <Typography variant="caption" display="block" sx={{ mt: 0.5, color: "text.secondary" }}>
-              {S.PROGRESS_CONTEXT(progress.current, progress.total, progress.conflictsSoFar)}
+          <Box sx={{ borderTop: { xs: 1, sm: 0 }, borderColor: "divider", pt: { xs: 1.5, sm: 0 } }}>
+            <Typography variant="subtitle2" sx={{ mb: 0.5, color: "text.secondary" }}>
+              {S.LABEL_EXISTING}
             </Typography>
-          </>
-        )}
-      </DialogContent>
+            <Typography variant="body2">{formatBytes(conflict.existing_file.size)}</Typography>
+            <Typography variant="body2">{formatDate(conflict.existing_file.modified_at)}</Typography>
+          </Box>
+        </Box>
+      ) : null}
 
-      <DialogActions>
-        <Button ref={skipButtonRef} onClick={handleSkip}>
-          {S.BUTTON_SKIP}
-        </Button>
-        <Button onClick={handleReplace} variant="contained" color="error">
-          {S.BUTTON_REPLACE}
-        </Button>
-      </DialogActions>
-    </Dialog>
+      {progress && progress.total > 1 ? (
+        <>
+          <FormControlLabel
+            control={<Checkbox checked={applyToAll} onChange={(event) => setApplyToAll(event.target.checked)} size="small" />}
+            label={S.APPLY_TO_ALL}
+            sx={{ mt: 0.5 }}
+          />
+          <Typography variant="caption" display="block" sx={{ mt: 0.5, color: "text.secondary" }}>
+            {S.PROGRESS_CONTEXT(progress.current, progress.total, progress.conflictsSoFar)}
+          </Typography>
+        </>
+      ) : null}
+    </ResponsiveFormDialog>
   );
 };
 

@@ -559,19 +559,19 @@ export const COPY_MOVE_SHORTCUTS = {
     id: "copy-to-other",
     keys: "F5",
     get description() {
-      return translate("fileBrowser.shortcuts.copyToOtherPane");
+      return translate("fileBrowser.shortcuts.copyToOtherPaneInDualPane");
     },
     label: "F5",
-    helpGroup: "panes",
+    helpGroup: "fileActions",
   },
   MOVE_TO_OTHER_PANE: {
     id: "move-to-other",
     keys: "F6",
     get description() {
-      return translate("fileBrowser.shortcuts.moveToOtherPane");
+      return translate("fileBrowser.shortcuts.moveToOtherPaneInDualPane");
     },
     label: "F6",
-    helpGroup: "panes",
+    helpGroup: "fileActions",
   },
 } as const satisfies Record<string, ShortcutDefinition>;
 

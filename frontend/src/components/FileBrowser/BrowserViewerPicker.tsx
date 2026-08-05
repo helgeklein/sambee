@@ -1,26 +1,14 @@
 import OpenInNewIcon from "@mui/icons-material/OpenInNew";
 import VisibilityIcon from "@mui/icons-material/Visibility";
-import {
-  Button,
-  Checkbox,
-  Dialog,
-  DialogActions,
-  DialogContent,
-  DialogTitle,
-  FormControlLabel,
-  List,
-  ListItemButton,
-  ListItemIcon,
-  ListItemText,
-  Radio,
-  Typography,
-} from "@mui/material";
+import { Button, Checkbox, FormControlLabel, List, ListItemButton, ListItemIcon, ListItemText, Radio } from "@mui/material";
 import type { KeyboardEvent as ReactKeyboardEvent } from "react";
 import { useEffect, useMemo, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { useSelectableListbox } from "../../hooks/useSelectableListbox";
 import type { ViewerId } from "../../utils/FileTypeRegistry";
 import { getViewerDefinitions } from "../../utils/FileTypeRegistry";
+import { DialogReadOnlyField } from "../Admin/DialogReadOnlyField";
+import { ResponsiveFormDialog } from "../Admin/ResponsiveFormDialog";
 
 interface BrowserViewerPickerProps {
   open: boolean;
@@ -113,100 +101,100 @@ export function BrowserViewerPicker({
   };
 
   return (
-    <Dialog open={open} onClose={onClose} onKeyDown={handleDialogKeyDown} fullWidth maxWidth="sm" disableAutoFocus>
-      <DialogTitle>{t("fileBrowser.viewerPicker.title")}</DialogTitle>
-      <DialogContent>
-        <Typography variant="body2" sx={{ mb: 2, color: "text.secondary" }}>
-          {fileName}
-        </Typography>
-        <List
-          ref={listRef}
-          disablePadding
-          role="listbox"
-          tabIndex={0}
-          autoFocus
-          aria-activedescendant={selectedValue ? `browser-viewer-picker-option-${selectedValue}` : undefined}
-          onKeyDown={handleListKeyDown}
-          sx={{
-            "&:focus": {
-              outline: "none",
-            },
-          }}
-        >
-          {viewerDefinitions.map((viewer) => (
-            <ListItemButton
-              key={viewer.id}
-              id={`browser-viewer-picker-option-${viewer.id}`}
-              role="option"
-              tabIndex={-1}
-              aria-selected={selectedValue === viewer.id}
-              selected={selectedValue === viewer.id}
-              disableRipple
-              disableTouchRipple
-              sx={pickerOptionSx}
-              onClick={() => {
-                setSelectedValue(viewer.id);
-                focusList();
-              }}
-            >
-              <ListItemIcon>
-                <Radio edge="start" checked={selectedValue === viewer.id} tabIndex={-1} disableRipple />
-              </ListItemIcon>
-              <ListItemIcon>
-                <VisibilityIcon fontSize="small" />
-              </ListItemIcon>
-              <ListItemText
-                primary={t(viewer.translationKey)}
-                secondary={viewer.id === defaultViewerId ? t("fileBrowser.viewerPicker.default") : undefined}
-              />
-            </ListItemButton>
-          ))}
-          {showNativeOption ? (
-            <ListItemButton
-              id="browser-viewer-picker-option-native"
-              role="option"
-              tabIndex={-1}
-              aria-selected={selectedValue === "native"}
-              selected={selectedValue === "native"}
-              disableRipple
-              disableTouchRipple
-              sx={pickerOptionSx}
-              onClick={() => {
-                setSelectedValue("native");
-                focusList();
-              }}
-            >
-              <ListItemIcon>
-                <Radio edge="start" checked={selectedValue === "native"} tabIndex={-1} disableRipple />
-              </ListItemIcon>
-              <ListItemIcon>
-                <OpenInNewIcon fontSize="small" />
-              </ListItemIcon>
-              <ListItemText
-                primary={t("fileBrowser.viewerPicker.openInNativeApp")}
-                secondary={t("fileBrowser.viewerPicker.nativeDescription")}
-              />
-            </ListItemButton>
-          ) : null}
-        </List>
-        <FormControlLabel
-          sx={{ mt: 2 }}
-          control={
-            <Checkbox
-              checked={rememberSelection && canRememberSelection}
-              onChange={(event) => setRememberSelection(event.target.checked)}
+    <ResponsiveFormDialog
+      open={open}
+      onClose={onClose}
+      onKeyDown={handleDialogKeyDown}
+      title={t("fileBrowser.viewerPicker.title")}
+      maxWidth="sm"
+      actions={
+        <>
+          <Button onClick={onClose}>{t("common.actions.cancel")}</Button>
+          <Button variant="contained" onClick={handleConfirm} disabled={!selectedValue}>
+            {t("fileBrowser.viewerPicker.open")}
+          </Button>
+        </>
+      }
+    >
+      <DialogReadOnlyField label={t("fileBrowser.viewerPicker.fileLabel")} value={fileName} sx={{ mb: 2 }} />
+      <List
+        ref={listRef}
+        disablePadding
+        role="listbox"
+        tabIndex={0}
+        autoFocus
+        aria-activedescendant={selectedValue ? `browser-viewer-picker-option-${selectedValue}` : undefined}
+        onKeyDown={handleListKeyDown}
+        sx={{
+          "&:focus": {
+            outline: "none",
+          },
+        }}
+      >
+        {viewerDefinitions.map((viewer) => (
+          <ListItemButton
+            key={viewer.id}
+            id={`browser-viewer-picker-option-${viewer.id}`}
+            role="option"
+            tabIndex={-1}
+            aria-selected={selectedValue === viewer.id}
+            selected={selectedValue === viewer.id}
+            disableRipple
+            disableTouchRipple
+            sx={pickerOptionSx}
+            onClick={() => {
+              setSelectedValue(viewer.id);
+              focusList();
+            }}
+          >
+            <ListItemIcon>
+              <Radio edge="start" checked={selectedValue === viewer.id} tabIndex={-1} disableRipple />
+            </ListItemIcon>
+            <ListItemIcon>
+              <VisibilityIcon fontSize="small" />
+            </ListItemIcon>
+            <ListItemText
+              primary={t(viewer.translationKey)}
+              secondary={viewer.id === defaultViewerId ? t("fileBrowser.viewerPicker.default") : undefined}
             />
-          }
-          disabled={!canRememberSelection}
-          label={t("fileBrowser.viewerPicker.alwaysUse")}
-        />
-      </DialogContent>
-      <DialogActions>
-        <Button onClick={onClose}>{t("common.actions.cancel")}</Button>
-        <Button variant="contained" onClick={handleConfirm} disabled={!selectedValue}>
-          {t("fileBrowser.viewerPicker.open")}
-        </Button>
-      </DialogActions>
-    </Dialog>
+          </ListItemButton>
+        ))}
+        {showNativeOption ? (
+          <ListItemButton
+            id="browser-viewer-picker-option-native"
+            role="option"
+            tabIndex={-1}
+            aria-selected={selectedValue === "native"}
+            selected={selectedValue === "native"}
+            disableRipple
+            disableTouchRipple
+            sx={pickerOptionSx}
+            onClick={() => {
+              setSelectedValue("native");
+              focusList();
+            }}
+          >
+            <ListItemIcon>
+              <Radio edge="start" checked={selectedValue === "native"} tabIndex={-1} disableRipple />
+            </ListItemIcon>
+            <ListItemIcon>
+              <OpenInNewIcon fontSize="small" />
+            </ListItemIcon>
+            <ListItemText
+              primary={t("fileBrowser.viewerPicker.openInNativeApp")}
+              secondary={t("fileBrowser.viewerPicker.nativeDescription")}
+            />
+          </ListItemButton>
+        ) : null}
+      </List>
+      <FormControlLabel
+        sx={{ mt: 2 }}
+        control={
+          <Checkbox checked={rememberSelection && canRememberSelection} onChange={(event) => setRememberSelection(event.target.checked)} />
+        }
+        disabled={!canRememberSelection}
+        label={t("fileBrowser.viewerPicker.alwaysUse")}
+      />
+    </ResponsiveFormDialog>
   );
 }

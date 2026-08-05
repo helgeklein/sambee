@@ -95,6 +95,10 @@ const renderSettings = () =>
     </MemoryRouter>
   );
 
+const openOidcConfiguration = async (user: ReturnType<typeof userEvent.setup> = userEvent.setup()) => {
+  await user.click(await screen.findByRole("button", { name: "Configure OIDC" }));
+};
+
 describe("Authentication settings", () => {
   afterEach(() => {
     vi.unstubAllGlobals();
@@ -116,8 +120,33 @@ describe("Authentication settings", () => {
 
     renderSettings();
 
-    expect(await screen.findByDisplayValue("Active Provider")).toBeInTheDocument();
+    expect(await screen.findByRole("heading", { name: "OpenID Connect" })).toBeInTheDocument();
+    expect(screen.getByText("Active")).toBeInTheDocument();
+    expect(await screen.findByRole("button", { name: "Configure OIDC" })).toBeInTheDocument();
     expect(api.getOidcConfiguration).not.toHaveBeenCalled();
+  });
+
+  it("presents OIDC setup as a task-oriented action instead of an alert", async () => {
+    const user = userEvent.setup();
+    vi.mocked(api.getOidcConfiguration).mockResolvedValue({
+      ...response(configuration("Unconfigured Provider")),
+      configuration: null,
+      auth_mode: "password_only",
+    });
+    window.history.replaceState(null, "", "/settings/admin/authentication");
+
+    renderSettings();
+
+    await user.click(await screen.findByRole("combobox", { name: "Authentication mode" }));
+    await user.click(screen.getByRole("option", { name: /^OIDC or password/ }));
+    expect(await screen.findByText("Not configured")).toBeInTheDocument();
+    expect(screen.getByText("Set up a provider so people can sign in with an existing identity service.")).toBeInTheDocument();
+    expect(screen.queryByRole("alert")).not.toBeInTheDocument();
+
+    await openOidcConfiguration();
+    expect(
+      screen.queryByText("Connect to the identity provider and review the returned identity before activation.")
+    ).not.toBeInTheDocument();
   });
 
   it("links to the OpenID Connect setup guide in the page description", async () => {
@@ -140,14 +169,31 @@ describe("Authentication settings", () => {
     renderSettings();
 
     expect(await screen.findByTestId("authentication-mode-form-surface")).toBeInTheDocument();
-    expect(screen.getByTestId("authentication-provider-form-surface")).toBeInTheDocument();
-    expect(screen.getByTestId("authentication-access-form-surface")).toBeInTheDocument();
-    expect(screen.getByTestId("authentication-role-form-surface")).toBeInTheDocument();
-    expect(screen.getByTestId("authentication-claims-form-surface")).toBeInTheDocument();
+    await openOidcConfiguration();
+    expect(screen.getByTestId("authentication-oidc-form-surface")).toBeInTheDocument();
+    expect(screen.getByTestId("authentication-provider-form-group")).toBeInTheDocument();
+    expect(screen.getByTestId("authentication-access-form-group")).toBeInTheDocument();
+    expect(screen.getByTestId("authentication-role-form-group")).toBeInTheDocument();
+    expect(screen.getByTestId("authentication-claims-form-group")).toBeInTheDocument();
     const providerName = screen.getByRole("textbox", { name: "Provider name" });
     expect(providerName).toBeInTheDocument();
     expect(providerName.parentElement?.parentElement).toHaveClass("MuiFormControl-fullWidth");
     expect(screen.getByText("Name shown for this provider")).toBeInTheDocument();
+  });
+
+  it("focuses the provider name and closes an untested configuration dialog with Escape", async () => {
+    const user = userEvent.setup();
+    vi.mocked(api.getOidcConfiguration).mockResolvedValue(response(configuration("Active Provider")));
+    window.history.replaceState(null, "", "/settings/admin/authentication");
+
+    renderSettings();
+
+    await openOidcConfiguration(user);
+    const providerName = await screen.findByRole("textbox", { name: "Provider name" });
+    await waitFor(() => expect(providerName).toHaveFocus());
+
+    await user.keyboard("{Escape}");
+    await waitFor(() => expect(screen.queryByRole("dialog", { name: "Configure OIDC" })).not.toBeInTheDocument());
   });
 
   it("uses external desktop labels and descriptions for the OIDC form", async () => {
@@ -166,6 +212,7 @@ describe("Authentication settings", () => {
 
     renderSettings();
 
+    await openOidcConfiguration();
     const providerName = await screen.findByRole("textbox", { name: "Provider name" });
     expect(providerName).toHaveAttribute("aria-describedby", "provider-name-description");
     expect(providerName.parentElement).toHaveClass("MuiInputBase-sizeSmall");
@@ -238,7 +285,6 @@ describe("Authentication settings", () => {
     renderSettings();
 
     expect(await screen.findByText("Tested identity")).toBeInTheDocument();
-    expect(screen.getByRole("combobox", { name: "Authentication mode" })).toHaveTextContent("OIDC or password");
     expect(screen.getByRole("button", { name: "Activate configuration" })).toBeEnabled();
   });
 
@@ -346,7 +392,7 @@ describe("Authentication settings", () => {
     expect(screen.queryByText(/public_url_missing/i)).not.toBeInTheDocument();
   });
 
-  it("shows OIDC prerequisites only while an OIDC mode is selected", async () => {
+  it("keeps active OIDC recovery status visible while a different mode is pending", async () => {
     const user = userEvent.setup();
     vi.mocked(api.getOidcConfiguration).mockResolvedValue({
       ...response(configuration("Active Provider")),
@@ -364,7 +410,8 @@ describe("Authentication settings", () => {
     expect(await screen.findByText("Set Sambee's externally reachable public URL in network settings.")).toBeInTheDocument();
     await user.click(screen.getByRole("combobox", { name: "Authentication mode" }));
     await user.click(screen.getByRole("option", { name: /^Password only/ }));
-    expect(screen.queryByText("Set Sambee's externally reachable public URL in network settings.")).not.toBeInTheDocument();
+    expect(screen.getByText("Set Sambee's externally reachable public URL in network settings.")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Remap all OIDC accounts" })).toBeDisabled();
   });
 
   it("activates No authentication without a checkbox or native confirmation gate", async () => {
@@ -435,10 +482,10 @@ describe("Authentication settings", () => {
     expect(confirm).not.toHaveBeenCalled();
   });
 
-  it("reevaluates reviewed policy without another interactive provider test", async () => {
+  it("reevaluates an updated admission policy without another interactive provider test", async () => {
     const user = userEvent.setup();
     const initialCandidate = configuration("Tested Provider");
-    const reviewedCandidate = { ...initialCandidate, sign_in_mode: "oidc_only" as const };
+    const reviewedCandidate = { ...initialCandidate, admission_mode: "all_idp_users" as const };
     vi.mocked(api.getOidcConfiguration).mockResolvedValue(response(configuration("Active Provider")));
     vi.mocked(api.getOidcTestResult)
       .mockResolvedValueOnce(testedIdentity({ candidate: initialCandidate }))
@@ -446,8 +493,8 @@ describe("Authentication settings", () => {
     window.location.hash = "flow=test-flow";
     renderSettings();
 
-    await user.click(await screen.findByRole("combobox", { name: "Authentication mode" }));
-    await user.click(screen.getByRole("option", { name: /^OIDC only/ }));
+    await user.click(await screen.findByRole("combobox", { name: "Admission" }));
+    await user.click(screen.getByRole("option", { name: "All authenticated users" }));
 
     await waitFor(() => expect(api.getOidcTestResult).toHaveBeenNthCalledWith(2, "test-flow", reviewedPolicy(reviewedCandidate)));
     expect(api.startOidcTest).not.toHaveBeenCalled();
@@ -504,7 +551,7 @@ describe("Authentication settings", () => {
     expect(screen.queryByText("Tested identity")).not.toBeInTheDocument();
   });
 
-  it("cancels the server flow and clears tab-scoped setup state", async () => {
+  it("cancels the server flow through Escape and clears tab-scoped setup state", async () => {
     const user = userEvent.setup();
     window.location.hash = "flow=test-flow";
     vi.mocked(api.getOidcConfiguration).mockResolvedValue(response(configuration("Active Provider")));
@@ -527,7 +574,7 @@ describe("Authentication settings", () => {
     renderSettings();
 
     expect(await screen.findByDisplayValue("Tested Provider")).toBeInTheDocument();
-    await user.click(screen.getByRole("button", { name: "Cancel" }));
+    await user.keyboard("{Escape}");
 
     expect(api.cancelOidcTestFlow).toHaveBeenCalledWith("test-flow");
     expect(sessionStorage.getItem("sambee.oidc.setupFlowId")).toBeNull();
@@ -679,11 +726,8 @@ describe("Authentication settings", () => {
     expect(sessionStorage.getItem("sambee.oidc.setupFlowId")).toBe("test-flow");
     expect(screen.getByText("Tested identity")).toBeInTheDocument();
     expect(screen.getByRole("textbox", { name: "Provider name" })).toBeDisabled();
-    expect(screen.getByRole("button", { name: "Connect and test" })).toBeDisabled();
     expect(screen.getByRole("button", { name: "Activate configuration" })).toBeDisabled();
     expect(screen.getByRole("button", { name: "Cancel" })).toBeDisabled();
-    expect(screen.getByRole("button", { name: "Remap all OIDC accounts" })).toBeDisabled();
-    expect(screen.getByRole("combobox", { name: "Authentication mode" })).toHaveAttribute("aria-disabled", "true");
   });
 
   it("replays a persisted finalization before loading configuration after reload", async () => {
@@ -812,7 +856,7 @@ describe("Authentication settings", () => {
     expect(sessionStorage.getItem("sambee.oidc.pendingFinalization")).toBeNull();
     expect(sessionStorage.getItem("sambee.oidc.setupFlowId")).toBeNull();
     expect(sessionStorage.getItem("sambee.oidc.reviewedPolicy")).toBeNull();
-    expect(screen.getByRole("button", { name: "Connect and test" })).toBeEnabled();
+    expect(screen.getByRole("button", { name: "Configure OIDC" })).toBeEnabled();
   });
 
   it("restores row validation errors from a persisted finalization", async () => {
@@ -1003,6 +1047,7 @@ describe("Authentication settings", () => {
     window.location.hash = "";
     renderSettings();
 
+    await openOidcConfiguration(user);
     const redirectUri = await screen.findByRole("textbox", { name: "Redirect URI" });
     expect(redirectUri).toHaveValue("https://sambee.example.test/api/auth/oidc/callback");
     await user.click(screen.getByRole("button", { name: "Copy redirect URI" }));
@@ -1023,6 +1068,7 @@ describe("Authentication settings", () => {
     window.location.hash = "";
     renderSettings();
 
+    await openOidcConfiguration();
     const scopes = await screen.findByRole("textbox", { name: "Scopes" });
     await user.click(scopes);
     await user.keyboard("{End},email");
@@ -1036,6 +1082,7 @@ describe("Authentication settings", () => {
     window.location.hash = "";
     renderSettings();
 
+    await openOidcConfiguration();
     const scopes = await screen.findByRole("textbox", { name: "Scopes" });
     await user.clear(scopes);
     await user.type(scopes, "aa");
@@ -1056,6 +1103,7 @@ describe("Authentication settings", () => {
     window.location.hash = "";
     renderSettings();
 
+    await openOidcConfiguration(user);
     await user.click(await screen.findByRole("button", { name: "Copy redirect URI" }));
     expect(await screen.findByText("The redirect URI could not be copied.")).toBeInTheDocument();
 
@@ -1076,10 +1124,11 @@ describe("Authentication settings", () => {
     window.location.hash = "";
     renderSettings();
 
+    await openOidcConfiguration(user);
     const connect = await screen.findByRole("button", { name: "Connect and test" });
     expect(connect).toBeEnabled();
     await user.type(screen.getByRole("textbox", { name: "Editor groups" }), "ＳＡＭＢＥＥ－ＡＤＭＩＮＳ");
-    expect(screen.getAllByText("A group cannot grant more than one role.")).toHaveLength(3);
+    await waitFor(() => expect(screen.getAllByText("A group cannot grant more than one role.")).toHaveLength(3));
     expect(connect).toBeDisabled();
 
     await user.click(screen.getByRole("combobox", { name: "Role assignment" }));
@@ -1099,6 +1148,7 @@ describe("Authentication settings", () => {
     window.location.hash = "";
     renderSettings();
 
+    await openOidcConfiguration();
     expect(await screen.findByRole("heading", { name: "Advanced claims" })).toBeInTheDocument();
     expect(screen.getByRole("textbox", { name: "Username claim" })).toHaveValue("preferred_username");
     expect(screen.getByText("Members of these groups can sign in; enter exact names, separated by commas")).toBeInTheDocument();
@@ -1163,14 +1213,29 @@ describe("Authentication settings", () => {
 
   it("starts an explicit remap-all test flow", async () => {
     const user = userEvent.setup();
-    vi.spyOn(window, "confirm").mockReturnValue(true);
     vi.mocked(api.getOidcConfiguration).mockResolvedValue(response(configuration("Active Provider")));
     vi.mocked(api.startOidcTest).mockImplementation(() => new Promise(() => undefined));
     window.location.hash = "";
     renderSettings();
 
     await user.click(await screen.findByRole("button", { name: "Remap all OIDC accounts" }));
+    await user.click(screen.getByRole("button", { name: "Connect and test" }));
 
     expect(api.startOidcTest).toHaveBeenCalledWith(expect.objectContaining({ display_name: "Active Provider" }), true);
+  });
+
+  it("dismisses remap confirmation with Escape without starting a test", async () => {
+    const user = userEvent.setup();
+    vi.mocked(api.getOidcConfiguration).mockResolvedValue(response(configuration("Active Provider")));
+    window.location.hash = "";
+    renderSettings();
+
+    await user.click(await screen.findByRole("button", { name: "Remap all OIDC accounts" }));
+    expect(await screen.findByRole("dialog", { name: "Remap OIDC accounts" })).toBeInTheDocument();
+
+    await user.keyboard("{Escape}");
+
+    await waitFor(() => expect(screen.queryByRole("dialog", { name: "Remap OIDC accounts" })).not.toBeInTheDocument());
+    expect(api.startOidcTest).not.toHaveBeenCalled();
   });
 });

@@ -1,10 +1,10 @@
-import { Box, Button, CircularProgress } from "@mui/material";
+import { Button, CircularProgress } from "@mui/material";
 import type React from "react";
 import { useMemo } from "react";
 import { useTranslation } from "react-i18next";
-import { fileNamePillSx } from "../../theme/commonStyles";
 import { dialogEnterKeyHandler } from "../../utils/keyboardUtils";
 import { settingsDestructiveButtonSx, settingsPrimaryButtonSx, settingsUtilityButtonSx } from "../Settings/settingsButtonStyles";
+import { DialogReadOnlyField } from "./DialogReadOnlyField";
 import { ResponsiveFormDialog } from "./ResponsiveFormDialog";
 
 interface DeleteDialogProps {
@@ -37,13 +37,7 @@ const DeleteDialog: React.FC<DeleteDialogProps> = ({
   const resolvedConfirmLabel = confirmLabel ?? t("common.actions.delete");
   const resolvedCancelLabel = cancelLabel ?? t("common.actions.cancel");
   const confirmButtonSx = confirmTone === "primary" ? settingsPrimaryButtonSx : settingsDestructiveButtonSx;
-  const handleClose = () => {
-    if (submitting) {
-      return;
-    }
-
-    onClose();
-  };
+  const handleClose = () => onClose();
 
   const actions = (
     <>
@@ -73,7 +67,7 @@ const DeleteDialog: React.FC<DeleteDialogProps> = ({
       actions={actions}
       maxWidth="xs"
     >
-      {itemName ? <Box sx={{ ...fileNamePillSx, mt: 0.5 }}>{itemName}</Box> : null}
+      {itemName ? <DialogReadOnlyField label={t("common.labels.itemToDelete")} value={itemName} sx={{ mt: 0.5 }} /> : null}
     </ResponsiveFormDialog>
   );
 };

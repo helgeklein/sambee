@@ -1,4 +1,4 @@
-import { render, screen } from "@testing-library/react";
+import { render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { KeyboardShortcut } from "../../hooks/useKeyboardShortcuts";
@@ -44,6 +44,7 @@ describe("KeyboardShortcutsHelp", () => {
 
       expect(screen.getByRole("dialog")).toBeInTheDocument();
       expect(screen.getByText("Keyboard Shortcuts")).toBeInTheDocument();
+      expect(screen.getByTestId("keyboard-shortcuts-dialog-resize-handle")).toBeInTheDocument();
     });
 
     it("should not render dialog when closed", () => {
@@ -58,6 +59,28 @@ describe("KeyboardShortcutsHelp", () => {
       render(<KeyboardShortcutsHelp open={true} onClose={mockOnClose} shortcuts={shortcuts} title="PDF Viewer Shortcuts" />);
 
       expect(screen.getByText("PDF Viewer Shortcuts")).toBeInTheDocument();
+    });
+
+    it("focuses the shortcut search input when opened", async () => {
+      render(<KeyboardShortcutsHelp open={true} onClose={mockOnClose} shortcuts={createShortcuts()} />);
+
+      await waitFor(() => {
+        expect(screen.getByRole("searchbox", { name: "Search keyboard shortcuts" })).toHaveFocus();
+      });
+    });
+
+    it("moves focus from search to the named shortcut results region", async () => {
+      const user = userEvent.setup();
+      render(<KeyboardShortcutsHelp open={true} onClose={mockOnClose} shortcuts={createShortcuts()} />);
+
+      const searchInput = screen.getByRole("searchbox", { name: "Search keyboard shortcuts" });
+      const resultsRegion = screen.getByRole("region", { name: "Keyboard shortcut results" });
+      searchInput.focus();
+
+      await user.tab();
+
+      expect(resultsRegion).toHaveFocus();
+      expect(resultsRegion).toHaveAttribute("tabindex", "0");
     });
 
     it("should display all shortcuts", () => {
@@ -85,7 +108,7 @@ describe("KeyboardShortcutsHelp", () => {
 
       expect(screen.getByText("[Ķéýƀóåŕď Šħóŕťćúťš]")).toBeInTheDocument();
       expect(screen.getByText("[Ńó ķéýƀóåŕď šħóŕťćúťš åṽåíĺåƀĺé]")).toBeInTheDocument();
-      expect(screen.getByRole("button", { name: "[Ćĺóšé]" })).toBeInTheDocument();
+      expect(screen.getByRole("button", { name: "[Ćĺóšé ķéýƀóåŕď šħóŕťćúťš]" })).toBeInTheDocument();
     });
 
     it("should show shortcuts even when they are currently disabled", () => {
@@ -272,16 +295,49 @@ describe("KeyboardShortcutsHelp", () => {
   });
 
   describe("Interaction", () => {
-    it("should call onClose when Close button clicked", async () => {
+    it("should call onClose when the header close button is clicked", async () => {
       const user = userEvent.setup();
       const shortcuts = createShortcuts();
 
       render(<KeyboardShortcutsHelp open={true} onClose={mockOnClose} shortcuts={shortcuts} />);
 
-      const closeButton = screen.getByRole("button", { name: /close/i });
+      const closeButton = screen.getByRole("button", { name: "Close keyboard shortcuts" });
       await user.click(closeButton);
 
       expect(mockOnClose).toHaveBeenCalledTimes(1);
+    });
+
+    it("filters shortcuts by shortcut, section, or action text", async () => {
+      const user = userEvent.setup();
+      const shortcuts = createShortcuts();
+
+      render(<KeyboardShortcutsHelp open={true} onClose={mockOnClose} shortcuts={shortcuts} />);
+
+      await user.type(screen.getByRole("searchbox", { name: "Search keyboard shortcuts" }), "ctrl+s");
+
+      expect(screen.getByText("Save")).toBeInTheDocument();
+      expect(screen.queryByText("Open")).not.toBeInTheDocument();
+
+      await user.clear(screen.getByRole("searchbox", { name: "Search keyboard shortcuts" }));
+      await user.type(screen.getByRole("searchbox", { name: "Search keyboard shortcuts" }), "file actions");
+
+      expect(screen.getByText("Open")).toBeInTheDocument();
+      expect(screen.queryByText("Save")).not.toBeInTheDocument();
+    });
+
+    it("shows a specific empty state when a search has no matching shortcuts", async () => {
+      const user = userEvent.setup();
+      render(<KeyboardShortcutsHelp open={true} onClose={mockOnClose} shortcuts={createShortcuts()} />);
+
+      await user.type(screen.getByRole("searchbox", { name: "Search keyboard shortcuts" }), "nonexistent");
+
+      expect(screen.getByText("No matching keyboard shortcuts")).toBeInTheDocument();
+    });
+
+    it("does not render an empty action row", () => {
+      render(<KeyboardShortcutsHelp open={true} onClose={mockOnClose} shortcuts={createShortcuts()} />);
+
+      expect(screen.queryByTestId("responsive-form-dialog-desktop-actions")).not.toBeInTheDocument();
     });
 
     it("should call onClose when backdrop clicked", async () => {

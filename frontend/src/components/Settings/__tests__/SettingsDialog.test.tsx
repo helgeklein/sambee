@@ -90,6 +90,14 @@ describe("SettingsDialog Component", () => {
     expect(screen.getByText("Appearance Settings Content")).toBeInTheDocument();
   });
 
+  it("uses an explicitly sized paper instead of MUI fullWidth mode", async () => {
+    renderWithTheme(<SettingsDialog open={true} onClose={mockOnClose} />);
+
+    const dialog = await screen.findByRole("dialog");
+
+    expect(dialog).not.toHaveClass("MuiDialog-paperFullWidth");
+  });
+
   it("closes dialog when close button is clicked", async () => {
     const user = userEvent.setup();
     renderWithTheme(<SettingsDialog open={true} onClose={mockOnClose} />);

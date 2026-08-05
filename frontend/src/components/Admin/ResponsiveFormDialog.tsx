@@ -1,4 +1,5 @@
 import ArrowBackIcon from "@mui/icons-material/ArrowBack";
+import CloseIcon from "@mui/icons-material/Close";
 import {
   AppBar,
   Box,
@@ -16,7 +17,7 @@ import {
   useMediaQuery,
   useTheme,
 } from "@mui/material";
-import { type ReactNode, useEffect, useId, useRef } from "react";
+import { type ReactNode, type Ref, useEffect, useId, useRef } from "react";
 import {
   mobileFullscreenDrawerPaperSx,
   mobileSafeAreaAppBarSx,
@@ -33,11 +34,23 @@ interface ResponsiveFormDialogProps {
   title: string;
   description?: ReactNode;
   children: ReactNode;
-  actions: ReactNode;
+  actions?: ReactNode;
+  showCloseButton?: boolean;
+  closeButtonAriaLabel?: string;
   maxWidth?: DialogProps["maxWidth"];
   onKeyDown?: DialogProps["onKeyDown"];
   contentSx?: SxProps<Theme>;
+  paperSx?: SxProps<Theme>;
+  paperRef?: Ref<HTMLDivElement>;
+  paperOverlay?: ReactNode;
+  fullWidth?: boolean;
   dialogZIndexOffset?: number;
+  mobileActionLabel?: string;
+  disableAutoFocus?: boolean;
+  disableEnforceFocus?: boolean;
+  disableRestoreFocus?: boolean;
+  onTransitionEntered?: () => void;
+  onTransitionExited?: () => void;
 }
 
 import { useTranslation } from "react-i18next";
@@ -50,10 +63,22 @@ export function ResponsiveFormDialog({
   description,
   children,
   actions,
+  showCloseButton = false,
+  closeButtonAriaLabel,
   maxWidth = "sm",
   onKeyDown,
   contentSx,
+  paperSx,
+  paperRef,
+  paperOverlay,
+  fullWidth = true,
   dialogZIndexOffset = 1,
+  mobileActionLabel,
+  disableAutoFocus = false,
+  disableEnforceFocus = false,
+  disableRestoreFocus = false,
+  onTransitionEntered,
+  onTransitionExited,
 }: ResponsiveFormDialogProps) {
   const theme = useTheme();
   const isMobile = useMediaQuery(theme.breakpoints.down("sm"));
@@ -62,6 +87,7 @@ export function ResponsiveFormDialog({
   const descriptionId = useId();
   const triggerElementRef = useRef<HTMLElement | null>(null);
   const wasOpenRef = useRef(open);
+  const escapeCloseHandledRef = useRef(false);
   const renderedDescription = description ? (
     <Box id={descriptionId} sx={{ mb: 3 }}>
       {typeof description === "string" ? (
@@ -102,11 +128,43 @@ export function ResponsiveFormDialog({
   };
 
   const handleDialogClose = (_event: unknown, reason: string) => {
-    if (disableClose && reason === "escapeKeyDown") {
+    if (reason === "escapeKeyDown") {
+      if (escapeCloseHandledRef.current) {
+        escapeCloseHandledRef.current = false;
+        return;
+      }
+
+      onClose();
       return;
     }
 
     handleRequestClose();
+  };
+
+  const handleDrawerClose = (_event: unknown, reason: string) => {
+    if (reason === "escapeKeyDown") {
+      if (escapeCloseHandledRef.current) {
+        escapeCloseHandledRef.current = false;
+        return;
+      }
+
+      onClose();
+      return;
+    }
+
+    handleRequestClose();
+  };
+
+  const handleShellKeyDown: DialogProps["onKeyDown"] = (event) => {
+    if (event.key === "Escape") {
+      event.preventDefault();
+      event.stopPropagation();
+      escapeCloseHandledRef.current = true;
+      onClose();
+      return;
+    }
+
+    onKeyDown?.(event);
   };
 
   if (isMobile) {
@@ -114,9 +172,17 @@ export function ResponsiveFormDialog({
       <Drawer
         anchor="right"
         open={open}
-        onClose={handleRequestClose}
+        onClose={handleDrawerClose}
+        onKeyDown={handleShellKeyDown}
+        disableAutoFocus={disableAutoFocus}
+        disableEnforceFocus={disableEnforceFocus}
+        disableRestoreFocus={disableRestoreFocus}
         sx={{ zIndex: (currentTheme) => currentTheme.zIndex.modal + dialogZIndexOffset }}
         slotProps={{
+          transition: {
+            onEntered: onTransitionEntered,
+            onExited: onTransitionExited,
+          },
           paper: {
             sx: (currentTheme) => {
               const dialogSurfaces = getDialogSurfaceTokens(currentTheme.palette.background.default, currentTheme.palette.mode);
@@ -134,18 +200,31 @@ export function ResponsiveFormDialog({
         <Box sx={{ display: "flex", flexDirection: "column", height: "100%", minHeight: 0 }}>
           <AppBar position="static" sx={mobileSafeAreaAppBarSx}>
             <Toolbar sx={mobileSafeAreaToolbarSx}>
-              <IconButton
-                edge="start"
-                color="inherit"
-                onClick={handleRequestClose}
-                aria-label={t("common.navigation.goBack")}
-                disabled={disableClose}
-              >
-                <ArrowBackIcon />
-              </IconButton>
-              <Typography id={titleId} variant="h6" component="h1" sx={{ ml: 2 }}>
+              {!showCloseButton && (
+                <IconButton
+                  edge="start"
+                  color="inherit"
+                  onClick={handleRequestClose}
+                  aria-label={mobileActionLabel ?? t("common.navigation.goBack")}
+                  disabled={disableClose}
+                >
+                  <ArrowBackIcon />
+                </IconButton>
+              )}
+              <Typography id={titleId} variant="h6" component="h1" sx={{ flex: 1, ml: showCloseButton ? 0 : 2 }}>
                 {title}
               </Typography>
+              {showCloseButton && (
+                <IconButton
+                  edge="end"
+                  color="inherit"
+                  onClick={handleRequestClose}
+                  aria-label={closeButtonAriaLabel ?? t("common.actions.close")}
+                  disabled={disableClose}
+                >
+                  <CloseIcon />
+                </IconButton>
+              )}
             </Toolbar>
           </AppBar>
 
@@ -163,26 +242,28 @@ export function ResponsiveFormDialog({
             {children}
           </Box>
 
-          <Box
-            data-testid="responsive-form-dialog-mobile-actions"
-            sx={{
-              position: "sticky",
-              bottom: 0,
-              display: "flex",
-              gap: 1,
-              flexShrink: 0,
-              mt: "auto",
-              p: 2,
-              pb: `calc(16px + ${SAFE_AREA_INSET.BOTTOM})`,
-              pl: `calc(16px + ${SAFE_AREA_INSET.LEFT})`,
-              pr: `calc(16px + ${SAFE_AREA_INSET.RIGHT})`,
-              borderTop: 1,
-              borderColor: "divider",
-              zIndex: 1,
-            }}
-          >
-            {actions}
-          </Box>
+          {actions && (
+            <Box
+              data-testid="responsive-form-dialog-mobile-actions"
+              sx={{
+                position: "sticky",
+                bottom: 0,
+                display: "flex",
+                gap: 1,
+                flexShrink: 0,
+                mt: "auto",
+                p: 2,
+                pb: `calc(16px + ${SAFE_AREA_INSET.BOTTOM})`,
+                pl: `calc(16px + ${SAFE_AREA_INSET.LEFT})`,
+                pr: `calc(16px + ${SAFE_AREA_INSET.RIGHT})`,
+                borderTop: 1,
+                borderColor: "divider",
+                zIndex: 1,
+              }}
+            >
+              {actions}
+            </Box>
+          )}
         </Box>
       </Drawer>
     );
@@ -192,21 +273,59 @@ export function ResponsiveFormDialog({
     <Dialog
       open={open}
       onClose={handleDialogClose}
-      onKeyDown={onKeyDown}
+      onKeyDown={handleShellKeyDown}
       aria-labelledby={titleId}
       aria-describedby={description ? descriptionId : undefined}
       maxWidth={maxWidth}
-      fullWidth
+      fullWidth={fullWidth}
+      disableAutoFocus={disableAutoFocus}
+      disableEnforceFocus={disableEnforceFocus}
+      disableRestoreFocus={disableRestoreFocus}
+      slotProps={{
+        paper: {
+          ref: paperRef,
+          sx: paperSx,
+        },
+        transition: {
+          onEntered: onTransitionEntered,
+          onExited: onTransitionExited,
+        },
+      }}
       sx={{ zIndex: (currentTheme) => currentTheme.zIndex.modal + dialogZIndexOffset }}
     >
-      <DialogTitle id={titleId}>{title}</DialogTitle>
-      <DialogContent sx={Array.isArray(contentSx) ? contentSx : contentSx ? [contentSx] : undefined}>
+      <DialogTitle id={titleId} sx={showCloseButton ? { pr: 7 } : undefined}>
+        {title}
+      </DialogTitle>
+      {showCloseButton && (
+        <IconButton
+          onClick={handleRequestClose}
+          aria-label={closeButtonAriaLabel ?? t("common.actions.close")}
+          disabled={disableClose}
+          size="small"
+          sx={{ position: "absolute", right: 8, top: 8, zIndex: 1 }}
+        >
+          <CloseIcon />
+        </IconButton>
+      )}
+      {paperOverlay}
+      <DialogContent
+        sx={[
+          {
+            // MUI removes top padding after a DialogTitle. Restore it so the
+            // first line of dialog content is never visually clipped.
+            ".MuiDialogTitle-root + &&": { pt: 2 },
+          },
+          ...(Array.isArray(contentSx) ? contentSx : contentSx ? [contentSx] : []),
+        ]}
+      >
         {renderedDescription}
         {children}
       </DialogContent>
-      <DialogActions data-testid="responsive-form-dialog-desktop-actions" sx={{ borderTop: 1, borderColor: "divider" }}>
-        {actions}
-      </DialogActions>
+      {actions && (
+        <DialogActions data-testid="responsive-form-dialog-desktop-actions" sx={{ borderTop: 1, borderColor: "divider" }}>
+          {actions}
+        </DialogActions>
+      )}
     </Dialog>
   );
 }

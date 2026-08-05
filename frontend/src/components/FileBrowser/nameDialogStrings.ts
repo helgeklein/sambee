@@ -41,10 +41,9 @@ export const INVALID_NAME_CHARS = /[\\/:*?"<>|]/;
  * (e.g. "name is unchanged" for rename).
  */
 export function validateItemName(name: string): string | null {
-  const trimmed = name.trim();
-  if (!trimmed) return NAME_DIALOG_STRINGS.VALIDATION_EMPTY;
-  if (trimmed === "." || trimmed === "..") return NAME_DIALOG_STRINGS.VALIDATION_DOT_NAMES;
-  if (INVALID_NAME_CHARS.test(trimmed)) return NAME_DIALOG_STRINGS.VALIDATION_INVALID_CHARS;
-  if (trimmed.endsWith(" ") || trimmed.endsWith(".")) return NAME_DIALOG_STRINGS.VALIDATION_TRAILING;
+  if (!name) return NAME_DIALOG_STRINGS.VALIDATION_EMPTY;
+  if (name === "." || name === "..") return NAME_DIALOG_STRINGS.VALIDATION_DOT_NAMES;
+  if (INVALID_NAME_CHARS.test(name)) return NAME_DIALOG_STRINGS.VALIDATION_INVALID_CHARS;
+  if (/[.\s]$/.test(name)) return NAME_DIALOG_STRINGS.VALIDATION_TRAILING;
   return null;
 }

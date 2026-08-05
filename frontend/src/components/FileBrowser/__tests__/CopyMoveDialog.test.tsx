@@ -4,7 +4,7 @@
  * Verifies:
  * - Renders correct title for copy vs move mode
  * - Displays file list and truncation for large selections
- * - Shows read-only destination (combined connection + path)
+ * - Shows a prominent read-only destination field
  * - Single-item: shows editable file name, confirms with rename
  * - Multi-item: no file name field, confirms without rename
  * - Cancel calls onCancel
@@ -71,27 +71,42 @@ describe("CopyMoveDialog", () => {
   it("shows single-item copy prompt with destination", () => {
     const props = { ...defaultProps, files: [createFile("readme.txt")] };
     render(<CopyMoveDialog {...props} mode="copy" />);
-    expect(screen.getByText(S.PROMPT_COPY_SINGLE)).toBeInTheDocument();
-    expect(screen.getByText("My Server: /backup")).toBeInTheDocument();
+    const itemName = screen.getByTestId("copy-move-prompt-item-name");
+    const destination = screen.getByTestId("copy-move-prompt-destination");
+    expect(itemName).toHaveTextContent("readme.txt");
+    expect(itemName.tagName).toBe("CODE");
+    expect(destination).toHaveTextContent("My Server:/backup");
+    expect(destination.tagName).toBe("CODE");
+    expect(itemName.parentElement).toHaveTextContent("readme.txt will be copied to My Server:/backup:");
+    expect(itemName.parentElement).not.toHaveTextContent('"readme.txt"');
+    expect(screen.queryByLabelText(S.LABEL_DESTINATION)).not.toBeInTheDocument();
+    expect(screen.queryByTestId("LockOutlinedIcon")).not.toBeInTheDocument();
+    expect(screen.getByLabelText(S.LABEL_FILENAME)).toHaveValue("readme.txt");
   });
 
   it("shows multi-item copy prompt with destination", () => {
     render(<CopyMoveDialog {...defaultProps} mode="copy" />);
     expect(screen.getByText(S.PROMPT_COPY_MULTI(2))).toBeInTheDocument();
-    expect(screen.getByText("My Server: /backup")).toBeInTheDocument();
+    const destination = screen.getByLabelText(S.LABEL_DESTINATION);
+    expect(destination).toHaveValue("My Server:/backup");
+    expect(screen.queryByText(S.LABEL_DESTINATION)).not.toBeInTheDocument();
+    expect(destination).toHaveAttribute("wrap", "off");
   });
 
   it("shows move single-item prompt with destination", () => {
     const props = { ...defaultProps, mode: "move" as const, files: [createFile("readme.txt")] };
     render(<CopyMoveDialog {...props} />);
-    expect(screen.getByText(S.PROMPT_MOVE_SINGLE)).toBeInTheDocument();
-    expect(screen.getByText("My Server: /backup")).toBeInTheDocument();
+    expect(screen.getByTestId("copy-move-prompt-item-name").parentElement).toHaveTextContent(
+      "readme.txt will be moved to My Server:/backup:"
+    );
+    expect(screen.getByTestId("copy-move-prompt-destination")).toHaveTextContent("My Server:/backup");
+    expect(screen.queryByLabelText(S.LABEL_DESTINATION)).not.toBeInTheDocument();
   });
 
   it("shows destination with leading slash for root path", () => {
     render(<CopyMoveDialog {...defaultProps} destPath="" />);
     expect(screen.getByText(S.PROMPT_COPY_MULTI(2))).toBeInTheDocument();
-    expect(screen.getByText("My Server: /")).toBeInTheDocument();
+    expect(screen.getByLabelText(S.LABEL_DESTINATION)).toHaveValue("My Server:/");
   });
 
   it("does not show editable destination path field for multi-item", () => {
@@ -115,7 +130,7 @@ describe("CopyMoveDialog", () => {
     expect(onConfirm).toHaveBeenCalledWith(DEST_PATH, undefined, "ask");
   });
 
-  it("calls onConfirm with destPath and rename for single-item with edited name", async () => {
+  it("calls onConfirm with destPath and preserves leading whitespace in a single-item rename", async () => {
     const onConfirm = vi.fn();
     const user = userEvent.setup();
     const props = { ...defaultProps, files: [createFile("readme.txt")], onConfirm };
@@ -123,10 +138,25 @@ describe("CopyMoveDialog", () => {
 
     const input = screen.getByLabelText(S.LABEL_FILENAME);
     await user.clear(input);
-    await user.type(input, "renamed.txt");
+    await user.type(input, "  renamed.txt");
     await user.click(screen.getByRole("button", { name: S.BUTTON_COPY }));
 
-    expect(onConfirm).toHaveBeenCalledWith(DEST_PATH, "renamed.txt", "ask");
+    expect(onConfirm).toHaveBeenCalledWith(DEST_PATH, "  renamed.txt", "ask");
+  });
+
+  it("rejects a single-item rename with trailing whitespace", async () => {
+    const onConfirm = vi.fn();
+    const user = userEvent.setup();
+    const props = { ...defaultProps, files: [createFile("readme.txt")], onConfirm };
+    render(<CopyMoveDialog {...props} />);
+
+    const input = screen.getByLabelText(S.LABEL_FILENAME);
+    await user.clear(input);
+    await user.type(input, "renamed.txt ");
+
+    expect(screen.getByText("Names cannot end in a space or period.")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: S.BUTTON_COPY })).toBeDisabled();
+    expect(onConfirm).not.toHaveBeenCalled();
   });
 
   it("calls onConfirm with destPath and no rename when single-item name unchanged", async () => {
@@ -188,7 +218,8 @@ describe("CopyMoveDialog", () => {
 
   it("shows same-directory warning for multi-item when source equals dest", () => {
     render(<CopyMoveDialog {...defaultProps} destPath={SOURCE_PATH} />);
-    expect(screen.getByText(S.WARN_SAME_DIRECTORY)).toBeInTheDocument();
+    expect(screen.getByText(S.ERROR_SAME_DIRECTORY)).toBeInTheDocument();
+    expect(screen.getByTestId("copy-move-destination-error")).toHaveClass("MuiAlert-colorError");
   });
 
   it("disables confirm for multi-item when source equals dest directory", () => {
@@ -215,14 +246,83 @@ describe("CopyMoveDialog", () => {
     expect(onConfirm).toHaveBeenCalledWith(SOURCE_PATH, "readme-copy.txt", "ask");
   });
 
-  it("disables confirm for single-item same directory with same name", () => {
+  it("suggests a valid copy name for a single item copied to its current directory", async () => {
+    const onConfirm = vi.fn();
+    const props = {
+      ...defaultProps,
+      files: [createFile("readme.txt")],
+      destPath: SOURCE_PATH,
+      onConfirm,
+    };
+    const user = userEvent.setup();
+    render(<CopyMoveDialog {...props} />);
+
+    expect(screen.getByLabelText(S.LABEL_FILENAME)).toHaveValue("readme (copy).txt");
+    expect(screen.getByLabelText(S.LABEL_FILENAME)).toHaveAttribute("aria-invalid", "false");
+    expect(screen.queryByText(S.ERROR_SAME_FILENAME)).not.toBeInTheDocument();
+    expect(screen.queryByTestId("copy-move-destination-error")).not.toBeInTheDocument();
+    expect(screen.getByRole("button", { name: S.BUTTON_COPY })).toBeEnabled();
+
+    await user.click(screen.getByRole("button", { name: S.BUTTON_COPY }));
+    expect(onConfirm).toHaveBeenCalledWith(SOURCE_PATH, "readme (copy).txt", "ask");
+  });
+
+  it("shows a detailed filename error when a same-directory target is changed back to its original name", async () => {
+    const user = userEvent.setup();
     const props = {
       ...defaultProps,
       files: [createFile("readme.txt")],
       destPath: SOURCE_PATH,
     };
     render(<CopyMoveDialog {...props} />);
+
+    const fileNameInput = screen.getByLabelText(S.LABEL_FILENAME);
+    expect(fileNameInput).toHaveValue("readme (copy).txt");
+    expect(screen.getByRole("button", { name: S.BUTTON_COPY })).toBeEnabled();
+
+    await user.clear(fileNameInput);
+    await user.type(fileNameInput, "readme.txt");
+
+    expect(screen.getByText(S.ERROR_SAME_FILENAME)).toBeInTheDocument();
+    expect(fileNameInput).toHaveAttribute("aria-invalid", "true");
     expect(screen.getByRole("button", { name: S.BUTTON_COPY })).toBeDisabled();
+  });
+
+  it("preserves the final extension when suggesting a same-directory copy name", () => {
+    const props = {
+      ...defaultProps,
+      files: [createFile("archive.tar.gz")],
+      destPath: SOURCE_PATH,
+    };
+    render(<CopyMoveDialog {...props} />);
+
+    expect(screen.getByLabelText(S.LABEL_FILENAME)).toHaveValue("archive.tar (copy).gz");
+  });
+
+  it("requires an explicit new name for a same-directory move", () => {
+    const props = {
+      ...defaultProps,
+      mode: "move" as const,
+      files: [createFile("readme.txt")],
+      destPath: SOURCE_PATH,
+    };
+    render(<CopyMoveDialog {...props} />);
+
+    expect(screen.getByLabelText(S.LABEL_FILENAME)).toHaveValue("readme.txt");
+    expect(screen.getByText(S.ERROR_SAME_FILENAME)).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: S.BUTTON_MOVE })).toBeDisabled();
+  });
+
+  it("allows same-path operations between different connections", () => {
+    const props = {
+      ...defaultProps,
+      destPath: SOURCE_PATH,
+      isSameConnection: false,
+    };
+    render(<CopyMoveDialog {...props} />);
+
+    expect(screen.getByRole("button", { name: S.BUTTON_COPY })).toBeEnabled();
+    expect(screen.getByTestId("copy-move-destination-error")).not.toBeVisible();
   });
 
   it("shows error message when error prop is set", () => {

@@ -13,9 +13,12 @@
  * - Adds "name unchanged" validation
  */
 
+import { Typography } from "@mui/material";
 import type React from "react";
 import { useMemo } from "react";
+import { Trans } from "react-i18next";
 import { FileType } from "../../types";
+import { InlineItemName } from "./InlineItemName";
 import NameInputDialog from "./NameInputDialog";
 import { RENAME_DIALOG_STRINGS } from "./renameDialogStrings";
 
@@ -64,6 +67,15 @@ const RenameDialog: React.FC<RenameDialogProps> = ({ open, itemName, itemType, i
   const isDirectory = itemType === FileType.DIRECTORY;
   const title = isDirectory ? RENAME_DIALOG_STRINGS.TITLE_DIRECTORY : RENAME_DIALOG_STRINGS.TITLE_FILE;
   const autoSelectRange = useMemo(() => getNameSelectionRange(itemName, isDirectory), [itemName, isDirectory]);
+  const description = (
+    <Typography variant="body2" sx={{ color: "text.secondary" }}>
+      <Trans
+        i18nKey="fileBrowser.rename.prompt"
+        values={{ name: itemName }}
+        components={{ item: <InlineItemName testId="rename-prompt-item-name" /> }}
+      />
+    </Typography>
+  );
 
   /** Extra validation: the name must differ from the original */
   const extraValidate = useMemo(
@@ -78,6 +90,7 @@ const RenameDialog: React.FC<RenameDialogProps> = ({ open, itemName, itemType, i
     <NameInputDialog
       open={open}
       title={title}
+      description={description}
       inputLabel={RENAME_DIALOG_STRINGS.INPUT_LABEL}
       initialValue={itemName}
       submitLabel={RENAME_DIALOG_STRINGS.BUTTON_RENAME}

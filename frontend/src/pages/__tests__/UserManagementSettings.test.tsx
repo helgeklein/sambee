@@ -394,7 +394,7 @@ describe("UserManagementSettings", () => {
     expect(screen.queryByText("Local password")).not.toBeInTheDocument();
   });
 
-  it("allows pending mapping actions without a claim acknowledgement", async () => {
+  it("uses the centralized OIDC mapping dialog and closes change and move workflows with Escape", async () => {
     vi.mocked(api.getUsers).mockResolvedValue([
       {
         id: "user-1",
@@ -455,6 +455,7 @@ describe("UserManagementSettings", () => {
         reasons: [],
       },
     });
+    const user = userEvent.setup();
 
     render(
       <SambeeThemeProvider>
@@ -462,8 +463,33 @@ describe("UserManagementSettings", () => {
       </SambeeThemeProvider>
     );
 
-    expect(await screen.findByRole("button", { name: "Change OIDC account for linked-admin" })).toBeEnabled();
+    const changeAccountButton = await screen.findByRole("button", { name: "Change OIDC account for linked-admin" });
+    expect(changeAccountButton).toBeEnabled();
     expect(screen.getByRole("button", { name: "Map OIDC account for unmapped-user" })).toBeEnabled();
+
+    await user.click(changeAccountButton);
+    const expectedUsername = await screen.findByLabelText("Expected provider username");
+    expect(expectedUsername).toHaveFocus();
+    expect(screen.getByTestId("oidc-mapping-editor-form-surface")).toContainElement(expectedUsername);
+    expect(screen.getByRole("button", { name: "Cancel" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Confirm" })).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Close" })).not.toBeInTheDocument();
+
+    await user.keyboard("{Escape}");
+    await waitFor(() => {
+      expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
+    });
+
+    await user.click(screen.getByRole("button", { name: "Advanced OIDC actions for linked-admin" }));
+    await user.click(screen.getByRole("menuitem", { name: "Move identity to another local user" }));
+    const targetAccount = await screen.findByRole("combobox", { name: "Target local account" });
+    expect(targetAccount).toHaveFocus();
+    expect(screen.getByTestId("oidc-mapping-editor-form-surface")).toContainElement(targetAccount);
+
+    await user.keyboard("{Escape}");
+    await waitFor(() => {
+      expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
+    });
   });
 
   it("lets the admin enter a new password for a reset", async () => {
@@ -507,6 +533,31 @@ describe("UserManagementSettings", () => {
 
     await waitFor(() => {
       expect(screen.queryByLabelText(/^new password$/i)).not.toBeInTheDocument();
+    });
+  });
+
+  it("uses the centralized reset-password dialog and closes it with Escape", async () => {
+    const user = userEvent.setup();
+
+    render(
+      <SambeeThemeProvider>
+        <UserManagementSettings />
+      </SambeeThemeProvider>
+    );
+
+    await user.click(await screen.findByRole("button", { name: /reset password for admin/i }));
+
+    const passwordInput = await screen.findByLabelText(/^new password$/i);
+    expect(passwordInput).toHaveFocus();
+    expect(screen.getByTestId("reset-password-editor-form-surface")).toContainElement(passwordInput);
+    expect(screen.getByRole("button", { name: "Cancel" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: /set password/i })).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Close" })).not.toBeInTheDocument();
+
+    await user.keyboard("{Escape}");
+
+    await waitFor(() => {
+      expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
     });
   });
 

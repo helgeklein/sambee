@@ -11,24 +11,13 @@
  */
 
 import CheckCircleOutlineIcon from "@mui/icons-material/CheckCircleOutlined";
-import UsbIcon from "@mui/icons-material/Usb";
-import {
-  Box,
-  Button,
-  CircularProgress,
-  Dialog,
-  DialogActions,
-  DialogContent,
-  DialogContentText,
-  DialogTitle,
-  Typography,
-} from "@mui/material";
+import { Box, Button, CircularProgress, DialogContentText, Typography } from "@mui/material";
 import type React from "react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { logger } from "../../services/logger";
 import { dialogEnterKeyHandler } from "../../utils/keyboardUtils";
+import { ResponsiveFormDialog } from "../Admin/ResponsiveFormDialog";
 import { COMPANION_PAIRING_DIALOG_COPY } from "../Settings/localDrivesCopy";
-import { NoTransition } from "./transitions";
 
 // ── Types ────────────────────────────────────────────────────────────────────
 
@@ -186,105 +175,96 @@ const CompanionPairingDialog: React.FC<CompanionPairingDialogProps> = ({ open, o
     };
   }, [cancelPendingPairing]);
 
+  const actions =
+    step === "idle" ? (
+      <>
+        <Button onClick={handleClose}>{COMPANION_PAIRING_DIALOG_COPY.cancelButton}</Button>
+        <Button ref={startButtonRef} onClick={handleStart} variant="contained">
+          {COMPANION_PAIRING_DIALOG_COPY.startButton}
+        </Button>
+      </>
+    ) : step === "showing_code" && pairingCode ? (
+      <>
+        <Button onClick={handleClose}>{COMPANION_PAIRING_DIALOG_COPY.cancelButton}</Button>
+        <Button ref={confirmButtonRef} onClick={handleConfirm} variant="contained">
+          {COMPANION_PAIRING_DIALOG_COPY.confirmButton}
+        </Button>
+      </>
+    ) : step === "confirming" ? (
+      <Button onClick={handleClose} disabled>
+        {COMPANION_PAIRING_DIALOG_COPY.cancelButton}
+      </Button>
+    ) : step === "success" ? (
+      <Button ref={doneButtonRef} onClick={handleClose} variant="contained">
+        {COMPANION_PAIRING_DIALOG_COPY.doneButton}
+      </Button>
+    ) : (
+      <>
+        <Button onClick={handleClose}>{COMPANION_PAIRING_DIALOG_COPY.closeButton}</Button>
+        <Button ref={retryButtonRef} onClick={handleStart} variant="contained">
+          {COMPANION_PAIRING_DIALOG_COPY.retryButton}
+        </Button>
+      </>
+    );
+
   return (
-    <Dialog open={open} onClose={handleClose} onKeyDown={handleKeyDown} maxWidth="xs" fullWidth slots={{ transition: NoTransition }}>
-      <DialogTitle sx={{ display: "flex", alignItems: "center", gap: 1 }}>
-        <UsbIcon />
-        {COMPANION_PAIRING_DIALOG_COPY.title}
-      </DialogTitle>
+    <ResponsiveFormDialog
+      open={open}
+      onClose={handleClose}
+      onKeyDown={handleKeyDown}
+      title={COMPANION_PAIRING_DIALOG_COPY.title}
+      maxWidth="xs"
+      actions={actions}
+    >
+      {step === "idle" && <DialogContentText>{COMPANION_PAIRING_DIALOG_COPY.intro}</DialogContentText>}
 
-      <DialogContent>
-        {step === "idle" && <DialogContentText>{COMPANION_PAIRING_DIALOG_COPY.intro}</DialogContentText>}
+      {step === "showing_code" && !pairingCode && (
+        <Box sx={{ display: "flex", justifyContent: "center", py: 3 }}>
+          <CircularProgress size={32} />
+        </Box>
+      )}
 
-        {step === "showing_code" && !pairingCode && (
-          <Box sx={{ display: "flex", justifyContent: "center", py: 3 }}>
-            <CircularProgress size={32} />
-          </Box>
-        )}
+      {step === "showing_code" && pairingCode && (
+        <Box sx={{ textAlign: "center", py: 2 }}>
+          <DialogContentText sx={{ mb: 2 }}>{COMPANION_PAIRING_DIALOG_COPY.verifyCodePrompt}</DialogContentText>
+          <Typography
+            variant="h3"
+            component="div"
+            sx={{
+              fontFamily: "monospace",
+              fontWeight: 700,
+              letterSpacing: "0.3em",
+              py: 2,
+              px: 3,
+              bgcolor: "action.hover",
+              borderRadius: 1,
+              display: "inline-block",
+            }}
+          >
+            {pairingCode}
+          </Typography>
+          <DialogContentText sx={{ mt: 2, fontSize: "0.85rem", color: "text.secondary" }}>
+            {COMPANION_PAIRING_DIALOG_COPY.verifyCodeHelp}
+          </DialogContentText>
+        </Box>
+      )}
 
-        {step === "showing_code" && pairingCode && (
-          <Box sx={{ textAlign: "center", py: 2 }}>
-            <DialogContentText sx={{ mb: 2 }}>{COMPANION_PAIRING_DIALOG_COPY.verifyCodePrompt}</DialogContentText>
-            <Typography
-              variant="h3"
-              component="div"
-              sx={{
-                fontFamily: "monospace",
-                fontWeight: 700,
-                letterSpacing: "0.3em",
-                py: 2,
-                px: 3,
-                bgcolor: "action.hover",
-                borderRadius: 2,
-                display: "inline-block",
-              }}
-            >
-              {pairingCode}
-            </Typography>
-            <DialogContentText sx={{ mt: 2, fontSize: "0.85rem", color: "text.secondary" }}>
-              {COMPANION_PAIRING_DIALOG_COPY.verifyCodeHelp}
-            </DialogContentText>
-          </Box>
-        )}
+      {step === "confirming" && (
+        <Box sx={{ display: "flex", flexDirection: "column", alignItems: "center", py: 3, gap: 2 }}>
+          <CircularProgress size={32} />
+          <DialogContentText>{COMPANION_PAIRING_DIALOG_COPY.confirming}</DialogContentText>
+        </Box>
+      )}
 
-        {step === "confirming" && (
-          <Box sx={{ display: "flex", flexDirection: "column", alignItems: "center", py: 3, gap: 2 }}>
-            <CircularProgress size={32} />
-            <DialogContentText>{COMPANION_PAIRING_DIALOG_COPY.confirming}</DialogContentText>
-          </Box>
-        )}
+      {step === "success" && (
+        <Box sx={{ display: "flex", flexDirection: "column", alignItems: "center", py: 3, gap: 1 }}>
+          <CheckCircleOutlineIcon color="success" sx={{ fontSize: 48 }} />
+          <DialogContentText>{COMPANION_PAIRING_DIALOG_COPY.success}</DialogContentText>
+        </Box>
+      )}
 
-        {step === "success" && (
-          <Box sx={{ display: "flex", flexDirection: "column", alignItems: "center", py: 3, gap: 1 }}>
-            <CheckCircleOutlineIcon color="success" sx={{ fontSize: 48 }} />
-            <DialogContentText>{COMPANION_PAIRING_DIALOG_COPY.success}</DialogContentText>
-          </Box>
-        )}
-
-        {step === "error" && <DialogContentText color="error">{errorMessage}</DialogContentText>}
-      </DialogContent>
-
-      <DialogActions>
-        {step === "idle" && (
-          <>
-            <Button onClick={handleClose}>{COMPANION_PAIRING_DIALOG_COPY.cancelButton}</Button>
-            <Button ref={startButtonRef} onClick={handleStart} variant="contained">
-              {COMPANION_PAIRING_DIALOG_COPY.startButton}
-            </Button>
-          </>
-        )}
-
-        {step === "showing_code" && pairingCode && (
-          <>
-            <Button onClick={handleClose}>{COMPANION_PAIRING_DIALOG_COPY.cancelButton}</Button>
-            <Button ref={confirmButtonRef} onClick={handleConfirm} variant="contained">
-              {COMPANION_PAIRING_DIALOG_COPY.confirmButton}
-            </Button>
-          </>
-        )}
-
-        {step === "confirming" && (
-          <Button onClick={handleClose} disabled>
-            {COMPANION_PAIRING_DIALOG_COPY.cancelButton}
-          </Button>
-        )}
-
-        {step === "success" && (
-          <Button ref={doneButtonRef} onClick={handleClose} variant="contained">
-            {COMPANION_PAIRING_DIALOG_COPY.doneButton}
-          </Button>
-        )}
-
-        {step === "error" && (
-          <>
-            <Button onClick={handleClose}>{COMPANION_PAIRING_DIALOG_COPY.closeButton}</Button>
-            <Button ref={retryButtonRef} onClick={handleStart} variant="contained">
-              {COMPANION_PAIRING_DIALOG_COPY.retryButton}
-            </Button>
-          </>
-        )}
-      </DialogActions>
-    </Dialog>
+      {step === "error" && <DialogContentText color="error">{errorMessage}</DialogContentText>}
+    </ResponsiveFormDialog>
   );
 };
 

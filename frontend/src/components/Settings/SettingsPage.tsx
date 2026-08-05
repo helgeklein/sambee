@@ -54,7 +54,9 @@ export function SettingsPage({
         dialogSafe={dialogSafeHeader}
         showTitle={!isMobile}
       />
-      <Box sx={resolvedContentSx}>{children}</Box>
+      <Box data-testid="settings-page-content" tabIndex={-1} sx={resolvedContentSx}>
+        {children}
+      </Box>
       {(footerPrimaryActions || footerSecondaryActions) && (
         <SettingsActionBar primaryActions={footerPrimaryActions} secondaryActions={footerSecondaryActions} />
       )}

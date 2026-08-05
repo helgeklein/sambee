@@ -22,8 +22,8 @@ describe("validateItemName", () => {
     expect(validateItemName("")).toBe(NAME_DIALOG_STRINGS.VALIDATION_EMPTY);
   });
 
-  it("rejects whitespace-only string", () => {
-    expect(validateItemName("   ")).toBe(NAME_DIALOG_STRINGS.VALIDATION_EMPTY);
+  it("rejects whitespace-only names", () => {
+    expect(validateItemName("   ")).toBe(NAME_DIALOG_STRINGS.VALIDATION_TRAILING);
   });
 
   // ── Reserved dot names ─────────────────────────────────────────────────
@@ -54,10 +54,10 @@ describe("validateItemName", () => {
 
   // ── Trailing space / period ────────────────────────────────────────────
 
-  it("accepts name with trailing space (trim removes it)", () => {
-    // The frontend validateItemName trims first, so "myfile " → "myfile"
-    // which is valid. The backend has the same trim-then-validate logic.
-    expect(validateItemName("myfile ")).toBeNull();
+  it("preserves leading whitespace and rejects trailing whitespace", () => {
+    expect(validateItemName("myfile ")).toBe(NAME_DIALOG_STRINGS.VALIDATION_TRAILING);
+    expect(validateItemName(" myfile")).toBeNull();
+    expect(validateItemName("  myfile  ")).toBe(NAME_DIALOG_STRINGS.VALIDATION_TRAILING);
   });
 
   it("rejects name ending with a period", () => {

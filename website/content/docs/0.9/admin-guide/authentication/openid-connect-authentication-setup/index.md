@@ -8,7 +8,7 @@ OpenID Connect (OIDC) is Sambee's preferred authentication method.
 
 ### Copy OIDC Callback URI
 
-Open **Settings** > **Administration** > **Authentication** and (temporarily) select an OIDC authentication mode. Sambee displays the OIDC callback URI. Copy it; you need it when configuring the OIDC IdP in the next step.
+Open **Settings** > **Administration** > **Authentication** and select an OIDC authentication mode. Select **Configure OIDC** and copy the OIDC callback URI from the dialog that opens. You need the URI in the next step. It has the following format:
 
 ```text
 https://files.example.com/api/auth/oidc/callback
@@ -98,9 +98,11 @@ Select one of these values in **Authentication mode**:
 - **OIDC or password**
 - **OIDC only**
 
+The **Access** panel shows whether OIDC is configured and healthy. Select **Configure OIDC** to enter or change the provider settings.
+
 ### 2. Enter Provider Details
 
-Complete these fields in the **Provider** section:
+In the setup dialog, complete these fields in the **Provider** section:
 
 | Sambee field | Value to enter |
 |---|---|
@@ -155,7 +157,7 @@ Sambee binds an OIDC identity using its immutable issuer and subject. It does no
 
 ### 7. Connect and Test
 
-Select **Connect and test**. This verifies that:
+Select **Connect and test** in the setup dialog. Sambee redirects you to the provider and returns to the dialog for review. This verifies that:
 
 - Signing in via the specified OIDC configuration succeeds.
 - Sambee can read and evaluate the resulting OIDC user identity.
@@ -183,8 +185,8 @@ Each selected username must be unique. Inactive and expired accounts cannot be s
 
 In **OIDC or password** mode, unselected accounts can continue using a local password. An unselected passwordless account cannot sign in until it is mapped. In **OIDC only** mode, confirm each unselected active account because it will not be able to sign in after activation otherwise.
 
-Select **Activate configuration** when the review is complete, then confirm the impact shown by Sambee. The administrator who started the setup is linked to the tested provider identity automatically.
+Select **Activate configuration** when the review is complete. The administrator who started the setup is linked to the tested provider identity automatically.
 
-Use **Remap all OIDC accounts** when provider subjects change but the issuer, client ID, and claim names stay the same, for example after rebuilding the identity provider. Sambee repeats this review, replaces the existing OIDC links, and signs out affected users. Local accounts and their data remain unchanged.
+When OIDC is active, use **Remap all OIDC accounts** when provider subjects change but the issuer, client ID, and claim names stay the same, for example after rebuilding the identity provider. Confirm the recovery action, then sign in with the provider and review the replacement mappings before activation. Sambee replaces existing OIDC links and signs out affected users; local accounts and their data remain unchanged.
 
 After activation, see [OpenID Connect Authentication Operations](../openid-connect-authentication-operations/) for session, account-mapping, auditing, and request-limit administration.

@@ -1966,6 +1966,18 @@ const Browser: React.FC = () => {
         handler: () => activePane.handleRenameRequest(),
         enabled: browsing && noDialogOpen && hasFocusedFile,
       },
+      // Copy to other pane (F5 in dual mode — takes priority over Refresh)
+      {
+        ...COPY_MOVE_SHORTCUTS.COPY_TO_OTHER_PANE,
+        handler: handleCopyToOtherPane,
+        enabled: isDualMode && browsing && noDialogOrCopyMove,
+      },
+      // Move to other pane (F6 in dual mode)
+      {
+        ...COPY_MOVE_SHORTCUTS.MOVE_TO_OTHER_PANE,
+        handler: handleMoveToOtherPane,
+        enabled: isDualMode && browsing && noDialogOrCopyMove,
+      },
       // Create new directory (F7)
       {
         ...BROWSER_SHORTCUTS.NEW_DIRECTORY,
@@ -2005,20 +2017,6 @@ const Browser: React.FC = () => {
         ...SELECTION_SHORTCUTS.SELECT_ALL,
         handler: () => activePane.handleSelectAll(),
         enabled: browsing && noDialogOrCopyMove && hasFiles,
-      },
-
-      // ── Copy / Move Shortcuts (dual-pane only) ──────────────────────────
-      // Copy to other pane (F5 in dual mode — takes priority over Refresh)
-      {
-        ...COPY_MOVE_SHORTCUTS.COPY_TO_OTHER_PANE,
-        handler: handleCopyToOtherPane,
-        enabled: isDualMode && browsing && noDialogOrCopyMove,
-      },
-      // Move to other pane (F6 in dual mode)
-      {
-        ...COPY_MOVE_SHORTCUTS.MOVE_TO_OTHER_PANE,
-        handler: handleMoveToOtherPane,
-        enabled: isDualMode && browsing && noDialogOrCopyMove,
       },
 
       // ── Dual-Pane Shortcuts ──────────────────────────────────────────────

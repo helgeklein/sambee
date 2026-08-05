@@ -1,10 +1,5 @@
 import Alert from "@mui/material/Alert";
 import Button from "@mui/material/Button";
-import Dialog from "@mui/material/Dialog";
-import DialogActions from "@mui/material/DialogActions";
-import DialogContent from "@mui/material/DialogContent";
-import DialogContentText from "@mui/material/DialogContentText";
-import DialogTitle from "@mui/material/DialogTitle";
 import Stack from "@mui/material/Stack";
 import Typography from "@mui/material/Typography";
 import { useCallback, useEffect, useRef, useState } from "react";
@@ -13,6 +8,7 @@ import { logger } from "../services/logger";
 import { CURRENT_BUILD_INFO, hasBuildMismatch, shortenCommit } from "../utils/buildInfo";
 import type { VersionInfo } from "../utils/version";
 import { fetchVersionInfo } from "../utils/version";
+import { ResponsiveFormDialog } from "./Admin/ResponsiveFormDialog";
 
 const UPDATE_CHECK_INTERVAL_MS = 5 * 60_000;
 const VISIBILITY_RECHECK_DELAY_MS = 1_500;
@@ -112,38 +108,40 @@ export function AppUpdatePrompt() {
   }
 
   return (
-    <Dialog open={availableUpdate !== null} onClose={handleLater} aria-labelledby="app-update-title">
-      <DialogTitle id="app-update-title">{translate("app.updateAvailable.title")}</DialogTitle>
-      <DialogContent>
-        <Stack spacing={2}>
-          <DialogContentText>{translate("app.updateAvailable.description")}</DialogContentText>
-          {availableUpdate && (
-            <Alert severity="info">
-              <Stack spacing={0.5}>
-                <Typography variant="body2">
-                  {translate("app.updateAvailable.currentBuild", {
-                    version: CURRENT_BUILD_INFO.version,
-                    commit: shortenCommit(CURRENT_BUILD_INFO.git_commit),
-                  })}
-                </Typography>
-                <Typography variant="body2">
-                  {translate("app.updateAvailable.latestBuild", {
-                    version: availableUpdate.version,
-                    commit: shortenCommit(availableUpdate.git_commit),
-                  })}
-                </Typography>
-              </Stack>
-            </Alert>
-          )}
-        </Stack>
-      </DialogContent>
-      <DialogActions>
-        <Button onClick={handleLater}>{translate("app.updateAvailable.later")}</Button>
-        <Button onClick={handleReload} variant="contained" autoFocus>
-          {translate("app.updateAvailable.reload")}
-        </Button>
-      </DialogActions>
-    </Dialog>
+    <ResponsiveFormDialog
+      open={availableUpdate !== null}
+      onClose={handleLater}
+      title={translate("app.updateAvailable.title")}
+      description={translate("app.updateAvailable.description")}
+      maxWidth="xs"
+      actions={
+        <>
+          <Button onClick={handleLater}>{translate("app.updateAvailable.later")}</Button>
+          <Button onClick={handleReload} variant="contained" autoFocus>
+            {translate("app.updateAvailable.reload")}
+          </Button>
+        </>
+      }
+    >
+      {availableUpdate ? (
+        <Alert severity="info">
+          <Stack spacing={0.5}>
+            <Typography variant="body2">
+              {translate("app.updateAvailable.currentBuild", {
+                version: CURRENT_BUILD_INFO.version,
+                commit: shortenCommit(CURRENT_BUILD_INFO.git_commit),
+              })}
+            </Typography>
+            <Typography variant="body2">
+              {translate("app.updateAvailable.latestBuild", {
+                version: availableUpdate.version,
+                commit: shortenCommit(availableUpdate.git_commit),
+              })}
+            </Typography>
+          </Stack>
+        </Alert>
+      ) : null}
+    </ResponsiveFormDialog>
   );
 }
 

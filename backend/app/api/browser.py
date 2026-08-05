@@ -687,22 +687,23 @@ _INVALID_NAME_CHARS = frozenset('\\/:*?"<>|')
 
 
 def _validate_item_name(raw_name: str) -> str:
-    """Validate and return stripped item name, or raise HTTPException.
+    """Validate and return an item name without changing it, or raise HTTPException.
 
     Checks for empty names, reserved names (`.`, `..`), invalid NTFS
-    characters, and trailing spaces/periods.
+    characters, and terminal whitespace or periods. Leading whitespace is
+    preserved because it is valid in SMB file and directory names.
 
     Args:
         raw_name: The raw name string to validate.
 
     Returns:
-        The stripped, validated name.
+        The unchanged, validated name.
 
     Raises:
         HTTPException: 400 if the name is invalid.
     """
 
-    name = raw_name.strip()
+    name = raw_name
     if not name:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
@@ -718,7 +719,7 @@ def _validate_item_name(raw_name: str) -> str:
             status_code=status.HTTP_400_BAD_REQUEST,
             detail="Name contains invalid characters",
         )
-    if name.endswith(" ") or name.endswith("."):
+    if name[-1].isspace() or name.endswith("."):
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail="Name must not end with a space or period",
@@ -948,6 +949,7 @@ def _validate_copy_move_paths(source_path: str, dest_path: str) -> tuple[str, st
             status_code=status.HTTP_400_BAD_REQUEST,
             detail="Destination path must not be empty",
         )
+    _validate_item_name(dest.rsplit("/", 1)[-1])
     if source == dest:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,

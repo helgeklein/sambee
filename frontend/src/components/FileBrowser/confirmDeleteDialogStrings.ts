@@ -17,13 +17,24 @@ export const CONFIRM_DELETE_STRINGS = {
   get TITLE_DIRECTORY() {
     return translate("fileBrowser.confirmDelete.titleDirectory");
   },
+  get TITLE_MULTI() {
+    return translate("fileBrowser.confirmDelete.titleMulti");
+  },
 
-  // Confirmation prompt (itemName is interpolated by the component)
   get CONFIRM_FILE() {
     return translate("fileBrowser.confirmDelete.confirmFile");
   },
   get CONFIRM_DIRECTORY() {
     return translate("fileBrowser.confirmDelete.confirmDirectory");
+  },
+  CONFIRM_MULTI(count: number) {
+    return translate("fileBrowser.confirmDelete.confirmMulti", { count });
+  },
+  get ARIA_LABEL_ITEM() {
+    return translate("fileBrowser.confirmDelete.ariaLabelItem");
+  },
+  get ARIA_LABEL_ITEMS() {
+    return translate("fileBrowser.confirmDelete.ariaLabelItems");
   },
 
   // Button labels

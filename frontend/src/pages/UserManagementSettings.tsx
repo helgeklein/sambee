@@ -31,7 +31,7 @@ import {
   useMediaQuery,
   useTheme,
 } from "@mui/material";
-import { useCallback, useMemo, useState } from "react";
+import { useCallback, useMemo, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 import DeleteDialog from "../components/Admin/DeleteDialog";
 import { adminDialogActionButtonSx, adminDialogEndActionRowSx } from "../components/Admin/dialogActionStyles";
@@ -228,6 +228,7 @@ export function UserManagementSettings({ dialogSafeHeader = false }: UserManagem
   const [submissionError, setSubmissionError] = useState<string | null>(null);
   const [resetPasswordForm, setResetPasswordForm] = useState<ResetPasswordFormState>(DEFAULT_RESET_PASSWORD_FORM);
   const [resetPasswordError, setResetPasswordError] = useState<string | null>(null);
+  const resetPasswordInputRef = useRef<HTMLInputElement>(null);
   const [submitting, setSubmitting] = useState(false);
   const [credentialsDialog, setCredentialsDialog] = useState<{
     open: boolean;
@@ -259,7 +260,6 @@ export function UserManagementSettings({ dialogSafeHeader = false }: UserManagem
   };
 
   const closeMappingEditor = () => {
-    if (mappingSubmitting) return;
     setMappingEditor({ open: false, mode: "create", user: null, expectedUsername: "", targetUserId: "" });
     setMappingError(null);
   };
@@ -445,12 +445,8 @@ export function UserManagementSettings({ dialogSafeHeader = false }: UserManagem
   );
 
   const handleEditorClose = useCallback(() => {
-    if (submitting) {
-      return;
-    }
-
     closeEditor();
-  }, [closeEditor, submitting]);
+  }, [closeEditor]);
 
   const openResetPasswordDialog = (user: AdminUser) => {
     setSelectedUser(user);
@@ -469,12 +465,8 @@ export function UserManagementSettings({ dialogSafeHeader = false }: UserManagem
   }, []);
 
   const handleResetPasswordEditorClose = useCallback(() => {
-    if (resetPasswordSubmitting) {
-      return;
-    }
-
     closeResetPasswordEditor();
-  }, [closeResetPasswordEditor, resetPasswordSubmitting]);
+  }, [closeResetPasswordEditor]);
 
   const handleResetPassword = async () => {
     if (!selectedUser) {
@@ -537,6 +529,28 @@ export function UserManagementSettings({ dialogSafeHeader = false }: UserManagem
         sx={[settingsPrimaryButtonSx, adminDialogActionButtonSx]}
       >
         {isEditing ? t("settings.userManagement.actions.saveChanges") : t("settings.userManagement.actions.createUser")}
+      </Button>
+    </Box>
+  );
+
+  const mappingEditorActions = (
+    <Box sx={adminDialogEndActionRowSx}>
+      <Button
+        onClick={closeMappingEditor}
+        disabled={mappingSubmitting}
+        variant="outlined"
+        sx={[settingsUtilityButtonSx, adminDialogActionButtonSx]}
+      >
+        Cancel
+      </Button>
+      <Button
+        onClick={() => void handleMappingSubmit()}
+        disabled={mappingSubmitting}
+        variant="contained"
+        startIcon={mappingSubmitting ? <CircularProgress size={18} color="inherit" /> : undefined}
+        sx={[settingsPrimaryButtonSx, adminDialogActionButtonSx]}
+      >
+        Confirm
       </Button>
     </Box>
   );
@@ -959,53 +973,63 @@ export function UserManagementSettings({ dialogSafeHeader = false }: UserManagem
   );
 
   const resetPasswordEditorContent = (
-    <Box sx={{ display: "flex", flexDirection: "column", gap: 3 }}>
+    <Box sx={{ display: "flex", flexDirection: "column", gap: 2 }}>
       {resetPasswordError && <SettingsInlineAlert sx={{ mb: 0 }}>{resetPasswordError}</SettingsInlineAlert>}
-      <TextField
-        label={t("settings.userManagement.resetPasswordEditor.passwordLabel")}
-        type={showResetPassword ? "text" : "password"}
-        value={resetPasswordForm.password}
-        onChange={(event) => setResetPasswordForm((current) => ({ ...current, password: event.target.value }))}
-        helperText={t("settings.userManagement.resetPasswordEditor.passwordHelp")}
-        autoFocus
-        fullWidth
-        variant="outlined"
-        slotProps={{
-          input: {
-            endAdornment: (
-              <SettingsPasswordVisibilityToggle
-                visible={showResetPassword}
-                onToggle={() => setShowResetPassword((current) => !current)}
-                showLabel={t("settings.userManagement.resetPasswordEditor.showPassword")}
-                hideLabel={t("settings.userManagement.resetPasswordEditor.hidePassword")}
-              />
-            ),
-          },
-        }}
-      />
-      <Box sx={{ display: "flex", alignItems: "center", justifyContent: "flex-end", gap: 1 }}>
-        <Typography variant="body2" sx={{ mr: "auto" }}>
-          {t("settings.userManagement.resetPasswordEditor.requirePasswordChangeLabel")}
-        </Typography>
-        <Typography component="span" variant="body2" aria-live="polite">
-          {resetPasswordForm.mustChangePassword
-            ? t("settings.userManagement.editor.switchOn")
-            : t("settings.userManagement.editor.switchOff")}
-        </Typography>
-        <Switch
-          checked={resetPasswordForm.mustChangePassword}
-          onChange={(event) => setResetPasswordForm((current) => ({ ...current, mustChangePassword: event.target.checked }))}
-          slotProps={{
-            input: {
-              "aria-label": `${t("settings.userManagement.resetPasswordEditor.requirePasswordChangeLabel")}: ${
-                resetPasswordForm.mustChangePassword
+      <SettingsFormSurface testId="reset-password-editor-form-surface">
+        <SettingsFormGroup>
+          <SettingsFormRow sx={{ gridTemplateColumns: { md: "minmax(0, 1fr)" } }}>
+            <TextField
+              label={t("settings.userManagement.resetPasswordEditor.passwordLabel")}
+              type={showResetPassword ? "text" : "password"}
+              value={resetPasswordForm.password}
+              onChange={(event) => setResetPasswordForm((current) => ({ ...current, password: event.target.value }))}
+              helperText={t("settings.userManagement.resetPasswordEditor.passwordHelp")}
+              autoFocus
+              inputRef={resetPasswordInputRef}
+              fullWidth
+              variant="outlined"
+              sx={settingsFormOutlinedControlSx}
+              slotProps={{
+                input: {
+                  endAdornment: (
+                    <SettingsPasswordVisibilityToggle
+                      visible={showResetPassword}
+                      onToggle={() => setShowResetPassword((current) => !current)}
+                      showLabel={t("settings.userManagement.resetPasswordEditor.showPassword")}
+                      hideLabel={t("settings.userManagement.resetPasswordEditor.hidePassword")}
+                    />
+                  ),
+                },
+              }}
+            />
+          </SettingsFormRow>
+          <SettingsFormRow sx={{ gridTemplateColumns: { md: "minmax(0, 1fr)" } }}>
+            <Box sx={{ display: "flex", alignItems: "center", justifyContent: "flex-end", gap: 1 }}>
+              <Typography variant="body2" sx={{ mr: "auto" }}>
+                {t("settings.userManagement.resetPasswordEditor.requirePasswordChangeLabel")}
+              </Typography>
+              <Typography component="span" variant="body2" aria-live="polite">
+                {resetPasswordForm.mustChangePassword
                   ? t("settings.userManagement.editor.switchOn")
-                  : t("settings.userManagement.editor.switchOff")
-              }`,
-            },
-          }}
-        />
-      </Box>
+                  : t("settings.userManagement.editor.switchOff")}
+              </Typography>
+              <Switch
+                checked={resetPasswordForm.mustChangePassword}
+                onChange={(event) => setResetPasswordForm((current) => ({ ...current, mustChangePassword: event.target.checked }))}
+                slotProps={{
+                  input: {
+                    "aria-label": `${t("settings.userManagement.resetPasswordEditor.requirePasswordChangeLabel")}: ${
+                      resetPasswordForm.mustChangePassword
+                        ? t("settings.userManagement.editor.switchOn")
+                        : t("settings.userManagement.editor.switchOff")
+                    }`,
+                  },
+                }}
+              />
+            </Box>
+          </SettingsFormRow>
+        </SettingsFormGroup>
+      </SettingsFormSurface>
     </Box>
   );
 
@@ -1460,48 +1484,53 @@ export function UserManagementSettings({ dialogSafeHeader = false }: UserManagem
               : "Map OIDC account"
         }
         description="Mapping does not override provider admission or role policy."
-        actions={
-          <Box sx={adminDialogEndActionRowSx}>
-            <Button onClick={closeMappingEditor} disabled={mappingSubmitting} variant="outlined">
-              Cancel
-            </Button>
-            <Button onClick={() => void handleMappingSubmit()} disabled={mappingSubmitting} variant="contained">
-              Confirm
-            </Button>
-          </Box>
-        }
+        actions={mappingEditorActions}
+        onKeyDown={dialogEnterKeyHandler(() => {
+          void handleMappingSubmit();
+        })}
       >
-        {mappingError && <SettingsInlineAlert>{mappingError}</SettingsInlineAlert>}
-        {mappingEditor.mode === "move" ? (
-          <FormControl fullWidth>
-            <InputLabel id="oidc-move-target-label">Target local account</InputLabel>
-            <Select
-              labelId="oidc-move-target-label"
-              label="Target local account"
-              value={mappingEditor.targetUserId}
-              onChange={(event) => setMappingEditor((current) => ({ ...current, targetUserId: event.target.value }))}
-              sx={settingsSelectSx}
-              MenuProps={settingsSelectMenuProps}
-            >
-              {users
-                .filter((user) => user.is_active && !user.oidc && !user.pending_oidc && user.id !== mappingEditor.user?.id)
-                .map((user) => (
-                  <MenuItem key={user.id} value={user.id}>
-                    {user.username}
-                  </MenuItem>
-                ))}
-            </Select>
-          </FormControl>
-        ) : (
-          <TextField
-            autoFocus
-            fullWidth
-            label="Expected provider username"
-            value={mappingEditor.expectedUsername}
-            onChange={(event) => setMappingEditor((current) => ({ ...current, expectedUsername: event.target.value }))}
-            helperText="The first admitted, unmapped OIDC identity with this exact username will claim the account."
-          />
-        )}
+        <Box sx={{ display: "flex", flexDirection: "column", gap: 2 }}>
+          {mappingError && <SettingsInlineAlert sx={{ mb: 0 }}>{mappingError}</SettingsInlineAlert>}
+          <SettingsFormSurface testId="oidc-mapping-editor-form-surface">
+            <SettingsFormGroup>
+              <SettingsFormRow sx={{ gridTemplateColumns: { md: "minmax(0, 1fr)" } }}>
+                {mappingEditor.mode === "move" ? (
+                  <FormControl fullWidth variant="outlined" sx={settingsFormOutlinedControlSx}>
+                    <InputLabel id="oidc-move-target-label">Target local account</InputLabel>
+                    <Select
+                      autoFocus
+                      labelId="oidc-move-target-label"
+                      label="Target local account"
+                      value={mappingEditor.targetUserId}
+                      onChange={(event) => setMappingEditor((current) => ({ ...current, targetUserId: event.target.value }))}
+                      sx={settingsSelectSx}
+                      MenuProps={settingsSelectMenuProps}
+                    >
+                      {users
+                        .filter((user) => user.is_active && !user.oidc && !user.pending_oidc && user.id !== mappingEditor.user?.id)
+                        .map((user) => (
+                          <MenuItem key={user.id} value={user.id}>
+                            {user.username}
+                          </MenuItem>
+                        ))}
+                    </Select>
+                    <FormHelperText>Select the local account that will receive this identity.</FormHelperText>
+                  </FormControl>
+                ) : (
+                  <TextField
+                    autoFocus
+                    fullWidth
+                    label="Expected provider username"
+                    value={mappingEditor.expectedUsername}
+                    onChange={(event) => setMappingEditor((current) => ({ ...current, expectedUsername: event.target.value }))}
+                    helperText="The first admitted, unmapped OIDC identity with this exact username will claim the account."
+                    sx={settingsFormOutlinedControlSx}
+                  />
+                )}
+              </SettingsFormRow>
+            </SettingsFormGroup>
+          </SettingsFormSurface>
+        </Box>
       </ResponsiveFormDialog>
 
       <ResponsiveFormDialog
@@ -1529,6 +1558,7 @@ export function UserManagementSettings({ dialogSafeHeader = false }: UserManagem
         onKeyDown={dialogEnterKeyHandler(() => {
           void handleResetPassword();
         })}
+        onTransitionEntered={() => resetPasswordInputRef.current?.focus()}
       >
         {resetPasswordEditorContent}
       </ResponsiveFormDialog>

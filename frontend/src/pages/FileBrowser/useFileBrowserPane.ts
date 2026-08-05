@@ -121,7 +121,7 @@ export function useFileBrowserPane(config: UseFileBrowserPaneConfig): UseFileBro
   // ──────────────────────────────────────────────────────────────────────────
 
   const [deleteDialogOpen, setDeleteDialogOpen] = useState(false);
-  const [deleteTarget, setDeleteTarget] = useState<FileEntry | null>(null);
+  const [deleteTargets, setDeleteTargets] = useState<FileEntry[]>([]);
   const [isDeleting, setIsDeleting] = useState(false);
 
   const [renameDialogOpen, setRenameDialogOpen] = useState(false);
@@ -1420,48 +1420,57 @@ export function useFileBrowserPane(config: UseFileBrowserPaneConfig): UseFileBro
 
   const handleDeleteRequest = useCallback(
     (options?: { requireListFocus?: boolean }) => {
-      const file = getFocusedFileForAction(options);
-      if (!file) return;
       if (connectionIsReadOnly) return;
 
-      setDeleteTarget(file);
+      const focusedFile = getFocusedFileForAction(options);
+      if (!focusedFile) return;
+
+      const targets = getEffectiveSelection();
+      if (targets.length === 0) return;
+
+      setDeleteTargets(targets);
       setDeleteDialogOpen(true);
     },
-    [connectionIsReadOnly, getFocusedFileForAction]
+    [connectionIsReadOnly, getEffectiveSelection, getFocusedFileForAction]
   );
 
   const handleDeleteConfirm = useCallback(async () => {
-    if (!deleteTarget || !connectionId) return;
+    if (deleteTargets.length === 0 || !connectionId) return;
     if (connectionIsReadOnly) return;
 
     setIsDeleting(true);
+    let deletedCount = 0;
     try {
-      await api.deleteItem(connectionId, deleteTarget.path);
+      for (const target of deleteTargets) {
+        await api.deleteItem(connectionId, target.path);
+        deletedCount += 1;
+      }
 
       setDeleteDialogOpen(false);
-      setDeleteTarget(null);
+      setDeleteTargets([]);
       pendingFocusNameRef.current = null;
 
       lastForceReloadRef.current = Date.now();
       loadFilesRef.current?.(currentPathRef.current, true);
       listContainerEl?.focus();
 
-      logger.info(`Deleted: ${deleteTarget.path}`, undefined, "file-browser");
+      logger.info(`Deleted ${deleteTargets.length} item(s).`, { paths: deleteTargets.map((target) => target.path) }, "file-browser");
     } catch (err: unknown) {
       let detail = "Failed to delete item.";
       if (isApiError(err) && err.response?.data?.detail) {
         detail = err.response.data.detail;
       }
       setError(detail);
-      logger.error(`Delete failed: ${deleteTarget.path}`, { error: err }, "file-browser");
+      setDeleteTargets((currentTargets) => currentTargets.slice(deletedCount));
+      logger.error("Delete failed.", { error: err, paths: deleteTargets.map((target) => target.path) }, "file-browser");
     } finally {
       setIsDeleting(false);
     }
-  }, [connectionIsReadOnly, deleteTarget, connectionId, listContainerEl]);
+  }, [connectionIsReadOnly, deleteTargets, connectionId, listContainerEl]);
 
   const closeDeleteDialog = useCallback(() => {
     setDeleteDialogOpen(false);
-    setDeleteTarget(null);
+    setDeleteTargets([]);
   }, []);
 
   // Rename
@@ -1940,7 +1949,7 @@ export function useFileBrowserPane(config: UseFileBrowserPaneConfig): UseFileBro
 
     // Dialog state
     deleteDialogOpen,
-    deleteTarget,
+    deleteTargets,
     isDeleting,
     renameDialogOpen,
     renameTarget,

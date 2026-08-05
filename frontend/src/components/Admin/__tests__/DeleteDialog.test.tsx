@@ -49,7 +49,7 @@ describe("DeleteDialog", () => {
 
     expect(screen.getByRole("button", { name: /common\.navigation\.goBack/i })).toBeInTheDocument();
     expect(screen.getByText("Delete Connection")).toBeInTheDocument();
-    expect(screen.getByText("Docs")).toBeInTheDocument();
+    expect(screen.getByDisplayValue("Docs")).toHaveAttribute("readonly");
   });
 
   it("disables both actions and shows progress while submitting", () => {

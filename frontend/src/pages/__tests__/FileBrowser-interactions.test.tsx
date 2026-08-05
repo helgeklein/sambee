@@ -1556,9 +1556,9 @@ describe("Browser Component - Interactions", () => {
       // Press Delete key
       await user.keyboard("{Delete}");
 
-      // Confirm dialog should appear with the item name
+      // Confirm dialog should clearly state the deletion outcome.
       await waitFor(() => {
-        expect(screen.getByText(/are you sure you want to delete/i)).toBeInTheDocument();
+        expect(screen.getByText(/will be permanently deleted/i)).toBeInTheDocument();
       });
     });
 
@@ -1591,6 +1591,31 @@ describe("Browser Component - Interactions", () => {
       });
     });
 
+    it("deletes every selected item when confirmed", async () => {
+      const user = userEvent.setup();
+      renderBrowser("/browse/smb/test-server-1");
+
+      await waitFor(() => {
+        expect(screen.getAllByText("Documents").length).toBeGreaterThan(0);
+      });
+
+      const listContainer = screen.getByTestId("virtual-list");
+      await user.click(listContainer);
+      await user.keyboard("{Insert}");
+      await waitFor(() => {
+        expect(screen.getByRole("button", { name: /Documents.*selected/i })).toBeInTheDocument();
+      });
+      await user.keyboard("{Insert}");
+      await user.keyboard("{Delete}");
+
+      expect(await screen.findByText("The following 2 items will be permanently deleted:")).toBeInTheDocument();
+      await user.click(screen.getByRole("button", { name: "Delete" }));
+
+      await waitFor(() => {
+        expect(api.deleteItem).toHaveBeenCalledTimes(2);
+      });
+    });
+
     it("closes dialog when Cancel is clicked", async () => {
       const user = userEvent.setup();
       renderBrowser("/browse/smb/test-server-1");
@@ -1612,7 +1637,7 @@ describe("Browser Component - Interactions", () => {
 
       // Dialog should close
       await waitFor(() => {
-        expect(screen.queryByText(/are you sure you want to delete/i)).not.toBeInTheDocument();
+        expect(screen.queryByText(/will be permanently deleted/i)).not.toBeInTheDocument();
       });
     });
 
@@ -1632,7 +1657,7 @@ describe("Browser Component - Interactions", () => {
       await user.keyboard("{Delete}");
 
       await waitFor(() => {
-        expect(screen.queryByText(/are you sure you want to delete/i)).not.toBeInTheDocument();
+        expect(screen.queryByText(/will be permanently deleted/i)).not.toBeInTheDocument();
       });
       expect(api.deleteItem).not.toHaveBeenCalled();
     });
