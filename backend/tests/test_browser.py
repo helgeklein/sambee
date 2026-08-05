@@ -828,7 +828,7 @@ class TestRenameItem:
         response = client.post(
             f"/api/browse/{test_connection.id}/rename",
             headers=auth_headers_user,
-            json={"path": "/document.txt", "new_name": "   "},
+            json={"path": "/document.txt", "new_name": ""},
         )
         assert response.status_code == 400
         assert "empty" in response.json()["detail"].lower()
@@ -1084,7 +1084,7 @@ class TestCreateItem:
         response = client.post(
             f"/api/browse/{test_connection.id}/create",
             headers=auth_headers_user,
-            json={"parent_path": "/", "name": "   ", "type": "directory"},
+            json={"parent_path": "/", "name": "", "type": "directory"},
         )
         assert response.status_code == 400
         assert "empty" in response.json()["detail"].lower()
@@ -1134,7 +1134,7 @@ class TestCreateItem:
             json={"parent_path": "/", "name": "folder.", "type": "directory"},
         )
         assert response.status_code == 400
-        assert "space or period" in response.json()["detail"].lower()
+        assert "period" in response.json()["detail"].lower()
 
     def test_create_name_collision(
         self,
@@ -1213,14 +1213,14 @@ class TestCreateItem:
         assert response.json()["detail"] == "Create timed out. The remote share did not respond in time."
         mock_instance.disconnect.assert_called_once()
 
-    def test_create_strips_whitespace_from_name(
+    def test_create_preserves_leading_whitespace_in_name(
         self,
         client: TestClient,
         auth_headers_user: dict,
         test_connection: Connection,
         mock_smb_backend,
     ):
-        """Test that leading/trailing whitespace is stripped from the name."""
+        """Test that leading whitespace reaches the SMB backend unchanged."""
         mock_class, mock_instance = mock_smb_backend
         mock_instance.create_directory.return_value = None
         mock_instance.get_file_info.return_value = FileInfo(
@@ -1232,11 +1232,32 @@ class TestCreateItem:
         response = client.post(
             f"/api/browse/{test_connection.id}/create",
             headers=auth_headers_user,
-            json={"parent_path": "/", "name": "  clean-name  ", "type": "directory"},
+            json={"parent_path": "/", "name": "  clean-name", "type": "directory"},
         )
 
         assert response.status_code == 200
-        mock_instance.create_directory.assert_called_once_with("clean-name")
+        mock_instance.create_directory.assert_called_once_with("  clean-name")
+        mock_instance.get_file_info.assert_called_once_with("  clean-name")
+
+    def test_create_trailing_whitespace_rejected(
+        self,
+        client: TestClient,
+        auth_headers_user: dict,
+        test_connection: Connection,
+        mock_smb_backend,
+    ):
+        """Test that terminal whitespace is rejected before SMB operations."""
+        mock_class, mock_instance = mock_smb_backend
+
+        response = client.post(
+            f"/api/browse/{test_connection.id}/create",
+            headers=auth_headers_user,
+            json={"parent_path": "/", "name": "clean-name ", "type": "directory"},
+        )
+
+        assert response.status_code == 400
+        assert "space or period" in response.json()["detail"].lower()
+        mock_instance.create_directory.assert_not_called()
 
     def test_create_read_only_connection_blocked(
         self,
@@ -1271,11 +1292,11 @@ class TestValidateItemName:
     validation rule.
     """
 
-    def test_valid_name_returned_stripped(self):
-        """Valid names are returned after stripping whitespace."""
+    def test_valid_name_preserves_leading_whitespace(self):
+        """Valid names retain leading whitespace."""
         from app.api.browser import _validate_item_name
 
-        assert _validate_item_name("  hello.txt  ") == "hello.txt"
+        assert _validate_item_name("  hello.txt") == "  hello.txt"
 
     def test_simple_valid_name(self):
         """Simple valid name is returned as-is."""
@@ -1284,13 +1305,13 @@ class TestValidateItemName:
         assert _validate_item_name("readme.md") == "readme.md"
 
     def test_empty_name_raises(self):
-        """Empty or whitespace-only name raises 400."""
+        """An empty name raises 400."""
         from fastapi import HTTPException
 
         from app.api.browser import _validate_item_name
 
         with pytest.raises(HTTPException) as exc_info:
-            _validate_item_name("   ")
+            _validate_item_name("")
         assert exc_info.value.status_code == 400
         assert "empty" in exc_info.value.detail.lower()
 
@@ -1326,16 +1347,16 @@ class TestValidateItemName:
         assert exc_info.value.status_code == 400
         assert "invalid characters" in exc_info.value.detail.lower()
 
-    def test_trailing_space_stripped_by_strip(self):
-        """Trailing spaces are removed by strip(), so they don't reach the trailing check.
+    def test_whitespace_only_name_raises(self):
+        """Names consisting only of terminal whitespace are rejected."""
+        from fastapi import HTTPException
 
-        This means a raw value like "name " is actually valid:
-        strip("name ") → "name", which passes all checks.
-        """
         from app.api.browser import _validate_item_name
 
-        # "name " gets stripped to "name" — which is valid
-        assert _validate_item_name("name ") == "name"
+        with pytest.raises(HTTPException) as exc_info:
+            _validate_item_name("   ")
+        assert exc_info.value.status_code == 400
+        assert "space or period" in exc_info.value.detail.lower()
 
     def test_trailing_period_raises(self):
         """Name ending with a period raises 400."""
@@ -1345,6 +1366,17 @@ class TestValidateItemName:
 
         with pytest.raises(HTTPException) as exc_info:
             _validate_item_name("myfile.")
+        assert exc_info.value.status_code == 400
+        assert "space or period" in exc_info.value.detail.lower()
+
+    def test_trailing_whitespace_raises(self):
+        """Name ending in whitespace raises 400."""
+        from fastapi import HTTPException
+
+        from app.api.browser import _validate_item_name
+
+        with pytest.raises(HTTPException) as exc_info:
+            _validate_item_name("myfile ")
         assert exc_info.value.status_code == 400
         assert "space or period" in exc_info.value.detail.lower()
 

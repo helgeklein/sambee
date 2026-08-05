@@ -19,20 +19,17 @@ export const COPY_MOVE_STRINGS = {
   },
 
   // Prompts (action text — destination is shown separately)
-  get PROMPT_COPY_SINGLE() {
-    return translate("fileBrowser.copyMove.promptCopySingle");
-  },
   PROMPT_COPY_MULTI(count: number) {
     return translate("fileBrowser.copyMove.promptCopyMulti", { count });
-  },
-  get PROMPT_MOVE_SINGLE() {
-    return translate("fileBrowser.copyMove.promptMoveSingle");
   },
   PROMPT_MOVE_MULTI(count: number) {
     return translate("fileBrowser.copyMove.promptMoveMulti", { count });
   },
 
   // Labels
+  get LABEL_DESTINATION() {
+    return translate("fileBrowser.copyMove.labelDestination");
+  },
   get LABEL_FILENAME() {
     return translate("fileBrowser.copyMove.labelFilename");
   },
@@ -51,9 +48,12 @@ export const COPY_MOVE_STRINGS = {
     return translate("fileBrowser.copyMove.overwriteStrategySkipAll");
   },
 
-  // Warnings
-  get WARN_SAME_DIRECTORY() {
-    return translate("fileBrowser.copyMove.warnSameDirectory");
+  // Validation errors
+  get ERROR_SAME_FILENAME() {
+    return translate("fileBrowser.copyMove.errorSameFilename");
+  },
+  get ERROR_SAME_DIRECTORY() {
+    return translate("fileBrowser.copyMove.errorSameDirectory");
   },
   get WARN_EMPTY_FILENAME() {
     return translate("fileBrowser.copyMove.warnEmptyFilename");

@@ -12,6 +12,27 @@ Use the pattern when a dialog edits several related settings and needs validatio
 
 Do not use it for a confirmation or destructive-action dialog. Those should continue to use `ResponsiveFormDialog` directly with focused content and actions.
 
+## Dialog Categories
+
+Use `ResponsiveFormDialog` as the shared shell for every ordinary application dialog. It provides the responsive Drawer and Dialog behavior, safe-area action area, dialog surface tokens, title and description relationships, close blocking, and focus restoration.
+
+Small dialogs use traditional Cancel and confirmation actions; do not add a top-right close button.
+
+Choose the content pattern that matches the job:
+
+| Dialog type | Use | Examples |
+|---|---|---|
+| Multi-field editor | `ResponsiveFormDialog` with the settings form building blocks below. | Connections, users, OIDC configuration, copy or move. |
+| One- or two-field editor | `ResponsiveFormDialog` with a single-column settings surface. Keep the floating MUI label at every width. | Create, rename, copy, and move. |
+| Decision | `ResponsiveFormDialog` with compact content and actions. Do not add `SettingsFormSurface`. | Delete, overwrite conflict, application update, connection test result. |
+| Picker | `ResponsiveFormDialog` with a listbox or selection grid. Keep the picker’s keyboard and selection semantics in the owning component. | Viewer and theme pickers. |
+| Short workflow | `ResponsiveFormDialog` with state-specific body and actions. | Companion pairing. |
+| Full-screen workspace | Keep the specialized full-screen viewer shell. Share only reusable behavior that does not interfere with the viewer’s focus, toolbar, or third-party integration. | Image, PDF, Markdown, and text viewers. |
+
+The desktop settings overlay and mobile settings drawer are navigation containers, not form dialogs. Keep their information architecture separate while composing settings-form pages inside them.
+
+For safety-critical decisions, focus the least destructive action after opening. For input workflows, focus the first input. Do not make a destructive action the default Enter action unless the user has already focused it.
+
 ## Shared Building Blocks
 
 Import the structural primitives and control styles from `frontend/src/components/Settings/SettingsFormLayout.tsx`.
@@ -34,7 +55,7 @@ Keep field state, API calls, validation rules, translations, and the concrete MU
 
 ## Responsive Contract
 
-There are exactly two form layouts.
+Multi-field settings editors have exactly two form layouts. One- and two-field operation dialogs stay single-column at every width so long names and paths retain the available width.
 
 ### Below `md`
 
@@ -47,12 +68,13 @@ Use one column in both responsive shells.
 - Keep descriptions and validation errors directly below their controls as MUI helper text.
 - Use the grouped surface and section heading, but do not show individual field-row dividers.
 
-### At `md` And Above
+### At `md` And Above For Multi-Field Editors
 
 Use the two-column desktop layout.
 
 - Put labels and descriptions in the left column.
 - Put compact controls in the right column.
+- Use the compact MUI `size="small"` variant only when a desktop field has an external label in the left column.
 - Replace the left-column description with the validation error instead of showing helper text below the input.
 - Keep full-width text inputs within the control column.
 - Use content-width, right-aligned selects when the selected option remains readable.
@@ -67,16 +89,22 @@ Apply `settingsSelectSx` and `settingsSelectMenuProps` to every settings `Select
 
 Use `SettingsPasswordVisibilityToggle` as the end adornment for password fields. Keep its `visible` state, toggle handler, and localized show/hide labels in the owning dialog.
 
+Use `DialogReadOnlyField` for a name, path, connection, or other value that a dialog shows without allowing the user to change it. Give the field a specific label such as `Destination directory` or `File to delete`; do not recreate a styled text pill. Keep the normal MUI field height when its label is inside the outlined field. Use a subdued read-only surface while keeping long values selectable.
+
+Write the dialog description as the outcome of the selected action. State what will be copied, moved, replaced, skipped, or deleted and name the source item for a single-item operation, then present the affected value in a labelled read-only field. Keep notices tied to their current condition: a no-op destination notice must disappear as soon as a renamed target makes the operation valid, without changing the dialog's layout.
+
 ## Implementation Checklist
 
 1. Start with `ResponsiveFormDialog` for the responsive Drawer and Dialog shell.
 2. Wrap the fields in `SettingsFormSurface` and one or more `SettingsFormGroup` components.
 3. Put every field in `SettingsFormRow`.
-4. Render `SettingsFormFieldLabel` only when the current layout is `md` or wider.
-5. Keep the below-`md` MUI `label`, `InputLabel`, and `FormHelperText` props in the concrete control.
+4. Use `SettingsFormFieldLabel` only for a multi-field editor at `md` or wider. Keep one- and two-field operation dialogs in a single column with floating MUI labels at every width.
+5. Keep the below-`md` MUI `label`, `InputLabel`, and `FormHelperText` props in the concrete control. Use normal field height for inline-labelled one- or two-field operation dialogs; reserve helper-text space when a field can show a validation error.
 6. Use `SettingsFormSection` between related groups instead of recreating section borders and title spacing locally.
 7. Reuse the shared action styles when the dialog has split or responsive actions.
 8. Render conditional fields or sections only when their state applies, while keeping each visible control in a `SettingsFormRow`.
+
+For a non-form dialog, start with `ResponsiveFormDialog` and retain only the content, selection, workflow, and keyboard behavior specific to that dialog. Do not duplicate MUI `Dialog`, `Drawer`, sticky mobile actions, focus restoration, or dialog surface styling in the owning component.
 
 ## Accessibility And Validation
 
@@ -84,7 +112,11 @@ Associate desktop controls with their external labels and descriptions using `ht
 
 After a failed save or test, focus the first invalid field. Do not remove normal MUI error states from controls; the desktop error text supplements them by making the issue readable in the label column.
 
-Use field-level errors for validation that the dialog can determine before submitting. Keep API and cross-field failures in a stable form-level alert above the form surface so they do not disrupt a desktop field row.
+Use field-level errors for validation that the dialog can determine before submitting. Reserve one helper-text line, then replace it with the active error so the form does not shift. Do not repeat a field-owned error in a form-level alert. Error text must explain the cause and the corrective action, not only name a failed rule.
+
+Prefer a safe, valid default over presenting a predictable error when the dialog can infer the intended correction. For example, a one-item copy into its source directory should prefill an extension-aware name such as `report (copy).pdf`. Do not apply this pattern to a same-directory move: it is a rename operation, so the user must deliberately choose the new name.
+
+Use a stable form-level alert only when no editable field owns the remedy, such as a multi-item copy whose destination directory is also its source directory. Use error severity when the state blocks confirmation. Keep API failures in this form-level feedback region as well, above the form surface so they do not disrupt a desktop field row.
 
 ## Testing And Review
 
@@ -92,9 +124,17 @@ For every dialog that adopts this pattern, cover all of the following:
 
 - The mobile Drawer and the `sm` through `<md` Dialog use the same single-column form semantics.
 - A populated narrow-screen field uses a floating MUI label, normal control height, and helper text below the field.
-- The `md` layout retains external labels, compact controls, and desktop-only row dividers.
+- A multi-field editor retains external labels, compact controls, and desktop-only row dividers at `md` and above.
+- A one- or two-field operation dialog remains single-column and keeps floating labels at `md` and above.
 - Errors, focus-first-invalid behavior, keyboard handling, and pending action states still work.
 - The surface, controls, and helper text remain legible in both light and dark themes.
+
+For every non-form dialog that adopts the shared shell, cover all of the following:
+
+- The phone Drawer has reachable actions above safe-area insets and does not obscure content in a short viewport.
+- Keyboard focus, Enter, Escape cancellation, and the dialog-specific safe default still work. Escape must always issue the dialog's cancellation request.
+- Picker and workflow state remains usable with a keyboard.
+- Dialog content and action states remain legible in light and dark themes.
 
 Use a live browser check at a phone width and a desktop width in addition to focused tests. Check a short viewport as well so the fixed mobile actions do not obscure the final control.
 

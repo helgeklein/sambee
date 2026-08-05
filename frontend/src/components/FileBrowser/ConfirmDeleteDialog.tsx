@@ -11,14 +11,14 @@
  * accidentally trigger the destructive action.
  */
 
-import { Box, Button, CircularProgress, Dialog, DialogActions, DialogContent, DialogContentText, DialogTitle } from "@mui/material";
+import { Button, CircularProgress } from "@mui/material";
 import type React from "react";
 import { useEffect, useMemo, useRef } from "react";
-import { fileNamePillSx } from "../../theme/commonStyles";
-import { FileType } from "../../types";
+import { type FileEntry, FileType } from "../../types";
 import { dialogEnterKeyHandler } from "../../utils/keyboardUtils";
+import { DialogReadOnlyField } from "../Admin/DialogReadOnlyField";
+import { ResponsiveFormDialog } from "../Admin/ResponsiveFormDialog";
 import { CONFIRM_DELETE_STRINGS } from "./confirmDeleteDialogStrings";
-import { NoTransition } from "./transitions";
 
 // ============================================================================
 // Props
@@ -27,10 +27,8 @@ import { NoTransition } from "./transitions";
 interface ConfirmDeleteDialogProps {
   /** Whether the dialog is open */
   open: boolean;
-  /** Name of the file or directory */
-  itemName: string;
-  /** Type of the item (file or directory) */
-  itemType: FileType;
+  /** Files and directories to delete */
+  items: FileEntry[];
   /** Whether a delete operation is in progress */
   isDeleting: boolean;
   /** Called when the user cancels */
@@ -43,11 +41,15 @@ interface ConfirmDeleteDialogProps {
 // Component
 // ============================================================================
 
+const DELETE_LIST_MAX_VISIBLE_ROWS = 6;
+
 //
 // ConfirmDeleteDialog
 //
-const ConfirmDeleteDialog: React.FC<ConfirmDeleteDialogProps> = ({ open, itemName, itemType, isDeleting, onClose, onConfirm }) => {
-  const isDirectory = itemType === FileType.DIRECTORY;
+const ConfirmDeleteDialog: React.FC<ConfirmDeleteDialogProps> = ({ open, items, isDeleting, onClose, onConfirm }) => {
+  const isSingleItem = items.length === 1;
+  const item = items[0];
+  const isDirectory = item?.type === FileType.DIRECTORY;
   const cancelRef = useRef<HTMLButtonElement>(null);
 
   // Focus the Cancel button immediately when dialog opens (no transition delay)
@@ -58,35 +60,57 @@ const ConfirmDeleteDialog: React.FC<ConfirmDeleteDialogProps> = ({ open, itemNam
     }
   }, [open]);
 
-  const title = isDirectory ? CONFIRM_DELETE_STRINGS.TITLE_DIRECTORY : CONFIRM_DELETE_STRINGS.TITLE_FILE;
-
-  const confirmPrompt = isDirectory ? CONFIRM_DELETE_STRINGS.CONFIRM_DIRECTORY : CONFIRM_DELETE_STRINGS.CONFIRM_FILE;
+  const title = isSingleItem
+    ? isDirectory
+      ? CONFIRM_DELETE_STRINGS.TITLE_DIRECTORY
+      : CONFIRM_DELETE_STRINGS.TITLE_FILE
+    : CONFIRM_DELETE_STRINGS.TITLE_MULTI;
+  const description = isSingleItem
+    ? isDirectory
+      ? CONFIRM_DELETE_STRINGS.CONFIRM_DIRECTORY
+      : CONFIRM_DELETE_STRINGS.CONFIRM_FILE
+    : CONFIRM_DELETE_STRINGS.CONFIRM_MULTI(items.length);
+  const itemNames = items.map((currentItem) => currentItem.name).join("\n");
 
   /** ENTER activates the focused button; no default fallback (Cancel has focus). */
   const handleKeyDown = useMemo(() => dialogEnterKeyHandler(), []);
 
   return (
-    <Dialog open={open} onClose={isDeleting ? undefined : onClose} onKeyDown={handleKeyDown} slots={{ transition: NoTransition }}>
-      <DialogTitle>{title}</DialogTitle>
-      <DialogContent>
-        <DialogContentText sx={{ color: "text.primary" }}>{confirmPrompt}</DialogContentText>
-        <Box sx={{ ...fileNamePillSx, mt: 0.5 }}>{itemName}</Box>
-      </DialogContent>
-      <DialogActions>
-        <Button ref={cancelRef} onClick={onClose} disabled={isDeleting}>
-          {CONFIRM_DELETE_STRINGS.BUTTON_CANCEL}
-        </Button>
-        <Button
-          onClick={onConfirm}
-          color="error"
-          variant="contained"
-          disabled={isDeleting}
-          startIcon={isDeleting ? <CircularProgress size={16} /> : undefined}
-        >
-          {isDeleting ? CONFIRM_DELETE_STRINGS.BUTTON_DELETING : CONFIRM_DELETE_STRINGS.BUTTON_DELETE}
-        </Button>
-      </DialogActions>
-    </Dialog>
+    <ResponsiveFormDialog
+      open={open}
+      onClose={onClose}
+      disableClose={isDeleting}
+      onKeyDown={handleKeyDown}
+      title={title}
+      description={description}
+      maxWidth="sm"
+      actions={
+        <>
+          <Button ref={cancelRef} onClick={onClose} disabled={isDeleting}>
+            {CONFIRM_DELETE_STRINGS.BUTTON_CANCEL}
+          </Button>
+          <Button
+            onClick={onConfirm}
+            color="error"
+            variant="contained"
+            disabled={isDeleting}
+            startIcon={isDeleting ? <CircularProgress size={16} /> : undefined}
+          >
+            {isDeleting ? CONFIRM_DELETE_STRINGS.BUTTON_DELETING : CONFIRM_DELETE_STRINGS.BUTTON_DELETE}
+          </Button>
+        </>
+      }
+    >
+      <DialogReadOnlyField
+        ariaLabel={isSingleItem ? CONFIRM_DELETE_STRINGS.ARIA_LABEL_ITEM : CONFIRM_DELETE_STRINGS.ARIA_LABEL_ITEMS}
+        value={itemNames}
+        multiline={!isSingleItem}
+        minRows={isSingleItem ? undefined : Math.min(items.length, DELETE_LIST_MAX_VISIBLE_ROWS)}
+        maxRows={isSingleItem ? undefined : DELETE_LIST_MAX_VISIBLE_ROWS}
+        codeBlock={!isSingleItem}
+        showFormSurface
+      />
+    </ResponsiveFormDialog>
   );
 };
 

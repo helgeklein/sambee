@@ -1,5 +1,5 @@
 import { Button } from "@mui/material";
-import { render, screen, waitFor } from "@testing-library/react";
+import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { SambeeThemeProvider } from "../../../theme";
 import { ResponsiveFormDialog } from "../ResponsiveFormDialog";
@@ -137,5 +137,20 @@ describe("ResponsiveFormDialog", () => {
     );
 
     expect(screen.getByRole("button", { name: /common\.navigation\.goBack/i })).toBeDisabled();
+  });
+
+  it("requests cancellation with Escape even when pointer close is disabled", () => {
+    const onClose = vi.fn();
+    render(
+      <SambeeThemeProvider>
+        <ResponsiveFormDialog open={true} onClose={onClose} disableClose title="Edit User" actions={<Button>Save</Button>}>
+          <div>Dialog Body</div>
+        </ResponsiveFormDialog>
+      </SambeeThemeProvider>
+    );
+
+    fireEvent.keyDown(screen.getByRole("dialog"), { key: "Escape" });
+
+    expect(onClose).toHaveBeenCalledTimes(1);
   });
 });

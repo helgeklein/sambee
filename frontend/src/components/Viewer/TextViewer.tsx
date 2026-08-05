@@ -1,16 +1,4 @@
-import {
-  Alert,
-  Box,
-  Button,
-  CircularProgress,
-  Dialog,
-  DialogActions,
-  DialogContent,
-  DialogContentText,
-  DialogTitle,
-  useMediaQuery,
-  useTheme,
-} from "@mui/material";
+import { Alert, Box, Button, CircularProgress, Dialog, useMediaQuery, useTheme } from "@mui/material";
 import { memo, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { BROWSER_SHORTCUTS, COMMON_SHORTCUTS, VIEWER_SHORTCUTS } from "../../config/keyboardShortcuts";
@@ -28,6 +16,7 @@ import { getApiErrorMessage } from "../../utils/apiErrors";
 import type { ViewerComponentProps } from "../../utils/FileTypeRegistry";
 import { blurActiveToolbarControl } from "../../utils/keyboardUtils";
 import { createShareFile, shareNativeContent, shouldWarmNativeSharePayload, supportsNativeShare } from "../../utils/nativeShare";
+import { ResponsiveFormDialog } from "../Admin/ResponsiveFormDialog";
 import { KeyboardShortcutsHelp } from "../KeyboardShortcutsHelp";
 import { scheduleRetriableFocusRestore } from "./focusRestoration";
 import MarkdownEditorErrorBoundary from "./MarkdownEditorErrorBoundary";
@@ -998,88 +987,97 @@ export const TextViewer: React.FC<ViewerComponentProps> = ({ connectionId, path,
         </Box>
       </Dialog>
 
-      <Dialog open={recoveryDraft !== null} aria-labelledby="text-draft-recovery-title">
-        <DialogTitle id="text-draft-recovery-title">Recovered draft needs review</DialogTitle>
-        <DialogContent>
-          <DialogContentText sx={{ color: "text.primary" }}>
-            This file changed since the draft was saved. Choose whether to resume the recovered draft or discard it.
-          </DialogContentText>
-        </DialogContent>
-        <DialogActions>
-          <Button
-            color="warning"
-            onClick={() => {
-              clearDraft(connectionId, path, "text");
-              setRecoveryDraft(null);
-            }}
-          >
-            Discard draft
-          </Button>
-          <Button
-            variant="contained"
-            onClick={() => {
-              const recovered = recoveryDraft;
-              setRecoveryDraft(null);
-              if (recovered) {
-                void handleEnterEditMode().then(() => setDraftContent(recovered.content));
-              }
-            }}
-          >
-            Resume draft
-          </Button>
-        </DialogActions>
-      </Dialog>
-
-      <Dialog
-        open={unsavedChangesDialogOpen}
-        onClose={() => {
-          if (!isSaving) {
-            setPendingUnsavedChangesAction(null);
+      <ResponsiveFormDialog
+        open={recoveryDraft !== null}
+        onClose={() => setRecoveryDraft(null)}
+        onKeyDown={(event) => {
+          if (event.key === "Escape") {
+            event.preventDefault();
+            event.stopPropagation();
+            setRecoveryDraft(null);
           }
         }}
-        aria-labelledby="text-unsaved-changes-title"
+        title="Recovered draft needs review"
+        description="This file changed since the draft was saved. Choose whether to resume the recovered draft or discard it."
+        maxWidth="xs"
+        actions={
+          <>
+            <Button
+              color="warning"
+              onClick={() => {
+                clearDraft(connectionId, path, "text");
+                setRecoveryDraft(null);
+              }}
+            >
+              Discard draft
+            </Button>
+            <Button
+              variant="contained"
+              onClick={() => {
+                const recovered = recoveryDraft;
+                setRecoveryDraft(null);
+                if (recovered) {
+                  void handleEnterEditMode().then(() => setDraftContent(recovered.content));
+                }
+              }}
+            >
+              Resume draft
+            </Button>
+          </>
+        }
+      >
+        {null}
+      </ResponsiveFormDialog>
+
+      <ResponsiveFormDialog
+        open={unsavedChangesDialogOpen}
+        onClose={() => {
+          setPendingUnsavedChangesAction(null);
+        }}
+        title={t("viewer.edit.unsavedChangesTitle")}
+        description={
+          pendingUnsavedChangesAction === "close-viewer"
+            ? t("viewer.edit.unsavedChangesCloseMessage")
+            : t("viewer.edit.unsavedChangesExitMessage")
+        }
+        maxWidth="xs"
         disableAutoFocus
         disableEnforceFocus
         disableRestoreFocus
+        actions={
+          <>
+            <Button ref={unsavedChangesCancelButtonRef} onClick={() => setPendingUnsavedChangesAction(null)} disabled={isSaving} autoFocus>
+              {t("common.actions.cancel")}
+            </Button>
+            <Button
+              onClick={() => {
+                if (pendingUnsavedChangesAction === "close-viewer") {
+                  void closeViewer();
+                } else {
+                  void exitEditMode();
+                }
+              }}
+              disabled={isSaving}
+              color="warning"
+            >
+              {t("common.actions.discard")}
+            </Button>
+            <Button
+              onClick={() => {
+                if (pendingUnsavedChangesAction) {
+                  void persistDraft(pendingUnsavedChangesAction);
+                }
+              }}
+              disabled={isSaving}
+              variant="contained"
+            >
+              {t("common.actions.save")}
+            </Button>
+          </>
+        }
       >
-        <DialogTitle id="text-unsaved-changes-title">{t("viewer.edit.unsavedChangesTitle")}</DialogTitle>
-        <DialogContent>
-          <DialogContentText sx={{ color: "text.primary" }}>
-            {pendingUnsavedChangesAction === "close-viewer"
-              ? t("viewer.edit.unsavedChangesCloseMessage")
-              : t("viewer.edit.unsavedChangesExitMessage")}
-          </DialogContentText>
-        </DialogContent>
-        <DialogActions>
-          <Button ref={unsavedChangesCancelButtonRef} onClick={() => setPendingUnsavedChangesAction(null)} disabled={isSaving} autoFocus>
-            {t("common.actions.cancel")}
-          </Button>
-          <Button
-            onClick={() => {
-              if (pendingUnsavedChangesAction === "close-viewer") {
-                void closeViewer();
-              } else {
-                void exitEditMode();
-              }
-            }}
-            disabled={isSaving}
-            color="warning"
-          >
-            {t("common.actions.discard")}
-          </Button>
-          <Button
-            onClick={() => {
-              if (pendingUnsavedChangesAction) {
-                void persistDraft(pendingUnsavedChangesAction);
-              }
-            }}
-            disabled={isSaving}
-            variant="contained"
-          >
-            {t("common.actions.save")}
-          </Button>
-        </DialogActions>
-      </Dialog>
+        {null}
+      </ResponsiveFormDialog>
 
       <KeyboardShortcutsHelp
         open={showHelp}

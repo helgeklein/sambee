@@ -4,10 +4,6 @@ import {
   Box,
   Button,
   CircularProgress,
-  Dialog,
-  DialogActions,
-  DialogContent,
-  DialogTitle,
   FormControl,
   FormHelperText,
   InputLabel,
@@ -129,13 +125,7 @@ const ConnectionDialog: React.FC<ConnectionDialogProps> = ({ open, onClose, onSa
   const [visibilityOptions, setVisibilityOptions] = useState<ConnectionVisibilityOption[]>(() => getFallbackVisibilityOptions(t));
   const closeDisabled = saving || testing;
 
-  const handleDialogClose = () => {
-    if (closeDisabled) {
-      return;
-    }
-
-    onClose();
-  };
+  const handleDialogClose = () => onClose();
 
   const dismissResultDialog = () => {
     setResultDialog(null);
@@ -742,27 +732,27 @@ const ConnectionDialog: React.FC<ConnectionDialogProps> = ({ open, onClose, onSa
       >
         {formContent}
       </ResponsiveFormDialog>
-      <Dialog
+      <ResponsiveFormDialog
         open={Boolean(resultDialog)}
-        onClose={(_event, reason) => {
-          if (reason === "escapeKeyDown") {
+        onClose={dismissResultDialog}
+        title={resultDialog?.title ?? ""}
+        maxWidth="xs"
+        dialogZIndexOffset={2}
+        onKeyDown={(event) => {
+          if (event.key === "Escape") {
+            event.preventDefault();
+            event.stopPropagation();
             dismissResultDialog();
           }
         }}
-        aria-labelledby="connection-result-dialog-title"
-        aria-describedby="connection-result-dialog-description"
-        sx={{ zIndex: (currentTheme) => currentTheme.zIndex.modal + 2 }}
-      >
-        <DialogTitle id="connection-result-dialog-title">{resultDialog?.title}</DialogTitle>
-        <DialogContent>
-          <Typography id="connection-result-dialog-description">{resultDialog?.message}</Typography>
-        </DialogContent>
-        <DialogActions>
+        actions={
           <Button autoFocus onClick={dismissResultDialog}>
             {t("common.actions.close")}
           </Button>
-        </DialogActions>
-      </Dialog>
+        }
+      >
+        <Typography>{resultDialog?.message}</Typography>
+      </ResponsiveFormDialog>
     </>
   );
 };

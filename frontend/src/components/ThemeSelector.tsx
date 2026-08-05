@@ -5,10 +5,6 @@ import {
   Card,
   CardActionArea,
   CardContent,
-  Dialog,
-  DialogActions,
-  DialogContent,
-  DialogTitle,
   IconButton,
   Radio,
   Tooltip,
@@ -18,6 +14,7 @@ import {
 } from "@mui/material";
 import { useEffect, useRef, useState } from "react";
 import { useSambeeTheme } from "../theme";
+import { ResponsiveFormDialog } from "./Admin/ResponsiveFormDialog";
 import { THEME_SELECTOR_STRINGS } from "./themeSelectorStrings";
 
 //
@@ -91,53 +88,57 @@ export function ThemeSelectorDialog({ open, onClose }: ThemeSelectorDialogProps)
   };
 
   return (
-    <Dialog open={open} onClose={handleCancel} maxWidth="md" fullWidth>
-      <DialogTitle>{THEME_SELECTOR_STRINGS.DIALOG_TITLE}</DialogTitle>
-      <DialogContent>
-        <Box
-          sx={{
-            display: "grid",
-            gridTemplateColumns: { xs: "1fr", sm: "repeat(2, 1fr)" },
-            gap: 2,
-            pt: 1,
-          }}
-        >
-          {availableThemes.map((theme) => (
-            <Card
-              key={theme.id}
-              variant="outlined"
-              sx={{
-                border: draftThemeId === theme.id ? 2 : 1,
-                borderColor: draftThemeId === theme.id ? "primary.main" : "divider",
-              }}
-            >
-              <CardActionArea onClick={() => handleSelect(theme.id)}>
-                <CardContent>
-                  <Box sx={{ display: "flex", alignItems: "center", mb: 1 }}>
-                    <Radio checked={draftThemeId === theme.id} />
-                    <Typography variant="h6" sx={{ ml: 1 }}>
-                      {THEME_SELECTOR_STRINGS.themeName(theme)}
-                    </Typography>
-                  </Box>
-                  {theme.description && (
-                    <Typography variant="body2" sx={{ mb: 2, color: "text.secondary" }}>
-                      {THEME_SELECTOR_STRINGS.themeDescription(theme)}
-                    </Typography>
-                  )}
-                  <ThemePreview theme={theme} />
-                </CardContent>
-              </CardActionArea>
-            </Card>
-          ))}
-        </Box>
-      </DialogContent>
-      <DialogActions>
-        <Button onClick={handleCancel}>Cancel</Button>
-        <Button variant="contained" onClick={handleSave} disabled={draftThemeId === savedThemeIdRef.current}>
-          Save changes
-        </Button>
-      </DialogActions>
-    </Dialog>
+    <ResponsiveFormDialog
+      open={open}
+      onClose={handleCancel}
+      title={THEME_SELECTOR_STRINGS.DIALOG_TITLE}
+      maxWidth="md"
+      actions={
+        <>
+          <Button onClick={handleCancel}>Cancel</Button>
+          <Button variant="contained" onClick={handleSave} disabled={draftThemeId === savedThemeIdRef.current}>
+            Save changes
+          </Button>
+        </>
+      }
+    >
+      <Box
+        sx={{
+          display: "grid",
+          gridTemplateColumns: { xs: "1fr", sm: "repeat(2, 1fr)" },
+          gap: 2,
+          pt: 1,
+        }}
+      >
+        {availableThemes.map((theme) => (
+          <Card
+            key={theme.id}
+            variant="outlined"
+            sx={{
+              border: draftThemeId === theme.id ? 2 : 1,
+              borderColor: draftThemeId === theme.id ? "primary.main" : "divider",
+            }}
+          >
+            <CardActionArea onClick={() => handleSelect(theme.id)}>
+              <CardContent>
+                <Box sx={{ display: "flex", alignItems: "center", mb: 1 }}>
+                  <Radio checked={draftThemeId === theme.id} />
+                  <Typography variant="h6" sx={{ ml: 1 }}>
+                    {THEME_SELECTOR_STRINGS.themeName(theme)}
+                  </Typography>
+                </Box>
+                {theme.description ? (
+                  <Typography variant="body2" sx={{ mb: 2, color: "text.secondary" }}>
+                    {THEME_SELECTOR_STRINGS.themeDescription(theme)}
+                  </Typography>
+                ) : null}
+                <ThemePreview theme={theme} />
+              </CardContent>
+            </CardActionArea>
+          </Card>
+        ))}
+      </Box>
+    </ResponsiveFormDialog>
   );
 }
 

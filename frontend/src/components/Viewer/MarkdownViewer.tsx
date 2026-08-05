@@ -1,16 +1,4 @@
-import {
-  Alert,
-  Box,
-  Button,
-  CircularProgress,
-  Dialog,
-  DialogActions,
-  DialogContent,
-  DialogContentText,
-  DialogTitle,
-  useMediaQuery,
-  useTheme,
-} from "@mui/material";
+import { Alert, Box, Button, CircularProgress, Dialog, useMediaQuery, useTheme } from "@mui/material";
 import {
   type ErrorInfo,
   type ForwardRefExoticComponent,
@@ -55,6 +43,7 @@ import { openExternalUrl } from "../../utils/externalLinks";
 import type { ViewerComponentProps } from "../../utils/FileTypeRegistry";
 import { blurActiveToolbarControl } from "../../utils/keyboardUtils";
 import { createShareFile, shareNativeContent, shouldWarmNativeSharePayload, supportsNativeShare } from "../../utils/nativeShare";
+import { ResponsiveFormDialog } from "../Admin/ResponsiveFormDialog";
 import { KeyboardShortcutsHelp } from "../KeyboardShortcutsHelp";
 import { scheduleRetriableFocusRestore } from "./focusRestoration";
 import { loadMarkdownRichEditor } from "./loadMarkdownRichEditor";
@@ -958,12 +947,8 @@ export const MarkdownViewer: React.FC<ViewerComponentProps> = ({ connectionId, p
   }, [closeViewer, hasUnsavedChanges, isEditing]);
 
   const handleUnsavedChangesDialogClose = useCallback(() => {
-    if (isSaving) {
-      return;
-    }
-
     setPendingUnsavedChangesAction(null);
-  }, [isSaving]);
+  }, []);
 
   useEffect(() => {
     if (!unsavedChangesDialogOpen) {
@@ -1756,72 +1741,86 @@ export const MarkdownViewer: React.FC<ViewerComponentProps> = ({ connectionId, p
         </Box>
       </Dialog>
 
-      <Dialog open={recoveryDraft !== null} aria-labelledby="markdown-draft-recovery-title">
-        <DialogTitle id="markdown-draft-recovery-title">Recovered draft needs review</DialogTitle>
-        <DialogContent>
-          <DialogContentText sx={{ color: "text.primary" }}>
-            This file changed since the draft was saved. Choose whether to resume the recovered draft or discard it.
-          </DialogContentText>
-        </DialogContent>
-        <DialogActions>
-          <Button
-            color="warning"
-            onClick={() => {
-              clearDraft(connectionId, path, "markdown");
-              setRecoveryDraft(null);
-            }}
-          >
-            Discard draft
-          </Button>
-          <Button
-            variant="contained"
-            onClick={() => {
-              const recovered = recoveryDraft;
-              setRecoveryDraft(null);
-              if (recovered) {
-                void handleEnterEditMode().then(() => setDraftContent(recovered.content));
-              }
-            }}
-          >
-            Resume draft
-          </Button>
-        </DialogActions>
-      </Dialog>
+      <ResponsiveFormDialog
+        open={recoveryDraft !== null}
+        onClose={() => setRecoveryDraft(null)}
+        onKeyDown={(event) => {
+          if (event.key === "Escape") {
+            event.preventDefault();
+            event.stopPropagation();
+            setRecoveryDraft(null);
+          }
+        }}
+        title="Recovered draft needs review"
+        description="This file changed since the draft was saved. Choose whether to resume the recovered draft or discard it."
+        maxWidth="xs"
+        actions={
+          <>
+            <Button
+              color="warning"
+              onClick={() => {
+                clearDraft(connectionId, path, "markdown");
+                setRecoveryDraft(null);
+              }}
+            >
+              Discard draft
+            </Button>
+            <Button
+              variant="contained"
+              onClick={() => {
+                const recovered = recoveryDraft;
+                setRecoveryDraft(null);
+                if (recovered) {
+                  void handleEnterEditMode().then(() => setDraftContent(recovered.content));
+                }
+              }}
+            >
+              Resume draft
+            </Button>
+          </>
+        }
+      >
+        {null}
+      </ResponsiveFormDialog>
 
-      <Dialog
+      <ResponsiveFormDialog
         open={unsavedChangesDialogOpen}
         onClose={handleUnsavedChangesDialogClose}
-        aria-labelledby="markdown-unsaved-changes-title"
+        onKeyDown={(event) => {
+          if (event.key === "Escape") {
+            event.preventDefault();
+            event.stopPropagation();
+            handleUnsavedChangesDialogClose();
+          }
+        }}
+        title={t("viewer.edit.unsavedChangesTitle")}
+        description={
+          pendingUnsavedChangesAction === "close-viewer"
+            ? t("viewer.edit.unsavedChangesCloseMessage")
+            : t("viewer.edit.unsavedChangesExitMessage")
+        }
+        maxWidth="xs"
         disableAutoFocus
         disableEnforceFocus
         disableRestoreFocus
-        slotProps={{
-          transition: {
-            onEntered: handleUnsavedChangesDialogEntered,
-            onExited: handleUnsavedChangesDialogExited,
-          },
-        }}
+        onTransitionEntered={handleUnsavedChangesDialogEntered}
+        onTransitionExited={handleUnsavedChangesDialogExited}
+        actions={
+          <>
+            <Button ref={unsavedChangesCancelButtonRef} onClick={handleUnsavedChangesDialogClose} disabled={isSaving} autoFocus>
+              {t("common.actions.cancel")}
+            </Button>
+            <Button onClick={() => void handleUnsavedChangesDiscard()} disabled={isSaving} color="warning">
+              {t("common.actions.discard")}
+            </Button>
+            <Button onClick={() => void handleUnsavedChangesSave()} disabled={isSaving} variant="contained">
+              {t("common.actions.save")}
+            </Button>
+          </>
+        }
       >
-        <DialogTitle id="markdown-unsaved-changes-title">{t("viewer.edit.unsavedChangesTitle")}</DialogTitle>
-        <DialogContent>
-          <DialogContentText sx={{ color: "text.primary" }}>
-            {pendingUnsavedChangesAction === "close-viewer"
-              ? t("viewer.edit.unsavedChangesCloseMessage")
-              : t("viewer.edit.unsavedChangesExitMessage")}
-          </DialogContentText>
-        </DialogContent>
-        <DialogActions>
-          <Button ref={unsavedChangesCancelButtonRef} onClick={handleUnsavedChangesDialogClose} disabled={isSaving} autoFocus>
-            {t("common.actions.cancel")}
-          </Button>
-          <Button onClick={() => void handleUnsavedChangesDiscard()} disabled={isSaving} color="warning">
-            {t("common.actions.discard")}
-          </Button>
-          <Button onClick={() => void handleUnsavedChangesSave()} disabled={isSaving} variant="contained">
-            {t("common.actions.save")}
-          </Button>
-        </DialogActions>
-      </Dialog>
+        {null}
+      </ResponsiveFormDialog>
 
       {/* Keyboard Shortcuts Help Dialog */}
       <KeyboardShortcutsHelp

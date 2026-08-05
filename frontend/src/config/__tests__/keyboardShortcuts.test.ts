@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { BROWSER_SHORTCUTS, COMMON_SHORTCUTS, PANE_SHORTCUTS, VIEWER_SHORTCUTS } from "../keyboardShortcuts";
+import { BROWSER_SHORTCUTS, COMMON_SHORTCUTS, COPY_MOVE_SHORTCUTS, PANE_SHORTCUTS, VIEWER_SHORTCUTS } from "../keyboardShortcuts";
 
 describe("Keyboard Shortcuts Configuration", () => {
   describe("COMMON_SHORTCUTS", () => {
@@ -98,6 +98,15 @@ describe("Keyboard Shortcuts Configuration", () => {
 
     it("should not require ctrl for tab pane switch", () => {
       expect(PANE_SHORTCUTS.SWITCH_PANE).not.toHaveProperty("ctrl");
+    });
+  });
+
+  describe("COPY_MOVE_SHORTCUTS", () => {
+    it("groups dual-pane copy and move under file actions", () => {
+      expect(COPY_MOVE_SHORTCUTS.COPY_TO_OTHER_PANE.helpGroup).toBe("fileActions");
+      expect(COPY_MOVE_SHORTCUTS.MOVE_TO_OTHER_PANE.helpGroup).toBe("fileActions");
+      expect(COPY_MOVE_SHORTCUTS.COPY_TO_OTHER_PANE.description).toContain("two-pane mode");
+      expect(COPY_MOVE_SHORTCUTS.MOVE_TO_OTHER_PANE.description).toContain("two-pane mode");
     });
   });
 

@@ -33,6 +33,10 @@ describe("RenameDialog", () => {
     render(<RenameDialog {...defaultProps} />);
 
     expect(screen.getByText(RENAME_DIALOG_STRINGS.TITLE_FILE)).toBeInTheDocument();
+    const itemName = screen.getByTestId("rename-prompt-item-name");
+    expect(itemName).toHaveTextContent("readme.txt");
+    expect(itemName.tagName).toBe("CODE");
+    expect(itemName.parentElement).toHaveTextContent("readme.txt will be renamed to:");
 
     await waitFor(() => {
       const input = screen.getByLabelText(RENAME_DIALOG_STRINGS.INPUT_LABEL);
@@ -155,7 +159,9 @@ describe("RenameDialog", () => {
     expect(screen.getByRole("alert")).toHaveTextContent("An item named 'readme.txt' already exists");
     // API errors must not be duplicated in the TextField helper text
     const input = screen.getByLabelText(RENAME_DIALOG_STRINGS.INPUT_LABEL);
-    expect(input.closest(".MuiFormControl-root")?.querySelector(".MuiFormHelperText-root")).toBeNull();
+    expect(input.closest(".MuiFormControl-root")?.querySelector(".MuiFormHelperText-root")).not.toHaveTextContent(
+      "An item named 'readme.txt' already exists"
+    );
   });
 
   it("does not render when open is false", () => {
@@ -186,7 +192,7 @@ describe("RenameDialog", () => {
     expect(onConfirm).not.toHaveBeenCalled();
   });
 
-  it("validates trailing space (not trimmed in middle portion)", async () => {
+  it("preserves leading whitespace", async () => {
     const onConfirm = vi.fn();
     const user = userEvent.setup();
     // Use a name without extension to bypass auto-select behavior
@@ -195,14 +201,10 @@ describe("RenameDialog", () => {
     const input = screen.getByLabelText(RENAME_DIALOG_STRINGS.INPUT_LABEL);
     await waitFor(() => expect(input).toHaveFocus());
     await user.clear(input);
-    // "name " ends with a space — should be caught by trailing check
-    // after trim. Actually the name gets trimmed, so "name " becomes "name".
-    // This tests the integration of trimming + validation.
-    await user.type(input, "  trimmed-name  ");
+    await user.type(input, "  trimmed-name");
     await user.click(screen.getByRole("button", { name: RENAME_DIALOG_STRINGS.BUTTON_RENAME }));
 
-    // After trimming, "trimmed-name" is valid and different from "folder"
-    expect(onConfirm).toHaveBeenCalledWith("trimmed-name");
+    expect(onConfirm).toHaveBeenCalledWith("  trimmed-name");
   });
 
   it("disables the input when isRenaming is true", () => {

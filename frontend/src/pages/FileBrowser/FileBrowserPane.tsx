@@ -132,7 +132,7 @@ export const FileBrowserPane: React.FC<FileBrowserPaneProps> = ({
     // Dialogs
     browserViewerPickerState,
     deleteDialogOpen,
-    deleteTarget,
+    deleteTargets,
     isDeleting,
     renameDialogOpen,
     renameTarget,
@@ -448,8 +448,7 @@ export const FileBrowserPane: React.FC<FileBrowserPaneProps> = ({
       {/* Delete Confirmation Dialog */}
       <ConfirmDeleteDialog
         open={deleteDialogOpen}
-        itemName={deleteTarget?.name ?? ""}
-        itemType={deleteTarget?.type ?? FileType.FILE}
+        items={deleteTargets}
         isDeleting={isDeleting}
         onClose={closeDeleteDialog}
         onConfirm={handleDeleteConfirm}
@@ -470,6 +469,8 @@ export const FileBrowserPane: React.FC<FileBrowserPaneProps> = ({
       <CreateItemDialog
         open={createDialogOpen}
         itemType={createItemType}
+        targetConnectionName={connectionName}
+        targetPath={currentPath}
         isCreating={isCreating}
         apiError={createError}
         onClose={closeCreateDialog}

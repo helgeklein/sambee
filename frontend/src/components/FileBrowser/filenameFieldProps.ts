@@ -15,10 +15,9 @@ export const FILENAME_INPUT_PROPS = {
   spellCheck: false,
 } as const;
 
-/** Base TextField props shared by every filename / path input. */
+/** Base TextField props shared by every inline-labelled filename / path input. */
 export const FILENAME_FIELD_PROPS = {
   autoComplete: "off",
-  size: "small" as const,
   fullWidth: true,
 } as const;
 

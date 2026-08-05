@@ -17,12 +17,13 @@
  * - Auto-focus on open and re-focus on new API errors
  */
 
-import { Alert, Button, CircularProgress, Dialog, DialogActions, DialogContent, DialogTitle, TextField } from "@mui/material";
+import { Alert, Box, Button, CircularProgress, TextField } from "@mui/material";
 import type React from "react";
 import { useCallback, useEffect, useRef, useState } from "react";
+import { ResponsiveFormDialog } from "../Admin/ResponsiveFormDialog";
+import { SettingsFormGroup, SettingsFormRow, SettingsFormSurface, settingsFormOutlinedControlSx } from "../Settings/SettingsFormLayout";
 import { FILENAME_FIELD_PROPS, FILENAME_INPUT_PROPS, FILENAME_INPUT_SX } from "./filenameFieldProps";
 import { NAME_DIALOG_STRINGS, validateItemName } from "./nameDialogStrings";
-import { NoTransition } from "./transitions";
 
 // ============================================================================
 // Props
@@ -33,6 +34,8 @@ interface NameInputDialogProps {
   open: boolean;
   /** Dialog title (e.g. "Rename file", "New directory") */
   title: string;
+  /** Optional description describing the pending operation. */
+  description?: React.ReactNode;
   /** Label for the text field */
   inputLabel: string;
   /** Initial value for the text field (empty string for create) */
@@ -69,6 +72,7 @@ interface NameInputDialogProps {
 const NameInputDialog: React.FC<NameInputDialogProps> = ({
   open,
   title,
+  description,
   inputLabel,
   initialValue,
   submitLabel,
@@ -141,10 +145,8 @@ const NameInputDialog: React.FC<NameInputDialogProps> = ({
   // handleSubmit
   //
   const handleSubmit = useCallback(() => {
-    const trimmed = value.trim();
-
     // Run base validation
-    const baseError = validateItemName(trimmed);
+    const baseError = validateItemName(value);
     if (baseError) {
       setValidationError(baseError);
       return;
@@ -152,14 +154,14 @@ const NameInputDialog: React.FC<NameInputDialogProps> = ({
 
     // Run extra validation (e.g. "name unchanged" for rename)
     if (extraValidate) {
-      const extraError = extraValidate(trimmed);
+      const extraError = extraValidate(value);
       if (extraError) {
         setValidationError(extraError);
         return;
       }
     }
 
-    onConfirm(trimmed);
+    onConfirm(value);
   }, [value, extraValidate, onConfirm]);
 
   //
@@ -176,45 +178,69 @@ const NameInputDialog: React.FC<NameInputDialogProps> = ({
   );
 
   const hasError = validationError !== null || (apiError != null && apiError !== "");
+  const showApiError = apiError != null && apiError !== "" && !validationError;
+
+  const formContent = (
+    <Box sx={{ display: "flex", flexDirection: "column", gap: 2 }}>
+      <SettingsFormSurface>
+        <SettingsFormGroup>
+          <SettingsFormRow sx={{ display: { md: "block" } }}>
+            <TextField
+              id="name-input-dialog-field"
+              inputRef={inputRef}
+              label={inputLabel}
+              value={value}
+              onChange={handleChange}
+              onKeyDown={handleKeyDown}
+              disabled={isSubmitting}
+              error={hasError}
+              helperText={validationError ?? " "}
+              variant="outlined"
+              {...FILENAME_FIELD_PROPS}
+              slotProps={{ htmlInput: FILENAME_INPUT_PROPS }}
+              sx={[settingsFormOutlinedControlSx, FILENAME_INPUT_SX]}
+            />
+          </SettingsFormRow>
+        </SettingsFormGroup>
+      </SettingsFormSurface>
+      <Alert
+        aria-hidden={!showApiError}
+        data-testid="name-input-api-error"
+        severity="error"
+        sx={{ visibility: showApiError ? "visible" : "hidden" }}
+      >
+        {apiError ?? " "}
+      </Alert>
+    </Box>
+  );
 
   return (
-    <Dialog open={open} onClose={isSubmitting ? undefined : onClose} slots={{ transition: NoTransition }} maxWidth="sm" fullWidth>
-      <DialogTitle>{title}</DialogTitle>
-      <DialogContent>
-        <TextField
-          inputRef={inputRef}
-          label={inputLabel}
-          value={value}
-          onChange={handleChange}
-          onKeyDown={handleKeyDown}
-          disabled={isSubmitting}
-          error={hasError}
-          helperText={validationError}
-          variant="outlined"
-          {...FILENAME_FIELD_PROPS}
-          slotProps={{ htmlInput: FILENAME_INPUT_PROPS }}
-          sx={{ mt: 1, ...FILENAME_INPUT_SX }}
-        />
-        {apiError && !validationError && (
-          <Alert severity="error" sx={{ mt: 1 }}>
-            {apiError}
-          </Alert>
-        )}
-      </DialogContent>
-      <DialogActions>
-        <Button onClick={onClose} disabled={isSubmitting}>
-          {NAME_DIALOG_STRINGS.BUTTON_CANCEL}
-        </Button>
-        <Button
-          onClick={handleSubmit}
-          variant="contained"
-          disabled={isSubmitting || hasError}
-          startIcon={isSubmitting ? <CircularProgress size={16} /> : undefined}
-        >
-          {isSubmitting ? submittingLabel : submitLabel}
-        </Button>
-      </DialogActions>
-    </Dialog>
+    <ResponsiveFormDialog
+      open={open}
+      onClose={onClose}
+      disableClose={isSubmitting}
+      title={title}
+      description={description}
+      actions={
+        <>
+          <Button onClick={onClose} disabled={isSubmitting}>
+            {NAME_DIALOG_STRINGS.BUTTON_CANCEL}
+          </Button>
+          <Button
+            onClick={handleSubmit}
+            variant="contained"
+            disabled={isSubmitting || hasError}
+            startIcon={isSubmitting ? <CircularProgress size={16} /> : undefined}
+          >
+            {isSubmitting ? submittingLabel : submitLabel}
+          </Button>
+        </>
+      }
+      maxWidth="sm"
+      contentSx={{ p: 2 }}
+    >
+      {formContent}
+    </ResponsiveFormDialog>
   );
 };
 

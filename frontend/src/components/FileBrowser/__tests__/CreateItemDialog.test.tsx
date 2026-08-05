@@ -24,6 +24,8 @@ import { NAME_DIALOG_STRINGS } from "../nameDialogStrings";
 const defaultProps = {
   open: true,
   itemType: FileType.DIRECTORY,
+  targetConnectionName: "My Server",
+  targetPath: "documents",
   isCreating: false,
   onClose: vi.fn(),
   onConfirm: vi.fn(),
@@ -36,11 +38,18 @@ describe("CreateItemDialog", () => {
   it("renders with directory title when itemType is DIRECTORY", () => {
     render(<CreateItemDialog {...defaultProps} itemType={FileType.DIRECTORY} />);
     expect(screen.getByText(CREATE_ITEM_DIALOG_STRINGS.TITLE_DIRECTORY)).toBeInTheDocument();
+    const directory = screen.getByTestId("create-item-prompt-directory");
+    expect(directory).toHaveTextContent("My Server:/documents");
+    expect(directory.tagName).toBe("CODE");
+    expect(directory.parentElement).toHaveTextContent("A new directory will be created in My Server:/documents:");
   });
 
   it("renders with file title when itemType is FILE", () => {
     render(<CreateItemDialog {...defaultProps} itemType={FileType.FILE} />);
     expect(screen.getByText(CREATE_ITEM_DIALOG_STRINGS.TITLE_FILE)).toBeInTheDocument();
+    expect(screen.getByTestId("create-item-prompt-directory").parentElement).toHaveTextContent(
+      "A new file will be created in My Server:/documents:"
+    );
   });
 
   it("renders with empty input field", async () => {
@@ -102,16 +111,16 @@ describe("CreateItemDialog", () => {
     expect(onConfirm).toHaveBeenCalledWith("my-document.txt");
   });
 
-  it("trims whitespace before confirming", async () => {
+  it("preserves leading whitespace before confirming", async () => {
     const onConfirm = vi.fn();
     const user = userEvent.setup();
     render(<CreateItemDialog {...defaultProps} onConfirm={onConfirm} />);
 
     const input = screen.getByLabelText(CREATE_ITEM_DIALOG_STRINGS.INPUT_LABEL);
-    await user.type(input, "  spaced-name  ");
+    await user.type(input, "  spaced-name");
     await user.click(screen.getByRole("button", { name: CREATE_ITEM_DIALOG_STRINGS.BUTTON_CREATE }));
 
-    expect(onConfirm).toHaveBeenCalledWith("spaced-name");
+    expect(onConfirm).toHaveBeenCalledWith("  spaced-name");
   });
 
   // ── Cancel ─────────────────────────────────────────────────────────────
@@ -177,6 +186,19 @@ describe("CreateItemDialog", () => {
     expect(onConfirm).not.toHaveBeenCalled();
   });
 
+  it("validates trailing whitespace", async () => {
+    const onConfirm = vi.fn();
+    const user = userEvent.setup();
+    render(<CreateItemDialog {...defaultProps} onConfirm={onConfirm} />);
+
+    const input = screen.getByLabelText(CREATE_ITEM_DIALOG_STRINGS.INPUT_LABEL);
+    await user.type(input, "myfile ");
+    await user.click(screen.getByRole("button", { name: CREATE_ITEM_DIALOG_STRINGS.BUTTON_CREATE }));
+
+    expect(screen.getByText(NAME_DIALOG_STRINGS.VALIDATION_TRAILING)).toBeInTheDocument();
+    expect(onConfirm).not.toHaveBeenCalled();
+  });
+
   // ── No "name unchanged" check (unlike rename) ─────────────────────────
 
   it("does NOT have 'name unchanged' validation (empty initial value)", async () => {
@@ -225,6 +247,6 @@ describe("CreateItemDialog", () => {
     render(<CreateItemDialog {...defaultProps} apiError="Item already exists" />);
 
     const input = screen.getByLabelText(CREATE_ITEM_DIALOG_STRINGS.INPUT_LABEL);
-    expect(input.closest(".MuiFormControl-root")?.querySelector(".MuiFormHelperText-root")).toBeNull();
+    expect(input.closest(".MuiFormControl-root")?.querySelector(".MuiFormHelperText-root")).not.toHaveTextContent("Item already exists");
   });
 });

@@ -11,10 +11,10 @@
  * - Submit via button click and Enter key
  * - Cancel via button click
  * - Disabled state during submission
- * - API error display in Alert (not in helper text)
+ * - API error display below the input in a reserved Alert slot
  * - Does not render when open is false
  * - Clears validation error on typing
- * - Trims whitespace before confirming
+ * - Preserves whitespace before confirming
  */
 
 import { render, screen, waitFor } from "@testing-library/react";
@@ -47,6 +47,19 @@ describe("NameInputDialog", () => {
   it("renders with the provided input label", () => {
     render(<NameInputDialog {...defaultProps} inputLabel="Folder name" />);
     expect(screen.getByLabelText("Folder name")).toBeInTheDocument();
+    expect(screen.getByLabelText("Folder name").closest(".MuiInputBase-root")).not.toHaveClass("MuiInputBase-sizeSmall");
+  });
+
+  it("reserves validation helper text space when no validation error is present", () => {
+    render(<NameInputDialog {...defaultProps} />);
+
+    expect(screen.getByLabelText("Name").closest(".MuiFormControl-root")?.querySelector(".MuiFormHelperText-root")).toBeInTheDocument();
+  });
+
+  it("reserves a hidden API error alert below the input", () => {
+    render(<NameInputDialog {...defaultProps} />);
+
+    expect(screen.getByTestId("name-input-api-error")).toHaveAttribute("aria-hidden", "true");
   });
 
   it("renders with initial value pre-filled", async () => {
@@ -83,17 +96,17 @@ describe("NameInputDialog", () => {
 
   // ── Submit ─────────────────────────────────────────────────────────────
 
-  it("calls onConfirm with trimmed name when submit button is clicked", async () => {
+  it("calls onConfirm with leading whitespace intact when submit button is clicked", async () => {
     const onConfirm = vi.fn();
     const user = userEvent.setup();
     render(<NameInputDialog {...defaultProps} onConfirm={onConfirm} />);
 
     const input = screen.getByLabelText("Name");
     await waitFor(() => expect(input).toHaveFocus());
-    await user.type(input, "  new-folder  ");
+    await user.type(input, "  new-folder");
     await user.click(screen.getByRole("button", { name: "Submit" }));
 
-    expect(onConfirm).toHaveBeenCalledWith("new-folder");
+    expect(onConfirm).toHaveBeenCalledWith("  new-folder");
   });
 
   it("calls onConfirm when Enter is pressed", async () => {
@@ -126,6 +139,16 @@ describe("NameInputDialog", () => {
     render(<NameInputDialog {...defaultProps} onClose={onClose} />);
 
     await user.click(screen.getByRole("button", { name: NAME_DIALOG_STRINGS.BUTTON_CANCEL }));
+    expect(onClose).toHaveBeenCalledTimes(1);
+  });
+
+  it("calls onClose when Escape is pressed", async () => {
+    const onClose = vi.fn();
+    const user = userEvent.setup();
+    render(<NameInputDialog {...defaultProps} onClose={onClose} />);
+
+    await user.keyboard("{Escape}");
+
     expect(onClose).toHaveBeenCalledTimes(1);
   });
 
@@ -175,6 +198,19 @@ describe("NameInputDialog", () => {
 
     const input = screen.getByLabelText("Name");
     await user.type(input, "myfile.");
+    await user.click(screen.getByRole("button", { name: "Submit" }));
+
+    expect(screen.getByText(NAME_DIALOG_STRINGS.VALIDATION_TRAILING)).toBeInTheDocument();
+    expect(onConfirm).not.toHaveBeenCalled();
+  });
+
+  it("shows validation error for trailing whitespace", async () => {
+    const onConfirm = vi.fn();
+    const user = userEvent.setup();
+    render(<NameInputDialog {...defaultProps} onConfirm={onConfirm} />);
+
+    const input = screen.getByLabelText("Name");
+    await user.type(input, "myfile ");
     await user.click(screen.getByRole("button", { name: "Submit" }));
 
     expect(screen.getByText(NAME_DIALOG_STRINGS.VALIDATION_TRAILING)).toBeInTheDocument();
@@ -254,13 +290,14 @@ describe("NameInputDialog", () => {
     render(<NameInputDialog {...defaultProps} apiError="Item already exists" />);
 
     expect(screen.getByRole("alert")).toHaveTextContent("Item already exists");
+    expect(screen.getByTestId("name-input-api-error")).toHaveAttribute("aria-hidden", "false");
   });
 
-  it("does not show API error in helper text", () => {
+  it("does not repeat API error text in the reserved helper text", () => {
     render(<NameInputDialog {...defaultProps} apiError="Item already exists" />);
 
     const input = screen.getByLabelText("Name");
-    expect(input.closest(".MuiFormControl-root")?.querySelector(".MuiFormHelperText-root")).toBeNull();
+    expect(input.closest(".MuiFormControl-root")?.querySelector(".MuiFormHelperText-root")).not.toHaveTextContent("Item already exists");
   });
 
   it("shows validation error when submitting with empty name despite API error", async () => {

@@ -26,6 +26,9 @@ export const OVERWRITE_CONFLICT_STRINGS = {
   get LABEL_OPERATION() {
     return translate("fileBrowser.overwriteConflict.labelOperation");
   },
+  get LABEL_TARGET() {
+    return translate("fileBrowser.overwriteConflict.labelTarget");
+  },
 
   // Column headers
   get LABEL_EXISTING() {

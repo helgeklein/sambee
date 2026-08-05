@@ -19,8 +19,7 @@ import { CONFIRM_DELETE_STRINGS } from "../confirmDeleteDialogStrings";
 describe("ConfirmDeleteDialog", () => {
   const defaultProps = {
     open: true,
-    itemName: "readme.txt",
-    itemType: FileType.FILE,
+    items: [{ name: "readme.txt", path: "readme.txt", type: FileType.FILE, size: 0, modified_at: "", is_readable: true }],
     isDeleting: false,
     onClose: vi.fn(),
     onConfirm: vi.fn(),
@@ -30,14 +29,27 @@ describe("ConfirmDeleteDialog", () => {
     render(<ConfirmDeleteDialog {...defaultProps} />);
 
     expect(screen.getByText(CONFIRM_DELETE_STRINGS.TITLE_FILE)).toBeInTheDocument();
-    expect(screen.getByText("readme.txt")).toBeInTheDocument();
+    expect(screen.getByText(CONFIRM_DELETE_STRINGS.CONFIRM_FILE)).toBeInTheDocument();
+    expect(screen.getByRole("textbox", { name: "Item to delete" })).toHaveValue("readme.txt");
+    expect(screen.getByRole("textbox", { name: "Item to delete" })).toHaveAttribute("readonly");
+    expect(screen.queryByLabelText(/file to delete/i)).not.toBeInTheDocument();
   });
 
   it("renders directory title and prompt when itemType is DIRECTORY", () => {
-    render(<ConfirmDeleteDialog {...defaultProps} itemName="Photos" itemType={FileType.DIRECTORY} />);
+    render(<ConfirmDeleteDialog {...defaultProps} items={[{ ...defaultProps.items[0]!, name: "Photos", type: FileType.DIRECTORY }]} />);
 
     expect(screen.getByText(CONFIRM_DELETE_STRINGS.TITLE_DIRECTORY)).toBeInTheDocument();
-    expect(screen.getByText(new RegExp(CONFIRM_DELETE_STRINGS.CONFIRM_DIRECTORY))).toBeInTheDocument();
+    expect(screen.getByText(CONFIRM_DELETE_STRINGS.CONFIRM_DIRECTORY)).toBeInTheDocument();
+  });
+
+  it("lists every selected item in a read-only multiline field", () => {
+    render(<ConfirmDeleteDialog {...defaultProps} items={[defaultProps.items[0]!, { ...defaultProps.items[0]!, name: "notes.md" }]} />);
+
+    expect(screen.getByText(CONFIRM_DELETE_STRINGS.TITLE_MULTI)).toBeInTheDocument();
+    expect(screen.getByText(CONFIRM_DELETE_STRINGS.CONFIRM_MULTI(2))).toBeInTheDocument();
+    expect(screen.getByRole("textbox", { name: "Items to delete" })).toHaveValue("readme.txt\nnotes.md");
+    expect(screen.getByRole("textbox", { name: "Items to delete" })).toHaveAttribute("readonly");
+    expect(screen.getByRole("textbox", { name: "Items to delete" })).toHaveAttribute("wrap", "off");
   });
 
   it("calls onClose when Cancel is clicked", async () => {

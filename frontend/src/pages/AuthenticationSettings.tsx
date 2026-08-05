@@ -19,10 +19,13 @@ import {
 } from "@mui/material";
 import { type ReactNode, useEffect, useRef, useState } from "react";
 import { useNavigate } from "react-router-dom";
+import { adminDialogActionButtonSx, adminDialogEndActionRowSx } from "../components/Admin/dialogActionStyles";
+import { ResponsiveFormDialog } from "../components/Admin/ResponsiveFormDialog";
 import {
   SettingsFormFieldLabel,
   SettingsFormGroup,
   SettingsFormRow,
+  SettingsFormSection,
   SettingsFormSurface,
   settingsFormFieldControlSx,
   settingsFormOutlinedControlSx,
@@ -33,7 +36,6 @@ import {
 import { SettingsGroup } from "../components/Settings/SettingsGroup";
 import { SettingsPage } from "../components/Settings/SettingsPage";
 import { SettingsPasswordVisibilityToggle } from "../components/Settings/SettingsPasswordVisibilityToggle";
-import { SettingsSectionList } from "../components/Settings/SettingsSectionList";
 import { SettingsSelectMenuItem } from "../components/Settings/SettingsSelectMenuItem";
 import { settingsPrimaryButtonSx, settingsUtilityButtonSx } from "../components/Settings/settingsButtonStyles";
 import { loadAuthenticationSettingsData, SETTINGS_DATA_CACHE_KEYS } from "../components/Settings/settingsDataSources";
@@ -253,6 +255,8 @@ export function AuthenticationSettings() {
   const [authMode, setAuthMode] = useState<AuthenticationMode>("password_only");
   const [clientSecret, setClientSecret] = useState("");
   const [showClientSecret, setShowClientSecret] = useState(false);
+  const [oidcDialogOpen, setOidcDialogOpen] = useState(false);
+  const [remapConfirmationOpen, setRemapConfirmationOpen] = useState(false);
   const [testedIdentity, setTestedIdentity] = useState<OidcTestedIdentity | null>(null);
   const [mappingReview, setMappingReview] = useState<
     Record<string, { selected: boolean; expectedUsername: string; omissionAcknowledged: boolean }>
@@ -265,6 +269,7 @@ export function AuthenticationSettings() {
   const [notice, setNotice] = useState("");
   const [finalizationUnresolved, setFinalizationUnresolved] = useState(() => storedPendingFinalization() !== undefined);
   const testErrorRef = useRef<HTMLDivElement>(null);
+  const providerNameInputRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
     setScopesInput(listValue(candidate.scopes));
@@ -334,6 +339,26 @@ export function AuthenticationSettings() {
   const groupConfigurationInvalid = Boolean(admissionGroupError || adminGroupError || editorGroupError || viewerGroupError);
   const testedIdentityCanActivate = !reviewPending && testedIdentity?.admitted === true;
   const isOidcMode = authMode === "oidc_or_password" || authMode === "oidc_only";
+  const isActiveOidcMode = configuration?.auth_mode === "oidc_or_password" || configuration?.auth_mode === "oidc_only";
+  const hasHealthyActiveOidcConfiguration = Boolean(
+    isActiveOidcMode && configuration?.configuration && configuration.health.status === "healthy"
+  );
+  const oidcStatusTitle = hasHealthyActiveOidcConfiguration
+    ? "Active"
+    : isActiveOidcMode
+      ? "Needs attention"
+      : configuration?.configuration
+        ? "Configured, not active"
+        : "Not configured";
+  const oidcStatusDescription = hasHealthyActiveOidcConfiguration
+    ? "OIDC sign-in is available and the provider configuration is healthy."
+    : isActiveOidcMode && configuration?.health.reasons.includes("public_url_missing")
+      ? "Set Sambee's externally reachable public URL in network settings."
+      : isActiveOidcMode
+        ? "OIDC is active, but the provider configuration needs attention."
+        : configuration?.configuration
+          ? "Provider settings are saved. Select an OIDC authentication mode to activate them."
+          : "Set up a provider so people can sign in with an existing identity service.";
   const isSelectedNonOidcModeActive = !isOidcMode && configuration?.auth_mode === authMode;
 
   const renderDesktopFieldLabel = (
@@ -440,6 +465,7 @@ export function AuthenticationSettings() {
         setCandidate(editableCandidate(identity.candidate));
         setAuthMode(identity.candidate.sign_in_mode);
         setTestedIdentity(identity);
+        setOidcDialogOpen(true);
         setMappingErrors(
           replayFailure === "validation"
             ? Object.fromEntries(
@@ -538,17 +564,37 @@ export function AuthenticationSettings() {
     setNotice("");
   };
 
-  const startTest = async (remapAll = false) => {
+  const resetOidcDraft = () => {
+    const nextCandidate = configuration?.configuration
+      ? editableCandidate(configuration.configuration)
+      : { ...DEFAULT_CANDIDATE, sign_in_mode: isOidcMode ? authMode : DEFAULT_CANDIDATE.sign_in_mode };
+
+    setCandidate(nextCandidate);
+    setScopesInput(listValue(nextCandidate.scopes));
+    setClientSecret("");
+    setShowClientSecret(false);
+    setTestError("");
+  };
+
+  const openOidcDialog = () => {
+    setOidcDialogOpen(true);
+  };
+
+  const startTest = async (
+    remapAll = false,
+    candidateToTest: OidcConfigurationCandidate = candidate,
+    clientSecretToTest = clientSecret
+  ) => {
     if (finalizationUnresolved) return;
     setBusy(true);
     setError("");
     setTestError("");
     try {
-      const payload = { ...candidate };
-      if (clientSecret.trim()) payload.client_secret = clientSecret;
+      const payload = { ...candidateToTest };
+      if (clientSecretToTest.trim()) payload.client_secret = clientSecretToTest;
       const result = await api.startOidcTest(payload, remapAll);
       sessionStorage.setItem(OIDC_SETUP_FLOW_STORAGE_KEY, result.flow_id);
-      sessionStorage.setItem(OIDC_REVIEWED_POLICY_STORAGE_KEY, JSON.stringify(reviewedPolicyFor(candidate)));
+      sessionStorage.setItem(OIDC_REVIEWED_POLICY_STORAGE_KEY, JSON.stringify(reviewedPolicyFor(candidateToTest)));
       window.location.assign(result.authorization_url);
     } catch (caught: unknown) {
       setTestError(getApiErrorMessage(caught, "The OIDC configuration could not be validated."));
@@ -643,6 +689,7 @@ export function AuthenticationSettings() {
     sessionStorage.removeItem(OIDC_PENDING_FINALIZATION_STORAGE_KEY);
     setClientSecret("");
     setShowClientSecret(false);
+    setOidcDialogOpen(false);
     if (result.reauthentication_required) {
       localStorage.removeItem("access_token");
       authSession.clear();
@@ -673,12 +720,37 @@ export function AuthenticationSettings() {
       setTestedIdentity(null);
       setMappingReview({});
       setMappingErrors({});
+      resetOidcDraft();
+      setOidcDialogOpen(false);
       setNotice("OIDC setup canceled.");
     } catch {
       setError("The OIDC setup flow could not be canceled. It may already have expired.");
     } finally {
       setBusy(false);
     }
+  };
+
+  const closeOidcDialog = () => {
+    if (busy || finalizationUnresolved) return;
+    if (testedIdentity) {
+      void cancelTestFlow();
+      return;
+    }
+
+    resetOidcDraft();
+    setOidcDialogOpen(false);
+  };
+
+  const startRemap = () => {
+    const activeConfiguration = configuration?.configuration;
+    if (!activeConfiguration) return;
+
+    const activeCandidate = editableCandidate(activeConfiguration);
+    setCandidate(activeCandidate);
+    setScopesInput(listValue(activeCandidate.scopes));
+    setRemapConfirmationOpen(false);
+    setOidcDialogOpen(true);
+    void startTest(true, activeCandidate, "");
   };
 
   const setPasswordOnly = async () => {
@@ -742,34 +814,7 @@ export function AuthenticationSettings() {
     <SettingsPage
       category="admin-authentication"
       footerPrimaryActions={
-        isOidcMode ? (
-          <>
-            <Button
-              variant="contained"
-              sx={[settingsPrimaryButtonSx, pageActionButtonSx].flat()}
-              disabled={
-                busy ||
-                finalizationUnresolved ||
-                configuration?.health.status !== "healthy" ||
-                groupConfigurationInvalid ||
-                Boolean(scopesError)
-              }
-              onClick={() => void startTest()}
-            >
-              Connect and test
-            </Button>
-            {testedIdentity ? (
-              <Button
-                variant="contained"
-                sx={[settingsPrimaryButtonSx, pageActionButtonSx].flat()}
-                disabled={busy || finalizationUnresolved || reviewPending || replacementPlanInvalid || !testedIdentityCanActivate}
-                onClick={activate}
-              >
-                Activate configuration
-              </Button>
-            ) : null}
-          </>
-        ) : (
+        !isOidcMode ? (
           <Button
             variant="contained"
             sx={[settingsPrimaryButtonSx, pageActionButtonSx].flat()}
@@ -777,18 +822,6 @@ export function AuthenticationSettings() {
             onClick={() => void activateNonOidcMode()}
           >
             {authMode === "none" ? "Activate No authentication" : "Activate Password-only mode"}
-          </Button>
-        )
-      }
-      footerSecondaryActions={
-        isOidcMode && testedIdentity ? (
-          <Button
-            variant="outlined"
-            sx={[settingsUtilityButtonSx, pageActionButtonSx].flat()}
-            disabled={busy || finalizationUnresolved}
-            onClick={() => void cancelTestFlow()}
-          >
-            Cancel
           </Button>
         ) : undefined
       }
@@ -801,12 +834,12 @@ export function AuthenticationSettings() {
         ) : null}
         {!(busy && !configuration) && (
           <>
-            {error && (
+            {error && !oidcDialogOpen && (
               <Alert severity="error" sx={{ mb: 2 }}>
                 {error}
               </Alert>
             )}
-            {notice && (
+            {notice && !oidcDialogOpen && (
               <Alert severity="success" sx={{ mb: 2 }}>
                 {notice}
               </Alert>
@@ -816,14 +849,6 @@ export function AuthenticationSettings() {
                 Authentication is disabled in the configuration file.
               </Alert>
             )}
-            {isOidcMode && configuration?.health.status === "unhealthy" && (
-              <Alert severity="warning" sx={{ mb: 3 }}>
-                {configuration.health.reasons.includes("public_url_missing")
-                  ? "Set Sambee's externally reachable public URL in network settings."
-                  : "Complete the required configuration before testing this provider."}
-              </Alert>
-            )}
-
             <Stack spacing={2.5}>
               <SettingsFormSurface testId="authentication-mode-form-surface">
                 <SettingsFormGroup>
@@ -898,621 +923,686 @@ export function AuthenticationSettings() {
                 </SettingsFormGroup>
               </SettingsFormSurface>
 
-              {isOidcMode ? (
-                <SettingsSectionList>
-                  <SettingsGroup title="Provider">
-                    <SettingsFormSurface testId="authentication-provider-form-surface" sx={{ gap: 2 }}>
-                      <SettingsFormGroup>
-                        {configuration?.health.redirect_uri &&
-                          renderFormRow(
-                            "Redirect URI",
-                            "Register this callback URL with the identity provider",
-                            "redirect-uri-description",
-                            "redirect-uri",
-                            <TextField
-                              id="redirect-uri"
-                              fullWidth={!usesDesktopFormLayout}
-                              size={formFieldSize}
-                              label={usesDesktopFormLayout ? undefined : "Redirect URI"}
-                              value={configuration.health.redirect_uri}
-                              sx={providerFieldSx}
-                              slotProps={{
-                                input: {
-                                  readOnly: true,
-                                  endAdornment: (
-                                    <InputAdornment position="end">
-                                      <Tooltip title="Copy redirect URI">
-                                        <IconButton
-                                          aria-label="Copy redirect URI"
-                                          edge="end"
-                                          onClick={() => {
-                                            void navigator.clipboard
-                                              .writeText(configuration.health.redirect_uri ?? "")
-                                              .then(() => setNotice("Redirect URI copied."))
-                                              .catch(() => setError("The redirect URI could not be copied."));
-                                          }}
-                                        >
-                                          <ContentCopy />
-                                        </IconButton>
-                                      </Tooltip>
-                                    </InputAdornment>
-                                  ),
-                                },
-                                htmlInput: { "aria-describedby": usesDesktopFormLayout ? "redirect-uri-description" : undefined },
-                              }}
-                            />
-                          )}
-                        {renderFormRow(
-                          "Provider name",
-                          "Name shown for this provider",
-                          "provider-name-description",
-                          "provider-name",
+              {(isOidcMode || isActiveOidcMode) && (
+                <SettingsGroup title="OpenID Connect">
+                  <SettingsFormSurface testId="authentication-oidc-status-surface">
+                    <Stack spacing={2}>
+                      <Box
+                        sx={{
+                          display: "flex",
+                          flexDirection: { xs: "column", sm: "row" },
+                          alignItems: { sm: "center" },
+                          justifyContent: "space-between",
+                          gap: 2,
+                        }}
+                      >
+                        <Box sx={{ minWidth: 0 }}>
+                          <Typography variant="subtitle1" sx={{ fontWeight: 500 }}>
+                            {oidcStatusTitle}
+                          </Typography>
+                          <Typography variant="body2" sx={{ color: "text.secondary" }}>
+                            {oidcStatusDescription}
+                          </Typography>
+                        </Box>
+                        <Button
+                          variant="contained"
+                          sx={settingsPrimaryButtonSx}
+                          disabled={busy || finalizationUnresolved}
+                          onClick={openOidcDialog}
+                        >
+                          Configure OIDC
+                        </Button>
+                      </Box>
+                      {isActiveOidcMode && (
+                        <Box
+                          sx={{
+                            display: "flex",
+                            flexDirection: { xs: "column", sm: "row" },
+                            alignItems: { sm: "center" },
+                            justifyContent: "space-between",
+                            gap: 2,
+                            pt: 2,
+                            borderTop: 1,
+                            borderColor: "divider",
+                          }}
+                        >
+                          <Box sx={{ minWidth: 0 }}>
+                            <Typography variant="subtitle2" sx={{ fontWeight: 500 }}>
+                              Account recovery
+                            </Typography>
+                            <Typography variant="body2" sx={{ color: "text.secondary" }}>
+                              Reconnect existing local accounts after an identity provider rebuild or migration.
+                            </Typography>
+                          </Box>
+                          <Button
+                            variant="outlined"
+                            sx={settingsUtilityButtonSx}
+                            disabled={busy || finalizationUnresolved || !hasHealthyActiveOidcConfiguration}
+                            onClick={() => setRemapConfirmationOpen(true)}
+                          >
+                            Remap all OIDC accounts
+                          </Button>
+                        </Box>
+                      )}
+                    </Stack>
+                  </SettingsFormSurface>
+                </SettingsGroup>
+              )}
+
+              <ResponsiveFormDialog
+                open={oidcDialogOpen}
+                onClose={closeOidcDialog}
+                disableClose={busy || finalizationUnresolved}
+                title="Configure OIDC"
+                maxWidth="md"
+                onTransitionEntered={() => {
+                  const activeElement = document.activeElement;
+                  const userIsAlreadyInteracting =
+                    activeElement instanceof HTMLInputElement ||
+                    activeElement instanceof HTMLTextAreaElement ||
+                    activeElement instanceof HTMLButtonElement ||
+                    activeElement?.getAttribute("role") === "combobox";
+                  if (!testedIdentity && !testError && !userIsAlreadyInteracting) providerNameInputRef.current?.focus();
+                }}
+                actions={
+                  <Box sx={adminDialogEndActionRowSx}>
+                    <Button
+                      onClick={closeOidcDialog}
+                      disabled={busy || finalizationUnresolved}
+                      variant="outlined"
+                      sx={[settingsUtilityButtonSx, adminDialogActionButtonSx]}
+                    >
+                      Cancel
+                    </Button>
+                    <Button
+                      onClick={() => (testedIdentity ? void activate() : void startTest())}
+                      disabled={
+                        busy ||
+                        finalizationUnresolved ||
+                        (testedIdentity
+                          ? reviewPending || replacementPlanInvalid || !testedIdentityCanActivate
+                          : configuration?.health.status !== "healthy" || groupConfigurationInvalid || Boolean(scopesError))
+                      }
+                      variant="contained"
+                      sx={[settingsPrimaryButtonSx, adminDialogActionButtonSx]}
+                    >
+                      {testedIdentity ? "Activate configuration" : "Connect and test"}
+                    </Button>
+                  </Box>
+                }
+              >
+                <Stack spacing={2}>
+                  {error && <Alert severity="error">{error}</Alert>}
+                  {notice && <Alert severity="success">{notice}</Alert>}
+                  {testError && (
+                    <Alert ref={testErrorRef} severity="error" role="alert" aria-live="assertive" tabIndex={-1}>
+                      <AlertTitle>Connection test failed</AlertTitle>
+                      {testError}
+                    </Alert>
+                  )}
+                  {configuration?.health.status === "unhealthy" && (
+                    <Alert severity="warning">
+                      {configuration.health.reasons.includes("public_url_missing")
+                        ? "Set Sambee's externally reachable public URL in network settings before testing this provider."
+                        : "Complete the required configuration before testing this provider."}
+                    </Alert>
+                  )}
+                  <SettingsFormSurface testId="authentication-oidc-form-surface" sx={{ gap: 2 }}>
+                    <SettingsFormGroup testId="authentication-provider-form-group">
+                      {configuration?.health.redirect_uri &&
+                        renderFormRow(
+                          "Redirect URI",
+                          "Register this callback URL with the identity provider",
+                          "redirect-uri-description",
+                          "redirect-uri",
                           <TextField
-                            id="provider-name"
+                            id="redirect-uri"
                             fullWidth={!usesDesktopFormLayout}
                             size={formFieldSize}
-                            label={usesDesktopFormLayout ? undefined : "Provider name"}
-                            value={candidate.display_name}
-                            onChange={(event) => update("display_name", event.target.value)}
-                            disabled={finalizationUnresolved}
-                            required
-                            helperText={usesDesktopFormLayout ? undefined : "Name shown for this provider"}
-                            sx={providerFieldSx}
-                            slotProps={{
-                              htmlInput: { "aria-describedby": usesDesktopFormLayout ? "provider-name-description" : undefined },
-                            }}
-                          />,
-                          true
-                        )}
-                        {renderFormRow(
-                          "Issuer URL",
-                          "OpenID Connect issuer URL from the provider",
-                          "issuer-url-description",
-                          "issuer-url",
-                          <TextField
-                            id="issuer-url"
-                            fullWidth={!usesDesktopFormLayout}
-                            size={formFieldSize}
-                            label={usesDesktopFormLayout ? undefined : "Issuer URL"}
-                            value={candidate.issuer_url}
-                            onChange={(event) => update("issuer_url", event.target.value)}
-                            disabled={finalizationUnresolved}
-                            required
-                            helperText={usesDesktopFormLayout ? undefined : "OpenID Connect issuer URL from the provider"}
-                            sx={providerFieldSx}
-                            slotProps={{ htmlInput: { "aria-describedby": usesDesktopFormLayout ? "issuer-url-description" : undefined } }}
-                          />,
-                          true
-                        )}
-                        {renderFormRow(
-                          "Client ID",
-                          "OAuth client ID registered with the provider",
-                          "client-id-description",
-                          "client-id",
-                          <TextField
-                            id="client-id"
-                            fullWidth={!usesDesktopFormLayout}
-                            size={formFieldSize}
-                            label={usesDesktopFormLayout ? undefined : "Client ID"}
-                            value={candidate.client_id}
-                            onChange={(event) => update("client_id", event.target.value)}
-                            disabled={finalizationUnresolved}
-                            required
-                            helperText={usesDesktopFormLayout ? undefined : "OAuth client ID registered with the provider"}
-                            sx={providerFieldSx}
-                            slotProps={{ htmlInput: { "aria-describedby": usesDesktopFormLayout ? "client-id-description" : undefined } }}
-                          />,
-                          true
-                        )}
-                        {renderFormRow(
-                          "Client secret",
-                          configuration?.configuration?.client_secret_configured
-                            ? "Leave blank to keep the stored secret"
-                            : "Required for the first test",
-                          "client-secret-description",
-                          "client-secret",
-                          <TextField
-                            id="client-secret"
-                            fullWidth={!usesDesktopFormLayout}
-                            size={formFieldSize}
-                            label={usesDesktopFormLayout ? undefined : "Client secret"}
-                            type={showClientSecret ? "text" : "password"}
-                            value={clientSecret}
-                            disabled={finalizationUnresolved}
-                            onChange={(event) => {
-                              setClientSecret(event.target.value);
-                              setTestError("");
-                              setTestedIdentity(null);
-                            }}
-                            helperText={
-                              usesDesktopFormLayout
-                                ? undefined
-                                : configuration?.configuration?.client_secret_configured
-                                  ? "Leave blank to keep the stored secret"
-                                  : "Required for the first test"
-                            }
+                            label={usesDesktopFormLayout ? undefined : "Redirect URI"}
+                            value={configuration.health.redirect_uri}
                             sx={providerFieldSx}
                             slotProps={{
                               input: {
+                                readOnly: true,
                                 endAdornment: (
-                                  <SettingsPasswordVisibilityToggle
-                                    visible={showClientSecret}
-                                    onToggle={() => setShowClientSecret((current) => !current)}
-                                    showLabel="Show client secret"
-                                    hideLabel="Hide client secret"
-                                  />
+                                  <InputAdornment position="end">
+                                    <Tooltip title="Copy redirect URI">
+                                      <IconButton
+                                        aria-label="Copy redirect URI"
+                                        edge="end"
+                                        onClick={() => {
+                                          void navigator.clipboard
+                                            .writeText(configuration.health.redirect_uri ?? "")
+                                            .then(() => setNotice("Redirect URI copied."))
+                                            .catch(() => setError("The redirect URI could not be copied."));
+                                        }}
+                                      >
+                                        <ContentCopy />
+                                      </IconButton>
+                                    </Tooltip>
+                                  </InputAdornment>
                                 ),
                               },
-                              htmlInput: { "aria-describedby": usesDesktopFormLayout ? "client-secret-description" : undefined },
+                              htmlInput: { "aria-describedby": usesDesktopFormLayout ? "redirect-uri-description" : undefined },
                             }}
                           />
                         )}
-                        {renderFormRow(
-                          "Scopes",
-                          scopesError || "Separate with commas; openid and offline_access are required",
-                          "scopes-description",
-                          "scopes",
+                      {renderFormRow(
+                        "Provider name",
+                        "Name shown for this provider",
+                        "provider-name-description",
+                        "provider-name",
+                        <TextField
+                          id="provider-name"
+                          fullWidth={!usesDesktopFormLayout}
+                          size={formFieldSize}
+                          label={usesDesktopFormLayout ? undefined : "Provider name"}
+                          value={candidate.display_name}
+                          inputRef={providerNameInputRef}
+                          onChange={(event) => update("display_name", event.target.value)}
+                          disabled={finalizationUnresolved}
+                          required
+                          helperText={usesDesktopFormLayout ? undefined : "Name shown for this provider"}
+                          sx={providerFieldSx}
+                          slotProps={{
+                            htmlInput: { "aria-describedby": usesDesktopFormLayout ? "provider-name-description" : undefined },
+                          }}
+                        />,
+                        true
+                      )}
+                      {renderFormRow(
+                        "Issuer URL",
+                        "OpenID Connect issuer URL from the provider",
+                        "issuer-url-description",
+                        "issuer-url",
+                        <TextField
+                          id="issuer-url"
+                          fullWidth={!usesDesktopFormLayout}
+                          size={formFieldSize}
+                          label={usesDesktopFormLayout ? undefined : "Issuer URL"}
+                          value={candidate.issuer_url}
+                          onChange={(event) => update("issuer_url", event.target.value)}
+                          disabled={finalizationUnresolved}
+                          required
+                          helperText={usesDesktopFormLayout ? undefined : "OpenID Connect issuer URL from the provider"}
+                          sx={providerFieldSx}
+                          slotProps={{
+                            htmlInput: { "aria-describedby": usesDesktopFormLayout ? "issuer-url-description" : undefined },
+                          }}
+                        />,
+                        true
+                      )}
+                      {renderFormRow(
+                        "Client ID",
+                        "OAuth client ID registered with the provider",
+                        "client-id-description",
+                        "client-id",
+                        <TextField
+                          id="client-id"
+                          fullWidth={!usesDesktopFormLayout}
+                          size={formFieldSize}
+                          label={usesDesktopFormLayout ? undefined : "Client ID"}
+                          value={candidate.client_id}
+                          onChange={(event) => update("client_id", event.target.value)}
+                          disabled={finalizationUnresolved}
+                          required
+                          helperText={usesDesktopFormLayout ? undefined : "OAuth client ID registered with the provider"}
+                          sx={providerFieldSx}
+                          slotProps={{ htmlInput: { "aria-describedby": usesDesktopFormLayout ? "client-id-description" : undefined } }}
+                        />,
+                        true
+                      )}
+                      {renderFormRow(
+                        "Client secret",
+                        configuration?.configuration?.client_secret_configured
+                          ? "Leave blank to keep the stored secret"
+                          : "Required for the first test",
+                        "client-secret-description",
+                        "client-secret",
+                        <TextField
+                          id="client-secret"
+                          fullWidth={!usesDesktopFormLayout}
+                          size={formFieldSize}
+                          label={usesDesktopFormLayout ? undefined : "Client secret"}
+                          type={showClientSecret ? "text" : "password"}
+                          value={clientSecret}
+                          disabled={finalizationUnresolved}
+                          onChange={(event) => {
+                            setClientSecret(event.target.value);
+                            setTestError("");
+                            setTestedIdentity(null);
+                          }}
+                          helperText={
+                            usesDesktopFormLayout
+                              ? undefined
+                              : configuration?.configuration?.client_secret_configured
+                                ? "Leave blank to keep the stored secret"
+                                : "Required for the first test"
+                          }
+                          sx={providerFieldSx}
+                          slotProps={{
+                            input: {
+                              endAdornment: (
+                                <SettingsPasswordVisibilityToggle
+                                  visible={showClientSecret}
+                                  onToggle={() => setShowClientSecret((current) => !current)}
+                                  showLabel="Show client secret"
+                                  hideLabel="Hide client secret"
+                                />
+                              ),
+                            },
+                            htmlInput: { "aria-describedby": usesDesktopFormLayout ? "client-secret-description" : undefined },
+                          }}
+                        />
+                      )}
+                      {renderFormRow(
+                        "Scopes",
+                        scopesError || "Separate with commas; openid and offline_access are required",
+                        "scopes-description",
+                        "scopes",
+                        <TextField
+                          id="scopes"
+                          fullWidth={!usesDesktopFormLayout}
+                          size={formFieldSize}
+                          label={usesDesktopFormLayout ? undefined : "Scopes"}
+                          value={scopesInput}
+                          onChange={(event) => setScopesInput(event.target.value)}
+                          onBlur={() => update("scopes", parseList(scopesInput))}
+                          disabled={finalizationUnresolved}
+                          error={Boolean(scopesError)}
+                          helperText={
+                            usesDesktopFormLayout
+                              ? undefined
+                              : scopesError || "Separate with commas; openid and offline_access are required"
+                          }
+                          sx={providerFieldSx}
+                          slotProps={{ htmlInput: { "aria-describedby": usesDesktopFormLayout ? "scopes-description" : undefined } }}
+                        />,
+                        false,
+                        Boolean(scopesError)
+                      )}
+                      {renderFormRow(
+                        "Interactive sign-in interval (days)",
+                        "Background renewal stops when this interval expires",
+                        "interactive-sign-in-interval-description",
+                        "interactive-sign-in-interval",
+                        <TextField
+                          id="interactive-sign-in-interval"
+                          fullWidth={!usesDesktopFormLayout}
+                          size={formFieldSize}
+                          label={usesDesktopFormLayout ? undefined : "Interactive sign-in interval (days)"}
+                          type="number"
+                          value={candidate.interactive_reauthentication_max_age_days}
+                          onChange={(event) => update("interactive_reauthentication_max_age_days", Number(event.target.value))}
+                          disabled={finalizationUnresolved}
+                          slotProps={{
+                            htmlInput: {
+                              min: 1,
+                              max: 365,
+                              "aria-describedby": usesDesktopFormLayout ? "interactive-sign-in-interval-description" : undefined,
+                            },
+                          }}
+                          helperText={usesDesktopFormLayout ? undefined : "Background renewal stops when this interval expires"}
+                          sx={providerIntervalFieldSx}
+                        />
+                      )}
+                    </SettingsFormGroup>
+                    <SettingsFormSection title="Access" />
+                    <SettingsFormGroup testId="authentication-access-form-group">
+                      {renderFormRow(
+                        "Admission",
+                        "Choose which provider users can sign in",
+                        "admission-description",
+                        "admission-mode",
+                        <TextField
+                          id="admission-mode"
+                          select
+                          fullWidth={!usesDesktopFormLayout}
+                          size={formFieldSize}
+                          label={usesDesktopFormLayout ? undefined : "Admission"}
+                          value={candidate.admission_mode}
+                          onChange={(event) => update("admission_mode", event.target.value as OidcConfigurationCandidate["admission_mode"])}
+                          disabled={finalizationUnresolved}
+                          helperText={usesDesktopFormLayout ? undefined : "Choose which provider users can sign in"}
+                          sx={[settingsFormSelectControlSx, settingsFormOutlinedControlSx, settingsSelectSx].flat()}
+                          slotProps={{
+                            select: { MenuProps: settingsSelectMenuProps },
+                            htmlInput: { "aria-describedby": usesDesktopFormLayout ? "admission-description" : undefined },
+                          }}
+                        >
+                          <MenuItem value="all_idp_users">All authenticated users</MenuItem>
+                          <MenuItem value="selected_groups">Only selected groups</MenuItem>
+                        </TextField>
+                      )}
+                      {candidate.admission_mode === "selected_groups" &&
+                        renderFormRow(
+                          "Admission groups",
+                          admissionGroupError || "Members of these groups can sign in; enter exact names, separated by commas",
+                          "admission-groups-description",
+                          "admission-groups",
                           <TextField
-                            id="scopes"
+                            id="admission-groups"
                             fullWidth={!usesDesktopFormLayout}
                             size={formFieldSize}
-                            label={usesDesktopFormLayout ? undefined : "Scopes"}
-                            value={scopesInput}
-                            onChange={(event) => setScopesInput(event.target.value)}
-                            onBlur={() => update("scopes", parseList(scopesInput))}
+                            label={usesDesktopFormLayout ? undefined : "Admission groups"}
+                            value={listValue(candidate.admission_groups)}
+                            onChange={(event) => update("admission_groups", parseList(event.target.value))}
                             disabled={finalizationUnresolved}
-                            error={Boolean(scopesError)}
+                            error={Boolean(admissionGroupError)}
                             helperText={
                               usesDesktopFormLayout
                                 ? undefined
-                                : scopesError || "Separate with commas; openid and offline_access are required"
+                                : admissionGroupError || "Members of these groups can sign in; enter exact names, separated by commas"
                             }
-                            sx={providerFieldSx}
-                            slotProps={{ htmlInput: { "aria-describedby": usesDesktopFormLayout ? "scopes-description" : undefined } }}
+                            sx={settingsFormOutlinedControlSx}
+                            slotProps={{
+                              htmlInput: { "aria-describedby": usesDesktopFormLayout ? "admission-groups-description" : undefined },
+                            }}
                           />,
                           false,
-                          Boolean(scopesError)
+                          Boolean(admissionGroupError)
                         )}
-                        {renderFormRow(
-                          "Interactive sign-in interval (days)",
-                          "Background renewal stops when this interval expires",
-                          "interactive-sign-in-interval-description",
-                          "interactive-sign-in-interval",
+                    </SettingsFormGroup>
+                    <SettingsFormSection title="Role assignment" />
+                    <SettingsFormGroup testId="authentication-role-form-group">
+                      {renderFormRow(
+                        "Role assignment",
+                        "Set one role for all users or map roles from provider groups",
+                        "role-assignment-description",
+                        "role-assignment-mode",
+                        <TextField
+                          id="role-assignment-mode"
+                          select
+                          fullWidth={!usesDesktopFormLayout}
+                          size={formFieldSize}
+                          label={usesDesktopFormLayout ? undefined : "Role assignment"}
+                          value={candidate.role_assignment_mode}
+                          onChange={(event) =>
+                            update("role_assignment_mode", event.target.value as OidcConfigurationCandidate["role_assignment_mode"])
+                          }
+                          disabled={finalizationUnresolved}
+                          helperText={usesDesktopFormLayout ? undefined : "Set one role for all users or map roles from provider groups"}
+                          sx={[settingsFormSelectControlSx, settingsFormOutlinedControlSx, settingsSelectSx].flat()}
+                          slotProps={{
+                            select: { MenuProps: settingsSelectMenuProps },
+                            htmlInput: { "aria-describedby": usesDesktopFormLayout ? "role-assignment-description" : undefined },
+                          }}
+                        >
+                          <MenuItem value="uniform">All users are assigned to the same role</MenuItem>
+                          <MenuItem value="group_based">Group-based</MenuItem>
+                        </TextField>
+                      )}
+                      {candidate.role_assignment_mode === "uniform" ? (
+                        renderFormRow(
+                          "Assigned role",
+                          "Role assigned to all admitted users",
+                          "assigned-role-description",
+                          "assigned-role",
                           <TextField
-                            id="interactive-sign-in-interval"
-                            fullWidth={!usesDesktopFormLayout}
-                            size={formFieldSize}
-                            label={usesDesktopFormLayout ? undefined : "Interactive sign-in interval (days)"}
-                            type="number"
-                            value={candidate.interactive_reauthentication_max_age_days}
-                            onChange={(event) => update("interactive_reauthentication_max_age_days", Number(event.target.value))}
-                            disabled={finalizationUnresolved}
-                            slotProps={{
-                              htmlInput: {
-                                min: 1,
-                                max: 365,
-                                "aria-describedby": usesDesktopFormLayout ? "interactive-sign-in-interval-description" : undefined,
-                              },
-                            }}
-                            helperText={usesDesktopFormLayout ? undefined : "Background renewal stops when this interval expires"}
-                            sx={providerIntervalFieldSx}
-                          />
-                        )}
-                      </SettingsFormGroup>
-                    </SettingsFormSurface>
-                  </SettingsGroup>
-
-                  <SettingsGroup title="Access">
-                    <SettingsFormSurface testId="authentication-access-form-surface">
-                      <SettingsFormGroup>
-                        {renderFormRow(
-                          "Admission",
-                          "Choose which provider users can sign in",
-                          "admission-description",
-                          "admission-mode",
-                          <TextField
-                            id="admission-mode"
+                            id="assigned-role"
                             select
                             fullWidth={!usesDesktopFormLayout}
                             size={formFieldSize}
-                            label={usesDesktopFormLayout ? undefined : "Admission"}
-                            value={candidate.admission_mode}
-                            onChange={(event) =>
-                              update("admission_mode", event.target.value as OidcConfigurationCandidate["admission_mode"])
-                            }
+                            label={usesDesktopFormLayout ? undefined : "Assigned role"}
+                            value={candidate.uniform_role}
+                            onChange={(event) => update("uniform_role", event.target.value as OidcConfigurationCandidate["uniform_role"])}
                             disabled={finalizationUnresolved}
-                            helperText={usesDesktopFormLayout ? undefined : "Choose which provider users can sign in"}
+                            helperText={usesDesktopFormLayout ? undefined : "Role assigned to all admitted users"}
                             sx={[settingsFormSelectControlSx, settingsFormOutlinedControlSx, settingsSelectSx].flat()}
                             slotProps={{
                               select: { MenuProps: settingsSelectMenuProps },
-                              htmlInput: { "aria-describedby": usesDesktopFormLayout ? "admission-description" : undefined },
+                              htmlInput: { "aria-describedby": usesDesktopFormLayout ? "assigned-role-description" : undefined },
                             }}
                           >
-                            <MenuItem value="all_idp_users">All authenticated users</MenuItem>
-                            <MenuItem value="selected_groups">Only selected groups</MenuItem>
+                            <MenuItem value="admin">Administrator</MenuItem>
+                            <MenuItem value="editor">Editor</MenuItem>
+                            <MenuItem value="viewer">Viewer</MenuItem>
                           </TextField>
-                        )}
-                        {candidate.admission_mode === "selected_groups" &&
-                          renderFormRow(
-                            "Admission groups",
-                            admissionGroupError || "Members of these groups can sign in; enter exact names, separated by commas",
-                            "admission-groups-description",
-                            "admission-groups",
+                        )
+                      ) : (
+                        <>
+                          {renderFormRow(
+                            "Administrator groups",
+                            adminGroupError || "Members get administrator access; enter exact names, separated by commas",
+                            "administrator-groups-description",
+                            "administrator-groups",
                             <TextField
-                              id="admission-groups"
+                              id="administrator-groups"
                               fullWidth={!usesDesktopFormLayout}
                               size={formFieldSize}
-                              label={usesDesktopFormLayout ? undefined : "Admission groups"}
-                              value={listValue(candidate.admission_groups)}
-                              onChange={(event) => update("admission_groups", parseList(event.target.value))}
+                              label={usesDesktopFormLayout ? undefined : "Administrator groups"}
+                              value={listValue(candidate.role_mappings.admin)}
+                              onChange={(event) =>
+                                update("role_mappings", { ...candidate.role_mappings, admin: parseList(event.target.value) })
+                              }
                               disabled={finalizationUnresolved}
-                              error={Boolean(admissionGroupError)}
+                              error={Boolean(adminGroupError)}
                               helperText={
                                 usesDesktopFormLayout
                                   ? undefined
-                                  : admissionGroupError || "Members of these groups can sign in; enter exact names, separated by commas"
+                                  : adminGroupError || "Members get administrator access; enter exact names, separated by commas"
                               }
                               sx={settingsFormOutlinedControlSx}
                               slotProps={{
-                                htmlInput: { "aria-describedby": usesDesktopFormLayout ? "admission-groups-description" : undefined },
+                                htmlInput: {
+                                  "aria-describedby": usesDesktopFormLayout ? "administrator-groups-description" : undefined,
+                                },
                               }}
                             />,
                             false,
-                            Boolean(admissionGroupError)
+                            Boolean(adminGroupError)
                           )}
-                      </SettingsFormGroup>
-                    </SettingsFormSurface>
-                  </SettingsGroup>
-
-                  <SettingsGroup title="Role assignment">
-                    <SettingsFormSurface testId="authentication-role-form-surface" sx={{ gap: 2 }}>
-                      <SettingsFormGroup>
-                        {renderFormRow(
-                          "Role assignment",
-                          "Set one role for all users or map roles from provider groups",
-                          "role-assignment-description",
-                          "role-assignment-mode",
-                          <TextField
-                            id="role-assignment-mode"
-                            select
-                            fullWidth={!usesDesktopFormLayout}
-                            size={formFieldSize}
-                            label={usesDesktopFormLayout ? undefined : "Role assignment"}
-                            value={candidate.role_assignment_mode}
-                            onChange={(event) =>
-                              update("role_assignment_mode", event.target.value as OidcConfigurationCandidate["role_assignment_mode"])
-                            }
-                            disabled={finalizationUnresolved}
-                            helperText={usesDesktopFormLayout ? undefined : "Set one role for all users or map roles from provider groups"}
-                            sx={[settingsFormSelectControlSx, settingsFormOutlinedControlSx, settingsSelectSx].flat()}
-                            slotProps={{
-                              select: { MenuProps: settingsSelectMenuProps },
-                              htmlInput: { "aria-describedby": usesDesktopFormLayout ? "role-assignment-description" : undefined },
-                            }}
-                          >
-                            <MenuItem value="uniform">All users are assigned to the same role</MenuItem>
-                            <MenuItem value="group_based">Group-based</MenuItem>
-                          </TextField>
-                        )}
-                        {candidate.role_assignment_mode === "uniform" ? (
-                          renderFormRow(
-                            "Assigned role",
-                            "Role assigned to all admitted users",
-                            "assigned-role-description",
-                            "assigned-role",
+                          {renderFormRow(
+                            "Editor groups",
+                            editorGroupError || "Members can edit content; enter exact names, separated by commas",
+                            "editor-groups-description",
+                            "editor-groups",
                             <TextField
-                              id="assigned-role"
-                              select
+                              id="editor-groups"
                               fullWidth={!usesDesktopFormLayout}
                               size={formFieldSize}
-                              label={usesDesktopFormLayout ? undefined : "Assigned role"}
-                              value={candidate.uniform_role}
-                              onChange={(event) => update("uniform_role", event.target.value as OidcConfigurationCandidate["uniform_role"])}
+                              label={usesDesktopFormLayout ? undefined : "Editor groups"}
+                              value={listValue(candidate.role_mappings.editor)}
+                              onChange={(event) =>
+                                update("role_mappings", { ...candidate.role_mappings, editor: parseList(event.target.value) })
+                              }
                               disabled={finalizationUnresolved}
-                              helperText={usesDesktopFormLayout ? undefined : "Role assigned to all admitted users"}
-                              sx={[settingsFormSelectControlSx, settingsFormOutlinedControlSx, settingsSelectSx].flat()}
+                              error={Boolean(editorGroupError)}
+                              helperText={
+                                usesDesktopFormLayout
+                                  ? undefined
+                                  : editorGroupError || "Members can edit content; enter exact names, separated by commas"
+                              }
+                              sx={settingsFormOutlinedControlSx}
                               slotProps={{
-                                select: { MenuProps: settingsSelectMenuProps },
-                                htmlInput: { "aria-describedby": usesDesktopFormLayout ? "assigned-role-description" : undefined },
+                                htmlInput: { "aria-describedby": usesDesktopFormLayout ? "editor-groups-description" : undefined },
                               }}
-                            >
-                              <MenuItem value="admin">Administrator</MenuItem>
-                              <MenuItem value="editor">Editor</MenuItem>
-                              <MenuItem value="viewer">Viewer</MenuItem>
-                            </TextField>
-                          )
-                        ) : (
-                          <>
-                            {renderFormRow(
-                              "Administrator groups",
-                              adminGroupError || "Members get administrator access; enter exact names, separated by commas",
-                              "administrator-groups-description",
-                              "administrator-groups",
-                              <TextField
-                                id="administrator-groups"
-                                fullWidth={!usesDesktopFormLayout}
-                                size={formFieldSize}
-                                label={usesDesktopFormLayout ? undefined : "Administrator groups"}
-                                value={listValue(candidate.role_mappings.admin)}
-                                onChange={(event) =>
-                                  update("role_mappings", { ...candidate.role_mappings, admin: parseList(event.target.value) })
-                                }
-                                disabled={finalizationUnresolved}
-                                error={Boolean(adminGroupError)}
-                                helperText={
-                                  usesDesktopFormLayout
-                                    ? undefined
-                                    : adminGroupError || "Members get administrator access; enter exact names, separated by commas"
-                                }
-                                sx={settingsFormOutlinedControlSx}
-                                slotProps={{
-                                  htmlInput: { "aria-describedby": usesDesktopFormLayout ? "administrator-groups-description" : undefined },
-                                }}
-                              />,
-                              false,
-                              Boolean(adminGroupError)
-                            )}
-                            {renderFormRow(
-                              "Editor groups",
-                              editorGroupError || "Members can edit content; enter exact names, separated by commas",
-                              "editor-groups-description",
-                              "editor-groups",
-                              <TextField
-                                id="editor-groups"
-                                fullWidth={!usesDesktopFormLayout}
-                                size={formFieldSize}
-                                label={usesDesktopFormLayout ? undefined : "Editor groups"}
-                                value={listValue(candidate.role_mappings.editor)}
-                                onChange={(event) =>
-                                  update("role_mappings", { ...candidate.role_mappings, editor: parseList(event.target.value) })
-                                }
-                                disabled={finalizationUnresolved}
-                                error={Boolean(editorGroupError)}
-                                helperText={
-                                  usesDesktopFormLayout
-                                    ? undefined
-                                    : editorGroupError || "Members can edit content; enter exact names, separated by commas"
-                                }
-                                sx={settingsFormOutlinedControlSx}
-                                slotProps={{
-                                  htmlInput: { "aria-describedby": usesDesktopFormLayout ? "editor-groups-description" : undefined },
-                                }}
-                              />,
-                              false,
-                              Boolean(editorGroupError)
-                            )}
-                            {renderFormRow(
-                              "Viewer groups",
-                              viewerGroupError || "Members get viewer access; enter exact names, separated by commas",
-                              "viewer-groups-description",
-                              "viewer-groups",
-                              <TextField
-                                id="viewer-groups"
-                                fullWidth={!usesDesktopFormLayout}
-                                size={formFieldSize}
-                                label={usesDesktopFormLayout ? undefined : "Viewer groups"}
-                                value={listValue(candidate.role_mappings.viewer)}
-                                onChange={(event) =>
-                                  update("role_mappings", { ...candidate.role_mappings, viewer: parseList(event.target.value) })
-                                }
-                                disabled={finalizationUnresolved}
-                                error={Boolean(viewerGroupError)}
-                                helperText={
-                                  usesDesktopFormLayout
-                                    ? undefined
-                                    : viewerGroupError || "Members get viewer access; enter exact names, separated by commas"
-                                }
-                                sx={settingsFormOutlinedControlSx}
-                                slotProps={{
-                                  htmlInput: { "aria-describedby": usesDesktopFormLayout ? "viewer-groups-description" : undefined },
-                                }}
-                              />,
-                              false,
-                              Boolean(viewerGroupError)
-                            )}
-                          </>
-                        )}
-                      </SettingsFormGroup>
-                      <Alert severity="info">
-                        The administrator connecting this provider keeps an individual Administrator assignment. Individual assignments
-                        always override this configured role policy.
-                      </Alert>
-                    </SettingsFormSurface>
-                  </SettingsGroup>
-
-                  <SettingsGroup title="Advanced claims">
-                    <SettingsFormSurface testId="authentication-claims-form-surface" sx={{ gap: 2 }}>
-                      <Typography sx={{ color: "text.secondary" }}>The default claim names work with most providers</Typography>
-                      <SettingsFormGroup>
-                        {renderFormRow(
-                          "Username claim",
-                          "Claim used for the Sambee username",
-                          "username-claim-description",
-                          "username-claim",
-                          <TextField
-                            id="username-claim"
-                            fullWidth={!usesDesktopFormLayout}
-                            size={formFieldSize}
-                            label={usesDesktopFormLayout ? undefined : "Username claim"}
-                            value={candidate.username_claim}
-                            onChange={(event) => update("username_claim", event.target.value)}
-                            disabled={finalizationUnresolved}
-                            required
-                            helperText={usesDesktopFormLayout ? undefined : "Claim used for the Sambee username"}
-                            sx={settingsFormOutlinedControlSx}
-                            slotProps={{
-                              htmlInput: { "aria-describedby": usesDesktopFormLayout ? "username-claim-description" : undefined },
-                            }}
-                          />,
-                          true
-                        )}
-                        {renderFormRow(
-                          "Name claim",
-                          "Optional claim for the user's display name",
-                          "name-claim-description",
-                          "name-claim",
-                          <TextField
-                            id="name-claim"
-                            fullWidth={!usesDesktopFormLayout}
-                            size={formFieldSize}
-                            label={usesDesktopFormLayout ? undefined : "Name claim"}
-                            value={candidate.name_claim ?? ""}
-                            onChange={(event) => update("name_claim", optionalClaim(event.target.value))}
-                            disabled={finalizationUnresolved}
-                            helperText={usesDesktopFormLayout ? undefined : "Optional claim for the user's display name"}
-                            sx={settingsFormOutlinedControlSx}
-                            slotProps={{ htmlInput: { "aria-describedby": usesDesktopFormLayout ? "name-claim-description" : undefined } }}
-                          />
-                        )}
-                        {renderFormRow(
-                          "Email claim",
-                          "Optional claim for the user's email address",
-                          "email-claim-description",
-                          "email-claim",
-                          <TextField
-                            id="email-claim"
-                            fullWidth={!usesDesktopFormLayout}
-                            size={formFieldSize}
-                            label={usesDesktopFormLayout ? undefined : "Email claim"}
-                            value={candidate.email_claim ?? ""}
-                            onChange={(event) => update("email_claim", optionalClaim(event.target.value))}
-                            disabled={finalizationUnresolved}
-                            helperText={usesDesktopFormLayout ? undefined : "Optional claim for the user's email address"}
-                            sx={settingsFormOutlinedControlSx}
-                            slotProps={{ htmlInput: { "aria-describedby": usesDesktopFormLayout ? "email-claim-description" : undefined } }}
-                          />
-                        )}
-                        {renderFormRow(
-                          "Groups claim",
-                          "Required for group-based admission or roles",
-                          "groups-claim-description",
-                          "groups-claim",
-                          <TextField
-                            id="groups-claim"
-                            fullWidth={!usesDesktopFormLayout}
-                            size={formFieldSize}
-                            label={usesDesktopFormLayout ? undefined : "Groups claim"}
-                            value={candidate.groups_claim ?? ""}
-                            onChange={(event) => update("groups_claim", optionalClaim(event.target.value))}
-                            disabled={finalizationUnresolved}
-                            helperText={usesDesktopFormLayout ? undefined : "Required for group-based admission or roles"}
-                            sx={settingsFormOutlinedControlSx}
-                            slotProps={{
-                              htmlInput: { "aria-describedby": usesDesktopFormLayout ? "groups-claim-description" : undefined },
-                            }}
-                          />
-                        )}
-                      </SettingsFormGroup>
-                      {(testError || testedIdentity) && (
-                        <Box sx={{ display: "flex", flexDirection: "column", gap: 2, pt: 2, borderTop: 1, borderColor: "divider" }}>
+                            />,
+                            false,
+                            Boolean(editorGroupError)
+                          )}
+                          {renderFormRow(
+                            "Viewer groups",
+                            viewerGroupError || "Members get viewer access; enter exact names, separated by commas",
+                            "viewer-groups-description",
+                            "viewer-groups",
+                            <TextField
+                              id="viewer-groups"
+                              fullWidth={!usesDesktopFormLayout}
+                              size={formFieldSize}
+                              label={usesDesktopFormLayout ? undefined : "Viewer groups"}
+                              value={listValue(candidate.role_mappings.viewer)}
+                              onChange={(event) =>
+                                update("role_mappings", { ...candidate.role_mappings, viewer: parseList(event.target.value) })
+                              }
+                              disabled={finalizationUnresolved}
+                              error={Boolean(viewerGroupError)}
+                              helperText={
+                                usesDesktopFormLayout
+                                  ? undefined
+                                  : viewerGroupError || "Members get viewer access; enter exact names, separated by commas"
+                              }
+                              sx={settingsFormOutlinedControlSx}
+                              slotProps={{
+                                htmlInput: { "aria-describedby": usesDesktopFormLayout ? "viewer-groups-description" : undefined },
+                              }}
+                            />,
+                            false,
+                            Boolean(viewerGroupError)
+                          )}
+                        </>
+                      )}
+                    </SettingsFormGroup>
+                    <Alert severity="info">
+                      The administrator connecting this provider keeps an individual Administrator assignment. Individual assignments always
+                      override this configured role policy.
+                    </Alert>
+                    <SettingsFormSection title="Advanced claims" />
+                    <Typography sx={{ color: "text.secondary" }}>The default claim names work with most providers</Typography>
+                    <SettingsFormGroup testId="authentication-claims-form-group">
+                      {renderFormRow(
+                        "Username claim",
+                        "Claim used for the Sambee username",
+                        "username-claim-description",
+                        "username-claim",
+                        <TextField
+                          id="username-claim"
+                          fullWidth={!usesDesktopFormLayout}
+                          size={formFieldSize}
+                          label={usesDesktopFormLayout ? undefined : "Username claim"}
+                          value={candidate.username_claim}
+                          onChange={(event) => update("username_claim", event.target.value)}
+                          disabled={finalizationUnresolved}
+                          required
+                          helperText={usesDesktopFormLayout ? undefined : "Claim used for the Sambee username"}
+                          sx={settingsFormOutlinedControlSx}
+                          slotProps={{
+                            htmlInput: { "aria-describedby": usesDesktopFormLayout ? "username-claim-description" : undefined },
+                          }}
+                        />,
+                        true
+                      )}
+                      {renderFormRow(
+                        "Name claim",
+                        "Optional claim for the user's display name",
+                        "name-claim-description",
+                        "name-claim",
+                        <TextField
+                          id="name-claim"
+                          fullWidth={!usesDesktopFormLayout}
+                          size={formFieldSize}
+                          label={usesDesktopFormLayout ? undefined : "Name claim"}
+                          value={candidate.name_claim ?? ""}
+                          onChange={(event) => update("name_claim", optionalClaim(event.target.value))}
+                          disabled={finalizationUnresolved}
+                          helperText={usesDesktopFormLayout ? undefined : "Optional claim for the user's display name"}
+                          sx={settingsFormOutlinedControlSx}
+                          slotProps={{
+                            htmlInput: { "aria-describedby": usesDesktopFormLayout ? "name-claim-description" : undefined },
+                          }}
+                        />
+                      )}
+                      {renderFormRow(
+                        "Email claim",
+                        "Optional claim for the user's email address",
+                        "email-claim-description",
+                        "email-claim",
+                        <TextField
+                          id="email-claim"
+                          fullWidth={!usesDesktopFormLayout}
+                          size={formFieldSize}
+                          label={usesDesktopFormLayout ? undefined : "Email claim"}
+                          value={candidate.email_claim ?? ""}
+                          onChange={(event) => update("email_claim", optionalClaim(event.target.value))}
+                          disabled={finalizationUnresolved}
+                          helperText={usesDesktopFormLayout ? undefined : "Optional claim for the user's email address"}
+                          sx={settingsFormOutlinedControlSx}
+                          slotProps={{
+                            htmlInput: { "aria-describedby": usesDesktopFormLayout ? "email-claim-description" : undefined },
+                          }}
+                        />
+                      )}
+                      {renderFormRow(
+                        "Groups claim",
+                        "Required for group-based admission or roles",
+                        "groups-claim-description",
+                        "groups-claim",
+                        <TextField
+                          id="groups-claim"
+                          fullWidth={!usesDesktopFormLayout}
+                          size={formFieldSize}
+                          label={usesDesktopFormLayout ? undefined : "Groups claim"}
+                          value={candidate.groups_claim ?? ""}
+                          onChange={(event) => update("groups_claim", optionalClaim(event.target.value))}
+                          disabled={finalizationUnresolved}
+                          helperText={usesDesktopFormLayout ? undefined : "Required for group-based admission or roles"}
+                          sx={settingsFormOutlinedControlSx}
+                          slotProps={{
+                            htmlInput: { "aria-describedby": usesDesktopFormLayout ? "groups-claim-description" : undefined },
+                          }}
+                        />
+                      )}
+                    </SettingsFormGroup>
+                    {testedIdentity && (
+                      <Box sx={{ display: "flex", flexDirection: "column", gap: 2, pt: 2, borderTop: 1, borderColor: "divider" }}>
+                        <Typography variant="subtitle1" sx={{ fontWeight: "medium" }}>
+                          Test review
+                        </Typography>
+                        <Box sx={{ borderLeft: 3, borderColor: "success.main", pl: 2, py: 1 }}>
                           <Typography variant="subtitle1" sx={{ fontWeight: "medium" }}>
-                            Test review
+                            Tested identity
                           </Typography>
-                          {testError && (
-                            <Alert ref={testErrorRef} severity="error" role="alert" aria-live="assertive" tabIndex={-1}>
-                              <AlertTitle>Connection test failed</AlertTitle>
-                              {testError}
+                          <Typography>Username: {testedIdentity.username}</Typography>
+                          {testedIdentity.email && <Typography>Email: {testedIdentity.email}</Typography>}
+                          <Typography>Groups: {testedIdentity.groups.join(", ") || "None"}</Typography>
+                          <Typography>Admission: {testedIdentity.admitted ? "Allowed" : "Denied"}</Typography>
+                          {testedIdentity.matching_admission_group && (
+                            <Typography>Matching admission group: {testedIdentity.matching_admission_group}</Typography>
+                          )}
+                          <Typography sx={{ color: "text.secondary" }}>Account mapping does not override the admission policy.</Typography>
+                          {!testedIdentityCanActivate && (
+                            <Alert severity="error" sx={{ mt: 1 }}>
+                              The tested identity must pass the admission rule before this configuration can be activated.
                             </Alert>
                           )}
-
-                          {testedIdentity && (
-                            <Box sx={{ borderLeft: 3, borderColor: "success.main", pl: 2, py: 1 }}>
-                              <Typography variant="subtitle1" sx={{ fontWeight: "medium" }}>
-                                Tested identity
-                              </Typography>
-                              <Typography>Username: {testedIdentity.username}</Typography>
-                              {testedIdentity.email && <Typography>Email: {testedIdentity.email}</Typography>}
-                              <Typography>Groups: {testedIdentity.groups.join(", ") || "None"}</Typography>
-                              <Typography>Admission: {testedIdentity.admitted ? "Allowed" : "Denied"}</Typography>
-                              {testedIdentity.matching_admission_group && (
-                                <Typography>Matching admission group: {testedIdentity.matching_admission_group}</Typography>
-                              )}
-                              <Typography sx={{ color: "text.secondary" }}>
-                                Account mapping does not override the admission policy.
-                              </Typography>
-                              {!testedIdentityCanActivate && (
-                                <Alert severity="error" sx={{ mt: 1 }}>
-                                  The tested identity must pass the admission rule before this configuration can be activated.
+                          {testedIdentity.replacement_mappings.length > 0 && (
+                            <Stack spacing={2} sx={{ mt: 2 }}>
+                              <Typography variant="subtitle1">Review existing accounts</Typography>
+                              {omittedPasswordlessMappings.length > 0 && (
+                                <Alert severity="warning">
+                                  {omittedPasswordlessMappings.length} active passwordless account
+                                  {omittedPasswordlessMappings.length === 1 ? " is" : "s are"} omitted. These users cannot sign in until
+                                  mapped. An unmapped OIDC login may collide with an existing username or create a separate account.
                                 </Alert>
                               )}
-                              {testedIdentity.replacement_mappings.length > 0 && (
-                                <Stack spacing={2} sx={{ mt: 2 }}>
-                                  <Typography variant="subtitle1">Review existing accounts</Typography>
-                                  {omittedPasswordlessMappings.length > 0 && (
-                                    <Alert severity="warning">
-                                      {omittedPasswordlessMappings.length} active passwordless account
-                                      {omittedPasswordlessMappings.length === 1 ? " is" : "s are"} omitted. These users cannot sign in until
-                                      mapped. An unmapped OIDC login may collide with an existing username or create a separate account.
-                                    </Alert>
-                                  )}
-                                  {testedIdentity.replacement_mappings
-                                    .filter((mapping) => mapping.selectable)
-                                    .map((mapping) => {
-                                      const review = mappingReview[mapping.target_user_id];
-                                      const serverError = mappingErrors[mapping.target_user_id];
-                                      const expectedUsername = review?.expectedUsername ?? "";
-                                      const hintLabel =
-                                        mapping.prefill_source === "pending"
-                                          ? "Previous pending"
-                                          : mapping.prefill_source === "last_seen"
-                                            ? "Last seen"
-                                            : "Unverified";
-                                      return (
-                                        <Box key={mapping.target_user_id} sx={{ borderBottom: 1, borderColor: "divider", pb: 2 }}>
-                                          <FormControlLabel
-                                            control={
-                                              <Checkbox
-                                                checked={review?.selected ?? false}
-                                                disabled={finalizationUnresolved}
-                                                onChange={(event) => {
-                                                  if (!event.target.checked) {
-                                                    setMappingErrors((current) => {
-                                                      const next = { ...current };
-                                                      delete next[mapping.target_user_id];
-                                                      return next;
-                                                    });
-                                                  }
-                                                  setMappingReview((current) => ({
-                                                    ...current,
-                                                    [mapping.target_user_id]: {
-                                                      ...(current[mapping.target_user_id] ?? {
-                                                        selected: false,
-                                                        expectedUsername: "",
-                                                        omissionAcknowledged: false,
-                                                      }),
-                                                      selected: event.target.checked,
-                                                      expectedUsername:
-                                                        event.target.checked && !current[mapping.target_user_id]?.expectedUsername
-                                                          ? mapping.suggested_username
-                                                          : (current[mapping.target_user_id]?.expectedUsername ?? ""),
-                                                      omissionAcknowledged: false,
-                                                    },
-                                                  }));
-                                                }}
-                                              />
-                                            }
-                                            label={`Map ${mapping.local_username}`}
-                                          />
-                                          <TextField
-                                            fullWidth
-                                            label={`Provider username for ${mapping.local_username}`}
-                                            value={expectedUsername}
-                                            placeholder={mapping.suggested_username}
-                                            helperText={serverError ?? `${hintLabel}: ${mapping.suggested_username}`}
-                                            disabled={finalizationUnresolved || !review?.selected}
-                                            error={
-                                              Boolean(serverError) ||
-                                              (Boolean(review?.selected) &&
-                                                (!expectedUsername.trim() ||
-                                                  expectedUsername.trim() === testedIdentity.username.trim() ||
-                                                  replacementUsernames.filter((value) => value === expectedUsername.trim()).length > 1))
-                                            }
+                              {testedIdentity.replacement_mappings
+                                .filter((mapping) => mapping.selectable)
+                                .map((mapping) => {
+                                  const review = mappingReview[mapping.target_user_id];
+                                  const serverError = mappingErrors[mapping.target_user_id];
+                                  const expectedUsername = review?.expectedUsername ?? "";
+                                  const hintLabel =
+                                    mapping.prefill_source === "pending"
+                                      ? "Previous pending"
+                                      : mapping.prefill_source === "last_seen"
+                                        ? "Last seen"
+                                        : "Unverified";
+                                  return (
+                                    <Box key={mapping.target_user_id} sx={{ borderBottom: 1, borderColor: "divider", pb: 2 }}>
+                                      <FormControlLabel
+                                        control={
+                                          <Checkbox
+                                            checked={review?.selected ?? false}
+                                            disabled={finalizationUnresolved}
                                             onChange={(event) => {
-                                              setMappingErrors((current) => {
-                                                const next = { ...current };
-                                                delete next[mapping.target_user_id];
-                                                return next;
-                                              });
+                                              if (!event.target.checked) {
+                                                setMappingErrors((current) => {
+                                                  const next = { ...current };
+                                                  delete next[mapping.target_user_id];
+                                                  return next;
+                                                });
+                                              }
                                               setMappingReview((current) => ({
                                                 ...current,
                                                 [mapping.target_user_id]: {
@@ -1521,81 +1611,133 @@ export function AuthenticationSettings() {
                                                     expectedUsername: "",
                                                     omissionAcknowledged: false,
                                                   }),
-                                                  expectedUsername: event.target.value,
+                                                  selected: event.target.checked,
+                                                  expectedUsername:
+                                                    event.target.checked && !current[mapping.target_user_id]?.expectedUsername
+                                                      ? mapping.suggested_username
+                                                      : (current[mapping.target_user_id]?.expectedUsername ?? ""),
+                                                  omissionAcknowledged: false,
                                                 },
                                               }));
                                             }}
-                                            required={review?.selected}
                                           />
-                                          {mapping.omission_acknowledgement_required && !review?.selected && (
-                                            <FormControlLabel
-                                              control={
-                                                <Checkbox
-                                                  checked={review?.omissionAcknowledged ?? false}
-                                                  disabled={finalizationUnresolved}
-                                                  onChange={(event) =>
-                                                    setMappingReview((current) => ({
-                                                      ...current,
-                                                      [mapping.target_user_id]: {
-                                                        ...(current[mapping.target_user_id] ?? {
-                                                          selected: false,
-                                                          expectedUsername: "",
-                                                          omissionAcknowledged: false,
-                                                        }),
-                                                        omissionAcknowledged: event.target.checked,
-                                                      },
-                                                    }))
-                                                  }
-                                                />
+                                        }
+                                        label={`Map ${mapping.local_username}`}
+                                      />
+                                      <TextField
+                                        fullWidth
+                                        label={`Provider username for ${mapping.local_username}`}
+                                        value={expectedUsername}
+                                        placeholder={mapping.suggested_username}
+                                        helperText={serverError ?? `${hintLabel}: ${mapping.suggested_username}`}
+                                        disabled={finalizationUnresolved || !review?.selected}
+                                        error={
+                                          Boolean(serverError) ||
+                                          (Boolean(review?.selected) &&
+                                            (!expectedUsername.trim() ||
+                                              expectedUsername.trim() === testedIdentity.username.trim() ||
+                                              replacementUsernames.filter((value) => value === expectedUsername.trim()).length > 1))
+                                        }
+                                        onChange={(event) => {
+                                          setMappingErrors((current) => {
+                                            const next = { ...current };
+                                            delete next[mapping.target_user_id];
+                                            return next;
+                                          });
+                                          setMappingReview((current) => ({
+                                            ...current,
+                                            [mapping.target_user_id]: {
+                                              ...(current[mapping.target_user_id] ?? {
+                                                selected: false,
+                                                expectedUsername: "",
+                                                omissionAcknowledged: false,
+                                              }),
+                                              expectedUsername: event.target.value,
+                                            },
+                                          }));
+                                        }}
+                                        required={review?.selected}
+                                      />
+                                      {mapping.omission_acknowledgement_required && !review?.selected && (
+                                        <FormControlLabel
+                                          control={
+                                            <Checkbox
+                                              checked={review?.omissionAcknowledged ?? false}
+                                              disabled={finalizationUnresolved}
+                                              onChange={(event) =>
+                                                setMappingReview((current) => ({
+                                                  ...current,
+                                                  [mapping.target_user_id]: {
+                                                    ...(current[mapping.target_user_id] ?? {
+                                                      selected: false,
+                                                      expectedUsername: "",
+                                                      omissionAcknowledged: false,
+                                                    }),
+                                                    omissionAcknowledged: event.target.checked,
+                                                  },
+                                                }))
                                               }
-                                              label={`I understand ${mapping.local_username} cannot use a local password in OIDC only mode`}
                                             />
-                                          )}
-                                        </Box>
-                                      );
-                                    })}
-                                  {testedIdentity.replacement_mappings.some((mapping) => !mapping.selectable) && (
-                                    <Box>
-                                      <Typography variant="subtitle2">Inactive or expired accounts</Typography>
-                                      {testedIdentity.replacement_mappings
-                                        .filter((mapping) => !mapping.selectable)
-                                        .map((mapping) => (
-                                          <Typography key={mapping.target_user_id} sx={{ color: "text.secondary" }}>
-                                            {mapping.local_username} ({mapping.target_state}) must be reactivated before mapping.
-                                          </Typography>
-                                        ))}
+                                          }
+                                          label={`I understand ${mapping.local_username} cannot use a local password in OIDC only mode`}
+                                        />
+                                      )}
                                     </Box>
-                                  )}
-                                </Stack>
+                                  );
+                                })}
+                              {testedIdentity.replacement_mappings.some((mapping) => !mapping.selectable) && (
+                                <Box>
+                                  <Typography variant="subtitle2">Inactive or expired accounts</Typography>
+                                  {testedIdentity.replacement_mappings
+                                    .filter((mapping) => !mapping.selectable)
+                                    .map((mapping) => (
+                                      <Typography key={mapping.target_user_id} sx={{ color: "text.secondary" }}>
+                                        {mapping.local_username} ({mapping.target_state}) must be reactivated before mapping.
+                                      </Typography>
+                                    ))}
+                                </Box>
                               )}
-                            </Box>
+                            </Stack>
                           )}
                         </Box>
-                      )}
-                    </SettingsFormSurface>
-                  </SettingsGroup>
+                      </Box>
+                    )}
+                  </SettingsFormSurface>
+                </Stack>
+              </ResponsiveFormDialog>
 
-                  {configuration?.configuration && (
-                    <SettingsGroup title="Recovery">
-                      <Button
-                        variant="outlined"
-                        disabled={busy || finalizationUnresolved || configuration.health.status !== "healthy"}
-                        onClick={() => {
-                          if (
-                            window.confirm(
-                              "Remap all OIDC accounts? Current OIDC links will be removed, affected users signed out, and local users and data preserved."
-                            )
-                          ) {
-                            void startTest(true);
-                          }
-                        }}
-                      >
-                        Remap all OIDC accounts
-                      </Button>
-                    </SettingsGroup>
-                  )}
-                </SettingsSectionList>
-              ) : null}
+              <ResponsiveFormDialog
+                open={remapConfirmationOpen}
+                onClose={() => setRemapConfirmationOpen(false)}
+                disableClose={busy || finalizationUnresolved}
+                title="Remap OIDC accounts"
+                description="Current OIDC links will be removed, affected users signed out, and local accounts and data preserved. You will then sign in with the provider and review replacement mappings before activation."
+                actions={
+                  <Box sx={adminDialogEndActionRowSx}>
+                    <Button
+                      onClick={() => setRemapConfirmationOpen(false)}
+                      disabled={busy || finalizationUnresolved}
+                      variant="outlined"
+                      sx={[settingsUtilityButtonSx, adminDialogActionButtonSx]}
+                    >
+                      Cancel
+                    </Button>
+                    <Button
+                      onClick={startRemap}
+                      disabled={busy || finalizationUnresolved || !hasHealthyActiveOidcConfiguration}
+                      variant="contained"
+                      sx={[settingsPrimaryButtonSx, adminDialogActionButtonSx]}
+                    >
+                      Connect and test
+                    </Button>
+                  </Box>
+                }
+              >
+                <Alert severity="warning">
+                  Remapping replaces established OIDC links. Review every proposed account mapping before you activate the new
+                  configuration.
+                </Alert>
+              </ResponsiveFormDialog>
             </Stack>
           </>
         )}
