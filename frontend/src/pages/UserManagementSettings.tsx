@@ -1215,6 +1215,7 @@ export function UserManagementSettings({ dialogSafeHeader = false }: UserManagem
                         {localPasswordManagementAvailable && user.has_local_password && (
                           <Chip size="small" label="Local password" variant="outlined" sx={settingsMetadataChipSx} />
                         )}
+                        {user.oidc && <Chip size="small" label="OIDC linked" variant="outlined" sx={settingsMetadataChipSx} />}
                         {user.oidc?.last_login_at && (
                           <Chip
                             size="small"

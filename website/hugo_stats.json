@@ -943,6 +943,8 @@
       "main-implementation-files",
       "main-pieces",
       "manage-account-mappings",
+      "manage-browser-sessions",
+      "manage-oidc-browser-sessions",
       "manage-oidc-sessions",
       "manage-sessions",
       "manifest-versus-test-assertions",

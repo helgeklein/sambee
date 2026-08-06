@@ -411,6 +411,7 @@ describe("UserManagementSettings", () => {
     );
 
     expect(await screen.findByText(/OIDC last login:/)).toBeInTheDocument();
+  expect(screen.getByText("OIDC linked", { exact: true })).toBeInTheDocument();
     expect(screen.queryByText(/OIDC linked: Corporate login/)).not.toBeInTheDocument();
     expect(screen.getByText(`OIDC last login: ${new Date("2026-03-01T10:00:00Z").toLocaleString()}`)).toBeInTheDocument();
     expect(screen.queryByRole("button", { name: /reset password/i })).not.toBeInTheDocument();
