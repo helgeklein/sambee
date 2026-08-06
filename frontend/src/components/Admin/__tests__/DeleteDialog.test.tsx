@@ -1,4 +1,4 @@
-import { render, screen } from "@testing-library/react";
+import { render, screen, waitFor } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { SambeeThemeProvider } from "../../../theme";
 import DeleteDialog from "../DeleteDialog";
@@ -42,14 +42,15 @@ describe("DeleteDialog", () => {
           onConfirm={vi.fn()}
           title="Delete Connection"
           description="Are you sure?"
-          itemName="Docs"
+          descriptionItemName="Docs"
         />
       </SambeeThemeProvider>
     );
 
     expect(screen.getByRole("button", { name: /common\.navigation\.goBack/i })).toBeInTheDocument();
     expect(screen.getByText("Delete Connection")).toBeInTheDocument();
-    expect(screen.getByDisplayValue("Docs")).toHaveAttribute("readonly");
+    expect(screen.getByText("Docs", { exact: true }).tagName).toBe("STRONG");
+    expect(screen.queryByRole("textbox")).not.toBeInTheDocument();
   });
 
   it("disables both actions and shows progress while submitting", () => {
@@ -78,5 +79,61 @@ describe("DeleteDialog", () => {
 
     expect(onClose).not.toHaveBeenCalled();
     expect(onConfirm).not.toHaveBeenCalled();
+  });
+
+  it("uses the shared inline item-name confirmation, responsive action layout, and safe initial focus", async () => {
+    const { rerender } = render(
+      <SambeeThemeProvider>
+        <DeleteDialog
+          open={false}
+          onClose={vi.fn()}
+          onConfirm={vi.fn()}
+          title="Delete Connection"
+          description="Are you sure?"
+          descriptionItemName="Docs"
+        />
+      </SambeeThemeProvider>
+    );
+
+    rerender(
+      <SambeeThemeProvider>
+        <DeleteDialog
+          open
+          onClose={vi.fn()}
+          onConfirm={vi.fn()}
+          title="Delete Connection"
+          description="Are you sure?"
+          descriptionItemName="Docs"
+        />
+      </SambeeThemeProvider>
+    );
+
+    expect(screen.getByText("Docs", { exact: true }).tagName).toBe("STRONG");
+    expect(screen.queryByRole("textbox")).not.toBeInTheDocument();
+    expect(screen.queryByRole("alert")).not.toBeInTheDocument();
+    expect(screen.getByTestId("DeleteIcon").closest("button")).toHaveTextContent("common.actions.delete");
+    const cancelButton = screen.getByRole("button", { name: /cancel/i });
+    expect(screen.getByTestId("responsive-form-dialog-desktop-actions")).toContainElement(cancelButton);
+    await waitFor(() => expect(cancelButton).toHaveFocus());
+  });
+
+  it("puts a connection name in bold inside its deletion question instead of rendering a field", () => {
+    render(
+      <SambeeThemeProvider>
+        <DeleteDialog
+          open
+          onClose={vi.fn()}
+          onConfirm={vi.fn()}
+          title="Delete Connection"
+          description="Are you sure you want to delete the connection?"
+          descriptionItemName="Demo Share"
+        />
+      </SambeeThemeProvider>
+    );
+
+    const connectionName = screen.getByText("Demo Share", { exact: true });
+    expect(connectionName.tagName).toBe("STRONG");
+    expect(connectionName.parentElement).toHaveTextContent("Are you sure you want to delete the connection Demo Share?");
+    expect(screen.queryByRole("textbox")).not.toBeInTheDocument();
   });
 });

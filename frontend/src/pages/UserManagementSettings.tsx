@@ -1677,12 +1677,8 @@ export function UserManagementSettings({ dialogSafeHeader = false }: UserManagem
         onConfirm={handleDeleteUser}
         submitting={deleteSubmitting}
         title={t("settings.userManagement.deleteDialog.title")}
-        description={
-          selectedUser
-            ? t("settings.userManagement.deleteDialog.descriptionWithName", { username: selectedUser.username })
-            : t("settings.userManagement.deleteDialog.descriptionFallback")
-        }
-        itemName={selectedUser?.username ?? null}
+        description={t("settings.userManagement.deleteDialog.descriptionFallback")}
+        descriptionItemName={selectedUser?.username ?? null}
       />
 
       <ResponsiveFormDialog

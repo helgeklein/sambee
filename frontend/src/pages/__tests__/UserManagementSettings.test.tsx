@@ -112,6 +112,50 @@ describe("UserManagementSettings", () => {
     expect(screen.getByRole("button", { name: /create user/i })).toBeInTheDocument();
   });
 
+  it("uses the inline bold username confirmation when deleting another user", async () => {
+    vi.mocked(api.getUsers).mockResolvedValue([
+      {
+        id: "user-1",
+        username: "admin",
+        role: "admin",
+        is_active: true,
+        must_change_password: false,
+        has_local_password: true,
+        oidc_role_assignment: null,
+        oidc: null,
+        pending_oidc: null,
+        created_at: "2026-03-01T10:00:00Z",
+        updated_at: "2026-03-01T10:00:00Z",
+      },
+      {
+        id: "user-2",
+        username: "other-user",
+        role: "viewer",
+        is_active: true,
+        must_change_password: false,
+        has_local_password: false,
+        oidc_role_assignment: null,
+        oidc: null,
+        pending_oidc: null,
+        created_at: "2026-03-01T10:00:00Z",
+        updated_at: "2026-03-01T10:00:00Z",
+      },
+    ]);
+    const user = userEvent.setup();
+
+    render(
+      <SambeeThemeProvider>
+        <UserManagementSettings />
+      </SambeeThemeProvider>
+    );
+
+    await user.click(await screen.findByRole("button", { name: "Delete other-user" }));
+
+    const deleteDialog = screen.getByRole("dialog", { name: "Delete User" });
+    expect(within(deleteDialog).getByText("other-user", { exact: true }).tagName).toBe("STRONG");
+    expect(within(deleteDialog).queryByRole("textbox")).not.toBeInTheDocument();
+  });
+
   it.each(["oidc_only", "none"] as const)("hides local-user and password controls in %s mode", async (authMode) => {
     vi.mocked(api.getOidcConfiguration).mockResolvedValue({
       configuration: null,
