@@ -340,25 +340,30 @@ export function AuthenticationSettings() {
   const testedIdentityCanActivate = !reviewPending && testedIdentity?.admitted === true;
   const isOidcMode = authMode === "oidc_or_password" || authMode === "oidc_only";
   const isActiveOidcMode = configuration?.auth_mode === "oidc_or_password" || configuration?.auth_mode === "oidc_only";
+  const oidcModeActivationPending = isOidcMode && configuration?.configuration !== null && configuration?.auth_mode !== authMode;
   const hasHealthyActiveOidcConfiguration = Boolean(
     isActiveOidcMode && configuration?.configuration && configuration.health.status === "healthy"
   );
-  const oidcStatusTitle = hasHealthyActiveOidcConfiguration
-    ? "Active"
-    : isActiveOidcMode
-      ? "Needs attention"
-      : configuration?.configuration
-        ? "Configured, not active"
-        : "Not configured";
-  const oidcStatusDescription = hasHealthyActiveOidcConfiguration
-    ? "OIDC sign-in is available and the provider configuration is healthy."
-    : isActiveOidcMode && configuration?.health.reasons.includes("public_url_missing")
-      ? "Set Sambee's externally reachable public URL in network settings."
+  const oidcStatusTitle = oidcModeActivationPending
+    ? "Changes pending"
+    : hasHealthyActiveOidcConfiguration
+      ? "Active"
       : isActiveOidcMode
-        ? "OIDC is active, but the provider configuration needs attention."
+        ? "Needs attention"
         : configuration?.configuration
-          ? "Provider settings are saved. Select an OIDC authentication mode to activate them."
-          : "Set up a provider so people can sign in with an existing identity service.";
+          ? "Configured, not active"
+          : "Not configured";
+  const oidcStatusDescription = oidcModeActivationPending
+    ? "Test the provider again to activate the selected OIDC sign-in mode."
+    : hasHealthyActiveOidcConfiguration
+      ? "OIDC sign-in is available and the provider configuration is healthy."
+      : isActiveOidcMode && configuration?.health.reasons.includes("public_url_missing")
+        ? "Set Sambee's externally reachable public URL in network settings."
+        : isActiveOidcMode
+          ? "OIDC is active, but the provider configuration needs attention."
+          : configuration?.configuration
+            ? "Provider settings are saved. Select an OIDC authentication mode to activate them."
+            : "Set up a provider so people can sign in with an existing identity service.";
   const isSelectedNonOidcModeActive = !isOidcMode && configuration?.auth_mode === authMode;
 
   const renderDesktopFieldLabel = (
@@ -950,7 +955,7 @@ export function AuthenticationSettings() {
                           disabled={busy || finalizationUnresolved}
                           onClick={openOidcDialog}
                         >
-                          Configure OIDC
+                          {oidcModeActivationPending ? "Review and activate OIDC mode" : "Configure OIDC"}
                         </Button>
                       </Box>
                       {isActiveOidcMode && (

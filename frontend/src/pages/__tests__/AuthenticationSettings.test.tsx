@@ -149,6 +149,23 @@ describe("Authentication settings", () => {
     ).not.toBeInTheDocument();
   });
 
+  it("guides an OIDC-only administrator through testing before activating OIDC or password", async () => {
+    const user = userEvent.setup();
+    const activeOidcOnly = { ...configuration("Active Provider"), sign_in_mode: "oidc_only" as const };
+    vi.mocked(api.getOidcConfiguration).mockResolvedValue(response(activeOidcOnly));
+    window.history.replaceState(null, "", "/settings/admin/authentication");
+
+    renderSettings();
+
+    await user.click(await screen.findByRole("combobox", { name: "Authentication mode" }));
+    await user.click(screen.getByRole("option", { name: /^OIDC or password/ }));
+
+    expect(screen.getByText("Changes pending")).toBeInTheDocument();
+    const activateOidcMode = screen.getByRole("button", { name: "Review and activate OIDC mode" });
+    await user.click(activateOidcMode);
+    expect(await screen.findByRole("button", { name: "Connect and test" })).toBeInTheDocument();
+  });
+
   it("links to the OpenID Connect setup guide in the page description", async () => {
     vi.mocked(api.getOidcConfiguration).mockResolvedValue(response(configuration("Active Provider")));
     window.history.replaceState(null, "", "/settings/admin/authentication");
