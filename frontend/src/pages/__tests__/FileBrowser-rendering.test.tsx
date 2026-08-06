@@ -3,7 +3,7 @@
  * Tests for basic rendering, loading states, errors, and empty states
  */
 
-import { act, render, screen, waitFor } from "@testing-library/react";
+import { act, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { FileBrowserAlerts } from "../../components/FileBrowser/FileBrowserAlerts";
 import api from "../../services/api";
@@ -143,13 +143,35 @@ describe("Browser Component - Rendering", () => {
           companionLifecycleStatus={null}
           loadingConnections={false}
           connectionsCount={1}
-          isAdmin={true}
           backendAvailabilityStatus="reconnecting"
         />
       </SambeeThemeProvider>
     );
 
     expect(screen.getByText(/reconnecting to backend/i)).toBeInTheDocument();
+  });
+
+  it("gives a standard user the linked connection onboarding when no connections are available", () => {
+    const openConnectionsSettings = vi.fn();
+
+    render(
+      <SambeeThemeProvider>
+        <FileBrowserAlerts
+          error={null}
+          companionLifecycleStatus={null}
+          loadingConnections={false}
+          connectionsCount={0}
+          backendAvailabilityStatus="available"
+          onOpenConnectionsSettings={openConnectionsSettings}
+        />
+      </SambeeThemeProvider>
+    );
+
+    const connectionLink = screen.getByRole("button", { name: "adding your first SMB network share" });
+    fireEvent.click(connectionLink);
+
+    expect(openConnectionsSettings).toHaveBeenCalledOnce();
+    expect(screen.queryByText(/Please contact an administrator/i)).not.toBeInTheDocument();
   });
 
   it("shows error state when API fails", async () => {

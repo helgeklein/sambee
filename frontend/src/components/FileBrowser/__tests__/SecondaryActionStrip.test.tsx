@@ -4,6 +4,28 @@ import { SambeeThemeProvider } from "../../../theme/ThemeContext";
 import { SecondaryActionStrip } from "../SecondaryActionStrip";
 
 describe("SecondaryActionStrip", () => {
+  it("does not render when the user has no available connections", () => {
+    const { container } = render(
+      <SambeeThemeProvider>
+        <SecondaryActionStrip
+          connections={[]}
+          selectedConnectionId=""
+          onConnectionChange={vi.fn()}
+          viewMode="list"
+          onViewModeChange={vi.fn()}
+          sortBy="name"
+          onSortChange={vi.fn()}
+          sortDirection="asc"
+          onDirectionChange={vi.fn()}
+          hasFiles={false}
+        />
+      </SambeeThemeProvider>
+    );
+
+    expect(container).toBeEmptyDOMElement();
+    expect(screen.queryByRole("combobox", { name: "Select connection" })).not.toBeInTheDocument();
+  });
+
   it("does not leak flex layout props onto DOM wrappers", () => {
     const { container } = render(
       <SambeeThemeProvider>

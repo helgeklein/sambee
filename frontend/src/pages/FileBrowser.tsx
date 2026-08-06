@@ -65,7 +65,6 @@ import type { ConflictInfo, Connection } from "../types";
 import { isApiError } from "../types";
 import { openExternalUrl } from "../utils/externalLinks";
 import { compareLocalizedStrings } from "../utils/localeFormatting";
-import { isAdminUser } from "../utils/userAccess";
 import {
   canCopyToConnection,
   canMoveBetweenConnections,
@@ -231,7 +230,6 @@ const Browser: React.FC = () => {
 
   const [connections, setConnections] = useState<Connection[]>(() => initialRecoverySnapshotRef.current?.connections ?? []);
   const [loadingConnections, setLoadingConnections] = useState(() => initialRecoverySnapshotRef.current === null);
-  const [isAdmin, setIsAdmin] = useState(false);
   const [drawerOpen, setDrawerOpen] = useState(false);
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [settingsInitialCategory, setSettingsInitialCategory] = useState<SettingsCategory>(DEFAULT_SETTINGS_CATEGORY);
@@ -568,22 +566,6 @@ const Browser: React.FC = () => {
   // API & Data Loading (Global)
   // ──────────────────────────────────────────────────────────────────────────
 
-  /**
-   * checkAdminStatus
-   *
-   * Verifies current user's admin privileges.
-   * Admin users can manage connections and access system settings.
-   */
-  const checkAdminStatus = useCallback(async () => {
-    try {
-      const user = await api.getCurrentUser();
-      setIsAdmin(isAdminUser(user));
-    } catch (err) {
-      logger.warn("Failed to verify admin status", { error: err }, "browser");
-      setIsAdmin(false);
-    }
-  }, []);
-
   const navigateToBrowseState = useCallback(
     (nextRoute: BrowseRouteState, options?: { replace?: boolean }) => {
       const nextUrl = serializeBrowseRoute(nextRoute);
@@ -838,23 +820,10 @@ const Browser: React.FC = () => {
   }, []);
 
   // Initial load - run once on mount.
-  // The `cancelled` flag prevents the second StrictMode invocation (and HMR
-  // re-mounts) from issuing duplicate API calls.
   // biome-ignore lint/correctness/useExhaustiveDependencies: intentionally run only once on mount to avoid aborting requests
   useEffect(() => {
-    let cancelled = false;
-
-    const init = async () => {
-      const initialLoadMode = initialRecoverySnapshotRef.current !== null ? "background-revalidate" : "bootstrap";
-      await loadConnections(initialLoadMode);
-      if (cancelled) return;
-      await checkAdminStatus();
-    };
-    init();
-
-    return () => {
-      cancelled = true;
-    };
+    const initialLoadMode = initialRecoverySnapshotRef.current !== null ? "background-revalidate" : "bootstrap";
+    void loadConnections(initialLoadMode);
   }, []);
 
   useEffect(() => {
@@ -2306,7 +2275,6 @@ const Browser: React.FC = () => {
           companionLifecycleStatus={companionLifecycleStatus}
           loadingConnections={loadingConnections}
           connectionsCount={connections.length}
-          isAdmin={isAdmin}
           backendAvailabilityStatus={backendAvailability.status}
           onDismissCompanionLifecycleStatus={dismissCompanionLifecycleStatus}
           onRetry={leftPane.handleRefresh}
