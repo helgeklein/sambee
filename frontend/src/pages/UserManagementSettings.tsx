@@ -63,7 +63,7 @@ import {
 import { loadUserManagementSettingsData, SETTINGS_DATA_CACHE_KEYS } from "../components/Settings/settingsDataSources";
 import { settingsListItemTitleSx } from "../components/Settings/settingsTypographyStyles";
 import { useCachedAsyncData } from "../hooks/useCachedAsyncData";
-import api from "../services/api";
+import api, { isControlledReauthenticationInProgress } from "../services/api";
 import type {
   AdminUser,
   AdminUserCreateInput,
@@ -165,6 +165,18 @@ const DEFAULT_RESET_PASSWORD_FORM: ResetPasswordFormState = {
 };
 const USER_ROW_COMPACT_MAX_WIDTH_PX = 640;
 const USER_ROW_COMPACT_CONTAINER_QUERY = `@container (max-width: ${USER_ROW_COMPACT_MAX_WIDTH_PX}px)`;
+const LOCAL_TIMESTAMP_FORMAT_OPTIONS: Intl.DateTimeFormatOptions = {
+  year: "numeric",
+  month: "short",
+  day: "numeric",
+  hour: "numeric",
+  minute: "2-digit",
+  timeZoneName: "short",
+};
+
+function formatLocalTimestamp(value: string): string {
+  return new Intl.DateTimeFormat(undefined, LOCAL_TIMESTAMP_FORMAT_OPTIONS).format(new Date(value));
+}
 
 export function UserManagementSettings({ dialogSafeHeader = false }: UserManagementSettingsProps) {
   const { t } = useTranslation();
@@ -180,6 +192,9 @@ export function UserManagementSettings({ dialogSafeHeader = false }: UserManagem
   }, []);
   const handleUsersLoadError = useCallback(
     (error: unknown) => {
+      if (isControlledReauthenticationInProgress()) {
+        return;
+      }
       const message = getApiErrorMessage(error, t("settings.userManagement.notifications.loadFailed"));
       showNotification(message, "error");
     },
@@ -1219,7 +1234,7 @@ export function UserManagementSettings({ dialogSafeHeader = false }: UserManagem
                         {user.oidc?.last_login_at && (
                           <Chip
                             size="small"
-                            label={`OIDC last login: ${new Date(user.oidc.last_login_at).toLocaleString()}`}
+                            label={`OIDC last login: ${formatLocalTimestamp(user.oidc.last_login_at)}`}
                             variant="outlined"
                             sx={settingsMetadataChipSx}
                           />

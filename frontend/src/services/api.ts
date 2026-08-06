@@ -65,6 +65,12 @@ const LOCAL_DRIVE_EDIT_LOCKS_UNSUPPORTED_MESSAGE = "Edit locks are not supported
 const DIRECTORY_LIST_REQUEST_TIMEOUT_MS = 40_000;
 export const OIDC_FINALIZATION_REQUEST_TIMEOUT_MS = 15_000;
 
+let controlledReauthenticationInProgress = false;
+
+export function isControlledReauthenticationInProgress(): boolean {
+  return controlledReauthenticationInProgress;
+}
+
 function isPublicAuthRequest(url: string): boolean {
   try {
     const pathname = new URL(url, window.location.origin).pathname;
@@ -75,6 +81,7 @@ function isPublicAuthRequest(url: string): boolean {
 }
 
 function startControlledReauthentication(): void {
+  controlledReauthenticationInProgress = true;
   clearBrowserRecoverySnapshot();
   snapshotRegisteredDrafts();
   if (window.location.pathname !== "/login") {

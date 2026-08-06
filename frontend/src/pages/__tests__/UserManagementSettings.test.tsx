@@ -16,9 +16,10 @@ vi.mock("../../services/api", () => ({
     resetUserPassword: vi.fn(),
     deleteUser: vi.fn(),
   },
+  isControlledReauthenticationInProgress: vi.fn(),
 }));
 
-import api from "../../services/api";
+import api, { isControlledReauthenticationInProgress } from "../../services/api";
 
 function mockViewportWidth(width: number) {
   const originalMatchMedia = window.matchMedia;
@@ -49,6 +50,7 @@ describe("UserManagementSettings", () => {
   beforeEach(() => {
     vi.clearAllMocks();
     clearCachedAsyncData();
+    vi.mocked(isControlledReauthenticationInProgress).mockReturnValue(false);
     vi.mocked(api.getUsers).mockResolvedValue([
       {
         id: "user-1",
@@ -402,6 +404,23 @@ describe("UserManagementSettings", () => {
         created_at: "2026-03-01T10:00:00Z",
         updated_at: "2026-03-01T10:00:00Z",
       },
+      {
+        id: "user-2",
+        username: "second-oidc-user",
+        role: "viewer",
+        is_active: true,
+        must_change_password: false,
+        has_local_password: false,
+        oidc_role_assignment: null,
+        oidc: {
+          identity_id: "identity-2",
+          provider_display_name: "Corporate login",
+          last_login_at: null,
+        },
+        pending_oidc: null,
+        created_at: "2026-03-01T10:00:00Z",
+        updated_at: "2026-03-01T10:00:00Z",
+      },
     ]);
 
     render(
@@ -411,11 +430,37 @@ describe("UserManagementSettings", () => {
     );
 
     expect(await screen.findByText(/OIDC last login:/)).toBeInTheDocument();
-    expect(screen.getByText("OIDC linked", { exact: true })).toBeInTheDocument();
     expect(screen.queryByText(/OIDC linked: Corporate login/)).not.toBeInTheDocument();
-    expect(screen.getByText(`OIDC last login: ${new Date("2026-03-01T10:00:00Z").toLocaleString()}`)).toBeInTheDocument();
+    const localTimestamp = new Intl.DateTimeFormat(undefined, {
+      year: "numeric",
+      month: "short",
+      day: "numeric",
+      hour: "numeric",
+      minute: "2-digit",
+      timeZoneName: "short",
+    }).format(new Date("2026-03-01T10:00:00Z"));
+    expect(screen.getByText(`OIDC last login: ${localTimestamp}`)).toBeInTheDocument();
+    expect(screen.getByText("second-oidc-user", { exact: true })).toBeInTheDocument();
+    expect(screen.getAllByText("OIDC linked", { exact: true })).toHaveLength(2);
     expect(screen.queryByRole("button", { name: /reset password/i })).not.toBeInTheDocument();
     expect(screen.queryByText("Local password")).not.toBeInTheDocument();
+  });
+
+  it("suppresses the user-load error when controlled OIDC reauthentication has started", async () => {
+    vi.mocked(api.getUsers).mockRejectedValue(new Error("OIDC sign-in is required"));
+    vi.mocked(isControlledReauthenticationInProgress).mockReturnValue(true);
+
+    render(
+      <SambeeThemeProvider>
+        <UserManagementSettings />
+      </SambeeThemeProvider>
+    );
+
+    await waitFor(() => {
+      expect(isControlledReauthenticationInProgress).toHaveBeenCalled();
+    });
+
+    expect(screen.queryByText("Failed to load users")).not.toBeInTheDocument();
   });
 
   it("uses the centralized OIDC mapping dialog and closes change and move workflows with Escape", async () => {
