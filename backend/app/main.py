@@ -18,7 +18,7 @@ from starlette.types import Scope
 
 from app import __version__
 from app.api import admin, admin_auth, auth, browser, companion, connections, logs, system_settings, viewer, websocket
-from app.core.config import settings
+from app.core.config import consume_unsupported_config_settings, settings
 from app.core.environment import DEV_CORS_ORIGINS, IS_DEVELOPMENT, IS_PRODUCTION
 from app.core.exceptions import ConfigurationError, SambeeError
 from app.core.logging import configure_uvicorn_loggers, log_error, set_request_id
@@ -233,6 +233,11 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     """Initialize application on startup"""
 
     try:
+        unsupported_settings = consume_unsupported_config_settings()
+        if unsupported_settings is not None:
+            config_file, ignored_paths = unsupported_settings
+            logger.warning("Ignoring unsupported configuration settings in '%s': %s", config_file, ", ".join(ignored_paths))
+
         logger.info("Starting Sambee application...")
         if settings.disable_auth_enforcement:
             logger.warning(

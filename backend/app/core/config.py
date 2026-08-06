@@ -10,12 +10,11 @@ from pydantic import BaseModel, field_validator, model_validator
 
 from app.core.environment import IS_DEVELOPMENT
 from app.core.exceptions import ConfigurationError
-from app.core.logging import get_logger
 from app.core.system_setting_definitions import SYSTEM_SETTING_DEFINITIONS, SystemSettingKey
 
 configured_setting_keys: frozenset[str] = frozenset()
+unsupported_config_settings: tuple[Path, tuple[str, ...]] | None = None
 DEFAULT_COMPANION_METADATA_FEED_URL = "https://release-feeds.sambee.net/feeds/sambee/companion/latest.json"
-logger = get_logger(__name__)
 
 _SUPPORTED_CONFIG_PATHS = frozenset(
     {
@@ -62,6 +61,16 @@ def _iter_config_paths(config: dict[str, Any], prefix: tuple[str, ...] = ()) -> 
             yield path
 
 
+def consume_unsupported_config_settings() -> tuple[Path, tuple[str, ...]] | None:
+    """Return and clear unsupported settings found during configuration loading."""
+
+    global unsupported_config_settings
+
+    pending_settings = unsupported_config_settings
+    unsupported_config_settings = None
+    return pending_settings
+
+
 #
 # load_toml_config
 #
@@ -72,6 +81,10 @@ def load_toml_config(config_file: Path) -> dict[str, Any]:
         Dictionary with flattened config values for Pydantic.
         Returns empty dict if file doesn't exist.
     """
+
+    global unsupported_config_settings
+
+    unsupported_config_settings = None
 
     if not config_file.exists():
         return {}
@@ -88,9 +101,9 @@ def load_toml_config(config_file: Path) -> dict[str, Any]:
     except tomllib.TOMLDecodeError as e:
         raise ConfigurationError(f"Invalid TOML syntax in '{config_file}': {e}") from e
 
-    ignored_paths = sorted(".".join(path) for path in _iter_config_paths(toml_data) if path not in _SUPPORTED_CONFIG_PATHS)
+    ignored_paths = tuple(sorted(".".join(path) for path in _iter_config_paths(toml_data) if path not in _SUPPORTED_CONFIG_PATHS))
     if ignored_paths:
-        logger.warning("Ignoring unsupported configuration settings in '%s': %s", config_file, ", ".join(ignored_paths))
+        unsupported_config_settings = (config_file, ignored_paths)
 
     # Flatten nested TOML structure for Pydantic
     # Convert sections like [security] to flat keys like SECRET_KEY

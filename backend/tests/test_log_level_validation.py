@@ -6,7 +6,7 @@ import logging
 import pytest
 from pydantic import ValidationError
 
-from app.core.config import Settings, load_toml_config
+from app.core.config import Settings, consume_unsupported_config_settings, load_toml_config
 from app.core.exceptions import ConfigurationError
 from app.core.logging import UvicornAccessLogFilter, UvicornProtocolLogFilter, configure_uvicorn_loggers
 
@@ -104,20 +104,19 @@ def test_access_log_level_loads_from_app_config(tmp_path):
     assert settings.protocol_log_level == "DEBUG"
 
 
-def test_ignored_configuration_settings_are_logged(tmp_path, caplog: pytest.LogCaptureFixture) -> None:
-    """Warn when a valid TOML value is not consumed by the configuration loader."""
+def test_ignored_configuration_settings_are_available_for_startup_logging(tmp_path) -> None:
+    """Queue unsupported TOML values for the configured startup logger."""
 
     config_file = tmp_path / "config.toml"
     config_file.write_text('[app]\nlog_level = "info"\nignored_option = true\n[unrecognized]\noption = "value"\n')
 
-    with caplog.at_level(logging.WARNING, logger="app.core.config"):
-        config = load_toml_config(config_file)
+    config = load_toml_config(config_file)
 
     assert config == {"log_level": "info"}
-    assert "Ignoring unsupported configuration settings" in caplog.text
-    assert "app.ignored_option" in caplog.text
-    assert "unrecognized.option" in caplog.text
-    assert '"value"' not in caplog.text
+    assert consume_unsupported_config_settings() == (
+        config_file,
+        ("app.ignored_option", "unrecognized.option"),
+    )
 
 
 @pytest.mark.parametrize(

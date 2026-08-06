@@ -425,11 +425,6 @@ class ApiService {
     return response.data;
   }
 
-  async revokeOtherOidcBrowserSessions(): Promise<OidcBrowserSessionRevokeResult> {
-    const response = await this.api.post<OidcBrowserSessionRevokeResult>("/auth/oidc/sessions/revoke-others");
-    return response.data;
-  }
-
   async getCurrentUserSettings(): Promise<CurrentUserSettings> {
     const response = await this.api.get<CurrentUserSettings>("/auth/me/settings");
     return response.data;

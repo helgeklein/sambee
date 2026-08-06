@@ -7,6 +7,8 @@ import pytest
 from fastapi.testclient import TestClient
 from sqlmodel import Session, select
 
+from app.core.auth_methods import AuthenticationMode
+from app.core.config import settings
 from app.core.security import create_access_token, get_password_hash, verify_password
 from app.models.oidc import (
     OidcFlow,
@@ -18,6 +20,7 @@ from app.models.oidc import (
     SignInMode,
 )
 from app.models.user import User, UserRole
+from app.services.authentication_config import set_ui_authentication_mode
 
 
 @pytest.mark.integration
@@ -42,7 +45,17 @@ class TestAdminUsers:
 
         assert response.status_code == 403
 
-    def test_create_user_generates_temporary_password(self, client: TestClient, auth_headers_admin: dict, session: Session):
+    @pytest.mark.parametrize("mode", (AuthenticationMode.PASSWORD_ONLY, AuthenticationMode.OIDC_OR_PASSWORD))
+    def test_create_user_generates_temporary_password(
+        self,
+        client: TestClient,
+        auth_headers_admin: dict,
+        admin_user: User,
+        session: Session,
+        mode: AuthenticationMode,
+    ):
+        set_ui_authentication_mode(session, mode=mode, updated_by_user_id=admin_user.id)
+        session.commit()
         response = client.post(
             "/api/admin/users",
             headers=auth_headers_admin,
@@ -74,6 +87,53 @@ class TestAdminUsers:
         assert created_user.role == UserRole.EDITOR
         assert created_user.must_change_password is True
         assert verify_password(data["temporary_password"], created_user.password_hash)
+
+    @pytest.mark.parametrize("mode", (AuthenticationMode.OIDC_ONLY, AuthenticationMode.NONE))
+    def test_create_user_rejected_when_local_password_authentication_is_disabled(
+        self,
+        client: TestClient,
+        auth_headers_admin: dict,
+        admin_user: User,
+        session: Session,
+        mode: AuthenticationMode,
+    ):
+        if mode == AuthenticationMode.NONE:
+            session.add(User(username=settings.admin_username, password_hash=get_password_hash("adminpass123"), role=UserRole.ADMIN))
+        set_ui_authentication_mode(session, mode=mode, updated_by_user_id=admin_user.id)
+        session.commit()
+
+        response = client.post("/api/admin/users", headers=auth_headers_admin, json={"username": "unusable-local-user"})
+
+        assert response.status_code == 409
+        assert response.json()["detail"] == "Creating local users is unavailable because local-password authentication is disabled"
+        assert session.exec(select(User).where(User.username == "unusable-local-user")).first() is None
+
+    @pytest.mark.parametrize("mode", (AuthenticationMode.OIDC_ONLY, AuthenticationMode.NONE))
+    def test_reset_password_rejected_when_local_password_authentication_is_disabled(
+        self,
+        client: TestClient,
+        auth_headers_admin: dict,
+        admin_user: User,
+        regular_user: User,
+        session: Session,
+        mode: AuthenticationMode,
+    ):
+        original_password_hash = regular_user.password_hash
+        if mode == AuthenticationMode.NONE:
+            session.add(User(username=settings.admin_username, password_hash=get_password_hash("adminpass123"), role=UserRole.ADMIN))
+        set_ui_authentication_mode(session, mode=mode, updated_by_user_id=admin_user.id)
+        session.commit()
+
+        response = client.post(
+            f"/api/admin/users/{regular_user.id}/reset-password",
+            headers=auth_headers_admin,
+            json={"new_password": "BrandNewPass123!", "must_change_password": False},
+        )
+
+        assert response.status_code == 409
+        assert response.json()["detail"] == "Resetting local passwords is unavailable because local-password authentication is disabled"
+        session.refresh(regular_user)
+        assert regular_user.password_hash == original_password_hash
 
     def test_create_user_rejects_legacy_regular_role(self, client: TestClient, auth_headers_admin: dict):
         response = client.post(
@@ -142,14 +202,19 @@ class TestAdminUsers:
         assert regular_user.oidc_role_assignment is None
         assert regular_user.token_version == 1
 
+    @pytest.mark.parametrize("mode", (AuthenticationMode.PASSWORD_ONLY, AuthenticationMode.OIDC_OR_PASSWORD))
     def test_reset_password_invalidates_existing_token(
         self,
         client: TestClient,
         auth_headers_admin: dict,
+        admin_user: User,
         regular_user: User,
         user_token: str,
         session: Session,
+        mode: AuthenticationMode,
     ):
+        set_ui_authentication_mode(session, mode=mode, updated_by_user_id=admin_user.id)
+        session.commit()
         response = client.post(
             f"/api/admin/users/{regular_user.id}/reset-password",
             headers=auth_headers_admin,

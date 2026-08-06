@@ -10,6 +10,7 @@ Tests cover:
 """
 
 import logging
+from pathlib import Path
 from unittest.mock import MagicMock, patch
 
 import pytest
@@ -96,6 +97,39 @@ class TestRequestLoggingMiddleware:
 @pytest.mark.integration
 class TestApplicationLifecycle:
     """Test application startup and shutdown events."""
+
+    @patch(
+        "app.main.consume_unsupported_config_settings",
+        return_value=(Path("/tmp/config.toml"), ("auth2.some_test",)),
+    )
+    @patch("app.main.init_db")
+    @patch("app.main.Session")
+    def test_startup_logs_unsupported_configuration_with_application_logger(
+        self,
+        mock_session,
+        mock_init_db,
+        mock_consume_unsupported_settings,
+        caplog,
+    ):
+        """Report unsupported TOML values through the configured application logger."""
+
+        from app.main import app
+
+        mock_db_session = MagicMock()
+        mock_session.return_value.__enter__.return_value = mock_db_session
+        mock_db_session.exec.return_value.first.return_value = MagicMock(username="testadmin")
+
+        with caplog.at_level(logging.INFO, logger="app.main"):
+            with TestClient(app):
+                pass
+
+        warning = next(record for record in caplog.records if record.getMessage().startswith("Ignoring unsupported configuration"))
+        startup_message = next(record for record in caplog.records if record.getMessage() == "Starting Sambee application...")
+
+        assert warning.name == "app.main"
+        assert warning.levelno == logging.WARNING
+        assert warning.getMessage() == "Ignoring unsupported configuration settings in '/tmp/config.toml': auth2.some_test"
+        assert caplog.records.index(warning) < caplog.records.index(startup_message)
 
     @patch("app.main.init_db")
     @patch("app.main.Session")

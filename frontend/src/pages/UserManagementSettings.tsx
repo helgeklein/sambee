@@ -197,6 +197,9 @@ export function UserManagementSettings({ dialogSafeHeader = false }: UserManagem
   const users = cachedUserManagementData?.users ?? [];
   const currentUserId = cachedUserManagementData?.currentUserId ?? null;
   const oidcConfiguration = cachedUserManagementData?.oidcConfiguration.configuration ?? null;
+  const localPasswordManagementAvailable =
+    cachedUserManagementData?.oidcConfiguration.auth_mode === "password_only" ||
+    cachedUserManagementData?.oidcConfiguration.auth_mode === "oidc_or_password";
   const pendingOidcMappingsAllowed = oidcConfiguration !== null;
   const [editorOpen, setEditorOpen] = useState(false);
   const [deleteDialogOpen, setDeleteDialogOpen] = useState(false);
@@ -217,6 +220,13 @@ export function UserManagementSettings({ dialogSafeHeader = false }: UserManagem
     anchor: HTMLElement | null;
     user: AdminUser | null;
   }>({ anchor: null, user: null });
+  const [oidcRoleEditor, setOidcRoleEditor] = useState<{
+    open: boolean;
+    user: AdminUser | null;
+    role: UserRole | "";
+  }>({ open: false, user: null, role: "" });
+  const [oidcRoleSubmitting, setOidcRoleSubmitting] = useState(false);
+  const [oidcRoleError, setOidcRoleError] = useState<string | null>(null);
   const [userActionsMenu, setUserActionsMenu] = useState<{
     anchor: HTMLElement | null;
     user: AdminUser | null;
@@ -324,6 +334,33 @@ export function UserManagementSettings({ dialogSafeHeader = false }: UserManagem
       await refresh();
     } catch (error: unknown) {
       showNotification(getApiErrorMessage(error, "The OIDC identity could not be detached."), "error");
+    }
+  };
+
+  const openOidcRoleEditor = (user: AdminUser) => {
+    setOidcRoleEditor({ open: true, user, role: user.oidc_role_assignment ?? "" });
+    setOidcRoleError(null);
+  };
+
+  const closeOidcRoleEditor = () => {
+    setOidcRoleEditor({ open: false, user: null, role: "" });
+    setOidcRoleError(null);
+  };
+
+  const handleOidcRoleSave = async () => {
+    const user = oidcRoleEditor.user;
+    if (!user) return;
+    try {
+      setOidcRoleSubmitting(true);
+      setOidcRoleError(null);
+      await api.updateUser(user.id, { oidc_role_assignment: oidcRoleEditor.role || null });
+      closeOidcRoleEditor();
+      showNotification("OIDC role assignment updated.", "success");
+      await refresh();
+    } catch (error: unknown) {
+      setOidcRoleError(getApiErrorMessage(error, "The OIDC role assignment could not be updated."));
+    } finally {
+      setOidcRoleSubmitting(false);
     }
   };
 
@@ -551,6 +588,28 @@ export function UserManagementSettings({ dialogSafeHeader = false }: UserManagem
         sx={[settingsPrimaryButtonSx, adminDialogActionButtonSx]}
       >
         Confirm
+      </Button>
+    </Box>
+  );
+
+  const oidcRoleEditorActions = (
+    <Box sx={adminDialogEndActionRowSx}>
+      <Button
+        onClick={closeOidcRoleEditor}
+        disabled={oidcRoleSubmitting}
+        variant="outlined"
+        sx={[settingsUtilityButtonSx, adminDialogActionButtonSx]}
+      >
+        {t("common.actions.cancel")}
+      </Button>
+      <Button
+        onClick={() => void handleOidcRoleSave()}
+        disabled={oidcRoleSubmitting}
+        variant="contained"
+        startIcon={oidcRoleSubmitting ? <CircularProgress size={18} color="inherit" /> : undefined}
+        sx={[settingsPrimaryButtonSx, adminDialogActionButtonSx]}
+      >
+        {t("common.actions.save")}
       </Button>
     </Box>
   );
@@ -1038,9 +1097,11 @@ export function UserManagementSettings({ dialogSafeHeader = false }: UserManagem
       category="admin-users"
       dialogSafeHeader={dialogSafeHeader}
       footerSecondaryActions={
-        <Button variant="outlined" startIcon={<AddIcon />} onClick={openCreateDialog} sx={settingsUtilityButtonSx}>
-          {t("settings.userManagement.addUserButton")}
-        </Button>
+        localPasswordManagementAvailable ? (
+          <Button variant="outlined" startIcon={<AddIcon />} onClick={openCreateDialog} sx={settingsUtilityButtonSx}>
+            {t("settings.userManagement.addUserButton")}
+          </Button>
+        ) : undefined
       }
     >
       <Stack spacing={2}>
@@ -1143,7 +1204,7 @@ export function UserManagementSettings({ dialogSafeHeader = false }: UserManagem
                           variant="outlined"
                           sx={settingsMetadataChipSx}
                         />
-                        {user.must_change_password && (
+                        {localPasswordManagementAvailable && user.must_change_password && (
                           <Chip
                             size="small"
                             label={t("settings.userManagement.passwordResetPending")}
@@ -1151,26 +1212,16 @@ export function UserManagementSettings({ dialogSafeHeader = false }: UserManagem
                             sx={settingsMetadataChipSx}
                           />
                         )}
-                        {user.has_local_password && (
+                        {localPasswordManagementAvailable && user.has_local_password && (
                           <Chip size="small" label="Local password" variant="outlined" sx={settingsMetadataChipSx} />
                         )}
-                        {user.oidc && (
-                          <>
-                            <Chip
-                              size="small"
-                              label={`OIDC linked: ${user.oidc.provider_display_name}`}
-                              variant="outlined"
-                              sx={settingsMetadataChipSx}
-                            />
-                            {user.oidc.last_login_at && (
-                              <Chip
-                                size="small"
-                                label={`OIDC last login: ${new Date(user.oidc.last_login_at).toLocaleString()}`}
-                                variant="outlined"
-                                sx={settingsMetadataChipSx}
-                              />
-                            )}
-                          </>
+                        {user.oidc?.last_login_at && (
+                          <Chip
+                            size="small"
+                            label={`OIDC last login: ${new Date(user.oidc.last_login_at).toLocaleString()}`}
+                            variant="outlined"
+                            sx={settingsMetadataChipSx}
+                          />
                         )}
                         {user.pending_oidc && (
                           <Chip
@@ -1244,33 +1295,14 @@ export function UserManagementSettings({ dialogSafeHeader = false }: UserManagem
                         </Tooltip>
                       )}
                       {oidcConfiguration && user.oidc && (
-                        <>
-                          <Tooltip
-                            title={
-                              pendingOidcMappingsAllowed
-                                ? "Change OIDC account"
-                                : "Confirm username claim uniqueness in Authentication settings before changing accounts"
-                            }
+                        <Tooltip title="Advanced OIDC actions">
+                          <IconButton
+                            aria-label={`Advanced OIDC actions for ${user.username}`}
+                            onClick={(event) => setAdvancedMappingMenu({ anchor: event.currentTarget, user })}
                           >
-                            <span>
-                              <IconButton
-                                aria-label={`Change OIDC account for ${user.username}`}
-                                disabled={!pendingOidcMappingsAllowed}
-                                onClick={() => openMappingEditor(user, "change")}
-                              >
-                                <LinkIcon />
-                              </IconButton>
-                            </span>
-                          </Tooltip>
-                          <Tooltip title="Advanced OIDC actions">
-                            <IconButton
-                              aria-label={`Advanced OIDC actions for ${user.username}`}
-                              onClick={(event) => setAdvancedMappingMenu({ anchor: event.currentTarget, user })}
-                            >
-                              <MoreVertIcon />
-                            </IconButton>
-                          </Tooltip>
-                        </>
+                            <MoreVertIcon />
+                          </IconButton>
+                        </Tooltip>
                       )}
                       <Tooltip title={t("settings.userManagement.actions.editUser")}>
                         <span>
@@ -1283,7 +1315,7 @@ export function UserManagementSettings({ dialogSafeHeader = false }: UserManagem
                           </IconButton>
                         </span>
                       </Tooltip>
-                      {user.has_local_password && (
+                      {localPasswordManagementAvailable && user.has_local_password && (
                         <Tooltip title={t("settings.userManagement.actions.resetPassword")}>
                           <span>
                             <IconButton
@@ -1349,6 +1381,26 @@ export function UserManagementSettings({ dialogSafeHeader = false }: UserManagem
         onClose={() => setAdvancedMappingMenu({ anchor: null, user: null })}
       >
         <MenuItem
+          disabled={!pendingOidcMappingsAllowed}
+          onClick={() => {
+            const user = advancedMappingMenu.user;
+            setAdvancedMappingMenu({ anchor: null, user: null });
+            if (user) openMappingEditor(user, "change");
+          }}
+        >
+          Change OIDC account
+        </MenuItem>
+        <MenuItem
+          disabled={Boolean(currentUserId && advancedMappingMenu.user?.id === currentUserId)}
+          onClick={() => {
+            const user = advancedMappingMenu.user;
+            setAdvancedMappingMenu({ anchor: null, user: null });
+            if (user) openOidcRoleEditor(user);
+          }}
+        >
+          Change individual OIDC role
+        </MenuItem>
+        <MenuItem
           onClick={() => {
             const user = advancedMappingMenu.user;
             setAdvancedMappingMenu({ anchor: null, user: null });
@@ -1367,6 +1419,43 @@ export function UserManagementSettings({ dialogSafeHeader = false }: UserManagem
           Detach OIDC identity
         </MenuItem>
       </Menu>
+
+      <ResponsiveFormDialog
+        open={oidcRoleEditor.open}
+        onClose={closeOidcRoleEditor}
+        disableClose={oidcRoleSubmitting}
+        title="Change individual OIDC role"
+        description="Choose an account-specific role or use the configured provider role assignment."
+        actions={oidcRoleEditorActions}
+      >
+        <Box sx={{ display: "flex", flexDirection: "column", gap: 2 }}>
+          {oidcRoleError && <SettingsInlineAlert sx={{ mb: 0 }}>{oidcRoleError}</SettingsInlineAlert>}
+          <SettingsFormSurface>
+            <SettingsFormGroup>
+              <SettingsFormRow sx={{ gridTemplateColumns: { md: "minmax(0, 1fr)" } }}>
+                <FormControl fullWidth variant="outlined" sx={settingsFormOutlinedControlSx}>
+                  <InputLabel id="oidc-role-editor-label">Individual OIDC role</InputLabel>
+                  <Select
+                    autoFocus
+                    labelId="oidc-role-editor-label"
+                    label="Individual OIDC role"
+                    value={oidcRoleEditor.role}
+                    onChange={(event) => setOidcRoleEditor((current) => ({ ...current, role: event.target.value as UserRole | "" }))}
+                    sx={settingsSelectSx}
+                    MenuProps={settingsSelectMenuProps}
+                  >
+                    <MenuItem value="">Use configured role assignment</MenuItem>
+                    <MenuItem value="viewer">Viewer</MenuItem>
+                    <MenuItem value="editor">Editor</MenuItem>
+                    <MenuItem value="admin">Admin</MenuItem>
+                  </Select>
+                  <FormHelperText>Individual roles override the configured provider role assignment.</FormHelperText>
+                </FormControl>
+              </SettingsFormRow>
+            </SettingsFormGroup>
+          </SettingsFormSurface>
+        </Box>
+      </ResponsiveFormDialog>
 
       <Menu anchorEl={userActionsMenu.anchor} open={Boolean(userActionsMenu.anchor)} onClose={closeUserActionsMenu}>
         {userActionsMenu.user && (
@@ -1441,7 +1530,7 @@ export function UserManagementSettings({ dialogSafeHeader = false }: UserManagem
               <EditIcon fontSize="small" sx={{ mr: 1.5 }} />
               {t("settings.userManagement.actions.editUser")}
             </MenuItem>
-            {userActionsMenu.user.has_local_password && (
+            {localPasswordManagementAvailable && userActionsMenu.user.has_local_password && (
               <MenuItem
                 onClick={() => {
                   const user = userActionsMenu.user;

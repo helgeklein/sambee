@@ -135,7 +135,7 @@ export const EN_TRANSLATIONS = {
       },
       account: {
         label: "Account",
-        description: "Manage your identity, password, browser sessions, and sign-out.",
+        description: "Manage your identity, password, sessions, and sign-out.",
       },
       fileBrowser: {
         label: "File Browser",

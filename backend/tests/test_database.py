@@ -357,6 +357,32 @@ class TestDatabaseEngine:
         finally:
             test_engine.dispose()
 
+    def test_run_migrations_adds_oidc_browser_session_client_metadata(self, tmp_path: Path):
+        db_path = tmp_path / "legacy-oidc-browser-session.db"
+        test_engine = create_engine(f"sqlite:///{db_path}")
+        try:
+            with test_engine.begin() as connection:
+                connection.execute(text("CREATE TABLE oidcbrowsersession (id CHAR(32) PRIMARY KEY)"))
+                connection.execute(
+                    text(
+                        f"CREATE TABLE {MIGRATION_TABLE_NAME} ("
+                        "version INTEGER PRIMARY KEY, name TEXT NOT NULL, applied_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP)"
+                    )
+                )
+                for migration in MIGRATIONS[:-1]:
+                    connection.execute(
+                        text(f"INSERT INTO {MIGRATION_TABLE_NAME} (version, name) VALUES (:version, :name)"),
+                        {"version": migration.version, "name": migration.name},
+                    )
+
+            run_migrations(test_engine)
+            run_migrations(test_engine)
+
+            session_columns = {column["name"] for column in inspect(test_engine).get_columns("oidcbrowsersession")}
+            assert {"browser_name", "operating_system"} <= session_columns
+        finally:
+            test_engine.dispose()
+
     def test_run_migrations_makes_password_nullable_and_preserves_hash(self, tmp_path: Path):
         db_path = tmp_path / "legacy-user-password.db"
         test_engine = create_engine(

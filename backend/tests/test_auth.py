@@ -79,6 +79,8 @@ def test_oidc_session_controls_revoke_only_owned_sessions(client: TestClient, se
         secret_hash=hashlib.sha256(b"current-secret").hexdigest(),
         encrypted_refresh_token="encrypted",
         status=OidcBrowserSessionStatus.ACTIVE,
+        browser_name="Firefox",
+        operating_system="Linux",
         authenticated_at=now,
         absolute_expires_at=now + timedelta(days=30),
     )
@@ -90,7 +92,7 @@ def test_oidc_session_controls_revoke_only_owned_sessions(client: TestClient, se
         identity_mapping_revision=configuration.identity_mapping_revision,
         issuer=configuration.issuer_url,
         subject="other-subject",
-        secret_hash="other-secret-hash",
+        secret_hash=hashlib.sha256(b"other-secret").hexdigest(),
         encrypted_refresh_token="encrypted",
         status=OidcBrowserSessionStatus.ACTIVE,
         authenticated_at=now,
@@ -102,12 +104,25 @@ def test_oidc_session_controls_revoke_only_owned_sessions(client: TestClient, se
     headers = {"Authorization": f"Bearer {token}"}
     client.cookies.set(OIDC_BROWSER_SESSION_COOKIE_NAME, build_cookie_value(current_session.id, "current-secret"))
 
+    account = client.get("/api/auth/account", headers=headers)
+    assert account.status_code == 200
+    assert account.json()["current_session"] == {
+        "kind": "oidc",
+        "id": str(current_session.id),
+        "started_at": account.json()["current_session"]["started_at"],
+        "last_active_at": account.json()["current_session"]["last_active_at"],
+        "browser_name": "Firefox",
+        "operating_system": "Linux",
+    }
+
     listed = client.get("/api/auth/oidc/sessions", headers=headers)
     assert listed.status_code == 200
     sessions = listed.json()["sessions"]
     assert len(sessions) == 1
     assert sessions[0]["id"] == str(current_session.id)
     assert sessions[0]["status"] == "active"
+    assert sessions[0]["browser_name"] == "Firefox"
+    assert sessions[0]["operating_system"] == "Linux"
     assert sessions[0]["current"] is True
 
     rejected = client.post(f"/api/auth/oidc/sessions/{other_session.id}/revoke", headers=headers)
@@ -116,11 +131,16 @@ def test_oidc_session_controls_revoke_only_owned_sessions(client: TestClient, se
     session.refresh(other_session)
     assert other_session.status == OidcBrowserSessionStatus.ACTIVE
 
+    # The bearer token identifies the session being revoked. A later browser login
+    # can replace the shared cookie with a session for another user.
+    client.cookies.set(OIDC_BROWSER_SESSION_COOKIE_NAME, build_cookie_value(other_session.id, "other-secret"))
     revoked = client.post(f"/api/auth/oidc/sessions/{current_session.id}/revoke", headers=headers)
     assert revoked.status_code == 200
     assert revoked.json() == {"revoked_count": 1}
     session.refresh(current_session)
+    session.refresh(other_session)
     assert current_session.status == OidcBrowserSessionStatus.REVOKED
+    assert other_session.status == OidcBrowserSessionStatus.ACTIVE
     assert client.get("/api/auth/me", headers=headers).status_code == 401
 
 
@@ -629,9 +649,18 @@ class TestGetCurrentUserEndpoint:
             "expires_at": None,
             "created_at": response.json()["created_at"],
             "has_local_password": True,
+            "identity_source": "local",
             "password_change_available": True,
             "browser_session_management_available": False,
             "oidc_provider_name": None,
+            "current_session": {
+                "kind": "password",
+                "id": None,
+                "started_at": None,
+                "last_active_at": None,
+                "browser_name": None,
+                "operating_system": None,
+            },
         }
 
     def test_get_current_account_reports_oidc_session_capabilities(self, client: TestClient, session: Session, auth_headers_user: dict):
@@ -654,12 +683,26 @@ class TestGetCurrentUserEndpoint:
 
             assert response.status_code == 200
             assert response.json()["password_change_available"] is False
+            assert response.json()["identity_source"] == "local"
             assert response.json()["browser_session_management_available"] is True
             assert response.json()["oidc_provider_name"] == "Company SSO"
         finally:
             set_ui_authentication_mode(session, mode=AuthenticationMode.PASSWORD_ONLY, updated_by_user_id=None)
             session.exec(delete(OidcProviderConfiguration))
             session.commit()
+
+    def test_get_current_account_reports_oidc_identity_source(
+        self, client: TestClient, session: Session, regular_user: User, auth_headers_user: dict
+    ):
+        from app.models.oidc import OidcIdentity
+
+        session.add(OidcIdentity(user_id=regular_user.id, issuer="https://idp.example.com", subject="user-subject"))
+        session.commit()
+
+        response = client.get("/api/auth/account", headers=auth_headers_user)
+
+        assert response.status_code == 200
+        assert response.json()["identity_source"] == "oidc"
 
 
 @pytest.mark.integration
@@ -869,19 +912,36 @@ class TestAuthenticationEnforcementOverride:
         assert response.status_code == 404
         assert "not enabled" in response.json()["detail"].lower()
 
-    def test_change_password_disabled_with_override(self, client: TestClient, config_admin_user: User, monkeypatch):
-        """Test that change-password endpoint returns 400 when enforcement is disabled."""
+    def test_change_password_remains_available_with_override(
+        self, client: TestClient, config_admin_user: User, session: Session, monkeypatch
+    ):
+        """Test that a configured local password can change while enforcement is bypassed."""
         from app.core.config import settings
+        from app.core.security import verify_password
 
         monkeypatch.setattr(settings, "disable_auth_enforcement", True)
 
         response = client.post(
             "/api/auth/change-password",
-            params={"current_password": "oldpass", "new_password": "newpass"},
+            params={"current_password": "admin123", "new_password": "newpass123"},
         )
 
-        assert response.status_code == 400
-        assert "not available" in response.json()["detail"].lower() or "reverse proxy" in response.json()["detail"].lower()
+        assert response.status_code == 200
+        session.refresh(config_admin_user)
+        assert verify_password("newpass123", config_admin_user.password_hash)
+
+    def test_account_reports_configured_password_capability_with_override(
+        self, client: TestClient, config_admin_user: User, monkeypatch
+    ) -> None:
+        from app.core.config import settings
+
+        monkeypatch.setattr(settings, "disable_auth_enforcement", True)
+
+        response = client.get("/api/auth/account")
+
+        assert response.status_code == 200
+        assert response.json()["password_change_available"] is True
+        assert response.json()["current_session"] is None
 
     def test_me_endpoint_returns_admin_without_token(self, client: TestClient, config_admin_user: User, monkeypatch):
         """Test /api/auth/me returns admin user without token while enforcement is disabled."""
