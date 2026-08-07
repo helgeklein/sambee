@@ -101,7 +101,7 @@ async def list_users(
     session: Session = Depends(get_session),
 ) -> list[AdminUserRead]:
     set_user(current_user.username)
-    logger.info(f"Listing users: user={current_user.username}")
+    logger.debug("Listing users")
     users = session.exec(select(User).order_by(User.username)).all()
     return [_build_admin_user_read_with_authentication(session, user) for user in users]
 
