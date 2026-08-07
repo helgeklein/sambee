@@ -543,7 +543,7 @@ export function ConnectionSettings({
         submitting={deleteSubmitting}
         title={t("settings.connectionManagement.deleteDialogTitle")}
         description={t("settings.connectionManagement.deleteDialogDescription")}
-        itemName={selectedConnection?.name ?? null}
+        descriptionItemName={selectedConnection?.name ?? null}
       />
 
       <SettingsNotificationSnackbar

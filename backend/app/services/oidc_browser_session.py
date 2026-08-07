@@ -24,6 +24,7 @@ OIDC_INTERACTIVE_REAUTHENTICATION_DEFAULT_DAYS = 30
 OIDC_INTERACTIVE_REAUTHENTICATION_MIN_DAYS = 1
 OIDC_INTERACTIVE_REAUTHENTICATION_MAX_DAYS = 365
 OIDC_REFRESH_LEASE_SECONDS = 45
+USER_AGENT_CLASSIFICATION_MAX_LENGTH = 512
 _OIDC_BROWSER_SESSION_TABLE = SQLModel.metadata.tables["oidcbrowsersession"]
 
 
@@ -99,6 +100,52 @@ def browser_session_cookie_expiry(browser_session: OidcBrowserSession) -> dateti
     return _as_utc(browser_session.absolute_expires_at)
 
 
+def describe_browser_session_client(user_agent: str | None) -> tuple[str | None, str | None]:
+    """Return coarse browser and OS labels without retaining the User-Agent string."""
+
+    normalized_user_agent = (user_agent or "")[:USER_AGENT_CLASSIFICATION_MAX_LENGTH].lower()
+    operating_system = next(
+        (
+            label
+            for token, label in (
+                ("iphone", "iOS"),
+                ("ipad", "iOS"),
+                ("ipod", "iOS"),
+                ("android", "Android"),
+                ("windows", "Windows"),
+                ("cros", "ChromeOS"),
+                ("mac os x", "macOS"),
+                ("macintosh", "macOS"),
+                ("linux", "Linux"),
+            )
+            if token in normalized_user_agent
+        ),
+        None,
+    )
+    browser_name = next(
+        (
+            label
+            for token, label in (
+                ("edgios/", "Microsoft Edge"),
+                ("edga/", "Microsoft Edge"),
+                ("edg/", "Microsoft Edge"),
+                ("opr/", "Opera"),
+                ("opera/", "Opera"),
+                ("fxios/", "Firefox"),
+                ("firefox/", "Firefox"),
+                (" wv)", "Android WebView"),
+                ("crios/", "Chrome"),
+                ("chrome/", "Chrome"),
+                ("chromium/", "Chromium"),
+                ("safari/", "Safari"),
+            )
+            if token in normalized_user_agent
+        ),
+        None,
+    )
+    return browser_name, operating_system
+
+
 def create_pending_browser_session(
     session: Session,
     *,
@@ -111,6 +158,7 @@ def create_pending_browser_session(
     session_cipher: OidcSecretCipher,
     session_cipher_key_id: str,
     flow_cipher: OidcSecretCipher,
+    user_agent: str | None,
     now: datetime | None = None,
 ) -> PendingOidcBrowserSession:
     """Persist a callback refresh token without exposing it to the browser or flow."""
@@ -120,6 +168,7 @@ def create_pending_browser_session(
     if authenticated_time > current_time + timedelta(minutes=1):
         raise OidcBrowserSessionError(OidcBrowserSessionErrorCode.REAUTHENTICATION_REQUIRED, "OIDC authentication time is invalid")
     secret = secrets.token_urlsafe(OIDC_BROWSER_SESSION_SECRET_BYTES)
+    browser_name, operating_system = describe_browser_session_client(user_agent)
     browser_session = OidcBrowserSession(
         user_id=user.id,
         user_token_version=user.token_version,
@@ -131,6 +180,8 @@ def create_pending_browser_session(
         secret_hash=_hash_secret(secret),
         encrypted_refresh_token=session_cipher.encrypt(refresh_token),
         cipher_key_id=session_cipher_key_id,
+        browser_name=browser_name,
+        operating_system=operating_system,
         authenticated_at=authenticated_time,
         absolute_expires_at=authenticated_time + timedelta(days=_maximum_age_days(configuration)),
         pending_expires_at=current_time + timedelta(seconds=LOGIN_GRANT_LIFETIME_SECONDS),

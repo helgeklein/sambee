@@ -145,6 +145,8 @@ class OidcBrowserSession(SQLModel, table=True):
         default=OidcBrowserSessionStatus.PENDING,
         sa_column=_enum_column(OidcBrowserSessionStatus, OidcBrowserSessionStatus.PENDING),
     )
+    browser_name: str | None = Field(default=None, max_length=40)
+    operating_system: str | None = Field(default=None, max_length=40)
     authenticated_at: datetime
     absolute_expires_at: datetime = Field(index=True)
     pending_expires_at: datetime | None = Field(default=None, index=True)

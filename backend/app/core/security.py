@@ -45,6 +45,8 @@ _fernet: Fernet | None = None
 class BrowserAuthentication:
     user: User
     token_version_current: bool
+    oidc_browser_session_id: uuid.UUID | None = None
+    authentication_enforced: bool = True
 
 
 def is_user_expired(user: User, now: datetime | None = None) -> bool:
@@ -249,13 +251,15 @@ def _authenticate_browser_token(token: str, session: Session) -> BrowserAuthenti
     user = _get_user_from_subject(subject, session)
     user = _ensure_user_is_current(user, credentials_exception)
 
+    oidc_browser_session_id: uuid.UUID | None = None
     session_id = payload.get("sid")
     if session_id is not None:
         try:
             from app.models.oidc import OidcBrowserSession
             from app.services.oidc_browser_session import OidcBrowserSessionError, validate_browser_session
 
-            browser_session = session.get(OidcBrowserSession, uuid.UUID(str(session_id)))
+            oidc_browser_session_id = uuid.UUID(str(session_id))
+            browser_session = session.get(OidcBrowserSession, oidc_browser_session_id)
             if browser_session is None:
                 raise _build_oidc_reauthentication_exception()
             validate_browser_session(
@@ -273,7 +277,11 @@ def _authenticate_browser_token(token: str, session: Session) -> BrowserAuthenti
         token_version = int(payload.get("tv", 0))
     except (TypeError, ValueError):
         raise credentials_exception
-    return BrowserAuthentication(user=user, token_version_current=token_version == user.token_version)
+    return BrowserAuthentication(
+        user=user,
+        token_version_current=token_version == user.token_version,
+        oidc_browser_session_id=oidc_browser_session_id,
+    )
 
 
 async def get_admin_browser_authentication_allowing_stale_token(
@@ -307,7 +315,28 @@ async def get_current_user_with_auth_check(
     which case requests resolve to the configured administrator without a token.
     """
 
-    return await get_current_user_for_token(token, session)
+    return (await get_current_browser_authentication_with_auth_check(token, session)).user
+
+
+async def get_current_browser_authentication_with_auth_check(
+    token: Optional[str] = Depends(oauth2_scheme_optional),
+    session: Session = Depends(get_session),
+) -> BrowserAuthentication:
+    """Return the validated browser authentication context for account session views."""
+
+    if get_effective_authentication_mode(session).value == "none":
+        return BrowserAuthentication(
+            user=await get_current_user_for_token(token, session),
+            token_version_current=True,
+            authentication_enforced=False,
+        )
+    if token is None:
+        await get_current_user_for_token(token, session)
+        raise AssertionError("Missing browser token was not rejected")
+    authentication = _authenticate_browser_token(token, session)
+    if not authentication.token_version_current:
+        raise _build_credentials_exception()
+    return authentication
 
 
 async def get_current_user_for_token(token: Optional[str], session: Session) -> User:

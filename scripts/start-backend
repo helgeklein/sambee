@@ -48,7 +48,7 @@ if [ -f "/.dockerenv" ] || [ -n "$REMOTE_CONTAINERS" ] || [ -n "$CODESPACES" ]; 
     # Export PYTHONPATH for uvicorn's reload subprocess (Python 3.13 multiprocessing fix)
     export PYTHONPATH="${PYTHONPATH:+${PYTHONPATH}:}/workspace/backend"
 
-    "$BACKEND_PYTHON" -m uvicorn app.main:app --reload --host 0.0.0.0 --port 8000 --no-proxy-headers
+    "$BACKEND_PYTHON" -m uvicorn app.main:app --reload --reload-dir /workspace --reload-include "*.py" --reload-include "config.toml" --host 0.0.0.0 --port 8000 --no-proxy-headers
 else
     echo "⚠️  Not in a devcontainer. Skipping backend start."
     echo "Please reopen in container: Ctrl+Shift+P → 'Dev Containers: Reopen in Container'"

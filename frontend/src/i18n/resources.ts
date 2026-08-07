@@ -135,7 +135,7 @@ export const EN_TRANSLATIONS = {
       },
       account: {
         label: "Account",
-        description: "Manage your identity, password, browser sessions, and sign-out.",
+        description: "Manage your identity, password, sessions, and sign-out.",
       },
       fileBrowser: {
         label: "File Browser",
@@ -359,7 +359,7 @@ export const EN_TRANSLATIONS = {
         actions: "Actions",
       },
       deleteDialogTitle: "Delete Connection",
-      deleteDialogDescription: "Are you sure you want to delete the connection",
+      deleteDialogDescription: "Are you sure you want to delete the connection?",
       notifications: {
         loadFailed: "Failed to load connections",
         savedPrivateInfo: "Connection saved as private. Shared visibility requires admin access.",
@@ -527,7 +527,6 @@ export const EN_TRANSLATIONS = {
       },
       deleteDialog: {
         title: "Delete User",
-        descriptionWithName: "Delete {{username}}? This immediately removes their access.",
         descriptionFallback: "Delete this user?",
       },
       notifications: {

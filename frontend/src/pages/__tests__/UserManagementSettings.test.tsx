@@ -16,9 +16,10 @@ vi.mock("../../services/api", () => ({
     resetUserPassword: vi.fn(),
     deleteUser: vi.fn(),
   },
+  isControlledReauthenticationInProgress: vi.fn(),
 }));
 
-import api from "../../services/api";
+import api, { isControlledReauthenticationInProgress } from "../../services/api";
 
 function mockViewportWidth(width: number) {
   const originalMatchMedia = window.matchMedia;
@@ -49,6 +50,7 @@ describe("UserManagementSettings", () => {
   beforeEach(() => {
     vi.clearAllMocks();
     clearCachedAsyncData();
+    vi.mocked(isControlledReauthenticationInProgress).mockReturnValue(false);
     vi.mocked(api.getUsers).mockResolvedValue([
       {
         id: "user-1",
@@ -108,6 +110,72 @@ describe("UserManagementSettings", () => {
 
     expect(screen.getByRole("button", { name: /cancel/i })).toBeInTheDocument();
     expect(screen.getByRole("button", { name: /create user/i })).toBeInTheDocument();
+  });
+
+  it("uses the inline bold username confirmation when deleting another user", async () => {
+    vi.mocked(api.getUsers).mockResolvedValue([
+      {
+        id: "user-1",
+        username: "admin",
+        role: "admin",
+        is_active: true,
+        must_change_password: false,
+        has_local_password: true,
+        oidc_role_assignment: null,
+        oidc: null,
+        pending_oidc: null,
+        created_at: "2026-03-01T10:00:00Z",
+        updated_at: "2026-03-01T10:00:00Z",
+      },
+      {
+        id: "user-2",
+        username: "other-user",
+        role: "viewer",
+        is_active: true,
+        must_change_password: false,
+        has_local_password: false,
+        oidc_role_assignment: null,
+        oidc: null,
+        pending_oidc: null,
+        created_at: "2026-03-01T10:00:00Z",
+        updated_at: "2026-03-01T10:00:00Z",
+      },
+    ]);
+    const user = userEvent.setup();
+
+    render(
+      <SambeeThemeProvider>
+        <UserManagementSettings />
+      </SambeeThemeProvider>
+    );
+
+    await user.click(await screen.findByRole("button", { name: "Delete other-user" }));
+
+    const deleteDialog = screen.getByRole("dialog", { name: "Delete User" });
+    expect(within(deleteDialog).getByText("other-user", { exact: true }).tagName).toBe("STRONG");
+    expect(within(deleteDialog).queryByRole("textbox")).not.toBeInTheDocument();
+  });
+
+  it.each(["oidc_only", "none"] as const)("hides local-user and password controls in %s mode", async (authMode) => {
+    vi.mocked(api.getOidcConfiguration).mockResolvedValue({
+      configuration: null,
+      health: { status: "healthy", public_url_configured: false, public_url: null, redirect_uri: null, reasons: [] },
+      active_passwordless_user_count: 0,
+      auth_mode: authMode,
+      auth_enforcement_disabled: false,
+    });
+
+    render(
+      <SambeeThemeProvider>
+        <UserManagementSettings />
+      </SambeeThemeProvider>
+    );
+
+    await screen.findByText("admin", { exact: true });
+
+    expect(screen.queryByRole("button", { name: /add user/i })).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: /reset password for admin/i })).not.toBeInTheDocument();
+    expect(screen.queryByText("Local password", { exact: true })).not.toBeInTheDocument();
   });
 
   it("uses external descriptions and grouped sections in the desktop add-user editor", async () => {
@@ -380,6 +448,23 @@ describe("UserManagementSettings", () => {
         created_at: "2026-03-01T10:00:00Z",
         updated_at: "2026-03-01T10:00:00Z",
       },
+      {
+        id: "user-2",
+        username: "second-oidc-user",
+        role: "viewer",
+        is_active: true,
+        must_change_password: false,
+        has_local_password: false,
+        oidc_role_assignment: null,
+        oidc: {
+          identity_id: "identity-2",
+          provider_display_name: "Corporate login",
+          last_login_at: null,
+        },
+        pending_oidc: null,
+        created_at: "2026-03-01T10:00:00Z",
+        updated_at: "2026-03-01T10:00:00Z",
+      },
     ]);
 
     render(
@@ -388,10 +473,38 @@ describe("UserManagementSettings", () => {
       </SambeeThemeProvider>
     );
 
-    expect(await screen.findByText(/OIDC linked: Corporate login/)).toBeInTheDocument();
-    expect(screen.getByText(`OIDC last login: ${new Date("2026-03-01T10:00:00Z").toLocaleString()}`)).toBeInTheDocument();
+    expect(await screen.findByText(/OIDC last login:/)).toBeInTheDocument();
+    expect(screen.queryByText(/OIDC linked: Corporate login/)).not.toBeInTheDocument();
+    const localTimestamp = new Intl.DateTimeFormat(undefined, {
+      year: "numeric",
+      month: "short",
+      day: "numeric",
+      hour: "numeric",
+      minute: "2-digit",
+      timeZoneName: "short",
+    }).format(new Date("2026-03-01T10:00:00Z"));
+    expect(screen.getByText(`OIDC last login: ${localTimestamp}`)).toBeInTheDocument();
+    expect(screen.getByText("second-oidc-user", { exact: true })).toBeInTheDocument();
+    expect(screen.getAllByText("OIDC linked", { exact: true })).toHaveLength(2);
     expect(screen.queryByRole("button", { name: /reset password/i })).not.toBeInTheDocument();
     expect(screen.queryByText("Local password")).not.toBeInTheDocument();
+  });
+
+  it("suppresses the user-load error when controlled OIDC reauthentication has started", async () => {
+    vi.mocked(api.getUsers).mockRejectedValue(new Error("OIDC sign-in is required"));
+    vi.mocked(isControlledReauthenticationInProgress).mockReturnValue(true);
+
+    render(
+      <SambeeThemeProvider>
+        <UserManagementSettings />
+      </SambeeThemeProvider>
+    );
+
+    await waitFor(() => {
+      expect(isControlledReauthenticationInProgress).toHaveBeenCalled();
+    });
+
+    expect(screen.queryByText("Failed to load users")).not.toBeInTheDocument();
   });
 
   it("uses the centralized OIDC mapping dialog and closes change and move workflows with Escape", async () => {
@@ -455,6 +568,11 @@ describe("UserManagementSettings", () => {
         reasons: [],
       },
     });
+    vi.mocked(api.getCurrentUser).mockResolvedValue({
+      id: "other-admin",
+      username: "other-admin",
+      role: "admin",
+    });
     const user = userEvent.setup();
 
     render(
@@ -463,11 +581,12 @@ describe("UserManagementSettings", () => {
       </SambeeThemeProvider>
     );
 
-    const changeAccountButton = await screen.findByRole("button", { name: "Change OIDC account for linked-admin" });
-    expect(changeAccountButton).toBeEnabled();
-    expect(screen.getByRole("button", { name: "Map OIDC account for unmapped-user" })).toBeEnabled();
+    expect(await screen.findByRole("button", { name: "Map OIDC account for unmapped-user" })).toBeEnabled();
 
-    await user.click(changeAccountButton);
+    expect(screen.queryByRole("button", { name: "Change OIDC account for linked-admin" })).not.toBeInTheDocument();
+    await user.click(screen.getByRole("button", { name: "Advanced OIDC actions for linked-admin" }));
+    expect(screen.getByRole("menuitem", { name: "Change OIDC account" })).toBeEnabled();
+    await user.click(screen.getByRole("menuitem", { name: "Change OIDC account" }));
     const expectedUsername = await screen.findByLabelText("Expected provider username");
     expect(expectedUsername).toHaveFocus();
     expect(screen.getByTestId("oidc-mapping-editor-form-surface")).toContainElement(expectedUsername);
@@ -489,6 +608,17 @@ describe("UserManagementSettings", () => {
     await user.keyboard("{Escape}");
     await waitFor(() => {
       expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
+    });
+
+    await user.click(screen.getByRole("button", { name: "Advanced OIDC actions for linked-admin" }));
+    await user.click(screen.getByRole("menuitem", { name: "Change individual OIDC role" }));
+    const oidcRoleDialog = await screen.findByRole("dialog", { name: "Change individual OIDC role" });
+    await user.click(within(oidcRoleDialog).getByRole("combobox", { name: "Individual OIDC role" }));
+    await user.click(screen.getByRole("option", { name: "Admin" }));
+    await user.click(within(oidcRoleDialog).getByRole("button", { name: "Save" }));
+
+    await waitFor(() => {
+      expect(api.updateUser).toHaveBeenCalledWith("user-1", { oidc_role_assignment: "admin" });
     });
   });
 

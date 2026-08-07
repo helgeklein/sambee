@@ -1,6 +1,8 @@
 import type { ThemeConfig } from "../theme/types";
 
 export type UserRole = "admin" | "editor" | "viewer";
+export type AccountIdentitySource = "local" | "oidc";
+export type AccountSessionKind = "password" | "oidc";
 export type ConnectionScope = "shared" | "private";
 export type ConnectionAccessMode = "read_write" | "read_only";
 export type SystemSettingSource = "database" | "config_file" | "default";
@@ -29,9 +31,20 @@ export interface CurrentAccount extends User {
   expires_at: string | null;
   created_at: string;
   has_local_password: boolean;
+  identity_source: AccountIdentitySource;
   password_change_available: boolean;
   browser_session_management_available: boolean;
   oidc_provider_name: string | null;
+  current_session: CurrentAccountSession | null;
+}
+
+export interface CurrentAccountSession {
+  kind: AccountSessionKind;
+  id: string | null;
+  started_at: string | null;
+  last_active_at: string | null;
+  browser_name: string | null;
+  operating_system: string | null;
 }
 
 export interface AuthToken extends User {
@@ -306,6 +319,8 @@ export interface AuthToken {
 export interface OidcBrowserSession {
   id: string;
   status: "active" | "refresh_uncertain";
+  browser_name: string | null;
+  operating_system: string | null;
   created_at: string;
   authenticated_at: string;
   last_seen_at: string | null;

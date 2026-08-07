@@ -3,9 +3,14 @@ import { clearBrowserRecoverySnapshot } from "./browserRecoverySnapshot";
 import { clearCurrentUserDrafts } from "./draftRecovery";
 import { OIDC_LOGOUT_MARKER } from "./oidcAuth";
 
-export async function signOutCurrentBrowser(): Promise<void> {
+export function clearCurrentBrowserSession(): void {
   clearBrowserRecoverySnapshot();
   clearCurrentUserDrafts();
-  await authSession.logout();
+  authSession.clear();
   sessionStorage.setItem(OIDC_LOGOUT_MARKER, "1");
+}
+
+export async function signOutCurrentBrowser(): Promise<void> {
+  clearCurrentBrowserSession();
+  await authSession.logout();
 }

@@ -6,6 +6,8 @@ Password authentication uses Sambee's local username and password form. Select *
 
 See [Authentication Overview](../authentication-overview/) to compare all authentication modes.
 
+Administrators can create users and set or reset local passwords in **Password only** and **OIDC or password** modes. Sambee retains existing password hashes when local-password sign-in is disabled, but User Management cannot create or reset local passwords until a password-capable mode is active again.
+
 ## Switch to Password-Only Access
 
 The web activation requires at least one active, unexpired administrator with a local password. Before confirmation, Sambee shows how many active, unexpired accounts have no local password and requires explicit acknowledgement that they will lose sign-in access.

@@ -10,9 +10,37 @@ from app.services.oidc_browser_session import (
     OidcRefreshLeaseState,
     acquire_refresh_lease,
     browser_session_cookie_expiry,
+    describe_browser_session_client,
     release_refresh_lease,
     validate_browser_session,
 )
+
+
+@pytest.mark.parametrize(
+    ("user_agent", "expected"),
+    (
+        (
+            "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/140.0.0.0 Safari/537.36",
+            ("Chrome", "Windows"),
+        ),
+        (
+            "Mozilla/5.0 (iPhone; CPU iPhone OS 18_5 like Mac OS X) AppleWebKit/605.1.15 "
+            "(KHTML, like Gecko) Version/18.5 Mobile/15E148 Safari/604.1",
+            ("Safari", "iOS"),
+        ),
+        (
+            "Mozilla/5.0 (Linux; Android 15; Pixel 9 Build/AP3A.241005.015.A2; wv) "
+            "AppleWebKit/537.36 (KHTML, like Gecko) Version/4.0 Chrome/131.0.0.0 Mobile Safari/537.36",
+            ("Android WebView", "Android"),
+        ),
+        (None, (None, None)),
+        ("custom-client/1.0", (None, None)),
+    ),
+)
+def test_describe_browser_session_client_returns_only_coarse_labels(
+    user_agent: str | None, expected: tuple[str | None, str | None]
+) -> None:
+    assert describe_browser_session_client(user_agent) == expected
 
 
 def test_refresh_lease_allows_only_one_concurrent_provider_refresh(session: Session) -> None:

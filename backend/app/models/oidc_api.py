@@ -96,6 +96,8 @@ class OidcGrantExchangeRequest(SQLModel):
 class OidcBrowserSessionRead(SQLModel):
     id: uuid.UUID
     status: str
+    browser_name: str | None
+    operating_system: str | None
     created_at: datetime
     authenticated_at: datetime
     last_seen_at: datetime | None

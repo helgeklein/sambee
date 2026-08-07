@@ -6,20 +6,23 @@ Open **Settings** > **Account** to review the identity Sambee uses for your curr
 
 ## Sign Out
 
-Select **Sign out** to end the current browser's Sambee session and return to the sign-in page. This does not sign you out of your identity provider.
+Select **Sign out** next to **This browser** in **Sessions** to return to the sign-in page. For OIDC, this also revokes the current OIDC browser session. For a password sign-in, Sambee clears the current browser's local access token; password sessions are not stored as server-side browser sessions.
 
 ## Change a Local Password
 
-The **Password** section appears when local password sign-in is available and your account has a local password. Enter your current password, then enter and confirm a new password. Sambee signs out the current browser after a successful change; sign in again with the new password.
+The **Password** section appears when local password sign-in is configured and your account has a local password. It remains available when runtime authentication enforcement is temporarily bypassed. Enter your current password, then enter and confirm a new password. Sambee signs out the current browser after a successful change; sign in again with the new password.
 
 When your organization uses **OIDC only**, the Password section is unavailable because local passwords cannot be used to sign in.
 
-## Manage OIDC Browser Sessions
+## Manage Sessions
 
-The **Browser sessions** section appears for OIDC sign-ins. It identifies the current browser and shows when each active session was created and last active.
+The **Sessions** section separates **This browser** from **Other sessions**. It always shows the current browser when authentication is enforced. A password sign-in can show its sign-in type, but it has no server-side session ID, browser label, sign-in time, or activity history.
 
-- Select **Sign out** next to the current browser to revoke its OIDC browser session.
+Other sessions are active OIDC browser sessions. They show when each session was created and last active. For newly created sessions, Sambee can also show a coarse browser and operating-system label, such as **Firefox on Linux**. These labels do not identify a device or host, and older sessions might not have one.
+
+- Select **Sign out** next to the current browser to revoke its OIDC browser session and return to the sign-in page.
 - Select **Revoke** to end another browser session.
-- Select **Revoke all other sessions** to end every other active OIDC browser session.
 
 Revoking a browser session immediately invalidates its Sambee API tokens. It does not sign the user out of the identity provider itself. See [OpenID Connect Authentication Operations](../../../admin-guide/authentication/openid-connect-authentication-operations/) for session lifecycle details.
+
+When authentication is not enforced, Sambee cannot identify or end a browser session. The **Sessions** section shows this status without a session entry or sign-out action.

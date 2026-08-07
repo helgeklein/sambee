@@ -24,6 +24,7 @@ from app.models.user import (
     build_admin_user_read,
 )
 from app.services.audit import AuditDetails, AuditEventName, AuditResult, write_audit_event
+from app.services.authentication_config import is_local_password_management_available
 from app.services.oidc_mapping import OidcMappingError, remove_user_oidc_state
 
 router = APIRouter()
@@ -112,6 +113,11 @@ async def create_user(
     session: Session = Depends(get_session),
 ) -> AdminUserCreateResult:
     set_user(current_user.username)
+    if not is_local_password_management_available(session):
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="Creating local users is unavailable because local-password authentication is disabled",
+        )
     username = user_data.username.strip()
     name = user_data.name.strip() if user_data.name else None
     email = user_data.email.strip().lower() if user_data.email else None
@@ -234,6 +240,11 @@ async def reset_user_password(
     session: Session = Depends(get_session),
 ) -> AdminUserPasswordResetResult:
     set_user(current_user.username)
+    if not is_local_password_management_available(session):
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="Resetting local passwords is unavailable because local-password authentication is disabled",
+        )
 
     user = session.get(User, user_id)
     if not user:

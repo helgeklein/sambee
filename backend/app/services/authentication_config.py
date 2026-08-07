@@ -67,3 +67,14 @@ def is_password_login_enabled(session: Session) -> bool:
         AuthenticationMode.PASSWORD_ONLY,
         AuthenticationMode.OIDC_OR_PASSWORD,
     )
+
+
+def is_local_password_management_available(session: Session) -> bool:
+    return get_configured_authentication_mode(session) in (
+        AuthenticationMode.PASSWORD_ONLY,
+        AuthenticationMode.OIDC_OR_PASSWORD,
+    )
+
+
+def is_password_change_available(session: Session) -> bool:
+    return is_local_password_management_available(session)

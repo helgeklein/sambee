@@ -72,7 +72,7 @@ interface SecondaryActionStripProps {
 
 /**
  * Renders a compact action strip with view and sort controls.
- * Only shown on desktop; hidden when there are no files to act on.
+ * Only shown on desktop when at least one connection is available.
  */
 export function SecondaryActionStrip({
   connections,
@@ -91,6 +91,10 @@ export function SecondaryActionStrip({
   onOpenConnectionsSettings,
   connectionButtonRef,
 }: SecondaryActionStripProps) {
+  if (connections.length === 0) {
+    return null;
+  }
+
   return (
     <Box
       sx={[

@@ -16,12 +16,23 @@ from sqlmodel import Session, SQLModel, select
 from app.core.config import settings
 from app.core.environment import IS_PRODUCTION
 from app.core.logging import get_logger, set_user
-from app.core.security import build_user_access_token, get_current_user_with_auth_check, get_password_hash, is_user_expired, verify_password
+from app.core.security import (
+    BrowserAuthentication,
+    build_user_access_token,
+    get_current_browser_authentication_with_auth_check,
+    get_current_user_with_auth_check,
+    get_password_hash,
+    is_user_expired,
+    verify_password,
+)
 from app.db.database import get_session
-from app.models.oidc import OidcBrowserSession, OidcBrowserSessionStatus, OidcFlowPurpose, OidcProviderConfiguration
+from app.models.oidc import OidcBrowserSession, OidcBrowserSessionStatus, OidcFlowPurpose, OidcIdentity, OidcProviderConfiguration
 from app.models.oidc_api import OidcBrowserSessionListRead, OidcBrowserSessionRead, OidcBrowserSessionRevokeRead, OidcGrantExchangeRequest
 from app.models.user import (
+    AccountIdentitySource,
+    AccountSessionKind,
     CurrentAccountRead,
+    CurrentAccountSessionRead,
     CurrentUserRead,
     PasswordChangeRequest,
     User,
@@ -33,6 +44,7 @@ from app.services.audit import AuditDetails, AuditEventName, AuditResult, write_
 from app.services.authentication_config import (
     build_public_auth_configuration,
     get_effective_authentication_mode,
+    is_password_change_available,
     is_password_login_enabled,
 )
 from app.services.authentication_rate_limit import RateLimitDecision, authentication_rate_limiter, resolve_source_ip
@@ -602,6 +614,7 @@ async def oidc_callback(
             session_cipher=session_cipher.cipher,
             session_cipher_key_id=session_cipher.key_id,
             flow_cipher=cipher,
+            user_agent=request.headers.get("user-agent"),
         )
         validated = complete_login_callback(
             session,
@@ -931,11 +944,11 @@ def _current_browser_session_id(request: Request, session: Session, *, user_id: 
 
 @router.get("/oidc/sessions", response_model=OidcBrowserSessionListRead)
 async def list_oidc_browser_sessions(
-    request: Request,
-    current_user: User = Depends(get_current_user_with_auth_check),
+    authentication: BrowserAuthentication = Depends(get_current_browser_authentication_with_auth_check),
     session: Session = Depends(get_session),
 ) -> OidcBrowserSessionListRead:
-    current_session_id = _current_browser_session_id(request, session, user_id=current_user.id)
+    current_user = authentication.user
+    current_session_id = authentication.oidc_browser_session_id
     browser_sessions = session.exec(
         select(OidcBrowserSession)
         .where(_OIDC_BROWSER_SESSION_TABLE.c.user_id == current_user.id)
@@ -947,6 +960,8 @@ async def list_oidc_browser_sessions(
             OidcBrowserSessionRead(
                 id=browser_session.id,
                 status=browser_session.status.value,
+                browser_name=browser_session.browser_name,
+                operating_system=browser_session.operating_system,
                 created_at=browser_session.created_at,
                 authenticated_at=browser_session.authenticated_at,
                 last_seen_at=browser_session.last_seen_at,
@@ -992,29 +1007,6 @@ def _revoke_oidc_browser_sessions(
     return response
 
 
-@router.post("/oidc/sessions/revoke-others", response_model=OidcBrowserSessionRevokeRead)
-async def revoke_other_oidc_browser_sessions(
-    request: Request,
-    current_user: User = Depends(get_current_user_with_auth_check),
-    session: Session = Depends(get_session),
-) -> OidcBrowserSessionRevokeRead:
-    current_session_id = _current_browser_session_id(request, session, user_id=current_user.id)
-    targets = session.exec(
-        select(OidcBrowserSession.id).where(
-            OidcBrowserSession.user_id == current_user.id,
-            OidcBrowserSession.status != OidcBrowserSessionStatus.REVOKED,
-            OidcBrowserSession.id != current_session_id,
-        )
-    ).all()
-    return _revoke_oidc_browser_sessions(
-        request,
-        session,
-        current_user=current_user,
-        target_ids=set(targets),
-        reason="user_revoked_other_session",
-    )
-
-
 @router.post("/oidc/sessions/{browser_session_id}/revoke", response_model=OidcBrowserSessionRevokeRead)
 async def revoke_oidc_browser_session(
     browser_session_id: uuid.UUID,
@@ -1052,19 +1044,46 @@ async def get_current_user_info(
 
 @router.get("/account", response_model=CurrentAccountRead)
 async def get_current_account(
-    current_user: User = Depends(get_current_user_with_auth_check),
+    authentication: BrowserAuthentication = Depends(get_current_browser_authentication_with_auth_check),
     session: Session = Depends(get_session),
 ) -> CurrentAccountRead:
+    current_user = authentication.user
     authentication_mode = get_effective_authentication_mode(session)
-    oidc_enabled = authentication_mode.value in {"oidc_or_password", "oidc_only"}
+    oidc_enabled = authentication_mode.value in {"oidc_or_password", "oidc_only"} or authentication.oidc_browser_session_id is not None
     configuration = session.get(OidcProviderConfiguration, 1) if oidc_enabled else None
+    oidc_identity = session.exec(select(OidcIdentity).where(OidcIdentity.user_id == current_user.id)).first()
+    current_session = None
+    if authentication.authentication_enforced:
+        if authentication.oidc_browser_session_id is None:
+            current_session = CurrentAccountSessionRead(
+                kind=AccountSessionKind.PASSWORD,
+                id=None,
+                started_at=None,
+                last_active_at=None,
+                browser_name=None,
+                operating_system=None,
+            )
+        else:
+            browser_session = session.get(OidcBrowserSession, authentication.oidc_browser_session_id)
+            if browser_session is None:
+                raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="OIDC browser session is unavailable")
+            current_session = CurrentAccountSessionRead(
+                kind=AccountSessionKind.OIDC,
+                id=browser_session.id,
+                started_at=browser_session.created_at,
+                last_active_at=browser_session.last_seen_at,
+                browser_name=browser_session.browser_name,
+                operating_system=browser_session.operating_system,
+            )
     current_user_data = build_current_user_read(current_user).model_dump()
     return CurrentAccountRead(
         **current_user_data,
         has_local_password=current_user.password_hash is not None,
-        password_change_available=current_user.password_hash is not None and is_password_login_enabled(session),
+        identity_source=AccountIdentitySource.OIDC if oidc_identity is not None else AccountIdentitySource.LOCAL,
+        password_change_available=current_user.password_hash is not None and is_password_change_available(session),
         browser_session_management_available=configuration is not None,
         oidc_provider_name=configuration.display_name if configuration is not None else None,
+        current_session=current_session,
     )
 
 
@@ -1111,11 +1130,11 @@ async def change_password(
     if not effective_current_password or not effective_new_password:
         raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_CONTENT, detail="Current and new passwords are required")
 
-    if get_effective_authentication_mode(session).value == "none":
-        logger.warning("Password change rejected because authentication enforcement is disabled")
+    if not is_password_change_available(session):
+        logger.warning("Password change rejected because local password sign-in is not configured")
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
-            detail="Password changes are not available when authentication is handled by reverse proxy",
+            detail="Password changes are unavailable when local password sign-in is not configured",
         )
 
     set_user(current_user.username)

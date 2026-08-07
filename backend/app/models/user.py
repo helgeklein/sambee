@@ -14,6 +14,16 @@ class UserRole(StrEnum):
     ADMIN = "admin"
 
 
+class AccountIdentitySource(StrEnum):
+    LOCAL = "local"
+    OIDC = "oidc"
+
+
+class AccountSessionKind(StrEnum):
+    PASSWORD = "password"
+    OIDC = "oidc"
+
+
 class User(SQLModel, table=True):
     id: uuid.UUID = Field(default_factory=uuid.uuid4, primary_key=True)
     username: str = Field(unique=True, index=True)
@@ -83,9 +93,20 @@ class CurrentUserRead(SQLModel):
 
 class CurrentAccountRead(CurrentUserRead):
     has_local_password: bool
+    identity_source: AccountIdentitySource
     password_change_available: bool
     browser_session_management_available: bool
     oidc_provider_name: str | None
+    current_session: "CurrentAccountSessionRead | None"
+
+
+class CurrentAccountSessionRead(SQLModel):
+    kind: AccountSessionKind
+    id: uuid.UUID | None
+    started_at: datetime | None
+    last_active_at: datetime | None
+    browser_name: str | None
+    operating_system: str | None
 
 
 class AdminUserOidcRead(SQLModel):

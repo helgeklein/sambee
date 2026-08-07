@@ -27,7 +27,6 @@ interface FileBrowserAlertsProps {
   companionLifecycleStatus?: CompanionLifecycleStatus | null;
   loadingConnections: boolean;
   connectionsCount: number;
-  isAdmin: boolean;
   backendAvailabilityStatus: BackendAvailabilityStatus;
   /** Callback when user wants to open settings with connections tab */
   onOpenConnectionsSettings?: () => void;
@@ -49,7 +48,6 @@ export function FileBrowserAlerts({
   companionLifecycleStatus,
   loadingConnections,
   connectionsCount,
-  isAdmin,
   backendAvailabilityStatus,
   onOpenConnectionsSettings,
   onDismissCompanionLifecycleStatus,
@@ -78,32 +76,26 @@ export function FileBrowserAlerts({
           {t("fileBrowser.chrome.alerts.welcomeTitle")}
         </Typography>
 
-        {isAdmin ? (
-          <Typography variant="body1" sx={{ maxWidth: 400, color: "text.secondary" }}>
-            {t("fileBrowser.chrome.alerts.adminOnboardingPrefix")}
-            {onOpenConnectionsSettings ? (
-              <Link
-                component="button"
-                variant="body1"
-                onClick={onOpenConnectionsSettings}
-                sx={{
-                  fontWeight: 600,
-                  cursor: "pointer",
-                  verticalAlign: "baseline",
-                }}
-              >
-                {t("fileBrowser.chrome.alerts.adminOnboardingLink")}
-              </Link>
-            ) : (
-              t("fileBrowser.chrome.alerts.adminOnboardingLink")
-            )}
-            {t("fileBrowser.chrome.alerts.adminOnboardingSuffix")}
-          </Typography>
-        ) : (
-          <Typography variant="body1" sx={{ maxWidth: 400, color: "text.secondary" }}>
-            {t("fileBrowser.chrome.alerts.regularOnboarding")}
-          </Typography>
-        )}
+        <Typography variant="body1" sx={{ maxWidth: 400, color: "text.secondary" }}>
+          {t("fileBrowser.chrome.alerts.adminOnboardingPrefix")}
+          {onOpenConnectionsSettings ? (
+            <Link
+              component="button"
+              variant="body1"
+              onClick={onOpenConnectionsSettings}
+              sx={{
+                fontWeight: 600,
+                cursor: "pointer",
+                verticalAlign: "baseline",
+              }}
+            >
+              {t("fileBrowser.chrome.alerts.adminOnboardingLink")}
+            </Link>
+          ) : (
+            t("fileBrowser.chrome.alerts.adminOnboardingLink")
+          )}
+          {t("fileBrowser.chrome.alerts.adminOnboardingSuffix")}
+        </Typography>
       </Box>
     );
   }

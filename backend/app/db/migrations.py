@@ -495,6 +495,19 @@ def _apply_oidc_session_cipher_keyring_migration(connection: Connection) -> None
     SQLModel.metadata.tables["oidcsessioncipherkey"].create(bind=connection, checkfirst=True)
 
 
+def _apply_oidc_browser_session_client_metadata_migration(connection: Connection) -> None:
+    if not inspect(connection).has_table("oidcbrowsersession"):
+        return
+    session_columns = {column[1] for column in connection.execute(text("PRAGMA table_info('oidcbrowsersession')"))}
+    additions = (
+        ("browser_name", "VARCHAR"),
+        ("operating_system", "VARCHAR"),
+    )
+    for column_name, definition in additions:
+        if column_name not in session_columns:
+            connection.execute(text(f"ALTER TABLE oidcbrowsersession ADD COLUMN {column_name} {definition}"))
+
+
 def _apply_nullable_oidc_mapping_creator_migration(connection: Connection) -> None:
     inspector = inspect(connection)
     if not inspector.has_table("oidcpendingidentitymapping"):
@@ -601,6 +614,7 @@ MIGRATIONS: tuple[Migration, ...] = (
     Migration(version=20, name="add_oidc_forced_reauthentication", apply=_apply_oidc_forced_reauthentication_migration),
     Migration(version=21, name="add_oidc_session_validation_revision", apply=_apply_oidc_session_validation_revision_migration),
     Migration(version=22, name="add_oidc_session_cipher_keyring", apply=_apply_oidc_session_cipher_keyring_migration),
+    Migration(version=23, name="add_oidc_browser_session_client_metadata", apply=_apply_oidc_browser_session_client_metadata_migration),
 )
 
 
