@@ -20,7 +20,6 @@ interface AdvancedSettingsProps {
 }
 
 interface AdvancedSettingsFormState {
-  smbReadChunkSizeBytes: number | null;
   imagemagickMaxFileSizeBytes: number | null;
   imagemagickTimeoutSeconds: number | null;
 }
@@ -62,7 +61,6 @@ function getByteUnitFactor(unitLabel: ByteUnitLabel): number {
 
 function createFormState(settings: AdvancedSystemSettings): AdvancedSettingsFormState {
   return {
-    smbReadChunkSizeBytes: settings.smb.read_chunk_size_bytes.value,
     imagemagickMaxFileSizeBytes: settings.preprocessors.imagemagick.max_file_size_bytes.value,
     imagemagickTimeoutSeconds: settings.preprocessors.imagemagick.timeout_seconds.value,
   };
@@ -121,9 +119,6 @@ function buildUpdatePayload(formState: AdvancedSettingsFormState): AdvancedSyste
   const toOptionalNumber = (value: number | null): number | undefined => value ?? undefined;
 
   return {
-    smb: {
-      read_chunk_size_bytes: toOptionalNumber(formState.smbReadChunkSizeBytes),
-    },
     preprocessors: {
       imagemagick: {
         max_file_size_bytes: toOptionalNumber(formState.imagemagickMaxFileSizeBytes),
@@ -414,7 +409,6 @@ export function AdvancedSettings({ dialogSafeHeader = false }: AdvancedSettingsP
     }
 
     return {
-      smbReadChunkSizeBytes: validateByteSizeSetting(settings.smb.read_chunk_size_bytes, formState.smbReadChunkSizeBytes),
       imagemagickMaxFileSizeBytes: validateByteSizeSetting(
         settings.preprocessors.imagemagick.max_file_size_bytes,
         formState.imagemagickMaxFileSizeBytes
@@ -503,18 +497,6 @@ export function AdvancedSettings({ dialogSafeHeader = false }: AdvancedSettingsP
 
       {settings && formState && (
         <SettingsSectionList>
-          <SettingsGroup title={t("settings.advanced.sections.smbBackends")}>
-            <ByteSizeSettingField
-              setting={settings.smb.read_chunk_size_bytes}
-              value={formState.smbReadChunkSizeBytes}
-              onChange={(value) => setFormState((current) => (current ? { ...current, smbReadChunkSizeBytes: value } : current))}
-              errorText={validationErrors?.smbReadChunkSizeBytes}
-              showErrors={submitAttempted}
-              onReset={() => handleReset(settings.smb.read_chunk_size_bytes.key, settings.smb.read_chunk_size_bytes.label)}
-              resetDisabled={saving || loading || hasUnsavedChanges}
-            />
-          </SettingsGroup>
-
           <SettingsGroup title={t("settings.advanced.sections.preprocessors")}>
             <Stack spacing={3.5}>
               <SettingsGroup title={t("settings.advanced.sections.imageMagick")} level="subsection">

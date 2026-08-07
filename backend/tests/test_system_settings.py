@@ -1,16 +1,28 @@
+import asyncio
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
+from unittest.mock import AsyncMock, MagicMock, patch
 
+import pytest
 from fastapi.testclient import TestClient
 from sqlmodel import Session, create_engine, select
 from sqlmodel.pool import StaticPool
 
+import app.api.system_settings as system_settings_api
 import app.db.database as database_module
 from app.core.system_setting_definitions import SystemSettingKey
 from app.models.connection import Connection
 from app.models.oidc import OidcFlow, OidcFlowPurpose, OidcFlowStatus, OidcProviderConfiguration
-from app.models.system_settings import SystemSetting
-from app.services.system_settings import get_integer_setting_value
+from app.models.system_settings import SmbPolicySettings, SmbSettingsUpdate, SystemSetting
+from app.models.user import User
+from app.services.system_settings import (
+    SmbPolicyConfigurationError,
+    get_integer_setting_value,
+    get_smb_policy_settings,
+    get_smbclient_policy_kwargs,
+    refresh_smb_runtime_policy,
+    retire_smb_runtime_policy,
+)
 from app.services.system_settings import store as system_settings_store
 
 
@@ -131,8 +143,6 @@ class TestAdvancedSystemSettingsApi:
 
         assert response.status_code == 200
         data = response.json()
-        assert data["smb"]["read_chunk_size_bytes"]["value"] == 4 * 1024 * 1024
-        assert data["smb"]["read_chunk_size_bytes"]["source"] == "default"
         assert data["preprocessors"]["imagemagick"]["timeout_seconds"]["value"] == 30
 
     def test_regular_user_cannot_fetch_advanced_settings(self, client: TestClient, auth_headers_user: dict[str, str]) -> None:
@@ -145,7 +155,6 @@ class TestAdvancedSystemSettingsApi:
             "/api/admin/settings/advanced",
             headers=auth_headers_admin,
             json={
-                "smb": {"read_chunk_size_bytes": 2 * 1024 * 1024},
                 "preprocessors": {
                     "imagemagick": {"timeout_seconds": 45},
                 },
@@ -154,62 +163,210 @@ class TestAdvancedSystemSettingsApi:
 
         assert response.status_code == 200
         data = response.json()
-        assert data["smb"]["read_chunk_size_bytes"]["value"] == 2 * 1024 * 1024
-        assert data["smb"]["read_chunk_size_bytes"]["source"] == "database"
         assert data["preprocessors"]["imagemagick"]["timeout_seconds"]["value"] == 45
-
-        stored = session.get(SystemSetting, SystemSettingKey.SMB_READ_CHUNK_SIZE_BYTES.value)
-        assert stored is not None
-        assert stored.value == str(2 * 1024 * 1024)
-
-        system_settings_store.refresh_from_session(session)
-        assert get_integer_setting_value(SystemSettingKey.SMB_READ_CHUNK_SIZE_BYTES) == 2 * 1024 * 1024
 
     def test_update_rejects_out_of_range_values(self, client: TestClient, auth_headers_admin: dict[str, str]) -> None:
         response = client.put(
             "/api/admin/settings/advanced",
             headers=auth_headers_admin,
-            json={"smb": {"read_chunk_size_bytes": 1}},
+            json={"preprocessors": {"imagemagick": {"timeout_seconds": 1}}},
         )
 
         assert response.status_code == 400
         assert "between" in response.json()["detail"]
 
-    def test_admin_can_reset_advanced_setting_override(
-        self, client: TestClient, auth_headers_admin: dict[str, str], session: Session
-    ) -> None:
-        session.add(SystemSetting(key=SystemSettingKey.SMB_READ_CHUNK_SIZE_BYTES.value, value=str(2 * 1024 * 1024)))
-        session.commit()
-        system_settings_store.refresh_from_session(session)
 
-        response = client.put(
-            "/api/admin/settings/advanced",
-            headers=auth_headers_admin,
-            json={"reset_keys": [SystemSettingKey.SMB_READ_CHUNK_SIZE_BYTES.value]},
-        )
+class TestSmbSettingsApi:
+    def test_admin_can_fetch_default_smb_settings(self, client: TestClient, auth_headers_admin: dict[str, str]) -> None:
+        response = client.get("/api/admin/settings/smb", headers=auth_headers_admin)
 
         assert response.status_code == 200
         data = response.json()
-        assert data["smb"]["read_chunk_size_bytes"]["value"] == 4 * 1024 * 1024
-        assert data["smb"]["read_chunk_size_bytes"]["source"] == "default"
+        assert data["read_chunk_size_bytes"]["value"] == 4 * 1024 * 1024
+        assert data["policy"] == {
+            "authentication_mode": "negotiate",
+            "encryption_mode": "signing_only",
+            "connection_timeout_seconds": 30,
+        }
+        assert data["require_signing"] is True
+        assert data["require_encryption"] is False
 
-        assert session.get(SystemSetting, SystemSettingKey.SMB_READ_CHUNK_SIZE_BYTES.value) is None
+    def test_admin_can_update_smb_policy_and_streaming_setting(
+        self, client: TestClient, auth_headers_admin: dict[str, str], session: Session
+    ) -> None:
+        payload = {
+            "read_chunk_size_bytes": 2 * 1024 * 1024,
+            "policy": {
+                "authentication_mode": "kerberos_required",
+                "encryption_mode": "encryption_required",
+                "connection_timeout_seconds": 45,
+            },
+        }
 
-        system_settings_store.refresh_from_session(session)
-        assert get_integer_setting_value(SystemSettingKey.SMB_READ_CHUNK_SIZE_BYTES) == 4 * 1024 * 1024
+        response = client.put("/api/admin/settings/smb", headers=auth_headers_admin, json=payload)
 
-    def test_update_rejects_conflicting_reset_and_update(self, client: TestClient, auth_headers_admin: dict[str, str]) -> None:
+        assert response.status_code == 200
+        data = response.json()
+        assert data["read_chunk_size_bytes"]["value"] == 2 * 1024 * 1024
+        assert data["policy_source"] == "database"
+        assert data["policy"] == {
+            "authentication_mode": "kerberos_required",
+            "encryption_mode": "encryption_required",
+            "connection_timeout_seconds": 45,
+        }
+        assert data["require_encryption"] is True
+        assert session.get(SystemSetting, SystemSettingKey.SMB_POLICY.value) is not None
+
+    def test_policy_ignores_retired_target_access_fields(self, client: TestClient, auth_headers_admin: dict[str, str]) -> None:
         response = client.put(
-            "/api/admin/settings/advanced",
+            "/api/admin/settings/smb",
             headers=auth_headers_admin,
             json={
-                "smb": {"read_chunk_size_bytes": 2 * 1024 * 1024},
-                "reset_keys": [SystemSettingKey.SMB_READ_CHUNK_SIZE_BYTES.value],
+                "policy": {
+                    "authentication_mode": "negotiate",
+                    "enforce_target_allowlist": True,
+                    "allowed_target_hostnames": [],
+                    "allowed_target_cidrs": [],
+                    "allowed_ports": [445],
+                    "connection_timeout_seconds": 30,
+                }
             },
         )
 
-        assert response.status_code == 400
-        assert "Cannot update and reset the same setting" in response.json()["detail"]
+        assert response.status_code == 200
+        assert response.json()["policy"] == {
+            "authentication_mode": "negotiate",
+            "encryption_mode": "signing_only",
+            "connection_timeout_seconds": 30,
+        }
+
+    def test_regular_user_cannot_update_smb_settings(self, client: TestClient, auth_headers_user: dict[str, str]) -> None:
+        response = client.put("/api/admin/settings/smb", headers=auth_headers_user, json={"reset_policy": True})
+
+        assert response.status_code == 403
+
+    def test_policy_update_retires_existing_smb_runtime_state(self, client: TestClient, auth_headers_admin: dict[str, str]) -> None:
+        with patch("app.api.system_settings.refresh_smb_runtime_policy", new_callable=AsyncMock) as mock_refresh:
+            response = client.put(
+                "/api/admin/settings/smb",
+                headers=auth_headers_admin,
+                json={"policy": {"authentication_mode": "kerberos_required", "connection_timeout_seconds": 30}},
+            )
+
+        assert response.status_code == 200
+        mock_refresh.assert_awaited_once()
+
+    @pytest.mark.asyncio
+    async def test_policy_update_waits_for_runtime_refresh(self, session: Session, admin_user: User) -> None:
+        refresh_started = asyncio.Event()
+        allow_refresh_to_finish = asyncio.Event()
+
+        async def wait_for_refresh_completion() -> None:
+            refresh_started.set()
+            await allow_refresh_to_finish.wait()
+
+        with (
+            patch("app.api.system_settings.retire_smb_runtime_policy", new_callable=AsyncMock) as mock_retire,
+            patch("app.api.system_settings.refresh_smb_runtime_policy", side_effect=wait_for_refresh_completion) as mock_refresh,
+        ):
+            update_task = asyncio.create_task(
+                system_settings_api.put_smb_settings(
+                    SmbSettingsUpdate(policy=SmbPolicySettings(authentication_mode="kerberos_required")),
+                    current_user=admin_user,
+                    session=session,
+                )
+            )
+
+            await asyncio.wait_for(refresh_started.wait(), timeout=1)
+            assert not update_task.done()
+
+            allow_refresh_to_finish.set()
+            response = await update_task
+
+        assert response.policy.authentication_mode == "kerberos_required"
+        mock_retire.assert_awaited_once()
+        mock_refresh.assert_awaited_once()
+
+    def test_invalid_policy_update_does_not_retire_smb_runtime_state(self, client: TestClient, auth_headers_admin: dict[str, str]) -> None:
+        with patch("app.api.system_settings.refresh_smb_runtime_policy", new_callable=AsyncMock) as mock_refresh:
+            response = client.put(
+                "/api/admin/settings/smb",
+                headers=auth_headers_admin,
+                json={
+                    "policy": {
+                        "authentication_mode": "negotiate",
+                        "connection_timeout_seconds": 1,
+                    }
+                },
+            )
+
+        assert response.status_code == 422
+        mock_refresh.assert_not_awaited()
+
+    def test_read_chunk_update_does_not_refresh_smb_runtime_state(self, client: TestClient, auth_headers_admin: dict[str, str]) -> None:
+        with patch("app.api.system_settings.refresh_smb_runtime_policy", new_callable=AsyncMock) as mock_refresh:
+            response = client.put(
+                "/api/admin/settings/smb",
+                headers=auth_headers_admin,
+                json={"read_chunk_size_bytes": 2 * 1024 * 1024},
+            )
+
+        assert response.status_code == 200
+        mock_refresh.assert_not_awaited()
+
+    def test_default_policy_save_does_not_refresh_smb_runtime_state(self, client: TestClient, auth_headers_admin: dict[str, str]) -> None:
+        with patch("app.api.system_settings.refresh_smb_runtime_policy", new_callable=AsyncMock) as mock_refresh:
+            response = client.put(
+                "/api/admin/settings/smb",
+                headers=auth_headers_admin,
+                json={"policy": {"authentication_mode": "negotiate", "connection_timeout_seconds": 30}},
+            )
+
+        assert response.status_code == 200
+        mock_refresh.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+async def test_refresh_smb_runtime_policy_restarts_directory_services() -> None:
+    cache_manager = MagicMock()
+    monitor = MagicMock()
+    cache_manager.stop_all_async = AsyncMock()
+    monitor.restart_all_async = AsyncMock()
+
+    with (
+        patch("app.services.directory_cache.get_directory_cache_manager", return_value=cache_manager),
+        patch("app.services.directory_monitor.get_monitor", return_value=monitor),
+    ):
+        await refresh_smb_runtime_policy()
+
+    cache_manager.stop_all_async.assert_awaited_once()
+    monitor.restart_all_async.assert_awaited_once()
+
+
+@pytest.mark.asyncio
+async def test_retire_smb_runtime_policy_retires_contexts_immediately() -> None:
+    with patch("app.storage.smb_pool.retire_all_smb_connection_contexts", new_callable=AsyncMock) as mock_retire:
+        await retire_smb_runtime_policy()
+
+    mock_retire.assert_awaited_once_with("SMB policy updated")
+
+
+def test_invalid_persisted_smb_policy_disables_smb_access(monkeypatch) -> None:
+    monkeypatch.setattr(system_settings_store, "get_override", lambda key: "not-json")
+
+    with pytest.raises(SmbPolicyConfigurationError):
+        get_smb_policy_settings()
+
+
+def test_smbclient_policy_requires_encryption_only_for_strict_mode() -> None:
+    signing_only_policy = SmbPolicySettings()
+    strict_policy = SmbPolicySettings(encryption_mode="encryption_required")
+
+    with patch("app.services.system_settings.get_smb_policy_settings", return_value=signing_only_policy):
+        assert get_smbclient_policy_kwargs()["encrypt"] is False
+
+    with patch("app.services.system_settings.get_smb_policy_settings", return_value=strict_policy):
+        assert get_smbclient_policy_kwargs()["encrypt"] is True
 
 
 class TestNetworkSettingsApi:

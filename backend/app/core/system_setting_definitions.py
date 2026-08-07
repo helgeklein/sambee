@@ -6,6 +6,7 @@ from enum import StrEnum
 
 class SystemSettingKey(StrEnum):
     SMB_READ_CHUNK_SIZE_BYTES = "smb.read_chunk_size_bytes"
+    SMB_POLICY = "smb.policy"
     PREPROCESSOR_IMAGEMAGICK_MAX_FILE_SIZE_BYTES = "preprocessors.imagemagick.max_file_size_bytes"
     PREPROCESSOR_IMAGEMAGICK_TIMEOUT_SECONDS = "preprocessors.imagemagick.timeout_seconds"
 
@@ -19,7 +20,7 @@ class SystemSettingSource(StrEnum):
 @dataclass(frozen=True)
 class IntegerSystemSettingDefinition:
     key: SystemSettingKey
-    config_attr: str
+    config_attr: str | None
     label: str
     description: str
     default_value: int
@@ -31,7 +32,7 @@ class IntegerSystemSettingDefinition:
 SYSTEM_SETTING_DEFINITIONS: dict[SystemSettingKey, IntegerSystemSettingDefinition] = {
     SystemSettingKey.SMB_READ_CHUNK_SIZE_BYTES: IntegerSystemSettingDefinition(
         key=SystemSettingKey.SMB_READ_CHUNK_SIZE_BYTES,
-        config_attr="smb_read_chunk_size_bytes",
+        config_attr=None,
         label="SMB read chunk size",
         description="Chunk size used when streaming files from SMB shares.",
         default_value=4 * 1024 * 1024,

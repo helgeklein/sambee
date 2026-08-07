@@ -5,13 +5,13 @@ import { SambeeThemeProvider } from "../../../theme";
 import { SettingsCategoryList } from "../SettingsCategoryList";
 import { getVisibleSettingsSections } from "../settingsNavigation";
 
-function renderList() {
+function renderList(isAdmin = false) {
   const onSelect = vi.fn();
 
   render(
     <SambeeThemeProvider>
       <SettingsCategoryList
-        sections={getVisibleSettingsSections(false)}
+        sections={getVisibleSettingsSections(isAdmin)}
         onSelect={onSelect}
         selectedItem="appearance"
         listRole="listbox"
@@ -54,6 +54,13 @@ describe("SettingsCategoryList", () => {
     expect(screen.getByRole("option", { name: /text editor/i })).toBeInTheDocument();
     expect(screen.getByRole("option", { name: /local drives/i })).toBeInTheDocument();
     expect(screen.queryByRole("button", { name: /expand|collapse/i })).not.toBeInTheDocument();
+  });
+
+  it("renders the dedicated SMB server icon for administrators", () => {
+    renderList(true);
+
+    const smbOption = screen.getByRole("option", { name: /^smb$/i });
+    expect(smbOption.querySelector('[data-testid="DnsIcon"]')).toBeInTheDocument();
   });
 
   it("navigates when local drives is selected", async () => {

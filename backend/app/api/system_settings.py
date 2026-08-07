@@ -14,6 +14,8 @@ from app.models.system_settings import (
     NetworkSettingsRead,
     NetworkSettingsUpdate,
     PublicSupportReportRead,
+    SmbSettingsRead,
+    SmbSettingsUpdate,
 )
 from app.models.user import User
 from app.services.system_settings import (
@@ -21,8 +23,13 @@ from app.services.system_settings import (
     build_advanced_system_settings_read,
     build_network_settings_read,
     build_public_support_report_read,
+    build_smb_settings_read,
+    refresh_smb_runtime_policy,
+    retire_smb_runtime_policy,
+    smb_policy_will_change,
     update_advanced_system_settings,
     update_network_settings,
+    update_smb_settings,
 )
 
 router = APIRouter()
@@ -65,6 +72,32 @@ async def put_advanced_system_settings(
     except ValueError as exc:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)) from exc
     return build_advanced_system_settings_read()
+
+
+@router.get("/settings/smb", response_model=SmbSettingsRead)
+async def get_smb_settings(
+    current_user: User = Depends(require_capability(Capability.ACCESS_ADMIN_SETTINGS)),
+) -> SmbSettingsRead:
+    set_user(current_user.username)
+    return build_smb_settings_read()
+
+
+@router.put("/settings/smb", response_model=SmbSettingsRead)
+async def put_smb_settings(
+    payload: SmbSettingsUpdate,
+    current_user: User = Depends(require_capability(Capability.ACCESS_ADMIN_SETTINGS)),
+    session: Session = Depends(get_session),
+) -> SmbSettingsRead:
+    set_user(current_user.username)
+    try:
+        policy_changed = smb_policy_will_change(payload, session)
+        updated_settings = update_smb_settings(payload, updated_by_user_id=current_user.id, session=session)
+    except ValueError as exc:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)) from exc
+    if policy_changed:
+        await retire_smb_runtime_policy()
+        await refresh_smb_runtime_policy()
+    return updated_settings
 
 
 @router.get("/settings/network", response_model=NetworkSettingsRead)

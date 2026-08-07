@@ -1,3 +1,4 @@
+import asyncio
 import uuid
 from datetime import datetime, timezone
 
@@ -27,7 +28,10 @@ from app.services.connection_access import (
     resolve_connection_scope_for_create,
     resolve_connection_scope_for_update,
 )
+from app.services.directory_cache import get_directory_cache_manager
+from app.services.directory_monitor import get_monitor
 from app.storage.smb import SMBBackend
+from app.storage.smb_pool import retire_smb_connection_context
 
 router = APIRouter()
 logger = get_logger(__name__)
@@ -260,9 +264,6 @@ async def update_connection(
     requested_scope = update_dict.pop("scope", None)
     new_password = update_dict.pop("password", None) if "password" in update_dict else None
 
-    if new_password:
-        connection.password_encrypted = encrypt_password(new_password)
-
     if any(key in update_dict for key in ["host", "share_name", "username", "port", "path_prefix"]) or new_password is not None:
         try:
             test_host, test_share, test_username, password_to_test, test_port, test_path_prefix = _resolve_connection_test_details(
@@ -292,6 +293,8 @@ async def update_connection(
 
     for key, value in update_dict.items():
         setattr(connection, key, value)
+    if new_password is not None:
+        connection.password_encrypted = encrypt_password(new_password)
 
     connection.scope = next_scope
     connection.owner_user_id = next_owner_user_id
@@ -315,6 +318,13 @@ async def update_connection(
             detail="Failed to update connection in database",
         )
 
+    connection_key = str(connection.id)
+    await retire_smb_connection_context(connection_key, "connection updated")
+    await asyncio.gather(
+        get_directory_cache_manager().remove_cache_async(connection_key),
+        get_monitor().stop_connection_async(connection_key),
+    )
+
     return build_connection_read(connection, current_user)
 
 
@@ -332,6 +342,13 @@ async def delete_connection(
 
     session.delete(connection)
     session.commit()
+
+    connection_key = str(connection.id)
+    await retire_smb_connection_context(connection_key, "connection deleted")
+    await asyncio.gather(
+        get_directory_cache_manager().remove_cache_async(connection_key),
+        get_monitor().stop_connection_async(connection_key),
+    )
 
     return {"message": "Connection deleted successfully"}
 

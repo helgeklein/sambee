@@ -2,7 +2,7 @@
 
 from collections.abc import Generator
 from typing import Any, cast
-from unittest.mock import MagicMock, patch
+from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 from starlette.websockets import WebSocketDisconnect
@@ -97,6 +97,7 @@ class TestWebSocketConnectionAuthorization:
         websocket_state,
     ) -> None:
         mock_monitor = MagicMock()
+        mock_monitor.start_monitoring_async = AsyncMock()
         mock_get_monitor.return_value = mock_monitor
 
         with client.websocket_connect(_ws_path(user_token)) as websocket:
@@ -108,7 +109,7 @@ class TestWebSocketConnectionAuthorization:
             "connection_id": str(test_connection.id),
             "path": "/documents",
         }
-        mock_monitor.start_monitoring.assert_called_once()
+        mock_monitor.start_monitoring_async.assert_awaited_once()
 
     @patch("app.api.websocket.get_monitor")
     def test_regular_user_can_subscribe_to_owned_private_connection(
@@ -120,6 +121,7 @@ class TestWebSocketConnectionAuthorization:
         websocket_state,
     ) -> None:
         mock_monitor = MagicMock()
+        mock_monitor.start_monitoring_async = AsyncMock()
         mock_get_monitor.return_value = mock_monitor
 
         with client.websocket_connect(_ws_path(user_token)) as websocket:
@@ -128,7 +130,7 @@ class TestWebSocketConnectionAuthorization:
 
         assert response["type"] == "subscribed"
         assert response["connection_id"] == str(user_private_connection.id)
-        mock_monitor.start_monitoring.assert_called_once()
+        mock_monitor.start_monitoring_async.assert_awaited_once()
 
     @patch("app.api.websocket.get_monitor")
     def test_regular_user_cannot_subscribe_to_other_private_connection(
@@ -140,6 +142,7 @@ class TestWebSocketConnectionAuthorization:
         websocket_state,
     ) -> None:
         mock_monitor = MagicMock()
+        mock_monitor.start_monitoring_async = AsyncMock()
         mock_get_monitor.return_value = mock_monitor
 
         with client.websocket_connect(_ws_path(user_token)) as websocket:
@@ -147,7 +150,7 @@ class TestWebSocketConnectionAuthorization:
             response = ws_client.subscribe(str(other_private_connection.id), "/secret")
 
         assert response == {"type": "error", "message": "Connection not found or access denied"}
-        mock_monitor.start_monitoring.assert_not_called()
+        mock_monitor.start_monitoring_async.assert_not_awaited()
 
     @patch("app.api.websocket.get_monitor")
     def test_invalid_connection_id_returns_error(
@@ -158,6 +161,7 @@ class TestWebSocketConnectionAuthorization:
         websocket_state,
     ) -> None:
         mock_monitor = MagicMock()
+        mock_monitor.start_monitoring_async = AsyncMock()
         mock_get_monitor.return_value = mock_monitor
 
         with client.websocket_connect(_ws_path(admin_token)) as websocket:
@@ -165,11 +169,34 @@ class TestWebSocketConnectionAuthorization:
             response = ws_client.subscribe("not-a-valid-uuid", "/documents")
 
         assert response == {"type": "error", "message": "Connection not found or access denied"}
-        mock_monitor.start_monitoring.assert_not_called()
+        mock_monitor.start_monitoring_async.assert_not_awaited()
 
 
 @pytest.mark.integration
 class TestWebSocketMonitoring:
+    @patch("app.api.websocket.get_monitor")
+    def test_failed_monitor_start_does_not_create_a_subscription(
+        self,
+        mock_get_monitor,
+        client,
+        admin_token: str,
+        test_connection: Connection,
+        websocket_state,
+    ) -> None:
+        mock_monitor = MagicMock()
+        mock_monitor.start_monitoring_async = AsyncMock(side_effect=OSError("SMB target unavailable"))
+        mock_get_monitor.return_value = mock_monitor
+
+        with client.websocket_connect(_ws_path(admin_token)) as websocket:
+            ws_client = WebSocketClient(websocket)
+            response = ws_client.subscribe(str(test_connection.id), "/documents")
+
+            key = f"{test_connection.id}:/documents"
+            assert key not in manager.active_connections
+            assert key not in manager._resolved_paths
+
+        assert response == {"type": "error", "message": "Connection not found or access denied"}
+
     @patch("app.api.websocket.get_monitor")
     def test_subscribe_resolves_prefix_for_monitor(
         self,
@@ -181,6 +208,7 @@ class TestWebSocketMonitoring:
     ) -> None:
         test_connection.path_prefix = "/photos"
         mock_monitor = MagicMock()
+        mock_monitor.start_monitoring_async = AsyncMock()
         mock_get_monitor.return_value = mock_monitor
 
         with client.websocket_connect(_ws_path(admin_token)) as websocket:
@@ -188,8 +216,28 @@ class TestWebSocketMonitoring:
             response = ws_client.subscribe(str(test_connection.id), "vacation")
 
         assert response["type"] == "subscribed"
-        call_kwargs = mock_monitor.start_monitoring.call_args.kwargs
+        call_kwargs = mock_monitor.start_monitoring_async.call_args.kwargs
         assert call_kwargs["path"] == "photos/vacation"
+
+    @patch("app.api.websocket.get_monitor")
+    def test_subscribe_passes_the_authorized_connection_generation_to_monitor_startup(
+        self,
+        mock_get_monitor,
+        client,
+        admin_token: str,
+        test_connection: Connection,
+        websocket_state,
+    ) -> None:
+        mock_monitor = MagicMock()
+        mock_monitor.get_connection_generation.return_value = 7
+        mock_monitor.start_monitoring_async = AsyncMock()
+        mock_get_monitor.return_value = mock_monitor
+
+        with client.websocket_connect(_ws_path(admin_token)) as websocket:
+            response = WebSocketClient(websocket).subscribe(str(test_connection.id), "/documents")
+
+        assert response["type"] == "subscribed"
+        assert mock_monitor.start_monitoring_async.call_args.kwargs["expected_generation"] == 7
 
     @patch("app.api.websocket.get_monitor")
     def test_disconnect_stops_monitoring_with_resolved_path(
@@ -202,6 +250,7 @@ class TestWebSocketMonitoring:
     ) -> None:
         test_connection.path_prefix = "/photos"
         mock_monitor = MagicMock()
+        mock_monitor.start_monitoring_async = AsyncMock()
         mock_get_monitor.return_value = mock_monitor
 
         websocket_context = client.websocket_connect(_ws_path(admin_token))

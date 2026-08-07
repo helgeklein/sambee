@@ -16,7 +16,7 @@ import stat as stat_module
 from contextlib import asynccontextmanager
 from datetime import datetime
 from threading import Event
-from unittest.mock import MagicMock, patch
+from unittest.mock import ANY, AsyncMock, MagicMock, call, patch
 
 import pytest
 from smbclient._os import FileAttributes
@@ -24,21 +24,58 @@ from smbclient._os import FileAttributes
 from app.models.file import DirectoryListing, FileType
 from app.storage.smb import SMBBackend
 
+SMB_AUTH_KWARGS = {
+    "username": "user",
+    "password": "pass",
+    "port": 445,
+    "connection_cache": ANY,
+    "encrypt": False,
+    "connection_timeout": 30,
+    "auth_protocol": "negotiate",
+    "require_signing": True,
+}
+
 
 @pytest.fixture(autouse=True)
 def mock_smb_pool():
     """Mock the SMB connection pool for all tests."""
 
     @asynccontextmanager
-    async def mock_get_connection(host, port, username, password, share_name):
+    async def mock_get_connection(host, port, username, password, share_name, connection_cache=None):
         # Just yield without actually connecting
         yield None
 
     with patch("app.storage.smb.get_connection_pool") as mock_pool:
         mock_pool_instance = MagicMock()
         mock_pool_instance.get_connection = mock_get_connection
+        mock_pool_instance.retain_connection_until_future_complete = AsyncMock()
         mock_pool.return_value = mock_pool_instance
         yield mock_pool
+
+
+@pytest.mark.asyncio
+async def test_disconnect_closes_an_ephemeral_connection_cache() -> None:
+    backend = SMBBackend(
+        host="server.local",
+        share_name="share",
+        username="user",
+        password="pass",
+        close_connection_cache_on_disconnect=True,
+    )
+    pool = MagicMock()
+    pool.invalidate_connection = AsyncMock()
+
+    with patch("app.storage.smb.get_connection_pool", new_callable=AsyncMock, return_value=pool):
+        await backend.disconnect()
+
+    pool.invalidate_connection.assert_awaited_once_with(
+        host="server.local",
+        port=445,
+        username="user",
+        share_name="share",
+        connection_cache=backend._connection_cache,
+        reason="ephemeral connection validation completed",
+    )
 
 
 class TestPathConstruction:
@@ -127,6 +164,20 @@ class TestPathConstruction:
 
         path = backend._build_smb_path("///documents/file.txt")
         assert path == r"\\server.local\share\documents\file.txt"
+
+    @pytest.mark.parametrize("unsafe_path", ["../secret.txt", "photos/../../secret.txt", r"\\other-server\share\secret.txt"])
+    def test_build_path_rejects_share_escapes(self, unsafe_path):
+        """SMB paths must remain beneath the configured share root."""
+
+        backend = SMBBackend(
+            host="server.local",
+            share_name="share",
+            username="user",
+            password="pass",
+        )
+
+        with pytest.raises(ValueError):
+            backend._build_smb_path(unsafe_path)
 
     def test_build_path_unicode_characters(self):
         """Test path building with unicode characters."""
@@ -1095,7 +1146,7 @@ class TestPathPrefixIntegration:
 
         await backend.list_directory("")
 
-        mock_scandir.assert_called_once_with(r"\\server.local\share\photos")
+        mock_scandir.assert_called_once_with(r"\\server.local\share\photos", **SMB_AUTH_KWARGS)
 
     @pytest.mark.asyncio
     @patch("app.storage.smb.smbclient.scandir")
@@ -1114,7 +1165,7 @@ class TestPathPrefixIntegration:
 
         await backend.list_directory("vacation")
 
-        mock_scandir.assert_called_once_with(r"\\server.local\share\photos\vacation")
+        mock_scandir.assert_called_once_with(r"\\server.local\share\photos\vacation", **SMB_AUTH_KWARGS)
 
     @pytest.mark.asyncio
     @patch("app.storage.smb.smbclient.stat")
@@ -1138,7 +1189,7 @@ class TestPathPrefixIntegration:
 
         await backend.get_file_info("vacation/img.jpg")
 
-        mock_stat.assert_called_once_with(r"\\server.local\share\photos\vacation\img.jpg")
+        mock_stat.assert_called_once_with(r"\\server.local\share\photos\vacation\img.jpg", **SMB_AUTH_KWARGS)
 
     @pytest.mark.asyncio
     @patch("app.storage.smb.smbclient.remove")
@@ -1161,8 +1212,8 @@ class TestPathPrefixIntegration:
         await backend.delete_item("vacation/img.jpg")
 
         expected_path = r"\\server.local\share\photos\vacation\img.jpg"
-        mock_stat.assert_called_once_with(expected_path)
-        mock_remove.assert_called_once_with(expected_path)
+        mock_stat.assert_called_once_with(expected_path, **SMB_AUTH_KWARGS)
+        mock_remove.assert_called_once_with(expected_path, **SMB_AUTH_KWARGS)
 
     @pytest.mark.asyncio
     @patch("app.storage.smb.smbclient.open_file")
@@ -1191,6 +1242,7 @@ class TestPathPrefixIntegration:
             r"\\server.local\share\photos\vacation\img.jpg",
             mode="rb",
             share_access="rwd",
+            **SMB_AUTH_KWARGS,
         )
 
     @pytest.mark.asyncio
@@ -1211,7 +1263,57 @@ class TestPathPrefixIntegration:
         result = await backend.file_exists("vacation/img.jpg")
 
         assert result is True
-        mock_exists.assert_called_once_with(r"\\server.local\share\photos\vacation\img.jpg")
+        mock_exists.assert_called_once_with(r"\\server.local\share\photos\vacation\img.jpg", **SMB_AUTH_KWARGS)
+
+    @pytest.mark.asyncio
+    @patch("app.storage.smb.smbclient.scandir")
+    async def test_list_directory_routes_each_private_connection_credentials(self, mock_scandir):
+        """SMB operations must select the credentials of the active private connection."""
+
+        mock_scandir.return_value = []
+        first_backend = SMBBackend(
+            host="server.local",
+            share_name="share",
+            username="domain\\first-user",
+            password="first-password",
+        )
+        second_backend = SMBBackend(
+            host="server.local",
+            share_name="share",
+            username="domain\\second-user",
+            password="second-password",
+        )
+
+        await first_backend.list_directory("")
+        await second_backend.list_directory("")
+
+        mock_scandir.assert_has_calls(
+            [
+                call(
+                    r"\\server.local\share",
+                    username="domain\\first-user",
+                    password="first-password",
+                    port=445,
+                    connection_cache=ANY,
+                    encrypt=False,
+                    connection_timeout=30,
+                    auth_protocol="negotiate",
+                    require_signing=True,
+                ),
+                call(
+                    r"\\server.local\share",
+                    username="domain\\second-user",
+                    password="second-password",
+                    port=445,
+                    connection_cache=ANY,
+                    encrypt=False,
+                    connection_timeout=30,
+                    auth_protocol="negotiate",
+                    require_signing=True,
+                ),
+            ]
+        )
+        assert mock_scandir.call_args_list[0].kwargs["connection_cache"] is not mock_scandir.call_args_list[1].kwargs["connection_cache"]
 
 
 class TestDeleteItem:
@@ -1234,8 +1336,8 @@ class TestDeleteItem:
         )
         await backend.delete_item("/docs/readme.txt")
 
-        mock_stat.assert_called_once_with(r"\\server.local\share\docs\readme.txt")
-        mock_remove.assert_called_once_with(r"\\server.local\share\docs\readme.txt")
+        mock_stat.assert_called_once_with(r"\\server.local\share\docs\readme.txt", **SMB_AUTH_KWARGS)
+        mock_remove.assert_called_once_with(r"\\server.local\share\docs\readme.txt", **SMB_AUTH_KWARGS)
 
     @pytest.mark.asyncio
     @patch("app.storage.smb.smbclient.rmdir")
@@ -1256,9 +1358,9 @@ class TestDeleteItem:
         )
         await backend.delete_item("/empty-folder")
 
-        mock_stat.assert_called_once_with(r"\\server.local\share\empty-folder")
-        mock_scandir.assert_called_once_with(r"\\server.local\share\empty-folder")
-        mock_rmdir.assert_called_once_with(r"\\server.local\share\empty-folder")
+        mock_stat.assert_called_once_with(r"\\server.local\share\empty-folder", **SMB_AUTH_KWARGS)
+        mock_scandir.assert_called_once_with(r"\\server.local\share\empty-folder", **SMB_AUTH_KWARGS)
+        mock_rmdir.assert_called_once_with(r"\\server.local\share\empty-folder", **SMB_AUTH_KWARGS)
 
     @pytest.mark.asyncio
     @patch("app.storage.smb.smbclient.stat")
@@ -1289,7 +1391,7 @@ class TestDeleteItem:
         file_stat.st_mode = 0o100644  # regular file mode
 
         # stat returns dir for the root, file for children
-        mock_stat.side_effect = lambda p: dir_stat if p == r"\\server.local\share\folder" else file_stat
+        mock_stat.side_effect = lambda path, **kwargs: dir_stat if path == r"\\server.local\share\folder" else file_stat
 
         # scandir returns two file entries inside the directory
         child_a = MagicMock()
@@ -1308,7 +1410,7 @@ class TestDeleteItem:
 
         # Both children removed, then the directory itself
         assert mock_remove.call_count == 2
-        mock_rmdir.assert_called_once_with(r"\\server.local\share\folder")
+        mock_rmdir.assert_called_once_with(r"\\server.local\share\folder", **SMB_AUTH_KWARGS)
 
     @pytest.mark.asyncio
     async def test_delete_timeout_raises(self):
@@ -1434,6 +1536,7 @@ class TestRenameItem:
         mock_rename.assert_called_once_with(
             r"\\server.local\share\docs\readme.txt",
             r"\\server.local\share\docs\notes.txt",
+            **SMB_AUTH_KWARGS,
         )
 
     @pytest.mark.asyncio
@@ -1451,6 +1554,7 @@ class TestRenameItem:
         mock_rename.assert_called_once_with(
             r"\\server.local\share\photos\vacation",
             r"\\server.local\share\photos\holiday",
+            **SMB_AUTH_KWARGS,
         )
 
     @pytest.mark.asyncio
@@ -1517,4 +1621,5 @@ class TestRenameItem:
         mock_rename.assert_called_once_with(
             r"\\server.local\share\photos\vacation\img.jpg",
             r"\\server.local\share\photos\vacation\beach.jpg",
+            **SMB_AUTH_KWARGS,
         )

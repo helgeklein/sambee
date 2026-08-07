@@ -30,6 +30,7 @@ def build_smb_backend(
         password=decrypt_password(connection.password_encrypted),
         port=connection.port,
         path_prefix=connection.path_prefix or "/",
+        connection_context_key=str(connection.id),
     )
 
 
@@ -52,6 +53,7 @@ def build_smb_backend_from_details(
         password=password,
         port=port,
         path_prefix=path_prefix or "/",
+        close_connection_cache_on_disconnect=True,
     )
 
 

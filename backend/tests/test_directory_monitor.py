@@ -148,6 +148,27 @@ class TestDirectoryMonitorLifecycle:
         monitor.stop_monitoring("conn-999", "/nonexistent")
 
     @patch("app.services.directory_monitor.MonitoredDirectory")
+    def test_start_monitoring_rejects_a_generation_retired_before_start(self, mock_monitored_dir):
+        """A subscription authorized before retirement must not publish stale credentials."""
+
+        monitor = DirectoryMonitor()
+        expected_generation = monitor.get_connection_generation("conn-123")
+        monitor.stop_connection("conn-123")
+
+        with pytest.raises(RuntimeError, match="retired"):
+            monitor.start_monitoring(
+                connection_id="conn-123",
+                path="/documents",
+                host="server.local",
+                share_name="share",
+                username="stale-user",
+                password="stale-password",
+                expected_generation=expected_generation,
+            )
+
+        mock_monitored_dir.assert_not_called()
+
+    @patch("app.services.directory_monitor.MonitoredDirectory")
     def test_stop_all_monitors(self, mock_monitored_dir):
         """Test stopping all monitors at once."""
         monitor = DirectoryMonitor()
@@ -177,6 +198,28 @@ class TestDirectoryMonitorLifecycle:
 
         assert len(monitor._monitors) == 0
         assert monitor._running is False
+
+    def test_restart_all_preserves_active_monitors(self):
+        """A policy update must re-establish monitors without losing subscribers."""
+
+        monitor = DirectoryMonitor()
+        first = MagicMock()
+        second = MagicMock()
+        monitor._monitors = {"conn-1:/one": first, "conn-2:/two": second}
+
+        monitor.restart_all()
+
+        first.restart.assert_called_once()
+        second.restart.assert_called_once()
+        assert monitor._monitors == {"conn-1:/one": first, "conn-2:/two": second}
+
+    @pytest.mark.asyncio
+    async def test_restart_all_async_runs_restart_work_off_loop(self):
+        monitor = DirectoryMonitor()
+        with patch.object(monitor, "restart_all") as mock_restart:
+            await monitor.restart_all_async()
+
+        mock_restart.assert_called_once()
 
     @patch("app.services.directory_monitor.MonitoredDirectory")
     def test_monitor_multiple_directories(self, mock_monitored_dir):
@@ -245,6 +288,23 @@ class TestMonitoredDirectoryLifecycle:
         assert monitored._watcher is None
         assert monitored._monitor_thread is None
 
+    def test_retired_monitor_cannot_be_restarted(self):
+        monitored = MonitoredDirectory(
+            connection_id="conn-123",
+            path="/documents",
+            host="server.local",
+            share_name="share",
+            username="user",
+            password="pass",
+            port=445,
+        )
+
+        monitored.stop()
+        with patch.object(monitored, "start") as mock_start:
+            monitored.restart()
+
+        mock_start.assert_not_called()
+
     @patch("app.services.directory_monitor.threading.Thread")
     @patch("app.services.directory_monitor.Connection")
     @patch("app.services.directory_monitor.Session")
@@ -293,10 +353,16 @@ class TestMonitoredDirectoryLifecycle:
         monitored.start()
 
         # Verify connection sequence
-        mock_connection.assert_called_once_with(guid=None, server_name="server.local", port=445)
+        mock_connection.assert_called_once_with(guid=None, server_name="server.local", port=445, require_signing=True)
         mock_conn_instance.connect.assert_called_once()
 
-        mock_session.assert_called_once_with(mock_conn_instance, username="user", password="pass")
+        mock_session.assert_called_once_with(
+            mock_conn_instance,
+            username="user",
+            password="pass",
+            require_encryption=False,
+            auth_protocol="negotiate",
+        )
 
         # Tree connect should be called
         mock_tree.assert_called_once()

@@ -35,7 +35,7 @@ describe("settingsNavigation", () => {
       {
         section: "administration",
         label: "Administration",
-        categories: ["admin-network", "admin-authentication", "admin-users", "admin-system", "admin-about"],
+        categories: ["admin-network", "admin-authentication", "admin-users", "admin-smb", "admin-system", "admin-about"],
       },
     ]);
   });
@@ -50,6 +50,7 @@ describe("settingsNavigation", () => {
     expect(getSettingsCategoryByPath("/settings/connections/local-drives")).toBe("local-drives");
     expect(getSettingsCategoryByPath("/settings/admin/network")).toBe("admin-network");
     expect(getSettingsCategoryByPath("/settings/admin/users")).toBe("admin-users");
+    expect(getSettingsCategoryByPath("/settings/admin/smb")).toBe("admin-smb");
     expect(getSettingsCategoryByPath("/settings/admin/system")).toBe("admin-system");
   });
 

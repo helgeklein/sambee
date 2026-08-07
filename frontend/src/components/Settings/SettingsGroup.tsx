@@ -24,6 +24,10 @@ const SETTINGS_SUBSECTION_CONTENT_GAP: Record<SettingsGroupContentSpacing, numbe
   normal: 1.5,
   compact: 1,
 };
+const SETTINGS_GROUP_CHILD_GAP: Record<SettingsGroupContentSpacing, number> = {
+  normal: 2,
+  compact: 1,
+};
 
 interface SettingsGroupProps {
   title?: ReactNode;
@@ -119,7 +123,20 @@ export function SettingsGroup({
           ) : null}
         </Box>
       )}
-      {children ? <Box sx={contentSx}>{children}</Box> : null}
+      {children ? (
+        <Box
+          sx={[
+            {
+              display: "flex",
+              flexDirection: "column",
+              gap: SETTINGS_GROUP_CHILD_GAP[contentSpacing],
+            },
+            ...(Array.isArray(contentSx) ? contentSx : contentSx ? [contentSx] : []),
+          ]}
+        >
+          {children}
+        </Box>
+      ) : null}
     </Box>
   );
 }

@@ -29,6 +29,8 @@ from smbprotocol.open import (
 from smbprotocol.session import Session
 from smbprotocol.tree import TreeConnect
 
+from app.services.system_settings import get_smbclient_policy_kwargs
+
 logger = logging.getLogger(__name__)
 
 # Connection retry configuration
@@ -56,7 +58,15 @@ class DirectoryMonitor:
         # Map: "connection_id:path" -> MonitoredDirectory
         self._monitors: Dict[str, "MonitoredDirectory"] = {}
         self._lock = threading.Lock()
+        self._starting: dict[str, threading.Event] = {}
+        self._connection_generations: dict[str, int] = {}
         self._running = True
+
+    def get_connection_generation(self, connection_id: str) -> int:
+        """Return the lifecycle generation used to detect stale startups."""
+
+        with self._lock:
+            return self._connection_generations.get(connection_id, 0)
 
     #
     # start_monitoring
@@ -71,6 +81,7 @@ class DirectoryMonitor:
         password: str,
         port: int = 445,
         on_change_callback: Optional[Callable[[str, str], Awaitable[None]]] = None,
+        expected_generation: int | None = None,
     ) -> None:
         """
         Start monitoring a directory for changes.
@@ -87,32 +98,89 @@ class DirectoryMonitor:
         """
 
         key = f"{connection_id}:{path}"
+        with self._lock:
+            requested_generation = (
+                self._connection_generations.get(connection_id, 0) if expected_generation is None else expected_generation
+            )
+
+        while True:
+            with self._lock:
+                if self._connection_generations.get(connection_id, 0) != requested_generation:
+                    raise RuntimeError(f"Connection was retired before monitor {key} could start")
+
+                existing_monitor = self._monitors.get(key)
+                if existing_monitor is not None:
+                    existing_monitor.subscriber_count += 1
+                    logger.debug(f"Increased subscriber count for {key} to {existing_monitor.subscriber_count}")
+                    return
+
+                start_event = self._starting.get(key)
+                if start_event is None:
+                    start_event = threading.Event()
+                    self._starting[key] = start_event
+                    connection_generation = requested_generation
+                    break
+
+            start_event.wait()
+
+        monitor = MonitoredDirectory(
+            connection_id=connection_id,
+            path=path,
+            host=host,
+            share_name=share_name,
+            username=username,
+            password=password,
+            port=port,
+            on_change_callback=on_change_callback,
+        )
+        try:
+            monitor.start()
+        except Exception as error:
+            with self._lock:
+                self._starting.pop(key, None)
+                start_event.set()
+            logger.error(f"Failed to start monitoring {key}: {error}", exc_info=True)
+            raise
 
         with self._lock:
-            # If already monitoring, just update subscriber count
-            if key in self._monitors:
-                self._monitors[key].subscriber_count += 1
-                logger.debug(f"Increased subscriber count for {key} to {self._monitors[key].subscriber_count}")
-                return
-
-            # Create new monitor
-            try:
-                monitor = MonitoredDirectory(
-                    connection_id=connection_id,
-                    path=path,
-                    host=host,
-                    share_name=share_name,
-                    username=username,
-                    password=password,
-                    port=port,
-                    on_change_callback=on_change_callback,
-                )
-                monitor.start()
+            connection_retired = self._connection_generations.get(connection_id, 0) != connection_generation
+            if not connection_retired:
                 self._monitors[key] = monitor
-                logger.debug(f"Started monitoring: {key}")
-            except Exception as e:
-                logger.error(f"Failed to start monitoring {key}: {e}", exc_info=True)
-                raise
+            self._starting.pop(key, None)
+            start_event.set()
+
+        if connection_retired:
+            monitor.stop()
+            raise RuntimeError(f"Connection was retired while monitor {key} was starting")
+
+        logger.debug(f"Started monitoring: {key}")
+
+    async def start_monitoring_async(
+        self,
+        connection_id: str,
+        path: str,
+        host: str,
+        share_name: str,
+        username: str,
+        password: str,
+        port: int = 445,
+        on_change_callback: Optional[Callable[[str, str], Awaitable[None]]] = None,
+        expected_generation: int | None = None,
+    ) -> None:
+        """Start a monitor without blocking the application event loop."""
+
+        await asyncio.to_thread(
+            self.start_monitoring,
+            connection_id,
+            path,
+            host,
+            share_name,
+            username,
+            password,
+            port,
+            on_change_callback,
+            expected_generation,
+        )
 
     #
     # stop_monitoring
@@ -146,6 +214,43 @@ class DirectoryMonitor:
                     del self._monitors[key]
             else:
                 logger.debug(f"Decreased subscriber count for {key} to {monitor.subscriber_count}")
+
+    def stop_connection(self, connection_id: str) -> None:
+        """Stop every active monitor associated with a connection."""
+
+        with self._lock:
+            self._connection_generations[connection_id] = self._connection_generations.get(connection_id, 0) + 1
+            monitors = [(key, monitor) for key, monitor in self._monitors.items() if monitor.connection_id == connection_id]
+            for key, _ in monitors:
+                del self._monitors[key]
+
+        for key, monitor in monitors:
+            try:
+                monitor.stop()
+            except Exception:
+                logger.warning("Error stopping monitor %s for retired connection", key, exc_info=True)
+
+    async def stop_connection_async(self, connection_id: str) -> None:
+        """Stop a connection's monitors without blocking the application event loop."""
+
+        await asyncio.to_thread(self.stop_connection, connection_id)
+
+    def restart_all(self) -> None:
+        """Reconnect active monitors so they apply the current SMB policy."""
+
+        with self._lock:
+            monitors = list(self._monitors.items())
+
+        for key, monitor in monitors:
+            try:
+                monitor.restart()
+            except Exception:
+                logger.warning("Error restarting monitor %s after SMB policy update", key, exc_info=True)
+
+    async def restart_all_async(self) -> None:
+        """Reconnect monitors without blocking the application event loop."""
+
+        await asyncio.to_thread(self.restart_all)
 
     #
     # stop_all
@@ -208,6 +313,8 @@ class MonitoredDirectory:
         self._watcher: Optional[FileSystemWatcher] = None
         self._monitor_thread: Optional[threading.Thread] = None
         self._stop_event = threading.Event()
+        self._lifecycle_lock = threading.Lock()
+        self._retired = False
 
         # Retry state
         self._retry_count = 0
@@ -220,15 +327,18 @@ class MonitoredDirectory:
         """Start monitoring this directory."""
 
         try:
+            policy = get_smbclient_policy_kwargs()
             # Establish SMB connection
-            self._connection = Connection(guid=None, server_name=self.host, port=self.port)
-            self._connection.connect()
+            self._connection = Connection(guid=None, server_name=self.host, port=self.port, require_signing=True)
+            self._connection.connect(timeout=int(policy["connection_timeout"]))
 
             # Create session
             self._session = Session(
                 self._connection,
                 username=self.username,
                 password=self.password,
+                require_encryption=bool(policy["encrypt"]),
+                auth_protocol=str(policy["auth_protocol"]),
             )
             self._session.connect()
 
@@ -293,9 +403,12 @@ class MonitoredDirectory:
             return  # Stop event was set during wait
 
         # Establish new SMB connection with timeout handling
+        policy = get_smbclient_policy_kwargs()
+
+        # Establish new SMB connection with timeout handling
         try:
-            self._connection = Connection(guid=None, server_name=self.host, port=self.port)
-            self._connection.connect(timeout=SMB_CONNECT_TIMEOUT)
+            self._connection = Connection(guid=None, server_name=self.host, port=self.port, require_signing=True)
+            self._connection.connect(timeout=int(policy["connection_timeout"]))
         except Exception as e:
             logger.error(f"Connection failed during reconnect: {e}", exc_info=True)
             raise
@@ -305,6 +418,8 @@ class MonitoredDirectory:
             self._connection,
             username=self.username,
             password=self.password,
+            require_encryption=bool(policy["encrypt"]),
+            auth_protocol=str(policy["auth_protocol"]),
         )
         self._session.connect()
 
@@ -508,6 +623,25 @@ class MonitoredDirectory:
     #
     def stop(self) -> None:
         """Stop monitoring and clean up resources."""
+
+        with self._lifecycle_lock:
+            self._retired = True
+            self._stop_locked()
+
+    def restart(self) -> None:
+        """Reconnect this monitor unless its connection was retired."""
+
+        with self._lifecycle_lock:
+            if self._retired:
+                return
+            self._stop_locked()
+            self._stop_event.clear()
+            self._retry_count = 0
+            self._consecutive_failures = 0
+            self.start()
+
+    def _stop_locked(self) -> None:
+        """Stop monitor resources while holding the lifecycle lock."""
 
         logger.debug(f"Stopping monitor for {self.connection_id}:{self.path}")
         self._stop_event.set()
