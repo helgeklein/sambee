@@ -16,19 +16,6 @@ vi.mock("../../services/api", () => ({
 import api from "../../services/api";
 
 const mockAdvancedSettings: AdvancedSystemSettings = {
-  smb: {
-    read_chunk_size_bytes: {
-      key: "smb.read_chunk_size_bytes",
-      label: "SMB read chunk size",
-      description: "Chunk size used when streaming files from SMB shares.",
-      value: 4194304,
-      source: "default",
-      default_value: 4194304,
-      min_value: 65536,
-      max_value: 16777216,
-      step: 65536,
-    },
-  },
   preprocessors: {
     imagemagick: {
       max_file_size_bytes: {
@@ -57,17 +44,6 @@ const mockAdvancedSettings: AdvancedSystemSettings = {
   },
 };
 
-const mockAdvancedSettingsWithOverride: AdvancedSystemSettings = {
-  ...mockAdvancedSettings,
-  smb: {
-    read_chunk_size_bytes: {
-      ...mockAdvancedSettings.smb.read_chunk_size_bytes,
-      value: 2097152,
-      source: "database",
-    },
-  },
-};
-
 describe("AdvancedSettings", () => {
   beforeEach(() => {
     vi.clearAllMocks();
@@ -87,18 +63,11 @@ describe("AdvancedSettings", () => {
       expect(api.getAdvancedSettings).toHaveBeenCalled();
     });
 
-    expect(await screen.findByRole("heading", { name: /smb backends/i })).toBeInTheDocument();
-    expect(screen.getByRole("heading", { name: /preprocessors/i })).toBeInTheDocument();
-    expect(screen.queryByText("Control how the server reads data from SMB shares during file access.")).not.toBeInTheDocument();
     expect(screen.queryByText("Configure limits for server-side preprocessing services.")).not.toBeInTheDocument();
     expect(screen.queryByText("Set the file-size and runtime limits used when ImageMagick conversions run.")).not.toBeInTheDocument();
-    expect(screen.getByLabelText("SMB read chunk size")).toBeInTheDocument();
-    expect(screen.getByLabelText("Maximum file size")).toBeInTheDocument();
+    expect(await screen.findByLabelText("Maximum file size")).toBeInTheDocument();
     expect(screen.getByLabelText("Conversion timeout")).toBeInTheDocument();
     expect(screen.queryByLabelText("Value")).not.toBeInTheDocument();
-    expect(screen.getByDisplayValue("4")).toBeInTheDocument();
-    expect(screen.getAllByDisplayValue("MiB").length).toBeGreaterThan(0);
-    expect(screen.getByText(/default: 4 mib \(4,194,304 bytes\)/i)).toBeInTheDocument();
     expect(screen.queryByText(/exact value:/i)).not.toBeInTheDocument();
   });
 
@@ -115,76 +84,21 @@ describe("AdvancedSettings", () => {
       expect(api.getAdvancedSettings).toHaveBeenCalled();
     });
 
-    expect(await screen.findByRole("heading", { name: /smb backends/i })).toBeInTheDocument();
-
-    const smbReadChunkInput = screen.getByLabelText("SMB read chunk size");
-    await user.clear(smbReadChunkInput);
-    await user.type(smbReadChunkInput, "2");
+    const timeoutInput = screen.getByLabelText("Conversion timeout");
+    await user.clear(timeoutInput);
+    await user.type(timeoutInput, "45");
 
     await user.click(screen.getByRole("button", { name: /save changes/i }));
 
     await waitFor(() => {
       expect(api.updateAdvancedSettings).toHaveBeenCalledWith({
-        smb: { read_chunk_size_bytes: 2097152 },
         preprocessors: {
           imagemagick: {
             max_file_size_bytes: 104857600,
-            timeout_seconds: 30,
+            timeout_seconds: 45,
           },
         },
       });
     });
-  });
-
-  it("resets a database override to inherited value", async () => {
-    const user = userEvent.setup();
-    vi.mocked(api.getAdvancedSettings).mockResolvedValueOnce(mockAdvancedSettingsWithOverride);
-    vi.mocked(api.updateAdvancedSettings).mockResolvedValueOnce(mockAdvancedSettings);
-
-    render(
-      <SambeeThemeProvider>
-        <AdvancedSettings />
-      </SambeeThemeProvider>
-    );
-
-    await waitFor(() => {
-      expect(api.getAdvancedSettings).toHaveBeenCalled();
-    });
-
-    const resetOverrideButton = await screen.findByRole("button", { name: /reset override/i });
-    await user.click(resetOverrideButton);
-
-    await waitFor(() => {
-      expect(api.updateAdvancedSettings).toHaveBeenCalledWith({
-        reset_keys: ["smb.read_chunk_size_bytes"],
-      });
-    });
-
-    expect(screen.getByText(/reset to inherited value/i)).toBeInTheDocument();
-  });
-
-  it("shows a field error and blocks save for out-of-range values", async () => {
-    const user = userEvent.setup();
-
-    render(
-      <SambeeThemeProvider>
-        <AdvancedSettings />
-      </SambeeThemeProvider>
-    );
-
-    await waitFor(() => {
-      expect(api.getAdvancedSettings).toHaveBeenCalled();
-    });
-
-    expect(await screen.findByRole("heading", { name: /smb backends/i })).toBeInTheDocument();
-
-    const smbReadChunkInput = screen.getByLabelText("SMB read chunk size");
-    await user.clear(smbReadChunkInput);
-    await user.type(smbReadChunkInput, "17");
-
-    await user.click(screen.getByRole("button", { name: /save changes/i }));
-
-    expect(api.updateAdvancedSettings).not.toHaveBeenCalled();
-    expect(screen.getByText(/smb read chunk size must be between 64 kib and 16 mib/i)).toBeInTheDocument();
   });
 });

@@ -163,7 +163,11 @@ export const EN_TRANSLATIONS = {
       },
       adminSystem: {
         label: "System",
-        description: "Manage system-wide SMB and preprocessing runtime settings.",
+        description: "Manage system-wide application and preprocessing runtime settings.",
+      },
+      adminSmb: {
+        label: "SMB",
+        description: "Configure the security policy and runtime limits for SMB backends.",
       },
       adminAbout: {
         label: "About",
@@ -568,6 +572,43 @@ export const EN_TRANSLATIONS = {
       helperText: {
         integer: "{{description}} Default: {{defaultValue}}. Range: {{minValue}} - {{maxValue}}.",
         byteSize: "{{description}} Default: {{defaultValue}}. Range: {{minValue}} to {{maxValue}}.",
+      },
+    },
+    smbSettings: {
+      saveChanges: "Save SMB settings",
+      saveSuccess: "SMB settings saved",
+      loadFailed: "Failed to load SMB settings",
+      saveFailed: "Failed to save SMB settings",
+      resetOverride: "Reset override",
+      sections: {
+        protection: "Protection",
+        connectionBehavior: "Connection behavior",
+        fileStreaming: "File streaming",
+      },
+      fields: {
+        authenticationMode: "Authentication mode",
+        encryptionMode: "Transport protection",
+        connectionTimeout: "Connection timeout",
+        readChunkSize: "SMB read chunk size",
+      },
+      helper: {
+        authenticationMode:
+          "Automatic uses Kerberos when available and otherwise falls back to NTLM. Choose Kerberos required to block NTLM fallback.",
+        encryptionMode:
+          "Signing is always required. Signing only permits unencrypted SMB 2 connections; require encryption to protect SMB traffic from network observers.",
+        connectionTimeout: "Maximum time allowed to establish an SMB transport connection.",
+        readChunkSize: "Bytes read per file-streaming operation.",
+      },
+      options: {
+        negotiate: "Automatic (Kerberos or NTLM)",
+        kerberosRequired: "Kerberos required",
+        signingOnly: "Signing only (SMB 2 compatible)",
+        encryptionRequired: "Signing and encryption (SMB 3+)",
+      },
+      source: {
+        default: "Built-in default",
+        database: "System override",
+        configFile: "Configuration file",
       },
     },
   },

@@ -263,6 +263,25 @@ class TestUpdateConnection:
         assert user_private_connection.access_mode == ConnectionAccessMode.READ_ONLY
         assert decrypt_password(user_private_connection.password_encrypted) == update_data["password"]
 
+    def test_connection_update_retires_its_smb_context(
+        self,
+        client: TestClient,
+        auth_headers_user: dict,
+        user_private_connection: Connection,
+    ) -> None:
+        with (
+            patch("app.api.connections._test_connection_details", new_callable=AsyncMock, return_value=0),
+            patch("app.api.connections.retire_smb_connection_context", new_callable=AsyncMock) as mock_retire,
+        ):
+            response = client.put(
+                f"/api/connections/{user_private_connection.id}",
+                headers=auth_headers_user,
+                json={"password": "updatedpass123"},
+            )
+
+        assert response.status_code == 200
+        mock_retire.assert_awaited_once_with(str(user_private_connection.id), "connection updated")
+
     def test_regular_user_cannot_update_shared_connection(
         self,
         client: TestClient,
@@ -322,6 +341,18 @@ class TestDeleteConnection:
 
         assert response.status_code == 200
         assert session.get(Connection, user_private_connection.id) is None
+
+    def test_connection_delete_retires_its_smb_context(
+        self,
+        client: TestClient,
+        auth_headers_user: dict,
+        user_private_connection: Connection,
+    ) -> None:
+        with patch("app.api.connections.retire_smb_connection_context", new_callable=AsyncMock) as mock_retire:
+            response = client.delete(f"/api/connections/{user_private_connection.id}", headers=auth_headers_user)
+
+        assert response.status_code == 200
+        mock_retire.assert_awaited_once_with(str(user_private_connection.id), "connection deleted")
 
     def test_regular_user_cannot_delete_shared_connection(
         self,

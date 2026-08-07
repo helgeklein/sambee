@@ -36,6 +36,8 @@ import type {
   OidcTestedIdentity,
   OidcTestStartResponse,
   PublicSupportReport,
+  SmbSettings,
+  SmbSettingsUpdate,
   User,
 } from "../types";
 import { FileType } from "../types";
@@ -660,6 +662,16 @@ class ApiService {
 
   async updateAdvancedSettings(payload: AdvancedSystemSettingsUpdate): Promise<AdvancedSystemSettings> {
     const response = await this.api.put<AdvancedSystemSettings>("/admin/settings/advanced", payload);
+    return response.data;
+  }
+
+  async getSmbSettings(): Promise<SmbSettings> {
+    const response = await this.api.get<SmbSettings>("/admin/settings/smb");
+    return response.data;
+  }
+
+  async updateSmbSettings(payload: SmbSettingsUpdate): Promise<SmbSettings> {
+    const response = await this.api.put<SmbSettings>("/admin/settings/smb", payload);
     return response.data;
   }
 

@@ -35,7 +35,6 @@ _SUPPORTED_CONFIG_PATHS = frozenset(
         ("directory_cache", "location"),
         ("directory_cache", "coalesce_interval_seconds"),
         ("directory_cache", "max_staleness_minutes"),
-        ("smb", "read_chunk_size_bytes"),
         ("preprocessors", "imagemagick", "max_file_size_bytes"),
         ("preprocessors", "imagemagick", "timeout_seconds"),
         ("companion_downloads", "metadata_feed_url"),
@@ -181,12 +180,6 @@ def load_toml_config(config_file: Path) -> dict[str, Any]:
         if "max_staleness_minutes" in dc:
             flat_config["directory_cache_max_staleness_minutes"] = dc["max_staleness_minutes"]
 
-    # SMB backend settings
-    if "smb" in toml_data:
-        smb = toml_data["smb"]
-        if "read_chunk_size_bytes" in smb:
-            flat_config["smb_read_chunk_size_bytes"] = smb["read_chunk_size_bytes"]
-
     # Preprocessor settings
     if "preprocessors" in toml_data:
         preprocessors = toml_data["preprocessors"]
@@ -300,9 +293,6 @@ class Settings(BaseModel):
     directory_cache_coalesce_interval_seconds: int = 30  # Min time between disk writes
     directory_cache_max_staleness_minutes: int = 43200  # 30 days — ignore snapshots older than this
 
-    # SMB backend settings
-    smb_read_chunk_size_bytes: int = SYSTEM_SETTING_DEFINITIONS[SystemSettingKey.SMB_READ_CHUNK_SIZE_BYTES].default_value
-
     # Preprocessor settings
     preprocessor_imagemagick_max_file_size_bytes: int = SYSTEM_SETTING_DEFINITIONS[
         SystemSettingKey.PREPROCESSOR_IMAGEMAGICK_MAX_FILE_SIZE_BYTES
@@ -322,7 +312,6 @@ class Settings(BaseModel):
     companion_pin_linux_x64_url: str | None = None
 
     @field_validator(
-        "smb_read_chunk_size_bytes",
         "preprocessor_imagemagick_max_file_size_bytes",
         "preprocessor_imagemagick_timeout_seconds",
     )

@@ -8,6 +8,7 @@ import type {
   ConnectionCreate,
   CurrentUserSettings,
   DirectoryListing,
+  SmbSettings,
   User,
 } from "../../types";
 import { FileType } from "../../types";
@@ -514,19 +515,6 @@ describe("API Service", () => {
 
     it("getAdvancedSettings() returns admin advanced settings", async () => {
       const advancedSettings: AdvancedSystemSettings = {
-        smb: {
-          read_chunk_size_bytes: {
-            key: "smb.read_chunk_size_bytes",
-            label: "SMB read chunk size",
-            description: "Chunk size used when streaming files from SMB shares.",
-            value: 4194304,
-            source: "default",
-            default_value: 4194304,
-            min_value: 65536,
-            max_value: 16777216,
-            step: 65536,
-          },
-        },
         preprocessors: {
           imagemagick: {
             max_file_size_bytes: {
@@ -596,19 +584,6 @@ describe("API Service", () => {
 
     it("updateAdvancedSettings() forwards reset keys", async () => {
       const advancedSettings: AdvancedSystemSettings = {
-        smb: {
-          read_chunk_size_bytes: {
-            key: "smb.read_chunk_size_bytes",
-            label: "SMB read chunk size",
-            description: "Chunk size used when streaming files from SMB shares.",
-            value: 4194304,
-            source: "default",
-            default_value: 4194304,
-            min_value: 65536,
-            max_value: 16777216,
-            step: 65536,
-          },
-        },
         preprocessors: {
           imagemagick: {
             max_file_size_bytes: {
@@ -642,13 +617,45 @@ describe("API Service", () => {
       } as AxiosResponse);
 
       const result = await apiService.updateAdvancedSettings({
-        reset_keys: ["smb.read_chunk_size_bytes"],
+        reset_keys: ["preprocessors.imagemagick.timeout_seconds"],
       });
 
       expect(result).toEqual(advancedSettings);
       expect(mockAxiosInstance.put).toHaveBeenCalledWith("/admin/settings/advanced", {
-        reset_keys: ["smb.read_chunk_size_bytes"],
+        reset_keys: ["preprocessors.imagemagick.timeout_seconds"],
       });
+    });
+
+    it("gets and updates dedicated SMB settings", async () => {
+      const smbSettings: SmbSettings = {
+        read_chunk_size_bytes: {
+          key: "smb.read_chunk_size_bytes",
+          label: "SMB read chunk size",
+          description: "Chunk size used when streaming files from SMB shares.",
+          value: 4194304,
+          source: "default",
+          default_value: 4194304,
+          min_value: 65536,
+          max_value: 16777216,
+          step: 65536,
+        },
+        policy: {
+          authentication_mode: "negotiate",
+          encryption_mode: "signing_only",
+          connection_timeout_seconds: 30,
+        },
+        policy_source: "default",
+        require_signing: true,
+        require_encryption: false,
+      };
+      mockAxiosInstance.get.mockResolvedValueOnce({ data: smbSettings } as AxiosResponse);
+      mockAxiosInstance.put.mockResolvedValueOnce({ data: smbSettings } as AxiosResponse);
+
+      await expect(apiService.getSmbSettings()).resolves.toEqual(smbSettings);
+      await expect(apiService.updateSmbSettings({ reset_policy: true })).resolves.toEqual(smbSettings);
+
+      expect(mockAxiosInstance.get).toHaveBeenCalledWith("/admin/settings/smb");
+      expect(mockAxiosInstance.put).toHaveBeenCalledWith("/admin/settings/smb", { reset_policy: true });
     });
 
     it("deleteConnection() removes connection", async () => {

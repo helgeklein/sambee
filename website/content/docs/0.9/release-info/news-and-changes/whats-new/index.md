@@ -16,7 +16,7 @@ Authentication mode is selected only in **Settings** > **Administration** > **Au
 
 This is a breaking configuration change. `auth_method` is rejected in both `[auth]` and `[security]`, and existing installations are not migrated automatically. Remove the retired key before upgrading.
 
-## Markdown Editor
+## Markdown Editor Improvements
 
 - Lists are normalized (formatted) when saved, using `-` for unordered lists and `1.` for every ordered-list item.
 - The editor updates to display the normalized Markdown written to disk after a successful save.
@@ -31,9 +31,10 @@ The settings got a good UX overhaul that should make them consistent, accessible
 The settings also gained several new category pages:
 
 - New personal **Account** settings page
-- New admin **Network** settings page
-- New admin **Authentication** settings page
 - New admin **About** settings page
+- New admin **Authentication** settings page
+- New admin **Network** settings page
+- New admin **SMB** settings page
 
 The about page comes with a feature that way come in handy: creating a **support report** with redacted diagnostic info safe for posting online.
 
@@ -44,6 +45,10 @@ The refreshed and improved look and feel from settings was applied to the variou
 ## Dark Theme Polishing
 
 The dark theme got a good new coat of paint. The colors of all elements, including backgrounds, texts, menus, and dialogs were tweaked to ensure visual clarity and eye-soothing contrasts.
+
+## SMB Hardening
+
+Taking a client session isolation bug as cue, SMB connection handling has been thoroughly hardened. New settings let administrators require Kerberos authentication and SMB 3+ transport encryption. SMBv1 remains disabled and SMB signing is required for every connection.
 
 ## Miscellaneous
 

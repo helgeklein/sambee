@@ -28,7 +28,6 @@ Use `config.example.toml` as the source of truth for supported keys. This page e
 | `[frontend_logging]` | `tracing_enabled`, `tracing_level`, `tracing_retention_hours` | Controls backend trace collection for frontend logging. |
 | `[frontend_logging]` | `tracing_components`, `tracing_username_regex` | Restricts tracing by component or user scope. |
 | `[directory_cache]` | `location`, `coalesce_interval_seconds`, `max_staleness_minutes` | Controls the saved directory index Sambee keeps to make browsing and search recover faster after restarts. |
-| `[smb]` | `read_chunk_size_bytes` | Changes SMB read chunk size. |
 | `[preprocessors.imagemagick]` | `max_file_size_bytes`, `timeout_seconds` | Sets conversion limits for ImageMagick preprocessing. |
 | `[companion_downloads]` | `metadata_feed_url` | Changes where Sambee resolves Companion download metadata. |
 | `[companion_downloads.pin]` | `version`, `published_at`, `notes`, asset URLs | Pins Companion download links to a specific published release instead of following the promoted feed. |

@@ -14,16 +14,34 @@ Key Features:
 
 import asyncio
 import logging
+import threading
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
 from dataclasses import dataclass
 from datetime import datetime, timedelta
 from functools import partial
-from typing import Optional
+from typing import Any, Optional
 
 import smbclient
 
+from app.services.system_settings import get_smbclient_policy_kwargs
+
 logger = logging.getLogger(__name__)
+
+_connection_context_caches: dict[str, dict[str, Any]] = {}
+_connection_context_lock = threading.RLock()
+
+
+def get_smb_connection_cache(connection_context_key: str) -> dict[str, Any]:
+    """Return the stable private smbclient cache for a persisted connection."""
+
+    with _connection_context_lock:
+        return _connection_context_caches.setdefault(connection_context_key, {})
+
+
+def _pop_smb_connection_cache(connection_context_key: str) -> dict[str, Any] | None:
+    with _connection_context_lock:
+        return _connection_context_caches.pop(connection_context_key, None)
 
 
 @dataclass
@@ -37,8 +55,8 @@ class PooledConnection:
     created_at: datetime
     last_used: datetime
     reference_count: int
-    # Note: smbclient manages the actual connection internally via register_session()
-    # We just track whether it's been registered and how many refs it has
+    connection_cache: dict[str, Any]
+    retire_when_idle: bool = False
 
 
 class SMBConnectionPool:
@@ -65,19 +83,20 @@ class SMBConnectionPool:
             cleanup_interval: How often to run cleanup of idle connections
         """
 
-        self._connections: dict[tuple[str, int, str, str], PooledConnection] = {}
+        self._connections: dict[int, PooledConnection] = {}
         self._lock = asyncio.Lock()
         self._max_idle_time = max_idle_time
         self._cleanup_interval = cleanup_interval
         self._cleanup_task: Optional[asyncio.Task[None]] = None
+        self._legacy_connection_caches: dict[tuple[str, int, str, str], dict[str, Any]] = {}
 
     #
     # _get_pool_key
     #
-    def _get_pool_key(self, host: str, port: int, username: str, share_name: str) -> tuple[str, int, str, str]:
-        """Generate a unique key for connection pooling."""
+    def _get_pool_key(self, connection_cache: dict[str, Any]) -> int:
+        """Generate an identity key for an isolated smbclient cache."""
 
-        return (host.lower(), port, username, share_name)
+        return id(connection_cache)
 
     @asynccontextmanager
     async def get_connection(
@@ -87,6 +106,7 @@ class SMBConnectionPool:
         username: str,
         password: str,
         share_name: str,
+        connection_cache: dict[str, Any] | None = None,
     ) -> AsyncIterator[None]:
         """
         Acquire a connection from the pool (or create if needed).
@@ -110,13 +130,18 @@ class SMBConnectionPool:
         Yields:
             None (connection is managed internally by smbclient)
         """
-        pool_key = self._get_pool_key(host, port, username, share_name)
+        if connection_cache is None:
+            legacy_key = (host.lower(), port, username, share_name)
+            connection_cache = self._legacy_connection_caches.setdefault(legacy_key, {})
+        pool_key = self._get_pool_key(connection_cache)
 
         # Acquire connection
         async with self._lock:
             if pool_key in self._connections:
                 # Reuse existing connection
                 conn = self._connections[pool_key]
+                if conn.retire_when_idle:
+                    raise RuntimeError("SMB connection context is being retired")
                 conn.reference_count += 1
                 conn.last_used = datetime.now()
                 logger.debug(f"Reusing pooled connection: {host}:{port}/{share_name} (refs={conn.reference_count})")
@@ -133,6 +158,8 @@ class SMBConnectionPool:
                             username=username,
                             password=password,
                             port=port,
+                            connection_cache=connection_cache,
+                            **get_smbclient_policy_kwargs(),
                         ),
                     )
                 except Exception as e:
@@ -151,6 +178,7 @@ class SMBConnectionPool:
                     created_at=datetime.now(),
                     last_used=datetime.now(),
                     reference_count=1,
+                    connection_cache=connection_cache,
                 )
                 self._connections[pool_key] = conn
 
@@ -161,17 +189,56 @@ class SMBConnectionPool:
             yield
 
         finally:
-            # Release connection
-            async with self._lock:
-                if pool_key in self._connections:
-                    conn = self._connections[pool_key]
-                    conn.reference_count -= 1
-                    conn.last_used = datetime.now()
+            await self._release_connection_reference(pool_key, host, port, share_name)
 
-                    logger.debug(f"Released pooled connection: {host}:{port}/{share_name} (refs={conn.reference_count})")
+    async def retain_connection_until_future_complete(
+        self,
+        connection_cache: dict[str, Any],
+        operation_future: asyncio.Future[Any],
+    ) -> None:
+        """Keep a cache alive while non-cancellable executor work is still running."""
 
-                    # Don't immediately remove - keep in pool for reuse
-                    # Cleanup task will handle removing idle connections
+        if operation_future.done():
+            return
+
+        pool_key = self._get_pool_key(connection_cache)
+        async with self._lock:
+            conn = self._connections.get(pool_key)
+            if conn is None:
+                return
+            conn.reference_count += 1
+            conn.last_used = datetime.now()
+
+        def release_when_complete(_future: asyncio.Future[Any]) -> None:
+            asyncio.create_task(self._release_connection_reference(pool_key, conn.host, conn.port, conn.share_name))
+
+        operation_future.add_done_callback(release_when_complete)
+
+    async def _release_connection_reference(self, pool_key: int, host: str, port: int, share_name: str) -> None:
+        """Release one pool lease and reset a retired cache once all work ends."""
+
+        connection_to_reset: PooledConnection | None = None
+        async with self._lock:
+            conn = self._connections.get(pool_key)
+            if conn is None:
+                return
+
+            conn.reference_count -= 1
+            conn.last_used = datetime.now()
+            logger.debug(f"Released pooled connection: {host}:{port}/{share_name} (refs={conn.reference_count})")
+
+            if conn.reference_count == 0 and conn.retire_when_idle:
+                connection_to_reset = self._connections.pop(pool_key)
+
+        if connection_to_reset is not None:
+            await asyncio.get_event_loop().run_in_executor(
+                None,
+                partial(
+                    smbclient.reset_connection_cache,
+                    fail_on_error=False,
+                    connection_cache=connection_to_reset.connection_cache,
+                ),
+            )
 
     #
     # cleanup_idle_connections
@@ -198,12 +265,11 @@ class SMBConnectionPool:
                     f"(idle for {(now - conn.last_used).total_seconds():.0f}s)"
                 )
 
-                # Delete session from smbclient pool (run in executor to avoid
-                # blocking the event loop during the SMB disconnect handshake)
+                # Disconnect only this backend's private smbclient cache.
                 try:
                     await asyncio.get_event_loop().run_in_executor(
                         None,
-                        partial(smbclient.delete_session, conn.host, port=conn.port),
+                        partial(smbclient.reset_connection_cache, fail_on_error=False, connection_cache=conn.connection_cache),
                     )
                 except Exception as e:
                     logger.warning(f"Error deleting session for {conn.host}:{conn.port}: {e}")
@@ -266,7 +332,7 @@ class SMBConnectionPool:
                     # the SMB disconnect handshake.
                     await loop.run_in_executor(
                         None,
-                        partial(smbclient.delete_session, conn.host, port=conn.port),
+                        partial(smbclient.reset_connection_cache, fail_on_error=False, connection_cache=conn.connection_cache),
                     )
                 except Exception as e:
                     logger.warning(f"Error closing connection {conn.host}:{conn.port}: {e}")
@@ -280,32 +346,58 @@ class SMBConnectionPool:
         port: int,
         username: str,
         share_name: str,
+        connection_cache: dict[str, Any] | None = None,
         reason: str | None = None,
     ) -> None:
         """Remove a pooled connection and delete its underlying smbclient session."""
 
-        pool_key = self._get_pool_key(host, port, username, share_name)
-
-        async with self._lock:
-            conn = self._connections.pop(pool_key, None)
-
-        if conn is None:
+        if connection_cache is None:
+            legacy_key = (host.lower(), port, username, share_name)
+            connection_cache = self._legacy_connection_caches.get(legacy_key)
+        if connection_cache is None:
             return
 
+        await self.invalidate_connection_cache(connection_cache, reason=reason)
+
+    async def invalidate_connection_cache(self, connection_cache: dict[str, Any], reason: str | None = None) -> None:
+        """Close a private cache after its active pool leases have finished."""
+
+        pool_key = self._get_pool_key(connection_cache)
+
+        async with self._lock:
+            conn = self._connections.get(pool_key)
+            if conn is not None and conn.reference_count > 0:
+                conn.retire_when_idle = True
+                logger.warning(
+                    "Deferring invalidation of active pooled connection: %s:%s/%s%s",
+                    conn.host,
+                    conn.port,
+                    conn.share_name,
+                    f" ({reason})" if reason else "",
+                )
+                return
+
+            if conn is not None:
+                self._connections.pop(pool_key)
+
         try:
-            logger.warning(
-                "Invalidating pooled connection: %s:%s/%s%s",
-                conn.host,
-                conn.port,
-                conn.share_name,
-                f" ({reason})" if reason else "",
-            )
+            if conn is not None:
+                logger.warning(
+                    "Invalidating pooled connection: %s:%s/%s%s",
+                    conn.host,
+                    conn.port,
+                    conn.share_name,
+                    f" ({reason})" if reason else "",
+                )
             await asyncio.get_event_loop().run_in_executor(
                 None,
-                partial(smbclient.delete_session, conn.host, port=conn.port),
+                partial(smbclient.reset_connection_cache, fail_on_error=False, connection_cache=connection_cache),
             )
         except Exception as e:
-            logger.warning(f"Error invalidating connection {conn.host}:{conn.port}: {e}")
+            if conn is None:
+                logger.warning("Error invalidating unpooled SMB cache: %s", e)
+            else:
+                logger.warning(f"Error invalidating connection {conn.host}:{conn.port}: {e}")
 
     #
     # get_stats
@@ -372,3 +464,37 @@ async def shutdown_connection_pool() -> None:
         await _pool.close_all()
         _pool = None
         logger.info("SMB connection pool shut down")
+
+
+async def retire_smb_connection_context(connection_context_key: str, reason: str) -> None:
+    """Close the private cache associated with one persisted connection."""
+
+    connection_cache = _pop_smb_connection_cache(connection_context_key)
+    if connection_cache is None:
+        return
+
+    if _pool is not None:
+        await _pool.invalidate_connection_cache(connection_cache, reason=reason)
+        return
+
+    await asyncio.get_running_loop().run_in_executor(
+        None,
+        partial(smbclient.reset_connection_cache, fail_on_error=False, connection_cache=connection_cache),
+    )
+
+
+async def retire_all_smb_connection_contexts(reason: str) -> None:
+    """Close every private cache after a global SMB policy change."""
+
+    with _connection_context_lock:
+        connection_caches = list(_connection_context_caches.values())
+        _connection_context_caches.clear()
+
+    for connection_cache in connection_caches:
+        if _pool is not None:
+            await _pool.invalidate_connection_cache(connection_cache, reason=reason)
+        else:
+            await asyncio.get_running_loop().run_in_executor(
+                None,
+                partial(smbclient.reset_connection_cache, fail_on_error=False, connection_cache=connection_cache),
+            )

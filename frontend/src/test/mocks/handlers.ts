@@ -10,19 +10,6 @@ function hasBearerAuthorizationHeader(authHeader: string | null): authHeader is 
 
 function createAdvancedSettingsResponse() {
   return {
-    smb: {
-      read_chunk_size_bytes: {
-        key: "smb.read_chunk_size_bytes",
-        label: "SMB read chunk size",
-        description: "Chunk size used when streaming files from SMB shares.",
-        value: 4194304,
-        source: "default",
-        default_value: 4194304,
-        min_value: 65536,
-        max_value: 16777216,
-        step: 65536,
-      },
-    },
     preprocessors: {
       imagemagick: {
         max_file_size_bytes: {
@@ -53,6 +40,27 @@ function createAdvancedSettingsResponse() {
 }
 
 let advancedSettingsResponse = createAdvancedSettingsResponse();
+let smbSettingsResponse = {
+  read_chunk_size_bytes: {
+    key: "smb.read_chunk_size_bytes",
+    label: "SMB read chunk size",
+    description: "Chunk size used when streaming files from SMB shares.",
+    value: 4194304,
+    source: "default",
+    default_value: 4194304,
+    min_value: 65536,
+    max_value: 16777216,
+    step: 65536,
+  },
+  policy: {
+    authentication_mode: "negotiate",
+    encryption_mode: "signing_only",
+    connection_timeout_seconds: 30,
+  },
+  policy_source: "default",
+  require_signing: true,
+  require_encryption: false,
+};
 let currentUserSettingsResponse: CurrentUserSettings = {
   appearance: {
     theme_id: "sambee-light",
@@ -535,15 +543,6 @@ export const handlers = [
     const nextResponse = createAdvancedSettingsResponse();
     const resetKeys = Array.isArray(body["reset_keys"]) ? body["reset_keys"] : [];
 
-    if (!resetKeys.includes("smb.read_chunk_size_bytes")) {
-      const smb = body["smb"] as Record<string, unknown> | undefined;
-      const smbValue = smb?.["read_chunk_size_bytes"];
-      if (typeof smbValue === "number") {
-        nextResponse.smb.read_chunk_size_bytes.value = smbValue;
-        nextResponse.smb.read_chunk_size_bytes.source = "database";
-      }
-    }
-
     const preprocessors = body["preprocessors"] as Record<string, unknown> | undefined;
     const imagemagick = preprocessors?.["imagemagick"] as Record<string, unknown> | undefined;
     if (!resetKeys.includes("preprocessors.imagemagick.max_file_size_bytes")) {
@@ -564,6 +563,33 @@ export const handlers = [
 
     advancedSettingsResponse = nextResponse;
     return HttpResponse.json(advancedSettingsResponse);
+  }),
+
+  http.get(`${API_BASE}/admin/settings/smb`, () => HttpResponse.json(smbSettingsResponse)),
+
+  http.put(`${API_BASE}/admin/settings/smb`, async ({ request }) => {
+    const body = (await request.json()) as Record<string, unknown>;
+    const nextResponse = structuredClone(smbSettingsResponse);
+    if (body["reset_read_chunk_size_bytes"] === true) {
+      nextResponse.read_chunk_size_bytes.value = 4194304;
+      nextResponse.read_chunk_size_bytes.source = "default";
+    } else if (typeof body["read_chunk_size_bytes"] === "number") {
+      nextResponse.read_chunk_size_bytes.value = body["read_chunk_size_bytes"];
+      nextResponse.read_chunk_size_bytes.source = "database";
+    }
+    if (body["reset_policy"] === true) {
+      nextResponse.policy = {
+        authentication_mode: "negotiate",
+        encryption_mode: "signing_only",
+        connection_timeout_seconds: 30,
+      };
+      nextResponse.policy_source = "default";
+    } else if (body["policy"] && typeof body["policy"] === "object") {
+      nextResponse.policy = body["policy"] as typeof nextResponse.policy;
+      nextResponse.policy_source = "database";
+    }
+    smbSettingsResponse = nextResponse;
+    return HttpResponse.json(smbSettingsResponse);
   }),
 
   // Browse - List directory

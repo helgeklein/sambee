@@ -1,6 +1,7 @@
 import {
   Article as ArticleIcon,
   ChevronRight as ChevronRightIcon,
+  Dns as DnsIcon,
   FolderOpen as FolderOpenIcon,
   InfoOutlined as InfoOutlinedIcon,
   ManageAccounts as ManageAccountsIcon,
@@ -126,6 +127,8 @@ function renderCategoryIcon(item: SettingsNavItem, iconGlyphSx?: SxProps<Theme>)
       return <VpnKeyIcon sx={iconGlyphSx} />;
     case "admin-users":
       return <PeopleAltIcon sx={iconGlyphSx} />;
+    case "admin-smb":
+      return <DnsIcon sx={iconGlyphSx} />;
     case "admin-system":
       return <TuneIcon sx={iconGlyphSx} />;
     case "admin-about":

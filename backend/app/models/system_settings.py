@@ -2,8 +2,10 @@ from __future__ import annotations
 
 import uuid
 from datetime import datetime, timezone
+from enum import StrEnum
 from typing import Optional
 
+from pydantic import model_validator
 from sqlmodel import Field, SQLModel
 
 from app.core.system_setting_definitions import SystemSettingKey, SystemSettingSource
@@ -28,22 +30,54 @@ class IntegerSystemSettingRead(SQLModel):
     step: int
 
 
-class SmbAdvancedSettingsRead(SQLModel):
-    read_chunk_size_bytes: IntegerSystemSettingRead
-
-
 class PreprocessorAdvancedSettingsRead(SQLModel):
     max_file_size_bytes: IntegerSystemSettingRead
     timeout_seconds: IntegerSystemSettingRead
 
 
 class AdvancedSystemSettingsRead(SQLModel):
-    smb: SmbAdvancedSettingsRead
     preprocessors: dict[str, PreprocessorAdvancedSettingsRead]
 
 
-class SmbAdvancedSettingsUpdate(SQLModel):
+class SmbAuthenticationMode(StrEnum):
+    NEGOTIATE = "negotiate"
+    KERBEROS_REQUIRED = "kerberos_required"
+
+
+class SmbEncryptionMode(StrEnum):
+    SIGNING_ONLY = "signing_only"
+    ENCRYPTION_REQUIRED = "encryption_required"
+
+
+class SmbPolicySettings(SQLModel):
+    """Validated, administrator-managed policy for all SMB backends."""
+
+    authentication_mode: SmbAuthenticationMode = SmbAuthenticationMode.NEGOTIATE
+    encryption_mode: SmbEncryptionMode = SmbEncryptionMode.SIGNING_ONLY
+    connection_timeout_seconds: int = Field(default=30, ge=5, le=120)
+
+
+class SmbSettingsRead(SQLModel):
+    read_chunk_size_bytes: IntegerSystemSettingRead
+    policy: SmbPolicySettings
+    policy_source: SystemSettingSource
+    require_signing: bool = True
+    require_encryption: bool = False
+
+
+class SmbSettingsUpdate(SQLModel):
     read_chunk_size_bytes: Optional[int] = None
+    policy: Optional[SmbPolicySettings] = None
+    reset_read_chunk_size_bytes: bool = False
+    reset_policy: bool = False
+
+    @model_validator(mode="after")
+    def prevent_conflicting_resets(self) -> "SmbSettingsUpdate":
+        if self.read_chunk_size_bytes is not None and self.reset_read_chunk_size_bytes:
+            raise ValueError("Cannot update and reset the SMB read chunk size in one request")
+        if self.policy is not None and self.reset_policy:
+            raise ValueError("Cannot update and reset the SMB policy in one request")
+        return self
 
 
 class PreprocessorAdvancedSettingsUpdate(SQLModel):
@@ -56,7 +90,6 @@ class AdvancedSystemSettingsPreprocessorsUpdate(SQLModel):
 
 
 class AdvancedSystemSettingsUpdate(SQLModel):
-    smb: Optional[SmbAdvancedSettingsUpdate] = None
     preprocessors: Optional[AdvancedSystemSettingsPreprocessorsUpdate] = None
     reset_keys: list[SystemSettingKey] = Field(default_factory=list)
 

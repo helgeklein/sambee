@@ -10,6 +10,7 @@ import type {
   Connection,
   NetworkSettings,
   OidcAdminConfigurationRead,
+  SmbSettings,
 } from "../../types";
 import { getApiErrorMessage } from "../../utils/apiErrors";
 import { LOCAL_DRIVES_PAGE_COPY } from "./localDrivesCopy";
@@ -20,6 +21,7 @@ export const SETTINGS_DATA_CACHE_KEYS = {
   localDrives: "settings-data/local-drives",
   adminUsers: "settings-data/admin-users",
   adminSystem: "settings-data/admin-system",
+  adminSmb: "settings-data/admin-smb",
   adminNetwork: "settings-data/admin-network",
   adminAuthentication: "settings-data/admin-authentication",
   adminAbout: "settings-data/admin-about",
@@ -54,6 +56,10 @@ export async function loadUserManagementSettingsData(): Promise<UserManagementSe
 
 export async function loadAdvancedSettingsData(): Promise<AdvancedSystemSettings> {
   return api.getAdvancedSettings();
+}
+
+export async function loadSmbSettingsData(): Promise<SmbSettings> {
+  return api.getSmbSettings();
 }
 
 export async function loadAboutSettingsData(): Promise<AboutSettings> {
@@ -110,6 +116,8 @@ export function prefetchSettingsDataForItem(item: SettingsNavItem) {
       return primeCachedAsyncData(SETTINGS_DATA_CACHE_KEYS.adminUsers, loadUserManagementSettingsData);
     case "admin-system":
       return primeCachedAsyncData(SETTINGS_DATA_CACHE_KEYS.adminSystem, loadAdvancedSettingsData);
+    case "admin-smb":
+      return primeCachedAsyncData(SETTINGS_DATA_CACHE_KEYS.adminSmb, loadSmbSettingsData);
     case "admin-about":
       return primeCachedAsyncData(SETTINGS_DATA_CACHE_KEYS.adminAbout, loadAboutSettingsData);
     case "admin-network":

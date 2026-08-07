@@ -102,6 +102,9 @@ class ConnectionManager:
             logger.error(f"Invalid connection_id format: {connection_id}")
             return False
 
+        monitor = get_monitor()
+        expected_generation = monitor.get_connection_generation(connection_id)
+
         try:
             with DBSession(engine) as session:
                 conn = get_accessible_connection_or_404(session, current_user, conn_uuid)
@@ -109,16 +112,7 @@ class ConnectionManager:
             logger.warning(f"Rejected unauthorized WebSocket subscription: user={current_user.username}, connection_id={connection_id}")
             return False
 
-        if websocket in self.subscriptions:
-            self.subscriptions[websocket].add(key)
-
-        # Track this WebSocket for notifications
         is_new_subscription = key not in self.active_connections
-        if key not in self.active_connections:
-            self.active_connections[key] = set()
-        self.active_connections[key].add(websocket)
-
-        logger.debug(f"WebSocket {id(websocket)} subscribed to {key}")
 
         # Start SMB monitoring if this is the first subscriber for this directory
         if is_new_subscription:
@@ -135,15 +129,11 @@ class ConnectionManager:
                 else:
                     resolved_path = path
 
-                # Remember the resolved path so unsubscribe can stop
-                # the correct monitor.
-                self._resolved_paths[key] = resolved_path
                 share_name = conn.share_name
                 assert share_name is not None
 
                 # Start monitoring with callback to notify WebSocket clients
-                monitor = get_monitor()
-                monitor.start_monitoring(
+                await monitor.start_monitoring_async(
                     connection_id=connection_id,
                     path=resolved_path,
                     host=conn.host,
@@ -152,10 +142,19 @@ class ConnectionManager:
                     password=decrypt_password(conn.password_encrypted),
                     port=conn.port or 445,
                     on_change_callback=self._make_change_callback(connection_id, path),
+                    expected_generation=expected_generation,
                 )
+                self._resolved_paths[key] = resolved_path
                 logger.debug(f"Started SMB monitoring for {key} (resolved: {resolved_path})")
             except Exception as e:
                 logger.error(f"Failed to start SMB monitoring for {key}: {e}", exc_info=True)
+                return False
+
+        if websocket in self.subscriptions:
+            self.subscriptions[websocket].add(key)
+        self.active_connections.setdefault(key, set()).add(websocket)
+
+        logger.debug(f"WebSocket {id(websocket)} subscribed to {key}")
 
         return True
 

@@ -168,18 +168,12 @@ export interface PreprocessorAdvancedSettings {
 }
 
 export interface AdvancedSystemSettings {
-  smb: {
-    read_chunk_size_bytes: IntegerSystemSetting;
-  };
   preprocessors: {
     imagemagick: PreprocessorAdvancedSettings;
   };
 }
 
 export interface AdvancedSystemSettingsUpdate {
-  smb?: {
-    read_chunk_size_bytes?: number;
-  };
   preprocessors?: {
     imagemagick?: {
       max_file_size_bytes?: number;
@@ -187,6 +181,30 @@ export interface AdvancedSystemSettingsUpdate {
     };
   };
   reset_keys?: string[];
+}
+
+export type SmbAuthenticationMode = "negotiate" | "kerberos_required";
+export type SmbEncryptionMode = "signing_only" | "encryption_required";
+
+export interface SmbPolicySettings {
+  authentication_mode: SmbAuthenticationMode;
+  encryption_mode: SmbEncryptionMode;
+  connection_timeout_seconds: number;
+}
+
+export interface SmbSettings {
+  read_chunk_size_bytes: IntegerSystemSetting;
+  policy: SmbPolicySettings;
+  policy_source: SystemSettingSource;
+  require_signing: boolean;
+  require_encryption: boolean;
+}
+
+export interface SmbSettingsUpdate {
+  read_chunk_size_bytes?: number;
+  policy?: SmbPolicySettings;
+  reset_read_chunk_size_bytes?: boolean;
+  reset_policy?: boolean;
 }
 
 export interface AboutSettings {

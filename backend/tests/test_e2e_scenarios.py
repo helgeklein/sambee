@@ -486,7 +486,9 @@ class TestWebSocketScenarios:
 
         try:
             with patch("app.api.websocket.get_monitor") as mock_get_monitor:
-                mock_get_monitor.return_value = MagicMock()
+                monitor = MagicMock()
+                monitor.start_monitoring_async = AsyncMock()
+                mock_get_monitor.return_value = monitor
 
                 await manager.connect(mock_ws, regular_user)
                 subscribed = await manager.subscribe(mock_ws, str(connection.id), "/documents")
@@ -529,7 +531,9 @@ class TestWebSocketScenarios:
 
         try:
             with patch("app.api.websocket.get_monitor") as mock_get_monitor:
-                mock_get_monitor.return_value = MagicMock()
+                monitor = MagicMock()
+                monitor.start_monitoring_async = AsyncMock()
+                mock_get_monitor.return_value = monitor
 
                 await manager.connect(mock_ws1, regular_user)
                 await manager.connect(mock_ws2, regular_user)

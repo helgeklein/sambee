@@ -58,7 +58,8 @@ from smbprotocol.session import Session
 from smbprotocol.tree import TreeConnect
 
 from app.core.config import settings, static
-from app.storage.smb_pool import get_connection_pool
+from app.services.system_settings import get_smbclient_policy_kwargs
+from app.storage.smb_pool import SMBConnectionPool, get_connection_pool, get_smb_connection_cache
 
 logger = logging.getLogger(__name__)
 
@@ -158,6 +159,7 @@ class ConnectionDirectoryCache:
         self.username = username
         self.password = password
         self.port = port
+        self._connection_cache = get_smb_connection_cache(connection_id)
 
         # Normalize path_prefix: strip slashes so "" means share root
         cleaned = (path_prefix or "/").replace("\\", "/").strip("/")
@@ -683,6 +685,7 @@ class ConnectionDirectoryCache:
                 username=self.username,
                 password=self.password,
                 share_name=self.share_name,
+                connection_cache=self._connection_cache,
             ):
                 # BFS queue: list of relative paths to scan
                 queue: list[str] = [""]
@@ -705,16 +708,7 @@ class ConnectionDirectoryCache:
                             smb_path = base_path
 
                         try:
-                            loop = asyncio.get_event_loop()
-                            subdirs = await asyncio.wait_for(
-                                loop.run_in_executor(
-                                    None,
-                                    self._scan_single_directory,
-                                    smb_path,
-                                    rel_path,
-                                ),
-                                timeout=SCAN_TIMEOUT_SECONDS,
-                            )
+                            subdirs = await self._scan_directory_with_pool_lease(pool, smb_path, rel_path)
 
                             # Add discovered directories to cache and queue
                             for subdir_path in subdirs:
@@ -786,7 +780,14 @@ class ConnectionDirectoryCache:
         subdirs: list[str] = []
 
         try:
-            entries = smbclient.scandir(smb_path)
+            entries = smbclient.scandir(
+                smb_path,
+                username=self.username,
+                password=self.password,
+                port=self.port,
+                connection_cache=self._connection_cache,
+                **get_smbclient_policy_kwargs(),
+            )
             for entry in entries:
                 if entry.name in (".", ".."):
                     continue
@@ -805,6 +806,16 @@ class ConnectionDirectoryCache:
             raise
 
         return subdirs
+
+    async def _scan_directory_with_pool_lease(self, pool: SMBConnectionPool, smb_path: str, rel_path: str) -> list[str]:
+        """Run a blocking scan without releasing its pool lease prematurely."""
+
+        future = asyncio.get_running_loop().run_in_executor(None, self._scan_single_directory, smb_path, rel_path)
+        try:
+            return await asyncio.wait_for(asyncio.shield(future), timeout=SCAN_TIMEOUT_SECONDS)
+        except (asyncio.TimeoutError, asyncio.CancelledError):
+            await pool.retain_connection_until_future_complete(self._connection_cache, future)
+            raise
 
     #
     # _run_rescan
@@ -840,6 +851,7 @@ class ConnectionDirectoryCache:
                 username=self.username,
                 password=self.password,
                 share_name=self.share_name,
+                connection_cache=self._connection_cache,
             ):
                 queue: list[str] = [""]
 
@@ -859,16 +871,7 @@ class ConnectionDirectoryCache:
                             smb_path = base_path
 
                         try:
-                            loop = asyncio.get_event_loop()
-                            subdirs = await asyncio.wait_for(
-                                loop.run_in_executor(
-                                    None,
-                                    self._scan_single_directory,
-                                    smb_path,
-                                    rel_path,
-                                ),
-                                timeout=SCAN_TIMEOUT_SECONDS,
-                            )
+                            subdirs = await self._scan_directory_with_pool_lease(pool, smb_path, rel_path)
 
                             for subdir_path in subdirs:
                                 new_directories.add(subdir_path)
@@ -989,17 +992,22 @@ class ConnectionDirectoryCache:
     def _connect_watcher(self) -> None:
         """Establish a low-level SMB connection for the CHANGE_NOTIFY watcher."""
 
+        policy = get_smbclient_policy_kwargs()
+
         self._watcher_connection = Connection(
             guid=None,
             server_name=self.host,
             port=self.port,
+            require_signing=True,
         )
-        self._watcher_connection.connect(timeout=30)
+        self._watcher_connection.connect(timeout=int(policy["connection_timeout"]))
 
         self._watcher_session = Session(
             self._watcher_connection,
             username=self.username,
             password=self.password,
+            require_encryption=bool(policy["encrypt"]),
+            auth_protocol=str(policy["auth_protocol"]),
         )
         self._watcher_session.connect()
 
@@ -1202,9 +1210,14 @@ class ConnectionDirectoryCache:
         """Stop all background tasks and clean up resources."""
 
         logger.info(f"Stopping directory cache for connection {self.connection_id}")
+        self._request_stop()
+        self._finish_stop()
+
+    def _request_stop(self) -> None:
+        """Signal running tasks to stop from their owning event loop."""
+
         self._stop_event.set()
 
-        # Cancel async tasks
         if self._scan_task and not self._scan_task.done():
             self._scan_task.cancel()
 
@@ -1213,6 +1226,9 @@ class ConnectionDirectoryCache:
 
         if self._coalesce_task and not self._coalesce_task.done():
             self._coalesce_task.cancel()
+
+    def _finish_stop(self) -> None:
+        """Wait for blocking watcher cleanup after asynchronous tasks stop."""
 
         # Wait for watcher thread
         if self._watcher_thread and self._watcher_thread.is_alive():
@@ -1351,6 +1367,23 @@ class DirectoryCacheManager:
             cache.stop()
             logger.info(f"Removed directory cache for connection {connection_id}")
 
+    async def remove_cache_async(self, connection_id: str) -> None:
+        """Remove one cache without blocking the application event loop."""
+
+        with self._lock:
+            cache = self._caches.pop(connection_id, None)
+
+        if cache is None:
+            return
+
+        cache._request_stop()
+        try:
+            await asyncio.to_thread(cache._finish_stop)
+        except Exception:
+            logger.exception("Error stopping cache for connection %s", connection_id)
+        else:
+            logger.info(f"Removed directory cache for connection {connection_id}")
+
     #
     # stop_all
     #
@@ -1368,6 +1401,29 @@ class DirectoryCacheManager:
                 logger.error(
                     f"Error stopping cache for connection {cache.connection_id}: {e}",
                     exc_info=True,
+                )
+
+        logger.info("All directory caches stopped")
+
+    async def stop_all_async(self) -> None:
+        """Stop all caches without blocking the application event loop."""
+
+        with self._lock:
+            caches = list(self._caches.values())
+            self._caches.clear()
+
+        for cache in caches:
+            cache._request_stop()
+
+        results = await asyncio.gather(
+            *(asyncio.to_thread(cache._finish_stop) for cache in caches),
+            return_exceptions=True,
+        )
+        for cache, result in zip(caches, results, strict=True):
+            if isinstance(result, BaseException):
+                logger.error(
+                    f"Error stopping cache for connection {cache.connection_id}: {result}",
+                    exc_info=result,
                 )
 
         logger.info("All directory caches stopped")

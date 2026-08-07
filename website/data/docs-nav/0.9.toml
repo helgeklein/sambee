@@ -147,6 +147,7 @@ title = "Reference"
 [pages.admin-guide.reference]
 items = [
   "configuration-file-reference",
+  "smb-settings",
   "port-and-path-reference",
   "companion-support-reference",
 ]

@@ -11,9 +11,9 @@ from smbclient._os import FileAttributes
 
 from app.core.system_setting_definitions import SystemSettingKey
 from app.models.file import DirectoryListing, FileInfo, FileType
-from app.services.system_settings import get_integer_setting_value
+from app.services.system_settings import get_integer_setting_value, get_smbclient_policy_kwargs
 from app.storage.base import ProgressCallback, StorageBackend
-from app.storage.smb_pool import get_connection_pool
+from app.storage.smb_pool import get_connection_pool, get_smb_connection_cache
 from app.utils.file_type_registry import get_mime_type
 
 logger = logging.getLogger(__name__)
@@ -39,7 +39,17 @@ class SMBBackend(StorageBackend):
     #
     # __init__
     #
-    def __init__(self, host: str, share_name: str, username: str, password: str, port: int = 445, path_prefix: str = "/"):
+    def __init__(
+        self,
+        host: str,
+        share_name: str,
+        username: str,
+        password: str,
+        port: int = 445,
+        path_prefix: str = "/",
+        connection_context_key: str | None = None,
+        close_connection_cache_on_disconnect: bool = False,
+    ):
         """Initialize SMB storage backend.
 
         Args:
@@ -52,6 +62,9 @@ class SMBBackend(StorageBackend):
                 non-root value (e.g. "/photos"), all operations are
                 scoped to that sub-directory — the frontend never
                 sees the prefix in returned paths.
+            connection_context_key: Stable identity for a persisted connection.
+            close_connection_cache_on_disconnect: Close this backend's private
+                cache instead of retaining it for pooled reuse.
         """
 
         self.host = host
@@ -60,10 +73,24 @@ class SMBBackend(StorageBackend):
         self.password = password
         self.port = port
         self._base_path = f"\\\\{host}\\{share_name}"
-        self._pool_connection = None  # Track current pool connection context
+        # Persisted connections share one isolated cache across request-scoped
+        # backend instances. Detail-only test backends remain self-contained.
+        self._connection_cache = get_smb_connection_cache(connection_context_key) if connection_context_key is not None else {}
+        self._close_connection_cache_on_disconnect = close_connection_cache_on_disconnect
 
         # Normalize path_prefix: strip slashes, collapse to empty string for root
         self._path_prefix = self._normalize_prefix(path_prefix)
+
+    def _smb_auth_kwargs(self) -> dict[str, object]:
+        """Return credentials required to select this backend's SMB session."""
+
+        return {
+            "username": self.username,
+            "password": self.password,
+            "port": self.port,
+            "connection_cache": self._connection_cache,
+            **get_smbclient_policy_kwargs(),
+        }
 
     #
     # connect
@@ -80,8 +107,7 @@ class SMBBackend(StorageBackend):
         through the pool's context manager when operations are performed.
         """
 
-        # Connection pooling is handled transparently in operations
-        # No explicit connection establishment needed
+        # Connection pooling is handled transparently in operations.
         logger.debug(f"SMB backend ready (will use pooled connection): //{self.host}:{self.port}/{self.share_name}")
 
     #
@@ -95,6 +121,18 @@ class SMBBackend(StorageBackend):
         for reuse by other requests. The pool will clean up idle connections
         automatically.
         """
+
+        if self._close_connection_cache_on_disconnect:
+            pool = await get_connection_pool()
+            await pool.invalidate_connection(
+                host=self.host,
+                port=self.port,
+                username=self.username,
+                share_name=self.share_name,
+                connection_cache=self._connection_cache,
+                reason="ephemeral connection validation completed",
+            )
+            return
 
         logger.debug(f"SMB backend released (connection remains in pool): //{self.host}/{self.share_name}")
 
@@ -112,10 +150,26 @@ class SMBBackend(StorageBackend):
         "/a/b/c/"  -> "a/b/c"
         """
 
-        if not prefix:
+        return SMBBackend._normalize_relative_path(prefix)
+
+    @staticmethod
+    def _normalize_relative_path(path: str | None) -> str:
+        """Return a share-relative SMB path or reject an unsafe path."""
+
+        if not path:
             return SMBBackend._NO_PREFIX
-        cleaned = prefix.replace("\\", "/").strip("/")
-        return cleaned if cleaned else SMBBackend._NO_PREFIX
+        if any(ord(character) < 32 for character in path):
+            raise ValueError("SMB paths cannot contain control characters")
+
+        if path.startswith("\\\\"):
+            raise ValueError("SMB paths must be relative to the configured share")
+        normalized = path.replace("\\", "/")
+
+        cleaned = normalized.strip("/")
+        segments = cleaned.split("/")
+        if any(segment in {".", ".."} for segment in segments):
+            raise ValueError("SMB paths cannot contain traversal segments")
+        return cleaned
 
     #
     # _build_smb_path
@@ -127,8 +181,7 @@ class SMBBackend(StorageBackend):
         needs to supply paths relative to the application root.
         """
 
-        # Ensure path uses forward slashes and doesn't start with slash
-        path = path.replace("\\", "/").lstrip("/")
+        path = self._normalize_relative_path(path)
 
         # Combine prefix and path
         if self._path_prefix and path:
@@ -149,6 +202,7 @@ class SMBBackend(StorageBackend):
             port=self.port,
             username=self.username,
             share_name=self.share_name,
+            connection_cache=self._connection_cache,
             reason=reason,
         )
 
@@ -160,16 +214,39 @@ class SMBBackend(StorageBackend):
         *,
         smb_path: str,
     ) -> BlockingResultT:
+        try:
+            return await self._run_blocking_smb_operation(
+                operation_name,
+                operation,
+                timeout_seconds,
+                smb_path=smb_path,
+            )
+        except asyncio.TimeoutError as exc:
+            raise TimeoutError(f"SMB operation timed out during {operation_name}") from exc
+
+    async def _run_blocking_smb_operation(
+        self,
+        operation_name: str,
+        operation: Callable[[], BlockingResultT],
+        timeout_seconds: float,
+        *,
+        smb_path: str,
+    ) -> BlockingResultT:
+        """Run executor work without releasing its SMB cache before it completes."""
+
         loop = asyncio.get_running_loop()
+        operation_future = loop.run_in_executor(None, operation)
 
         try:
             return await self._wait_for_blocking_smb_operation(
-                loop.run_in_executor(None, operation),
+                operation_future,
                 operation_name=operation_name,
                 smb_path=smb_path,
                 timeout_seconds=timeout_seconds,
             )
-        except asyncio.TimeoutError as exc:
+        except asyncio.TimeoutError:
+            pool = await get_connection_pool()
+            await pool.retain_connection_until_future_complete(self._connection_cache, operation_future)
             logger.error(
                 "Timeout during SMB %s for '%s' after %.1fs",
                 operation_name,
@@ -184,7 +261,11 @@ class SMBBackend(StorageBackend):
                     operation_name,
                     exc_info=True,
                 )
-            raise TimeoutError(f"SMB operation timed out during {operation_name}") from exc
+            raise
+        except asyncio.CancelledError:
+            pool = await get_connection_pool()
+            await pool.retain_connection_until_future_complete(self._connection_cache, operation_future)
+            raise
 
     async def _wait_for_blocking_smb_operation(
         self,
@@ -196,7 +277,7 @@ class SMBBackend(StorageBackend):
     ) -> BlockingResultT:
         try:
             return await asyncio.wait_for(asyncio.shield(operation_future), timeout=timeout_seconds)
-        except asyncio.TimeoutError:
+        except (asyncio.TimeoutError, asyncio.CancelledError):
             operation_future.add_done_callback(
                 lambda completed_operation: self._report_late_smb_operation_result(
                     completed_operation,
@@ -241,14 +322,15 @@ class SMBBackend(StorageBackend):
                 username=self.username,
                 password=self.password,
                 share_name=self.share_name,
+                connection_cache=self._connection_cache,
             ):
                 # Use scandir for better performance - all info from ONE SMB query_directory call
                 def _scan_directory() -> list[FileInfo]:
                     result = []
-                    # Don't pass username/password - use the registered session from pool
+                    # Pass credentials so smbclient selects this backend's session.
                     # scandir internally manages its SMBDirectoryIO handle
                     # and already filters out "." and ".." entries.
-                    for entry in smbclient.scandir(smb_path):
+                    for entry in smbclient.scandir(smb_path, **self._smb_auth_kwargs()):
                         item_path = f"{path}/{entry.name}" if path else entry.name
 
                         try:
@@ -329,10 +411,11 @@ class SMBBackend(StorageBackend):
                 username=self.username,
                 password=self.password,
                 share_name=self.share_name,
+                connection_cache=self._connection_cache,
             ):
                 stat_info = await self._run_blocking_smb_call(
                     "get_file_info",
-                    lambda: smbclient.stat(smb_path),
+                    lambda: smbclient.stat(smb_path, **self._smb_auth_kwargs()),
                     SMB_FILE_INFO_TIMEOUT_SECONDS,
                     smb_path=smb_path,
                 )
@@ -385,6 +468,7 @@ class SMBBackend(StorageBackend):
                 username=self.username,
                 password=self.password,
                 share_name=self.share_name,
+                connection_cache=self._connection_cache,
             ):
                 # Open file with retry logic for file locking issues
                 # SMB can throw "file in use" errors when multiple requests access the same file
@@ -396,7 +480,12 @@ class SMBBackend(StorageBackend):
                     try:
                         file_handle = await self._run_blocking_smb_call(
                             "open_file_for_read",
-                            lambda: smbclient.open_file(smb_path, mode="rb", share_access="rwd"),
+                            lambda: smbclient.open_file(
+                                smb_path,
+                                mode="rb",
+                                share_access="rwd",
+                                **self._smb_auth_kwargs(),
+                            ),
                             SMB_FILE_OPEN_TIMEOUT_SECONDS,
                             smb_path=smb_path,
                         )
@@ -504,11 +593,17 @@ class SMBBackend(StorageBackend):
                 username=self.username,
                 password=self.password,
                 share_name=self.share_name,
+                connection_cache=self._connection_cache,
             ):
 
                 def _write() -> int:
                     bytes_written = 0
-                    with smbclient.open_file(smb_path, mode="wb", share_access="r") as f:
+                    with smbclient.open_file(
+                        smb_path,
+                        mode="wb",
+                        share_access="r",
+                        **self._smb_auth_kwargs(),
+                    ) as f:
                         while True:
                             chunk = data.read(write_chunk_size)
                             if not chunk:
@@ -559,10 +654,14 @@ class SMBBackend(StorageBackend):
                 username=self.username,
                 password=self.password,
                 share_name=self.share_name,
+                connection_cache=self._connection_cache,
             ):
                 exists = await self._run_blocking_smb_call(
                     "file_exists",
-                    lambda: smbclient.path.exists(smb_path),  # pyright: ignore[reportAttributeAccessIssue]
+                    lambda: smbclient.path.exists(  # pyright: ignore[reportAttributeAccessIssue]
+                        smb_path,
+                        **self._smb_auth_kwargs(),
+                    ),
                     SMB_EXISTS_TIMEOUT_SECONDS,
                     smb_path=smb_path,
                 )
@@ -584,18 +683,18 @@ class SMBBackend(StorageBackend):
         """
 
         def _remove(target: str) -> None:
-            if not smbclient.path.exists(target):  # pyright: ignore[reportAttributeAccessIssue]
+            if not smbclient.path.exists(target, **self._smb_auth_kwargs()):  # pyright: ignore[reportAttributeAccessIssue]
                 return
-            stat_info = smbclient.stat(target)
+            stat_info = smbclient.stat(target, **self._smb_auth_kwargs())
             if stat.S_ISDIR(stat_info.st_mode):
                 # Collect all children before recursing so the scandir
                 # generator is fully consumed and closed first.
-                children = [entry.path for entry in smbclient.scandir(target)]
+                children = [entry.path for entry in smbclient.scandir(target, **self._smb_auth_kwargs())]
                 for child_path in children:
                     _remove(child_path)
-                smbclient.rmdir(target)
+                smbclient.rmdir(target, **self._smb_auth_kwargs())
             else:
-                smbclient.remove(target)
+                smbclient.remove(target, **self._smb_auth_kwargs())
 
         await self._run_blocking_smb_call(
             "remove existing destination",
@@ -629,18 +728,21 @@ class SMBBackend(StorageBackend):
                 username=self.username,
                 password=self.password,
                 share_name=self.share_name,
+                connection_cache=self._connection_cache,
             ):
-                loop = asyncio.get_event_loop()
                 # Convert to nanoseconds — smbclient.utime() requires
                 # int via the ns= parameter.
                 mtime_ns = int(modified.timestamp() * 1_000_000_000)
 
-                await asyncio.wait_for(
-                    loop.run_in_executor(
-                        None,
-                        lambda: smbclient.utime(smb_path, ns=(mtime_ns, mtime_ns)),
+                await self._run_blocking_smb_operation(
+                    "set file times",
+                    lambda: smbclient.utime(
+                        smb_path,
+                        ns=(mtime_ns, mtime_ns),
+                        **self._smb_auth_kwargs(),
                     ),
-                    timeout=10.0,
+                    10.0,
+                    smb_path=smb_path,
                 )
 
         except Exception as e:
@@ -675,6 +777,7 @@ class SMBBackend(StorageBackend):
                 username=self.username,
                 password=self.password,
                 share_name=self.share_name,
+                connection_cache=self._connection_cache,
             ):
 
                 def _delete_recursive(target: str) -> None:
@@ -686,18 +789,18 @@ class SMBBackend(StorageBackend):
                     we attempt rmdir on the parent.
                     """
 
-                    stat_info = smbclient.stat(target)
+                    stat_info = smbclient.stat(target, **self._smb_auth_kwargs())
                     if stat.S_ISDIR(stat_info.st_mode):
                         # Collect all children before recursing so the
                         # scandir generator (and its underlying SMB
                         # directory handle) is fully consumed and closed
                         # before we call rmdir.
-                        children = [entry.path for entry in smbclient.scandir(target)]
+                        children = [entry.path for entry in smbclient.scandir(target, **self._smb_auth_kwargs())]
                         for child_path in children:
                             _delete_recursive(child_path)
-                        smbclient.rmdir(target)
+                        smbclient.rmdir(target, **self._smb_auth_kwargs())
                     else:
-                        smbclient.remove(target)
+                        smbclient.remove(target, **self._smb_auth_kwargs())
 
                 await self._run_blocking_smb_call(
                     "delete",
@@ -759,11 +862,14 @@ class SMBBackend(StorageBackend):
             OSError: If the operation fails.
         """
 
+        normalized_name = self._normalize_relative_path(new_name)
+        if not normalized_name or "/" in normalized_name:
+            raise ValueError("New SMB item names must be a single path segment")
         smb_src = self._build_smb_path(path)
 
         # Derive destination: same parent directory, different leaf name.
         parent = smb_src.rsplit("\\", 1)[0]
-        smb_dst = f"{parent}\\{new_name}"
+        smb_dst = f"{parent}\\{normalized_name}"
 
         logger.debug(f"Renaming item: path='{path}' -> new_name='{new_name}' (smb: '{smb_src}' -> '{smb_dst}')")
 
@@ -776,11 +882,13 @@ class SMBBackend(StorageBackend):
                 username=self.username,
                 password=self.password,
                 share_name=self.share_name,
+                connection_cache=self._connection_cache,
             ):
-                loop = asyncio.get_event_loop()
-                await asyncio.wait_for(
-                    loop.run_in_executor(None, smbclient.rename, smb_src, smb_dst),
-                    timeout=30.0,
+                await self._run_blocking_smb_operation(
+                    "rename",
+                    lambda: smbclient.rename(smb_src, smb_dst, **self._smb_auth_kwargs()),
+                    30.0,
+                    smb_path=smb_src,
                 )
 
                 logger.debug(f"Successfully renamed: '{path}' -> '{new_name}'")
@@ -835,11 +943,13 @@ class SMBBackend(StorageBackend):
                 username=self.username,
                 password=self.password,
                 share_name=self.share_name,
+                connection_cache=self._connection_cache,
             ):
-                loop = asyncio.get_event_loop()
-                await asyncio.wait_for(
-                    loop.run_in_executor(None, smbclient.mkdir, smb_path),
-                    timeout=30.0,
+                await self._run_blocking_smb_operation(
+                    "create directory",
+                    lambda: smbclient.mkdir(smb_path, **self._smb_auth_kwargs()),
+                    30.0,
+                    smb_path=smb_path,
                 )
 
                 logger.debug(f"Successfully created directory: '{path}'")
@@ -896,16 +1006,18 @@ class SMBBackend(StorageBackend):
                 username=self.username,
                 password=self.password,
                 share_name=self.share_name,
+                connection_cache=self._connection_cache,
             ):
-                loop = asyncio.get_event_loop()
 
                 def _create_empty_file() -> None:
-                    with smbclient.open_file(smb_path, mode="xb"):
+                    with smbclient.open_file(smb_path, mode="xb", **self._smb_auth_kwargs()):
                         pass  # Create empty file and close immediately
 
-                await asyncio.wait_for(
-                    loop.run_in_executor(None, _create_empty_file),
-                    timeout=30.0,
+                await self._run_blocking_smb_operation(
+                    "create file",
+                    _create_empty_file,
+                    30.0,
+                    smb_path=smb_path,
                 )
 
                 logger.debug(f"Successfully created file: '{path}'")
@@ -950,11 +1062,13 @@ class SMBBackend(StorageBackend):
                 username=self.username,
                 password=self.password,
                 share_name=self.share_name,
+                connection_cache=self._connection_cache,
             ):
-                loop = asyncio.get_event_loop()
-                stat_result = await asyncio.wait_for(
-                    loop.run_in_executor(None, smbclient.stat, smb_path),
-                    timeout=10.0,
+                stat_result = await self._run_blocking_smb_operation(
+                    "get file size",
+                    lambda: smbclient.stat(smb_path, **self._smb_auth_kwargs()),
+                    10.0,
+                    smb_path=smb_path,
                 )
                 if stat.S_ISDIR(stat_result.st_mode):
                     return None
@@ -1003,18 +1117,19 @@ class SMBBackend(StorageBackend):
                 username=self.username,
                 password=self.password,
                 share_name=self.share_name,
+                connection_cache=self._connection_cache,
             ):
-                loop = asyncio.get_event_loop()
-
                 # Guard: raise early when the destination already
                 # exists and the caller has not opted into overwrite.
                 if not overwrite:
-                    exists = await asyncio.wait_for(
-                        loop.run_in_executor(
-                            None,
-                            lambda: smbclient.path.exists(smb_dst),  # pyright: ignore[reportAttributeAccessIssue]
+                    exists = await self._run_blocking_smb_operation(
+                        "check copy destination",
+                        lambda: smbclient.path.exists(  # pyright: ignore[reportAttributeAccessIssue]
+                            smb_dst,
+                            **self._smb_auth_kwargs(),
                         ),
-                        timeout=10.0,
+                        10.0,
+                        smb_path=smb_dst,
                     )
                     if exists:
                         raise FileExistsError(f"Destination already exists: {dest_path}")
@@ -1030,29 +1145,31 @@ class SMBBackend(StorageBackend):
                     and directories.
                     """
 
-                    stat_info = smbclient.stat(src)
+                    stat_info = smbclient.stat(src, **self._smb_auth_kwargs())
                     # Convert float seconds to integer nanoseconds —
                     # smbclient.utime() requires int via the ns= parameter.
                     atime_ns = int(stat_info.st_atime * 1_000_000_000)
                     mtime_ns = int(stat_info.st_mtime * 1_000_000_000)
 
                     if stat.S_ISDIR(stat_info.st_mode):
-                        smbclient.mkdir(dst)
+                        smbclient.mkdir(dst, **self._smb_auth_kwargs())
                         # Collect children before recursing so the scandir
                         # generator is fully consumed before deeper calls.
-                        children = [(entry.name, entry.path) for entry in smbclient.scandir(src)]
+                        children = [(entry.name, entry.path) for entry in smbclient.scandir(src, **self._smb_auth_kwargs())]
                         for child_name, child_path in children:
                             _copy_recursive(child_path, f"{dst}\\{child_name}")
                         # Restore directory timestamps after all children are
                         # copied (adding children updates the directory mtime).
-                        smbclient.utime(dst, ns=(atime_ns, mtime_ns))
+                        smbclient.utime(dst, ns=(atime_ns, mtime_ns), **self._smb_auth_kwargs())
                     else:
-                        smbclient.copyfile(src, dst)
-                        smbclient.utime(dst, ns=(atime_ns, mtime_ns))
+                        smbclient.copyfile(src, dst, **self._smb_auth_kwargs())
+                        smbclient.utime(dst, ns=(atime_ns, mtime_ns), **self._smb_auth_kwargs())
 
-                await asyncio.wait_for(
-                    loop.run_in_executor(None, _copy_recursive, smb_src, smb_dst),
-                    timeout=300.0,  # Large copies may take time
+                await self._run_blocking_smb_operation(
+                    "copy",
+                    lambda: _copy_recursive(smb_src, smb_dst),
+                    300.0,  # Large copies may take time
+                    smb_path=smb_src,
                 )
 
                 logger.debug(f"Successfully copied: '{source_path}' -> '{dest_path}'")
@@ -1117,18 +1234,19 @@ class SMBBackend(StorageBackend):
                 username=self.username,
                 password=self.password,
                 share_name=self.share_name,
+                connection_cache=self._connection_cache,
             ):
-                loop = asyncio.get_event_loop()
-
                 # Guard: raise early when the destination already
                 # exists and the caller has not opted into overwrite.
                 if not overwrite:
-                    exists = await asyncio.wait_for(
-                        loop.run_in_executor(
-                            None,
-                            lambda: smbclient.path.exists(smb_dst),  # pyright: ignore[reportAttributeAccessIssue]
+                    exists = await self._run_blocking_smb_operation(
+                        "check move destination",
+                        lambda: smbclient.path.exists(  # pyright: ignore[reportAttributeAccessIssue]
+                            smb_dst,
+                            **self._smb_auth_kwargs(),
                         ),
-                        timeout=10.0,
+                        10.0,
+                        smb_path=smb_dst,
                     )
                     if exists:
                         raise FileExistsError(f"Destination already exists: {dest_path}")
@@ -1137,9 +1255,11 @@ class SMBBackend(StorageBackend):
                     # destination so the rename can proceed cleanly.
                     await self._remove_if_exists(smb_dst)
 
-                await asyncio.wait_for(
-                    loop.run_in_executor(None, smbclient.rename, smb_src, smb_dst),
-                    timeout=30.0,
+                await self._run_blocking_smb_operation(
+                    "move",
+                    lambda: smbclient.rename(smb_src, smb_dst, **self._smb_auth_kwargs()),
+                    30.0,
+                    smb_path=smb_src,
                 )
 
                 logger.debug(f"Successfully moved: '{source_path}' -> '{dest_path}'")
@@ -1219,18 +1339,19 @@ class SMBBackend(StorageBackend):
                 username=self.username,
                 password=self.password,
                 share_name=self.share_name,
+                connection_cache=self._connection_cache,
             ):
-                loop = asyncio.get_event_loop()
-
                 # Guard: raise early when the destination already
                 # exists and the caller has not opted into overwrite.
                 if not overwrite:
-                    exists = await asyncio.wait_for(
-                        loop.run_in_executor(
-                            None,
-                            lambda: smbclient.path.exists(smb_path),  # pyright: ignore[reportAttributeAccessIssue]
+                    exists = await self._run_blocking_smb_operation(
+                        "check write destination",
+                        lambda: smbclient.path.exists(  # pyright: ignore[reportAttributeAccessIssue]
+                            smb_path,
+                            **self._smb_auth_kwargs(),
                         ),
-                        timeout=10.0,
+                        10.0,
+                        smb_path=smb_path,
                     )
                     if exists:
                         raise FileExistsError(f"Destination already exists: {path}")
@@ -1240,29 +1361,37 @@ class SMBBackend(StorageBackend):
                     await self._remove_if_exists(smb_path)
 
                 # Open the file handle once — we keep it open while streaming.
-                file_handle = await asyncio.wait_for(
-                    loop.run_in_executor(
-                        None,
-                        lambda: smbclient.open_file(smb_path, mode="wb", share_access="r"),
+                file_handle = await self._run_blocking_smb_operation(
+                    "open write handle",
+                    lambda: smbclient.open_file(
+                        smb_path,
+                        mode="wb",
+                        share_access="r",
+                        **self._smb_auth_kwargs(),
                     ),
-                    timeout=15.0,
+                    15.0,
+                    smb_path=smb_path,
                 )
 
                 bytes_written = 0
                 try:
                     async for chunk in stream:
-                        await asyncio.wait_for(
-                            loop.run_in_executor(None, file_handle.write, chunk),
-                            timeout=chunk_write_timeout_s,
+                        await self._run_blocking_smb_operation(
+                            "write chunk",
+                            lambda: file_handle.write(chunk),
+                            chunk_write_timeout_s,
+                            smb_path=smb_path,
                         )
                         bytes_written += len(chunk)
                         if on_progress:
                             on_progress(bytes_written, None)
                 finally:
                     try:
-                        await asyncio.wait_for(
-                            loop.run_in_executor(None, file_handle.close),
-                            timeout=5.0,
+                        await self._run_blocking_smb_operation(
+                            "close write handle",
+                            file_handle.close,
+                            5.0,
+                            smb_path=smb_path,
                         )
                     except Exception as close_err:
                         logger.warning(f"Error closing file handle for '{path}': {close_err}")
@@ -1272,12 +1401,15 @@ class SMBBackend(StorageBackend):
                 if source_mtime is not None:
                     try:
                         mtime_ns = int(source_mtime.timestamp() * 1_000_000_000)
-                        await asyncio.wait_for(
-                            loop.run_in_executor(
-                                None,
-                                lambda: smbclient.utime(smb_path, ns=(mtime_ns, mtime_ns)),
+                        await self._run_blocking_smb_operation(
+                            "preserve modification time",
+                            lambda: smbclient.utime(
+                                smb_path,
+                                ns=(mtime_ns, mtime_ns),
+                                **self._smb_auth_kwargs(),
                             ),
-                            timeout=10.0,
+                            10.0,
+                            smb_path=smb_path,
                         )
                     except Exception as utime_err:
                         logger.warning(f"Could not preserve modification time for '{path}': {utime_err}")

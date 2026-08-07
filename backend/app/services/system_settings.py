@@ -10,7 +10,7 @@ from datetime import datetime, timezone
 from ipaddress import ip_network
 from pathlib import Path
 from threading import RLock
-from typing import Optional
+from typing import Literal, Optional, TypedDict
 from urllib.parse import urlparse, urlsplit
 
 from sqlalchemy import inspect
@@ -38,7 +38,11 @@ from app.models.system_settings import (
     NetworkSettingsUpdate,
     PreprocessorAdvancedSettingsRead,
     PublicSupportReportRead,
-    SmbAdvancedSettingsRead,
+    SmbAuthenticationMode,
+    SmbEncryptionMode,
+    SmbPolicySettings,
+    SmbSettingsRead,
+    SmbSettingsUpdate,
     SystemSetting,
 )
 from app.services.authentication_config import (
@@ -84,6 +88,10 @@ class ResolvedIntegerSystemSetting:
     definition: IntegerSystemSettingDefinition
     value: int
     source: SystemSettingSource
+
+
+class SmbPolicyConfigurationError(RuntimeError):
+    """Raised when the persisted SMB policy cannot be safely enforced."""
 
 
 class PublicSupportReportAliases:
@@ -227,6 +235,9 @@ def _resolve_integer_setting(definition: IntegerSystemSettingDefinition) -> Reso
         except ValueError as exc:
             logger.error(f"Invalid database override for {definition.key.value}: {exc}")
 
+    if definition.config_attr is None:
+        return ResolvedIntegerSystemSetting(definition=definition, value=definition.default_value, source=SystemSettingSource.DEFAULT)
+
     configured_value = _validate_integer_value(definition, int(getattr(config_module.settings, definition.config_attr)))
     source = (
         SystemSettingSource.CONFIG_FILE if definition.config_attr in config_module.configured_setting_keys else SystemSettingSource.DEFAULT
@@ -255,9 +266,6 @@ def get_integer_setting_value(key: SystemSettingKey) -> int:
 
 def build_advanced_system_settings_read() -> AdvancedSystemSettingsRead:
     return AdvancedSystemSettingsRead(
-        smb=SmbAdvancedSettingsRead(
-            read_chunk_size_bytes=_build_integer_read(SYSTEM_SETTING_DEFINITIONS[SystemSettingKey.SMB_READ_CHUNK_SIZE_BYTES])
-        ),
         preprocessors={
             "imagemagick": PreprocessorAdvancedSettingsRead(
                 max_file_size_bytes=_build_integer_read(
@@ -266,6 +274,55 @@ def build_advanced_system_settings_read() -> AdvancedSystemSettingsRead:
                 timeout_seconds=_build_integer_read(SYSTEM_SETTING_DEFINITIONS[SystemSettingKey.PREPROCESSOR_IMAGEMAGICK_TIMEOUT_SECONDS]),
             ),
         },
+    )
+
+
+def _resolve_smb_policy() -> tuple[SmbPolicySettings, SystemSettingSource]:
+    raw_value = store.get_override(SystemSettingKey.SMB_POLICY)
+    if raw_value is not None:
+        try:
+            return SmbPolicySettings.model_validate_json(raw_value), SystemSettingSource.DATABASE
+        except ValueError as exc:
+            logger.critical("Invalid database override for SMB policy; SMB access is disabled: %s", exc)
+            raise SmbPolicyConfigurationError("The persisted SMB policy is invalid") from exc
+
+    return SmbPolicySettings(), SystemSettingSource.DEFAULT
+
+
+def get_smb_policy_settings() -> SmbPolicySettings:
+    """Return the current validated SMB policy for runtime callers."""
+
+    return _resolve_smb_policy()[0]
+
+
+class SmbClientPolicyKwargs(TypedDict):
+    """Security policy arguments accepted by smbclient session registration."""
+
+    encrypt: bool
+    connection_timeout: int
+    auth_protocol: Literal["kerberos", "negotiate"]
+    require_signing: bool
+
+
+def get_smbclient_policy_kwargs() -> SmbClientPolicyKwargs:
+    """Return transport and authentication kwargs for every high-level SMB call."""
+
+    policy = get_smb_policy_settings()
+    return {
+        "encrypt": policy.encryption_mode is SmbEncryptionMode.ENCRYPTION_REQUIRED,
+        "connection_timeout": policy.connection_timeout_seconds,
+        "auth_protocol": "kerberos" if policy.authentication_mode is SmbAuthenticationMode.KERBEROS_REQUIRED else "negotiate",
+        "require_signing": True,
+    }
+
+
+def build_smb_settings_read() -> SmbSettingsRead:
+    policy, policy_source = _resolve_smb_policy()
+    return SmbSettingsRead(
+        read_chunk_size_bytes=_build_integer_read(SYSTEM_SETTING_DEFINITIONS[SystemSettingKey.SMB_READ_CHUNK_SIZE_BYTES]),
+        policy=policy,
+        policy_source=policy_source,
+        require_encryption=policy.encryption_mode is SmbEncryptionMode.ENCRYPTION_REQUIRED,
     )
 
 
@@ -387,12 +444,6 @@ def _append_config_file_report(lines: list[str], aliases: PublicSupportReportAli
 def _append_advanced_settings_report(lines: list[str]) -> None:
     advanced = build_advanced_system_settings_read()
     lines.append("[ui_configuration.advanced]")
-    _append_report_setting(
-        lines,
-        advanced.smb.read_chunk_size_bytes.key.value,
-        advanced.smb.read_chunk_size_bytes.value,
-        advanced.smb.read_chunk_size_bytes.source.value,
-    )
     imagemagick = advanced.preprocessors["imagemagick"]
     _append_report_setting(
         lines,
@@ -406,6 +457,19 @@ def _append_advanced_settings_report(lines: list[str]) -> None:
         imagemagick.timeout_seconds.value,
         imagemagick.timeout_seconds.source.value,
     )
+
+
+def _append_smb_settings_report(lines: list[str]) -> None:
+    smb = build_smb_settings_read()
+    lines.append("[ui_configuration.smb]")
+    _append_report_setting(
+        lines, smb.read_chunk_size_bytes.key.value, smb.read_chunk_size_bytes.value, smb.read_chunk_size_bytes.source.value
+    )
+    _append_report_setting(lines, "authentication_mode", smb.policy.authentication_mode.value, smb.policy_source.value)
+    _append_report_setting(lines, "encryption_mode", smb.policy.encryption_mode.value, smb.policy_source.value)
+    _append_report_setting(lines, "connection_timeout_seconds", smb.policy.connection_timeout_seconds, smb.policy_source.value)
+    _append_report_setting(lines, "signing_required", smb.require_signing, "built_in")
+    _append_report_setting(lines, "encryption_required", smb.require_encryption, smb.policy_source.value)
 
 
 def _append_network_settings_report(lines: list[str], session: Session, aliases: PublicSupportReportAliases) -> None:
@@ -497,6 +561,8 @@ def build_public_support_report_read(session: Session) -> PublicSupportReportRea
     lines.append("")
     _append_advanced_settings_report(lines)
     lines.append("")
+    _append_smb_settings_report(lines)
+    lines.append("")
     _append_network_settings_report(lines, session, aliases)
     lines.append("")
     _append_authentication_report(lines, session, aliases)
@@ -507,9 +573,6 @@ def build_public_support_report_read(session: Session) -> PublicSupportReportRea
 
 def _extract_updates(payload: AdvancedSystemSettingsUpdate) -> dict[SystemSettingKey, int]:
     updates: dict[SystemSettingKey, int] = {}
-
-    if payload.smb and payload.smb.read_chunk_size_bytes is not None:
-        updates[SystemSettingKey.SMB_READ_CHUNK_SIZE_BYTES] = payload.smb.read_chunk_size_bytes
 
     preprocessors = payload.preprocessors
     if preprocessors and preprocessors.imagemagick:
@@ -561,6 +624,82 @@ def update_advanced_system_settings(
 
     session.commit()
     store.refresh_from_session(session)
+
+
+def _write_system_setting(session: Session, key: SystemSettingKey, value: str, updated_by_user_id: Optional[uuid.UUID]) -> None:
+    setting = session.get(SystemSetting, key.value)
+    if setting is None:
+        session.add(SystemSetting(key=key.value, value=value, updated_by_user_id=updated_by_user_id))
+        return
+
+    setting.value = value
+    setting.updated_at = datetime.now(timezone.utc)
+    setting.updated_by_user_id = updated_by_user_id
+    session.add(setting)
+
+
+def update_smb_settings(payload: SmbSettingsUpdate, *, updated_by_user_id: Optional[uuid.UUID], session: Session) -> SmbSettingsRead:
+    """Persist validated SMB policy and resource settings atomically."""
+
+    if payload.reset_read_chunk_size_bytes:
+        setting = session.get(SystemSetting, SystemSettingKey.SMB_READ_CHUNK_SIZE_BYTES.value)
+        if setting is not None:
+            session.delete(setting)
+    elif payload.read_chunk_size_bytes is not None:
+        definition = SYSTEM_SETTING_DEFINITIONS[SystemSettingKey.SMB_READ_CHUNK_SIZE_BYTES]
+        value = _validate_integer_value(definition, payload.read_chunk_size_bytes)
+        _write_system_setting(session, SystemSettingKey.SMB_READ_CHUNK_SIZE_BYTES, str(value), updated_by_user_id)
+
+    if payload.reset_policy:
+        setting = session.get(SystemSetting, SystemSettingKey.SMB_POLICY.value)
+        if setting is not None:
+            session.delete(setting)
+    elif payload.policy is not None:
+        _write_system_setting(session, SystemSettingKey.SMB_POLICY, payload.policy.model_dump_json(), updated_by_user_id)
+
+    session.commit()
+    store.refresh_from_session(session)
+    return build_smb_settings_read()
+
+
+def smb_policy_will_change(payload: SmbSettingsUpdate, session: Session) -> bool:
+    """Return whether an update changes the effective SMB policy."""
+
+    current_setting = session.get(SystemSetting, SystemSettingKey.SMB_POLICY.value)
+    if payload.reset_policy:
+        if current_setting is None:
+            return False
+        try:
+            return SmbPolicySettings.model_validate_json(current_setting.value) != SmbPolicySettings()
+        except ValueError:
+            return True
+    if payload.policy is None:
+        return False
+    if current_setting is None:
+        return payload.policy != SmbPolicySettings()
+    try:
+        current_policy = SmbPolicySettings.model_validate_json(current_setting.value)
+    except ValueError:
+        return True
+    return current_policy != payload.policy
+
+
+async def retire_smb_runtime_policy() -> None:
+    """Immediately retire SMB caches that could retain the previous policy."""
+
+    from app.storage.smb_pool import retire_all_smb_connection_contexts
+
+    await retire_all_smb_connection_contexts("SMB policy updated")
+
+
+async def refresh_smb_runtime_policy() -> None:
+    """Rebuild directory services after an SMB policy cache retirement."""
+
+    from app.services.directory_cache import get_directory_cache_manager
+    from app.services.directory_monitor import get_monitor
+
+    await get_directory_cache_manager().stop_all_async()
+    await get_monitor().restart_all_async()
 
 
 def _normalized_trusted_proxy_cidrs(values: list[str]) -> list[str]:

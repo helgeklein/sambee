@@ -5,12 +5,15 @@ Verifies that SMB connections are properly pooled and reused across requests.
 """
 
 import asyncio
+import uuid
 from unittest.mock import patch
 
 import pytest
 
+from app.api._smb_helpers import build_smb_backend
+from app.models.connection import Connection
 from app.storage.smb import SMBBackend
-from app.storage.smb_pool import SMBConnectionPool, get_connection_pool
+from app.storage.smb_pool import SMBConnectionPool, get_connection_pool, get_smb_connection_cache
 
 
 @pytest.mark.asyncio
@@ -47,6 +50,69 @@ async def test_connection_pool_reuses_connections():
 
 
 @pytest.mark.asyncio
+async def test_connection_pool_reuses_a_persisted_connection_context():
+    """Separate request backends must share one cache for one saved connection."""
+
+    pool = SMBConnectionPool()
+    first_request_cache = get_smb_connection_cache("persisted-connection-id")
+    second_request_cache = get_smb_connection_cache("persisted-connection-id")
+
+    assert first_request_cache is second_request_cache
+
+    with patch("smbclient.register_session") as mock_register:
+        async with pool.get_connection(
+            host="test-host",
+            port=445,
+            username="user",
+            password="pass",
+            share_name="share",
+            connection_cache=first_request_cache,
+        ):
+            pass
+
+        async with pool.get_connection(
+            host="test-host",
+            port=445,
+            username="user",
+            password="pass",
+            share_name="share",
+            connection_cache=second_request_cache,
+        ):
+            pass
+
+    assert mock_register.call_count == 1
+
+
+def test_persisted_connections_use_stable_but_distinct_private_caches():
+    """Logical connection identity, not server credentials, scopes cache reuse."""
+
+    first_connection = Connection(
+        id=uuid.uuid4(),
+        name="First",
+        host="test-host",
+        share_name="share",
+        username="user",
+        password_encrypted="encrypted-password",
+    )
+    second_connection = Connection(
+        id=uuid.uuid4(),
+        name="Second",
+        host="test-host",
+        share_name="share",
+        username="user",
+        password_encrypted="encrypted-password",
+    )
+
+    with patch("app.api._smb_helpers.decrypt_password", return_value="password"):
+        first_request_backend = build_smb_backend(first_connection)
+        second_request_backend = build_smb_backend(first_connection)
+        other_connection_backend = build_smb_backend(second_connection)
+
+    assert first_request_backend._connection_cache is second_request_backend._connection_cache
+    assert first_request_backend._connection_cache is not other_connection_backend._connection_cache
+
+
+@pytest.mark.asyncio
 async def test_connection_pool_reference_counting():
     """Test that reference counting works correctly."""
     pool = SMBConnectionPool()
@@ -71,6 +137,97 @@ async def test_connection_pool_reference_counting():
         assert stats["total_connections"] == 1
         assert stats["active_connections"] == 0
         assert stats["idle_connections"] == 1
+
+
+@pytest.mark.asyncio
+async def test_context_invalidation_waits_for_active_lease():
+    """Retirement must not terminate an SMB operation that still holds a lease."""
+
+    pool = SMBConnectionPool()
+    connection_cache: dict[str, object] = {}
+
+    with (
+        patch("smbclient.register_session"),
+        patch("smbclient.reset_connection_cache") as mock_reset,
+    ):
+        async with pool.get_connection(
+            host="test-host",
+            port=445,
+            username="user",
+            password="pass",
+            share_name="share",
+            connection_cache=connection_cache,
+        ):
+            await pool.invalidate_connection_cache(connection_cache, reason="policy updated")
+            assert pool.get_stats()["active_connections"] == 1
+            mock_reset.assert_not_called()
+
+        assert pool.get_stats()["total_connections"] == 0
+        mock_reset.assert_called_once_with(fail_on_error=False, connection_cache=connection_cache)
+
+
+@pytest.mark.asyncio
+async def test_retired_context_rejects_new_leases_until_existing_work_finishes():
+    """Policy retirement must not permit reuse of the old SMB session."""
+
+    pool = SMBConnectionPool()
+    connection_cache: dict[str, object] = {}
+
+    with patch("smbclient.register_session"):
+        async with pool.get_connection(
+            host="test-host",
+            port=445,
+            username="user",
+            password="pass",
+            share_name="share",
+            connection_cache=connection_cache,
+        ):
+            await pool.invalidate_connection_cache(connection_cache, reason="policy updated")
+            with pytest.raises(RuntimeError, match="being retired"):
+                async with pool.get_connection(
+                    host="test-host",
+                    port=445,
+                    username="user",
+                    password="pass",
+                    share_name="share",
+                    connection_cache=connection_cache,
+                ):
+                    pass
+
+
+@pytest.mark.asyncio
+async def test_retired_context_waits_for_executor_future_before_resetting():
+    """A canceled caller must not reset a cache while its worker still runs."""
+
+    pool = SMBConnectionPool()
+    connection_cache: dict[str, object] = {}
+    operation_future: asyncio.Future[None] = asyncio.get_running_loop().create_future()
+    reset_complete = asyncio.Event()
+    event_loop = asyncio.get_running_loop()
+
+    def record_reset(**_kwargs) -> None:
+        event_loop.call_soon_threadsafe(reset_complete.set)
+
+    with (
+        patch("smbclient.register_session"),
+        patch("smbclient.reset_connection_cache", side_effect=record_reset) as mock_reset,
+    ):
+        async with pool.get_connection(
+            host="test-host",
+            port=445,
+            username="user",
+            password="pass",
+            share_name="share",
+            connection_cache=connection_cache,
+        ):
+            await pool.invalidate_connection_cache(connection_cache, reason="policy updated")
+            await pool.retain_connection_until_future_complete(connection_cache, operation_future)
+
+        mock_reset.assert_not_called()
+        operation_future.set_result(None)
+        await asyncio.wait_for(reset_complete.wait(), timeout=1)
+
+    mock_reset.assert_called_once_with(fail_on_error=False, connection_cache=connection_cache)
 
 
 @pytest.mark.asyncio
@@ -182,7 +339,7 @@ async def test_pool_cleanup_removes_idle_connections():
 
     with (
         patch("smbclient.register_session"),
-        patch("smbclient.delete_session") as mock_delete,
+        patch("smbclient.reset_connection_cache") as mock_reset,
     ):
         # Create a connection
         async with pool.get_connection(
@@ -207,7 +364,7 @@ async def test_pool_cleanup_removes_idle_connections():
         # Connection should be removed
         stats = pool.get_stats()
         assert stats["total_connections"] == 0
-        assert mock_delete.call_count == 1
+        assert mock_reset.call_count == 1
 
 
 @pytest.mark.asyncio
@@ -221,7 +378,7 @@ async def test_pool_cleanup_preserves_active_connections():
 
     with (
         patch("smbclient.register_session"),
-        patch("smbclient.delete_session") as mock_delete,
+        patch("smbclient.reset_connection_cache") as mock_reset,
     ):
         async with pool.get_connection(
             host="test-host",
@@ -238,7 +395,7 @@ async def test_pool_cleanup_preserves_active_connections():
             stats = pool.get_stats()
             assert stats["total_connections"] == 1
             assert stats["active_connections"] == 1
-            assert mock_delete.call_count == 0
+            assert mock_reset.call_count == 0
 
 
 @pytest.mark.asyncio
@@ -248,7 +405,7 @@ async def test_pool_close_all():
 
     with (
         patch("smbclient.register_session"),
-        patch("smbclient.delete_session") as mock_delete,
+        patch("smbclient.reset_connection_cache") as mock_reset,
     ):
         # Create multiple connections
         async with pool.get_connection("host1", 445, "user", "pass", "share"):
@@ -266,7 +423,7 @@ async def test_pool_close_all():
         # All connections should be removed
         stats = pool.get_stats()
         assert stats["total_connections"] == 0
-        assert mock_delete.call_count == 2
+        assert mock_reset.call_count == 2
 
 
 @pytest.mark.asyncio
