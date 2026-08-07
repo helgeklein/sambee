@@ -80,11 +80,7 @@ describe("AdvancedSettings", () => {
       </SambeeThemeProvider>
     );
 
-    await waitFor(() => {
-      expect(api.getAdvancedSettings).toHaveBeenCalled();
-    });
-
-    const timeoutInput = screen.getByLabelText("Conversion timeout");
+    const timeoutInput = await screen.findByLabelText("Conversion timeout");
     await user.clear(timeoutInput);
     await user.type(timeoutInput, "45");
 
