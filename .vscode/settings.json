@@ -162,7 +162,7 @@
     "mypy": true,
     "pytest": true,
     // Virtualenv Python
-    "/^((\\.\\/)?backend\\/|\\.\\/)?\\.venv\\/bin\\/python\\s+-m\\s+(mypy|py_compile|pytest|ruff)\\b/": true,
+    "/^((\\.\\/|\\/workspace\\/)?backend\\/|\\.\\/)?\\.venv\\/bin\\/python\\s+-m\\s+(mypy|py_compile|pytest|ruff)\\b/": true,
     "ruff": true,
     "/^python3 -m unittest\\b/": true,
     // Frontend tests and static analysis

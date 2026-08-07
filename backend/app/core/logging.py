@@ -137,10 +137,10 @@ class UvicornProtocolLogFilter(logging.Filter):
         "< CLOSE ",
     )
 
-    def __init__(self, protocol_log_level: int, access_log_level: int) -> None:
+    def __init__(self, protocol_log_level: int, access_log_level: int | None = None) -> None:
         super().__init__()
         self.protocol_log_level = protocol_log_level
-        self.access_log_level = access_log_level
+        self.access_log_level = access_log_level if access_log_level is not None else protocol_log_level
 
     def filter(self, record: logging.LogRecord) -> bool:
         message = record.getMessage()
@@ -172,7 +172,7 @@ class UvicornAccessLogFilter(logging.Filter):
         if is_rejected_websocket and record.levelno < self.protocol_log_level:
             return False
 
-        return True
+        return SensitiveDataLogFilter().filter(record)
 
 
 def configure_uvicorn_loggers(
