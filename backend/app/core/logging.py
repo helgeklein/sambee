@@ -94,8 +94,35 @@ def format_audit_fields(**fields: Any) -> str:
     return ", ".join(formatted_fields)
 
 
+class SensitiveDataLogFilter(logging.Filter):
+    """Remove credentials and query strings from emitted log messages."""
+
+    _QUERY_STRING_PATTERN = re.compile(r"(?P<target>(?:https?|wss?)://[^\s\"']+|/[^\s\"'?]+)\?[^\s\"']*", re.IGNORECASE)
+    _TOKEN_PARAMETER_PATTERN = re.compile(r"(?P<name>\b(?:access_token|id_token|refresh_token|token)\b\s*=\s*)[^\s,;&\"']+", re.IGNORECASE)
+    _BEARER_TOKEN_PATTERN = re.compile(r"(?P<scheme>\bBearer\s+)[^\s,;]+", re.IGNORECASE)
+
+    def filter(self, record: logging.LogRecord) -> bool:
+        message = record.getMessage()
+        redacted_message = self._QUERY_STRING_PATTERN.sub(r"\g<target>?<redacted>", message)
+        redacted_message = self._TOKEN_PARAMETER_PATTERN.sub(r"\g<name><redacted>", redacted_message)
+        redacted_message = self._BEARER_TOKEN_PATTERN.sub(r"\g<scheme><redacted>", redacted_message)
+        if redacted_message != message:
+            record.msg = redacted_message
+            record.args = ()
+        return True
+
+
+class AccessLogLevelFilter(logging.Filter):
+    """Classify access events as DEBUG after their logger-level threshold is applied."""
+
+    def filter(self, record: logging.LogRecord) -> bool:
+        record.levelno = logging.DEBUG
+        record.levelname = logging.getLevelName(logging.DEBUG)
+        return True
+
+
 class UvicornProtocolLogFilter(logging.Filter):
-    """Apply a separate threshold to routine Uvicorn WebSocket lifecycle records."""
+    """Apply access and protocol thresholds to Uvicorn WebSocket records."""
 
     _FRAME_PREFIXES = (
         "> TEXT ",
@@ -110,24 +137,30 @@ class UvicornProtocolLogFilter(logging.Filter):
         "< CLOSE ",
     )
 
-    def __init__(self, protocol_log_level: int) -> None:
+    def __init__(self, protocol_log_level: int, access_log_level: int | None = None) -> None:
         super().__init__()
         self.protocol_log_level = protocol_log_level
+        self.access_log_level = access_log_level if access_log_level is not None else protocol_log_level
 
     def filter(self, record: logging.LogRecord) -> bool:
         message = record.getMessage()
-        is_protocol_message = (
-            message in {"connection open", "connection closed", "connection rejected (403 Forbidden)"}
-            or ("WebSocket " in message and "[accepted]" in message)
-            or message.startswith(self._FRAME_PREFIXES)
-        )
+        if "WebSocket " in message:
+            if record.levelno < self.access_log_level:
+                return False
+            record.levelno = logging.DEBUG
+            record.levelname = logging.getLevelName(logging.DEBUG)
+            return True
+
+        is_protocol_message = message in {
+            "connection open",
+            "connection closed",
+            "connection rejected (403 Forbidden)",
+        } or message.startswith(self._FRAME_PREFIXES)
         return not is_protocol_message or record.levelno >= self.protocol_log_level
 
 
 class UvicornAccessLogFilter(logging.Filter):
-    """Redact query strings and apply protocol verbosity to rejected WebSockets."""
-
-    _QUERY_STRING_PATTERN = re.compile(r'(?P<method>"?(?:GET|POST|PUT|PATCH|DELETE|OPTIONS|HEAD|WebSocket)\s+)(?P<path>[^\s?]+)\?[^\s"]+')
+    """Apply protocol verbosity to rejected WebSockets."""
 
     def __init__(self, protocol_log_level: int) -> None:
         super().__init__()
@@ -139,11 +172,7 @@ class UvicornAccessLogFilter(logging.Filter):
         if is_rejected_websocket and record.levelno < self.protocol_log_level:
             return False
 
-        redacted_message = self._QUERY_STRING_PATTERN.sub(r"\g<method>\g<path>?<redacted>", message)
-        if redacted_message != message:
-            record.msg = redacted_message
-            record.args = ()
-        return True
+        return SensitiveDataLogFilter().filter(record)
 
 
 def configure_uvicorn_loggers(
@@ -155,7 +184,12 @@ def configure_uvicorn_loggers(
 ) -> None:
     """Configure Uvicorn access, protocol, and lifecycle log routing."""
 
-    def configure_logger(logger_name: str, level: int, log_filter: logging.Filter | None = None) -> None:
+    def configure_logger(
+        logger_name: str,
+        level: int,
+        log_filter: logging.Filter | None = None,
+        is_access_logger: bool = False,
+    ) -> None:
         logger = logging.getLogger(logger_name)
         logger.setLevel(level)
         logger.handlers.clear()
@@ -167,16 +201,20 @@ def configure_uvicorn_loggers(
                 else logging.Formatter(log_format)
             )
             configured_handler.setFormatter(formatter)
+            configured_handler.addFilter(SensitiveDataLogFilter())
             if log_filter is not None:
                 configured_handler.addFilter(log_filter)
+            if is_access_logger:
+                configured_handler.addFilter(AccessLogLevelFilter())
             logger.addHandler(configured_handler)
         logger.propagate = False
 
-    protocol_filter = UvicornProtocolLogFilter(protocol_log_level)
+    protocol_filter = UvicornProtocolLogFilter(protocol_log_level, access_log_level)
     access_filter = UvicornAccessLogFilter(protocol_log_level)
     configure_logger("uvicorn", application_log_level, protocol_filter)
     configure_logger("uvicorn.error", application_log_level, protocol_filter)
-    configure_logger("uvicorn.access", access_log_level, access_filter)
+    configure_logger("uvicorn.access", access_log_level, access_filter, is_access_logger=True)
+    configure_logger("httpx", access_log_level, is_access_logger=True)
 
 
 class ContextAdapter(logging.LoggerAdapter[logging.Logger]):

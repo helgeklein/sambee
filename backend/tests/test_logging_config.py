@@ -1,8 +1,99 @@
-"""
-Tests for frontend logging configuration API
-"""
+"""Tests for backend logging configuration and frontend logging API."""
+
+import io
+import logging
 
 from fastapi.testclient import TestClient
+
+from app.core.logging import SensitiveDataLogFilter, UvicornProtocolLogFilter, configure_uvicorn_loggers
+
+
+def test_sensitive_data_log_filter_redacts_access_credentials() -> None:
+    log_filter = SensitiveDataLogFilter()
+    record = logging.LogRecord(
+        "httpx",
+        logging.INFO,
+        __file__,
+        0,
+        'HTTP Request: GET https://auth.example.test/callback?access_token=secret-token "HTTP/1.1 200 OK"',
+        (),
+        None,
+    )
+
+    assert log_filter.filter(record)
+    assert record.getMessage() == 'HTTP Request: GET https://auth.example.test/callback?<redacted> "HTTP/1.1 200 OK"'
+
+    websocket_record = logging.LogRecord(
+        "uvicorn.access",
+        logging.INFO,
+        __file__,
+        0,
+        '127.0.0.1 - "WebSocket /api/ws?token=secret-token" 403',
+        (),
+        None,
+    )
+
+    assert log_filter.filter(websocket_record)
+    assert websocket_record.getMessage() == '127.0.0.1 - "WebSocket /api/ws?<redacted>" 403'
+
+
+def test_uvicorn_protocol_filter_applies_access_policy_to_websocket_handshakes() -> None:
+    log_filter = UvicornProtocolLogFilter(protocol_log_level=logging.WARNING, access_log_level=logging.WARNING)
+    rejected_websocket_record = logging.LogRecord(
+        "uvicorn.error",
+        logging.INFO,
+        __file__,
+        0,
+        '127.0.0.1 - "WebSocket /api/ws?token=secret-token" 403',
+        (),
+        None,
+    )
+
+    assert not log_filter.filter(rejected_websocket_record)
+
+    debug_access_log_filter = UvicornProtocolLogFilter(protocol_log_level=logging.WARNING, access_log_level=logging.DEBUG)
+    assert debug_access_log_filter.filter(rejected_websocket_record)
+    assert rejected_websocket_record.levelno == logging.DEBUG
+    assert rejected_websocket_record.levelname == "DEBUG"
+
+
+def test_configure_uvicorn_loggers_applies_access_policy_to_httpx() -> None:
+    logger_names = ("uvicorn", "uvicorn.error", "uvicorn.access", "httpx")
+    original_logger_state = {
+        name: (logging.getLogger(name).level, logging.getLogger(name).handlers[:], logging.getLogger(name).propagate)
+        for name in logger_names
+    }
+    stream = io.StringIO()
+
+    try:
+        configure_uvicorn_loggers(
+            handlers=[logging.StreamHandler(stream)],
+            log_format="%(name)s - %(levelname)s - %(message)s",
+            application_log_level=logging.INFO,
+            access_log_level=logging.WARNING,
+            protocol_log_level=logging.WARNING,
+        )
+
+        assert logging.getLogger("uvicorn.access").level == logging.WARNING
+        assert logging.getLogger("httpx").level == logging.WARNING
+
+        httpx_logger = logging.getLogger("httpx")
+        httpx_logger.info("HTTP Request: GET https://auth.example.test/callback?token=secret-token")
+        httpx_logger.warning("HTTP Request: GET https://auth.example.test/callback?token=secret-token")
+
+        uvicorn_error_logger = logging.getLogger("uvicorn.error")
+        uvicorn_error_logger.info('127.0.0.1 - "WebSocket /api/ws?token=secret-token" 403')
+
+        assert "secret-token" not in stream.getvalue()
+        assert "https://auth.example.test/callback?<redacted>" in stream.getvalue()
+        assert "httpx - DEBUG" in stream.getvalue()
+        assert "WebSocket /api/ws" not in stream.getvalue()
+    finally:
+        for name, (level, handlers, propagate) in original_logger_state.items():
+            logger = logging.getLogger(name)
+            logger.setLevel(level)
+            logger.handlers = handlers
+            logger.propagate = propagate
 
 
 #

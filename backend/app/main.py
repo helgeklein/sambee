@@ -21,7 +21,7 @@ from app.api import admin, admin_auth, auth, browser, companion, connections, lo
 from app.core.config import consume_unsupported_config_settings, settings
 from app.core.environment import DEV_CORS_ORIGINS, IS_DEVELOPMENT, IS_PRODUCTION
 from app.core.exceptions import ConfigurationError, SambeeError
-from app.core.logging import configure_uvicorn_loggers, log_error, set_request_id
+from app.core.logging import SensitiveDataLogFilter, configure_uvicorn_loggers, log_error, set_request_id
 from app.core.secrets import generate_admin_password
 from app.core.security import get_password_hash
 from app.db.database import DATABASE_FILE_PATH, engine, init_db
@@ -41,6 +41,9 @@ handlers: list[logging.Handler] = [logging.StreamHandler(sys.stdout)]
 if IS_DEVELOPMENT:
     # In development, also log to file for easier debugging
     handlers.append(logging.FileHandler("/tmp/backend.log", mode="a"))
+
+for handler in handlers:
+    handler.addFilter(SensitiveDataLogFilter())
 
 # Configure logging (no timestamp - Docker adds them automatically)
 log_format = "%(name)s - %(levelname)s - %(message)s"
