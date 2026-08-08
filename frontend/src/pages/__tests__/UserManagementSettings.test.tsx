@@ -405,6 +405,99 @@ describe("UserManagementSettings", () => {
     });
   });
 
+  it("does not offer an inherited role for a pending OIDC mapping", async () => {
+    vi.mocked(api.getUsers).mockResolvedValue([
+      {
+        id: "user-1",
+        username: "admin",
+        role: "admin",
+        is_active: true,
+        must_change_password: false,
+        has_local_password: true,
+        oidc_role_assignment: null,
+        oidc: null,
+        pending_oidc: null,
+        created_at: "2026-03-01T10:00:00Z",
+        updated_at: "2026-03-01T10:00:00Z",
+      },
+      {
+        id: "user-2",
+        username: "pending-user",
+        role: "admin",
+        is_active: true,
+        must_change_password: false,
+        has_local_password: false,
+        oidc_role_assignment: "admin",
+        oidc: null,
+        pending_oidc: {
+          expected_username: "provider-user",
+          created_by_username: "admin",
+          created_at: "2026-03-01T10:00:00Z",
+        },
+        created_at: "2026-03-01T10:00:00Z",
+        updated_at: "2026-03-01T10:00:00Z",
+      },
+    ]);
+    const user = userEvent.setup();
+
+    render(
+      <SambeeThemeProvider>
+        <UserManagementSettings />
+      </SambeeThemeProvider>
+    );
+
+    await user.click(await screen.findByRole("button", { name: "Edit pending-user" }));
+    await user.click(screen.getByRole("combobox", { name: /^role$/i }));
+
+    expect(screen.queryByRole("option", { name: /inherited/i })).not.toBeInTheDocument();
+    expect(
+      screen.getByText("Choose an individual override. The provider-derived role will be available after the user's next OIDC sign-in")
+    ).toBeInTheDocument();
+  });
+
+  it("does not offer an inherited role until a linked OIDC account has a verified role", async () => {
+    vi.mocked(api.getUsers).mockResolvedValue([
+      {
+        id: "user-1",
+        username: "admin",
+        role: "admin",
+        is_active: true,
+        must_change_password: false,
+        has_local_password: true,
+        oidc_role_assignment: null,
+        oidc: null,
+        pending_oidc: null,
+        created_at: "2026-03-01T10:00:00Z",
+        updated_at: "2026-03-01T10:00:00Z",
+      },
+      {
+        id: "user-2",
+        username: "unresolved-oidc-user",
+        role: "admin",
+        is_active: true,
+        must_change_password: false,
+        has_local_password: false,
+        oidc_role_assignment: "admin",
+        oidc: { identity_id: "identity-2", provider_display_name: "Corporate login", last_login_at: null, inherited_role: null },
+        pending_oidc: null,
+        created_at: "2026-03-01T10:00:00Z",
+        updated_at: "2026-03-01T10:00:00Z",
+      },
+    ]);
+    const user = userEvent.setup();
+
+    render(
+      <SambeeThemeProvider>
+        <UserManagementSettings />
+      </SambeeThemeProvider>
+    );
+
+    await user.click(await screen.findByRole("button", { name: "Edit unresolved-oidc-user" }));
+    await user.click(screen.getByRole("combobox", { name: /^role$/i }));
+
+    expect(screen.queryByRole("option", { name: /inherited/i })).not.toBeInTheDocument();
+  });
+
   it("reports an existing username while editing", async () => {
     const user = userEvent.setup();
 

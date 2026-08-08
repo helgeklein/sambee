@@ -31,6 +31,8 @@ from app.services.oidc_mapping import OidcMappingError, remove_user_oidc_state
 
 router = APIRouter()
 logger = get_logger(__name__)
+OIDC_INHERITED_ROLE_UNAVAILABLE_DETAIL = "The inherited OIDC role is unavailable until the user signs in with OIDC"
+OIDC_MANAGED_IDENTITY_FIELDS_DETAIL = "Full name and email are managed by OIDC"
 
 
 def _count_active_admins(session: Session) -> int:
@@ -184,6 +186,20 @@ async def update_user(
     if not user:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="User not found")
 
+    configuration = session.get(OidcProviderConfiguration, 1)
+    identity = (
+        session.exec(
+            select(OidcIdentity).where(
+                OidcIdentity.issuer == configuration.issuer_url,
+                OidcIdentity.user_id == user.id,
+            )
+        ).first()
+        if configuration is not None
+        else None
+    )
+    if identity is not None and {"name", "email"}.intersection(user_data.model_fields_set):
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=OIDC_MANAGED_IDENTITY_FIELDS_DETAIL)
+
     next_username = user_data.username.strip() if user_data.username is not None else user.username
     next_name = user_data.name.strip() if user_data.name is not None else user.name
     next_email = user_data.email.strip().lower() if user_data.email is not None else user.email
@@ -193,22 +209,12 @@ async def update_user(
     if next_oidc_role_assignment is not None:
         next_role = next_oidc_role_assignment
     elif assignment_requested and user.oidc_role_assignment is not None:
-        configuration = session.get(OidcProviderConfiguration, 1)
-        identity = (
-            session.exec(
-                select(OidcIdentity).where(
-                    OidcIdentity.issuer == configuration.issuer_url,
-                    OidcIdentity.user_id == user.id,
-                )
-            ).first()
-            if configuration is not None
-            else None
+        inherited_role = (
+            _resolve_inherited_oidc_role(configuration, identity) if configuration is not None and identity is not None else None
         )
-        next_role = (
-            _resolve_inherited_oidc_role(configuration, identity) if configuration is not None and identity is not None else UserRole.VIEWER
-        )
-        if next_role is None:
-            next_role = UserRole.VIEWER
+        if inherited_role is None:
+            raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=OIDC_INHERITED_ROLE_UNAVAILABLE_DETAIL)
+        next_role = inherited_role
     next_is_active = user.is_active if user_data.is_active is None else user_data.is_active
     next_expires_at = user.expires_at if user_data.expires_at is None else user_data.expires_at
 

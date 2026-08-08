@@ -493,13 +493,14 @@ export const EN_TRANSLATIONS = {
         roleLabel: "Role",
         roleHelp: "Choose an access level",
         oidcRoleHelp: "Choose an individual override or inherit the role resolved from the linked OIDC provider",
+        oidcRoleUnavailableHelp:
+          "Choose an individual override. The provider-derived role will be available after the user's next OIDC sign-in",
         roleOptions: {
           admin: "Manage settings, users, and content",
           editor: "Modify content",
           viewer: "Browse content",
         },
         inheritedRole: "Inherited ({{role}})",
-        inheritedRoleUnknown: "Inherited",
         inheritedRoleDescription: "Uses the role resolved from the user's latest verified OIDC groups",
         currentInheritedRole: "Current inherited role",
         expiresAtLabel: "Expiration Time",

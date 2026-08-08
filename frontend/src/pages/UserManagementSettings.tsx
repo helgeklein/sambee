@@ -266,6 +266,7 @@ export function UserManagementSettings({ dialogSafeHeader = false }: UserManagem
   const hasOidcManagedIdentity = Boolean(selectedUser?.oidc);
   const hasOidcRoleAssignment = Boolean(selectedUser?.oidc || selectedUser?.pending_oidc);
   const inheritedOidcRole = selectedUser?.oidc?.inherited_role ?? null;
+  const canUseInheritedOidcRole = inheritedOidcRole !== null;
   const activeAdminCount = useMemo(() => users.filter((user) => user.role === "admin" && user.is_active !== false).length, [users]);
 
   const roleLabel = (role: UserRole) => {
@@ -734,7 +735,13 @@ export function UserManagementSettings({ dialogSafeHeader = false }: UserManagem
           <SettingsFormRow>
             {renderDesktopLabel(
               t("settings.userManagement.editor.roleLabel"),
-              hasOidcRoleAssignment ? t("settings.userManagement.editor.oidcRoleHelp") : t("settings.userManagement.editor.roleHelp"),
+              hasOidcRoleAssignment
+                ? t(
+                    canUseInheritedOidcRole
+                      ? "settings.userManagement.editor.oidcRoleHelp"
+                      : "settings.userManagement.editor.oidcRoleUnavailableHelp"
+                  )
+                : t("settings.userManagement.editor.roleHelp"),
               USER_EDITOR_IDS.roleDescription,
               undefined,
               false,
@@ -754,7 +761,11 @@ export function UserManagementSettings({ dialogSafeHeader = false }: UserManagem
                 labelId={USER_EDITOR_IDS.roleLabel}
                 aria-describedby={usesDesktopFormLayout ? USER_EDITOR_IDS.roleDescription : undefined}
                 label={usesDesktopFormLayout ? undefined : t("settings.userManagement.editor.roleLabel")}
-                value={hasOidcRoleAssignment ? formState.oidcRoleAssignment || OIDC_INHERITED_ROLE_VALUE : formState.role}
+                value={
+                  hasOidcRoleAssignment && canUseInheritedOidcRole
+                    ? formState.oidcRoleAssignment || OIDC_INHERITED_ROLE_VALUE
+                    : formState.role
+                }
                 size={usesDesktopFormLayout ? "small" : "medium"}
                 sx={settingsSelectSx}
                 MenuProps={settingsSelectMenuProps}
@@ -764,26 +775,24 @@ export function UserManagementSettings({ dialogSafeHeader = false }: UserManagem
                   setFormState((current) => ({
                     ...current,
                     role: selectedRole === OIDC_INHERITED_ROLE_VALUE ? (inheritedOidcRole ?? current.role) : selectedRole,
-                    oidcRoleAssignment: selectedRole === OIDC_INHERITED_ROLE_VALUE ? "" : selectedRole,
+                    oidcRoleAssignment: hasOidcRoleAssignment
+                      ? selectedRole === OIDC_INHERITED_ROLE_VALUE
+                        ? ""
+                        : selectedRole
+                      : current.oidcRoleAssignment,
                   }));
                 }}
                 renderValue={(selected) => {
                   if (selected === OIDC_INHERITED_ROLE_VALUE) {
-                    return inheritedOidcRole
-                      ? t("settings.userManagement.editor.inheritedRole", { role: roleLabel(inheritedOidcRole) })
-                      : t("settings.userManagement.editor.inheritedRoleUnknown");
+                    return t("settings.userManagement.editor.inheritedRole", { role: roleLabel(inheritedOidcRole as UserRole) });
                   }
                   return roleLabel(selected as UserRole);
                 }}
               >
-                {hasOidcRoleAssignment && (
+                {hasOidcRoleAssignment && canUseInheritedOidcRole && (
                   <SettingsSelectMenuItem
                     value={OIDC_INHERITED_ROLE_VALUE}
-                    label={
-                      inheritedOidcRole
-                        ? t("settings.userManagement.editor.inheritedRole", { role: roleLabel(inheritedOidcRole) })
-                        : t("settings.userManagement.editor.inheritedRoleUnknown")
-                    }
+                    label={t("settings.userManagement.editor.inheritedRole", { role: roleLabel(inheritedOidcRole) })}
                     description={t("settings.userManagement.editor.inheritedRoleDescription")}
                   />
                 )}
@@ -829,7 +838,13 @@ export function UserManagementSettings({ dialogSafeHeader = false }: UserManagem
               </Select>
               {!usesDesktopFormLayout && (
                 <FormHelperText>
-                  {hasOidcRoleAssignment ? t("settings.userManagement.editor.oidcRoleHelp") : t("settings.userManagement.editor.roleHelp")}
+                  {hasOidcRoleAssignment
+                    ? t(
+                        canUseInheritedOidcRole
+                          ? "settings.userManagement.editor.oidcRoleHelp"
+                          : "settings.userManagement.editor.oidcRoleUnavailableHelp"
+                      )
+                    : t("settings.userManagement.editor.roleHelp")}
                 </FormHelperText>
               )}
             </FormControl>
