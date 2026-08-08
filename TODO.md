@@ -31,8 +31,9 @@
 
 - Add a command to open the current file list location in a new browser tab (which keyboard shortcut to assign? Ctrl+(Shift)+Tab is needed by the browser)
 
-## File list
+## File browser
 
+- Settings > File browser: add a setting to control whether dot directories are shown in the list
 - Make file operations discoverable by adding a toolbar with icons below the bar that contains the connection list
 - Dual-pane mode: Ctrl+left/right to change the location (connection+path) of the left pane to that of the right pane and vice-versa
 

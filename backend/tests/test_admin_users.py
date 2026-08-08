@@ -183,8 +183,23 @@ class TestAdminUsers:
     def test_clearing_oidc_role_assignment_downgrades_stored_role(
         self, client: TestClient, auth_headers_admin: dict, regular_user: User, session: Session
     ):
+        configuration = OidcProviderConfiguration(
+            display_name="Provider",
+            issuer_url="https://issuer.example",
+            client_id="sambee",
+            sign_in_mode=SignInMode.OIDC_OR_PASSWORD,
+            uniform_role=UserRole.EDITOR,
+        )
         regular_user.role = UserRole.ADMIN
         regular_user.oidc_role_assignment = UserRole.ADMIN
+        identity = OidcIdentity(
+            user_id=regular_user.id,
+            issuer=configuration.issuer_url,
+            subject="subject-1",
+            last_groups_json='["Sambee Users"]',
+        )
+        session.add(configuration)
+        session.add(identity)
         session.add(regular_user)
         session.commit()
 
@@ -195,10 +210,11 @@ class TestAdminUsers:
         )
 
         assert response.status_code == 200
-        assert response.json()["role"] == "viewer"
+        assert response.json()["role"] == "editor"
         assert response.json()["oidc_role_assignment"] is None
+        assert response.json()["oidc"]["inherited_role"] == "editor"
         session.refresh(regular_user)
-        assert regular_user.role == UserRole.VIEWER
+        assert regular_user.role == UserRole.EDITOR
         assert regular_user.oidc_role_assignment is None
         assert regular_user.token_version == 1
 

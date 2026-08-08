@@ -591,6 +591,14 @@ def _apply_oidc_role_assignment_mode_migration(connection: Connection) -> None:
         connection.execute(text("ALTER TABLE oidcproviderconfiguration ADD COLUMN uniform_role VARCHAR NOT NULL DEFAULT 'editor'"))
 
 
+def _apply_oidc_identity_group_history_migration(connection: Connection) -> None:
+    if not inspect(connection).has_table("oidcidentity"):
+        return
+    columns = {column[1] for column in connection.execute(text("PRAGMA table_info('oidcidentity')"))}
+    if "last_groups_json" not in columns:
+        connection.execute(text("ALTER TABLE oidcidentity ADD COLUMN last_groups_json VARCHAR NOT NULL DEFAULT '[]'"))
+
+
 MIGRATIONS: tuple[Migration, ...] = (
     Migration(version=1, name="ensure_connection_slugs", apply=_apply_connection_slug_migration),
     Migration(version=2, name="add_user_role_and_session_fields", apply=_apply_user_role_migration),
@@ -615,6 +623,7 @@ MIGRATIONS: tuple[Migration, ...] = (
     Migration(version=21, name="add_oidc_session_validation_revision", apply=_apply_oidc_session_validation_revision_migration),
     Migration(version=22, name="add_oidc_session_cipher_keyring", apply=_apply_oidc_session_cipher_keyring_migration),
     Migration(version=23, name="add_oidc_browser_session_client_metadata", apply=_apply_oidc_browser_session_client_metadata_migration),
+    Migration(version=24, name="add_oidc_identity_group_history", apply=_apply_oidc_identity_group_history_migration),
 )
 
 

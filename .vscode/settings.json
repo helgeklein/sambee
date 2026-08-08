@@ -125,6 +125,7 @@
     "du": true,
     "echo": true,
     "env": true,
+    "exit": true,
     "file": true,
     "grep": true,
     "head": true,

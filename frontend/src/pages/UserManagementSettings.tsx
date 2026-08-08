@@ -34,6 +34,7 @@ import {
 import { useCallback, useMemo, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 import DeleteDialog from "../components/Admin/DeleteDialog";
+import { DialogReadOnlyField } from "../components/Admin/DialogReadOnlyField";
 import { adminDialogActionButtonSx, adminDialogEndActionRowSx } from "../components/Admin/dialogActionStyles";
 import { ResponsiveFormDialog } from "../components/Admin/ResponsiveFormDialog";
 import { SettingsInlineAlert, SettingsNotificationSnackbar, type SettingsNotificationState } from "../components/Settings/SettingsFeedback";
@@ -99,6 +100,7 @@ interface UserManagementSettingsProps {
 type OidcMappingEditorMode = "create" | "change" | "move";
 
 type UserEditorField = "username";
+const OIDC_INHERITED_ROLE_VALUE = "inherited";
 
 const USER_EDITOR_IDS = {
   username: "user-editor-username",
@@ -110,9 +112,6 @@ const USER_EDITOR_IDS = {
   role: "user-editor-role",
   roleLabel: "user-editor-role-label",
   roleDescription: "user-editor-role-description",
-  oidcRoleAssignment: "user-editor-oidc-role-assignment",
-  oidcRoleAssignmentLabel: "user-editor-oidc-role-assignment-label",
-  oidcRoleAssignmentDescription: "user-editor-oidc-role-assignment-description",
   expiresAt: "user-editor-expires-at",
   expiresAtDescription: "user-editor-expires-at-description",
   isActive: "user-editor-is-active",
@@ -235,13 +234,6 @@ export function UserManagementSettings({ dialogSafeHeader = false }: UserManagem
     anchor: HTMLElement | null;
     user: AdminUser | null;
   }>({ anchor: null, user: null });
-  const [oidcRoleEditor, setOidcRoleEditor] = useState<{
-    open: boolean;
-    user: AdminUser | null;
-    role: UserRole | "";
-  }>({ open: false, user: null, role: "" });
-  const [oidcRoleSubmitting, setOidcRoleSubmitting] = useState(false);
-  const [oidcRoleError, setOidcRoleError] = useState<string | null>(null);
   const [userActionsMenu, setUserActionsMenu] = useState<{
     anchor: HTMLElement | null;
     user: AdminUser | null;
@@ -271,7 +263,16 @@ export function UserManagementSettings({ dialogSafeHeader = false }: UserManagem
 
   const isEditing = Boolean(selectedUser);
   const isEditingSelf = Boolean(selectedUser && currentUserId && selectedUser.id === currentUserId);
+  const hasOidcManagedIdentity = Boolean(selectedUser?.oidc);
+  const hasOidcRoleAssignment = Boolean(selectedUser?.oidc || selectedUser?.pending_oidc);
+  const inheritedOidcRole = selectedUser?.oidc?.inherited_role ?? null;
   const activeAdminCount = useMemo(() => users.filter((user) => user.role === "admin" && user.is_active !== false).length, [users]);
+
+  const roleLabel = (role: UserRole) => {
+    if (role === "admin") return t("settings.userManagement.adminRole");
+    if (role === "viewer") return t("settings.userManagement.viewerRole");
+    return t("settings.userManagement.editorRole");
+  };
 
   const openMappingEditor = (user: AdminUser, mode: OidcMappingEditorMode) => {
     setMappingError(null);
@@ -352,33 +353,6 @@ export function UserManagementSettings({ dialogSafeHeader = false }: UserManagem
     }
   };
 
-  const openOidcRoleEditor = (user: AdminUser) => {
-    setOidcRoleEditor({ open: true, user, role: user.oidc_role_assignment ?? "" });
-    setOidcRoleError(null);
-  };
-
-  const closeOidcRoleEditor = () => {
-    setOidcRoleEditor({ open: false, user: null, role: "" });
-    setOidcRoleError(null);
-  };
-
-  const handleOidcRoleSave = async () => {
-    const user = oidcRoleEditor.user;
-    if (!user) return;
-    try {
-      setOidcRoleSubmitting(true);
-      setOidcRoleError(null);
-      await api.updateUser(user.id, { oidc_role_assignment: oidcRoleEditor.role || null });
-      closeOidcRoleEditor();
-      showNotification("OIDC role assignment updated.", "success");
-      await refresh();
-    } catch (error: unknown) {
-      setOidcRoleError(getApiErrorMessage(error, "The OIDC role assignment could not be updated."));
-    } finally {
-      setOidcRoleSubmitting(false);
-    }
-  };
-
   const openCreateDialog = () => {
     setSelectedUser(null);
     setFormState(DEFAULT_USER_FORM);
@@ -432,6 +406,14 @@ export function UserManagementSettings({ dialogSafeHeader = false }: UserManagem
       });
       return;
     }
+    if (users.some((user) => user.id !== selectedUser?.id && user.username === username)) {
+      setFieldErrors({ username: t("settings.userManagement.editor.usernameTaken") });
+      setSubmissionError(null);
+      requestAnimationFrame(() => {
+        document.getElementById(USER_EDITOR_IDS.username)?.focus();
+      });
+      return;
+    }
 
     const expiresAt = toIsoDateTimeValue(formState.expiresAt);
 
@@ -443,10 +425,9 @@ export function UserManagementSettings({ dialogSafeHeader = false }: UserManagem
       if (selectedUser) {
         const updatePayload: AdminUserUpdateInput = {
           username,
-          name: name || undefined,
-          email: email || undefined,
+          ...(!hasOidcManagedIdentity ? { name: name || undefined, email: email || undefined } : {}),
           role: formState.role,
-          ...(selectedUser.oidc || selectedUser.pending_oidc ? { oidc_role_assignment: formState.oidcRoleAssignment || null } : {}),
+          ...(hasOidcRoleAssignment ? { oidc_role_assignment: formState.oidcRoleAssignment || null } : {}),
           is_active: formState.isActive,
           expires_at: expiresAt ?? null,
         };
@@ -486,7 +467,7 @@ export function UserManagementSettings({ dialogSafeHeader = false }: UserManagem
     } finally {
       setSubmitting(false);
     }
-  }, [closeEditor, formState, isEditing, refresh, selectedUser, showNotification, t]);
+  }, [closeEditor, formState, hasOidcManagedIdentity, hasOidcRoleAssignment, isEditing, refresh, selectedUser, showNotification, t, users]);
 
   const handleEditorKeyDown = useMemo(
     () =>
@@ -607,28 +588,6 @@ export function UserManagementSettings({ dialogSafeHeader = false }: UserManagem
     </Box>
   );
 
-  const oidcRoleEditorActions = (
-    <Box sx={adminDialogEndActionRowSx}>
-      <Button
-        onClick={closeOidcRoleEditor}
-        disabled={oidcRoleSubmitting}
-        variant="outlined"
-        sx={[settingsUtilityButtonSx, adminDialogActionButtonSx]}
-      >
-        {t("common.actions.cancel")}
-      </Button>
-      <Button
-        onClick={() => void handleOidcRoleSave()}
-        disabled={oidcRoleSubmitting}
-        variant="contained"
-        startIcon={oidcRoleSubmitting ? <CircularProgress size={18} color="inherit" /> : undefined}
-        sx={[settingsPrimaryButtonSx, adminDialogActionButtonSx]}
-      >
-        {t("common.actions.save")}
-      </Button>
-    </Box>
-  );
-
   const renderDesktopLabel = (
     label: string,
     description: string,
@@ -672,8 +631,13 @@ export function UserManagementSettings({ dialogSafeHeader = false }: UserManagem
                 hiddenLabel={usesDesktopFormLayout}
                 value={formState.username}
                 onChange={(event) => {
-                  setFormState((current) => ({ ...current, username: event.target.value }));
-                  if (fieldErrors.username) setFieldErrors({});
+                  const nextUsername = event.target.value;
+                  setFormState((current) => ({ ...current, username: nextUsername }));
+                  setFieldErrors(
+                    users.some((user) => user.id !== selectedUser?.id && user.username === nextUsername.trim())
+                      ? { username: t("settings.userManagement.editor.usernameTaken") }
+                      : {}
+                  );
                 }}
                 autoFocus
                 error={Boolean(fieldErrors.username)}
@@ -692,48 +656,76 @@ export function UserManagementSettings({ dialogSafeHeader = false }: UserManagem
           <SettingsFormRow>
             {renderDesktopLabel(
               t("settings.userManagement.editor.nameLabel"),
-              t("settings.userManagement.editor.nameHelp"),
+              hasOidcManagedIdentity ? t("settings.userManagement.editor.oidcNameHelp") : t("settings.userManagement.editor.nameHelp"),
               USER_EDITOR_IDS.nameDescription,
               USER_EDITOR_IDS.name
             )}
             <Box sx={settingsFormFieldControlSx}>
-              <TextField
-                id={USER_EDITOR_IDS.name}
-                label={usesDesktopFormLayout ? undefined : t("settings.userManagement.editor.nameLabel")}
-                hiddenLabel={usesDesktopFormLayout}
-                value={formState.name}
-                onChange={(event) => setFormState((current) => ({ ...current, name: event.target.value }))}
-                helperText={usesDesktopFormLayout ? undefined : t("settings.userManagement.editor.nameHelp")}
-                fullWidth
-                variant="outlined"
-                size={usesDesktopFormLayout ? "small" : "medium"}
-                sx={settingsFormOutlinedControlSx}
-                slotProps={{ htmlInput: { "aria-describedby": usesDesktopFormLayout ? USER_EDITOR_IDS.nameDescription : undefined } }}
-              />
+              {hasOidcManagedIdentity ? (
+                <>
+                  <DialogReadOnlyField
+                    id={USER_EDITOR_IDS.name}
+                    label={usesDesktopFormLayout ? undefined : t("settings.userManagement.editor.nameLabel")}
+                    ariaLabel={usesDesktopFormLayout ? t("settings.userManagement.editor.nameLabel") : undefined}
+                    ariaDescribedBy={usesDesktopFormLayout ? USER_EDITOR_IDS.nameDescription : undefined}
+                    value={formState.name}
+                    sx={{ "& .MuiInputBase-root": { minHeight: usesDesktopFormLayout ? 40 : undefined } }}
+                  />
+                  {!usesDesktopFormLayout && <FormHelperText>{t("settings.userManagement.editor.oidcNameHelp")}</FormHelperText>}
+                </>
+              ) : (
+                <TextField
+                  id={USER_EDITOR_IDS.name}
+                  label={usesDesktopFormLayout ? undefined : t("settings.userManagement.editor.nameLabel")}
+                  hiddenLabel={usesDesktopFormLayout}
+                  value={formState.name}
+                  onChange={(event) => setFormState((current) => ({ ...current, name: event.target.value }))}
+                  helperText={usesDesktopFormLayout ? undefined : t("settings.userManagement.editor.nameHelp")}
+                  fullWidth
+                  variant="outlined"
+                  size={usesDesktopFormLayout ? "small" : "medium"}
+                  sx={settingsFormOutlinedControlSx}
+                  slotProps={{ htmlInput: { "aria-describedby": usesDesktopFormLayout ? USER_EDITOR_IDS.nameDescription : undefined } }}
+                />
+              )}
             </Box>
           </SettingsFormRow>
           <SettingsFormRow>
             {renderDesktopLabel(
               t("settings.userManagement.editor.emailLabel"),
-              t("settings.userManagement.editor.emailHelp"),
+              hasOidcManagedIdentity ? t("settings.userManagement.editor.oidcEmailHelp") : t("settings.userManagement.editor.emailHelp"),
               USER_EDITOR_IDS.emailDescription,
               USER_EDITOR_IDS.email
             )}
             <Box sx={settingsFormFieldControlSx}>
-              <TextField
-                id={USER_EDITOR_IDS.email}
-                label={usesDesktopFormLayout ? undefined : t("settings.userManagement.editor.emailLabel")}
-                hiddenLabel={usesDesktopFormLayout}
-                type="email"
-                value={formState.email}
-                onChange={(event) => setFormState((current) => ({ ...current, email: event.target.value }))}
-                helperText={usesDesktopFormLayout ? undefined : t("settings.userManagement.editor.emailHelp")}
-                fullWidth
-                variant="outlined"
-                size={usesDesktopFormLayout ? "small" : "medium"}
-                sx={settingsFormOutlinedControlSx}
-                slotProps={{ htmlInput: { "aria-describedby": usesDesktopFormLayout ? USER_EDITOR_IDS.emailDescription : undefined } }}
-              />
+              {hasOidcManagedIdentity ? (
+                <>
+                  <DialogReadOnlyField
+                    id={USER_EDITOR_IDS.email}
+                    label={usesDesktopFormLayout ? undefined : t("settings.userManagement.editor.emailLabel")}
+                    ariaLabel={usesDesktopFormLayout ? t("settings.userManagement.editor.emailLabel") : undefined}
+                    ariaDescribedBy={usesDesktopFormLayout ? USER_EDITOR_IDS.emailDescription : undefined}
+                    value={formState.email}
+                    sx={{ "& .MuiInputBase-root": { minHeight: usesDesktopFormLayout ? 40 : undefined } }}
+                  />
+                  {!usesDesktopFormLayout && <FormHelperText>{t("settings.userManagement.editor.oidcEmailHelp")}</FormHelperText>}
+                </>
+              ) : (
+                <TextField
+                  id={USER_EDITOR_IDS.email}
+                  label={usesDesktopFormLayout ? undefined : t("settings.userManagement.editor.emailLabel")}
+                  hiddenLabel={usesDesktopFormLayout}
+                  type="email"
+                  value={formState.email}
+                  onChange={(event) => setFormState((current) => ({ ...current, email: event.target.value }))}
+                  helperText={usesDesktopFormLayout ? undefined : t("settings.userManagement.editor.emailHelp")}
+                  fullWidth
+                  variant="outlined"
+                  size={usesDesktopFormLayout ? "small" : "medium"}
+                  sx={settingsFormOutlinedControlSx}
+                  slotProps={{ htmlInput: { "aria-describedby": usesDesktopFormLayout ? USER_EDITOR_IDS.emailDescription : undefined } }}
+                />
+              )}
             </Box>
           </SettingsFormRow>
         </SettingsFormGroup>
@@ -742,7 +734,7 @@ export function UserManagementSettings({ dialogSafeHeader = false }: UserManagem
           <SettingsFormRow>
             {renderDesktopLabel(
               t("settings.userManagement.editor.roleLabel"),
-              t("settings.userManagement.editor.roleHelp"),
+              hasOidcRoleAssignment ? t("settings.userManagement.editor.oidcRoleHelp") : t("settings.userManagement.editor.roleHelp"),
               USER_EDITOR_IDS.roleDescription,
               undefined,
               false,
@@ -762,79 +754,86 @@ export function UserManagementSettings({ dialogSafeHeader = false }: UserManagem
                 labelId={USER_EDITOR_IDS.roleLabel}
                 aria-describedby={usesDesktopFormLayout ? USER_EDITOR_IDS.roleDescription : undefined}
                 label={usesDesktopFormLayout ? undefined : t("settings.userManagement.editor.roleLabel")}
-                value={formState.role}
+                value={hasOidcRoleAssignment ? formState.oidcRoleAssignment || OIDC_INHERITED_ROLE_VALUE : formState.role}
                 size={usesDesktopFormLayout ? "small" : "medium"}
                 sx={settingsSelectSx}
                 MenuProps={settingsSelectMenuProps}
                 disabled={isEditingSelf}
-                onChange={(event) => setFormState((current) => ({ ...current, role: event.target.value as UserRole }))}
+                onChange={(event) => {
+                  const selectedRole = event.target.value as UserRole | typeof OIDC_INHERITED_ROLE_VALUE;
+                  setFormState((current) => ({
+                    ...current,
+                    role: selectedRole === OIDC_INHERITED_ROLE_VALUE ? (inheritedOidcRole ?? current.role) : selectedRole,
+                    oidcRoleAssignment: selectedRole === OIDC_INHERITED_ROLE_VALUE ? "" : selectedRole,
+                  }));
+                }}
                 renderValue={(selected) => {
-                  if (selected === "admin") return t("settings.userManagement.adminRole");
-                  if (selected === "viewer") return t("settings.userManagement.viewerRole");
-                  return t("settings.userManagement.editorRole");
+                  if (selected === OIDC_INHERITED_ROLE_VALUE) {
+                    return inheritedOidcRole
+                      ? t("settings.userManagement.editor.inheritedRole", { role: roleLabel(inheritedOidcRole) })
+                      : t("settings.userManagement.editor.inheritedRoleUnknown");
+                  }
+                  return roleLabel(selected as UserRole);
                 }}
               >
+                {hasOidcRoleAssignment && (
+                  <SettingsSelectMenuItem
+                    value={OIDC_INHERITED_ROLE_VALUE}
+                    label={
+                      inheritedOidcRole
+                        ? t("settings.userManagement.editor.inheritedRole", { role: roleLabel(inheritedOidcRole) })
+                        : t("settings.userManagement.editor.inheritedRoleUnknown")
+                    }
+                    description={t("settings.userManagement.editor.inheritedRoleDescription")}
+                  />
+                )}
                 <SettingsSelectMenuItem
                   value="editor"
-                  label={t("settings.userManagement.editorRole")}
-                  description={t("settings.userManagement.editor.roleOptions.editor")}
+                  label={
+                    inheritedOidcRole === "editor"
+                      ? `${t("settings.userManagement.editorRole")} (${t("settings.userManagement.editor.currentInheritedRole")})`
+                      : t("settings.userManagement.editorRole")
+                  }
+                  description={
+                    inheritedOidcRole === "editor"
+                      ? t("settings.userManagement.editor.inheritedRoleDescription")
+                      : t("settings.userManagement.editor.roleOptions.editor")
+                  }
                 />
                 <SettingsSelectMenuItem
                   value="viewer"
-                  label={t("settings.userManagement.viewerRole")}
-                  description={t("settings.userManagement.editor.roleOptions.viewer")}
+                  label={
+                    inheritedOidcRole === "viewer"
+                      ? `${t("settings.userManagement.viewerRole")} (${t("settings.userManagement.editor.currentInheritedRole")})`
+                      : t("settings.userManagement.viewerRole")
+                  }
+                  description={
+                    inheritedOidcRole === "viewer"
+                      ? t("settings.userManagement.editor.inheritedRoleDescription")
+                      : t("settings.userManagement.editor.roleOptions.viewer")
+                  }
                 />
                 <SettingsSelectMenuItem
                   value="admin"
-                  label={t("settings.userManagement.adminRole")}
-                  description={t("settings.userManagement.editor.roleOptions.admin")}
+                  label={
+                    inheritedOidcRole === "admin"
+                      ? `${t("settings.userManagement.adminRole")} (${t("settings.userManagement.editor.currentInheritedRole")})`
+                      : t("settings.userManagement.adminRole")
+                  }
+                  description={
+                    inheritedOidcRole === "admin"
+                      ? t("settings.userManagement.editor.inheritedRoleDescription")
+                      : t("settings.userManagement.editor.roleOptions.admin")
+                  }
                 />
               </Select>
-              {!usesDesktopFormLayout && <FormHelperText>{t("settings.userManagement.editor.roleHelp")}</FormHelperText>}
+              {!usesDesktopFormLayout && (
+                <FormHelperText>
+                  {hasOidcRoleAssignment ? t("settings.userManagement.editor.oidcRoleHelp") : t("settings.userManagement.editor.roleHelp")}
+                </FormHelperText>
+              )}
             </FormControl>
           </SettingsFormRow>
-          {isEditing && (selectedUser?.oidc || selectedUser?.pending_oidc) && (
-            <SettingsFormRow>
-              {renderDesktopLabel(
-                t("settings.userManagement.editor.oidcRoleAssignmentLabel"),
-                t("settings.userManagement.editor.oidcRoleAssignmentHelp"),
-                USER_EDITOR_IDS.oidcRoleAssignmentDescription,
-                undefined,
-                false,
-                USER_EDITOR_IDS.oidcRoleAssignmentLabel
-              )}
-              <FormControl
-                fullWidth={!usesDesktopFormLayout}
-                variant="outlined"
-                size={usesDesktopFormLayout ? "small" : "medium"}
-                sx={usesDesktopFormLayout ? [settingsFormOutlinedControlSx, settingsFormSelectControlSx] : settingsFormOutlinedControlSx}
-              >
-                {!usesDesktopFormLayout && (
-                  <InputLabel id={USER_EDITOR_IDS.oidcRoleAssignmentLabel}>
-                    {t("settings.userManagement.editor.oidcRoleAssignmentLabel")}
-                  </InputLabel>
-                )}
-                <Select
-                  id={USER_EDITOR_IDS.oidcRoleAssignment}
-                  labelId={USER_EDITOR_IDS.oidcRoleAssignmentLabel}
-                  aria-describedby={usesDesktopFormLayout ? USER_EDITOR_IDS.oidcRoleAssignmentDescription : undefined}
-                  label={usesDesktopFormLayout ? undefined : t("settings.userManagement.editor.oidcRoleAssignmentLabel")}
-                  value={formState.oidcRoleAssignment}
-                  size={usesDesktopFormLayout ? "small" : "medium"}
-                  sx={settingsSelectSx}
-                  MenuProps={settingsSelectMenuProps}
-                  disabled={isEditingSelf}
-                  onChange={(event) => setFormState((current) => ({ ...current, oidcRoleAssignment: event.target.value as UserRole | "" }))}
-                >
-                  <MenuItem value="">{t("settings.userManagement.editor.oidcRoleAssignmentConfiguredRole")}</MenuItem>
-                  <MenuItem value="viewer">{t("settings.userManagement.viewerRole")}</MenuItem>
-                  <MenuItem value="editor">{t("settings.userManagement.editorRole")}</MenuItem>
-                  <MenuItem value="admin">{t("settings.userManagement.adminRole")}</MenuItem>
-                </Select>
-                {!usesDesktopFormLayout && <FormHelperText>{t("settings.userManagement.editor.oidcRoleAssignmentHelp")}</FormHelperText>}
-              </FormControl>
-            </SettingsFormRow>
-          )}
           <SettingsFormRow>
             {renderDesktopLabel(
               t("settings.userManagement.editor.expiresAtLabel"),
@@ -1407,16 +1406,6 @@ export function UserManagementSettings({ dialogSafeHeader = false }: UserManagem
           Change OIDC account
         </MenuItem>
         <MenuItem
-          disabled={Boolean(currentUserId && advancedMappingMenu.user?.id === currentUserId)}
-          onClick={() => {
-            const user = advancedMappingMenu.user;
-            setAdvancedMappingMenu({ anchor: null, user: null });
-            if (user) openOidcRoleEditor(user);
-          }}
-        >
-          Change individual OIDC role
-        </MenuItem>
-        <MenuItem
           onClick={() => {
             const user = advancedMappingMenu.user;
             setAdvancedMappingMenu({ anchor: null, user: null });
@@ -1435,43 +1424,6 @@ export function UserManagementSettings({ dialogSafeHeader = false }: UserManagem
           Detach OIDC identity
         </MenuItem>
       </Menu>
-
-      <ResponsiveFormDialog
-        open={oidcRoleEditor.open}
-        onClose={closeOidcRoleEditor}
-        disableClose={oidcRoleSubmitting}
-        title="Change individual OIDC role"
-        description="Choose an account-specific role or use the configured provider role assignment."
-        actions={oidcRoleEditorActions}
-      >
-        <Box sx={{ display: "flex", flexDirection: "column", gap: 2 }}>
-          {oidcRoleError && <SettingsInlineAlert sx={{ mb: 0 }}>{oidcRoleError}</SettingsInlineAlert>}
-          <SettingsFormSurface>
-            <SettingsFormGroup>
-              <SettingsFormRow sx={{ gridTemplateColumns: { md: "minmax(0, 1fr)" } }}>
-                <FormControl fullWidth variant="outlined" sx={settingsFormOutlinedControlSx}>
-                  <InputLabel id="oidc-role-editor-label">Individual OIDC role</InputLabel>
-                  <Select
-                    autoFocus
-                    labelId="oidc-role-editor-label"
-                    label="Individual OIDC role"
-                    value={oidcRoleEditor.role}
-                    onChange={(event) => setOidcRoleEditor((current) => ({ ...current, role: event.target.value as UserRole | "" }))}
-                    sx={settingsSelectSx}
-                    MenuProps={settingsSelectMenuProps}
-                  >
-                    <MenuItem value="">Use configured role assignment</MenuItem>
-                    <MenuItem value="viewer">Viewer</MenuItem>
-                    <MenuItem value="editor">Editor</MenuItem>
-                    <MenuItem value="admin">Admin</MenuItem>
-                  </Select>
-                  <FormHelperText>Individual roles override the configured provider role assignment.</FormHelperText>
-                </FormControl>
-              </SettingsFormRow>
-            </SettingsFormGroup>
-          </SettingsFormSurface>
-        </Box>
-      </ResponsiveFormDialog>
 
       <Menu anchorEl={userActionsMenu.anchor} open={Boolean(userActionsMenu.anchor)} onClose={closeUserActionsMenu}>
         {userActionsMenu.user && (

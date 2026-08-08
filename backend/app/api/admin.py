@@ -1,3 +1,4 @@
+import json
 import uuid
 from datetime import datetime, timezone
 
@@ -25,6 +26,7 @@ from app.models.user import (
 )
 from app.services.audit import AuditDetails, AuditEventName, AuditResult, write_audit_event
 from app.services.authentication_config import is_local_password_management_available
+from app.services.oidc_identity import OidcIdentityError, resolve_oidc_role
 from app.services.oidc_mapping import OidcMappingError, remove_user_oidc_state
 
 router = APIRouter()
@@ -53,6 +55,16 @@ def _validate_user_update_guards(
             raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Cannot remove the last active admin")
 
 
+def _resolve_inherited_oidc_role(configuration: OidcProviderConfiguration, identity: OidcIdentity) -> UserRole | None:
+    try:
+        groups = json.loads(identity.last_groups_json)
+        if not isinstance(groups, list) or any(not isinstance(group, str) for group in groups):
+            return None
+        return resolve_oidc_role(configuration, tuple(groups))
+    except (json.JSONDecodeError, OidcIdentityError, ValueError):
+        return None
+
+
 def _build_admin_user_read_with_authentication(session: Session, user: User) -> AdminUserRead:
     result = build_admin_user_read(user)
     configuration = session.get(OidcProviderConfiguration, 1)
@@ -74,6 +86,7 @@ def _build_admin_user_read_with_authentication(session: Session, user: User) -> 
                     identity_id=identity.id,
                     provider_display_name=configuration.display_name,
                     last_login_at=identity.last_login_at,
+                    inherited_role=_resolve_inherited_oidc_role(configuration, identity),
                 )
                 if identity is not None
                 else None
@@ -180,7 +193,22 @@ async def update_user(
     if next_oidc_role_assignment is not None:
         next_role = next_oidc_role_assignment
     elif assignment_requested and user.oidc_role_assignment is not None:
-        next_role = UserRole.VIEWER
+        configuration = session.get(OidcProviderConfiguration, 1)
+        identity = (
+            session.exec(
+                select(OidcIdentity).where(
+                    OidcIdentity.issuer == configuration.issuer_url,
+                    OidcIdentity.user_id == user.id,
+                )
+            ).first()
+            if configuration is not None
+            else None
+        )
+        next_role = (
+            _resolve_inherited_oidc_role(configuration, identity) if configuration is not None and identity is not None else UserRole.VIEWER
+        )
+        if next_role is None:
+            next_role = UserRole.VIEWER
     next_is_active = user.is_active if user_data.is_active is None else user_data.is_active
     next_expires_at = user.expires_at if user_data.expires_at is None else user_data.expires_at
 

@@ -309,17 +309,19 @@ describe("UserManagementSettings", () => {
     }
   });
 
-  it("shows the OIDC role assignment only for linked users", async () => {
+  it("uses the role selector and read-only identity fields for linked OIDC users", async () => {
     vi.mocked(api.getUsers).mockResolvedValue([
       {
         id: "user-1",
         username: "admin",
+        name: "OIDC Admin",
+        email: "admin@example.test",
         role: "admin",
         is_active: true,
         must_change_password: false,
         has_local_password: true,
         oidc_role_assignment: null,
-        oidc: { identity_id: "identity-1", provider_display_name: "Corporate login", last_login_at: null },
+        oidc: { identity_id: "identity-1", provider_display_name: "Corporate login", last_login_at: null, inherited_role: "editor" },
         pending_oidc: null,
         created_at: "2026-03-01T10:00:00Z",
         updated_at: "2026-03-01T10:00:00Z",
@@ -335,8 +337,87 @@ describe("UserManagementSettings", () => {
 
     await user.click(await screen.findByRole("button", { name: /edit admin/i }));
 
-    expect(screen.getByRole("combobox", { name: /oidc role assignment/i })).toHaveAttribute("aria-disabled", "true");
+    expect(screen.getByRole("combobox", { name: /^role$/i })).toHaveAttribute("aria-disabled", "true");
+    expect(screen.queryByRole("combobox", { name: /oidc role assignment/i })).not.toBeInTheDocument();
+    expect(screen.getByLabelText(/^full name$/i)).toHaveAttribute("readonly");
+    expect(screen.getByLabelText(/^email$/i)).toHaveAttribute("readonly");
+    expect(screen.getAllByText("Managed by the linked OIDC provider")).toHaveLength(2);
     expect(screen.queryByLabelText(/initial password/i)).not.toBeInTheDocument();
+  });
+
+  it("shows the inherited OIDC role and clears an individual override", async () => {
+    vi.mocked(api.getUsers).mockResolvedValue([
+      {
+        id: "user-1",
+        username: "admin",
+        role: "admin",
+        is_active: true,
+        must_change_password: false,
+        has_local_password: true,
+        oidc_role_assignment: null,
+        oidc: null,
+        pending_oidc: null,
+        created_at: "2026-03-01T10:00:00Z",
+        updated_at: "2026-03-01T10:00:00Z",
+      },
+      {
+        id: "user-2",
+        username: "oidc-user",
+        name: "OIDC User",
+        email: "oidc-user@example.test",
+        role: "admin",
+        is_active: true,
+        must_change_password: false,
+        has_local_password: false,
+        oidc_role_assignment: "admin",
+        oidc: { identity_id: "identity-2", provider_display_name: "Corporate login", last_login_at: null, inherited_role: "viewer" },
+        pending_oidc: null,
+        created_at: "2026-03-01T10:00:00Z",
+        updated_at: "2026-03-01T10:00:00Z",
+      },
+    ]);
+    const user = userEvent.setup();
+
+    render(
+      <SambeeThemeProvider>
+        <UserManagementSettings />
+      </SambeeThemeProvider>
+    );
+
+    await user.click(await screen.findByRole("button", { name: "Edit oidc-user" }));
+
+    const roleSelect = screen.getByRole("combobox", { name: /^role$/i });
+    expect(roleSelect).toHaveTextContent("Admin");
+    await user.click(roleSelect);
+    expect(await screen.findByRole("option", { name: /inherited \(viewer\)/i })).toBeInTheDocument();
+    expect(screen.getByRole("option", { name: /viewer \(current inherited role\)/i })).toBeInTheDocument();
+    await user.click(screen.getByRole("option", { name: /inherited \(viewer\)/i }));
+    await user.click(screen.getByRole("button", { name: /save changes/i }));
+
+    await waitFor(() => {
+      expect(api.updateUser).toHaveBeenCalledWith("user-2", {
+        username: "oidc-user",
+        role: "viewer",
+        oidc_role_assignment: null,
+        is_active: true,
+        expires_at: null,
+      });
+    });
+  });
+
+  it("reports an existing username while editing", async () => {
+    const user = userEvent.setup();
+
+    render(
+      <SambeeThemeProvider>
+        <UserManagementSettings />
+      </SambeeThemeProvider>
+    );
+
+    await user.click(await screen.findByRole("button", { name: /add user/i }));
+    await user.type(await screen.findByRole("textbox", { name: /^username$/i }), "admin");
+
+    expect(screen.getByText("A user with that username already exists")).toBeInTheDocument();
   });
 
   it("shows role-specific descriptions and supports password visibility and password-change state", async () => {
@@ -608,17 +689,6 @@ describe("UserManagementSettings", () => {
     await user.keyboard("{Escape}");
     await waitFor(() => {
       expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
-    });
-
-    await user.click(screen.getByRole("button", { name: "Advanced OIDC actions for linked-admin" }));
-    await user.click(screen.getByRole("menuitem", { name: "Change individual OIDC role" }));
-    const oidcRoleDialog = await screen.findByRole("dialog", { name: "Change individual OIDC role" });
-    await user.click(within(oidcRoleDialog).getByRole("combobox", { name: "Individual OIDC role" }));
-    await user.click(screen.getByRole("option", { name: "Admin" }));
-    await user.click(within(oidcRoleDialog).getByRole("button", { name: "Save" }));
-
-    await waitFor(() => {
-      expect(api.updateUser).toHaveBeenCalledWith("user-1", { oidc_role_assignment: "admin" });
     });
   });
 

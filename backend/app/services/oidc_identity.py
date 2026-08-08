@@ -183,6 +183,7 @@ def _sync_existing_user(
         user.email = claims.email.strip().lower() or user.email
     user.updated_at = now
     identity.last_seen_username = claims.username.strip()
+    identity.last_groups_json = json.dumps(claims.groups)
     identity.last_login_at = now
     session.add(user)
     session.add(identity)
@@ -252,6 +253,7 @@ def resolve_or_provision_oidc_user(
             issuer=claims.issuer,
             subject=claims.subject,
             last_seen_username=username,
+            last_groups_json=json.dumps(claims.groups),
             last_login_at=current_time,
         )
         session.add(identity)
@@ -302,6 +304,7 @@ def resolve_or_provision_oidc_user(
             issuer=claims.issuer,
             subject=claims.subject,
             last_seen_username=username,
+            last_groups_json=json.dumps(claims.groups),
             last_login_at=current_time,
         )
         session.add(identity)

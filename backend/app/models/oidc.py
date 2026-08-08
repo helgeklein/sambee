@@ -123,6 +123,7 @@ class OidcIdentity(SQLModel, table=True):
     issuer: str
     subject: str
     last_seen_username: str | None = Field(default=None)
+    last_groups_json: str = Field(default="[]")
     created_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
     last_login_at: datetime | None = Field(default=None)
 
