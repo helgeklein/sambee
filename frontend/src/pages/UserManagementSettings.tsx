@@ -260,13 +260,13 @@ function getDirectoryRowGridSx(oidcAuthenticationEnabled: boolean) {
     ? `minmax(0, 1.5fr) minmax(0, 0.7fr) minmax(0, 1.1fr) minmax(0, 0.8fr) minmax(0, 1fr) minmax(0, 1fr) ${DIRECTORY_ACTIONS_COLUMN_WIDTH}`
     : `minmax(0, 1.8fr) minmax(0, 0.75fr) minmax(0, 1.2fr) minmax(0, 1fr) minmax(0, 1fr) ${DIRECTORY_ACTIONS_COLUMN_WIDTH}`;
   const mobileAreas = oidcAuthenticationEnabled
-    ? '"identity" "role" "status" "signIn" "expiration" "lastSignIn" "actions"'
-    : '"identity" "role" "status" "signIn" "expiration" "actions"';
+    ? '"identity actions" "role role" "status status" "signIn signIn" "expiration expiration" "lastSignIn lastSignIn"'
+    : '"identity actions" "role role" "status status" "signIn signIn" "expiration expiration"';
 
   return {
     display: "grid",
     gridTemplateColumns: {
-      xs: "minmax(0, 1fr)",
+      xs: `minmax(0, 1fr) ${DIRECTORY_ACTIONS_COLUMN_WIDTH}`,
       md: `minmax(0, 1.8fr) minmax(0, 0.75fr) minmax(0, 1.2fr) minmax(0, 1fr) ${DIRECTORY_ACTIONS_COLUMN_WIDTH}`,
       lg: wideColumns,
     },
@@ -294,6 +294,7 @@ function DirectoryRowCell({
       sx={{
         alignItems: "center",
         display: hideUntilLarge ? { xs: "flex", md: "none", lg: "flex" } : "flex",
+        alignSelf: align === "end" ? { xs: "start", md: "auto" } : undefined,
         gridArea: { xs: area, md: "auto" },
         justifyContent: align === "end" ? "flex-end" : "flex-start",
         minWidth: 0,
@@ -1597,7 +1598,7 @@ export function UserManagementSettings({ dialogSafeHeader = false }: UserManagem
         <Box
           sx={{
             display: "grid",
-            gridTemplateColumns: { xs: "minmax(0, 1fr) auto", sm: "minmax(12rem, 20rem) auto minmax(6.5rem, auto)" },
+            gridTemplateColumns: { xs: "minmax(0, 1fr)", sm: "minmax(12rem, 20rem) max-content" },
             gap: 1,
             alignItems: "center",
           }}
@@ -1607,27 +1608,29 @@ export function UserManagementSettings({ dialogSafeHeader = false }: UserManagem
             value={searchInput}
             onChange={(event) => setSearchInput(event.target.value)}
             size="small"
-            sx={{ gridColumn: { xs: "1 / -1", sm: "auto" }, minWidth: 0, width: "100%" }}
+            sx={{ minWidth: 0, width: "100%" }}
           />
-          <Button
-            aria-haspopup="dialog"
-            aria-expanded={Boolean(filterAnchor)}
-            startIcon={<FilterListIcon />}
-            variant="outlined"
-            onClick={(event) => setFilterAnchor(event.currentTarget)}
-            sx={settingsUtilityButtonSx}
-          >
-            {activeDirectoryFilterCount ? `Filters (${activeDirectoryFilterCount})` : "Filters"}
-          </Button>
-          <Button
-            aria-hidden={activeDirectoryFilterCount === 0}
-            onClick={clearDirectoryFilters}
-            tabIndex={activeDirectoryFilterCount === 0 ? -1 : undefined}
-            variant="text"
-            sx={{ justifySelf: "start", minWidth: 104, visibility: activeDirectoryFilterCount > 0 ? "visible" : "hidden" }}
-          >
-            Clear filters
-          </Button>
+          <Stack direction="row" spacing={1} sx={{ justifySelf: "start" }}>
+            <Button
+              aria-haspopup="dialog"
+              aria-expanded={Boolean(filterAnchor)}
+              startIcon={<FilterListIcon />}
+              variant="outlined"
+              onClick={(event) => setFilterAnchor(event.currentTarget)}
+              sx={[settingsUtilityButtonSx, { width: "fit-content" }]}
+            >
+              {activeDirectoryFilterCount ? `Filters (${activeDirectoryFilterCount})` : "Filters"}
+            </Button>
+            <Button
+              aria-hidden={activeDirectoryFilterCount === 0}
+              onClick={clearDirectoryFilters}
+              tabIndex={activeDirectoryFilterCount === 0 ? -1 : undefined}
+              variant="text"
+              sx={{ minWidth: 104, visibility: activeDirectoryFilterCount > 0 ? "visible" : "hidden" }}
+            >
+              Clear filters
+            </Button>
+          </Stack>
         </Box>
         <Box aria-live="polite" sx={{ height: 3 }}>
           {directoryRefreshing && <LinearProgress aria-label="Updating user directory" sx={{ height: 3 }} />}
@@ -1741,6 +1744,7 @@ export function UserManagementSettings({ dialogSafeHeader = false }: UserManagem
                 label={`Role: ${roleLabel(role)}`}
                 onDelete={() => updateDirectoryQuery({ roles: directoryQuery.roles.filter((value) => value !== role) })}
                 size="small"
+                tabIndex={-1}
                 variant="outlined"
               />
             ))}
@@ -1750,6 +1754,7 @@ export function UserManagementSettings({ dialogSafeHeader = false }: UserManagem
                 label={`Status: ${state === "expiring_soon" ? "Expiring soon" : state[0].toUpperCase() + state.slice(1)}`}
                 onDelete={() => updateDirectoryQuery({ states: directoryQuery.states.filter((value) => value !== state) })}
                 size="small"
+                tabIndex={-1}
                 variant="outlined"
               />
             ))}
@@ -1761,6 +1766,7 @@ export function UserManagementSettings({ dialogSafeHeader = false }: UserManagem
                   updateDirectoryQuery({ authentication: directoryQuery.authentication.filter((value) => value !== authentication) })
                 }
                 size="small"
+                tabIndex={-1}
                 variant="outlined"
               />
             ))}
@@ -1771,6 +1777,7 @@ export function UserManagementSettings({ dialogSafeHeader = false }: UserManagem
                   label={`OIDC: ${oidcState === "pending" ? "Setup pending" : oidcState[0].toUpperCase() + oidcState.slice(1)}`}
                   onDelete={() => updateDirectoryQuery({ oidcStates: directoryQuery.oidcStates.filter((value) => value !== oidcState) })}
                   size="small"
+                  tabIndex={-1}
                   variant="outlined"
                 />
               ))}
@@ -1781,6 +1788,7 @@ export function UserManagementSettings({ dialogSafeHeader = false }: UserManagem
                   label={`Role source: ${roleSource.replaceAll("_", " ")}`}
                   onDelete={() => updateDirectoryQuery({ roleSources: directoryQuery.roleSources.filter((value) => value !== roleSource) })}
                   size="small"
+                  tabIndex={-1}
                   variant="outlined"
                 />
               ))}
@@ -1789,6 +1797,7 @@ export function UserManagementSettings({ dialogSafeHeader = false }: UserManagem
                 label={`Expiration: ${directoryQuery.expiration === "has_expiration" ? "Has expiration" : "No expiration"}`}
                 onDelete={() => updateDirectoryQuery({ expiration: "" })}
                 size="small"
+                tabIndex={-1}
                 variant="outlined"
               />
             )}
@@ -1905,7 +1914,7 @@ export function UserManagementSettings({ dialogSafeHeader = false }: UserManagem
                         </Box>
                       </DirectoryRowCell>
                       <DirectoryRowCell area="role">
-                        <Stack direction="row" spacing={1} sx={{ alignItems: "center", minWidth: 0 }}>
+                        <Stack direction="row" spacing={1} useFlexGap sx={{ alignItems: "center", minWidth: 0 }}>
                           <Typography
                             component="span"
                             variant="caption"

@@ -882,6 +882,7 @@ describe("UserManagementSettings", () => {
     expect(await screen.findByText("Role: Admin", { exact: true })).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Filters (1)", hidden: true })).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Clear filters", hidden: true })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Role: Admin", hidden: true })).toHaveAttribute("tabindex", "-1");
   });
 
   it("uses wrapped compact exception-status chips", async () => {
