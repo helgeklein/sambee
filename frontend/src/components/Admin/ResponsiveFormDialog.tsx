@@ -133,9 +133,6 @@ export function ResponsiveFormDialog({
         escapeCloseHandledRef.current = false;
         return;
       }
-
-      onClose();
-      return;
     }
 
     handleRequestClose();
@@ -147,9 +144,6 @@ export function ResponsiveFormDialog({
         escapeCloseHandledRef.current = false;
         return;
       }
-
-      onClose();
-      return;
     }
 
     handleRequestClose();

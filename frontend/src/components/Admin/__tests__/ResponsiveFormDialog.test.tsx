@@ -139,7 +139,7 @@ describe("ResponsiveFormDialog", () => {
     expect(screen.getByRole("button", { name: /common\.navigation\.goBack/i })).toBeDisabled();
   });
 
-  it("requests cancellation with Escape even when pointer close is disabled", () => {
+  it("ignores Escape when close is disabled on desktop", () => {
     const onClose = vi.fn();
     render(
       <SambeeThemeProvider>
@@ -151,6 +151,22 @@ describe("ResponsiveFormDialog", () => {
 
     fireEvent.keyDown(screen.getByRole("dialog"), { key: "Escape" });
 
-    expect(onClose).toHaveBeenCalledTimes(1);
+    expect(onClose).not.toHaveBeenCalled();
+  });
+
+  it("ignores Escape when close is disabled on mobile", () => {
+    mockMobileMode(true);
+    const onClose = vi.fn();
+    render(
+      <SambeeThemeProvider>
+        <ResponsiveFormDialog open={true} onClose={onClose} disableClose title="Edit User" actions={<Button>Save</Button>}>
+          <div>Dialog Body</div>
+        </ResponsiveFormDialog>
+      </SambeeThemeProvider>
+    );
+
+    fireEvent.keyDown(screen.getByRole("dialog"), { key: "Escape" });
+
+    expect(onClose).not.toHaveBeenCalled();
   });
 });
