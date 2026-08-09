@@ -187,7 +187,7 @@ const Login: React.FC = () => {
           {authConfig?.sign_in_mode === "oidc_or_password" && authConfig.oidc && (
             <>
               <Button fullWidth variant="contained" sx={{ mt: 2, mb: 3 }} onClick={startProviderLogin}>
-                {t("auth.login.submitWithOidc")}
+                {t("auth.login.submitWithOidc", { providerName: authConfig.oidc.display_name })}
               </Button>
               <Divider>or</Divider>
             </>
