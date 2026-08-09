@@ -146,6 +146,7 @@ def test_unmapped_identity_provisions_passwordless_user_and_audits(session: Sess
     assert user.role == UserRole.EDITOR
     identity = session.exec(select(OidcIdentity).where(OidcIdentity.user_id == user.id)).one()
     assert identity.subject == "subject-1"
+    assert identity.last_groups_json == '["sambee users"]'
     assert configuration.identity_mapping_revision == 1
     event_names = {event.event_name for event in session.exec(select(AuditEvent)).all()}
     assert "oidc.user.provisioned" in event_names

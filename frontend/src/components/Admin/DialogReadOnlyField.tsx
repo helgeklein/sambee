@@ -4,8 +4,10 @@ import { DIALOG_FORM_SURFACE_CSS_VARIABLE, getModeAdjustedSurfaceColor } from ".
 import { settingsFormOutlinedControlSx } from "../Settings/SettingsFormLayout";
 
 interface DialogReadOnlyFieldProps {
+  id?: string;
   label?: string;
   ariaLabel?: string;
+  ariaDescribedBy?: string;
   value: string;
   multiline?: boolean;
   minRows?: number;
@@ -17,8 +19,10 @@ interface DialogReadOnlyFieldProps {
 
 /** Displays a selectable, optionally labelled value in a dialog without allowing edits. */
 export function DialogReadOnlyField({
+  id,
   label,
   ariaLabel,
+  ariaDescribedBy,
   value,
   multiline = false,
   minRows,
@@ -29,14 +33,24 @@ export function DialogReadOnlyField({
 }: DialogReadOnlyFieldProps) {
   return (
     <TextField
+      id={id}
       label={label}
+      hiddenLabel={!label}
       value={value}
       fullWidth
       multiline={multiline}
       minRows={minRows}
       maxRows={maxRows}
       variant="outlined"
-      slotProps={{ htmlInput: { readOnly: true, "aria-label": ariaLabel, "aria-readonly": true, wrap: codeBlock ? "off" : undefined } }}
+      slotProps={{
+        htmlInput: {
+          readOnly: true,
+          "aria-label": ariaLabel,
+          "aria-describedby": ariaDescribedBy,
+          "aria-readonly": true,
+          wrap: codeBlock ? "off" : undefined,
+        },
+      }}
       sx={[
         settingsFormOutlinedControlSx,
         {

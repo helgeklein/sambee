@@ -113,6 +113,7 @@ class AdminUserOidcRead(SQLModel):
     identity_id: uuid.UUID
     provider_display_name: str
     last_login_at: datetime | None
+    inherited_role: UserRole | None
 
 
 class AdminUserPendingOidcRead(SQLModel):

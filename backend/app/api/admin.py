@@ -1,3 +1,4 @@
+import json
 import uuid
 from datetime import datetime, timezone
 
@@ -25,10 +26,13 @@ from app.models.user import (
 )
 from app.services.audit import AuditDetails, AuditEventName, AuditResult, write_audit_event
 from app.services.authentication_config import is_local_password_management_available
+from app.services.oidc_identity import OidcIdentityError, resolve_oidc_role
 from app.services.oidc_mapping import OidcMappingError, remove_user_oidc_state
 
 router = APIRouter()
 logger = get_logger(__name__)
+OIDC_INHERITED_ROLE_UNAVAILABLE_DETAIL = "The inherited OIDC role is unavailable until the user signs in with OIDC"
+OIDC_MANAGED_IDENTITY_FIELDS_DETAIL = "Full name and email are managed by OIDC"
 
 
 def _count_active_admins(session: Session) -> int:
@@ -53,6 +57,16 @@ def _validate_user_update_guards(
             raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Cannot remove the last active admin")
 
 
+def _resolve_inherited_oidc_role(configuration: OidcProviderConfiguration, identity: OidcIdentity) -> UserRole | None:
+    try:
+        groups = json.loads(identity.last_groups_json)
+        if not isinstance(groups, list) or any(not isinstance(group, str) for group in groups):
+            return None
+        return resolve_oidc_role(configuration, tuple(groups))
+    except (json.JSONDecodeError, OidcIdentityError, ValueError):
+        return None
+
+
 def _build_admin_user_read_with_authentication(session: Session, user: User) -> AdminUserRead:
     result = build_admin_user_read(user)
     configuration = session.get(OidcProviderConfiguration, 1)
@@ -74,6 +88,7 @@ def _build_admin_user_read_with_authentication(session: Session, user: User) -> 
                     identity_id=identity.id,
                     provider_display_name=configuration.display_name,
                     last_login_at=identity.last_login_at,
+                    inherited_role=_resolve_inherited_oidc_role(configuration, identity),
                 )
                 if identity is not None
                 else None
@@ -101,7 +116,7 @@ async def list_users(
     session: Session = Depends(get_session),
 ) -> list[AdminUserRead]:
     set_user(current_user.username)
-    logger.info(f"Listing users: user={current_user.username}")
+    logger.debug("Listing users")
     users = session.exec(select(User).order_by(User.username)).all()
     return [_build_admin_user_read_with_authentication(session, user) for user in users]
 
@@ -171,6 +186,20 @@ async def update_user(
     if not user:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="User not found")
 
+    configuration = session.get(OidcProviderConfiguration, 1)
+    identity = (
+        session.exec(
+            select(OidcIdentity).where(
+                OidcIdentity.issuer == configuration.issuer_url,
+                OidcIdentity.user_id == user.id,
+            )
+        ).first()
+        if configuration is not None
+        else None
+    )
+    if identity is not None and {"name", "email"}.intersection(user_data.model_fields_set):
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=OIDC_MANAGED_IDENTITY_FIELDS_DETAIL)
+
     next_username = user_data.username.strip() if user_data.username is not None else user.username
     next_name = user_data.name.strip() if user_data.name is not None else user.name
     next_email = user_data.email.strip().lower() if user_data.email is not None else user.email
@@ -180,7 +209,12 @@ async def update_user(
     if next_oidc_role_assignment is not None:
         next_role = next_oidc_role_assignment
     elif assignment_requested and user.oidc_role_assignment is not None:
-        next_role = UserRole.VIEWER
+        inherited_role = (
+            _resolve_inherited_oidc_role(configuration, identity) if configuration is not None and identity is not None else None
+        )
+        if inherited_role is None:
+            raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=OIDC_INHERITED_ROLE_UNAVAILABLE_DETAIL)
+        next_role = inherited_role
     next_is_active = user.is_active if user_data.is_active is None else user_data.is_active
     next_expires_at = user.expires_at if user_data.expires_at is None else user_data.expires_at
 

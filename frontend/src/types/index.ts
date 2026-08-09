@@ -71,6 +71,7 @@ export interface AdminUser {
     identity_id: string;
     provider_display_name: string;
     last_login_at: string | null;
+    inherited_role?: UserRole | null;
   } | null;
   pending_oidc: {
     expected_username: string;

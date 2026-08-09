@@ -369,7 +369,9 @@ class TestDatabaseEngine:
                         "version INTEGER PRIMARY KEY, name TEXT NOT NULL, applied_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP)"
                     )
                 )
-                for migration in MIGRATIONS[:-1]:
+                for migration in MIGRATIONS:
+                    if migration.version >= 23:
+                        continue
                     connection.execute(
                         text(f"INSERT INTO {MIGRATION_TABLE_NAME} (version, name) VALUES (:version, :name)"),
                         {"version": migration.version, "name": migration.name},

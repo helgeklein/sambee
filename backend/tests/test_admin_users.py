@@ -17,6 +17,7 @@ from app.models.oidc import (
     OidcIdentity,
     OidcPendingIdentityMapping,
     OidcProviderConfiguration,
+    OidcRoleAssignmentMode,
     SignInMode,
 )
 from app.models.user import User, UserRole
@@ -183,8 +184,23 @@ class TestAdminUsers:
     def test_clearing_oidc_role_assignment_downgrades_stored_role(
         self, client: TestClient, auth_headers_admin: dict, regular_user: User, session: Session
     ):
+        configuration = OidcProviderConfiguration(
+            display_name="Provider",
+            issuer_url="https://issuer.example",
+            client_id="sambee",
+            sign_in_mode=SignInMode.OIDC_OR_PASSWORD,
+            uniform_role=UserRole.EDITOR,
+        )
         regular_user.role = UserRole.ADMIN
         regular_user.oidc_role_assignment = UserRole.ADMIN
+        identity = OidcIdentity(
+            user_id=regular_user.id,
+            issuer=configuration.issuer_url,
+            subject="subject-1",
+            last_groups_json='["Sambee Users"]',
+        )
+        session.add(configuration)
+        session.add(identity)
         session.add(regular_user)
         session.commit()
 
@@ -195,12 +211,113 @@ class TestAdminUsers:
         )
 
         assert response.status_code == 200
-        assert response.json()["role"] == "viewer"
+        assert response.json()["role"] == "editor"
         assert response.json()["oidc_role_assignment"] is None
+        assert response.json()["oidc"]["inherited_role"] == "editor"
         session.refresh(regular_user)
-        assert regular_user.role == UserRole.VIEWER
+        assert regular_user.role == UserRole.EDITOR
         assert regular_user.oidc_role_assignment is None
         assert regular_user.token_version == 1
+
+    def test_clearing_oidc_role_assignment_requires_a_resolved_inherited_role(
+        self, client: TestClient, auth_headers_admin: dict, regular_user: User, session: Session
+    ):
+        configuration = OidcProviderConfiguration(
+            display_name="Provider",
+            issuer_url="https://issuer.example",
+            client_id="sambee",
+            sign_in_mode=SignInMode.OIDC_OR_PASSWORD,
+            role_assignment_mode=OidcRoleAssignmentMode.GROUP_BASED,
+            role_mappings_json='{"admin":["Admins"],"editor":["Editors"],"viewer":["Viewers"]}',
+        )
+        regular_user.role = UserRole.ADMIN
+        regular_user.oidc_role_assignment = UserRole.ADMIN
+        identity = OidcIdentity(user_id=regular_user.id, issuer=configuration.issuer_url, subject="subject-1")
+        session.add_all([configuration, identity, regular_user])
+        session.commit()
+
+        username_response = client.patch(
+            f"/api/admin/users/{regular_user.id}",
+            headers=auth_headers_admin,
+            json={"username": "renamed-oidc-user"},
+        )
+
+        assert username_response.status_code == 200
+        assert username_response.json()["username"] == "renamed-oidc-user"
+
+        response = client.patch(
+            f"/api/admin/users/{regular_user.id}",
+            headers=auth_headers_admin,
+            json={"oidc_role_assignment": None},
+        )
+
+        assert response.status_code == 409
+        assert response.json()["detail"] == "The inherited OIDC role is unavailable until the user signs in with OIDC"
+        session.refresh(regular_user)
+        assert regular_user.role == UserRole.ADMIN
+        assert regular_user.oidc_role_assignment == UserRole.ADMIN
+
+    def test_clearing_pending_oidc_role_assignment_requires_a_linked_identity(
+        self, client: TestClient, auth_headers_admin: dict, admin_user: User, regular_user: User, session: Session
+    ):
+        configuration = OidcProviderConfiguration(
+            display_name="Provider",
+            issuer_url="https://issuer.example",
+            client_id="sambee",
+            sign_in_mode=SignInMode.OIDC_OR_PASSWORD,
+        )
+        regular_user.role = UserRole.ADMIN
+        regular_user.oidc_role_assignment = UserRole.ADMIN
+        session.add_all([configuration, regular_user])
+        session.flush()
+        session.add(
+            OidcPendingIdentityMapping(
+                provider_configuration_id=configuration.id,
+                expected_username="provider-user",
+                target_user_id=regular_user.id,
+                created_by_user_id=admin_user.id,
+            )
+        )
+        session.commit()
+
+        response = client.patch(
+            f"/api/admin/users/{regular_user.id}",
+            headers=auth_headers_admin,
+            json={"oidc_role_assignment": None},
+        )
+
+        assert response.status_code == 409
+        assert response.json()["detail"] == "The inherited OIDC role is unavailable until the user signs in with OIDC"
+        session.refresh(regular_user)
+        assert regular_user.role == UserRole.ADMIN
+        assert regular_user.oidc_role_assignment == UserRole.ADMIN
+
+    def test_update_rejects_oidc_managed_name_and_email(
+        self, client: TestClient, auth_headers_admin: dict, regular_user: User, session: Session
+    ):
+        configuration = OidcProviderConfiguration(
+            display_name="Provider",
+            issuer_url="https://issuer.example",
+            client_id="sambee",
+            sign_in_mode=SignInMode.OIDC_OR_PASSWORD,
+        )
+        regular_user.name = "Provider Name"
+        regular_user.email = "provider@example.test"
+        identity = OidcIdentity(user_id=regular_user.id, issuer=configuration.issuer_url, subject="subject-1")
+        session.add_all([configuration, identity, regular_user])
+        session.commit()
+
+        response = client.patch(
+            f"/api/admin/users/{regular_user.id}",
+            headers=auth_headers_admin,
+            json={"name": "Manual Name", "email": "manual@example.test"},
+        )
+
+        assert response.status_code == 400
+        assert response.json()["detail"] == "Full name and email are managed by OIDC"
+        session.refresh(regular_user)
+        assert regular_user.name == "Provider Name"
+        assert regular_user.email == "provider@example.test"
 
     @pytest.mark.parametrize("mode", (AuthenticationMode.PASSWORD_ONLY, AuthenticationMode.OIDC_OR_PASSWORD))
     def test_reset_password_invalidates_existing_token(
