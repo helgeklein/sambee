@@ -80,7 +80,7 @@ describe("AccountSettings", () => {
     expect(screen.getByRole("rowheader", { name: "Identity source" })).toBeInTheDocument();
     expect(screen.getByRole("cell", { name: "Local" })).toBeInTheDocument();
     expect(screen.getByRole("heading", { name: "Password" })).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: "Change password" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Change password" })).toHaveStyle({ alignSelf: "flex-start" });
     expect(screen.queryByLabelText("Current password")).not.toBeInTheDocument();
     expect(screen.getByRole("heading", { name: "Sessions" })).toBeInTheDocument();
     expect(screen.getByRole("heading", { name: "This browser", level: 3 })).toBeInTheDocument();

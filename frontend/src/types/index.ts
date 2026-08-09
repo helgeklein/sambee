@@ -86,6 +86,47 @@ export interface AdminUser {
   } | null;
 }
 
+export type AdminUserDirectoryState = "active" | "disabled" | "expired" | "expiring_soon";
+export type AdminUserDirectoryAuthentication = "password" | "oidc" | "password_and_oidc" | "unavailable";
+export type AdminUserDirectoryOidcState = "linked" | "pending" | "unlinked";
+export type AdminUserDirectoryRoleSource =
+  | "local_assignment"
+  | "individual_override"
+  | "oidc_default"
+  | "oidc_groups"
+  | "awaiting_oidc_sign_in";
+export type AdminUserDirectorySort = "username" | "role" | "last_sign_in" | "expiration" | "created_at";
+export type SortDirection = "asc" | "desc";
+
+export interface AdminUserListQuery {
+  q?: string;
+  roles?: UserRole[];
+  states?: AdminUserDirectoryState[];
+  authentication?: AdminUserDirectoryAuthentication[];
+  oidcStates?: AdminUserDirectoryOidcState[];
+  roleSources?: AdminUserDirectoryRoleSource[];
+  expiration?: "has_expiration" | "no_expiration";
+  sort?: AdminUserDirectorySort;
+  direction?: SortDirection;
+  page?: number;
+  pageSize?: number;
+}
+
+export interface AdminUserListSummary {
+  total: number;
+  active_admins: number;
+  disabled: number;
+  expiring_soon: number;
+  pending_oidc: number;
+  unavailable_sign_in: number;
+}
+
+export interface AdminUserListResponse {
+  items: AdminUser[];
+  total: number;
+  summary: AdminUserListSummary;
+}
+
 export interface AdminUserCreateInput {
   username: string;
   name?: string;

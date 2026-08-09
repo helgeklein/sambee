@@ -14,6 +14,47 @@ class UserRole(StrEnum):
     ADMIN = "admin"
 
 
+class AdminUserDirectoryState(StrEnum):
+    ACTIVE = "active"
+    DISABLED = "disabled"
+    EXPIRED = "expired"
+    EXPIRING_SOON = "expiring_soon"
+
+
+class AdminUserDirectoryAuthentication(StrEnum):
+    PASSWORD = "password"
+    OIDC = "oidc"
+    PASSWORD_AND_OIDC = "password_and_oidc"
+    UNAVAILABLE = "unavailable"
+
+
+class AdminUserDirectoryOidcState(StrEnum):
+    LINKED = "linked"
+    PENDING = "pending"
+    UNLINKED = "unlinked"
+
+
+class AdminUserDirectoryRoleSource(StrEnum):
+    LOCAL_ASSIGNMENT = "local_assignment"
+    INDIVIDUAL_OVERRIDE = "individual_override"
+    OIDC_DEFAULT = "oidc_default"
+    OIDC_GROUPS = "oidc_groups"
+    AWAITING_OIDC_SIGN_IN = "awaiting_oidc_sign_in"
+
+
+class AdminUserDirectorySort(StrEnum):
+    USERNAME = "username"
+    ROLE = "role"
+    LAST_SIGN_IN = "last_sign_in"
+    EXPIRATION = "expiration"
+    CREATED_AT = "created_at"
+
+
+class SortDirection(StrEnum):
+    ASC = "asc"
+    DESC = "desc"
+
+
 class AccountIdentitySource(StrEnum):
     LOCAL = "local"
     OIDC = "oidc"
@@ -134,6 +175,21 @@ class AdminUserRead(CurrentUserRead):
     oidc_role_assignment: UserRole | None = None
     oidc: AdminUserOidcRead | None = None
     pending_oidc: AdminUserPendingOidcRead | None = None
+
+
+class AdminUserListSummary(SQLModel):
+    total: int
+    active_admins: int
+    disabled: int
+    expiring_soon: int
+    pending_oidc: int
+    unavailable_sign_in: int
+
+
+class AdminUserListResponse(SQLModel):
+    items: list[AdminUserRead]
+    total: int
+    summary: AdminUserListSummary
 
 
 class AdminUserCreate(SQLModel):

@@ -5,6 +5,8 @@ import { logger } from "../../services/logger";
 import type {
   AboutSettings,
   AdminUser,
+  AdminUserListQuery,
+  AdminUserListResponse,
   AdvancedSystemSettings,
   CompanionDownloadMetadata,
   Connection,
@@ -36,19 +38,49 @@ export interface LocalDrivesSettingsData {
 
 export interface UserManagementSettingsData {
   users: AdminUser[];
+  directory: AdminUserListResponse;
   currentUserId: string | null;
   oidcConfiguration: OidcAdminConfigurationRead;
+}
+
+function normalizeUserDirectoryResponse(response: AdminUserListResponse | AdminUser[]): AdminUserListResponse {
+  if (!Array.isArray(response)) {
+    return response;
+  }
+
+  return {
+    items: response,
+    total: response.length,
+    summary: {
+      total: response.length,
+      active_admins: response.filter((user) => user.role === "admin" && user.is_active).length,
+      disabled: response.filter((user) => !user.is_active).length,
+      expiring_soon: 0,
+      pending_oidc: response.filter((user) => user.pending_oidc !== null).length,
+      unavailable_sign_in: response.filter((user) => !user.has_local_password && user.oidc === null).length,
+    },
+  };
 }
 
 export async function loadConnectionsSettingsData(): Promise<Connection[]> {
   return api.getConnections();
 }
 
-export async function loadUserManagementSettingsData(): Promise<UserManagementSettingsData> {
-  const [users, currentUser, oidcConfiguration] = await Promise.all([api.getUsers(), api.getCurrentUser(), api.getOidcConfiguration()]);
+export function getUserManagementSettingsDataCacheKey(query: AdminUserListQuery): string {
+  return `${SETTINGS_DATA_CACHE_KEYS.adminUsers}:${JSON.stringify(query)}`;
+}
+
+export async function loadUserManagementSettingsData(query: AdminUserListQuery = {}): Promise<UserManagementSettingsData> {
+  const [directoryResponse, currentUser, oidcConfiguration] = await Promise.all([
+    api.getUsers(query),
+    api.getCurrentUser(),
+    api.getOidcConfiguration(),
+  ]);
+  const directory = normalizeUserDirectoryResponse(directoryResponse);
 
   return {
-    users,
+    users: directory.items,
+    directory,
     currentUserId: currentUser.id ?? null,
     oidcConfiguration,
   };

@@ -1,7 +1,12 @@
-import { fireEvent, render, screen, waitFor, within } from "@testing-library/react";
+import { render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import { clearCachedAsyncData } from "../../hooks/useCachedAsyncData";
+import {
+  clearCachedAsyncData,
+  clearCachedAsyncDataByPrefix,
+  getCachedAsyncData,
+  primeCachedAsyncData,
+} from "../../hooks/useCachedAsyncData";
 import { SambeeThemeProvider } from "../../theme";
 import type { AdminUserCreateResult, AdminUserPasswordResetResult } from "../../types";
 import { UserManagementSettings } from "../UserManagementSettings";
@@ -46,6 +51,10 @@ function mockViewportWidth(width: number) {
   };
 }
 
+async function openUserActions(user: ReturnType<typeof userEvent.setup>, username: string) {
+  await user.click(await screen.findByRole("button", { name: `User actions for ${username}` }));
+}
+
 describe("UserManagementSettings", () => {
   beforeEach(() => {
     vi.clearAllMocks();
@@ -81,6 +90,24 @@ describe("UserManagementSettings", () => {
     vi.mocked(api.resetUserPassword).mockResolvedValue({
       message: "Password reset",
     });
+  });
+
+  it("invalidates every cached directory query after a user mutation", async () => {
+    const directoryCachePrefix = "settings-data/admin-users:";
+    const firstDirectoryKey = `${directoryCachePrefix}{"page":1}`;
+    const secondDirectoryKey = `${directoryCachePrefix}{"page":2}`;
+    const unrelatedKey = "settings-data/current-user";
+    await Promise.all([
+      primeCachedAsyncData(firstDirectoryKey, async () => "first"),
+      primeCachedAsyncData(secondDirectoryKey, async () => "second"),
+      primeCachedAsyncData(unrelatedKey, async () => "unrelated"),
+    ]);
+
+    clearCachedAsyncDataByPrefix(directoryCachePrefix);
+
+    expect(getCachedAsyncData(firstDirectoryKey)).toBeNull();
+    expect(getCachedAsyncData(secondDirectoryKey)).toBeNull();
+    expect(getCachedAsyncData(unrelatedKey)).toBe("unrelated");
   });
 
   it("opens the create-user dialog with outlined form controls", async () => {
@@ -172,7 +199,8 @@ describe("UserManagementSettings", () => {
       </SambeeThemeProvider>
     );
 
-    await user.click(await screen.findByRole("button", { name: "Delete other-user" }));
+    await openUserActions(user, "other-user");
+    await user.click(await screen.findByRole("menuitem", { name: "Delete user" }));
 
     const deleteDialog = screen.getByRole("dialog", { name: "Delete User" });
     expect(within(deleteDialog).getByText("other-user", { exact: true }).tagName).toBe("STRONG");
@@ -197,8 +225,8 @@ describe("UserManagementSettings", () => {
     await screen.findByText("admin (you)", { exact: true });
 
     expect(screen.queryByRole("button", { name: /add user/i })).not.toBeInTheDocument();
-    expect(screen.queryByRole("button", { name: /reset password for admin/i })).not.toBeInTheDocument();
-    expect(screen.queryByText("Local password", { exact: true })).not.toBeInTheDocument();
+    await openUserActions(userEvent.setup(), "admin");
+    expect(screen.queryByRole("menuitem", { name: /reset password/i })).not.toBeInTheDocument();
   });
 
   it("uses external descriptions and grouped sections in the desktop add-user editor", async () => {
@@ -580,20 +608,20 @@ describe("UserManagementSettings", () => {
     expect(window.getComputedStyle(userName).fontWeight).toBe("600");
   });
 
-  it("uses flex gaps when user-status chips wrap", async () => {
+  it("uses wrapped compact exception-status chips", async () => {
     render(
       <SambeeThemeProvider>
         <UserManagementSettings />
       </SambeeThemeProvider>
     );
 
-    const localPasswordChip = await screen.findByText("Local password", { exact: true });
-    const chipRow = localPasswordChip.closest(".MuiStack-root");
+    const activeChip = await screen.findByText("Active", { exact: true });
+    const chipRow = activeChip.closest(".MuiStack-root");
 
-    expect(chipRow).toHaveStyle({ display: "flex", flexWrap: "wrap", gap: "8px", rowGap: "8px" });
+    expect(chipRow).toHaveStyle({ display: "flex" });
   });
 
-  it("keeps metadata and actions responsive within each user row", async () => {
+  it("keeps compact metadata and actions within each directory row", async () => {
     render(
       <SambeeThemeProvider>
         <UserManagementSettings />
@@ -603,12 +631,10 @@ describe("UserManagementSettings", () => {
     const userRow = await screen.findByTestId("user-row");
     const metadata = screen.getByTestId("user-metadata");
     const actions = screen.getByTestId("user-row-actions");
-    const compactActionMenu = screen.getByTestId("user-row-action-menu");
 
-    expect(userRow).toHaveStyle({ containerType: "inline-size", display: "flex", flexWrap: "wrap" });
+    expect(userRow).toHaveStyle({ display: "grid" });
     expect(metadata).toHaveStyle({ flexWrap: "wrap" });
     expect(actions).toHaveStyle({ display: "flex" });
-    expect(compactActionMenu).toHaveStyle({ display: "none" });
   });
 
   it("provides compact user actions through one overflow menu", async () => {
@@ -618,10 +644,8 @@ describe("UserManagementSettings", () => {
       </SambeeThemeProvider>
     );
 
-    const compactActionMenu = await screen.findByTestId("user-row-action-menu");
-    fireEvent.click(within(compactActionMenu).getByRole("button", { hidden: true, name: "User actions for admin" }));
+    await openUserActions(userEvent.setup(), "admin");
 
-    expect(screen.getByRole("menuitem", { name: /^edit user$/i })).toBeInTheDocument();
     expect(screen.getByRole("menuitem", { name: /^reset password$/i })).toBeInTheDocument();
     expect(screen.getByRole("menuitem", { name: /^delete user$/i })).toHaveAttribute("aria-disabled", "true");
   });
@@ -670,8 +694,7 @@ describe("UserManagementSettings", () => {
       </SambeeThemeProvider>
     );
 
-    expect(await screen.findByText(/OIDC last login:/)).toBeInTheDocument();
-    expect(screen.queryByText(/OIDC linked: Corporate login/)).not.toBeInTheDocument();
+    expect((await screen.findAllByText("OIDC", { exact: true })).length).toBeGreaterThan(0);
     const localTimestamp = new Intl.DateTimeFormat(undefined, {
       year: "numeric",
       month: "short",
@@ -680,11 +703,131 @@ describe("UserManagementSettings", () => {
       minute: "2-digit",
       timeZoneName: "short",
     }).format(new Date("2026-03-01T10:00:00Z"));
-    expect(screen.getByText(`OIDC last login: ${localTimestamp}`)).toBeInTheDocument();
+    expect(screen.getByText(localTimestamp)).toBeInTheDocument();
     expect(screen.getAllByText("second-oidc-user", { exact: true })).toHaveLength(2);
-    expect(screen.getAllByText("OIDC linked", { exact: true })).toHaveLength(2);
     expect(screen.queryByRole("button", { name: /reset password/i })).not.toBeInTheDocument();
-    expect(screen.queryByText("Local password")).not.toBeInTheDocument();
+  });
+
+  it.each([
+    ["oidc_only", "uniform"],
+    ["oidc_or_password", "group_based"],
+  ] as const)("renders directory identities in %s mode", async (authMode, roleAssignmentMode) => {
+    vi.mocked(api.getUsers).mockResolvedValue([
+      {
+        id: "user-1",
+        username: "local-user",
+        role: "admin",
+        is_active: true,
+        must_change_password: false,
+        has_local_password: true,
+        oidc_role_assignment: null,
+        oidc: null,
+        pending_oidc: null,
+        created_at: "2026-03-01T10:00:00Z",
+        updated_at: "2026-03-01T10:00:00Z",
+      },
+      {
+        id: "user-2",
+        username: "inherited-user",
+        role: "editor",
+        is_active: true,
+        must_change_password: false,
+        has_local_password: false,
+        oidc_role_assignment: null,
+        oidc: { identity_id: "identity-2", provider_display_name: "Corporate login", last_login_at: null, inherited_role: "editor" },
+        pending_oidc: null,
+        created_at: "2026-03-01T10:00:00Z",
+        updated_at: "2026-03-01T10:00:00Z",
+      },
+      {
+        id: "user-3",
+        username: "override-user",
+        role: "admin",
+        is_active: true,
+        must_change_password: false,
+        has_local_password: true,
+        oidc_role_assignment: "admin",
+        oidc: { identity_id: "identity-3", provider_display_name: "Corporate login", last_login_at: null, inherited_role: "editor" },
+        pending_oidc: null,
+        created_at: "2026-03-01T10:00:00Z",
+        updated_at: "2026-03-01T10:00:00Z",
+      },
+      {
+        id: "user-4",
+        username: "pending-user",
+        role: "admin",
+        is_active: true,
+        must_change_password: false,
+        has_local_password: false,
+        oidc_role_assignment: "admin",
+        oidc: null,
+        pending_oidc: {
+          expected_username: "pending-user",
+          created_by_username: "local-user",
+          created_at: "2026-03-01T10:00:00Z",
+        },
+        created_at: "2026-03-01T10:00:00Z",
+        updated_at: "2026-03-01T10:00:00Z",
+      },
+      {
+        id: "user-5",
+        username: "unresolved-user",
+        role: "editor",
+        is_active: true,
+        must_change_password: false,
+        has_local_password: false,
+        oidc_role_assignment: null,
+        oidc: { identity_id: "identity-5", provider_display_name: "Corporate login", last_login_at: null, inherited_role: null },
+        pending_oidc: null,
+        created_at: "2026-03-01T10:00:00Z",
+        updated_at: "2026-03-01T10:00:00Z",
+      },
+    ]);
+    vi.mocked(api.getOidcConfiguration).mockResolvedValue({
+      configuration: {
+        display_name: "Corporate login",
+        issuer_url: "https://idp.example.test",
+        client_id: "sambee",
+        client_secret_configured: true,
+        scopes: ["openid", "groups"],
+        username_claim: "preferred_username",
+        name_claim: "name",
+        email_claim: "email",
+        groups_claim: "groups",
+        sign_in_mode: authMode,
+        interactive_reauthentication_max_age_days: 30,
+        admission_mode: "all_idp_users",
+        admission_groups: [],
+        role_assignment_mode: roleAssignmentMode,
+        uniform_role: "editor",
+        role_mappings: { admin: ["admins"], editor: ["editors"], viewer: ["viewers"] },
+        auto_link_by_username: true,
+        configuration_revision: 2,
+        identity_mapping_revision: 1,
+      },
+      active_passwordless_user_count: 0,
+      auth_mode: authMode,
+      auth_enforcement_disabled: false,
+      health: {
+        public_url_configured: true,
+        public_url: "https://sambee.example.test",
+        redirect_uri: "https://sambee.example.test/api/auth/oidc/callback",
+        status: "healthy",
+        reasons: [],
+      },
+    });
+    vi.mocked(api.getCurrentUser).mockResolvedValue({ id: "user-1", username: "local-user", role: "admin" });
+
+    render(
+      <SambeeThemeProvider>
+        <UserManagementSettings />
+      </SambeeThemeProvider>
+    );
+
+    expect(await screen.findByText("local-user", { exact: true })).toBeInTheDocument();
+    expect(screen.getAllByText("inherited-user", { exact: true }).length).toBeGreaterThan(0);
+    expect(screen.getAllByText("override-user", { exact: true }).length).toBeGreaterThan(0);
+    expect(screen.getAllByText("pending-user", { exact: true }).length).toBeGreaterThan(0);
   });
 
   it("suppresses the user-load error when controlled OIDC reauthentication has started", async () => {
@@ -705,6 +848,7 @@ describe("UserManagementSettings", () => {
   });
 
   it("uses the centralized OIDC mapping dialog and closes change and move workflows with Escape", async () => {
+    const restoreViewport = mockViewportWidth(1200);
     vi.mocked(api.getUsers).mockResolvedValue([
       {
         id: "user-1",
@@ -789,17 +933,46 @@ describe("UserManagementSettings", () => {
       </SambeeThemeProvider>
     );
 
-    expect(await screen.findByRole("button", { name: "Map OIDC account for unmapped-user" })).toBeEnabled();
+    await openUserActions(user, "unmapped-user");
+    expect(screen.getByRole("menuitem", { name: "Map OIDC account" })).toBeEnabled();
+    await user.keyboard("{Escape}");
+    vi.mocked(api.getUsers).mockResolvedValue({
+      items: [
+        {
+          id: "user-2",
+          username: "unmapped-user",
+          role: "viewer",
+          is_active: true,
+          must_change_password: false,
+          has_local_password: true,
+          oidc_role_assignment: null,
+          oidc: null,
+          pending_oidc: null,
+          created_at: "2026-03-01T10:00:00Z",
+          updated_at: "2026-03-01T10:00:00Z",
+        },
+      ],
+      total: 1,
+      summary: { total: 1, active_admins: 0, disabled: 0, expiring_soon: 0, pending_oidc: 0, unavailable_sign_in: 0 },
+    });
 
-    expect(screen.queryByRole("button", { name: "Change OIDC account for linked-admin" })).not.toBeInTheDocument();
-    await user.click(screen.getByRole("button", { name: "Advanced OIDC actions for linked-admin" }));
+    await openUserActions(user, "linked-admin");
     await user.click(screen.getByRole("menuitem", { name: "View OIDC identity details" }));
-    expect(await screen.findByRole("dialog", { name: "OIDC identity details" })).toBeInTheDocument();
-    expect(screen.getByDisplayValue("provider-subject-1")).toBeInTheDocument();
+    const identityDetailsDialog = await screen.findByRole("dialog", { name: "OIDC identity details for linked-admin" });
+    expect(identityDetailsDialog).toBeInTheDocument();
+    const providerSubject = screen.getByLabelText("IdP subject");
+    expect(screen.getByTestId("oidc-details-form-surface")).toContainElement(providerSubject);
+    expect(providerSubject).toHaveValue("provider-subject-1");
+    expect(providerSubject).toHaveAttribute("aria-describedby", "oidc-details-subject-description");
+    expect(screen.getByText("Linked in Sambee")).not.toHaveClass("MuiInputLabel-root");
+    expect(screen.getByText("When Sambee first linked this IdP identity to the account.")).not.toHaveClass("MuiFormHelperText-root");
+    expect(screen.queryByText("Sambee OIDC identity record ID")).not.toBeInTheDocument();
+    expect(screen.queryByText("Sambee local user ID")).not.toBeInTheDocument();
+    expect(screen.queryByText("Stored identity properties for linked-admin.")).not.toBeInTheDocument();
     await user.click(screen.getByRole("button", { name: "Close" }));
     await waitFor(() => expect(screen.queryByRole("dialog", { name: "OIDC identity details" })).not.toBeInTheDocument());
 
-    await user.click(screen.getByRole("button", { name: "Advanced OIDC actions for linked-admin" }));
+    await openUserActions(user, "linked-admin");
     expect(screen.getByRole("menuitem", { name: "Change OIDC account" })).toBeEnabled();
     await user.click(screen.getByRole("menuitem", { name: "Change OIDC account" }));
     const expectedUsername = await screen.findByLabelText("Expected provider username");
@@ -814,16 +987,38 @@ describe("UserManagementSettings", () => {
       expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
     });
 
-    await user.click(screen.getByRole("button", { name: "Advanced OIDC actions for linked-admin" }));
+    await openUserActions(user, "linked-admin");
     await user.click(screen.getByRole("menuitem", { name: "Move identity to another local user" }));
-    const targetAccount = await screen.findByRole("combobox", { name: "Target local account" });
-    expect(targetAccount).toHaveFocus();
-    expect(screen.getByTestId("oidc-mapping-editor-form-surface")).toContainElement(targetAccount);
+    const targetSearch = await screen.findByLabelText("Find local account");
+    expect(targetSearch).toHaveFocus();
+    expect(screen.getByTestId("oidc-mapping-editor-form-surface")).toContainElement(targetSearch);
+    await waitFor(() =>
+      expect(api.getUsers).toHaveBeenLastCalledWith({
+        page: 1,
+        pageSize: 100,
+        q: undefined,
+        states: ["active"],
+        oidcStates: ["unlinked"],
+      })
+    );
+    await user.click(screen.getByRole("combobox", { name: "Target local account" }));
+    expect(await screen.findByRole("option", { name: "unmapped-user" })).toBeInTheDocument();
+    await user.type(targetSearch, "unmapped");
+    await waitFor(() =>
+      expect(api.getUsers).toHaveBeenLastCalledWith({
+        page: 1,
+        pageSize: 100,
+        q: "unmapped",
+        states: ["active"],
+        oidcStates: ["unlinked"],
+      })
+    );
 
     await user.keyboard("{Escape}");
     await waitFor(() => {
       expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
     });
+    restoreViewport();
   });
 
   it("lets the admin enter a new password for a reset", async () => {
@@ -840,7 +1035,8 @@ describe("UserManagementSettings", () => {
       expect(api.getCurrentUser).toHaveBeenCalled();
     });
 
-    await user.click(screen.getByRole("button", { name: /reset password for admin/i }));
+    await openUserActions(user, "admin");
+    await user.click(screen.getByRole("menuitem", { name: /reset password/i }));
 
     const passwordInput = await screen.findByLabelText(/^new password$/i);
     expect(passwordInput).toBeInTheDocument();
@@ -879,7 +1075,8 @@ describe("UserManagementSettings", () => {
       </SambeeThemeProvider>
     );
 
-    await user.click(await screen.findByRole("button", { name: /reset password for admin/i }));
+    await openUserActions(user, "admin");
+    await user.click(screen.getByRole("menuitem", { name: /reset password/i }));
 
     const passwordInput = await screen.findByLabelText(/^new password$/i);
     expect(passwordInput).toHaveFocus();
@@ -915,7 +1112,8 @@ describe("UserManagementSettings", () => {
       expect(api.getCurrentUser).toHaveBeenCalled();
     });
 
-    await user.click(screen.getByRole("button", { name: /reset password for admin/i }));
+    await openUserActions(user, "admin");
+    await user.click(screen.getByRole("menuitem", { name: /reset password/i }));
     await user.type(await screen.findByLabelText(/^new password$/i), "BrandNewPass123!");
     await user.click(await screen.findByRole("button", { name: /set password/i }));
 

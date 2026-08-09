@@ -351,7 +351,7 @@ export function AccountSettings({ dialogSafe = false }: { dialogSafe?: boolean }
                   startIcon={<LockResetIcon />}
                   onClick={openPasswordDialog}
                   disabled={passwordSubmitting}
-                  sx={settingsUtilityButtonSx}
+                  sx={[settingsUtilityButtonSx, { alignSelf: "flex-start" }]}
                 >
                   Change password
                 </Button>
