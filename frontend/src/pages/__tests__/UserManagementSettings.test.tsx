@@ -638,6 +638,7 @@ describe("UserManagementSettings", () => {
       const roleSort = within(header).getByRole("button", { name: "Sort by Role" });
 
       expect(screen.queryByRole("combobox", { name: "Sort" })).not.toBeInTheDocument();
+      expect(roleSort).toHaveAttribute("tabindex", "-1");
       await user.click(roleSort);
       await waitFor(() => {
         expect(
@@ -658,6 +659,97 @@ describe("UserManagementSettings", () => {
     } finally {
       restoreViewport();
     }
+  });
+
+  it("keeps password-only headers and rows in matching columns and skips sort headers while tabbing", async () => {
+    const restoreViewport = mockViewportWidth(1200);
+    const user = userEvent.setup();
+
+    try {
+      render(
+        <SambeeThemeProvider>
+          <UserManagementSettings />
+        </SambeeThemeProvider>
+      );
+
+      const header = await screen.findByTestId("user-directory-header");
+      const row = await screen.findByTestId("user-row");
+
+      expect(header.querySelectorAll('[role="columnheader"]')).toHaveLength(6);
+      expect(row.children).toHaveLength(6);
+      expect(screen.getByTestId("user-row-role")).toHaveStyle({ width: "fit-content" });
+      const sortButtons = within(header).getAllByRole("button");
+      expect(sortButtons).toHaveLength(3);
+      for (const sortButton of sortButtons) {
+        expect(sortButton).toHaveAttribute("tabindex", "-1");
+      }
+
+      await user.tab();
+      expect(screen.getByRole("textbox", { name: "Search users" })).toHaveFocus();
+      await user.tab();
+      expect(screen.getByRole("button", { name: "Filters" })).toHaveFocus();
+      await user.tab();
+      expect(screen.getByRole("button", { name: "Edit admin" })).toHaveFocus();
+      await user.tab();
+      expect(screen.getByRole("button", { name: "User actions for admin" })).toHaveFocus();
+      await user.tab();
+      expect(screen.getByRole("combobox")).toHaveFocus();
+      await user.tab();
+      expect(screen.queryByRole("button", { name: "page 1" })).not.toHaveFocus();
+    } finally {
+      restoreViewport();
+    }
+  });
+
+  it("uses an ordered single-column record layout on phones", async () => {
+    const restoreViewport = mockViewportWidth(390);
+
+    try {
+      render(
+        <SambeeThemeProvider>
+          <UserManagementSettings />
+        </SambeeThemeProvider>
+      );
+
+      const row = await screen.findByTestId("user-row");
+      const cellText = Array.from(row.children).map((cell) => cell.textContent);
+
+      expect(cellText).toEqual([
+        expect.stringContaining("admin (you)"),
+        expect.stringContaining("RoleAdmin"),
+        expect.stringContaining("StatusActive"),
+        expect.stringContaining("Sign-in: Password"),
+        expect.stringContaining("Expiration: Never"),
+        "",
+      ]);
+      expect(within(row.children[5]).getByRole("button", { name: "Edit admin" })).toBeInTheDocument();
+      expect(within(row.children[5]).getByRole("button", { name: "User actions for admin" })).toBeInTheDocument();
+    } finally {
+      restoreViewport();
+    }
+  });
+
+  it("reuses cached directory data when User Management remounts", async () => {
+    const firstRender = render(
+      <SambeeThemeProvider>
+        <UserManagementSettings />
+      </SambeeThemeProvider>
+    );
+
+    await screen.findByText("admin (you)", { exact: true });
+    firstRender.unmount();
+
+    render(
+      <SambeeThemeProvider>
+        <UserManagementSettings />
+      </SambeeThemeProvider>
+    );
+
+    await screen.findByText("admin (you)", { exact: true });
+    expect(api.getUsers).toHaveBeenCalledTimes(1);
+    expect(api.getCurrentUser).toHaveBeenCalledTimes(1);
+    expect(api.getOidcConfiguration).toHaveBeenCalledTimes(1);
+    expect(screen.queryByRole("progressbar", { name: "Updating user directory" })).not.toBeInTheDocument();
   });
 
   it("keeps directory rows visible and does not reload stable context while sorting", async () => {

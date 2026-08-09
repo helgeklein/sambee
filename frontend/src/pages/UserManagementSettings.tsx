@@ -21,12 +21,14 @@ import {
   FormHelperText,
   IconButton,
   InputLabel,
+  LinearProgress,
   List,
   ListItem,
   ListItemText,
   Menu,
   MenuItem,
   Pagination,
+  PaginationItem,
   Popover,
   Select,
   Stack,
@@ -224,6 +226,7 @@ interface DirectoryFilterOption<T extends string> {
 
 const DIRECTORY_DEFAULT_PAGE_SIZE = 25;
 const DIRECTORY_SEARCH_DEBOUNCE_MS = 300;
+const DIRECTORY_ACTIONS_COLUMN_WIDTH = "76px";
 const DIRECTORY_PAGE_SIZE_OPTIONS = [25, 50, 100] as const;
 const DIRECTORY_ROLE_VALUES: UserRole[] = ["admin", "editor", "viewer"];
 const DIRECTORY_STATE_VALUES: AdminUserDirectoryState[] = ["active", "disabled", "expired", "expiring_soon"];
@@ -254,21 +257,51 @@ const DIRECTORY_HEADER_LABEL_SX = {
 
 function getDirectoryRowGridSx(oidcAuthenticationEnabled: boolean) {
   const wideColumns = oidcAuthenticationEnabled
-    ? "minmax(0, 1.5fr) minmax(0, 0.7fr) minmax(0, 1.1fr) minmax(0, 0.8fr) minmax(0, 1fr) minmax(0, 1fr) auto"
-    : "minmax(0, 1.8fr) minmax(0, 0.75fr) minmax(0, 1.2fr) minmax(0, 1fr) auto";
+    ? `minmax(0, 1.5fr) minmax(0, 0.7fr) minmax(0, 1.1fr) minmax(0, 0.8fr) minmax(0, 1fr) minmax(0, 1fr) ${DIRECTORY_ACTIONS_COLUMN_WIDTH}`
+    : `minmax(0, 1.8fr) minmax(0, 0.75fr) minmax(0, 1.2fr) minmax(0, 1fr) minmax(0, 1fr) ${DIRECTORY_ACTIONS_COLUMN_WIDTH}`;
+  const mobileAreas = oidcAuthenticationEnabled
+    ? '"identity" "role" "status" "signIn" "expiration" "lastSignIn" "actions"'
+    : '"identity" "role" "status" "signIn" "expiration" "actions"';
 
   return {
     display: "grid",
     gridTemplateColumns: {
-      xs: "minmax(0, 1fr) auto",
-      md: "minmax(0, 1.8fr) minmax(0, 0.75fr) minmax(0, 1.2fr) minmax(0, 1fr) auto",
+      xs: "minmax(0, 1fr)",
+      md: `minmax(0, 1.8fr) minmax(0, 0.75fr) minmax(0, 1.2fr) minmax(0, 1fr) ${DIRECTORY_ACTIONS_COLUMN_WIDTH}`,
       lg: wideColumns,
     },
+    gridTemplateAreas: { xs: mobileAreas, md: "none" },
     gap: { xs: 1, md: 1.5 },
     alignItems: "center",
     minWidth: 0,
     width: "100%",
   } as const;
+}
+
+function DirectoryRowCell({
+  area,
+  children,
+  hideUntilLarge = false,
+  align = "start",
+}: {
+  area: string;
+  children: React.ReactNode;
+  hideUntilLarge?: boolean;
+  align?: "start" | "end";
+}) {
+  return (
+    <Box
+      sx={{
+        alignItems: "center",
+        display: hideUntilLarge ? { xs: "flex", md: "none", lg: "flex" } : "flex",
+        gridArea: { xs: area, md: "auto" },
+        justifyContent: align === "end" ? "flex-end" : "flex-start",
+        minWidth: 0,
+      }}
+    >
+      {children}
+    </Box>
+  );
 }
 
 function getDirectoryQueryFromLocation(search: string): DirectoryQueryState {
@@ -390,7 +423,7 @@ function DirectoryColumnHeader({
     <Box
       role="columnheader"
       aria-sort={sort ? ariaSort : undefined}
-      sx={{ display: hideUntilLarge ? { md: "none", lg: "block" } : undefined, minWidth: 0 }}
+      sx={{ alignItems: "center", display: hideUntilLarge ? { md: "none", lg: "flex" } : "flex", minWidth: 0 }}
     >
       {sort ? (
         <TableSortLabel
@@ -398,6 +431,7 @@ function DirectoryColumnHeader({
           direction={isActive ? direction : "asc"}
           hideSortIcon={false}
           onClick={() => onSort(sort)}
+          tabIndex={-1}
           aria-label={`Sort by ${label}${isActive ? `, ${ariaSort}` : ""}`}
           sx={{
             ...DIRECTORY_HEADER_LABEL_SX,
@@ -491,12 +525,14 @@ export function UserManagementSettings({ dialogSafeHeader = false }: UserManagem
     cacheKey: directoryCacheKey,
     load: loadDirectoryData,
     onError: handleUsersLoadError,
+    refreshCachedDataOnMount: false,
     retainDataOnCacheKeyChange: true,
   });
   const { data: userManagementContext, loading: contextLoading } = useCachedAsyncData({
     cacheKey: SETTINGS_DATA_CACHE_KEYS.adminUserContext,
     load: loadUserManagementContextData,
     onError: handleUsersLoadError,
+    refreshCachedDataOnMount: false,
   });
   const loading = directoryLoading || contextLoading;
   const users = cachedDirectoryData?.users ?? [];
@@ -1558,13 +1594,20 @@ export function UserManagementSettings({ dialogSafeHeader = false }: UserManagem
             />
           )}
         </Stack>
-        <Stack direction="row" spacing={1} useFlexGap sx={{ flexWrap: "wrap", alignItems: "center" }}>
+        <Box
+          sx={{
+            display: "grid",
+            gridTemplateColumns: { xs: "minmax(0, 1fr) auto", sm: "minmax(12rem, 20rem) auto minmax(6.5rem, auto)" },
+            gap: 1,
+            alignItems: "center",
+          }}
+        >
           <TextField
             label="Search users"
             value={searchInput}
             onChange={(event) => setSearchInput(event.target.value)}
             size="small"
-            sx={{ flex: "2 1 260px", minWidth: 220 }}
+            sx={{ gridColumn: { xs: "1 / -1", sm: "auto" }, minWidth: 0, width: "100%" }}
           />
           <Button
             aria-haspopup="dialog"
@@ -1576,13 +1619,19 @@ export function UserManagementSettings({ dialogSafeHeader = false }: UserManagem
           >
             {activeDirectoryFilterCount ? `Filters (${activeDirectoryFilterCount})` : "Filters"}
           </Button>
-          {directoryRefreshing && <CircularProgress aria-label="Updating user directory" size={20} />}
-          {activeDirectoryFilterCount > 0 && (
-            <Button variant="text" onClick={clearDirectoryFilters}>
-              Clear filters
-            </Button>
-          )}
-        </Stack>
+          <Button
+            aria-hidden={activeDirectoryFilterCount === 0}
+            onClick={clearDirectoryFilters}
+            tabIndex={activeDirectoryFilterCount === 0 ? -1 : undefined}
+            variant="text"
+            sx={{ justifySelf: "start", minWidth: 104, visibility: activeDirectoryFilterCount > 0 ? "visible" : "hidden" }}
+          >
+            Clear filters
+          </Button>
+        </Box>
+        <Box aria-live="polite" sx={{ height: 3 }}>
+          {directoryRefreshing && <LinearProgress aria-label="Updating user directory" sx={{ height: 3 }} />}
+        </Box>
         <Popover
           open={Boolean(filterAnchor)}
           anchorEl={filterAnchor}
@@ -1757,7 +1806,7 @@ export function UserManagementSettings({ dialogSafeHeader = false }: UserManagem
             }
           />
         ) : (
-          <Box role="table" aria-label="Users" sx={{ minWidth: 0, overflowX: "hidden" }}>
+          <Box role="table" aria-label="Users" sx={{ minWidth: 0, overflow: "visible", px: 0.75, py: 0.5 }}>
             <Box
               role="row"
               data-testid="user-directory-header"
@@ -1841,85 +1890,116 @@ export function UserManagementSettings({ dialogSafeHeader = false }: UserManagem
                 return (
                   <ListItem key={user.id} role="row" sx={{ px: 0, py: 1.25, borderBottom: 1, borderColor: "divider" }}>
                     <Box data-testid="user-row" sx={directoryRowGridSx}>
-                      <Box sx={{ minWidth: 0 }}>
-                        <Typography component="div" variant="body1" sx={settingsListItemTitleSx}>
-                          {user.name?.trim() ? user.name : user.username}
-                          {isSelf && ` ${t("settings.userManagement.currentUserSuffix")}`}
-                        </Typography>
-                        <Typography
-                          variant="body2"
-                          sx={{ color: "text.secondary", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}
-                        >
-                          {[user.username, user.email].filter(Boolean).join(" • ")}
-                        </Typography>
-                      </Box>
-                      <Chip
-                        size="small"
-                        icon={user.role === "admin" ? <AdminIcon /> : <PersonIcon />}
-                        label={roleLabel(user.role)}
-                        variant="outlined"
-                        sx={settingsMetadataChipSx}
-                      />
-                      <Stack data-testid="user-metadata" direction="row" spacing={0.5} useFlexGap sx={{ flexWrap: "wrap" }}>
-                        {(statuses.length ? statuses : [t("settings.userManagement.activeStatus")]).map((status) => (
-                          <Chip
-                            key={status}
-                            size="small"
-                            label={status}
-                            color={status === t("settings.userManagement.activeStatus") ? "default" : "warning"}
-                            variant="outlined"
-                            sx={settingsMetadataChipSx}
-                          />
-                        ))}
-                      </Stack>
-                      <Typography
-                        variant="body2"
-                        sx={{ color: "text.secondary", display: { xs: "block", md: "none", lg: "block" }, minWidth: 0 }}
-                      >
-                        <Box component="span" sx={{ display: { xs: "inline", md: "none" } }}>
-                          Sign-in:
-                        </Box>{" "}
-                        {authentication}
-                      </Typography>
-                      {oidcAuthenticationEnabled && (
-                        <Tooltip title={user.oidc?.last_login_at ? formatLocalTimestamp(user.oidc.last_login_at) : "No OIDC sign-in"}>
+                      <DirectoryRowCell area="identity">
+                        <Box data-testid="user-row-identity" sx={{ minWidth: 0 }}>
+                          <Typography component="div" variant="body1" sx={settingsListItemTitleSx}>
+                            {user.name?.trim() ? user.name : user.username}
+                            {isSelf && ` ${t("settings.userManagement.currentUserSuffix")}`}
+                          </Typography>
                           <Typography
                             variant="body2"
-                            sx={{ color: "text.secondary", display: { xs: "block", md: "none", lg: "block" }, minWidth: 0 }}
+                            sx={{ color: "text.secondary", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}
                           >
-                            <Box component="span" sx={{ display: { xs: "inline", md: "none" } }}>
-                              Last OIDC sign-in:
-                            </Box>{" "}
-                            {user.oidc?.last_login_at ? formatLocalTimestamp(user.oidc.last_login_at) : "Never"}
+                            {[user.username, user.email].filter(Boolean).join(" • ")}
                           </Typography>
+                        </Box>
+                      </DirectoryRowCell>
+                      <DirectoryRowCell area="role">
+                        <Stack direction="row" spacing={1} sx={{ alignItems: "center", minWidth: 0 }}>
+                          <Typography
+                            component="span"
+                            variant="caption"
+                            sx={{ display: { xs: "inline", md: "none" }, color: "text.secondary" }}
+                          >
+                            Role
+                          </Typography>
+                          <Chip
+                            data-testid="user-row-role"
+                            size="small"
+                            icon={user.role === "admin" ? <AdminIcon /> : <PersonIcon />}
+                            label={roleLabel(user.role)}
+                            variant="outlined"
+                            sx={[settingsMetadataChipSx, { flex: "0 1 auto", maxWidth: "100%", width: "fit-content" }]}
+                          />
+                        </Stack>
+                      </DirectoryRowCell>
+                      <DirectoryRowCell area="status">
+                        <Stack direction="row" spacing={1} useFlexGap sx={{ alignItems: "center", flexWrap: "wrap", minWidth: 0 }}>
+                          <Typography
+                            component="span"
+                            variant="caption"
+                            sx={{ display: { xs: "inline", md: "none" }, color: "text.secondary" }}
+                          >
+                            Status
+                          </Typography>
+                          <Stack data-testid="user-metadata" direction="row" spacing={0.5} useFlexGap sx={{ flexWrap: "wrap" }}>
+                            {(statuses.length ? statuses : [t("settings.userManagement.activeStatus")]).map((status) => (
+                              <Chip
+                                key={status}
+                                size="small"
+                                label={status}
+                                color={status === t("settings.userManagement.activeStatus") ? "default" : "warning"}
+                                variant="outlined"
+                                sx={settingsMetadataChipSx}
+                              />
+                            ))}
+                          </Stack>
+                        </Stack>
+                      </DirectoryRowCell>
+                      <DirectoryRowCell area="signIn" hideUntilLarge>
+                        <Typography data-testid="user-row-sign-in" variant="body2" sx={{ color: "text.secondary", minWidth: 0 }}>
+                          <Box component="span" sx={{ display: { xs: "inline", md: "none" } }}>
+                            Sign-in:
+                          </Box>{" "}
+                          {authentication}
+                        </Typography>
+                      </DirectoryRowCell>
+                      {oidcAuthenticationEnabled && (
+                        <Tooltip title={user.oidc?.last_login_at ? formatLocalTimestamp(user.oidc.last_login_at) : "No OIDC sign-in"}>
+                          <DirectoryRowCell area="lastSignIn" hideUntilLarge>
+                            <Typography
+                              data-testid="user-row-last-oidc-sign-in"
+                              variant="body2"
+                              sx={{ color: "text.secondary", minWidth: 0 }}
+                            >
+                              <Box component="span" sx={{ display: { xs: "inline", md: "none" } }}>
+                                Last OIDC sign-in:
+                              </Box>{" "}
+                              {user.oidc?.last_login_at ? formatLocalTimestamp(user.oidc.last_login_at) : "Never"}
+                            </Typography>
+                          </DirectoryRowCell>
                         </Tooltip>
                       )}
-                      <Typography variant="body2" sx={{ color: "text.secondary", minWidth: 0 }}>
-                        <Box component="span" sx={{ display: { xs: "inline", md: "none" } }}>
-                          Expiration:
-                        </Box>{" "}
-                        {user.expires_at ? formatLocalTimestamp(user.expires_at) : "Never"}
-                      </Typography>
-                      <Stack data-testid="user-row-actions" direction="row" spacing={0.5} sx={{ gridColumn: { xs: "1 / -1", md: "auto" } }}>
-                        <Tooltip title={t("settings.userManagement.actions.editUser")}>
-                          <IconButton
-                            aria-label={t("settings.userManagement.aria.editUser", { username: user.username })}
-                            onClick={() => openEditDialog(user)}
-                            sx={settingsUtilityIconButtonSx}
-                          >
-                            <EditIcon />
-                          </IconButton>
-                        </Tooltip>
-                        <Tooltip title="User actions">
-                          <IconButton
-                            aria-label={`User actions for ${user.username}`}
-                            onClick={(event) => setUserActionsMenu({ anchor: event.currentTarget, user })}
-                            sx={settingsUtilityIconButtonSx}
-                          >
-                            <MoreVertIcon />
-                          </IconButton>
-                        </Tooltip>
-                      </Stack>
+                      <DirectoryRowCell area="expiration">
+                        <Typography data-testid="user-row-expiration" variant="body2" sx={{ color: "text.secondary", minWidth: 0 }}>
+                          <Box component="span" sx={{ display: { xs: "inline", md: "none" } }}>
+                            Expiration:
+                          </Box>{" "}
+                          {user.expires_at ? formatLocalTimestamp(user.expires_at) : "Never"}
+                        </Typography>
+                      </DirectoryRowCell>
+                      <DirectoryRowCell area="actions" align="end">
+                        <Stack data-testid="user-row-actions" direction="row" spacing={0.5}>
+                          <Tooltip title={t("settings.userManagement.actions.editUser")}>
+                            <IconButton
+                              aria-label={t("settings.userManagement.aria.editUser", { username: user.username })}
+                              onClick={() => openEditDialog(user)}
+                              sx={settingsUtilityIconButtonSx}
+                            >
+                              <EditIcon />
+                            </IconButton>
+                          </Tooltip>
+                          <Tooltip title="User actions">
+                            <IconButton
+                              aria-label={`User actions for ${user.username}`}
+                              onClick={(event) => setUserActionsMenu({ anchor: event.currentTarget, user })}
+                              sx={settingsUtilityIconButtonSx}
+                            >
+                              <MoreVertIcon />
+                            </IconButton>
+                          </Tooltip>
+                        </Stack>
+                      </DirectoryRowCell>
                     </Box>
                   </ListItem>
                 );
@@ -1950,6 +2030,7 @@ export function UserManagementSettings({ dialogSafeHeader = false }: UserManagem
                 page={directoryQuery.page}
                 count={Math.max(1, Math.ceil(directorySummary.total / directoryQuery.pageSize))}
                 onChange={(_, page) => updateDirectoryQuery({ page }, false)}
+                renderItem={(item) => <PaginationItem {...item} tabIndex={item.type === "page" ? -1 : item.tabIndex} />}
                 size="small"
               />
             </Stack>
