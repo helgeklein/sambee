@@ -25,6 +25,14 @@ export function clearCachedAsyncData(cacheKey?: string) {
   cachedAsyncDataStore.clear();
 }
 
+export function clearCachedAsyncDataByPrefix(cacheKeyPrefix: string) {
+  for (const cacheKey of cachedAsyncDataStore.keys()) {
+    if (cacheKey.startsWith(cacheKeyPrefix)) {
+      cachedAsyncDataStore.delete(cacheKey);
+    }
+  }
+}
+
 export async function primeCachedAsyncData<T>(cacheKey: string, load: () => Promise<T>, force = false): Promise<T> {
   const existingEntry = getCachedEntry<T>(cacheKey);
 

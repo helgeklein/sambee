@@ -63,9 +63,13 @@ import {
   settingsUtilityButtonSx,
   settingsUtilityIconButtonSx,
 } from "../components/Settings/settingsButtonStyles";
-import { getUserManagementSettingsDataCacheKey, loadUserManagementSettingsData } from "../components/Settings/settingsDataSources";
+import {
+  getUserManagementSettingsDataCacheKey,
+  loadUserManagementSettingsData,
+  SETTINGS_DATA_CACHE_KEYS,
+} from "../components/Settings/settingsDataSources";
 import { settingsListItemTitleSx } from "../components/Settings/settingsTypographyStyles";
-import { useCachedAsyncData } from "../hooks/useCachedAsyncData";
+import { clearCachedAsyncDataByPrefix, useCachedAsyncData } from "../hooks/useCachedAsyncData";
 import api, { isControlledReauthenticationInProgress } from "../services/api";
 import type {
   AdminUser,
@@ -419,6 +423,9 @@ export function UserManagementSettings({ dialogSafeHeader = false }: UserManagem
   }>({ open: false, mode: "create", user: null, expectedUsername: "", targetUserId: "" });
   const [mappingSubmitting, setMappingSubmitting] = useState(false);
   const [mappingError, setMappingError] = useState<string | null>(null);
+  const [mappingTargetSearch, setMappingTargetSearch] = useState("");
+  const [mappingTargetUsers, setMappingTargetUsers] = useState<AdminUser[]>([]);
+  const [mappingTargetsLoading, setMappingTargetsLoading] = useState(false);
   const [oidcDetailsUser, setOidcDetailsUser] = useState<AdminUser | null>(null);
   const [userActionsMenu, setUserActionsMenu] = useState<{
     anchor: HTMLElement | null;
@@ -454,6 +461,50 @@ export function UserManagementSettings({ dialogSafeHeader = false }: UserManagem
   const inheritedOidcRole = selectedUser?.oidc?.inherited_role ?? null;
   const canUseInheritedOidcRole = inheritedOidcRole !== null;
   const activeAdminCount = directorySummary.active_admins;
+  const refreshDirectory = useCallback(async () => {
+    clearCachedAsyncDataByPrefix(`${SETTINGS_DATA_CACHE_KEYS.adminUsers}:`);
+    return refresh();
+  }, [refresh]);
+
+  useEffect(() => {
+    if (!mappingEditor.open || mappingEditor.mode !== "move") {
+      setMappingTargetUsers([]);
+      return;
+    }
+
+    let disposed = false;
+    setMappingTargetsLoading(true);
+    void api
+      .getUsers({
+        q: mappingTargetSearch.trim() || undefined,
+        states: ["active"],
+        oidcStates: ["unlinked"],
+        page: 1,
+        pageSize: 100,
+      })
+      .then((response) => {
+        if (!disposed) {
+          setMappingTargetUsers(
+            response.items.filter((user) => user.is_active && !user.oidc && !user.pending_oidc && user.id !== mappingEditor.user?.id)
+          );
+        }
+      })
+      .catch((error: unknown) => {
+        if (!disposed) {
+          setMappingError(getApiErrorMessage(error, "Available local accounts could not be loaded."));
+          setMappingTargetUsers([]);
+        }
+      })
+      .finally(() => {
+        if (!disposed) {
+          setMappingTargetsLoading(false);
+        }
+      });
+
+    return () => {
+      disposed = true;
+    };
+  }, [mappingEditor.mode, mappingEditor.open, mappingEditor.user?.id, mappingTargetSearch]);
 
   const roleLabel = (role: UserRole) => {
     if (role === "admin") return t("settings.userManagement.adminRole");
@@ -470,10 +521,12 @@ export function UserManagementSettings({ dialogSafeHeader = false }: UserManagem
       expectedUsername: user.pending_oidc?.expected_username ?? "",
       targetUserId: "",
     });
+    setMappingTargetSearch("");
   };
 
   const closeMappingEditor = () => {
     setMappingEditor({ open: false, mode: "create", user: null, expectedUsername: "", targetUserId: "" });
+    setMappingTargetSearch("");
     setMappingError(null);
   };
 
@@ -510,7 +563,7 @@ export function UserManagementSettings({ dialogSafeHeader = false }: UserManagem
       setMappingEditor({ open: false, mode: "create", user: null, expectedUsername: "", targetUserId: "" });
       setMappingError(null);
       showNotification("OIDC mapping updated.", "success");
-      await refresh();
+      await refreshDirectory();
     } catch (error: unknown) {
       setMappingError(getApiErrorMessage(error, "The OIDC mapping could not be updated."));
     } finally {
@@ -523,7 +576,7 @@ export function UserManagementSettings({ dialogSafeHeader = false }: UserManagem
     try {
       await api.cancelPendingOidcMapping(user.id, oidcConfiguration.identity_mapping_revision);
       showNotification("Pending OIDC mapping canceled.", "success");
-      await refresh();
+      await refreshDirectory();
     } catch (error: unknown) {
       showNotification(getApiErrorMessage(error, "The pending OIDC mapping could not be canceled."), "error");
     }
@@ -534,7 +587,7 @@ export function UserManagementSettings({ dialogSafeHeader = false }: UserManagem
     try {
       await api.detachOidcIdentity(user.id, oidcConfiguration.identity_mapping_revision);
       showNotification("OIDC identity detached.", "success");
-      await refresh();
+      await refreshDirectory();
     } catch (error: unknown) {
       showNotification(getApiErrorMessage(error, "The OIDC identity could not be detached."), "error");
     }
@@ -644,7 +697,7 @@ export function UserManagementSettings({ dialogSafeHeader = false }: UserManagem
       }
 
       closeEditor();
-      await refresh();
+      await refreshDirectory();
     } catch (error: unknown) {
       const message = getApiErrorMessage(
         error,
@@ -654,7 +707,18 @@ export function UserManagementSettings({ dialogSafeHeader = false }: UserManagem
     } finally {
       setSubmitting(false);
     }
-  }, [closeEditor, formState, hasOidcManagedIdentity, hasOidcRoleAssignment, isEditing, refresh, selectedUser, showNotification, t, users]);
+  }, [
+    closeEditor,
+    formState,
+    hasOidcManagedIdentity,
+    hasOidcRoleAssignment,
+    isEditing,
+    refreshDirectory,
+    selectedUser,
+    showNotification,
+    t,
+    users,
+  ]);
 
   const handleEditorKeyDown = useMemo(
     () =>
@@ -707,7 +771,7 @@ export function UserManagementSettings({ dialogSafeHeader = false }: UserManagem
       });
       closeResetPasswordEditor();
       showNotification(result.message, "success");
-      await refresh();
+      await refreshDirectory();
     } catch (error: unknown) {
       const message = getApiErrorMessage(error, t("settings.userManagement.notifications.resetFailed"));
       setResetPasswordError(message);
@@ -727,7 +791,7 @@ export function UserManagementSettings({ dialogSafeHeader = false }: UserManagem
       showNotification(t("settings.userManagement.notifications.userDeleted"), "success");
       setDeleteDialogOpen(false);
       setSelectedUser(null);
-      await refresh();
+      await refreshDirectory();
     } catch (error: unknown) {
       const message = getApiErrorMessage(error, t("settings.userManagement.notifications.deleteFailed"));
       showNotification(message, "error");
@@ -1578,7 +1642,7 @@ export function UserManagementSettings({ dialogSafeHeader = false }: UserManagem
               variant="body2"
               color="text.secondary"
             >{`${(directoryQuery.page - 1) * directoryQuery.pageSize + 1}-${Math.min(directoryQuery.page * directoryQuery.pageSize, directorySummary.total)} of ${directorySummary.total}`}</Typography>
-            <Stack direction="row" spacing={1} alignItems="center">
+            <Stack direction="row" spacing={1} sx={{ alignItems: "center" }}>
               <FormControl size="small">
                 <Select
                   value={String(directoryQuery.pageSize)}
@@ -1801,27 +1865,42 @@ export function UserManagementSettings({ dialogSafeHeader = false }: UserManagem
             <SettingsFormGroup>
               <SettingsFormRow sx={{ gridTemplateColumns: { md: "minmax(0, 1fr)" } }}>
                 {mappingEditor.mode === "move" ? (
-                  <FormControl fullWidth variant="outlined" sx={settingsFormOutlinedControlSx}>
-                    <InputLabel id="oidc-move-target-label">Target local account</InputLabel>
-                    <Select
+                  <Stack spacing={1.5} sx={settingsFormOutlinedControlSx}>
+                    <TextField
                       autoFocus
-                      labelId="oidc-move-target-label"
-                      label="Target local account"
-                      value={mappingEditor.targetUserId}
-                      onChange={(event) => setMappingEditor((current) => ({ ...current, targetUserId: event.target.value }))}
-                      sx={settingsSelectSx}
-                      MenuProps={settingsSelectMenuProps}
-                    >
-                      {users
-                        .filter((user) => user.is_active && !user.oidc && !user.pending_oidc && user.id !== mappingEditor.user?.id)
-                        .map((user) => (
+                      fullWidth
+                      label="Find local account"
+                      value={mappingTargetSearch}
+                      onChange={(event) => {
+                        setMappingTargetSearch(event.target.value);
+                        setMappingEditor((current) => ({ ...current, targetUserId: "" }));
+                      }}
+                      helperText="Search by username, name, or email."
+                    />
+                    <FormControl fullWidth variant="outlined">
+                      <InputLabel id="oidc-move-target-label">Target local account</InputLabel>
+                      <Select
+                        labelId="oidc-move-target-label"
+                        label="Target local account"
+                        value={mappingEditor.targetUserId}
+                        disabled={mappingTargetsLoading}
+                        onChange={(event) => setMappingEditor((current) => ({ ...current, targetUserId: event.target.value }))}
+                        sx={settingsSelectSx}
+                        MenuProps={settingsSelectMenuProps}
+                      >
+                        {mappingTargetUsers.map((user) => (
                           <MenuItem key={user.id} value={user.id}>
-                            {user.username}
+                            {user.name ? `${user.name} (${user.username})` : user.username}
                           </MenuItem>
                         ))}
-                    </Select>
-                    <FormHelperText>Select the local account that will receive this identity.</FormHelperText>
-                  </FormControl>
+                      </Select>
+                      <FormHelperText>
+                        {mappingTargetsLoading
+                          ? "Searching local accounts..."
+                          : "Select the local account that will receive this identity."}
+                      </FormHelperText>
+                    </FormControl>
+                  </Stack>
                 ) : (
                   <TextField
                     autoFocus

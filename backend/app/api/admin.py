@@ -5,7 +5,7 @@ import uuid
 from datetime import datetime, timedelta, timezone
 
 from fastapi import APIRouter, Depends, HTTPException, Query, status
-from sqlalchemy import and_, func, not_, or_
+from sqlalchemy import and_, false, func, not_, or_
 from sqlmodel import Session, select
 
 from app.core.authorization import Capability
@@ -13,7 +13,7 @@ from app.core.logging import get_logger, set_user
 from app.core.secrets import generate_temporary_password
 from app.core.security import get_password_hash, require_capability
 from app.db.database import get_session
-from app.models.oidc import OidcIdentity, OidcPendingIdentityMapping, OidcProviderConfiguration
+from app.models.oidc import OidcIdentity, OidcPendingIdentityMapping, OidcProviderConfiguration, OidcRoleAssignmentMode
 from app.models.user import (
     AdminUserCreate,
     AdminUserCreateResult,
@@ -264,16 +264,21 @@ def _directory_query_predicates(
                 role_source_predicates.append(and_(active_identity, User.oidc_role_assignment.is_not(None)))
             elif role_source == AdminUserDirectoryRoleSource.AWAITING_OIDC_SIGN_IN:
                 role_source_predicates.append(or_(pending_mapping, active_identity_without_login))
-            elif configuration is not None and role_source == AdminUserDirectoryRoleSource.OIDC_GROUPS:
-                role_source_predicates.append(
-                    and_(active_identity, User.oidc_role_assignment.is_(None), not_(active_identity_without_login))
-                )
-            elif configuration is not None and role_source == AdminUserDirectoryRoleSource.OIDC_DEFAULT:
-                role_source_predicates.append(
-                    and_(active_identity, User.oidc_role_assignment.is_(None), not_(active_identity_without_login))
-                )
-        if role_source_predicates:
-            predicates.append(or_(*role_source_predicates))
+            elif role_source == AdminUserDirectoryRoleSource.OIDC_GROUPS:
+                if configuration is not None and configuration.role_assignment_mode == OidcRoleAssignmentMode.GROUP_BASED:
+                    role_source_predicates.append(
+                        and_(active_identity, User.oidc_role_assignment.is_(None), not_(active_identity_without_login))
+                    )
+                else:
+                    role_source_predicates.append(false())
+            elif role_source == AdminUserDirectoryRoleSource.OIDC_DEFAULT:
+                if configuration is not None and configuration.role_assignment_mode == OidcRoleAssignmentMode.UNIFORM:
+                    role_source_predicates.append(
+                        and_(active_identity, User.oidc_role_assignment.is_(None), not_(active_identity_without_login))
+                    )
+                else:
+                    role_source_predicates.append(false())
+        predicates.append(or_(*role_source_predicates))
     if expiration == "has_expiration":
         predicates.append(User.expires_at.is_not(None))
     elif expiration == "no_expiration":
