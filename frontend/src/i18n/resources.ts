@@ -458,6 +458,13 @@ export const EN_TRANSLATIONS = {
       activeStatus: "Active",
       disabledStatus: "Disabled",
       passwordResetPending: "Password reset pending",
+      roleSource: {
+        localAssignment: "Role source: Local assignment",
+        individualOverride: "Role source: Individual override",
+        oidcDefault: "Role source: OIDC default",
+        oidcGroups: "Role source: OIDC groups",
+        awaitingOidcSignIn: "Role source: Awaiting OIDC sign-in",
+      },
       createdAt: "Created {{timestamp}}",
       expiresAt: "Expires {{timestamp}}",
       actions: {

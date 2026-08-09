@@ -685,6 +685,129 @@ describe("UserManagementSettings", () => {
     expect(screen.getAllByText("OIDC linked", { exact: true })).toHaveLength(2);
     expect(screen.queryByRole("button", { name: /reset password/i })).not.toBeInTheDocument();
     expect(screen.queryByText("Local password")).not.toBeInTheDocument();
+    expect(screen.queryByText(/Role source:/)).not.toBeInTheDocument();
+  });
+
+  it.each([
+    ["oidc_only", "uniform", "Role source: OIDC default"],
+    ["oidc_or_password", "group_based", "Role source: OIDC groups"],
+  ] as const)("shows role sources for every user in %s mode", async (authMode, roleAssignmentMode, inheritedRoleSource) => {
+    vi.mocked(api.getUsers).mockResolvedValue([
+      {
+        id: "user-1",
+        username: "local-user",
+        role: "admin",
+        is_active: true,
+        must_change_password: false,
+        has_local_password: true,
+        oidc_role_assignment: null,
+        oidc: null,
+        pending_oidc: null,
+        created_at: "2026-03-01T10:00:00Z",
+        updated_at: "2026-03-01T10:00:00Z",
+      },
+      {
+        id: "user-2",
+        username: "inherited-user",
+        role: "editor",
+        is_active: true,
+        must_change_password: false,
+        has_local_password: false,
+        oidc_role_assignment: null,
+        oidc: { identity_id: "identity-2", provider_display_name: "Corporate login", last_login_at: null, inherited_role: "editor" },
+        pending_oidc: null,
+        created_at: "2026-03-01T10:00:00Z",
+        updated_at: "2026-03-01T10:00:00Z",
+      },
+      {
+        id: "user-3",
+        username: "override-user",
+        role: "admin",
+        is_active: true,
+        must_change_password: false,
+        has_local_password: true,
+        oidc_role_assignment: "admin",
+        oidc: { identity_id: "identity-3", provider_display_name: "Corporate login", last_login_at: null, inherited_role: "editor" },
+        pending_oidc: null,
+        created_at: "2026-03-01T10:00:00Z",
+        updated_at: "2026-03-01T10:00:00Z",
+      },
+      {
+        id: "user-4",
+        username: "pending-user",
+        role: "admin",
+        is_active: true,
+        must_change_password: false,
+        has_local_password: false,
+        oidc_role_assignment: "admin",
+        oidc: null,
+        pending_oidc: {
+          expected_username: "pending-user",
+          created_by_username: "local-user",
+          created_at: "2026-03-01T10:00:00Z",
+        },
+        created_at: "2026-03-01T10:00:00Z",
+        updated_at: "2026-03-01T10:00:00Z",
+      },
+      {
+        id: "user-5",
+        username: "unresolved-user",
+        role: "editor",
+        is_active: true,
+        must_change_password: false,
+        has_local_password: false,
+        oidc_role_assignment: null,
+        oidc: { identity_id: "identity-5", provider_display_name: "Corporate login", last_login_at: null, inherited_role: null },
+        pending_oidc: null,
+        created_at: "2026-03-01T10:00:00Z",
+        updated_at: "2026-03-01T10:00:00Z",
+      },
+    ]);
+    vi.mocked(api.getOidcConfiguration).mockResolvedValue({
+      configuration: {
+        display_name: "Corporate login",
+        issuer_url: "https://idp.example.test",
+        client_id: "sambee",
+        client_secret_configured: true,
+        scopes: ["openid", "groups"],
+        username_claim: "preferred_username",
+        name_claim: "name",
+        email_claim: "email",
+        groups_claim: "groups",
+        sign_in_mode: authMode,
+        interactive_reauthentication_max_age_days: 30,
+        admission_mode: "all_idp_users",
+        admission_groups: [],
+        role_assignment_mode: roleAssignmentMode,
+        uniform_role: "editor",
+        role_mappings: { admin: ["admins"], editor: ["editors"], viewer: ["viewers"] },
+        auto_link_by_username: true,
+        configuration_revision: 2,
+        identity_mapping_revision: 1,
+      },
+      active_passwordless_user_count: 0,
+      auth_mode: authMode,
+      auth_enforcement_disabled: false,
+      health: {
+        public_url_configured: true,
+        public_url: "https://sambee.example.test",
+        redirect_uri: "https://sambee.example.test/api/auth/oidc/callback",
+        status: "healthy",
+        reasons: [],
+      },
+    });
+    vi.mocked(api.getCurrentUser).mockResolvedValue({ id: "user-1", username: "local-user", role: "admin" });
+
+    render(
+      <SambeeThemeProvider>
+        <UserManagementSettings />
+      </SambeeThemeProvider>
+    );
+
+    expect(await screen.findByText("Role source: Local assignment")).toBeInTheDocument();
+    expect(screen.getByText(inheritedRoleSource)).toBeInTheDocument();
+    expect(screen.getByText("Role source: Individual override")).toBeInTheDocument();
+    expect(screen.getAllByText("Role source: Awaiting OIDC sign-in")).toHaveLength(2);
   });
 
   it("suppresses the user-load error when controlled OIDC reauthentication has started", async () => {
@@ -705,6 +828,7 @@ describe("UserManagementSettings", () => {
   });
 
   it("uses the centralized OIDC mapping dialog and closes change and move workflows with Escape", async () => {
+    const restoreViewport = mockViewportWidth(1200);
     vi.mocked(api.getUsers).mockResolvedValue([
       {
         id: "user-1",
@@ -794,8 +918,17 @@ describe("UserManagementSettings", () => {
     expect(screen.queryByRole("button", { name: "Change OIDC account for linked-admin" })).not.toBeInTheDocument();
     await user.click(screen.getByRole("button", { name: "Advanced OIDC actions for linked-admin" }));
     await user.click(screen.getByRole("menuitem", { name: "View OIDC identity details" }));
-    expect(await screen.findByRole("dialog", { name: "OIDC identity details" })).toBeInTheDocument();
-    expect(screen.getByDisplayValue("provider-subject-1")).toBeInTheDocument();
+    const identityDetailsDialog = await screen.findByRole("dialog", { name: "OIDC identity details for linked-admin" });
+    expect(identityDetailsDialog).toBeInTheDocument();
+    const providerSubject = screen.getByLabelText("IdP subject");
+    expect(screen.getByTestId("oidc-details-form-surface")).toContainElement(providerSubject);
+    expect(providerSubject).toHaveValue("provider-subject-1");
+    expect(providerSubject).toHaveAttribute("aria-describedby", "oidc-details-subject-description");
+    expect(screen.getByText("Linked in Sambee")).not.toHaveClass("MuiInputLabel-root");
+    expect(screen.getByText("When Sambee first linked this IdP identity to the account.")).not.toHaveClass("MuiFormHelperText-root");
+    expect(screen.queryByText("Sambee OIDC identity record ID")).not.toBeInTheDocument();
+    expect(screen.queryByText("Sambee local user ID")).not.toBeInTheDocument();
+    expect(screen.queryByText("Stored identity properties for linked-admin.")).not.toBeInTheDocument();
     await user.click(screen.getByRole("button", { name: "Close" }));
     await waitFor(() => expect(screen.queryByRole("dialog", { name: "OIDC identity details" })).not.toBeInTheDocument());
 
@@ -824,6 +957,7 @@ describe("UserManagementSettings", () => {
     await waitFor(() => {
       expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
     });
+    restoreViewport();
   });
 
   it("lets the admin enter a new password for a reset", async () => {

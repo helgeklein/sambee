@@ -71,6 +71,8 @@ import type {
   AdminUserCreateResult,
   AdminUserPasswordResetResult,
   AdminUserUpdateInput,
+  AuthenticationMode,
+  OidcRoleAssignmentMode,
   UserRole,
 } from "../types";
 import { getApiErrorMessage } from "../utils/apiErrors";
@@ -101,6 +103,9 @@ type OidcMappingEditorMode = "create" | "change" | "move";
 
 type UserEditorField = "username";
 const OIDC_INHERITED_ROLE_VALUE = "inherited";
+const OIDC_AUTHENTICATION_MODES = new Set<AuthenticationMode>(["oidc_only", "oidc_or_password"]);
+
+type RoleSourceKey = "localAssignment" | "individualOverride" | "oidcDefault" | "oidcGroups" | "awaitingOidcSignIn";
 
 const USER_EDITOR_IDS = {
   username: "user-editor-username",
@@ -122,6 +127,16 @@ const USER_EDITOR_IDS = {
   mustChangePassword: "user-editor-must-change-password",
   mustChangePasswordLabel: "user-editor-must-change-password-label",
   mustChangePasswordDescription: "user-editor-must-change-password-description",
+} as const;
+
+const OIDC_DETAILS_IDS = {
+  provider: "oidc-details-provider",
+  issuer: "oidc-details-issuer",
+  subject: "oidc-details-subject",
+  lastSeenUsername: "oidc-details-last-seen-username",
+  lastGroups: "oidc-details-last-groups",
+  createdAt: "oidc-details-created-at",
+  lastLoginAt: "oidc-details-last-login-at",
 } as const;
 
 const DEFAULT_USER_FORM: UserFormState = {
@@ -156,6 +171,26 @@ function toIsoDateTimeValue(value: string): string | undefined {
   }
 
   return new Date(value).toISOString();
+}
+
+function getRoleSourceKey(
+  user: AdminUser,
+  oidcAuthenticationEnabled: boolean,
+  roleAssignmentMode: OidcRoleAssignmentMode | undefined
+): RoleSourceKey | null {
+  if (!oidcAuthenticationEnabled) {
+    return null;
+  }
+  if (user.pending_oidc || (user.oidc !== null && !user.oidc.inherited_role)) {
+    return "awaitingOidcSignIn";
+  }
+  if (user.oidc_role_assignment) {
+    return "individualOverride";
+  }
+  if (user.oidc) {
+    return roleAssignmentMode === "group_based" ? "oidcGroups" : "oidcDefault";
+  }
+  return "localAssignment";
 }
 
 const DEFAULT_RESET_PASSWORD_FORM: ResetPasswordFormState = {
@@ -211,6 +246,7 @@ export function UserManagementSettings({ dialogSafeHeader = false }: UserManagem
   const users = cachedUserManagementData?.users ?? [];
   const currentUserId = cachedUserManagementData?.currentUserId ?? null;
   const oidcConfiguration = cachedUserManagementData?.oidcConfiguration.configuration ?? null;
+  const oidcAuthenticationEnabled = OIDC_AUTHENTICATION_MODES.has(cachedUserManagementData?.oidcConfiguration.auth_mode ?? "password_only");
   const localPasswordManagementAvailable =
     cachedUserManagementData?.oidcConfiguration.auth_mode === "password_only" ||
     cachedUserManagementData?.oidcConfiguration.auth_mode === "oidc_or_password";
@@ -610,6 +646,22 @@ export function UserManagementSettings({ dialogSafeHeader = false }: UserManagem
         hasError={hasError}
       />
     ) : null;
+
+  const renderOidcDetailsRow = (id: string, label: string, description: string, value: string) => (
+    <SettingsFormRow>
+      {renderDesktopLabel(label, description, `${id}-description`, id)}
+      <Box sx={settingsFormFieldControlSx}>
+        <DialogReadOnlyField
+          id={id}
+          label={usesDesktopFormLayout ? undefined : label}
+          ariaLabel={usesDesktopFormLayout ? label : undefined}
+          ariaDescribedBy={usesDesktopFormLayout ? `${id}-description` : undefined}
+          value={value}
+          sx={{ "& .MuiInputBase-root": { minHeight: usesDesktopFormLayout ? 40 : undefined } }}
+        />
+      </Box>
+    </SettingsFormRow>
+  );
 
   const editorContent = (
     <Box sx={{ display: "flex", flexDirection: "column", gap: 2 }}>
@@ -1133,6 +1185,7 @@ export function UserManagementSettings({ dialogSafeHeader = false }: UserManagem
           <List sx={{ py: 0 }}>
             {users.map((user) => {
               const isSelf = Boolean(currentUserId && user.id === currentUserId);
+              const roleSourceKey = getRoleSourceKey(user, oidcAuthenticationEnabled, oidcConfiguration?.role_assignment_mode);
               return (
                 <ListItem
                   key={user.id}
@@ -1231,14 +1284,10 @@ export function UserManagementSettings({ dialogSafeHeader = false }: UserManagem
                             sx={settingsMetadataChipSx}
                           />
                         )}
-                        {(user.oidc || user.pending_oidc) && (
+                        {roleSourceKey && (
                           <Chip
                             size="small"
-                            label={
-                              user.oidc_role_assignment
-                                ? `OIDC role: ${user.oidc_role_assignment} (individual)`
-                                : `OIDC role: ${oidcConfiguration?.role_assignment_mode === "group_based" ? "group-based" : "uniform"}`
-                            }
+                            label={t(`settings.userManagement.roleSource.${roleSourceKey}`)}
                             variant="outlined"
                             sx={settingsMetadataChipSx}
                           />
@@ -1534,8 +1583,7 @@ export function UserManagementSettings({ dialogSafeHeader = false }: UserManagem
       <ResponsiveFormDialog
         open={oidcDetailsUser !== null}
         onClose={() => setOidcDetailsUser(null)}
-        title="OIDC identity details"
-        description={oidcDetailsUser ? `Stored identity properties for ${oidcDetailsUser.username}.` : undefined}
+        title={oidcDetailsUser ? `OIDC identity details for ${oidcDetailsUser.username}` : "OIDC identity details"}
         actions={
           <Box sx={adminDialogEndActionRowSx}>
             <Button onClick={() => setOidcDetailsUser(null)} variant="contained" sx={[settingsPrimaryButtonSx, adminDialogActionButtonSx]}>
@@ -1545,38 +1593,50 @@ export function UserManagementSettings({ dialogSafeHeader = false }: UserManagem
         }
       >
         {oidcDetailsUser?.oidc && (
-          <SettingsFormSurface>
+          <SettingsFormSurface testId="oidc-details-form-surface">
             <SettingsFormGroup>
-              <SettingsFormRow sx={{ gridTemplateColumns: { md: "minmax(0, 1fr)" } }}>
-                <DialogReadOnlyField label="Identity ID" value={oidcDetailsUser.oidc.identity_id} />
-              </SettingsFormRow>
-              <SettingsFormRow sx={{ gridTemplateColumns: { md: "minmax(0, 1fr)" } }}>
-                <DialogReadOnlyField label="Local user ID" value={oidcDetailsUser.oidc.user_id} />
-              </SettingsFormRow>
-              <SettingsFormRow sx={{ gridTemplateColumns: { md: "minmax(0, 1fr)" } }}>
-                <DialogReadOnlyField label="Provider" value={oidcDetailsUser.oidc.provider_display_name} />
-              </SettingsFormRow>
-              <SettingsFormRow sx={{ gridTemplateColumns: { md: "minmax(0, 1fr)" } }}>
-                <DialogReadOnlyField label="Issuer" value={oidcDetailsUser.oidc.issuer} />
-              </SettingsFormRow>
-              <SettingsFormRow sx={{ gridTemplateColumns: { md: "minmax(0, 1fr)" } }}>
-                <DialogReadOnlyField label="Subject" value={oidcDetailsUser.oidc.subject} />
-              </SettingsFormRow>
-              <SettingsFormRow sx={{ gridTemplateColumns: { md: "minmax(0, 1fr)" } }}>
-                <DialogReadOnlyField label="Last seen provider username" value={oidcDetailsUser.oidc.last_seen_username ?? "None"} />
-              </SettingsFormRow>
-              <SettingsFormRow sx={{ gridTemplateColumns: { md: "minmax(0, 1fr)" } }}>
-                <DialogReadOnlyField label="Last verified groups" value={oidcDetailsUser.oidc.last_groups.join(", ") || "None"} />
-              </SettingsFormRow>
-              <SettingsFormRow sx={{ gridTemplateColumns: { md: "minmax(0, 1fr)" } }}>
-                <DialogReadOnlyField label="Identity created" value={formatLocalTimestamp(oidcDetailsUser.oidc.created_at)} />
-              </SettingsFormRow>
-              <SettingsFormRow sx={{ gridTemplateColumns: { md: "minmax(0, 1fr)" } }}>
-                <DialogReadOnlyField
-                  label="Last OIDC login"
-                  value={oidcDetailsUser.oidc.last_login_at ? formatLocalTimestamp(oidcDetailsUser.oidc.last_login_at) : "Never"}
-                />
-              </SettingsFormRow>
+              {renderOidcDetailsRow(
+                OIDC_DETAILS_IDS.provider,
+                "Identity provider",
+                "The configured sign-in provider for this identity.",
+                oidcDetailsUser.oidc.provider_display_name
+              )}
+              {renderOidcDetailsRow(
+                OIDC_DETAILS_IDS.issuer,
+                "Issuer URL",
+                "The unique URL that identifies this identity provider.",
+                oidcDetailsUser.oidc.issuer
+              )}
+              {renderOidcDetailsRow(
+                OIDC_DETAILS_IDS.subject,
+                "IdP subject",
+                "The IdP's stable unique identifier for this person.",
+                oidcDetailsUser.oidc.subject
+              )}
+              {renderOidcDetailsRow(
+                OIDC_DETAILS_IDS.lastSeenUsername,
+                "Last IdP username",
+                "The username most recently verified with the identity provider.",
+                oidcDetailsUser.oidc.last_seen_username ?? "None"
+              )}
+              {renderOidcDetailsRow(
+                OIDC_DETAILS_IDS.lastGroups,
+                "Last verified IdP groups",
+                "The groups most recently verified with the identity provider.",
+                oidcDetailsUser.oidc.last_groups.join(", ") || "None"
+              )}
+              {renderOidcDetailsRow(
+                OIDC_DETAILS_IDS.createdAt,
+                "Linked in Sambee",
+                "When Sambee first linked this IdP identity to the account.",
+                formatLocalTimestamp(oidcDetailsUser.oidc.created_at)
+              )}
+              {renderOidcDetailsRow(
+                OIDC_DETAILS_IDS.lastLoginAt,
+                "Last successful OIDC sign-in",
+                "The most recent sign-in verified with this identity.",
+                oidcDetailsUser.oidc.last_login_at ? formatLocalTimestamp(oidcDetailsUser.oidc.last_login_at) : "Never"
+              )}
             </SettingsFormGroup>
           </SettingsFormSurface>
         )}
