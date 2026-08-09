@@ -4,6 +4,8 @@ import type {
   AdminUser,
   AdminUserCreateInput,
   AdminUserCreateResult,
+  AdminUserListQuery,
+  AdminUserListResponse,
   AdminUserPasswordResetInput,
   AdminUserPasswordResetResult,
   AdminUserUpdateInput,
@@ -497,8 +499,22 @@ class ApiService {
     return response.data;
   }
 
-  async getUsers(): Promise<AdminUser[]> {
-    const response = await this.api.get<AdminUser[]>("/admin/users");
+  async getUsers(query: AdminUserListQuery = {}): Promise<AdminUserListResponse> {
+    const params = new URLSearchParams();
+    if (query.q) params.set("q", query.q);
+    for (const role of query.roles ?? []) params.append("role", role);
+    for (const state of query.states ?? []) params.append("state", state);
+    for (const authentication of query.authentication ?? []) params.append("auth", authentication);
+    for (const oidcState of query.oidcStates ?? []) params.append("oidc_state", oidcState);
+    for (const roleSource of query.roleSources ?? []) params.append("role_source", roleSource);
+    if (query.expiration) params.set("expiration", query.expiration);
+    if (query.sort) params.set("sort", query.sort);
+    if (query.direction) params.set("direction", query.direction);
+    if (query.page) params.set("page", String(query.page));
+    if (query.pageSize) params.set("page_size", String(query.pageSize));
+
+    const suffix = params.size > 0 ? `?${params.toString()}` : "";
+    const response = await this.api.get<AdminUserListResponse>(`/admin/users${suffix}`);
     return response.data;
   }
 

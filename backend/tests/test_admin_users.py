@@ -31,9 +31,31 @@ class TestAdminUsers:
 
         assert response.status_code == 200
         data = response.json()
-        usernames = {user["username"] for user in data}
-        assert len(data) >= 2
+        usernames = {user["username"] for user in data["items"]}
+        assert data["total"] >= 2
         assert {admin_user.username, regular_user.username}.issubset(usernames)
+        assert data["summary"]["total"] == data["total"]
+
+    def test_list_users_supports_search_role_filter_and_paging(
+        self, client: TestClient, auth_headers_admin: dict, admin_user: User, regular_user: User
+    ):
+        response = client.get(
+            "/api/admin/users",
+            headers=auth_headers_admin,
+            params={"q": regular_user.username, "role": "editor", "page": 1, "page_size": 1},
+        )
+
+        assert response.status_code == 200
+        data = response.json()
+        assert data["total"] == 1
+        assert [user["username"] for user in data["items"]] == [regular_user.username]
+        assert data["summary"]["total"] == 1
+        assert data["summary"]["active_admins"] == 0
+
+    def test_list_users_rejects_an_excessive_page_size(self, client: TestClient, auth_headers_admin: dict):
+        response = client.get("/api/admin/users", headers=auth_headers_admin, params={"page_size": 101})
+
+        assert response.status_code == 422
 
     def test_list_users_as_regular_user_forbidden(
         self,
@@ -337,7 +359,7 @@ class TestAdminUsers:
         users_response = client.get("/api/admin/users", headers=auth_headers_admin)
 
         assert users_response.status_code == 200
-        user_data = next(user for user in users_response.json() if user["id"] == str(regular_user.id))
+        user_data = next(user for user in users_response.json()["items"] if user["id"] == str(regular_user.id))
         assert user_data["oidc"]["issuer"] == "https://previous-issuer.example"
         assert user_data["oidc"]["inherited_role"] is None
 
