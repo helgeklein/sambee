@@ -80,9 +80,10 @@ def _build_admin_user_read_with_authentication(session: Session, user: User) -> 
     configuration = session.get(OidcProviderConfiguration, 1)
     if configuration is None:
         return result
-    identity = session.exec(
+    active_identity = session.exec(
         select(OidcIdentity).where(OidcIdentity.issuer == configuration.issuer_url, OidcIdentity.user_id == user.id)
     ).first()
+    identity = active_identity or session.exec(select(OidcIdentity).where(OidcIdentity.user_id == user.id)).first()
     pending = session.exec(
         select(OidcPendingIdentityMapping).where(
             OidcPendingIdentityMapping.provider_configuration_id == configuration.id,
@@ -102,7 +103,7 @@ def _build_admin_user_read_with_authentication(session: Session, user: User) -> 
                     last_groups=_read_last_oidc_groups(identity),
                     created_at=identity.created_at,
                     last_login_at=identity.last_login_at,
-                    inherited_role=_resolve_inherited_oidc_role(configuration, identity),
+                    inherited_role=_resolve_inherited_oidc_role(configuration, active_identity) if active_identity is not None else None,
                 )
                 if identity is not None
                 else None
@@ -201,7 +202,7 @@ async def update_user(
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="User not found")
 
     configuration = session.get(OidcProviderConfiguration, 1)
-    identity = (
+    active_identity = (
         session.exec(
             select(OidcIdentity).where(
                 OidcIdentity.issuer == configuration.issuer_url,
@@ -211,6 +212,7 @@ async def update_user(
         if configuration is not None
         else None
     )
+    identity = active_identity or session.exec(select(OidcIdentity).where(OidcIdentity.user_id == user.id)).first()
     if identity is not None and {"name", "email"}.intersection(user_data.model_fields_set):
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=OIDC_MANAGED_IDENTITY_FIELDS_DETAIL)
 
@@ -224,7 +226,9 @@ async def update_user(
         next_role = next_oidc_role_assignment
     elif assignment_requested and user.oidc_role_assignment is not None:
         inherited_role = (
-            _resolve_inherited_oidc_role(configuration, identity) if configuration is not None and identity is not None else None
+            _resolve_inherited_oidc_role(configuration, active_identity)
+            if configuration is not None and active_identity is not None
+            else None
         )
         if inherited_role is None:
             raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=OIDC_INHERITED_ROLE_UNAVAILABLE_DETAIL)

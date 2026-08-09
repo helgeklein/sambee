@@ -319,6 +319,40 @@ class TestAdminUsers:
         assert regular_user.name == "Provider Name"
         assert regular_user.email == "provider@example.test"
 
+    def test_update_rejects_oidc_managed_name_and_email_during_issuer_migration(
+        self, client: TestClient, auth_headers_admin: dict, regular_user: User, session: Session
+    ):
+        configuration = OidcProviderConfiguration(
+            display_name="New Provider",
+            issuer_url="https://new-issuer.example",
+            client_id="sambee",
+            sign_in_mode=SignInMode.OIDC_OR_PASSWORD,
+        )
+        regular_user.name = "Provider Name"
+        regular_user.email = "provider@example.test"
+        identity = OidcIdentity(user_id=regular_user.id, issuer="https://previous-issuer.example", subject="subject-1")
+        session.add_all([configuration, identity, regular_user])
+        session.commit()
+
+        users_response = client.get("/api/admin/users", headers=auth_headers_admin)
+
+        assert users_response.status_code == 200
+        user_data = next(user for user in users_response.json() if user["id"] == str(regular_user.id))
+        assert user_data["oidc"]["issuer"] == "https://previous-issuer.example"
+        assert user_data["oidc"]["inherited_role"] is None
+
+        response = client.patch(
+            f"/api/admin/users/{regular_user.id}",
+            headers=auth_headers_admin,
+            json={"name": "Manual Name", "email": "manual@example.test"},
+        )
+
+        assert response.status_code == 400
+        assert response.json()["detail"] == "Full name and email are managed by OIDC"
+        session.refresh(regular_user)
+        assert regular_user.name == "Provider Name"
+        assert regular_user.email == "provider@example.test"
+
     @pytest.mark.parametrize("mode", (AuthenticationMode.PASSWORD_ONLY, AuthenticationMode.OIDC_OR_PASSWORD))
     def test_reset_password_invalidates_existing_token(
         self,

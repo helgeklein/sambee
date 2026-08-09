@@ -174,6 +174,6 @@ OIDC activation remains unavailable unless the tested OIDC identity passes the a
 
 Select **Activate configuration** when the review is complete. The administrator who started the setup is linked to the tested provider identity automatically.
 
-When OIDC is active, users sign in normally after an IdP migration or subject reset. With automatic username linking enabled, Sambee updates their stored OIDC link during their next admitted sign-in and signs out existing Sambee sessions for that account.
+When OIDC is active, users sign in normally after an IdP migration or subject reset. With automatic username linking enabled, Sambee updates their stored OIDC link during their next admitted sign-in and signs out existing Sambee sessions for that account. Until then, their existing OIDC link and IdP-managed full name and email remain read-only in User Management.
 
 After activation, see [OpenID Connect Authentication Operations](../openid-connect-authentication-operations/) for session, account-mapping, auditing, and request-limit administration.
