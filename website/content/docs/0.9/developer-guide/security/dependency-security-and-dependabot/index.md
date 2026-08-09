@@ -24,6 +24,12 @@ Dependabot activity still appears under GitHub-managed `Dependabot updates`, whi
 
 Dependabot is configured in `.github/dependabot.yml`.
 
+Dependabot commit messages and pull request titles use Conventional Commit-style
+prefixes. Ecosystem updates use `deps(npm)`, `deps(pip)`, `deps(cargo)`, or
+`deps(docker)`; GitHub Actions and CI-only tools use `deps(ci)`. Development
+dependencies use the matching `deps-dev(...)` prefix where Dependabot supports
+dependency groups.
+
 Current coverage includes:
 
 - GitHub Actions dependencies.
