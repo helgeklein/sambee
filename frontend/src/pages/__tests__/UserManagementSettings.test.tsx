@@ -16,6 +16,7 @@ vi.mock("../../services/api", () => ({
     getUsers: vi.fn(),
     getCurrentUser: vi.fn(),
     getOidcConfiguration: vi.fn(),
+    moveOidcIdentity: vi.fn(),
     createUser: vi.fn(),
     updateUser: vi.fn(),
     resetUserPassword: vi.fn(),
@@ -1144,7 +1145,7 @@ describe("UserManagementSettings", () => {
           issuer: "https://idp.example.test",
           subject: "provider-subject-1",
           last_seen_username: "linked-admin",
-          last_groups: ["admins"],
+          last_groups: ["admins", "operators"],
           created_at: "2026-03-01T10:00:00Z",
           last_login_at: null,
         },
@@ -1242,7 +1243,11 @@ describe("UserManagementSettings", () => {
     const providerSubject = screen.getByLabelText("IdP subject");
     expect(screen.getByTestId("oidc-details-form-surface")).toContainElement(providerSubject);
     expect(providerSubject).toHaveValue("provider-subject-1");
+    expect(providerSubject.closest(".MuiInputBase-root")).toHaveClass("MuiInputBase-sizeSmall");
     expect(providerSubject).toHaveAttribute("aria-describedby", "oidc-details-subject-description");
+    const idpGroups = screen.getByLabelText("IdP groups");
+    expect(idpGroups.tagName).toBe("TEXTAREA");
+    expect(idpGroups).toHaveValue("admins\noperators");
     expect(screen.getByText("Linked in Sambee")).not.toHaveClass("MuiInputLabel-root");
     expect(screen.getByText("When Sambee first linked this IdP identity to the account")).not.toHaveClass("MuiFormHelperText-root");
     expect(screen.queryByText("Sambee OIDC identity record ID")).not.toBeInTheDocument();
@@ -1289,6 +1294,9 @@ describe("UserManagementSettings", () => {
     ).toBeTruthy();
     await user.click(targetAccount);
     expect(await screen.findByRole("option", { name: "unmapped-user" })).toBeInTheDocument();
+    await user.click(screen.getByRole("option", { name: "unmapped-user" }));
+    expect(targetAccount).toHaveValue("unmapped-user");
+    await user.clear(targetAccount);
     await user.type(targetAccount, "unmapped");
     await waitFor(() =>
       expect(api.getUsers).toHaveBeenLastCalledWith({

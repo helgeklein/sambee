@@ -568,7 +568,9 @@ export function UserManagementSettings({ dialogSafeHeader = false }: UserManagem
   const [mappingSubmitting, setMappingSubmitting] = useState(false);
   const [mappingError, setMappingError] = useState<string | null>(null);
   const [mappingTargetSearch, setMappingTargetSearch] = useState("");
+  const [mappingTargetQuery, setMappingTargetQuery] = useState("");
   const [mappingTargetUsers, setMappingTargetUsers] = useState<AdminUser[]>([]);
+  const [mappingTargetUser, setMappingTargetUser] = useState<AdminUser | null>(null);
   const [mappingTargetsLoading, setMappingTargetsLoading] = useState(false);
   const [oidcDetailsUser, setOidcDetailsUser] = useState<AdminUser | null>(null);
   const [userActionsMenu, setUserActionsMenu] = useState<{
@@ -671,7 +673,7 @@ export function UserManagementSettings({ dialogSafeHeader = false }: UserManagem
     setMappingTargetsLoading(true);
     void api
       .getUsers({
-        q: mappingTargetSearch.trim() || undefined,
+        q: mappingTargetQuery.trim() || undefined,
         states: ["active"],
         oidcStates: ["unlinked"],
         page: 1,
@@ -699,7 +701,7 @@ export function UserManagementSettings({ dialogSafeHeader = false }: UserManagem
     return () => {
       disposed = true;
     };
-  }, [mappingEditor.mode, mappingEditor.open, mappingEditor.user?.id, mappingTargetSearch]);
+  }, [mappingEditor.mode, mappingEditor.open, mappingEditor.user?.id, mappingTargetQuery]);
 
   const roleLabel = (role: UserRole) => {
     if (role === "admin") return t("settings.userManagement.adminRole");
@@ -709,6 +711,7 @@ export function UserManagementSettings({ dialogSafeHeader = false }: UserManagem
 
   const openMappingEditor = (user: AdminUser, mode: OidcMappingEditorMode) => {
     setMappingError(null);
+    setMappingTargetUser(null);
     setMappingEditor({
       open: true,
       mode,
@@ -717,11 +720,14 @@ export function UserManagementSettings({ dialogSafeHeader = false }: UserManagem
       targetUserId: "",
     });
     setMappingTargetSearch("");
+    setMappingTargetQuery("");
   };
 
   const closeMappingEditor = () => {
     setMappingEditor({ open: false, mode: "create", user: null, expectedUsername: "", targetUserId: "" });
     setMappingTargetSearch("");
+    setMappingTargetQuery("");
+    setMappingTargetUser(null);
     setMappingError(null);
   };
 
@@ -1055,7 +1061,7 @@ export function UserManagementSettings({ dialogSafeHeader = false }: UserManagem
       />
     ) : null;
 
-  const renderOidcDetailsRow = (id: string, label: string, description: string, value: string) => (
+  const renderOidcDetailsRow = (id: string, label: string, description: string, value: string, multiline = false) => (
     <SettingsFormRow>
       {renderDesktopLabel(label, description, `${id}-description`, id)}
       <Box sx={settingsFormFieldControlSx}>
@@ -1065,7 +1071,9 @@ export function UserManagementSettings({ dialogSafeHeader = false }: UserManagem
           ariaLabel={usesDesktopFormLayout ? label : undefined}
           ariaDescribedBy={usesDesktopFormLayout ? `${id}-description` : undefined}
           value={value}
-          sx={{ "& .MuiInputBase-root": { minHeight: usesDesktopFormLayout ? 40 : undefined } }}
+          multiline={multiline}
+          minRows={multiline ? 2 : undefined}
+          size={usesDesktopFormLayout ? "small" : "medium"}
         />
       </Box>
     </SettingsFormRow>
@@ -1131,7 +1139,7 @@ export function UserManagementSettings({ dialogSafeHeader = false }: UserManagem
                     ariaLabel={usesDesktopFormLayout ? t("settings.userManagement.editor.nameLabel") : undefined}
                     ariaDescribedBy={usesDesktopFormLayout ? USER_EDITOR_IDS.nameDescription : undefined}
                     value={formState.name}
-                    sx={{ "& .MuiInputBase-root": { minHeight: usesDesktopFormLayout ? 40 : undefined } }}
+                    size={usesDesktopFormLayout ? "small" : "medium"}
                   />
                   {!usesDesktopFormLayout && <FormHelperText>{t("settings.userManagement.editor.oidcNameHelp")}</FormHelperText>}
                 </>
@@ -1168,7 +1176,7 @@ export function UserManagementSettings({ dialogSafeHeader = false }: UserManagem
                     ariaLabel={usesDesktopFormLayout ? t("settings.userManagement.editor.emailLabel") : undefined}
                     ariaDescribedBy={usesDesktopFormLayout ? USER_EDITOR_IDS.emailDescription : undefined}
                     value={formState.email}
-                    sx={{ "& .MuiInputBase-root": { minHeight: usesDesktopFormLayout ? 40 : undefined } }}
+                    size={usesDesktopFormLayout ? "small" : "medium"}
                   />
                   {!usesDesktopFormLayout && <FormHelperText>{t("settings.userManagement.editor.oidcEmailHelp")}</FormHelperText>}
                 </>
@@ -2194,7 +2202,8 @@ export function UserManagementSettings({ dialogSafeHeader = false }: UserManagem
                 OIDC_DETAILS_IDS.lastGroups,
                 "IdP groups",
                 "The groups most recently verified with the identity provider",
-                oidcDetailsUser.oidc.last_groups.join(", ") || "None"
+                oidcDetailsUser.oidc.last_groups.join("\n") || "None",
+                true
               )}
               {renderOidcDetailsRow(
                 OIDC_DETAILS_IDS.createdAt,
@@ -2240,7 +2249,7 @@ export function UserManagementSettings({ dialogSafeHeader = false }: UserManagem
                     fullWidth
                     loading={mappingTargetsLoading}
                     options={mappingTargetUsers}
-                    value={mappingTargetUsers.find((user) => user.id === mappingEditor.targetUserId) ?? null}
+                    value={mappingTargetUser}
                     inputValue={mappingTargetSearch}
                     getOptionLabel={(user) => (user.name ? `${user.name} (${user.username})` : user.username)}
                     isOptionEqualToValue={(option, value) => option.id === value.id}
@@ -2255,10 +2264,17 @@ export function UserManagementSettings({ dialogSafeHeader = false }: UserManagem
                         }
                       }
                     }}
-                    onChange={(_, user) => setMappingEditor((current) => ({ ...current, targetUserId: user?.id ?? "" }))}
+                    onChange={(_, user) => {
+                      setMappingTargetUser(user);
+                      setMappingTargetSearch(user ? (user.name ? `${user.name} (${user.username})` : user.username) : "");
+                      setMappingEditor((current) => ({ ...current, targetUserId: user?.id ?? "" }));
+                      setMappingError(null);
+                    }}
                     onInputChange={(_, value, reason) => {
-                      setMappingTargetSearch(value);
                       if (reason === "input" || reason === "clear") {
+                        setMappingTargetSearch(value);
+                        setMappingTargetQuery(value);
+                        setMappingTargetUser(null);
                         setMappingEditor((current) => ({ ...current, targetUserId: "" }));
                       }
                     }}
