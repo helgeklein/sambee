@@ -16,12 +16,6 @@ Authentication mode is selected only in **Settings** > **Administration** > **Au
 
 This is a breaking configuration change. `auth_method` is rejected in both `[auth]` and `[security]`, and existing installations are not migrated automatically. Remove the retired key before upgrading.
 
-## Markdown Editor Improvements
-
-- Lists are normalized (formatted) when saved, using `-` for unordered lists and `1.` for every ordered-list item.
-- The editor updates to display the normalized Markdown written to disk after a successful save.
-- Unsaved edits are stored in the browser's local storage so they're not lost when re-authenticating, for example.
-
 ## Settings & Dialogs Overhaul
 
 The settings got a good UX overhaul that should make them consistent, accessible and, hopefully, much nicer to look at. They're fully responsive, of course, adapting flexibly to phone and desktop screen dimensions. They're also very optimized for efficient keyboard usage while offering touch-friendly sizing on mobile devices.
@@ -38,6 +32,10 @@ The settings also gained several new category pages:
 
 The about page comes with a feature that way come in handy: creating a **support report** with redacted diagnostic info safe for posting online.
 
+### User Management Page: Visibility Update
+
+The user management page in settings was reimplemented to provide significantly better visibility through search, filtering, sorting, summary shortcuts, and a more compact presentation.
+
 ### Dialog Look & Feel
 
 The refreshed and improved look and feel from settings was applied to the various dialogs that are shown when you copy, move, create, or delete files and/or directories. These dialogs now convey more information in a better way than before.
@@ -45,6 +43,12 @@ The refreshed and improved look and feel from settings was applied to the variou
 ## Dark Theme Polishing
 
 The dark theme got a good new coat of paint. The colors of all elements, including backgrounds, texts, menus, and dialogs were tweaked to ensure visual clarity and eye-soothing contrasts.
+
+## Markdown Editor Improvements
+
+- Lists are normalized (formatted) when saved, using `-` for unordered lists and `1.` for every ordered-list item.
+- The editor updates to display the normalized Markdown written to disk after a successful save.
+- Unsaved edits are stored in the browser's local storage so they're not lost when re-authenticating, for example.
 
 ## SMB Hardening
 
