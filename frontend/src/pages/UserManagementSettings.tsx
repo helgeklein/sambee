@@ -1161,6 +1161,7 @@ export function UserManagementSettings({ dialogSafeHeader = false }: UserManagem
                     >
                       <Typography component="div" variant="body1" sx={settingsListItemTitleSx}>
                         {user.name?.trim() ? user.name : user.username}
+                        {isSelf && ` ${t("settings.userManagement.currentUserSuffix")}`}
                       </Typography>
                       {(user.name || user.email) && (
                         <Typography variant="body2" sx={{ mt: 0.5, color: "text.secondary" }}>
@@ -1182,14 +1183,6 @@ export function UserManagementSettings({ dialogSafeHeader = false }: UserManagem
                           "& .MuiChip-label": { overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" },
                         }}
                       >
-                        {isSelf && (
-                          <Chip
-                            size="small"
-                            label={t("settings.userManagement.currentUserChip")}
-                            variant="outlined"
-                            sx={settingsMetadataChipSx}
-                          />
-                        )}
                         <Chip
                           size="small"
                           icon={user.role === "admin" ? <AdminIcon /> : <PersonIcon />}

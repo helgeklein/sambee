@@ -112,6 +112,18 @@ describe("UserManagementSettings", () => {
     expect(screen.getByRole("button", { name: /create user/i })).toBeInTheDocument();
   });
 
+  it("marks the current account in the user title instead of metadata", async () => {
+    render(
+      <SambeeThemeProvider>
+        <UserManagementSettings />
+      </SambeeThemeProvider>
+    );
+
+    const userRow = await screen.findByTestId("user-row");
+    expect(userRow).toHaveTextContent("admin (you)");
+    expect(within(screen.getByTestId("user-metadata")).queryByText("You", { exact: true })).not.toBeInTheDocument();
+  });
+
   it("uses the inline bold username confirmation when deleting another user", async () => {
     vi.mocked(api.getUsers).mockResolvedValue([
       {
@@ -171,7 +183,7 @@ describe("UserManagementSettings", () => {
       </SambeeThemeProvider>
     );
 
-    await screen.findByText("admin", { exact: true });
+    await screen.findByText("admin (you)", { exact: true });
 
     expect(screen.queryByRole("button", { name: /add user/i })).not.toBeInTheDocument();
     expect(screen.queryByRole("button", { name: /reset password for admin/i })).not.toBeInTheDocument();
@@ -549,9 +561,9 @@ describe("UserManagementSettings", () => {
       </SambeeThemeProvider>
     );
 
-    const userName = await screen.findByText("admin", { exact: true });
+    const userName = await screen.findByText("admin (you)", { exact: true });
 
-    expect(screen.queryByRole("heading", { name: "admin" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("heading", { name: "admin (you)" })).not.toBeInTheDocument();
     expect(userName.tagName).toBe("DIV");
     expect(userName).toHaveClass("MuiTypography-body1");
     expect(window.getComputedStyle(userName).fontWeight).toBe("600");

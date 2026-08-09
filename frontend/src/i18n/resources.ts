@@ -451,7 +451,7 @@ export const EN_TRANSLATIONS = {
       activeAdmins_other: "{{count}} active admins",
       emptyTitle: "No users found",
       emptyDescription: "Create the first user account to start delegating access.",
-      currentUserChip: "You",
+      currentUserSuffix: "(you)",
       adminRole: "Admin",
       editorRole: "Editor",
       viewerRole: "Viewer",
