@@ -71,6 +71,7 @@ class NormalizedOidcCandidate:
     role_assignment_mode: OidcRoleAssignmentMode = OidcRoleAssignmentMode.UNIFORM
     uniform_role: UserRole = UserRole.EDITOR
     interactive_reauthentication_max_age_days: int = 30
+    auto_link_by_username: bool = True
 
 
 class OidcSecretCipher:
@@ -208,6 +209,7 @@ def apply_reviewed_policy(
         role_assignment_mode=reviewed.role_assignment_mode,
         uniform_role=reviewed.uniform_role,
         role_mappings=reviewed.role_mappings,
+        auto_link_by_username=tested.auto_link_by_username,
     )
     return normalize_candidate(candidate, active, cipher)
 
@@ -263,6 +265,7 @@ def _active_values(active: OidcProviderConfiguration | None) -> dict[str, Any]:
         "role_assignment_mode": active.role_assignment_mode,
         "uniform_role": active.uniform_role,
         "role_mappings": cast(dict[str, list[str]], json.loads(active.role_mappings_json)),
+        "auto_link_by_username": active.auto_link_by_username,
     }
 
 
@@ -334,6 +337,7 @@ def normalize_candidate(
         "role_assignment_mode": candidate.role_assignment_mode,
         "uniform_role": candidate.uniform_role,
         "role_mappings": {"admin": list(admin_groups), "editor": list(editor_groups), "viewer": list(viewer_groups)},
+        "auto_link_by_username": candidate.auto_link_by_username,
     }
     changed_fields = tuple(key for key, value in candidate_values.items() if active_values.get(key) != value)
     if submitted_secret is not None:
@@ -362,6 +366,7 @@ def normalize_candidate(
         identity_mapping_revision=active.identity_mapping_revision if active is not None else 0,
         identity_namespace_changed=namespace_changed,
         changed_fields=changed_fields,
+        auto_link_by_username=candidate.auto_link_by_username,
     )
 
 
@@ -405,6 +410,7 @@ def redacted_configuration(configuration: OidcProviderConfiguration) -> Redacted
         role_assignment_mode=configuration.role_assignment_mode,
         uniform_role=configuration.uniform_role,
         role_mappings=OidcRoleMappings(admin=role_mappings["admin"], editor=role_mappings["editor"], viewer=role_mappings["viewer"]),
+        auto_link_by_username=configuration.auto_link_by_username,
         configuration_revision=configuration.configuration_revision,
         identity_mapping_revision=configuration.identity_mapping_revision,
     )
@@ -432,6 +438,7 @@ def redacted_candidate(candidate: NormalizedOidcCandidate) -> RedactedOidcConfig
             editor=list(candidate.editor_groups),
             viewer=list(candidate.viewer_groups),
         ),
+        auto_link_by_username=candidate.auto_link_by_username,
         configuration_revision=candidate.configuration_revision,
         identity_mapping_revision=candidate.identity_mapping_revision,
     )

@@ -11,6 +11,7 @@ import {
   InputAdornment,
   MenuItem,
   Stack,
+  Switch,
   TextField,
   Tooltip,
   Typography,
@@ -70,6 +71,7 @@ const DEFAULT_CANDIDATE: OidcConfigurationCandidate = {
   role_assignment_mode: "uniform",
   uniform_role: "editor",
   role_mappings: { admin: [], editor: [], viewer: [] },
+  auto_link_by_username: true,
 };
 
 const listValue = (values: string[]) => values.join(", ");
@@ -256,7 +258,7 @@ export function AuthenticationSettings() {
   const [clientSecret, setClientSecret] = useState("");
   const [showClientSecret, setShowClientSecret] = useState(false);
   const [oidcDialogOpen, setOidcDialogOpen] = useState(false);
-  const [remapConfirmationOpen, setRemapConfirmationOpen] = useState(false);
+  const [oidcReviewOpen, setOidcReviewOpen] = useState(false);
   const [testedIdentity, setTestedIdentity] = useState<OidcTestedIdentity | null>(null);
   const [mappingReview, setMappingReview] = useState<
     Record<string, { selected: boolean; expectedUsername: string; omissionAcknowledged: boolean }>
@@ -471,6 +473,7 @@ export function AuthenticationSettings() {
         setAuthMode(identity.candidate.sign_in_mode);
         setTestedIdentity(identity);
         setOidcDialogOpen(true);
+        setOidcReviewOpen(true);
         setMappingErrors(
           replayFailure === "validation"
             ? Object.fromEntries(
@@ -542,6 +545,7 @@ export function AuthenticationSettings() {
             sessionStorage.removeItem(OIDC_SETUP_FLOW_STORAGE_KEY);
             sessionStorage.removeItem(OIDC_REVIEWED_POLICY_STORAGE_KEY);
             setTestedIdentity(null);
+            setOidcReviewOpen(false);
             setMappingReview({});
             setError("The OIDC test expired. Connect and test the provider again.");
             return;
@@ -550,6 +554,7 @@ export function AuthenticationSettings() {
             sessionStorage.removeItem(OIDC_SETUP_FLOW_STORAGE_KEY);
             sessionStorage.removeItem(OIDC_REVIEWED_POLICY_STORAGE_KEY);
             setTestedIdentity(null);
+            setOidcReviewOpen(false);
             setMappingReview({});
             setError("The OIDC configuration changed after this test. Connect and test the provider again.");
             return;
@@ -585,11 +590,7 @@ export function AuthenticationSettings() {
     setOidcDialogOpen(true);
   };
 
-  const startTest = async (
-    remapAll = false,
-    candidateToTest: OidcConfigurationCandidate = candidate,
-    clientSecretToTest = clientSecret
-  ) => {
+  const startTest = async (candidateToTest: OidcConfigurationCandidate = candidate, clientSecretToTest = clientSecret) => {
     if (finalizationUnresolved) return;
     setBusy(true);
     setError("");
@@ -597,7 +598,7 @@ export function AuthenticationSettings() {
     try {
       const payload = { ...candidateToTest };
       if (clientSecretToTest.trim()) payload.client_secret = clientSecretToTest;
-      const result = await api.startOidcTest(payload, remapAll);
+      const result = await api.startOidcTest(payload);
       sessionStorage.setItem(OIDC_SETUP_FLOW_STORAGE_KEY, result.flow_id);
       sessionStorage.setItem(OIDC_REVIEWED_POLICY_STORAGE_KEY, JSON.stringify(reviewedPolicyFor(candidateToTest)));
       window.location.assign(result.authorization_url);
@@ -653,6 +654,7 @@ export function AuthenticationSettings() {
             sessionStorage.removeItem(OIDC_SETUP_FLOW_STORAGE_KEY);
             sessionStorage.removeItem(OIDC_REVIEWED_POLICY_STORAGE_KEY);
             setTestedIdentity(null);
+            setOidcReviewOpen(false);
             setMappingReview({});
             setMappingErrors({});
             setError("The OIDC test expired while refreshing mappings. Connect and test the provider again.");
@@ -664,6 +666,7 @@ export function AuthenticationSettings() {
         sessionStorage.removeItem(OIDC_SETUP_FLOW_STORAGE_KEY);
         sessionStorage.removeItem(OIDC_REVIEWED_POLICY_STORAGE_KEY);
         setTestedIdentity(null);
+        setOidcReviewOpen(false);
         setMappingReview({});
         setMappingErrors({});
         setError("The OIDC configuration changed after this test. Connect and test the provider again.");
@@ -695,6 +698,7 @@ export function AuthenticationSettings() {
     setClientSecret("");
     setShowClientSecret(false);
     setOidcDialogOpen(false);
+    setOidcReviewOpen(false);
     if (result.reauthentication_required) {
       localStorage.removeItem("access_token");
       authSession.clear();
@@ -727,6 +731,7 @@ export function AuthenticationSettings() {
       setMappingErrors({});
       resetOidcDraft();
       setOidcDialogOpen(false);
+      setOidcReviewOpen(false);
       setNotice("OIDC setup canceled.");
     } catch {
       setError("The OIDC setup flow could not be canceled. It may already have expired.");
@@ -746,16 +751,9 @@ export function AuthenticationSettings() {
     setOidcDialogOpen(false);
   };
 
-  const startRemap = () => {
-    const activeConfiguration = configuration?.configuration;
-    if (!activeConfiguration) return;
-
-    const activeCandidate = editableCandidate(activeConfiguration);
-    setCandidate(activeCandidate);
-    setScopesInput(listValue(activeCandidate.scopes));
-    setRemapConfirmationOpen(false);
-    setOidcDialogOpen(true);
-    void startTest(true, activeCandidate, "");
+  const returnToOidcConfiguration = () => {
+    if (busy || finalizationUnresolved) return;
+    setOidcReviewOpen(false);
   };
 
   const setPasswordOnly = async () => {
@@ -839,12 +837,12 @@ export function AuthenticationSettings() {
         ) : null}
         {!(busy && !configuration) && (
           <>
-            {error && !oidcDialogOpen && (
+            {error && !oidcDialogOpen && !oidcReviewOpen && (
               <Alert severity="error" sx={{ mb: 2 }}>
                 {error}
               </Alert>
             )}
-            {notice && !oidcDialogOpen && (
+            {notice && !oidcDialogOpen && !oidcReviewOpen && (
               <Alert severity="success" sx={{ mb: 2 }}>
                 {notice}
               </Alert>
@@ -958,44 +956,13 @@ export function AuthenticationSettings() {
                           {oidcModeActivationPending ? "Review and activate OIDC mode" : "Configure OIDC"}
                         </Button>
                       </Box>
-                      {isActiveOidcMode && (
-                        <Box
-                          sx={{
-                            display: "flex",
-                            flexDirection: { xs: "column", sm: "row" },
-                            alignItems: { sm: "center" },
-                            justifyContent: "space-between",
-                            gap: 2,
-                            pt: 2,
-                            borderTop: 1,
-                            borderColor: "divider",
-                          }}
-                        >
-                          <Box sx={{ minWidth: 0 }}>
-                            <Typography variant="subtitle2" sx={{ fontWeight: 500 }}>
-                              Account recovery
-                            </Typography>
-                            <Typography variant="body2" sx={{ color: "text.secondary" }}>
-                              Reconnect existing local accounts after an identity provider rebuild or migration.
-                            </Typography>
-                          </Box>
-                          <Button
-                            variant="outlined"
-                            sx={settingsUtilityButtonSx}
-                            disabled={busy || finalizationUnresolved || !hasHealthyActiveOidcConfiguration}
-                            onClick={() => setRemapConfirmationOpen(true)}
-                          >
-                            Remap all OIDC accounts
-                          </Button>
-                        </Box>
-                      )}
                     </Stack>
                   </SettingsFormSurface>
                 </SettingsGroup>
               )}
 
               <ResponsiveFormDialog
-                open={oidcDialogOpen}
+                open={oidcDialogOpen && !oidcReviewOpen}
                 onClose={closeOidcDialog}
                 disableClose={busy || finalizationUnresolved}
                 title="Configure OIDC"
@@ -1020,25 +987,25 @@ export function AuthenticationSettings() {
                       Cancel
                     </Button>
                     <Button
-                      onClick={() => (testedIdentity ? void activate() : void startTest())}
+                      onClick={() => (testedIdentity ? setOidcReviewOpen(true) : void startTest())}
                       disabled={
                         busy ||
                         finalizationUnresolved ||
                         (testedIdentity
-                          ? reviewPending || replacementPlanInvalid || !testedIdentityCanActivate
+                          ? reviewPending
                           : configuration?.health.status !== "healthy" || groupConfigurationInvalid || Boolean(scopesError))
                       }
                       variant="contained"
                       sx={[settingsPrimaryButtonSx, adminDialogActionButtonSx]}
                     >
-                      {testedIdentity ? "Activate configuration" : "Connect and test"}
+                      {testedIdentity ? "Review test" : "Connect and test"}
                     </Button>
                   </Box>
                 }
               >
                 <Stack spacing={2}>
-                  {error && <Alert severity="error">{error}</Alert>}
-                  {notice && <Alert severity="success">{notice}</Alert>}
+                  {error && !oidcReviewOpen && <Alert severity="error">{error}</Alert>}
+                  {notice && !oidcReviewOpen && <Alert severity="success">{notice}</Alert>}
                   {testError && (
                     <Alert ref={testErrorRef} severity="error" role="alert" aria-live="assertive" tabIndex={-1}>
                       <AlertTitle>Connection test failed</AlertTitle>
@@ -1251,6 +1218,36 @@ export function AuthenticationSettings() {
                           helperText={usesDesktopFormLayout ? undefined : "Background renewal stops when this interval expires"}
                           sx={providerIntervalFieldSx}
                         />
+                      )}
+                      {renderFormRow(
+                        "Automatically link OIDC identities to local accounts by username",
+                        "When an admitted identity-provider user has the same username as a local account, link the identity to that account.",
+                        "auto-link-by-username-description",
+                        "auto-link-by-username",
+                        <Box sx={{ display: "flex", alignItems: "center", justifyContent: "flex-end", gap: 1 }}>
+                          {!usesDesktopFormLayout && (
+                            <Typography variant="body2" sx={{ mr: "auto" }}>
+                              Automatically link OIDC identities to local accounts by username
+                            </Typography>
+                          )}
+                          <Typography component="span" variant="body2" aria-live="polite">
+                            {candidate.auto_link_by_username ? "On" : "Off"}
+                          </Typography>
+                          <Switch
+                            checked={candidate.auto_link_by_username}
+                            disabled={finalizationUnresolved}
+                            onChange={(event) => update("auto_link_by_username", event.target.checked)}
+                            slotProps={{
+                              input: {
+                                id: "auto-link-by-username",
+                                "aria-label": `Automatically link OIDC identities to local accounts by username: ${
+                                  candidate.auto_link_by_username ? "On" : "Off"
+                                }`,
+                                "aria-describedby": usesDesktopFormLayout ? "auto-link-by-username-description" : undefined,
+                              },
+                            }}
+                          />
+                        </Box>
                       )}
                     </SettingsFormGroup>
                     <SettingsFormSection title="Access" />
@@ -1549,65 +1546,169 @@ export function AuthenticationSettings() {
                         />
                       )}
                     </SettingsFormGroup>
-                    {testedIdentity && (
-                      <Box sx={{ display: "flex", flexDirection: "column", gap: 2, pt: 2, borderTop: 1, borderColor: "divider" }}>
+                  </SettingsFormSurface>
+                </Stack>
+              </ResponsiveFormDialog>
+
+              {testedIdentity && (
+                <ResponsiveFormDialog
+                  open={oidcReviewOpen}
+                  onClose={returnToOidcConfiguration}
+                  disableClose={busy || finalizationUnresolved}
+                  title="Review OIDC connection"
+                  description="Review the tested identity and account impact before activating this configuration."
+                  maxWidth="md"
+                  actions={
+                    <Box sx={adminDialogEndActionRowSx}>
+                      <Button
+                        onClick={returnToOidcConfiguration}
+                        disabled={busy || finalizationUnresolved}
+                        variant="outlined"
+                        sx={[settingsUtilityButtonSx, adminDialogActionButtonSx]}
+                      >
+                        Back
+                      </Button>
+                      <Button
+                        onClick={() => void cancelTestFlow()}
+                        disabled={busy || finalizationUnresolved}
+                        variant="outlined"
+                        sx={[settingsUtilityButtonSx, adminDialogActionButtonSx]}
+                      >
+                        Cancel
+                      </Button>
+                      <Button
+                        onClick={() => void activate()}
+                        disabled={busy || finalizationUnresolved || reviewPending || replacementPlanInvalid || !testedIdentityCanActivate}
+                        variant="contained"
+                        sx={[settingsPrimaryButtonSx, adminDialogActionButtonSx]}
+                      >
+                        Activate configuration
+                      </Button>
+                    </Box>
+                  }
+                >
+                  <Stack spacing={2}>
+                    {error && <Alert severity="error">{error}</Alert>}
+                    <SettingsFormSurface sx={{ gap: 2 }}>
+                      <Typography variant="subtitle1" sx={{ fontWeight: "medium" }}>
+                        Test results
+                      </Typography>
+                      <Box sx={{ borderLeft: 3, borderColor: "success.main", pl: 2, py: 1 }}>
                         <Typography variant="subtitle1" sx={{ fontWeight: "medium" }}>
-                          Test review
+                          Tested identity
                         </Typography>
-                        <Box sx={{ borderLeft: 3, borderColor: "success.main", pl: 2, py: 1 }}>
-                          <Typography variant="subtitle1" sx={{ fontWeight: "medium" }}>
-                            Tested identity
-                          </Typography>
-                          <Typography>Username: {testedIdentity.username}</Typography>
-                          {testedIdentity.email && <Typography>Email: {testedIdentity.email}</Typography>}
-                          <Typography>Groups: {testedIdentity.groups.join(", ") || "None"}</Typography>
-                          <Typography>Admission: {testedIdentity.admitted ? "Allowed" : "Denied"}</Typography>
-                          {testedIdentity.matching_admission_group && (
-                            <Typography>Matching admission group: {testedIdentity.matching_admission_group}</Typography>
-                          )}
-                          <Typography sx={{ color: "text.secondary" }}>Account mapping does not override the admission policy.</Typography>
-                          {!testedIdentityCanActivate && (
-                            <Alert severity="error" sx={{ mt: 1 }}>
-                              The tested identity must pass the admission rule before this configuration can be activated.
-                            </Alert>
-                          )}
-                          {testedIdentity.replacement_mappings.length > 0 && (
-                            <Stack spacing={2} sx={{ mt: 2 }}>
-                              <Typography variant="subtitle1">Review existing accounts</Typography>
-                              {omittedPasswordlessMappings.length > 0 && (
-                                <Alert severity="warning">
-                                  {omittedPasswordlessMappings.length} active passwordless account
-                                  {omittedPasswordlessMappings.length === 1 ? " is" : "s are"} omitted. These users cannot sign in until
-                                  mapped. An unmapped OIDC login may collide with an existing username or create a separate account.
-                                </Alert>
-                              )}
-                              {testedIdentity.replacement_mappings
-                                .filter((mapping) => mapping.selectable)
-                                .map((mapping) => {
-                                  const review = mappingReview[mapping.target_user_id];
-                                  const serverError = mappingErrors[mapping.target_user_id];
-                                  const expectedUsername = review?.expectedUsername ?? "";
-                                  const hintLabel =
-                                    mapping.prefill_source === "pending"
-                                      ? "Previous pending"
-                                      : mapping.prefill_source === "last_seen"
-                                        ? "Last seen"
-                                        : "Unverified";
-                                  return (
-                                    <Box key={mapping.target_user_id} sx={{ borderBottom: 1, borderColor: "divider", pb: 2 }}>
+                        <Typography>Username: {testedIdentity.username}</Typography>
+                        {testedIdentity.email && <Typography>Email: {testedIdentity.email}</Typography>}
+                        <Typography>Groups: {testedIdentity.groups.join(", ") || "None"}</Typography>
+                        <Typography>Admission: {testedIdentity.admitted ? "Allowed" : "Denied"}</Typography>
+                        {testedIdentity.matching_admission_group && (
+                          <Typography>Matching admission group: {testedIdentity.matching_admission_group}</Typography>
+                        )}
+                        <Typography sx={{ color: "text.secondary" }}>Account mapping does not override the admission policy.</Typography>
+                        {!testedIdentityCanActivate && (
+                          <Alert severity="error" sx={{ mt: 1 }}>
+                            The tested identity must pass the admission rule before this configuration can be activated.
+                          </Alert>
+                        )}
+                        {testedIdentity.replacement_mappings.length > 0 && (
+                          <Stack spacing={2} sx={{ mt: 2 }}>
+                            <Typography variant="subtitle1">Review existing accounts</Typography>
+                            {omittedPasswordlessMappings.length > 0 && (
+                              <Alert severity="warning">
+                                {omittedPasswordlessMappings.length} active passwordless account
+                                {omittedPasswordlessMappings.length === 1 ? " is" : "s are"} omitted. These users cannot sign in until
+                                mapped. An unmapped OIDC login may collide with an existing username or create a separate account.
+                              </Alert>
+                            )}
+                            {testedIdentity.replacement_mappings
+                              .filter((mapping) => mapping.selectable)
+                              .map((mapping) => {
+                                const review = mappingReview[mapping.target_user_id];
+                                const serverError = mappingErrors[mapping.target_user_id];
+                                const expectedUsername = review?.expectedUsername ?? "";
+                                const hintLabel =
+                                  mapping.prefill_source === "pending"
+                                    ? "Previous pending"
+                                    : mapping.prefill_source === "last_seen"
+                                      ? "Last seen"
+                                      : "Unverified";
+                                return (
+                                  <Box key={mapping.target_user_id} sx={{ borderBottom: 1, borderColor: "divider", pb: 2 }}>
+                                    <FormControlLabel
+                                      control={
+                                        <Checkbox
+                                          checked={review?.selected ?? false}
+                                          disabled={finalizationUnresolved}
+                                          onChange={(event) => {
+                                            if (!event.target.checked) {
+                                              setMappingErrors((current) => {
+                                                const next = { ...current };
+                                                delete next[mapping.target_user_id];
+                                                return next;
+                                              });
+                                            }
+                                            setMappingReview((current) => ({
+                                              ...current,
+                                              [mapping.target_user_id]: {
+                                                ...(current[mapping.target_user_id] ?? {
+                                                  selected: false,
+                                                  expectedUsername: "",
+                                                  omissionAcknowledged: false,
+                                                }),
+                                                selected: event.target.checked,
+                                                expectedUsername:
+                                                  event.target.checked && !current[mapping.target_user_id]?.expectedUsername
+                                                    ? mapping.suggested_username
+                                                    : (current[mapping.target_user_id]?.expectedUsername ?? ""),
+                                                omissionAcknowledged: false,
+                                              },
+                                            }));
+                                          }}
+                                        />
+                                      }
+                                      label={`Map ${mapping.local_username}`}
+                                    />
+                                    <TextField
+                                      fullWidth
+                                      label={`Provider username for ${mapping.local_username}`}
+                                      value={expectedUsername}
+                                      placeholder={mapping.suggested_username}
+                                      helperText={serverError ?? `${hintLabel}: ${mapping.suggested_username}`}
+                                      disabled={finalizationUnresolved || !review?.selected}
+                                      error={
+                                        Boolean(serverError) ||
+                                        (Boolean(review?.selected) &&
+                                          (!expectedUsername.trim() ||
+                                            expectedUsername.trim() === testedIdentity.username.trim() ||
+                                            replacementUsernames.filter((value) => value === expectedUsername.trim()).length > 1))
+                                      }
+                                      onChange={(event) => {
+                                        setMappingErrors((current) => {
+                                          const next = { ...current };
+                                          delete next[mapping.target_user_id];
+                                          return next;
+                                        });
+                                        setMappingReview((current) => ({
+                                          ...current,
+                                          [mapping.target_user_id]: {
+                                            ...(current[mapping.target_user_id] ?? {
+                                              selected: false,
+                                              expectedUsername: "",
+                                              omissionAcknowledged: false,
+                                            }),
+                                            expectedUsername: event.target.value,
+                                          },
+                                        }));
+                                      }}
+                                      required={review?.selected}
+                                    />
+                                    {mapping.omission_acknowledgement_required && !review?.selected && (
                                       <FormControlLabel
                                         control={
                                           <Checkbox
-                                            checked={review?.selected ?? false}
+                                            checked={review?.omissionAcknowledged ?? false}
                                             disabled={finalizationUnresolved}
-                                            onChange={(event) => {
-                                              if (!event.target.checked) {
-                                                setMappingErrors((current) => {
-                                                  const next = { ...current };
-                                                  delete next[mapping.target_user_id];
-                                                  return next;
-                                                });
-                                              }
+                                            onChange={(event) =>
                                               setMappingReview((current) => ({
                                                 ...current,
                                                 [mapping.target_user_id]: {
@@ -1616,133 +1717,37 @@ export function AuthenticationSettings() {
                                                     expectedUsername: "",
                                                     omissionAcknowledged: false,
                                                   }),
-                                                  selected: event.target.checked,
-                                                  expectedUsername:
-                                                    event.target.checked && !current[mapping.target_user_id]?.expectedUsername
-                                                      ? mapping.suggested_username
-                                                      : (current[mapping.target_user_id]?.expectedUsername ?? ""),
-                                                  omissionAcknowledged: false,
+                                                  omissionAcknowledged: event.target.checked,
                                                 },
-                                              }));
-                                            }}
+                                              }))
+                                            }
                                           />
                                         }
-                                        label={`Map ${mapping.local_username}`}
+                                        label={`I understand ${mapping.local_username} cannot use a local password in OIDC only mode`}
                                       />
-                                      <TextField
-                                        fullWidth
-                                        label={`Provider username for ${mapping.local_username}`}
-                                        value={expectedUsername}
-                                        placeholder={mapping.suggested_username}
-                                        helperText={serverError ?? `${hintLabel}: ${mapping.suggested_username}`}
-                                        disabled={finalizationUnresolved || !review?.selected}
-                                        error={
-                                          Boolean(serverError) ||
-                                          (Boolean(review?.selected) &&
-                                            (!expectedUsername.trim() ||
-                                              expectedUsername.trim() === testedIdentity.username.trim() ||
-                                              replacementUsernames.filter((value) => value === expectedUsername.trim()).length > 1))
-                                        }
-                                        onChange={(event) => {
-                                          setMappingErrors((current) => {
-                                            const next = { ...current };
-                                            delete next[mapping.target_user_id];
-                                            return next;
-                                          });
-                                          setMappingReview((current) => ({
-                                            ...current,
-                                            [mapping.target_user_id]: {
-                                              ...(current[mapping.target_user_id] ?? {
-                                                selected: false,
-                                                expectedUsername: "",
-                                                omissionAcknowledged: false,
-                                              }),
-                                              expectedUsername: event.target.value,
-                                            },
-                                          }));
-                                        }}
-                                        required={review?.selected}
-                                      />
-                                      {mapping.omission_acknowledgement_required && !review?.selected && (
-                                        <FormControlLabel
-                                          control={
-                                            <Checkbox
-                                              checked={review?.omissionAcknowledged ?? false}
-                                              disabled={finalizationUnresolved}
-                                              onChange={(event) =>
-                                                setMappingReview((current) => ({
-                                                  ...current,
-                                                  [mapping.target_user_id]: {
-                                                    ...(current[mapping.target_user_id] ?? {
-                                                      selected: false,
-                                                      expectedUsername: "",
-                                                      omissionAcknowledged: false,
-                                                    }),
-                                                    omissionAcknowledged: event.target.checked,
-                                                  },
-                                                }))
-                                              }
-                                            />
-                                          }
-                                          label={`I understand ${mapping.local_username} cannot use a local password in OIDC only mode`}
-                                        />
-                                      )}
-                                    </Box>
-                                  );
-                                })}
-                              {testedIdentity.replacement_mappings.some((mapping) => !mapping.selectable) && (
-                                <Box>
-                                  <Typography variant="subtitle2">Inactive or expired accounts</Typography>
-                                  {testedIdentity.replacement_mappings
-                                    .filter((mapping) => !mapping.selectable)
-                                    .map((mapping) => (
-                                      <Typography key={mapping.target_user_id} sx={{ color: "text.secondary" }}>
-                                        {mapping.local_username} ({mapping.target_state}) must be reactivated before mapping.
-                                      </Typography>
-                                    ))}
-                                </Box>
-                              )}
-                            </Stack>
-                          )}
-                        </Box>
+                                    )}
+                                  </Box>
+                                );
+                              })}
+                            {testedIdentity.replacement_mappings.some((mapping) => !mapping.selectable) && (
+                              <Box>
+                                <Typography variant="subtitle2">Inactive or expired accounts</Typography>
+                                {testedIdentity.replacement_mappings
+                                  .filter((mapping) => !mapping.selectable)
+                                  .map((mapping) => (
+                                    <Typography key={mapping.target_user_id} sx={{ color: "text.secondary" }}>
+                                      {mapping.local_username} ({mapping.target_state}) must be reactivated before mapping.
+                                    </Typography>
+                                  ))}
+                              </Box>
+                            )}
+                          </Stack>
+                        )}
                       </Box>
-                    )}
-                  </SettingsFormSurface>
-                </Stack>
-              </ResponsiveFormDialog>
-
-              <ResponsiveFormDialog
-                open={remapConfirmationOpen}
-                onClose={() => setRemapConfirmationOpen(false)}
-                disableClose={busy || finalizationUnresolved}
-                title="Remap OIDC accounts"
-                description="Current OIDC links will be removed, affected users signed out, and local accounts and data preserved. You will then sign in with the provider and review replacement mappings before activation."
-                actions={
-                  <Box sx={adminDialogEndActionRowSx}>
-                    <Button
-                      onClick={() => setRemapConfirmationOpen(false)}
-                      disabled={busy || finalizationUnresolved}
-                      variant="outlined"
-                      sx={[settingsUtilityButtonSx, adminDialogActionButtonSx]}
-                    >
-                      Cancel
-                    </Button>
-                    <Button
-                      onClick={startRemap}
-                      disabled={busy || finalizationUnresolved || !hasHealthyActiveOidcConfiguration}
-                      variant="contained"
-                      sx={[settingsPrimaryButtonSx, adminDialogActionButtonSx]}
-                    >
-                      Connect and test
-                    </Button>
-                  </Box>
-                }
-              >
-                <Alert severity="warning">
-                  Remapping replaces established OIDC links. Review every proposed account mapping before you activate the new
-                  configuration.
-                </Alert>
-              </ResponsiveFormDialog>
+                    </SettingsFormSurface>
+                  </Stack>
+                </ResponsiveFormDialog>
+              )}
             </Stack>
           </>
         )}

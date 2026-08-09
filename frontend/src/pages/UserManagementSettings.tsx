@@ -234,6 +234,7 @@ export function UserManagementSettings({ dialogSafeHeader = false }: UserManagem
     anchor: HTMLElement | null;
     user: AdminUser | null;
   }>({ anchor: null, user: null });
+  const [oidcDetailsUser, setOidcDetailsUser] = useState<AdminUser | null>(null);
   const [userActionsMenu, setUserActionsMenu] = useState<{
     anchor: HTMLElement | null;
     user: AdminUser | null;
@@ -798,42 +799,18 @@ export function UserManagementSettings({ dialogSafeHeader = false }: UserManagem
                 )}
                 <SettingsSelectMenuItem
                   value="editor"
-                  label={
-                    inheritedOidcRole === "editor"
-                      ? `${t("settings.userManagement.editorRole")} (${t("settings.userManagement.editor.currentInheritedRole")})`
-                      : t("settings.userManagement.editorRole")
-                  }
-                  description={
-                    inheritedOidcRole === "editor"
-                      ? t("settings.userManagement.editor.inheritedRoleDescription")
-                      : t("settings.userManagement.editor.roleOptions.editor")
-                  }
+                  label={t("settings.userManagement.editorRole")}
+                  description={t("settings.userManagement.editor.roleOptions.editor")}
                 />
                 <SettingsSelectMenuItem
                   value="viewer"
-                  label={
-                    inheritedOidcRole === "viewer"
-                      ? `${t("settings.userManagement.viewerRole")} (${t("settings.userManagement.editor.currentInheritedRole")})`
-                      : t("settings.userManagement.viewerRole")
-                  }
-                  description={
-                    inheritedOidcRole === "viewer"
-                      ? t("settings.userManagement.editor.inheritedRoleDescription")
-                      : t("settings.userManagement.editor.roleOptions.viewer")
-                  }
+                  label={t("settings.userManagement.viewerRole")}
+                  description={t("settings.userManagement.editor.roleOptions.viewer")}
                 />
                 <SettingsSelectMenuItem
                   value="admin"
-                  label={
-                    inheritedOidcRole === "admin"
-                      ? `${t("settings.userManagement.adminRole")} (${t("settings.userManagement.editor.currentInheritedRole")})`
-                      : t("settings.userManagement.adminRole")
-                  }
-                  description={
-                    inheritedOidcRole === "admin"
-                      ? t("settings.userManagement.editor.inheritedRoleDescription")
-                      : t("settings.userManagement.editor.roleOptions.admin")
-                  }
+                  label={t("settings.userManagement.adminRole")}
+                  description={t("settings.userManagement.editor.roleOptions.admin")}
                 />
               </Select>
               {!usesDesktopFormLayout && (
@@ -1185,12 +1162,11 @@ export function UserManagementSettings({ dialogSafeHeader = false }: UserManagem
                     >
                       <Typography component="div" variant="body1" sx={settingsListItemTitleSx}>
                         {user.name?.trim() ? user.name : user.username}
+                        {isSelf && ` ${t("settings.userManagement.currentUserSuffix")}`}
                       </Typography>
-                      {(user.name || user.email) && (
-                        <Typography variant="body2" sx={{ mt: 0.5, color: "text.secondary" }}>
-                          {[user.username, user.email].filter(Boolean).join(" • ")}
-                        </Typography>
-                      )}
+                      <Typography variant="body2" sx={{ mt: 0.5, color: "text.secondary" }}>
+                        {[user.username, user.email].filter(Boolean).join(" • ")}
+                      </Typography>
                       <Stack
                         data-testid="user-metadata"
                         direction="row"
@@ -1206,14 +1182,6 @@ export function UserManagementSettings({ dialogSafeHeader = false }: UserManagem
                           "& .MuiChip-label": { overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" },
                         }}
                       >
-                        {isSelf && (
-                          <Chip
-                            size="small"
-                            label={t("settings.userManagement.currentUserChip")}
-                            variant="outlined"
-                            sx={settingsMetadataChipSx}
-                          />
-                        )}
                         <Chip
                           size="small"
                           icon={user.role === "admin" ? <AdminIcon /> : <PersonIcon />}
@@ -1411,6 +1379,15 @@ export function UserManagementSettings({ dialogSafeHeader = false }: UserManagem
         onClose={() => setAdvancedMappingMenu({ anchor: null, user: null })}
       >
         <MenuItem
+          onClick={() => {
+            const user = advancedMappingMenu.user;
+            setAdvancedMappingMenu({ anchor: null, user: null });
+            if (user) setOidcDetailsUser(user);
+          }}
+        >
+          View OIDC identity details
+        </MenuItem>
+        <MenuItem
           disabled={!pendingOidcMappingsAllowed}
           onClick={() => {
             const user = advancedMappingMenu.user;
@@ -1470,6 +1447,16 @@ export function UserManagementSettings({ dialogSafeHeader = false }: UserManagem
             )}
             {oidcConfiguration && userActionsMenu.user.oidc && (
               <>
+                <MenuItem
+                  onClick={() => {
+                    const user = userActionsMenu.user;
+                    closeUserActionsMenu();
+                    if (user) setOidcDetailsUser(user);
+                  }}
+                >
+                  <LinkIcon fontSize="small" sx={{ mr: 1.5 }} />
+                  View OIDC identity details
+                </MenuItem>
                 <MenuItem
                   disabled={!pendingOidcMappingsAllowed}
                   onClick={() => {
@@ -1543,6 +1530,57 @@ export function UserManagementSettings({ dialogSafeHeader = false }: UserManagem
           </>
         )}
       </Menu>
+
+      <ResponsiveFormDialog
+        open={oidcDetailsUser !== null}
+        onClose={() => setOidcDetailsUser(null)}
+        title="OIDC identity details"
+        description={oidcDetailsUser ? `Stored identity properties for ${oidcDetailsUser.username}.` : undefined}
+        actions={
+          <Box sx={adminDialogEndActionRowSx}>
+            <Button onClick={() => setOidcDetailsUser(null)} variant="contained" sx={[settingsPrimaryButtonSx, adminDialogActionButtonSx]}>
+              Close
+            </Button>
+          </Box>
+        }
+      >
+        {oidcDetailsUser?.oidc && (
+          <SettingsFormSurface>
+            <SettingsFormGroup>
+              <SettingsFormRow sx={{ gridTemplateColumns: { md: "minmax(0, 1fr)" } }}>
+                <DialogReadOnlyField label="Identity ID" value={oidcDetailsUser.oidc.identity_id} />
+              </SettingsFormRow>
+              <SettingsFormRow sx={{ gridTemplateColumns: { md: "minmax(0, 1fr)" } }}>
+                <DialogReadOnlyField label="Local user ID" value={oidcDetailsUser.oidc.user_id} />
+              </SettingsFormRow>
+              <SettingsFormRow sx={{ gridTemplateColumns: { md: "minmax(0, 1fr)" } }}>
+                <DialogReadOnlyField label="Provider" value={oidcDetailsUser.oidc.provider_display_name} />
+              </SettingsFormRow>
+              <SettingsFormRow sx={{ gridTemplateColumns: { md: "minmax(0, 1fr)" } }}>
+                <DialogReadOnlyField label="Issuer" value={oidcDetailsUser.oidc.issuer} />
+              </SettingsFormRow>
+              <SettingsFormRow sx={{ gridTemplateColumns: { md: "minmax(0, 1fr)" } }}>
+                <DialogReadOnlyField label="Subject" value={oidcDetailsUser.oidc.subject} />
+              </SettingsFormRow>
+              <SettingsFormRow sx={{ gridTemplateColumns: { md: "minmax(0, 1fr)" } }}>
+                <DialogReadOnlyField label="Last seen provider username" value={oidcDetailsUser.oidc.last_seen_username ?? "None"} />
+              </SettingsFormRow>
+              <SettingsFormRow sx={{ gridTemplateColumns: { md: "minmax(0, 1fr)" } }}>
+                <DialogReadOnlyField label="Last verified groups" value={oidcDetailsUser.oidc.last_groups.join(", ") || "None"} />
+              </SettingsFormRow>
+              <SettingsFormRow sx={{ gridTemplateColumns: { md: "minmax(0, 1fr)" } }}>
+                <DialogReadOnlyField label="Identity created" value={formatLocalTimestamp(oidcDetailsUser.oidc.created_at)} />
+              </SettingsFormRow>
+              <SettingsFormRow sx={{ gridTemplateColumns: { md: "minmax(0, 1fr)" } }}>
+                <DialogReadOnlyField
+                  label="Last OIDC login"
+                  value={oidcDetailsUser.oidc.last_login_at ? formatLocalTimestamp(oidcDetailsUser.oidc.last_login_at) : "Never"}
+                />
+              </SettingsFormRow>
+            </SettingsFormGroup>
+          </SettingsFormSurface>
+        )}
+      </ResponsiveFormDialog>
 
       <ResponsiveFormDialog
         open={mappingEditor.open}

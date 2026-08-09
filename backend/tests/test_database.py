@@ -385,6 +385,37 @@ class TestDatabaseEngine:
         finally:
             test_engine.dispose()
 
+    def test_run_migrations_adds_default_oidc_auto_link_policy(self, tmp_path: Path):
+        db_path = tmp_path / "legacy-oidc-provider.db"
+        test_engine = create_engine(f"sqlite:///{db_path}")
+        try:
+            with test_engine.begin() as connection:
+                connection.execute(text("CREATE TABLE oidcproviderconfiguration (id INTEGER PRIMARY KEY)"))
+                connection.execute(text("INSERT INTO oidcproviderconfiguration (id) VALUES (1)"))
+                connection.execute(
+                    text(
+                        f"CREATE TABLE {MIGRATION_TABLE_NAME} ("
+                        "version INTEGER PRIMARY KEY, name TEXT NOT NULL, applied_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP)"
+                    )
+                )
+                for migration in MIGRATIONS:
+                    if migration.version >= 25:
+                        continue
+                    connection.execute(
+                        text(f"INSERT INTO {MIGRATION_TABLE_NAME} (version, name) VALUES (:version, :name)"),
+                        {"version": migration.version, "name": migration.name},
+                    )
+
+            run_migrations(test_engine)
+            run_migrations(test_engine)
+
+            with test_engine.connect() as connection:
+                assert (
+                    connection.execute(text("SELECT auto_link_by_username FROM oidcproviderconfiguration WHERE id = 1")).scalar_one() == 1
+                )
+        finally:
+            test_engine.dispose()
+
     def test_run_migrations_makes_password_nullable_and_preserves_hash(self, tmp_path: Path):
         db_path = tmp_path / "legacy-user-password.db"
         test_engine = create_engine(

@@ -281,7 +281,6 @@ def test_finalize_oidc_configuration_is_idempotent(
         json={
             "flow_id": str(flow.id),
             "reviewed_policy": reviewed_policy,
-            "replacement_mappings": [{"target_user_id": str(unrelated_user.id), "expected_username": "provider-unrelated"}],
             "expected_identity_mapping_revision": None,
         },
     )
@@ -291,21 +290,7 @@ def test_finalize_oidc_configuration_is_idempotent(
     assert tested.json()["candidate"]["sign_in_mode"] == "oidc_only"
     assert tested.json()["candidate"]["client_secret_configured"] is True
     assert tested.json()["expected_identity_mapping_revision"] is None
-    assert tested.json()["replacement_mappings"] == [
-        {
-            "target_user_id": str(unrelated_user.id),
-            "local_username": "unrelated-user",
-            "local_role": "editor",
-            "has_local_password": True,
-            "target_state": "active",
-            "mapping_state": "unmapped",
-            "suggested_username": "unrelated-user",
-            "prefill_source": "local",
-            "selected_by_default": False,
-            "selectable": True,
-            "omission_acknowledgement_required": True,
-        }
-    ]
+    assert tested.json()["replacement_mappings"] == []
     serialized_tested = json.dumps(tested.json())
     assert '"client_secret":' not in serialized_tested
     assert '"encrypted_client_secret":' not in serialized_tested
@@ -330,8 +315,7 @@ def test_finalize_oidc_configuration_is_idempotent(
     assert flow.encrypted_tested_identity is None
     identity = session.exec(select(OidcIdentity).where(OidcIdentity.user_id == admin_user.id)).one()
     assert identity.subject == "admin-subject"
-    pending = session.exec(select(OidcPendingIdentityMapping).where(OidcPendingIdentityMapping.target_user_id == unrelated_user.id)).one()
-    assert pending.expected_username == "provider-unrelated"
+    assert identity.last_groups_json == '["sambee-users", "sambee-admins"]'
 
     flow.expires_at = datetime.now(timezone.utc) - timedelta(seconds=1)
     session.add(flow)
@@ -490,7 +474,7 @@ def test_finalize_rejects_password_only_candidate(
     assert response.json()["detail"] == "oidc_tested_activation_mode_invalid"
 
 
-def test_finalize_returns_structured_mapping_review_errors(
+def test_finalize_rejects_legacy_bulk_mapping_payloads(
     client: TestClient,
     session: Session,
     admin_user: User,
@@ -514,17 +498,10 @@ def test_finalize_returns_structured_mapping_review_errors(
     )
 
     assert response.status_code == 409
-    assert response.json()["detail"]["errors"] == [
-        {
-            "target_user_id": str(target_id),
-            "field": "target_user_id",
-            "error_code": "oidc_mapping_target_unavailable",
-            "message": "OIDC mapping target is unavailable",
-        }
-    ]
+    assert response.json()["detail"] == "OIDC mapping review is not expected"
 
 
-def test_finalize_allows_pending_mappings_without_uniqueness_confirmation(
+def test_finalize_rejects_legacy_pending_mapping_payloads(
     client: TestClient,
     session: Session,
     admin_user: User,
@@ -549,10 +526,8 @@ def test_finalize_allows_pending_mappings_without_uniqueness_confirmation(
         },
     )
 
-    assert response.status_code == 200
-    pending = session.exec(select(OidcPendingIdentityMapping)).one()
-    assert pending.target_user_id == target.id
-    assert pending.expected_username == "provider-target"
+    assert response.status_code == 409
+    assert response.json()["detail"] == "OIDC mapping review is not expected"
 
 
 def test_change_identity_allows_pending_mapping_without_uniqueness_confirmation(
@@ -845,14 +820,14 @@ def test_cancel_oidc_test_flow_enforces_owner_and_deletes_candidate(
     assert denied.status_code == 404
 
 
-def test_namespace_replacement_stages_existing_identity_for_exact_relink(
+def test_changed_issuer_auto_links_matching_local_username(
     client: TestClient,
     session: Session,
     admin_user: User,
     admin_token: str,
 ) -> None:
     cipher = get_oidc_secret_cipher()
-    existing_user = User(username="local-alice", password_hash="hash")
+    existing_user = User(username="provider-alice", password_hash="hash")
     active = OidcProviderConfiguration(
         display_name="Old Identity",
         issuer_url="https://old-id.example.test",
@@ -903,7 +878,6 @@ def test_namespace_replacement_stages_existing_identity_for_exact_relink(
     )
     flow = OidcFlow(
         purpose=OidcFlowPurpose.TEST,
-        intent=OidcFlowIntent.REPLACE_IDENTITY_NAMESPACE,
         status=OidcFlowStatus.CALLBACK_VALIDATED,
         initiating_admin_id=admin_user.id,
         encrypted_candidate_configuration=encrypt_candidate_snapshot(candidate, cipher),
@@ -920,14 +894,11 @@ def test_namespace_replacement_stages_existing_identity_for_exact_relink(
         json={
             "flow_id": str(flow.id),
             "reviewed_policy": _reviewed_policy_for_flow(flow),
-            "replacement_mappings": [{"target_user_id": str(existing_user.id), "expected_username": "provider-alice"}],
             "expected_identity_mapping_revision": 4,
         },
     )
 
     assert response.status_code == 200
-    pending = session.exec(select(OidcPendingIdentityMapping).where(OidcPendingIdentityMapping.target_user_id == existing_user.id)).one()
-    assert pending.expected_username == "provider-alice"
     session.refresh(active)
     resolved = resolve_or_provision_oidc_user(
         session,
@@ -942,11 +913,12 @@ def test_namespace_replacement_stages_existing_identity_for_exact_relink(
         ),
     )
     assert resolved.id == existing_user.id
-    namespace_event = session.exec(select(AuditEvent).where(AuditEvent.event_name == "oidc.provider.identity_namespace_replaced")).one()
-    assert json.loads(namespace_event.safe_details_json)["mapping_count"] == 2
+    identities = session.exec(select(OidcIdentity).where(OidcIdentity.user_id == existing_user.id)).all()
+    assert [(identity.issuer, identity.subject) for identity in identities] == [(candidate.issuer_url, "new-user-subject")]
+    assert len(session.exec(select(AuditEvent).where(AuditEvent.event_name == "oidc.identity.relinked")).all()) >= 2
 
 
-def test_namespace_replacement_rejects_duplicate_reviewed_usernames_before_mutation(
+def test_finalize_rejects_legacy_namespace_mapping_payloads_without_mutation(
     client: TestClient,
     session: Session,
     admin_user: User,
@@ -1018,8 +990,7 @@ def test_namespace_replacement_rejects_duplicate_reviewed_usernames_before_mutat
         json={"reviewed_policy": _reviewed_policy_for_flow(flow)},
     )
     assert preview.status_code == 200
-    preview_rows = preview.json()["replacement_mappings"]
-    assert {row["local_username"] for row in preview_rows} == {"first-local", "second-local"}
+    assert preview.json()["replacement_mappings"] == []
 
     response = client.post(
         "/api/admin/auth/oidc/finalize",
@@ -1036,6 +1007,7 @@ def test_namespace_replacement_rejects_duplicate_reviewed_usernames_before_mutat
     )
 
     assert response.status_code == 409
+    assert response.json()["detail"] == "OIDC mapping review is not expected"
     assert session.get(OidcIdentity, first_identity.id) is not None
     assert session.get(OidcIdentity, second_identity.id) is not None
     session.refresh(active)

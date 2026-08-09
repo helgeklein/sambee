@@ -66,6 +66,7 @@ class OidcConfigurationCandidate(BaseModel):
     role_assignment_mode: OidcRoleAssignmentMode = OidcRoleAssignmentMode.UNIFORM
     uniform_role: UserRole = UserRole.EDITOR
     role_mappings: OidcRoleMappings = Field(default_factory=OidcRoleMappings)
+    auto_link_by_username: bool = True
 
 
 class RedactedOidcConfiguration(SQLModel):
@@ -85,6 +86,7 @@ class RedactedOidcConfiguration(SQLModel):
     role_assignment_mode: OidcRoleAssignmentMode
     uniform_role: UserRole
     role_mappings: OidcRoleMappings
+    auto_link_by_username: bool
     configuration_revision: int
     identity_mapping_revision: int
 

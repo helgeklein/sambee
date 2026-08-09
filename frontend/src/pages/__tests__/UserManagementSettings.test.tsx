@@ -112,6 +112,29 @@ describe("UserManagementSettings", () => {
     expect(screen.getByRole("button", { name: /create user/i })).toBeInTheDocument();
   });
 
+  it("marks the current account in the user title instead of metadata", async () => {
+    render(
+      <SambeeThemeProvider>
+        <UserManagementSettings />
+      </SambeeThemeProvider>
+    );
+
+    const userRow = await screen.findByTestId("user-row");
+    expect(userRow).toHaveTextContent("admin (you)");
+    expect(within(screen.getByTestId("user-metadata")).queryByText("You", { exact: true })).not.toBeInTheDocument();
+  });
+
+  it("shows the username beneath a local account without a full name", async () => {
+    render(
+      <SambeeThemeProvider>
+        <UserManagementSettings />
+      </SambeeThemeProvider>
+    );
+
+    const username = await screen.findByText("admin", { exact: true });
+    expect(username).toHaveClass("MuiTypography-body2");
+  });
+
   it("uses the inline bold username confirmation when deleting another user", async () => {
     vi.mocked(api.getUsers).mockResolvedValue([
       {
@@ -171,7 +194,7 @@ describe("UserManagementSettings", () => {
       </SambeeThemeProvider>
     );
 
-    await screen.findByText("admin", { exact: true });
+    await screen.findByText("admin (you)", { exact: true });
 
     expect(screen.queryByRole("button", { name: /add user/i })).not.toBeInTheDocument();
     expect(screen.queryByRole("button", { name: /reset password for admin/i })).not.toBeInTheDocument();
@@ -390,7 +413,7 @@ describe("UserManagementSettings", () => {
     expect(roleSelect).toHaveTextContent("Admin");
     await user.click(roleSelect);
     expect(await screen.findByRole("option", { name: /inherited \(viewer\)/i })).toBeInTheDocument();
-    expect(screen.getByRole("option", { name: /viewer \(current inherited role\)/i })).toBeInTheDocument();
+    expect(screen.getByRole("option", { name: /^viewer browse content$/i })).toBeInTheDocument();
     await user.click(screen.getByRole("option", { name: /inherited \(viewer\)/i }));
     await user.click(screen.getByRole("button", { name: /save changes/i }));
 
@@ -549,9 +572,9 @@ describe("UserManagementSettings", () => {
       </SambeeThemeProvider>
     );
 
-    const userName = await screen.findByText("admin", { exact: true });
+    const userName = await screen.findByText("admin (you)", { exact: true });
 
-    expect(screen.queryByRole("heading", { name: "admin" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("heading", { name: "admin (you)" })).not.toBeInTheDocument();
     expect(userName.tagName).toBe("DIV");
     expect(userName).toHaveClass("MuiTypography-body1");
     expect(window.getComputedStyle(userName).fontWeight).toBe("600");
@@ -658,7 +681,7 @@ describe("UserManagementSettings", () => {
       timeZoneName: "short",
     }).format(new Date("2026-03-01T10:00:00Z"));
     expect(screen.getByText(`OIDC last login: ${localTimestamp}`)).toBeInTheDocument();
-    expect(screen.getByText("second-oidc-user", { exact: true })).toBeInTheDocument();
+    expect(screen.getAllByText("second-oidc-user", { exact: true })).toHaveLength(2);
     expect(screen.getAllByText("OIDC linked", { exact: true })).toHaveLength(2);
     expect(screen.queryByRole("button", { name: /reset password/i })).not.toBeInTheDocument();
     expect(screen.queryByText("Local password")).not.toBeInTheDocument();
@@ -691,7 +714,17 @@ describe("UserManagementSettings", () => {
         must_change_password: false,
         has_local_password: true,
         oidc_role_assignment: null,
-        oidc: { identity_id: "identity-1", provider_display_name: "Corporate login", last_login_at: null },
+        oidc: {
+          identity_id: "identity-1",
+          user_id: "user-1",
+          provider_display_name: "Corporate login",
+          issuer: "https://idp.example.test",
+          subject: "provider-subject-1",
+          last_seen_username: "linked-admin",
+          last_groups: ["admins"],
+          created_at: "2026-03-01T10:00:00Z",
+          last_login_at: null,
+        },
         pending_oidc: null,
         created_at: "2026-03-01T10:00:00Z",
         updated_at: "2026-03-01T10:00:00Z",
@@ -728,6 +761,7 @@ describe("UserManagementSettings", () => {
         role_assignment_mode: "uniform",
         uniform_role: "editor",
         role_mappings: { admin: ["admins"], editor: [], viewer: [] },
+        auto_link_by_username: true,
         configuration_revision: 2,
         identity_mapping_revision: 1,
       },
@@ -758,6 +792,13 @@ describe("UserManagementSettings", () => {
     expect(await screen.findByRole("button", { name: "Map OIDC account for unmapped-user" })).toBeEnabled();
 
     expect(screen.queryByRole("button", { name: "Change OIDC account for linked-admin" })).not.toBeInTheDocument();
+    await user.click(screen.getByRole("button", { name: "Advanced OIDC actions for linked-admin" }));
+    await user.click(screen.getByRole("menuitem", { name: "View OIDC identity details" }));
+    expect(await screen.findByRole("dialog", { name: "OIDC identity details" })).toBeInTheDocument();
+    expect(screen.getByDisplayValue("provider-subject-1")).toBeInTheDocument();
+    await user.click(screen.getByRole("button", { name: "Close" }));
+    await waitFor(() => expect(screen.queryByRole("dialog", { name: "OIDC identity details" })).not.toBeInTheDocument());
+
     await user.click(screen.getByRole("button", { name: "Advanced OIDC actions for linked-admin" }));
     expect(screen.getByRole("menuitem", { name: "Change OIDC account" })).toBeEnabled();
     await user.click(screen.getByRole("menuitem", { name: "Change OIDC account" }));

@@ -153,7 +153,7 @@ The default claim names work with most OpenID Connect providers. Expand **Advanc
 | **Email claim** | Optional claim containing the person's email address, commonly `email`. |
 | **Groups claim** | Optional claim containing group membership, commonly `groups`. Required only for selected-group admission or group-based role assignment. |
 
-Sambee binds an OIDC identity using its immutable issuer and subject. It does not link an existing local account merely because the returned username matches.
+Sambee records the OIDC issuer and subject for each linked account. By default, Sambee also treats the configured IdP as authoritative for usernames: when an admitted IdP user has the same username as a local account, Sambee links that identity to the local account. This also updates an existing link when an IdP migration changes the issuer or subject. Keep **Automatically link OIDC identities to local accounts by username** enabled unless you need to resolve username matches manually.
 
 ### 7. Connect and Test
 
@@ -170,23 +170,10 @@ Review the resulting identity before activation:
 
 OIDC activation remains unavailable unless the tested OIDC identity passes the admission rule to prevent the local admin making the changes from locking themselves out.
 
-### 8. Review Account Mappings and Activate
-
-On first activation, or when you replace the provider's identity namespace, Sambee asks you to review existing local accounts and map them to the correct OIDC provider usernames. If this mapping isn't correct, those people may not be able to sign in.
-
-For each local account:
-
-1. Enter their exact provider username.
-   - Verify the name with the OIDC identity provider.
-   - Suggested names are only hints unless they come from an existing pending mapping.
-1. Leave accounts unselected when you cannot confirm the username.
-
-Each selected username must be unique. Inactive and expired accounts cannot be selected.
-
-In **OIDC or password** mode, unselected accounts can continue using a local password. An unselected passwordless account cannot sign in until it is mapped. In **OIDC only** mode, confirm each unselected active account because it will not be able to sign in after activation otherwise.
+### 8. Review and Activate
 
 Select **Activate configuration** when the review is complete. The administrator who started the setup is linked to the tested provider identity automatically.
 
-When OIDC is active, use **Remap all OIDC accounts** when provider subjects change but the issuer, client ID, and claim names stay the same, for example after rebuilding the identity provider. Confirm the recovery action, then sign in with the provider and review the replacement mappings before activation. Sambee replaces existing OIDC links and signs out affected users; local accounts and their data remain unchanged.
+When OIDC is active, users sign in normally after an IdP migration or subject reset. With automatic username linking enabled, Sambee updates their stored OIDC link during their next admitted sign-in and signs out existing Sambee sessions for that account. Until then, their existing OIDC link and IdP-managed full name and email remain read-only in User Management.
 
 After activation, see [OpenID Connect Authentication Operations](../openid-connect-authentication-operations/) for session, account-mapping, auditing, and request-limit administration.

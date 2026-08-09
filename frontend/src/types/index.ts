@@ -69,7 +69,13 @@ export interface AdminUser {
   oidc_role_assignment: UserRole | null;
   oidc: {
     identity_id: string;
+    user_id: string;
     provider_display_name: string;
+    issuer: string;
+    subject: string;
+    last_seen_username: string | null;
+    last_groups: string[];
+    created_at: string;
     last_login_at: string | null;
     inherited_role?: UserRole | null;
   } | null;
@@ -374,6 +380,7 @@ export interface OidcReviewedPolicy {
   role_assignment_mode: OidcRoleAssignmentMode;
   uniform_role: UserRole;
   role_mappings: OidcRoleMappings;
+  auto_link_by_username: boolean;
 }
 
 export interface OidcConfigurationCandidate {

@@ -253,7 +253,7 @@ describe("Login Component", () => {
 
     render(<Login />);
 
-    const providerButton = await screen.findByRole("button", { name: "Sign in with Example Identity" });
+    const providerButton = await screen.findByRole("button", { name: "Sign in with SSO (Example Identity OIDC)" });
     expect(providerButton).toHaveClass("MuiButton-contained");
     expect(screen.getByRole("button", { name: "Sign in with password" })).toHaveClass("MuiButton-outlined");
     expect(screen.getByLabelText(/username/i)).toBeInTheDocument();

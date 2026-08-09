@@ -507,10 +507,8 @@ class ApiService {
     return response.data;
   }
 
-  async startOidcTest(candidate: OidcConfigurationCandidate, remapAll = false): Promise<OidcTestStartResponse> {
-    const response = await this.api.post<OidcTestStartResponse>("/admin/auth/oidc/test", candidate, {
-      params: remapAll ? { remap_all: true } : undefined,
-    });
+  async startOidcTest(candidate: OidcConfigurationCandidate): Promise<OidcTestStartResponse> {
+    const response = await this.api.post<OidcTestStartResponse>("/admin/auth/oidc/test", candidate);
     return response.data;
   }
 

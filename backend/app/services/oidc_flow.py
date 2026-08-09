@@ -124,7 +124,6 @@ def start_test_flow(
     initiating_admin_id: uuid.UUID,
     encrypted_candidate_configuration: str,
     active_configuration_revision: int | None,
-    replace_identity_namespace: bool,
     cipher: OidcSecretCipher,
     now: datetime | None = None,
 ) -> StartedOidcFlow:
@@ -134,7 +133,7 @@ def start_test_flow(
     code_verifier = secrets.token_urlsafe(64)
     flow = OidcFlow(
         purpose=OidcFlowPurpose.TEST,
-        intent=(OidcFlowIntent.REPLACE_IDENTITY_NAMESPACE if replace_identity_namespace else OidcFlowIntent.CONFIGURE),
+        intent=OidcFlowIntent.CONFIGURE,
         status=OidcFlowStatus.STARTED,
         state_hash=hash_flow_secret(state),
         encrypted_verifier=cipher.encrypt(code_verifier),

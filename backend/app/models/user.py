@@ -111,7 +111,13 @@ class CurrentAccountSessionRead(SQLModel):
 
 class AdminUserOidcRead(SQLModel):
     identity_id: uuid.UUID
+    user_id: uuid.UUID
     provider_display_name: str
+    issuer: str
+    subject: str
+    last_seen_username: str | None
+    last_groups: list[str]
+    created_at: datetime
     last_login_at: datetime | None
     inherited_role: UserRole | None
 
