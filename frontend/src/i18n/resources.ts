@@ -109,6 +109,7 @@ export const EN_TRANSLATIONS = {
       passwordLabel: "Password",
       submit: "Sign In",
       submitWithPassword: "Sign in with password",
+      submitWithOidc: "Sign in with SSO via OIDC",
       invalidCredentials: "Invalid username or password",
     },
   },
