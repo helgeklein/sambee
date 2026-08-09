@@ -25,6 +25,7 @@ from app.services.oidc_identity import (
 def _configuration(
     session: Session,
     *,
+    auto_link_by_username: bool = True,
     admission_groups: list[str] | None = None,
     admin_groups: list[str] | None = None,
     editor_groups: list[str] | None = None,
@@ -38,6 +39,7 @@ def _configuration(
         admission_groups_json=json.dumps(admission_groups or ["Sambee Users"]),
         role_assignment_mode=OidcRoleAssignmentMode.GROUP_BASED,
         role_mappings_json=json.dumps({"admin": admin_groups or [], "editor": editor_groups or [], "viewer": viewer_groups or []}),
+        auto_link_by_username=auto_link_by_username,
     )
     session.add(configuration)
     session.commit()
@@ -153,8 +155,24 @@ def test_unmapped_identity_provisions_passwordless_user_and_audits(session: Sess
     assert "oidc.login.succeeded" in event_names
 
 
-def test_unmapped_identity_never_auto_links_username_collision(session: Session) -> None:
+def test_unmapped_identity_auto_links_matching_local_username(session: Session) -> None:
     configuration = _configuration(session, viewer_groups=["Sambee Users"])
+    local_user = User(username="alice", password_hash="local-password-hash")
+    session.add(local_user)
+    session.commit()
+
+    resolved = resolve_or_provision_oidc_user(session, configuration=configuration, claims=_claims())
+
+    assert resolved.id == local_user.id
+    assert resolved.password_hash == "local-password-hash"
+    assert resolved.token_version == 1
+    identity = session.exec(select(OidcIdentity).where(OidcIdentity.user_id == local_user.id)).one()
+    assert identity.subject == "subject-1"
+    assert session.exec(select(AuditEvent).where(AuditEvent.event_name == "oidc.identity.relinked")).one().result == "succeeded"
+
+
+def test_unmapped_identity_rejects_matching_local_username_when_auto_linking_is_disabled(session: Session) -> None:
+    configuration = _configuration(session, auto_link_by_username=False, viewer_groups=["Sambee Users"])
     session.add(User(username="alice", password_hash="local-password-hash"))
     session.commit()
 

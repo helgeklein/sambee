@@ -190,6 +190,35 @@ def _sync_existing_user(
     return user
 
 
+def _replace_user_identity(
+    session: Session,
+    *,
+    user: User,
+    claims: NormalizedOidcClaims,
+    current_time: datetime,
+) -> OidcIdentity:
+    for previous_identity in session.exec(select(OidcIdentity).where(OidcIdentity.user_id == user.id)).all():
+        session.delete(previous_identity)
+    session.flush()
+    identity = OidcIdentity(
+        user_id=user.id,
+        issuer=claims.issuer,
+        subject=claims.subject,
+        last_seen_username=claims.username.strip(),
+        last_groups_json=json.dumps(claims.groups),
+        last_login_at=current_time,
+    )
+    session.add(identity)
+    return identity
+
+
+def _cancel_user_pending_mappings(session: Session, user: User) -> None:
+    for pending_mapping in session.exec(
+        select(OidcPendingIdentityMapping).where(OidcPendingIdentityMapping.target_user_id == user.id)
+    ).all():
+        session.delete(pending_mapping)
+
+
 def resolve_or_provision_oidc_user(
     session: Session,
     *,
@@ -248,15 +277,7 @@ def resolve_or_provision_oidc_user(
         if user is None or not user.is_active or not _is_unexpired(user, current_time):
             raise OidcIdentityError(OidcIdentityErrorCode.ACCOUNT_UNAVAILABLE)
         role = resolve_oidc_role(configuration, claims.groups, individual_role=user.oidc_role_assignment)
-        identity = OidcIdentity(
-            user_id=user.id,
-            issuer=claims.issuer,
-            subject=claims.subject,
-            last_seen_username=username,
-            last_groups_json=json.dumps(claims.groups),
-            last_login_at=current_time,
-        )
-        session.add(identity)
+        identity = _replace_user_identity(session, user=user, claims=claims, current_time=current_time)
         session.delete(pending)
         configuration.identity_mapping_revision += 1
         session.add(configuration)
@@ -284,41 +305,75 @@ def resolve_or_provision_oidc_user(
             correlation_id=correlation_id,
         )
     else:
-        role = resolve_oidc_role(configuration, claims.groups)
-        collision = session.exec(select(User.id).where(User.username == username)).first()
-        if collision is not None:
-            raise OidcIdentityError(OidcIdentityErrorCode.USERNAME_COLLISION)
-        user = User(
-            username=username,
-            name=claims.name,
-            email=claims.email,
-            password_hash=None,
-            must_change_password=False,
-            role=role,
-            is_active=True,
-        )
-        session.add(user)
-        session.flush()
-        identity = OidcIdentity(
-            user_id=user.id,
-            issuer=claims.issuer,
-            subject=claims.subject,
-            last_seen_username=username,
-            last_groups_json=json.dumps(claims.groups),
-            last_login_at=current_time,
-        )
-        session.add(identity)
-        configuration.identity_mapping_revision += 1
-        session.add(configuration)
-        write_audit_event(
-            session,
-            event_name=AuditEventName.USER_PROVISIONED,
-            result=AuditResult.SUCCEEDED,
-            details=AuditDetails(username=user.username, selected_role=role.value),
-            affected_user_id=user.id,
-            provider_configuration_id=configuration.id,
-            correlation_id=correlation_id,
-        )
+        user = session.exec(select(User).where(User.username == username)).first()
+        if user is not None:
+            if not configuration.auto_link_by_username:
+                raise OidcIdentityError(OidcIdentityErrorCode.USERNAME_COLLISION)
+            role = resolve_oidc_role(configuration, claims.groups, individual_role=user.oidc_role_assignment)
+            identity = _replace_user_identity(session, user=user, claims=claims, current_time=current_time)
+            _cancel_user_pending_mappings(session, user)
+            configuration.identity_mapping_revision += 1
+            session.add(configuration)
+            token_version_before_relink = user.token_version
+            user = _sync_existing_user(
+                session,
+                user=user,
+                identity=identity,
+                claims=claims,
+                role=role,
+                configuration=configuration,
+                now=current_time,
+                correlation_id=correlation_id,
+            )
+            if user.token_version == token_version_before_relink:
+                user.token_version += 1
+                session.add(user)
+            write_audit_event(
+                session,
+                event_name=AuditEventName.IDENTITY_RELINKED,
+                result=AuditResult.SUCCEEDED,
+                details=AuditDetails(
+                    username=user.username,
+                    selected_role=role.value,
+                    subject_hash=diagnostic_subject_hash(claims.issuer, claims.subject),
+                ),
+                affected_user_id=user.id,
+                provider_configuration_id=configuration.id,
+                correlation_id=correlation_id,
+            )
+        else:
+            role = resolve_oidc_role(configuration, claims.groups)
+            user = User(
+                username=username,
+                name=claims.name,
+                email=claims.email,
+                password_hash=None,
+                must_change_password=False,
+                role=role,
+                is_active=True,
+            )
+            session.add(user)
+            session.flush()
+            identity = OidcIdentity(
+                user_id=user.id,
+                issuer=claims.issuer,
+                subject=claims.subject,
+                last_seen_username=username,
+                last_groups_json=json.dumps(claims.groups),
+                last_login_at=current_time,
+            )
+            session.add(identity)
+            configuration.identity_mapping_revision += 1
+            session.add(configuration)
+            write_audit_event(
+                session,
+                event_name=AuditEventName.USER_PROVISIONED,
+                result=AuditResult.SUCCEEDED,
+                details=AuditDetails(username=user.username, selected_role=role.value),
+                affected_user_id=user.id,
+                provider_configuration_id=configuration.id,
+                correlation_id=correlation_id,
+            )
     write_audit_event(
         session,
         event_name=AuditEventName.LOGIN_SUCCEEDED,

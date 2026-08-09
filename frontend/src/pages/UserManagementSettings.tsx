@@ -234,6 +234,7 @@ export function UserManagementSettings({ dialogSafeHeader = false }: UserManagem
     anchor: HTMLElement | null;
     user: AdminUser | null;
   }>({ anchor: null, user: null });
+  const [oidcDetailsUser, setOidcDetailsUser] = useState<AdminUser | null>(null);
   const [userActionsMenu, setUserActionsMenu] = useState<{
     anchor: HTMLElement | null;
     user: AdminUser | null;
@@ -1378,6 +1379,15 @@ export function UserManagementSettings({ dialogSafeHeader = false }: UserManagem
         onClose={() => setAdvancedMappingMenu({ anchor: null, user: null })}
       >
         <MenuItem
+          onClick={() => {
+            const user = advancedMappingMenu.user;
+            setAdvancedMappingMenu({ anchor: null, user: null });
+            if (user) setOidcDetailsUser(user);
+          }}
+        >
+          View OIDC identity details
+        </MenuItem>
+        <MenuItem
           disabled={!pendingOidcMappingsAllowed}
           onClick={() => {
             const user = advancedMappingMenu.user;
@@ -1437,6 +1447,16 @@ export function UserManagementSettings({ dialogSafeHeader = false }: UserManagem
             )}
             {oidcConfiguration && userActionsMenu.user.oidc && (
               <>
+                <MenuItem
+                  onClick={() => {
+                    const user = userActionsMenu.user;
+                    closeUserActionsMenu();
+                    if (user) setOidcDetailsUser(user);
+                  }}
+                >
+                  <LinkIcon fontSize="small" sx={{ mr: 1.5 }} />
+                  View OIDC identity details
+                </MenuItem>
                 <MenuItem
                   disabled={!pendingOidcMappingsAllowed}
                   onClick={() => {
@@ -1510,6 +1530,57 @@ export function UserManagementSettings({ dialogSafeHeader = false }: UserManagem
           </>
         )}
       </Menu>
+
+      <ResponsiveFormDialog
+        open={oidcDetailsUser !== null}
+        onClose={() => setOidcDetailsUser(null)}
+        title="OIDC identity details"
+        description={oidcDetailsUser ? `Stored identity properties for ${oidcDetailsUser.username}.` : undefined}
+        actions={
+          <Box sx={adminDialogEndActionRowSx}>
+            <Button onClick={() => setOidcDetailsUser(null)} variant="contained" sx={[settingsPrimaryButtonSx, adminDialogActionButtonSx]}>
+              Close
+            </Button>
+          </Box>
+        }
+      >
+        {oidcDetailsUser?.oidc && (
+          <SettingsFormSurface>
+            <SettingsFormGroup>
+              <SettingsFormRow sx={{ gridTemplateColumns: { md: "minmax(0, 1fr)" } }}>
+                <DialogReadOnlyField label="Identity ID" value={oidcDetailsUser.oidc.identity_id} />
+              </SettingsFormRow>
+              <SettingsFormRow sx={{ gridTemplateColumns: { md: "minmax(0, 1fr)" } }}>
+                <DialogReadOnlyField label="Local user ID" value={oidcDetailsUser.oidc.user_id} />
+              </SettingsFormRow>
+              <SettingsFormRow sx={{ gridTemplateColumns: { md: "minmax(0, 1fr)" } }}>
+                <DialogReadOnlyField label="Provider" value={oidcDetailsUser.oidc.provider_display_name} />
+              </SettingsFormRow>
+              <SettingsFormRow sx={{ gridTemplateColumns: { md: "minmax(0, 1fr)" } }}>
+                <DialogReadOnlyField label="Issuer" value={oidcDetailsUser.oidc.issuer} />
+              </SettingsFormRow>
+              <SettingsFormRow sx={{ gridTemplateColumns: { md: "minmax(0, 1fr)" } }}>
+                <DialogReadOnlyField label="Subject" value={oidcDetailsUser.oidc.subject} />
+              </SettingsFormRow>
+              <SettingsFormRow sx={{ gridTemplateColumns: { md: "minmax(0, 1fr)" } }}>
+                <DialogReadOnlyField label="Last seen provider username" value={oidcDetailsUser.oidc.last_seen_username ?? "None"} />
+              </SettingsFormRow>
+              <SettingsFormRow sx={{ gridTemplateColumns: { md: "minmax(0, 1fr)" } }}>
+                <DialogReadOnlyField label="Last verified groups" value={oidcDetailsUser.oidc.last_groups.join(", ") || "None"} />
+              </SettingsFormRow>
+              <SettingsFormRow sx={{ gridTemplateColumns: { md: "minmax(0, 1fr)" } }}>
+                <DialogReadOnlyField label="Identity created" value={formatLocalTimestamp(oidcDetailsUser.oidc.created_at)} />
+              </SettingsFormRow>
+              <SettingsFormRow sx={{ gridTemplateColumns: { md: "minmax(0, 1fr)" } }}>
+                <DialogReadOnlyField
+                  label="Last OIDC login"
+                  value={oidcDetailsUser.oidc.last_login_at ? formatLocalTimestamp(oidcDetailsUser.oidc.last_login_at) : "Never"}
+                />
+              </SettingsFormRow>
+            </SettingsFormGroup>
+          </SettingsFormSurface>
+        )}
+      </ResponsiveFormDialog>
 
       <ResponsiveFormDialog
         open={mappingEditor.open}

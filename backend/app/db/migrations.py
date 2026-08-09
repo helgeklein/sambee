@@ -599,6 +599,14 @@ def _apply_oidc_identity_group_history_migration(connection: Connection) -> None
         connection.execute(text("ALTER TABLE oidcidentity ADD COLUMN last_groups_json VARCHAR NOT NULL DEFAULT '[]'"))
 
 
+def _apply_oidc_auto_link_by_username_migration(connection: Connection) -> None:
+    if not inspect(connection).has_table("oidcproviderconfiguration"):
+        return
+    columns = {column[1] for column in connection.execute(text("PRAGMA table_info('oidcproviderconfiguration')"))}
+    if "auto_link_by_username" not in columns:
+        connection.execute(text("ALTER TABLE oidcproviderconfiguration ADD COLUMN auto_link_by_username BOOLEAN NOT NULL DEFAULT 1"))
+
+
 MIGRATIONS: tuple[Migration, ...] = (
     Migration(version=1, name="ensure_connection_slugs", apply=_apply_connection_slug_migration),
     Migration(version=2, name="add_user_role_and_session_fields", apply=_apply_user_role_migration),
@@ -624,6 +632,7 @@ MIGRATIONS: tuple[Migration, ...] = (
     Migration(version=22, name="add_oidc_session_cipher_keyring", apply=_apply_oidc_session_cipher_keyring_migration),
     Migration(version=23, name="add_oidc_browser_session_client_metadata", apply=_apply_oidc_browser_session_client_metadata_migration),
     Migration(version=24, name="add_oidc_identity_group_history", apply=_apply_oidc_identity_group_history_migration),
+    Migration(version=25, name="add_oidc_auto_link_by_username", apply=_apply_oidc_auto_link_by_username_migration),
 )
 
 

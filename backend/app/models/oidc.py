@@ -103,6 +103,7 @@ class OidcProviderConfiguration(SQLModel, table=True):
         ),
     )
     role_mappings_json: str = Field(default='{"admin":[],"editor":[],"viewer":[]}')
+    auto_link_by_username: bool = Field(default=True)
     interactive_reauthentication_max_age_days: int = Field(default=30)
     configuration_revision: int = Field(default=0)
     session_validation_revision: int = Field(default=0)

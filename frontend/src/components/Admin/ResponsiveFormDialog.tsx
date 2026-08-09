@@ -159,6 +159,9 @@ export function ResponsiveFormDialog({
     if (event.key === "Escape") {
       event.preventDefault();
       event.stopPropagation();
+      if (disableClose) {
+        return;
+      }
       escapeCloseHandledRef.current = true;
       onClose();
       return;

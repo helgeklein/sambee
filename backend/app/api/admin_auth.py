@@ -18,7 +18,6 @@ from app.core.security import (
 from app.db.database import get_session
 from app.models.oidc import (
     OidcFlow,
-    OidcFlowIntent,
     OidcFlowPurpose,
     OidcFlowStatus,
     OidcIdentity,
@@ -82,13 +81,10 @@ from app.services.oidc_mapping import (
     cancel_pending_mapping,
     change_identity,
     claim_mapping_revision,
-    create_pending_mappings,
-    derive_mapping_plan,
     detach_identity,
     move_identity,
     replace_pending_mappings,
     validate_pending_mapping_batch,
-    validate_reviewed_mapping_plan,
 )
 from app.services.oidc_recovery import OidcRecoveryError, activate_password_only, count_active_passwordless_users
 from app.services.system_settings import build_network_settings_read
@@ -211,6 +207,7 @@ def _proposed_configuration(
         role_mappings_json=json.dumps(
             {"admin": candidate.admin_groups, "editor": candidate.editor_groups, "viewer": candidate.viewer_groups}
         ),
+        auto_link_by_username=candidate.auto_link_by_username,
         configuration_revision=candidate.configuration_revision,
         session_validation_revision=(
             (active.session_validation_revision if active is not None else 0) + 1
@@ -241,7 +238,6 @@ def _affected_user_ids(
     *,
     candidate: NormalizedOidcCandidate,
     active: OidcProviderConfiguration | None,
-    replacing_namespace: bool,
     tested: NormalizedOidcClaims,
     acting_user_id: uuid.UUID,
 ) -> set[uuid.UUID]:
@@ -252,17 +248,11 @@ def _affected_user_ids(
         affected.update(user.id for user in session.exec(select(User)).all())
     elif set(candidate.changed_fields).intersection(OIDC_SESSION_INVALIDATING_FIELDS):
         affected.update(identity_user_ids)
-    if replacing_namespace and active is not None:
-        affected.update(identity.user_id for identity in identities if identity.issuer == active.issuer_url)
     existing_subject = next(
         (identity for identity in identities if identity.issuer == tested.issuer and identity.subject == tested.subject),
         None,
     )
-    existing_user_identity = next(
-        (identity for identity in identities if identity.user_id == acting_user_id and identity.issuer == tested.issuer),
-        None,
-    )
-    if replacing_namespace or (existing_subject is None and existing_user_identity is None):
+    if existing_subject is None or existing_subject.user_id != acting_user_id:
         affected.add(acting_user_id)
     return affected
 
@@ -310,7 +300,6 @@ async def rotate_oidc_session_cipher_key_endpoint(
 @router.post("/auth/oidc/test", response_model=OidcTestStartResponse)
 async def start_oidc_test(
     candidate: OidcConfigurationCandidate,
-    remap_all: bool = False,
     current_user: User = Depends(get_current_admin_user),
     session: Session = Depends(get_session),
 ) -> OidcTestStartResponse:
@@ -318,8 +307,6 @@ async def start_oidc_test(
     try:
         cipher = get_oidc_secret_cipher()
         normalized = normalize_candidate(candidate, active, cipher)
-        if remap_all and active is None:
-            raise OidcConfigurationError("OIDC remapping requires an active provider configuration")
         if normalized.client_secret is None:
             raise OidcConfigurationError("OIDC test requires a client secret")
         redirect_uri = derive_oidc_redirect_uri(build_network_settings_read(session).public_url)
@@ -330,7 +317,6 @@ async def start_oidc_test(
             initiating_admin_id=current_user.id,
             encrypted_candidate_configuration=encrypt_candidate_snapshot(normalized, cipher),
             active_configuration_revision=active.configuration_revision if active is not None else None,
-            replace_identity_namespace=remap_all or normalized.identity_namespace_changed,
             cipher=cipher,
         )
         authorization = build_authorization_request(
@@ -409,30 +395,17 @@ async def get_oidc_test_result(
         evaluation = evaluate_oidc_access(proposed, claims.groups, individual_role=UserRole.ADMIN)
     except OidcIdentityError:
         evaluation = None
-    needs_mapping_review = active is None or flow.intent == OidcFlowIntent.REPLACE_IDENTITY_NAMESPACE
-    replacement_mappings = (
-        derive_mapping_plan(
-            session,
-            configuration=active,
-            acting_user_id=current_user.id,
-            sign_in_mode=candidate.sign_in_mode,
-        )
-        if needs_mapping_review
-        else []
-    )
-    replacing_namespace = flow.intent == OidcFlowIntent.REPLACE_IDENTITY_NAMESPACE and active is not None
     affected_user_ids = _affected_user_ids(
         session,
         candidate=candidate,
         active=active,
-        replacing_namespace=replacing_namespace,
         tested=claims,
         acting_user_id=current_user.id,
     )
     return OidcTestedIdentityRead(
         flow_id=flow.id,
         candidate=redacted_candidate(candidate),
-        replacement_mappings=replacement_mappings,
+        replacement_mappings=[],
         expected_identity_mapping_revision=active.identity_mapping_revision if active is not None else None,
         username=claims.username,
         name=claims.name,
@@ -512,38 +485,14 @@ async def finalize_oidc_configuration(
     if active_revision != flow.configuration_revision:
         raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="oidc_configuration_changed")
     candidate = _reviewed_candidate(tested_candidate, payload.reviewed_policy, active, cipher)
-    replacing_namespace = flow.intent == OidcFlowIntent.REPLACE_IDENTITY_NAMESPACE and active is not None
     username_claim_changed = active is not None and candidate.username_claim != active.username_claim
-    if (
-        active is not None
-        and (replacing_namespace or username_claim_changed)
-        and active.identity_mapping_revision != candidate.identity_mapping_revision
-    ):
+    if active is not None and username_claim_changed and active.identity_mapping_revision != candidate.identity_mapping_revision:
         raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="oidc_mapping_review_stale")
 
-    needs_mapping_review = active is None or replacing_namespace
     expected_mapping_revision = active.identity_mapping_revision if active is not None else None
     if payload.expected_identity_mapping_revision != expected_mapping_revision:
         raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="oidc_mapping_review_stale")
-    reviewed_replacement_mappings: dict[uuid.UUID, str] = {}
-    if needs_mapping_review:
-        plan = derive_mapping_plan(
-            session,
-            configuration=active,
-            acting_user_id=current_user.id,
-            sign_in_mode=candidate.sign_in_mode,
-        )
-        try:
-            reviewed_replacement_mappings = validate_reviewed_mapping_plan(
-                plan,
-                payload.replacement_mappings,
-                payload.omitted_account_acknowledgements,
-                tested_username=tested.username.strip(),
-                replacing_namespace=replacing_namespace,
-            )
-        except OidcMappingError as error:
-            raise _mapping_http_exception(error) from error
-    elif payload.replacement_mappings or payload.omitted_account_acknowledgements:
+    if payload.replacement_mappings or payload.omitted_account_acknowledgements:
         raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="OIDC mapping review is not expected")
 
     proposed = _proposed_configuration(
@@ -585,18 +534,13 @@ async def finalize_oidc_configuration(
     existing_subject = session.exec(
         select(OidcIdentity).where(OidcIdentity.issuer == tested.issuer, OidcIdentity.subject == tested.subject)
     ).first()
-    existing_user_identity = session.exec(
-        select(OidcIdentity).where(OidcIdentity.user_id == current_user.id, OidcIdentity.issuer == tested.issuer)
-    ).first()
-    if not replacing_namespace and existing_subject is not None and existing_subject.user_id != current_user.id:
+    existing_user_identities = session.exec(select(OidcIdentity).where(OidcIdentity.user_id == current_user.id)).all()
+    if existing_subject is not None and existing_subject.user_id != current_user.id:
         raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="Tested OIDC identity is already mapped")
-    if not replacing_namespace and existing_user_identity is not None and existing_user_identity.subject != tested.subject:
-        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="Administrator already has a different OIDC identity")
     affected_user_ids = _affected_user_ids(
         session,
         candidate=candidate,
         active=active,
-        replacing_namespace=replacing_namespace,
         tested=tested,
         acting_user_id=current_user.id,
     )
@@ -660,44 +604,11 @@ async def finalize_oidc_configuration(
             provider_configuration_id=active.id if active is not None else None,
         )
 
-    immutable_mapping_affected_user_ids: set[uuid.UUID] = set()
     mappings_changed = False
-    canceled_pending_count = 0
-    if replacing_namespace and active is not None:
-        for identity in session.exec(select(OidcIdentity).where(OidcIdentity.issuer == active.issuer_url)).all():
-            immutable_mapping_affected_user_ids.add(identity.user_id)
-            mappings_changed = True
-            write_audit_event(
-                session,
-                event_name=AuditEventName.IDENTITY_UNMAPPED,
-                result=AuditResult.SUCCEEDED,
-                acting_user_id=current_user.id,
-                affected_user_id=identity.user_id,
-                provider_configuration_id=active.id,
-            )
-            session.delete(identity)
+    if username_claim_changed and active is not None:
         for pending in session.exec(
             select(OidcPendingIdentityMapping).where(OidcPendingIdentityMapping.provider_configuration_id == active.id)
         ).all():
-            canceled_pending_count += 1
-            mappings_changed = True
-            write_audit_event(
-                session,
-                event_name=AuditEventName.PENDING_MAPPING_CANCELED,
-                result=AuditResult.SUCCEEDED,
-                details=AuditDetails(username=pending.expected_username),
-                acting_user_id=current_user.id,
-                affected_user_id=pending.target_user_id,
-                provider_configuration_id=active.id,
-            )
-            session.delete(pending)
-        existing_subject = None
-        existing_user_identity = None
-    elif username_claim_changed and active is not None:
-        for pending in session.exec(
-            select(OidcPendingIdentityMapping).where(OidcPendingIdentityMapping.provider_configuration_id == active.id)
-        ).all():
-            canceled_pending_count += 1
             mappings_changed = True
             write_audit_event(
                 session,
@@ -718,38 +629,35 @@ async def finalize_oidc_configuration(
             setattr(active, key, value)
         session.add(active)
     session.flush()
-    create_pending_mappings(
-        session,
-        configuration=active,
-        mappings=reviewed_replacement_mappings,
-        acting_user_id=current_user.id,
-    )
-    if reviewed_replacement_mappings:
+    identities_to_remove = [identity for identity in existing_user_identities if identity is not existing_subject]
+    if existing_subject is None or identities_to_remove:
         mappings_changed = True
-    if existing_subject is None and existing_user_identity is None:
-        mappings_changed = True
-        immutable_mapping_affected_user_ids.add(current_user.id)
-        session.add(
-            OidcIdentity(
-                user_id=current_user.id,
-                issuer=tested.issuer,
-                subject=tested.subject,
-                last_seen_username=tested.username.strip(),
-                last_login_at=datetime.now(timezone.utc),
+        for identity in identities_to_remove:
+            session.delete(identity)
+        if existing_subject is None:
+            session.add(
+                OidcIdentity(
+                    user_id=current_user.id,
+                    issuer=tested.issuer,
+                    subject=tested.subject,
+                    last_seen_username=tested.username.strip(),
+                    last_login_at=datetime.now(timezone.utc),
+                )
             )
+        write_audit_event(
+            session,
+            event_name=AuditEventName.IDENTITY_RELINKED,
+            result=AuditResult.SUCCEEDED,
+            details=AuditDetails(
+                username=initiating_admin.username,
+                selected_role=UserRole.ADMIN.value,
+            ),
+            acting_user_id=current_user.id,
+            affected_user_id=current_user.id,
+            provider_configuration_id=active.id,
         )
     if mappings_changed:
         active.identity_mapping_revision += 1
-
-    if replacing_namespace:
-        write_audit_event(
-            session,
-            event_name=AuditEventName.IDENTITY_NAMESPACE_REPLACED,
-            result=AuditResult.SUCCEEDED,
-            details=AuditDetails(mapping_count=len(immutable_mapping_affected_user_ids) + canceled_pending_count),
-            acting_user_id=current_user.id,
-            provider_configuration_id=active.id,
-        )
 
     revoked_user_ids = affected_user_ids
     for user_id in revoked_user_ids:

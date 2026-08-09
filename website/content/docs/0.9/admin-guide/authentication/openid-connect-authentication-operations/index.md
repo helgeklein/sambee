@@ -23,7 +23,7 @@ Revocation immediately invalidates API tokens issued for the affected browser se
 
 ## Manage Account Mappings
 
-Open **Settings** > **Administration** > **Users** to review how each local account authenticates. An account can show **Local password**, **OIDC linked**, or both. Established mappings show the provider name and most recent OIDC sign-in. A pending mapping shows the provider username that must complete the first admitted OIDC sign-in, who created the mapping, and when.
+Open **Settings** > **Administration** > **Users** to review how each local account authenticates. An account can show **Local password**, **OIDC linked**, or both. Established mappings show the provider name and most recent OIDC sign-in. With automatic username linking enabled, an admitted IdP user with the same username automatically links to that local account or updates its existing OIDC link. A pending mapping shows the provider username that must complete the first admitted OIDC sign-in, who created the mapping, and when.
 
 In **OIDC only** mode, Sambee creates a passwordless account automatically when an admitted identity signs in for the first time. User Management does not offer manual user creation or local-password resets in this mode. Existing accounts can still be reviewed and mapped when an administrator needs to resolve an identity collision or apply an individual OIDC role before the first sign-in.
 
@@ -35,7 +35,7 @@ For a linked or pending account, set **OIDC role assignment** to **Administrator
 
 Administrators can map an unlinked local account to an expected provider username, cancel a pending mapping, or change a linked account to a different provider username. Changing a linked username removes the established identity and creates a pending mapping.
 
-Use **Advanced OIDC actions** to move an established identity to another active, unlinked local account or detach it from a local account. Changing, moving, or detaching an established identity revokes affected Sambee sessions. Detaching does not revoke access at the identity provider; remove provider admission separately when the person must no longer sign in.
+Use **Advanced OIDC actions** to view the stored identity properties, including issuer, subject, last-seen provider username, and verified group snapshot. You can also move an established identity to another active, unlinked local account or detach it from a local account. Changing, moving, or detaching an established identity revokes affected Sambee sessions. Detaching does not revoke access at the identity provider; remove provider admission separately when the person must no longer sign in.
 
 Mapping updates are atomic and revision checked. If another administrator changes mappings while the page is open, Sambee rejects the stale update; reload the users page and review the current state. In **OIDC only** mode, Sambee prevents removal of the last active OIDC administrator mapping.
 

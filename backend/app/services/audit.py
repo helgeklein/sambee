@@ -26,6 +26,7 @@ class AuditEventName(StrEnum):
     PENDING_MAPPING_BATCH_CREATED = "oidc.identity.pending_mapping_batch_created"
     PENDING_MAPPING_CANCELED = "oidc.identity.pending_mapping_canceled"
     IDENTITY_MAPPED = "oidc.identity.mapped"
+    IDENTITY_RELINKED = "oidc.identity.relinked"
     IDENTITY_UNMAPPED = "oidc.identity.unmapped"
     IDENTITY_REASSIGNED = "oidc.identity.reassigned"
     IDENTITY_MAPPING_CHANGED = "oidc.identity.mapping_changed"

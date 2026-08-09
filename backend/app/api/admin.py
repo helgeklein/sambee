@@ -67,6 +67,14 @@ def _resolve_inherited_oidc_role(configuration: OidcProviderConfiguration, ident
         return None
 
 
+def _read_last_oidc_groups(identity: OidcIdentity) -> list[str]:
+    try:
+        groups = json.loads(identity.last_groups_json)
+    except json.JSONDecodeError:
+        return []
+    return groups if isinstance(groups, list) and all(isinstance(group, str) for group in groups) else []
+
+
 def _build_admin_user_read_with_authentication(session: Session, user: User) -> AdminUserRead:
     result = build_admin_user_read(user)
     configuration = session.get(OidcProviderConfiguration, 1)
@@ -86,7 +94,13 @@ def _build_admin_user_read_with_authentication(session: Session, user: User) -> 
             "oidc": (
                 AdminUserOidcRead(
                     identity_id=identity.id,
+                    user_id=identity.user_id,
                     provider_display_name=configuration.display_name,
+                    issuer=identity.issuer,
+                    subject=identity.subject,
+                    last_seen_username=identity.last_seen_username,
+                    last_groups=_read_last_oidc_groups(identity),
+                    created_at=identity.created_at,
                     last_login_at=identity.last_login_at,
                     inherited_role=_resolve_inherited_oidc_role(configuration, identity),
                 )

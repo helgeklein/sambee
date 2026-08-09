@@ -40,6 +40,7 @@ const configuration = (displayName: string): RedactedOidcConfiguration => ({
   role_assignment_mode: "group_based",
   uniform_role: "editor",
   role_mappings: { admin: ["sambee-admins"], editor: [], viewer: [] },
+  auto_link_by_username: true,
   configuration_revision: 2,
   identity_mapping_revision: 1,
 });
@@ -283,10 +284,10 @@ describe("Authentication settings", () => {
 
     renderSettings();
 
-    expect(await screen.findByDisplayValue("Tested Provider")).toBeInTheDocument();
+    expect(await screen.findByRole("dialog", { name: "Review OIDC connection" })).toBeInTheDocument();
     expect(api.getOidcTestResult).toHaveBeenCalledWith("test-flow", undefined);
     await user.click(screen.getByRole("button", { name: "Activate configuration" }));
-    expect(await screen.findByDisplayValue("Activated Provider")).toBeInTheDocument();
+    expect(await screen.findByText("Authentication configuration activated.")).toBeInTheDocument();
     expect(api.finalizeOidcConfiguration).toHaveBeenCalledWith("test-flow", reviewedPolicy(tested), [], 1, []);
   });
 
@@ -302,7 +303,7 @@ describe("Authentication settings", () => {
     renderSettings();
 
     expect(await screen.findByText("Tested identity")).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: "Activate configuration" })).toBeEnabled();
+    expect(await screen.findByRole("button", { name: "Activate configuration" })).toBeEnabled();
   });
 
   it("restores the current tab's OIDC setup flow from session storage", async () => {
@@ -327,7 +328,7 @@ describe("Authentication settings", () => {
 
     renderSettings();
 
-    expect(await screen.findByDisplayValue("Stored Provider")).toBeInTheDocument();
+    expect(await screen.findByRole("dialog", { name: "Review OIDC connection" })).toBeInTheDocument();
     expect(api.getOidcTestResult).toHaveBeenCalledWith("stored-flow", undefined);
   });
 
@@ -343,7 +344,7 @@ describe("Authentication settings", () => {
 
     renderSettings();
 
-    expect(await screen.findByDisplayValue("Tested Provider")).toBeInTheDocument();
+    expect(await screen.findByRole("dialog", { name: "Review OIDC connection" })).toBeInTheDocument();
     expect(api.getOidcTestResult).toHaveBeenCalledWith("stored-flow", undefined);
     expect(JSON.parse(sessionStorage.getItem("sambee.oidc.reviewedPolicy") ?? "null")).toEqual(
       reviewedPolicy(configuration("Tested Provider"))
@@ -428,7 +429,7 @@ describe("Authentication settings", () => {
     await user.click(screen.getByRole("combobox", { name: "Authentication mode" }));
     await user.click(screen.getByRole("option", { name: /^Password only/ }));
     expect(screen.getByText("Set Sambee's externally reachable public URL in network settings.")).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: "Remap all OIDC accounts" })).toBeDisabled();
+    expect(screen.queryByRole("button", { name: "Remap all OIDC accounts" })).not.toBeInTheDocument();
   });
 
   it("activates No authentication without a checkbox or native confirmation gate", async () => {
@@ -510,13 +511,15 @@ describe("Authentication settings", () => {
     window.location.hash = "flow=test-flow";
     renderSettings();
 
+    await user.click(await screen.findByRole("button", { name: "Back" }));
     await user.click(await screen.findByRole("combobox", { name: "Admission" }));
     await user.click(screen.getByRole("option", { name: "All authenticated users" }));
 
     await waitFor(() => expect(api.getOidcTestResult).toHaveBeenNthCalledWith(2, "test-flow", reviewedPolicy(reviewedCandidate)));
     expect(api.startOidcTest).not.toHaveBeenCalled();
     expect(sessionStorage.getItem("sambee.oidc.setupFlowId")).toBe("test-flow");
-    expect(screen.getByRole("button", { name: "Activate configuration" })).toBeEnabled();
+    await user.click(screen.getByRole("button", { name: "Review test" }));
+    expect(await screen.findByRole("button", { name: "Activate configuration" })).toBeEnabled();
   });
 
   it("blocks activation when the tested identity does not pass admission", async () => {
@@ -568,7 +571,7 @@ describe("Authentication settings", () => {
     expect(screen.queryByText("Tested identity")).not.toBeInTheDocument();
   });
 
-  it("cancels the server flow through Escape and clears tab-scoped setup state", async () => {
+  it("returns to the configuration draft through Escape without canceling the server flow", async () => {
     const user = userEvent.setup();
     window.location.hash = "flow=test-flow";
     vi.mocked(api.getOidcConfiguration).mockResolvedValue(response(configuration("Active Provider")));
@@ -590,12 +593,12 @@ describe("Authentication settings", () => {
     vi.mocked(api.cancelOidcTestFlow).mockResolvedValue();
     renderSettings();
 
-    expect(await screen.findByDisplayValue("Tested Provider")).toBeInTheDocument();
+    expect(await screen.findByRole("dialog", { name: "Review OIDC connection" })).toBeInTheDocument();
     await user.keyboard("{Escape}");
 
-    expect(api.cancelOidcTestFlow).toHaveBeenCalledWith("test-flow");
-    expect(sessionStorage.getItem("sambee.oidc.setupFlowId")).toBeNull();
-    expect(await screen.findByText("OIDC setup canceled.")).toBeInTheDocument();
+    expect(await screen.findByRole("dialog", { name: "Configure OIDC" })).toBeInTheDocument();
+    expect(api.cancelOidcTestFlow).not.toHaveBeenCalled();
+    expect(sessionStorage.getItem("sambee.oidc.setupFlowId")).toBe("test-flow");
   });
 
   it("requires review of unique replacement usernames", async () => {
@@ -742,9 +745,9 @@ describe("Authentication settings", () => {
     expect(api.finalizeOidcConfiguration).toHaveBeenCalledTimes(2);
     expect(sessionStorage.getItem("sambee.oidc.setupFlowId")).toBe("test-flow");
     expect(screen.getByText("Tested identity")).toBeInTheDocument();
-    expect(screen.getByRole("textbox", { name: "Provider name" })).toBeDisabled();
     expect(screen.getByRole("button", { name: "Activate configuration" })).toBeDisabled();
     expect(screen.getByRole("button", { name: "Cancel" })).toBeDisabled();
+    expect(screen.getByRole("button", { name: "Back" })).toBeDisabled();
   });
 
   it("replays a persisted finalization before loading configuration after reload", async () => {
@@ -1172,6 +1175,16 @@ describe("Authentication settings", () => {
     expect(screen.getByRole("textbox", { name: "Viewer groups" })).toBeInTheDocument();
   });
 
+  it("enables automatic username-based OIDC linking by default", async () => {
+    vi.mocked(api.getOidcConfiguration).mockResolvedValue(response(configuration("Active Provider")));
+    window.location.hash = "";
+    renderSettings();
+
+    await openOidcConfiguration();
+    expect(await screen.findByText("Automatically link OIDC identities to local accounts by username")).toBeInTheDocument();
+    expect(screen.getByText("On")).toBeInTheDocument();
+  });
+
   it("discards the validated flow when a provider-bound claim changes", async () => {
     const user = userEvent.setup();
     vi.mocked(api.getOidcConfiguration).mockResolvedValue(response(configuration("Active Provider")));
@@ -1179,80 +1192,62 @@ describe("Authentication settings", () => {
     window.location.hash = "flow=test-flow";
     renderSettings();
 
-    await screen.findByText("Tested identity");
+    await screen.findByRole("dialog", { name: "Review OIDC connection" });
+    await user.click(screen.getByRole("button", { name: "Back" }));
+    const usernameClaim = await screen.findByRole("textbox", { name: "Username claim" });
     expect(sessionStorage.getItem("sambee.oidc.setupFlowId")).toBe("test-flow");
-    await user.clear(screen.getByRole("textbox", { name: "Username claim" }));
-    await user.type(screen.getByRole("textbox", { name: "Username claim" }), "email");
+    await user.clear(usernameClaim);
+    await user.type(usernameClaim, "email");
 
     expect(sessionStorage.getItem("sambee.oidc.setupFlowId")).toBeNull();
     expect(sessionStorage.getItem("sambee.oidc.reviewedPolicy")).toBeNull();
     expect(screen.queryByText("Tested identity")).not.toBeInTheDocument();
   });
 
-  it("warns when an active passwordless account is omitted in OIDC or password mode", async () => {
+  it("returns to the configuration draft from review without canceling the tested flow", async () => {
+    const user = userEvent.setup();
     vi.mocked(api.getOidcConfiguration).mockResolvedValue(response(configuration("Active Provider")));
-    vi.mocked(api.getOidcTestResult).mockResolvedValue({
-      flow_id: "test-flow",
-      candidate: configuration("Active Provider"),
-      replacement_mappings: [
-        {
-          target_user_id: "user-1",
-          local_username: "alice",
-          local_role: "viewer",
-          has_local_password: false,
-          target_state: "active",
-          mapping_state: "unmapped",
-          suggested_username: "alice",
-          prefill_source: "local",
-          selected_by_default: false,
-          selectable: true,
-          omission_acknowledgement_required: false,
-        },
-      ],
-      expected_identity_mapping_revision: 1,
-      admitted: true,
-      matching_admission_group: "sambee-users",
-      affected_account_count: 1,
-      acting_administrator_affected: true,
-      username: "admin",
-      name: null,
-      email: null,
-      groups: ["sambee-admins"],
-      expires_at: "2099-01-01T00:00:00Z",
-    });
+    vi.mocked(api.getOidcTestResult).mockResolvedValue(testedIdentity());
     window.location.hash = "flow=test-flow";
 
     renderSettings();
 
-    expect(await screen.findByText(/active passwordless account is omitted/i)).toBeInTheDocument();
-    expect(screen.getByText(/may collide with an existing username or create a separate account/i)).toBeInTheDocument();
+    expect(await screen.findByRole("dialog", { name: "Review OIDC connection" })).toBeInTheDocument();
+    await user.click(screen.getByRole("button", { name: "Back" }));
+
+    expect(await screen.findByRole("dialog", { name: "Configure OIDC" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Review test" })).toBeEnabled();
+    expect(sessionStorage.getItem("sambee.oidc.setupFlowId")).toBe("test-flow");
+    expect(api.cancelOidcTestFlow).not.toHaveBeenCalled();
   });
 
-  it("starts an explicit remap-all test flow", async () => {
+  it("returns to the configuration draft when the review dialog is closed", async () => {
     const user = userEvent.setup();
     vi.mocked(api.getOidcConfiguration).mockResolvedValue(response(configuration("Active Provider")));
-    vi.mocked(api.startOidcTest).mockImplementation(() => new Promise(() => undefined));
-    window.location.hash = "";
+    vi.mocked(api.getOidcTestResult).mockResolvedValue(testedIdentity());
+    window.location.hash = "flow=test-flow";
     renderSettings();
 
-    await user.click(await screen.findByRole("button", { name: "Remap all OIDC accounts" }));
-    await user.click(screen.getByRole("button", { name: "Connect and test" }));
-
-    expect(api.startOidcTest).toHaveBeenCalledWith(expect.objectContaining({ display_name: "Active Provider" }), true);
-  });
-
-  it("dismisses remap confirmation with Escape without starting a test", async () => {
-    const user = userEvent.setup();
-    vi.mocked(api.getOidcConfiguration).mockResolvedValue(response(configuration("Active Provider")));
-    window.location.hash = "";
-    renderSettings();
-
-    await user.click(await screen.findByRole("button", { name: "Remap all OIDC accounts" }));
-    expect(await screen.findByRole("dialog", { name: "Remap OIDC accounts" })).toBeInTheDocument();
-
+    await screen.findByRole("dialog", { name: "Review OIDC connection" });
     await user.keyboard("{Escape}");
 
-    await waitFor(() => expect(screen.queryByRole("dialog", { name: "Remap OIDC accounts" })).not.toBeInTheDocument());
-    expect(api.startOidcTest).not.toHaveBeenCalled();
+    expect(await screen.findByRole("dialog", { name: "Configure OIDC" })).toBeInTheDocument();
+    expect(api.cancelOidcTestFlow).not.toHaveBeenCalled();
+  });
+
+  it("cancels the tested flow from the review dialog", async () => {
+    const user = userEvent.setup();
+    vi.mocked(api.getOidcConfiguration).mockResolvedValue(response(configuration("Active Provider")));
+    vi.mocked(api.getOidcTestResult).mockResolvedValue(testedIdentity());
+    vi.mocked(api.cancelOidcTestFlow).mockResolvedValue();
+    window.location.hash = "flow=test-flow";
+
+    renderSettings();
+
+    await user.click(await screen.findByRole("button", { name: "Cancel" }));
+
+    await waitFor(() => expect(screen.queryByRole("dialog", { name: "Review OIDC connection" })).not.toBeInTheDocument());
+    expect(api.cancelOidcTestFlow).toHaveBeenCalledWith("test-flow");
+    expect(sessionStorage.getItem("sambee.oidc.setupFlowId")).toBeNull();
   });
 });

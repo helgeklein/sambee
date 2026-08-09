@@ -714,7 +714,17 @@ describe("UserManagementSettings", () => {
         must_change_password: false,
         has_local_password: true,
         oidc_role_assignment: null,
-        oidc: { identity_id: "identity-1", provider_display_name: "Corporate login", last_login_at: null },
+        oidc: {
+          identity_id: "identity-1",
+          user_id: "user-1",
+          provider_display_name: "Corporate login",
+          issuer: "https://idp.example.test",
+          subject: "provider-subject-1",
+          last_seen_username: "linked-admin",
+          last_groups: ["admins"],
+          created_at: "2026-03-01T10:00:00Z",
+          last_login_at: null,
+        },
         pending_oidc: null,
         created_at: "2026-03-01T10:00:00Z",
         updated_at: "2026-03-01T10:00:00Z",
@@ -751,6 +761,7 @@ describe("UserManagementSettings", () => {
         role_assignment_mode: "uniform",
         uniform_role: "editor",
         role_mappings: { admin: ["admins"], editor: [], viewer: [] },
+        auto_link_by_username: true,
         configuration_revision: 2,
         identity_mapping_revision: 1,
       },
@@ -781,6 +792,13 @@ describe("UserManagementSettings", () => {
     expect(await screen.findByRole("button", { name: "Map OIDC account for unmapped-user" })).toBeEnabled();
 
     expect(screen.queryByRole("button", { name: "Change OIDC account for linked-admin" })).not.toBeInTheDocument();
+    await user.click(screen.getByRole("button", { name: "Advanced OIDC actions for linked-admin" }));
+    await user.click(screen.getByRole("menuitem", { name: "View OIDC identity details" }));
+    expect(await screen.findByRole("dialog", { name: "OIDC identity details" })).toBeInTheDocument();
+    expect(screen.getByDisplayValue("provider-subject-1")).toBeInTheDocument();
+    await user.click(screen.getByRole("button", { name: "Close" }));
+    await waitFor(() => expect(screen.queryByRole("dialog", { name: "OIDC identity details" })).not.toBeInTheDocument());
+
     await user.click(screen.getByRole("button", { name: "Advanced OIDC actions for linked-admin" }));
     expect(screen.getByRole("menuitem", { name: "Change OIDC account" })).toBeEnabled();
     await user.click(screen.getByRole("menuitem", { name: "Change OIDC account" }));
