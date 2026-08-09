@@ -315,6 +315,7 @@ def test_finalize_oidc_configuration_is_idempotent(
     assert flow.encrypted_tested_identity is None
     identity = session.exec(select(OidcIdentity).where(OidcIdentity.user_id == admin_user.id)).one()
     assert identity.subject == "admin-subject"
+    assert identity.last_groups_json == '["sambee-users", "sambee-admins"]'
 
     flow.expires_at = datetime.now(timezone.utc) - timedelta(seconds=1)
     session.add(flow)

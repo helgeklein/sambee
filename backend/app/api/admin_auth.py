@@ -641,6 +641,7 @@ async def finalize_oidc_configuration(
                     issuer=tested.issuer,
                     subject=tested.subject,
                     last_seen_username=tested.username.strip(),
+                    last_groups_json=json.dumps(tested.groups),
                     last_login_at=datetime.now(timezone.utc),
                 )
             )

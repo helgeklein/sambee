@@ -131,17 +131,15 @@ def _has_other_active_admin(session: Session, user_id: object, now: datetime) ->
     return any(_is_unexpired(user, now) for user in administrators)
 
 
-def _sync_existing_user(
+def _ensure_existing_user_sync_allowed(
     session: Session,
     *,
     user: User,
-    identity: OidcIdentity,
-    claims: NormalizedOidcClaims,
     role: UserRole,
     configuration: OidcProviderConfiguration,
     now: datetime,
     correlation_id: str | None,
-) -> User:
+) -> None:
     if not user.is_active or not _is_unexpired(user, now):
         raise OidcIdentityError(OidcIdentityErrorCode.ACCOUNT_UNAVAILABLE)
     if user.role == UserRole.ADMIN and role != UserRole.ADMIN and not _has_other_active_admin(session, user.id, now):
@@ -163,6 +161,27 @@ def _sync_existing_user(
             else OidcIdentityErrorCode.LAST_ADMIN_ROLE_CONFLICT_NO_PASSWORD
         )
         raise OidcIdentityError(code)
+
+
+def _sync_existing_user(
+    session: Session,
+    *,
+    user: User,
+    identity: OidcIdentity,
+    claims: NormalizedOidcClaims,
+    role: UserRole,
+    configuration: OidcProviderConfiguration,
+    now: datetime,
+    correlation_id: str | None,
+) -> User:
+    _ensure_existing_user_sync_allowed(
+        session,
+        user=user,
+        role=role,
+        configuration=configuration,
+        now=now,
+        correlation_id=correlation_id,
+    )
 
     if user.role != role:
         previous_role = user.role
@@ -277,6 +296,14 @@ def resolve_or_provision_oidc_user(
         if user is None or not user.is_active or not _is_unexpired(user, current_time):
             raise OidcIdentityError(OidcIdentityErrorCode.ACCOUNT_UNAVAILABLE)
         role = resolve_oidc_role(configuration, claims.groups, individual_role=user.oidc_role_assignment)
+        _ensure_existing_user_sync_allowed(
+            session,
+            user=user,
+            role=role,
+            configuration=configuration,
+            now=current_time,
+            correlation_id=correlation_id,
+        )
         identity = _replace_user_identity(session, user=user, claims=claims, current_time=current_time)
         session.delete(pending)
         configuration.identity_mapping_revision += 1
@@ -310,6 +337,14 @@ def resolve_or_provision_oidc_user(
             if not configuration.auto_link_by_username:
                 raise OidcIdentityError(OidcIdentityErrorCode.USERNAME_COLLISION)
             role = resolve_oidc_role(configuration, claims.groups, individual_role=user.oidc_role_assignment)
+            _ensure_existing_user_sync_allowed(
+                session,
+                user=user,
+                role=role,
+                configuration=configuration,
+                now=current_time,
+                correlation_id=correlation_id,
+            )
             identity = _replace_user_identity(session, user=user, claims=claims, current_time=current_time)
             _cancel_user_pending_mappings(session, user)
             configuration.identity_mapping_revision += 1
