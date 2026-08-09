@@ -390,7 +390,7 @@ describe("UserManagementSettings", () => {
     expect(roleSelect).toHaveTextContent("Admin");
     await user.click(roleSelect);
     expect(await screen.findByRole("option", { name: /inherited \(viewer\)/i })).toBeInTheDocument();
-    expect(screen.getByRole("option", { name: /viewer \(current inherited role\)/i })).toBeInTheDocument();
+    expect(screen.getByRole("option", { name: /^viewer browse content$/i })).toBeInTheDocument();
     await user.click(screen.getByRole("option", { name: /inherited \(viewer\)/i }));
     await user.click(screen.getByRole("button", { name: /save changes/i }));
 

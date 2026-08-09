@@ -798,42 +798,18 @@ export function UserManagementSettings({ dialogSafeHeader = false }: UserManagem
                 )}
                 <SettingsSelectMenuItem
                   value="editor"
-                  label={
-                    inheritedOidcRole === "editor"
-                      ? `${t("settings.userManagement.editorRole")} (${t("settings.userManagement.editor.currentInheritedRole")})`
-                      : t("settings.userManagement.editorRole")
-                  }
-                  description={
-                    inheritedOidcRole === "editor"
-                      ? t("settings.userManagement.editor.inheritedRoleDescription")
-                      : t("settings.userManagement.editor.roleOptions.editor")
-                  }
+                  label={t("settings.userManagement.editorRole")}
+                  description={t("settings.userManagement.editor.roleOptions.editor")}
                 />
                 <SettingsSelectMenuItem
                   value="viewer"
-                  label={
-                    inheritedOidcRole === "viewer"
-                      ? `${t("settings.userManagement.viewerRole")} (${t("settings.userManagement.editor.currentInheritedRole")})`
-                      : t("settings.userManagement.viewerRole")
-                  }
-                  description={
-                    inheritedOidcRole === "viewer"
-                      ? t("settings.userManagement.editor.inheritedRoleDescription")
-                      : t("settings.userManagement.editor.roleOptions.viewer")
-                  }
+                  label={t("settings.userManagement.viewerRole")}
+                  description={t("settings.userManagement.editor.roleOptions.viewer")}
                 />
                 <SettingsSelectMenuItem
                   value="admin"
-                  label={
-                    inheritedOidcRole === "admin"
-                      ? `${t("settings.userManagement.adminRole")} (${t("settings.userManagement.editor.currentInheritedRole")})`
-                      : t("settings.userManagement.adminRole")
-                  }
-                  description={
-                    inheritedOidcRole === "admin"
-                      ? t("settings.userManagement.editor.inheritedRoleDescription")
-                      : t("settings.userManagement.editor.roleOptions.admin")
-                  }
+                  label={t("settings.userManagement.adminRole")}
+                  description={t("settings.userManagement.editor.roleOptions.admin")}
                 />
               </Select>
               {!usesDesktopFormLayout && (

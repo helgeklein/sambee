@@ -502,7 +502,6 @@ export const EN_TRANSLATIONS = {
         },
         inheritedRole: "Inherited ({{role}})",
         inheritedRoleDescription: "Uses the role resolved from the user's latest verified OIDC groups",
-        currentInheritedRole: "Current inherited role",
         expiresAtLabel: "Expiration Time",
         expiresAtHelp: "Leave blank for no expiration",
         accountActiveLabel: "Account is active",
