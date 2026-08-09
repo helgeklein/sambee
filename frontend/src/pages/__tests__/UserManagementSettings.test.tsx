@@ -55,6 +55,16 @@ async function openUserActions(user: ReturnType<typeof userEvent.setup>, usernam
   await user.click(await screen.findByRole("button", { name: `User actions for ${username}` }));
 }
 
+function mockOidcAuthenticationEnabled() {
+  vi.mocked(api.getOidcConfiguration).mockResolvedValue({
+    configuration: null,
+    health: { status: "healthy", public_url_configured: false, public_url: null, redirect_uri: null, reasons: [] },
+    active_passwordless_user_count: 0,
+    auth_mode: "oidc_or_password",
+    auth_enforcement_disabled: false,
+  });
+}
+
 describe("UserManagementSettings", () => {
   beforeEach(() => {
     vi.clearAllMocks();
@@ -362,6 +372,7 @@ describe("UserManagementSettings", () => {
   });
 
   it("uses the role selector and read-only identity fields for linked OIDC users", async () => {
+    mockOidcAuthenticationEnabled();
     vi.mocked(api.getUsers).mockResolvedValue([
       {
         id: "user-1",
@@ -398,6 +409,7 @@ describe("UserManagementSettings", () => {
   });
 
   it("shows the inherited OIDC role and clears an individual override", async () => {
+    mockOidcAuthenticationEnabled();
     vi.mocked(api.getUsers).mockResolvedValue([
       {
         id: "user-1",
@@ -458,6 +470,7 @@ describe("UserManagementSettings", () => {
   });
 
   it("does not offer an inherited role for a pending OIDC mapping", async () => {
+    mockOidcAuthenticationEnabled();
     vi.mocked(api.getUsers).mockResolvedValue([
       {
         id: "user-1",
@@ -508,6 +521,7 @@ describe("UserManagementSettings", () => {
   });
 
   it("does not offer an inherited role until a linked OIDC account has a verified role", async () => {
+    mockOidcAuthenticationEnabled();
     vi.mocked(api.getUsers).mockResolvedValue([
       {
         id: "user-1",
@@ -646,6 +660,117 @@ describe("UserManagementSettings", () => {
     }
   });
 
+  it("keeps directory rows visible and does not reload stable context while sorting", async () => {
+    const restoreViewport = mockViewportWidth(1200);
+    const user = userEvent.setup();
+    let resolveSortedUsers: ((users: Awaited<ReturnType<typeof api.getUsers>>) => void) | undefined;
+
+    vi.mocked(api.getUsers)
+      .mockResolvedValueOnce([
+        {
+          id: "user-1",
+          username: "admin",
+          role: "admin",
+          is_active: true,
+          must_change_password: false,
+          has_local_password: true,
+          oidc_role_assignment: null,
+          oidc: null,
+          pending_oidc: null,
+          created_at: "2026-03-01T10:00:00Z",
+          updated_at: "2026-03-01T10:00:00Z",
+        },
+      ])
+      .mockImplementationOnce(
+        () =>
+          new Promise((resolve) => {
+            resolveSortedUsers = resolve;
+          })
+      );
+
+    try {
+      render(
+        <SambeeThemeProvider>
+          <UserManagementSettings />
+        </SambeeThemeProvider>
+      );
+
+      await screen.findByText("admin (you)", { exact: true });
+      await user.click(within(screen.getByTestId("user-directory-header")).getByRole("button", { name: "Sort by Role" }));
+
+      expect(screen.getByText("admin (you)", { exact: true })).toBeInTheDocument();
+      expect(screen.getByRole("progressbar", { name: "Updating user directory" })).toBeInTheDocument();
+      expect(api.getCurrentUser).toHaveBeenCalledTimes(1);
+      expect(api.getOidcConfiguration).toHaveBeenCalledTimes(1);
+
+      resolveSortedUsers?.([
+        {
+          id: "user-1",
+          username: "admin",
+          role: "admin",
+          is_active: true,
+          must_change_password: false,
+          has_local_password: true,
+          oidc_role_assignment: null,
+          oidc: null,
+          pending_oidc: null,
+          created_at: "2026-03-01T10:00:00Z",
+          updated_at: "2026-03-01T10:00:00Z",
+        },
+      ]);
+      await waitFor(() => expect(api.getUsers).toHaveBeenCalledTimes(2));
+      await waitFor(() => expect(screen.queryByRole("progressbar", { name: "Updating user directory" })).not.toBeInTheDocument());
+    } finally {
+      restoreViewport();
+    }
+  });
+
+  it("hides OIDC-only controls and clears OIDC query parameters when OIDC is disabled", async () => {
+    const restoreViewport = mockViewportWidth(1200);
+    window.history.replaceState(null, "", `${window.location.pathname}?auth=oidc&oidc_state=linked&role_source=oidc_groups`);
+    vi.mocked(api.getUsers).mockResolvedValue([
+      {
+        id: "user-1",
+        username: "admin",
+        role: "admin",
+        is_active: true,
+        must_change_password: false,
+        has_local_password: false,
+        oidc_role_assignment: null,
+        oidc: { identity_id: "identity-1", provider_display_name: "Corporate login", last_login_at: null },
+        pending_oidc: { expected_username: "admin", created_by_username: "admin", created_at: "2026-03-01T10:00:00Z" },
+        created_at: "2026-03-01T10:00:00Z",
+        updated_at: "2026-03-01T10:00:00Z",
+      },
+    ]);
+    const user = userEvent.setup();
+
+    try {
+      render(
+        <SambeeThemeProvider>
+          <UserManagementSettings />
+        </SambeeThemeProvider>
+      );
+
+      await screen.findByText("admin (you)", { exact: true });
+      await user.click(screen.getByRole("button", { name: "Filters" }));
+
+      expect(screen.queryByRole("combobox", { name: "OIDC state" })).not.toBeInTheDocument();
+      expect(screen.queryByRole("combobox", { name: "Role source" })).not.toBeInTheDocument();
+      expect(screen.queryByText("Last OIDC sign-in", { exact: true })).not.toBeInTheDocument();
+      expect(screen.queryByText(/OIDC setup pending/)).not.toBeInTheDocument();
+      expect(window.location.search).not.toContain("auth=oidc");
+      expect(window.location.search).not.toContain("oidc_state");
+      expect(window.location.search).not.toContain("role_source");
+
+      await user.keyboard("{Escape}");
+      await openUserActions(user, "admin");
+      expect(screen.queryByRole("menuitem", { name: /oidc/i })).not.toBeInTheDocument();
+    } finally {
+      restoreViewport();
+    }
+  });
+
   it("groups filters behind one control and exposes applied filters as removable chips", async () => {
     const user = userEvent.setup();
 
@@ -711,6 +836,7 @@ describe("UserManagementSettings", () => {
   });
 
   it("shows OIDC state and hides password reset for a passwordless account", async () => {
+    mockOidcAuthenticationEnabled();
     vi.mocked(api.getUsers).mockResolvedValue([
       {
         id: "user-1",

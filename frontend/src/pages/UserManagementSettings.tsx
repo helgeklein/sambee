@@ -38,7 +38,7 @@ import {
   useMediaQuery,
   useTheme,
 } from "@mui/material";
-import { useCallback, useEffect, useId, useMemo, useRef, useState } from "react";
+import { startTransition, useCallback, useEffect, useId, useMemo, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 import DeleteDialog from "../components/Admin/DeleteDialog";
 import { DialogReadOnlyField } from "../components/Admin/DialogReadOnlyField";
@@ -69,7 +69,8 @@ import {
 } from "../components/Settings/settingsButtonStyles";
 import {
   getUserManagementSettingsDataCacheKey,
-  loadUserManagementSettingsData,
+  loadUserManagementContextData,
+  loadUserManagementDirectoryData,
   SETTINGS_DATA_CACHE_KEYS,
 } from "../components/Settings/settingsDataSources";
 import { settingsListItemTitleSx } from "../components/Settings/settingsTypographyStyles";
@@ -237,16 +238,38 @@ const DIRECTORY_ROLE_SOURCE_VALUES: AdminUserDirectoryRoleSource[] = [
 ];
 const DIRECTORY_SORT_VALUES: AdminUserDirectorySort[] = ["username", "role", "last_sign_in", "expiration"];
 const DIRECTORY_DIRECTION_VALUES: SortDirection[] = ["asc", "desc"];
-const DIRECTORY_ROW_GRID_SX = {
-  display: "grid",
-  gridTemplateColumns: {
-    xs: "minmax(0, 1fr) auto",
-    md: "minmax(200px, 2fr) minmax(90px, 0.8fr) minmax(150px, 1.25fr) minmax(115px, 0.9fr) minmax(130px, 1fr) minmax(130px, 1fr) auto",
-  },
-  gap: { xs: 1, md: 2 },
+const DIRECTORY_HEADER_LABEL_SX = {
   alignItems: "center",
-  width: "100%",
+  color: "text.secondary",
+  display: "flex",
+  fontSize: "0.75rem",
+  fontWeight: 600,
+  letterSpacing: 0,
+  lineHeight: 1.66,
+  minWidth: 0,
+  overflow: "hidden",
+  textOverflow: "ellipsis",
+  whiteSpace: "nowrap",
 } as const;
+
+function getDirectoryRowGridSx(oidcAuthenticationEnabled: boolean) {
+  const wideColumns = oidcAuthenticationEnabled
+    ? "minmax(0, 1.5fr) minmax(0, 0.7fr) minmax(0, 1.1fr) minmax(0, 0.8fr) minmax(0, 1fr) minmax(0, 1fr) auto"
+    : "minmax(0, 1.8fr) minmax(0, 0.75fr) minmax(0, 1.2fr) minmax(0, 1fr) auto";
+
+  return {
+    display: "grid",
+    gridTemplateColumns: {
+      xs: "minmax(0, 1fr) auto",
+      md: "minmax(0, 1.8fr) minmax(0, 0.75fr) minmax(0, 1.2fr) minmax(0, 1fr) auto",
+      lg: wideColumns,
+    },
+    gap: { xs: 1, md: 1.5 },
+    alignItems: "center",
+    minWidth: 0,
+    width: "100%",
+  } as const;
+}
 
 function getDirectoryQueryFromLocation(search: string): DirectoryQueryState {
   const params = new URLSearchParams(search);
@@ -351,18 +374,24 @@ function DirectoryColumnHeader({
   activeSort,
   direction,
   onSort,
+  hideUntilLarge,
 }: {
   label: string;
   sort?: AdminUserDirectorySort;
   activeSort: AdminUserDirectorySort;
   direction: SortDirection;
   onSort: (sort: AdminUserDirectorySort) => void;
+  hideUntilLarge?: boolean;
 }) {
   const isActive = sort === activeSort;
   const ariaSort = isActive ? (direction === "asc" ? "ascending" : "descending") : "none";
 
   return (
-    <Box role="columnheader" aria-sort={sort ? ariaSort : undefined} sx={{ minWidth: 0 }}>
+    <Box
+      role="columnheader"
+      aria-sort={sort ? ariaSort : undefined}
+      sx={{ display: hideUntilLarge ? { md: "none", lg: "block" } : undefined, minWidth: 0 }}
+    >
       {sort ? (
         <TableSortLabel
           active={isActive}
@@ -370,14 +399,18 @@ function DirectoryColumnHeader({
           hideSortIcon={false}
           onClick={() => onSort(sort)}
           aria-label={`Sort by ${label}${isActive ? `, ${ariaSort}` : ""}`}
-          sx={{ whiteSpace: "nowrap" }}
+          sx={{
+            ...DIRECTORY_HEADER_LABEL_SX,
+            "&.Mui-active, &:hover": { color: "text.secondary" },
+            "& .MuiTableSortLabel-icon": { color: "inherit" },
+          }}
         >
           {label}
         </TableSortLabel>
       ) : (
-        <Typography variant="caption" sx={{ color: "text.secondary", fontWeight: 600, whiteSpace: "nowrap" }}>
+        <Box component="span" sx={DIRECTORY_HEADER_LABEL_SX}>
           {label}
-        </Typography>
+        </Box>
       )}
     </Box>
   );
@@ -411,8 +444,17 @@ export function UserManagementSettings({ dialogSafeHeader = false }: UserManagem
       return nextQuery;
     });
   }, []);
+  const replaceDirectoryQuery = useCallback((update: Partial<DirectoryQueryState>) => {
+    setDirectoryQuery((current) => {
+      const nextQuery = { ...current, ...update, page: 1 };
+      const nextSearch = toDirectorySearch(nextQuery);
+      const nextUrl = `${window.location.pathname}${nextSearch ? `?${nextSearch}` : ""}${window.location.hash}`;
+      window.history.replaceState(null, "", nextUrl);
+      return nextQuery;
+    });
+  }, []);
   const directoryRequest = useMemo(() => toAdminUserListQuery(directoryQuery), [directoryQuery]);
-  const loadDirectoryData = useCallback(() => loadUserManagementSettingsData(directoryRequest), [directoryRequest]);
+  const loadDirectoryData = useCallback(() => loadUserManagementDirectoryData(directoryRequest), [directoryRequest]);
   const directoryCacheKey = useMemo(() => getUserManagementSettingsDataCacheKey(directoryRequest), [directoryRequest]);
   useEffect(() => {
     const handlePopState = () => setDirectoryQuery(getDirectoryQueryFromLocation(window.location.search));
@@ -441,16 +483,24 @@ export function UserManagementSettings({ dialogSafeHeader = false }: UserManagem
     [showNotification, t]
   );
   const {
-    data: cachedUserManagementData,
-    loading,
-    refresh,
+    data: cachedDirectoryData,
+    loading: directoryLoading,
+    refreshing: directoryRefreshing,
+    refresh: refreshDirectoryData,
   } = useCachedAsyncData({
     cacheKey: directoryCacheKey,
     load: loadDirectoryData,
     onError: handleUsersLoadError,
+    retainDataOnCacheKeyChange: true,
   });
-  const users = cachedUserManagementData?.users ?? [];
-  const directorySummary = cachedUserManagementData?.directory.summary ?? {
+  const { data: userManagementContext, loading: contextLoading } = useCachedAsyncData({
+    cacheKey: SETTINGS_DATA_CACHE_KEYS.adminUserContext,
+    load: loadUserManagementContextData,
+    onError: handleUsersLoadError,
+  });
+  const loading = directoryLoading || contextLoading;
+  const users = cachedDirectoryData?.users ?? [];
+  const directorySummary = cachedDirectoryData?.directory.summary ?? {
     total: 0,
     active_admins: 0,
     disabled: 0,
@@ -458,12 +508,13 @@ export function UserManagementSettings({ dialogSafeHeader = false }: UserManagem
     pending_oidc: 0,
     unavailable_sign_in: 0,
   };
-  const currentUserId = cachedUserManagementData?.currentUserId ?? null;
-  const oidcConfiguration = cachedUserManagementData?.oidcConfiguration.configuration ?? null;
-  const localPasswordManagementAvailable =
-    cachedUserManagementData?.oidcConfiguration.auth_mode === "password_only" ||
-    cachedUserManagementData?.oidcConfiguration.auth_mode === "oidc_or_password";
+  const currentUserId = userManagementContext?.currentUserId ?? null;
+  const authenticationMode = userManagementContext?.oidcConfiguration.auth_mode;
+  const oidcAuthenticationEnabled = authenticationMode === "oidc_only" || authenticationMode === "oidc_or_password";
+  const oidcConfiguration = oidcAuthenticationEnabled ? (userManagementContext?.oidcConfiguration.configuration ?? null) : null;
+  const localPasswordManagementAvailable = authenticationMode === "password_only" || authenticationMode === "oidc_or_password";
   const pendingOidcMappingsAllowed = oidcConfiguration !== null;
+  const directoryRowGridSx = useMemo(() => getDirectoryRowGridSx(oidcAuthenticationEnabled), [oidcAuthenticationEnabled]);
   const [editorOpen, setEditorOpen] = useState(false);
   const [deleteDialogOpen, setDeleteDialogOpen] = useState(false);
   const [resetPasswordEditorOpen, setResetPasswordEditorOpen] = useState(false);
@@ -512,8 +563,8 @@ export function UserManagementSettings({ dialogSafeHeader = false }: UserManagem
 
   const isEditing = Boolean(selectedUser);
   const isEditingSelf = Boolean(selectedUser && currentUserId && selectedUser.id === currentUserId);
-  const hasOidcManagedIdentity = Boolean(selectedUser?.oidc);
-  const hasOidcRoleAssignment = Boolean(selectedUser?.oidc || selectedUser?.pending_oidc);
+  const hasOidcManagedIdentity = oidcAuthenticationEnabled && Boolean(selectedUser?.oidc);
+  const hasOidcRoleAssignment = oidcAuthenticationEnabled && Boolean(selectedUser?.oidc || selectedUser?.pending_oidc);
   const inheritedOidcRole = selectedUser?.oidc?.inherited_role ?? null;
   const canUseInheritedOidcRole = inheritedOidcRole !== null;
   const activeAdminCount = directorySummary.active_admins;
@@ -521,8 +572,7 @@ export function UserManagementSettings({ dialogSafeHeader = false }: UserManagem
     directoryQuery.roles.length +
     directoryQuery.states.length +
     directoryQuery.authentication.length +
-    directoryQuery.oidcStates.length +
-    directoryQuery.roleSources.length +
+    (oidcAuthenticationEnabled ? directoryQuery.oidcStates.length + directoryQuery.roleSources.length : 0) +
     (directoryQuery.expiration ? 1 : 0);
   const clearDirectoryFilters = useCallback(() => {
     setSearchInput("");
@@ -538,17 +588,41 @@ export function UserManagementSettings({ dialogSafeHeader = false }: UserManagem
   }, [updateDirectoryQuery]);
   const handleDirectorySort = useCallback(
     (sort: AdminUserDirectorySort) => {
-      updateDirectoryQuery({
-        sort,
-        direction: directoryQuery.sort === sort && directoryQuery.direction === "asc" ? "desc" : "asc",
+      startTransition(() => {
+        updateDirectoryQuery({
+          sort,
+          direction: directoryQuery.sort === sort && directoryQuery.direction === "asc" ? "desc" : "asc",
+        });
       });
     },
     [directoryQuery.direction, directoryQuery.sort, updateDirectoryQuery]
   );
   const refreshDirectory = useCallback(async () => {
     clearCachedAsyncDataByPrefix(`${SETTINGS_DATA_CACHE_KEYS.adminUsers}:`);
-    return refresh();
-  }, [refresh]);
+    return refreshDirectoryData();
+  }, [refreshDirectoryData]);
+
+  useEffect(() => {
+    if (!userManagementContext || oidcAuthenticationEnabled) {
+      return;
+    }
+
+    const authentication = directoryQuery.authentication.filter((value) => value === "password" || value === "unavailable");
+    if (
+      authentication.length !== directoryQuery.authentication.length ||
+      directoryQuery.oidcStates.length > 0 ||
+      directoryQuery.roleSources.length > 0
+    ) {
+      replaceDirectoryQuery({ authentication, oidcStates: [], roleSources: [] });
+    }
+  }, [
+    directoryQuery.authentication,
+    directoryQuery.oidcStates.length,
+    directoryQuery.roleSources.length,
+    oidcAuthenticationEnabled,
+    replaceDirectoryQuery,
+    userManagementContext,
+  ]);
 
   useEffect(() => {
     if (!mappingEditor.open || mappingEditor.mode !== "move") {
@@ -1475,12 +1549,14 @@ export function UserManagementSettings({ dialogSafeHeader = false }: UserManagem
           />
           <Chip label={`Disabled: ${directorySummary.disabled}`} size="small" variant="outlined" sx={settingsMetadataChipSx} />
           <Chip label={`Expiring soon: ${directorySummary.expiring_soon}`} size="small" variant="outlined" sx={settingsMetadataChipSx} />
-          <Chip
-            label={`OIDC setup pending: ${directorySummary.pending_oidc}`}
-            size="small"
-            variant="outlined"
-            sx={settingsMetadataChipSx}
-          />
+          {oidcAuthenticationEnabled && (
+            <Chip
+              label={`OIDC setup pending: ${directorySummary.pending_oidc}`}
+              size="small"
+              variant="outlined"
+              sx={settingsMetadataChipSx}
+            />
+          )}
         </Stack>
         <Stack direction="row" spacing={1} useFlexGap sx={{ flexWrap: "wrap", alignItems: "center" }}>
           <TextField
@@ -1500,6 +1576,7 @@ export function UserManagementSettings({ dialogSafeHeader = false }: UserManagem
           >
             {activeDirectoryFilterCount ? `Filters (${activeDirectoryFilterCount})` : "Filters"}
           </Button>
+          {directoryRefreshing && <CircularProgress aria-label="Updating user directory" size={20} />}
           {activeDirectoryFilterCount > 0 && (
             <Button variant="text" onClick={clearDirectoryFilters}>
               Clear filters
@@ -1561,37 +1638,48 @@ export function UserManagementSettings({ dialogSafeHeader = false }: UserManagem
                 </Typography>
                 <DirectoryFilterSelect
                   label="Sign-in method"
-                  options={[
-                    { value: "password", label: "Password" },
-                    { value: "oidc", label: "OIDC" },
-                    { value: "password_and_oidc", label: "Password + OIDC" },
-                    { value: "unavailable", label: "Unavailable" },
-                  ]}
+                  options={
+                    oidcAuthenticationEnabled
+                      ? [
+                          { value: "password", label: "Password" },
+                          { value: "oidc", label: "OIDC" },
+                          { value: "password_and_oidc", label: "Password + OIDC" },
+                          { value: "unavailable", label: "Unavailable" },
+                        ]
+                      : [
+                          { value: "password", label: "Password" },
+                          { value: "unavailable", label: "Unavailable" },
+                        ]
+                  }
                   values={directoryQuery.authentication}
                   onChange={(authentication) => updateDirectoryQuery({ authentication })}
                 />
-                <DirectoryFilterSelect
-                  label="OIDC state"
-                  options={[
-                    { value: "linked", label: "Linked" },
-                    { value: "pending", label: "Setup pending" },
-                    { value: "unlinked", label: "Unlinked" },
-                  ]}
-                  values={directoryQuery.oidcStates}
-                  onChange={(oidcStates) => updateDirectoryQuery({ oidcStates })}
-                />
-                <DirectoryFilterSelect
-                  label="Role source"
-                  options={[
-                    { value: "local_assignment", label: "Local assignment" },
-                    { value: "individual_override", label: "Individual override" },
-                    { value: "oidc_default", label: "OIDC default" },
-                    { value: "oidc_groups", label: "OIDC groups" },
-                    { value: "awaiting_oidc_sign_in", label: "Awaiting OIDC sign-in" },
-                  ]}
-                  values={directoryQuery.roleSources}
-                  onChange={(roleSources) => updateDirectoryQuery({ roleSources })}
-                />
+                {oidcAuthenticationEnabled && (
+                  <>
+                    <DirectoryFilterSelect
+                      label="OIDC state"
+                      options={[
+                        { value: "linked", label: "Linked" },
+                        { value: "pending", label: "Setup pending" },
+                        { value: "unlinked", label: "Unlinked" },
+                      ]}
+                      values={directoryQuery.oidcStates}
+                      onChange={(oidcStates) => updateDirectoryQuery({ oidcStates })}
+                    />
+                    <DirectoryFilterSelect
+                      label="Role source"
+                      options={[
+                        { value: "local_assignment", label: "Local assignment" },
+                        { value: "individual_override", label: "Individual override" },
+                        { value: "oidc_default", label: "OIDC default" },
+                        { value: "oidc_groups", label: "OIDC groups" },
+                        { value: "awaiting_oidc_sign_in", label: "Awaiting OIDC sign-in" },
+                      ]}
+                      values={directoryQuery.roleSources}
+                      onChange={(roleSources) => updateDirectoryQuery({ roleSources })}
+                    />
+                  </>
+                )}
               </Stack>
             </Box>
           </Stack>
@@ -1627,24 +1715,26 @@ export function UserManagementSettings({ dialogSafeHeader = false }: UserManagem
                 variant="outlined"
               />
             ))}
-            {directoryQuery.oidcStates.map((oidcState) => (
-              <Chip
-                key={oidcState}
-                label={`OIDC: ${oidcState === "pending" ? "Setup pending" : oidcState[0].toUpperCase() + oidcState.slice(1)}`}
-                onDelete={() => updateDirectoryQuery({ oidcStates: directoryQuery.oidcStates.filter((value) => value !== oidcState) })}
-                size="small"
-                variant="outlined"
-              />
-            ))}
-            {directoryQuery.roleSources.map((roleSource) => (
-              <Chip
-                key={roleSource}
-                label={`Role source: ${roleSource.replaceAll("_", " ")}`}
-                onDelete={() => updateDirectoryQuery({ roleSources: directoryQuery.roleSources.filter((value) => value !== roleSource) })}
-                size="small"
-                variant="outlined"
-              />
-            ))}
+            {oidcAuthenticationEnabled &&
+              directoryQuery.oidcStates.map((oidcState) => (
+                <Chip
+                  key={oidcState}
+                  label={`OIDC: ${oidcState === "pending" ? "Setup pending" : oidcState[0].toUpperCase() + oidcState.slice(1)}`}
+                  onDelete={() => updateDirectoryQuery({ oidcStates: directoryQuery.oidcStates.filter((value) => value !== oidcState) })}
+                  size="small"
+                  variant="outlined"
+                />
+              ))}
+            {oidcAuthenticationEnabled &&
+              directoryQuery.roleSources.map((roleSource) => (
+                <Chip
+                  key={roleSource}
+                  label={`Role source: ${roleSource.replaceAll("_", " ")}`}
+                  onDelete={() => updateDirectoryQuery({ roleSources: directoryQuery.roleSources.filter((value) => value !== roleSource) })}
+                  size="small"
+                  variant="outlined"
+                />
+              ))}
             {directoryQuery.expiration && (
               <Chip
                 label={`Expiration: ${directoryQuery.expiration === "has_expiration" ? "Has expiration" : "No expiration"}`}
@@ -1667,12 +1757,12 @@ export function UserManagementSettings({ dialogSafeHeader = false }: UserManagem
             }
           />
         ) : (
-          <Box role="table" aria-label="Users">
+          <Box role="table" aria-label="Users" sx={{ minWidth: 0, overflowX: "hidden" }}>
             <Box
               role="row"
               data-testid="user-directory-header"
               sx={{
-                ...DIRECTORY_ROW_GRID_SX,
+                ...directoryRowGridSx,
                 display: { xs: "none", md: "grid" },
                 px: 0,
                 py: 1,
@@ -1705,14 +1795,18 @@ export function UserManagementSettings({ dialogSafeHeader = false }: UserManagem
                 activeSort={directoryQuery.sort}
                 direction={directoryQuery.direction}
                 onSort={handleDirectorySort}
+                hideUntilLarge
               />
-              <DirectoryColumnHeader
-                label="Last OIDC sign-in"
-                sort="last_sign_in"
-                activeSort={directoryQuery.sort}
-                direction={directoryQuery.direction}
-                onSort={handleDirectorySort}
-              />
+              {oidcAuthenticationEnabled && (
+                <DirectoryColumnHeader
+                  label="Last OIDC sign-in"
+                  sort="last_sign_in"
+                  activeSort={directoryQuery.sort}
+                  direction={directoryQuery.direction}
+                  onSort={handleDirectorySort}
+                  hideUntilLarge
+                />
+              )}
               <DirectoryColumnHeader
                 label="Expiration"
                 sort="expiration"
@@ -1733,20 +1827,20 @@ export function UserManagementSettings({ dialogSafeHeader = false }: UserManagem
                   isExpired ? "Expired" : null,
                   isExpiringSoon ? "Expiring soon" : null,
                   localPasswordManagementAvailable && user.must_change_password ? t("settings.userManagement.passwordResetPending") : null,
-                  user.pending_oidc ? "OIDC setup pending" : null,
-                  !user.has_local_password && !user.oidc ? "No sign-in method" : null,
+                  oidcAuthenticationEnabled && user.pending_oidc ? "OIDC setup pending" : null,
+                  !user.has_local_password && !(oidcAuthenticationEnabled && user.oidc) ? "No sign-in method" : null,
                 ].filter(Boolean);
                 const authentication =
-                  user.has_local_password && user.oidc
+                  oidcAuthenticationEnabled && user.has_local_password && user.oidc
                     ? "Password + OIDC"
-                    : user.oidc
+                    : oidcAuthenticationEnabled && user.oidc
                       ? "OIDC"
                       : user.has_local_password
                         ? "Password"
                         : "Unavailable";
                 return (
                   <ListItem key={user.id} role="row" sx={{ px: 0, py: 1.25, borderBottom: 1, borderColor: "divider" }}>
-                    <Box data-testid="user-row" sx={DIRECTORY_ROW_GRID_SX}>
+                    <Box data-testid="user-row" sx={directoryRowGridSx}>
                       <Box sx={{ minWidth: 0 }}>
                         <Typography component="div" variant="body1" sx={settingsListItemTitleSx}>
                           {user.name?.trim() ? user.name : user.username}
@@ -1778,21 +1872,29 @@ export function UserManagementSettings({ dialogSafeHeader = false }: UserManagem
                           />
                         ))}
                       </Stack>
-                      <Typography variant="body2" sx={{ color: "text.secondary" }}>
+                      <Typography
+                        variant="body2"
+                        sx={{ color: "text.secondary", display: { xs: "block", md: "none", lg: "block" }, minWidth: 0 }}
+                      >
                         <Box component="span" sx={{ display: { xs: "inline", md: "none" } }}>
                           Sign-in:
                         </Box>{" "}
                         {authentication}
                       </Typography>
-                      <Tooltip title={user.oidc?.last_login_at ? formatLocalTimestamp(user.oidc.last_login_at) : "No OIDC sign-in"}>
-                        <Typography variant="body2" sx={{ color: "text.secondary" }}>
-                          <Box component="span" sx={{ display: { xs: "inline", md: "none" } }}>
-                            Last OIDC sign-in:
-                          </Box>{" "}
-                          {user.oidc?.last_login_at ? formatLocalTimestamp(user.oidc.last_login_at) : "Never"}
-                        </Typography>
-                      </Tooltip>
-                      <Typography variant="body2" sx={{ color: "text.secondary" }}>
+                      {oidcAuthenticationEnabled && (
+                        <Tooltip title={user.oidc?.last_login_at ? formatLocalTimestamp(user.oidc.last_login_at) : "No OIDC sign-in"}>
+                          <Typography
+                            variant="body2"
+                            sx={{ color: "text.secondary", display: { xs: "block", md: "none", lg: "block" }, minWidth: 0 }}
+                          >
+                            <Box component="span" sx={{ display: { xs: "inline", md: "none" } }}>
+                              Last OIDC sign-in:
+                            </Box>{" "}
+                            {user.oidc?.last_login_at ? formatLocalTimestamp(user.oidc.last_login_at) : "Never"}
+                          </Typography>
+                        </Tooltip>
+                      )}
+                      <Typography variant="body2" sx={{ color: "text.secondary", minWidth: 0 }}>
                         <Box component="span" sx={{ display: { xs: "inline", md: "none" } }}>
                           Expiration:
                         </Box>{" "}
@@ -1858,7 +1960,7 @@ export function UserManagementSettings({ dialogSafeHeader = false }: UserManagem
       <Menu anchorEl={userActionsMenu.anchor} open={Boolean(userActionsMenu.anchor)} onClose={closeUserActionsMenu}>
         {userActionsMenu.user && (
           <>
-            {oidcConfiguration && !userActionsMenu.user.oidc && !userActionsMenu.user.pending_oidc && (
+            {oidcAuthenticationEnabled && oidcConfiguration && !userActionsMenu.user.oidc && !userActionsMenu.user.pending_oidc && (
               <MenuItem
                 disabled={!pendingOidcMappingsAllowed}
                 onClick={() => {
@@ -1871,7 +1973,7 @@ export function UserManagementSettings({ dialogSafeHeader = false }: UserManagem
                 Map OIDC account
               </MenuItem>
             )}
-            {oidcConfiguration && userActionsMenu.user.pending_oidc && (
+            {oidcAuthenticationEnabled && oidcConfiguration && userActionsMenu.user.pending_oidc && (
               <MenuItem
                 onClick={() => {
                   const user = userActionsMenu.user;
@@ -1883,7 +1985,7 @@ export function UserManagementSettings({ dialogSafeHeader = false }: UserManagem
                 Cancel pending OIDC mapping
               </MenuItem>
             )}
-            {oidcConfiguration && userActionsMenu.user.oidc && (
+            {oidcAuthenticationEnabled && oidcConfiguration && userActionsMenu.user.oidc && (
               <>
                 <MenuItem
                   onClick={() => {
@@ -1960,7 +2062,7 @@ export function UserManagementSettings({ dialogSafeHeader = false }: UserManagem
       </Menu>
 
       <ResponsiveFormDialog
-        open={oidcDetailsUser !== null}
+        open={oidcAuthenticationEnabled && oidcDetailsUser !== null}
         onClose={() => setOidcDetailsUser(null)}
         title={oidcDetailsUser ? `OIDC identity details for ${oidcDetailsUser.username}` : "OIDC identity details"}
         actions={
