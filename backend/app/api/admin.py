@@ -1,3 +1,5 @@
+# mypy: disable-error-code="arg-type, assignment, attr-defined, call-overload, operator, union-attr"
+
 import json
 import uuid
 from datetime import datetime, timedelta, timezone

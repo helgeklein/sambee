@@ -419,10 +419,6 @@ export function UserManagementSettings({ dialogSafeHeader = false }: UserManagem
   }>({ open: false, mode: "create", user: null, expectedUsername: "", targetUserId: "" });
   const [mappingSubmitting, setMappingSubmitting] = useState(false);
   const [mappingError, setMappingError] = useState<string | null>(null);
-  const [advancedMappingMenu, setAdvancedMappingMenu] = useState<{
-    anchor: HTMLElement | null;
-    user: AdminUser | null;
-  }>({ anchor: null, user: null });
   const [oidcDetailsUser, setOidcDetailsUser] = useState<AdminUser | null>(null);
   const [userActionsMenu, setUserActionsMenu] = useState<{
     anchor: HTMLElement | null;
@@ -1605,50 +1601,6 @@ export function UserManagementSettings({ dialogSafeHeader = false }: UserManagem
           </Stack>
         )}
       </Stack>
-
-      <Menu
-        anchorEl={advancedMappingMenu.anchor}
-        open={Boolean(advancedMappingMenu.anchor)}
-        onClose={() => setAdvancedMappingMenu({ anchor: null, user: null })}
-      >
-        <MenuItem
-          onClick={() => {
-            const user = advancedMappingMenu.user;
-            setAdvancedMappingMenu({ anchor: null, user: null });
-            if (user) setOidcDetailsUser(user);
-          }}
-        >
-          View OIDC identity details
-        </MenuItem>
-        <MenuItem
-          disabled={!pendingOidcMappingsAllowed}
-          onClick={() => {
-            const user = advancedMappingMenu.user;
-            setAdvancedMappingMenu({ anchor: null, user: null });
-            if (user) openMappingEditor(user, "change");
-          }}
-        >
-          Change OIDC account
-        </MenuItem>
-        <MenuItem
-          onClick={() => {
-            const user = advancedMappingMenu.user;
-            setAdvancedMappingMenu({ anchor: null, user: null });
-            if (user) openMappingEditor(user, "move");
-          }}
-        >
-          Move identity to another local user
-        </MenuItem>
-        <MenuItem
-          onClick={() => {
-            const user = advancedMappingMenu.user;
-            setAdvancedMappingMenu({ anchor: null, user: null });
-            if (user) void handleDetachIdentity(user);
-          }}
-        >
-          Detach OIDC identity
-        </MenuItem>
-      </Menu>
 
       <Menu anchorEl={userActionsMenu.anchor} open={Boolean(userActionsMenu.anchor)} onClose={closeUserActionsMenu}>
         {userActionsMenu.user && (
