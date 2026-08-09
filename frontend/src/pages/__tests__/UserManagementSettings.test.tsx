@@ -55,10 +55,21 @@ async function openUserActions(user: ReturnType<typeof userEvent.setup>, usernam
   await user.click(await screen.findByRole("button", { name: `User actions for ${username}` }));
 }
 
+function mockOidcAuthenticationEnabled() {
+  vi.mocked(api.getOidcConfiguration).mockResolvedValue({
+    configuration: null,
+    health: { status: "healthy", public_url_configured: false, public_url: null, redirect_uri: null, reasons: [] },
+    active_passwordless_user_count: 0,
+    auth_mode: "oidc_or_password",
+    auth_enforcement_disabled: false,
+  });
+}
+
 describe("UserManagementSettings", () => {
   beforeEach(() => {
     vi.clearAllMocks();
     clearCachedAsyncData();
+    window.history.replaceState(null, "", window.location.pathname);
     vi.mocked(isControlledReauthenticationInProgress).mockReturnValue(false);
     vi.mocked(api.getUsers).mockResolvedValue([
       {
@@ -361,6 +372,7 @@ describe("UserManagementSettings", () => {
   });
 
   it("uses the role selector and read-only identity fields for linked OIDC users", async () => {
+    mockOidcAuthenticationEnabled();
     vi.mocked(api.getUsers).mockResolvedValue([
       {
         id: "user-1",
@@ -397,6 +409,7 @@ describe("UserManagementSettings", () => {
   });
 
   it("shows the inherited OIDC role and clears an individual override", async () => {
+    mockOidcAuthenticationEnabled();
     vi.mocked(api.getUsers).mockResolvedValue([
       {
         id: "user-1",
@@ -457,6 +470,7 @@ describe("UserManagementSettings", () => {
   });
 
   it("does not offer an inherited role for a pending OIDC mapping", async () => {
+    mockOidcAuthenticationEnabled();
     vi.mocked(api.getUsers).mockResolvedValue([
       {
         id: "user-1",
@@ -507,6 +521,7 @@ describe("UserManagementSettings", () => {
   });
 
   it("does not offer an inherited role until a linked OIDC account has a verified role", async () => {
+    mockOidcAuthenticationEnabled();
     vi.mocked(api.getUsers).mockResolvedValue([
       {
         id: "user-1",
@@ -608,6 +623,268 @@ describe("UserManagementSettings", () => {
     expect(window.getComputedStyle(userName).fontWeight).toBe("600");
   });
 
+  it("uses sortable column headers instead of a sort dropdown", async () => {
+    const restoreViewport = mockViewportWidth(1200);
+    const user = userEvent.setup();
+
+    try {
+      render(
+        <SambeeThemeProvider>
+          <UserManagementSettings />
+        </SambeeThemeProvider>
+      );
+
+      const header = await screen.findByTestId("user-directory-header");
+      const roleSort = within(header).getByRole("button", { name: "Sort by Role" });
+
+      expect(screen.queryByRole("combobox", { name: "Sort" })).not.toBeInTheDocument();
+      expect(roleSort).toHaveAttribute("tabindex", "-1");
+      await user.click(roleSort);
+      await waitFor(() => {
+        expect(
+          within(screen.getByTestId("user-directory-header"))
+            .getByRole("button", { name: "Sort by Role, ascending" })
+            .closest('[role="columnheader"]')
+        ).toHaveAttribute("aria-sort", "ascending");
+      });
+
+      await user.click(within(screen.getByTestId("user-directory-header")).getByRole("button", { name: "Sort by Role, ascending" }));
+      await waitFor(() => {
+        expect(
+          within(screen.getByTestId("user-directory-header"))
+            .getByRole("button", { name: "Sort by Role, descending" })
+            .closest('[role="columnheader"]')
+        ).toHaveAttribute("aria-sort", "descending");
+      });
+    } finally {
+      restoreViewport();
+    }
+  });
+
+  it("keeps password-only headers and rows in matching columns and skips sort headers while tabbing", async () => {
+    const restoreViewport = mockViewportWidth(1200);
+    const user = userEvent.setup();
+
+    try {
+      render(
+        <SambeeThemeProvider>
+          <UserManagementSettings />
+        </SambeeThemeProvider>
+      );
+
+      const header = await screen.findByTestId("user-directory-header");
+      const row = await screen.findByTestId("user-row");
+
+      expect(header.querySelectorAll('[role="columnheader"]')).toHaveLength(6);
+      expect(row.children).toHaveLength(6);
+      expect(screen.getByTestId("user-row-role")).toHaveStyle({ width: "fit-content" });
+      const sortButtons = within(header).getAllByRole("button");
+      expect(sortButtons).toHaveLength(3);
+      for (const sortButton of sortButtons) {
+        expect(sortButton).toHaveAttribute("tabindex", "-1");
+      }
+
+      await user.tab();
+      expect(screen.getByRole("textbox", { name: "Search users" })).toHaveFocus();
+      await user.tab();
+      expect(screen.getByRole("button", { name: "Filters" })).toHaveFocus();
+      await user.tab();
+      expect(screen.getByRole("button", { name: "Edit admin" })).toHaveFocus();
+      await user.tab();
+      expect(screen.getByRole("button", { name: "User actions for admin" })).toHaveFocus();
+      await user.tab();
+      expect(screen.getByRole("combobox")).toHaveFocus();
+      await user.tab();
+      expect(screen.queryByRole("button", { name: "page 1" })).not.toHaveFocus();
+    } finally {
+      restoreViewport();
+    }
+  });
+
+  it("uses an ordered single-column record layout on phones", async () => {
+    const restoreViewport = mockViewportWidth(390);
+
+    try {
+      render(
+        <SambeeThemeProvider>
+          <UserManagementSettings />
+        </SambeeThemeProvider>
+      );
+
+      const row = await screen.findByTestId("user-row");
+      const cellText = Array.from(row.children).map((cell) => cell.textContent);
+
+      expect(cellText).toEqual([
+        expect.stringContaining("admin (you)"),
+        expect.stringContaining("RoleAdmin"),
+        expect.stringContaining("StatusActive"),
+        expect.stringContaining("Sign-in: Password"),
+        expect.stringContaining("Expiration: Never"),
+        "",
+      ]);
+      expect(within(row.children[5]).getByRole("button", { name: "Edit admin" })).toBeInTheDocument();
+      expect(within(row.children[5]).getByRole("button", { name: "User actions for admin" })).toBeInTheDocument();
+    } finally {
+      restoreViewport();
+    }
+  });
+
+  it("reuses cached directory data when User Management remounts", async () => {
+    const firstRender = render(
+      <SambeeThemeProvider>
+        <UserManagementSettings />
+      </SambeeThemeProvider>
+    );
+
+    await screen.findByText("admin (you)", { exact: true });
+    firstRender.unmount();
+
+    render(
+      <SambeeThemeProvider>
+        <UserManagementSettings />
+      </SambeeThemeProvider>
+    );
+
+    await screen.findByText("admin (you)", { exact: true });
+    expect(api.getUsers).toHaveBeenCalledTimes(1);
+    expect(api.getCurrentUser).toHaveBeenCalledTimes(1);
+    expect(api.getOidcConfiguration).toHaveBeenCalledTimes(1);
+    expect(screen.queryByRole("progressbar", { name: "Updating user directory" })).not.toBeInTheDocument();
+  });
+
+  it("keeps directory rows visible and does not reload stable context while sorting", async () => {
+    const restoreViewport = mockViewportWidth(1200);
+    const user = userEvent.setup();
+    let resolveSortedUsers: ((users: Awaited<ReturnType<typeof api.getUsers>>) => void) | undefined;
+
+    vi.mocked(api.getUsers)
+      .mockResolvedValueOnce([
+        {
+          id: "user-1",
+          username: "admin",
+          role: "admin",
+          is_active: true,
+          must_change_password: false,
+          has_local_password: true,
+          oidc_role_assignment: null,
+          oidc: null,
+          pending_oidc: null,
+          created_at: "2026-03-01T10:00:00Z",
+          updated_at: "2026-03-01T10:00:00Z",
+        },
+      ])
+      .mockImplementationOnce(
+        () =>
+          new Promise((resolve) => {
+            resolveSortedUsers = resolve;
+          })
+      );
+
+    try {
+      render(
+        <SambeeThemeProvider>
+          <UserManagementSettings />
+        </SambeeThemeProvider>
+      );
+
+      await screen.findByText("admin (you)", { exact: true });
+      await user.click(within(screen.getByTestId("user-directory-header")).getByRole("button", { name: "Sort by Role" }));
+
+      expect(screen.getByText("admin (you)", { exact: true })).toBeInTheDocument();
+      expect(screen.getByRole("progressbar", { name: "Updating user directory" })).toBeInTheDocument();
+      expect(api.getCurrentUser).toHaveBeenCalledTimes(1);
+      expect(api.getOidcConfiguration).toHaveBeenCalledTimes(1);
+
+      resolveSortedUsers?.([
+        {
+          id: "user-1",
+          username: "admin",
+          role: "admin",
+          is_active: true,
+          must_change_password: false,
+          has_local_password: true,
+          oidc_role_assignment: null,
+          oidc: null,
+          pending_oidc: null,
+          created_at: "2026-03-01T10:00:00Z",
+          updated_at: "2026-03-01T10:00:00Z",
+        },
+      ]);
+      await waitFor(() => expect(api.getUsers).toHaveBeenCalledTimes(2));
+      await waitFor(() => expect(screen.queryByRole("progressbar", { name: "Updating user directory" })).not.toBeInTheDocument());
+    } finally {
+      restoreViewport();
+    }
+  });
+
+  it("hides OIDC-only controls and clears OIDC query parameters when OIDC is disabled", async () => {
+    const restoreViewport = mockViewportWidth(1200);
+    window.history.replaceState(null, "", `${window.location.pathname}?auth=oidc&oidc_state=linked&role_source=oidc_groups`);
+    vi.mocked(api.getUsers).mockResolvedValue([
+      {
+        id: "user-1",
+        username: "admin",
+        role: "admin",
+        is_active: true,
+        must_change_password: false,
+        has_local_password: false,
+        oidc_role_assignment: null,
+        oidc: { identity_id: "identity-1", provider_display_name: "Corporate login", last_login_at: null },
+        pending_oidc: { expected_username: "admin", created_by_username: "admin", created_at: "2026-03-01T10:00:00Z" },
+        created_at: "2026-03-01T10:00:00Z",
+        updated_at: "2026-03-01T10:00:00Z",
+      },
+    ]);
+    const user = userEvent.setup();
+
+    try {
+      render(
+        <SambeeThemeProvider>
+          <UserManagementSettings />
+        </SambeeThemeProvider>
+      );
+
+      await screen.findByText("admin (you)", { exact: true });
+      await user.click(screen.getByRole("button", { name: "Filters" }));
+
+      expect(screen.queryByRole("combobox", { name: "OIDC state" })).not.toBeInTheDocument();
+      expect(screen.queryByRole("combobox", { name: "Role source" })).not.toBeInTheDocument();
+      expect(screen.queryByText("Last OIDC sign-in", { exact: true })).not.toBeInTheDocument();
+      expect(screen.queryByText(/OIDC setup pending/)).not.toBeInTheDocument();
+      expect(window.location.search).not.toContain("auth=oidc");
+      expect(window.location.search).not.toContain("oidc_state");
+      expect(window.location.search).not.toContain("role_source");
+
+      await user.keyboard("{Escape}");
+      await openUserActions(user, "admin");
+      expect(screen.queryByRole("menuitem", { name: /oidc/i })).not.toBeInTheDocument();
+    } finally {
+      restoreViewport();
+    }
+  });
+
+  it("groups filters behind one control and exposes applied filters as removable chips", async () => {
+    const user = userEvent.setup();
+
+    render(
+      <SambeeThemeProvider>
+        <UserManagementSettings />
+      </SambeeThemeProvider>
+    );
+
+    await user.click(await screen.findByRole("button", { name: "Filters" }));
+    expect(screen.getByText("Account", { exact: true })).toBeInTheDocument();
+    expect(screen.getAllByText("Sign-in", { exact: true }).length).toBeGreaterThan(0);
+
+    await user.click(screen.getByRole("combobox", { name: "Role" }));
+    await user.click(screen.getByRole("option", { name: /Admin/ }));
+
+    expect(await screen.findByText("Role: Admin", { exact: true })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Filters (1)", hidden: true })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Clear filters", hidden: true })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Role: Admin", hidden: true })).toHaveAttribute("tabindex", "-1");
+  });
+
   it("uses wrapped compact exception-status chips", async () => {
     render(
       <SambeeThemeProvider>
@@ -646,11 +923,13 @@ describe("UserManagementSettings", () => {
 
     await openUserActions(userEvent.setup(), "admin");
 
+    expect(screen.queryByRole("menuitem", { name: /^edit user$/i })).not.toBeInTheDocument();
     expect(screen.getByRole("menuitem", { name: /^reset password$/i })).toBeInTheDocument();
     expect(screen.getByRole("menuitem", { name: /^delete user$/i })).toHaveAttribute("aria-disabled", "true");
   });
 
   it("shows OIDC state and hides password reset for a passwordless account", async () => {
+    mockOidcAuthenticationEnabled();
     vi.mocked(api.getUsers).mockResolvedValue([
       {
         id: "user-1",
@@ -965,7 +1244,7 @@ describe("UserManagementSettings", () => {
     expect(providerSubject).toHaveValue("provider-subject-1");
     expect(providerSubject).toHaveAttribute("aria-describedby", "oidc-details-subject-description");
     expect(screen.getByText("Linked in Sambee")).not.toHaveClass("MuiInputLabel-root");
-    expect(screen.getByText("When Sambee first linked this IdP identity to the account.")).not.toHaveClass("MuiFormHelperText-root");
+    expect(screen.getByText("When Sambee first linked this IdP identity to the account")).not.toHaveClass("MuiFormHelperText-root");
     expect(screen.queryByText("Sambee OIDC identity record ID")).not.toBeInTheDocument();
     expect(screen.queryByText("Sambee local user ID")).not.toBeInTheDocument();
     expect(screen.queryByText("Stored identity properties for linked-admin.")).not.toBeInTheDocument();
@@ -989,9 +1268,10 @@ describe("UserManagementSettings", () => {
 
     await openUserActions(user, "linked-admin");
     await user.click(screen.getByRole("menuitem", { name: "Move identity to another local user" }));
-    const targetSearch = await screen.findByLabelText("Find local account");
-    expect(targetSearch).toHaveFocus();
-    expect(screen.getByTestId("oidc-mapping-editor-form-surface")).toContainElement(targetSearch);
+    const targetAccount = await screen.findByLabelText("Move identity to");
+    expect(targetAccount).toHaveFocus();
+    expect(screen.getByTestId("oidc-mapping-editor-form-surface")).toContainElement(targetAccount);
+    expect(screen.getByText("Search eligible active, unlinked local accounts by username, name, or email")).toBeInTheDocument();
     await waitFor(() =>
       expect(api.getUsers).toHaveBeenLastCalledWith({
         page: 1,
@@ -1001,9 +1281,15 @@ describe("UserManagementSettings", () => {
         oidcStates: ["unlinked"],
       })
     );
-    await user.click(screen.getByRole("combobox", { name: "Target local account" }));
+    await user.click(screen.getByRole("button", { name: "Confirm" }));
+    const mappingError = await screen.findByRole("alert");
+    expect(mappingError).toHaveTextContent("Select an available local account.");
+    expect(
+      screen.getByTestId("oidc-mapping-editor-form-surface").compareDocumentPosition(mappingError) & Node.DOCUMENT_POSITION_FOLLOWING
+    ).toBeTruthy();
+    await user.click(targetAccount);
     expect(await screen.findByRole("option", { name: "unmapped-user" })).toBeInTheDocument();
-    await user.type(targetSearch, "unmapped");
+    await user.type(targetAccount, "unmapped");
     await waitFor(() =>
       expect(api.getUsers).toHaveBeenLastCalledWith({
         page: 1,

@@ -22,6 +22,7 @@ export const SETTINGS_DATA_CACHE_KEYS = {
   connections: "settings-data/connections",
   localDrives: "settings-data/local-drives",
   adminUsers: "settings-data/admin-users",
+  adminUserContext: "settings-data/admin-user-context",
   adminSystem: "settings-data/admin-system",
   adminSmb: "settings-data/admin-smb",
   adminNetwork: "settings-data/admin-network",
@@ -39,6 +40,16 @@ export interface LocalDrivesSettingsData {
 export interface UserManagementSettingsData {
   users: AdminUser[];
   directory: AdminUserListResponse;
+  currentUserId: string | null;
+  oidcConfiguration: OidcAdminConfigurationRead;
+}
+
+export interface UserManagementDirectoryData {
+  users: AdminUser[];
+  directory: AdminUserListResponse;
+}
+
+export interface UserManagementContextData {
   currentUserId: string | null;
   oidcConfiguration: OidcAdminConfigurationRead;
 }
@@ -70,20 +81,29 @@ export function getUserManagementSettingsDataCacheKey(query: AdminUserListQuery)
   return `${SETTINGS_DATA_CACHE_KEYS.adminUsers}:${JSON.stringify(query)}`;
 }
 
-export async function loadUserManagementSettingsData(query: AdminUserListQuery = {}): Promise<UserManagementSettingsData> {
-  const [directoryResponse, currentUser, oidcConfiguration] = await Promise.all([
-    api.getUsers(query),
-    api.getCurrentUser(),
-    api.getOidcConfiguration(),
-  ]);
+export async function loadUserManagementDirectoryData(query: AdminUserListQuery = {}): Promise<UserManagementDirectoryData> {
+  const directoryResponse = await api.getUsers(query);
   const directory = normalizeUserDirectoryResponse(directoryResponse);
 
   return {
     users: directory.items,
     directory,
+  };
+}
+
+export async function loadUserManagementContextData(): Promise<UserManagementContextData> {
+  const [currentUser, oidcConfiguration] = await Promise.all([api.getCurrentUser(), api.getOidcConfiguration()]);
+
+  return {
     currentUserId: currentUser.id ?? null,
     oidcConfiguration,
   };
+}
+
+export async function loadUserManagementSettingsData(query: AdminUserListQuery = {}): Promise<UserManagementSettingsData> {
+  const [directoryData, contextData] = await Promise.all([loadUserManagementDirectoryData(query), loadUserManagementContextData()]);
+
+  return { ...directoryData, ...contextData };
 }
 
 export async function loadAdvancedSettingsData(): Promise<AdvancedSystemSettings> {
@@ -145,7 +165,10 @@ export function prefetchSettingsDataForItem(item: SettingsNavItem) {
     case "local-drives":
       return primeCachedAsyncData(SETTINGS_DATA_CACHE_KEYS.localDrives, loadLocalDrivesSettingsData);
     case "admin-users":
-      return primeCachedAsyncData(SETTINGS_DATA_CACHE_KEYS.adminUsers, loadUserManagementSettingsData);
+      return Promise.all([
+        primeCachedAsyncData(getUserManagementSettingsDataCacheKey({}), loadUserManagementDirectoryData),
+        primeCachedAsyncData(SETTINGS_DATA_CACHE_KEYS.adminUserContext, loadUserManagementContextData),
+      ]);
     case "admin-system":
       return primeCachedAsyncData(SETTINGS_DATA_CACHE_KEYS.adminSystem, loadAdvancedSettingsData);
     case "admin-smb":

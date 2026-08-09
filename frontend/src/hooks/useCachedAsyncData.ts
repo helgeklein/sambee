@@ -75,6 +75,7 @@ interface UseCachedAsyncDataOptions<T> {
   refreshCachedDataOnMount?: boolean;
   onError?: (error: unknown) => void;
   retainDataOnError?: boolean;
+  retainDataOnCacheKeyChange?: boolean;
 }
 
 interface UseCachedAsyncDataResult<T> {
@@ -93,6 +94,7 @@ export function useCachedAsyncData<T>({
   refreshCachedDataOnMount = true,
   onError,
   retainDataOnError = true,
+  retainDataOnCacheKeyChange = false,
 }: UseCachedAsyncDataOptions<T>): UseCachedAsyncDataResult<T> {
   const [data, setDataState] = useState<T | null>(() => getCachedAsyncData<T>(cacheKey));
   const [loading, setLoading] = useState(() => enabled && getCachedAsyncData<T>(cacheKey) === null);
@@ -100,10 +102,15 @@ export function useCachedAsyncData<T>({
   const [hasResolved, setHasResolved] = useState(() => getCachedAsyncData<T>(cacheKey) !== null);
   const mountedRef = useRef(true);
   const dataRef = useRef<T | null>(data);
+  const activeCacheKeyRef = useRef(cacheKey);
 
   useEffect(() => {
     dataRef.current = data;
   }, [data]);
+
+  useEffect(() => {
+    activeCacheKeyRef.current = cacheKey;
+  }, [cacheKey]);
 
   useEffect(() => {
     mountedRef.current = true;
@@ -156,14 +163,14 @@ export function useCachedAsyncData<T>({
       try {
         const nextData = await primeCachedAsyncData(cacheKey, load, true);
 
-        if (mountedRef.current) {
+        if (mountedRef.current && activeCacheKeyRef.current === cacheKey) {
           setDataState(nextData);
           setHasResolved(true);
         }
 
         return nextData;
       } catch (error) {
-        if (mountedRef.current) {
+        if (mountedRef.current && activeCacheKeyRef.current === cacheKey) {
           setHasResolved(true);
 
           if (!retainDataOnError && !hasCachedData) {
@@ -174,7 +181,7 @@ export function useCachedAsyncData<T>({
         onError?.(error);
         return null;
       } finally {
-        if (mountedRef.current) {
+        if (mountedRef.current && activeCacheKeyRef.current === cacheKey) {
           setLoading(false);
           setRefreshing(false);
         }
@@ -200,11 +207,18 @@ export function useCachedAsyncData<T>({
       return;
     }
 
+    if (retainDataOnCacheKeyChange && dataRef.current !== null) {
+      setHasResolved(true);
+      setLoading(false);
+      void refresh();
+      return;
+    }
+
     setDataState(null);
     setHasResolved(false);
     setLoading(true);
     void refresh(true);
-  }, [cacheKey, enabled, refresh, refreshCachedDataOnMount]);
+  }, [cacheKey, enabled, refresh, refreshCachedDataOnMount, retainDataOnCacheKeyChange]);
 
   return {
     data,
