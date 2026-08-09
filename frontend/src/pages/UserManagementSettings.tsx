@@ -1798,43 +1798,43 @@ export function UserManagementSettings({ dialogSafeHeader = false }: UserManagem
               {renderOidcDetailsRow(
                 OIDC_DETAILS_IDS.provider,
                 "Identity provider",
-                "The configured sign-in provider for this identity.",
+                "The configured sign-in provider for this identity",
                 oidcDetailsUser.oidc.provider_display_name
               )}
               {renderOidcDetailsRow(
                 OIDC_DETAILS_IDS.issuer,
                 "Issuer URL",
-                "The unique URL that identifies this identity provider.",
+                "The unique URL that identifies this identity provider",
                 oidcDetailsUser.oidc.issuer
               )}
               {renderOidcDetailsRow(
                 OIDC_DETAILS_IDS.subject,
                 "IdP subject",
-                "The IdP's stable unique identifier for this person.",
+                "The IdP's stable unique identifier for this person",
                 oidcDetailsUser.oidc.subject
               )}
               {renderOidcDetailsRow(
                 OIDC_DETAILS_IDS.lastSeenUsername,
-                "Last IdP username",
-                "The username most recently verified with the identity provider.",
+                "IdP username",
+                "The username most recently verified with the identity provider",
                 oidcDetailsUser.oidc.last_seen_username ?? "None"
               )}
               {renderOidcDetailsRow(
                 OIDC_DETAILS_IDS.lastGroups,
-                "Last verified IdP groups",
-                "The groups most recently verified with the identity provider.",
+                "IdP groups",
+                "The groups most recently verified with the identity provider",
                 oidcDetailsUser.oidc.last_groups.join(", ") || "None"
               )}
               {renderOidcDetailsRow(
                 OIDC_DETAILS_IDS.createdAt,
                 "Linked in Sambee",
-                "When Sambee first linked this IdP identity to the account.",
+                "When Sambee first linked this IdP identity to the account",
                 formatLocalTimestamp(oidcDetailsUser.oidc.created_at)
               )}
               {renderOidcDetailsRow(
                 OIDC_DETAILS_IDS.lastLoginAt,
                 "Last successful OIDC sign-in",
-                "The most recent sign-in verified with this identity.",
+                "The most recent sign-in verified with this identity",
                 oidcDetailsUser.oidc.last_login_at ? formatLocalTimestamp(oidcDetailsUser.oidc.last_login_at) : "Never"
               )}
             </SettingsFormGroup>

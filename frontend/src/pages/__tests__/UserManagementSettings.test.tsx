@@ -965,7 +965,7 @@ describe("UserManagementSettings", () => {
     expect(providerSubject).toHaveValue("provider-subject-1");
     expect(providerSubject).toHaveAttribute("aria-describedby", "oidc-details-subject-description");
     expect(screen.getByText("Linked in Sambee")).not.toHaveClass("MuiInputLabel-root");
-    expect(screen.getByText("When Sambee first linked this IdP identity to the account.")).not.toHaveClass("MuiFormHelperText-root");
+    expect(screen.getByText("When Sambee first linked this IdP identity to the account")).not.toHaveClass("MuiFormHelperText-root");
     expect(screen.queryByText("Sambee OIDC identity record ID")).not.toBeInTheDocument();
     expect(screen.queryByText("Sambee local user ID")).not.toBeInTheDocument();
     expect(screen.queryByText("Stored identity properties for linked-admin.")).not.toBeInTheDocument();
