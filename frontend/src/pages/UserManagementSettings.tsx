@@ -1163,11 +1163,9 @@ export function UserManagementSettings({ dialogSafeHeader = false }: UserManagem
                         {user.name?.trim() ? user.name : user.username}
                         {isSelf && ` ${t("settings.userManagement.currentUserSuffix")}`}
                       </Typography>
-                      {(user.name || user.email) && (
-                        <Typography variant="body2" sx={{ mt: 0.5, color: "text.secondary" }}>
-                          {[user.username, user.email].filter(Boolean).join(" • ")}
-                        </Typography>
-                      )}
+                      <Typography variant="body2" sx={{ mt: 0.5, color: "text.secondary" }}>
+                        {[user.username, user.email].filter(Boolean).join(" • ")}
+                      </Typography>
                       <Stack
                         data-testid="user-metadata"
                         direction="row"

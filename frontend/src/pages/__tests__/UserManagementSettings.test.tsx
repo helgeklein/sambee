@@ -124,6 +124,17 @@ describe("UserManagementSettings", () => {
     expect(within(screen.getByTestId("user-metadata")).queryByText("You", { exact: true })).not.toBeInTheDocument();
   });
 
+  it("shows the username beneath a local account without a full name", async () => {
+    render(
+      <SambeeThemeProvider>
+        <UserManagementSettings />
+      </SambeeThemeProvider>
+    );
+
+    const username = await screen.findByText("admin", { exact: true });
+    expect(username).toHaveClass("MuiTypography-body2");
+  });
+
   it("uses the inline bold username confirmation when deleting another user", async () => {
     vi.mocked(api.getUsers).mockResolvedValue([
       {
@@ -670,7 +681,7 @@ describe("UserManagementSettings", () => {
       timeZoneName: "short",
     }).format(new Date("2026-03-01T10:00:00Z"));
     expect(screen.getByText(`OIDC last login: ${localTimestamp}`)).toBeInTheDocument();
-    expect(screen.getByText("second-oidc-user", { exact: true })).toBeInTheDocument();
+    expect(screen.getAllByText("second-oidc-user", { exact: true })).toHaveLength(2);
     expect(screen.getAllByText("OIDC linked", { exact: true })).toHaveLength(2);
     expect(screen.queryByRole("button", { name: /reset password/i })).not.toBeInTheDocument();
     expect(screen.queryByText("Local password")).not.toBeInTheDocument();
