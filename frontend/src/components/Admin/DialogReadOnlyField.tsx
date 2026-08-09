@@ -9,6 +9,7 @@ interface DialogReadOnlyFieldProps {
   ariaLabel?: string;
   ariaDescribedBy?: string;
   value: string;
+  size?: "small" | "medium";
   multiline?: boolean;
   minRows?: number;
   maxRows?: number;
@@ -24,6 +25,7 @@ export function DialogReadOnlyField({
   ariaLabel,
   ariaDescribedBy,
   value,
+  size,
   multiline = false,
   minRows,
   maxRows,
@@ -37,6 +39,7 @@ export function DialogReadOnlyField({
       label={label}
       hiddenLabel={!label}
       value={value}
+      size={size}
       fullWidth
       multiline={multiline}
       minRows={minRows}
