@@ -10,4 +10,4 @@ httpx2==2.9.1
 faker==40.36.0
 ipython==9.16.0
 rich==15.0.0
-types-Authlib==1.7.2.20260724
+types-Authlib==1.7.2.20260807
