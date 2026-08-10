@@ -24,11 +24,17 @@ Dependabot activity still appears under GitHub-managed `Dependabot updates`, whi
 
 Dependabot is configured in `.github/dependabot.yml`.
 
-Dependabot commit messages and pull request titles use Conventional Commit-style
-prefixes. Ecosystem updates use `deps(npm)`, `deps(pip)`, `deps(cargo)`, or
-`deps(docker)`; GitHub Actions and CI-only tools use `deps(ci)`. Development
-dependencies use the matching `deps-dev(...)` prefix where Dependabot supports
-dependency groups.
+Dependabot commit messages and ungrouped pull request titles use Conventional
+Commit-style prefixes. Ecosystem updates use `deps(npm)`, `deps(pip)`,
+`deps(cargo)`, or `deps(docker)`; GitHub Actions and CI-only tools use
+`deps(ci)`. Development dependencies use the matching `deps-dev(...)` prefix
+where Dependabot supports dependency groups.
+
+Dependabot generates grouped pull request titles from the group identifier,
+which bypasses its configured prefix. The `Format Dependabot PR Title` workflow
+adds the matching prefix when Dependabot opens a grouped pull request. The
+multi-ecosystem Companion group uses `deps(companion)` because it combines npm
+and Cargo updates.
 
 Current coverage includes:
 

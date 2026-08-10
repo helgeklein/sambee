@@ -9,6 +9,7 @@ Use this page as the canonical copy style reference for published docs.
 - Clarity and readability are paramount.
 - Use simple but correct language.
 - Don't be nitpicky or wordy.
+- Use contracted instead of expanded forms, e.g. `we're` instead of `we are`.
 - Explain (as appropriate) the following:
   - why things are the way they are
   - how to use things
