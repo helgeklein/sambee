@@ -680,7 +680,7 @@ describe("UserManagementSettings", () => {
       expect(header.querySelectorAll('[role="columnheader"]')).toHaveLength(6);
       expect(row.children).toHaveLength(6);
       expect(screen.getByTestId("user-row-role")).toHaveStyle({ width: "fit-content" });
-      const sortButtons = within(header).getAllByRole("button");
+      const sortButtons = within(header).getAllByRole("button", { name: /^Sort by/ });
       expect(sortButtons).toHaveLength(3);
       for (const sortButton of sortButtons) {
         expect(sortButton).toHaveAttribute("tabindex", "-1");
@@ -691,7 +691,7 @@ describe("UserManagementSettings", () => {
       await user.tab();
       expect(screen.getByRole("button", { name: "Filters" })).toHaveFocus();
       await user.tab();
-      expect(screen.getByRole("button", { name: "Columns" })).toHaveFocus();
+      expect(within(header).getByRole("button", { name: "Manage visible columns" })).toHaveFocus();
       await user.tab();
       expect(screen.getByRole("button", { name: "Edit admin" })).toHaveFocus();
       await user.tab();
@@ -717,7 +717,7 @@ describe("UserManagementSettings", () => {
       );
 
       await screen.findByTestId("user-directory-header");
-      await user.click(screen.getByRole("button", { name: "Columns" }));
+      await user.click(within(screen.getByTestId("user-directory-header")).getByRole("button", { name: "Manage visible columns" }));
       await user.click(screen.getByRole("menuitemcheckbox", { name: "Expiration" }));
 
       expect(within(screen.getByTestId("user-directory-header")).queryByText("Expiration", { exact: true })).not.toBeInTheDocument();
@@ -729,6 +729,56 @@ describe("UserManagementSettings", () => {
       expect(within(screen.getByTestId("user-directory-header")).getByText("Expiration", { exact: true })).toBeInTheDocument();
       expect(screen.getByTestId("user-row").children).toHaveLength(6);
       expect(window.localStorage.getItem(USER_DIRECTORY_VISIBLE_COLUMNS_STORAGE_KEY)).toBeNull();
+    } finally {
+      restoreViewport();
+    }
+  });
+
+  it("offers audit and contact columns while hiding OIDC-only choices when OIDC is disabled", async () => {
+    const restoreViewport = mockViewportWidth(1200);
+    const user = userEvent.setup();
+
+    try {
+      render(
+        <SambeeThemeProvider>
+          <UserManagementSettings />
+        </SambeeThemeProvider>
+      );
+
+      await screen.findByTestId("user-directory-header");
+      await user.click(within(screen.getByTestId("user-directory-header")).getByRole("button", { name: "Manage visible columns" }));
+
+      expect(screen.getByRole("menuitemcheckbox", { name: "Email" })).toBeInTheDocument();
+      expect(screen.getByRole("menuitemcheckbox", { name: "Created" })).toBeInTheDocument();
+      expect(screen.getByRole("menuitemcheckbox", { name: "Last updated" })).toBeInTheDocument();
+      expect(screen.queryByRole("menuitemcheckbox", { name: "Last OIDC sign-in" })).not.toBeInTheDocument();
+      expect(screen.queryByRole("menuitemcheckbox", { name: "OIDC state" })).not.toBeInTheDocument();
+      expect(screen.queryByRole("menuitemcheckbox", { name: "Role source" })).not.toBeInTheDocument();
+      expect(screen.queryByRole("menuitemcheckbox", { name: "OIDC provider" })).not.toBeInTheDocument();
+    } finally {
+      restoreViewport();
+    }
+  });
+
+  it("offers OIDC metadata columns when OIDC is enabled", async () => {
+    const restoreViewport = mockViewportWidth(1200);
+    const user = userEvent.setup();
+    mockOidcAuthenticationEnabled();
+
+    try {
+      render(
+        <SambeeThemeProvider>
+          <UserManagementSettings />
+        </SambeeThemeProvider>
+      );
+
+      await screen.findByTestId("user-directory-header");
+      await user.click(within(screen.getByTestId("user-directory-header")).getByRole("button", { name: "Manage visible columns" }));
+
+      expect(screen.getByRole("menuitemcheckbox", { name: "Last OIDC sign-in" })).toBeInTheDocument();
+      expect(screen.getByRole("menuitemcheckbox", { name: "OIDC state" })).toBeInTheDocument();
+      expect(screen.getByRole("menuitemcheckbox", { name: "Role source" })).toBeInTheDocument();
+      expect(screen.getByRole("menuitemcheckbox", { name: "OIDC provider" })).toBeInTheDocument();
     } finally {
       restoreViewport();
     }
@@ -768,6 +818,7 @@ describe("UserManagementSettings", () => {
       const row = await screen.findByTestId("user-row");
       const cellText = Array.from(row.children).map((cell) => cell.textContent);
 
+      expect(screen.getByRole("button", { name: "Columns" })).toBeInTheDocument();
       expect(cellText).toEqual([
         expect.stringContaining("admin (you)"),
         expect.stringContaining("RoleAdmin"),
