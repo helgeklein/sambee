@@ -1,7 +1,6 @@
 import {
   Add as AddIcon,
   AdminPanelSettings as AdminIcon,
-  ViewWeek as ViewWeekIcon,
   Delete as DeleteIcon,
   Edit as EditIcon,
   FilterList as FilterListIcon,
@@ -11,6 +10,7 @@ import {
   MoreVert as MoreVertIcon,
   Person as PersonIcon,
   RestartAlt as RestartAltIcon,
+  ViewWeek as ViewWeekIcon,
 } from "@mui/icons-material";
 import {
   Autocomplete,
@@ -36,14 +36,14 @@ import {
   Select,
   Stack,
   Switch,
+  type SxProps,
   TableSortLabel,
   TextField,
+  type Theme,
   Tooltip,
   Typography,
   useMediaQuery,
   useTheme,
-  type SxProps,
-  type Theme,
 } from "@mui/material";
 import { startTransition, useCallback, useEffect, useId, useMemo, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
@@ -1163,7 +1163,12 @@ export function UserManagementSettings({ dialogSafeHeader = false }: UserManagem
 
   const editorActions = (
     <Box sx={adminDialogEndActionRowSx}>
-      <Button onClick={closeEditor} disabled={submitting} variant="outlined" sx={combineSx(settingsUtilityButtonSx, adminDialogActionButtonSx)}>
+      <Button
+        onClick={closeEditor}
+        disabled={submitting}
+        variant="outlined"
+        sx={combineSx(settingsUtilityButtonSx, adminDialogActionButtonSx)}
+      >
         {t("common.actions.cancel")}
       </Button>
       <Button
@@ -2522,7 +2527,11 @@ export function UserManagementSettings({ dialogSafeHeader = false }: UserManagem
         title={oidcDetailsUser ? `OIDC identity details for ${oidcDetailsUser.username}` : "OIDC identity details"}
         actions={
           <Box sx={adminDialogEndActionRowSx}>
-            <Button onClick={() => setOidcDetailsUser(null)} variant="contained" sx={combineSx(settingsPrimaryButtonSx, adminDialogActionButtonSx)}>
+            <Button
+              onClick={() => setOidcDetailsUser(null)}
+              variant="contained"
+              sx={combineSx(settingsPrimaryButtonSx, adminDialogActionButtonSx)}
+            >
               Close
             </Button>
           </Box>
