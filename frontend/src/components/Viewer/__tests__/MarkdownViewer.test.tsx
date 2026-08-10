@@ -25,6 +25,7 @@ const mockMarkdownEditorBehavior = {
   emitNonEditableInputBeforeInitialChange: false,
   emitUnannotatedDocChangeBeforeInitialChange: false,
   emitUnannotatedDocChangeOnMarkdownPropChange: false,
+  completedUnannotatedDocChangesOnMarkdownPropChange: 0,
   focusEditableBeforeInitialChange: false,
   focusCurrentSearchResultCalls: 0,
   focusResetsScrollPosition: false,
@@ -178,6 +179,9 @@ const MockMarkdownRichEditor = forwardRef<
       if (previousMarkdownRef.current !== markdown && mockMarkdownEditorBehavior.emitUnannotatedDocChangeOnMarkdownPropChange) {
         onUserEdit?.({ transactions: [{ isUserEvent: () => false }] } as unknown as ViewUpdate);
         onChange(markdown);
+        queueMicrotask(() => {
+          mockMarkdownEditorBehavior.completedUnannotatedDocChangesOnMarkdownPropChange += 1;
+        });
       }
 
       if (
@@ -440,6 +444,7 @@ describe("MarkdownViewer", () => {
     mockMarkdownEditorBehavior.emitNonEditableInputBeforeInitialChange = false;
     mockMarkdownEditorBehavior.emitUnannotatedDocChangeBeforeInitialChange = false;
     mockMarkdownEditorBehavior.emitUnannotatedDocChangeOnMarkdownPropChange = false;
+    mockMarkdownEditorBehavior.completedUnannotatedDocChangesOnMarkdownPropChange = 0;
     mockMarkdownEditorBehavior.focusEditableBeforeInitialChange = false;
     mockMarkdownEditorBehavior.focusCurrentSearchResultCalls = 0;
     mockMarkdownEditorBehavior.focusResetsScrollPosition = false;
@@ -776,6 +781,10 @@ describe("MarkdownViewer", () => {
     await waitFor(() => {
       expect(editor).toHaveValue("# Canonical\n");
       expect(screen.queryByLabelText("Unsaved changes")).not.toBeInTheDocument();
+    });
+
+    await waitFor(() => {
+      expect(mockMarkdownEditorBehavior.completedUnannotatedDocChangesOnMarkdownPropChange).toBeGreaterThan(0);
     });
 
     mockMarkdownEditorBehavior.canonicalMarkdownOverride = null;

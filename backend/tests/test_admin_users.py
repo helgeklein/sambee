@@ -57,6 +57,28 @@ class TestAdminUsers:
 
         assert response.status_code == 422
 
+    @pytest.mark.parametrize(
+        "sort",
+        [
+            "username",
+            "role",
+            "status",
+            "sign_in",
+            "last_sign_in",
+            "expiration",
+            "email",
+            "created_at",
+            "updated_at",
+            "oidc_state",
+            "role_source",
+            "oidc_provider",
+        ],
+    )
+    def test_list_users_supports_every_directory_sort(self, client: TestClient, auth_headers_admin: dict, sort: str):
+        response = client.get("/api/admin/users", headers=auth_headers_admin, params={"sort": sort, "direction": "desc"})
+
+        assert response.status_code == 200
+
     def test_list_users_filters_authentication_oidc_state_expiration_and_sorts(
         self, client: TestClient, auth_headers_admin: dict, admin_user: User, session: Session
     ):

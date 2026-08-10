@@ -3,7 +3,7 @@ from datetime import datetime, timedelta, timezone
 import pytest
 from sqlmodel import Session
 
-from app.models.oidc import OidcBrowserSession, OidcBrowserSessionStatus, OidcProviderConfiguration
+from app.models.oidc import OidcBrowserSession, OidcBrowserSessionStatus, OidcIdentity, OidcProviderConfiguration
 from app.models.user import User, UserRole
 from app.services.oidc_browser_session import (
     OidcBrowserSessionError,
@@ -14,6 +14,29 @@ from app.services.oidc_browser_session import (
     release_refresh_lease,
     validate_browser_session,
 )
+from app.services.oidc_mapping import claim_mapping_revision, move_identity
+
+
+def active_browser_session(
+    configuration: OidcProviderConfiguration,
+    user: User,
+    subject: str,
+    now: datetime,
+) -> OidcBrowserSession:
+    return OidcBrowserSession(
+        user_id=user.id,
+        user_token_version=user.token_version,
+        provider_configuration_id=configuration.id,
+        configuration_revision=configuration.session_validation_revision,
+        identity_mapping_revision=configuration.identity_mapping_revision,
+        issuer=configuration.issuer_url,
+        subject=subject,
+        secret_hash=f"secret-{subject}",
+        encrypted_refresh_token="encrypted-token",
+        status=OidcBrowserSessionStatus.ACTIVE,
+        authenticated_at=now,
+        absolute_expires_at=now + timedelta(days=1),
+    )
 
 
 @pytest.mark.parametrize(
@@ -113,6 +136,45 @@ def test_expired_refresh_lease_marks_session_uncertain_instead_of_replaying_toke
     session.refresh(browser_session)
     assert browser_session.status == OidcBrowserSessionStatus.REFRESH_UNCERTAIN
     assert browser_session.refresh_lease_until is None
+
+
+def test_identity_move_revokes_only_affected_oidc_browser_sessions(session: Session) -> None:
+    now = datetime.now(timezone.utc)
+    configuration = OidcProviderConfiguration(
+        display_name="Test provider",
+        issuer_url="https://issuer.example",
+        client_id="test-client",
+    )
+    source = User(username="move-source", role=UserRole.VIEWER, password_hash=None)
+    target = User(username="move-target", role=UserRole.VIEWER, password_hash=None)
+    administrator = User(username="unrelated-admin", role=UserRole.ADMIN, password_hash=None)
+    session.add_all([configuration, source, target, administrator])
+    session.commit()
+
+    identity = OidcIdentity(user_id=source.id, issuer=configuration.issuer_url, subject="move-subject")
+    source_session = active_browser_session(configuration, source, "source-session", now)
+    target_session = active_browser_session(configuration, target, "target-session", now)
+    administrator_session = active_browser_session(configuration, administrator, "administrator-session", now)
+    session.add_all([identity, source_session, target_session, administrator_session])
+    session.commit()
+
+    claim_mapping_revision(session, configuration, configuration.identity_mapping_revision)
+    move_identity(
+        session,
+        configuration=configuration,
+        identity_id=identity.id,
+        target_user_id=target.id,
+        acting_user_id=administrator.id,
+    )
+    session.commit()
+
+    assert validate_browser_session(session, browser_session=administrator_session, now=now) == administrator
+    with pytest.raises(OidcBrowserSessionError):
+        validate_browser_session(session, browser_session=source_session, now=now)
+    with pytest.raises(OidcBrowserSessionError):
+        validate_browser_session(session, browser_session=target_session, now=now)
+    assert source_session.status == OidcBrowserSessionStatus.REVOKED
+    assert target_session.status == OidcBrowserSessionStatus.REVOKED
 
 
 def test_policy_increase_does_not_extend_a_session_deadline(session: Session) -> None:

@@ -272,7 +272,6 @@ def validate_browser_session(
         or user.token_version != browser_session.user_token_version
         or configuration is None
         or configuration.session_validation_revision != browser_session.configuration_revision
-        or configuration.identity_mapping_revision != browser_session.identity_mapping_revision
         or effective_deadline <= current_time
     ):
         revoke_browser_session(browser_session, reason="local_authorization_changed", now=current_time)

@@ -9,6 +9,8 @@ import {
   LockReset as LockResetIcon,
   MoreVert as MoreVertIcon,
   Person as PersonIcon,
+  RestartAlt as RestartAltIcon,
+  ViewWeek as ViewWeekIcon,
 } from "@mui/icons-material";
 import {
   Autocomplete,
@@ -24,6 +26,7 @@ import {
   LinearProgress,
   List,
   ListItem,
+  ListItemIcon,
   ListItemText,
   Menu,
   MenuItem,
@@ -33,8 +36,10 @@ import {
   Select,
   Stack,
   Switch,
+  type SxProps,
   TableSortLabel,
   TextField,
+  type Theme,
   Tooltip,
   Typography,
   useMediaQuery,
@@ -106,6 +111,12 @@ interface UserFormState {
   password: string;
   mustChangePassword: boolean;
   expiresAt: string;
+}
+
+type SingleSxProp = Exclude<SxProps<Theme>, ReadonlyArray<unknown>>;
+
+function combineSx(...styles: SxProps<Theme>[]): SingleSxProp[] {
+  return styles.flatMap((style) => (Array.isArray(style) ? style : [style])) as SingleSxProp[];
 }
 
 interface ResetPasswordFormState {
@@ -224,9 +235,23 @@ interface DirectoryFilterOption<T extends string> {
   label: string;
 }
 
+type DirectoryColumn =
+  | "role"
+  | "status"
+  | "signIn"
+  | "lastSignIn"
+  | "expiration"
+  | "email"
+  | "createdAt"
+  | "updatedAt"
+  | "oidcState"
+  | "roleSource"
+  | "oidcProvider";
+
 const DIRECTORY_DEFAULT_PAGE_SIZE = 25;
 const DIRECTORY_SEARCH_DEBOUNCE_MS = 300;
 const DIRECTORY_ACTIONS_COLUMN_WIDTH = "76px";
+export const USER_DIRECTORY_VISIBLE_COLUMNS_STORAGE_KEY = "sambee.user-directory.visible-columns.v1";
 const DIRECTORY_PAGE_SIZE_OPTIONS = [25, 50, 100] as const;
 const DIRECTORY_SECONDARY_CONTROL_FONT_SIZE = "0.875rem";
 const DIRECTORY_ROLE_VALUES: UserRole[] = ["admin", "editor", "viewer"];
@@ -240,8 +265,62 @@ const DIRECTORY_ROLE_SOURCE_VALUES: AdminUserDirectoryRoleSource[] = [
   "oidc_groups",
   "awaiting_oidc_sign_in",
 ];
-const DIRECTORY_SORT_VALUES: AdminUserDirectorySort[] = ["username", "role", "last_sign_in", "expiration"];
+const DIRECTORY_SORT_VALUES: AdminUserDirectorySort[] = [
+  "username",
+  "role",
+  "status",
+  "sign_in",
+  "last_sign_in",
+  "expiration",
+  "email",
+  "created_at",
+  "updated_at",
+  "oidc_state",
+  "role_source",
+  "oidc_provider",
+];
 const DIRECTORY_DIRECTION_VALUES: SortDirection[] = ["asc", "desc"];
+const DIRECTORY_COLUMN_VALUES: DirectoryColumn[] = [
+  "role",
+  "status",
+  "signIn",
+  "lastSignIn",
+  "expiration",
+  "email",
+  "createdAt",
+  "updatedAt",
+  "oidcState",
+  "roleSource",
+  "oidcProvider",
+];
+const DIRECTORY_DEFAULT_COLUMN_VALUES: DirectoryColumn[] = ["role", "status", "signIn", "lastSignIn", "expiration"];
+const DIRECTORY_OIDC_COLUMN_VALUES: DirectoryColumn[] = ["lastSignIn", "oidcState", "roleSource", "oidcProvider"];
+const DIRECTORY_COLUMN_LABELS: Record<DirectoryColumn, string> = {
+  role: "Role",
+  status: "Status",
+  signIn: "Sign-in",
+  lastSignIn: "Last OIDC sign-in",
+  expiration: "Expiration",
+  email: "Email",
+  createdAt: "Created",
+  updatedAt: "Last updated",
+  oidcState: "OIDC state",
+  roleSource: "Role source",
+  oidcProvider: "OIDC provider",
+};
+const DIRECTORY_COLUMN_GRID_WIDTHS: Record<DirectoryColumn, string> = {
+  role: "minmax(0, 0.75fr)",
+  status: "minmax(0, 1.2fr)",
+  signIn: "minmax(0, 1fr)",
+  lastSignIn: "minmax(0, 1fr)",
+  expiration: "minmax(0, 1fr)",
+  email: "minmax(0, 1.25fr)",
+  createdAt: "minmax(0, 1.1fr)",
+  updatedAt: "minmax(0, 1.1fr)",
+  oidcState: "minmax(0, 1fr)",
+  roleSource: "minmax(0, 1.2fr)",
+  oidcProvider: "minmax(0, 1.1fr)",
+};
 const DIRECTORY_HEADER_LABEL_SX = {
   alignItems: "center",
   color: "text.secondary",
@@ -260,21 +339,71 @@ const DIRECTORY_SECONDARY_CONTROL_SX = {
   "& .MuiInputBase-input, & .MuiSelect-select": { fontSize: DIRECTORY_SECONDARY_CONTROL_FONT_SIZE },
   "& .MuiInputLabel-root": { fontSize: DIRECTORY_SECONDARY_CONTROL_FONT_SIZE },
 } as const;
+const DIRECTORY_COLUMNS_ICON_BUTTON_SX = {
+  color: "text.secondary",
+  opacity: 0.7,
+  "&:hover": { bgcolor: "action.hover", color: "text.primary", opacity: 1 },
+  "&.Mui-focusVisible": { bgcolor: "action.hover", color: "text.primary", opacity: 1 },
+} as const;
+const DIRECTORY_COLUMN_MENU_ICON_SX = { justifyContent: "center", minWidth: 36 } as const;
 
-function getDirectoryRowGridSx(oidcAuthenticationEnabled: boolean) {
-  const wideColumns = oidcAuthenticationEnabled
-    ? `minmax(0, 1.5fr) minmax(0, 0.7fr) minmax(0, 1.1fr) minmax(0, 0.8fr) minmax(0, 1fr) minmax(0, 1fr) ${DIRECTORY_ACTIONS_COLUMN_WIDTH}`
-    : `minmax(0, 1.8fr) minmax(0, 0.75fr) minmax(0, 1.2fr) minmax(0, 1fr) minmax(0, 1fr) ${DIRECTORY_ACTIONS_COLUMN_WIDTH}`;
-  const mobileAreas = oidcAuthenticationEnabled
-    ? '"identity actions" "role role" "status status" "signIn signIn" "expiration expiration" "lastSignIn lastSignIn"'
-    : '"identity actions" "role role" "status status" "signIn signIn" "expiration expiration"';
+function readVisibleDirectoryColumns(): DirectoryColumn[] | null {
+  try {
+    const storedColumns = window.localStorage.getItem(USER_DIRECTORY_VISIBLE_COLUMNS_STORAGE_KEY);
+    if (!storedColumns) {
+      return null;
+    }
+    const parsedColumns: unknown = JSON.parse(storedColumns);
+    if (!Array.isArray(parsedColumns) || !parsedColumns.every((column) => DIRECTORY_COLUMN_VALUES.includes(column as DirectoryColumn))) {
+      return null;
+    }
+    return [...new Set(parsedColumns as DirectoryColumn[])];
+  } catch {
+    return null;
+  }
+}
+
+function writeVisibleDirectoryColumns(columns: DirectoryColumn[]): void {
+  try {
+    window.localStorage.setItem(USER_DIRECTORY_VISIBLE_COLUMNS_STORAGE_KEY, JSON.stringify(columns));
+  } catch {
+    // Column selection remains available for the current session when storage is unavailable.
+  }
+}
+
+function getDirectoryOidcState(user: AdminUser): string {
+  if (user.pending_oidc) {
+    return "Setup pending";
+  }
+  return user.oidc ? "Linked" : "Unlinked";
+}
+
+function getDirectoryRoleSource(user: AdminUser, roleAssignmentMode: "uniform" | "group_based" | undefined): string {
+  if (user.pending_oidc || (user.oidc && !user.oidc.last_login_at)) {
+    return "Awaiting OIDC sign-in";
+  }
+  if (user.oidc_role_assignment) {
+    return "Individual override";
+  }
+  if (user.oidc) {
+    return roleAssignmentMode === "group_based" ? "OIDC groups" : "OIDC default";
+  }
+  return "Local assignment";
+}
+
+function getDirectoryRowGridSx(visibleColumns: DirectoryColumn[]) {
+  const desktopColumns = [
+    "minmax(0, 1.8fr)",
+    ...visibleColumns.map((column) => DIRECTORY_COLUMN_GRID_WIDTHS[column]),
+    DIRECTORY_ACTIONS_COLUMN_WIDTH,
+  ].join(" ");
+  const mobileAreas = ['"identity actions"', ...visibleColumns.map((column) => `"${column} ${column}"`)].join(" ");
 
   return {
     display: "grid",
     gridTemplateColumns: {
       xs: `minmax(0, 1fr) ${DIRECTORY_ACTIONS_COLUMN_WIDTH}`,
-      md: `minmax(0, 1.8fr) minmax(0, 0.75fr) minmax(0, 1.2fr) minmax(0, 1fr) ${DIRECTORY_ACTIONS_COLUMN_WIDTH}`,
-      lg: wideColumns,
+      md: desktopColumns,
     },
     gridTemplateAreas: { xs: mobileAreas, md: "none" },
     gap: { xs: 1, md: 1.5 },
@@ -284,22 +413,12 @@ function getDirectoryRowGridSx(oidcAuthenticationEnabled: boolean) {
   } as const;
 }
 
-function DirectoryRowCell({
-  area,
-  children,
-  hideUntilLarge = false,
-  align = "start",
-}: {
-  area: string;
-  children: React.ReactNode;
-  hideUntilLarge?: boolean;
-  align?: "start" | "end";
-}) {
+function DirectoryRowCell({ area, children, align = "start" }: { area: string; children: React.ReactNode; align?: "start" | "end" }) {
   return (
     <Box
       sx={{
         alignItems: "center",
-        display: hideUntilLarge ? { xs: "flex", md: "none", lg: "flex" } : "flex",
+        display: "flex",
         alignSelf: align === "end" ? { xs: "start", md: "auto" } : undefined,
         gridArea: { xs: area, md: "auto" },
         justifyContent: align === "end" ? "flex-end" : "flex-start",
@@ -421,24 +540,18 @@ function DirectoryColumnHeader({
   activeSort,
   direction,
   onSort,
-  hideUntilLarge,
 }: {
   label: string;
   sort?: AdminUserDirectorySort;
   activeSort: AdminUserDirectorySort;
   direction: SortDirection;
   onSort: (sort: AdminUserDirectorySort) => void;
-  hideUntilLarge?: boolean;
 }) {
   const isActive = sort === activeSort;
   const ariaSort = isActive ? (direction === "asc" ? "ascending" : "descending") : "none";
 
   return (
-    <Box
-      role="columnheader"
-      aria-sort={sort ? ariaSort : undefined}
-      sx={{ alignItems: "center", display: hideUntilLarge ? { md: "none", lg: "flex" } : "flex", minWidth: 0 }}
-    >
+    <Box role="columnheader" aria-sort={sort ? ariaSort : undefined} sx={{ alignItems: "center", display: "flex", minWidth: 0 }}>
       {sort ? (
         <TableSortLabel
           active={isActive}
@@ -471,6 +584,8 @@ export function UserManagementSettings({ dialogSafeHeader = false }: UserManagem
   const [directoryQuery, setDirectoryQuery] = useState<DirectoryQueryState>(() => getDirectoryQueryFromLocation(window.location.search));
   const [searchInput, setSearchInput] = useState(directoryQuery.q);
   const [filterAnchor, setFilterAnchor] = useState<HTMLElement | null>(null);
+  const [columnsAnchor, setColumnsAnchor] = useState<HTMLElement | null>(null);
+  const [selectedDirectoryColumns, setSelectedDirectoryColumns] = useState<DirectoryColumn[] | null>(readVisibleDirectoryColumns);
   const [notification, setNotification] = useState<SettingsNotificationState>({
     open: false,
     message: "",
@@ -564,7 +679,15 @@ export function UserManagementSettings({ dialogSafeHeader = false }: UserManagem
   const oidcConfiguration = oidcAuthenticationEnabled ? (userManagementContext?.oidcConfiguration.configuration ?? null) : null;
   const localPasswordManagementAvailable = authenticationMode === "password_only" || authenticationMode === "oidc_or_password";
   const pendingOidcMappingsAllowed = oidcConfiguration !== null;
-  const directoryRowGridSx = useMemo(() => getDirectoryRowGridSx(oidcAuthenticationEnabled), [oidcAuthenticationEnabled]);
+  const availableDirectoryColumns = useMemo(
+    () => DIRECTORY_COLUMN_VALUES.filter((column) => !DIRECTORY_OIDC_COLUMN_VALUES.includes(column) || oidcAuthenticationEnabled),
+    [oidcAuthenticationEnabled]
+  );
+  const visibleDirectoryColumns = useMemo(
+    () => availableDirectoryColumns.filter((column) => (selectedDirectoryColumns ?? DIRECTORY_DEFAULT_COLUMN_VALUES).includes(column)),
+    [availableDirectoryColumns, selectedDirectoryColumns]
+  );
+  const directoryRowGridSx = useMemo(() => getDirectoryRowGridSx(visibleDirectoryColumns), [visibleDirectoryColumns]);
   const [editorOpen, setEditorOpen] = useState(false);
   const [deleteDialogOpen, setDeleteDialogOpen] = useState(false);
   const [resetPasswordEditorOpen, setResetPasswordEditorOpen] = useState(false);
@@ -637,6 +760,27 @@ export function UserManagementSettings({ dialogSafeHeader = false }: UserManagem
       expiration: "",
     });
   }, [updateDirectoryQuery]);
+  const toggleDirectoryColumn = useCallback((column: DirectoryColumn) => {
+    setSelectedDirectoryColumns((current) => {
+      const selectedColumns = new Set(current ?? DIRECTORY_DEFAULT_COLUMN_VALUES);
+      if (selectedColumns.has(column)) {
+        selectedColumns.delete(column);
+      } else {
+        selectedColumns.add(column);
+      }
+      const nextColumns = DIRECTORY_COLUMN_VALUES.filter((value) => selectedColumns.has(value));
+      writeVisibleDirectoryColumns(nextColumns);
+      return nextColumns;
+    });
+  }, []);
+  const resetDirectoryColumns = useCallback(() => {
+    try {
+      window.localStorage.removeItem(USER_DIRECTORY_VISIBLE_COLUMNS_STORAGE_KEY);
+    } catch {
+      // The default selection is still restored for the current session.
+    }
+    setSelectedDirectoryColumns(null);
+  }, []);
   const handleDirectorySort = useCallback(
     (sort: AdminUserDirectorySort) => {
       startTransition(() => {
@@ -1019,7 +1163,12 @@ export function UserManagementSettings({ dialogSafeHeader = false }: UserManagem
 
   const editorActions = (
     <Box sx={adminDialogEndActionRowSx}>
-      <Button onClick={closeEditor} disabled={submitting} variant="outlined" sx={[settingsUtilityButtonSx, adminDialogActionButtonSx]}>
+      <Button
+        onClick={closeEditor}
+        disabled={submitting}
+        variant="outlined"
+        sx={combineSx(settingsUtilityButtonSx, adminDialogActionButtonSx)}
+      >
         {t("common.actions.cancel")}
       </Button>
       <Button
@@ -1027,7 +1176,7 @@ export function UserManagementSettings({ dialogSafeHeader = false }: UserManagem
         variant="contained"
         disabled={submitting}
         startIcon={submitting ? <CircularProgress size={18} color="inherit" /> : undefined}
-        sx={[settingsPrimaryButtonSx, adminDialogActionButtonSx]}
+        sx={combineSx(settingsPrimaryButtonSx, adminDialogActionButtonSx)}
       >
         {isEditing ? t("settings.userManagement.actions.saveChanges") : t("settings.userManagement.actions.createUser")}
       </Button>
@@ -1040,7 +1189,7 @@ export function UserManagementSettings({ dialogSafeHeader = false }: UserManagem
         onClick={closeMappingEditor}
         disabled={mappingSubmitting}
         variant="outlined"
-        sx={[settingsUtilityButtonSx, adminDialogActionButtonSx]}
+        sx={combineSx(settingsUtilityButtonSx, adminDialogActionButtonSx)}
       >
         Cancel
       </Button>
@@ -1049,7 +1198,7 @@ export function UserManagementSettings({ dialogSafeHeader = false }: UserManagem
         disabled={mappingSubmitting}
         variant="contained"
         startIcon={mappingSubmitting ? <CircularProgress size={18} color="inherit" /> : undefined}
-        sx={[settingsPrimaryButtonSx, adminDialogActionButtonSx]}
+        sx={combineSx(settingsPrimaryButtonSx, adminDialogActionButtonSx)}
       >
         Confirm
       </Button>
@@ -1471,7 +1620,7 @@ export function UserManagementSettings({ dialogSafeHeader = false }: UserManagem
       <Button
         onClick={() => setCredentialsDialog((current) => ({ ...current, open: false }))}
         variant="contained"
-        sx={[settingsPrimaryButtonSx, adminDialogActionButtonSx]}
+        sx={combineSx(settingsPrimaryButtonSx, adminDialogActionButtonSx)}
       >
         {t("settings.userManagement.actions.close")}
       </Button>
@@ -1503,7 +1652,7 @@ export function UserManagementSettings({ dialogSafeHeader = false }: UserManagem
         onClick={handleResetPasswordEditorClose}
         disabled={resetPasswordSubmitting}
         variant="outlined"
-        sx={[settingsUtilityButtonSx, adminDialogActionButtonSx]}
+        sx={combineSx(settingsUtilityButtonSx, adminDialogActionButtonSx)}
       >
         {t("common.actions.cancel")}
       </Button>
@@ -1514,7 +1663,7 @@ export function UserManagementSettings({ dialogSafeHeader = false }: UserManagem
         variant="contained"
         disabled={resetPasswordSubmitting}
         startIcon={resetPasswordSubmitting ? <CircularProgress size={18} color="inherit" /> : undefined}
-        sx={[settingsPrimaryButtonSx, adminDialogActionButtonSx]}
+        sx={combineSx(settingsPrimaryButtonSx, adminDialogActionButtonSx)}
       >
         {t("settings.userManagement.resetPasswordEditor.submit")}
       </Button>
@@ -1632,34 +1781,76 @@ export function UserManagementSettings({ dialogSafeHeader = false }: UserManagem
             value={searchInput}
             onChange={(event) => setSearchInput(event.target.value)}
             size="small"
-            sx={[DIRECTORY_SECONDARY_CONTROL_SX, { minWidth: 0, width: "100%" }]}
+            sx={[DIRECTORY_SECONDARY_CONTROL_SX, { gridColumn: { sm: 1 }, minWidth: 0, width: "100%" }]}
           />
-          <Stack direction="row" spacing={1} sx={{ justifySelf: "start" }}>
-            <Button
-              aria-haspopup="dialog"
-              aria-expanded={Boolean(filterAnchor)}
-              startIcon={<FilterListIcon />}
-              variant="outlined"
-              onClick={(event) => setFilterAnchor(event.currentTarget)}
-              sx={[settingsUtilityButtonSx, { fontSize: DIRECTORY_SECONDARY_CONTROL_FONT_SIZE, width: "fit-content" }]}
-            >
-              {activeDirectoryFilterCount ? `Filters (${activeDirectoryFilterCount})` : "Filters"}
-            </Button>
-            <Button
-              aria-hidden={activeDirectoryFilterCount === 0}
-              onClick={clearDirectoryFilters}
-              tabIndex={activeDirectoryFilterCount === 0 ? -1 : undefined}
-              variant="text"
-              sx={{
-                fontSize: DIRECTORY_SECONDARY_CONTROL_FONT_SIZE,
-                minWidth: 104,
-                visibility: activeDirectoryFilterCount > 0 ? "visible" : "hidden",
-              }}
-            >
-              Clear filters
-            </Button>
+          <Stack
+            direction="row"
+            spacing={1}
+            sx={{
+              gridColumn: { xs: "1 / -1", sm: 2 },
+              justifyContent: { xs: "space-between", sm: "flex-start" },
+              justifySelf: "start",
+              width: { xs: "100%", sm: "auto" },
+            }}
+          >
+            <Stack direction="row" spacing={1}>
+              <Button
+                aria-haspopup="dialog"
+                aria-expanded={Boolean(filterAnchor)}
+                startIcon={<FilterListIcon />}
+                variant="outlined"
+                onClick={(event) => setFilterAnchor(event.currentTarget)}
+                sx={combineSx(settingsUtilityButtonSx, { fontSize: DIRECTORY_SECONDARY_CONTROL_FONT_SIZE, width: "fit-content" })}
+              >
+                {activeDirectoryFilterCount ? `Filters (${activeDirectoryFilterCount})` : "Filters"}
+              </Button>
+              <Button
+                aria-hidden={activeDirectoryFilterCount === 0}
+                onClick={clearDirectoryFilters}
+                tabIndex={activeDirectoryFilterCount === 0 ? -1 : undefined}
+                variant="text"
+                sx={{
+                  fontSize: DIRECTORY_SECONDARY_CONTROL_FONT_SIZE,
+                  minWidth: 104,
+                  visibility: activeDirectoryFilterCount > 0 ? "visible" : "hidden",
+                }}
+              >
+                Clear filters
+              </Button>
+            </Stack>
+            {!usesDesktopFormLayout && (
+              <Button
+                aria-expanded={Boolean(columnsAnchor)}
+                aria-haspopup="menu"
+                aria-label="Columns"
+                variant="text"
+                onClick={(event) => setColumnsAnchor(event.currentTarget)}
+                sx={{ color: "text.secondary", fontSize: DIRECTORY_SECONDARY_CONTROL_FONT_SIZE, minWidth: 0 }}
+              >
+                Columns
+              </Button>
+            )}
           </Stack>
         </Box>
+        <Menu anchorEl={columnsAnchor} aria-label="Directory columns" onClose={() => setColumnsAnchor(null)} open={Boolean(columnsAnchor)}>
+          {availableDirectoryColumns.map((column) => {
+            const isVisible = visibleDirectoryColumns.includes(column);
+            return (
+              <MenuItem key={column} aria-checked={isVisible} onClick={() => toggleDirectoryColumn(column)} role="menuitemcheckbox">
+                <ListItemIcon sx={DIRECTORY_COLUMN_MENU_ICON_SX}>
+                  <Checkbox checked={isVisible} sx={{ p: 0 }} tabIndex={-1} />
+                </ListItemIcon>
+                <ListItemText primary={DIRECTORY_COLUMN_LABELS[column]} />
+              </MenuItem>
+            );
+          })}
+          <MenuItem onClick={resetDirectoryColumns}>
+            <ListItemIcon sx={DIRECTORY_COLUMN_MENU_ICON_SX}>
+              <RestartAltIcon fontSize="small" />
+            </ListItemIcon>
+            <ListItemText primary="Reset columns" />
+          </MenuItem>
+        </Menu>
         <Box aria-live="polite" sx={{ height: 3 }}>
           {directoryRefreshing && <LinearProgress aria-label="Updating user directory" sx={{ height: 3 }} />}
         </Box>
@@ -1785,7 +1976,7 @@ export function UserManagementSettings({ dialogSafeHeader = false }: UserManagem
             {directoryQuery.states.map((state) => (
               <Chip
                 key={state}
-                label={`Status: ${state === "expiring_soon" ? "Expiring soon" : state[0].toUpperCase() + state.slice(1)}`}
+                label={`Status: ${state === "expiring_soon" ? "Expiring soon" : state.slice(0, 1).toUpperCase() + state.slice(1)}`}
                 onDelete={() => updateDirectoryQuery({ states: directoryQuery.states.filter((value) => value !== state) })}
                 size="small"
                 tabIndex={-1}
@@ -1795,7 +1986,7 @@ export function UserManagementSettings({ dialogSafeHeader = false }: UserManagem
             {directoryQuery.authentication.map((authentication) => (
               <Chip
                 key={authentication}
-                label={`Sign-in: ${authentication === "password_and_oidc" ? "Password + OIDC" : authentication[0].toUpperCase() + authentication.slice(1)}`}
+                label={`Sign-in: ${authentication === "password_and_oidc" ? "Password + OIDC" : authentication.slice(0, 1).toUpperCase() + authentication.slice(1)}`}
                 onDelete={() =>
                   updateDirectoryQuery({ authentication: directoryQuery.authentication.filter((value) => value !== authentication) })
                 }
@@ -1808,7 +1999,7 @@ export function UserManagementSettings({ dialogSafeHeader = false }: UserManagem
               directoryQuery.oidcStates.map((oidcState) => (
                 <Chip
                   key={oidcState}
-                  label={`OIDC: ${oidcState === "pending" ? "Setup pending" : oidcState[0].toUpperCase() + oidcState.slice(1)}`}
+                  label={`OIDC: ${oidcState === "pending" ? "Setup pending" : oidcState.slice(0, 1).toUpperCase() + oidcState.slice(1)}`}
                   onDelete={() => updateDirectoryQuery({ oidcStates: directoryQuery.oidcStates.filter((value) => value !== oidcState) })}
                   size="small"
                   tabIndex={-1}
@@ -1819,7 +2010,7 @@ export function UserManagementSettings({ dialogSafeHeader = false }: UserManagem
               directoryQuery.roleSources.map((roleSource) => (
                 <Chip
                   key={roleSource}
-                  label={`Role source: ${roleSource.replaceAll("_", " ")}`}
+                  label={`Role source: ${roleSource.replace(/_/g, " ")}`}
                   onDelete={() => updateDirectoryQuery({ roleSources: directoryQuery.roleSources.filter((value) => value !== roleSource) })}
                   size="small"
                   tabIndex={-1}
@@ -1857,7 +2048,7 @@ export function UserManagementSettings({ dialogSafeHeader = false }: UserManagem
                 ...directoryRowGridSx,
                 display: { xs: "none", md: "grid" },
                 px: 0,
-                py: 1,
+                py: 0.75,
                 borderBottom: 1,
                 borderColor: "divider",
               }}
@@ -1869,44 +2060,121 @@ export function UserManagementSettings({ dialogSafeHeader = false }: UserManagem
                 direction={directoryQuery.direction}
                 onSort={handleDirectorySort}
               />
-              <DirectoryColumnHeader
-                label="Role"
-                sort="role"
-                activeSort={directoryQuery.sort}
-                direction={directoryQuery.direction}
-                onSort={handleDirectorySort}
-              />
-              <DirectoryColumnHeader
-                label="Status"
-                activeSort={directoryQuery.sort}
-                direction={directoryQuery.direction}
-                onSort={handleDirectorySort}
-              />
-              <DirectoryColumnHeader
-                label="Sign-in"
-                activeSort={directoryQuery.sort}
-                direction={directoryQuery.direction}
-                onSort={handleDirectorySort}
-                hideUntilLarge
-              />
-              {oidcAuthenticationEnabled && (
+              {visibleDirectoryColumns.includes("role") && (
+                <DirectoryColumnHeader
+                  label="Role"
+                  sort="role"
+                  activeSort={directoryQuery.sort}
+                  direction={directoryQuery.direction}
+                  onSort={handleDirectorySort}
+                />
+              )}
+              {visibleDirectoryColumns.includes("status") && (
+                <DirectoryColumnHeader
+                  label="Status"
+                  sort="status"
+                  activeSort={directoryQuery.sort}
+                  direction={directoryQuery.direction}
+                  onSort={handleDirectorySort}
+                />
+              )}
+              {visibleDirectoryColumns.includes("signIn") && (
+                <DirectoryColumnHeader
+                  label="Sign-in"
+                  sort="sign_in"
+                  activeSort={directoryQuery.sort}
+                  direction={directoryQuery.direction}
+                  onSort={handleDirectorySort}
+                />
+              )}
+              {visibleDirectoryColumns.includes("lastSignIn") && (
                 <DirectoryColumnHeader
                   label="Last OIDC sign-in"
                   sort="last_sign_in"
                   activeSort={directoryQuery.sort}
                   direction={directoryQuery.direction}
                   onSort={handleDirectorySort}
-                  hideUntilLarge
                 />
               )}
-              <DirectoryColumnHeader
-                label="Expiration"
-                sort="expiration"
-                activeSort={directoryQuery.sort}
-                direction={directoryQuery.direction}
-                onSort={handleDirectorySort}
-              />
-              <Box role="columnheader" />
+              {visibleDirectoryColumns.includes("expiration") && (
+                <DirectoryColumnHeader
+                  label="Expiration"
+                  sort="expiration"
+                  activeSort={directoryQuery.sort}
+                  direction={directoryQuery.direction}
+                  onSort={handleDirectorySort}
+                />
+              )}
+              {visibleDirectoryColumns.includes("email") && (
+                <DirectoryColumnHeader
+                  label="Email"
+                  sort="email"
+                  activeSort={directoryQuery.sort}
+                  direction={directoryQuery.direction}
+                  onSort={handleDirectorySort}
+                />
+              )}
+              {visibleDirectoryColumns.includes("createdAt") && (
+                <DirectoryColumnHeader
+                  label="Created"
+                  sort="created_at"
+                  activeSort={directoryQuery.sort}
+                  direction={directoryQuery.direction}
+                  onSort={handleDirectorySort}
+                />
+              )}
+              {visibleDirectoryColumns.includes("updatedAt") && (
+                <DirectoryColumnHeader
+                  label="Last updated"
+                  sort="updated_at"
+                  activeSort={directoryQuery.sort}
+                  direction={directoryQuery.direction}
+                  onSort={handleDirectorySort}
+                />
+              )}
+              {visibleDirectoryColumns.includes("oidcState") && (
+                <DirectoryColumnHeader
+                  label="OIDC state"
+                  sort="oidc_state"
+                  activeSort={directoryQuery.sort}
+                  direction={directoryQuery.direction}
+                  onSort={handleDirectorySort}
+                />
+              )}
+              {visibleDirectoryColumns.includes("roleSource") && (
+                <DirectoryColumnHeader
+                  label="Role source"
+                  sort="role_source"
+                  activeSort={directoryQuery.sort}
+                  direction={directoryQuery.direction}
+                  onSort={handleDirectorySort}
+                />
+              )}
+              {visibleDirectoryColumns.includes("oidcProvider") && (
+                <DirectoryColumnHeader
+                  label="OIDC provider"
+                  sort="oidc_provider"
+                  activeSort={directoryQuery.sort}
+                  direction={directoryQuery.direction}
+                  onSort={handleDirectorySort}
+                />
+              )}
+              <Box role="columnheader" sx={{ alignItems: "center", display: "flex", justifyContent: "flex-end" }}>
+                {usesDesktopFormLayout && (
+                  <Tooltip title="Manage visible columns">
+                    <IconButton
+                      aria-expanded={Boolean(columnsAnchor)}
+                      aria-haspopup="menu"
+                      aria-label="Manage visible columns"
+                      onClick={(event) => setColumnsAnchor(event.currentTarget)}
+                      sx={{ ...DIRECTORY_COLUMNS_ICON_BUTTON_SX, height: 28, p: 0, width: 28 }}
+                      tabIndex={-1}
+                    >
+                      <ViewWeekIcon />
+                    </IconButton>
+                  </Tooltip>
+                )}
+              </Box>
             </Box>
             <List role="rowgroup" sx={{ py: 0 }}>
               {users.map((user) => {
@@ -1943,63 +2211,69 @@ export function UserManagementSettings({ dialogSafeHeader = false }: UserManagem
                             variant="body2"
                             sx={{ color: "text.secondary", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}
                           >
-                            {[user.username, user.email].filter(Boolean).join(" • ")}
+                            {[user.username, visibleDirectoryColumns.includes("email") ? null : user.email].filter(Boolean).join(" • ")}
                           </Typography>
                         </Box>
                       </DirectoryRowCell>
-                      <DirectoryRowCell area="role">
-                        <Stack direction="row" spacing={1} useFlexGap sx={{ alignItems: "center", minWidth: 0 }}>
-                          <Typography
-                            component="span"
-                            variant="caption"
-                            sx={{ display: { xs: "inline", md: "none" }, color: "text.secondary" }}
-                          >
-                            Role
-                          </Typography>
-                          <Chip
-                            data-testid="user-row-role"
-                            size="small"
-                            icon={user.role === "admin" ? <AdminIcon /> : <PersonIcon />}
-                            label={roleLabel(user.role)}
-                            variant="outlined"
-                            sx={[settingsMetadataChipSx, { flex: "0 1 auto", maxWidth: "100%", width: "fit-content" }]}
-                          />
-                        </Stack>
-                      </DirectoryRowCell>
-                      <DirectoryRowCell area="status">
-                        <Stack direction="row" spacing={1} useFlexGap sx={{ alignItems: "center", flexWrap: "wrap", minWidth: 0 }}>
-                          <Typography
-                            component="span"
-                            variant="caption"
-                            sx={{ display: { xs: "inline", md: "none" }, color: "text.secondary" }}
-                          >
-                            Status
-                          </Typography>
-                          <Stack data-testid="user-metadata" direction="row" spacing={0.5} useFlexGap sx={{ flexWrap: "wrap" }}>
-                            {(statuses.length ? statuses : [t("settings.userManagement.activeStatus")]).map((status) => (
-                              <Chip
-                                key={status}
-                                size="small"
-                                label={status}
-                                color={status === t("settings.userManagement.activeStatus") ? "default" : "warning"}
-                                variant="outlined"
-                                sx={settingsMetadataChipSx}
-                              />
-                            ))}
+                      {visibleDirectoryColumns.includes("role") && (
+                        <DirectoryRowCell area="role">
+                          <Stack direction="row" spacing={1} useFlexGap sx={{ alignItems: "center", minWidth: 0 }}>
+                            <Typography
+                              component="span"
+                              variant="caption"
+                              sx={{ display: { xs: "inline", md: "none" }, color: "text.secondary" }}
+                            >
+                              Role
+                            </Typography>
+                            <Chip
+                              data-testid="user-row-role"
+                              size="small"
+                              icon={user.role === "admin" ? <AdminIcon /> : <PersonIcon />}
+                              label={roleLabel(user.role)}
+                              variant="outlined"
+                              sx={combineSx(settingsMetadataChipSx, { flex: "0 1 auto", maxWidth: "100%", width: "fit-content" })}
+                            />
                           </Stack>
-                        </Stack>
-                      </DirectoryRowCell>
-                      <DirectoryRowCell area="signIn" hideUntilLarge>
-                        <Typography data-testid="user-row-sign-in" variant="body2" sx={{ color: "text.secondary", minWidth: 0 }}>
-                          <Box component="span" sx={{ display: { xs: "inline", md: "none" } }}>
-                            Sign-in:
-                          </Box>{" "}
-                          {authentication}
-                        </Typography>
-                      </DirectoryRowCell>
-                      {oidcAuthenticationEnabled && (
+                        </DirectoryRowCell>
+                      )}
+                      {visibleDirectoryColumns.includes("status") && (
+                        <DirectoryRowCell area="status">
+                          <Stack direction="row" spacing={1} useFlexGap sx={{ alignItems: "center", flexWrap: "wrap", minWidth: 0 }}>
+                            <Typography
+                              component="span"
+                              variant="caption"
+                              sx={{ display: { xs: "inline", md: "none" }, color: "text.secondary" }}
+                            >
+                              Status
+                            </Typography>
+                            <Stack data-testid="user-metadata" direction="row" spacing={0.5} useFlexGap sx={{ flexWrap: "wrap" }}>
+                              {(statuses.length ? statuses : [t("settings.userManagement.activeStatus")]).map((status) => (
+                                <Chip
+                                  key={status}
+                                  size="small"
+                                  label={status}
+                                  color={status === t("settings.userManagement.activeStatus") ? "default" : "warning"}
+                                  variant="outlined"
+                                  sx={settingsMetadataChipSx}
+                                />
+                              ))}
+                            </Stack>
+                          </Stack>
+                        </DirectoryRowCell>
+                      )}
+                      {visibleDirectoryColumns.includes("signIn") && (
+                        <DirectoryRowCell area="signIn">
+                          <Typography data-testid="user-row-sign-in" variant="body2" sx={{ color: "text.secondary", minWidth: 0 }}>
+                            <Box component="span" sx={{ display: { xs: "inline", md: "none" } }}>
+                              Sign-in:
+                            </Box>{" "}
+                            {authentication}
+                          </Typography>
+                        </DirectoryRowCell>
+                      )}
+                      {visibleDirectoryColumns.includes("lastSignIn") && (
                         <Tooltip title={user.oidc?.last_login_at ? formatLocalTimestamp(user.oidc.last_login_at) : "No OIDC sign-in"}>
-                          <DirectoryRowCell area="lastSignIn" hideUntilLarge>
+                          <DirectoryRowCell area="lastSignIn">
                             <Typography
                               data-testid="user-row-last-oidc-sign-in"
                               variant="body2"
@@ -2013,14 +2287,76 @@ export function UserManagementSettings({ dialogSafeHeader = false }: UserManagem
                           </DirectoryRowCell>
                         </Tooltip>
                       )}
-                      <DirectoryRowCell area="expiration">
-                        <Typography data-testid="user-row-expiration" variant="body2" sx={{ color: "text.secondary", minWidth: 0 }}>
-                          <Box component="span" sx={{ display: { xs: "inline", md: "none" } }}>
-                            Expiration:
-                          </Box>{" "}
-                          {user.expires_at ? formatLocalTimestamp(user.expires_at) : "Never"}
-                        </Typography>
-                      </DirectoryRowCell>
+                      {visibleDirectoryColumns.includes("expiration") && (
+                        <DirectoryRowCell area="expiration">
+                          <Typography data-testid="user-row-expiration" variant="body2" sx={{ color: "text.secondary", minWidth: 0 }}>
+                            <Box component="span" sx={{ display: { xs: "inline", md: "none" } }}>
+                              Expiration:
+                            </Box>{" "}
+                            {user.expires_at ? formatLocalTimestamp(user.expires_at) : "Never"}
+                          </Typography>
+                        </DirectoryRowCell>
+                      )}
+                      {visibleDirectoryColumns.includes("email") && (
+                        <DirectoryRowCell area="email">
+                          <Typography data-testid="user-row-email" variant="body2" sx={{ color: "text.secondary", minWidth: 0 }}>
+                            <Box component="span" sx={{ display: { xs: "inline", md: "none" } }}>
+                              Email:
+                            </Box>{" "}
+                            {user.email ?? "Not set"}
+                          </Typography>
+                        </DirectoryRowCell>
+                      )}
+                      {visibleDirectoryColumns.includes("createdAt") && (
+                        <DirectoryRowCell area="createdAt">
+                          <Typography data-testid="user-row-created" variant="body2" sx={{ color: "text.secondary", minWidth: 0 }}>
+                            <Box component="span" sx={{ display: { xs: "inline", md: "none" } }}>
+                              Created:
+                            </Box>{" "}
+                            {formatLocalTimestamp(user.created_at)}
+                          </Typography>
+                        </DirectoryRowCell>
+                      )}
+                      {visibleDirectoryColumns.includes("updatedAt") && (
+                        <DirectoryRowCell area="updatedAt">
+                          <Typography data-testid="user-row-updated" variant="body2" sx={{ color: "text.secondary", minWidth: 0 }}>
+                            <Box component="span" sx={{ display: { xs: "inline", md: "none" } }}>
+                              Last updated:
+                            </Box>{" "}
+                            {formatLocalTimestamp(user.updated_at)}
+                          </Typography>
+                        </DirectoryRowCell>
+                      )}
+                      {visibleDirectoryColumns.includes("oidcState") && (
+                        <DirectoryRowCell area="oidcState">
+                          <Typography data-testid="user-row-oidc-state" variant="body2" sx={{ color: "text.secondary", minWidth: 0 }}>
+                            <Box component="span" sx={{ display: { xs: "inline", md: "none" } }}>
+                              OIDC state:
+                            </Box>{" "}
+                            {getDirectoryOidcState(user)}
+                          </Typography>
+                        </DirectoryRowCell>
+                      )}
+                      {visibleDirectoryColumns.includes("roleSource") && (
+                        <DirectoryRowCell area="roleSource">
+                          <Typography data-testid="user-row-role-source" variant="body2" sx={{ color: "text.secondary", minWidth: 0 }}>
+                            <Box component="span" sx={{ display: { xs: "inline", md: "none" } }}>
+                              Role source:
+                            </Box>{" "}
+                            {getDirectoryRoleSource(user, oidcConfiguration?.role_assignment_mode)}
+                          </Typography>
+                        </DirectoryRowCell>
+                      )}
+                      {visibleDirectoryColumns.includes("oidcProvider") && (
+                        <DirectoryRowCell area="oidcProvider">
+                          <Typography data-testid="user-row-oidc-provider" variant="body2" sx={{ color: "text.secondary", minWidth: 0 }}>
+                            <Box component="span" sx={{ display: { xs: "inline", md: "none" } }}>
+                              OIDC provider:
+                            </Box>{" "}
+                            {user.oidc?.provider_display_name ?? "Not linked"}
+                          </Typography>
+                        </DirectoryRowCell>
+                      )}
                       <DirectoryRowCell area="actions" align="end">
                         <Stack data-testid="user-row-actions" direction="row" spacing={0.5}>
                           <Tooltip title={t("settings.userManagement.actions.editUser")}>
@@ -2073,7 +2409,7 @@ export function UserManagementSettings({ dialogSafeHeader = false }: UserManagem
                 page={directoryQuery.page}
                 count={Math.max(1, Math.ceil(directorySummary.total / directoryQuery.pageSize))}
                 onChange={(_, page) => updateDirectoryQuery({ page }, false)}
-                renderItem={(item) => <PaginationItem {...item} tabIndex={item.type === "page" ? -1 : item.tabIndex} />}
+                renderItem={(item) => <PaginationItem {...item} tabIndex={item.type === "page" ? -1 : undefined} />}
                 size="small"
               />
             </Stack>
@@ -2191,7 +2527,11 @@ export function UserManagementSettings({ dialogSafeHeader = false }: UserManagem
         title={oidcDetailsUser ? `OIDC identity details for ${oidcDetailsUser.username}` : "OIDC identity details"}
         actions={
           <Box sx={adminDialogEndActionRowSx}>
-            <Button onClick={() => setOidcDetailsUser(null)} variant="contained" sx={[settingsPrimaryButtonSx, adminDialogActionButtonSx]}>
+            <Button
+              onClick={() => setOidcDetailsUser(null)}
+              variant="contained"
+              sx={combineSx(settingsPrimaryButtonSx, adminDialogActionButtonSx)}
+            >
               Close
             </Button>
           </Box>
