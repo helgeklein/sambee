@@ -702,6 +702,27 @@ describe("UserManagementSettings", () => {
     }
   });
 
+  it("keeps the Sign-in column visible at medium desktop widths in mixed OIDC/password mode", async () => {
+    const restoreViewport = mockViewportWidth(1000);
+    mockOidcAuthenticationEnabled();
+
+    try {
+      render(
+        <SambeeThemeProvider>
+          <UserManagementSettings />
+        </SambeeThemeProvider>
+      );
+
+      const header = await screen.findByTestId("user-directory-header");
+      const row = await screen.findByTestId("user-row");
+
+      expect(within(header).getByRole("columnheader", { name: "Sign-in" })).toHaveStyle({ display: "flex" });
+      expect(row.querySelector('[data-testid="user-row-sign-in"]')?.parentElement).toHaveStyle({ display: "flex" });
+    } finally {
+      restoreViewport();
+    }
+  });
+
   it("uses an ordered single-column record layout on phones", async () => {
     const restoreViewport = mockViewportWidth(390);
 

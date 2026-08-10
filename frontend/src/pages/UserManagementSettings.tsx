@@ -1887,7 +1887,6 @@ export function UserManagementSettings({ dialogSafeHeader = false }: UserManagem
                 activeSort={directoryQuery.sort}
                 direction={directoryQuery.direction}
                 onSort={handleDirectorySort}
-                hideUntilLarge
               />
               {oidcAuthenticationEnabled && (
                 <DirectoryColumnHeader
@@ -1989,7 +1988,7 @@ export function UserManagementSettings({ dialogSafeHeader = false }: UserManagem
                           </Stack>
                         </Stack>
                       </DirectoryRowCell>
-                      <DirectoryRowCell area="signIn" hideUntilLarge>
+                      <DirectoryRowCell area="signIn">
                         <Typography data-testid="user-row-sign-in" variant="body2" sx={{ color: "text.secondary", minWidth: 0 }}>
                           <Box component="span" sx={{ display: { xs: "inline", md: "none" } }}>
                             Sign-in:
