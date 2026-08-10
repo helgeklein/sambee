@@ -9,6 +9,8 @@ import {
   LockReset as LockResetIcon,
   MoreVert as MoreVertIcon,
   Person as PersonIcon,
+  RestartAlt as RestartAltIcon,
+  ViewColumn as ViewColumnIcon,
 } from "@mui/icons-material";
 import {
   Autocomplete,
@@ -224,9 +226,12 @@ interface DirectoryFilterOption<T extends string> {
   label: string;
 }
 
+type DirectoryColumn = "role" | "status" | "signIn" | "lastSignIn" | "expiration";
+
 const DIRECTORY_DEFAULT_PAGE_SIZE = 25;
 const DIRECTORY_SEARCH_DEBOUNCE_MS = 300;
 const DIRECTORY_ACTIONS_COLUMN_WIDTH = "76px";
+export const USER_DIRECTORY_VISIBLE_COLUMNS_STORAGE_KEY = "sambee.user-directory.visible-columns.v1";
 const DIRECTORY_PAGE_SIZE_OPTIONS = [25, 50, 100] as const;
 const DIRECTORY_SECONDARY_CONTROL_FONT_SIZE = "0.875rem";
 const DIRECTORY_ROLE_VALUES: UserRole[] = ["admin", "editor", "viewer"];
@@ -242,6 +247,14 @@ const DIRECTORY_ROLE_SOURCE_VALUES: AdminUserDirectoryRoleSource[] = [
 ];
 const DIRECTORY_SORT_VALUES: AdminUserDirectorySort[] = ["username", "role", "last_sign_in", "expiration"];
 const DIRECTORY_DIRECTION_VALUES: SortDirection[] = ["asc", "desc"];
+const DIRECTORY_COLUMN_VALUES: DirectoryColumn[] = ["role", "status", "signIn", "lastSignIn", "expiration"];
+const DIRECTORY_COLUMN_GRID_WIDTHS: Record<DirectoryColumn, string> = {
+  role: "minmax(0, 0.75fr)",
+  status: "minmax(0, 1.2fr)",
+  signIn: "minmax(0, 1fr)",
+  lastSignIn: "minmax(0, 1fr)",
+  expiration: "minmax(0, 1fr)",
+};
 const DIRECTORY_HEADER_LABEL_SX = {
   alignItems: "center",
   color: "text.secondary",
@@ -261,20 +274,43 @@ const DIRECTORY_SECONDARY_CONTROL_SX = {
   "& .MuiInputLabel-root": { fontSize: DIRECTORY_SECONDARY_CONTROL_FONT_SIZE },
 } as const;
 
-function getDirectoryRowGridSx(oidcAuthenticationEnabled: boolean) {
-  const wideColumns = oidcAuthenticationEnabled
-    ? `minmax(0, 1.5fr) minmax(0, 0.7fr) minmax(0, 1.1fr) minmax(0, 0.8fr) minmax(0, 1fr) minmax(0, 1fr) ${DIRECTORY_ACTIONS_COLUMN_WIDTH}`
-    : `minmax(0, 1.8fr) minmax(0, 0.75fr) minmax(0, 1.2fr) minmax(0, 1fr) minmax(0, 1fr) ${DIRECTORY_ACTIONS_COLUMN_WIDTH}`;
-  const mobileAreas = oidcAuthenticationEnabled
-    ? '"identity actions" "role role" "status status" "signIn signIn" "expiration expiration" "lastSignIn lastSignIn"'
-    : '"identity actions" "role role" "status status" "signIn signIn" "expiration expiration"';
+function readVisibleDirectoryColumns(): DirectoryColumn[] | null {
+  try {
+    const storedColumns = window.localStorage.getItem(USER_DIRECTORY_VISIBLE_COLUMNS_STORAGE_KEY);
+    if (!storedColumns) {
+      return null;
+    }
+    const parsedColumns: unknown = JSON.parse(storedColumns);
+    if (!Array.isArray(parsedColumns) || !parsedColumns.every((column) => DIRECTORY_COLUMN_VALUES.includes(column as DirectoryColumn))) {
+      return null;
+    }
+    return [...new Set(parsedColumns as DirectoryColumn[])];
+  } catch {
+    return null;
+  }
+}
+
+function writeVisibleDirectoryColumns(columns: DirectoryColumn[]): void {
+  try {
+    window.localStorage.setItem(USER_DIRECTORY_VISIBLE_COLUMNS_STORAGE_KEY, JSON.stringify(columns));
+  } catch {
+    // Column selection remains available for the current session when storage is unavailable.
+  }
+}
+
+function getDirectoryRowGridSx(visibleColumns: DirectoryColumn[]) {
+  const desktopColumns = [
+    "minmax(0, 1.8fr)",
+    ...visibleColumns.map((column) => DIRECTORY_COLUMN_GRID_WIDTHS[column]),
+    DIRECTORY_ACTIONS_COLUMN_WIDTH,
+  ].join(" ");
+  const mobileAreas = ['"identity actions"', ...visibleColumns.map((column) => `"${column} ${column}"`)].join(" ");
 
   return {
     display: "grid",
     gridTemplateColumns: {
       xs: `minmax(0, 1fr) ${DIRECTORY_ACTIONS_COLUMN_WIDTH}`,
-      md: `minmax(0, 1.8fr) minmax(0, 0.75fr) minmax(0, 1.2fr) minmax(0, 1fr) ${DIRECTORY_ACTIONS_COLUMN_WIDTH}`,
-      lg: wideColumns,
+      md: desktopColumns,
     },
     gridTemplateAreas: { xs: mobileAreas, md: "none" },
     gap: { xs: 1, md: 1.5 },
@@ -284,22 +320,12 @@ function getDirectoryRowGridSx(oidcAuthenticationEnabled: boolean) {
   } as const;
 }
 
-function DirectoryRowCell({
-  area,
-  children,
-  hideUntilLarge = false,
-  align = "start",
-}: {
-  area: string;
-  children: React.ReactNode;
-  hideUntilLarge?: boolean;
-  align?: "start" | "end";
-}) {
+function DirectoryRowCell({ area, children, align = "start" }: { area: string; children: React.ReactNode; align?: "start" | "end" }) {
   return (
     <Box
       sx={{
         alignItems: "center",
-        display: hideUntilLarge ? { xs: "flex", md: "none", lg: "flex" } : "flex",
+        display: "flex",
         alignSelf: align === "end" ? { xs: "start", md: "auto" } : undefined,
         gridArea: { xs: area, md: "auto" },
         justifyContent: align === "end" ? "flex-end" : "flex-start",
@@ -421,24 +447,18 @@ function DirectoryColumnHeader({
   activeSort,
   direction,
   onSort,
-  hideUntilLarge,
 }: {
   label: string;
   sort?: AdminUserDirectorySort;
   activeSort: AdminUserDirectorySort;
   direction: SortDirection;
   onSort: (sort: AdminUserDirectorySort) => void;
-  hideUntilLarge?: boolean;
 }) {
   const isActive = sort === activeSort;
   const ariaSort = isActive ? (direction === "asc" ? "ascending" : "descending") : "none";
 
   return (
-    <Box
-      role="columnheader"
-      aria-sort={sort ? ariaSort : undefined}
-      sx={{ alignItems: "center", display: hideUntilLarge ? { md: "none", lg: "flex" } : "flex", minWidth: 0 }}
-    >
+    <Box role="columnheader" aria-sort={sort ? ariaSort : undefined} sx={{ alignItems: "center", display: "flex", minWidth: 0 }}>
       {sort ? (
         <TableSortLabel
           active={isActive}
@@ -471,6 +491,8 @@ export function UserManagementSettings({ dialogSafeHeader = false }: UserManagem
   const [directoryQuery, setDirectoryQuery] = useState<DirectoryQueryState>(() => getDirectoryQueryFromLocation(window.location.search));
   const [searchInput, setSearchInput] = useState(directoryQuery.q);
   const [filterAnchor, setFilterAnchor] = useState<HTMLElement | null>(null);
+  const [columnsAnchor, setColumnsAnchor] = useState<HTMLElement | null>(null);
+  const [selectedDirectoryColumns, setSelectedDirectoryColumns] = useState<DirectoryColumn[] | null>(readVisibleDirectoryColumns);
   const [notification, setNotification] = useState<SettingsNotificationState>({
     open: false,
     message: "",
@@ -564,7 +586,15 @@ export function UserManagementSettings({ dialogSafeHeader = false }: UserManagem
   const oidcConfiguration = oidcAuthenticationEnabled ? (userManagementContext?.oidcConfiguration.configuration ?? null) : null;
   const localPasswordManagementAvailable = authenticationMode === "password_only" || authenticationMode === "oidc_or_password";
   const pendingOidcMappingsAllowed = oidcConfiguration !== null;
-  const directoryRowGridSx = useMemo(() => getDirectoryRowGridSx(oidcAuthenticationEnabled), [oidcAuthenticationEnabled]);
+  const availableDirectoryColumns = useMemo(
+    () => DIRECTORY_COLUMN_VALUES.filter((column) => column !== "lastSignIn" || oidcAuthenticationEnabled),
+    [oidcAuthenticationEnabled]
+  );
+  const visibleDirectoryColumns = useMemo(
+    () => availableDirectoryColumns.filter((column) => selectedDirectoryColumns?.includes(column) ?? true),
+    [availableDirectoryColumns, selectedDirectoryColumns]
+  );
+  const directoryRowGridSx = useMemo(() => getDirectoryRowGridSx(visibleDirectoryColumns), [visibleDirectoryColumns]);
   const [editorOpen, setEditorOpen] = useState(false);
   const [deleteDialogOpen, setDeleteDialogOpen] = useState(false);
   const [resetPasswordEditorOpen, setResetPasswordEditorOpen] = useState(false);
@@ -637,6 +667,27 @@ export function UserManagementSettings({ dialogSafeHeader = false }: UserManagem
       expiration: "",
     });
   }, [updateDirectoryQuery]);
+  const toggleDirectoryColumn = useCallback((column: DirectoryColumn) => {
+    setSelectedDirectoryColumns((current) => {
+      const selectedColumns = new Set(current ?? DIRECTORY_COLUMN_VALUES);
+      if (selectedColumns.has(column)) {
+        selectedColumns.delete(column);
+      } else {
+        selectedColumns.add(column);
+      }
+      const nextColumns = DIRECTORY_COLUMN_VALUES.filter((value) => selectedColumns.has(value));
+      writeVisibleDirectoryColumns(nextColumns);
+      return nextColumns;
+    });
+  }, []);
+  const resetDirectoryColumns = useCallback(() => {
+    try {
+      window.localStorage.removeItem(USER_DIRECTORY_VISIBLE_COLUMNS_STORAGE_KEY);
+    } catch {
+      // The default selection is still restored for the current session.
+    }
+    setSelectedDirectoryColumns(null);
+  }, []);
   const handleDirectorySort = useCallback(
     (sort: AdminUserDirectorySort) => {
       startTransition(() => {
@@ -1646,6 +1697,16 @@ export function UserManagementSettings({ dialogSafeHeader = false }: UserManagem
               {activeDirectoryFilterCount ? `Filters (${activeDirectoryFilterCount})` : "Filters"}
             </Button>
             <Button
+              aria-expanded={Boolean(columnsAnchor)}
+              aria-haspopup="menu"
+              startIcon={<ViewColumnIcon />}
+              variant="outlined"
+              onClick={(event) => setColumnsAnchor(event.currentTarget)}
+              sx={[settingsUtilityButtonSx, { fontSize: DIRECTORY_SECONDARY_CONTROL_FONT_SIZE, width: "fit-content" }]}
+            >
+              Columns
+            </Button>
+            <Button
               aria-hidden={activeDirectoryFilterCount === 0}
               onClick={clearDirectoryFilters}
               tabIndex={activeDirectoryFilterCount === 0 ? -1 : undefined}
@@ -1660,6 +1721,28 @@ export function UserManagementSettings({ dialogSafeHeader = false }: UserManagem
             </Button>
           </Stack>
         </Box>
+        <Menu anchorEl={columnsAnchor} aria-label="Directory columns" onClose={() => setColumnsAnchor(null)} open={Boolean(columnsAnchor)}>
+          {availableDirectoryColumns.map((column) => {
+            const labels: Record<DirectoryColumn, string> = {
+              role: "Role",
+              status: "Status",
+              signIn: "Sign-in",
+              lastSignIn: "Last OIDC sign-in",
+              expiration: "Expiration",
+            };
+            const isVisible = visibleDirectoryColumns.includes(column);
+            return (
+              <MenuItem key={column} aria-checked={isVisible} onClick={() => toggleDirectoryColumn(column)} role="menuitemcheckbox">
+                <Checkbox checked={isVisible} tabIndex={-1} />
+                <ListItemText primary={labels[column]} />
+              </MenuItem>
+            );
+          })}
+          <MenuItem onClick={resetDirectoryColumns}>
+            <RestartAltIcon fontSize="small" />
+            <ListItemText primary="Reset columns" sx={{ ml: 1 }} />
+          </MenuItem>
+        </Menu>
         <Box aria-live="polite" sx={{ height: 3 }}>
           {directoryRefreshing && <LinearProgress aria-label="Updating user directory" sx={{ height: 3 }} />}
         </Box>
@@ -1869,42 +1952,49 @@ export function UserManagementSettings({ dialogSafeHeader = false }: UserManagem
                 direction={directoryQuery.direction}
                 onSort={handleDirectorySort}
               />
-              <DirectoryColumnHeader
-                label="Role"
-                sort="role"
-                activeSort={directoryQuery.sort}
-                direction={directoryQuery.direction}
-                onSort={handleDirectorySort}
-              />
-              <DirectoryColumnHeader
-                label="Status"
-                activeSort={directoryQuery.sort}
-                direction={directoryQuery.direction}
-                onSort={handleDirectorySort}
-              />
-              <DirectoryColumnHeader
-                label="Sign-in"
-                activeSort={directoryQuery.sort}
-                direction={directoryQuery.direction}
-                onSort={handleDirectorySort}
-              />
-              {oidcAuthenticationEnabled && (
+              {visibleDirectoryColumns.includes("role") && (
+                <DirectoryColumnHeader
+                  label="Role"
+                  sort="role"
+                  activeSort={directoryQuery.sort}
+                  direction={directoryQuery.direction}
+                  onSort={handleDirectorySort}
+                />
+              )}
+              {visibleDirectoryColumns.includes("status") && (
+                <DirectoryColumnHeader
+                  label="Status"
+                  activeSort={directoryQuery.sort}
+                  direction={directoryQuery.direction}
+                  onSort={handleDirectorySort}
+                />
+              )}
+              {visibleDirectoryColumns.includes("signIn") && (
+                <DirectoryColumnHeader
+                  label="Sign-in"
+                  activeSort={directoryQuery.sort}
+                  direction={directoryQuery.direction}
+                  onSort={handleDirectorySort}
+                />
+              )}
+              {visibleDirectoryColumns.includes("lastSignIn") && (
                 <DirectoryColumnHeader
                   label="Last OIDC sign-in"
                   sort="last_sign_in"
                   activeSort={directoryQuery.sort}
                   direction={directoryQuery.direction}
                   onSort={handleDirectorySort}
-                  hideUntilLarge
                 />
               )}
-              <DirectoryColumnHeader
-                label="Expiration"
-                sort="expiration"
-                activeSort={directoryQuery.sort}
-                direction={directoryQuery.direction}
-                onSort={handleDirectorySort}
-              />
+              {visibleDirectoryColumns.includes("expiration") && (
+                <DirectoryColumnHeader
+                  label="Expiration"
+                  sort="expiration"
+                  activeSort={directoryQuery.sort}
+                  direction={directoryQuery.direction}
+                  onSort={handleDirectorySort}
+                />
+              )}
               <Box role="columnheader" />
             </Box>
             <List role="rowgroup" sx={{ py: 0 }}>
@@ -1946,59 +2036,65 @@ export function UserManagementSettings({ dialogSafeHeader = false }: UserManagem
                           </Typography>
                         </Box>
                       </DirectoryRowCell>
-                      <DirectoryRowCell area="role">
-                        <Stack direction="row" spacing={1} useFlexGap sx={{ alignItems: "center", minWidth: 0 }}>
-                          <Typography
-                            component="span"
-                            variant="caption"
-                            sx={{ display: { xs: "inline", md: "none" }, color: "text.secondary" }}
-                          >
-                            Role
-                          </Typography>
-                          <Chip
-                            data-testid="user-row-role"
-                            size="small"
-                            icon={user.role === "admin" ? <AdminIcon /> : <PersonIcon />}
-                            label={roleLabel(user.role)}
-                            variant="outlined"
-                            sx={[settingsMetadataChipSx, { flex: "0 1 auto", maxWidth: "100%", width: "fit-content" }]}
-                          />
-                        </Stack>
-                      </DirectoryRowCell>
-                      <DirectoryRowCell area="status">
-                        <Stack direction="row" spacing={1} useFlexGap sx={{ alignItems: "center", flexWrap: "wrap", minWidth: 0 }}>
-                          <Typography
-                            component="span"
-                            variant="caption"
-                            sx={{ display: { xs: "inline", md: "none" }, color: "text.secondary" }}
-                          >
-                            Status
-                          </Typography>
-                          <Stack data-testid="user-metadata" direction="row" spacing={0.5} useFlexGap sx={{ flexWrap: "wrap" }}>
-                            {(statuses.length ? statuses : [t("settings.userManagement.activeStatus")]).map((status) => (
-                              <Chip
-                                key={status}
-                                size="small"
-                                label={status}
-                                color={status === t("settings.userManagement.activeStatus") ? "default" : "warning"}
-                                variant="outlined"
-                                sx={settingsMetadataChipSx}
-                              />
-                            ))}
+                      {visibleDirectoryColumns.includes("role") && (
+                        <DirectoryRowCell area="role">
+                          <Stack direction="row" spacing={1} useFlexGap sx={{ alignItems: "center", minWidth: 0 }}>
+                            <Typography
+                              component="span"
+                              variant="caption"
+                              sx={{ display: { xs: "inline", md: "none" }, color: "text.secondary" }}
+                            >
+                              Role
+                            </Typography>
+                            <Chip
+                              data-testid="user-row-role"
+                              size="small"
+                              icon={user.role === "admin" ? <AdminIcon /> : <PersonIcon />}
+                              label={roleLabel(user.role)}
+                              variant="outlined"
+                              sx={[settingsMetadataChipSx, { flex: "0 1 auto", maxWidth: "100%", width: "fit-content" }]}
+                            />
                           </Stack>
-                        </Stack>
-                      </DirectoryRowCell>
-                      <DirectoryRowCell area="signIn">
-                        <Typography data-testid="user-row-sign-in" variant="body2" sx={{ color: "text.secondary", minWidth: 0 }}>
-                          <Box component="span" sx={{ display: { xs: "inline", md: "none" } }}>
-                            Sign-in:
-                          </Box>{" "}
-                          {authentication}
-                        </Typography>
-                      </DirectoryRowCell>
-                      {oidcAuthenticationEnabled && (
+                        </DirectoryRowCell>
+                      )}
+                      {visibleDirectoryColumns.includes("status") && (
+                        <DirectoryRowCell area="status">
+                          <Stack direction="row" spacing={1} useFlexGap sx={{ alignItems: "center", flexWrap: "wrap", minWidth: 0 }}>
+                            <Typography
+                              component="span"
+                              variant="caption"
+                              sx={{ display: { xs: "inline", md: "none" }, color: "text.secondary" }}
+                            >
+                              Status
+                            </Typography>
+                            <Stack data-testid="user-metadata" direction="row" spacing={0.5} useFlexGap sx={{ flexWrap: "wrap" }}>
+                              {(statuses.length ? statuses : [t("settings.userManagement.activeStatus")]).map((status) => (
+                                <Chip
+                                  key={status}
+                                  size="small"
+                                  label={status}
+                                  color={status === t("settings.userManagement.activeStatus") ? "default" : "warning"}
+                                  variant="outlined"
+                                  sx={settingsMetadataChipSx}
+                                />
+                              ))}
+                            </Stack>
+                          </Stack>
+                        </DirectoryRowCell>
+                      )}
+                      {visibleDirectoryColumns.includes("signIn") && (
+                        <DirectoryRowCell area="signIn">
+                          <Typography data-testid="user-row-sign-in" variant="body2" sx={{ color: "text.secondary", minWidth: 0 }}>
+                            <Box component="span" sx={{ display: { xs: "inline", md: "none" } }}>
+                              Sign-in:
+                            </Box>{" "}
+                            {authentication}
+                          </Typography>
+                        </DirectoryRowCell>
+                      )}
+                      {visibleDirectoryColumns.includes("lastSignIn") && (
                         <Tooltip title={user.oidc?.last_login_at ? formatLocalTimestamp(user.oidc.last_login_at) : "No OIDC sign-in"}>
-                          <DirectoryRowCell area="lastSignIn" hideUntilLarge>
+                          <DirectoryRowCell area="lastSignIn">
                             <Typography
                               data-testid="user-row-last-oidc-sign-in"
                               variant="body2"
@@ -2012,14 +2108,16 @@ export function UserManagementSettings({ dialogSafeHeader = false }: UserManagem
                           </DirectoryRowCell>
                         </Tooltip>
                       )}
-                      <DirectoryRowCell area="expiration">
-                        <Typography data-testid="user-row-expiration" variant="body2" sx={{ color: "text.secondary", minWidth: 0 }}>
-                          <Box component="span" sx={{ display: { xs: "inline", md: "none" } }}>
-                            Expiration:
-                          </Box>{" "}
-                          {user.expires_at ? formatLocalTimestamp(user.expires_at) : "Never"}
-                        </Typography>
-                      </DirectoryRowCell>
+                      {visibleDirectoryColumns.includes("expiration") && (
+                        <DirectoryRowCell area="expiration">
+                          <Typography data-testid="user-row-expiration" variant="body2" sx={{ color: "text.secondary", minWidth: 0 }}>
+                            <Box component="span" sx={{ display: { xs: "inline", md: "none" } }}>
+                              Expiration:
+                            </Box>{" "}
+                            {user.expires_at ? formatLocalTimestamp(user.expires_at) : "Never"}
+                          </Typography>
+                        </DirectoryRowCell>
+                      )}
                       <DirectoryRowCell area="actions" align="end">
                         <Stack data-testid="user-row-actions" direction="row" spacing={0.5}>
                           <Tooltip title={t("settings.userManagement.actions.editUser")}>

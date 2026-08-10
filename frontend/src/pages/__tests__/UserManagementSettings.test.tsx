@@ -9,7 +9,7 @@ import {
 } from "../../hooks/useCachedAsyncData";
 import { SambeeThemeProvider } from "../../theme";
 import type { AdminUserCreateResult, AdminUserPasswordResetResult } from "../../types";
-import { UserManagementSettings } from "../UserManagementSettings";
+import { USER_DIRECTORY_VISIBLE_COLUMNS_STORAGE_KEY, UserManagementSettings } from "../UserManagementSettings";
 
 vi.mock("../../services/api", () => ({
   default: {
@@ -70,6 +70,7 @@ describe("UserManagementSettings", () => {
   beforeEach(() => {
     vi.clearAllMocks();
     clearCachedAsyncData();
+    window.localStorage.removeItem(USER_DIRECTORY_VISIBLE_COLUMNS_STORAGE_KEY);
     window.history.replaceState(null, "", window.location.pathname);
     vi.mocked(isControlledReauthenticationInProgress).mockReturnValue(false);
     vi.mocked(api.getUsers).mockResolvedValue([
@@ -690,6 +691,8 @@ describe("UserManagementSettings", () => {
       await user.tab();
       expect(screen.getByRole("button", { name: "Filters" })).toHaveFocus();
       await user.tab();
+      expect(screen.getByRole("button", { name: "Columns" })).toHaveFocus();
+      await user.tab();
       expect(screen.getByRole("button", { name: "Edit admin" })).toHaveFocus();
       await user.tab();
       expect(screen.getByRole("button", { name: "User actions for admin" })).toHaveFocus();
@@ -697,6 +700,35 @@ describe("UserManagementSettings", () => {
       expect(screen.getByRole("combobox")).toHaveFocus();
       await user.tab();
       expect(screen.queryByRole("button", { name: "page 1" })).not.toHaveFocus();
+    } finally {
+      restoreViewport();
+    }
+  });
+
+  it("lets users choose and restore directory columns", async () => {
+    const restoreViewport = mockViewportWidth(1200);
+    const user = userEvent.setup();
+
+    try {
+      render(
+        <SambeeThemeProvider>
+          <UserManagementSettings />
+        </SambeeThemeProvider>
+      );
+
+      await screen.findByTestId("user-directory-header");
+      await user.click(screen.getByRole("button", { name: "Columns" }));
+      await user.click(screen.getByRole("menuitemcheckbox", { name: "Expiration" }));
+
+      expect(within(screen.getByTestId("user-directory-header")).queryByText("Expiration", { exact: true })).not.toBeInTheDocument();
+      expect(screen.getByTestId("user-row").children).toHaveLength(5);
+      expect(JSON.parse(window.localStorage.getItem(USER_DIRECTORY_VISIBLE_COLUMNS_STORAGE_KEY) ?? "[]")).not.toContain("expiration");
+
+      await user.click(screen.getByRole("menuitem", { name: "Reset columns" }));
+
+      expect(within(screen.getByTestId("user-directory-header")).getByText("Expiration", { exact: true })).toBeInTheDocument();
+      expect(screen.getByTestId("user-row").children).toHaveLength(6);
+      expect(window.localStorage.getItem(USER_DIRECTORY_VISIBLE_COLUMNS_STORAGE_KEY)).toBeNull();
     } finally {
       restoreViewport();
     }
