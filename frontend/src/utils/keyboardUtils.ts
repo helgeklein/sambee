@@ -94,7 +94,7 @@ export function blurActiveToolbarControl(contentRef?: React.RefObject<HTMLElemen
  */
 export function dialogEnterKeyHandler(fallback?: () => void): (e: React.KeyboardEvent) => void {
   return (e: React.KeyboardEvent) => {
-    if (!DIALOG_BUTTON_ACTIVATION_KEYS.has(e.key)) {
+    if (e.defaultPrevented || !DIALOG_BUTTON_ACTIVATION_KEYS.has(e.key)) {
       return;
     }
 

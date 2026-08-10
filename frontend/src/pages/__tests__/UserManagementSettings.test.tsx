@@ -1294,8 +1294,10 @@ describe("UserManagementSettings", () => {
     ).toBeTruthy();
     await user.click(targetAccount);
     expect(await screen.findByRole("option", { name: "unmapped-user" })).toBeInTheDocument();
-    await user.click(screen.getByRole("option", { name: "unmapped-user" }));
+    await user.keyboard("{ArrowDown}{Enter}");
     expect(targetAccount).toHaveValue("unmapped-user");
+    expect(screen.queryByRole("alert")).not.toBeInTheDocument();
+    expect(api.moveOidcIdentity).not.toHaveBeenCalled();
     await user.click(screen.getByRole("button", { name: "Confirm" }));
     await waitFor(() => expect(api.moveOidcIdentity).toHaveBeenCalledWith("identity-1", 1, "user-2"));
     await waitFor(() => {
