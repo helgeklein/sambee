@@ -1755,32 +1755,38 @@ export function UserManagementSettings({ dialogSafeHeader = false }: UserManagem
             value={searchInput}
             onChange={(event) => setSearchInput(event.target.value)}
             size="small"
-            sx={[DIRECTORY_SECONDARY_CONTROL_SX, { minWidth: 0, width: "100%" }]}
+            sx={[DIRECTORY_SECONDARY_CONTROL_SX, { gridColumn: { sm: 1 }, minWidth: 0, width: "100%" }]}
           />
-          <Stack direction="row" spacing={1} sx={{ justifySelf: "start", width: { xs: "100%", sm: "auto" } }}>
-            <Button
-              aria-haspopup="dialog"
-              aria-expanded={Boolean(filterAnchor)}
-              startIcon={<FilterListIcon />}
-              variant="outlined"
-              onClick={(event) => setFilterAnchor(event.currentTarget)}
-              sx={[settingsUtilityButtonSx, { fontSize: DIRECTORY_SECONDARY_CONTROL_FONT_SIZE, width: "fit-content" }]}
-            >
-              {activeDirectoryFilterCount ? `Filters (${activeDirectoryFilterCount})` : "Filters"}
-            </Button>
-            <Button
-              aria-hidden={activeDirectoryFilterCount === 0}
-              onClick={clearDirectoryFilters}
-              tabIndex={activeDirectoryFilterCount === 0 ? -1 : undefined}
-              variant="text"
-              sx={{
-                fontSize: DIRECTORY_SECONDARY_CONTROL_FONT_SIZE,
-                minWidth: 104,
-                visibility: activeDirectoryFilterCount > 0 ? "visible" : "hidden",
-              }}
-            >
-              Clear filters
-            </Button>
+          <Stack
+            direction="row"
+            spacing={1}
+            sx={{ gridColumn: { xs: "1 / -1", sm: 2 }, justifyContent: { xs: "space-between", sm: "flex-start" }, justifySelf: "start", width: { xs: "100%", sm: "auto" } }}
+          >
+            <Stack direction="row" spacing={1}>
+              <Button
+                aria-haspopup="dialog"
+                aria-expanded={Boolean(filterAnchor)}
+                startIcon={<FilterListIcon />}
+                variant="outlined"
+                onClick={(event) => setFilterAnchor(event.currentTarget)}
+                sx={[settingsUtilityButtonSx, { fontSize: DIRECTORY_SECONDARY_CONTROL_FONT_SIZE, width: "fit-content" }]}
+              >
+                {activeDirectoryFilterCount ? `Filters (${activeDirectoryFilterCount})` : "Filters"}
+              </Button>
+              <Button
+                aria-hidden={activeDirectoryFilterCount === 0}
+                onClick={clearDirectoryFilters}
+                tabIndex={activeDirectoryFilterCount === 0 ? -1 : undefined}
+                variant="text"
+                sx={{
+                  fontSize: DIRECTORY_SECONDARY_CONTROL_FONT_SIZE,
+                  minWidth: 104,
+                  visibility: activeDirectoryFilterCount > 0 ? "visible" : "hidden",
+                }}
+              >
+                Clear filters
+              </Button>
+            </Stack>
             {!usesDesktopFormLayout && (
               <Button
                 aria-expanded={Boolean(columnsAnchor)}
@@ -1788,7 +1794,7 @@ export function UserManagementSettings({ dialogSafeHeader = false }: UserManagem
                 aria-label="Columns"
                 variant="text"
                 onClick={(event) => setColumnsAnchor(event.currentTarget)}
-                sx={{ color: "text.secondary", fontSize: DIRECTORY_SECONDARY_CONTROL_FONT_SIZE, minWidth: 0, ml: "auto" }}
+                sx={{ color: "text.secondary", fontSize: DIRECTORY_SECONDARY_CONTROL_FONT_SIZE, minWidth: 0 }}
               >
                 Columns
               </Button>
