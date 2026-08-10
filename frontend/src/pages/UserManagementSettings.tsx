@@ -228,6 +228,7 @@ const DIRECTORY_DEFAULT_PAGE_SIZE = 25;
 const DIRECTORY_SEARCH_DEBOUNCE_MS = 300;
 const DIRECTORY_ACTIONS_COLUMN_WIDTH = "76px";
 const DIRECTORY_PAGE_SIZE_OPTIONS = [25, 50, 100] as const;
+const DIRECTORY_SECONDARY_CONTROL_FONT_SIZE = "0.875rem";
 const DIRECTORY_ROLE_VALUES: UserRole[] = ["admin", "editor", "viewer"];
 const DIRECTORY_STATE_VALUES: AdminUserDirectoryState[] = ["active", "disabled", "expired", "expiring_soon"];
 const DIRECTORY_AUTHENTICATION_VALUES: AdminUserDirectoryAuthentication[] = ["password", "oidc", "password_and_oidc", "unavailable"];
@@ -253,6 +254,11 @@ const DIRECTORY_HEADER_LABEL_SX = {
   overflow: "hidden",
   textOverflow: "ellipsis",
   whiteSpace: "nowrap",
+} as const;
+const DIRECTORY_SECONDARY_CONTROL_SX = {
+  fontSize: DIRECTORY_SECONDARY_CONTROL_FONT_SIZE,
+  "& .MuiInputBase-input, & .MuiSelect-select": { fontSize: DIRECTORY_SECONDARY_CONTROL_FONT_SIZE },
+  "& .MuiInputLabel-root": { fontSize: DIRECTORY_SECONDARY_CONTROL_FONT_SIZE },
 } as const;
 
 function getDirectoryRowGridSx(oidcAuthenticationEnabled: boolean) {
@@ -378,7 +384,7 @@ function DirectoryFilterSelect<T extends string>({
   const labelId = useId();
 
   return (
-    <FormControl size="small" sx={{ minWidth: 150 }}>
+    <FormControl size="small" sx={[DIRECTORY_SECONDARY_CONTROL_SX, { minWidth: 150 }]}>
       <InputLabel id={labelId}>{label}</InputLabel>
       <Select
         labelId={labelId}
@@ -392,7 +398,14 @@ function DirectoryFilterSelect<T extends string>({
         renderValue={(selected) => (selected.length > 0 ? `${label} (${selected.length})` : label)}
       >
         {options.map((option) => (
-          <MenuItem key={option.value} value={option.value}>
+          <MenuItem
+            key={option.value}
+            value={option.value}
+            sx={{
+              fontSize: DIRECTORY_SECONDARY_CONTROL_FONT_SIZE,
+              "& .MuiListItemText-primary": { fontSize: DIRECTORY_SECONDARY_CONTROL_FONT_SIZE },
+            }}
+          >
             <Checkbox checked={values.includes(option.value)} />
             <ListItemText primary={option.label} />
           </MenuItem>
@@ -563,8 +576,7 @@ export function UserManagementSettings({ dialogSafeHeader = false }: UserManagem
     mode: OidcMappingEditorMode;
     user: AdminUser | null;
     expectedUsername: string;
-    targetUserId: string;
-  }>({ open: false, mode: "create", user: null, expectedUsername: "", targetUserId: "" });
+  }>({ open: false, mode: "create", user: null, expectedUsername: "" });
   const [mappingSubmitting, setMappingSubmitting] = useState(false);
   const [mappingError, setMappingError] = useState<string | null>(null);
   const [mappingTargetSearch, setMappingTargetSearch] = useState("");
@@ -717,14 +729,13 @@ export function UserManagementSettings({ dialogSafeHeader = false }: UserManagem
       mode,
       user,
       expectedUsername: user.pending_oidc?.expected_username ?? "",
-      targetUserId: "",
     });
     setMappingTargetSearch("");
     setMappingTargetQuery("");
   };
 
   const closeMappingEditor = () => {
-    setMappingEditor({ open: false, mode: "create", user: null, expectedUsername: "", targetUserId: "" });
+    setMappingEditor({ open: false, mode: "create", user: null, expectedUsername: "" });
     setMappingTargetSearch("");
     setMappingTargetQuery("");
     setMappingTargetUser(null);
@@ -738,11 +749,16 @@ export function UserManagementSettings({ dialogSafeHeader = false }: UserManagem
       setMappingSubmitting(true);
       setMappingError(null);
       if (mappingEditor.mode === "move") {
-        if (!user.oidc || !mappingEditor.targetUserId) {
+        const targetUser = mappingTargetUser;
+        if (!user.oidc || !targetUser) {
           setMappingError("Select an available local account.");
           return;
         }
-        await api.moveOidcIdentity(user.oidc.identity_id, oidcConfiguration.identity_mapping_revision, mappingEditor.targetUserId);
+        if (!targetUser.is_active || targetUser.oidc || targetUser.pending_oidc || targetUser.id === user.id) {
+          setMappingError("Select an available local account.");
+          return;
+        }
+        await api.moveOidcIdentity(user.oidc.identity_id, oidcConfiguration.identity_mapping_revision, targetUser.id);
       } else {
         if (!pendingOidcMappingsAllowed) {
           setMappingError("Confirm that the provider username claim is stable and unique before creating pending mappings.");
@@ -761,7 +777,7 @@ export function UserManagementSettings({ dialogSafeHeader = false }: UserManagem
           ]);
         }
       }
-      setMappingEditor({ open: false, mode: "create", user: null, expectedUsername: "", targetUserId: "" });
+      setMappingEditor({ open: false, mode: "create", user: null, expectedUsername: "" });
       setMappingError(null);
       showNotification("OIDC mapping updated.", "success");
       await refreshDirectory();
@@ -1616,7 +1632,7 @@ export function UserManagementSettings({ dialogSafeHeader = false }: UserManagem
             value={searchInput}
             onChange={(event) => setSearchInput(event.target.value)}
             size="small"
-            sx={{ minWidth: 0, width: "100%" }}
+            sx={[DIRECTORY_SECONDARY_CONTROL_SX, { minWidth: 0, width: "100%" }]}
           />
           <Stack direction="row" spacing={1} sx={{ justifySelf: "start" }}>
             <Button
@@ -1625,7 +1641,7 @@ export function UserManagementSettings({ dialogSafeHeader = false }: UserManagem
               startIcon={<FilterListIcon />}
               variant="outlined"
               onClick={(event) => setFilterAnchor(event.currentTarget)}
-              sx={[settingsUtilityButtonSx, { width: "fit-content" }]}
+              sx={[settingsUtilityButtonSx, { fontSize: DIRECTORY_SECONDARY_CONTROL_FONT_SIZE, width: "fit-content" }]}
             >
               {activeDirectoryFilterCount ? `Filters (${activeDirectoryFilterCount})` : "Filters"}
             </Button>
@@ -1634,7 +1650,11 @@ export function UserManagementSettings({ dialogSafeHeader = false }: UserManagem
               onClick={clearDirectoryFilters}
               tabIndex={activeDirectoryFilterCount === 0 ? -1 : undefined}
               variant="text"
-              sx={{ minWidth: 104, visibility: activeDirectoryFilterCount > 0 ? "visible" : "hidden" }}
+              sx={{
+                fontSize: DIRECTORY_SECONDARY_CONTROL_FONT_SIZE,
+                minWidth: 104,
+                visibility: activeDirectoryFilterCount > 0 ? "visible" : "hidden",
+              }}
             >
               Clear filters
             </Button>
@@ -1679,16 +1699,22 @@ export function UserManagementSettings({ dialogSafeHeader = false }: UserManagem
                   values={directoryQuery.states}
                   onChange={(states) => updateDirectoryQuery({ states })}
                 />
-                <FormControl size="small" fullWidth>
+                <FormControl size="small" fullWidth sx={DIRECTORY_SECONDARY_CONTROL_SX}>
                   <InputLabel>Expiration</InputLabel>
                   <Select
                     value={directoryQuery.expiration}
                     label="Expiration"
                     onChange={(event) => updateDirectoryQuery({ expiration: event.target.value as DirectoryQueryState["expiration"] })}
                   >
-                    <MenuItem value="">Any expiration</MenuItem>
-                    <MenuItem value="has_expiration">Has expiration</MenuItem>
-                    <MenuItem value="no_expiration">No expiration</MenuItem>
+                    <MenuItem value="" sx={{ fontSize: DIRECTORY_SECONDARY_CONTROL_FONT_SIZE }}>
+                      Any expiration
+                    </MenuItem>
+                    <MenuItem value="has_expiration" sx={{ fontSize: DIRECTORY_SECONDARY_CONTROL_FONT_SIZE }}>
+                      Has expiration
+                    </MenuItem>
+                    <MenuItem value="no_expiration" sx={{ fontSize: DIRECTORY_SECONDARY_CONTROL_FONT_SIZE }}>
+                      No expiration
+                    </MenuItem>
                   </Select>
                 </FormControl>
               </Stack>
@@ -2031,13 +2057,13 @@ export function UserManagementSettings({ dialogSafeHeader = false }: UserManagem
               color="text.secondary"
             >{`${(directoryQuery.page - 1) * directoryQuery.pageSize + 1}-${Math.min(directoryQuery.page * directoryQuery.pageSize, directorySummary.total)} of ${directorySummary.total}`}</Typography>
             <Stack direction="row" spacing={1} sx={{ alignItems: "center" }}>
-              <FormControl size="small">
+              <FormControl size="small" sx={DIRECTORY_SECONDARY_CONTROL_SX}>
                 <Select
                   value={String(directoryQuery.pageSize)}
                   onChange={(event) => updateDirectoryQuery({ pageSize: Number(event.target.value) }, true)}
                 >
                   {DIRECTORY_PAGE_SIZE_OPTIONS.map((pageSize) => (
-                    <MenuItem key={pageSize} value={String(pageSize)}>
+                    <MenuItem key={pageSize} value={String(pageSize)} sx={{ fontSize: DIRECTORY_SECONDARY_CONTROL_FONT_SIZE }}>
                       {pageSize} per page
                     </MenuItem>
                   ))}
@@ -2267,7 +2293,6 @@ export function UserManagementSettings({ dialogSafeHeader = false }: UserManagem
                     onChange={(_, user) => {
                       setMappingTargetUser(user);
                       setMappingTargetSearch(user ? (user.name ? `${user.name} (${user.username})` : user.username) : "");
-                      setMappingEditor((current) => ({ ...current, targetUserId: user?.id ?? "" }));
                       setMappingError(null);
                     }}
                     onInputChange={(_, value, reason) => {
@@ -2275,7 +2300,6 @@ export function UserManagementSettings({ dialogSafeHeader = false }: UserManagem
                         setMappingTargetSearch(value);
                         setMappingTargetQuery(value);
                         setMappingTargetUser(null);
-                        setMappingEditor((current) => ({ ...current, targetUserId: "" }));
                       }
                     }}
                     renderInput={(params) => (

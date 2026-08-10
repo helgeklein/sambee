@@ -6,7 +6,7 @@ title = "What's New"
 
 Single sign-on was on my list of essential features from the very beginning. Having one source of truth for authentication and authorization is of great benefit even in the smallest networks with single-digit user counts.
 
-Sambee sports a secure and comprehensive implementation of OpenID Connect to authenticate against IAM servers such as Authelia or Keycloak. If OIDC is configured as the only authentication method, SSO happens behind the scenes, fully transpartent to the user if they're already logged in to the IAM server. Otherwise, a user trying to access Sambee is redirected to the IAM server to authenticate. Once that has happened, they're redirected back to Sambee.
+Sambee includes a secure and comprehensive implementation of OpenID Connect for authentication through IAM servers such as Authelia or Keycloak. If OIDC is configured as the only authentication method, SSO happens behind the scenes and is fully transparent to users who are already logged in to the IAM server. Otherwise, users trying to access Sambee are redirected to the IAM server to authenticate. Once that has happened, they're redirected back to Sambee.
 
 Sambee's [OIDC implementation](../../../admin-guide/authentication/openid-connect-authentication-setup/) comes with auto-provisioning, which creates Sambee user accounts automatically after successful OIDC authentication. This can (and often should) be gated by group membership so that only members of a specific group are allowed access to Sambee. Similarly, Sambee's user roles are assigned depending on group membership. This makes it possible to centrally manage access to Sambee's user roles (e.g., admin) in your IAM system.
 
@@ -30,7 +30,7 @@ The settings also gained several new category pages:
 - New admin **Network** settings page
 - New admin **SMB** settings page
 
-The about page comes with a feature that way come in handy: creating a **support report** with redacted diagnostic info safe for posting online.
+The about page comes with a feature that may come in handy: creating a **support report** with redacted diagnostic information that's safe to post online.
 
 ### User Management Page: Visibility Update
 
@@ -42,7 +42,7 @@ The refreshed and improved look and feel from settings was applied to the variou
 
 ## Dark Theme Polishing
 
-The dark theme got a good new coat of paint. The colors of all elements, including backgrounds, texts, menus, and dialogs were tweaked to ensure visual clarity and eye-soothing contrasts.
+The dark theme got a good new coat of paint. The colors of all elements, including backgrounds, text, menus, and dialogs, were tweaked to ensure visual clarity and eye-soothing contrasts.
 
 ## Markdown Editor Improvements
 
@@ -52,7 +52,7 @@ The dark theme got a good new coat of paint. The colors of all elements, includi
 
 ## SMB Hardening
 
-Taking a client session isolation bug as cue, SMB connection handling has been thoroughly hardened. New settings let administrators require Kerberos authentication and SMB 3+ transport encryption. SMBv1 remains disabled and SMB signing is required for every connection.
+Taking a client session isolation bug as a cue, SMB connection handling has been thoroughly hardened. New settings let administrators require Kerberos authentication and SMB 3+ transport encryption. SMBv1 remains disabled and SMB signing is required for every connection.
 
 ## Miscellaneous
 
@@ -68,9 +68,9 @@ Taking a client session isolation bug as cue, SMB connection handling has been t
 
 ### Release Workflow v2: Docker & Companion Version Lockstep
 
-Sambee has a sophisticated build and release system (see for yourself, the [docs](../../../developer-guide/release-and-versioning/release-overview/) are public). Previously, releases and version numbers of the Docker image and the Companion app were (deliberately) independent. However, it turned out that it's more efficient and natural to increment the versions of both components in sync.
+Sambee has a sophisticated build and release system (see the public [docs](../../../developer-guide/release-and-versioning/release-overview/)). Previously, releases and version numbers of the Docker image and the Companion app were deliberately independent. However, it turned out that it's more efficient and natural to increment the versions of both components in sync.
 
-This led to quite the architecture change that started with a redefinition of the version number ([details](../../..//developer-guide/release-and-versioning/product-versioning/)), followed by a second step where the release processes were reworked so that they follow a straightforward pattern:
+This led to a significant architectural change that started with a redefinition of the version number ([details](../../../developer-guide/release-and-versioning/product-versioning/)), followed by a second step in which the release processes were reworked to follow a straightforward pattern:
 
  1. Increment the version number.
  1. Create a build with that version (Docker image and/or Companion app).

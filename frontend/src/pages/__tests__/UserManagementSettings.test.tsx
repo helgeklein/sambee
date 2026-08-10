@@ -1296,19 +1296,8 @@ describe("UserManagementSettings", () => {
     expect(await screen.findByRole("option", { name: "unmapped-user" })).toBeInTheDocument();
     await user.click(screen.getByRole("option", { name: "unmapped-user" }));
     expect(targetAccount).toHaveValue("unmapped-user");
-    await user.clear(targetAccount);
-    await user.type(targetAccount, "unmapped");
-    await waitFor(() =>
-      expect(api.getUsers).toHaveBeenLastCalledWith({
-        page: 1,
-        pageSize: 100,
-        q: "unmapped",
-        states: ["active"],
-        oidcStates: ["unlinked"],
-      })
-    );
-
-    await user.keyboard("{Escape}");
+    await user.click(screen.getByRole("button", { name: "Confirm" }));
+    await waitFor(() => expect(api.moveOidcIdentity).toHaveBeenCalledWith("identity-1", 1, "user-2"));
     await waitFor(() => {
       expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
     });

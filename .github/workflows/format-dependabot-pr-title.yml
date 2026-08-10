@@ -1,0 +1,55 @@
+name: Format Dependabot PR Title
+
+on:
+  pull_request_target:
+    types:
+      - opened
+      - synchronize
+
+permissions:
+  pull-requests: write
+
+jobs:
+  format-title:
+    if: github.event.pull_request.user.login == 'dependabot[bot]'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Prefix title
+        uses: actions/github-script@v8
+        with:
+          script: |
+            const branch = context.payload.pull_request.head.ref;
+            const title = context.payload.pull_request.title;
+            const groupPrefixes = [
+              [/backend-python-dev-tools group\b/, "deps-dev(pip)"],
+              [/ci-docker-tools group\b/, "deps(ci)"],
+              [/companion-tauri group\b/, "deps(companion)"],
+            ];
+            const prefixes = [
+              [/^dependabot\/(?:github_actions|gomod)\//, "deps(ci)"],
+              [/^dependabot\/pip\/backend\/backend-python-dev-tools-/, "deps-dev(pip)"],
+              [/^dependabot\/pip\//, "deps(pip)"],
+              [/^dependabot\/(?:npm|npm_and_yarn)\//, "deps(npm)"],
+              [/^dependabot\/cargo\//, "deps(cargo)"],
+              [/^dependabot\/docker\/\.github\/tools\/trivy\//, "deps(ci)"],
+              [/^dependabot\/docker\//, "deps(docker)"],
+              [/^dependabot\/multi-ecosystem\/companion-tauri(?:-|\/)/, "deps(companion)"],
+            ];
+            const prefix =
+              groupPrefixes.find(([pattern]) => pattern.test(title))?.[1] ??
+              prefixes.find(([pattern]) => pattern.test(branch))?.[1];
+            if (!prefix) {
+              core.warning(`No title prefix configured for Dependabot branch: ${branch}`);
+              return;
+            }
+
+            if (title.startsWith(`${prefix}: `)) {
+              return;
+            }
+
+            await github.rest.pulls.update({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              pull_number: context.issue.number,
+              title: `${prefix}: ${title}`,
+            });
