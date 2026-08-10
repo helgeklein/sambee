@@ -95,7 +95,19 @@ export type AdminUserDirectoryRoleSource =
   | "oidc_default"
   | "oidc_groups"
   | "awaiting_oidc_sign_in";
-export type AdminUserDirectorySort = "username" | "role" | "last_sign_in" | "expiration" | "created_at";
+export type AdminUserDirectorySort =
+  | "username"
+  | "role"
+  | "status"
+  | "sign_in"
+  | "last_sign_in"
+  | "expiration"
+  | "email"
+  | "created_at"
+  | "updated_at"
+  | "oidc_state"
+  | "role_source"
+  | "oidc_provider";
 export type SortDirection = "asc" | "desc";
 
 export interface AdminUserListQuery {

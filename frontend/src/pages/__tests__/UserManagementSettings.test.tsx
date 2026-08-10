@@ -681,17 +681,16 @@ describe("UserManagementSettings", () => {
       expect(row.children).toHaveLength(6);
       expect(screen.getByTestId("user-row-role")).toHaveStyle({ width: "fit-content" });
       const sortButtons = within(header).getAllByRole("button", { name: /^Sort by/ });
-      expect(sortButtons).toHaveLength(3);
+      expect(sortButtons).toHaveLength(5);
       for (const sortButton of sortButtons) {
         expect(sortButton).toHaveAttribute("tabindex", "-1");
       }
+      expect(within(header).getByRole("button", { name: "Manage visible columns" })).toHaveAttribute("tabindex", "-1");
 
       await user.tab();
       expect(screen.getByRole("textbox", { name: "Search users" })).toHaveFocus();
       await user.tab();
       expect(screen.getByRole("button", { name: "Filters" })).toHaveFocus();
-      await user.tab();
-      expect(within(header).getByRole("button", { name: "Manage visible columns" })).toHaveFocus();
       await user.tab();
       expect(screen.getByRole("button", { name: "Edit admin" })).toHaveFocus();
       await user.tab();

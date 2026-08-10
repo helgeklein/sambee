@@ -5,7 +5,7 @@ import uuid
 from datetime import datetime, timedelta, timezone
 
 from fastapi import APIRouter, Depends, HTTPException, Query, status
-from sqlalchemy import and_, false, func, not_, or_
+from sqlalchemy import and_, case, false, func, not_, or_
 from sqlmodel import Session, select
 
 from app.core.authorization import Capability
@@ -333,12 +333,68 @@ async def list_users(
         )
         .scalar_subquery()
     )
+    active_identity = (
+        select(OidcIdentity.id)
+        .where(
+            OidcIdentity.user_id == User.id,
+            OidcIdentity.issuer == configuration.issuer_url if configuration is not None else True,
+        )
+        .exists()
+    )
+    active_identity_without_login = (
+        select(OidcIdentity.id)
+        .where(
+            OidcIdentity.user_id == User.id,
+            OidcIdentity.issuer == configuration.issuer_url if configuration is not None else True,
+            OidcIdentity.last_login_at.is_(None),
+        )
+        .exists()
+    )
+    status_sort = case(
+        (User.is_active.is_(False), "disabled"),
+        (and_(User.expires_at.is_not(None), User.expires_at <= now), "expired"),
+        (and_(User.expires_at.is_not(None), User.expires_at <= expiring_soon_at), "expiring soon"),
+        else_="active",
+    )
+    sign_in_sort = case(
+        (and_(User.password_hash.is_not(None), active_identity), "password and oidc"),
+        (active_identity, "oidc"),
+        (User.password_hash.is_not(None), "password"),
+        else_="unavailable",
+    )
+    oidc_state_sort = case(
+        (pending_mapping, "setup pending"),
+        (active_identity, "linked"),
+        else_="unlinked",
+    )
+    role_source_sort = case(
+        (or_(pending_mapping, active_identity_without_login), "awaiting oidc sign-in"),
+        (User.oidc_role_assignment.is_not(None), "individual override"),
+        (
+            active_identity,
+            "oidc groups"
+            if configuration is not None and configuration.role_assignment_mode == OidcRoleAssignmentMode.GROUP_BASED
+            else "oidc default",
+        ),
+        else_="local assignment",
+    )
+    oidc_provider_sort = case(
+        (active_identity, configuration.display_name if configuration is not None else "OIDC"),
+        else_="not linked",
+    )
     sort_columns = {
         AdminUserDirectorySort.USERNAME: func.lower(User.username),
         AdminUserDirectorySort.ROLE: User.role,
+        AdminUserDirectorySort.STATUS: status_sort,
+        AdminUserDirectorySort.SIGN_IN: sign_in_sort,
         AdminUserDirectorySort.LAST_SIGN_IN: last_sign_in,
         AdminUserDirectorySort.EXPIRATION: User.expires_at,
+        AdminUserDirectorySort.EMAIL: func.lower(func.coalesce(User.email, "")),
         AdminUserDirectorySort.CREATED_AT: User.created_at,
+        AdminUserDirectorySort.UPDATED_AT: User.updated_at,
+        AdminUserDirectorySort.OIDC_STATE: oidc_state_sort,
+        AdminUserDirectorySort.ROLE_SOURCE: role_source_sort,
+        AdminUserDirectorySort.OIDC_PROVIDER: oidc_provider_sort,
     }
     sort_column = sort_columns[sort]
     ordering = sort_column.asc().nullslast() if direction == SortDirection.ASC else sort_column.desc().nullslast()

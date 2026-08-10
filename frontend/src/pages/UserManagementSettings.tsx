@@ -1,6 +1,7 @@
 import {
   Add as AddIcon,
   AdminPanelSettings as AdminIcon,
+  ViewWeek as ViewWeekIcon,
   Delete as DeleteIcon,
   Edit as EditIcon,
   FilterList as FilterListIcon,
@@ -10,7 +11,6 @@ import {
   MoreVert as MoreVertIcon,
   Person as PersonIcon,
   RestartAlt as RestartAltIcon,
-  ViewColumn as ViewColumnIcon,
 } from "@mui/icons-material";
 import {
   Autocomplete,
@@ -42,6 +42,8 @@ import {
   Typography,
   useMediaQuery,
   useTheme,
+  type SxProps,
+  type Theme,
 } from "@mui/material";
 import { startTransition, useCallback, useEffect, useId, useMemo, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
@@ -109,6 +111,12 @@ interface UserFormState {
   password: string;
   mustChangePassword: boolean;
   expiresAt: string;
+}
+
+type SingleSxProp = Exclude<SxProps<Theme>, ReadonlyArray<unknown>>;
+
+function combineSx(...styles: SxProps<Theme>[]): SingleSxProp[] {
+  return styles.flatMap((style) => (Array.isArray(style) ? style : [style])) as SingleSxProp[];
 }
 
 interface ResetPasswordFormState {
@@ -257,7 +265,20 @@ const DIRECTORY_ROLE_SOURCE_VALUES: AdminUserDirectoryRoleSource[] = [
   "oidc_groups",
   "awaiting_oidc_sign_in",
 ];
-const DIRECTORY_SORT_VALUES: AdminUserDirectorySort[] = ["username", "role", "last_sign_in", "expiration", "created_at"];
+const DIRECTORY_SORT_VALUES: AdminUserDirectorySort[] = [
+  "username",
+  "role",
+  "status",
+  "sign_in",
+  "last_sign_in",
+  "expiration",
+  "email",
+  "created_at",
+  "updated_at",
+  "oidc_state",
+  "role_source",
+  "oidc_provider",
+];
 const DIRECTORY_DIRECTION_VALUES: SortDirection[] = ["asc", "desc"];
 const DIRECTORY_COLUMN_VALUES: DirectoryColumn[] = [
   "role",
@@ -1142,7 +1163,7 @@ export function UserManagementSettings({ dialogSafeHeader = false }: UserManagem
 
   const editorActions = (
     <Box sx={adminDialogEndActionRowSx}>
-      <Button onClick={closeEditor} disabled={submitting} variant="outlined" sx={[settingsUtilityButtonSx, adminDialogActionButtonSx]}>
+      <Button onClick={closeEditor} disabled={submitting} variant="outlined" sx={combineSx(settingsUtilityButtonSx, adminDialogActionButtonSx)}>
         {t("common.actions.cancel")}
       </Button>
       <Button
@@ -1150,7 +1171,7 @@ export function UserManagementSettings({ dialogSafeHeader = false }: UserManagem
         variant="contained"
         disabled={submitting}
         startIcon={submitting ? <CircularProgress size={18} color="inherit" /> : undefined}
-        sx={[settingsPrimaryButtonSx, adminDialogActionButtonSx]}
+        sx={combineSx(settingsPrimaryButtonSx, adminDialogActionButtonSx)}
       >
         {isEditing ? t("settings.userManagement.actions.saveChanges") : t("settings.userManagement.actions.createUser")}
       </Button>
@@ -1163,7 +1184,7 @@ export function UserManagementSettings({ dialogSafeHeader = false }: UserManagem
         onClick={closeMappingEditor}
         disabled={mappingSubmitting}
         variant="outlined"
-        sx={[settingsUtilityButtonSx, adminDialogActionButtonSx]}
+        sx={combineSx(settingsUtilityButtonSx, adminDialogActionButtonSx)}
       >
         Cancel
       </Button>
@@ -1172,7 +1193,7 @@ export function UserManagementSettings({ dialogSafeHeader = false }: UserManagem
         disabled={mappingSubmitting}
         variant="contained"
         startIcon={mappingSubmitting ? <CircularProgress size={18} color="inherit" /> : undefined}
-        sx={[settingsPrimaryButtonSx, adminDialogActionButtonSx]}
+        sx={combineSx(settingsPrimaryButtonSx, adminDialogActionButtonSx)}
       >
         Confirm
       </Button>
@@ -1594,7 +1615,7 @@ export function UserManagementSettings({ dialogSafeHeader = false }: UserManagem
       <Button
         onClick={() => setCredentialsDialog((current) => ({ ...current, open: false }))}
         variant="contained"
-        sx={[settingsPrimaryButtonSx, adminDialogActionButtonSx]}
+        sx={combineSx(settingsPrimaryButtonSx, adminDialogActionButtonSx)}
       >
         {t("settings.userManagement.actions.close")}
       </Button>
@@ -1626,7 +1647,7 @@ export function UserManagementSettings({ dialogSafeHeader = false }: UserManagem
         onClick={handleResetPasswordEditorClose}
         disabled={resetPasswordSubmitting}
         variant="outlined"
-        sx={[settingsUtilityButtonSx, adminDialogActionButtonSx]}
+        sx={combineSx(settingsUtilityButtonSx, adminDialogActionButtonSx)}
       >
         {t("common.actions.cancel")}
       </Button>
@@ -1637,7 +1658,7 @@ export function UserManagementSettings({ dialogSafeHeader = false }: UserManagem
         variant="contained"
         disabled={resetPasswordSubmitting}
         startIcon={resetPasswordSubmitting ? <CircularProgress size={18} color="inherit" /> : undefined}
-        sx={[settingsPrimaryButtonSx, adminDialogActionButtonSx]}
+        sx={combineSx(settingsPrimaryButtonSx, adminDialogActionButtonSx)}
       >
         {t("settings.userManagement.resetPasswordEditor.submit")}
       </Button>
@@ -1760,7 +1781,12 @@ export function UserManagementSettings({ dialogSafeHeader = false }: UserManagem
           <Stack
             direction="row"
             spacing={1}
-            sx={{ gridColumn: { xs: "1 / -1", sm: 2 }, justifyContent: { xs: "space-between", sm: "flex-start" }, justifySelf: "start", width: { xs: "100%", sm: "auto" } }}
+            sx={{
+              gridColumn: { xs: "1 / -1", sm: 2 },
+              justifyContent: { xs: "space-between", sm: "flex-start" },
+              justifySelf: "start",
+              width: { xs: "100%", sm: "auto" },
+            }}
           >
             <Stack direction="row" spacing={1}>
               <Button
@@ -1769,7 +1795,7 @@ export function UserManagementSettings({ dialogSafeHeader = false }: UserManagem
                 startIcon={<FilterListIcon />}
                 variant="outlined"
                 onClick={(event) => setFilterAnchor(event.currentTarget)}
-                sx={[settingsUtilityButtonSx, { fontSize: DIRECTORY_SECONDARY_CONTROL_FONT_SIZE, width: "fit-content" }]}
+                sx={combineSx(settingsUtilityButtonSx, { fontSize: DIRECTORY_SECONDARY_CONTROL_FONT_SIZE, width: "fit-content" })}
               >
                 {activeDirectoryFilterCount ? `Filters (${activeDirectoryFilterCount})` : "Filters"}
               </Button>
@@ -1945,7 +1971,7 @@ export function UserManagementSettings({ dialogSafeHeader = false }: UserManagem
             {directoryQuery.states.map((state) => (
               <Chip
                 key={state}
-                label={`Status: ${state === "expiring_soon" ? "Expiring soon" : state[0].toUpperCase() + state.slice(1)}`}
+                label={`Status: ${state === "expiring_soon" ? "Expiring soon" : state.slice(0, 1).toUpperCase() + state.slice(1)}`}
                 onDelete={() => updateDirectoryQuery({ states: directoryQuery.states.filter((value) => value !== state) })}
                 size="small"
                 tabIndex={-1}
@@ -1955,7 +1981,7 @@ export function UserManagementSettings({ dialogSafeHeader = false }: UserManagem
             {directoryQuery.authentication.map((authentication) => (
               <Chip
                 key={authentication}
-                label={`Sign-in: ${authentication === "password_and_oidc" ? "Password + OIDC" : authentication[0].toUpperCase() + authentication.slice(1)}`}
+                label={`Sign-in: ${authentication === "password_and_oidc" ? "Password + OIDC" : authentication.slice(0, 1).toUpperCase() + authentication.slice(1)}`}
                 onDelete={() =>
                   updateDirectoryQuery({ authentication: directoryQuery.authentication.filter((value) => value !== authentication) })
                 }
@@ -1968,7 +1994,7 @@ export function UserManagementSettings({ dialogSafeHeader = false }: UserManagem
               directoryQuery.oidcStates.map((oidcState) => (
                 <Chip
                   key={oidcState}
-                  label={`OIDC: ${oidcState === "pending" ? "Setup pending" : oidcState[0].toUpperCase() + oidcState.slice(1)}`}
+                  label={`OIDC: ${oidcState === "pending" ? "Setup pending" : oidcState.slice(0, 1).toUpperCase() + oidcState.slice(1)}`}
                   onDelete={() => updateDirectoryQuery({ oidcStates: directoryQuery.oidcStates.filter((value) => value !== oidcState) })}
                   size="small"
                   tabIndex={-1}
@@ -1979,7 +2005,7 @@ export function UserManagementSettings({ dialogSafeHeader = false }: UserManagem
               directoryQuery.roleSources.map((roleSource) => (
                 <Chip
                   key={roleSource}
-                  label={`Role source: ${roleSource.replaceAll("_", " ")}`}
+                  label={`Role source: ${roleSource.replace(/_/g, " ")}`}
                   onDelete={() => updateDirectoryQuery({ roleSources: directoryQuery.roleSources.filter((value) => value !== roleSource) })}
                   size="small"
                   tabIndex={-1}
@@ -2017,7 +2043,7 @@ export function UserManagementSettings({ dialogSafeHeader = false }: UserManagem
                 ...directoryRowGridSx,
                 display: { xs: "none", md: "grid" },
                 px: 0,
-                py: 1,
+                py: 0.75,
                 borderBottom: 1,
                 borderColor: "divider",
               }}
@@ -2041,6 +2067,7 @@ export function UserManagementSettings({ dialogSafeHeader = false }: UserManagem
               {visibleDirectoryColumns.includes("status") && (
                 <DirectoryColumnHeader
                   label="Status"
+                  sort="status"
                   activeSort={directoryQuery.sort}
                   direction={directoryQuery.direction}
                   onSort={handleDirectorySort}
@@ -2049,6 +2076,7 @@ export function UserManagementSettings({ dialogSafeHeader = false }: UserManagem
               {visibleDirectoryColumns.includes("signIn") && (
                 <DirectoryColumnHeader
                   label="Sign-in"
+                  sort="sign_in"
                   activeSort={directoryQuery.sort}
                   direction={directoryQuery.direction}
                   onSort={handleDirectorySort}
@@ -2075,6 +2103,7 @@ export function UserManagementSettings({ dialogSafeHeader = false }: UserManagem
               {visibleDirectoryColumns.includes("email") && (
                 <DirectoryColumnHeader
                   label="Email"
+                  sort="email"
                   activeSort={directoryQuery.sort}
                   direction={directoryQuery.direction}
                   onSort={handleDirectorySort}
@@ -2092,6 +2121,7 @@ export function UserManagementSettings({ dialogSafeHeader = false }: UserManagem
               {visibleDirectoryColumns.includes("updatedAt") && (
                 <DirectoryColumnHeader
                   label="Last updated"
+                  sort="updated_at"
                   activeSort={directoryQuery.sort}
                   direction={directoryQuery.direction}
                   onSort={handleDirectorySort}
@@ -2100,6 +2130,7 @@ export function UserManagementSettings({ dialogSafeHeader = false }: UserManagem
               {visibleDirectoryColumns.includes("oidcState") && (
                 <DirectoryColumnHeader
                   label="OIDC state"
+                  sort="oidc_state"
                   activeSort={directoryQuery.sort}
                   direction={directoryQuery.direction}
                   onSort={handleDirectorySort}
@@ -2108,6 +2139,7 @@ export function UserManagementSettings({ dialogSafeHeader = false }: UserManagem
               {visibleDirectoryColumns.includes("roleSource") && (
                 <DirectoryColumnHeader
                   label="Role source"
+                  sort="role_source"
                   activeSort={directoryQuery.sort}
                   direction={directoryQuery.direction}
                   onSort={handleDirectorySort}
@@ -2116,12 +2148,13 @@ export function UserManagementSettings({ dialogSafeHeader = false }: UserManagem
               {visibleDirectoryColumns.includes("oidcProvider") && (
                 <DirectoryColumnHeader
                   label="OIDC provider"
+                  sort="oidc_provider"
                   activeSort={directoryQuery.sort}
                   direction={directoryQuery.direction}
                   onSort={handleDirectorySort}
                 />
               )}
-              <Box role="columnheader" sx={{ display: "flex", justifyContent: "flex-end" }}>
+              <Box role="columnheader" sx={{ alignItems: "center", display: "flex", justifyContent: "flex-end" }}>
                 {usesDesktopFormLayout && (
                   <Tooltip title="Manage visible columns">
                     <IconButton
@@ -2129,9 +2162,10 @@ export function UserManagementSettings({ dialogSafeHeader = false }: UserManagem
                       aria-haspopup="menu"
                       aria-label="Manage visible columns"
                       onClick={(event) => setColumnsAnchor(event.currentTarget)}
-                      sx={DIRECTORY_COLUMNS_ICON_BUTTON_SX}
+                      sx={{ ...DIRECTORY_COLUMNS_ICON_BUTTON_SX, height: 28, p: 0, width: 28 }}
+                      tabIndex={-1}
                     >
-                      <ViewColumnIcon />
+                      <ViewWeekIcon />
                     </IconButton>
                   </Tooltip>
                 )}
@@ -2192,7 +2226,7 @@ export function UserManagementSettings({ dialogSafeHeader = false }: UserManagem
                               icon={user.role === "admin" ? <AdminIcon /> : <PersonIcon />}
                               label={roleLabel(user.role)}
                               variant="outlined"
-                              sx={[settingsMetadataChipSx, { flex: "0 1 auto", maxWidth: "100%", width: "fit-content" }]}
+                              sx={combineSx(settingsMetadataChipSx, { flex: "0 1 auto", maxWidth: "100%", width: "fit-content" })}
                             />
                           </Stack>
                         </DirectoryRowCell>
@@ -2370,7 +2404,7 @@ export function UserManagementSettings({ dialogSafeHeader = false }: UserManagem
                 page={directoryQuery.page}
                 count={Math.max(1, Math.ceil(directorySummary.total / directoryQuery.pageSize))}
                 onChange={(_, page) => updateDirectoryQuery({ page }, false)}
-                renderItem={(item) => <PaginationItem {...item} tabIndex={item.type === "page" ? -1 : item.tabIndex} />}
+                renderItem={(item) => <PaginationItem {...item} tabIndex={item.type === "page" ? -1 : undefined} />}
                 size="small"
               />
             </Stack>
@@ -2488,7 +2522,7 @@ export function UserManagementSettings({ dialogSafeHeader = false }: UserManagem
         title={oidcDetailsUser ? `OIDC identity details for ${oidcDetailsUser.username}` : "OIDC identity details"}
         actions={
           <Box sx={adminDialogEndActionRowSx}>
-            <Button onClick={() => setOidcDetailsUser(null)} variant="contained" sx={[settingsPrimaryButtonSx, adminDialogActionButtonSx]}>
+            <Button onClick={() => setOidcDetailsUser(null)} variant="contained" sx={combineSx(settingsPrimaryButtonSx, adminDialogActionButtonSx)}>
               Close
             </Button>
           </Box>

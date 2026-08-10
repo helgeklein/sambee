@@ -1,6 +1,7 @@
 import uuid
 from datetime import datetime, timezone
 from enum import StrEnum
+from typing import overload
 
 from pydantic import model_validator
 from sqlalchemy import Column
@@ -45,9 +46,16 @@ class AdminUserDirectoryRoleSource(StrEnum):
 class AdminUserDirectorySort(StrEnum):
     USERNAME = "username"
     ROLE = "role"
+    STATUS = "status"
+    SIGN_IN = "sign_in"
     LAST_SIGN_IN = "last_sign_in"
     EXPIRATION = "expiration"
+    EMAIL = "email"
     CREATED_AT = "created_at"
+    UPDATED_AT = "updated_at"
+    OIDC_STATE = "oidc_state"
+    ROLE_SOURCE = "role_source"
+    OIDC_PROVIDER = "oidc_provider"
 
 
 class SortDirection(StrEnum):
@@ -228,6 +236,14 @@ class AdminUserPasswordResetResult(SQLModel):
 class PasswordChangeRequest(SQLModel):
     current_password: str
     new_password: str
+
+
+@overload
+def normalize_utc_datetime(value: datetime) -> datetime: ...
+
+
+@overload
+def normalize_utc_datetime(value: None) -> None: ...
 
 
 def normalize_utc_datetime(value: datetime | None) -> datetime | None:
