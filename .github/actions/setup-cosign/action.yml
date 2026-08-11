@@ -1,0 +1,16 @@
+name: Setup Cosign
+description: Install the reviewed Cosign release with checksum verification.
+
+inputs:
+  install-dir:
+    description: Directory where the Cosign binary should be installed.
+    required: true
+
+runs:
+  using: composite
+  steps:
+    - name: Install Cosign
+      shell: bash
+      run: |
+        bash "$GITHUB_ACTION_PATH/../../scripts/install_cosign.sh" "${{ inputs.install-dir }}"
+        echo "${{ inputs.install-dir }}" >> "$GITHUB_PATH"
