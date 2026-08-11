@@ -5,7 +5,7 @@
   <div class="grid gap-0 md:grid-cols-3">
     {{ range $section.items }}
     <article class="home-problem-card">
-      <div class="eyebrow-row home-problem-row home-problem-row--{{ .id }}">
+      <div class="eyebrow-row home-problem-row">
         <span class="home-problem-icon" aria-hidden="true"><span class="material-symbols-outlined home-problem-symbol h-5 w-5">{{ .icon | default "apps" }}</span></span>
         <span class="type-label-eyebrow-strong eyebrow-inline home-problem-eyebrow">{{ .eyebrow }}</span>
       </div>
