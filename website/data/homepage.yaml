@@ -5,8 +5,8 @@ meta:
 hero:
   enabled: true
   kicker: Free and Open Source Software Designed for Self-Hosting
-  title: Browser-based file access for SMB shares and local drives
-  subtitle: Explore, preview, and manage files directly in the browser.
+  title: SMB and local files, in your browser
+  subtitle: Turn your storage into a modern workspace—no migration, syncing, or cloud required.
   ctas:
     - id: hero-primary
       label: Deploy with Docker
@@ -22,29 +22,22 @@ problem_value:
   items:
     - id: problem
       icon: cloud_lock
-      eyebrow: The Problem
-      title: Cloud Lock-In
+      eyebrow: No Lock-In
+      title: Use the storage you have
       body: >-
-        Cloud-first file access tools are not the right fit for every
-        environment. Many teams want browser access to internal files without
-        giving up infrastructure control or pushing storage into the cloud.
+        Connect to existing Windows file servers, NAS devices, or local drives instantly. No syncing, re-indexing, or proprietary databases—just fast, browser-based access to your files exactly where they live.
     - id: gap
       icon: horizontal_distribute
-      eyebrow: The Gap
-      title: Legacy Tools
+      eyebrow: Seamless Workflows
+      title: Edit in your apps
       body: >-
-        Traditional file managers still work well on local desktops, but they
-        are less suited to browser-based work styles and mobile access. Sambee
-        closes that gap by bringing SMB shares and local drives into the
-        browser.
+        Open files from the browser directly into Word, Photoshop, or your favorite installed apps via Sambee Companion. Hit save, and your edits automatically write back to the network share.
     - id: value
       icon: verified_user
-      eyebrow: The Value
-      title: Convenience & Control
+      eyebrow: Security & Control
+      title: SSO. Your permissions.
       body: >-
-        Use Sambee when you want cloud-like convenience for browsing and
-        previewing files, but need deployment, access, and storage to stay
-        under your control.
+        Authenticate your team securely with modern OIDC Single Sign-On. As a self-hosted platform, Sambee strictly respects your existing Windows and POSIX file permissions, keeping your data secure and audit-ready.
 
 ui_screenshot:
   enabled: true
@@ -103,6 +96,17 @@ features:
           body: Connect to Windows file servers, NAS devices, Samba servers, and other SMB-compatible storage.
         - title: Local drives
           body: Connect to local drives (requires the optional Sambee Companion app).
+    - id: identity_access
+      icon: shield_person
+      title: Identity & access
+      summary: Use your identity provider. Keep control in-house.
+      items:
+        - title: OIDC single sign-on
+          body: Connect Sambee to your OIDC identity provider, including Keycloak and Authelia.
+        - title: Roles from your IdP
+          body: Admit users and assign Administrator, Editor, or Viewer roles from identity-provider groups.
+        - title: Easy, secure rollout
+          body: Start with OIDC alongside local passwords, then switch to passwordless OIDC-only sign-in when ready.
     - id: navigate
       icon: route
       title: Navigate
