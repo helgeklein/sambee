@@ -20,24 +20,24 @@ hero:
 problem_value:
   enabled: true
   items:
-    - id: problem
+    - id: value1
       icon: cloud_lock
       eyebrow: No Lock-In
       title: Use the storage you have
       body: >-
-        Connect to existing Windows file servers, NAS devices, or local drives instantly. No syncing, re-indexing, or proprietary databases—just fast, browser-based access to your files exactly where they live.
-    - id: gap
-      icon: horizontal_distribute
+        Connect to the Windows file servers, NAS devices, and local drives you already use. No syncing, re-indexing, or proprietary database.
+    - id: value2
+      icon: laptop_windows
       eyebrow: Seamless Workflows
       title: Edit in your apps
       body: >-
-        Open files from the browser directly into Word, Photoshop, or your favorite installed apps via Sambee Companion. Hit save, and your edits automatically write back to the network share.
-    - id: value
+        Open files in Word, Photoshop, and other installed apps. When you save, changes go straight back to the original share.
+    - id: value3
       icon: verified_user
       eyebrow: Security & Control
-      title: SSO. Your permissions.
+      title: "SSO: Your permissions"
       body: >-
-        Authenticate your team securely with modern OIDC Single Sign-On. As a self-hosted platform, Sambee strictly respects your existing Windows and POSIX file permissions, keeping your data secure and audit-ready.
+        Use OIDC single sign-on while Sambee honors your existing Windows or Linux/POSIX permissions.
 
 ui_screenshot:
   enabled: true
@@ -90,7 +90,7 @@ features:
     - id: access
       icon: folder_managed
       title: Access
-      summary: Connect Sambee to your existing storage. Access local drives in the same way as remote SMB shares.
+      summary: One interface for the storage you already run.
       items:
         - title: SMB shares
           body: Connect to Windows file servers, NAS devices, Samba servers, and other SMB-compatible storage.
@@ -99,7 +99,7 @@ features:
     - id: identity_access
       icon: shield_person
       title: Identity & access
-      summary: Use your identity provider. Keep control in-house.
+      summary: Your identity provider. Your access rules.
       items:
         - title: OIDC single sign-on
           body: Connect Sambee to your OIDC identity provider, including Keycloak and Authelia.
@@ -110,7 +110,7 @@ features:
     - id: navigate
       icon: route
       title: Navigate
-      summary: Move through large file trees quickly with an interface built for speed.
+      summary: Move through large file trees without digging through folders.
       items:
         - title: Single-pane and dual-pane layouts
           body: Switch between focused browsing and side-by-side workflows depending on whether you are reviewing, comparing, or moving files.

@@ -101,15 +101,7 @@ Problem / Value
   }
 }
 
-.home-problem-row--problem {
-  @apply text-red-700 dark:text-red-300;
-}
-
-.home-problem-row--gap {
-  @apply text-clr-text-light dark:text-clr-darkmode-text-light;
-}
-
-.home-problem-row--value {
+.home-problem-row {
   @apply text-clr-action-text dark:text-clr-darkmode-action-text;
 }
 
