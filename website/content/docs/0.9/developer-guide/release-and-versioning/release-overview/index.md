@@ -65,13 +65,12 @@ To publish a candidate build after testing and validation, complete the followin
 1. Run `Release: Create Public Sambee Release`. Specify:
    - the validated canonical build version.
    - the intended scope: `docker`, `companion`, or `both`.
-   - whether to publish the resulting draft release in the Sambee GitHub repo,
-1. The workflow creates a release in the Sambee GitHub repo, either as draft or published.
-1. If you didn't select automatic publishing above, publish the draft release manually.
+1. The workflow creates or verifies a draft release in the Sambee GitHub repo.
+1. Review and edit the draft release's changelog, then publish it manually.
 
 If you selected `docker` or `both`:
 
-- Release publication triggers [Release: Publish Docker Image](../promote-docker-image/)
+- Publishing the reviewed draft triggers [Release: Publish Docker Image](../promote-docker-image/) through the GitHub Release event.
    - The workflow tags the image built earlier as `beta` (if not ahead) and `stable`, and adds `X.Y` a version tag.
 
 If you selected `companion` or `both`:
