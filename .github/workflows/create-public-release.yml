@@ -15,11 +15,6 @@ on:
           - docker
           - companion
           - both
-      publish:
-        description: Publish the validated draft release and trigger Docker promotion.
-        required: true
-        default: false
-        type: boolean
 
 permissions:
   contents: write
@@ -109,9 +104,3 @@ jobs:
             --metadata-file "$existing_dir/sambee-release.json" \
             --component "$([[ "$COMPONENT_SCOPE" == companion ]] && echo companion || echo docker)" \
             --version "$VERSION" --build-tag "$BUILD_TAG" --source-sha "$SOURCE_SHA"
-
-      - name: Publish validated public release
-        if: ${{ inputs.publish }}
-        env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        run: gh release edit "${{ steps.public-tag.outputs.release_tag }}" --draft=false
