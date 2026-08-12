@@ -98,7 +98,7 @@ features:
           body: Connect to local drives (requires the optional Sambee Companion app).
     - id: identity_access
       icon: shield_person
-      title: Identity & access
+      title: Identity & permissions
       summary: Your identity provider. Your access rules.
       items:
         - title: OIDC single sign-on
