@@ -1,5 +1,5 @@
 import { Add as AddIcon, Cancel as CancelIcon } from "@mui/icons-material";
-import { Button, Checkbox, Chip, FormControlLabel, Stack, TextField } from "@mui/material";
+import { Button, Checkbox, Chip, FormControl, FormControlLabel, FormGroup, FormLabel, Stack, TextField } from "@mui/material";
 import { useEffect, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { SettingsFieldHelp } from "../components/Settings/SettingsFieldHelp";
@@ -153,7 +153,6 @@ export function FileSearchSettings() {
     >
       <SettingsGroup title={t("settings.fileSearch.title")}>
         <Stack spacing={2} sx={{ maxWidth: 480 }}>
-          <SettingsFieldHelp>{t(`settings.fileSearch.source.${source}`)}</SettingsFieldHelp>
           <TextField
             label={t("settings.fileSearch.retentionLimit")}
             type="number"
@@ -182,24 +181,43 @@ export function FileSearchSettings() {
               }))
             }
           />
-          <FormControlLabel
-            control={
-              <Checkbox
-                checked={settings.excluded_categories.includes("images")}
-                onChange={(event) => updateCategories("images", event.target.checked)}
+          <FormControl
+            component="fieldset"
+            variant="standard"
+            sx={{
+              bgcolor: "action.hover",
+              border: 1,
+              borderColor: "divider",
+              borderRadius: 1,
+              px: 1.5,
+              py: 1,
+            }}
+          >
+            <FormLabel component="legend" sx={{ color: "text.primary", fontSize: "0.875rem", fontWeight: 500 }}>
+              {t("settings.fileSearch.excludedCategories")}
+            </FormLabel>
+            <SettingsFieldHelp>{t("settings.fileSearch.excludedCategoriesHelp")}</SettingsFieldHelp>
+            <FormGroup sx={{ gap: 0.25, mt: 0.5 }}>
+              <FormControlLabel
+                control={
+                  <Checkbox
+                    checked={settings.excluded_categories.includes("images")}
+                    onChange={(event) => updateCategories("images", event.target.checked)}
+                  />
+                }
+                label={t("settings.fileSearch.excludeImages")}
               />
-            }
-            label={t("settings.fileSearch.excludeImages")}
-          />
-          <FormControlLabel
-            control={
-              <Checkbox
-                checked={settings.excluded_categories.includes("temporary_backup")}
-                onChange={(event) => updateCategories("temporary_backup", event.target.checked)}
+              <FormControlLabel
+                control={
+                  <Checkbox
+                    checked={settings.excluded_categories.includes("temporary_backup")}
+                    onChange={(event) => updateCategories("temporary_backup", event.target.checked)}
+                  />
+                }
+                label={t("settings.fileSearch.excludeTemporaryBackup")}
               />
-            }
-            label={t("settings.fileSearch.excludeTemporaryBackup")}
-          />
+            </FormGroup>
+          </FormControl>
           <Stack spacing={1}>
             <TextField
               label={t("settings.fileSearch.excludedExtensionsInputLabel")}

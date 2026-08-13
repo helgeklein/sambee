@@ -1,10 +1,11 @@
-import { Button, Checkbox, FormControlLabel, Typography } from "@mui/material";
+import { Button, Checkbox, FormControlLabel } from "@mui/material";
 import { useEffect, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { ResponsiveFormDialog } from "../components/Admin/ResponsiveFormDialog";
 import { SettingsFieldHelp } from "../components/Settings/SettingsFieldHelp";
 import { SettingsGroup } from "../components/Settings/SettingsGroup";
 import { SettingsPage } from "../components/Settings/SettingsPage";
+import { settingsDestructiveButtonSx, settingsUtilityButtonSx } from "../components/Settings/settingsButtonStyles";
 import api from "../services/api";
 import { publishRecentFilesChanged } from "../services/recentFilesSync";
 import { useQuickNavIncludeDotDirectoriesPreference } from "./FileBrowser/preferences";
@@ -63,7 +64,7 @@ export function FileBrowserSettings() {
         </Button>
       }
     >
-      <SettingsGroup title={t("settings.fileBrowserPage.quickNavigationTitle")}>
+      <SettingsGroup title={t("settings.fileBrowserPage.quickNavigationTitle")} sx={{ mb: 3 }}>
         <FormControlLabel
           control={
             <Checkbox checked={draftIncludeDotDirectories} onChange={(event) => updateDraftIncludeDotDirectories(event.target.checked)} />
@@ -77,6 +78,7 @@ export function FileBrowserSettings() {
         <Button
           color="error"
           variant="outlined"
+          sx={{ alignSelf: "flex-start" }}
           onClick={() => {
             setClearRecentFilesError(null);
             setClearRecentFilesOpen(true);
@@ -95,16 +97,26 @@ export function FileBrowserSettings() {
         description={t("settings.fileBrowserPage.clearRecentFilesDescription")}
         actions={
           <>
-            <Button disabled={clearingRecentFiles} onClick={() => setClearRecentFilesOpen(false)}>
+            <Button
+              variant="outlined"
+              sx={settingsUtilityButtonSx}
+              disabled={clearingRecentFiles}
+              onClick={() => setClearRecentFilesOpen(false)}
+            >
               {t("common.actions.cancel")}
             </Button>
-            <Button color="error" variant="contained" disabled={clearingRecentFiles} onClick={() => void clearRecentFiles()}>
+            <Button
+              color="error"
+              variant="contained"
+              sx={settingsDestructiveButtonSx}
+              disabled={clearingRecentFiles}
+              onClick={() => void clearRecentFiles()}
+            >
               {t("settings.fileBrowserPage.clearRecentFiles")}
             </Button>
           </>
         }
       >
-        <Typography variant="body2">{t("settings.fileBrowserPage.clearRecentFilesNoFileImpact")}</Typography>
         {clearRecentFilesError ? <SettingsFieldHelp sx={{ color: "error.main" }}>{clearRecentFilesError}</SettingsFieldHelp> : null}
       </ResponsiveFormDialog>
     </SettingsPage>

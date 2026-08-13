@@ -72,6 +72,17 @@ describe("FileSearchSettings", () => {
     expect(publishRecentFilesChangedMock).toHaveBeenCalledOnce();
   });
 
+  it("groups category exclusions and omits the policy-source message", async () => {
+    render(<FileSearchSettings />);
+
+    const categoryGroup = await screen.findByRole("group", { name: "Exclude file categories" });
+    expect(categoryGroup).toContainElement(screen.getByRole("checkbox", { name: "Exclude images" }));
+    expect(categoryGroup).toContainElement(screen.getByRole("checkbox", { name: "Exclude temporary and backup files" }));
+    expect(screen.getByText("Excluded files are omitted from File Search results and history.")).toBeInTheDocument();
+    expect(screen.queryByText("Using built-in defaults.")).not.toBeInTheDocument();
+    expect(screen.queryByText("Using the system override.")).not.toBeInTheDocument();
+  });
+
   it("removes an extension from the list and rejects invalid literal entries", async () => {
     const user = userEvent.setup();
     vi.mocked(api.getFileSearchSettings).mockResolvedValue({
@@ -97,7 +108,6 @@ describe("FileSearchSettings", () => {
     });
     render(<FileSearchSettings />);
 
-    await screen.findByText("Using the system override.");
     await user.click(screen.getByRole("button", { name: "Reset to default" }));
 
     await waitFor(() => expect(api.updateFileSearchSettings).toHaveBeenCalledWith({ reset_to_default: true }));

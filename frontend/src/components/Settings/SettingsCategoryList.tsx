@@ -5,6 +5,7 @@ import {
   FolderOpen as FolderOpenIcon,
   InfoOutlined as InfoOutlinedIcon,
   ManageAccounts as ManageAccountsIcon,
+  ManageSearch as ManageSearchIcon,
   Palette as PaletteIcon,
   PeopleAlt as PeopleAltIcon,
   Public as PublicIcon,
@@ -129,6 +130,8 @@ function renderCategoryIcon(item: SettingsNavItem, iconGlyphSx?: SxProps<Theme>)
       return <PeopleAltIcon sx={iconGlyphSx} />;
     case "admin-smb":
       return <DnsIcon sx={iconGlyphSx} />;
+    case "admin-file-search":
+      return <ManageSearchIcon sx={iconGlyphSx} />;
     case "admin-system":
       return <TuneIcon sx={iconGlyphSx} />;
     case "admin-about":

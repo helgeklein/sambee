@@ -239,8 +239,8 @@ export const EN_TRANSLATIONS = {
       includeDotDirectoriesDescription: "Show folders like .git, .cache, and other dot-prefixed directories in quick navigation results.",
       fileSearchTitle: "File Search",
       clearRecentFiles: "Clear recent files",
-      clearRecentFilesDescription: "This permanently removes your File Search history from the server.",
-      clearRecentFilesNoFileImpact: "This does not affect any files or folders.",
+      clearRecentFilesDescription:
+        "This permanently removes your File Search history from the server without affecting any files or folders.",
       clearRecentFilesFailed: "Could not clear recent files. Please try again.",
     },
     textEditorPage: {
@@ -644,6 +644,8 @@ export const EN_TRANSLATIONS = {
       retentionLimitError: "Enter a whole number from 0 to 500.",
       resultLimit: "Results per group",
       resultLimitError: "Enter a whole number from 1 to 50.",
+      excludedCategories: "Exclude file categories",
+      excludedCategoriesHelp: "Excluded files are omitted from File Search results and history.",
       excludeImages: "Exclude images",
       excludeTemporaryBackup: "Exclude temporary and backup files",
       excludedExtensions: "Excluded extensions",
@@ -654,10 +656,6 @@ export const EN_TRANSLATIONS = {
       excludedExtensionsHelp: "Enter one literal extension. Glob patterns and paths are not supported.",
       excludedExtensionsNormalization: "Will be saved as {{extension}}.",
       excludedExtensionsRemove: "Remove {{extension}}",
-      source: {
-        default: "Using built-in defaults.",
-        database: "Using the system override.",
-      },
     },
   },
   fileBrowser: {

@@ -59,7 +59,12 @@ describe("FileBrowserSettings", () => {
     trigger.focus();
     await user.click(trigger);
 
-    expect(screen.getByRole("dialog")).toBeInTheDocument();
+    const dialog = screen.getByRole("dialog");
+    expect(dialog).toHaveTextContent(
+      "This permanently removes your File Search history from the server without affecting any files or folders."
+    );
+    expect(dialog).not.toHaveTextContent("This does not affect any files or folders.");
+    expect(within(dialog).getByRole("button", { name: "Cancel" })).toHaveClass("MuiButton-outlined");
     await user.keyboard("{Escape}");
 
     await waitFor(() => {
