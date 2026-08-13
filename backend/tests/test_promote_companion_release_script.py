@@ -145,7 +145,9 @@ def test_verify_release_integrity_rejects_unmanifested_release_asset(
 
     with pytest.raises(SystemExit):
         MODULE.verify_release_integrity(release, assets)
-    assert "unexpected or missing assets" in capsys.readouterr().err
+    error_output = capsys.readouterr().err
+    assert "unexpected or missing assets" in error_output
+    assert "unexpected: unexpected.bin" in error_output
 
 
 def test_verify_release_integrity_rejects_missing_manifested_release_asset(
@@ -157,7 +159,9 @@ def test_verify_release_integrity_rejects_missing_manifested_release_asset(
 
     with pytest.raises(SystemExit):
         MODULE.verify_release_integrity(release, assets)
-    assert "unexpected or missing assets" in capsys.readouterr().err
+    error_output = capsys.readouterr().err
+    assert "unexpected or missing assets" in error_output
+    assert "missing: Sambee_1.2.3_x64-setup.exe.sig" in error_output
 
 
 def test_verify_release_integrity_rejects_release_version_mismatch(

@@ -294,7 +294,17 @@ def verify_release_integrity(
     }
     actual_names = {str(asset.get("name") or "") for asset in assets}
     if actual_names != allowed_names:
-        fail("Companion release contains unexpected or missing assets")
+        missing_names = sorted(allowed_names - actual_names)
+        unexpected_names = sorted(actual_names - allowed_names)
+        details = []
+        if missing_names:
+            details.append(f"missing: {', '.join(missing_names)}")
+        if unexpected_names:
+            details.append(f"unexpected: {', '.join(unexpected_names)}")
+        fail(
+            "Companion release contains unexpected or missing assets "
+            f"({'; '.join(details)})"
+        )
     for name, expected_asset in expected_by_name.items():
         asset = asset_by_name(assets, name)
         content = request_asset_bytes(asset, token)
