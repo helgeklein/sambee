@@ -14,7 +14,14 @@ from typing import Any, NoReturn
 SCHEMA_VERSION = 1
 ARTIFACT_MANIFEST_NAME = "companion-artifact-manifest.json"
 RELEASE_MANIFEST_NAME = "companion-release-manifest.json"
-MANIFEST_NAMES = {ARTIFACT_MANIFEST_NAME, RELEASE_MANIFEST_NAME}
+RELEASE_PROVENANCE_NAME = "companion-release-provenance.json"
+COMPLETION_MARKER_NAME = "companion-completion-marker.json"
+NON_PACKAGE_ASSET_NAMES = {
+    ARTIFACT_MANIFEST_NAME,
+    RELEASE_MANIFEST_NAME,
+    RELEASE_PROVENANCE_NAME,
+    COMPLETION_MARKER_NAME,
+}
 
 PLATFORM_REQUIREMENTS = {
     "linux-x64": {
@@ -89,7 +96,7 @@ def create_manifest(
 
     assets = []
     for path in sorted(artifact_dir.rglob("*")):
-        if not path.is_file() or path.name in MANIFEST_NAMES:
+        if not path.is_file() or path.name in NON_PACKAGE_ASSET_NAMES:
             continue
         assets.append(
             {
@@ -160,7 +167,7 @@ def validate_manifest(manifest: dict[str, Any], artifact_dir: Path) -> None:
     actual_names = {
         path.name
         for path in artifact_dir.rglob("*")
-        if path.is_file() and path.name not in MANIFEST_NAMES
+        if path.is_file() and path.name not in NON_PACKAGE_ASSET_NAMES
     }
     if actual_names != expected_names:
         fail("Companion artifact manifest does not cover exactly its package assets")

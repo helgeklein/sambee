@@ -59,6 +59,19 @@ def test_verify_rejects_tampered_retained_asset(tmp_path: Path) -> None:
         MODULE.verify_manifests(tmp_path, tmp_path / MODULE.RELEASE_MANIFEST_NAME)
 
 
+def test_verify_ignores_release_control_metadata(tmp_path: Path) -> None:
+    artifact_dir = make_windows_artifact(tmp_path / "windows")
+    MODULE.create_manifest(
+        artifact_dir,
+        "windows-x64",
+        "x86_64-pc-windows-msvc",
+        artifact_dir / MODULE.ARTIFACT_MANIFEST_NAME,
+    )
+    (artifact_dir / MODULE.RELEASE_PROVENANCE_NAME).write_text("{}", encoding="utf-8")
+
+    MODULE.verify_manifests(tmp_path, tmp_path / MODULE.RELEASE_MANIFEST_NAME)
+
+
 def test_verify_aggregates_multiple_platforms_with_a_stable_digest(tmp_path: Path) -> None:
     linux_dir = make_linux_artifact(tmp_path / "linux")
     windows_dir = make_windows_artifact(tmp_path / "windows")
