@@ -243,6 +243,50 @@ export interface AdvancedSystemSettingsUpdate {
   reset_keys?: string[];
 }
 
+export type FileSearchExclusionCategory = "images" | "temporary_backup";
+
+export interface FileSearchSettings {
+  retention_limit: number;
+  result_limit: number;
+  excluded_categories: FileSearchExclusionCategory[];
+  excluded_extensions: string[];
+}
+
+export interface FileSearchSettingsRead {
+  settings: FileSearchSettings;
+  source: Exclude<SystemSettingSource, "config_file">;
+}
+
+export interface FileSearchSettingsUpdate {
+  settings?: FileSearchSettings;
+  reset_to_default?: boolean;
+}
+
+export interface RecentFile {
+  id: string;
+  connection_id: string;
+  path: string;
+  file_name: string;
+  last_opened_at: string;
+}
+
+export interface RecentFileSearchResponse {
+  results: RecentFile[];
+  result_limit?: number;
+}
+
+export interface RecentFileValidationError {
+  code:
+    | "recent_file_target_missing"
+    | "recent_file_target_not_file"
+    | "recent_file_native_launch_failed"
+    | "recent_file_invalid_path"
+    | "recent_file_connection_removed"
+    | "recent_file_access_denied"
+    | "recent_file_validation_transient";
+  message: string;
+}
+
 export type SmbAuthenticationMode = "negotiate" | "kerberos_required";
 export type SmbEncryptionMode = "signing_only" | "encryption_required";
 
@@ -568,7 +612,8 @@ export interface OidcMappingValidationDetail {
 export interface ApiError {
   response?: {
     data?: {
-      detail?: string | ConflictInfo | OidcMappingValidationDetail;
+      detail?: string | ConflictInfo | OidcMappingValidationDetail | RecentFileValidationError;
+      code?: string;
     };
     status?: number;
   };

@@ -1,6 +1,6 @@
 {
   "name": "sambee-frontend",
-  "version": "0.9.37",
+  "version": "1.0.0",
   "private": true,
   "type": "module",
   "scripts": {

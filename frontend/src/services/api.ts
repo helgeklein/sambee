@@ -26,6 +26,8 @@ import type {
   EditLockInfo,
   EditLockStatus,
   FileInfo,
+  FileSearchSettingsRead,
+  FileSearchSettingsUpdate,
   NetworkSettings,
   NetworkSettingsUpdate,
   OidcAdminConfigurationRead,
@@ -38,6 +40,8 @@ import type {
   OidcTestedIdentity,
   OidcTestStartResponse,
   PublicSupportReport,
+  RecentFile,
+  RecentFileSearchResponse,
   SmbSettings,
   SmbSettingsUpdate,
   User,
@@ -677,6 +681,48 @@ class ApiService {
   async updateAdvancedSettings(payload: AdvancedSystemSettingsUpdate): Promise<AdvancedSystemSettings> {
     const response = await this.api.put<AdvancedSystemSettings>("/admin/settings/advanced", payload);
     return response.data;
+  }
+
+  async getFileSearchSettings(): Promise<FileSearchSettingsRead> {
+    const response = await this.api.get<FileSearchSettingsRead>("/admin/settings/file-search");
+    return response.data;
+  }
+
+  async updateFileSearchSettings(payload: FileSearchSettingsUpdate): Promise<FileSearchSettingsRead> {
+    const response = await this.api.put<FileSearchSettingsRead>("/admin/settings/file-search", payload);
+    return response.data;
+  }
+
+  // Recent-file history is server-owned metadata, including for local-drive files.
+  async recordRecentFile(connectionId: string, path: string): Promise<RecentFile | null> {
+    const response = await this.api.post<RecentFile | null>("/browse/recent-files", {
+      connection_id: connectionId,
+      path,
+      is_regular_file: true,
+    });
+    return response.data;
+  }
+
+  async searchRecentFiles(query: string, limit: number, signal?: AbortSignal): Promise<RecentFileSearchResponse> {
+    const response = await this.api.get<RecentFileSearchResponse>("/browse/recent-files", {
+      params: { q: query, limit },
+      signal,
+    });
+    return response.data;
+  }
+
+  async validateRecentFileTarget(recordId: string): Promise<FileInfo> {
+    const response = await this.api.get<FileInfo>(`/browse/recent-files/${recordId}/target`);
+    return response.data;
+  }
+
+  async removeRecentFile(recordId: string): Promise<void> {
+    await this.api.delete(`/browse/recent-files/${recordId}`);
+  }
+
+  async clearRecentFiles(): Promise<number> {
+    const response = await this.api.delete<{ deleted_count: number }>("/browse/recent-files");
+    return response.data.deleted_count;
   }
 
   async getSmbSettings(): Promise<SmbSettings> {

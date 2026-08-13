@@ -1,10 +1,48 @@
-import { render, screen, waitFor } from "@testing-library/react";
+import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { setLocale, translate } from "../../../i18n";
 import { SambeeThemeProvider } from "../../../theme/ThemeContext";
+import { getQuickBarResultRowHeight, QUICK_BAR_RESULT_GROUP_HEADER_HEIGHT, QUICK_BAR_RESULT_ITEM_HEIGHT } from "../QuickBarResultRow";
 import type { SearchProvider } from "../search/types";
 import { UnifiedSearchBar } from "../UnifiedSearchBar";
+
+const virtualizerSizeCache = new Map<string | number, number>();
+
+vi.mock("@tanstack/react-virtual", () => ({
+  useVirtualizer: ({
+    count,
+    estimateSize,
+    getItemKey,
+  }: {
+    count: number;
+    estimateSize: (index: number) => number;
+    getItemKey?: (index: number) => string | number;
+  }) => {
+    const getItemSize = (index: number) => {
+      const key = getItemKey?.(index) ?? index;
+      const cachedSize = virtualizerSizeCache.get(key);
+      if (cachedSize !== undefined) return cachedSize;
+
+      const size = estimateSize(index);
+      virtualizerSizeCache.set(key, size);
+      return size;
+    };
+
+    return {
+      getTotalSize: () => Array.from({ length: count }, (_, index) => getItemSize(index)).reduce((total, height) => total + height, 0),
+      getVirtualItems: () => {
+        let start = 0;
+        return Array.from({ length: count }, (_, index) => {
+          const virtualItem = { index, start };
+          start += getItemSize(index);
+          return virtualItem;
+        });
+      },
+      scrollToIndex: vi.fn(),
+    };
+  },
+}));
 
 const testProvider: SearchProvider = {
   id: "test-provider",
@@ -28,11 +66,11 @@ const noResultsProvider: SearchProvider = {
   getStatusInfo: () => null,
 };
 
-const filterProvider: SearchProvider = {
-  id: "filter-provider",
-  modeId: "filter",
-  modeLabel: "Filter",
-  placeholder: "Filter current directory",
+const fileSearchProvider: SearchProvider = {
+  id: "file-search-provider",
+  modeId: "file-search",
+  modeLabel: "File Search",
+  placeholder: "Search recent and current-directory files",
   debounceMs: 0,
   minQueryLength: 0,
   fetchResults: async () => [],
@@ -49,9 +87,11 @@ const resultsProvider: SearchProvider = {
   minQueryLength: 0,
   fetchResults: async () => [
     {
+      kind: "result",
       id: "folder-1",
       value: "/docs",
-      display: "Docs",
+      icon: "directory",
+      primaryText: "Docs",
     },
   ],
   onSelect: () => undefined,
@@ -67,14 +107,121 @@ const commandsProvider: SearchProvider = {
   minQueryLength: 0,
   fetchResults: async () => [
     {
+      kind: "result",
       id: "command-1",
       value: "command-1",
-      display: "Open settings",
+      icon: "command",
+      primaryText: "Open settings",
     },
   ],
   onSelect: () => undefined,
   getStatusInfo: () => null,
 };
+
+function createSelectableProvider(onSelect: SearchProvider["onSelect"]): SearchProvider {
+  return {
+    id: "selectable-provider",
+    modeId: "file-search",
+    modeLabel: "File Search",
+    placeholder: "Search recent and current-directory files",
+    debounceMs: 0,
+    minQueryLength: 0,
+    fetchResults: async () => [
+      {
+        kind: "result",
+        id: "file-1",
+        value: "file-1",
+        icon: "file",
+        primaryText: "Quarterly report",
+      },
+    ],
+    onSelect,
+    getStatusInfo: () => null,
+  };
+}
+
+function createGroupedProvider(onSelect: SearchProvider["onSelect"]): SearchProvider {
+  return {
+    id: "grouped-provider",
+    modeId: "file-search",
+    modeLabel: "File Search",
+    placeholder: "Search recent and current-directory files",
+    debounceMs: 0,
+    minQueryLength: 0,
+    fetchResults: async () => [
+      { kind: "group-header", id: "recent", value: "", label: "Recent files" },
+      {
+        kind: "result",
+        id: "recent-file",
+        value: "recent-file",
+        icon: "recent-file",
+        primaryText: "Quarterly report",
+        secondaryText: "Demo:/Reports",
+      },
+      { kind: "group-header", id: "current", value: "", label: "Current directory" },
+      {
+        kind: "result",
+        id: "current-file",
+        value: "current-file",
+        icon: "file",
+        primaryText: "Annual report",
+        secondaryText: "Demo:/Reports",
+      },
+    ],
+    onSelect,
+    getStatusInfo: () => null,
+  };
+}
+
+function createRemovableGroupedProvider(): SearchProvider {
+  let hasRemovedRecent = false;
+
+  const getResults = () => [
+    { kind: "group-header" as const, id: "recent", value: "", label: "Recent files" },
+    ...(!hasRemovedRecent
+      ? [
+          {
+            kind: "result" as const,
+            id: "recent-first",
+            value: "recent-first",
+            icon: "recent-file" as const,
+            primaryText: "First recent file",
+          },
+        ]
+      : []),
+    {
+      kind: "result" as const,
+      id: "recent-second",
+      value: "recent-second",
+      icon: "recent-file" as const,
+      primaryText: "Second recent file",
+    },
+    { kind: "group-header" as const, id: "current", value: "", label: "Current directory" },
+    {
+      kind: "result" as const,
+      id: "current-file",
+      value: "current-file",
+      icon: "file" as const,
+      primaryText: "Current file",
+    },
+  ];
+
+  return {
+    id: "removable-grouped-provider",
+    modeId: "file-search",
+    modeLabel: "File Search",
+    placeholder: "Search recent and current-directory files",
+    debounceMs: 0,
+    minQueryLength: 0,
+    fetchResults: async () => getResults(),
+    onSelect: () => undefined,
+    onRemoveSelected: async () => {
+      hasRemovedRecent = true;
+      return true;
+    },
+    getStatusInfo: () => null,
+  };
+}
 
 const modeOptions = [
   {
@@ -83,8 +230,8 @@ const modeOptions = [
     onSelect: vi.fn(),
   },
   {
-    id: "filter",
-    label: "Filter",
+    id: "file-search",
+    label: "File Search",
     onSelect: vi.fn(),
   },
   {
@@ -100,6 +247,7 @@ function renderWithProvider(component: React.ReactElement) {
 
 describe("UnifiedSearchBar", () => {
   afterEach(async () => {
+    virtualizerSizeCache.clear();
     await setLocale("en");
   });
 
@@ -131,6 +279,97 @@ describe("UnifiedSearchBar", () => {
     await user.type(searchInput, "abc");
 
     expect(screen.getByText(translate("fileBrowser.search.results.none", { query: "abc" }))).toBeInTheDocument();
+  });
+
+  it("shows a retryable error instead of no-results when a search request fails", async () => {
+    const user = userEvent.setup();
+    const failingProvider: SearchProvider = {
+      ...noResultsProvider,
+      fetchResults: async () => Promise.reject(new Error("backend unavailable")),
+    };
+
+    renderWithProvider(<UnifiedSearchBar provider={failingProvider} />);
+
+    const searchInput = screen.getByRole("textbox");
+    await user.click(searchInput);
+    await user.type(searchInput, "report");
+
+    expect(await screen.findByRole("alert")).toHaveTextContent("Search could not be completed. Try again.");
+    expect(screen.queryByText('No results found for "report"')).not.toBeInTheDocument();
+  });
+
+  it.each([
+    ["{Enter}", "associated-viewer"],
+    ["{Shift>}{Enter}{/Shift}", "force-viewer-picker"],
+    ["{Control>}{Enter}{/Control}", "associated-native-app"],
+    ["{Control>}{Alt>}{Enter}{/Alt}{/Control}", "force-native-picker"],
+  ] as const)("dispatches %s with the %s File Search action", async (keySequence, expectedAction) => {
+    const user = userEvent.setup();
+    const onSelect = vi.fn();
+
+    renderWithProvider(<UnifiedSearchBar provider={createSelectableProvider(onSelect)} />);
+
+    const searchInput = screen.getByRole("textbox");
+    await user.click(searchInput);
+    await user.type(searchInput, "q");
+    await screen.findByRole("option", { name: "Quarterly report" });
+    await user.keyboard(keySequence);
+
+    expect(onSelect).toHaveBeenCalledWith("file-1", expectedAction);
+  });
+
+  it("gives Ctrl+Alt click precedence over the native-app action", async () => {
+    const user = userEvent.setup();
+    const onSelect = vi.fn();
+
+    renderWithProvider(<UnifiedSearchBar provider={createSelectableProvider(onSelect)} />);
+
+    const searchInput = screen.getByRole("textbox");
+    await user.click(searchInput);
+    await user.type(searchInput, "q");
+    const result = await screen.findByRole("option", { name: "Quarterly report" });
+    fireEvent.click(result, { ctrlKey: true, altKey: true });
+
+    expect(onSelect).toHaveBeenCalledWith("file-1", "force-native-picker");
+  });
+
+  it("uses compact, non-selectable group labels and shared result presentation", async () => {
+    const user = userEvent.setup();
+    const onSelect = vi.fn();
+
+    renderWithProvider(<UnifiedSearchBar provider={createGroupedProvider(onSelect)} />);
+
+    await user.click(screen.getByRole("textbox"));
+
+    expect(await screen.findByRole("heading", { name: "Recent files" })).toBeInTheDocument();
+    expect(screen.getByRole("heading", { name: "Current directory" })).toBeInTheDocument();
+    expect(screen.getAllByRole("option")).toHaveLength(2);
+    expect(screen.getByRole("option", { name: "Quarterly report Demo:/Reports" })).toHaveTextContent("Quarterly report");
+    expect(screen.getByTestId("HistoryOutlinedIcon")).toBeInTheDocument();
+    expect(screen.queryByText(/^Recent -/)).not.toBeInTheDocument();
+    expect(getQuickBarResultRowHeight({ kind: "group-header", id: "header", value: "", label: "Group" })).toBe(
+      QUICK_BAR_RESULT_GROUP_HEADER_HEIGHT
+    );
+    expect(getQuickBarResultRowHeight({ kind: "result", id: "item", value: "item", icon: "file", primaryText: "Item" })).toBe(
+      QUICK_BAR_RESULT_ITEM_HEIGHT
+    );
+
+    await user.keyboard("{ArrowDown}{Enter}");
+
+    expect(onSelect).toHaveBeenCalledWith("current-file", "associated-viewer");
+  });
+
+  it("keeps group header spacing correct when removing a recent item", async () => {
+    const user = userEvent.setup();
+
+    renderWithProvider(<UnifiedSearchBar provider={createRemovableGroupedProvider()} />);
+
+    await user.click(screen.getByRole("textbox"));
+    await screen.findByRole("option", { name: "First recent file" });
+    await user.keyboard("{Shift>}{Delete}{/Shift}");
+
+    const currentDirectoryHeader = await screen.findByRole("heading", { name: "Current directory" });
+    expect(currentDirectoryHeader.parentElement?.parentElement).toHaveStyle({ transform: "translateY(88px)" });
   });
 
   it("closes the dropdown when tab moves focus away", async () => {
@@ -174,10 +413,10 @@ describe("UnifiedSearchBar", () => {
     });
   });
 
-  it("supports arrow navigation in the mode menu after clicking from filter mode with typed input", async () => {
+  it("supports arrow navigation in the mode menu after clicking from File Search with typed input", async () => {
     const user = userEvent.setup();
 
-    renderWithProvider(<UnifiedSearchBar provider={filterProvider} modeOptions={modeOptions} disableDropdown={true} />);
+    renderWithProvider(<UnifiedSearchBar provider={fileSearchProvider} modeOptions={modeOptions} disableDropdown={true} />);
 
     const searchInput = screen.getByRole("textbox");
     const modeButton = screen.getByRole("button", { name: "Switch quick bar mode" });
@@ -186,7 +425,7 @@ describe("UnifiedSearchBar", () => {
     await user.type(searchInput, "s");
     await user.click(modeButton);
 
-    await screen.findByRole("menuitem", { name: "Filter" });
+    await screen.findByRole("menuitem", { name: "File Search" });
 
     await user.keyboard("{ArrowDown}");
 
@@ -197,7 +436,7 @@ describe("UnifiedSearchBar", () => {
     await user.keyboard("{ArrowUp}");
 
     await waitFor(() => {
-      expect(screen.getByRole("menuitem", { name: "Filter" })).toHaveFocus();
+      expect(screen.getByRole("menuitem", { name: "File Search" })).toHaveFocus();
     });
   });
 
@@ -314,14 +553,14 @@ describe("UnifiedSearchBar", () => {
   it("supports arrow navigation in the mode menu after opening with Space from the focused mode button", async () => {
     const user = userEvent.setup();
 
-    renderWithProvider(<UnifiedSearchBar provider={filterProvider} modeOptions={modeOptions} disableDropdown={true} />);
+    renderWithProvider(<UnifiedSearchBar provider={fileSearchProvider} modeOptions={modeOptions} disableDropdown={true} />);
 
     const modeButton = screen.getByRole("button", { name: "Switch quick bar mode" });
     modeButton.focus();
 
     await user.keyboard("{Space}");
 
-    await screen.findByRole("menuitem", { name: "Filter" });
+    await screen.findByRole("menuitem", { name: "File Search" });
 
     await user.keyboard("{ArrowDown}");
 
@@ -332,14 +571,14 @@ describe("UnifiedSearchBar", () => {
     await user.keyboard("{ArrowUp}");
 
     await waitFor(() => {
-      expect(screen.getByRole("menuitem", { name: "Filter" })).toHaveFocus();
+      expect(screen.getByRole("menuitem", { name: "File Search" })).toHaveFocus();
     });
   });
 
   it("opens the mode menu with ArrowDown from the focused mode button", async () => {
     const user = userEvent.setup();
 
-    renderWithProvider(<UnifiedSearchBar provider={filterProvider} modeOptions={modeOptions} disableDropdown={true} />);
+    renderWithProvider(<UnifiedSearchBar provider={fileSearchProvider} modeOptions={modeOptions} disableDropdown={true} />);
 
     const modeButton = screen.getByRole("button", { name: "Switch quick bar mode" });
     modeButton.focus();
@@ -347,7 +586,7 @@ describe("UnifiedSearchBar", () => {
     await user.keyboard("{ArrowDown}");
 
     await waitFor(() => {
-      expect(screen.getByRole("menuitem", { name: "Filter" })).toHaveFocus();
+      expect(screen.getByRole("menuitem", { name: "File Search" })).toHaveFocus();
     });
 
     expect(screen.getByRole("menu")).toBeInTheDocument();
@@ -356,7 +595,7 @@ describe("UnifiedSearchBar", () => {
   it("does not open the mode menu with Ctrl+ArrowDown from the focused mode button", async () => {
     const user = userEvent.setup();
 
-    renderWithProvider(<UnifiedSearchBar provider={filterProvider} modeOptions={modeOptions} disableDropdown={true} />);
+    renderWithProvider(<UnifiedSearchBar provider={fileSearchProvider} modeOptions={modeOptions} disableDropdown={true} />);
 
     const modeButton = screen.getByRole("button", { name: "Switch quick bar mode" });
     modeButton.focus();
@@ -364,6 +603,6 @@ describe("UnifiedSearchBar", () => {
     await user.keyboard("{Control>}{ArrowDown}{/Control}");
 
     expect(screen.queryByRole("menu")).not.toBeInTheDocument();
-    expect(screen.queryByRole("menuitem", { name: "Filter" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("menuitem", { name: "File Search" })).not.toBeInTheDocument();
   });
 });

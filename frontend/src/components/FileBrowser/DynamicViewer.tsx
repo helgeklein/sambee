@@ -58,7 +58,7 @@ function ViewerFallbackDialog({ mode, path, error, onClose, onRetry }: ViewerFal
   const message = mode === "failed" ? getViewerLoadFailureMessage(error) : t("viewer.fallback.unsupportedMessage");
 
   return (
-    <Dialog open={true} onClose={onClose} fullScreen aria-labelledby="viewer-fallback-title">
+    <Dialog open={true} onClose={onClose} fullScreen disableRestoreFocus aria-labelledby="viewer-fallback-title">
       <DialogTitle id="viewer-fallback-title" sx={{ pr: 7 }}>
         {mode === "failed" ? t("viewer.fallback.failedTitle") : t("viewer.fallback.unsupportedTitle")}
         <IconButton

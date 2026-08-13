@@ -4,25 +4,49 @@
 
 ## Quick bar
 
-- Add a quick bar mode to open recent files
+- Repurpose the quick bar mode for filtering files in the current directory into a full-featured file search function
+   - Overview:
+      - Complement the comprehensive directory navigation (ctrl+k) with an equally feature-rich file search.
+      - Restriction: We cannot index all files for performance reasons.
    - Reasoning/postulate:
       - Users often work on a smallish set of files only, but they open them repeatedly.
-      - We should, therefore, making it easier and faster to access files from that set.
+      - Users are also often interested in the files in the current directory.
+      - We should, therefore, making it easier and faster to access files from the combined set of:
+         - Recently opened files
+         - Files in the current directory
    - Implementation:
+      - Change the keyboard shortcut "ctrl+alt+f" to "/"
+      - Change the quick bar mode from "Filter" to "File search"
       - Keep a list of the last n files opened
-      - Sort the list by last time opened (most recent at the top)
-      - Add a quick bar mode to open and filter that list (re-purpose Ctrl+P for similarity with VS Code? that would mean we'd have to come up with a new shortcut for command mode)
-      - Configuration options via a new config section
-         - Number of files to keep in the list
-         - Exclusion
-            - By category: images (all images recognized by Sambee)
-            - By file type/extension
+         - Via any of Sambee's means (integrated viewers as well as through Companion)
+      - Show search results in 2 groups:
+         - Group 1: recently opened files
+            - Show the most recent matching files
+            - Maximum: 10 (configurable)
+            - Most recent at the top
+            - Shift+del to delete the currently selected item from the recent files list/table
+         - Group 2: files in the current directory
+            - Maximum: same as for group 1
+      - Configuration options:
+         - New admin config category "File Search"
+            - Number of files to keep in the recent file list (default: 50)
+            - Exclusion
+               - By category:
+                  - images (all images recognized by Sambee)
+                  - what else makes sense?
+               - By file type/extension
+         - Existing user category "File Browser":
+            - Add action "Clear recent files"
       - When a file is selected from the list, open it directly
          - Accept the same keyboard shortcuts as when regularly opening:
             - Enter/click: open in Sambee
             - Shift+Enter/click: choose a Sambee viewer
             - Ctrl+Enter/click: open in its native app
             - Ctrl+Alt+Enter/click: choose a native app
+      - Storage:
+         - Store the recent files per user in a dedicated table in the backend's DB
+         - Add or update a file's record on an open attempt via the browser
+            - This is important in relation to Companion. We don't want to introduce a new API that records native file open success/error.
 - Directory navigation:
    - Show 5 (?) most recently visited directories at the top of the list, then all others
    - This could/should be similar to what VS Code does in the navigation that opens on Ctrl+P

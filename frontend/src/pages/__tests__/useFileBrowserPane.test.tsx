@@ -7,6 +7,7 @@ import { authSession } from "../../services/authSession";
 import { clearCurrentUserSettingsCache } from "../../services/userSettingsSync";
 import { type ApiMock, setupSuccessfulApiMocks } from "../../test/helpers";
 import { SambeeThemeProvider } from "../../theme/ThemeContext";
+import { FileType } from "../../types";
 import { useFileBrowserPane } from "../FileBrowser/useFileBrowserPane";
 import { mockConnections, mockDirectoryListing, mockEmptyDirectory, mockNestedDirectory } from "./FileBrowser.test.utils";
 
@@ -137,7 +138,6 @@ describe("useFileBrowserPane", () => {
     act(() => {
       result.current.setSortBy("modified");
       result.current.setSortDirection("desc");
-      result.current.setCurrentDirectoryFilter("read");
       result.current.handleSelectAll();
       result.current.setViewInfo({
         path: "readme.txt",
@@ -169,7 +169,6 @@ describe("useFileBrowserPane", () => {
       expect(restoredResult.current.files).toEqual(mockDirectoryListing.items);
       expect(restoredResult.current.sortBy).toBe("modified");
       expect(restoredResult.current.sortDirection).toBe("desc");
-      expect(restoredResult.current.currentDirectoryFilter).toBe("read");
       expect(restoredResult.current.selectedFiles.size).toBe(mockDirectoryListing.items.length);
       expect(restoredResult.current.viewInfo?.path).toBe("readme.txt");
     });
@@ -271,7 +270,6 @@ describe("useFileBrowserPane", () => {
         sortBy: "name",
         sortDirection: "asc",
         viewMode: "list",
-        currentDirectoryFilter: "",
         focusedIndex: 0,
         focusedFileName: "Missing Folder",
         selectedFileNames: [],
@@ -318,7 +316,6 @@ describe("useFileBrowserPane", () => {
         sortBy: "name",
         sortDirection: "asc",
         viewMode: "list",
-        currentDirectoryFilter: "",
         focusedIndex: 2,
         focusedFileName: "report.pdf",
         selectedFileNames: [],
@@ -380,7 +377,6 @@ describe("useFileBrowserPane", () => {
         sortBy: "name",
         sortDirection: "asc",
         viewMode: "list",
-        currentDirectoryFilter: "",
         focusedIndex: 0,
         focusedFileName: null,
         selectedFileNames: [],
@@ -403,6 +399,160 @@ describe("useFileBrowserPane", () => {
       expect(result.current.currentPath).toBe("Documents");
       expect(result.current.focusedIndex).toBe(0);
       expect(scrollContainer.scrollTop).toBe(0);
+    });
+  });
+
+  it("removes a local recent record only when Companion confirms its target is missing", async () => {
+    const localConnection = { ...mockConnections[0], id: "local-drive:c", slug: "c", type: "local" };
+    vi.mocked(api.getFileInfo).mockRejectedValue({
+      response: { data: { code: "recent_file_target_missing" }, status: 404 },
+    });
+    vi.mocked(api.removeRecentFile).mockResolvedValue(undefined);
+
+    const { result } = renderHook(
+      () =>
+        useFileBrowserPane({
+          rowHeight: 40,
+          connections: [localConnection],
+        }),
+      { wrapper }
+    );
+
+    await act(async () => {
+      await result.current.handleOpenFileAtPath("local-drive:c", "Documents/deleted.txt", "associated-viewer", "recent-1");
+    });
+
+    expect(api.removeRecentFile).toHaveBeenCalledWith("recent-1");
+    expect(result.current.error).toBe("The recent file no longer exists.");
+  });
+
+  it("preserves a local recent record when Companion is unavailable", async () => {
+    const localConnection = { ...mockConnections[0], id: "local-drive:c", slug: "c", type: "local" };
+    vi.mocked(api.getFileInfo).mockRejectedValue({
+      response: { data: { detail: "Unknown drive" }, status: 404 },
+    });
+
+    const { result } = renderHook(
+      () =>
+        useFileBrowserPane({
+          rowHeight: 40,
+          connections: [localConnection],
+        }),
+      { wrapper }
+    );
+
+    await act(async () => {
+      await result.current.handleOpenFileAtPath("local-drive:c", "Documents/report.txt", "associated-viewer", "recent-1");
+    });
+
+    expect(api.removeRecentFile).not.toHaveBeenCalled();
+    expect(result.current.error).toBe("The recent file could not be opened.");
+  });
+
+  it.each([
+    ["recent_file_native_launch_failed", "Failed to launch the native application."],
+    ["recent_file_target_not_file", "Not a file: Documents/report.txt"],
+  ])("removes a local recent record after a classified %s native-open failure", async (code, detail) => {
+    const localConnection = { ...mockConnections[0], id: "local-drive:c", slug: "c", type: "local" };
+    vi.mocked(api.getFileInfo).mockResolvedValue({
+      name: "report.txt",
+      path: "Documents/report.txt",
+      type: FileType.FILE,
+      mime_type: "text/plain",
+      size: 100,
+      is_readable: true,
+      is_hidden: false,
+    });
+    vi.mocked(api.openLocalFile).mockRejectedValue({ response: { data: { code, detail }, status: 500 } });
+    vi.mocked(api.removeRecentFile).mockResolvedValue(undefined);
+
+    const { result } = renderHook(
+      () =>
+        useFileBrowserPane({
+          rowHeight: 40,
+          connections: [localConnection],
+        }),
+      { wrapper }
+    );
+
+    await act(async () => {
+      await result.current.handleOpenFileAtPath("local-drive:c", "Documents/report.txt", "associated-native-app", "recent-1");
+    });
+
+    await waitFor(() => {
+      expect(api.removeRecentFile).toHaveBeenCalledWith("recent-1");
+      expect(result.current.error).toBe(detail);
+    });
+  });
+
+  it("opens an image recent outside the active pane without reusing its gallery", async () => {
+    const viewerConnections = [mockConnections[0], { ...mockConnections[0], id: "conn-2", name: "Archive", slug: "archive" }];
+    vi.mocked(api.validateRecentFileTarget).mockResolvedValue({
+      name: "outside.png",
+      path: "outside.png",
+      type: FileType.FILE,
+      mime_type: "image/png",
+      size: 100,
+      is_readable: true,
+      is_hidden: false,
+    });
+
+    const { result } = renderHook(
+      () =>
+        useFileBrowserPane({
+          rowHeight: 40,
+          connections: viewerConnections,
+        }),
+      { wrapper }
+    );
+
+    act(() => {
+      result.current.applyLocation("conn-1", "");
+    });
+
+    await waitFor(() => {
+      expect(result.current.connectionId).toBe("conn-1");
+    });
+
+    await act(async () => {
+      await result.current.handleOpenFileAtPath("conn-2", "outside.png", "associated-viewer", "recent-2");
+    });
+
+    expect(result.current.viewInfo).toMatchObject({ path: "outside.png", connectionId: "conn-2" });
+    expect(result.current.viewInfo?.images).toBeUndefined();
+  });
+
+  it("records each newly displayed gallery image once", async () => {
+    const { result } = renderHook(
+      () =>
+        useFileBrowserPane({
+          rowHeight: 40,
+          connections: mockConnections,
+        }),
+      { wrapper }
+    );
+
+    act(() => {
+      result.current.setViewInfo({
+        connectionId: "conn-1",
+        path: "first.jpg",
+        mimeType: "image/jpeg",
+        viewerId: "image",
+        images: ["first.jpg", "second.jpg"],
+        currentIndex: 0,
+        sessionId: "gallery-session",
+      });
+    });
+    act(() => {
+      result.current.handleViewIndexChange(0);
+      result.current.handleViewIndexChange(1);
+      result.current.handleViewIndexChange(1);
+    });
+
+    await waitFor(() => {
+      expect(api.recordRecentFile).toHaveBeenCalledTimes(2);
+      expect(api.recordRecentFile).toHaveBeenNthCalledWith(1, "conn-1", "first.jpg");
+      expect(api.recordRecentFile).toHaveBeenNthCalledWith(2, "conn-1", "second.jpg");
     });
   });
 });

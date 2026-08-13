@@ -501,6 +501,7 @@ const ImageViewer: React.FC<ViewerComponentProps> = ({
         maxWidth={false}
         fullScreen
         disableEnforceFocus // yarl lightbox manages its own focus
+        disableRestoreFocus
         sx={{
           "& .MuiDialog-container": {
             alignItems: "stretch",

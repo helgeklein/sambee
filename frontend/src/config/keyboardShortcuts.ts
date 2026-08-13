@@ -362,17 +362,14 @@ export const BROWSER_SHORTCUTS = {
     ctrl: true,
     allowInInput: true,
   },
-  FILTER_CURRENT_DIRECTORY: {
-    id: "filter-current-directory",
-    keys: "f",
+  FILE_SEARCH: {
+    id: "file-search",
+    keys: "/",
     get description() {
-      return translate("fileBrowser.shortcuts.filterCurrentDirectory");
+      return translate("fileBrowser.shortcuts.fileSearch");
     },
-    label: "Ctrl+Alt+F",
+    label: "/",
     helpGroup: "search",
-    ctrl: true,
-    alt: true,
-    allowInInput: true,
   },
   COMMAND_PALETTE: {
     id: "command-palette",

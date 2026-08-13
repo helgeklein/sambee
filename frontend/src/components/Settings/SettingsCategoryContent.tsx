@@ -4,6 +4,7 @@ import { AdvancedSettings } from "../../pages/AdvancedSettings";
 import { AuthenticationSettings } from "../../pages/AuthenticationSettings";
 import { ConnectionsSettings } from "../../pages/ConnectionsSettings";
 import { FileBrowserSettings } from "../../pages/FileBrowserSettings";
+import { FileSearchSettings } from "../../pages/FileSearchSettings";
 import { LocalDrivesSettings } from "../../pages/LocalDrivesSettings";
 import { NetworkSettings } from "../../pages/NetworkSettings";
 import { AppearanceSettings } from "../../pages/PreferencesSettings";
@@ -61,6 +62,8 @@ export function SettingsCategoryContent({
       return isAdmin ? <AuthenticationSettings /> : null;
     case "admin-smb":
       return isAdmin ? <SmbSettings dialogSafeHeader={dialogSafeHeader} /> : null;
+    case "admin-file-search":
+      return isAdmin ? <FileSearchSettings /> : null;
     case "admin-system":
       return isAdmin ? <AdvancedSettings dialogSafeHeader={dialogSafeHeader} /> : null;
     case "admin-about":

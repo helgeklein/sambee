@@ -24,8 +24,9 @@ import api from "../../services/api";
 import { isClientTimeoutError, isLocalAbortError } from "../../services/backendAvailability";
 import { isLocalDrive, normalizeLocalDrivePath } from "../../services/backendRouter";
 import { logger } from "../../services/logger";
+import { publishRecentFilesChanged } from "../../services/recentFilesSync";
 import { useSambeeTheme } from "../../theme";
-import type { FileEntry } from "../../types";
+import type { FileEntry, RecentFileValidationError } from "../../types";
 import { FileType, isApiError } from "../../types";
 import { getAllViewerIds, getCompatibleViewerIds, isImageFile } from "../../utils/FileTypeRegistry";
 import { compareLocalizedStrings } from "../../utils/localeFormatting";
@@ -59,6 +60,22 @@ const RELOAD_DEDUP_WINDOW_MS = 2_000;
 const DIRECTORY_LOAD_GENERIC_ERROR = "Failed to load directory contents. Please try again.";
 const DIRECTORY_LOAD_NETWORK_ERROR = "Failed to load files. Please check your connection settings.";
 const DIRECTORY_LOAD_TIMEOUT_ERROR = "Directory listing timed out. The remote share took too long to respond.";
+const RECENT_FILE_DEFAULT_ERROR = "The recent file could not be opened.";
+const RECENT_FILE_MISSING_ERROR = "The recent file no longer exists.";
+const RECENT_FILE_NOT_FILE_ERROR = "The recent target is no longer a regular file.";
+const PERMANENT_LOCAL_RECENT_OPEN_FAILURE_CODES = [
+  "recent_file_target_missing",
+  "recent_file_target_not_file",
+  "recent_file_native_launch_failed",
+] as const satisfies readonly RecentFileValidationError["code"][];
+const STALE_RECENT_FILE_CODES = new Set<RecentFileValidationError["code"]>([
+  "recent_file_target_missing",
+  "recent_file_target_not_file",
+  "recent_file_native_launch_failed",
+  "recent_file_invalid_path",
+  "recent_file_connection_removed",
+  "recent_file_access_denied",
+]);
 
 type DirectoryEntryIntent = { kind: "fresh" } | { kind: "restore-history" } | { kind: "parent-return"; childName: string };
 
@@ -71,6 +88,32 @@ const createViewerSessionId = (): string => {
   const randomPart = Math.random().toString(36).slice(2, 10);
   return `${Date.now().toString(36)}-${randomPart}`;
 };
+
+function getRecentFileValidationError(error: unknown): RecentFileValidationError | null {
+  if (!isApiError(error)) return null;
+  const detail = error.response?.data?.detail;
+  if (
+    typeof detail === "object" &&
+    detail !== null &&
+    "code" in detail &&
+    "message" in detail &&
+    typeof detail.code === "string" &&
+    typeof detail.message === "string"
+  ) {
+    return detail as RecentFileValidationError;
+  }
+  return null;
+}
+
+function getApiErrorCode(error: unknown): string | null {
+  if (!isApiError(error)) return null;
+  const code = error.response?.data?.code;
+  return typeof code === "string" ? code : null;
+}
+
+function isPermanentLocalRecentOpenFailure(code: string | null): boolean {
+  return code !== null && PERMANENT_LOCAL_RECENT_OPEN_FAILURE_CODES.some((failureCode) => failureCode === code);
+}
 
 // ============================================================================
 // Hook
@@ -98,7 +141,6 @@ export function useFileBrowserPane(config: UseFileBrowserPaneConfig): UseFileBro
   const [sortBy, setSortBy] = useState<SortField>("name");
   const [sortDirection, setSortDirection] = useState<"asc" | "desc">("asc");
   const [viewMode, setViewMode] = useFileBrowserViewModePreference();
-  const [currentDirectoryFilter, setCurrentDirectoryFilter] = useState("");
   const [focusedIndex, setFocusedIndex] = useState<number>(0);
   const [includeDotDirectoriesInQuickNav] = useQuickNavIncludeDotDirectoriesPreference();
 
@@ -142,6 +184,36 @@ export function useFileBrowserPane(config: UseFileBrowserPaneConfig): UseFileBro
 
   const selectedConnection = useMemo(() => getConnectionById(connections, connectionId), [connections, connectionId]);
   const connectionIsReadOnly = isConnectionReadOnly(selectedConnection);
+
+  const recordRecentFileAttempt = useCallback((targetConnectionId: string, path: string) => {
+    if (isLocalDrive(targetConnectionId)) {
+      void api
+        .getFileInfo(targetConnectionId, path)
+        .then((file) => {
+          if (file.type !== FileType.FILE) return;
+          return api.recordRecentFile(targetConnectionId, path).then(() => true);
+        })
+        .then((recorded) => {
+          if (recorded) publishRecentFilesChanged();
+        })
+        .catch((error: unknown) =>
+          logger.warn("Failed to qualify local recent file", { connectionId: targetConnectionId, path, error }, "browser")
+        );
+      return;
+    }
+    void Promise.resolve(api.recordRecentFile(targetConnectionId, path))
+      .then(() => publishRecentFilesChanged())
+      .catch((error: unknown) => logger.warn("Failed to record recent file", { connectionId: targetConnectionId, path, error }, "browser"));
+  }, []);
+
+  const removeRecentFileRecord = useCallback(async (recordId: string) => {
+    try {
+      await api.removeRecentFile(recordId);
+      publishRecentFilesChanged();
+    } catch (error: unknown) {
+      logger.warn("Failed to remove stale recent file", { recordId, error }, "browser");
+    }
+  }, []);
 
   const prepareDirectoryTransition = useCallback((nextConnectionId: string, nextPath: string): void => {
     directoryLoadAbortRef.current?.abort();
@@ -243,6 +315,7 @@ export function useFileBrowserPane(config: UseFileBrowserPaneConfig): UseFileBro
 
   const currentViewIndexRef = React.useRef<number | null>(null);
   const currentViewImagesRef = React.useRef<string[] | undefined>(undefined);
+  const lastDisplayedImagePathRef = React.useRef<string | null>(null);
 
   const [visibleRowCount, setVisibleRowCount] = useState(10);
   const visibleRowCountRef = React.useRef<number>(10);
@@ -258,11 +331,9 @@ export function useFileBrowserPane(config: UseFileBrowserPaneConfig): UseFileBro
   const pendingDirectoryEntryIntentRef = React.useRef<DirectoryEntryIntent | null>({ kind: "fresh" });
 
   const pendingFocusNameRef = React.useRef<string | null>(null);
-  const pendingFilterRestoreRef = React.useRef<{ scope: string; value: string } | null>(null);
   const pendingSelectedFilesRestoreRef = React.useRef<Set<string> | null>(null);
   const lastAppliedRouteSyncTokenRef = React.useRef<number>(0);
   const lastForceReloadRef = React.useRef<number>(0);
-  const previousFilterScopeRef = React.useRef<string | null>(null);
 
   // ──────────────────────────────────────────────────────────────────────────
   // Ref Sync Effects
@@ -275,27 +346,6 @@ export function useFileBrowserPane(config: UseFileBrowserPaneConfig): UseFileBro
   useEffect(() => {
     currentPathRef.current = currentPath;
   }, [currentPath]);
-
-  useEffect(() => {
-    const nextFilterScope = `${connectionId}:${currentPath}`;
-
-    if (previousFilterScopeRef.current === null) {
-      previousFilterScopeRef.current = nextFilterScope;
-      return;
-    }
-
-    if (previousFilterScopeRef.current !== nextFilterScope) {
-      previousFilterScopeRef.current = nextFilterScope;
-
-      if (pendingFilterRestoreRef.current?.scope === nextFilterScope) {
-        setCurrentDirectoryFilter(pendingFilterRestoreRef.current.value);
-        pendingFilterRestoreRef.current = null;
-        return;
-      }
-
-      setCurrentDirectoryFilter("");
-    }
-  }, [connectionId, currentPath]);
 
   // ──────────────────────────────────────────────────────────────────────────
   // Focus Management
@@ -516,7 +566,7 @@ export function useFileBrowserPane(config: UseFileBrowserPaneConfig): UseFileBro
   }, []);
 
   // ──────────────────────────────────────────────────────────────────────────
-  // Sort & Filter (computed)
+  // Sort (computed)
   // ──────────────────────────────────────────────────────────────────────────
 
   const sortedFiles = useMemo(() => {
@@ -567,28 +617,19 @@ export function useFileBrowserPane(config: UseFileBrowserPaneConfig): UseFileBro
     return [...directories, ...regularFiles];
   }, [files, sortBy, sortDirection]);
 
-  const sortedAndFilteredFiles = useMemo(() => {
-    const normalizedFilter = currentDirectoryFilter.trim().toLowerCase();
-    if (!normalizedFilter) {
-      return sortedFiles;
-    }
-
-    return sortedFiles.filter((file) => file.name.toLowerCase().includes(normalizedFilter));
-  }, [currentDirectoryFilter, sortedFiles]);
-
   /** Image files in display order — used for gallery mode. */
   const imageFiles = useMemo(() => {
-    return sortedAndFilteredFiles
+    return sortedFiles
       .filter((f: FileEntry) => f.type === "file" && isImageFile(f.name))
       .map((f: FileEntry) => (currentPath ? `${currentPath}/${f.name}` : f.name));
-  }, [sortedAndFilteredFiles, currentPath]);
+  }, [sortedFiles, currentPath]);
 
   const getVirtualizerItemKey = useCallback(
     (index: number) => {
-      const file = sortedAndFilteredFiles[index];
+      const file = sortedFiles[index];
       return file ? `${connectionId}:${currentPath}:${file.name}` : `${connectionId}:${currentPath}:${index}`;
     },
-    [connectionId, currentPath, sortedAndFilteredFiles]
+    [connectionId, currentPath, sortedFiles]
   );
 
   // ──────────────────────────────────────────────────────────────────────────
@@ -596,7 +637,7 @@ export function useFileBrowserPane(config: UseFileBrowserPaneConfig): UseFileBro
   // ──────────────────────────────────────────────────────────────────────────
 
   const rowVirtualizer = useVirtualizer({
-    count: sortedAndFilteredFiles.length,
+    count: sortedFiles.length,
     getScrollElement: () => parentRef.current,
     estimateSize: () => rowHeight,
     overscan: 10,
@@ -629,17 +670,13 @@ export function useFileBrowserPane(config: UseFileBrowserPaneConfig): UseFileBro
   const prevPathForFocusRef = React.useRef<string>(currentPath);
   const prevFocusedIndexRef = React.useRef<number>(0);
   const skipNextLayoutScrollRef = React.useRef<boolean>(false);
-  const skipNextFilterFocusAdjustmentRef = React.useRef<boolean>(false);
   const lastRestoredPathRef = React.useRef<string | null>(null);
-  const previousVisibleFilesRef = React.useRef<FileEntry[]>(sortedAndFilteredFiles);
-  const previousFilterRef = React.useRef<string>(currentDirectoryFilter);
-  const previousFilterScopeForFocusRef = React.useRef<string>(`${connectionId}:${currentPath}`);
 
   // Keep filesRef updated and restore or reset focused index when files change.
   // This must run before paint so a newly entered directory cannot briefly render
   // with the previous directory's focused index or virtualizer window.
   useLayoutEffect(() => {
-    filesRef.current = sortedAndFilteredFiles;
+    filesRef.current = sortedFiles;
 
     if (loading) {
       return;
@@ -658,7 +695,7 @@ export function useFileBrowserPane(config: UseFileBrowserPaneConfig): UseFileBro
       pendingDirectoryEntryIntentRef.current = null;
       updateFocus(0, { immediate: true });
       resetListScrollToTop();
-      if (sortedAndFilteredFiles.length > 0) {
+      if (sortedFiles.length > 0) {
         rowVirtualizer.scrollToIndex(0, { align: "start" });
       }
     };
@@ -668,13 +705,12 @@ export function useFileBrowserPane(config: UseFileBrowserPaneConfig): UseFileBro
       const savedState = navigationHistory.current.get(currentPath);
       if (savedState) {
         const restoredIndex = savedState.selectedFileName
-          ? sortedAndFilteredFiles.findIndex((f: FileEntry) => f.name === savedState.selectedFileName)
-          : Math.min(savedState.focusedIndex, Math.max(sortedAndFilteredFiles.length - 1, 0));
+          ? sortedFiles.findIndex((f: FileEntry) => f.name === savedState.selectedFileName)
+          : Math.min(savedState.focusedIndex, Math.max(sortedFiles.length - 1, 0));
 
         if (restoredIndex >= 0) {
           pendingDirectoryEntryIntentRef.current = null;
           lastRestoredPathRef.current = currentPath;
-          skipNextFilterFocusAdjustmentRef.current = true;
           updateFocus(restoredIndex, { immediate: true });
           const restorePath = currentPath;
           requestAnimationFrame(() => {
@@ -694,14 +730,9 @@ export function useFileBrowserPane(config: UseFileBrowserPaneConfig): UseFileBro
     }
 
     if (entryIntent?.kind === "parent-return") {
-      if (currentDirectoryFilter.trim().length > 0) {
-        return;
-      }
-
-      const restoreIndex = sortedAndFilteredFiles.findIndex((f: FileEntry) => f.name === entryIntent.childName);
+      const restoreIndex = sortedFiles.findIndex((f: FileEntry) => f.name === entryIntent.childName);
       if (restoreIndex >= 0) {
         pendingDirectoryEntryIntentRef.current = null;
-        skipNextFilterFocusAdjustmentRef.current = true;
         updateFocus(restoreIndex, { immediate: true });
         rowVirtualizer.scrollToIndex(restoreIndex, { align: "auto" });
         return;
@@ -718,7 +749,7 @@ export function useFileBrowserPane(config: UseFileBrowserPaneConfig): UseFileBro
 
     const pendingName = pendingFocusNameRef.current;
     if (pendingName !== null) {
-      const idx = sortedAndFilteredFiles.findIndex((f: FileEntry) => f.name === pendingName);
+      const idx = sortedFiles.findIndex((f: FileEntry) => f.name === pendingName);
       if (idx >= 0) {
         pendingFocusNameRef.current = null;
         updateFocus(idx, { immediate: true });
@@ -728,58 +759,13 @@ export function useFileBrowserPane(config: UseFileBrowserPaneConfig): UseFileBro
 
       pendingFocusNameRef.current = null;
     }
-  }, [currentDirectoryFilter, sortedAndFilteredFiles, currentPath, loading, updateFocus, rowVirtualizer, resetListScrollToTop]);
-
-  useEffect(() => {
-    const filterScope = `${connectionId}:${currentPath}`;
-    const previousFilterScope = previousFilterScopeForFocusRef.current;
-    previousFilterScopeForFocusRef.current = filterScope;
-
-    const previousFilter = previousFilterRef.current;
-    previousFilterRef.current = currentDirectoryFilter;
-
-    const previousVisibleFiles = previousVisibleFilesRef.current;
-    previousVisibleFilesRef.current = sortedAndFilteredFiles;
-
-    if (previousFilterScope !== filterScope) {
-      return;
-    }
-
-    if (previousFilter === currentDirectoryFilter) {
-      return;
-    }
-
-    if (skipNextFilterFocusAdjustmentRef.current) {
-      skipNextFilterFocusAdjustmentRef.current = false;
-      return;
-    }
-
-    if (sortedAndFilteredFiles.length === 0) {
-      return;
-    }
-
-    const previousFocusedFileName = previousVisibleFiles[focusedIndex]?.name;
-    if (!previousFocusedFileName) {
-      const clampedIndex = Math.min(focusedIndex, sortedAndFilteredFiles.length - 1);
-      updateFocus(Math.max(clampedIndex, 0), { immediate: true });
-      return;
-    }
-
-    const retainedIndex = sortedAndFilteredFiles.findIndex((file) => file.name === previousFocusedFileName);
-    if (retainedIndex >= 0) {
-      updateFocus(retainedIndex, { immediate: true });
-      return;
-    }
-
-    const clampedIndex = Math.min(focusedIndex, sortedAndFilteredFiles.length - 1);
-    updateFocus(Math.max(clampedIndex, 0), { immediate: true });
-  }, [connectionId, currentDirectoryFilter, currentPath, focusedIndex, sortedAndFilteredFiles, updateFocus]);
+  }, [sortedFiles, currentPath, loading, updateFocus, rowVirtualizer, resetListScrollToTop]);
 
   // Scroll focused item into view
   useLayoutEffect(() => {
     if (focusedIndex >= 0) {
-      if (focusedIndex >= sortedAndFilteredFiles.length) {
-        prevFocusedIndexRef.current = Math.max(sortedAndFilteredFiles.length - 1, 0);
+      if (focusedIndex >= sortedFiles.length) {
+        prevFocusedIndexRef.current = Math.max(sortedFiles.length - 1, 0);
         return;
       }
 
@@ -807,7 +793,7 @@ export function useFileBrowserPane(config: UseFileBrowserPaneConfig): UseFileBro
       rowVirtualizer.scrollToIndex(focusedIndex, { align });
       prevFocusedIndexRef.current = focusedIndex;
     }
-  }, [focusedIndex, sortedAndFilteredFiles.length, visibleRowCount, rowVirtualizer]);
+  }, [focusedIndex, sortedFiles.length, visibleRowCount, rowVirtualizer]);
 
   // Resize observer for visible-row-count (used by PageUp/PageDown)
   useLayoutEffect(() => {
@@ -871,15 +857,22 @@ export function useFileBrowserPane(config: UseFileBrowserPaneConfig): UseFileBro
   // File Click / Viewer
   // ──────────────────────────────────────────────────────────────────────────
 
-  const handleViewIndexChange = useCallback((index: number) => {
-    currentViewIndexRef.current = index;
-    setViewInfo((prev) => {
-      if (!prev?.images || prev.images.length === 0) return prev;
-      const nextPath = prev.images[index] ?? prev.path;
-      if (prev.currentIndex === index && prev.path === nextPath) return prev;
-      return { ...prev, currentIndex: index, path: nextPath };
-    });
-  }, []);
+  const handleViewIndexChange = useCallback(
+    (index: number) => {
+      currentViewIndexRef.current = index;
+      setViewInfo((prev) => {
+        if (!prev?.images || prev.images.length === 0) return prev;
+        const nextPath = prev.images[index] ?? prev.path;
+        if (lastDisplayedImagePathRef.current !== nextPath) {
+          recordRecentFileAttempt(prev.connectionId ?? connectionIdRef.current, nextPath);
+          lastDisplayedImagePathRef.current = nextPath;
+        }
+        if (prev.currentIndex === index && prev.path === nextPath) return prev;
+        return { ...prev, currentIndex: index, path: nextPath };
+      });
+    },
+    [recordRecentFileAttempt]
+  );
 
   const handleViewClose = useCallback(() => {
     const images = currentViewImagesRef.current ?? viewInfo?.images;
@@ -896,10 +889,11 @@ export function useFileBrowserPane(config: UseFileBrowserPaneConfig): UseFileBro
     setViewInfo(null);
     currentViewIndexRef.current = null;
     currentViewImagesRef.current = undefined;
+    lastDisplayedImagePathRef.current = null;
 
     if (!finalPath) return;
 
-    const targetIndex = sortedAndFilteredFiles.findIndex((file: FileEntry) => {
+    const targetIndex = sortedFiles.findIndex((file: FileEntry) => {
       if (file.type !== "file") return false;
       const fullPath = currentPath ? `${currentPath}/${file.name}` : file.name;
       return fullPath === finalPath;
@@ -908,7 +902,7 @@ export function useFileBrowserPane(config: UseFileBrowserPaneConfig): UseFileBro
     if (targetIndex >= 0) {
       updateFocus(targetIndex, { immediate: true });
     }
-  }, [currentPath, viewInfo, sortedAndFilteredFiles, updateFocus]);
+  }, [currentPath, viewInfo, sortedFiles, updateFocus]);
 
   // ──────────────────────────────────────────────────────────────────────────
   // Keyboard Navigation Handlers
@@ -1025,10 +1019,16 @@ export function useFileBrowserPane(config: UseFileBrowserPaneConfig): UseFileBro
   );
 
   const openFileInViewer = useCallback(
-    (file: FileEntry, filePath: string, mimeType: string, viewerId?: "image" | "markdown" | "pdf") => {
+    (
+      file: FileEntry,
+      filePath: string,
+      mimeType: string,
+      viewerId?: "image" | "markdown" | "pdf",
+      targetConnectionId = connectionIdRef.current
+    ) => {
       const viewerSessionId = createViewerSessionId();
       const useImageGallery =
-        viewerId === "image" ? isImageFile(file.name) && imageFiles.length > 0 : isImageFile(file.name) && imageFiles.length > 0;
+        viewerId === "image" && isImageFile(file.name) && targetConnectionId === connectionIdRef.current && imageFiles.includes(filePath);
 
       logger.info(
         "File selected for viewing",
@@ -1049,28 +1049,44 @@ export function useFileBrowserPane(config: UseFileBrowserPaneConfig): UseFileBro
         const effectiveIndex = imageIndex >= 0 ? imageIndex : 0;
         currentViewIndexRef.current = effectiveIndex;
         currentViewImagesRef.current = imageFiles;
-        setViewInfo({ path: filePath, mimeType, viewerId, images: imageFiles, currentIndex: effectiveIndex, sessionId: viewerSessionId });
+        lastDisplayedImagePathRef.current = null;
+        setViewInfo({
+          connectionId: targetConnectionId,
+          path: filePath,
+          mimeType,
+          viewerId,
+          images: imageFiles,
+          currentIndex: effectiveIndex,
+          sessionId: viewerSessionId,
+        });
         return;
       }
 
       currentViewIndexRef.current = null;
       currentViewImagesRef.current = undefined;
-      setViewInfo({ path: filePath, mimeType, viewerId, sessionId: viewerSessionId });
+      recordRecentFileAttempt(targetConnectionId, filePath);
+      setViewInfo({ connectionId: targetConnectionId, path: filePath, mimeType, viewerId, sessionId: viewerSessionId });
     },
-    [imageFiles]
+    [imageFiles, recordRecentFileAttempt]
   );
 
   const openNativeFile = useCallback(
-    async (file: FileEntry, options?: { forcePicker?: boolean }) => {
-      if (!connectionIdRef.current || file.type === "directory") return;
-      if (connectionIsReadOnly && !isLocalDrive(connectionIdRef.current)) return;
+    async (
+      file: FileEntry,
+      options?: { forcePicker?: boolean },
+      target?: { connectionId: string; path: string; recentRecordId?: string }
+    ) => {
+      const targetConnectionId = target?.connectionId ?? connectionIdRef.current;
+      if (!targetConnectionId || file.type === "directory") return;
+      if (isConnectionReadOnly(getConnectionById(connections, targetConnectionId)) && !isLocalDrive(targetConnectionId)) return;
 
-      const filePath = currentPathRef.current ? `${currentPathRef.current}/${file.name}` : file.name;
+      const filePath = target?.path ?? (currentPathRef.current ? `${currentPathRef.current}/${file.name}` : file.name);
+      recordRecentFileAttempt(targetConnectionId, filePath);
 
       setOpenInAppLoading(true);
       try {
-        if (isLocalDrive(connectionIdRef.current)) {
-          await api.openLocalFile(connectionIdRef.current, filePath, { forcePicker: options?.forcePicker ?? false });
+        if (isLocalDrive(targetConnectionId)) {
+          await api.openLocalFile(targetConnectionId, filePath, { forcePicker: options?.forcePicker ?? false });
           logger.info("Opened local file directly", { path: filePath, forcePicker: options?.forcePicker ?? false }, "companion");
         } else {
           const themeJson = JSON.stringify({
@@ -1080,7 +1096,7 @@ export function useFileBrowserPane(config: UseFileBrowserPaneConfig): UseFileBro
               main: currentTheme.primary.main,
             },
           });
-          const uri = await api.getCompanionUri(connectionIdRef.current, filePath, themeJson, {
+          const uri = await api.getCompanionUri(targetConnectionId, filePath, themeJson, {
             forcePicker: options?.forcePicker ?? false,
           });
           logger.info("Opening file in companion app", { path: filePath, forcePicker: options?.forcePicker ?? false }, "companion");
@@ -1089,8 +1105,12 @@ export function useFileBrowserPane(config: UseFileBrowserPaneConfig): UseFileBro
         }
       } catch (err: unknown) {
         let detail = "Failed to open file.";
-        if (isApiError(err) && err.response?.data?.detail) {
-          detail = err.response.data.detail;
+        const errorDetail = isApiError(err) ? err.response?.data?.detail : undefined;
+        if (typeof errorDetail === "string") {
+          detail = errorDetail;
+        }
+        if (target?.recentRecordId && isPermanentLocalRecentOpenFailure(getApiErrorCode(err))) {
+          await removeRecentFileRecord(target.recentRecordId);
         }
         setError(detail);
         logger.error(`Open in app failed: ${filePath}`, { error: err }, "companion");
@@ -1098,11 +1118,11 @@ export function useFileBrowserPane(config: UseFileBrowserPaneConfig): UseFileBro
         setOpenInAppLoading(false);
       }
     },
-    [connectionIsReadOnly, currentTheme, onCompanionHint]
+    [connections, currentTheme, onCompanionHint, recordRecentFileAttempt, removeRecentFileRecord]
   );
 
   const openBrowserViewerPicker = useCallback(
-    async (file: FileEntry, filePath: string, mimeType: string, options?: { includeAllViewers?: boolean }) => {
+    async (file: FileEntry, filePath: string, mimeType: string, options?: { includeAllViewers?: boolean; connectionId?: string }) => {
       const compatibleViewerIds = getCompatibleViewerIds(file.name, mimeType);
       const preferredViewerId = await getPreferredViewerId(file.name, mimeType);
       const defaultViewerId = compatibleViewerIds[0] ?? null;
@@ -1114,6 +1134,7 @@ export function useFileBrowserPane(config: UseFileBrowserPaneConfig): UseFileBro
           : compatibleViewerIds;
 
       setBrowserViewerPickerState({
+        connectionId: options?.connectionId,
         fileName: file.name,
         filePath,
         mimeType,
@@ -1128,25 +1149,25 @@ export function useFileBrowserPane(config: UseFileBrowserPaneConfig): UseFileBro
   );
 
   const openFileWithAssociatedViewer = useCallback(
-    (file: FileEntry, filePath: string, mimeType: string) => {
+    (file: FileEntry, filePath: string, mimeType: string, targetConnectionId = connectionIdRef.current) => {
       const compatibleViewerIds = getCompatibleViewerIds(file.name, mimeType);
       void getPreferredViewerId(file.name, mimeType).then((preferredViewerId) => {
         if (preferredViewerId) {
-          openFileInViewer(file, filePath, mimeType, preferredViewerId);
+          openFileInViewer(file, filePath, mimeType, preferredViewerId, targetConnectionId);
           return;
         }
 
         if (compatibleViewerIds.length === 0) {
-          void openBrowserViewerPicker(file, filePath, mimeType);
+          void openBrowserViewerPicker(file, filePath, mimeType, { connectionId: targetConnectionId });
           return;
         }
 
         if (compatibleViewerIds.length === 1) {
-          openFileInViewer(file, filePath, mimeType, compatibleViewerIds[0]);
+          openFileInViewer(file, filePath, mimeType, compatibleViewerIds[0], targetConnectionId);
           return;
         }
 
-        void openBrowserViewerPicker(file, filePath, mimeType);
+        void openBrowserViewerPicker(file, filePath, mimeType, { connectionId: targetConnectionId });
       });
     },
     [openBrowserViewerPicker, openFileInViewer]
@@ -1213,6 +1234,64 @@ export function useFileBrowserPane(config: UseFileBrowserPaneConfig): UseFileBro
     [handleFileClick, openNativeFile, openBrowserViewerPicker, openFileWithAssociatedViewer]
   );
 
+  const handleOpenFileAtPath = useCallback(
+    async (targetConnectionId: string, path: string, mode: BrowserOpenMode = "associated-viewer", recentRecordId?: string) => {
+      const name = path.split("/").pop();
+      if (!name || !path) return;
+      let file = { name, type: "file", mime_type: "application/octet-stream" } as FileEntry;
+
+      if (recentRecordId) {
+        if (isLocalDrive(targetConnectionId)) {
+          try {
+            file = await api.getFileInfo(targetConnectionId, path);
+            if (file.type !== FileType.FILE) {
+              await removeRecentFileRecord(recentRecordId);
+              setError(RECENT_FILE_NOT_FILE_ERROR);
+              return;
+            }
+          } catch (error: unknown) {
+            if (getApiErrorCode(error) === "recent_file_target_missing") {
+              await removeRecentFileRecord(recentRecordId);
+              setError(RECENT_FILE_MISSING_ERROR);
+            } else {
+              setError(RECENT_FILE_DEFAULT_ERROR);
+            }
+            logger.warn("Recent local file could not be validated before opening", { targetConnectionId, path, error }, "browser");
+            return;
+          }
+        } else {
+          try {
+            file = await api.validateRecentFileTarget(recentRecordId);
+          } catch (error: unknown) {
+            const validationError = getRecentFileValidationError(error);
+            if (validationError && STALE_RECENT_FILE_CODES.has(validationError.code)) {
+              publishRecentFilesChanged();
+            }
+            setError(validationError?.message ?? RECENT_FILE_DEFAULT_ERROR);
+            logger.warn("Recent file could not be validated before opening", { targetConnectionId, path, error }, "browser");
+            return;
+          }
+        }
+      }
+      const mimeType = file.mime_type || "application/octet-stream";
+
+      if (mode === "associated-native-app") {
+        void openNativeFile(file, undefined, { connectionId: targetConnectionId, path, recentRecordId });
+        return;
+      }
+      if (mode === "force-native-picker") {
+        void openNativeFile(file, { forcePicker: true }, { connectionId: targetConnectionId, path, recentRecordId });
+        return;
+      }
+      if (mode === "force-viewer-picker") {
+        void openBrowserViewerPicker(file, path, mimeType, { includeAllViewers: true, connectionId: targetConnectionId });
+        return;
+      }
+      openFileWithAssociatedViewer(file, path, mimeType, targetConnectionId);
+    },
+    [openBrowserViewerPicker, openFileWithAssociatedViewer, openNativeFile, removeRecentFileRecord]
+  );
+
   const handleOpenFile = useCallback(
     (options?: { requireListFocus?: boolean; mode?: BrowserOpenMode }) => {
       const file = getFocusedFileForAction(options);
@@ -1263,10 +1342,6 @@ export function useFileBrowserPane(config: UseFileBrowserPaneConfig): UseFileBro
 
   const handleFocusSearch = useCallback(() => {
     searchInputRef.current?.focus();
-  }, []);
-
-  const clearCurrentDirectoryFilter = useCallback(() => {
-    setCurrentDirectoryFilter("");
   }, []);
 
   const forceReloadCurrentDirectory = useCallback((preserveVisibleContent = false) => {
@@ -1629,15 +1704,17 @@ export function useFileBrowserPane(config: UseFileBrowserPaneConfig): UseFileBro
 
       setBrowserViewerPickerState(null);
 
-      const file = filesRef.current.find(
+      const activeDirectoryFile = filesRef.current.find(
         (entry) => (currentPathRef.current ? `${currentPathRef.current}/${entry.name}` : entry.name) === pickerState.filePath
       );
-      if (!file || file.type === "directory") {
+      const file = activeDirectoryFile ?? ({ name: pickerState.fileName, type: "file", mime_type: pickerState.mimeType } as FileEntry);
+      if (file.type === "directory") {
         return;
       }
+      const targetConnectionId = pickerState.connectionId ?? connectionIdRef.current;
 
       if (selection.viewerId === null) {
-        await openNativeFile(file);
+        await openNativeFile(file, undefined, { connectionId: targetConnectionId, path: pickerState.filePath });
         return;
       }
 
@@ -1645,7 +1722,7 @@ export function useFileBrowserPane(config: UseFileBrowserPaneConfig): UseFileBro
         await setPreferredViewerId(file.name, pickerState.mimeType, selection.viewerId);
       }
 
-      openFileInViewer(file, pickerState.filePath, pickerState.mimeType, selection.viewerId);
+      openFileInViewer(file, pickerState.filePath, pickerState.mimeType, selection.viewerId, targetConnectionId);
     },
     [browserViewerPickerState, openFileInViewer, openNativeFile]
   );
@@ -1701,7 +1778,6 @@ export function useFileBrowserPane(config: UseFileBrowserPaneConfig): UseFileBro
       sortBy,
       sortDirection,
       viewMode,
-      currentDirectoryFilter,
       focusedIndex,
       focusedFileName,
       selectedFileNames: Array.from(selectedFiles),
@@ -1713,7 +1789,7 @@ export function useFileBrowserPane(config: UseFileBrowserPaneConfig): UseFileBro
         : null,
       scrollOffset: currentScrollOffset,
     };
-  }, [currentDirectoryFilter, files, focusedIndex, selectedFiles, sortBy, sortDirection, viewInfo, viewMode]);
+  }, [files, focusedIndex, selectedFiles, sortBy, sortDirection, viewInfo, viewMode]);
 
   const restoreRecoverySnapshot = useCallback(
     (snapshot: FileBrowserPaneRecoverySnapshot | null) => {
@@ -1725,15 +1801,9 @@ export function useFileBrowserPane(config: UseFileBrowserPaneConfig): UseFileBro
       const nextItems = [...snapshot.items];
       const nextFocusedIndex = Math.max(snapshot.focusedIndex, 0);
       const nextSelectedFiles = new Set(snapshot.selectedFileNames);
-      const nextFilterScope = `${snapshot.connectionId}:${snapshot.path}`;
-
       pendingLocationRef.current = null;
       pendingDirectoryEntryIntentRef.current = { kind: "restore-history" };
       pendingFocusNameRef.current = null;
-      pendingFilterRestoreRef.current = {
-        scope: nextFilterScope,
-        value: snapshot.currentDirectoryFilter,
-      };
       pendingSelectedFilesRestoreRef.current = nextSelectedFiles;
 
       directoryLoadAbortRef.current?.abort();
@@ -1759,7 +1829,6 @@ export function useFileBrowserPane(config: UseFileBrowserPaneConfig): UseFileBro
       setSortBy(snapshot.sortBy);
       setSortDirection(snapshot.sortDirection);
       setViewMode(snapshot.viewMode);
-      setCurrentDirectoryFilter(snapshot.currentDirectoryFilter);
       setFocusedIndex(nextFocusedIndex);
       setSelectedFiles(nextSelectedFiles);
       setViewInfo(
@@ -1922,10 +1991,6 @@ export function useFileBrowserPane(config: UseFileBrowserPaneConfig): UseFileBro
     setSortDirection,
     viewMode,
     setViewMode,
-    currentDirectoryFilter,
-    setCurrentDirectoryFilter,
-    clearCurrentDirectoryFilter,
-    isCurrentDirectoryFilterActive: currentDirectoryFilter.trim().length > 0,
     focusedIndex,
 
     // Selection (multi-select)
@@ -1938,7 +2003,7 @@ export function useFileBrowserPane(config: UseFileBrowserPaneConfig): UseFileBro
     getEffectiveSelection,
 
     // Computed
-    sortedAndFilteredFiles,
+    sortedFiles,
     imageFiles,
     directorySearchProvider,
 
@@ -1984,6 +2049,7 @@ export function useFileBrowserPane(config: UseFileBrowserPaneConfig): UseFileBro
     handlePageUp,
     handleOpenFile,
     handleOpenFileForFile,
+    handleOpenFileAtPath,
     navigateToPath,
     prepareDirectoryTransition,
     handleNavigateUpDirectory,

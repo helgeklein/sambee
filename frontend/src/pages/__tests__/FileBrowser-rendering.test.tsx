@@ -66,7 +66,6 @@ describe("Browser Component - Rendering", () => {
         sortBy: "name",
         sortDirection: "asc",
         viewMode: "details",
-        currentDirectoryFilter: "",
         focusedIndex: 0,
         focusedFileName: "Documents",
         selectedFileNames: [],

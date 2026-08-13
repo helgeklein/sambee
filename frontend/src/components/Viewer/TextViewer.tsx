@@ -808,6 +808,7 @@ export const TextViewer: React.FC<ViewerComponentProps> = ({ connectionId, path,
         fullScreen
         ref={dialogRef}
         disableEnforceFocus
+        disableRestoreFocus
         sx={{
           "& .MuiDialog-container": {
             alignItems: "stretch",

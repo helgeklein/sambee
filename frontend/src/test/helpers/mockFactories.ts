@@ -24,6 +24,8 @@ export interface ApiMock {
   renameItem: Mock;
   getImageBlob: Mock;
   searchDirectories: Mock;
+  searchRecentFiles: Mock;
+  recordRecentFile: Mock;
 }
 
 /**
@@ -89,6 +91,8 @@ export function setupSuccessfulApiMocks(api: ApiMock): void {
     cache_state: "ready",
     directory_count: 0,
   });
+  api.searchRecentFiles.mockResolvedValue({ results: [] });
+  api.recordRecentFile.mockResolvedValue(null);
 }
 
 /**

@@ -124,11 +124,9 @@ export const FileBrowserPane: React.FC<FileBrowserPaneProps> = ({
     error,
     loading,
     viewMode,
-    currentDirectoryFilter,
-    isCurrentDirectoryFilterActive,
     focusedIndex,
     selectedFiles,
-    sortedAndFilteredFiles,
+    sortedFiles,
     // Dialogs
     browserViewerPickerState,
     deleteDialogOpen,
@@ -403,7 +401,7 @@ export const FileBrowserPane: React.FC<FileBrowserPaneProps> = ({
           }}
         >
           <FileList
-            files={sortedAndFilteredFiles}
+            files={sortedFiles}
             showEmptyState={error === null}
             useCompactLayout={useCompactLayout}
             focusedIndex={focusedIndex}
@@ -441,9 +439,7 @@ export const FileBrowserPane: React.FC<FileBrowserPaneProps> = ({
       ) : null}
 
       {/* Status Bar */}
-      {!useCompactLayout && !loading && (sortedAndFilteredFiles.length > 0 || isCurrentDirectoryFilterActive) && (
-        <StatusBar files={sortedAndFilteredFiles} focusedIndex={focusedIndex} activeFilter={currentDirectoryFilter} />
-      )}
+      {!useCompactLayout && !loading && sortedFiles.length > 0 && <StatusBar files={sortedFiles} focusedIndex={focusedIndex} />}
 
       {/* Delete Confirmation Dialog */}
       <ConfirmDeleteDialog

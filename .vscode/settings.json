@@ -163,7 +163,7 @@
     "mypy": true,
     "pytest": true,
     // Virtualenv Python
-    "/^((\\.\\/|\\/workspace\\/)?backend\\/|\\.\\/)?\\.venv\\/bin\\/python\\s+-m\\s+(mypy|py_compile|pytest|ruff)\\b/": true,
+    "/^((\\.\\/|\\/workspace\\/)?backend\\/|\\.\\/)?\\.venv\\/bin\\/python\\s+-m\\s+(compileall|mypy|py_compile|pytest|ruff)\\b/": true,
     "ruff": true,
     "/^python3 -m unittest\\b/": true,
     // Frontend tests and static analysis
@@ -171,6 +171,7 @@
     "npx vitest": true,
     "npx tsc": true,
     "npx biome": true,
+    "/^((\\.\\/|\\/workspace\\/)?node_modules\\/|\\.\\/)?\\.bin\\/biome\\s+(check|format)\\b/": true,
     // Frontend validation and builds
     "/^npm\\s+run\\s+(?:build|check|docs\\:validate|format|info|lint|redirects\\:generate|search|test|typecheck|view)\\b/": true,
     // Rust validation and read-only inspection

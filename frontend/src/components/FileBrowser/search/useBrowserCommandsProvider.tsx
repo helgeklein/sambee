@@ -1,5 +1,3 @@
-import KeyboardCommandKeyIcon from "@mui/icons-material/KeyboardCommandKey";
-import { Box, ListItemIcon, ListItemText, Typography } from "@mui/material";
 import { useCallback, useMemo } from "react";
 import { useTranslation } from "react-i18next";
 import type { BrowserCommandDefinition } from "../../../config/browserCommands";
@@ -9,51 +7,6 @@ import type { SearchProvider, SearchResult, SearchSelectionBehavior, SearchStatu
 interface BrowserCommandsProviderOptions {
   commands: BrowserCommandDefinition[];
   onSelect: (command: BrowserCommandDefinition) => void;
-}
-
-function CommandResultRow({ command }: { command: BrowserCommandDefinition }) {
-  return (
-    <>
-      <ListItemIcon sx={{ minWidth: 36 }}>
-        <KeyboardCommandKeyIcon fontSize="small" />
-      </ListItemIcon>
-      <ListItemText
-        disableTypography
-        primary={
-          <Box sx={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 1, minWidth: 0 }}>
-            <Box sx={{ minWidth: 0 }}>
-              <Typography variant="body2" noWrap>
-                {command.title}
-              </Typography>
-              <Typography variant="caption" sx={{ color: "text.secondary" }} noWrap>
-                {command.category}
-                {command.description ? ` • ${command.description}` : ""}
-              </Typography>
-            </Box>
-            {command.shortcutLabel ? (
-              <Box
-                component="kbd"
-                sx={{
-                  fontFamily: "inherit",
-                  fontSize: "0.7rem",
-                  lineHeight: 1,
-                  px: 0.5,
-                  py: 0.25,
-                  borderRadius: 0.5,
-                  border: 1,
-                  borderColor: "divider",
-                  color: "text.secondary",
-                  whiteSpace: "nowrap",
-                }}
-              >
-                {command.shortcutLabel}
-              </Box>
-            ) : null}
-          </Box>
-        }
-      />
-    </>
-  );
 }
 
 export function useBrowserCommandsProvider({ commands, onSelect }: BrowserCommandsProviderOptions): SearchProvider {
@@ -74,9 +27,13 @@ export function useBrowserCommandsProvider({ commands, onSelect }: BrowserComman
       });
 
       return filtered.map((command) => ({
+        kind: "result" as const,
         id: command.id,
         value: command.id,
-        display: <CommandResultRow command={command} />,
+        icon: "command" as const,
+        primaryText: command.title,
+        secondaryText: [command.category, command.description].filter(Boolean).join(" • "),
+        shortcutLabel: command.shortcutLabel,
       }));
     },
     [commands]
