@@ -6,7 +6,7 @@ from datetime import datetime, timezone
 from pathlib import PurePosixPath
 
 from fastapi import HTTPException, status
-from sqlmodel import Session, select
+from sqlmodel import Session, col, select
 
 from app.models.recent_file import RecentFile, RecentFileRead
 from app.models.user import User
@@ -121,7 +121,7 @@ def _trim_user_recent_files(*, user_id: uuid.UUID, retention_limit: int, session
     records = session.exec(
         select(RecentFile)
         .where(RecentFile.user_id == user_id)
-        .order_by(RecentFile.last_opened_at.desc(), RecentFile.created_at.desc(), RecentFile.id.desc())
+        .order_by(col(RecentFile.last_opened_at).desc(), col(RecentFile.created_at).desc(), col(RecentFile.id).desc())
     ).all()
     for record in records[retention_limit:]:
         session.delete(record)
@@ -193,7 +193,9 @@ def _match_rank(*, normalized_file_name: str, normalized_query: str) -> int | No
 def search_recent_files(*, query: str, limit: int, current_user: User, session: Session) -> list[RecentFileRead]:
     bounded_limit = get_recent_file_result_limit(limit=limit, session=session)
     normalized_query = _normalize_for_matching(query.strip())
-    records = session.exec(select(RecentFile).where(RecentFile.user_id == current_user.id).order_by(RecentFile.last_opened_at.desc())).all()
+    records = session.exec(
+        select(RecentFile).where(RecentFile.user_id == current_user.id).order_by(col(RecentFile.last_opened_at).desc())
+    ).all()
     matched: list[tuple[int, RecentFile]] = []
     for record in records:
         rank = _match_rank(normalized_file_name=_normalize_for_matching(record.file_name), normalized_query=normalized_query)

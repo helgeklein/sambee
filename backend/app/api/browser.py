@@ -2,7 +2,7 @@ import asyncio
 import uuid
 from datetime import datetime, timedelta, timezone
 from pathlib import PurePosixPath
-from typing import Optional
+from typing import NoReturn, Optional
 
 from fastapi import APIRouter, Depends, File, HTTPException, Query, UploadFile, status
 from pydantic import BaseModel
@@ -158,7 +158,7 @@ def _raise_recent_target_error(
     message: str,
     record: RecentFile | None = None,
     session: Session,
-) -> None:
+) -> NoReturn:
     if record is not None:
         session.delete(record)
         session.commit()
