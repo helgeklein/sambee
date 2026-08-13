@@ -187,6 +187,38 @@ def require_matching_identity(
             )
 
 
+def validate_recovery_metadata(provenance: dict[str, Any]) -> None:
+    workflow_run = provenance.get("workflow_run")
+    artifacts = provenance.get("actions_artifacts")
+    platforms = provenance.get("platforms")
+    if (
+        not isinstance(workflow_run, dict)
+        or not isinstance(artifacts, list)
+        or not artifacts
+        or not isinstance(platforms, list)
+        or not platforms
+        or not isinstance(provenance.get("artifact_manifest_sha256"), str)
+    ):
+        fail_new_candidate(
+            "Existing Companion draft does not record recovery artifact identities. "
+        )
+    if not isinstance(workflow_run.get("id"), int) or not isinstance(
+        workflow_run.get("attempt"), int
+    ):
+        fail("Existing Companion draft has invalid workflow recovery metadata")
+    for artifact in artifacts:
+        if (
+            not isinstance(artifact, dict)
+            or not isinstance(artifact.get("id"), int)
+            or not isinstance(artifact.get("platform"), str)
+            or not isinstance(artifact.get("target"), str)
+            or not isinstance(artifact.get("name"), str)
+            or not isinstance(artifact.get("digest"), str)
+            or not artifact["digest"]
+        ):
+            fail("Existing Companion draft has invalid retained artifact metadata")
+
+
 def resolve_state(
     release: dict[str, Any] | None, identity: ReleaseIdentity, token: str
 ) -> str:
@@ -230,41 +262,44 @@ def resolve_state(
             expected_assets
         ):
             fail("Existing Companion completion marker has an invalid asset-set digest")
-        return "complete"
+        expected_names = set()
+        for expected_asset in expected_assets:
+            if not isinstance(expected_asset, dict) or not isinstance(
+                expected_asset.get("name"), str
+            ):
+                fail("Existing Companion completion marker has an invalid asset record")
+            expected_names.add(expected_asset["name"])
+        release_assets = release.get("assets")
+        if not isinstance(release_assets, list):
+            fail("Existing Companion release has an invalid asset list")
+        actual_names = {
+            asset.get("name")
+            for asset in release_assets
+            if isinstance(asset, dict) and isinstance(asset.get("name"), str)
+        }
+        required_names = expected_names | {PROVENANCE_ASSET, COMPLETION_ASSET}
+        unexpected_names = actual_names - required_names
+        missing_names = required_names - actual_names
+        if unexpected_names:
+            fail_new_candidate(
+                "Existing Companion release contains unexpected assets: "
+                f"{', '.join(sorted(unexpected_names))}."
+            )
+        if not missing_names:
+            return "complete"
+        if not release.get("draft", False):
+            fail_new_candidate(
+                "Published Companion release is missing expected assets: "
+                f"{', '.join(sorted(missing_names))}."
+            )
+        validate_recovery_metadata(provenance)
+        return "recover-finalizer"
     if not release.get("draft", False):
         fail_new_candidate(
             "Published Companion release has no completion marker and is conflicting state. "
         )
 
-    workflow_run = provenance.get("workflow_run")
-    artifacts = provenance.get("actions_artifacts")
-    platforms = provenance.get("platforms")
-    if (
-        not isinstance(workflow_run, dict)
-        or not isinstance(artifacts, list)
-        or not artifacts
-        or not isinstance(platforms, list)
-        or not platforms
-        or not isinstance(provenance.get("artifact_manifest_sha256"), str)
-    ):
-        fail_new_candidate(
-            "Existing Companion draft does not record recovery artifact identities. "
-        )
-    if not isinstance(workflow_run.get("id"), int) or not isinstance(
-        workflow_run.get("attempt"), int
-    ):
-        fail("Existing Companion draft has invalid workflow recovery metadata")
-    for artifact in artifacts:
-        if (
-            not isinstance(artifact, dict)
-            or not isinstance(artifact.get("id"), int)
-            or not isinstance(artifact.get("platform"), str)
-            or not isinstance(artifact.get("target"), str)
-            or not isinstance(artifact.get("name"), str)
-            or not isinstance(artifact.get("digest"), str)
-            or not artifact["digest"]
-        ):
-            fail("Existing Companion draft has invalid retained artifact metadata")
+    validate_recovery_metadata(provenance)
     return "recover-finalizer"
 
 
