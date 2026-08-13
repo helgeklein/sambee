@@ -96,6 +96,8 @@ def test_fetch_release_finds_untagged_draft_by_tag_name(
     def request_json(url: str, _token: str) -> dict | list:
         if "/releases/tags/" in url:
             raise MODULE.GitHubApiError(404, "Not Found")
+        if url.endswith("/releases/123"):
+            return draft_release
         return [draft_release]
 
     monkeypatch.setattr(MODULE, "request_json", request_json)
@@ -107,13 +109,34 @@ def test_fetch_release_finds_untagged_draft_by_embedded_provenance(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     draft_release = release(draft=True, completion=False, recoverable=True)
-    draft_release["tag_name"] = "untagged-123"
+    draft_release.update({"id": 123, "tag_name": "untagged-123"})
     embed_recovery_provenance(draft_release)
 
     def request_json(url: str, _token: str) -> dict | list:
         if "/releases/tags/" in url:
             raise MODULE.GitHubApiError(404, "Not Found")
+        if url.endswith("/releases/123"):
+            return draft_release
         return [draft_release]
+
+    monkeypatch.setattr(MODULE, "request_json", request_json)
+
+    assert MODULE.fetch_release("owner", "repo", IDENTITY.release_tag, "token") == draft_release
+
+
+def test_fetch_release_finds_untagged_draft_by_title(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    draft_release = release(draft=True, completion=False, recoverable=True)
+    draft_release.update({"id": 123, "name": "Sambee Companion v1.2.3", "tag_name": "untagged-123"})
+    listed_draft = {"id": 123, "name": "Sambee Companion v1.2.3", "tag_name": "untagged-123"}
+
+    def request_json(url: str, _token: str) -> dict | list:
+        if "/releases/tags/" in url:
+            raise MODULE.GitHubApiError(404, "Not Found")
+        if url.endswith("/releases/123"):
+            return draft_release
+        return [listed_draft]
 
     monkeypatch.setattr(MODULE, "request_json", request_json)
 

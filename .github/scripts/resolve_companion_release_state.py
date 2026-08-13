@@ -287,7 +287,9 @@ def fetch_release(owner: str, repo: str, tag: str, token: str) -> dict[str, Any]
         return payload
 
     # Draft releases have neither a Git tag nor their requested tag as tag_name.
-    # Search release records, then use their embedded provenance to identify drafts.
+    # The list response may omit their body, so use the deterministic title to
+    # locate a candidate and retrieve its complete record before validation.
+    expected_title = f"Sambee Companion v{tag.removeprefix('companion-v')}"
     page = 1
     while True:
         releases_url = f"https://api.github.com/repos/{owner}/{repo}/releases?per_page=100&page={page}"
@@ -303,9 +305,25 @@ def fetch_release(owner: str, repo: str, tag: str, token: str) -> dict[str, Any]
         for release in releases:
             if isinstance(release, dict) and (
                 release.get("tag_name") == tag
+                or release.get("name") == expected_title
                 or draft_matches_embedded_release_tag(release, tag)
             ):
-                return release
+                release_id = release.get("id")
+                if not isinstance(release_id, int):
+                    fail("Companion release list returned a release without an ID")
+                release_url = (
+                    f"https://api.github.com/repos/{owner}/{repo}/releases/{release_id}"
+                )
+                try:
+                    resolved_release = request_json(release_url, token)
+                except GitHubApiError as error:
+                    fail(
+                        f"Unable to fetch Companion release {release_id} from {owner}/{repo}: "
+                        f"HTTP {error.status_code} {error.message}"
+                    )
+                if not isinstance(resolved_release, dict):
+                    fail("Unexpected API response while resolving Companion release")
+                return resolved_release
         if len(releases) < 100:
             return None
         page += 1
