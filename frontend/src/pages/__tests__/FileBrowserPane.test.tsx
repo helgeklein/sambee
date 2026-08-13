@@ -157,10 +157,6 @@ function createMockPane(overrides: Partial<UseFileBrowserPaneReturn> = {}): UseF
     setSortDirection: vi.fn(),
     viewMode: "list",
     setViewMode: vi.fn(),
-    currentDirectoryFilter: "",
-    setCurrentDirectoryFilter: vi.fn(),
-    clearCurrentDirectoryFilter: vi.fn(),
-    isCurrentDirectoryFilterActive: false,
     focusedIndex: 0,
 
     // Selection state (multi-select)
@@ -173,7 +169,7 @@ function createMockPane(overrides: Partial<UseFileBrowserPaneReturn> = {}): UseF
     getEffectiveSelection: vi.fn().mockReturnValue([]),
 
     // Computed
-    sortedAndFilteredFiles: testFiles,
+    sortedFiles: testFiles,
     imageFiles: [],
     directorySearchProvider: {
       id: "test",
@@ -340,8 +336,8 @@ describe("FileBrowserPane", () => {
       expect(screen.getByTestId("status-bar")).toBeInTheDocument();
     });
 
-    it("hides status bar when sortedAndFilteredFiles is empty", () => {
-      const pane = createMockPane({ sortedAndFilteredFiles: [] });
+    it("hides status bar when sorted files are empty", () => {
+      const pane = createMockPane({ sortedFiles: [] });
       render(<FileBrowserPane {...defaultProps({ pane })} />);
       expect(screen.queryByTestId("status-bar")).not.toBeInTheDocument();
     });

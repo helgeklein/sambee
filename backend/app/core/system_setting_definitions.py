@@ -9,6 +9,7 @@ class SystemSettingKey(StrEnum):
     SMB_POLICY = "smb.policy"
     PREPROCESSOR_IMAGEMAGICK_MAX_FILE_SIZE_BYTES = "preprocessors.imagemagick.max_file_size_bytes"
     PREPROCESSOR_IMAGEMAGICK_TIMEOUT_SECONDS = "preprocessors.imagemagick.timeout_seconds"
+    FILE_SEARCH_POLICY = "file_search.policy"
 
 
 class SystemSettingSource(StrEnum):

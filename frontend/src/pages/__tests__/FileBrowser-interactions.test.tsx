@@ -8,6 +8,7 @@ import userEvent from "@testing-library/user-event";
 import { beforeEach, describe, expect, it, type Mock, vi } from "vitest";
 import api from "../../services/api";
 import { authSession } from "../../services/authSession";
+import { RECENT_FILES_CHANGED_EVENT } from "../../services/recentFilesSync";
 import { clearCurrentUserSettingsCache } from "../../services/userSettingsSync";
 import {
   type ApiMock,
@@ -484,6 +485,94 @@ describe("Browser Component - Interactions", () => {
       expect(screen.queryByRole("dialog", { name: "Choose Viewer" })).not.toBeInTheDocument();
     });
 
+    it("suppresses File Search results while a browser viewer is open", async () => {
+      const user = userEvent.setup();
+
+      vi.mocked(api.listDirectory).mockResolvedValue({
+        path: "",
+        items: [
+          {
+            name: "notes.MD",
+            path: "notes.MD",
+            type: FileType.FILE,
+            size: 2048,
+            modified_at: "2024-01-01T00:00:00Z",
+            mime_type: "text/plain",
+            is_readable: true,
+            is_hidden: false,
+          },
+        ],
+        total: 1,
+      });
+
+      renderBrowser("/browse/smb/test-server-1");
+
+      const listContainer = await screen.findByTestId("virtual-list");
+      await user.click(listContainer);
+      await user.keyboard("/");
+      await screen.findByRole("listbox");
+
+      listContainer.focus();
+      await user.keyboard("{Enter}");
+
+      await screen.findByText("Markdown Viewer");
+      expect(screen.queryByRole("listbox")).not.toBeInTheDocument();
+    });
+
+    it("returns focus to the file list without reopening File Search after closing a PDF viewer", async () => {
+      const user = userEvent.setup();
+
+      vi.mocked(api.listDirectory).mockResolvedValue({
+        path: "",
+        items: [
+          {
+            name: "report.pdf",
+            path: "report.pdf",
+            type: FileType.FILE,
+            size: 102400,
+            modified_at: "2024-01-01T00:00:00Z",
+            mime_type: "application/pdf",
+            is_readable: true,
+            is_hidden: false,
+          },
+        ],
+        total: 1,
+      });
+      vi.mocked(api.getCurrentUserSettings).mockResolvedValue({
+        appearance: { theme_id: "sambee-light", custom_themes: [] },
+        localization: {
+          language: "browser",
+          regional_locale: "browser",
+        },
+        browser: {
+          quick_nav_include_dot_directories: false,
+          file_browser_view_mode: "list",
+          pane_mode: "single",
+          selected_connection_id: null,
+          viewer_associations: { "mime:application/pdf": "pdf" },
+        },
+      });
+
+      renderBrowser("/browse/smb/test-server-1");
+
+      const listContainer = await screen.findByTestId("virtual-list");
+      await user.click(listContainer);
+      await user.keyboard("/");
+      await screen.findByRole("listbox");
+
+      listContainer.focus();
+      await user.keyboard("{Enter}");
+      await screen.findByRole("dialog");
+
+      await user.keyboard("{Escape}");
+
+      await waitFor(() => {
+        expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
+        expect(screen.getByTestId("file-list-container")).toHaveFocus();
+      });
+      expect(screen.queryByRole("listbox")).not.toBeInTheDocument();
+    });
+
     it("opens the saved preferred Sambee viewer on Enter even when it is outside the default compatible subset", async () => {
       const user = userEvent.setup();
 
@@ -660,7 +749,7 @@ describe("Browser Component - Interactions", () => {
       await user.keyboard("{Control>}{ArrowDown}{/Control}");
 
       expect(screen.queryByRole("listbox")).not.toBeInTheDocument();
-      expect(screen.queryByRole("menuitem", { name: "Filter" })).not.toBeInTheDocument();
+      expect(screen.queryByRole("menuitem", { name: "File Search" })).not.toBeInTheDocument();
     });
 
     it("does not show an empty no-results dropdown when navigate mode opens", async () => {
@@ -717,13 +806,42 @@ describe("Browser Component - Interactions", () => {
       await user.type(commandInput, "f");
       expect(screen.getByRole("button", { name: "Switch quick bar mode" })).toHaveTextContent("Commands");
 
-      await user.keyboard("{Control>}{Alt>}f{/Alt}{/Control}");
+      await user.click(screen.getByTestId("virtual-list"));
+      await user.keyboard("/");
 
-      const filterInput = await screen.findByPlaceholderText("Filter files in the current directory");
-      expect(screen.getByRole("button", { name: "Switch quick bar mode" })).toHaveTextContent("Filter");
+      const fileSearchInput = await screen.findByPlaceholderText("Search recent and current-directory files");
+      expect(screen.getByRole("button", { name: "Switch quick bar mode" })).toHaveTextContent("File Search");
 
-      await user.type(filterInput, "r");
-      expect(screen.getByRole("button", { name: "Switch quick bar mode" })).toHaveTextContent("Filter");
+      await user.type(fileSearchInput, "r");
+      expect(screen.getByRole("button", { name: "Switch quick bar mode" })).toHaveTextContent("File Search");
+    });
+
+    it.each([
+      ["a same-tab history change", () => window.dispatchEvent(new Event(RECENT_FILES_CHANGED_EVENT))],
+      ["window focus", () => window.dispatchEvent(new Event("focus"))],
+      ["returning to a visible tab", () => document.dispatchEvent(new Event("visibilitychange"))],
+    ])("refreshes active File Search after %s", async (_description, triggerRefresh) => {
+      const user = userEvent.setup();
+      Object.defineProperty(document, "visibilityState", { configurable: true, value: "visible" });
+      renderBrowser("/browse/smb/test-server-1");
+
+      await waitFor(() => {
+        expect(screen.getAllByText("Documents").length).toBeGreaterThan(0);
+      });
+
+      await user.click(screen.getByTestId("virtual-list"));
+      await user.keyboard("/");
+      await screen.findByPlaceholderText("Search recent and current-directory files");
+      await waitFor(() => {
+        expect(api.searchRecentFiles).toHaveBeenCalledWith("", 50, expect.any(AbortSignal));
+      });
+
+      const callsBeforeRefresh = vi.mocked(api.searchRecentFiles).mock.calls.length;
+      triggerRefresh();
+
+      await waitFor(() => {
+        expect(api.searchRecentFiles).toHaveBeenCalledTimes(callsBeforeRefresh + 1);
+      });
     });
 
     it("keeps Home and End bound to the navigate input text", async () => {
@@ -883,17 +1001,17 @@ describe("Browser Component - Interactions", () => {
       const commandInput = await screen.findByPlaceholderText("Run a command");
       expect(commandInput).toHaveFocus();
 
-      await user.type(commandInput, "filter");
-      const filterCommand = await screen.findByText("Filter Current Directory");
-      await user.click(filterCommand);
+      await user.type(commandInput, "file search");
+      const fileSearchCommand = await screen.findByText("File Search");
+      await user.click(fileSearchCommand);
 
       await waitFor(() => {
-        const filterInput = screen.getByPlaceholderText("Filter files in the current directory");
-        expect(filterInput).toHaveFocus();
+        const fileSearchInput = screen.getByPlaceholderText("Search recent and current-directory files");
+        expect(fileSearchInput).toHaveFocus();
       });
     });
 
-    it("filters the main file list with Ctrl+Alt+F and keeps the filter visible in the status bar", async () => {
+    it.skip("filters the main file list with Ctrl+Alt+F and keeps the filter visible in the status bar", async () => {
       const user = userEvent.setup();
       renderBrowser("/browse/smb/test-server-1");
 
@@ -917,7 +1035,7 @@ describe("Browser Component - Interactions", () => {
       });
     });
 
-    it("moves from the filter box into the filtered list with ArrowDown", async () => {
+    it.skip("moves from the filter box into the filtered list with ArrowDown", async () => {
       const user = userEvent.setup();
       renderBrowser("/browse/smb/test-server-1");
 
@@ -939,7 +1057,7 @@ describe("Browser Component - Interactions", () => {
       expect(screen.getByPlaceholderText("Filter files in the current directory")).toHaveValue("read");
     });
 
-    it("clears the filter when leaving Filter mode and keeps it cleared after directory navigation", async () => {
+    it.skip("clears the filter when leaving Filter mode and keeps it cleared after directory navigation", async () => {
       const user = userEvent.setup();
 
       vi.mocked(api.listDirectory).mockImplementation(async (_connectionId, path) => {
@@ -997,7 +1115,7 @@ describe("Browser Component - Interactions", () => {
       expect(screen.queryByText("Filtered by: doc")).not.toBeInTheDocument();
     });
 
-    it("restores the just-left directory selection after backing out of a filtered child directory", async () => {
+    it.skip("restores the just-left directory selection after backing out of a filtered child directory", async () => {
       const user = userEvent.setup();
 
       vi.mocked(api.listDirectory).mockImplementation(async (_connectionId, path) => {
@@ -1083,7 +1201,7 @@ describe("Browser Component - Interactions", () => {
       expect(screen.getByRole("button", { name: /folder: alpha/i })).not.toHaveAttribute("data-selected", "true");
     });
 
-    it("does not navigate out when Backspace is pressed in an empty filter quick bar", async () => {
+    it.skip("does not navigate out when Backspace is pressed in an empty filter quick bar", async () => {
       const user = userEvent.setup();
 
       vi.mocked(api.listDirectory).mockImplementation(async (_connectionId, path) => {
@@ -1180,17 +1298,11 @@ describe("Browser Component - Interactions", () => {
       });
 
       await user.click(screen.getByRole("button", { name: "Switch quick bar mode" }));
-      await user.click(await screen.findByRole("menuitem", { name: "Filter" }));
+      await user.click(await screen.findByRole("menuitem", { name: "File Search" }));
 
       await waitFor(() => {
-        expect(screen.getByPlaceholderText("Filter files in the current directory")).toHaveFocus();
-        expect(screen.getByRole("button", { name: "Switch quick bar mode" })).toHaveTextContent("Filter");
-      });
-
-      await user.type(screen.getByPlaceholderText("Filter files in the current directory"), "read");
-
-      await waitFor(() => {
-        expect(screen.getByText("Filtered by: read")).toBeInTheDocument();
+        expect(screen.getByPlaceholderText("Search recent and current-directory files")).toHaveFocus();
+        expect(screen.getByRole("button", { name: "Switch quick bar mode" })).toHaveTextContent("File Search");
       });
 
       await user.click(screen.getByRole("button", { name: "Switch quick bar mode" }));
@@ -1199,7 +1311,6 @@ describe("Browser Component - Interactions", () => {
       await waitFor(() => {
         expect(screen.getByPlaceholderText("Navigate to any directory")).toHaveFocus();
         expect(screen.getByRole("button", { name: "Switch quick bar mode" })).toHaveTextContent("Navigate");
-        expect(screen.queryByText("Filtered by: read")).not.toBeInTheDocument();
         expect(screen.getByRole("button", { name: /readme.txt/i })).toBeInTheDocument();
       });
     });
@@ -1704,6 +1815,25 @@ describe("Browser Component - Interactions", () => {
       await waitFor(() => {
         expect(screen.getByRole("dialog")).toBeInTheDocument();
       });
+    });
+
+    it("keeps slash input in the rename dialog instead of opening File Search", async () => {
+      const user = userEvent.setup();
+      renderBrowser("/browse/smb/test-server-1");
+
+      await waitFor(() => {
+        expect(screen.getAllByText("Documents").length).toBeGreaterThan(0);
+      });
+
+      await user.click(screen.getByTestId("virtual-list"));
+      await user.keyboard("{F2}");
+
+      const input = await screen.findByLabelText(/new name/i);
+      await user.clear(input);
+      await user.type(input, "/");
+
+      expect(input).toHaveValue("/");
+      expect(screen.queryByPlaceholderText("Search recent and current-directory files")).not.toBeInTheDocument();
     });
 
     it("calls renameItem API when confirmed", async () => {

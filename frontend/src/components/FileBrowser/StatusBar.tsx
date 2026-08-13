@@ -13,17 +13,14 @@ export const STATUS_BAR_HEIGHT = 32;
 interface StatusBarProps {
   files: FileEntry[];
   focusedIndex: number;
-  activeFilter?: string;
 }
 
 /**
  * Status bar showing selected file info and total count
  * Desktop only component
  */
-export function StatusBar({ files, focusedIndex, activeFilter }: StatusBarProps) {
-  const hasActiveFilter = (activeFilter?.trim().length ?? 0) > 0;
-
-  if (files.length === 0 && !hasActiveFilter) {
+export function StatusBar({ files, focusedIndex }: StatusBarProps) {
+  if (files.length === 0) {
     return null;
   }
 
@@ -91,19 +88,6 @@ export function StatusBar({ files, focusedIndex, activeFilter }: StatusBarProps)
       </Box>
 
       <Box sx={{ display: "flex", alignItems: "center", gap: 2, minWidth: 0 }}>
-        {hasActiveFilter && (
-          <Typography
-            variant="caption"
-            noWrap
-            sx={{
-              maxWidth: 240,
-              color: (theme) => theme.palette.statusBar?.textSecondary ?? theme.palette.text.secondary,
-            }}
-          >
-            {STATUS_BAR_STRINGS.filteredBy(activeFilter)}
-          </Typography>
-        )}
-
         <Typography
           variant="caption"
           sx={{

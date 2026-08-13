@@ -13,7 +13,7 @@
  * Each provider controls:
  * - How search queries are executed (fetchResults)
  * - What happens when a result is selected (onSelect)
- * - How results are rendered (renderResult)
+ * - Which structured presentation data each result supplies
  * - Placeholder text and status indicators
  */
 
@@ -23,15 +23,47 @@ import type React from "react";
 // Result types
 // ============================================================================
 
-/** A single search result returned by a provider */
-export interface SearchResult {
-  /** Unique identifier for the result */
-  id: string;
-  /** The raw value passed to onSelect when chosen */
-  value: string;
-  /** React element to render for this result row */
-  display: React.ReactNode;
+/** Icons understood by the shared quick-bar result renderer. */
+export type SearchResultIcon = "command" | "directory" | "file" | "recent-file";
+
+/** An inclusive-exclusive text range highlighted by the shared renderer. */
+export interface SearchTextHighlight {
+  start: number;
+  end: number;
 }
+
+/** A selectable quick-bar result. Providers describe data; the shared renderer owns presentation. */
+export interface SearchResultItem {
+  kind: "result";
+  /** Unique identifier for the result. */
+  id: string;
+  /** The raw value passed to onSelect when chosen. */
+  value: string;
+  /** Semantic icon selected by the shared renderer. */
+  icon: SearchResultIcon;
+  /** Main result label. */
+  primaryText: string;
+  /** Optional muted result context. */
+  secondaryText?: string;
+  /** Optional highlighted range in the primary label. */
+  primaryHighlight?: SearchTextHighlight;
+  /** Optional highlighted range in the secondary label. */
+  secondaryHighlight?: SearchTextHighlight;
+  /** Optional keyboard shortcut badge, used by commands. */
+  shortcutLabel?: string;
+}
+
+/** A non-selectable group label in the quick-bar result list. */
+export interface SearchResultGroupHeader {
+  kind: "group-header";
+  id: string;
+  /** Group headers have no selectable value. */
+  value: "";
+  label: string;
+}
+
+/** A structured result rendered by UnifiedSearchBar. */
+export type SearchResult = SearchResultItem | SearchResultGroupHeader;
 
 /** Status information from the provider (e.g., indexing progress) */
 export interface SearchStatusInfo {
@@ -47,6 +79,8 @@ export interface SearchSelectionBehavior {
   /** Where focus should go after a result is selected. */
   focusTarget?: SearchSelectionFocusTarget;
 }
+
+export type SearchSelectionAction = "associated-viewer" | "force-viewer-picker" | "associated-native-app" | "force-native-picker";
 
 // ============================================================================
 // Provider interface
@@ -86,7 +120,13 @@ export interface SearchProvider {
    * Called when a result is selected (via click or Enter).
    * @param value The value of the selected result
    */
-  onSelect: (value: string) => SearchSelectionBehavior | undefined;
+  onSelect: (value: string, action?: SearchSelectionAction) => SearchSelectionBehavior | undefined;
+
+  /**
+   * Optionally remove the selected result without closing the quick bar.
+   * Returns true only when a result was removed and should be refreshed.
+   */
+  onRemoveSelected?: (value: string) => Promise<boolean>;
 
   /**
    * Optional status info to display (e.g., "Indexing... 42 directories found").
@@ -114,6 +154,9 @@ export interface SearchProvider {
 
   /** Hint content shown in the footer (e.g., keyboard shortcuts). Supports ReactNode for rich formatting. */
   footerHint?: React.ReactNode;
+
+  /** Optional selected-result-aware footer hint. */
+  getFooterHint?: (selectedResult: SearchResult | undefined) => React.ReactNode;
 
   /** Optional: dynamic footer info based on result count (e.g., "5 results") */
   footerInfo?: (resultCount: number) => string | undefined;

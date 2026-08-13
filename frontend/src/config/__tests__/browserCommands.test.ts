@@ -18,7 +18,7 @@ function createContext(): BrowserCommandContext {
     canCopyToOtherPane: true,
     canMoveToOtherPane: true,
     openQuickNav: () => {},
-    openFilterMode: () => {},
+    openFileSearch: () => {},
     openCommandMode: () => {},
     openSettings: () => {},
     openConnectionsSettings: () => {},

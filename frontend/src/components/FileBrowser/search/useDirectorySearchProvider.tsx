@@ -16,17 +16,14 @@
  * - Warm-up on activation to trigger cache building
  */
 
-import FolderIcon from "@mui/icons-material/Folder";
-import { Box, ListItemIcon, ListItemText, Typography } from "@mui/material";
-import type React from "react";
-import { useCallback, useRef, useState } from "react";
+import { useCallback, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { BROWSER_SHORTCUTS } from "../../../config/keyboardShortcuts";
 import api from "../../../services/api";
 import { logger } from "../../../services/logger";
 import type { DirectorySearchResult } from "../../../types";
 import { normalizeQuerySeparators } from "./normalizeQuerySeparators";
-import type { SearchProvider, SearchResult, SearchStatusInfo } from "./types";
+import type { SearchProvider, SearchResult, SearchResultItem, SearchStatusInfo, SearchTextHighlight } from "./types";
 
 // ============================================================================
 // Constants
@@ -130,34 +127,16 @@ function findMatchSegmentRange(segments: string[], query: string): SegmentRange 
 // SmartPathDisplay — shows path with match context and highlighted match
 // ============================================================================
 
-interface SmartPathDisplayProps {
-  /** Full directory path */
-  path: string;
-  /** User's search query */
-  query: string;
+function findTextHighlight(text: string, query: string): SearchTextHighlight | undefined {
+  if (!query) return undefined;
+  const start = text.toLocaleLowerCase().indexOf(query.toLocaleLowerCase());
+  return start < 0 ? undefined : { start, end: start + query.length };
 }
 
-/**
- * Renders a directory path with smart truncation:
- * - The filename/deepest segment is always shown
- * - Segments containing the match are always shown
- * - Prefix segments that don't contain the match are collapsed to "…/"
- * - The matched substring is bold + primary-colored
- *
- * Two-line layout:
- *   primary line = deepest segments around the match
- *   secondary line = full path (dimmed, for context)
- */
-//
-// SmartPathDisplay
-//
-const SmartPathDisplay: React.FC<SmartPathDisplayProps> = ({ path, query }) => {
-  /**
-   * The primary line shows segments around the match, with leading "…/"
-   * if prefix segments were collapsed. The match is highlighted.
-   * The secondary line shows the full path, dimmed, for reference.
-   */
-
+export function getDirectoryResultPresentation(
+  path: string,
+  query: string
+): Pick<SearchResultItem, "primaryText" | "secondaryText" | "primaryHighlight"> {
   const segments = splitPathSegments(path);
   const matchRange = findMatchSegmentRange(segments, query);
 
@@ -184,111 +163,19 @@ const SmartPathDisplay: React.FC<SmartPathDisplayProps> = ({ path, query }) => {
 
   // Build the parent path for the secondary line (everything before the visible segments)
   const parentSegments = segments.slice(0, visibleStart);
-  const parentPath =
-    parentSegments.length > 0 ? parentSegments.filter((s) => s !== PATH_SEPARATOR).join(PATH_SEPARATOR) + PATH_SEPARATOR : "";
+  const parentPathWithoutRoot = parentSegments.filter((segment) => segment !== PATH_SEPARATOR).join(PATH_SEPARATOR);
+  const parentPath = parentSegments.length > 0 ? `${PATH_SEPARATOR}${parentPathWithoutRoot}${PATH_SEPARATOR}` : "";
 
-  // Highlight the match within the primary path
-  const primaryDisplay = renderHighlighted(primaryPath, query);
-
-  return (
-    <Box sx={{ minWidth: 0, overflow: "hidden" }}>
-      <Typography
-        component="div"
-        sx={{
-          fontFamily: "monospace",
-          fontSize: "0.9rem",
-          whiteSpace: "nowrap",
-          overflow: "hidden",
-          textOverflow: "ellipsis",
-          lineHeight: 1.4,
-        }}
-      >
-        {primaryDisplay}
-      </Typography>
-      {isTruncated && parentPath && (
-        <Typography
-          component="div"
-          variant="caption"
-          sx={{
-            fontFamily: "monospace",
-            whiteSpace: "nowrap",
-            overflow: "hidden",
-            textOverflow: "ellipsis",
-            color: "text.disabled",
-            lineHeight: 1.3,
-          }}
-        >
-          {parentPath}
-        </Typography>
-      )}
-    </Box>
-  );
-};
-
-// ============================================================================
-// renderHighlighted — highlight matching substring in text
-// ============================================================================
-
-/**
- * Returns a React node with the first occurrence of `query` in `text`
- * rendered in bold + primary color.
- */
-//
-// renderHighlighted
-//
-function renderHighlighted(text: string, query: string): React.ReactNode {
-  /**
-   * Case-insensitive search for the query within the text.
-   * If found, split into before/match/after and bold the match.
-   */
-
-  if (!query) return text;
-
-  const lowerText = text.toLowerCase();
-  const lowerQuery = query.toLowerCase();
-  const matchIndex = lowerText.indexOf(lowerQuery);
-
-  if (matchIndex === -1) return text;
-
-  const before = text.slice(0, matchIndex);
-  const match = text.slice(matchIndex, matchIndex + query.length);
-  const after = text.slice(matchIndex + query.length);
-
-  return (
-    <>
-      {before}
-      <Box component="span" sx={{ fontWeight: "bold", color: "primary.dark" }}>
-        {match}
-      </Box>
-      {after}
-    </>
-  );
-}
-
-// ============================================================================
-// ResultRow — renders a single directory result with smart path display
-// ============================================================================
-
-interface ResultRowProps {
-  path: string;
-  query: string;
+  return {
+    primaryText: primaryPath,
+    secondaryText: isTruncated && parentPath ? parentPath : PATH_SEPARATOR,
+    primaryHighlight: findTextHighlight(primaryPath, query),
+  };
 }
 
 interface DirectorySearchProviderOptions {
   includeDotDirectories?: boolean;
 }
-
-//
-// ResultRow
-//
-const ResultRow: React.FC<ResultRowProps> = ({ path, query }) => (
-  <>
-    <ListItemIcon sx={{ minWidth: 36 }}>
-      <FolderIcon fontSize="small" />
-    </ListItemIcon>
-    <ListItemText disableTypography primary={<SmartPathDisplay path={path} query={query} />} />
-  </>
-);
 
 // ============================================================================
 // Hook
@@ -313,7 +200,6 @@ export function useDirectorySearchProvider(
   const [cacheState, setCacheState] = useState<string>("empty");
   const [directoryCount, setDirectoryCount] = useState(0);
   const [totalMatches, setTotalMatches] = useState(0);
-  const lastQueryRef = useRef<string>("");
   const includeDotDirectories = options.includeDotDirectories ?? false;
 
   //
@@ -323,7 +209,6 @@ export function useDirectorySearchProvider(
     async (query: string, signal: AbortSignal): Promise<SearchResult[]> => {
       // Normalise backslashes to forward slashes for cross-directory search
       const normalizedQuery = normalizeQuerySeparators(query);
-      lastQueryRef.current = normalizedQuery;
 
       try {
         const result: DirectorySearchResult = await api.searchDirectories(connectionId, normalizedQuery, {
@@ -338,9 +223,11 @@ export function useDirectorySearchProvider(
         }
 
         return result.results.map((path) => ({
+          kind: "result" as const,
           id: path,
           value: path,
-          display: <ResultRow path={path} query={normalizedQuery} />,
+          icon: "directory" as const,
+          ...getDirectoryResultPresentation(path, normalizedQuery),
         }));
       } catch (error: unknown) {
         if (error && typeof error === "object" && "code" in error && (error as { code?: string }).code === "ERR_CANCELED") {

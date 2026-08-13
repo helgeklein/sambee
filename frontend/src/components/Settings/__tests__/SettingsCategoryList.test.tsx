@@ -63,6 +63,13 @@ describe("SettingsCategoryList", () => {
     expect(smbOption.querySelector('[data-testid="DnsIcon"]')).toBeInTheDocument();
   });
 
+  it("renders the File Search category icon for administrators", () => {
+    renderList(true);
+
+    const fileSearchOption = screen.getByRole("option", { name: /^file search$/i });
+    expect(fileSearchOption.querySelector('[data-testid="ManageSearchIcon"]')).toBeInTheDocument();
+  });
+
   it("navigates when local drives is selected", async () => {
     const user = userEvent.setup();
     const { onSelect } = renderList();

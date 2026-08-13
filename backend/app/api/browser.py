@@ -2,7 +2,7 @@ import asyncio
 import uuid
 from datetime import datetime, timedelta, timezone
 from pathlib import PurePosixPath
-from typing import Optional
+from typing import NoReturn, Optional
 
 from fastapi import APIRouter, Depends, File, HTTPException, Query, UploadFile, status
 from pydantic import BaseModel
@@ -32,15 +32,258 @@ from app.models.file import (
     FileType,
     RenameRequest,
 )
+from app.models.recent_file import (
+    RecentFile,
+    RecentFileClearRead,
+    RecentFileRead,
+    RecentFileRecordRequest,
+    RecentFileSearchRead,
+    RecentFileValidationCode,
+    RecentFileValidationError,
+)
 from app.models.user import User
 from app.services.connection_access import get_accessible_connection_or_404, require_connection_write_access
 from app.services.cross_connection import cross_connection_copy, cross_connection_move
+from app.services.recent_files import (
+    LOCAL_DRIVE_PREFIX,
+    clear_recent_files,
+    get_recent_file,
+    get_recent_file_result_limit,
+    normalize_recent_file_path,
+    record_recent_file,
+    remove_recent_file,
+    search_recent_files,
+    should_record_recent_file,
+)
 from app.storage.smb import SMBBackend
 
 router = APIRouter()
 logger = get_logger(__name__)
 
 DIRECTORY_LIST_ROUTE_TIMEOUT_SECONDS = 35.0
+
+
+@router.post("/recent-files", response_model=RecentFileRead | None)
+async def create_recent_file(
+    payload: RecentFileRecordRequest,
+    current_user: User = Depends(get_current_user_with_auth_check),
+    session: Session = Depends(get_session),
+) -> RecentFileRead | None:
+    set_user(current_user.username)
+    try:
+        should_record = should_record_recent_file(
+            connection_id=payload.connection_id,
+            path=payload.path,
+            is_regular_file=payload.is_regular_file,
+            current_user=current_user,
+            session=session,
+        )
+        if not should_record:
+            return None
+
+        if not payload.connection_id.startswith(LOCAL_DRIVE_PREFIX):
+            normalized_path = normalize_recent_file_path(payload.path)
+            connection = get_accessible_connection_or_404(session, current_user, uuid.UUID(payload.connection_id))
+            backend = build_smb_backend(connection, backend_factory=SMBBackend)
+            try:
+                await backend.connect()
+                file_info = await backend.get_file_info(normalized_path)
+            finally:
+                await disconnect_backend_safely(
+                    backend,
+                    logger=logger,
+                    context=f"recent-file record validation: connection_id={payload.connection_id}, path='{payload.path}'",
+                )
+            if file_info.type != FileType.FILE:
+                raise ValueError("Only regular files can be recorded in recent-file history")
+
+        return record_recent_file(
+            connection_id=payload.connection_id,
+            path=payload.path,
+            is_regular_file=payload.is_regular_file,
+            current_user=current_user,
+            session=session,
+        )
+    except FileNotFoundError as exc:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="The file no longer exists") from exc
+    except TimeoutError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_504_GATEWAY_TIMEOUT, detail="The file could not be verified because the connection timed out"
+        ) from exc
+    except ValueError as exc:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)) from exc
+    except HTTPException:
+        raise
+    except Exception as exc:
+        logger.warning(
+            "Recent-file record validation failed: connection_id=%s path=%s",
+            payload.connection_id,
+            payload.path,
+            exc_info=True,
+        )
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE, detail="The file could not be verified because the connection is unavailable"
+        ) from exc
+
+
+@router.get("/recent-files", response_model=RecentFileSearchRead)
+async def get_recent_files(
+    q: str = Query("", max_length=1024),
+    limit: int = Query(10, ge=1, le=50),
+    current_user: User = Depends(get_current_user_with_auth_check),
+    session: Session = Depends(get_session),
+) -> RecentFileSearchRead:
+    set_user(current_user.username)
+    result_limit = get_recent_file_result_limit(limit=limit, session=session)
+    return RecentFileSearchRead(
+        results=search_recent_files(query=q, limit=result_limit, current_user=current_user, session=session),
+        result_limit=result_limit,
+    )
+
+
+@router.delete("/recent-files/{record_id}", status_code=status.HTTP_204_NO_CONTENT)
+async def delete_recent_file(
+    record_id: uuid.UUID,
+    current_user: User = Depends(get_current_user_with_auth_check),
+    session: Session = Depends(get_session),
+) -> None:
+    set_user(current_user.username)
+    remove_recent_file(record_id=record_id, current_user=current_user, session=session)
+
+
+def _raise_recent_target_error(
+    *,
+    status_code: int,
+    code: RecentFileValidationCode,
+    message: str,
+    record: RecentFile | None = None,
+    session: Session,
+) -> NoReturn:
+    if record is not None:
+        session.delete(record)
+        session.commit()
+    raise HTTPException(status_code=status_code, detail={"code": code, "message": message})
+
+
+@router.get(
+    "/recent-files/{record_id}/target",
+    response_model=FileInfo,
+    responses={
+        400: {"model": RecentFileValidationError},
+        403: {"model": RecentFileValidationError},
+        404: {"model": RecentFileValidationError},
+        409: {"model": RecentFileValidationError},
+        503: {"model": RecentFileValidationError},
+        504: {"model": RecentFileValidationError},
+    },
+)
+async def validate_recent_file_target(
+    record_id: uuid.UUID,
+    current_user: User = Depends(get_current_user_with_auth_check),
+    session: Session = Depends(get_session),
+) -> FileInfo:
+    """Authoritatively validate a remote recent target before opening it."""
+
+    set_user(current_user.username)
+    record = get_recent_file(record_id=record_id, current_user=current_user, session=session)
+    if record.connection_id.startswith("local-drive:"):
+        _raise_recent_target_error(
+            status_code=status.HTTP_409_CONFLICT,
+            code="recent_file_validation_transient",
+            message="Local-drive targets must be validated by Companion.",
+            session=session,
+        )
+
+    try:
+        connection_id = uuid.UUID(record.connection_id)
+    except ValueError:
+        _raise_recent_target_error(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            code="recent_file_invalid_path",
+            message="The recent-file connection ID is invalid.",
+            record=record,
+            session=session,
+        )
+
+    connection = session.get(Connection, connection_id)
+    if connection is None:
+        _raise_recent_target_error(
+            status_code=status.HTTP_404_NOT_FOUND,
+            code="recent_file_connection_removed",
+            message="The connection for this recent file no longer exists.",
+            record=record,
+            session=session,
+        )
+
+    try:
+        get_accessible_connection_or_404(session, current_user, connection_id)
+    except HTTPException:
+        _raise_recent_target_error(
+            status_code=status.HTTP_403_FORBIDDEN,
+            code="recent_file_access_denied",
+            message="You no longer have access to this recent file's connection.",
+            record=record,
+            session=session,
+        )
+
+    backend = build_smb_backend(connection, backend_factory=SMBBackend)
+    try:
+        await backend.connect()
+        try:
+            file_info = await backend.get_file_info(record.path)
+        finally:
+            await disconnect_backend_safely(
+                backend,
+                logger=logger,
+                context=f"recent-file validation: connection_id={record.connection_id}, path='{record.path}'",
+            )
+    except FileNotFoundError:
+        _raise_recent_target_error(
+            status_code=status.HTTP_404_NOT_FOUND,
+            code="recent_file_target_missing",
+            message="The recent file no longer exists.",
+            record=record,
+            session=session,
+        )
+    except TimeoutError:
+        _raise_recent_target_error(
+            status_code=status.HTTP_504_GATEWAY_TIMEOUT,
+            code="recent_file_validation_transient",
+            message="The recent file could not be validated because the connection timed out.",
+            session=session,
+        )
+    except Exception:
+        logger.warning(
+            "Recent-file target validation failed: connection_id=%s path=%s",
+            record.connection_id,
+            record.path,
+            exc_info=True,
+        )
+        _raise_recent_target_error(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            code="recent_file_validation_transient",
+            message="The recent file could not be validated because the connection is unavailable.",
+            session=session,
+        )
+
+    if file_info.type != FileType.FILE:
+        _raise_recent_target_error(
+            status_code=status.HTTP_409_CONFLICT,
+            code="recent_file_target_not_file",
+            message="The recent target is no longer a regular file.",
+            record=record,
+            session=session,
+        )
+    return file_info
+
+
+@router.delete("/recent-files", response_model=RecentFileClearRead)
+async def delete_all_recent_files(
+    current_user: User = Depends(get_current_user_with_auth_check),
+    session: Session = Depends(get_session),
+) -> RecentFileClearRead:
+    set_user(current_user.username)
+    return RecentFileClearRead(deleted_count=clear_recent_files(current_user=current_user, session=session))
 
 
 def _get_active_lock(connection_id: uuid.UUID, path: str, session: Session) -> EditLock | None:
@@ -1086,7 +1329,6 @@ async def copy_item(
                 dest_connection,
                 source,
                 dest,
-                str(connection_id),
                 str(body.dest_connection_id),
                 overwrite=body.overwrite,
             )
@@ -1259,7 +1501,6 @@ async def _cross_connection_copy(
     dst_conn: Connection,
     source_path: str,
     dest_path: str,
-    src_conn_id: str,
     dst_conn_id: str,
     *,
     overwrite: bool = False,

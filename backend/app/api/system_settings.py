@@ -11,6 +11,8 @@ from app.models.system_settings import (
     AboutSettingsRead,
     AdvancedSystemSettingsRead,
     AdvancedSystemSettingsUpdate,
+    FileSearchSettingsRead,
+    FileSearchSettingsUpdate,
     NetworkSettingsRead,
     NetworkSettingsUpdate,
     PublicSupportReportRead,
@@ -21,6 +23,7 @@ from app.models.user import User
 from app.services.system_settings import (
     build_about_settings_read,
     build_advanced_system_settings_read,
+    build_file_search_settings_read,
     build_network_settings_read,
     build_public_support_report_read,
     build_smb_settings_read,
@@ -28,11 +31,34 @@ from app.services.system_settings import (
     retire_smb_runtime_policy,
     smb_policy_will_change,
     update_advanced_system_settings,
+    update_file_search_settings,
     update_network_settings,
     update_smb_settings,
 )
 
 router = APIRouter()
+
+
+@router.get("/settings/file-search", response_model=FileSearchSettingsRead)
+async def get_file_search_settings(
+    current_user: User = Depends(require_capability(Capability.ACCESS_ADMIN_SETTINGS)),
+    session: Session = Depends(get_session),
+) -> FileSearchSettingsRead:
+    set_user(current_user.username)
+    return build_file_search_settings_read(session)
+
+
+@router.put("/settings/file-search", response_model=FileSearchSettingsRead)
+async def put_file_search_settings(
+    payload: FileSearchSettingsUpdate,
+    current_user: User = Depends(require_capability(Capability.ACCESS_ADMIN_SETTINGS)),
+    session: Session = Depends(get_session),
+) -> FileSearchSettingsRead:
+    set_user(current_user.username)
+    try:
+        return update_file_search_settings(payload, updated_by_user_id=current_user.id, session=session)
+    except ValueError as exc:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)) from exc
 
 
 @router.get("/settings/about", response_model=AboutSettingsRead)

@@ -170,6 +170,10 @@ export const EN_TRANSLATIONS = {
         label: "SMB",
         description: "Configure the security policy and runtime limits for SMB backends.",
       },
+      adminFileSearch: {
+        label: "File Search",
+        description: "Configure File Search history, result limits, and exclusions.",
+      },
       adminAbout: {
         label: "About",
         description: "Review Sambee build, software, and hardware information.",
@@ -233,6 +237,11 @@ export const EN_TRANSLATIONS = {
       quickNavigationTitle: "Quick navigation",
       includeDotDirectoriesLabel: "Include dot directories in quick nav",
       includeDotDirectoriesDescription: "Show folders like .git, .cache, and other dot-prefixed directories in quick navigation results.",
+      fileSearchTitle: "File Search",
+      clearRecentFiles: "Clear recent files",
+      clearRecentFilesDescription:
+        "This permanently removes your File Search history from the server without affecting any files or folders.",
+      clearRecentFilesFailed: "Could not clear recent files. Please try again.",
     },
     textEditorPage: {
       limitsTitle: "Limits",
@@ -624,6 +633,30 @@ export const EN_TRANSLATIONS = {
         configFile: "Configuration file",
       },
     },
+    fileSearch: {
+      title: "File Search",
+      saveChanges: "Save changes",
+      resetToDefault: "Reset to default",
+      loadFailed: "Could not load File Search settings.",
+      saveFailed: "Could not save File Search settings.",
+      resetFailed: "Could not reset File Search settings.",
+      retentionLimit: "Recent files to retain",
+      retentionLimitError: "Enter a whole number from 0 to 500.",
+      resultLimit: "Results per group",
+      resultLimitError: "Enter a whole number from 1 to 50.",
+      excludedCategories: "Exclude file categories",
+      excludedCategoriesHelp: "Excluded files are omitted from File Search results and history.",
+      excludeImages: "Exclude images",
+      excludeTemporaryBackup: "Exclude temporary and backup files",
+      excludedExtensions: "Excluded extensions",
+      excludedExtensionsInputLabel: "Add excluded extension",
+      excludedExtensionsAdd: "Add extension",
+      excludedExtensionsError: "Use literal extensions up to 255 characters; glob patterns and paths are not allowed.",
+      excludedExtensionsDuplicateError: "This extension is already excluded.",
+      excludedExtensionsHelp: "Enter one literal extension. Glob patterns and paths are not supported.",
+      excludedExtensionsNormalization: "Will be saved as {{extension}}.",
+      excludedExtensionsRemove: "Remove {{extension}}",
+    },
   },
   fileBrowser: {
     search: {
@@ -632,17 +665,18 @@ export const EN_TRANSLATIONS = {
         navigate: "Navigate",
         quickNav: "Quick Nav",
         commands: "Commands",
-        filter: "Filter",
+        fileSearch: "File Search",
       },
       placeholders: {
         directory: "Navigate to any directory",
         command: "Run a command",
         smart: "Go to any folder or type > for commands",
-        filterCurrentDirectory: "Filter files in the current directory",
+        fileSearch: "Search recent and current-directory files",
       },
       footer: {
         navigate: "navigate",
         open: "open",
+        removeRecent: "Remove recent item",
         run: "run",
         commands: "commands",
         close: "close",
@@ -653,6 +687,7 @@ export const EN_TRANSLATIONS = {
       },
       results: {
         none: 'No results found for "{{query}}"',
+        failed: "Search could not be completed. Try again.",
         count_one: "{{count}} result",
         count_other: "{{count}} results",
         countTruncated: "{{count}}+ results",
@@ -665,6 +700,10 @@ export const EN_TRANSLATIONS = {
         indexing: "Indexing... ({{count}} directories found)",
         updating: "Updating index... ({{count}} directories)",
         startingIndex: "Starting index...",
+      },
+      groups: {
+        recentFiles: "Recent files",
+        currentDirectory: "Current directory",
       },
       belowMinimum: "Type at least {{count}} characters to search",
     },
@@ -682,9 +721,9 @@ export const EN_TRANSLATIONS = {
           title: "Open Navigate Mode",
           description: "Jump to directories from the quick bar",
         },
-        filterCurrentDirectory: {
-          title: "Filter Current Directory",
-          description: "Filter the active pane's file list",
+        fileSearch: {
+          title: "File Search",
+          description: "Search recent files and files in the active directory",
         },
         commandPalette: {
           title: "Show Commands",
@@ -785,7 +824,7 @@ export const EN_TRANSLATIONS = {
       createDirectory: "Create new directory",
       createFile: "Create new file",
       deleteItem: "Delete file or directory",
-      filterCurrentDirectory: "Filter the current directory",
+      fileSearch: "Search recent and current-directory files",
       focusLeftPane: "Focus left pane",
       focusRightPane: "Focus right pane",
       moveToOtherPane: "Move to other pane",
@@ -847,7 +886,6 @@ export const EN_TRANSLATIONS = {
       },
       statusBar: {
         noSelection: "No selection",
-        filteredBy: "Filtered by: {{filter}}",
         itemCount_one: "{{count}} item",
         itemCount_other: "{{count}} items",
       },

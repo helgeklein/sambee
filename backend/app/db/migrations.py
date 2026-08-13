@@ -607,6 +607,30 @@ def _apply_oidc_auto_link_by_username_migration(connection: Connection) -> None:
         connection.execute(text("ALTER TABLE oidcproviderconfiguration ADD COLUMN auto_link_by_username BOOLEAN NOT NULL DEFAULT 1"))
 
 
+def _apply_recent_files_migration(connection: Connection) -> None:
+    connection.execute(
+        text(
+            """
+            CREATE TABLE IF NOT EXISTS recentfile (
+                id CHAR(32) PRIMARY KEY NOT NULL,
+                user_id CHAR(32) NOT NULL,
+                connection_id VARCHAR(256) NOT NULL,
+                path VARCHAR(4096) NOT NULL,
+                file_name VARCHAR(1024) NOT NULL,
+                last_opened_at DATETIME NOT NULL,
+                created_at DATETIME NOT NULL,
+                CONSTRAINT uq_recentfile_user_connection_path UNIQUE (user_id, connection_id, path),
+                FOREIGN KEY(user_id) REFERENCES user (id)
+            )
+            """
+        )
+    )
+    connection.execute(text("CREATE INDEX IF NOT EXISTS ix_recentfile_user_id ON recentfile (user_id)"))
+    connection.execute(text("CREATE INDEX IF NOT EXISTS ix_recentfile_connection_id ON recentfile (connection_id)"))
+    connection.execute(text("CREATE INDEX IF NOT EXISTS ix_recentfile_last_opened_at ON recentfile (last_opened_at)"))
+    connection.execute(text("CREATE INDEX IF NOT EXISTS ix_recentfile_user_last_opened ON recentfile (user_id, last_opened_at)"))
+
+
 MIGRATIONS: tuple[Migration, ...] = (
     Migration(version=1, name="ensure_connection_slugs", apply=_apply_connection_slug_migration),
     Migration(version=2, name="add_user_role_and_session_fields", apply=_apply_user_role_migration),
@@ -633,6 +657,7 @@ MIGRATIONS: tuple[Migration, ...] = (
     Migration(version=23, name="add_oidc_browser_session_client_metadata", apply=_apply_oidc_browser_session_client_metadata_migration),
     Migration(version=24, name="add_oidc_identity_group_history", apply=_apply_oidc_identity_group_history_migration),
     Migration(version=25, name="add_oidc_auto_link_by_username", apply=_apply_oidc_auto_link_by_username_migration),
+    Migration(version=26, name="add_recent_files", apply=_apply_recent_files_migration),
 )
 
 

@@ -24,7 +24,10 @@ use crate::{commands, show_pairing_success, show_pairing_window};
 
 use super::auth;
 use super::drives;
-use super::errors::{ApiError, PAIR_CONFIRMATION_PENDING_CODE};
+use super::errors::{
+    ApiError, PAIR_CONFIRMATION_PENDING_CODE, RECENT_FILE_NATIVE_LAUNCH_FAILED_CODE, RECENT_FILE_TARGET_MISSING_CODE,
+    RECENT_FILE_TARGET_NOT_FILE_CODE,
+};
 use super::models::*;
 use super::pairing::{PairingInitiateError, PairingState};
 use super::AppState;
@@ -406,7 +409,13 @@ pub async fn browse_info(Path(drive): Path<String>, Query(query): Query<BrowseQu
     let normalized_relative = normalize_drive_relative_path(&drive, relative)?;
     let full_path = resolve_safe_path(&base_path, &drive, relative)?;
 
-    let metadata = tokio::fs::metadata(&full_path).await.map_err(|e| map_io_error(e, &full_path))?;
+    let metadata = tokio::fs::metadata(&full_path).await.map_err(|error| {
+        if error.kind() == std::io::ErrorKind::NotFound {
+            ApiError::not_found_code(format!("Path not found: {}", full_path.display()), RECENT_FILE_TARGET_MISSING_CODE)
+        } else {
+            map_io_error(error, &full_path)
+        }
+    })?;
 
     let name = full_path.file_name().unwrap_or_default().to_string_lossy().to_string();
 
@@ -789,8 +798,18 @@ pub async fn browse_open(
     let base_path = drives::resolve_drive_path(&drive).ok_or_else(|| ApiError::NotFound(format!("Unknown drive: {drive}")))?;
     let file_path = resolve_safe_path(&base_path, &drive, &body.path)?;
 
-    if !file_path.is_file() {
-        return Err(ApiError::BadRequest(format!("Not a file: {}", file_path.display())));
+    let metadata = tokio::fs::metadata(&file_path).await.map_err(|error| {
+        if error.kind() == std::io::ErrorKind::NotFound {
+            ApiError::not_found_code(format!("Path not found: {}", file_path.display()), RECENT_FILE_TARGET_MISSING_CODE)
+        } else {
+            map_io_error(error, &file_path)
+        }
+    })?;
+    if !metadata.is_file() {
+        return Err(ApiError::bad_request_code(
+            format!("Not a file: {}", file_path.display()),
+            RECENT_FILE_TARGET_NOT_FILE_CODE,
+        ));
     }
 
     let extension = file_path.extension().and_then(|ext| ext.to_str()).unwrap_or("");
@@ -805,7 +824,7 @@ pub async fn browse_open(
 
     commands::open_file::open_in_native_app(&state.app, &file_path, &selected_app.executable, selected_app.handler_id.as_deref())
         .await
-        .map_err(ApiError::Internal)?;
+        .map_err(|error| ApiError::internal_code(error, RECENT_FILE_NATIVE_LAUNCH_FAILED_CODE))?;
 
     log::info!(
         "Opened local file with selected app: {} ({})",

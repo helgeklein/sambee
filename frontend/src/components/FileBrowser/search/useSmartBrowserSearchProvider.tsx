@@ -12,11 +12,17 @@ const COMMAND_PREFIX = ">";
 type ResultPrefix = "directory" | "command";
 
 function prefixResults(prefix: ResultPrefix, results: SearchResult[]): SearchResult[] {
-  return results.map((result) => ({
-    ...result,
-    id: `${prefix}:${result.id}`,
-    value: `${prefix}:${result.value}`,
-  }));
+  return results.map((result) => {
+    if (result.kind === "group-header") {
+      return { ...result, id: `${prefix}:${result.id}` };
+    }
+
+    return {
+      ...result,
+      id: `${prefix}:${result.id}`,
+      value: `${prefix}:${result.value}`,
+    };
+  });
 }
 
 function decodeValue(value: string): { prefix: ResultPrefix; rawValue: string } | null {

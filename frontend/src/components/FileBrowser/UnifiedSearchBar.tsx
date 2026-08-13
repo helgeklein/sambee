@@ -41,12 +41,18 @@ import {
 } from "@mui/material";
 import { useVirtualizer } from "@tanstack/react-virtual";
 import type React from "react";
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { flushSync } from "react-dom";
 import { useTranslation } from "react-i18next";
 import { usePillButtonMenu } from "../../hooks/usePillButtonMenu";
 import { getSecondaryToolbarMenuPaperStyle, pillButtonStyle } from "../../theme/commonStyles";
-import type { SearchProvider, SearchResult, SearchSelectionBehavior } from "./search/types";
+import {
+  getQuickBarResultRowHeight,
+  QUICK_BAR_RESULT_ITEM_HEIGHT,
+  QuickBarResultGroupHeader,
+  QuickBarResultRow,
+} from "./QuickBarResultRow";
+import type { SearchProvider, SearchResult, SearchSelectionAction, SearchSelectionBehavior } from "./search/types";
 
 // ============================================================================
 // Constants
@@ -54,9 +60,6 @@ import type { SearchProvider, SearchResult, SearchSelectionBehavior } from "./se
 
 /** Maximum visible results before the list scrolls */
 const MAX_VISIBLE_RESULTS = 10;
-
-/** Height of each result row in pixels (accommodates two-line smart display) */
-const RESULT_ROW_HEIGHT = 56;
 
 /** Desired dropdown width in pixels (static per viewport) */
 const DROPDOWN_WIDTH_PX = 700;
@@ -177,6 +180,7 @@ export function UnifiedSearchBar({
   const [isLoading, setIsLoading] = useState(false);
   const [isDropdownOpen, setIsDropdownOpen] = useState(false);
   const [hasSearched, setHasSearched] = useState(false);
+  const [searchError, setSearchError] = useState(false);
   const [isFocused, setIsFocused] = useState(false);
   const [isSearchPending, setIsSearchPending] = useState(false);
 
@@ -201,6 +205,7 @@ export function UnifiedSearchBar({
   const activatedRef = useRef(false);
   const lastResetProviderRef = useRef(provider);
   const lastActivationTokenRef = useRef(activationToken);
+  const wasDropdownSuppressedRef = useRef(suppressDropdown);
 
   // Always keep providerRef current so stable callbacks use the latest provider
   providerRef.current = provider;
@@ -405,6 +410,7 @@ export function UnifiedSearchBar({
                 setResults([]);
                 setIsDropdownOpen(false);
                 setHasSearched(false);
+                setSearchError(false);
                 effectiveInputRef.current?.focus();
               }}
               edge="end"
@@ -439,17 +445,26 @@ export function UnifiedSearchBar({
       try {
         setIsSearchPending(false);
         setIsLoading(true);
+        setSearchError(false);
         const fetchedResults = await providerRef.current.fetchResults(searchQuery, controller.signal);
 
         if (!controller.signal.aborted) {
           setResults(fetchedResults);
-          setSelectedIndex(0);
+          setSelectedIndex(
+            Math.max(
+              fetchedResults.findIndex((result) => result.kind !== "group-header"),
+              0
+            )
+          );
           setHasSearched(true);
           setIsDropdownOpen(true);
         }
       } catch {
         if (!controller.signal.aborted) {
           setResults([]);
+          setHasSearched(true);
+          setSearchError(true);
+          setIsDropdownOpen(true);
         }
       } finally {
         if (!controller.signal.aborted) {
@@ -478,6 +493,7 @@ export function UnifiedSearchBar({
         setResults([]);
         setSelectedIndex(0);
         setHasSearched(false);
+        setSearchError(false);
         setIsDropdownOpen(false);
         setIsSearchPending(false);
         return;
@@ -489,6 +505,7 @@ export function UnifiedSearchBar({
       }
 
       if (newQuery.length >= effectiveMinQueryLength) {
+        setSearchError(false);
         setIsSearchPending(true);
         pendingQueryRef.current = newQuery;
         debounceTimerRef.current = setTimeout(() => {
@@ -499,6 +516,7 @@ export function UnifiedSearchBar({
         setResults([]);
         setSelectedIndex(0);
         setHasSearched(false);
+        setSearchError(false);
         if (newQuery.length === 0) {
           setIsDropdownOpen(false);
         } else if (effectiveBelowMinimumMessage) {
@@ -512,11 +530,39 @@ export function UnifiedSearchBar({
 
   // ── Selection handling ─────────────────────────────────────────────────
 
+  const findSelectableResultIndex = useCallback(
+    (startIndex: number, direction: 1 | -1) => {
+      for (let index = startIndex; index >= 0 && index < results.length; index += direction) {
+        if (results[index]?.kind !== "group-header") {
+          return index;
+        }
+      }
+      return selectedIndex;
+    },
+    [results, selectedIndex]
+  );
+
+  const handleRemoveSelected = useCallback(async () => {
+    const selectedResult = results[selectedIndex];
+    if (!selectedResult || selectedResult.kind === "group-header" || !providerRef.current.onRemoveSelected) {
+      return;
+    }
+
+    try {
+      if (await providerRef.current.onRemoveSelected(selectedResult.value)) {
+        await executeSearch(query);
+        effectiveInputRef.current?.focus();
+      }
+    } catch {
+      effectiveInputRef.current?.focus();
+    }
+  }, [effectiveInputRef, executeSearch, query, results, selectedIndex]);
+
   //
   // handleSelect
   //
   const handleSelect = useCallback(
-    (value: string) => {
+    (value: string, action: SearchSelectionAction = "associated-viewer") => {
       // Apply quick-bar teardown before command side effects open other overlays.
       flushSync(() => {
         setQuery("");
@@ -525,7 +571,7 @@ export function UnifiedSearchBar({
         setHasSearched(false);
       });
 
-      const selectionBehavior: SearchSelectionBehavior | undefined = providerRef.current.onSelect(value);
+      const selectionBehavior: SearchSelectionBehavior | undefined = providerRef.current.onSelect(value, action);
 
       const focusTarget = selectionBehavior?.focusTarget ?? "file-list";
 
@@ -543,6 +589,13 @@ export function UnifiedSearchBar({
     },
     [effectiveInputRef, onBlurToFileList, setQuery]
   );
+
+  const getSelectionAction = useCallback((event: { ctrlKey: boolean; altKey: boolean; shiftKey: boolean }): SearchSelectionAction => {
+    if (event.ctrlKey && event.altKey) return "force-native-picker";
+    if (event.ctrlKey) return "associated-native-app";
+    if (event.shiftKey) return "force-viewer-picker";
+    return "associated-viewer";
+  }, []);
 
   // ── Keyboard navigation ────────────────────────────────────────────────
 
@@ -562,7 +615,7 @@ export function UnifiedSearchBar({
           }
           if (isDropdownOpen && results.length > 0) {
             e.preventDefault();
-            setSelectedIndex((prev) => Math.min(prev + 1, results.length - 1));
+            setSelectedIndex((prev) => findSelectableResultIndex(Math.min(prev + 1, results.length - 1), 1));
           }
           break;
 
@@ -572,7 +625,7 @@ export function UnifiedSearchBar({
           }
           if (isDropdownOpen && results.length > 0) {
             e.preventDefault();
-            setSelectedIndex((prev) => Math.max(prev - 1, 0));
+            setSelectedIndex((prev) => findSelectableResultIndex(Math.max(prev - 1, 0), -1));
           }
           break;
 
@@ -582,7 +635,7 @@ export function UnifiedSearchBar({
           }
           if (isDropdownOpen && results.length > 0) {
             e.preventDefault();
-            setSelectedIndex((prev) => Math.min(prev + PAGE_JUMP_SIZE, results.length - 1));
+            setSelectedIndex((prev) => findSelectableResultIndex(Math.min(prev + PAGE_JUMP_SIZE, results.length - 1), 1));
           }
           break;
 
@@ -592,7 +645,7 @@ export function UnifiedSearchBar({
           }
           if (isDropdownOpen && results.length > 0) {
             e.preventDefault();
-            setSelectedIndex((prev) => Math.max(prev - PAGE_JUMP_SIZE, 0));
+            setSelectedIndex((prev) => findSelectableResultIndex(Math.max(prev - PAGE_JUMP_SIZE, 0), -1));
           }
           break;
 
@@ -600,9 +653,16 @@ export function UnifiedSearchBar({
           if (disableDropdown) {
             break;
           }
-          if (isDropdownOpen && results[selectedIndex]) {
+          if (isDropdownOpen && results[selectedIndex]?.kind !== "group-header" && results[selectedIndex]) {
             e.preventDefault();
-            handleSelect(results[selectedIndex].value);
+            handleSelect(results[selectedIndex].value, getSelectionAction(e));
+          }
+          break;
+
+        case "Delete":
+          if (e.shiftKey && isDropdownOpen && !disableDropdown) {
+            e.preventDefault();
+            void handleRemoveSelected();
           }
           break;
 
@@ -613,6 +673,7 @@ export function UnifiedSearchBar({
               setQuery("");
               setResults([]);
               setHasSearched(false);
+              setSearchError(false);
               setIsDropdownOpen(false);
             } else if (onBlurToFileList) {
               onBlurToFileList();
@@ -627,6 +688,7 @@ export function UnifiedSearchBar({
             setQuery("");
             setResults([]);
             setHasSearched(false);
+            setSearchError(false);
           } else if (onBlurToFileList) {
             // Third Escape: blur back to the file list
             onBlurToFileList();
@@ -640,19 +702,56 @@ export function UnifiedSearchBar({
           break;
       }
     },
-    [disableDropdown, handleSelect, isDropdownOpen, onArrowDownToFileList, onBlurToFileList, query, results, selectedIndex, setQuery]
+    [
+      disableDropdown,
+      findSelectableResultIndex,
+      getSelectionAction,
+      handleSelect,
+      handleRemoveSelected,
+      isDropdownOpen,
+      onArrowDownToFileList,
+      onBlurToFileList,
+      query,
+      results,
+      selectedIndex,
+      setQuery,
+    ]
   );
 
   // ── Virtual list for results ───────────────────────────────────────────
   // Use state (not ref) for the scroll element so the virtualizer
   // re-initialises when the container mounts/unmounts.
   const [listContainer, setListContainer] = useState<HTMLDivElement | null>(null);
+  const getVirtualizerItemKey = useCallback((index: number) => results[index]?.id ?? `missing-result-${index}`, [results]);
   const rowVirtualizer = useVirtualizer({
     count: results.length,
     getScrollElement: () => listContainer,
-    estimateSize: () => RESULT_ROW_HEIGHT,
+    estimateSize: (index) => {
+      const result = results[index];
+      return result ? getQuickBarResultRowHeight(result) : QUICK_BAR_RESULT_ITEM_HEIGHT;
+    },
+    getItemKey: getVirtualizerItemKey,
     overscan: 5,
   });
+
+  const resultsMaxHeight = useMemo(() => {
+    let itemCount = 0;
+    let height = 0;
+
+    for (const result of results) {
+      if (result.kind === "group-header") {
+        if (itemCount === MAX_VISIBLE_RESULTS) break;
+        height += getQuickBarResultRowHeight(result);
+        continue;
+      }
+
+      height += QUICK_BAR_RESULT_ITEM_HEIGHT;
+      itemCount += 1;
+      if (itemCount === MAX_VISIBLE_RESULTS) break;
+    }
+
+    return height;
+  }, [results]);
 
   // ── Scroll selected item into view ─────────────────────────────────────
   useEffect(() => {
@@ -728,8 +827,11 @@ export function UnifiedSearchBar({
     suppressDropdown,
   ]);
 
-  useEffect(() => {
-    if (suppressDropdown) {
+  useLayoutEffect(() => {
+    const wasDropdownSuppressed = wasDropdownSuppressedRef.current;
+    wasDropdownSuppressedRef.current = suppressDropdown;
+
+    if (suppressDropdown || wasDropdownSuppressed) {
       setIsDropdownOpen(false);
     }
   }, [suppressDropdown]);
@@ -788,6 +890,7 @@ export function UnifiedSearchBar({
       setResults([]);
       setSelectedIndex(0);
       setHasSearched(false);
+      setSearchError(false);
     }
 
     setIsLoading(shouldSearchOnActivation);
@@ -839,9 +942,12 @@ export function UnifiedSearchBar({
 
   // ── Derived state ──────────────────────────────────────────────────────
   const statusInfo = provider.getStatusInfo();
+  const footerHint = provider.getFooterHint?.(results[selectedIndex]) ?? provider.footerHint;
   const effectiveMinQueryLength = getEffectiveMinQueryLength(query);
   const effectiveBelowMinimumMessage = getEffectiveBelowMinimumMessage(query);
-  const showNoResults = hasSearched && query.length >= effectiveMinQueryLength && !isLoading && !isSearchPending && results.length === 0;
+  const showSearchError = searchError && query.length >= effectiveMinQueryLength && !isLoading && !isSearchPending;
+  const showNoResults =
+    hasSearched && query.length >= effectiveMinQueryLength && !isLoading && !isSearchPending && !showSearchError && results.length === 0;
   const showBelowMinimum = query.length > 0 && query.length < effectiveMinQueryLength && !!effectiveBelowMinimumMessage;
 
   // ── Render ─────────────────────────────────────────────────────────────
@@ -943,7 +1049,13 @@ export function UnifiedSearchBar({
             !suppressDropdown &&
             !disableDropdown &&
             isDropdownOpen &&
-            (results.length > 0 || showNoResults || showBelowMinimum || isSearchPending || isLoading || statusInfo !== null)
+            (results.length > 0 ||
+              showNoResults ||
+              showSearchError ||
+              showBelowMinimum ||
+              isSearchPending ||
+              isLoading ||
+              statusInfo !== null)
           }
           anchorEl={anchorRef.current}
           placement="bottom"
@@ -979,7 +1091,7 @@ export function UnifiedSearchBar({
                   display: "flex",
                   alignItems: "center",
                   gap: 1,
-                  borderBottom: results.length > 0 || showNoResults ? 1 : 0,
+                  borderBottom: results.length > 0 || showNoResults || showSearchError ? 1 : 0,
                   borderColor: "divider",
                 }}
               >
@@ -996,7 +1108,7 @@ export function UnifiedSearchBar({
                 ref={setListContainer}
                 role="listbox"
                 sx={{
-                  maxHeight: MAX_VISIBLE_RESULTS * RESULT_ROW_HEIGHT,
+                  maxHeight: resultsMaxHeight,
                   overflowY: "auto",
                   position: "relative",
                 }}
@@ -1011,11 +1123,27 @@ export function UnifiedSearchBar({
                   {rowVirtualizer.getVirtualItems().map((virtualRow) => {
                     const result = results[virtualRow.index];
                     if (!result) return null;
+                    if (result.kind === "group-header") {
+                      return (
+                        <Box
+                          key={result.id}
+                          sx={{
+                            position: "absolute",
+                            top: 0,
+                            left: 0,
+                            width: "100%",
+                            transform: `translateY(${virtualRow.start}px)`,
+                          }}
+                        >
+                          <QuickBarResultGroupHeader label={result.label} showDivider={virtualRow.index > 0} />
+                        </Box>
+                      );
+                    }
                     return (
                       <ListItemButton
                         key={result.id}
                         selected={virtualRow.index === selectedIndex}
-                        onClick={() => handleSelect(result.value)}
+                        onClick={(event) => handleSelect(result.value, getSelectionAction(event))}
                         onMouseEnter={() => setSelectedIndex(virtualRow.index)}
                         sx={{
                           py: 0.75,
@@ -1032,7 +1160,7 @@ export function UnifiedSearchBar({
                         role="option"
                         aria-selected={virtualRow.index === selectedIndex}
                       >
-                        {result.display}
+                        <QuickBarResultRow result={result} />
                       </ListItemButton>
                     );
                   })}
@@ -1058,8 +1186,16 @@ export function UnifiedSearchBar({
               </Box>
             )}
 
+            {showSearchError && (
+              <Box sx={{ px: 2, py: 2, textAlign: "center" }} role="alert">
+                <Typography variant="body2" sx={{ color: "error.main" }}>
+                  {t("fileBrowser.search.results.failed")}
+                </Typography>
+              </Box>
+            )}
+
             {/* Footer */}
-            {(provider.footerHint || provider.footerInfo) && (
+            {(footerHint || provider.footerInfo) && (
               <Box
                 sx={{
                   px: 2,
@@ -1067,18 +1203,27 @@ export function UnifiedSearchBar({
                   borderTop: 1,
                   borderColor: "divider",
                   display: "flex",
+                  alignItems: "flex-start",
+                  gap: 1,
                   justifyContent: "space-between",
                   backgroundColor: "action.selected",
                 }}
               >
-                {provider.footerHint && (
+                {footerHint && (
                   <Box
                     sx={{
                       display: "flex",
                       alignItems: "center",
-                      gap: 0.5,
+                      columnGap: 1.25,
                       color: "text.secondary",
+                      flex: 1,
                       fontSize: "0.75rem",
+                      minWidth: 0,
+                      rowGap: 0.5,
+                      flexWrap: "wrap",
+                      "& > span": {
+                        whiteSpace: "nowrap",
+                      },
                       "& kbd": {
                         fontFamily: "inherit",
                         fontSize: "0.7rem",
@@ -1092,11 +1237,11 @@ export function UnifiedSearchBar({
                       },
                     }}
                   >
-                    {provider.footerHint}
+                    {footerHint}
                   </Box>
                 )}
                 {provider.footerInfo && (
-                  <Typography variant="caption" sx={{ color: "text.secondary" }}>
+                  <Typography variant="caption" sx={{ color: "text.secondary", flexShrink: 0, pt: 0.25 }}>
                     {provider.footerInfo(results.length)}
                   </Typography>
                 )}

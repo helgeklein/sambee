@@ -33,6 +33,9 @@ from app.models.system_settings import (
     AboutSettingsRead,
     AdvancedSystemSettingsRead,
     AdvancedSystemSettingsUpdate,
+    FileSearchSettings,
+    FileSearchSettingsRead,
+    FileSearchSettingsUpdate,
     IntegerSystemSettingRead,
     NetworkSettingsRead,
     NetworkSettingsUpdate,
@@ -64,6 +67,7 @@ CGROUP_MEMORY_LIMIT_PATHS = (Path("/sys/fs/cgroup/memory.max"), Path("/sys/fs/cg
 UNLIMITED_MEMORY_THRESHOLD_BYTES = 1 << 60
 PUBLIC_SUPPORT_REPORT_FORMAT_VERSION = 1
 PUBLIC_SUPPORT_REPORT_TITLE = "Sambee public support report"
+FILE_SEARCH_POLICY_KEY = SystemSettingKey.FILE_SEARCH_POLICY
 STANDARD_OIDC_CLAIMS = frozenset({"sub", "name", "email", "groups", "preferred_username"})
 STANDARD_OIDC_SCOPES = frozenset({"openid", "profile", "email", "address", "phone", "offline_access"})
 CONFIG_FILE_SETTING_FIELDS = (
@@ -262,6 +266,50 @@ def _build_integer_read(definition: IntegerSystemSettingDefinition) -> IntegerSy
 
 def get_integer_setting_value(key: SystemSettingKey) -> int:
     return _resolve_integer_setting(SYSTEM_SETTING_DEFINITIONS[key]).value
+
+
+def build_file_search_settings_read(session: Session) -> FileSearchSettingsRead:
+    raw_value = session.get(SystemSetting, FILE_SEARCH_POLICY_KEY.value)
+    if raw_value is None:
+        return FileSearchSettingsRead(settings=FileSearchSettings(), source=SystemSettingSource.DEFAULT)
+    try:
+        return FileSearchSettingsRead(settings=FileSearchSettings.model_validate_json(raw_value.value), source=SystemSettingSource.DATABASE)
+    except ValueError as exc:
+        logger.critical("Invalid persisted File Search policy: %s", exc)
+        raise ValueError("The persisted File Search policy is invalid") from exc
+
+
+def get_file_search_settings(session: Session | None = None) -> FileSearchSettings:
+    """Return the effective File Search policy for runtime callers."""
+
+    if session is not None:
+        return build_file_search_settings_read(session).settings
+
+    with Session(database_module.engine) as session:
+        return build_file_search_settings_read(session).settings
+
+
+def update_file_search_settings(
+    payload: FileSearchSettingsUpdate, *, updated_by_user_id: uuid.UUID, session: Session
+) -> FileSearchSettingsRead:
+    current = build_file_search_settings_read(session).settings
+    if payload.reset_to_default:
+        setting = session.get(SystemSetting, FILE_SEARCH_POLICY_KEY.value)
+        if setting is not None:
+            session.delete(setting)
+        next_settings = FileSearchSettings()
+    elif payload.settings is not None:
+        next_settings = payload.settings
+        _write_system_setting(session, FILE_SEARCH_POLICY_KEY, next_settings.model_dump_json(), updated_by_user_id)
+    else:
+        return build_file_search_settings_read(session)
+
+    if next_settings.retention_limit < current.retention_limit:
+        from app.services.recent_files import trim_all_recent_files
+
+        trim_all_recent_files(retention_limit=next_settings.retention_limit, session=session)
+    session.commit()
+    return build_file_search_settings_read(session)
 
 
 def build_advanced_system_settings_read() -> AdvancedSystemSettingsRead:

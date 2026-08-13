@@ -7,7 +7,7 @@ export interface BrowserCommandContext {
   settingsOpen: boolean;
   mobileSettingsOpen: boolean;
   helpOpen: boolean;
-  quickBarMode: "navigate" | "commands" | "filter";
+  quickBarMode: "navigate" | "commands" | "file-search";
   hasFiles: boolean;
   hasFocusedFile: boolean;
   connectionSelected: boolean;
@@ -16,7 +16,7 @@ export interface BrowserCommandContext {
   canCopyToOtherPane: boolean;
   canMoveToOtherPane: boolean;
   openQuickNav: () => void;
-  openFilterMode: () => void;
+  openFileSearch: () => void;
   openCommandMode: () => void;
   openSettings: () => void;
   openConnectionsSettings: () => void;
@@ -83,16 +83,16 @@ const BROWSER_COMMANDS = [
     run: (context) => context.openQuickNav(),
   }),
   createCommand({
-    id: "browser.filterCurrentDirectory",
-    titleKey: "fileBrowser.commands.items.filterCurrentDirectory.title",
+    id: "browser.fileSearch",
+    titleKey: "fileBrowser.commands.items.fileSearch.title",
     categoryKey: "fileBrowser.commands.categories.navigation",
-    descriptionKey: "fileBrowser.commands.items.filterCurrentDirectory.description",
-    keywords: ["filter", "find", "current", "directory", "files"],
-    defaultShortcutIds: ["filter-current-directory"],
-    shortcutLabel: "Ctrl+Alt+F",
+    descriptionKey: "fileBrowser.commands.items.fileSearch.description",
+    keywords: ["file", "search", "find", "recent", "directory"],
+    defaultShortcutIds: ["file-search"],
+    shortcutLabel: "/",
     selectionFocusTarget: "quick-bar",
     isEnabled: (context) => context.connectionSelected && !context.settingsOpen && !context.mobileSettingsOpen,
-    run: (context) => context.openFilterMode(),
+    run: (context) => context.openFileSearch(),
   }),
   createCommand({
     id: "browser.commandPalette",

@@ -1,0 +1,49 @@
++++
+title = "Smart Navigation and the Quick Bar"
++++
+
+The quick bar provides fast navigation, File Search, and commands from one shared control.
+
+The quick bar has multiple modes:
+
+- Smart navigation with <kbd>Ctrl</kbd> + <kbd>K</kbd>
+- File Search with <kbd>/</kbd>
+- Command mode with <kbd>Ctrl</kbd> + <kbd>P</kbd> or <kbd>F1</kbd>
+
+## Jump to Any Directory with Smart Navigation
+
+1. Press <kbd>Ctrl</kbd> + <kbd>K</kbd> to open smart navigation.
+1. Type part of a directory name.
+1. Sambee lists matches across the current connection.
+1. Choose a match to open that directory.
+
+## Find Files with File Search
+
+1. Press <kbd>/</kbd> when the file browser has keyboard focus.
+1. Type part of a filename.
+1. Review the separate Recent files and Current directory groups.
+1. Select a file and press <kbd>Enter</kbd> to open it.
+
+File Search doesn't build a global file index. It searches the files currently loaded in the active directory and your per-user recent-file history. A file that appears in both places is shown once in Recent files.
+
+Use modifiers with <kbd>Enter</kbd> or a result click to choose how to open the selected file:
+
+- <kbd>Ctrl</kbd> opens it in the associated native application.
+- <kbd>Shift</kbd> opens the browser viewer picker.
+- <kbd>Ctrl</kbd> + <kbd>Alt</kbd> opens the native application picker.
+
+To remove only a selected item from Recent files, press <kbd>Shift</kbd> + <kbd>Delete</kbd>. This removes history metadata; it never deletes the underlying file.
+
+Recent files are recorded when you attempt to open a regular file. History is private to your account and follows the configured retention and exclusion policy. The system verifies remote SMB targets and local Companion targets as regular files before keeping a history record.
+
+The File Search settings show whether Sambee is using the built-in defaults or an administrator's saved system override. Administrators can reset an override to the built-in defaults. Lowering retention removes the oldest records immediately, and setting retention to zero clears history and prevents new records. Image, temporary, backup, and configured extension exclusions apply before a record is stored.
+
+If a recent remote file no longer exists, Sambee removes its stale history entry after confirming that state. For local drives, Companion distinguishes a missing or no-longer-regular file from an unavailable drive; confirmed stale targets are removed, while unavailable, unpaired, or temporarily failing local drives keep their history for a later retry.
+
+You can clear your own history from **Settings** > **File Browser** > **File Search**. Administrators can set retention, per-group result limits, and exclusion rules in **Settings** > **File Search**. Add each extension exclusion as one literal extension; Sambee normalizes it, such as `TMP` to `.tmp`, and lets you remove it from the exclusion list.
+
+## Locate and Run Any Command
+
+1. Press <kbd>Ctrl</kbd> + <kbd>P</kbd> or <kbd>F1</kbd> to open command mode.
+1. Type part of a command name.
+1. Choose the command to run.

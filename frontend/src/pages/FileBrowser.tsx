@@ -32,6 +32,7 @@ import { MobileToolbar } from "../components/FileBrowser/MobileToolbar";
 import OverwriteConflictDialog, { type ConflictResolution } from "../components/FileBrowser/OverwriteConflictDialog";
 import { SecondaryActionStrip } from "../components/FileBrowser/SecondaryActionStrip";
 import { useBrowserCommandsProvider } from "../components/FileBrowser/search";
+import { useFileSearchProvider } from "../components/FileBrowser/search/useFileSearchProvider";
 import { KeyboardShortcutsHelp } from "../components/KeyboardShortcutsHelp";
 import HamburgerMenu from "../components/Mobile/HamburgerMenu";
 import { MobileSettingsDrawer } from "../components/Mobile/MobileSettingsDrawer";
@@ -56,6 +57,7 @@ import { loadBrowserRecoverySnapshot, saveBrowserRecoverySnapshot } from "../ser
 import companionService, { buildCompanionWsUrl, type DriveInfo, hasStoredSecret } from "../services/companion";
 import { logger } from "../services/logger";
 import { loginPath } from "../services/oidcAuth";
+import { RECENT_FILES_CHANGED_EVENT } from "../services/recentFilesSync";
 import { scheduleRuntimeWarmup } from "../services/runtimeWarmup";
 import { buildServerWebSocketUrl } from "../services/serverWebsocket";
 import { loadCurrentUserSettings } from "../services/userSettingsSync";
@@ -236,11 +238,32 @@ const Browser: React.FC = () => {
   const [mobileSettingsOpen, setMobileSettingsOpen] = useState(false);
   const [mobileSettingsInitialView, setMobileSettingsInitialView] = useState<MobileSettingsView>("main");
   const [showHelp, setShowHelp] = useState(false);
-  const [quickBarMode, setQuickBarMode] = useState<"navigate" | "commands" | "filter">("navigate");
+  const [quickBarMode, setQuickBarMode] = useState<"navigate" | "commands" | "file-search">("navigate");
   const [quickBarActivationToken, setQuickBarActivationToken] = useState(0);
   const [quickBarPaneId, setQuickBarPaneId] = useState<PaneId>("left");
   const [companionHintOpen, setCompanionHintOpen] = useState(false);
   const backendAvailability = useBackendAvailability();
+
+  useEffect(() => {
+    const refreshFileSearch = () => {
+      if (quickBarMode === "file-search") {
+        setQuickBarActivationToken((current) => current + 1);
+      }
+    };
+    const refreshWhenVisible = () => {
+      if (document.visibilityState === "visible") {
+        refreshFileSearch();
+      }
+    };
+    window.addEventListener(RECENT_FILES_CHANGED_EVENT, refreshFileSearch);
+    window.addEventListener("focus", refreshFileSearch);
+    document.addEventListener("visibilitychange", refreshWhenVisible);
+    return () => {
+      window.removeEventListener(RECENT_FILES_CHANGED_EVENT, refreshFileSearch);
+      window.removeEventListener("focus", refreshFileSearch);
+      document.removeEventListener("visibilitychange", refreshWhenVisible);
+    };
+  }, [quickBarMode]);
 
   useEffect(() => {
     const requestedCategory = searchParams.get("settings");
@@ -1604,31 +1627,25 @@ const Browser: React.FC = () => {
   );
 
   const openQuickBarMode = useCallback(
-    (mode: "navigate" | "commands" | "filter") => {
+    (mode: "navigate" | "commands" | "file-search") => {
       const sourcePaneId = effectiveActivePaneIdRef.current;
-      if (quickBarMode === "filter" && mode !== "filter") {
-        quickBarPane.clearCurrentDirectoryFilter();
-      }
       setQuickBarPaneId(sourcePaneId);
       setQuickBarMode(mode);
       setQuickBarActivationToken((current) => current + 1);
       focusQuickBarInput(sourcePaneId);
     },
-    [focusQuickBarInput, quickBarMode, quickBarPane]
+    [focusQuickBarInput]
   );
 
   const switchQuickBarMode = useCallback(
-    (mode: "navigate" | "commands" | "filter") => {
+    (mode: "navigate" | "commands" | "file-search") => {
       const sourcePaneId = quickBarPaneId === "right" && isDualMode ? "right" : "left";
-      if (quickBarMode === "filter" && mode !== "filter") {
-        quickBarPane.clearCurrentDirectoryFilter();
-      }
       setQuickBarPaneId(sourcePaneId);
       setQuickBarMode(mode);
       setQuickBarActivationToken((current) => current + 1);
       focusQuickBarInput(sourcePaneId);
     },
-    [focusQuickBarInput, isDualMode, quickBarMode, quickBarPane, quickBarPaneId]
+    [focusQuickBarInput, isDualMode, quickBarPaneId]
   );
 
   const browserCommandContext = useMemo(
@@ -1647,7 +1664,7 @@ const Browser: React.FC = () => {
       canCopyToOtherPane: quickBarCanCopyToOtherPane,
       canMoveToOtherPane: quickBarCanMoveToOtherPane,
       openQuickNav: () => openQuickBarMode("navigate"),
-      openFilterMode: () => openQuickBarMode("filter"),
+      openFileSearch: () => openQuickBarMode("file-search"),
       openCommandMode: () => openQuickBarMode("commands"),
       openSettings: handleOpenSettings,
       openConnectionsSettings,
@@ -1702,43 +1719,45 @@ const Browser: React.FC = () => {
     onSelect: (command) => command.run(browserCommandContext),
   });
 
+  const fileSearchProvider = useFileSearchProvider({
+    connectionId: quickBarPane.connectionId,
+    currentPath: quickBarPane.currentPath,
+    files: quickBarPane.files,
+    connectionName: getConnectionById(allConnections, quickBarPane.connectionId)?.name ?? quickBarPane.connectionId,
+    resultLimit: 50,
+    getConnectionName: (connectionId) => getConnectionById(allConnections, connectionId)?.name ?? connectionId,
+    onOpenCurrentFile: (file, mode) => {
+      const index = quickBarPane.files.findIndex((entry) => entry.name === file.name);
+      quickBarPane.handleOpenFileForFile(file, index, mode);
+    },
+    onOpenRecentFile: (file, mode) => {
+      void quickBarPane.handleOpenFileAtPath(file.connection_id, file.path, mode, file.id);
+    },
+  });
+
   const suppressQuickBarDropdown =
     showHelp ||
     settingsOpen ||
     mobileSettingsOpen ||
     copyMoveDialogOpen ||
     conflictDialogOpen ||
+    leftPane.viewInfo !== null ||
+    rightPane.viewInfo !== null ||
     quickBarPane.deleteDialogOpen ||
     quickBarPane.renameDialogOpen ||
     quickBarPane.createDialogOpen;
-
-  const filterInputProvider = useMemo(
-    () => ({
-      id: "current-directory-filter-input",
-      modeId: "filter",
-      modeLabel: t("fileBrowser.search.modes.filter"),
-      placeholder: t("fileBrowser.search.placeholders.filterCurrentDirectory"),
-      debounceMs: 0,
-      minQueryLength: 0,
-      fetchResults: async () => [],
-      onSelect: () => undefined,
-      getStatusInfo: () => null,
-      shortcutHint: BROWSER_SHORTCUTS.FILTER_CURRENT_DIRECTORY.label,
-    }),
-    [t]
-  );
 
   const quickBarProvider = useMemo(() => {
     if (quickBarMode === "commands") {
       return browserCommandsProvider;
     }
 
-    if (quickBarMode === "filter") {
-      return filterInputProvider;
+    if (quickBarMode === "file-search") {
+      return fileSearchProvider;
     }
 
     return quickBarPane.directorySearchProvider;
-  }, [browserCommandsProvider, filterInputProvider, quickBarMode, quickBarPane.directorySearchProvider]);
+  }, [browserCommandsProvider, fileSearchProvider, quickBarMode, quickBarPane.directorySearchProvider]);
 
   const quickBarModeOptions = useMemo(
     () => [
@@ -1748,9 +1767,9 @@ const Browser: React.FC = () => {
         onSelect: () => switchQuickBarMode("navigate"),
       },
       {
-        id: "filter",
-        label: t("fileBrowser.search.modes.filter"),
-        onSelect: () => switchQuickBarMode("filter"),
+        id: "file-search",
+        label: t("fileBrowser.search.modes.fileSearch"),
+        onSelect: () => switchQuickBarMode("file-search"),
       },
       {
         id: "commands",
@@ -1761,8 +1780,8 @@ const Browser: React.FC = () => {
     [switchQuickBarMode, t]
   );
 
-  const quickBarQueryValue = quickBarMode === "filter" ? quickBarPane.currentDirectoryFilter : undefined;
-  const handleQuickBarQueryValueChange = quickBarMode === "filter" ? quickBarPane.setCurrentDirectoryFilter : undefined;
+  const quickBarQueryValue = undefined;
+  const handleQuickBarQueryValueChange = undefined;
   const connectionSelectorButtonRef = React.useRef<HTMLButtonElement | null>(null);
   const handleQuickBarArrowDownToFileList = useCallback(() => {
     if (quickBarPane.filesRef.current.length === 0) {
@@ -1887,11 +1906,11 @@ const Browser: React.FC = () => {
         handler: () => openQuickBarMode("navigate"),
         enabled: browsing,
       },
-      // Filter mode (Ctrl+Alt+F)
+      // File Search (/)
       {
-        ...BROWSER_SHORTCUTS.FILTER_CURRENT_DIRECTORY,
-        handler: () => openQuickBarMode("filter"),
-        enabled: browsing,
+        ...BROWSER_SHORTCUTS.FILE_SEARCH,
+        handler: () => openQuickBarMode("file-search"),
+        enabled: browsing && noDialogOrCopyMove,
       },
       // Command palette (Ctrl+P)
       {
@@ -2226,7 +2245,7 @@ const Browser: React.FC = () => {
               onBlurToFileList={() => quickBarPane.listContainerEl?.focus()}
               searchQueryValue={quickBarQueryValue}
               onSearchQueryValueChange={handleQuickBarQueryValueChange}
-              disableSearchDropdown={quickBarMode === "filter"}
+              disableSearchDropdown={false}
               suppressSearchDropdown={suppressQuickBarDropdown}
               onSearchArrowDownToFileList={handleQuickBarArrowDownToFileList}
               disableTabFocus={isDualMode}
@@ -2318,7 +2337,7 @@ const Browser: React.FC = () => {
               searchActivationToken={quickBarActivationToken}
               searchQueryValue={quickBarQueryValue}
               onSearchQueryValueChange={handleQuickBarQueryValueChange}
-              disableSearchDropdown={quickBarMode === "filter"}
+              disableSearchDropdown={false}
               suppressSearchDropdown={suppressQuickBarDropdown}
               onSearchArrowDownToFileList={handleQuickBarArrowDownToFileList}
               modeOptions={quickBarModeOptions}
@@ -2346,7 +2365,7 @@ const Browser: React.FC = () => {
                   searchActivationToken={quickBarActivationToken}
                   searchQueryValue={quickBarQueryValue}
                   onSearchQueryValueChange={handleQuickBarQueryValueChange}
-                  disableSearchDropdown={quickBarMode === "filter"}
+                  disableSearchDropdown={false}
                   suppressSearchDropdown={suppressQuickBarDropdown}
                   onSearchArrowDownToFileList={handleQuickBarArrowDownToFileList}
                   modeOptions={quickBarModeOptions}
@@ -2380,7 +2399,7 @@ const Browser: React.FC = () => {
       {/* Viewer overlay — full-screen, from whichever pane opened it */}
       {leftPane.viewInfo && (
         <DynamicViewer
-          connectionId={leftPane.connectionId}
+          connectionId={leftPane.viewInfo.connectionId ?? leftPane.connectionId}
           isReadOnly={isConnectionReadOnly(leftPaneConnection)}
           viewInfo={leftPane.viewInfo}
           onClose={leftPane.handleViewClose}
@@ -2389,7 +2408,7 @@ const Browser: React.FC = () => {
       )}
       {rightPane.viewInfo && !leftPane.viewInfo && (
         <DynamicViewer
-          connectionId={rightPane.connectionId}
+          connectionId={rightPane.viewInfo.connectionId ?? rightPane.connectionId}
           isReadOnly={isConnectionReadOnly(rightPaneConnection)}
           viewInfo={rightPane.viewInfo}
           onClose={rightPane.handleViewClose}

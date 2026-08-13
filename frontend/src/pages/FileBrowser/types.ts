@@ -24,6 +24,7 @@ export type PaneId = "left" | "right";
 export type PaneMode = "single" | "dual";
 
 export interface ViewInfo {
+  connectionId?: string;
   path: string;
   mimeType: string;
   viewerId?: ViewerId;
@@ -33,6 +34,7 @@ export interface ViewInfo {
 }
 
 export interface BrowserViewerPickerState {
+  connectionId?: string;
   fileName: string;
   filePath: string;
   mimeType: string;
@@ -61,7 +63,6 @@ export interface FileBrowserPaneRecoverySnapshot {
   sortBy: SortField;
   sortDirection: "asc" | "desc";
   viewMode: ViewMode;
-  currentDirectoryFilter: string;
   focusedIndex: number;
   focusedFileName: string | null;
   selectedFileNames: string[];
@@ -147,10 +148,6 @@ export interface UseFileBrowserPaneReturn {
   setSortDirection: React.Dispatch<React.SetStateAction<"asc" | "desc">>;
   viewMode: ViewMode;
   setViewMode: React.Dispatch<React.SetStateAction<ViewMode>>;
-  currentDirectoryFilter: string;
-  setCurrentDirectoryFilter: React.Dispatch<React.SetStateAction<string>>;
-  clearCurrentDirectoryFilter: () => void;
-  isCurrentDirectoryFilterActive: boolean;
   focusedIndex: number;
 
   // ── Selection State (multi-select) ────────────────────────────────────
@@ -173,7 +170,7 @@ export interface UseFileBrowserPaneReturn {
   getEffectiveSelection: () => FileEntry[];
 
   // ── Computed Data ──────────────────────────────────────────────────────
-  sortedAndFilteredFiles: FileEntry[];
+  sortedFiles: FileEntry[];
   imageFiles: string[];
   directorySearchProvider: SearchProvider;
 
@@ -201,7 +198,7 @@ export interface UseFileBrowserPaneReturn {
   searchInputRef: React.RefObject<HTMLInputElement>;
   listContainerRef: (node: HTMLDivElement | null) => void;
   listContainerEl: HTMLDivElement | null;
-  /** Always-current mirror of sortedAndFilteredFiles for use in callbacks. */
+  /** Always-current mirror of sortedFiles for use in callbacks. */
   filesRef: React.MutableRefObject<FileEntry[]>;
   /** Always-current mirror of connectionId for async/WebSocket callbacks. */
   connectionIdRef: React.MutableRefObject<string>;
@@ -222,6 +219,7 @@ export interface UseFileBrowserPaneReturn {
   handlePageUp: (e?: KeyboardEvent) => void;
   handleOpenFile: (options?: { requireListFocus?: boolean; mode?: BrowserOpenMode }) => void;
   handleOpenFileForFile: (file: FileEntry, index: number, mode?: BrowserOpenMode) => void;
+  handleOpenFileAtPath: (connectionId: string, path: string, mode?: BrowserOpenMode, recentRecordId?: string) => Promise<void>;
   navigateToPath: (path: string, options?: { blurActiveElement?: boolean }) => void;
   prepareDirectoryTransition: (connectionId: string, path: string) => void;
   handleNavigateUpDirectory: () => void;

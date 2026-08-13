@@ -72,6 +72,14 @@ describe("FileBrowser — URL Routing (Phase 3)", () => {
 
       expect(dialog).toHaveAttribute("data-category", "admin-authentication");
     });
+
+    it("opens the File Search settings category from the settings query parameter", async () => {
+      renderBrowser("/browse/smb/test-server-1?settings=admin-file-search");
+
+      const dialog = await screen.findByTestId("settings-dialog");
+
+      expect(dialog).toHaveAttribute("data-category", "admin-file-search");
+    });
   });
 
   // --------------------------------------------------------------------------

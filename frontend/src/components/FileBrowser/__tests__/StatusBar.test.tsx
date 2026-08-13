@@ -32,15 +32,4 @@ describe("StatusBar", () => {
     expect(screen.getByText("[Ńó šéĺéćťíóń]")).toBeInTheDocument();
     expect(screen.getByText("[1 íťéḿ]")).toBeInTheDocument();
   });
-
-  it("uses translated filter summary", async () => {
-    await setLocale("en-XA");
-
-    renderWithProvider(
-      <StatusBar files={[baseFile, { ...baseFile, name: "report.pdf", path: "/report.pdf" }]} focusedIndex={0} activeFilter="pdf" />
-    );
-
-    expect(screen.getByText("[Ƒíĺťéŕéď ƀý: pdf]")).toBeInTheDocument();
-    expect(screen.getByText("[2 íťéḿš]")).toBeInTheDocument();
-  });
 });

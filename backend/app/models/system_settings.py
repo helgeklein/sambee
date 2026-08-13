@@ -5,7 +5,7 @@ from datetime import datetime, timezone
 from enum import StrEnum
 from typing import Optional
 
-from pydantic import model_validator
+from pydantic import field_validator, model_validator
 from sqlmodel import Field, SQLModel
 
 from app.core.system_setting_definitions import SystemSettingKey, SystemSettingSource
@@ -92,6 +92,63 @@ class AdvancedSystemSettingsPreprocessorsUpdate(SQLModel):
 class AdvancedSystemSettingsUpdate(SQLModel):
     preprocessors: Optional[AdvancedSystemSettingsPreprocessorsUpdate] = None
     reset_keys: list[SystemSettingKey] = Field(default_factory=list)
+
+
+FILE_SEARCH_POLICY_MAX_BYTES = 65_536
+FILE_SEARCH_EXTENSION_MAX_LENGTH = 255
+
+
+class FileSearchSettings(SQLModel):
+    retention_limit: int = Field(default=50, ge=0, le=500)
+    result_limit: int = Field(default=10, ge=1, le=50)
+    excluded_categories: set[str] = Field(default_factory=lambda: {"images", "temporary_backup"})
+    excluded_extensions: set[str] = Field(default_factory=set)
+
+    @field_validator("excluded_categories")
+    @classmethod
+    def validate_categories(cls, value: set[str]) -> set[str]:
+        unsupported = value.difference({"images", "temporary_backup"})
+        if unsupported:
+            raise ValueError(f"Unsupported file-search exclusion categories: {', '.join(sorted(unsupported))}")
+        return value
+
+    @field_validator("excluded_extensions")
+    @classmethod
+    def normalize_extensions(cls, value: set[str]) -> set[str]:
+        normalized: set[str] = set()
+        for extension in value:
+            candidate = extension.strip().lower()
+            if not candidate:
+                continue
+            if any(character in candidate for character in "*?[]{}") or "/" in candidate or "\\" in candidate:
+                raise ValueError("File-search exclusions must be literal extensions, not glob patterns")
+            candidate = candidate if candidate.startswith(".") else f".{candidate}"
+            if len(candidate) > FILE_SEARCH_EXTENSION_MAX_LENGTH or candidate == ".":
+                raise ValueError("File-search extension is invalid or too long")
+            normalized.add(candidate)
+        return normalized
+
+    @model_validator(mode="after")
+    def validate_serialized_size(self) -> "FileSearchSettings":
+        if len(self.model_dump_json().encode("utf-8")) > FILE_SEARCH_POLICY_MAX_BYTES:
+            raise ValueError("File-search policy is too large")
+        return self
+
+
+class FileSearchSettingsRead(SQLModel):
+    settings: FileSearchSettings
+    source: SystemSettingSource
+
+
+class FileSearchSettingsUpdate(SQLModel):
+    settings: FileSearchSettings | None = None
+    reset_to_default: bool = False
+
+    @model_validator(mode="after")
+    def prevent_conflicting_reset(self) -> "FileSearchSettingsUpdate":
+        if self.settings is not None and self.reset_to_default:
+            raise ValueError("Cannot update and reset File Search settings in one request")
+        return self
 
 
 class NetworkSettingsRead(SQLModel):

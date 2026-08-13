@@ -1,0 +1,120 @@
+import DescriptionOutlinedIcon from "@mui/icons-material/DescriptionOutlined";
+import FolderIcon from "@mui/icons-material/Folder";
+import HistoryOutlinedIcon from "@mui/icons-material/HistoryOutlined";
+import KeyboardCommandKeyIcon from "@mui/icons-material/KeyboardCommandKey";
+import { Box, Typography } from "@mui/material";
+import type React from "react";
+import type { SearchResult, SearchResultIcon, SearchResultItem, SearchTextHighlight } from "./search/types";
+
+/** Shared height for a two-line quick-bar result row. */
+export const QUICK_BAR_RESULT_ITEM_HEIGHT = 56;
+
+/** Compact height for a quiet quick-bar result group label. */
+export const QUICK_BAR_RESULT_GROUP_HEADER_HEIGHT = 32;
+
+const QUICK_BAR_RESULT_ICON_COLUMN_WIDTH = 36;
+
+function getResultIcon(icon: SearchResultIcon): React.ReactElement {
+  switch (icon) {
+    case "command":
+      return <KeyboardCommandKeyIcon fontSize="small" />;
+    case "directory":
+      return <FolderIcon fontSize="small" />;
+    case "recent-file":
+      return <HistoryOutlinedIcon fontSize="small" />;
+    case "file":
+      return <DescriptionOutlinedIcon fontSize="small" />;
+  }
+}
+
+function renderHighlightedText(text: string, highlight?: SearchTextHighlight): React.ReactNode {
+  if (!highlight || highlight.start < 0 || highlight.end <= highlight.start || highlight.end > text.length) {
+    return text;
+  }
+
+  return (
+    <>
+      {text.slice(0, highlight.start)}
+      <Box component="span" sx={{ color: "primary.main", fontWeight: 700 }}>
+        {text.slice(highlight.start, highlight.end)}
+      </Box>
+      {text.slice(highlight.end)}
+    </>
+  );
+}
+
+/** Returns the virtualized height for a structured quick-bar result. */
+export function getQuickBarResultRowHeight(result: SearchResult): number {
+  return result.kind === "group-header" ? QUICK_BAR_RESULT_GROUP_HEADER_HEIGHT : QUICK_BAR_RESULT_ITEM_HEIGHT;
+}
+
+export function QuickBarResultRow({ result }: { result: SearchResultItem }) {
+  const isDirectory = result.icon === "directory";
+
+  return (
+    <Box sx={{ alignItems: "center", display: "flex", gap: 1.25, minWidth: 0, width: "100%" }}>
+      <Box
+        aria-hidden="true"
+        sx={{
+          alignItems: "center",
+          color: isDirectory ? "text.secondary" : undefined,
+          display: "flex",
+          flex: `0 0 ${QUICK_BAR_RESULT_ICON_COLUMN_WIDTH}px`,
+          justifyContent: "center",
+        }}
+      >
+        {getResultIcon(result.icon)}
+      </Box>
+      <Box sx={{ flex: 1, minWidth: 0 }}>
+        <Typography component="div" variant="body2" sx={{ color: isDirectory ? "text.secondary" : undefined }} noWrap>
+          {renderHighlightedText(result.primaryText, result.primaryHighlight)}
+        </Typography>
+        {result.secondaryText ? (
+          <Typography component="div" variant="caption" sx={{ color: "text.secondary" }} noWrap>
+            {renderHighlightedText(result.secondaryText, result.secondaryHighlight)}
+          </Typography>
+        ) : null}
+      </Box>
+      {result.shortcutLabel ? (
+        <Box
+          component="kbd"
+          sx={{
+            border: 1,
+            borderColor: "divider",
+            borderRadius: 0.5,
+            color: "text.secondary",
+            flexShrink: 0,
+            fontFamily: "inherit",
+            fontSize: "0.7rem",
+            lineHeight: 1,
+            px: 0.5,
+            py: 0.25,
+            whiteSpace: "nowrap",
+          }}
+        >
+          {result.shortcutLabel}
+        </Box>
+      ) : null}
+    </Box>
+  );
+}
+
+export function QuickBarResultGroupHeader({ label, showDivider }: { label: string; showDivider: boolean }) {
+  return (
+    <Box
+      role="presentation"
+      sx={{
+        alignItems: "center",
+        borderColor: "divider",
+        borderTop: showDivider ? 1 : 0,
+        display: "flex",
+        height: QUICK_BAR_RESULT_GROUP_HEADER_HEIGHT,
+        px: 2,
+      }}
+    >
+      <Typography component="div" role="heading" aria-level={2} variant="caption" sx={{ color: "text.secondary", fontWeight: 600 }}>
+        {label}
+      </Typography>
+    </Box>
+  );
+}

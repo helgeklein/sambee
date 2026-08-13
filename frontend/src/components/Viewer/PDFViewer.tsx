@@ -807,6 +807,7 @@ const PDFViewer: React.FC<ViewerComponentProps> = ({ connectionId, path, onClose
       maxWidth={false}
       fullScreen
       ref={dialogRef}
+      disableRestoreFocus
       sx={{
         "& .MuiDialog-container": {
           alignItems: "stretch",
