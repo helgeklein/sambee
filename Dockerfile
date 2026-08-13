@@ -31,6 +31,7 @@ RUN apt-get update && \
         gcc-mingw-w64-x86-64 \
         git \
         gnupg \
+        jq \
         libayatana-appindicator3-dev \
         libkrb5-dev \
         librsvg2-dev \

@@ -1329,7 +1329,6 @@ async def copy_item(
                 dest_connection,
                 source,
                 dest,
-                str(connection_id),
                 str(body.dest_connection_id),
                 overwrite=body.overwrite,
             )
@@ -1502,7 +1501,6 @@ async def _cross_connection_copy(
     dst_conn: Connection,
     source_path: str,
     dest_path: str,
-    src_conn_id: str,
     dst_conn_id: str,
     *,
     overwrite: bool = False,
