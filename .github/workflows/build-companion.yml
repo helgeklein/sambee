@@ -68,6 +68,11 @@ jobs:
           dispatch-sha: ${{ github.sha }}
           run-url: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
 
+      - name: Restore workflow revision
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ github.sha }}
+
       - name: Resolve release metadata
         id: metadata
         shell: bash
