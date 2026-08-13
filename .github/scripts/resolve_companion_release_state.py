@@ -117,6 +117,29 @@ def embedded_recovery_provenance_bytes(release: dict[str, Any]) -> bytes | None:
         )
 
 
+def draft_matches_embedded_release_tag(release: dict[str, Any], tag: str) -> bool:
+    """Return whether an untagged draft's embedded provenance records ``tag``."""
+    if not release.get("draft", False):
+        return False
+    body = release.get("body")
+    if not isinstance(body, str):
+        return False
+    start = body.find(RECOVERY_PROVENANCE_PREFIX)
+    if start == -1:
+        return False
+    encoded_start = start + len(RECOVERY_PROVENANCE_PREFIX)
+    end = body.find(RECOVERY_PROVENANCE_SUFFIX, encoded_start)
+    if end == -1 or body.find(RECOVERY_PROVENANCE_PREFIX, encoded_start) != -1:
+        return False
+    try:
+        provenance = json.loads(
+            base64.b64decode(body[encoded_start:end], validate=True).decode("utf-8")
+        )
+    except (binascii.Error, UnicodeDecodeError, ValueError, json.JSONDecodeError):
+        return False
+    return isinstance(provenance, dict) and provenance.get("release_tag") == tag
+
+
 def release_provenance_bytes(release: dict[str, Any], token: str) -> bytes:
     provenance_asset = find_asset(release, PROVENANCE_ASSET)
     if provenance_asset is not None:
@@ -263,8 +286,8 @@ def fetch_release(owner: str, repo: str, tag: str, token: str) -> dict[str, Any]
             fail("Unexpected API response while resolving Companion release state")
         return payload
 
-    # Draft releases have a tag_name but may not yet have a Git tag, causing the
-    # release-by-tag endpoint to return 404. Search the release records directly.
+    # Draft releases have neither a Git tag nor their requested tag as tag_name.
+    # Search release records, then use their embedded provenance to identify drafts.
     page = 1
     while True:
         releases_url = f"https://api.github.com/repos/{owner}/{repo}/releases?per_page=100&page={page}"
@@ -278,7 +301,10 @@ def fetch_release(owner: str, repo: str, tag: str, token: str) -> dict[str, Any]
         if not isinstance(releases, list):
             fail("Unexpected API response while listing Companion releases")
         for release in releases:
-            if isinstance(release, dict) and release.get("tag_name") == tag:
+            if isinstance(release, dict) and (
+                release.get("tag_name") == tag
+                or draft_matches_embedded_release_tag(release, tag)
+            ):
                 return release
         if len(releases) < 100:
             return None
