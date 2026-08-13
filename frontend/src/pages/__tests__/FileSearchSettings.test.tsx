@@ -100,17 +100,11 @@ describe("FileSearchSettings", () => {
     expect(screen.queryByText(".bak")).not.toBeInTheDocument();
   });
 
-  it("resets the stored policy to built-in defaults", async () => {
-    const user = userEvent.setup();
-    vi.mocked(api.updateFileSearchSettings).mockResolvedValue({
-      settings: { ...systemOverride.settings, excluded_extensions: [] },
-      source: "default",
-    });
+  it("does not render a reset action", async () => {
     render(<FileSearchSettings />);
 
-    await user.click(screen.getByRole("button", { name: "Reset to default" }));
+    await screen.findByLabelText("Recent files to retain");
 
-    await waitFor(() => expect(api.updateFileSearchSettings).toHaveBeenCalledWith({ reset_to_default: true }));
-    expect(publishRecentFilesChangedMock).toHaveBeenCalledOnce();
+    expect(screen.queryByRole("button", { name: "Reset to default" })).not.toBeInTheDocument();
   });
 });

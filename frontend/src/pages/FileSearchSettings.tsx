@@ -7,7 +7,7 @@ import { SettingsGroup } from "../components/Settings/SettingsGroup";
 import { SettingsPage } from "../components/Settings/SettingsPage";
 import api from "../services/api";
 import { publishRecentFilesChanged } from "../services/recentFilesSync";
-import type { FileSearchSettings as FileSearchSettingsModel, FileSearchSettingsRead } from "../types";
+import type { FileSearchSettings as FileSearchSettingsModel } from "../types";
 
 const DEFAULT_SETTINGS: FileSearchSettingsModel = {
   retention_limit: 50,
@@ -47,7 +47,6 @@ export function FileSearchSettings() {
   const { t } = useTranslation();
   const [settings, setSettings] = useState<FileSearchSettingsModel>(DEFAULT_SETTINGS);
   const [savedSettings, setSavedSettings] = useState<FileSearchSettingsModel>(DEFAULT_SETTINGS);
-  const [source, setSource] = useState<FileSearchSettingsRead["source"]>("default");
   const [extensionInput, setExtensionInput] = useState("");
   const [extensionInputError, setExtensionInputError] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -62,7 +61,6 @@ export function FileSearchSettings() {
       .then((response) => {
         setSettings(response.settings);
         setSavedSettings(response.settings);
-        setSource(response.source);
         setExtensionInput("");
         setExtensionInputError(null);
         setError(null);
@@ -107,7 +105,6 @@ export function FileSearchSettings() {
       const response = await api.updateFileSearchSettings({ settings });
       setSettings(response.settings);
       setSavedSettings(response.settings);
-      setSource(response.source);
       setExtensionInput("");
       setExtensionInputError(null);
       setError(null);
@@ -119,32 +116,9 @@ export function FileSearchSettings() {
     }
   };
 
-  const reset = async () => {
-    setSaving(true);
-    try {
-      const response = await api.updateFileSearchSettings({ reset_to_default: true });
-      setSettings(response.settings);
-      setSavedSettings(response.settings);
-      setSource(response.source);
-      setExtensionInput("");
-      setExtensionInputError(null);
-      setError(null);
-      publishRecentFilesChanged();
-    } catch {
-      setError(t("settings.fileSearch.resetFailed"));
-    } finally {
-      setSaving(false);
-    }
-  };
-
   return (
     <SettingsPage
       category="admin-file-search"
-      footerSecondaryActions={
-        <Button disabled={saving || source === "default"} onClick={() => void reset()}>
-          {t("settings.fileSearch.resetToDefault")}
-        </Button>
-      }
       footerPrimaryActions={
         <Button variant="contained" disabled={saving || !isDirty || !isValid} onClick={() => void save()}>
           {t("settings.fileSearch.saveChanges")}
@@ -185,7 +159,6 @@ export function FileSearchSettings() {
             component="fieldset"
             variant="standard"
             sx={{
-              bgcolor: "action.hover",
               border: 1,
               borderColor: "divider",
               borderRadius: 1,
