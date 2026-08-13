@@ -246,22 +246,43 @@ def resolve_state(
 
 
 def fetch_release(owner: str, repo: str, tag: str, token: str) -> dict[str, Any] | None:
-    url = (
+    release_by_tag_url = (
         f"https://api.github.com/repos/{owner}/{repo}/releases/tags/"
         f"{urllib.parse.quote(tag, safe='')}"
     )
     try:
-        payload = request_json(url, token)
+        payload = request_json(release_by_tag_url, token)
     except GitHubApiError as error:
-        if error.status_code == 404:
+        if error.status_code != 404:
+            fail(
+                f"Unable to fetch Companion release {tag} from {owner}/{repo}: "
+                f"HTTP {error.status_code} {error.message}"
+            )
+    else:
+        if not isinstance(payload, dict):
+            fail("Unexpected API response while resolving Companion release state")
+        return payload
+
+    # Draft releases have a tag_name but may not yet have a Git tag, causing the
+    # release-by-tag endpoint to return 404. Search the release records directly.
+    page = 1
+    while True:
+        releases_url = f"https://api.github.com/repos/{owner}/{repo}/releases?per_page=100&page={page}"
+        try:
+            releases = request_json(releases_url, token)
+        except GitHubApiError as error:
+            fail(
+                f"Unable to list Companion releases from {owner}/{repo}: "
+                f"HTTP {error.status_code} {error.message}"
+            )
+        if not isinstance(releases, list):
+            fail("Unexpected API response while listing Companion releases")
+        for release in releases:
+            if isinstance(release, dict) and release.get("tag_name") == tag:
+                return release
+        if len(releases) < 100:
             return None
-        fail(
-            f"Unable to fetch Companion release {tag} from {owner}/{repo}: "
-            f"HTTP {error.status_code} {error.message}"
-        )
-    if not isinstance(payload, dict):
-        fail("Unexpected API response while resolving Companion release state")
-    return payload
+        page += 1
 
 
 def main() -> None:

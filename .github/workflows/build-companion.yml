@@ -538,8 +538,14 @@ jobs:
           SOURCE_SHA: ${{ needs.prepare.outputs.checkout_ref }}
           PUBLICATION_STATE: ${{ needs.prepare.outputs.publication_state }}
         run: |
-          release_json="$(gh release view "$RELEASE_TAG" --repo "$RELEASE_REPOSITORY" --json isDraft 2>/dev/null || true)"
-          if [[ -z "$release_json" ]]; then
+          state="$(GITHUB_TOKEN="$GH_TOKEN" python3 .github/scripts/resolve_companion_release_state.py \
+            --owner "${RELEASE_REPOSITORY%%/*}" \
+            --repo "${RELEASE_REPOSITORY#*/}" \
+            --version "$VERSION" \
+            --build-tag "$BUILD_TAG" \
+            --source-sha "$SOURCE_SHA" \
+            --release-tag "$RELEASE_TAG")"
+          if grep -qx 'state=build' <<<"$state"; then
             if [[ "$PUBLICATION_STATE" != "build" ]]; then
               echo "Recoverable Companion draft $RELEASE_TAG disappeared; increment Z and rebuild." >&2
               exit 1
@@ -570,9 +576,6 @@ jobs:
               --notes-file "$release_body"
           elif [[ "$PUBLICATION_STATE" == "build" ]]; then
             echo "Companion release state changed after preflight; rerun to recover or diagnose $RELEASE_TAG without rebuilding." >&2
-            exit 1
-          elif [[ "$(jq -r '.isDraft' <<<"$release_json")" != "true" ]]; then
-            echo "External release $RELEASE_TAG is already published and cannot be modified by a build finalizer." >&2
             exit 1
           fi
 

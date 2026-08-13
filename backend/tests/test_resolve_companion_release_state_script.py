@@ -88,6 +88,21 @@ def test_missing_release_requires_build() -> None:
     assert MODULE.resolve_state(None, IDENTITY, "token") == "build"
 
 
+def test_fetch_release_finds_untagged_draft_by_tag_name(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    draft_release = {"id": 123, "tag_name": IDENTITY.release_tag, "draft": True}
+
+    def request_json(url: str, _token: str) -> dict | list:
+        if "/releases/tags/" in url:
+            raise MODULE.GitHubApiError(404, "Not Found")
+        return [draft_release]
+
+    monkeypatch.setattr(MODULE, "request_json", request_json)
+
+    assert MODULE.fetch_release("owner", "repo", IDENTITY.release_tag, "token") == draft_release
+
+
 def test_matching_complete_release_skips_build(monkeypatch: pytest.MonkeyPatch) -> None:
     global CURRENT_RELEASE
     CURRENT_RELEASE = release(draft=False, completion=True)
