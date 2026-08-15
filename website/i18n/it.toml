@@ -1,0 +1,53 @@
+## Italian translations
+
+[related_posts]
+other = "Articoli correlati"
+
+[latest_posts]
+other = "Ultimi articoli"
+
+[home]
+other = "Home"
+
+[read_more]
+other = "Leggi di più"
+
+[categories]
+other = "Categorie"
+
+[category]
+other = "Categoria"
+
+[tags]
+other = "Tag"
+
+[tag]
+other = "Tag"
+
+[posts_count]
+one = "{{ .Count }} articolo"
+other = "{{ .Count }} articoli"
+
+[post]
+other = "articolo"
+
+[posts]
+other = "articoli"
+
+[latest_blog_post]
+other = "Ultimo articolo del blog"
+
+[published]
+other = "Pubblicato il"
+
+[updated]
+other = "Aggiornato il"
+
+[on_this_page]
+other = "In questa pagina"
+
+[search_placeholder]
+other = "Digita per cercare..."
+
+[search_initial]
+other = "Inizia a digitare per cercare..."
