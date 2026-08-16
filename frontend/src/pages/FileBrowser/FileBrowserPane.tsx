@@ -70,6 +70,9 @@ export interface FileBrowserPaneProps {
   /** Increments whenever the quick bar is explicitly reopened. */
   searchActivationToken?: number;
 
+  /** Increments whenever visible quick-bar results should refresh without reopening. */
+  searchRefreshToken?: number;
+
   /** Controlled query value for filter mode. */
   searchQueryValue?: string;
 
@@ -104,6 +107,7 @@ export const FileBrowserPane: React.FC<FileBrowserPaneProps> = ({
   disableTabFocus,
   searchProvider,
   searchActivationToken,
+  searchRefreshToken,
   searchQueryValue,
   onSearchQueryValueChange,
   disableSearchDropdown,
@@ -365,6 +369,7 @@ export const FileBrowserPane: React.FC<FileBrowserPaneProps> = ({
           <UnifiedSearchBar
             provider={searchProvider}
             activationToken={searchActivationToken}
+            refreshToken={searchRefreshToken}
             inputRef={searchInputRef}
             useCompactLayout={useCompactLayout}
             onBlurToFileList={() => listContainerEl?.focus()}

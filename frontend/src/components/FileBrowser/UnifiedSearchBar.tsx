@@ -121,6 +121,8 @@ interface UnifiedSearchBarProps {
   provider: SearchProvider;
   /** Increments whenever the quick bar is explicitly reopened and should reset transient state. */
   activationToken?: number;
+  /** Increments whenever visible results should refresh without changing dropdown visibility. */
+  refreshToken?: number;
   /** Ref forwarded to the underlying <input> element */
   inputRef?: React.RefObject<HTMLInputElement>;
   /** Remove from Tab order (dual-pane mode uses Tab for pane switching) */
@@ -161,6 +163,7 @@ export interface UnifiedSearchBarModeOption {
 export function UnifiedSearchBar({
   provider,
   activationToken = 0,
+  refreshToken = 0,
   inputRef,
   useCompactLayout = false,
   onBlurToFileList,
@@ -205,6 +208,7 @@ export function UnifiedSearchBar({
   const activatedRef = useRef(false);
   const lastResetProviderRef = useRef(provider);
   const lastActivationTokenRef = useRef(activationToken);
+  const lastRefreshTokenRef = useRef(refreshToken);
   const wasDropdownSuppressedRef = useRef(suppressDropdown);
 
   // Always keep providerRef current so stable callbacks use the latest provider
@@ -433,7 +437,7 @@ export function UnifiedSearchBar({
   // executeSearch
   //
   const executeSearch = useCallback(
-    async (searchQuery: string) => {
+    async (searchQuery: string, openDropdown = true) => {
       // Cancel any in-flight request
       if (abortControllerRef.current) {
         abortControllerRef.current.abort();
@@ -457,14 +461,18 @@ export function UnifiedSearchBar({
             )
           );
           setHasSearched(true);
-          setIsDropdownOpen(true);
+          if (openDropdown) {
+            setIsDropdownOpen(true);
+          }
         }
       } catch {
         if (!controller.signal.aborted) {
           setResults([]);
           setHasSearched(true);
           setSearchError(true);
-          setIsDropdownOpen(true);
+          if (openDropdown) {
+            setIsDropdownOpen(true);
+          }
         }
       } finally {
         if (!controller.signal.aborted) {
@@ -924,6 +932,17 @@ export function UnifiedSearchBar({
     provider.id,
     query,
   ]);
+
+  useEffect(() => {
+    if (lastRefreshTokenRef.current === refreshToken) {
+      return;
+    }
+
+    lastRefreshTokenRef.current = refreshToken;
+    if (!disableDropdown && !suppressDropdown && query.length >= getEffectiveMinQueryLength(query)) {
+      void executeSearch(query, false);
+    }
+  }, [disableDropdown, executeSearch, getEffectiveMinQueryLength, query, refreshToken, suppressDropdown]);
 
   useEffect(() => {
     if (disableDropdown || suppressDropdown) {

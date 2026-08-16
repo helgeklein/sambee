@@ -240,6 +240,7 @@ const Browser: React.FC = () => {
   const [showHelp, setShowHelp] = useState(false);
   const [quickBarMode, setQuickBarMode] = useState<"navigate" | "commands" | "file-search">("navigate");
   const [quickBarActivationToken, setQuickBarActivationToken] = useState(0);
+  const [quickBarRefreshToken, setQuickBarRefreshToken] = useState(0);
   const [quickBarPaneId, setQuickBarPaneId] = useState<PaneId>("left");
   const [companionHintOpen, setCompanionHintOpen] = useState(false);
   const backendAvailability = useBackendAvailability();
@@ -452,7 +453,7 @@ const Browser: React.FC = () => {
   useEffect(() => {
     const refreshFileSearch = () => {
       if (quickBarMode === "file-search" && document.activeElement === quickBarInputRef.current) {
-        setQuickBarActivationToken((current) => current + 1);
+        setQuickBarRefreshToken((current) => current + 1);
       }
     };
     const refreshWhenVisible = () => {
@@ -2240,6 +2241,7 @@ const Browser: React.FC = () => {
             <DesktopToolbar
               searchProvider={quickBarProvider}
               searchActivationToken={quickBarActivationToken}
+              searchRefreshToken={quickBarRefreshToken}
               searchInputRef={quickBarPane.searchInputRef}
               showSearch={activePane.connectionId !== ""}
               onOpenHelp={() => setShowHelp(true)}
@@ -2338,6 +2340,7 @@ const Browser: React.FC = () => {
               disableTabFocus={isDualMode}
               searchProvider={quickBarProvider}
               searchActivationToken={quickBarActivationToken}
+              searchRefreshToken={quickBarRefreshToken}
               searchQueryValue={quickBarQueryValue}
               onSearchQueryValueChange={handleQuickBarQueryValueChange}
               disableSearchDropdown={false}
@@ -2366,6 +2369,7 @@ const Browser: React.FC = () => {
                   disableTabFocus={isDualMode}
                   searchProvider={quickBarProvider}
                   searchActivationToken={quickBarActivationToken}
+                  searchRefreshToken={quickBarRefreshToken}
                   searchQueryValue={quickBarQueryValue}
                   onSearchQueryValueChange={handleQuickBarQueryValueChange}
                   disableSearchDropdown={false}
