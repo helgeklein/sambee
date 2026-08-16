@@ -124,7 +124,6 @@ const MockMarkdownRichEditor = forwardRef<
     const toolbarButtonRef = useRef<HTMLButtonElement | null>(null);
     const previousMarkdownRef = useRef(markdown);
     const latestMarkdownRef = useRef(markdown);
-    const lastSelectionRef = useRef({ start: 0, end: 0 });
     const preservedSelectionRef = useRef<{
       type: "textarea";
       start: number;
@@ -197,25 +196,6 @@ const MockMarkdownRichEditor = forwardRef<
       textarea.setSelectionRange(markdown.length, markdown.length);
       previousMarkdownRef.current = markdown;
     }, [markdown, onChange, onUserEdit]);
-
-    useEffect(() => {
-      const textarea = textareaRef.current;
-
-      if (!textarea) {
-        return;
-      }
-
-      const originalSetSelectionRange = textarea.setSelectionRange.bind(textarea);
-
-      textarea.setSelectionRange = (start: number, end: number, direction?: "forward" | "backward" | "none") => {
-        lastSelectionRef.current = { start, end };
-        originalSetSelectionRange(start, end, direction);
-      };
-
-      return () => {
-        textarea.setSelectionRange = originalSetSelectionRange;
-      };
-    }, []);
 
     useImperativeHandle(ref, () => ({
       focus: () => {
@@ -302,8 +282,7 @@ const MockMarkdownRichEditor = forwardRef<
           return "";
         }
 
-        const { value } = textarea;
-        const { start, end } = lastSelectionRef.current;
+        const { value, selectionStart: start, selectionEnd: end } = textarea;
 
         if (start === end) {
           return "";

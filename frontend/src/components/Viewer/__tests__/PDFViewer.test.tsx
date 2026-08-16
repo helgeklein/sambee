@@ -80,7 +80,7 @@ vi.mock("react-pdf", () => ({
       if (file && !file.includes("error") && loadedFileRef.current !== file) {
         loadedFileRef.current = file;
 
-        setTimeout(() => {
+        queueMicrotask(() => {
           const mockPdf = {
             numPages: 5,
             getPage: (pageNum: number) =>
@@ -93,11 +93,11 @@ vi.mock("react-pdf", () => ({
               }),
           };
           onLoadSuccess?.(mockPdf);
-        }, 0);
+        });
       } else if (file?.includes("error")) {
-        setTimeout(() => {
+        queueMicrotask(() => {
           onLoadError?.(new Error("Failed to load PDF"));
-        }, 0);
+        });
       }
     }, [file, getPageItems, onLoadError, onLoadSuccess]);
 
@@ -1064,11 +1064,9 @@ describe("PDFViewer", () => {
         expect(screen.getByTestId("pdf-page")).toBeInTheDocument();
       });
 
-      // Wait for focus to be applied (happens after load with setTimeout)
-      await new Promise((resolve) => setTimeout(resolve, 150));
-
-      // Check that some element in the document is focused (not body)
-      expect(document.activeElement).not.toBe(document.body);
+      await waitFor(() => {
+        expect(document.activeElement).not.toBe(document.body);
+      });
     });
 
     it("does not focus on error state", async () => {
@@ -1083,9 +1081,6 @@ describe("PDFViewer", () => {
         },
         { timeout: 3000 }
       );
-
-      // Wait a bit to ensure focus doesn't happen
-      await new Promise((resolve) => setTimeout(resolve, 200));
 
       const container = screen.getByText(/Server is busy/i).parentElement;
       expect(document.activeElement).not.toBe(container);

@@ -1,6 +1,6 @@
 import { Button } from "@mui/material";
-import { fireEvent, render, screen, waitFor } from "@testing-library/react";
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { act, fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { SambeeThemeProvider } from "../../../theme";
 import { ResponsiveFormDialog } from "../ResponsiveFormDialog";
 
@@ -28,6 +28,10 @@ function mockMobileMode(isMobile: boolean) {
 }
 
 describe("ResponsiveFormDialog", () => {
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+
   beforeEach(() => {
     mockMobileMode(false);
   });
@@ -126,6 +130,8 @@ describe("ResponsiveFormDialog", () => {
   });
 
   it("does not restore focus when restoration is disabled", async () => {
+    vi.useFakeTimers();
+
     const { rerender } = render(
       <SambeeThemeProvider>
         <button type="button">Open Dialog</button>
@@ -161,7 +167,9 @@ describe("ResponsiveFormDialog", () => {
     );
 
     fallbackButton.focus();
-    await new Promise<void>((resolve) => setTimeout(resolve, 0));
+    await act(async () => {
+      await vi.runOnlyPendingTimersAsync();
+    });
 
     expect(fallbackButton).toHaveFocus();
   });

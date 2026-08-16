@@ -124,7 +124,7 @@ describe("Browser Component - Rendering", () => {
 
   it("displays loading state while fetching files", async () => {
     // Mock a delayed response
-    vi.mocked(api.listDirectory).mockImplementation(() => new Promise((resolve) => setTimeout(() => resolve(mockDirectoryListing), 100)));
+    vi.mocked(api.listDirectory).mockImplementation(() => new Promise<typeof mockDirectoryListing>(() => {}));
 
     renderBrowser("/browse/smb/test-server-1");
 

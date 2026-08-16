@@ -49,12 +49,6 @@ vi.mock("../authConfig", () => ({
 import { authSession } from "../authSession";
 import { clearCurrentUserSettingsCache, loadCurrentUserSettings, patchCurrentUserSettings } from "../userSettingsSync";
 
-async function flushAsyncWork(): Promise<void> {
-  await Promise.resolve();
-  await Promise.resolve();
-  await new Promise((resolve) => setTimeout(resolve, 0));
-}
-
 describe("userSettingsSync", () => {
   beforeEach(() => {
     vi.clearAllMocks();
@@ -181,9 +175,10 @@ describe("userSettingsSync", () => {
     getCurrentUserSettingsMock.mockResolvedValue(updatedSettings);
 
     getUserSettingsMessageHandler()?.(new MessageEvent("message", { data: { type: "settings-updated" } }));
-    await flushAsyncWork();
 
-    expect(getCurrentUserSettingsMock).toHaveBeenCalledTimes(1);
+    await vi.waitFor(() => {
+      expect(getCurrentUserSettingsMock).toHaveBeenCalledTimes(1);
+    });
     await expect(loadCurrentUserSettings()).resolves.toEqual(updatedSettings);
   });
 
@@ -208,9 +203,10 @@ describe("userSettingsSync", () => {
     getCurrentUserSettingsMock.mockResolvedValue(updatedSettings);
 
     window.dispatchEvent(new Event("focus"));
-    await flushAsyncWork();
 
-    expect(getCurrentUserSettingsMock).toHaveBeenCalledTimes(1);
+    await vi.waitFor(() => {
+      expect(getCurrentUserSettingsMock).toHaveBeenCalledTimes(1);
+    });
     await expect(loadCurrentUserSettings()).resolves.toEqual(updatedSettings);
   });
 
@@ -241,8 +237,9 @@ describe("userSettingsSync", () => {
     const forcedLoadPromise = loadCurrentUserSettings(true);
     const regularLoadPromise = loadCurrentUserSettings();
 
-    await flushAsyncWork();
-    expect(getCurrentUserSettingsMock).toHaveBeenCalledTimes(1);
+    await vi.waitFor(() => {
+      expect(getCurrentUserSettingsMock).toHaveBeenCalledTimes(1);
+    });
 
     resolveSettings?.(initialSettings);
 

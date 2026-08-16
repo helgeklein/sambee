@@ -1,5 +1,5 @@
 import { act, renderHook, waitFor } from "@testing-library/react";
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import apiService from "../../services/api";
 import { logger } from "../../services/logger";
@@ -36,6 +36,10 @@ function registerAbortableDeferredRequest(deferredByPath: Map<string, DeferredRe
 }
 
 describe("useCachedImageGallery", () => {
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+
   beforeEach(() => {
     vi.clearAllMocks();
   });
@@ -764,6 +768,8 @@ describe("useCachedImageGallery", () => {
   });
 
   it("retries a recoverable current-image failure after backoff without navigation", async () => {
+    vi.useFakeTimers();
+
     const requestedPaths: string[] = [];
     let currentAttempts = 0;
 
@@ -800,25 +806,24 @@ describe("useCachedImageGallery", () => {
       })
     );
 
-    await waitFor(() => {
-      expect(result.current.errorStates.get(0)).toBeDefined();
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(0);
     });
+    expect(result.current.errorStates.get(0)).toBeDefined();
 
     expect(requestedPaths.filter((path) => path === "/0.jpg")).toHaveLength(1);
 
-    await waitFor(
-      () => {
-        expect(requestedPaths.filter((path) => path === "/0.jpg")).toHaveLength(2);
-      },
-      { timeout: 2500 }
-    );
-
-    await waitFor(() => {
-      expect(result.current.getCachedImageSrc(0)).toBeDefined();
+    await act(async () => {
+      await vi.runOnlyPendingTimersAsync();
     });
+
+    expect(requestedPaths.filter((path) => path === "/0.jpg")).toHaveLength(2);
+    expect(result.current.getCachedImageSrc(0)).toBeDefined();
   });
 
   it("does not auto-retry a non-retryable current-image failure", async () => {
+    vi.useFakeTimers();
+
     const requestedPaths: string[] = [];
 
     vi.mocked(apiService.getImageBlob).mockImplementation((_connectionId: string, path: string) => {
@@ -848,11 +853,14 @@ describe("useCachedImageGallery", () => {
       })
     );
 
-    await waitFor(() => {
-      expect(result.current.errorStates.get(0)).toBeDefined();
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(0);
     });
+    expect(result.current.errorStates.get(0)).toBeDefined();
 
-    await new Promise((resolve) => window.setTimeout(resolve, 1200));
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(1_200);
+    });
 
     expect(requestedPaths.filter((path) => path === "/0.jpg")).toHaveLength(1);
   });
