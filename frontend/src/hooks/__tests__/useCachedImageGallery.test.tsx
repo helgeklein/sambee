@@ -38,6 +38,7 @@ function registerAbortableDeferredRequest(deferredByPath: Map<string, DeferredRe
 describe("useCachedImageGallery", () => {
   afterEach(() => {
     vi.useRealTimers();
+    vi.unstubAllGlobals();
   });
 
   beforeEach(() => {
@@ -769,6 +770,10 @@ describe("useCachedImageGallery", () => {
 
   it("retries a recoverable current-image failure after backoff without navigation", async () => {
     vi.useFakeTimers();
+    vi.stubGlobal("requestAnimationFrame", (callback: FrameRequestCallback) => {
+      callback(performance.now());
+      return 0;
+    });
 
     const requestedPaths: string[] = [];
     let currentAttempts = 0;
@@ -823,6 +828,10 @@ describe("useCachedImageGallery", () => {
 
   it("does not auto-retry a non-retryable current-image failure", async () => {
     vi.useFakeTimers();
+    vi.stubGlobal("requestAnimationFrame", (callback: FrameRequestCallback) => {
+      callback(performance.now());
+      return 0;
+    });
 
     const requestedPaths: string[] = [];
 
