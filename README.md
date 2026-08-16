@@ -30,6 +30,10 @@ Use the GitHub issue forms for bug reports and feature requests.
 - Include logs and environment details for Companion, SMB, deployment, or browser-specific problems.
 - Check the troubleshooting and support reference docs before filing environment-specific bugs.
 
+## Contributing
+
+Contributions are welcome. Read the [contribution guidelines](CONTRIBUTING.md) for the development, validation, documentation, and pull-request workflow. All project participation is subject to the [Code of Conduct](CODE_OF_CONDUCT.md).
+
 ## License
 
 MIT
