@@ -1,0 +1,55 @@
+name: "Release: Refresh Companion Promotion Index"
+
+on:
+  workflow_dispatch:
+
+env:
+  COMPANION_RELEASE_REPO_OWNER: helgeklein
+  COMPANION_RELEASE_REPO_NAME: sambee-companion
+  COMPANION_RELEASE_REPO_BRANCH: main
+
+concurrency:
+  group: companion-release-publication
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+jobs:
+  refresh:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout sambee
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: Checkout release repository
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          repository: ${{ env.COMPANION_RELEASE_REPO_OWNER }}/${{ env.COMPANION_RELEASE_REPO_NAME }}
+          ref: ${{ env.COMPANION_RELEASE_REPO_BRANCH }}
+          token: ${{ secrets.COMPANION_RELEASE_REPO_TOKEN }}
+          path: release-repo
+
+      - name: Generate current promotion index
+        run: |
+          python3 .github/scripts/promote_companion_release.py \
+            --build-promoted-releases-index \
+            --release-repo-path "$PWD/release-repo"
+
+      - name: Commit and push promotion index
+        run: |
+          git -C release-repo config user.name "github-actions[bot]"
+          git -C release-repo config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git -C release-repo add docs/feeds/companion/promoted.json
+
+          if git -C release-repo diff --cached --quiet; then
+            echo "Promotion index is already current."
+            exit 0
+          fi
+
+          git -C release-repo commit -m "Refresh Companion promotion index"
+          if ! git -C release-repo push origin HEAD:${{ env.COMPANION_RELEASE_REPO_BRANCH }}; then
+            echo "Failed to push the Companion promotion index. The remote feed state is unknown; inspect the index before retrying." >&2
+            exit 1
+          fi

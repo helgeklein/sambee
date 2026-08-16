@@ -29,13 +29,9 @@ If you want to take a new Companion version to the `stable` update channel, foll
 1. Publish the draft release. This:
    - Makes the release eligible for promotion to the `test`, `beta`, and `stable` channels.
    - Prevents additional build workflow runs changing the published Companion release.
-1. Ensure that a matching published public Sambee release `vX.Y.Z` exists.
-   - This authorizes the Companion workflow to promote a release.
 1. To promote the release to the update channels, run `Release: Promote Companion Release`:
    - Select the channels: `test`, `beta`, and/or `stable`.
    - Select whether to update the Sambee download metadata.
-
-The workflow uses `build`, `recover-finalizer`, and `complete` states. A matching incomplete draft resumes only from recorded retained Actions artifacts; a complete draft or published release is not rebuilt. When a replacement is needed, increment `Z`, synchronize, commit on `main`, and build a new candidate.
 
 One published release can move from `test` to `beta` to `stable` without rebuilding binaries.
 
@@ -47,12 +43,11 @@ Read the detailed pages in this order:
 
 ## Workflow Map
 
-| Workflow or system | When to use it | Result |
+| Workflow | When to use it | Result |
 |---|---|---|
 | Local `npm run check:rust:windows` | You want an early local Windows-target compatibility signal while working in Linux or the devcontainer. | Runs a Windows GNU target `cargo check` only. It does not create signed release assets. |
-| `Release: Build Companion Artifact` | You want to create release assets for one canonical version. | Builds the selected platform set and creates, resumes, or reports the immutable draft GitHub Release in `helgeklein/sambee-companion`. |
+| `Release: Build Companion Artifact` | You want to create release assets for one canonical version. | Builds the selected platform set and creates, resumes, or reports the immutable draft GitHub Release in [helgeklein/sambee-companion](https://github.com/helgeklein/sambee-companion/). |
 | `Release: Promote Companion Release` | A published Companion release is approved for one or more channels or for Sambee download metadata. | Rewrites the selected feed files in `docs/feeds` of the release repository. |
-| `helgeklein/sambee-companion` | You need the release repository that owns public Companion release artifacts. | Hosts immutable GitHub Release assets and stores the committed feed files under `docs/feeds` to be served by GitHub Pages. |
 
 ## Main Control Points
 
@@ -61,18 +56,12 @@ Read the detailed pages in this order:
 | `.github/workflows/build-companion.yml` | Builds platform artifacts from a canonical source and creates or resumes one draft release for its immutable tag. |
 | `.github/workflows/promote-companion-release.yml` | Promotes one published release to selected public feeds. |
 | `.github/scripts/promote_companion_release.py` | Resolves release assets and writes the feed JSON files. |
-| `helgeklein/sambee-companion` | Dedicated public release repository for Companion GitHub Releases and committed feed source files. |
-| `release-repo/docs/feeds` | Source-controlled feed JSON files that promotion updates and commits. |
-
-## Channels And Consumers
-
-Companion does not use separate binaries per channel. It uses one published release plus multiple mutable feed pointers.
-
-For the public feed host, exact feed locations, and consumer-specific behavior, see [Companion Channels, Feeds, And Downloads](../companion-channels-feeds-and-downloads/).
+| [helgeklein/sambee-companion](https://github.com/helgeklein/sambee-companion/) | Dedicated public release repository for Companion GitHub Releases and committed feed source files. |
+| `release-repo/docs/feeds` | Source-controlled feed JSON files that promotion updates and commits ([docs](../companion-channels-feeds-and-downloads/)). |
 
 ## Published Artifact
 
-Published Companion releases live in `helgeklein/sambee-companion` as GitHub Releases.
+Published Companion releases live in [helgeklein/sambee-companion](https://github.com/helgeklein/sambee-companion/) as GitHub Releases.
 
 Each release may contain:
 
@@ -80,18 +69,3 @@ Each release may contain:
 - Tauri updater bundles.
 - `.sig` files for updater verification.
 - Release notes.
-
-Release tags do not encode a channel.
-Channel visibility is decided only by the promoted feed files.
-
-## Operating Rules
-
-- Do not treat update channels as different binaries.
-- Do not patch broken published assets in place.
-- Build and publish a new release instead of replacing assets on an existing tag.
-- Increment the `Z` build sequence when you need another candidate.
-- Review whether you are changing Companion updater visibility, Sambee download visibility, or both.
-- Treat local Windows GNU cross-checks as compatibility validation only.
-- Keep actual Windows artifact creation and signing in the CI release workflow.
-
-Use [Companion Channels, Feeds, And Downloads](../companion-channels-feeds-and-downloads/) for the system model behind those rules.

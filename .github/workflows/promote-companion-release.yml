@@ -59,102 +59,30 @@ jobs:
       - name: Checkout sambee
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
-      - name: Validate public release scope
-        id: scope
+      - name: Validate Companion provenance
+        id: provenance
         shell: bash
         env:
           COMPANION_TOKEN: ${{ secrets.COMPANION_RELEASE_REPO_TOKEN }}
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
-          scope_dir="$RUNNER_TEMP/release-scope"
-          mkdir -p "$scope_dir"
+          provenance_dir="$RUNNER_TEMP/companion-provenance"
+          mkdir -p "$provenance_dir"
           companion_tag="$(GH_TOKEN="$COMPANION_TOKEN" gh release view "${{ inputs.release_ref }}" \
             --repo "${{ env.COMPANION_RELEASE_REPO_OWNER }}/${{ env.COMPANION_RELEASE_REPO_NAME }}" \
             --json tagName --jq .tagName)"
           GH_TOKEN="$COMPANION_TOKEN" gh release download "$companion_tag" \
             --repo "${{ env.COMPANION_RELEASE_REPO_OWNER }}/${{ env.COMPANION_RELEASE_REPO_NAME }}" \
             --pattern companion-release-provenance.json \
-            --dir "$scope_dir"
-          version="$(jq -er '.version | strings' "$scope_dir/companion-release-provenance.json")"
-          sambee_release_tag="v$version"
-          gh release download "$sambee_release_tag" --pattern sambee-release.json --dir "$scope_dir"
-          python3 .github/scripts/validate_release_scope.py \
-            --metadata-file "$scope_dir/sambee-release.json" \
-            --component companion \
-            --version "$version" \
-            --build-tag "$(jq -r '.build_tag' "$scope_dir/companion-release-provenance.json")" \
-            --source-sha "$(jq -r '.source_sha' "$scope_dir/companion-release-provenance.json")"
-          build_tag="$(jq -r '.build_tag' "$scope_dir/companion-release-provenance.json")"
-          source_sha="$(jq -r '.source_sha' "$scope_dir/companion-release-provenance.json")"
+            --dir "$provenance_dir"
+          build_tag="$(jq -er '.build_tag | strings' "$provenance_dir/companion-release-provenance.json")"
+          source_sha="$(jq -er '.source_sha | strings' "$provenance_dir/companion-release-provenance.json")"
           git fetch origin "refs/tags/$build_tag:refs/tags/$build_tag"
           if [[ "$(git rev-parse "refs/tags/$build_tag^{commit}")" != "$source_sha" ]]; then
             echo "Companion provenance source SHA does not match canonical tag $build_tag." >&2
             exit 1
           fi
-          echo "scope=$(jq -r '.component_scope' "$scope_dir/sambee-release.json")" >> "$GITHUB_OUTPUT"
-          echo "version=$version" >> "$GITHUB_OUTPUT"
-          echo "sambee_release_tag=$sambee_release_tag" >> "$GITHUB_OUTPUT"
           echo "build_tag=$build_tag" >> "$GITHUB_OUTPUT"
           echo "source_sha=$source_sha" >> "$GITHUB_OUTPUT"
-
-      - name: Set up crane
-        if: ${{ steps.scope.outputs.scope == 'both' }}
-        uses: ./.github/actions/setup-crane
-        with:
-          install-dir: ${{ runner.temp }}/bin
-
-      - name: Set up ORAS
-        if: ${{ steps.scope.outputs.scope == 'both' }}
-        uses: ./.github/actions/setup-oras
-        with:
-          install-dir: ${{ runner.temp }}/bin
-
-      - name: Checkout Cosign setup action
-        if: ${{ steps.scope.outputs.scope == 'both' }}
-        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-        with:
-          ref: ${{ github.workflow_sha }}
-          path: .workflow-actions
-          sparse-checkout: |
-            .github/actions/setup-cosign
-            .github/scripts/install_cosign.sh
-
-      - name: Install Cosign
-        if: ${{ steps.scope.outputs.scope == 'both' }}
-        uses: ./.workflow-actions/.github/actions/setup-cosign
-        with:
-          install-dir: ${{ runner.temp }}/bin
-
-      - name: Verify coordinated Docker candidate
-        if: ${{ steps.scope.outputs.scope == 'both' }}
-        shell: bash
-        env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        run: |
-          git checkout --detach "${{ steps.scope.outputs.build_tag }}"
-          owner_lower="$(printf '%s' "$GITHUB_REPOSITORY_OWNER" | tr '[:upper:]' '[:lower:]')"
-          image_name="ghcr.io/$owner_lower/sambee"
-          signature_repository="ghcr.io/$owner_lower/sambee-signatures"
-          image_description="$(bash .github/scripts/read_website_description.sh)"
-          source_url="https://github.com/${GITHUB_REPOSITORY}"
-          crane auth login ghcr.io -u "${{ github.actor }}" -p "${{ secrets.GITHUB_TOKEN }}"
-          oras login ghcr.io -u "${{ github.actor }}" -p "${{ secrets.GITHUB_TOKEN }}"
-          if ! candidate_digest="$(crane digest "$image_name:${{ steps.scope.outputs.build_tag }}" 2>/dev/null)"; then
-            echo "Published Docker candidate is missing for ${{ steps.scope.outputs.build_tag }}." >&2
-            echo "Run 'Release: Create Docker Image' for this canonical build before promoting the coordinated Companion release." >&2
-            exit 1
-          fi
-          bash .github/scripts/verify_published_candidate_image.sh \
-            --image-name "$image_name" \
-            --metadata-repository "$signature_repository" \
-            --candidate-digest "$candidate_digest" \
-            --expected-description "$image_description" \
-            --expected-revision "${{ steps.scope.outputs.source_sha }}" \
-            --expected-version "${{ steps.scope.outputs.version }}" \
-            --expected-source "$source_url" \
-            --expected-title Sambee \
-            --expected-build-tag "${{ steps.scope.outputs.build_tag }}" \
-            --github-repository "${{ github.repository }}"
 
       - name: Checkout release repository
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1

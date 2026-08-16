@@ -107,6 +107,7 @@ export function BrowserViewerPicker({
       onKeyDown={handleDialogKeyDown}
       title={t("fileBrowser.viewerPicker.title")}
       maxWidth="sm"
+      disableRestoreFocus
       actions={
         <>
           <Button onClick={onClose}>{t("common.actions.cancel")}</Button>

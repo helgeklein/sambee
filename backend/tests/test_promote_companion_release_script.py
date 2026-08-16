@@ -184,3 +184,65 @@ def test_completion_asset_set_digest_is_order_independent_and_excludes_its_marke
     assert MODULE.COMPLETION_MARKER_ASSET_NAME not in {asset["name"] for asset in expected_assets}
     assert completion["expected_assets_sha256"] == MODULE.expected_asset_set_digest(list(reversed(expected_assets)))
     assert release["tag_name"] == completion["release_tag"]
+
+
+def test_build_promoted_releases_feed_aggregates_existing_feeds(tmp_path: Path) -> None:
+    stable_feed = tmp_path / "companion" / "tauri" / "stable" / "latest.json"
+    stable_feed.parent.mkdir(parents=True)
+    stable_feed.write_text(
+        json.dumps({"version": "1.2.3", "pub_date": "2026-08-14T12:00:00Z"}),
+        encoding="utf-8",
+    )
+    sambee_feed = tmp_path / "sambee" / "companion" / "latest.json"
+    sambee_feed.parent.mkdir(parents=True)
+    sambee_feed.write_text(
+        json.dumps({"version": "1.2.4", "published_at": "2026-08-15T12:00:00Z"}),
+        encoding="utf-8",
+    )
+
+    assert MODULE.build_promoted_releases_feed(tmp_path) == {
+        "schema_version": 1,
+        "channels": {
+            "stable": {"version": "1.2.3", "published_at": "2026-08-14T12:00:00Z"},
+            "sambee": {"version": "1.2.4", "published_at": "2026-08-15T12:00:00Z"},
+        },
+    }
+
+
+def test_build_promoted_releases_feed_rejects_malformed_existing_feed(tmp_path: Path, capsys: pytest.CaptureFixture[str]) -> None:
+    feed_path = tmp_path / "companion" / "tauri" / "test" / "latest.json"
+    feed_path.parent.mkdir(parents=True)
+    feed_path.write_text("not json", encoding="utf-8")
+
+    with pytest.raises(SystemExit):
+        MODULE.build_promoted_releases_feed(tmp_path)
+
+    assert "is not valid JSON" in capsys.readouterr().err
+
+
+def test_main_builds_promoted_releases_index_without_release_credentials(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    feed_path = tmp_path / "docs" / "feeds" / "companion" / "tauri" / "test" / "latest.json"
+    feed_path.parent.mkdir(parents=True)
+    feed_path.write_text(
+        json.dumps({"version": "1.2.3", "pub_date": "2026-08-14T12:00:00Z"}),
+        encoding="utf-8",
+    )
+    monkeypatch.delenv("GITHUB_TOKEN", raising=False)
+    monkeypatch.setattr(
+        MODULE.sys,
+        "argv",
+        [
+            str(SCRIPT),
+            "--build-promoted-releases-index",
+            "--release-repo-path",
+            str(tmp_path),
+        ],
+    )
+
+    MODULE.main()
+
+    index_path = tmp_path / "docs" / "feeds" / MODULE.PROMOTED_RELEASES_FILE
+    assert json.loads(index_path.read_text(encoding="utf-8")) == {
+        "schema_version": 1,
+        "channels": {"test": {"version": "1.2.3", "published_at": "2026-08-14T12:00:00Z"}},
+    }

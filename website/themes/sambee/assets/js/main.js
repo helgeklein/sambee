@@ -13,6 +13,15 @@
    const DOCS_TOC_SIDEBAR_SELECTOR = '.docs-toc-sidebar';
    const DOCS_TOC_SELECTOR = '.docs-toc';
    const DOCS_TOC_INNER_SELECTOR = '.docs-toc-inner';
+   const PROMOTION_OVERVIEW_SELECTOR = '[data-companion-promotion-overview]';
+   const PROMOTION_OVERVIEW_SCHEMA_VERSION = 1;
+   const PROMOTION_OVERVIEW_TIMEOUT_MS = 10000;
+   const PROMOTION_TARGETS = [
+      { key: 'stable', label: 'Companion stable' },
+      { key: 'beta', label: 'Companion beta' },
+      { key: 'test', label: 'Companion test' },
+      { key: 'sambee', label: 'Sambee downloads' }
+   ];
      const KBD_SELECTOR = 'kbd';
    const COPY_FEEDBACK_TIMEOUT_MS = 1600;
      const KBD_ARIA_LABELS = {
@@ -370,12 +379,103 @@
       window.setTimeout(handleHashNavigation, 100);
    }
 
+   function isRecord(value) {
+      return typeof value === 'object' && value !== null && !Array.isArray(value);
+   }
+
+   function parsePromotionRows(payload) {
+      if (!isRecord(payload) || payload.schema_version !== PROMOTION_OVERVIEW_SCHEMA_VERSION || !isRecord(payload.channels)) {
+         throw new Error('Promotion index has an unsupported format.');
+      }
+
+      const rows = [];
+      PROMOTION_TARGETS.forEach((target) => {
+         const promotion = payload.channels[target.key];
+
+         if (promotion === undefined) {
+            return;
+         }
+         if (!isRecord(promotion) || typeof promotion.version !== 'string' || !promotion.version.trim()) {
+            throw new Error('Promotion index contains an invalid target.');
+         }
+         if (promotion.published_at !== undefined && (typeof promotion.published_at !== 'string' || !promotion.published_at.trim())) {
+            throw new Error('Promotion index contains an invalid release date.');
+         }
+
+         rows.push({
+            label: target.label,
+            version: promotion.version.trim(),
+            publishedAt: typeof promotion.published_at === 'string' ? promotion.published_at.trim() : 'Not provided'
+         });
+      });
+
+      if (!rows.length) {
+         throw new Error('Promotion index does not contain any current targets.');
+      }
+
+      return rows;
+   }
+
+   function renderPromotionRows(tableBody, rows) {
+      const fragment = document.createDocumentFragment();
+
+      rows.forEach((row) => {
+         const tableRow = document.createElement('tr');
+
+         [row.label, row.version, row.publishedAt].forEach((value) => {
+            const cell = document.createElement('td');
+            cell.textContent = value;
+            tableRow.appendChild(cell);
+         });
+
+         fragment.appendChild(tableRow);
+      });
+
+      tableBody.replaceChildren(fragment);
+   }
+
+   async function loadPromotionOverview(overview) {
+      const feedUrl = overview.getAttribute('data-feed-url');
+      const status = overview.querySelector('[data-companion-promotion-status]');
+      const table = overview.querySelector('[data-companion-promotion-table]');
+      const tableBody = overview.querySelector('[data-companion-promotion-rows]');
+
+      if (!feedUrl || !status || !table || !tableBody) {
+         return;
+      }
+
+      const controller = new AbortController();
+      const timeoutId = window.setTimeout(() => controller.abort(), PROMOTION_OVERVIEW_TIMEOUT_MS);
+
+      try {
+         const response = await fetch(feedUrl, { signal: controller.signal });
+         if (!response.ok) {
+            throw new Error('Promotion index request failed.');
+         }
+
+         renderPromotionRows(tableBody, parsePromotionRows(await response.json()));
+         status.hidden = true;
+         table.hidden = false;
+      } catch (_error) {
+         status.textContent = 'Current promotion data is temporarily unavailable. Use the raw promotion index instead.';
+      } finally {
+         window.clearTimeout(timeoutId);
+      }
+   }
+
+   function initPromotionOverviews() {
+      document.querySelectorAll(PROMOTION_OVERVIEW_SELECTOR).forEach((overview) => {
+         void loadPromotionOverview(overview);
+      });
+   }
+
    function init() {
       initCodeCopyButtons();
       initDocsVersionDropdowns();
       initDocsSidebarToggles();
       updateDocsTocStickyOffsets();
       initDocsTocScrollSpy();
+      initPromotionOverviews();
 
       window.addEventListener('resize', updateDocsTocStickyOffsets);
    }

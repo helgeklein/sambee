@@ -573,6 +573,46 @@ describe("Browser Component - Interactions", () => {
       expect(screen.queryByRole("listbox")).not.toBeInTheDocument();
     });
 
+    it("returns focus to the file list without reopening File Search after cancelling the viewer picker", async () => {
+      const user = userEvent.setup();
+
+      vi.mocked(api.listDirectory).mockResolvedValue({
+        path: "",
+        items: [
+          {
+            name: "report.pdf",
+            path: "report.pdf",
+            type: FileType.FILE,
+            size: 102400,
+            modified_at: "2024-01-01T00:00:00Z",
+            mime_type: "application/pdf",
+            is_readable: true,
+            is_hidden: false,
+          },
+        ],
+        total: 1,
+      });
+
+      renderBrowser("/browse/smb/test-server-1");
+
+      const virtualList = await screen.findByTestId("virtual-list");
+      await user.click(virtualList);
+      await user.keyboard("/");
+      await screen.findByRole("listbox");
+
+      await user.keyboard("{Shift>}{Enter}{/Shift}");
+      await screen.findByRole("dialog", { name: "Choose Viewer" });
+      expect(screen.getAllByRole("listbox")).toHaveLength(1);
+
+      await user.keyboard("{Escape}");
+
+      await waitFor(() => {
+        expect(screen.queryByRole("dialog", { name: "Choose Viewer" })).not.toBeInTheDocument();
+        expect(screen.getByTestId("file-list-container")).toHaveFocus();
+        expect(screen.queryByRole("listbox")).not.toBeInTheDocument();
+      });
+    });
+
     it("opens the saved preferred Sambee viewer on Enter even when it is outside the default compatible subset", async () => {
       const user = userEvent.setup();
 
@@ -842,6 +882,30 @@ describe("Browser Component - Interactions", () => {
       await waitFor(() => {
         expect(api.searchRecentFiles).toHaveBeenCalledTimes(callsBeforeRefresh + 1);
       });
+    });
+
+    it("does not reopen dismissed File Search after returning to the browser tab", async () => {
+      const user = userEvent.setup();
+      Object.defineProperty(document, "visibilityState", { configurable: true, value: "visible" });
+      renderBrowser("/browse/smb/test-server-1");
+
+      const listContainer = await screen.findByTestId("virtual-list");
+      await user.click(listContainer);
+      await user.keyboard("/");
+      await screen.findByRole("listbox");
+
+      await user.keyboard("{Escape}{Escape}");
+      await waitFor(() => {
+        expect(screen.getByTestId("file-list-container")).toHaveFocus();
+        expect(screen.queryByRole("listbox")).not.toBeInTheDocument();
+      });
+
+      const callsBeforeTabReturn = vi.mocked(api.searchRecentFiles).mock.calls.length;
+      fireEvent(window, new Event("focus"));
+      fireEvent(document, new Event("visibilitychange"));
+
+      expect(screen.queryByRole("listbox")).not.toBeInTheDocument();
+      expect(api.searchRecentFiles).toHaveBeenCalledTimes(callsBeforeTabReturn);
     });
 
     it("keeps Home and End bound to the navigate input text", async () => {

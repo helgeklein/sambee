@@ -125,6 +125,47 @@ describe("ResponsiveFormDialog", () => {
     });
   });
 
+  it("does not restore focus when restoration is disabled", async () => {
+    const { rerender } = render(
+      <SambeeThemeProvider>
+        <button type="button">Open Dialog</button>
+        <button type="button">Fallback Focus</button>
+        <ResponsiveFormDialog open={false} onClose={vi.fn()} disableRestoreFocus title="Edit User" actions={<Button>Save</Button>}>
+          <div>Dialog Body</div>
+        </ResponsiveFormDialog>
+      </SambeeThemeProvider>
+    );
+
+    const triggerButton = screen.getByRole("button", { name: /open dialog/i });
+    const fallbackButton = screen.getByRole("button", { name: /fallback focus/i });
+    triggerButton.focus();
+
+    rerender(
+      <SambeeThemeProvider>
+        <button type="button">Open Dialog</button>
+        <button type="button">Fallback Focus</button>
+        <ResponsiveFormDialog open={true} onClose={vi.fn()} disableRestoreFocus title="Edit User" actions={<Button>Save</Button>}>
+          <div>Dialog Body</div>
+        </ResponsiveFormDialog>
+      </SambeeThemeProvider>
+    );
+
+    rerender(
+      <SambeeThemeProvider>
+        <button type="button">Open Dialog</button>
+        <button type="button">Fallback Focus</button>
+        <ResponsiveFormDialog open={false} onClose={vi.fn()} disableRestoreFocus title="Edit User" actions={<Button>Save</Button>}>
+          <div>Dialog Body</div>
+        </ResponsiveFormDialog>
+      </SambeeThemeProvider>
+    );
+
+    fallbackButton.focus();
+    await new Promise<void>((resolve) => setTimeout(resolve, 0));
+
+    expect(fallbackButton).toHaveFocus();
+  });
+
   it("disables the mobile back affordance when close is disabled", () => {
     mockMobileMode(true);
 

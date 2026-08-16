@@ -1,0 +1,20 @@
+{{/* Purpose: Render the current Companion promotion overview populated from the public feed. */}}
+{{ $feedURL := "https://release-feeds.sambee.net/feeds/companion/promoted.json" }}
+<section data-companion-promotion-overview data-feed-url="{{ $feedURL }}">
+  <h2>Current Versions</h2>
+  <p data-companion-promotion-status role="status" aria-live="polite">Loading current promotion data.</p>
+  <div data-companion-promotion-table hidden>
+    <table>
+      <caption class="visually-hidden">Current Companion version promotion targets</caption>
+      <thead>
+        <tr>
+          <th scope="col">Target</th>
+          <th scope="col">Version</th>
+          <th scope="col">Release date</th>
+        </tr>
+      </thead>
+      <tbody data-companion-promotion-rows></tbody>
+    </table>
+  </div>
+  <p>For automation and troubleshooting, view the <a href="{{ $feedURL }}">raw version promotion index</a>.</p>
+</section>

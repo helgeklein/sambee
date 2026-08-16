@@ -305,6 +305,11 @@ export const FileBrowserPane: React.FC<FileBrowserPaneProps> = ({
     }
   }, [isActive, onPaneFocus]);
 
+  const handleCloseBrowserViewerPicker = React.useCallback(() => {
+    closeBrowserViewerPicker();
+    setTimeout(() => listContainerEl?.focus(), 0);
+  }, [closeBrowserViewerPicker, listContainerEl]);
+
   /** Navigate to a breadcrumb path segment. */
   const handleBreadcrumbNavigate = React.useCallback(
     (path: string) => {
@@ -431,7 +436,7 @@ export const FileBrowserPane: React.FC<FileBrowserPaneProps> = ({
           defaultViewerId={browserViewerPickerState.defaultViewerId}
           preferredViewerId={browserViewerPickerState.preferredViewerId}
           showNativeOption={browserViewerPickerState.showNativeOption}
-          onClose={closeBrowserViewerPicker}
+          onClose={handleCloseBrowserViewerPicker}
           onConfirm={(selection) => {
             void confirmBrowserViewerPicker(selection);
           }}

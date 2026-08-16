@@ -46,6 +46,26 @@ SAMBEE_DOWNLOAD_PATTERNS = {
 PROVENANCE_ASSET_NAME = "companion-release-provenance.json"
 COMPLETION_MARKER_ASSET_NAME = "companion-completion-marker.json"
 RELEASE_MANIFEST_ASSET_NAME = "companion-release-manifest.json"
+PROMOTED_RELEASES_SCHEMA_VERSION = 1
+PROMOTED_RELEASES_FILE = Path("companion") / "promoted.json"
+PROMOTION_FEED_SOURCES = (
+    (
+        "test",
+        Path("companion") / "tauri" / "test" / "latest.json",
+        "pub_date",
+    ),
+    (
+        "beta",
+        Path("companion") / "tauri" / "beta" / "latest.json",
+        "pub_date",
+    ),
+    (
+        "stable",
+        Path("companion") / "tauri" / "stable" / "latest.json",
+        "pub_date",
+    ),
+    ("sambee", Path("sambee") / "companion" / "latest.json", "published_at"),
+)
 
 
 def expected_asset_set_digest(expected_assets: list[dict]) -> str:
@@ -412,6 +432,42 @@ def write_json(path: Path, payload: dict) -> None:
     )
 
 
+def build_promoted_releases_feed(output_root: Path) -> dict:
+    """Build a normalized index of every currently promoted release."""
+
+    channels: dict[str, dict[str, str]] = {}
+    for channel, relative_path, published_at_field in PROMOTION_FEED_SOURCES:
+        feed_path = output_root / relative_path
+        if not feed_path.exists():
+            continue
+        if not feed_path.is_file():
+            fail(f"Promotion feed {feed_path} is not a file")
+
+        try:
+            payload = json.loads(feed_path.read_text(encoding="utf-8"))
+        except (OSError, json.JSONDecodeError) as error:
+            fail(f"Promotion feed {feed_path} is not valid JSON: {error}")
+        if not isinstance(payload, dict):
+            fail(f"Promotion feed {feed_path} must contain a JSON object")
+
+        version = payload.get("version")
+        if not isinstance(version, str) or not version.strip():
+            fail(f"Promotion feed {feed_path} is missing a version")
+
+        promotion = {"version": version.strip()}
+        published_at = payload.get(published_at_field)
+        if published_at is not None:
+            if not isinstance(published_at, str) or not published_at.strip():
+                fail(f"Promotion feed {feed_path} has an invalid {published_at_field}")
+            promotion["published_at"] = published_at.strip()
+        channels[channel] = promotion
+
+    return {
+        "schema_version": PROMOTED_RELEASES_SCHEMA_VERSION,
+        "channels": channels,
+    }
+
+
 def fetch_release(release_ref: str, owner: str, repo: str, token: str) -> dict:
     release_id = parse_release_id(release_ref)
     if release_id is not None:
@@ -470,10 +526,11 @@ def fetch_release(release_ref: str, owner: str, repo: str, token: str) -> dict:
 
 def main() -> None:
     parser = argparse.ArgumentParser()
-    parser.add_argument("--release-ref", required=True)
-    parser.add_argument("--release-owner", required=True)
-    parser.add_argument("--release-repo", required=True)
+    parser.add_argument("--release-ref")
+    parser.add_argument("--release-owner")
+    parser.add_argument("--release-repo")
     parser.add_argument("--release-repo-path")
+    parser.add_argument("--build-promoted-releases-index", action="store_true")
     parser.add_argument("--verify-only", action="store_true")
     parser.add_argument("--allow-draft", action="store_true")
     parser.add_argument("--companion-channel-test", action="store_true")
@@ -482,14 +539,42 @@ def main() -> None:
     parser.add_argument("--sambee", action="store_true")
     args = parser.parse_args()
 
-    if not args.verify_only and not any(
+    selected_promotion_target = any(
         [
             args.companion_channel_test,
             args.companion_channel_beta,
             args.companion_channel_stable,
             args.sambee,
         ]
-    ):
+    )
+
+    if args.build_promoted_releases_index:
+        if args.verify_only or args.allow_draft or selected_promotion_target:
+            fail(
+                "--build-promoted-releases-index cannot be combined with release "
+                "verification or promotion targets"
+            )
+        if not args.release_repo_path:
+            fail(
+                "--release-repo-path is required when building the promoted "
+                "releases index"
+            )
+
+        output_root = Path(args.release_repo_path) / "docs" / "feeds"
+        write_json(
+            output_root / PROMOTED_RELEASES_FILE,
+            build_promoted_releases_feed(output_root),
+        )
+        print("Prepared current Companion promotion index")
+        return
+
+    if not args.release_ref or not args.release_owner or not args.release_repo:
+        fail(
+            "--release-ref, --release-owner, and --release-repo are required "
+            "for release verification or promotion"
+        )
+
+    if not args.verify_only and not selected_promotion_target:
         fail("At least one promotion target must be selected")
 
     token = os.environ.get("GITHUB_TOKEN")
@@ -551,6 +636,11 @@ def main() -> None:
         write_json(
             output_root / "sambee" / "companion" / "latest.json", sambee_metadata
         )
+
+    write_json(
+        output_root / PROMOTED_RELEASES_FILE,
+        build_promoted_releases_feed(output_root),
+    )
 
     print(f"Prepared promotion payloads for {tag_name}")
 

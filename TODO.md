@@ -4,6 +4,8 @@
 
 ### Styling
 
+- Apply the new dialog styling to dialogs we missed previously:
+   - Choose viewer
 - Apply the new dialog styling to the settings pages, too, e.g.:
    - 2-column design on desktop, 1-column on smaller devices
    - background colors, etc.

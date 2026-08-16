@@ -101,11 +101,11 @@ export function ResponsiveFormDialog({
   ) : null;
 
   useEffect(() => {
-    if (open && !wasOpenRef.current && document.activeElement instanceof HTMLElement) {
+    if (!disableRestoreFocus && open && !wasOpenRef.current && document.activeElement instanceof HTMLElement) {
       triggerElementRef.current = document.activeElement;
     }
 
-    if (!open && wasOpenRef.current) {
+    if (!disableRestoreFocus && !open && wasOpenRef.current) {
       const triggerElement = triggerElementRef.current;
       if (triggerElement?.isConnected) {
         setTimeout(() => {
@@ -117,7 +117,7 @@ export function ResponsiveFormDialog({
     }
 
     wasOpenRef.current = open;
-  }, [open]);
+  }, [disableRestoreFocus, open]);
 
   const handleRequestClose = () => {
     if (disableClose) {
