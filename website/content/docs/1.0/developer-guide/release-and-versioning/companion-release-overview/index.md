@@ -23,10 +23,10 @@ If you want to take a new Companion version to the `stable` update channel, foll
    - builds Companion
    - signs the build artifacts
    - creates one immutable draft release in in the [Companion GitHub repo](https://github.com/helgeklein/sambee-companion/releases).
-   - assigns a `companion-vX.Y.Z` tag to the draft release.
 1. Test the draft release.
    - Download the installer from the release's artifacts, install and test.
 1. Publish the draft release. This:
+   - Assigns a `companion-vX.Y.Z` tag to the release.
    - Makes the release eligible for promotion to the `test`, `beta`, and `stable` channels.
    - Prevents additional build workflow runs changing the published Companion release.
 1. To promote the release to the update channels, run `Release: Promote Companion Release`:
