@@ -543,6 +543,7 @@ jobs:
           SOURCE_SHA: ${{ needs.prepare.outputs.checkout_ref }}
           PUBLICATION_STATE: ${{ needs.prepare.outputs.publication_state }}
         run: |
+          created_draft=false
           state="$(GITHUB_TOKEN="$GH_TOKEN" python3 .github/scripts/resolve_companion_release_state.py \
             --owner "${RELEASE_REPOSITORY%%/*}" \
             --repo "${RELEASE_REPOSITORY#*/}" \
@@ -579,19 +580,22 @@ jobs:
               --target "${{ env.COMPANION_RELEASE_REPO_BRANCH }}" \
               --title "Sambee Companion v$VERSION" \
               --notes-file "$release_body"
+            created_draft=true
           elif [[ "$PUBLICATION_STATE" == "build" ]]; then
             echo "Companion release state changed after preflight; rerun to recover or diagnose $RELEASE_TAG without rebuilding." >&2
             exit 1
           fi
 
-          state="$(GITHUB_TOKEN="$GH_TOKEN" python3 .github/scripts/resolve_companion_release_state.py \
-            --owner "${RELEASE_REPOSITORY%%/*}" \
-            --repo "${RELEASE_REPOSITORY#*/}" \
-            --version "$VERSION" \
-            --build-tag "$BUILD_TAG" \
-            --source-sha "$SOURCE_SHA" \
-            --release-tag "$RELEASE_TAG")"
-          grep -qx 'state=recover-finalizer' <<<"$state"
+          if [[ "$created_draft" != "true" ]]; then
+            state="$(GITHUB_TOKEN="$GH_TOKEN" python3 .github/scripts/resolve_companion_release_state.py \
+              --owner "${RELEASE_REPOSITORY%%/*}" \
+              --repo "${RELEASE_REPOSITORY#*/}" \
+              --version "$VERSION" \
+              --build-tag "$BUILD_TAG" \
+              --source-sha "$SOURCE_SHA" \
+              --release-tag "$RELEASE_TAG")"
+            grep -qx 'state=recover-finalizer' <<<"$state"
+          fi
 
       - name: Upload verified release assets
         shell: bash

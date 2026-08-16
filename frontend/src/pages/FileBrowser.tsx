@@ -245,27 +245,6 @@ const Browser: React.FC = () => {
   const backendAvailability = useBackendAvailability();
 
   useEffect(() => {
-    const refreshFileSearch = () => {
-      if (quickBarMode === "file-search") {
-        setQuickBarActivationToken((current) => current + 1);
-      }
-    };
-    const refreshWhenVisible = () => {
-      if (document.visibilityState === "visible") {
-        refreshFileSearch();
-      }
-    };
-    window.addEventListener(RECENT_FILES_CHANGED_EVENT, refreshFileSearch);
-    window.addEventListener("focus", refreshFileSearch);
-    document.addEventListener("visibilitychange", refreshWhenVisible);
-    return () => {
-      window.removeEventListener(RECENT_FILES_CHANGED_EVENT, refreshFileSearch);
-      window.removeEventListener("focus", refreshFileSearch);
-      document.removeEventListener("visibilitychange", refreshWhenVisible);
-    };
-  }, [quickBarMode]);
-
-  useEffect(() => {
     const requestedCategory = searchParams.get("settings");
     if (!requestedCategory || !SETTINGS_CATEGORY_ORDER.includes(requestedCategory as SettingsCategory)) {
       return;
@@ -444,6 +423,7 @@ const Browser: React.FC = () => {
   const activePane = effectiveActivePaneId === "left" ? leftPane : rightPane;
   const quickBarPane = quickBarPaneId === "right" && isDualMode ? rightPane : leftPane;
   const quickBarOtherPane = quickBarPaneId === "right" && isDualMode ? leftPane : rightPane;
+  const quickBarInputRef = quickBarPane.searchInputRef;
   const viewerOverlayOpen = Boolean(leftPane.viewInfo || rightPane.viewInfo);
   const activePaneConnection = getConnectionById(allConnections, activePane.connectionId);
   const quickBarPaneConnection = getConnectionById(allConnections, quickBarPane.connectionId);
@@ -468,6 +448,27 @@ const Browser: React.FC = () => {
       setQuickBarPaneId("left");
     }
   }, [isDualMode, quickBarPaneId, rightPane.connectionId]);
+
+  useEffect(() => {
+    const refreshFileSearch = () => {
+      if (quickBarMode === "file-search" && document.activeElement === quickBarInputRef.current) {
+        setQuickBarActivationToken((current) => current + 1);
+      }
+    };
+    const refreshWhenVisible = () => {
+      if (document.visibilityState === "visible") {
+        refreshFileSearch();
+      }
+    };
+    window.addEventListener(RECENT_FILES_CHANGED_EVENT, refreshFileSearch);
+    window.addEventListener("focus", refreshFileSearch);
+    document.addEventListener("visibilitychange", refreshWhenVisible);
+    return () => {
+      window.removeEventListener(RECENT_FILES_CHANGED_EVENT, refreshFileSearch);
+      window.removeEventListener("focus", refreshFileSearch);
+      document.removeEventListener("visibilitychange", refreshWhenVisible);
+    };
+  }, [quickBarInputRef, quickBarMode]);
 
   const refreshVisiblePanesAfterRecovery = useCallback(() => {
     if (leftPane.connectionIdRef.current) {
@@ -1743,6 +1744,8 @@ const Browser: React.FC = () => {
     conflictDialogOpen ||
     leftPane.viewInfo !== null ||
     rightPane.viewInfo !== null ||
+    leftPane.browserViewerPickerState !== null ||
+    rightPane.browserViewerPickerState !== null ||
     quickBarPane.deleteDialogOpen ||
     quickBarPane.renameDialogOpen ||
     quickBarPane.createDialogOpen;

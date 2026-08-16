@@ -37,7 +37,7 @@ The manual workflow accepts these inputs:
 - A GitHub release URL.
 - A numeric GitHub release ID.
 
-The workflow reads the selected release's immutable provenance and derives the required public Sambee authorization tag as `vX.Y.Z`. That public release must contain `sambee-release.json` with a matching version, build tag, source SHA, and Companion-compatible scope.
+Before updating feeds, the workflow verifies that the selected release's immutable provenance refers to a canonical build tag at the recorded source commit. A matching public Sambee release or Docker image is not required.
 
 At least one target must be selected.
 
@@ -59,7 +59,7 @@ It fails when:
 - The referenced release is still a draft.
 - The release has no assets.
 - The external release provenance or completion marker does not exactly match its assets and checksums.
-- The public `sambee-release.json` does not authorize `companion` or `both`, or its version, build tag, or source SHA differs from the Companion provenance.
+- The Companion provenance build tag does not resolve to the recorded source commit.
 - A selected Tauri feed target lacks a required bundle-and-signature pair for an included platform.
 - The Sambee metadata target would have no usable downloadable installer assets.
 
@@ -84,7 +84,7 @@ Use this order when you are promoting a Companion release:
 2. Start `Release: Promote Companion Release`.
 3. Set `release_ref` to the exact published release you want to expose.
 4. Select only the feed targets you intend to change.
-5. Let the workflow derive the matching public Sambee release, then update and push the selected feed files.
+5. Let the workflow verify the Companion provenance, then update and push the selected feed files.
 6. Validate the affected updater channel or Sambee download surface.
 7. Rerun the same workflow later if that same release should move from `test` to `beta` or `stable`.
 

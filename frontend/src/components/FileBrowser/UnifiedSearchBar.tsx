@@ -942,6 +942,7 @@ export function UnifiedSearchBar({
 
   // ── Derived state ──────────────────────────────────────────────────────
   const statusInfo = provider.getStatusInfo();
+  const selectableResultCount = results.filter((result) => result.kind === "result").length;
   const footerHint = provider.getFooterHint?.(results[selectedIndex]) ?? provider.footerHint;
   const effectiveMinQueryLength = getEffectiveMinQueryLength(query);
   const effectiveBelowMinimumMessage = getEffectiveBelowMinimumMessage(query);
@@ -1242,7 +1243,7 @@ export function UnifiedSearchBar({
                 )}
                 {provider.footerInfo && (
                   <Typography variant="caption" sx={{ color: "text.secondary", flexShrink: 0, pt: 0.25 }}>
-                    {provider.footerInfo(results.length)}
+                    {provider.footerInfo(selectableResultCount)}
                   </Typography>
                 )}
               </Box>

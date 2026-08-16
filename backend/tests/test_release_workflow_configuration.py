@@ -27,6 +27,20 @@ def step_uses(steps: list[dict], action: str) -> bool:
     return any(step.get("uses") == action for step in steps if isinstance(step, dict))
 
 
+def test_companion_promotion_index_refresh_only_rewrites_the_generated_index() -> None:
+    workflow = load_workflow("refresh-companion-promotion-index.yml")
+    refresh_job = workflow["jobs"]["refresh"]
+    steps = refresh_job["steps"]
+
+    generate_step = next(step for step in steps if step.get("name") == "Generate current promotion index")
+    assert "--build-promoted-releases-index" in generate_step["run"]
+    assert "--release-repo-path" in generate_step["run"]
+
+    push_step = next(step for step in steps if step.get("name") == "Commit and push promotion index")
+    assert "git -C release-repo add docs/feeds/companion/promoted.json" in push_step["run"]
+    assert "remote feed state is unknown" in push_step["run"]
+
+
 def test_candidate_workflows_do_not_expose_source_or_version_overrides() -> None:
     docker = load_workflow("docker-image-preview-publish.yml")
     companion = load_workflow("build-companion.yml")
@@ -165,14 +179,13 @@ def test_docker_candidate_workflow_selects_build_or_repair_before_build_jobs() -
         assert f"publication_state == '{expected_state}'" in workflow["jobs"][job_name]["if"]
 
 
-def test_coordinated_companion_promotion_uses_signed_docker_verifier() -> None:
+def test_companion_promotion_does_not_require_a_public_sambee_release() -> None:
     workflow = load_workflow("promote-companion-release.yml")
     steps = workflow["jobs"]["promote"]["steps"]
-    coordinated_step = next(step for step in steps if step.get("name") == "Verify coordinated Docker candidate")
-    assert "verify_published_candidate_image.sh" in coordinated_step["run"]
-    assert 'candidate_digest="$(crane digest "$image_name:${{ steps.scope.outputs.build_tag }}"' in coordinated_step["run"]
-    assert '--candidate-digest "$candidate_digest"' in coordinated_step["run"]
-    assert any(step.get("name") == "Install Cosign" for step in steps)
+    assert all(step.get("name") != "Verify coordinated Docker candidate" for step in steps)
+    assert all(step.get("name") != "Install Cosign" for step in steps)
+    assert all(step.get("name") != "Set up crane" for step in steps)
+    assert all(step.get("name") != "Set up ORAS" for step in steps)
 
 
 def test_docker_backfill_uses_signed_candidate_verifier() -> None:
@@ -345,14 +358,14 @@ def test_companion_promotion_serializes_feed_updates_and_reports_push_targets() 
     workflow = load_workflow("promote-companion-release.yml")
     assert workflow["concurrency"]["group"] == "companion-release-publication"
     assert workflow["concurrency"]["cancel-in-progress"] is False
-    assert "sambee_release_tag" not in workflow_inputs(workflow)
 
     steps = workflow["jobs"]["promote"]["steps"]
-    scope_step = next(step for step in steps if step.get("name") == "Validate public release scope")
-    assert 'version="$(jq -er' in scope_step["run"]
-    assert 'sambee_release_tag="v$version"' in scope_step["run"]
-    assert 'gh release download "$sambee_release_tag"' in scope_step["run"]
-    assert "inputs.sambee_release_tag" not in scope_step["run"]
+    provenance_step = next(step for step in steps if step.get("name") == "Validate Companion provenance")
+    assert 'build_tag="$(jq -er' in provenance_step["run"]
+    assert 'source_sha="$(jq -er' in provenance_step["run"]
+    assert "sambee-release.json" not in provenance_step["run"]
+    assert "validate_release_scope.py" not in provenance_step["run"]
+    assert "sambee_release_tag" not in provenance_step["run"]
     push_step = next(step for step in steps if step.get("name") == "Commit and push feed updates")
     assert "Failed to push feed updates for:" in push_step["run"]
     assert "remote feed state is unknown" in push_step["run"]
@@ -386,6 +399,8 @@ def test_companion_finalizer_recovers_exact_artifacts_and_uploads_completion_las
     assert "sambee-companion-recovery-v1" in create_step["run"]
     assert "release state changed after preflight" in create_step["run"]
     assert "resolve_companion_release_state.py" in create_step["run"]
+    assert "created_draft=false" in create_step["run"]
+    assert 'if [[ "$created_draft" != "true" ]]' in create_step["run"]
 
     verify_step = next(step for step in steps if step.get("name") == "Verify completed Companion draft")
     assert "promote_companion_release.py" in verify_step["run"]

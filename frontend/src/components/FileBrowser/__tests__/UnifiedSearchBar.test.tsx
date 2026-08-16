@@ -170,6 +170,7 @@ function createGroupedProvider(onSelect: SearchProvider["onSelect"]): SearchProv
     ],
     onSelect,
     getStatusInfo: () => null,
+    footerInfo: (resultCount) => `${resultCount} results`,
   };
 }
 
@@ -344,6 +345,8 @@ describe("UnifiedSearchBar", () => {
     expect(await screen.findByRole("heading", { name: "Recent files" })).toBeInTheDocument();
     expect(screen.getByRole("heading", { name: "Current directory" })).toBeInTheDocument();
     expect(screen.getAllByRole("option")).toHaveLength(2);
+    expect(screen.getByText("2 results")).toBeInTheDocument();
+    expect(screen.queryByText("4 results")).not.toBeInTheDocument();
     expect(screen.getByRole("option", { name: "Quarterly report Demo:/Reports" })).toHaveTextContent("Quarterly report");
     expect(screen.getByTestId("HistoryOutlinedIcon")).toBeInTheDocument();
     expect(screen.queryByText(/^Recent -/)).not.toBeInTheDocument();
