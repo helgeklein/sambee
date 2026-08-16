@@ -9,6 +9,7 @@ import { UnifiedSearchBar } from "./UnifiedSearchBar";
 interface DesktopToolbarProps {
   searchProvider: SearchProvider;
   searchActivationToken?: number;
+  searchRefreshToken?: number;
   searchInputRef?: React.RefObject<HTMLInputElement>;
   showSearch: boolean;
   onOpenHelp: () => void;
@@ -32,6 +33,7 @@ interface DesktopToolbarProps {
 export function DesktopToolbar({
   searchProvider,
   searchActivationToken,
+  searchRefreshToken,
   searchInputRef,
   showSearch,
   onOpenHelp,
@@ -61,6 +63,7 @@ export function DesktopToolbar({
           <UnifiedSearchBar
             provider={searchProvider}
             activationToken={searchActivationToken}
+            refreshToken={searchRefreshToken}
             inputRef={searchInputRef}
             useCompactLayout={false}
             onBlurToFileList={onBlurToFileList}

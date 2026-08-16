@@ -519,6 +519,33 @@ describe("UnifiedSearchBar", () => {
     });
   });
 
+  it("refreshes results without reopening a dismissed dropdown", async () => {
+    const user = userEvent.setup();
+    const fetchResults = vi.fn(resultsProvider.fetchResults);
+    const provider = { ...resultsProvider, fetchResults };
+    const { rerender } = renderWithProvider(<UnifiedSearchBar provider={provider} refreshToken={0} />);
+
+    const searchInput = screen.getByRole("textbox");
+    await user.click(searchInput);
+    expect(await screen.findByRole("listbox")).toBeInTheDocument();
+
+    await user.keyboard("{Escape}");
+    expect(screen.queryByRole("listbox")).not.toBeInTheDocument();
+    const callsBeforeRefresh = fetchResults.mock.calls.length;
+
+    rerender(
+      <SambeeThemeProvider>
+        <UnifiedSearchBar provider={provider} refreshToken={1} />
+      </SambeeThemeProvider>
+    );
+
+    await waitFor(() => {
+      expect(fetchResults).toHaveBeenCalledTimes(callsBeforeRefresh + 1);
+    });
+    expect(searchInput).toHaveFocus();
+    expect(screen.queryByRole("listbox")).not.toBeInTheDocument();
+  });
+
   it("preserves the navigate query when the same mode is reactivated from outside the quick bar", async () => {
     const user = userEvent.setup();
 

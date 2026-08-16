@@ -884,6 +884,35 @@ describe("Browser Component - Interactions", () => {
       });
     });
 
+    it.each([
+      ["a same-tab history change", () => window.dispatchEvent(new Event(RECENT_FILES_CHANGED_EVENT))],
+      ["window focus", () => window.dispatchEvent(new Event("focus"))],
+      ["returning to a visible tab", () => document.dispatchEvent(new Event("visibilitychange"))],
+    ])("does not reopen focused but dismissed File Search after %s", async (_description, triggerRefresh) => {
+      const user = userEvent.setup();
+      Object.defineProperty(document, "visibilityState", { configurable: true, value: "visible" });
+      renderBrowser("/browse/smb/test-server-1");
+
+      const listContainer = await screen.findByTestId("virtual-list");
+      await user.click(listContainer);
+      await user.keyboard("/");
+      const fileSearchInput = await screen.findByPlaceholderText("Search recent and current-directory files");
+      await screen.findByRole("listbox");
+
+      await user.keyboard("{Escape}");
+      expect(fileSearchInput).toHaveFocus();
+      expect(screen.queryByRole("listbox")).not.toBeInTheDocument();
+      const callsBeforeRefresh = vi.mocked(api.searchRecentFiles).mock.calls.length;
+
+      triggerRefresh();
+
+      await waitFor(() => {
+        expect(api.searchRecentFiles).toHaveBeenCalledTimes(callsBeforeRefresh + 1);
+      });
+      expect(fileSearchInput).toHaveFocus();
+      expect(screen.queryByRole("listbox")).not.toBeInTheDocument();
+    });
+
     it("does not reopen dismissed File Search after returning to the browser tab", async () => {
       const user = userEvent.setup();
       Object.defineProperty(document, "visibilityState", { configurable: true, value: "visible" });
