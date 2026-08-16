@@ -18,11 +18,15 @@ def make_release(payload: bytes) -> tuple[dict, list[dict], dict[str, bytes]]:
     signature_payload = b"signature"
     expected_assets = [
         {
-            "name": "Sambee_1.2.3_x64-setup.exe",
+            "name": "Sambee Companion_1.2.3_x64-setup.exe",
             "sha256": hashlib.sha256(payload).hexdigest(),
             "size": len(payload),
         },
-        {"name": "Sambee_1.2.3_x64-setup.exe.sig", "sha256": hashlib.sha256(signature_payload).hexdigest(), "size": len(signature_payload)},
+        {
+            "name": "Sambee Companion_1.2.3_x64-setup.exe.sig",
+            "sha256": hashlib.sha256(signature_payload).hexdigest(),
+            "size": len(signature_payload),
+        },
     ]
     platform_assets = [
         {**expected_assets[0], "roles": ["installer", "updater"]},
@@ -70,8 +74,12 @@ def make_release(payload: bytes) -> tuple[dict, list[dict], dict[str, bytes]]:
         "https://example.test/manifest": release_manifest_bytes,
     }
     assets = [
-        {"name": expected_assets[0]["name"], "size": len(payload), "browser_download_url": "https://example.test/setup"},
-        {"name": expected_assets[1]["name"], "size": len(signature_payload), "browser_download_url": "https://example.test/signature"},
+        {"name": "Sambee.Companion_1.2.3_x64-setup.exe", "size": len(payload), "browser_download_url": "https://example.test/setup"},
+        {
+            "name": "Sambee.Companion_1.2.3_x64-setup.exe.sig",
+            "size": len(signature_payload),
+            "browser_download_url": "https://example.test/signature",
+        },
         {
             "name": MODULE.RELEASE_MANIFEST_ASSET_NAME,
             "size": len(release_manifest_bytes),
@@ -154,14 +162,14 @@ def test_verify_release_integrity_rejects_missing_manifested_release_asset(
     monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
 ) -> None:
     release, assets, urls = make_release(b"installer")
-    assets[:] = [asset for asset in assets if asset["name"] != "Sambee_1.2.3_x64-setup.exe.sig"]
+    assets[:] = [asset for asset in assets if asset["name"] != "Sambee.Companion_1.2.3_x64-setup.exe.sig"]
     monkeypatch.setattr(MODULE, "request_bytes", urls.__getitem__)
 
     with pytest.raises(SystemExit):
         MODULE.verify_release_integrity(release, assets)
     error_output = capsys.readouterr().err
     assert "unexpected or missing assets" in error_output
-    assert "missing: Sambee_1.2.3_x64-setup.exe.sig" in error_output
+    assert "missing: Sambee.Companion_1.2.3_x64-setup.exe.sig" in error_output
 
 
 def test_verify_release_integrity_rejects_release_version_mismatch(

@@ -22,6 +22,7 @@ NON_PACKAGE_ASSET_NAMES = {
     RELEASE_PROVENANCE_NAME,
     COMPLETION_MARKER_NAME,
 }
+UNSAFE_RELEASE_ASSET_CHARACTER = re.compile(r"[^A-Za-z0-9._-]+")
 
 PLATFORM_REQUIREMENTS = {
     "linux-x64": {
@@ -83,6 +84,39 @@ def matching_roles(name: str, platform: str) -> list[str]:
     return roles
 
 
+def normalized_release_asset_name(name: str) -> str:
+    normalized = UNSAFE_RELEASE_ASSET_CHARACTER.sub(".", name).strip(".")
+    if not normalized:
+        fail(f"Companion package asset name cannot be normalized safely: {name}")
+    return normalized
+
+
+def normalize_release_asset_paths(artifact_dir: Path) -> None:
+    package_paths = [
+        path
+        for path in sorted(artifact_dir.rglob("*"))
+        if path.is_file() and path.name not in NON_PACKAGE_ASSET_NAMES
+    ]
+    destinations: dict[Path, Path] = {}
+    for path in package_paths:
+        destination = path.with_name(normalized_release_asset_name(path.name))
+        existing_source = destinations.get(destination)
+        if existing_source is not None and existing_source != path:
+            fail(
+                "Companion package asset names collide after GitHub-safe normalization: "
+                f"{existing_source.name}, {path.name}"
+            )
+        if destination.exists() and destination != path:
+            fail(
+                "Companion package asset name collides with an existing file after "
+                f"GitHub-safe normalization: {path.name}"
+            )
+        destinations[destination] = path
+    for destination, source in destinations.items():
+        if destination != source:
+            source.rename(destination)
+
+
 def create_manifest(
     artifact_dir: Path, platform: str, target: str, output: Path
 ) -> None:
@@ -94,6 +128,7 @@ def create_manifest(
     if not artifact_dir.is_dir():
         fail(f"Artifact directory does not exist: {artifact_dir}")
 
+    normalize_release_asset_paths(artifact_dir)
     assets = []
     for path in sorted(artifact_dir.rglob("*")):
         if not path.is_file() or path.name in NON_PACKAGE_ASSET_NAMES:

@@ -169,6 +169,24 @@ def test_draft_with_completion_marker_and_missing_asset_recovers(
     assert MODULE.resolve_state(CURRENT_RELEASE, IDENTITY, "token") == "recover-finalizer"
 
 
+def test_completion_marker_accepts_github_normalized_asset_name(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    global CURRENT_RELEASE
+    CURRENT_RELEASE = release(draft=True, completion=True, recoverable=True)
+    expected_asset = {"name": "Sambee Companion_1.2.3_x64-setup.exe"}
+    CURRENT_RELEASE["provenance"]["assets"] = [expected_asset]
+    CURRENT_RELEASE["completion"]["expected_assets"] = [expected_asset]
+    CURRENT_RELEASE["completion"]["expected_assets_sha256"] = MODULE.expected_asset_set_digest([expected_asset])
+    provenance_bytes = json.dumps(CURRENT_RELEASE["provenance"], indent=2, sort_keys=True).encode() + b"\n"
+    CURRENT_RELEASE["completion"]["provenance_sha256"] = hashlib.sha256(provenance_bytes).hexdigest()
+    CURRENT_RELEASE["assets"].append({"name": "Sambee.Companion_1.2.3_x64-setup.exe"})
+    monkeypatch.setattr(MODULE, "request_asset_json", asset_json)
+    monkeypatch.setattr(MODULE, "request_asset_bytes", asset_bytes)
+
+    assert MODULE.resolve_state(CURRENT_RELEASE, IDENTITY, "token") == "complete"
+
+
 def test_completion_marker_rejects_unexpected_release_asset(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:

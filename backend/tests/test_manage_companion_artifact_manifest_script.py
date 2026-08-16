@@ -23,8 +23,8 @@ def make_linux_artifact(directory: Path) -> Path:
 
 def make_windows_artifact(directory: Path) -> Path:
     directory.mkdir()
-    (directory / "Sambee_1.2.3_x64-setup.exe").write_bytes(b"installer")
-    (directory / "Sambee_1.2.3_x64-setup.exe.sig").write_bytes(b"signature")
+    (directory / "Sambee Companion_1.2.3_x64-setup.exe").write_bytes(b"installer")
+    (directory / "Sambee Companion_1.2.3_x64-setup.exe.sig").write_bytes(b"signature")
     return directory
 
 
@@ -70,6 +70,38 @@ def test_verify_ignores_release_control_metadata(tmp_path: Path) -> None:
     (artifact_dir / MODULE.RELEASE_PROVENANCE_NAME).write_text("{}", encoding="utf-8")
 
     MODULE.verify_manifests(tmp_path, tmp_path / MODULE.RELEASE_MANIFEST_NAME)
+
+
+def test_create_normalizes_package_names_before_manifesting(tmp_path: Path) -> None:
+    artifact_dir = make_windows_artifact(tmp_path / "windows")
+    artifact_manifest = artifact_dir / MODULE.ARTIFACT_MANIFEST_NAME
+
+    MODULE.create_manifest(
+        artifact_dir,
+        "windows-x64",
+        "x86_64-pc-windows-msvc",
+        artifact_manifest,
+    )
+
+    payload = json.loads(artifact_manifest.read_text(encoding="utf-8"))
+    assert {asset["name"] for asset in payload["assets"]} == {
+        "Sambee.Companion_1.2.3_x64-setup.exe",
+        "Sambee.Companion_1.2.3_x64-setup.exe.sig",
+    }
+    assert not (artifact_dir / "Sambee Companion_1.2.3_x64-setup.exe").exists()
+
+
+def test_create_rejects_names_that_collide_after_normalization(tmp_path: Path) -> None:
+    artifact_dir = make_windows_artifact(tmp_path / "windows")
+    (artifact_dir / "Sambee.Companion_1.2.3_x64-setup.exe").write_bytes(b"collision")
+
+    with pytest.raises(SystemExit, match="1"):
+        MODULE.create_manifest(
+            artifact_dir,
+            "windows-x64",
+            "x86_64-pc-windows-msvc",
+            artifact_dir / MODULE.ARTIFACT_MANIFEST_NAME,
+        )
 
 
 def test_verify_aggregates_multiple_platforms_with_a_stable_digest(tmp_path: Path) -> None:

@@ -392,6 +392,8 @@ def test_companion_finalizer_recovers_exact_artifacts_and_uploads_completion_las
     upload_step = next(step for step in steps if step.get("name") == "Upload verified release assets")
     run = upload_step["run"]
     assert "upload_or_verify" in run
+    assert "remote_asset_name" in run
+    assert "[^A-Za-z0-9._-]+" in run
     assert run.index("companion-release-manifest.json") < run.index("companion-release-provenance.json")
     assert run.rindex("companion-completion-marker.json") > run.index("while IFS= read")
 

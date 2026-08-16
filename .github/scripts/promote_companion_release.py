@@ -46,6 +46,7 @@ SAMBEE_DOWNLOAD_PATTERNS = {
 PROVENANCE_ASSET_NAME = "companion-release-provenance.json"
 COMPLETION_MARKER_ASSET_NAME = "companion-completion-marker.json"
 RELEASE_MANIFEST_ASSET_NAME = "companion-release-manifest.json"
+UNSAFE_RELEASE_ASSET_CHARACTER = re.compile(r"[^A-Za-z0-9._-]+")
 PROMOTED_RELEASES_SCHEMA_VERSION = 1
 PROMOTED_RELEASES_FILE = Path("companion") / "promoted.json"
 PROMOTION_FEED_SOURCES = (
@@ -84,6 +85,10 @@ def canonical_manifest_digest(payload: dict) -> str:
             "utf-8"
         )
     ).hexdigest()
+
+
+def normalized_release_asset_name(name: str) -> str:
+    return UNSAFE_RELEASE_ASSET_CHARACTER.sub(".", name).strip(".")
 
 
 def fail(message: str) -> NoReturn:
@@ -292,6 +297,7 @@ def verify_release_integrity(
         fail("Companion release manifest platform matrix does not match provenance")
 
     expected_by_name: dict[str, dict] = {}
+    expected_by_normalized_name: dict[str, dict] = {}
     for expected_asset in expected_assets:
         if not isinstance(expected_asset, dict):
             fail("Companion release provenance has an invalid asset record")
@@ -306,13 +312,29 @@ def verify_release_integrity(
             fail("Companion release provenance has an incomplete asset record")
         if name in expected_by_name:
             fail(f"Companion release provenance lists duplicate asset {name}")
+        normalized_name = normalized_release_asset_name(name)
+        if normalized_name in expected_by_normalized_name:
+            fail(
+                "Companion release provenance contains colliding asset names after "
+                "GitHub normalization"
+            )
         expected_by_name[name] = expected_asset
+        expected_by_normalized_name[normalized_name] = expected_asset
 
-    allowed_names = set(expected_by_name) | {
+    actual_by_normalized_name: dict[str, dict] = {}
+    for asset in assets:
+        actual_name = str(asset.get("name") or "")
+        normalized_name = normalized_release_asset_name(actual_name)
+        if normalized_name in actual_by_normalized_name:
+            fail(
+                "Companion release contains colliding asset names after GitHub normalization"
+            )
+        actual_by_normalized_name[normalized_name] = asset
+    allowed_names = set(expected_by_normalized_name) | {
         PROVENANCE_ASSET_NAME,
         COMPLETION_MARKER_ASSET_NAME,
     }
-    actual_names = {str(asset.get("name") or "") for asset in assets}
+    actual_names = set(actual_by_normalized_name)
     if actual_names != allowed_names:
         missing_names = sorted(allowed_names - actual_names)
         unexpected_names = sorted(actual_names - allowed_names)
@@ -326,7 +348,8 @@ def verify_release_integrity(
             f"({'; '.join(details)})"
         )
     for name, expected_asset in expected_by_name.items():
-        asset = asset_by_name(assets, name)
+        normalized_name = normalized_release_asset_name(name)
+        asset = actual_by_normalized_name[normalized_name]
         content = request_asset_bytes(asset, token)
         if (
             asset.get("size") != expected_asset["size"]

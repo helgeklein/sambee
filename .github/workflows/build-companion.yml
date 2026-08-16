@@ -609,17 +609,19 @@ jobs:
             local asset_path="$1"
             local asset_name
             asset_name="$(basename "$asset_path")"
+            local remote_asset_name
+            remote_asset_name="$(printf '%s' "$asset_name" | sed -E 's/[^A-Za-z0-9._-]+/./g; s/^\.+//; s/\.+$//')"
             local remote_asset
-            remote_asset="$(gh release view "$RELEASE_TAG" --repo "$RELEASE_REPOSITORY" --json assets --jq ".assets[] | select(.name == \"$asset_name\") | .name" || true)"
+            remote_asset="$(gh release view "$RELEASE_TAG" --repo "$RELEASE_REPOSITORY" --json assets --jq ".assets[] | select(.name == \"$remote_asset_name\") | .name" || true)"
             if [[ -z "$remote_asset" ]]; then
               gh release upload "$RELEASE_TAG" "$asset_path" --repo "$RELEASE_REPOSITORY"
               return
             fi
             local existing_dir="$RUNNER_TEMP/existing-release-assets"
             mkdir -p "$existing_dir"
-            rm -f "$existing_dir/$asset_name"
-            gh release download "$RELEASE_TAG" --repo "$RELEASE_REPOSITORY" --pattern "$asset_name" --dir "$existing_dir"
-            if ! cmp --silent "$asset_path" "$existing_dir/$asset_name"; then
+            rm -f "$existing_dir/$remote_asset_name"
+            gh release download "$RELEASE_TAG" --repo "$RELEASE_REPOSITORY" --pattern "$remote_asset_name" --dir "$existing_dir"
+            if ! cmp --silent "$asset_path" "$existing_dir/$remote_asset_name"; then
               echo "Existing release asset $asset_name differs from the retained build artifact; increment Z and rebuild." >&2
               exit 1
             fi

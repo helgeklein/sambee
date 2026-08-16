@@ -9,6 +9,7 @@ import binascii
 import hashlib
 import json
 import os
+import re
 import sys
 import urllib.error
 import urllib.parse
@@ -21,6 +22,7 @@ PROVENANCE_ASSET = "companion-release-provenance.json"
 COMPLETION_ASSET = "companion-completion-marker.json"
 RECOVERY_PROVENANCE_PREFIX = "<!-- sambee-companion-recovery-v1:"
 RECOVERY_PROVENANCE_SUFFIX = " -->"
+UNSAFE_RELEASE_ASSET_CHARACTER = re.compile(r"[^A-Za-z0-9._-]+")
 NEW_CANDIDATE_INSTRUCTIONS = (
     "Increment the third build-sequence component in VERSION, run ./scripts/sync-version, "
     "commit the synchronized changes on main, and rerun."
@@ -162,6 +164,17 @@ def expected_asset_set_digest(expected_assets: list[dict[str, Any]]) -> str:
     return hashlib.sha256(encoded).hexdigest()
 
 
+def normalized_release_asset_name(name: str) -> str:
+    return UNSAFE_RELEASE_ASSET_CHARACTER.sub(".", name).strip(".")
+
+
+def normalized_asset_name_set(names: list[str], description: str) -> set[str]:
+    normalized_names = {normalized_release_asset_name(name) for name in names}
+    if len(normalized_names) != len(names):
+        fail(f"{description} contains colliding asset names after GitHub normalization")
+    return normalized_names
+
+
 @dataclass(frozen=True)
 class ReleaseIdentity:
     version: str
@@ -262,24 +275,30 @@ def resolve_state(
             expected_assets
         ):
             fail("Existing Companion completion marker has an invalid asset-set digest")
-        expected_names = set()
+        expected_names = []
         for expected_asset in expected_assets:
             if not isinstance(expected_asset, dict) or not isinstance(
                 expected_asset.get("name"), str
             ):
                 fail("Existing Companion completion marker has an invalid asset record")
-            expected_names.add(expected_asset["name"])
+            expected_names.append(expected_asset["name"])
         release_assets = release.get("assets")
         if not isinstance(release_assets, list):
             fail("Existing Companion release has an invalid asset list")
-        actual_names = {
+        actual_names = [
             asset.get("name")
             for asset in release_assets
             if isinstance(asset, dict) and isinstance(asset.get("name"), str)
-        }
-        required_names = expected_names | {PROVENANCE_ASSET, COMPLETION_ASSET}
-        unexpected_names = actual_names - required_names
-        missing_names = required_names - actual_names
+        ]
+        required_names = normalized_asset_name_set(
+            expected_names + [PROVENANCE_ASSET, COMPLETION_ASSET],
+            "Existing Companion completion marker",
+        )
+        actual_names_set = normalized_asset_name_set(
+            actual_names, "Existing Companion release"
+        )
+        unexpected_names = actual_names_set - required_names
+        missing_names = required_names - actual_names_set
         if unexpected_names:
             fail_new_candidate(
                 "Existing Companion release contains unexpected assets: "
