@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-readonly manifest_path="${1:-.github/tools/trivy/Dockerfile}"
+readonly manifest_path="${1:-tools/trivy/Dockerfile}"
 
 if [[ ! -f "$manifest_path" ]]; then
   echo "Trivy image manifest not found: $manifest_path" >&2

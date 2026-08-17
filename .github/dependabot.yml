@@ -191,7 +191,7 @@ updates:
           - "*"
 
   - package-ecosystem: docker
-    directory: "/.github/tools/trivy"
+    directory: "/tools/trivy"
     commit-message:
       prefix: "deps(ci)"
     schedule:
