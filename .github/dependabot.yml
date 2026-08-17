@@ -1,6 +1,8 @@
 version: 2
 multi-ecosystem-groups:
   companion-tauri:
+    commit-message:
+      prefix: "deps(companion)"
     schedule:
       interval: weekly
       day: monday
@@ -125,9 +127,6 @@ updates:
 
   - package-ecosystem: npm
     directory: "/companion"
-    commit-message:
-      prefix: "deps(npm)"
-      prefix-development: "deps-dev(npm)"
     schedule:
       interval: weekly
       day: monday
@@ -148,8 +147,6 @@ updates:
 
   - package-ecosystem: cargo
     directory: "/companion/src-tauri"
-    commit-message:
-      prefix: "deps(cargo)"
     schedule:
       interval: weekly
       day: monday
