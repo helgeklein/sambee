@@ -6,8 +6,8 @@ black==26.5.1
 ruff==0.16.1
 mypy==2.3.0
 httpx==0.28.1
-httpx2==2.9.1
+httpx2==2.10.0
 faker==40.36.0
 ipython==9.16.1
 rich==15.0.0
-types-Authlib==1.7.2.20260807
+types-Authlib==1.7.2.20260814
