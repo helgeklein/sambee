@@ -17,3 +17,7 @@ File search supercedes file filtering mode which was removed.
 The settings gained a new category page:
 
 - New admin **File Search** settings page
+
+## PDF Viewer
+
+- Swipe to move between pages on mobile

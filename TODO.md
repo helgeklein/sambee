@@ -33,7 +33,10 @@
 
 ## Theme
 
-- import/export, e.g., as JSON
+- Visual theme designer
+   - changes should be reflected in the UI instantly
+   - import/export
+   - marketplace to share and rate themes, accessible from the product's UI
 
 ## Image viewer
 
@@ -44,6 +47,8 @@
 - Additional formats
    - DCM (medical image format)
 
-## PDF viewer
+## Storage
 
-- On mobile, allow swiping to move from page to page. Currently, only the arrows in the top bar can be used for browsing back/forward.
+- Plugin system to support additional backends like S3 or SFTP
+   - Every backend must use the new system.
+   - This means we need to move the existing storage support (SMB and local drives) to the new system.

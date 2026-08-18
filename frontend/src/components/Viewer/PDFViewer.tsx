@@ -33,6 +33,8 @@ pdfjs.GlobalWorkerOptions.workerSrc = `//unpkg.com/pdfjs-dist@${pdfjs.version}/b
 
 type ZoomMode = "fit-page" | "fit-width" | number;
 
+const SWIPE_MIN_DISTANCE_PX = 48;
+
 /**
  * Match location within extracted PDF text.
  */
@@ -46,6 +48,12 @@ interface PdfInternalLinkTarget {
   dest?: unknown;
   pageIndex?: number;
   pageNumber?: number;
+}
+
+interface PointerStart {
+  pointerId: number;
+  clientX: number;
+  clientY: number;
 }
 
 /**
@@ -73,6 +81,7 @@ const PDFViewer: React.FC<ViewerComponentProps> = ({ connectionId, path, onClose
   const [rotation, setRotation] = useState<number>(0); // 0, 90, 180, 270
   const containerRef = useRef<HTMLDivElement>(null);
   const dialogRef = useRef<HTMLDivElement>(null);
+  const pointerStartRef = useRef<PointerStart | null>(null);
   const numPagesRef = useRef(0);
   const searchHighlightsRef = useRef<DomTextSearchMatch[]>([]);
   const currentMatchRef = useRef(0);
@@ -93,6 +102,7 @@ const PDFViewer: React.FC<ViewerComponentProps> = ({ connectionId, path, onClose
   const muiTheme = useTheme();
   const searchHighlightColors = useMemo(() => getSearchHighlightColors(muiTheme, currentTheme), [currentTheme, muiTheme]);
   const isMobile = useMediaQuery(muiTheme.breakpoints.down("sm"));
+  const swipeNavigationEnabled = isMobile && scale === "fit-page" && rotation % 180 === 0;
   const shareEnabled = isMobile && supportsNativeShare();
   const { viewerBg, toolbarBg, toolbarText } = getViewerColors(currentTheme, "pdf");
   const readOnlyIndicator = isReadOnly ? (
@@ -346,6 +356,46 @@ const PDFViewer: React.FC<ViewerComponentProps> = ({ connectionId, path, onClose
       setCurrentPage(page);
     }
   }, []);
+
+  const handlePointerDown = useCallback(
+    (event: React.PointerEvent<HTMLDivElement>) => {
+      if (!swipeNavigationEnabled || event.pointerType !== "touch" || !event.isPrimary) {
+        return;
+      }
+
+      pointerStartRef.current = {
+        pointerId: event.pointerId,
+        clientX: event.clientX,
+        clientY: event.clientY,
+      };
+    },
+    [swipeNavigationEnabled]
+  );
+
+  const clearPointerStart = useCallback(() => {
+    pointerStartRef.current = null;
+  }, []);
+
+  const handlePointerUp = useCallback(
+    (event: React.PointerEvent<HTMLDivElement>) => {
+      const pointerStart = pointerStartRef.current;
+      clearPointerStart();
+
+      if (!swipeNavigationEnabled || !pointerStart || event.pointerId !== pointerStart.pointerId) {
+        return;
+      }
+
+      const horizontalDistance = event.clientX - pointerStart.clientX;
+      const verticalDistance = event.clientY - pointerStart.clientY;
+
+      if (Math.abs(horizontalDistance) < SWIPE_MIN_DISTANCE_PX || Math.abs(horizontalDistance) <= Math.abs(verticalDistance)) {
+        return;
+      }
+
+      handlePageChange(currentPage + (horizontalDistance < 0 ? 1 : -1));
+    },
+    [clearPointerStart, currentPage, handlePageChange, swipeNavigationEnabled]
+  );
 
   const handleInternalLinkNavigation = useCallback(
     ({ dest, pageIndex, pageNumber }: PdfInternalLinkTarget) => {
@@ -915,12 +965,16 @@ const PDFViewer: React.FC<ViewerComponentProps> = ({ connectionId, path, onClose
           ref={containerRef}
           data-testid="pdf-viewer-content"
           tabIndex={0}
+          onPointerDown={handlePointerDown}
+          onPointerUp={handlePointerUp}
+          onPointerCancel={clearPointerStart}
           sx={{
             flex: 1,
             display: "flex",
             alignItems: "center",
             justifyContent: "center",
             overflow: "auto",
+            touchAction: swipeNavigationEnabled ? "pan-y" : "auto",
             minHeight: 0,
             backgroundColor: viewerBg,
             "&:focus": {
