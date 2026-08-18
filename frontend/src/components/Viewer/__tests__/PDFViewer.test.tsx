@@ -557,6 +557,89 @@ describe("PDFViewer", () => {
       });
     });
 
+    it("navigates between pages with horizontal mobile swipes", async () => {
+      mockMatchMedia(true);
+      renderPDFViewer();
+
+      await waitFor(() => {
+        expect(screen.getByTestId("pdf-page")).toHaveAttribute("data-page", "1");
+      });
+
+      const content = screen.getByTestId("pdf-viewer-content");
+      fireEvent.pointerDown(content, { pointerId: 1, pointerType: "touch", isPrimary: true, clientX: 300, clientY: 200 });
+      fireEvent.pointerUp(content, { pointerId: 1, pointerType: "touch", isPrimary: true, clientX: 200, clientY: 200 });
+
+      await waitFor(() => {
+        expect(screen.getByTestId("pdf-page")).toHaveAttribute("data-page", "2");
+      });
+
+      fireEvent.pointerDown(content, { pointerId: 2, pointerType: "touch", isPrimary: true, clientX: 200, clientY: 200 });
+      fireEvent.pointerUp(content, { pointerId: 2, pointerType: "touch", isPrimary: true, clientX: 300, clientY: 200 });
+
+      await waitFor(() => {
+        expect(screen.getByTestId("pdf-page")).toHaveAttribute("data-page", "1");
+      });
+    });
+
+    it("ignores short, vertical, and non-touch pointer gestures", async () => {
+      mockMatchMedia(true);
+      renderPDFViewer();
+
+      await waitFor(() => {
+        expect(screen.getByTestId("pdf-page")).toHaveAttribute("data-page", "1");
+      });
+
+      const content = screen.getByTestId("pdf-viewer-content");
+      fireEvent.pointerDown(content, { pointerId: 1, pointerType: "touch", isPrimary: true, clientX: 300, clientY: 200 });
+      fireEvent.pointerUp(content, { pointerId: 1, pointerType: "touch", isPrimary: true, clientX: 260, clientY: 200 });
+
+      fireEvent.pointerDown(content, { pointerId: 2, pointerType: "touch", isPrimary: true, clientX: 300, clientY: 200 });
+      fireEvent.pointerUp(content, { pointerId: 2, pointerType: "touch", isPrimary: true, clientX: 250, clientY: 320 });
+
+      fireEvent.pointerDown(content, { pointerId: 3, pointerType: "mouse", isPrimary: true, clientX: 300, clientY: 200 });
+      fireEvent.pointerUp(content, { pointerId: 3, pointerType: "mouse", isPrimary: true, clientX: 200, clientY: 200 });
+
+      expect(screen.getByTestId("pdf-page")).toHaveAttribute("data-page", "1");
+    });
+
+    it("does not navigate beyond page boundaries with mobile swipes", async () => {
+      mockMatchMedia(true);
+      renderPDFViewer();
+
+      await waitFor(() => {
+        expect(screen.getByTestId("pdf-page")).toHaveAttribute("data-page", "1");
+      });
+
+      const content = screen.getByTestId("pdf-viewer-content");
+      fireEvent.pointerDown(content, { pointerId: 1, pointerType: "touch", isPrimary: true, clientX: 200, clientY: 200 });
+      fireEvent.pointerUp(content, { pointerId: 1, pointerType: "touch", isPrimary: true, clientX: 300, clientY: 200 });
+
+      expect(screen.getByTestId("pdf-page")).toHaveAttribute("data-page", "1");
+    });
+
+    it("does not navigate pages with swipes after zooming", async () => {
+      mockMatchMedia(true);
+      renderPDFViewer();
+
+      await waitFor(() => {
+        expect(screen.getByTestId("pdf-page")).toHaveAttribute("data-page", "1");
+      });
+
+      const initialScale = screen.getByTestId("pdf-page").getAttribute("data-scale");
+      fireEvent.keyDown(document, { key: "+" });
+
+      await waitFor(() => {
+        expect(screen.getByTestId("pdf-page")).not.toHaveAttribute("data-scale", initialScale);
+      });
+
+      const content = screen.getByTestId("pdf-viewer-content");
+      expect(content).toHaveStyle({ touchAction: "auto" });
+      fireEvent.pointerDown(content, { pointerId: 1, pointerType: "touch", isPrimary: true, clientX: 300, clientY: 200 });
+      fireEvent.pointerUp(content, { pointerId: 1, pointerType: "touch", isPrimary: true, clientX: 200, clientY: 200 });
+
+      expect(screen.getByTestId("pdf-page")).toHaveAttribute("data-page", "1");
+    });
+
     it("respects page boundaries (1 to numPages)", async () => {
       renderPDFViewer();
 
