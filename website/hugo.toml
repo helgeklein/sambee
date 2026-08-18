@@ -11,6 +11,8 @@ pagerSize = 10
 [build]
   [build.buildStats]
     enable = true
+    disableIDs = true
+    disableTags = true
 
 [outputs]
 home = ["HTML"]
