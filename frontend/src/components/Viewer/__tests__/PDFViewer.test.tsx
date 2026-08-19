@@ -19,6 +19,7 @@ vi.mock("react-pdf", () => ({
     onPassword,
     file,
     onItemClick,
+    options,
   }: {
     children: React.ReactNode;
     onLoadSuccess?: (pdf: {
@@ -39,6 +40,13 @@ vi.mock("react-pdf", () => ({
     onPassword?: (callback: (password: string | null) => void) => void;
     file: string;
     onItemClick?: (args: { dest?: unknown; pageIndex?: number; pageNumber?: number }) => void;
+    options?: {
+      cMapPacked?: boolean;
+      cMapUrl?: string;
+      iccUrl?: string;
+      standardFontDataUrl?: string;
+      wasmUrl?: string;
+    };
   }) => {
     const loadedFileRef = useRef<string | null>(null);
 
@@ -128,7 +136,15 @@ vi.mock("react-pdf", () => ({
     }, [file, getPageItems, onLoadError, onLoadSuccess, onPassword]);
 
     return (
-      <div data-testid="pdf-document" data-file={file}>
+      <div
+        data-cmap-packed={options?.cMapPacked}
+        data-cmap-url={options?.cMapUrl}
+        data-icc-url={options?.iccUrl}
+        data-standard-font-url={options?.standardFontDataUrl}
+        data-testid="pdf-document"
+        data-wasm-url={options?.wasmUrl}
+        data-file={file}
+      >
         <button
           type="button"
           data-testid="pdf-internal-link"
@@ -392,6 +408,18 @@ describe("PDFViewer", () => {
       await waitFor(() => {
         expect(screen.getByTestId("pdf-document")).toBeInTheDocument();
       });
+    });
+
+    it("configures local PDF.js optional resource assets", async () => {
+      renderPDFViewer();
+
+      const documentElement = await screen.findByTestId("pdf-document");
+
+      expect(documentElement).toHaveAttribute("data-cmap-packed", "true");
+      expect(documentElement).toHaveAttribute("data-cmap-url", "/pdfjs/cmaps/");
+      expect(documentElement).toHaveAttribute("data-icc-url", "/pdfjs/iccs/");
+      expect(documentElement).toHaveAttribute("data-standard-font-url", "/pdfjs/standard_fonts/");
+      expect(documentElement).toHaveAttribute("data-wasm-url", "/pdfjs/wasm/");
     });
 
     it("renders error state when fetch fails", async () => {

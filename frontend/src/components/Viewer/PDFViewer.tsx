@@ -1,6 +1,7 @@
 import { Alert, Box, Button, CircularProgress, Dialog, TextField, useMediaQuery, useTheme } from "@mui/material";
 import { animated, useSpring } from "@react-spring/web";
 import { useDrag } from "@use-gesture/react";
+import pdfWorkerUrl from "pdfjs-dist/build/pdf.worker.min.mjs?url";
 import { memo, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { Document, Page, pdfjs } from "react-pdf";
@@ -30,8 +31,16 @@ import { createShareFile, shareNativeContent, supportsNativeShare } from "../../
 import { KeyboardShortcutsHelp } from "../KeyboardShortcutsHelp";
 import { ViewerControls, ViewerFilenameBadge } from "./ViewerControls";
 
-// Configure PDF.js worker - use CDN to avoid version mismatch
-pdfjs.GlobalWorkerOptions.workerSrc = `//unpkg.com/pdfjs-dist@${pdfjs.version}/build/pdf.worker.min.mjs`;
+const PDFJS_ASSET_BASE_URL = `${import.meta.env.BASE_URL}pdfjs/`;
+pdfjs.GlobalWorkerOptions.workerSrc = pdfWorkerUrl;
+
+const PDF_DOCUMENT_OPTIONS = {
+  cMapPacked: true,
+  cMapUrl: `${PDFJS_ASSET_BASE_URL}cmaps/`,
+  iccUrl: `${PDFJS_ASSET_BASE_URL}iccs/`,
+  standardFontDataUrl: `${PDFJS_ASSET_BASE_URL}standard_fonts/`,
+  wasmUrl: `${PDFJS_ASSET_BASE_URL}wasm/`,
+};
 
 type ZoomMode = "fit-page" | "fit-width" | number;
 type PdfSourceVariant = "original" | "normalized";
@@ -1277,6 +1286,7 @@ const PDFViewer: React.FC<ViewerComponentProps> = ({ connectionId, path, onClose
             >
               <Document
                 file={pdfUrl}
+                options={PDF_DOCUMENT_OPTIONS}
                 onItemClick={handleInternalLinkNavigation}
                 onLoadSuccess={handleDocumentLoadSuccess}
                 onLoadError={handleDocumentLoadError}
