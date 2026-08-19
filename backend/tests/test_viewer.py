@@ -15,6 +15,7 @@ from unittest.mock import AsyncMock, patch
 import pytest
 
 from app.models.file import FileInfo, FileType
+from app.services.pdf_inspector import PDFScreenAnalysis
 
 
 class AsyncIteratorMock:
@@ -243,31 +244,114 @@ class TestViewerFile:
         assert response.headers["x-pdf-derivative-cache"] == "miss"
         cache_get_or_create.assert_called_once()
 
-        def test_view_pdf_normalized_cache_hit_does_not_read_source(self, client, auth_headers_user, test_connection, mock_pdf_file):
-            """A cache hit must avoid a costly SMB content read."""
-            derivative_bytes = b"%PDF-1.4\ncached PDF bytes\n%%EOF"
+    def test_view_pdf_normalized_cache_hit_does_not_read_source(self, client, auth_headers_user, test_connection, mock_pdf_file):
+        """A cache hit must avoid a costly SMB content read."""
+        derivative_bytes = b"%PDF-1.4\ncached PDF bytes\n%%EOF"
 
-            with (
-                patch("app.api.viewer.SMBBackend") as mock_backend,
-                patch("app.api.viewer.pdf_derivative_cache.get", return_value=derivative_bytes) as cache_get,
-            ):
-                backend_instance = AsyncMock()
-                backend_instance.get_file_info.return_value = mock_pdf_file
-                backend_instance.read_file = lambda path, **kwargs: (_ for _ in ()).throw(AssertionError("source must not be read"))
-                backend_instance.connect.return_value = None
-                backend_instance.disconnect.return_value = None
-                mock_backend.return_value = backend_instance
+        with (
+            patch("app.api.viewer.SMBBackend") as mock_backend,
+            patch("app.api.viewer.pdf_derivative_cache.get", return_value=derivative_bytes) as cache_get,
+        ):
+            backend_instance = AsyncMock()
+            backend_instance.get_file_info.return_value = mock_pdf_file
+            backend_instance.read_file = lambda path, **kwargs: (_ for _ in ()).throw(AssertionError("source must not be read"))
+            backend_instance.connect.return_value = None
+            backend_instance.disconnect.return_value = None
+            mock_backend.return_value = backend_instance
 
-                response = client.get(
-                    f"/api/viewer/{test_connection.id}/file",
-                    headers=auth_headers_user,
-                    params={"path": "/document.pdf", "pdf_variant": "normalized"},
-                )
+            response = client.get(
+                f"/api/viewer/{test_connection.id}/file",
+                headers=auth_headers_user,
+                params={"path": "/document.pdf", "pdf_variant": "normalized"},
+            )
 
-            assert response.status_code == 200
-            assert response.content == derivative_bytes
-            assert response.headers["x-pdf-derivative-cache"] == "hit"
-            cache_get.assert_called_once()
+        assert response.status_code == 200
+        assert response.content == derivative_bytes
+        assert response.headers["x-pdf-derivative-cache"] == "hit"
+        cache_get.assert_called_once()
+
+    def test_view_pdf_selects_screen_derivative_when_enabled_and_oversized(self, client, auth_headers_user, test_connection, mock_pdf_file):
+        source_bytes = b"%PDF-1.4\nsource PDF bytes\n%%EOF"
+        derivative_bytes = b"%PDF-1.4\nnormalized PDF bytes\n%%EOF"
+        from app.api.viewer import get_integer_setting_value as actual_setting_value
+        from app.core.system_setting_definitions import SystemSettingKey
+
+        def setting_value(key):
+            if key == SystemSettingKey.PDF_SCREEN_DERIVATIVE_ENABLED:
+                return 1
+            return actual_setting_value(key)
+
+        with (
+            patch("app.api.viewer.SMBBackend") as mock_backend,
+            patch("app.api.viewer.get_integer_setting_value", side_effect=setting_value),
+            patch("app.api.viewer.pdf_derivative_cache.get", return_value=None),
+            patch("app.api.viewer.pdf_derivative_cache.get_or_create", return_value=(derivative_bytes, False)) as cache_get_or_create,
+            patch(
+                "app.api.viewer.analyze_pdf_for_screen",
+                return_value=PDFScreenAnalysis(True, 100_000_000, 10_000_000, 600),
+            ),
+        ):
+            backend_instance = AsyncMock()
+            backend_instance.get_file_info.return_value = mock_pdf_file
+            backend_instance.read_file = lambda path, **kwargs: AsyncIteratorMock([source_bytes])
+            backend_instance.connect.return_value = None
+            backend_instance.disconnect.return_value = None
+            mock_backend.return_value = backend_instance
+
+            response = client.get(
+                f"/api/viewer/{test_connection.id}/file",
+                headers=auth_headers_user,
+                params={"path": "/document.pdf", "pdf_variant": "normalized", "screen_width": 5120, "screen_height": 2880},
+            )
+
+        assert response.status_code == 200
+        assert response.headers["x-pdf-variant"] == "screen-5120x2880-z200"
+        assert cache_get_or_create.call_args.kwargs["variant"] == "screen-5120x2880-z200"
+
+    def test_view_pdf_screen_policy_does_not_reuse_normalized_cache_for_oversized_document(
+        self, client, auth_headers_user, test_connection, mock_pdf_file
+    ):
+        """An oversized PDF must select screen even if a normalized cache entry exists."""
+        source_bytes = b"%PDF-1.4\nsource PDF bytes\n%%EOF"
+        derivative_bytes = b"%PDF-1.4\nscreen PDF bytes\n%%EOF"
+        from app.api.viewer import get_integer_setting_value as actual_setting_value
+        from app.core.system_setting_definitions import SystemSettingKey
+
+        def setting_value(key):
+            if key == SystemSettingKey.PDF_SCREEN_DERIVATIVE_ENABLED:
+                return 1
+            return actual_setting_value(key)
+
+        def cached_derivative(*, variant, **_kwargs):
+            return None if variant.startswith("screen-") else b"%PDF-1.4\nnormalized cache\n%%EOF"
+
+        with (
+            patch("app.api.viewer.SMBBackend") as mock_backend,
+            patch("app.api.viewer.get_integer_setting_value", side_effect=setting_value),
+            patch("app.api.viewer.pdf_derivative_cache.get", side_effect=cached_derivative) as cache_get,
+            patch("app.api.viewer.pdf_derivative_cache.get_or_create", return_value=(derivative_bytes, False)) as cache_get_or_create,
+            patch(
+                "app.api.viewer.analyze_pdf_for_screen",
+                return_value=PDFScreenAnalysis(True, 100_000_000, 10_000_000, 600),
+            ),
+        ):
+            backend_instance = AsyncMock()
+            backend_instance.get_file_info.return_value = mock_pdf_file
+            backend_instance.read_file = lambda path, **kwargs: AsyncIteratorMock([source_bytes])
+            backend_instance.connect.return_value = None
+            backend_instance.disconnect.return_value = None
+            mock_backend.return_value = backend_instance
+
+            response = client.get(
+                f"/api/viewer/{test_connection.id}/file",
+                headers=auth_headers_user,
+                params={"path": "/document.pdf", "pdf_variant": "normalized", "screen_width": 5120, "screen_height": 2880},
+            )
+
+        assert response.status_code == 200
+        assert response.headers["x-pdf-variant"] == "screen-5120x2880-z200"
+        assert cache_get.call_args.kwargs["variant"] == "screen-5120x2880-z200"
+        assert cache_get_or_create.call_args.kwargs["variant"] == "screen-5120x2880-z200"
 
     def test_view_file_without_auth(self, client, test_connection):
         """Test that viewing requires authentication."""

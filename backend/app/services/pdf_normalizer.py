@@ -33,13 +33,15 @@ from pathlib import Path
 from threading import Condition
 from typing import Callable, Optional, TypeVar
 
+from app.services.pdf_inspector import is_structurally_valid_pdf
+
 logger = logging.getLogger(__name__)
 
 
 # Check for Ghostscript availability
 GHOSTSCRIPT_PATH: Optional[str] = shutil.which("gs") or shutil.which("ghostscript")
 GHOSTSCRIPT_AVAILABLE = GHOSTSCRIPT_PATH is not None
-NORMALIZER_CONFIG_VERSION = "2"
+NORMALIZER_CONFIG_VERSION = "3"
 PDF_HEADER = b"%PDF"
 PDF_TRAILER = b"%%EOF"
 PDF_TRAILER_SEARCH_BYTES = 1024
@@ -70,17 +72,30 @@ class PDFNormalizationQueue:
 
     def __init__(self) -> None:
         self._active = 0
+        self._waiting = 0
         self._condition = Condition()
 
     def run(self, *, maximum_concurrent: int, wait_seconds: int, operation: Callable[[], ResultType]) -> ResultType:
         deadline = time.monotonic() + wait_seconds
+        wait_started_at = time.monotonic()
         with self._condition:
+            queue_depth = self._active + self._waiting
             while self._active >= maximum_concurrent:
                 remaining_seconds = deadline - time.monotonic()
                 if remaining_seconds <= 0:
                     raise PDFNormalizationError("PDF compatibility conversion queue is full", code="queue_saturated")
-                self._condition.wait(timeout=remaining_seconds)
+                self._waiting += 1
+                try:
+                    self._condition.wait(timeout=remaining_seconds)
+                finally:
+                    self._waiting -= 1
             self._active += 1
+        logger.info(
+            "pdf_derivative outcome=queue_acquired queue_depth=%d queue_wait_ms=%.0f active=%d",
+            queue_depth,
+            (time.monotonic() - wait_started_at) * 1000,
+            self._active,
+        )
 
         try:
             return operation()
@@ -110,24 +125,6 @@ def get_ghostscript_version() -> str:
     except (OSError, subprocess.SubprocessError):
         return "unknown"
     return completed.stdout.strip() or "unknown"
-
-
-def _is_structurally_valid_pdf(path: Path, timeout_seconds: int) -> bool:
-    """Use Ghostscript's parser to reject marker-valid but malformed output."""
-
-    if not GHOSTSCRIPT_PATH:
-        return False
-    try:
-        completed = subprocess.run(
-            [GHOSTSCRIPT_PATH, "-dSAFER", "-dBATCH", "-dNOPAUSE", "-dQUIET", "-sDEVICE=nullpage", str(path)],
-            stdout=subprocess.DEVNULL,
-            stderr=subprocess.DEVNULL,
-            timeout=timeout_seconds,
-            check=False,
-        )
-    except (OSError, subprocess.TimeoutExpired):
-        return False
-    return completed.returncode == 0
 
 
 def _resource_limiter(limits: PDFNormalizationLimits) -> None:
@@ -172,6 +169,7 @@ def normalize_pdf_strict(
     pdf_bytes: bytes,
     filename: str = "document.pdf",
     limits: PDFNormalizationLimits = PDFNormalizationLimits(),
+    screen_resolution_dpi: int | None = None,
 ) -> tuple[bytes, float]:
     """Produce a validated compatibility derivative or raise ``PDFNormalizationError``.
 
@@ -221,6 +219,15 @@ def normalize_pdf_strict(
             f"-sOutputFile={output_path}",
             str(input_path),
         ]
+        if screen_resolution_dpi is not None:
+            command[command.index("-dCompatibilityLevel=1.4") + 1 : command.index("-dAutoRotatePages=/None")] = [
+                "-dDownsampleColorImages=true",
+                "-dColorImageDownsampleType=/Bicubic",
+                f"-dColorImageResolution={screen_resolution_dpi}",
+                "-dDownsampleGrayImages=true",
+                "-dGrayImageDownsampleType=/Bicubic",
+                f"-dGrayImageResolution={screen_resolution_dpi}",
+            ]
 
         try:
             process = subprocess.Popen(
@@ -251,7 +258,7 @@ def normalize_pdf_strict(
             raise PDFNormalizationError("Ghostscript output exceeded the configured limit", code="output_limit")
         if not is_valid_pdf_output(normalized_bytes):
             raise PDFNormalizationError("Ghostscript output was not a complete PDF", code="invalid_output")
-        if not _is_structurally_valid_pdf(output_path, limits.timeout_seconds):
+        if not is_structurally_valid_pdf(normalized_bytes):
             raise PDFNormalizationError("Ghostscript output failed structural validation", code="invalid_output")
 
         duration_ms = (time.perf_counter() - start_time) * 1000
@@ -273,13 +280,14 @@ def normalize_pdf_with_queue(
     limits: PDFNormalizationLimits,
     maximum_concurrent: int,
     queue_wait_seconds: int,
+    screen_resolution_dpi: int | None = None,
 ) -> bytes:
     """Create a derivative while enforcing the configured process-wide queue limits."""
 
     normalized_bytes, _ = pdf_normalization_queue.run(
         maximum_concurrent=maximum_concurrent,
         wait_seconds=queue_wait_seconds,
-        operation=lambda: normalize_pdf_strict(pdf_bytes, filename, limits),
+        operation=lambda: normalize_pdf_strict(pdf_bytes, filename, limits, screen_resolution_dpi),
     )
     return normalized_bytes
 

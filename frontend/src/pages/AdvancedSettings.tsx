@@ -29,8 +29,11 @@ interface AdvancedSettingsFormState {
   pdfAddressSpaceBytes: number | null;
   pdfTemporaryDiskBytes: number | null;
   pdfTimeoutSeconds: number | null;
+  pdfCpuTimeSeconds: number | null;
   pdfMaxConcurrent: number | null;
   pdfQueueWaitSeconds: number | null;
+  pdfScreenDerivativeEnabled: number | null;
+  pdfScreenMaxDecodedPixels: number | null;
 }
 
 const DESKTOP_FIELD_ROW_MAX_WIDTH = 440;
@@ -79,8 +82,11 @@ function createFormState(settings: AdvancedSystemSettings): AdvancedSettingsForm
     pdfAddressSpaceBytes: settings.pdf?.address_space_bytes.value ?? null,
     pdfTemporaryDiskBytes: settings.pdf?.temporary_disk_bytes.value ?? null,
     pdfTimeoutSeconds: settings.pdf?.timeout_seconds.value ?? null,
+    pdfCpuTimeSeconds: settings.pdf?.cpu_time_seconds.value ?? null,
     pdfMaxConcurrent: settings.pdf?.max_concurrent.value ?? null,
     pdfQueueWaitSeconds: settings.pdf?.queue_wait_seconds.value ?? null,
+    pdfScreenDerivativeEnabled: settings.pdf?.screen_derivative_enabled.value ?? null,
+    pdfScreenMaxDecodedPixels: settings.pdf?.screen_max_decoded_pixels.value ?? null,
   };
 }
 
@@ -143,8 +149,11 @@ function buildUpdatePayload(formState: AdvancedSettingsFormState): AdvancedSyste
     formState.pdfAddressSpaceBytes,
     formState.pdfTemporaryDiskBytes,
     formState.pdfTimeoutSeconds,
+    formState.pdfCpuTimeSeconds,
     formState.pdfMaxConcurrent,
     formState.pdfQueueWaitSeconds,
+    formState.pdfScreenDerivativeEnabled,
+    formState.pdfScreenMaxDecodedPixels,
   ].some((value) => value !== null);
 
   return {
@@ -164,8 +173,11 @@ function buildUpdatePayload(formState: AdvancedSettingsFormState): AdvancedSyste
             address_space_bytes: toOptionalNumber(formState.pdfAddressSpaceBytes),
             temporary_disk_bytes: toOptionalNumber(formState.pdfTemporaryDiskBytes),
             timeout_seconds: toOptionalNumber(formState.pdfTimeoutSeconds),
+            cpu_time_seconds: toOptionalNumber(formState.pdfCpuTimeSeconds),
             max_concurrent: toOptionalNumber(formState.pdfMaxConcurrent),
             queue_wait_seconds: toOptionalNumber(formState.pdfQueueWaitSeconds),
+            screen_derivative_enabled: toOptionalNumber(formState.pdfScreenDerivativeEnabled),
+            screen_max_decoded_pixels: toOptionalNumber(formState.pdfScreenMaxDecodedPixels),
           },
         }
       : {}),
@@ -483,9 +495,18 @@ export function AdvancedSettings({ dialogSafeHeader = false }: AdvancedSettingsP
       pdfTimeoutSeconds: settings.pdf
         ? validateIntegerSetting(settings.pdf.timeout_seconds, formState.pdfTimeoutSeconds, t("settings.advanced.fields.seconds"))
         : null,
+      pdfCpuTimeSeconds: settings.pdf
+        ? validateIntegerSetting(settings.pdf.cpu_time_seconds, formState.pdfCpuTimeSeconds, t("settings.advanced.fields.seconds"))
+        : null,
       pdfMaxConcurrent: settings.pdf ? validateIntegerSetting(settings.pdf.max_concurrent, formState.pdfMaxConcurrent) : null,
       pdfQueueWaitSeconds: settings.pdf
         ? validateIntegerSetting(settings.pdf.queue_wait_seconds, formState.pdfQueueWaitSeconds, t("settings.advanced.fields.seconds"))
+        : null,
+      pdfScreenDerivativeEnabled: settings.pdf
+        ? validateIntegerSetting(settings.pdf.screen_derivative_enabled, formState.pdfScreenDerivativeEnabled)
+        : null,
+      pdfScreenMaxDecodedPixels: settings.pdf
+        ? validateIntegerSetting(settings.pdf.screen_max_decoded_pixels, formState.pdfScreenMaxDecodedPixels)
         : null,
     };
   }, [formState, settings, t]);
@@ -671,6 +692,16 @@ export function AdvancedSettings({ dialogSafeHeader = false }: AdvancedSettingsP
                     resetDisabled={saving || loading || hasUnsavedChanges}
                   />
                   <SettingField
+                    setting={settings.pdf.cpu_time_seconds}
+                    value={formState.pdfCpuTimeSeconds}
+                    onChange={(value) => setFormState((current) => (current ? { ...current, pdfCpuTimeSeconds: value } : current))}
+                    errorText={validationErrors?.pdfCpuTimeSeconds}
+                    showErrors={submitAttempted}
+                    unitAdornment={t("settings.advanced.fields.seconds")}
+                    onReset={() => handleReset(settings.pdf.cpu_time_seconds.key, settings.pdf.cpu_time_seconds.label)}
+                    resetDisabled={saving || loading || hasUnsavedChanges}
+                  />
+                  <SettingField
                     setting={settings.pdf.max_concurrent}
                     value={formState.pdfMaxConcurrent}
                     onChange={(value) => setFormState((current) => (current ? { ...current, pdfMaxConcurrent: value } : current))}
@@ -687,6 +718,24 @@ export function AdvancedSettings({ dialogSafeHeader = false }: AdvancedSettingsP
                     showErrors={submitAttempted}
                     unitAdornment={t("settings.advanced.fields.seconds")}
                     onReset={() => handleReset(settings.pdf.queue_wait_seconds.key, settings.pdf.queue_wait_seconds.label)}
+                    resetDisabled={saving || loading || hasUnsavedChanges}
+                  />
+                  <SettingField
+                    setting={settings.pdf.screen_derivative_enabled}
+                    value={formState.pdfScreenDerivativeEnabled}
+                    onChange={(value) => setFormState((current) => (current ? { ...current, pdfScreenDerivativeEnabled: value } : current))}
+                    errorText={validationErrors?.pdfScreenDerivativeEnabled}
+                    showErrors={submitAttempted}
+                    onReset={() => handleReset(settings.pdf.screen_derivative_enabled.key, settings.pdf.screen_derivative_enabled.label)}
+                    resetDisabled={saving || loading || hasUnsavedChanges}
+                  />
+                  <SettingField
+                    setting={settings.pdf.screen_max_decoded_pixels}
+                    value={formState.pdfScreenMaxDecodedPixels}
+                    onChange={(value) => setFormState((current) => (current ? { ...current, pdfScreenMaxDecodedPixels: value } : current))}
+                    errorText={validationErrors?.pdfScreenMaxDecodedPixels}
+                    showErrors={submitAttempted}
+                    onReset={() => handleReset(settings.pdf.screen_max_decoded_pixels.key, settings.pdf.screen_max_decoded_pixels.label)}
                     resetDisabled={saving || loading || hasUnsavedChanges}
                   />
                 </SettingsGroup>

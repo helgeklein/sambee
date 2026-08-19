@@ -43,8 +43,11 @@ class PdfAdvancedSettingsRead(SQLModel):
     address_space_bytes: IntegerSystemSettingRead
     temporary_disk_bytes: IntegerSystemSettingRead
     timeout_seconds: IntegerSystemSettingRead
+    cpu_time_seconds: IntegerSystemSettingRead
     max_concurrent: IntegerSystemSettingRead
     queue_wait_seconds: IntegerSystemSettingRead
+    screen_derivative_enabled: IntegerSystemSettingRead
+    screen_max_decoded_pixels: IntegerSystemSettingRead
 
 
 class AdvancedSystemSettingsRead(SQLModel):
@@ -110,8 +113,11 @@ class PdfAdvancedSettingsUpdate(SQLModel):
     address_space_bytes: Optional[int] = None
     temporary_disk_bytes: Optional[int] = None
     timeout_seconds: Optional[int] = None
+    cpu_time_seconds: Optional[int] = None
     max_concurrent: Optional[int] = None
     queue_wait_seconds: Optional[int] = None
+    screen_derivative_enabled: Optional[int] = None
+    screen_max_decoded_pixels: Optional[int] = None
 
 
 class AdvancedSystemSettingsUpdate(SQLModel):

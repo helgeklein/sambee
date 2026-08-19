@@ -16,8 +16,11 @@ class SystemSettingKey(StrEnum):
     PDF_NORMALIZER_ADDRESS_SPACE_BYTES = "pdf.normalizer.address_space_bytes"
     PDF_NORMALIZER_TEMPORARY_DISK_BYTES = "pdf.normalizer.temporary_disk_bytes"
     PDF_NORMALIZER_TIMEOUT_SECONDS = "pdf.normalizer.timeout_seconds"
+    PDF_NORMALIZER_CPU_TIME_SECONDS = "pdf.normalizer.cpu_time_seconds"
     PDF_NORMALIZER_MAX_CONCURRENT = "pdf.normalizer.max_concurrent"
     PDF_NORMALIZER_QUEUE_WAIT_SECONDS = "pdf.normalizer.queue_wait_seconds"
+    PDF_SCREEN_DERIVATIVE_ENABLED = "pdf.screen_derivative.enabled"
+    PDF_SCREEN_MAX_DECODED_PIXELS = "pdf.screen_derivative.max_decoded_pixels"
     FILE_SEARCH_POLICY = "file_search.policy"
 
 
@@ -140,6 +143,16 @@ SYSTEM_SETTING_DEFINITIONS: dict[SystemSettingKey, IntegerSystemSettingDefinitio
         max_value=600,
         step=1,
     ),
+    SystemSettingKey.PDF_NORMALIZER_CPU_TIME_SECONDS: IntegerSystemSettingDefinition(
+        key=SystemSettingKey.PDF_NORMALIZER_CPU_TIME_SECONDS,
+        config_attr=None,
+        label="PDF compatibility CPU-time limit",
+        description="Maximum CPU time allocated to one Ghostscript compatibility conversion.",
+        default_value=60,
+        min_value=5,
+        max_value=600,
+        step=1,
+    ),
     SystemSettingKey.PDF_NORMALIZER_MAX_CONCURRENT: IntegerSystemSettingDefinition(
         key=SystemSettingKey.PDF_NORMALIZER_MAX_CONCURRENT,
         config_attr=None,
@@ -159,5 +172,25 @@ SYSTEM_SETTING_DEFINITIONS: dict[SystemSettingKey, IntegerSystemSettingDefinitio
         min_value=0,
         max_value=120,
         step=1,
+    ),
+    SystemSettingKey.PDF_SCREEN_DERIVATIVE_ENABLED: IntegerSystemSettingDefinition(
+        key=SystemSettingKey.PDF_SCREEN_DERIVATIVE_ENABLED,
+        config_attr=None,
+        label="Enable screen PDF derivatives",
+        description="Allow a display-profiled derivative for PDFs with oversized image placements. Zero keeps the feature disabled.",
+        default_value=0,
+        min_value=0,
+        max_value=1,
+        step=1,
+    ),
+    SystemSettingKey.PDF_SCREEN_MAX_DECODED_PIXELS: IntegerSystemSettingDefinition(
+        key=SystemSettingKey.PDF_SCREEN_MAX_DECODED_PIXELS,
+        config_attr=None,
+        label="Screen derivative decoded-pixel budget",
+        description="Image decoded-pixel budget before a display-profiled screen derivative is considered.",
+        default_value=64 * 1024 * 1024,
+        min_value=4 * 1024 * 1024,
+        max_value=1024 * 1024 * 1024,
+        step=1024 * 1024,
     ),
 }

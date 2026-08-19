@@ -1378,13 +1378,31 @@ class ApiService {
    * Fetch PDF as blob with authentication headers.
    * Returns blob data that can be used to create object URLs for react-pdf.
    */
-  async getPdfBlob(connectionId: string, path: string, options: { signal?: AbortSignal; pdfVariant?: "normalized" } = {}): Promise<Blob> {
+  async getPdfBlob(
+    connectionId: string,
+    path: string,
+    options: {
+      signal?: AbortSignal;
+      pdfVariant?: "normalized";
+      screenProfile?: { width: number; height: number; zoomPercent: number };
+    } = {}
+  ): Promise<Blob> {
     try {
       const segment = getBrowseSegment(connectionId);
       const { client, extraConfig } = await this.getClientConfig(connectionId);
       const response = await client.get<ArrayBuffer>(`/viewer/${segment}/file`, {
         ...extraConfig,
-        params: { path, ...(options.pdfVariant ? { pdf_variant: options.pdfVariant } : {}) },
+        params: {
+          path,
+          ...(options.pdfVariant ? { pdf_variant: options.pdfVariant } : {}),
+          ...(options.screenProfile
+            ? {
+                screen_width: options.screenProfile.width,
+                screen_height: options.screenProfile.height,
+                screen_zoom_percent: options.screenProfile.zoomPercent,
+              }
+            : {}),
+        },
         responseType: "arraybuffer",
         signal: options.signal,
         timeout: PDF_VIEWER_REQUEST_TIMEOUT_MS,
@@ -1442,12 +1460,25 @@ class ApiService {
     }
   }
 
-  async invalidatePdfDerivative(connectionId: string, path: string): Promise<void> {
+  async invalidatePdfDerivative(
+    connectionId: string,
+    path: string,
+    screenProfile?: { width: number; height: number; zoomPercent: number }
+  ): Promise<void> {
     const segment = getBrowseSegment(connectionId);
     const { client, extraConfig } = await this.getClientConfig(connectionId);
     await client.delete(`/viewer/${segment}/pdf-derivative`, {
       ...extraConfig,
-      params: { path },
+      params: {
+        path,
+        ...(screenProfile
+          ? {
+              screen_width: screenProfile.width,
+              screen_height: screenProfile.height,
+              screen_zoom_percent: screenProfile.zoomPercent,
+            }
+          : {}),
+      },
     });
   }
 

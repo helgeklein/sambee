@@ -28,6 +28,7 @@ from app.models.user import User
 from app.services.connection_access import get_accessible_connection_or_404
 from app.services.image_converter import convert_image_for_viewer
 from app.services.pdf_derivative_cache import PDFDerivativeCachePolicy, PDFSourceRevision, pdf_derivative_cache
+from app.services.pdf_inspector import PDFScreenProfile, analyze_pdf_for_screen
 from app.services.pdf_normalizer import (
     PDFNormalizationError,
     PDFNormalizationLimits,
@@ -88,7 +89,12 @@ def create_file_streamer(backend: SMBBackend, path: str) -> AsyncIterator[bytes]
 
 
 async def read_pdf_derivative_source(
-    backend: SMBBackend, path: str, initial_size: int | None, initial_modified_at: datetime | None
+    backend: SMBBackend,
+    path: str,
+    initial_size: int | None,
+    initial_modified_at: datetime | None,
+    initial_created_at: datetime | None,
+    initial_stable_id: str | None,
 ) -> tuple[bytes, PDFSourceRevision]:
     """Read one PDF snapshot and reject it when SMB metadata changes mid-read."""
 
@@ -100,7 +106,12 @@ async def read_pdf_derivative_source(
     finally:
         await disconnect_backend_safely(backend, logger=logger, context=f"PDF derivative read for '{path}'")
 
-    if refreshed_info.size != initial_size or refreshed_info.modified_at != initial_modified_at:
+    if (
+        refreshed_info.size != initial_size
+        or refreshed_info.modified_at != initial_modified_at
+        or refreshed_info.created_at != initial_created_at
+        or refreshed_info.stable_id != initial_stable_id
+    ):
         raise HTTPException(
             status_code=status.HTTP_409_CONFLICT,
             detail="The PDF changed while compatibility processing was being prepared. Try again.",
@@ -110,6 +121,8 @@ async def read_pdf_derivative_source(
         path=path,
         size=initial_size,
         modified_at=initial_modified_at.isoformat() if initial_modified_at else None,
+        created_at=initial_created_at.isoformat() if initial_created_at else None,
+        stable_id=initial_stable_id,
         content_digest=hashlib.sha256(pdf_bytes).hexdigest(),
     )
 
@@ -121,8 +134,11 @@ async def create_normalized_pdf_response(
     filename: str,
     initial_size: int | None,
     initial_modified_at: datetime | None,
+    initial_created_at: datetime | None,
+    initial_stable_id: str | None,
     connection_id: uuid.UUID,
     user_id: uuid.UUID,
+    screen_profile: PDFScreenProfile | None,
 ) -> Response:
     """Return an explicitly requested cached compatibility derivative."""
 
@@ -144,7 +160,7 @@ async def create_normalized_pdf_response(
     )
     limits = PDFNormalizationLimits(
         timeout_seconds=get_integer_setting_value(SystemSettingKey.PDF_NORMALIZER_TIMEOUT_SECONDS),
-        cpu_time_seconds=get_integer_setting_value(SystemSettingKey.PDF_NORMALIZER_TIMEOUT_SECONDS),
+        cpu_time_seconds=get_integer_setting_value(SystemSettingKey.PDF_NORMALIZER_CPU_TIME_SECONDS),
         address_space_bytes=get_integer_setting_value(SystemSettingKey.PDF_NORMALIZER_ADDRESS_SPACE_BYTES),
         output_size_bytes=get_integer_setting_value(SystemSettingKey.PDF_NORMALIZER_MAX_OUTPUT_SIZE_BYTES),
         temporary_disk_bytes=get_integer_setting_value(SystemSettingKey.PDF_NORMALIZER_TEMPORARY_DISK_BYTES),
@@ -154,23 +170,34 @@ async def create_normalized_pdf_response(
         path=path,
         size=initial_size,
         modified_at=initial_modified_at.isoformat() if initial_modified_at else None,
+        created_at=initial_created_at.isoformat() if initial_created_at else None,
+        stable_id=initial_stable_id,
     )
-    cached_derivative = await loop.run_in_executor(
-        None,
-        partial(
-            pdf_derivative_cache.get,
-            user_id=str(user_id),
-            connection_id=str(connection_id),
-            revision=metadata_revision,
-            variant="normalized",
-            policy=policy,
-        ),
-    )
-    if cached_derivative is not None:
+    screen_enabled = get_integer_setting_value(SystemSettingKey.PDF_SCREEN_DERIVATIVE_ENABLED) == 1
+    screen_variant = f"screen-{screen_profile.cache_suffix()}" if screen_enabled and screen_profile else None
+    # With a screen profile, a normalized cache entry cannot establish the
+    # variant selection. Inspect after a screen-cache miss so oversized PDFs
+    # always use their profile-specific derivative.
+    cached_variants = (screen_variant,) if screen_variant else ("normalized",)
+    for cached_variant in cached_variants:
+        cached_derivative = await loop.run_in_executor(
+            None,
+            partial(
+                pdf_derivative_cache.get,
+                user_id=str(user_id),
+                connection_id=str(connection_id),
+                revision=metadata_revision,
+                variant=cached_variant,
+                policy=policy,
+            ),
+        )
+        if cached_derivative is None:
+            continue
         logger.info(
-            "pdf_derivative outcome=cache_hit connection_id=%s path=%r variant=normalized derivative_bytes=%d",
+            "pdf_derivative outcome=cache_hit connection_id=%s path=%r variant=%s derivative_bytes=%d",
             connection_id,
             path,
+            cached_variant,
             len(cached_derivative),
         )
         await disconnect_backend_safely(backend, logger=logger, context=f"PDF derivative cache hit for '{path}'")
@@ -179,18 +206,44 @@ async def create_normalized_pdf_response(
             media_type="application/pdf",
             headers={
                 "Content-Disposition": f'inline; filename="{filename}"',
-                "X-PDF-Variant": "normalized",
+                "X-PDF-Variant": cached_variant,
                 "X-PDF-Derivative-Cache": "hit",
                 "Cache-Control": "private, no-store",
             },
         )
 
-    pdf_bytes, revision = await read_pdf_derivative_source(backend, path, initial_size, initial_modified_at)
+    pdf_bytes, revision = await read_pdf_derivative_source(
+        backend, path, initial_size, initial_modified_at, initial_created_at, initial_stable_id
+    )
     if len(pdf_bytes) > max_source_size:
         raise HTTPException(
             status_code=status.HTTP_413_REQUEST_ENTITY_TOO_LARGE,
             detail="This PDF exceeds the configured compatibility-processing size limit.",
         )
+
+    selected_variant = "normalized"
+    screen_resolution_dpi: int | None = None
+    if screen_variant and screen_profile:
+        analysis = await loop.run_in_executor(
+            None,
+            partial(
+                analyze_pdf_for_screen,
+                pdf_bytes,
+                screen_profile,
+                get_integer_setting_value(SystemSettingKey.PDF_SCREEN_MAX_DECODED_PIXELS),
+            ),
+        )
+        logger.info(
+            "pdf_derivative outcome=screen_analysis connection_id=%s path=%r oversized=%s max_image_pixels=%d max_required_pixels=%d",
+            connection_id,
+            path,
+            analysis.is_oversized,
+            analysis.maximum_image_pixels,
+            analysis.maximum_required_pixels,
+        )
+        if analysis.is_oversized and analysis.screen_resolution_dpi > 0:
+            selected_variant = screen_variant
+            screen_resolution_dpi = analysis.screen_resolution_dpi
 
     try:
         derivative, cache_hit = await loop.run_in_executor(
@@ -200,7 +253,7 @@ async def create_normalized_pdf_response(
                 user_id=str(user_id),
                 connection_id=str(connection_id),
                 revision=revision,
-                variant="normalized",
+                variant=selected_variant,
                 policy=policy,
                 create=lambda: normalize_pdf_with_queue(
                     pdf_bytes,
@@ -208,21 +261,29 @@ async def create_normalized_pdf_response(
                     limits,
                     maximum_concurrent=get_integer_setting_value(SystemSettingKey.PDF_NORMALIZER_MAX_CONCURRENT),
                     queue_wait_seconds=get_integer_setting_value(SystemSettingKey.PDF_NORMALIZER_QUEUE_WAIT_SECONDS),
+                    screen_resolution_dpi=screen_resolution_dpi,
                 ),
             ),
         )
     except PDFNormalizationError as exc:
-        logger.warning("pdf_derivative outcome=failed connection_id=%s path=%r variant=normalized code=%s", connection_id, path, exc.code)
+        logger.warning(
+            "pdf_derivative outcome=failed connection_id=%s path=%r variant=%s code=%s",
+            connection_id,
+            path,
+            selected_variant,
+            exc.code,
+        )
         raise HTTPException(
             status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
             detail="PDF compatibility processing could not make this file viewable.",
         ) from exc
 
     logger.info(
-        "pdf_derivative outcome=%s connection_id=%s path=%r variant=normalized derivative_bytes=%d",
+        "pdf_derivative outcome=%s connection_id=%s path=%r variant=%s derivative_bytes=%d",
         "cache_hit" if cache_hit else "created",
         connection_id,
         path,
+        selected_variant,
         len(derivative),
     )
     return Response(
@@ -230,7 +291,7 @@ async def create_normalized_pdf_response(
         media_type="application/pdf",
         headers={
             "Content-Disposition": f'inline; filename="{filename}"',
-            "X-PDF-Variant": "normalized",
+            "X-PDF-Variant": selected_variant,
             "X-PDF-Derivative-Cache": "hit" if cache_hit else "miss",
             "Cache-Control": "private, no-store",
         },
@@ -241,6 +302,9 @@ async def create_normalized_pdf_response(
 async def invalidate_pdf_derivative(
     connection_id: uuid.UUID,
     path: str = Query(..., description="Path to the PDF source"),
+    screen_width: int | None = Query(None, ge=320, le=16384),
+    screen_height: int | None = Query(None, ge=320, le=16384),
+    screen_zoom_percent: int = Query(200, ge=100, le=400),
     current_user: User = Depends(get_current_user_with_auth_check),
     session: Session = Depends(get_session),
 ) -> Response:
@@ -257,17 +321,24 @@ async def invalidate_pdf_derivative(
             path=path,
             size=file_info.size,
             modified_at=file_info.modified_at.isoformat() if file_info.modified_at else None,
+            created_at=file_info.created_at.isoformat() if file_info.created_at else None,
+            stable_id=file_info.stable_id,
         )
-        await asyncio.get_running_loop().run_in_executor(
-            None,
-            partial(
-                pdf_derivative_cache.invalidate,
-                user_id=str(current_user.id),
-                connection_id=str(connection_id),
-                revision=revision,
-                variant="normalized",
-            ),
-        )
+        variants = ["normalized"]
+        if screen_width is not None and screen_height is not None:
+            variants.append(f"screen-{PDFScreenProfile(screen_width, screen_height, screen_zoom_percent).cache_suffix()}")
+        loop = asyncio.get_running_loop()
+        for variant in variants:
+            await loop.run_in_executor(
+                None,
+                partial(
+                    pdf_derivative_cache.invalidate,
+                    user_id=str(current_user.id),
+                    connection_id=str(connection_id),
+                    revision=revision,
+                    variant=variant,
+                ),
+            )
     finally:
         await disconnect_backend_safely(backend, logger=logger, context=f"PDF derivative invalidation for '{path}'")
     return Response(status_code=status.HTTP_204_NO_CONTENT)
@@ -403,6 +474,9 @@ async def view_file(
     connection_id: uuid.UUID,
     path: str = Query(..., description="Path to the file"),
     pdf_variant: Literal["original", "normalized"] = Query("original", description="PDF viewer source variant"),
+    screen_width: int | None = Query(None, ge=320, le=16384, description="Physical display width in pixels"),
+    screen_height: int | None = Query(None, ge=320, le=16384, description="Physical display height in pixels"),
+    screen_zoom_percent: int = Query(200, ge=100, le=400, description="Maximum requested viewing zoom"),
     viewport_width: int | None = Query(None, description="Viewport width in pixels (including DPR)"),
     viewport_height: int | None = Query(None, description="Viewport height in pixels (including DPR)"),
     no_resizing: bool = Query(False, description="Return original image without resizing"),
@@ -475,8 +549,15 @@ async def view_file(
                 filename=file_info.name,
                 initial_size=file_info.size,
                 initial_modified_at=file_info.modified_at,
+                initial_created_at=file_info.created_at,
+                initial_stable_id=file_info.stable_id,
                 connection_id=connection_id,
                 user_id=current_user.id,
+                screen_profile=(
+                    PDFScreenProfile(screen_width, screen_height, screen_zoom_percent)
+                    if screen_width is not None and screen_height is not None
+                    else None
+                ),
             )
 
         # Stream the file (browser-native format or non-image/non-PDF)

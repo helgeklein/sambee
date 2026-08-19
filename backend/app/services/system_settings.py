@@ -333,8 +333,11 @@ def build_advanced_system_settings_read() -> AdvancedSystemSettingsRead:
             address_space_bytes=_build_integer_read(SYSTEM_SETTING_DEFINITIONS[SystemSettingKey.PDF_NORMALIZER_ADDRESS_SPACE_BYTES]),
             temporary_disk_bytes=_build_integer_read(SYSTEM_SETTING_DEFINITIONS[SystemSettingKey.PDF_NORMALIZER_TEMPORARY_DISK_BYTES]),
             timeout_seconds=_build_integer_read(SYSTEM_SETTING_DEFINITIONS[SystemSettingKey.PDF_NORMALIZER_TIMEOUT_SECONDS]),
+            cpu_time_seconds=_build_integer_read(SYSTEM_SETTING_DEFINITIONS[SystemSettingKey.PDF_NORMALIZER_CPU_TIME_SECONDS]),
             max_concurrent=_build_integer_read(SYSTEM_SETTING_DEFINITIONS[SystemSettingKey.PDF_NORMALIZER_MAX_CONCURRENT]),
             queue_wait_seconds=_build_integer_read(SYSTEM_SETTING_DEFINITIONS[SystemSettingKey.PDF_NORMALIZER_QUEUE_WAIT_SECONDS]),
+            screen_derivative_enabled=_build_integer_read(SYSTEM_SETTING_DEFINITIONS[SystemSettingKey.PDF_SCREEN_DERIVATIVE_ENABLED]),
+            screen_max_decoded_pixels=_build_integer_read(SYSTEM_SETTING_DEFINITIONS[SystemSettingKey.PDF_SCREEN_MAX_DECODED_PIXELS]),
         ),
     )
 
@@ -660,10 +663,16 @@ def _extract_updates(payload: AdvancedSystemSettingsUpdate) -> dict[SystemSettin
             updates[SystemSettingKey.PDF_NORMALIZER_TEMPORARY_DISK_BYTES] = pdf.temporary_disk_bytes
         if pdf.timeout_seconds is not None:
             updates[SystemSettingKey.PDF_NORMALIZER_TIMEOUT_SECONDS] = pdf.timeout_seconds
+        if pdf.cpu_time_seconds is not None:
+            updates[SystemSettingKey.PDF_NORMALIZER_CPU_TIME_SECONDS] = pdf.cpu_time_seconds
         if pdf.max_concurrent is not None:
             updates[SystemSettingKey.PDF_NORMALIZER_MAX_CONCURRENT] = pdf.max_concurrent
         if pdf.queue_wait_seconds is not None:
             updates[SystemSettingKey.PDF_NORMALIZER_QUEUE_WAIT_SECONDS] = pdf.queue_wait_seconds
+        if pdf.screen_derivative_enabled is not None:
+            updates[SystemSettingKey.PDF_SCREEN_DERIVATIVE_ENABLED] = pdf.screen_derivative_enabled
+        if pdf.screen_max_decoded_pixels is not None:
+            updates[SystemSettingKey.PDF_SCREEN_MAX_DECODED_PIXELS] = pdf.screen_max_decoded_pixels
 
     return updates
 

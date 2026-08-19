@@ -235,8 +235,11 @@ export interface PdfAdvancedSettings {
   address_space_bytes: IntegerSystemSetting;
   temporary_disk_bytes: IntegerSystemSetting;
   timeout_seconds: IntegerSystemSetting;
+  cpu_time_seconds: IntegerSystemSetting;
   max_concurrent: IntegerSystemSetting;
   queue_wait_seconds: IntegerSystemSetting;
+  screen_derivative_enabled: IntegerSystemSetting;
+  screen_max_decoded_pixels: IntegerSystemSetting;
 }
 
 export interface AdvancedSystemSettings {
@@ -261,8 +264,11 @@ export interface AdvancedSystemSettingsUpdate {
     address_space_bytes?: number;
     temporary_disk_bytes?: number;
     timeout_seconds?: number;
+    cpu_time_seconds?: number;
     max_concurrent?: number;
     queue_wait_seconds?: number;
+    screen_derivative_enabled?: number;
+    screen_max_decoded_pixels?: number;
   };
   reset_keys?: string[];
 }

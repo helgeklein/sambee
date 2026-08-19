@@ -13,6 +13,7 @@ from typing import Callable
 
 from app.core.config import static
 from app.core.logging import get_logger
+from app.services.pdf_inspector import is_structurally_valid_pdf
 from app.services.pdf_normalizer import NORMALIZER_CONFIG_VERSION, get_ghostscript_version, is_valid_pdf_output
 
 logger = get_logger(__name__)
@@ -26,12 +27,20 @@ class PDFSourceRevision:
     path: str
     size: int | None
     modified_at: str | None
+    created_at: str | None = None
+    stable_id: str | None = None
     content_digest: str | None = None
 
     def cache_identity(self) -> dict[str, str | int | None]:
         """Return revision values obtainable without reading the SMB file."""
 
-        return {"path": self.path, "size": self.size, "modified_at": self.modified_at}
+        return {
+            "path": self.path,
+            "size": self.size,
+            "modified_at": self.modified_at,
+            "created_at": self.created_at,
+            "stable_id": self.stable_id,
+        }
 
 
 @dataclass(frozen=True)
@@ -119,7 +128,7 @@ class PDFDerivativeCache:
                 return cached, True
             derivative = create()
             if len(derivative) <= policy.quota_bytes:
-                self._write(user_id, key, revision, derivative, policy)
+                self._write(user_id, key, revision, variant, derivative, policy)
             else:
                 logger.info("PDF derivative exceeds cache quota and will not be stored: %d bytes", len(derivative))
             return derivative, False
@@ -144,7 +153,7 @@ class PDFDerivativeCache:
                 self._delete(pdf_path, metadata_path)
                 return None
             derivative = pdf_path.read_bytes()
-            if not is_valid_pdf_output(derivative):
+            if not is_valid_pdf_output(derivative) or not is_structurally_valid_pdf(derivative):
                 self._delete(pdf_path, metadata_path)
                 return None
             metadata["last_accessed_at"] = time.time()
@@ -154,8 +163,16 @@ class PDFDerivativeCache:
             self._delete(pdf_path, metadata_path)
             return None
 
-    def _write(self, user_id: str, key: str, revision: PDFSourceRevision, derivative: bytes, policy: PDFDerivativeCachePolicy) -> None:
-        if not is_valid_pdf_output(derivative):
+    def _write(
+        self,
+        user_id: str,
+        key: str,
+        revision: PDFSourceRevision,
+        variant: str,
+        derivative: bytes,
+        policy: PDFDerivativeCachePolicy,
+    ) -> None:
+        if not is_valid_pdf_output(derivative) or not is_structurally_valid_pdf(derivative):
             raise ValueError("Refusing to cache incomplete PDF derivative")
         pdf_path, metadata_path = self._entry_paths(user_id, key)
         pdf_path.parent.mkdir(mode=0o700, parents=True, exist_ok=True)
@@ -172,6 +189,7 @@ class PDFDerivativeCache:
             "revision": revision.cache_identity(),
             "source_digest": revision.content_digest,
             "size": len(derivative),
+            "variant": variant,
         }
         self._atomic_write(pdf_path, derivative)
         self._atomic_write(metadata_path, json.dumps(metadata, separators=(",", ":")).encode("utf-8"))

@@ -45,6 +45,16 @@ const SWIPE_SPRING_CONFIG = {
   friction: 32,
 };
 const CAROUSEL_CENTER_OFFSET = "-33.333333%";
+const SCREEN_DERIVATIVE_ZOOM_PERCENT = 200;
+
+function getScreenProfile(): { width: number; height: number; zoomPercent: number } {
+  const pixelRatio = window.devicePixelRatio || 1;
+  return {
+    width: Math.min(16384, Math.max(320, Math.ceil(window.innerWidth * pixelRatio))),
+    height: Math.min(16384, Math.max(320, Math.ceil(window.innerHeight * pixelRatio))),
+    zoomPercent: SCREEN_DERIVATIVE_ZOOM_PERCENT,
+  };
+}
 
 /**
  * Match location within extracted PDF text.
@@ -171,7 +181,7 @@ const PDFViewer: React.FC<ViewerComponentProps> = ({ connectionId, path, onClose
           () =>
             apiService.getPdfBlob(connectionId, path, {
               signal: abortController.signal,
-              ...(pdfSourceVariant === "normalized" ? { pdfVariant: "normalized" } : {}),
+              ...(pdfSourceVariant === "normalized" ? { pdfVariant: "normalized", screenProfile: getScreenProfile() } : {}),
             }),
           {
             signal: abortController.signal,
@@ -413,7 +423,7 @@ const PDFViewer: React.FC<ViewerComponentProps> = ({ connectionId, path, onClose
       }
 
       if (pdfSourceVariant === "normalized") {
-        void apiService.invalidatePdfDerivative(connectionId, path).catch((invalidationError: unknown) => {
+        void apiService.invalidatePdfDerivative(connectionId, path, getScreenProfile()).catch((invalidationError: unknown) => {
           logError("Failed to invalidate PDF compatibility derivative", { error: invalidationError, path });
         });
       }
@@ -432,7 +442,7 @@ const PDFViewer: React.FC<ViewerComponentProps> = ({ connectionId, path, onClose
       logError("PDF page render error", { error: err.message });
       const failureMessage = getApiErrorMessage(err, "Failed to render PDF page", { includeOriginalMessage: true });
       if (pdfSourceVariant === "normalized") {
-        void apiService.invalidatePdfDerivative(connectionId, path).catch((invalidationError: unknown) => {
+        void apiService.invalidatePdfDerivative(connectionId, path, getScreenProfile()).catch((invalidationError: unknown) => {
           logError("Failed to invalidate PDF compatibility derivative", { error: invalidationError, path });
         });
       }

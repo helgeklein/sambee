@@ -263,6 +263,29 @@ describe("Viewer API Contract Tests", () => {
       expect(mockAxiosInstance.get.mock.calls[0][1]?.params).toEqual({ path: "/document.pdf", pdf_variant: "normalized" });
     });
 
+    it("should include the physical display profile for compatibility selection", async () => {
+      mockAxiosInstance.get.mockResolvedValueOnce({
+        data: new ArrayBuffer(1024),
+        status: 200,
+        statusText: "OK",
+        headers: { "content-type": "application/pdf" },
+        config: {},
+      } as unknown as AxiosResponse);
+
+      await apiService.getPdfBlob(testConnectionId, "/document.pdf", {
+        pdfVariant: "normalized",
+        screenProfile: { width: 5120, height: 2880, zoomPercent: 200 },
+      });
+
+      expect(mockAxiosInstance.get.mock.calls[0][1]?.params).toEqual({
+        path: "/document.pdf",
+        pdf_variant: "normalized",
+        screen_width: 5120,
+        screen_height: 2880,
+        screen_zoom_percent: 200,
+      });
+    });
+
     it("should default to application/pdf if content-type missing", async () => {
       const pdfData = new ArrayBuffer(1024);
       mockAxiosInstance.get.mockResolvedValueOnce({
