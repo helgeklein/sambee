@@ -16,6 +16,7 @@ class TestCurrentUserSettingsApi:
         assert data["localization"]["language"] == "browser"
         assert data["localization"]["regional_locale"] == "browser"
         assert data["browser"]["quick_nav_include_dot_directories"] is False
+        assert data["browser"]["quick_bar_shortcut_hint_visibility"] == "auto"
         assert data["browser"]["file_browser_view_mode"] == "list"
         assert data["browser"]["pane_mode"] == "single"
         assert data["browser"]["selected_connection_id"] is None
@@ -44,6 +45,7 @@ class TestCurrentUserSettingsApi:
                 },
                 "browser": {
                     "quick_nav_include_dot_directories": True,
+                    "quick_bar_shortcut_hint_visibility": "never",
                     "file_browser_view_mode": "details",
                     "pane_mode": "dual",
                     "selected_connection_id": "conn-123",
@@ -65,6 +67,7 @@ class TestCurrentUserSettingsApi:
         assert data["localization"]["language"] == "en"
         assert data["localization"]["regional_locale"] == "en-GB"
         assert data["browser"]["quick_nav_include_dot_directories"] is True
+        assert data["browser"]["quick_bar_shortcut_hint_visibility"] == "never"
         assert data["browser"]["file_browser_view_mode"] == "details"
         assert data["browser"]["pane_mode"] == "dual"
         assert data["browser"]["selected_connection_id"] == "conn-123"
@@ -81,6 +84,7 @@ class TestCurrentUserSettingsApi:
         assert values[UserSettingKey.LOCALIZATION_LANGUAGE.value] == "en"
         assert values[UserSettingKey.LOCALIZATION_REGIONAL_LOCALE.value] == "en-GB"
         assert values[UserSettingKey.BROWSER_QUICK_NAV_INCLUDE_DOT_DIRECTORIES.value] == "true"
+        assert values[UserSettingKey.BROWSER_QUICK_BAR_SHORTCUT_HINT_VISIBILITY.value] == "never"
         assert values[UserSettingKey.BROWSER_FILE_BROWSER_VIEW_MODE.value] == "details"
         assert values[UserSettingKey.BROWSER_PANE_MODE.value] == "dual"
         assert values[UserSettingKey.BROWSER_SELECTED_CONNECTION_ID.value] == "conn-123"

@@ -8,8 +8,10 @@ export const FILE_BROWSER_VIEW_MODE_STORAGE_KEY = "file-browser-view-mode";
 export const FILE_BROWSER_PANE_MODE_STORAGE_KEY = "dual-pane-mode";
 export const SELECTED_CONNECTION_ID_STORAGE_KEY = "selectedConnectionId";
 export const TEXT_EDITOR_MAX_FILE_SIZE_BYTES_STORAGE_KEY = "text-editor-max-file-size-bytes";
+export const QUICK_BAR_SHORTCUT_HINT_VISIBILITY_STORAGE_KEY = "quick-bar-shortcut-hint-visibility";
 
 const QUICK_NAV_PREFERENCE_EVENT = "sambee:quick-nav-dot-directories-changed";
+const QUICK_BAR_SHORTCUT_HINT_VISIBILITY_PREFERENCE_EVENT = "sambee:quick-bar-shortcut-hint-visibility-changed";
 const VIEW_MODE_PREFERENCE_EVENT = "sambee:file-browser-view-mode-changed";
 const PANE_MODE_PREFERENCE_EVENT = "sambee:file-browser-pane-mode-changed";
 const SELECTED_CONNECTION_PREFERENCE_EVENT = "sambee:selected-connection-changed";
@@ -17,6 +19,18 @@ const TEXT_EDITOR_MAX_FILE_SIZE_PREFERENCE_EVENT = "sambee:text-editor-max-file-
 const ENABLED_STORAGE_VALUE = "true";
 const DISABLED_STORAGE_VALUE = "false";
 const DEFAULT_TEXT_EDITOR_MAX_FILE_SIZE_BYTES = 52_428_800;
+const QUICK_BAR_KEYBOARD_EVIDENCE_SESSION_STORAGE_KEY = "quick-bar-keyboard-evidence";
+const KEYBOARD_MODIFIER_KEYS = new Set(["Alt", "AltGraph", "CapsLock", "Control", "Meta", "NumLock", "ScrollLock", "Shift"]);
+
+export type QuickBarShortcutHintVisibility = "auto" | "always" | "never";
+
+function isQuickBarShortcutHintVisibility(value: string | null): value is QuickBarShortcutHintVisibility {
+  return value === "auto" || value === "always" || value === "never";
+}
+
+export function isQuickBarKeyboardEvidenceEvent(event: Pick<KeyboardEvent, "isComposing" | "isTrusted" | "key">): boolean {
+  return event.isTrusted && !event.isComposing && !KEYBOARD_MODIFIER_KEYS.has(event.key);
+}
 
 function normalizeSelectedConnectionId(connectionId: string | null | undefined): string | null {
   const normalized = connectionId?.trim();
@@ -49,6 +63,110 @@ export function writeQuickNavIncludeDotDirectoriesPreference(enabled: boolean): 
       quick_nav_include_dot_directories: enabled,
     },
   });
+}
+
+export function readQuickBarShortcutHintVisibilityPreference(): QuickBarShortcutHintVisibility {
+  const storedValue = localStorage.getItem(QUICK_BAR_SHORTCUT_HINT_VISIBILITY_STORAGE_KEY);
+  return isQuickBarShortcutHintVisibility(storedValue) ? storedValue : "auto";
+}
+
+function setQuickBarShortcutHintVisibilityPreference(value: QuickBarShortcutHintVisibility, dispatchEvent: boolean): void {
+  localStorage.setItem(QUICK_BAR_SHORTCUT_HINT_VISIBILITY_STORAGE_KEY, value);
+  if (dispatchEvent) {
+    window.dispatchEvent(new CustomEvent(QUICK_BAR_SHORTCUT_HINT_VISIBILITY_PREFERENCE_EVENT, { detail: value }));
+  }
+}
+
+export function writeQuickBarShortcutHintVisibilityPreference(value: QuickBarShortcutHintVisibility): void {
+  setQuickBarShortcutHintVisibilityPreference(value, true);
+  void patchCurrentUserSettings({
+    browser: {
+      quick_bar_shortcut_hint_visibility: value,
+    },
+  });
+}
+
+export function useQuickBarShortcutHintVisibilityPreference(): [
+  QuickBarShortcutHintVisibility,
+  (value: QuickBarShortcutHintVisibility) => void,
+] {
+  const [visibility, setVisibility] = useState<QuickBarShortcutHintVisibility>(() => readQuickBarShortcutHintVisibilityPreference());
+
+  useEffect(() => {
+    let cancelled = false;
+
+    const applyBackendPreference = (settings: CurrentUserSettings | null) => {
+      if (!settings) {
+        return;
+      }
+
+      const backendValue = settings.browser.quick_bar_shortcut_hint_visibility;
+      if (!isQuickBarShortcutHintVisibility(backendValue)) {
+        return;
+      }
+      setQuickBarShortcutHintVisibilityPreference(backendValue, true);
+      setVisibility(backendValue);
+    };
+
+    const updatePreference = () => {
+      setVisibility(readQuickBarShortcutHintVisibilityPreference());
+    };
+
+    const handleStorage = (event: StorageEvent) => {
+      if (isStorageEventForKey(event, QUICK_BAR_SHORTCUT_HINT_VISIBILITY_STORAGE_KEY)) {
+        updatePreference();
+      }
+    };
+
+    const handleUserSettingsChanged = (event: Event) => {
+      applyBackendPreference((event as CustomEvent<CurrentUserSettings>).detail);
+    };
+
+    window.addEventListener("storage", handleStorage);
+    window.addEventListener(QUICK_BAR_SHORTCUT_HINT_VISIBILITY_PREFERENCE_EVENT, updatePreference);
+    window.addEventListener(USER_SETTINGS_CHANGED_EVENT, handleUserSettingsChanged);
+
+    void loadCurrentUserSettings().then((settings) => {
+      if (!cancelled) {
+        applyBackendPreference(settings);
+      }
+    });
+
+    return () => {
+      cancelled = true;
+      window.removeEventListener("storage", handleStorage);
+      window.removeEventListener(QUICK_BAR_SHORTCUT_HINT_VISIBILITY_PREFERENCE_EVENT, updatePreference);
+      window.removeEventListener(USER_SETTINGS_CHANGED_EVENT, handleUserSettingsChanged);
+    };
+  }, []);
+
+  return [visibility, writeQuickBarShortcutHintVisibilityPreference];
+}
+
+export function useQuickBarKeyboardHints(visibility: QuickBarShortcutHintVisibility, useCompactLayout: boolean): boolean {
+  const [hasKeyboardEvidence, setHasKeyboardEvidence] = useState(() => {
+    return sessionStorage.getItem(QUICK_BAR_KEYBOARD_EVIDENCE_SESSION_STORAGE_KEY) === ENABLED_STORAGE_VALUE;
+  });
+
+  useEffect(() => {
+    if (visibility !== "auto" || !useCompactLayout || hasKeyboardEvidence) {
+      return;
+    }
+
+    const handleKeyDown = (event: KeyboardEvent) => {
+      if (!isQuickBarKeyboardEvidenceEvent(event)) {
+        return;
+      }
+
+      sessionStorage.setItem(QUICK_BAR_KEYBOARD_EVIDENCE_SESSION_STORAGE_KEY, ENABLED_STORAGE_VALUE);
+      setHasKeyboardEvidence(true);
+    };
+
+    window.addEventListener("keydown", handleKeyDown, true);
+    return () => window.removeEventListener("keydown", handleKeyDown, true);
+  }, [hasKeyboardEvidence, useCompactLayout, visibility]);
+
+  return visibility === "always" || (visibility === "auto" && (!useCompactLayout || hasKeyboardEvidence));
 }
 
 export function readFileBrowserViewModePreference(): ViewMode {

@@ -114,7 +114,39 @@ vi.mock("react-pdf", () => ({
       </div>
     );
   },
-  Page: ({ pageNumber, scale, width, rotate }: { pageNumber: number; scale?: number; width?: number; rotate?: number }) => {
+  Page: ({
+    pageNumber,
+    scale,
+    width,
+    rotate,
+    renderTextLayer,
+    onLoadSuccess,
+    onRenderTextLayerSuccess,
+  }: {
+    pageNumber: number;
+    scale?: number;
+    width?: number;
+    rotate?: number;
+    renderTextLayer?: boolean;
+    onLoadSuccess?: (page: { getViewport: (params: { scale: number; rotation?: number }) => { width: number; height: number } }) => void;
+    onRenderTextLayerSuccess?: () => void;
+  }) => {
+    const pageWidth = pageNumber === 1 ? 612 : 1224;
+    const pageHeight = 792;
+    mockPageRenderCounts.set(pageNumber, (mockPageRenderCounts.get(pageNumber) ?? 0) + 1);
+
+    useEffect(() => {
+      onLoadSuccess?.({
+        getViewport: ({ rotation: viewportRotation }) =>
+          viewportRotation && viewportRotation % 180 !== 0
+            ? { width: pageHeight, height: pageWidth }
+            : { width: pageWidth, height: pageHeight },
+      });
+      if (renderTextLayer && pageNumber !== mockMissingTextLayerPage) {
+        onRenderTextLayerSuccess?.();
+      }
+    }, [onLoadSuccess, onRenderTextLayerSuccess, pageNumber, pageWidth, renderTextLayer]);
+
     const textLayerSpans =
       pageNumber === 1
         ? ["Page sample text", "MDT Di", "mmaktor", "MDT_DB_Di", "mmaktor_02.pdf"]
@@ -125,11 +157,13 @@ vi.mock("react-pdf", () => ({
     return (
       <div data-testid="pdf-page" data-page={pageNumber} data-scale={scale} data-width={width} data-rotate={rotate}>
         <canvas />
-        <div className="react-pdf__Page__textContent">
-          {textLayerSpans.map((text) => (
-            <span key={`${pageNumber}-${text}`}>{text}</span>
-          ))}
-        </div>
+        {renderTextLayer && pageNumber !== mockMissingTextLayerPage && (
+          <div className="react-pdf__Page__textContent">
+            {textLayerSpans.map((text) => (
+              <span key={`${pageNumber}-${text}`}>{text}</span>
+            ))}
+          </div>
+        )}
       </div>
     );
   },
@@ -154,6 +188,8 @@ global.URL.revokeObjectURL = mockRevokeObjectURL;
 
 let capturedInitialDocumentItemClick: ((args: { dest?: unknown; pageIndex?: number; pageNumber?: number }) => void) | undefined;
 let mockBlobUrlCounter = 0;
+let mockMissingTextLayerPage: number | null = null;
+let mockPageRenderCounts = new Map<number, number>();
 
 function mockMatchMedia(matches: boolean) {
   Object.defineProperty(window, "matchMedia", {
@@ -210,6 +246,7 @@ global.ResizeObserver = class MockResizeObserver {
 } as unknown as typeof ResizeObserver;
 
 describe("PDFViewer", () => {
+  const SWIPE_SETTLE_WAIT_MS = 500;
   const viewerSearch = createViewerSearchTestDriver();
 
   const findPageCounterText = (expectedText: string) =>
@@ -220,6 +257,35 @@ describe("PDFViewer", () => {
 
       return !Array.from(node.children).some((child) => child.textContent?.trim() === expectedText);
     });
+
+  const getActivePdfPage = () => {
+    const activePage = document.querySelector('[data-page-number] [data-testid="pdf-page"]');
+    if (!(activePage instanceof HTMLElement)) {
+      throw new Error("Active PDF page is not rendered");
+    }
+
+    return activePage;
+  };
+
+  const dragCarousel = (element: HTMLElement, startX: number, startY: number, endX: number, endY: number) => {
+    fireEvent.pointerDown(element, {
+      pointerId: 1,
+      pointerType: "touch",
+      isPrimary: true,
+      clientX: startX,
+      clientY: startY,
+      buttons: 1,
+    });
+    fireEvent.pointerMove(window, {
+      pointerId: 1,
+      pointerType: "touch",
+      isPrimary: true,
+      clientX: endX,
+      clientY: endY,
+      buttons: 1,
+    });
+    fireEvent.pointerUp(window, { pointerId: 1, pointerType: "touch", isPrimary: true, clientX: endX, clientY: endY });
+  };
 
   const mockOnClose = vi.fn();
   const defaultProps = {
@@ -232,6 +298,8 @@ describe("PDFViewer", () => {
     vi.clearAllMocks();
     capturedInitialDocumentItemClick = undefined;
     mockBlobUrlCounter = 0;
+    mockMissingTextLayerPage = null;
+    mockPageRenderCounts = new Map();
     mockCreateObjectURL.mockImplementation(() => `blob:mock-url-${++mockBlobUrlCounter}`);
     mockMatchMedia(false);
     Object.defineProperty(globalThis, "navigator", {
@@ -357,6 +425,28 @@ describe("PDFViewer", () => {
         },
         { timeout: 2000 }
       );
+    });
+
+    it("retries a failed PDF load when requested", async () => {
+      const error = {
+        response: { data: { detail: "PDF request timed out" }, status: 504 },
+        message: "Request failed",
+      };
+      (apiService.getPdfBlob as Mock).mockRejectedValueOnce(error).mockResolvedValueOnce(new Blob(["mock pdf content"]));
+
+      renderPDFViewer();
+
+      await waitFor(() => {
+        expect(screen.getByText("PDF request timed out")).toBeInTheDocument();
+      });
+
+      await userEvent.click(screen.getByRole("button", { name: "Retry" }));
+
+      await waitFor(() => {
+        expect(screen.getByTestId("pdf-document")).toBeInTheDocument();
+      });
+
+      expect(apiService.getPdfBlob).toHaveBeenCalledTimes(2);
     });
 
     it("reuses the loaded PDF blob for mobile share", async () => {
@@ -562,44 +652,131 @@ describe("PDFViewer", () => {
       renderPDFViewer();
 
       await waitFor(() => {
-        expect(screen.getByTestId("pdf-page")).toHaveAttribute("data-page", "1");
+        expect(getActivePdfPage()).toHaveAttribute("data-page", "1");
       });
 
       const content = screen.getByTestId("pdf-viewer-content");
-      fireEvent.pointerDown(content, { pointerId: 1, pointerType: "touch", isPrimary: true, clientX: 300, clientY: 200 });
-      fireEvent.pointerUp(content, { pointerId: 1, pointerType: "touch", isPrimary: true, clientX: 200, clientY: 200 });
+      dragCarousel(content, 300, 200, 50, 200);
 
       await waitFor(() => {
-        expect(screen.getByTestId("pdf-page")).toHaveAttribute("data-page", "2");
+        expect(getActivePdfPage()).toHaveAttribute("data-page", "2");
       });
 
-      fireEvent.pointerDown(content, { pointerId: 2, pointerType: "touch", isPrimary: true, clientX: 200, clientY: 200 });
-      fireEvent.pointerUp(content, { pointerId: 2, pointerType: "touch", isPrimary: true, clientX: 300, clientY: 200 });
+      dragCarousel(content, 50, 200, 300, 200);
 
       await waitFor(() => {
-        expect(screen.getByTestId("pdf-page")).toHaveAttribute("data-page", "1");
+        expect(getActivePdfPage()).toHaveAttribute("data-page", "1");
       });
     });
 
-    it("ignores short, vertical, and non-touch pointer gestures", async () => {
+    it("moves the page track during a mobile drag and prevents text selection", async () => {
       mockMatchMedia(true);
       renderPDFViewer();
 
       await waitFor(() => {
-        expect(screen.getByTestId("pdf-page")).toHaveAttribute("data-page", "1");
+        expect(screen.getByTestId("pdf-swipe-track")).toBeInTheDocument();
       });
 
       const content = screen.getByTestId("pdf-viewer-content");
-      fireEvent.pointerDown(content, { pointerId: 1, pointerType: "touch", isPrimary: true, clientX: 300, clientY: 200 });
-      fireEvent.pointerUp(content, { pointerId: 1, pointerType: "touch", isPrimary: true, clientX: 260, clientY: 200 });
+      const track = screen.getByTestId("pdf-swipe-track");
+      expect(content).toHaveStyle({ touchAction: "pan-y", userSelect: "none" });
+      const initialTransform = track.style.transform;
 
-      fireEvent.pointerDown(content, { pointerId: 2, pointerType: "touch", isPrimary: true, clientX: 300, clientY: 200 });
-      fireEvent.pointerUp(content, { pointerId: 2, pointerType: "touch", isPrimary: true, clientX: 250, clientY: 320 });
+      fireEvent.pointerDown(content, {
+        pointerId: 1,
+        pointerType: "touch",
+        isPrimary: true,
+        clientX: 300,
+        clientY: 200,
+        buttons: 1,
+      });
+      fireEvent.pointerMove(window, {
+        pointerId: 1,
+        pointerType: "touch",
+        isPrimary: true,
+        clientX: 200,
+        clientY: 200,
+        buttons: 1,
+      });
 
-      fireEvent.pointerDown(content, { pointerId: 3, pointerType: "mouse", isPrimary: true, clientX: 300, clientY: 200 });
-      fireEvent.pointerUp(content, { pointerId: 3, pointerType: "mouse", isPrimary: true, clientX: 200, clientY: 200 });
+      await waitFor(() => {
+        expect(track.style.transform).not.toBe(initialTransform);
+        expect(track.style.transform).toMatch(/\+ -[1-9]\d*px/);
+      });
 
-      expect(screen.getByTestId("pdf-page")).toHaveAttribute("data-page", "1");
+      fireEvent.pointerUp(window, { pointerId: 1, pointerType: "touch", isPrimary: true, clientX: 200, clientY: 200 });
+    });
+
+    it("does not let an in-flight swipe override direct page navigation", async () => {
+      mockMatchMedia(true);
+      renderPDFViewer();
+
+      await waitFor(() => {
+        expect(getActivePdfPage()).toHaveAttribute("data-page", "1");
+      });
+
+      dragCarousel(screen.getByTestId("pdf-viewer-content"), 300, 200, 50, 200);
+
+      const pageInput = screen.getByRole("textbox");
+      fireEvent.change(pageInput, { target: { value: "4" } });
+      fireEvent.blur(pageInput);
+
+      await waitFor(() => {
+        expect(getActivePdfPage()).toHaveAttribute("data-page", "4");
+      });
+
+      await new Promise((resolve) => window.setTimeout(resolve, SWIPE_SETTLE_WAIT_MS));
+      expect(getActivePdfPage()).toHaveAttribute("data-page", "4");
+    });
+
+    it("cancels an in-flight swipe when loading a new document", async () => {
+      mockMatchMedia(true);
+      const { rerender } = renderPDFViewer();
+
+      await waitFor(() => {
+        expect(getActivePdfPage()).toHaveAttribute("data-page", "1");
+      });
+
+      dragCarousel(screen.getByTestId("pdf-viewer-content"), 300, 200, 50, 200);
+
+      rerender(
+        <SambeeThemeProvider>
+          <PDFViewer {...defaultProps} path="/test/replacement.pdf" />
+        </SambeeThemeProvider>
+      );
+
+      await waitFor(() => {
+        expect(apiService.getPdfBlob).toHaveBeenCalledWith(
+          "test-conn-id",
+          "/test/replacement.pdf",
+          expect.objectContaining({ signal: expect.anything() })
+        );
+        expect(getActivePdfPage()).toHaveAttribute("data-page", "1");
+      });
+
+      await new Promise((resolve) => window.setTimeout(resolve, SWIPE_SETTLE_WAIT_MS));
+      expect(getActivePdfPage()).toHaveAttribute("data-page", "1");
+
+      dragCarousel(screen.getByTestId("pdf-viewer-content"), 300, 200, 50, 200);
+
+      await waitFor(() => {
+        expect(getActivePdfPage()).toHaveAttribute("data-page", "2");
+      });
+    });
+
+    it("ignores short and vertical drag gestures", async () => {
+      mockMatchMedia(true);
+      renderPDFViewer();
+
+      await waitFor(() => {
+        expect(getActivePdfPage()).toHaveAttribute("data-page", "1");
+      });
+
+      const content = screen.getByTestId("pdf-viewer-content");
+      dragCarousel(content, 300, 200, 260, 200);
+      dragCarousel(content, 300, 200, 250, 320);
+
+      expect(getActivePdfPage()).toHaveAttribute("data-page", "1");
     });
 
     it("does not navigate beyond page boundaries with mobile swipes", async () => {
@@ -607,14 +784,13 @@ describe("PDFViewer", () => {
       renderPDFViewer();
 
       await waitFor(() => {
-        expect(screen.getByTestId("pdf-page")).toHaveAttribute("data-page", "1");
+        expect(getActivePdfPage()).toHaveAttribute("data-page", "1");
       });
 
       const content = screen.getByTestId("pdf-viewer-content");
-      fireEvent.pointerDown(content, { pointerId: 1, pointerType: "touch", isPrimary: true, clientX: 200, clientY: 200 });
-      fireEvent.pointerUp(content, { pointerId: 1, pointerType: "touch", isPrimary: true, clientX: 300, clientY: 200 });
+      dragCarousel(content, 200, 200, 500, 200);
 
-      expect(screen.getByTestId("pdf-page")).toHaveAttribute("data-page", "1");
+      expect(getActivePdfPage()).toHaveAttribute("data-page", "1");
     });
 
     it("does not navigate pages with swipes after zooming", async () => {
@@ -622,10 +798,10 @@ describe("PDFViewer", () => {
       renderPDFViewer();
 
       await waitFor(() => {
-        expect(screen.getByTestId("pdf-page")).toHaveAttribute("data-page", "1");
+        expect(getActivePdfPage()).toHaveAttribute("data-page", "1");
       });
 
-      const initialScale = screen.getByTestId("pdf-page").getAttribute("data-scale");
+      const initialScale = getActivePdfPage().getAttribute("data-scale");
       fireEvent.keyDown(document, { key: "+" });
 
       await waitFor(() => {
@@ -633,7 +809,7 @@ describe("PDFViewer", () => {
       });
 
       const content = screen.getByTestId("pdf-viewer-content");
-      expect(content).toHaveStyle({ touchAction: "auto" });
+      expect(content).toHaveStyle({ touchAction: "auto", userSelect: "auto" });
       fireEvent.pointerDown(content, { pointerId: 1, pointerType: "touch", isPrimary: true, clientX: 300, clientY: 200 });
       fireEvent.pointerUp(content, { pointerId: 1, pointerType: "touch", isPrimary: true, clientX: 200, clientY: 200 });
 
@@ -1021,6 +1197,57 @@ describe("PDFViewer", () => {
       // Component doesn't display mode text, just verify page renders with scale
       const page = screen.getByTestId("pdf-page");
       expect(page).toHaveAttribute("data-scale");
+    });
+
+    it("fits landscape pages using their own viewport and settles after navigation", async () => {
+      renderPDFViewer();
+
+      await waitFor(() => {
+        expect(screen.getByTestId("pdf-page")).toHaveAttribute("data-page", "1");
+      });
+
+      fireEvent.click(screen.getByLabelText("Next page"));
+
+      await waitFor(() => {
+        const landscapeScale = Number(screen.getByTestId("pdf-page").getAttribute("data-scale"));
+        expect(screen.getByTestId("pdf-page")).toHaveAttribute("data-page", "2");
+        expect(landscapeScale).toBeCloseTo(800 / 1224, 4);
+      });
+
+      fireEvent.click(screen.getByLabelText("Next page"));
+
+      await waitFor(() => {
+        expect(screen.getByTestId("pdf-page")).toHaveAttribute("data-page", "3");
+      });
+
+      const settledRenderCount = mockPageRenderCounts.get(3);
+      await new Promise((resolve) => window.setTimeout(resolve, 150));
+      expect(mockPageRenderCounts.get(3)).toBe(settledRenderCount);
+    });
+
+    it("does not poll when an active page has no text layer", async () => {
+      renderPDFViewer();
+
+      await waitFor(() => {
+        expect(screen.getByTestId("pdf-page")).toHaveAttribute("data-page", "1");
+      });
+
+      await viewerSearch.openSearch("dimm");
+      await waitFor(() => {
+        expect(getSearchHighlights()).toHaveLength(4);
+      });
+
+      mockMissingTextLayerPage = 3;
+      fireEvent.click(screen.getByLabelText("Next page"));
+      fireEvent.click(screen.getByLabelText("Next page"));
+
+      await waitFor(() => {
+        expect(screen.getByTestId("pdf-page")).toHaveAttribute("data-page", "3");
+      });
+
+      const settledRenderCount = mockPageRenderCounts.get(3);
+      await new Promise((resolve) => window.setTimeout(resolve, 150));
+      expect(mockPageRenderCounts.get(3)).toBe(settledRenderCount);
     });
 
     it("handles fit-width mode", async () => {

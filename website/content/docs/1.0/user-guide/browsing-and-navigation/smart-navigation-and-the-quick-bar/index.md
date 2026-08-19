@@ -17,6 +17,14 @@ The quick bar has multiple modes:
 1. Sambee lists matches across the current connection.
 1. Choose a match to open that directory.
 
+### Recent Directory History
+
+Recent directories appear before cache-based directory matches, including when the search box is empty. Choose a recent directory to switch to its connection and open the saved location. A directory that is both recent and present in the active connection's cache is shown once in Recent directories.
+
+To remove only the selected item from Recent directories, press <kbd>Shift</kbd> + <kbd>Delete</kbd>. This removes history metadata; it never deletes the underlying directory or its contents.
+
+Sambee records a directory after it opens successfully. History is private to your account. You can clear your directory history from **Settings** > **File Browser** > **Directory Navigation**.
+
 ## Find Files with File Search
 
 1. Press <kbd>/</kbd> when the file browser has keyboard focus.
@@ -41,6 +49,14 @@ The File Search settings show whether Sambee is using the built-in defaults or a
 If a recent remote file no longer exists, Sambee removes its stale history entry after confirming that state. For local drives, Companion distinguishes a missing or no-longer-regular file from an unavailable drive; confirmed stale targets are removed, while unavailable, unpaired, or temporarily failing local drives keep their history for a later retry.
 
 You can clear your own history from **Settings** > **File Browser** > **File Search**. Administrators can set retention, per-group result limits, and exclusion rules in **Settings** > **File Search**. Add each extension exclusion as one literal extension; Sambee normalizes it, such as `TMP` to `.tmp`, and lets you remove it from the exclusion list.
+
+## Quick Bar Shortcut Hints
+
+Choose when shortcut hints appear in **Settings** > **File Browser** > **Shortcut hints**:
+
+- **Auto** shows hints on larger layouts and after you use a keyboard in the current compact-layout session.
+- **Always** shows hints in every layout.
+- **Never** hides the shortcut labels while keeping Quick Bar status information visible.
 
 ## Locate and Run Any Command
 

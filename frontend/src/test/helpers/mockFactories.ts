@@ -22,9 +22,12 @@ export interface ApiMock {
   deleteConnection: Mock;
   deleteItem: Mock;
   renameItem: Mock;
+  getFileInfo: Mock;
   getImageBlob: Mock;
   searchDirectories: Mock;
+  searchRecentDirectories: Mock;
   searchRecentFiles: Mock;
+  recordRecentDirectory: Mock;
   recordRecentFile: Mock;
 }
 
@@ -41,6 +44,7 @@ export function setupSuccessfulApiMocks(api: ApiMock): void {
     },
     browser: {
       quick_nav_include_dot_directories: false,
+      quick_bar_shortcut_hint_visibility: "auto",
       file_browser_view_mode: "list",
       pane_mode: "single",
       selected_connection_id: null,
@@ -80,6 +84,7 @@ export function setupSuccessfulApiMocks(api: ApiMock): void {
       is_hidden: false,
     })
   );
+  api.getFileInfo.mockResolvedValue({ type: "directory" });
 
   // Mock getImageBlob to return a fake blob
   api.getImageBlob.mockResolvedValue(new Blob(["fake-image-data"], { type: "image/png" }));
@@ -91,7 +96,9 @@ export function setupSuccessfulApiMocks(api: ApiMock): void {
     cache_state: "ready",
     directory_count: 0,
   });
+  api.searchRecentDirectories.mockResolvedValue({ results: [], result_limit: 10 });
   api.searchRecentFiles.mockResolvedValue({ results: [] });
+  api.recordRecentDirectory.mockResolvedValue(null);
   api.recordRecentFile.mockResolvedValue(null);
 }
 
@@ -139,6 +146,7 @@ export function setupNavigationApiMocks(api: ApiMock): void {
     },
     browser: {
       quick_nav_include_dot_directories: false,
+      quick_bar_shortcut_hint_visibility: "auto",
       file_browser_view_mode: "list",
       pane_mode: "single",
       selected_connection_id: null,
@@ -233,8 +241,13 @@ export function createMockApi(): ApiMock {
     deleteConnection: vi.fn(),
     deleteItem: vi.fn(),
     renameItem: vi.fn(),
+    getFileInfo: vi.fn(),
     getImageBlob: vi.fn(),
     searchDirectories: vi.fn(),
+    searchRecentDirectories: vi.fn(),
+    searchRecentFiles: vi.fn(),
+    recordRecentDirectory: vi.fn(),
+    recordRecentFile: vi.fn(),
   };
 }
 

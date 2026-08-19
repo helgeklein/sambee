@@ -89,6 +89,8 @@ export interface FileBrowserPaneProps {
   onSearchArrowDownToFileList?: () => void;
   /** Explicit quick-bar mode options shown in the search bar. */
   modeOptions?: UnifiedSearchBarModeOption[];
+  /** Whether keyboard shortcut hints are useful in the active input context. */
+  showKeyboardHints?: boolean;
 }
 
 // ============================================================================
@@ -113,6 +115,7 @@ export const FileBrowserPane: React.FC<FileBrowserPaneProps> = ({
   disableSearchDropdown,
   suppressSearchDropdown,
   onSearchArrowDownToFileList,
+  showKeyboardHints,
   modeOptions,
 }) => {
   const theme = useTheme();
@@ -379,6 +382,7 @@ export const FileBrowserPane: React.FC<FileBrowserPaneProps> = ({
             suppressDropdown={suppressSearchDropdown}
             onArrowDownToFileList={onSearchArrowDownToFileList}
             modeOptions={modeOptions}
+            showKeyboardHints={showKeyboardHints}
           />
           {connectionIsReadOnly && (
             <Box sx={{ px: 2, pb: 1 }}>

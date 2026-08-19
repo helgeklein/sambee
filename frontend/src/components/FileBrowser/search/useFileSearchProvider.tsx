@@ -4,6 +4,7 @@ import type { BrowserOpenMode } from "../../../pages/FileBrowser/types";
 import api from "../../../services/api";
 import { publishRecentFilesChanged } from "../../../services/recentFilesSync";
 import type { FileEntry, RecentFile } from "../../../types";
+import { removeRecentHistoryResult } from "./recentHistory";
 import type { SearchProvider, SearchResult, SearchSelectionAction, SearchStatusInfo, SearchTextHighlight } from "./types";
 
 const CURRENT_DIRECTORY_PREFIX = "current:";
@@ -149,17 +150,13 @@ export function useFileSearchProvider({
   const getStatusInfo = useCallback((): SearchStatusInfo | null => null, []);
 
   const onRemoveSelected = useCallback(async (value: string) => {
-    if (!value.startsWith(RECENT_FILE_PREFIX)) {
-      return false;
-    }
-    const recordId = value.slice(RECENT_FILE_PREFIX.length);
-    if (!recentFilesRef.current.has(recordId)) {
-      return false;
-    }
-    await api.removeRecentFile(recordId);
-    recentFilesRef.current.delete(recordId);
-    publishRecentFilesChanged();
-    return true;
+    return removeRecentHistoryResult({
+      value,
+      prefix: RECENT_FILE_PREFIX,
+      records: recentFilesRef.current,
+      remove: api.removeRecentFile.bind(api),
+      publish: publishRecentFilesChanged,
+    });
   }, []);
 
   return {

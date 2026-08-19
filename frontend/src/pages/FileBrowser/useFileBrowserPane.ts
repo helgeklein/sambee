@@ -24,6 +24,7 @@ import api from "../../services/api";
 import { isClientTimeoutError, isLocalAbortError } from "../../services/backendAvailability";
 import { isLocalDrive, normalizeLocalDrivePath } from "../../services/backendRouter";
 import { logger } from "../../services/logger";
+import { publishRecentDirectoriesChanged } from "../../services/recentDirectoriesSync";
 import { publishRecentFilesChanged } from "../../services/recentFilesSync";
 import { useSambeeTheme } from "../../theme";
 import type { FileEntry, RecentFileValidationError } from "../../types";
@@ -115,12 +116,60 @@ function isPermanentLocalRecentOpenFailure(code: string | null): boolean {
   return code !== null && PERMANENT_LOCAL_RECENT_OPEN_FAILURE_CODES.some((failureCode) => failureCode === code);
 }
 
+function recordRecentHistoryEntry({
+  connectionId,
+  path,
+  expectedType,
+  record,
+  publish,
+  itemName,
+}: {
+  connectionId: string;
+  path: string;
+  expectedType: FileType;
+  record: (connectionId: string, path: string) => Promise<unknown>;
+  publish: () => void;
+  itemName: "directory" | "file";
+}): void {
+  if (isLocalDrive(connectionId)) {
+    void api
+      .getFileInfo(connectionId, path)
+      .then((item) => {
+        if (item.type !== expectedType) {
+          return false;
+        }
+        return record(connectionId, path).then(() => true);
+      })
+      .then((recorded) => {
+        if (recorded) {
+          publish();
+        }
+      })
+      .catch((error: unknown) => logger.warn(`Failed to qualify local recent ${itemName}`, { connectionId, path, error }, "browser"));
+    return;
+  }
+
+  void Promise.resolve()
+    .then(() => record(connectionId, path))
+    .then(() => publish())
+    .catch((error: unknown) => logger.warn(`Failed to record recent ${itemName}`, { connectionId, path, error }, "browser"));
+}
+
 // ============================================================================
 // Hook
 // ============================================================================
 
 export function useFileBrowserPane(config: UseFileBrowserPaneConfig): UseFileBrowserPaneReturn {
-  const { rowHeight, connections = [], disabled = false, isActive = true, onCompanionHint, onNavigatePath, onNavigateConnection } = config;
+  const {
+    rowHeight,
+    connections = [],
+    disabled = false,
+    isActive = true,
+    onCompanionHint,
+    onNavigatePath,
+    onNavigateConnection,
+    onNavigateDirectory,
+  } = config;
 
   const { currentTheme } = useSambeeTheme();
 
@@ -184,26 +233,39 @@ export function useFileBrowserPane(config: UseFileBrowserPaneConfig): UseFileBro
 
   const selectedConnection = useMemo(() => getConnectionById(connections, connectionId), [connections, connectionId]);
   const connectionIsReadOnly = isConnectionReadOnly(selectedConnection);
+  const pendingRecentDirectoryVisitRef = React.useRef<{ connectionId: string; path: string } | null>(null);
 
-  const recordRecentFileAttempt = useCallback((targetConnectionId: string, path: string) => {
-    if (isLocalDrive(targetConnectionId)) {
-      void api
-        .getFileInfo(targetConnectionId, path)
-        .then((file) => {
-          if (file.type !== FileType.FILE) return;
-          return api.recordRecentFile(targetConnectionId, path).then(() => true);
-        })
-        .then((recorded) => {
-          if (recorded) publishRecentFilesChanged();
-        })
-        .catch((error: unknown) =>
-          logger.warn("Failed to qualify local recent file", { connectionId: targetConnectionId, path, error }, "browser")
-        );
+  const recordRecentDirectoryVisit = useCallback((targetConnectionId: string, path: string) => {
+    if (!path) {
       return;
     }
-    void Promise.resolve(api.recordRecentFile(targetConnectionId, path))
-      .then(() => publishRecentFilesChanged())
-      .catch((error: unknown) => logger.warn("Failed to record recent file", { connectionId: targetConnectionId, path, error }, "browser"));
+
+    recordRecentHistoryEntry({
+      connectionId: targetConnectionId,
+      path,
+      expectedType: FileType.DIRECTORY,
+      record: api.recordRecentDirectory.bind(api),
+      publish: publishRecentDirectoriesChanged,
+      itemName: "directory",
+    });
+  }, []);
+
+  const clearPendingRecentDirectoryVisit = useCallback((targetConnectionId: string, path: string) => {
+    const pendingVisit = pendingRecentDirectoryVisitRef.current;
+    if (pendingVisit?.connectionId === targetConnectionId && pendingVisit.path === path) {
+      pendingRecentDirectoryVisitRef.current = null;
+    }
+  }, []);
+
+  const recordRecentFileAttempt = useCallback((targetConnectionId: string, path: string) => {
+    recordRecentHistoryEntry({
+      connectionId: targetConnectionId,
+      path,
+      expectedType: FileType.FILE,
+      record: api.recordRecentFile.bind(api),
+      publish: publishRecentFilesChanged,
+      itemName: "file",
+    });
   }, []);
 
   const removeRecentFileRecord = useCallback(async (recordId: string) => {
@@ -250,6 +312,8 @@ export function useFileBrowserPane(config: UseFileBrowserPaneConfig): UseFileBro
 
       const normalizedPath = normalizeLocalDrivePath(nextConnectionId, nextPath);
 
+      pendingRecentDirectoryVisitRef.current = normalizedPath ? { connectionId: nextConnectionId, path: normalizedPath } : null;
+
       pendingLocationRef.current = {
         connectionId: nextConnectionId,
         path: normalizedPath,
@@ -278,6 +342,15 @@ export function useFileBrowserPane(config: UseFileBrowserPaneConfig): UseFileBro
     },
     {
       includeDotDirectories: includeDotDirectoriesInQuickNav,
+      getConnectionName: (targetConnectionId) => getConnectionById(connections, targetConnectionId)?.name ?? targetConnectionId,
+      onNavigateDirectory: (targetConnectionId, path) => {
+        if (targetConnectionId === connectionIdRef.current) {
+          navigateToPath(path);
+          return;
+        }
+        pendingRecentDirectoryVisitRef.current = { connectionId: targetConnectionId, path };
+        onNavigateDirectory?.(targetConnectionId, path);
+      },
     }
   );
 
@@ -418,6 +491,11 @@ export function useFileBrowserPane(config: UseFileBrowserPaneConfig): UseFileBro
           setFiles(cached.items);
           setLoading(false);
           setError(null);
+          const pendingVisit = pendingRecentDirectoryVisitRef.current;
+          if (pendingVisit?.connectionId === targetConnectionId && pendingVisit.path === targetPath) {
+            pendingRecentDirectoryVisitRef.current = null;
+            recordRecentDirectoryVisit(targetConnectionId, targetPath);
+          }
           return;
         }
       } else {
@@ -454,8 +532,20 @@ export function useFileBrowserPane(config: UseFileBrowserPaneConfig): UseFileBro
         }
 
         setFiles(items);
+        const pendingVisit = pendingRecentDirectoryVisitRef.current;
+        if (pendingVisit?.connectionId === targetConnectionId && pendingVisit.path === targetPath) {
+          pendingRecentDirectoryVisitRef.current = null;
+          recordRecentDirectoryVisit(targetConnectionId, targetPath);
+        }
       } catch (err) {
         if (abortController.signal.aborted || isLocalAbortError(err)) {
+          const isLatestRequest =
+            latestLoadRequestIdRef.current === requestId &&
+            connectionIdRef.current === targetConnectionId &&
+            currentPathRef.current === targetPath;
+          if (isLatestRequest) {
+            clearPendingRecentDirectoryVisit(targetConnectionId, targetPath);
+          }
           return;
         }
 
@@ -477,6 +567,8 @@ export function useFileBrowserPane(config: UseFileBrowserPaneConfig): UseFileBro
           );
           return;
         }
+
+        clearPendingRecentDirectoryVisit(targetConnectionId, targetPath);
 
         logger.error("Error loading directory", { error: err, connectionId: targetConnectionId, path: targetPath }, "browser");
 
@@ -526,7 +618,7 @@ export function useFileBrowserPane(config: UseFileBrowserPaneConfig): UseFileBro
         }
       }
     },
-    [connectionId]
+    [clearPendingRecentDirectoryVisit, connectionId, recordRecentDirectoryVisit]
   );
 
   useEffect(() => {

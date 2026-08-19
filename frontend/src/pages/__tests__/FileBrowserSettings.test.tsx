@@ -4,18 +4,30 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 import { render } from "../../test/utils/test-utils";
 import { FileBrowserSettings } from "../FileBrowserSettings";
 
-const { clearRecentFilesMock, publishRecentFilesChangedMock, setIncludeDotDirectoriesMock } = vi.hoisted(() => ({
+const {
+  clearRecentDirectoriesMock,
+  clearRecentFilesMock,
+  publishRecentDirectoriesChangedMock,
+  publishRecentFilesChangedMock,
+  setIncludeDotDirectoriesMock,
+  setShortcutHintVisibilityMock,
+} = vi.hoisted(() => ({
+  clearRecentDirectoriesMock: vi.fn(),
   clearRecentFilesMock: vi.fn(),
+  publishRecentDirectoriesChangedMock: vi.fn(),
   publishRecentFilesChangedMock: vi.fn(),
   setIncludeDotDirectoriesMock: vi.fn(),
+  setShortcutHintVisibilityMock: vi.fn(),
 }));
 
 vi.mock("../FileBrowser/preferences", () => ({
   useQuickNavIncludeDotDirectoriesPreference: () => [false, setIncludeDotDirectoriesMock],
+  useQuickBarShortcutHintVisibilityPreference: () => ["auto", setShortcutHintVisibilityMock],
 }));
 
 vi.mock("../../services/api", () => ({
   default: {
+    clearRecentDirectories: clearRecentDirectoriesMock,
     clearRecentFiles: clearRecentFilesMock,
   },
 }));
@@ -24,9 +36,14 @@ vi.mock("../../services/recentFilesSync", () => ({
   publishRecentFilesChanged: publishRecentFilesChangedMock,
 }));
 
+vi.mock("../../services/recentDirectoriesSync", () => ({
+  publishRecentDirectoriesChanged: publishRecentDirectoriesChangedMock,
+}));
+
 describe("FileBrowserSettings", () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    clearRecentDirectoriesMock.mockResolvedValue(0);
     clearRecentFilesMock.mockResolvedValue(0);
   });
 
@@ -49,6 +66,17 @@ describe("FileBrowserSettings", () => {
     await user.click(screen.getByRole("button", { name: "Save changes" }));
 
     expect(setIncludeDotDirectoriesMock).toHaveBeenCalledWith(true);
+  });
+
+  it("updates the shortcut-hint visibility preference", async () => {
+    const user = userEvent.setup();
+    render(<FileBrowserSettings />);
+
+    await user.click(screen.getByRole("combobox", { name: "Keyboard shortcut hints" }));
+    await user.click(screen.getByRole("option", { name: "Never show" }));
+    await user.click(screen.getByRole("button", { name: "Save changes" }));
+
+    expect(setShortcutHintVisibilityMock).toHaveBeenCalledWith("never");
   });
 
   it("cancels clear-history confirmation and restores focus to its trigger", async () => {
@@ -116,5 +144,18 @@ describe("FileBrowserSettings", () => {
     expect(await screen.findByText("Could not clear recent files. Please try again.")).toBeInTheDocument();
     expect(screen.getByRole("dialog")).toBeInTheDocument();
     expect(publishRecentFilesChangedMock).not.toHaveBeenCalled();
+  });
+
+  it("clears recent directories and publishes the dedicated history event", async () => {
+    const user = userEvent.setup();
+    render(<FileBrowserSettings />);
+
+    await user.click(screen.getByRole("button", { name: "Clear recent directories" }));
+    await user.click(within(screen.getByRole("dialog")).getByRole("button", { name: "Clear recent directories" }));
+
+    await waitFor(() => {
+      expect(clearRecentDirectoriesMock).toHaveBeenCalledOnce();
+      expect(publishRecentDirectoriesChangedMock).toHaveBeenCalledOnce();
+    });
   });
 });

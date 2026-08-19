@@ -57,6 +57,7 @@ import { loadBrowserRecoverySnapshot, saveBrowserRecoverySnapshot } from "../ser
 import companionService, { buildCompanionWsUrl, type DriveInfo, hasStoredSecret } from "../services/companion";
 import { logger } from "../services/logger";
 import { loginPath } from "../services/oidcAuth";
+import { RECENT_DIRECTORIES_CHANGED_EVENT } from "../services/recentDirectoriesSync";
 import { RECENT_FILES_CHANGED_EVENT } from "../services/recentFilesSync";
 import { scheduleRuntimeWarmup } from "../services/runtimeWarmup";
 import { buildServerWebSocketUrl } from "../services/serverWebsocket";
@@ -81,6 +82,8 @@ import {
   readSelectedConnectionIdPreference,
   setFileBrowserPaneModePreference,
   setSelectedConnectionIdPreference,
+  useQuickBarKeyboardHints,
+  useQuickBarShortcutHintVisibilityPreference,
 } from "./FileBrowser/preferences";
 import {
   type BrowseRouteState,
@@ -218,6 +221,8 @@ const Browser: React.FC = () => {
 
   // Detect screen size and input method for responsive behavior
   const useCompactLayout = useMediaQuery(theme.breakpoints.down("sm"));
+  const [quickBarShortcutHintVisibility] = useQuickBarShortcutHintVisibilityPreference();
+  const showQuickBarKeyboardHints = useQuickBarKeyboardHints(quickBarShortcutHintVisibility, useCompactLayout);
 
   // Use explicit layout density rather than pointer heuristics so row sizing stays stable.
   const rowHeight = useCompactLayout ? FILE_BROWSER_ROW_HEIGHT.MOBILE_PX : FILE_BROWSER_ROW_HEIGHT.DESKTOP_PX;
@@ -369,6 +374,8 @@ const Browser: React.FC = () => {
   const rightPathNavigateRef = React.useRef<(path: string) => void>(() => undefined);
   const leftConnectionNavigateRef = React.useRef<(connectionId: string) => void>(() => undefined);
   const rightConnectionNavigateRef = React.useRef<(connectionId: string) => void>(() => undefined);
+  const leftDirectoryNavigateRef = React.useRef<(connectionId: string, path: string) => void>(() => undefined);
+  const rightDirectoryNavigateRef = React.useRef<(connectionId: string, path: string) => void>(() => undefined);
   const pendingPaneFocusRef = React.useRef<PaneId | null>(null);
   const routeSyncTokenRef = React.useRef(0);
 
@@ -399,6 +406,7 @@ const Browser: React.FC = () => {
     onCompanionHint: () => setCompanionHintOpen(true),
     onNavigatePath: (path) => leftPathNavigateRef.current(path),
     onNavigateConnection: (connectionId) => leftConnectionNavigateRef.current(connectionId),
+    onNavigateDirectory: (connectionId, path) => leftDirectoryNavigateRef.current(connectionId, path),
   });
 
   // Right pane — always instantiated (React hooks rule: no conditional hooks),
@@ -411,6 +419,7 @@ const Browser: React.FC = () => {
     onCompanionHint: () => setCompanionHintOpen(true),
     onNavigatePath: (path) => rightPathNavigateRef.current(path),
     onNavigateConnection: (connectionId) => rightConnectionNavigateRef.current(connectionId),
+    onNavigateDirectory: (connectionId, path) => rightDirectoryNavigateRef.current(connectionId, path),
   });
 
   /**
@@ -451,22 +460,24 @@ const Browser: React.FC = () => {
   }, [isDualMode, quickBarPaneId, rightPane.connectionId]);
 
   useEffect(() => {
-    const refreshFileSearch = () => {
-      if (quickBarMode === "file-search" && document.activeElement === quickBarInputRef.current) {
+    const refreshQuickBarHistory = () => {
+      if ((quickBarMode === "file-search" || quickBarMode === "navigate") && document.activeElement === quickBarInputRef.current) {
         setQuickBarRefreshToken((current) => current + 1);
       }
     };
     const refreshWhenVisible = () => {
       if (document.visibilityState === "visible") {
-        refreshFileSearch();
+        refreshQuickBarHistory();
       }
     };
-    window.addEventListener(RECENT_FILES_CHANGED_EVENT, refreshFileSearch);
-    window.addEventListener("focus", refreshFileSearch);
+    window.addEventListener(RECENT_FILES_CHANGED_EVENT, refreshQuickBarHistory);
+    window.addEventListener(RECENT_DIRECTORIES_CHANGED_EVENT, refreshQuickBarHistory);
+    window.addEventListener("focus", refreshQuickBarHistory);
     document.addEventListener("visibilitychange", refreshWhenVisible);
     return () => {
-      window.removeEventListener(RECENT_FILES_CHANGED_EVENT, refreshFileSearch);
-      window.removeEventListener("focus", refreshFileSearch);
+      window.removeEventListener(RECENT_FILES_CHANGED_EVENT, refreshQuickBarHistory);
+      window.removeEventListener(RECENT_DIRECTORIES_CHANGED_EVENT, refreshQuickBarHistory);
+      window.removeEventListener("focus", refreshQuickBarHistory);
       document.removeEventListener("visibilitychange", refreshWhenVisible);
     };
   }, [quickBarInputRef, quickBarMode]);
@@ -701,6 +712,14 @@ const Browser: React.FC = () => {
 
   rightConnectionNavigateRef.current = (connectionId) => {
     navigateRightPane(connectionId, "", { activePaneId: "right" });
+  };
+
+  leftDirectoryNavigateRef.current = (connectionId, path) => {
+    navigateLeftPane(connectionId, path, { activePaneId: "left" });
+  };
+
+  rightDirectoryNavigateRef.current = (connectionId, path) => {
+    navigateRightPane(connectionId, path, { activePaneId: "right" });
   };
 
   const leftApplyLocation = leftPane.applyLocation;
@@ -2255,6 +2274,7 @@ const Browser: React.FC = () => {
               onSearchArrowDownToFileList={handleQuickBarArrowDownToFileList}
               disableTabFocus={isDualMode}
               modeOptions={quickBarModeOptions}
+              showKeyboardHints={showQuickBarKeyboardHints}
             />
           )}
         </Toolbar>
@@ -2346,6 +2366,7 @@ const Browser: React.FC = () => {
               disableSearchDropdown={false}
               suppressSearchDropdown={suppressQuickBarDropdown}
               onSearchArrowDownToFileList={handleQuickBarArrowDownToFileList}
+              showKeyboardHints={showQuickBarKeyboardHints}
               modeOptions={quickBarModeOptions}
             />
 
@@ -2375,6 +2396,7 @@ const Browser: React.FC = () => {
                   disableSearchDropdown={false}
                   suppressSearchDropdown={suppressQuickBarDropdown}
                   onSearchArrowDownToFileList={handleQuickBarArrowDownToFileList}
+                  showKeyboardHints={showQuickBarKeyboardHints}
                   modeOptions={quickBarModeOptions}
                 />
               </>

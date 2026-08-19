@@ -32,6 +32,12 @@ from app.models.file import (
     FileType,
     RenameRequest,
 )
+from app.models.recent_directory import (
+    RecentDirectoryClearRead,
+    RecentDirectoryRead,
+    RecentDirectoryRecordRequest,
+    RecentDirectorySearchRead,
+)
 from app.models.recent_file import (
     RecentFile,
     RecentFileClearRead,
@@ -44,12 +50,18 @@ from app.models.recent_file import (
 from app.models.user import User
 from app.services.connection_access import get_accessible_connection_or_404, require_connection_write_access
 from app.services.cross_connection import cross_connection_copy, cross_connection_move
+from app.services.history_common import LOCAL_DRIVE_PREFIX, normalize_recent_history_path
+from app.services.recent_directories import (
+    MAX_RECENT_DIRECTORY_RESULTS,
+    clear_recent_directories,
+    record_recent_directory,
+    remove_recent_directory,
+    search_recent_directories,
+)
 from app.services.recent_files import (
-    LOCAL_DRIVE_PREFIX,
     clear_recent_files,
     get_recent_file,
     get_recent_file_result_limit,
-    normalize_recent_file_path,
     record_recent_file,
     remove_recent_file,
     search_recent_files,
@@ -61,6 +73,121 @@ router = APIRouter()
 logger = get_logger(__name__)
 
 DIRECTORY_LIST_ROUTE_TIMEOUT_SECONDS = 35.0
+
+
+async def _verify_remote_recent_history_target(
+    *,
+    connection_id: str,
+    path: str,
+    expected_type: FileType,
+    target_label: str,
+    history_label: str,
+    current_user: User,
+    session: Session,
+) -> None:
+    """Verify that a remote history target still exists with the required type."""
+
+    if connection_id.startswith(LOCAL_DRIVE_PREFIX):
+        return
+
+    normalized_path = normalize_recent_history_path(path)
+    connection = get_accessible_connection_or_404(session, current_user, uuid.UUID(connection_id))
+    backend = build_smb_backend(connection, backend_factory=SMBBackend)
+    try:
+        await backend.connect()
+        target_info = await backend.get_file_info(normalized_path)
+    finally:
+        await disconnect_backend_safely(
+            backend,
+            logger=logger,
+            context=f"recent-{history_label} record validation: connection_id={connection_id}, path='{path}'",
+        )
+
+    if target_info.type != expected_type:
+        raise ValueError(f"Only {target_label} can be recorded in recent-{history_label} history")
+
+
+@router.post("/recent-directories", response_model=RecentDirectoryRead)
+async def create_recent_directory(
+    payload: RecentDirectoryRecordRequest,
+    current_user: User = Depends(get_current_user_with_auth_check),
+    session: Session = Depends(get_session),
+) -> RecentDirectoryRead:
+    """Record a directory only after the client successfully navigated to it."""
+
+    set_user(current_user.username)
+    try:
+        await _verify_remote_recent_history_target(
+            connection_id=payload.connection_id,
+            path=payload.path,
+            expected_type=FileType.DIRECTORY,
+            target_label="directories",
+            history_label="directory",
+            current_user=current_user,
+            session=session,
+        )
+
+        return record_recent_directory(
+            connection_id=payload.connection_id,
+            path=payload.path,
+            current_user=current_user,
+            session=session,
+        )
+    except FileNotFoundError as exc:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="The directory no longer exists") from exc
+    except TimeoutError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_504_GATEWAY_TIMEOUT,
+            detail="The directory could not be verified because the connection timed out",
+        ) from exc
+    except ValueError as exc:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)) from exc
+    except HTTPException:
+        raise
+    except Exception as exc:
+        logger.warning(
+            "Recent-directory record validation failed: connection_id=%s path=%s",
+            payload.connection_id,
+            payload.path,
+            exc_info=True,
+        )
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="The directory could not be verified because the connection is unavailable",
+        ) from exc
+
+
+@router.get("/recent-directories", response_model=RecentDirectorySearchRead)
+async def get_recent_directories(
+    q: str = Query("", max_length=1024),
+    limit: int = Query(10, ge=1, le=MAX_RECENT_DIRECTORY_RESULTS),
+    current_user: User = Depends(get_current_user_with_auth_check),
+    session: Session = Depends(get_session),
+) -> RecentDirectorySearchRead:
+    set_user(current_user.username)
+    return RecentDirectorySearchRead(
+        results=search_recent_directories(query=q, limit=limit, current_user=current_user, session=session),
+        result_limit=min(limit, MAX_RECENT_DIRECTORY_RESULTS),
+    )
+
+
+@router.delete("/recent-directories/{record_id}", status_code=status.HTTP_204_NO_CONTENT)
+async def delete_recent_directory(
+    record_id: uuid.UUID,
+    current_user: User = Depends(get_current_user_with_auth_check),
+    session: Session = Depends(get_session),
+) -> None:
+    set_user(current_user.username)
+    remove_recent_directory(record_id=record_id, current_user=current_user, session=session)
+
+
+@router.delete("/recent-directories", response_model=RecentDirectoryClearRead)
+async def delete_all_recent_directories(
+    current_user: User = Depends(get_current_user_with_auth_check),
+    session: Session = Depends(get_session),
+) -> RecentDirectoryClearRead:
+    set_user(current_user.username)
+    return RecentDirectoryClearRead(deleted_count=clear_recent_directories(current_user=current_user, session=session))
 
 
 @router.post("/recent-files", response_model=RecentFileRead | None)
@@ -81,21 +208,15 @@ async def create_recent_file(
         if not should_record:
             return None
 
-        if not payload.connection_id.startswith(LOCAL_DRIVE_PREFIX):
-            normalized_path = normalize_recent_file_path(payload.path)
-            connection = get_accessible_connection_or_404(session, current_user, uuid.UUID(payload.connection_id))
-            backend = build_smb_backend(connection, backend_factory=SMBBackend)
-            try:
-                await backend.connect()
-                file_info = await backend.get_file_info(normalized_path)
-            finally:
-                await disconnect_backend_safely(
-                    backend,
-                    logger=logger,
-                    context=f"recent-file record validation: connection_id={payload.connection_id}, path='{payload.path}'",
-                )
-            if file_info.type != FileType.FILE:
-                raise ValueError("Only regular files can be recorded in recent-file history")
+        await _verify_remote_recent_history_target(
+            connection_id=payload.connection_id,
+            path=payload.path,
+            expected_type=FileType.FILE,
+            target_label="regular files",
+            history_label="file",
+            current_user=current_user,
+            session=session,
+        )
 
         return record_recent_file(
             connection_id=payload.connection_id,

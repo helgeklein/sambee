@@ -237,11 +237,20 @@ export const EN_TRANSLATIONS = {
       quickNavigationTitle: "Quick navigation",
       includeDotDirectoriesLabel: "Include dot directories in quick nav",
       includeDotDirectoriesDescription: "Show folders like .git, .cache, and other dot-prefixed directories in quick navigation results.",
+      shortcutHintsLabel: "Keyboard shortcut hints",
+      shortcutHintsDescription: "Choose when Quick Bar keyboard shortcut hints are shown.",
+      shortcutHintsAuto: "Automatic",
+      shortcutHintsAlways: "Always show",
+      shortcutHintsNever: "Never show",
       fileSearchTitle: "File Search",
       clearRecentFiles: "Clear recent files",
       clearRecentFilesDescription:
         "This permanently removes your File Search history from the server without affecting any files or folders.",
       clearRecentFilesFailed: "Could not clear recent files. Please try again.",
+      clearRecentDirectories: "Clear recent directories",
+      clearRecentDirectoriesDescription:
+        "This permanently removes your Directory Navigation history from the server without affecting any files or folders.",
+      clearRecentDirectoriesFailed: "Could not clear recent directories. Please try again.",
     },
     textEditorPage: {
       limitsTitle: "Limits",
@@ -677,6 +686,7 @@ export const EN_TRANSLATIONS = {
         navigate: "navigate",
         open: "open",
         removeRecent: "Remove recent item",
+        removeRecentDirectory: "Remove recent directory",
         run: "run",
         commands: "commands",
         close: "close",
@@ -688,6 +698,7 @@ export const EN_TRANSLATIONS = {
       results: {
         none: 'No results found for "{{query}}"',
         failed: "Search could not be completed. Try again.",
+        removeFailed: "Could not remove this recent item. Try again.",
         count_one: "{{count}} result",
         count_other: "{{count}} results",
         countTruncated: "{{count}}+ results",
@@ -703,6 +714,8 @@ export const EN_TRANSLATIONS = {
       },
       groups: {
         recentFiles: "Recent files",
+        recentDirectories: "Recent directories",
+        directories: "Directories",
         currentDirectory: "Current directory",
       },
       belowMinimum: "Type at least {{count}} characters to search",

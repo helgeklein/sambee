@@ -20,6 +20,7 @@ class AppearanceUserSettingsRead(SQLModel):
 
 
 LanguagePreference = Literal["browser", "en", "en-XA"]
+QuickBarShortcutHintVisibility = Literal["auto", "always", "never"]
 
 
 class LocalizationUserSettingsRead(SQLModel):
@@ -29,6 +30,7 @@ class LocalizationUserSettingsRead(SQLModel):
 
 class BrowserUserSettingsRead(SQLModel):
     quick_nav_include_dot_directories: bool
+    quick_bar_shortcut_hint_visibility: QuickBarShortcutHintVisibility
     file_browser_view_mode: str
     pane_mode: str
     selected_connection_id: Optional[str] = None
@@ -58,6 +60,7 @@ class LocalizationUserSettingsUpdate(SQLModel):
 
 class BrowserUserSettingsUpdate(SQLModel):
     quick_nav_include_dot_directories: Optional[bool] = None
+    quick_bar_shortcut_hint_visibility: Optional[QuickBarShortcutHintVisibility] = None
     file_browser_view_mode: Optional[str] = None
     pane_mode: Optional[str] = None
     selected_connection_id: Optional[str] = None

@@ -202,6 +202,98 @@ describe("useFileBrowserPane", () => {
     });
   });
 
+  it("records a local directory only after Companion confirms its type", async () => {
+    const localDriveConnection = {
+      ...mockConnections[0],
+      id: "local-drive:d",
+      slug: "d",
+      type: "local",
+      name: "Drive D",
+    };
+    const documentsDirectory = mockDirectoryListing.items.find((item) => item.type === "directory" && item.name === "Documents");
+
+    expect(documentsDirectory).toBeDefined();
+    vi.mocked(api.getFileInfo).mockResolvedValue({ type: FileType.DIRECTORY } as never);
+
+    const { result } = renderHook(
+      () =>
+        useFileBrowserPane({
+          rowHeight: 40,
+          connections: [localDriveConnection],
+        }),
+      { wrapper }
+    );
+
+    act(() => {
+      result.current.applyLocation("local-drive:d", "");
+    });
+
+    await waitFor(() => {
+      expect(result.current.connectionId).toBe("local-drive:d");
+    });
+
+    act(() => {
+      result.current.handleFileClick(documentsDirectory!);
+    });
+
+    await waitFor(() => {
+      expect(api.getFileInfo).toHaveBeenCalledWith("local-drive:d", "Documents");
+      expect(api.recordRecentDirectory).toHaveBeenCalledWith("local-drive:d", "Documents");
+    });
+
+    vi.mocked(api.getFileInfo).mockResolvedValue({ type: FileType.FILE } as never);
+
+    act(() => {
+      result.current.handleFileClick({ ...documentsDirectory!, name: "Other", path: "Other" });
+    });
+
+    await waitFor(() => {
+      expect(api.getFileInfo).toHaveBeenCalledWith("local-drive:d", "Documents/Other");
+    });
+    expect(api.recordRecentDirectory).toHaveBeenCalledTimes(1);
+  });
+
+  it("does not record a failed directory navigation after a later reload succeeds", async () => {
+    const documentsDirectory = mockDirectoryListing.items.find((item) => item.type === "directory" && item.name === "Documents");
+
+    expect(documentsDirectory).toBeDefined();
+
+    const { result } = renderHook(
+      () =>
+        useFileBrowserPane({
+          rowHeight: 40,
+          connections: mockConnections,
+        }),
+      { wrapper }
+    );
+
+    act(() => {
+      result.current.applyLocation("conn-1", "");
+    });
+
+    await waitFor(() => {
+      expect(result.current.files).toEqual(mockDirectoryListing.items);
+    });
+
+    vi.mocked(api.listDirectory).mockRejectedValueOnce(new Error("Directory unavailable"));
+
+    act(() => {
+      result.current.handleFileClick(documentsDirectory!);
+    });
+
+    await waitFor(() => {
+      expect(result.current.error).not.toBeNull();
+    });
+
+    vi.mocked(api.listDirectory).mockResolvedValueOnce(mockNestedDirectory);
+
+    await act(async () => {
+      await result.current.loadFiles("Documents", true);
+    });
+
+    expect(api.recordRecentDirectory).not.toHaveBeenCalled();
+  });
+
   it("resets the file list scroll position when navigating into a fresh child directory", async () => {
     const documentsDirectory = mockDirectoryListing.items.find((item) => item.type === "directory" && item.name === "Documents");
 

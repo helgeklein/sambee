@@ -16,13 +16,15 @@
  * - Warm-up on activation to trigger cache building
  */
 
-import { useCallback, useState } from "react";
+import { useCallback, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { BROWSER_SHORTCUTS } from "../../../config/keyboardShortcuts";
 import api from "../../../services/api";
 import { logger } from "../../../services/logger";
-import type { DirectorySearchResult } from "../../../types";
+import { publishRecentDirectoriesChanged } from "../../../services/recentDirectoriesSync";
+import type { DirectorySearchResult, RecentDirectory } from "../../../types";
 import { normalizeQuerySeparators } from "./normalizeQuerySeparators";
+import { removeRecentHistoryResult } from "./recentHistory";
 import type { SearchProvider, SearchResult, SearchResultItem, SearchStatusInfo, SearchTextHighlight } from "./types";
 
 // ============================================================================
@@ -36,6 +38,9 @@ const DIRECTORY_SEARCH_DEBOUNCE_MS = 200;
 const DIRECTORY_MIN_QUERY_LENGTH = 2;
 
 const PATH_SEPARATOR = "/";
+const DEFAULT_RECENT_DIRECTORY_RESULT_LIMIT = 10;
+const RECENT_DIRECTORY_PREFIX = "recent-directory:";
+const DIRECTORY_PREFIX = "directory:";
 
 /** Ellipsis prefix used when the path is truncated */
 const ELLIPSIS_PREFIX = "…/";
@@ -175,6 +180,9 @@ export function getDirectoryResultPresentation(
 
 interface DirectorySearchProviderOptions {
   includeDotDirectories?: boolean;
+  getConnectionName?: (connectionId: string) => string;
+  onNavigateDirectory?: (connectionId: string, path: string) => void;
+  resultLimit?: number;
 }
 
 // ============================================================================
@@ -201,6 +209,20 @@ export function useDirectorySearchProvider(
   const [directoryCount, setDirectoryCount] = useState(0);
   const [totalMatches, setTotalMatches] = useState(0);
   const includeDotDirectories = options.includeDotDirectories ?? false;
+  const recentDirectoryResultLimit = options.resultLimit ?? DEFAULT_RECENT_DIRECTORY_RESULT_LIMIT;
+  const recentDirectoriesRef = useRef(new Map<string, RecentDirectory>());
+
+  const getRecentDirectoryPresentation = useCallback(
+    (directory: RecentDirectory, query: string): Pick<SearchResultItem, "primaryText" | "secondaryText" | "primaryHighlight"> => {
+      const presentation = getDirectoryResultPresentation(directory.path, query);
+      const connectionName = options.getConnectionName?.(directory.connection_id) ?? directory.connection_id;
+      return {
+        ...presentation,
+        secondaryText: `${connectionName}:${presentation.secondaryText}`,
+      };
+    },
+    [options.getConnectionName]
+  );
 
   //
   // fetchResults
@@ -211,33 +233,80 @@ export function useDirectorySearchProvider(
       const normalizedQuery = normalizeQuerySeparators(query);
 
       try {
-        const result: DirectorySearchResult = await api.searchDirectories(connectionId, normalizedQuery, {
-          includeDotDirectories,
-          signal,
-        });
+        const recentDirectoriesRequest = api.searchRecentDirectories(normalizedQuery, recentDirectoryResultLimit, signal);
+        const directorySearchRequest =
+          normalizedQuery.length >= DIRECTORY_MIN_QUERY_LENGTH
+            ? api.searchDirectories(connectionId, normalizedQuery, {
+                includeDotDirectories,
+                signal,
+              })
+            : Promise.resolve<DirectorySearchResult | null>(null);
+        const [recentResponse, directorySearchResult] = await Promise.all([recentDirectoriesRequest, directorySearchRequest]);
 
-        if (!signal.aborted) {
-          setCacheState(result.cache_state);
-          setDirectoryCount(result.directory_count);
-          setTotalMatches(result.total_matches);
+        if (signal.aborted) {
+          return [];
         }
 
-        return result.results.map((path) => ({
-          kind: "result" as const,
-          id: path,
-          value: path,
-          icon: "directory" as const,
-          ...getDirectoryResultPresentation(path, normalizedQuery),
-        }));
+        recentDirectoriesRef.current = new Map(recentResponse.results.map((directory) => [directory.id, directory]));
+
+        if (directorySearchResult) {
+          setCacheState(directorySearchResult.cache_state);
+          setDirectoryCount(directorySearchResult.directory_count);
+          setTotalMatches(directorySearchResult.total_matches);
+        }
+
+        const recentPaths = new Set(recentResponse.results.map((directory) => `${directory.connection_id}\u0000${directory.path}`));
+        const directoryResults = (directorySearchResult?.results ?? [])
+          .filter((path) => !recentPaths.has(`${connectionId}\u0000${path}`))
+          .map((path) => ({
+            kind: "result" as const,
+            id: `${DIRECTORY_PREFIX}${path}`,
+            value: `${DIRECTORY_PREFIX}${path}`,
+            icon: "directory" as const,
+            ...getDirectoryResultPresentation(path, normalizedQuery),
+          }));
+
+        return [
+          ...(recentResponse.results.length > 0
+            ? [
+                {
+                  kind: "group-header" as const,
+                  id: "recent-directories-group-header",
+                  value: "" as const,
+                  label: t("fileBrowser.search.groups.recentDirectories"),
+                },
+              ]
+            : []),
+          ...recentResponse.results.map((directory) => ({
+            kind: "result" as const,
+            id: `${RECENT_DIRECTORY_PREFIX}${directory.id}`,
+            value: `${RECENT_DIRECTORY_PREFIX}${directory.id}`,
+            icon: "directory" as const,
+            ...getRecentDirectoryPresentation(directory, normalizedQuery),
+          })),
+          ...(directoryResults.length > 0
+            ? [
+                {
+                  kind: "group-header" as const,
+                  id: "directories-group-header",
+                  value: "" as const,
+                  label: t("fileBrowser.search.groups.directories"),
+                },
+              ]
+            : []),
+          ...directoryResults,
+        ];
       } catch (error: unknown) {
-        if (error && typeof error === "object" && "code" in error && (error as { code?: string }).code === "ERR_CANCELED") {
-          return []; // Request was cancelled, ignore
+        if (
+          signal.aborted ||
+          (error && typeof error === "object" && "code" in error && (error as { code?: string }).code === "ERR_CANCELED")
+        ) {
+          return [];
         }
-        logger.error("Failed to search directories", { error }, "directory-search-provider");
-        return [];
+        throw error;
       }
     },
-    [connectionId, includeDotDirectories]
+    [connectionId, getRecentDirectoryPresentation, includeDotDirectories, recentDirectoryResultLimit, t]
   );
 
   //
@@ -245,10 +314,30 @@ export function useDirectorySearchProvider(
   //
   const onSelect = useCallback(
     (value: string) => {
-      onNavigate(value);
+      if (value.startsWith(RECENT_DIRECTORY_PREFIX)) {
+        const directory = recentDirectoriesRef.current.get(value.slice(RECENT_DIRECTORY_PREFIX.length));
+        if (directory) {
+          options.onNavigateDirectory?.(directory.connection_id, directory.path);
+        }
+        return;
+      }
+
+      if (value.startsWith(DIRECTORY_PREFIX)) {
+        onNavigate(value.slice(DIRECTORY_PREFIX.length));
+      }
     },
-    [onNavigate]
+    [onNavigate, options.onNavigateDirectory]
   );
+
+  const onRemoveSelected = useCallback(async (value: string) => {
+    return removeRecentHistoryResult({
+      value,
+      prefix: RECENT_DIRECTORY_PREFIX,
+      records: recentDirectoriesRef.current,
+      remove: api.removeRecentDirectory.bind(api),
+      publish: publishRecentDirectoriesChanged,
+    });
+  }, []);
 
   //
   // getStatusInfo
@@ -324,19 +413,24 @@ export function useDirectorySearchProvider(
     modeLabel: t("fileBrowser.search.modes.navigate"),
     placeholder: t("fileBrowser.search.placeholders.directory"),
     debounceMs: DIRECTORY_SEARCH_DEBOUNCE_MS,
-    minQueryLength: DIRECTORY_MIN_QUERY_LENGTH,
+    minQueryLength: 0,
     fetchResults,
     onSelect,
+    onRemoveSelected,
     getStatusInfo,
     onActivate,
-    footerHint: (
+    getFooterHint: (selectedResult) => (
       <>
         ↑↓ {t("fileBrowser.search.footer.navigate")}&ensp;↵ {t("fileBrowser.search.footer.open")}&ensp;<kbd>esc</kbd>{" "}
         {t("fileBrowser.search.footer.close")}
+        {selectedResult?.kind === "result" && selectedResult.value.startsWith(RECENT_DIRECTORY_PREFIX) ? (
+          <>
+            &ensp;<kbd>Shift+Del</kbd> {t("fileBrowser.search.footer.removeRecentDirectory")}
+          </>
+        ) : null}
       </>
     ),
     footerInfo,
     shortcutHint: BROWSER_SHORTCUTS.QUICK_NAVIGATE.label,
-    belowMinimumMessage: t("fileBrowser.search.belowMinimum", { count: DIRECTORY_MIN_QUERY_LENGTH }),
   };
 }
