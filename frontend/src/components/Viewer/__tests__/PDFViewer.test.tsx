@@ -16,8 +16,10 @@ vi.mock("react-pdf", () => ({
     children,
     onLoadSuccess,
     onLoadError,
+    onPassword,
     file,
     onItemClick,
+    options,
   }: {
     children: React.ReactNode;
     onLoadSuccess?: (pdf: {
@@ -35,8 +37,16 @@ vi.mock("react-pdf", () => ({
       }>;
     }) => void;
     onLoadError?: (error: Error) => void;
+    onPassword?: (callback: (password: string | null) => void) => void;
     file: string;
     onItemClick?: (args: { dest?: unknown; pageIndex?: number; pageNumber?: number }) => void;
+    options?: {
+      cMapPacked?: boolean;
+      cMapUrl?: string;
+      iccUrl?: string;
+      standardFontDataUrl?: string;
+      wasmUrl?: string;
+    };
   }) => {
     const loadedFileRef = useRef<string | null>(null);
 
@@ -52,14 +62,26 @@ vi.mock("react-pdf", () => ({
             height: 12,
           },
           {
-            str: "MDT Dimmaktor",
+            str: "MDT Di",
             transform: [1, 0, 0, 1, 0, 16],
             width: 120,
             height: 12,
           },
           {
-            str: "MDT_DB_Dimmaktor_02.pdf",
+            str: "mmaktor",
             transform: [1, 0, 0, 1, 0, 32],
+            width: 160,
+            height: 12,
+          },
+          {
+            str: "MDT_DB_Di",
+            transform: [1, 0, 0, 1, 0, 48],
+            width: 160,
+            height: 12,
+          },
+          {
+            str: "mmaktor_02.pdf",
+            transform: [1, 0, 0, 1, 0, 64],
             width: 160,
             height: 12,
           },
@@ -77,7 +99,19 @@ vi.mock("react-pdf", () => ({
     }, []);
 
     useEffect(() => {
-      if (file && !file.includes("error") && loadedFileRef.current !== file) {
+      const nextLoadError = mockDocumentLoadErrors.shift();
+      if (mockPasswordRequest && onPassword) {
+        mockPasswordRequest = false;
+        queueMicrotask(() => {
+          onPassword((password) => {
+            submittedPdfPassword = password;
+          });
+        });
+      } else if (nextLoadError) {
+        queueMicrotask(() => {
+          onLoadError?.(nextLoadError);
+        });
+      } else if (file && loadedFileRef.current !== file) {
         loadedFileRef.current = file;
 
         queueMicrotask(() => {
@@ -86,23 +120,31 @@ vi.mock("react-pdf", () => ({
             getPage: (pageNum: number) =>
               Promise.resolve({
                 getViewport: () => ({ width: 612, height: 792 }),
-                getTextContent: () =>
-                  Promise.resolve({
-                    items: getPageItems(pageNum),
-                  }),
+                getTextContent: async () => {
+                  if (mockTextExtractionDelayMs > 0) {
+                    await new Promise<void>((resolve) => {
+                      window.setTimeout(resolve, mockTextExtractionDelayMs);
+                    });
+                  }
+                  return { items: getPageItems(pageNum) };
+                },
               }),
           };
           onLoadSuccess?.(mockPdf);
         });
-      } else if (file?.includes("error")) {
-        queueMicrotask(() => {
-          onLoadError?.(new Error("Failed to load PDF"));
-        });
       }
-    }, [file, getPageItems, onLoadError, onLoadSuccess]);
+    }, [file, getPageItems, onLoadError, onLoadSuccess, onPassword]);
 
     return (
-      <div data-testid="pdf-document" data-file={file}>
+      <div
+        data-cmap-packed={options?.cMapPacked}
+        data-cmap-url={options?.cMapUrl}
+        data-icc-url={options?.iccUrl}
+        data-standard-font-url={options?.standardFontDataUrl}
+        data-testid="pdf-document"
+        data-wasm-url={options?.wasmUrl}
+        data-file={file}
+      >
         <button
           type="button"
           data-testid="pdf-internal-link"
@@ -190,6 +232,10 @@ let capturedInitialDocumentItemClick: ((args: { dest?: unknown; pageIndex?: numb
 let mockBlobUrlCounter = 0;
 let mockMissingTextLayerPage: number | null = null;
 let mockPageRenderCounts = new Map<number, number>();
+let mockDocumentLoadErrors: Error[] = [];
+let mockPasswordRequest = false;
+let submittedPdfPassword: string | null = null;
+let mockTextExtractionDelayMs = 0;
 
 function mockMatchMedia(matches: boolean) {
   Object.defineProperty(window, "matchMedia", {
@@ -300,6 +346,10 @@ describe("PDFViewer", () => {
     mockBlobUrlCounter = 0;
     mockMissingTextLayerPage = null;
     mockPageRenderCounts = new Map();
+    mockDocumentLoadErrors = [];
+    mockPasswordRequest = false;
+    submittedPdfPassword = null;
+    mockTextExtractionDelayMs = 0;
     mockCreateObjectURL.mockImplementation(() => `blob:mock-url-${++mockBlobUrlCounter}`);
     mockMatchMedia(false);
     Object.defineProperty(globalThis, "navigator", {
@@ -360,6 +410,18 @@ describe("PDFViewer", () => {
       });
     });
 
+    it("configures local PDF.js optional resource assets", async () => {
+      renderPDFViewer();
+
+      const documentElement = await screen.findByTestId("pdf-document");
+
+      expect(documentElement).toHaveAttribute("data-cmap-packed", "true");
+      expect(documentElement).toHaveAttribute("data-cmap-url", "/pdfjs/cmaps/");
+      expect(documentElement).toHaveAttribute("data-icc-url", "/pdfjs/iccs/");
+      expect(documentElement).toHaveAttribute("data-standard-font-url", "/pdfjs/standard_fonts/");
+      expect(documentElement).toHaveAttribute("data-wasm-url", "/pdfjs/wasm/");
+    });
+
     it("renders error state when fetch fails", async () => {
       (apiService.getPdfBlob as Mock).mockRejectedValue(new Error("Network error"));
 
@@ -377,6 +439,55 @@ describe("PDFViewer", () => {
     it("shows CircularProgress while loading", () => {
       renderPDFViewer();
       expect(screen.getByRole("progressbar")).toBeInTheDocument();
+    });
+
+    it("automatically retries Invalid PDF structure with the normalized variant", async () => {
+      mockDocumentLoadErrors = [new Error("InvalidPDFException: Invalid PDF structure")];
+
+      renderPDFViewer();
+
+      await waitFor(() => {
+        expect(apiService.getPdfBlob).toHaveBeenCalledTimes(2);
+      });
+
+      expect(apiService.getPdfBlob).toHaveBeenLastCalledWith(
+        "test-conn-id",
+        "/test/document.pdf",
+        expect.objectContaining({ pdfVariant: "normalized" })
+      );
+    });
+
+    it("offers manual compatibility mode for a non-structural document error", async () => {
+      mockDocumentLoadErrors = [new Error("Unsupported PDF feature")];
+
+      renderPDFViewer();
+
+      await waitFor(() => {
+        expect(screen.getByRole("button", { name: "Try compatibility mode" })).toBeInTheDocument();
+      });
+
+      await userEvent.click(screen.getByRole("button", { name: "Try compatibility mode" }));
+
+      await waitFor(() => {
+        expect(apiService.getPdfBlob).toHaveBeenLastCalledWith(
+          "test-conn-id",
+          "/test/document.pdf",
+          expect.objectContaining({ pdfVariant: "normalized" })
+        );
+      });
+    });
+
+    it("submits an encrypted PDF password without requesting compatibility mode", async () => {
+      mockPasswordRequest = true;
+      const user = userEvent.setup();
+
+      renderPDFViewer();
+
+      await user.type(await screen.findByLabelText("PDF password"), "secret");
+      await user.click(screen.getByRole("button", { name: "Open" }));
+
+      expect(submittedPdfPassword).toBe("secret");
+      expect(apiService.getPdfBlob).toHaveBeenCalledTimes(1);
     });
   });
 
@@ -583,7 +694,7 @@ describe("PDFViewer", () => {
     });
 
     it("handles onLoadError callback", async () => {
-      mockCreateObjectURL.mockReturnValue("blob:error-url");
+      mockDocumentLoadErrors = [new Error("Failed to load PDF")];
 
       renderPDFViewer();
 
@@ -908,6 +1019,45 @@ describe("PDFViewer", () => {
       expect(
         document.querySelectorAll(`${DOM_TEXT_SEARCH_HIGHLIGHT_SELECTOR}[${DOM_TEXT_SEARCH_CURRENT_MATCH_ATTRIBUTE}="true"]`)
       ).toHaveLength(2);
+    });
+
+    it("navigates to the next split-item match on the current page", async () => {
+      renderPDFViewer();
+
+      await waitFor(() => {
+        expect(screen.getByTestId("pdf-page")).toHaveAttribute("data-page", "1");
+      });
+
+      const searchInput = await viewerSearch.openSearch("dimm");
+
+      await waitFor(() => {
+        expect(findPageCounterText("1 / 2")).toBeInTheDocument();
+      });
+
+      fireEvent.keyDown(searchInput, { key: "F3" });
+
+      await waitFor(() => {
+        expect(findPageCounterText("2 / 2")).toBeInTheDocument();
+        expect(screen.getByTestId("pdf-page")).toHaveAttribute("data-page", "1");
+      });
+    });
+
+    it("runs a search entered before PDF text extraction completes", async () => {
+      mockTextExtractionDelayMs = 100;
+      renderPDFViewer();
+
+      await waitFor(() => {
+        expect(screen.getByTestId("pdf-page")).toHaveAttribute("data-page", "1");
+      });
+
+      await viewerSearch.openSearch("dimm");
+
+      await waitFor(
+        () => {
+          expect(findPageCounterText("1 / 2")).toBeInTheDocument();
+        },
+        { timeout: 2000 }
+      );
     });
 
     it("rebuilds highlights when navigating to later pages with split text-layer spans", async () => {

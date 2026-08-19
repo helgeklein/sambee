@@ -144,6 +144,8 @@ class TestAdvancedSystemSettingsApi:
         assert response.status_code == 200
         data = response.json()
         assert data["preprocessors"]["imagemagick"]["timeout_seconds"]["value"] == 30
+        assert data["pdf"]["screen_derivative_enabled"]["value"] == 0
+        assert data["pdf"]["cpu_time_seconds"]["value"] == 60
 
     def test_regular_user_cannot_fetch_advanced_settings(self, client: TestClient, auth_headers_user: dict[str, str]) -> None:
         response = client.get("/api/admin/settings/advanced", headers=auth_headers_user)
@@ -164,6 +166,17 @@ class TestAdvancedSystemSettingsApi:
         assert response.status_code == 200
         data = response.json()
         assert data["preprocessors"]["imagemagick"]["timeout_seconds"]["value"] == 45
+
+    def test_admin_can_update_pdf_rollout_and_cpu_limits(self, client: TestClient, auth_headers_admin: dict[str, str]) -> None:
+        response = client.put(
+            "/api/admin/settings/advanced",
+            headers=auth_headers_admin,
+            json={"pdf": {"screen_derivative_enabled": 1, "cpu_time_seconds": 45}},
+        )
+
+        assert response.status_code == 200
+        assert response.json()["pdf"]["screen_derivative_enabled"]["value"] == 1
+        assert response.json()["pdf"]["cpu_time_seconds"]["value"] == 45
 
     def test_update_rejects_out_of_range_values(self, client: TestClient, auth_headers_admin: dict[str, str]) -> None:
         response = client.put(

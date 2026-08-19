@@ -35,8 +35,24 @@ class PreprocessorAdvancedSettingsRead(SQLModel):
     timeout_seconds: IntegerSystemSettingRead
 
 
+class PdfAdvancedSettingsRead(SQLModel):
+    cache_quota_bytes: IntegerSystemSettingRead
+    cache_inactivity_ttl_seconds: IntegerSystemSettingRead
+    max_source_size_bytes: IntegerSystemSettingRead
+    max_output_size_bytes: IntegerSystemSettingRead
+    address_space_bytes: IntegerSystemSettingRead
+    temporary_disk_bytes: IntegerSystemSettingRead
+    timeout_seconds: IntegerSystemSettingRead
+    cpu_time_seconds: IntegerSystemSettingRead
+    max_concurrent: IntegerSystemSettingRead
+    queue_wait_seconds: IntegerSystemSettingRead
+    screen_derivative_enabled: IntegerSystemSettingRead
+    screen_max_decoded_pixels: IntegerSystemSettingRead
+
+
 class AdvancedSystemSettingsRead(SQLModel):
     preprocessors: dict[str, PreprocessorAdvancedSettingsRead]
+    pdf: PdfAdvancedSettingsRead
 
 
 class SmbAuthenticationMode(StrEnum):
@@ -89,8 +105,24 @@ class AdvancedSystemSettingsPreprocessorsUpdate(SQLModel):
     imagemagick: Optional[PreprocessorAdvancedSettingsUpdate] = None
 
 
+class PdfAdvancedSettingsUpdate(SQLModel):
+    cache_quota_bytes: Optional[int] = None
+    cache_inactivity_ttl_seconds: Optional[int] = None
+    max_source_size_bytes: Optional[int] = None
+    max_output_size_bytes: Optional[int] = None
+    address_space_bytes: Optional[int] = None
+    temporary_disk_bytes: Optional[int] = None
+    timeout_seconds: Optional[int] = None
+    cpu_time_seconds: Optional[int] = None
+    max_concurrent: Optional[int] = None
+    queue_wait_seconds: Optional[int] = None
+    screen_derivative_enabled: Optional[int] = None
+    screen_max_decoded_pixels: Optional[int] = None
+
+
 class AdvancedSystemSettingsUpdate(SQLModel):
     preprocessors: Optional[AdvancedSystemSettingsPreprocessorsUpdate] = None
+    pdf: Optional[PdfAdvancedSettingsUpdate] = None
     reset_keys: list[SystemSettingKey] = Field(default_factory=list)
 
 

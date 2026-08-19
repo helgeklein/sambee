@@ -47,6 +47,7 @@ backend/coverage.json
 
 # React build
 frontend/build/
+frontend/public/pdfjs/
 frontend/.env.local
 frontend/.env.development.local
 frontend/.env.test.local

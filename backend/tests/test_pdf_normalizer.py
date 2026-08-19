@@ -6,10 +6,23 @@ import pytest
 
 from app.services.pdf_normalizer import (
     GHOSTSCRIPT_AVAILABLE,
+    PDFNormalizationError,
+    PDFNormalizationQueue,
     is_pdf_normalization_available,
     needs_pdf_normalization,
     normalize_pdf,
 )
+
+
+def test_normalization_queue_rejects_immediate_saturation() -> None:
+    queue = PDFNormalizationQueue()
+    with queue._condition:
+        queue._active = 1
+
+    with pytest.raises(PDFNormalizationError, match="queue is full") as error:
+        queue.run(maximum_concurrent=1, wait_seconds=0, operation=lambda: b"unreachable")
+
+    assert error.value.code == "queue_saturated"
 
 
 class TestNeedsPdfNormalization:

@@ -18,6 +18,7 @@ class FileInfo(BaseModel):
     mime_type: Optional[str] = None
     created_at: Optional[datetime] = None
     modified_at: Optional[datetime] = None
+    stable_id: Optional[str] = None
     is_readable: bool = True
     is_hidden: bool = False
 

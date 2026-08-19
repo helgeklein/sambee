@@ -588,6 +588,7 @@ export const EN_TRANSLATIONS = {
         smbBackends: "SMB backends",
         preprocessors: "Preprocessors",
         imageMagick: "ImageMagick",
+        pdfCompatibility: "PDF compatibility",
       },
       fields: {
         value: "Value",

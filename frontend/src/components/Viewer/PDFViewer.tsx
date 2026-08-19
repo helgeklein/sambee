@@ -1,6 +1,7 @@
-import { Alert, Box, Button, CircularProgress, Dialog, useMediaQuery, useTheme } from "@mui/material";
+import { Alert, Box, Button, CircularProgress, Dialog, TextField, useMediaQuery, useTheme } from "@mui/material";
 import { animated, useSpring } from "@react-spring/web";
 import { useDrag } from "@use-gesture/react";
+import pdfWorkerUrl from "pdfjs-dist/build/pdf.worker.min.mjs?url";
 import { memo, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { Document, Page, pdfjs } from "react-pdf";
@@ -30,10 +31,20 @@ import { createShareFile, shareNativeContent, supportsNativeShare } from "../../
 import { KeyboardShortcutsHelp } from "../KeyboardShortcutsHelp";
 import { ViewerControls, ViewerFilenameBadge } from "./ViewerControls";
 
-// Configure PDF.js worker - use CDN to avoid version mismatch
-pdfjs.GlobalWorkerOptions.workerSrc = `//unpkg.com/pdfjs-dist@${pdfjs.version}/build/pdf.worker.min.mjs`;
+const PDFJS_ASSET_BASE_URL = `${import.meta.env.BASE_URL}pdfjs/`;
+pdfjs.GlobalWorkerOptions.workerSrc = pdfWorkerUrl;
+
+const PDF_DOCUMENT_OPTIONS = {
+  cMapPacked: true,
+  cMapUrl: `${PDFJS_ASSET_BASE_URL}cmaps/`,
+  iccUrl: `${PDFJS_ASSET_BASE_URL}iccs/`,
+  standardFontDataUrl: `${PDFJS_ASSET_BASE_URL}standard_fonts/`,
+  wasmUrl: `${PDFJS_ASSET_BASE_URL}wasm/`,
+};
 
 type ZoomMode = "fit-page" | "fit-width" | number;
+type PdfSourceVariant = "original" | "normalized";
+type PdfPasswordCallback = (password: string | null) => void;
 
 const SWIPE_COMMIT_DISTANCE_RATIO = 0.22;
 const SWIPE_COMMIT_VELOCITY = 0.5;
@@ -43,6 +54,16 @@ const SWIPE_SPRING_CONFIG = {
   friction: 32,
 };
 const CAROUSEL_CENTER_OFFSET = "-33.333333%";
+const SCREEN_DERIVATIVE_ZOOM_PERCENT = 200;
+
+function getScreenProfile(): { width: number; height: number; zoomPercent: number } {
+  const pixelRatio = window.devicePixelRatio || 1;
+  return {
+    width: Math.min(16384, Math.max(320, Math.ceil(window.innerWidth * pixelRatio))),
+    height: Math.min(16384, Math.max(320, Math.ceil(window.innerHeight * pixelRatio))),
+    zoomPercent: SCREEN_DERIVATIVE_ZOOM_PERCENT,
+  };
+}
 
 /**
  * Match location within extracted PDF text.
@@ -75,6 +96,10 @@ const PDFViewer: React.FC<ViewerComponentProps> = ({ connectionId, path, onClose
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [loadAttempt, setLoadAttempt] = useState(0);
+  const [pdfSourceVariant, setPdfSourceVariant] = useState<PdfSourceVariant>("original");
+  const [documentFailure, setDocumentFailure] = useState<string | null>(null);
+  const [pdfPasswordCallback, setPdfPasswordCallback] = useState<PdfPasswordCallback | null>(null);
+  const [pdfPassword, setPdfPassword] = useState("");
   const [shareError, setShareError] = useState<string | null>(null);
   const [searchText, setSearchText] = useState<string>("");
   const [currentMatch, setCurrentMatch] = useState<number>(0);
@@ -91,6 +116,9 @@ const PDFViewer: React.FC<ViewerComponentProps> = ({ connectionId, path, onClose
   const searchHighlightsRef = useRef<DomTextSearchMatch[]>([]);
   const currentMatchRef = useRef(0);
   const matchLocationsRef = useRef<MatchLocation[]>([]);
+  const pageTextsRef = useRef<Map<number, string>>(new Map());
+  const searchedPageTextsRef = useRef<Map<number, string> | null>(null);
+  const searchTextRef = useRef("");
 
   // Search state
   const [pageTexts, setPageTexts] = useState<Map<number, string>>(new Map());
@@ -155,6 +183,8 @@ const PDFViewer: React.FC<ViewerComponentProps> = ({ connectionId, path, onClose
         setNumPages(0);
         setCurrentPage(1);
         setRenderedTextLayerPage(null);
+        pageTextsRef.current = new Map();
+        searchedPageTextsRef.current = null;
         setPageTexts(new Map());
         matchLocationsRef.current = [];
         currentMatchRef.current = 0;
@@ -165,6 +195,7 @@ const PDFViewer: React.FC<ViewerComponentProps> = ({ connectionId, path, onClose
           () =>
             apiService.getPdfBlob(connectionId, path, {
               signal: abortController.signal,
+              ...(pdfSourceVariant === "normalized" ? { pdfVariant: "normalized", screenProfile: getScreenProfile() } : {}),
             }),
           {
             signal: abortController.signal,
@@ -196,7 +227,11 @@ const PDFViewer: React.FC<ViewerComponentProps> = ({ connectionId, path, onClose
           detail: isApiError(err) ? err.response?.data?.detail : undefined,
           status: isApiError(err) ? err.response?.status : undefined,
         });
-        setError(errorMessage);
+        setError(
+          pdfSourceVariant === "normalized"
+            ? "PDF compatibility processing could not make this file viewable. You can still download the original file."
+            : errorMessage
+        );
       } finally {
         if (isMounted) {
           setLoading(false);
@@ -215,11 +250,41 @@ const PDFViewer: React.FC<ViewerComponentProps> = ({ connectionId, path, onClose
       }
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [connectionId, path, fetchWithRetry, filename, cancelSwipeTransition, loadAttempt]);
+  }, [connectionId, path, fetchWithRetry, filename, cancelSwipeTransition, loadAttempt, pdfSourceVariant]);
 
   const handleRetryLoad = useCallback(() => {
+    setPdfSourceVariant("original");
+    setDocumentFailure(null);
     setLoadAttempt((attempt) => attempt + 1);
   }, []);
+
+  const handleCompatibilityRetry = useCallback(() => {
+    setPdfSourceVariant("normalized");
+    setDocumentFailure(null);
+    setError(null);
+    setLoadAttempt((attempt) => attempt + 1);
+  }, []);
+
+  const handleDocumentPassword = useCallback((callback: PdfPasswordCallback) => {
+    setPdfPassword("");
+    setPdfPasswordCallback(() => callback);
+  }, []);
+
+  const handlePdfPasswordSubmit = useCallback(() => {
+    if (!pdfPasswordCallback || !pdfPassword) {
+      return;
+    }
+    pdfPasswordCallback(pdfPassword);
+    setPdfPassword("");
+    setPdfPasswordCallback(null);
+  }, [pdfPassword, pdfPasswordCallback]);
+
+  const handlePdfPasswordCancel = useCallback(() => {
+    pdfPasswordCallback?.(null);
+    setPdfPassword("");
+    setPdfPasswordCallback(null);
+    setError("This PDF is password-protected. Download the original file to open it elsewhere.");
+  }, [pdfPasswordCallback]);
 
   // Measure container dimensions with ResizeObserver
   // Trigger after PDF loads to ensure container is in DOM
@@ -310,17 +375,17 @@ const PDFViewer: React.FC<ViewerComponentProps> = ({ connectionId, path, onClose
             const page = await pdf.getPage(i);
             const textContent = await page.getTextContent();
 
-            // Build a searchable logical text stream with separators between items.
+            // Match PDF.js text-layer semantics: adjacent items form one text
+            // stream, while hasEOL becomes a line break in the rendered layer.
             let fullText = "";
 
-            for (let itemIndex = 0; itemIndex < textContent.items.length; itemIndex++) {
-              const textItem = textContent.items[itemIndex];
+            for (const textItem of textContent.items) {
               // biome-ignore lint/suspicious/noExplicitAny: PDF.js text item type not fully typed
               const item = textItem as any;
               fullText += item.str;
-
-              // Preserve item boundaries so cross-item words do not become false positives.
-              fullText += " ";
+              if (item.hasEOL) {
+                fullText += "\n";
+              }
             }
 
             texts.set(i, fullText);
@@ -331,6 +396,7 @@ const PDFViewer: React.FC<ViewerComponentProps> = ({ connectionId, path, onClose
             }
           }
 
+          pageTextsRef.current = texts;
           setPageTexts(texts);
           setIsSearchable(hasText);
 
@@ -353,10 +419,57 @@ const PDFViewer: React.FC<ViewerComponentProps> = ({ connectionId, path, onClose
   );
 
   // Handle document load error
-  const handleDocumentLoadError = useCallback((err: Error) => {
-    logError("PDF load error", { error: err.message });
-    setError(getApiErrorMessage(err, "Failed to load PDF", { includeOriginalMessage: true }));
-  }, []);
+  const handleDocumentLoadError = useCallback(
+    (err: Error) => {
+      logError("PDF load error", { error: err.message });
+      const failureMessage = getApiErrorMessage(err, "Failed to load PDF", { includeOriginalMessage: true });
+
+      if (/password|encrypted/i.test(err.message)) {
+        setDocumentFailure(failureMessage);
+        setError("This PDF is password-protected. Download the original file to open it elsewhere.");
+        return;
+      }
+
+      if (pdfSourceVariant === "original" && /InvalidPDFException|Invalid PDF structure/i.test(err.message)) {
+        setPdfSourceVariant("normalized");
+        setDocumentFailure(null);
+        setLoadAttempt((attempt) => attempt + 1);
+        return;
+      }
+
+      if (pdfSourceVariant === "normalized") {
+        void apiService.invalidatePdfDerivative(connectionId, path, getScreenProfile()).catch((invalidationError: unknown) => {
+          logError("Failed to invalidate PDF compatibility derivative", { error: invalidationError, path });
+        });
+      }
+      setDocumentFailure(failureMessage);
+      setError(
+        pdfSourceVariant === "normalized"
+          ? "PDF compatibility processing could not make this file viewable. You can still download the original file."
+          : failureMessage
+      );
+    },
+    [connectionId, path, pdfSourceVariant]
+  );
+
+  const handlePageRenderError = useCallback(
+    (err: Error) => {
+      logError("PDF page render error", { error: err.message });
+      const failureMessage = getApiErrorMessage(err, "Failed to render PDF page", { includeOriginalMessage: true });
+      if (pdfSourceVariant === "normalized") {
+        void apiService.invalidatePdfDerivative(connectionId, path, getScreenProfile()).catch((invalidationError: unknown) => {
+          logError("Failed to invalidate PDF compatibility derivative", { error: invalidationError, path });
+        });
+      }
+      setDocumentFailure(failureMessage);
+      setError(
+        pdfSourceVariant === "normalized"
+          ? "PDF compatibility processing could not make this file viewable. You can still download the original file."
+          : failureMessage
+      );
+    },
+    [connectionId, path, pdfSourceVariant]
+  );
 
   const handleActivePageLoadSuccess = useCallback(
     // biome-ignore lint/suspicious/noExplicitAny: PDF.js page type not fully typed
@@ -475,6 +588,7 @@ const PDFViewer: React.FC<ViewerComponentProps> = ({ connectionId, path, onClose
         renderAnnotationLayer={isActive}
         loading={<CircularProgress />}
         onLoadSuccess={isActive ? handleActivePageLoadSuccess : undefined}
+        onRenderError={isActive ? handlePageRenderError : undefined}
         onRenderTextLayerSuccess={isActive ? handleActiveTextLayerRenderSuccess : undefined}
       />
     </div>
@@ -550,7 +664,8 @@ const PDFViewer: React.FC<ViewerComponentProps> = ({ connectionId, path, onClose
    */
   const performSearch = useCallback(
     (query: string) => {
-      if (!query.trim() || pageTexts.size === 0) {
+      const extractedPageTexts = pageTextsRef.current;
+      if (!query.trim() || extractedPageTexts.size === 0) {
         matchLocationsRef.current = [];
         currentMatchRef.current = 0;
         setMatchLocations([]);
@@ -564,8 +679,8 @@ const PDFViewer: React.FC<ViewerComponentProps> = ({ connectionId, path, onClose
       const matches: MatchLocation[] = [];
 
       // Search through all pages
-      for (let pageNum = 1; pageNum <= numPages; pageNum++) {
-        const fullText = pageTexts.get(pageNum);
+      for (let pageNum = 1; pageNum <= numPagesRef.current; pageNum++) {
+        const fullText = extractedPageTexts.get(pageNum);
         if (!fullText) continue;
 
         let match: RegExpExecArray | null;
@@ -594,14 +709,27 @@ const PDFViewer: React.FC<ViewerComponentProps> = ({ connectionId, path, onClose
         setCurrentMatch(0);
       }
     },
-    [handlePageChange, pageTexts, numPages]
+    [handlePageChange]
   );
+
+  useEffect(() => {
+    if (pageTexts.size === 0 || searchedPageTextsRef.current === pageTexts) {
+      return;
+    }
+
+    searchedPageTextsRef.current = pageTexts;
+    const query = searchTextRef.current;
+    if (query.trim()) {
+      performSearch(query);
+    }
+  }, [pageTexts, performSearch]);
 
   // Debounced search handler
   const searchTimeoutRef = useRef<number | null>(null);
 
   const handleSearchChange = useCallback(
     (text: string) => {
+      searchTextRef.current = text;
       setSearchText(text);
 
       // Clear existing timeout
@@ -1087,9 +1215,17 @@ const PDFViewer: React.FC<ViewerComponentProps> = ({ connectionId, path, onClose
               <Alert
                 severity="error"
                 action={
-                  <Button color="inherit" size="small" onClick={handleRetryLoad}>
-                    {t("common.actions.retry")}
-                  </Button>
+                  pdfSourceVariant === "original" ? (
+                    documentFailure ? (
+                      <Button color="inherit" size="small" onClick={handleCompatibilityRetry}>
+                        Try compatibility mode
+                      </Button>
+                    ) : (
+                      <Button color="inherit" size="small" onClick={handleRetryLoad}>
+                        {t("common.actions.retry")}
+                      </Button>
+                    )
+                  ) : undefined
                 }
               >
                 {error}
@@ -1150,9 +1286,11 @@ const PDFViewer: React.FC<ViewerComponentProps> = ({ connectionId, path, onClose
             >
               <Document
                 file={pdfUrl}
+                options={PDF_DOCUMENT_OPTIONS}
                 onItemClick={handleInternalLinkNavigation}
                 onLoadSuccess={handleDocumentLoadSuccess}
                 onLoadError={handleDocumentLoadError}
+                onPassword={handleDocumentPassword}
                 loading={<CircularProgress />}
                 error={
                   <Box p={2}>
@@ -1199,6 +1337,40 @@ const PDFViewer: React.FC<ViewerComponentProps> = ({ connectionId, path, onClose
                     renderPdfPage(currentPage, true)
                   ))}
               </Document>
+            </Box>
+          )}
+
+          {pdfPasswordCallback && (
+            <Box p={2} sx={{ position: "absolute", inset: 0, display: "flex", alignItems: "center", justifyContent: "center", zIndex: 3 }}>
+              <Alert
+                severity="info"
+                action={
+                  <Button color="inherit" size="small" onClick={handlePdfPasswordCancel}>
+                    Cancel
+                  </Button>
+                }
+              >
+                <Box
+                  component="form"
+                  onSubmit={(event) => {
+                    event.preventDefault();
+                    handlePdfPasswordSubmit();
+                  }}
+                  sx={{ display: "flex", gap: 1, alignItems: "center" }}
+                >
+                  <TextField
+                    autoFocus
+                    label="PDF password"
+                    type="password"
+                    size="small"
+                    value={pdfPassword}
+                    onChange={(event) => setPdfPassword(event.target.value)}
+                  />
+                  <Button type="submit" variant="contained" disabled={!pdfPassword}>
+                    Open
+                  </Button>
+                </Box>
+              </Alert>
             </Box>
           )}
         </Box>

@@ -434,6 +434,7 @@ class SMBBackend(StorageBackend):
                     mime_type=None if is_dir else get_mime_type(filename),
                     modified_at=datetime.fromtimestamp(stat_info.st_mtime),
                     created_at=datetime.fromtimestamp(stat_info.st_ctime),
+                    stable_id=str(stat_info.st_ino) if getattr(stat_info, "st_ino", 0) else None,
                     is_hidden=filename.startswith("."),
                 )
 
