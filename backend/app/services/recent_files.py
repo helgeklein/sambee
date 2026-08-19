@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import unicodedata
 import uuid
 from datetime import datetime, timezone
 from pathlib import PurePosixPath
@@ -10,10 +9,13 @@ from sqlmodel import Session, col, select
 
 from app.models.recent_file import RecentFile, RecentFileRead
 from app.models.user import User
-from app.services.connection_access import get_accessible_connection_or_404
+from app.services.history_common import (
+    normalize_history_search_text,
+    normalize_recent_history_path,
+    validate_history_connection_access,
+)
 from app.services.system_settings import get_file_search_settings
 
-LOCAL_DRIVE_PREFIX = "local-drive:"
 MAX_RECENT_FILE_RESULTS = 50
 IMAGE_EXTENSIONS = frozenset(
     {
@@ -47,25 +49,13 @@ TEMPORARY_BACKUP_EXTENSIONS = frozenset({".bak", ".tmp", ".temp", ".swp", ".swo"
 
 
 def _normalize_for_matching(value: str) -> str:
-    decomposed = unicodedata.normalize("NFKD", value)
-    return "".join(character for character in decomposed if not unicodedata.combining(character)).casefold()
+    return normalize_history_search_text(value)
 
 
 def normalize_recent_file_path(path: str) -> str:
     """Return a canonical safe relative path for a recent-file record."""
 
-    normalized = path.replace("\\", "/").strip()
-    if not normalized or normalized.startswith("/"):
-        raise ValueError("File path must be a non-empty relative path")
-
-    parts = normalized.split("/")
-    if any(part in {"", ".", ".."} for part in parts):
-        raise ValueError("File path must not contain empty, current-directory, or parent-directory segments")
-
-    canonical = str(PurePosixPath(*parts))
-    if canonical in {"", "."}:
-        raise ValueError("File path must identify a file")
-    return canonical
+    return normalize_recent_history_path(path)
 
 
 def _is_temporary_or_backup(file_name: str) -> bool:
@@ -92,26 +82,13 @@ def _is_excluded(file_name: str, session: Session) -> bool:
     )
 
 
-def _validate_connection_access(*, connection_id: str, current_user: User, session: Session) -> None:
-    if connection_id.startswith(LOCAL_DRIVE_PREFIX):
-        if len(connection_id) == len(LOCAL_DRIVE_PREFIX):
-            raise ValueError("Local drive ID cannot be empty")
-        return
-
-    try:
-        parsed_connection_id = uuid.UUID(connection_id)
-    except ValueError as exc:
-        raise ValueError("Connection ID must be a connection UUID or local-drive ID") from exc
-    get_accessible_connection_or_404(session, current_user, parsed_connection_id)
-
-
 def should_record_recent_file(*, connection_id: str, path: str, is_regular_file: bool, current_user: User, session: Session) -> bool:
     """Validate history metadata and return whether retention policy permits recording it."""
 
     if not is_regular_file:
         raise ValueError("Only regular files can be recorded in recent-file history")
     normalized_path = normalize_recent_file_path(path)
-    _validate_connection_access(connection_id=connection_id, current_user=current_user, session=session)
+    validate_history_connection_access(connection_id=connection_id, current_user=current_user, session=session)
     file_name = PurePosixPath(normalized_path).name
     settings = get_file_search_settings(session)
     return settings.retention_limit > 0 and not _is_excluded(file_name, session)

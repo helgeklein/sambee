@@ -127,6 +127,9 @@ export interface UseFileBrowserPaneConfig {
 
   /** Called when the pane should switch to a different connection root. */
   onNavigateConnection?: (connectionId: string) => void;
+
+  /** Called when the pane should navigate to a directory in any accessible connection. */
+  onNavigateDirectory?: (connectionId: string, path: string) => void;
 }
 
 /** Everything returned by useFileBrowserPane for use by the parent and pane component. */

@@ -1,4 +1,4 @@
-import type { ClientRequest, IncomingMessage, ServerResponse } from "node:http";
+import type { ServerResponse } from "node:http";
 import { readFileSync } from "node:fs";
 import { dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -157,18 +157,6 @@ export default defineConfig({
             });
           });
 
-          proxy.on("proxyReq", (proxyReq: ClientRequest, req: IncomingMessage, res: ServerResponse) => {
-            const abortProxyRequest = () => {
-              if (!proxyReq.destroyed) {
-                proxyReq.destroy();
-              }
-            };
-
-            // Client-side aborts should cancel the upstream request, but a normal
-            // proxied HTTP response may emit `close` before `writableEnded`.
-            // Let the proxy manage response teardown for successful requests.
-            req.once("aborted", abortProxyRequest);
-          });
         },
       },
     },

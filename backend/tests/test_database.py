@@ -461,6 +461,50 @@ class TestDatabaseEngine:
         finally:
             test_engine.dispose()
 
+    def test_run_migrations_adds_recent_directory_history_table_and_indexes(self, tmp_path: Path):
+        db_path = tmp_path / "legacy-recent-directories.db"
+        test_engine = create_engine(f"sqlite:///{db_path}")
+        try:
+            with test_engine.begin() as connection:
+                connection.execute(
+                    text(
+                        f"CREATE TABLE {MIGRATION_TABLE_NAME} ("
+                        "version INTEGER PRIMARY KEY, name TEXT NOT NULL, applied_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP)"
+                    )
+                )
+                for migration in MIGRATIONS:
+                    if migration.version >= 27:
+                        continue
+                    connection.execute(
+                        text(f"INSERT INTO {MIGRATION_TABLE_NAME} (version, name) VALUES (:version, :name)"),
+                        {"version": migration.version, "name": migration.name},
+                    )
+
+            run_migrations(test_engine)
+            run_migrations(test_engine)
+
+            inspector = inspect(test_engine)
+            assert "recentdirectory" in inspector.get_table_names()
+            assert {column["name"] for column in inspector.get_columns("recentdirectory")} >= {
+                "id",
+                "user_id",
+                "connection_id",
+                "path",
+                "last_visited_at",
+                "created_at",
+            }
+            assert {index["name"] for index in inspector.get_indexes("recentdirectory")} >= {
+                "ix_recentdirectory_user_id",
+                "ix_recentdirectory_connection_id",
+                "ix_recentdirectory_last_visited_at",
+                "ix_recentdirectory_user_last_visited",
+            }
+            with test_engine.connect() as connection:
+                applied_versions = set(connection.execute(text(f"SELECT version FROM {MIGRATION_TABLE_NAME}")).scalars().all())
+            assert 27 in applied_versions
+        finally:
+            test_engine.dispose()
+
     def test_run_migrations_makes_password_nullable_and_preserves_hash(self, tmp_path: Path):
         db_path = tmp_path / "legacy-user-password.db"
         test_engine = create_engine(

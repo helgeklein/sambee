@@ -66,6 +66,26 @@ const noResultsProvider: SearchProvider = {
   getStatusInfo: () => null,
 };
 
+const footerProvider: SearchProvider = {
+  id: "footer-provider",
+  placeholder: "Search",
+  debounceMs: 0,
+  minQueryLength: 0,
+  fetchResults: async () => [
+    {
+      kind: "result",
+      id: "result-1",
+      value: "result-1",
+      icon: "directory",
+      primaryText: "Documents",
+    },
+  ],
+  onSelect: () => undefined,
+  getStatusInfo: () => null,
+  footerHint: "Keyboard shortcuts",
+  footerInfo: (resultCount) => `${resultCount} result`,
+};
+
 const fileSearchProvider: SearchProvider = {
   id: "file-search-provider",
   modeId: "file-search",
@@ -282,6 +302,38 @@ describe("UnifiedSearchBar", () => {
     expect(screen.getByText(translate("fileBrowser.search.results.none", { query: "abc" }))).toBeInTheDocument();
   });
 
+  it("does not open a loading popup for an empty initial search", async () => {
+    const user = userEvent.setup();
+    const fetchResults = vi.fn(() => new Promise<never>(() => undefined));
+    const loadingProvider: SearchProvider = {
+      ...noResultsProvider,
+      id: "loading-provider",
+      fetchResults,
+      getStatusInfo: () => ({ label: "Loading history", showSpinner: true }),
+    };
+
+    renderWithProvider(<UnifiedSearchBar provider={loadingProvider} />);
+
+    const searchInput = screen.getByRole("textbox");
+    await user.click(searchInput);
+
+    await waitFor(() => {
+      expect(fetchResults).toHaveBeenCalledWith("", expect.any(AbortSignal));
+    });
+    expect(screen.queryByText("Loading history")).not.toBeInTheDocument();
+  });
+
+  it("hides shortcut hints without hiding footer information", async () => {
+    const user = userEvent.setup();
+
+    renderWithProvider(<UnifiedSearchBar provider={footerProvider} showKeyboardHints={false} />);
+
+    await user.click(screen.getByRole("textbox"));
+
+    expect(await screen.findByText("1 result")).toBeInTheDocument();
+    expect(screen.queryByText("Keyboard shortcuts")).not.toBeInTheDocument();
+  });
+
   it("shows a retryable error instead of no-results when a search request fails", async () => {
     const user = userEvent.setup();
     const failingProvider: SearchProvider = {
@@ -297,6 +349,25 @@ describe("UnifiedSearchBar", () => {
 
     expect(await screen.findByRole("alert")).toHaveTextContent("Search could not be completed. Try again.");
     expect(screen.queryByText('No results found for "report"')).not.toBeInTheDocument();
+  });
+
+  it("shows a shared error when removing a recent item fails", async () => {
+    const user = userEvent.setup();
+    const failingRemovalProvider: SearchProvider = {
+      ...resultsProvider,
+      id: "failing-removal-provider",
+      onRemoveSelected: async () => Promise.reject(new Error("history unavailable")),
+    };
+
+    renderWithProvider(<UnifiedSearchBar provider={failingRemovalProvider} />);
+
+    const searchInput = screen.getByRole("textbox");
+    await user.click(searchInput);
+    await screen.findByRole("option", { name: "Docs" });
+    await user.keyboard("{Shift>}{Delete}{/Shift}");
+
+    expect(await screen.findByRole("alert")).toHaveTextContent("Could not remove this recent item. Try again.");
+    expect(searchInput).toHaveFocus();
   });
 
   it.each([

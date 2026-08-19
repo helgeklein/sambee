@@ -8,6 +8,7 @@ import userEvent from "@testing-library/user-event";
 import { beforeEach, describe, expect, it, type Mock, vi } from "vitest";
 import api from "../../services/api";
 import { authSession } from "../../services/authSession";
+import { RECENT_DIRECTORIES_CHANGED_EVENT } from "../../services/recentDirectoriesSync";
 import { RECENT_FILES_CHANGED_EVENT } from "../../services/recentFilesSync";
 import { clearCurrentUserSettingsCache } from "../../services/userSettingsSync";
 import {
@@ -808,7 +809,7 @@ describe("Browser Component - Interactions", () => {
       expect(screen.queryByRole("listbox")).not.toBeInTheDocument();
     });
 
-    it("shows a minimum-query hint instead of no-results for single-character quick nav input", async () => {
+    it("searches recent directories and shows no-results for single-character quick nav input", async () => {
       const user = userEvent.setup();
       renderBrowser("/browse/smb/test-server-1");
 
@@ -821,9 +822,8 @@ describe("Browser Component - Interactions", () => {
       const quickBarInput = await screen.findByPlaceholderText("Navigate to any directory");
       await user.type(quickBarInput, "e");
 
-      expect(screen.getByText("Type at least 2 characters to search")).toBeInTheDocument();
-      expect(screen.queryByText("No results found for “e”")).not.toBeInTheDocument();
-      expect(screen.queryByText(/No results found for/i)).not.toBeInTheDocument();
+      expect(await screen.findByText(/No results found for/i)).toHaveTextContent("e");
+      expect(api.searchRecentDirectories).toHaveBeenCalledWith("e", 10, expect.any(AbortSignal));
     });
 
     it("always shows the current quick-bar mode pill", async () => {
@@ -910,6 +910,66 @@ describe("Browser Component - Interactions", () => {
         expect(api.searchRecentFiles).toHaveBeenCalledTimes(callsBeforeRefresh + 1);
       });
       expect(fileSearchInput).toHaveFocus();
+      expect(screen.queryByRole("listbox")).not.toBeInTheDocument();
+    });
+
+    it.each([
+      ["a same-tab directory-history change", () => window.dispatchEvent(new Event(RECENT_DIRECTORIES_CHANGED_EVENT))],
+      ["window focus", () => window.dispatchEvent(new Event("focus"))],
+      ["returning to a visible tab", () => document.dispatchEvent(new Event("visibilitychange"))],
+    ])("refreshes active Directory Navigation after %s", async (_description, triggerRefresh) => {
+      const user = userEvent.setup();
+      Object.defineProperty(document, "visibilityState", { configurable: true, value: "visible" });
+      renderBrowser("/browse/smb/test-server-1");
+
+      await waitFor(() => {
+        expect(screen.getAllByText("Documents").length).toBeGreaterThan(0);
+      });
+
+      await user.keyboard("{Control>}k{/Control}");
+      await screen.findByPlaceholderText("Navigate to any directory");
+      await waitFor(() => {
+        expect(api.searchRecentDirectories).toHaveBeenCalledWith("", 10, expect.any(AbortSignal));
+      });
+
+      const callsBeforeRefresh = vi.mocked(api.searchRecentDirectories).mock.calls.length;
+      triggerRefresh();
+
+      await waitFor(() => {
+        expect(api.searchRecentDirectories).toHaveBeenCalledTimes(callsBeforeRefresh + 1);
+      });
+    });
+
+    it("does not reopen focused but dismissed Directory Navigation after a history refresh", async () => {
+      const user = userEvent.setup();
+      vi.mocked(api.searchRecentDirectories).mockResolvedValue({
+        result_limit: 10,
+        results: [
+          {
+            id: "recent-documents",
+            connection_id: "test-server-1",
+            path: "Documents",
+            last_visited_at: "2026-01-01T00:00:00Z",
+          },
+        ],
+      });
+      renderBrowser("/browse/smb/test-server-1");
+
+      await user.keyboard("{Control>}k{/Control}");
+      const navigateInput = await screen.findByPlaceholderText("Navigate to any directory");
+      await screen.findByRole("listbox");
+
+      await user.keyboard("{Escape}");
+      expect(navigateInput).toHaveFocus();
+      expect(screen.queryByRole("listbox")).not.toBeInTheDocument();
+      const callsBeforeRefresh = vi.mocked(api.searchRecentDirectories).mock.calls.length;
+
+      window.dispatchEvent(new Event(RECENT_DIRECTORIES_CHANGED_EVENT));
+
+      await waitFor(() => {
+        expect(api.searchRecentDirectories).toHaveBeenCalledTimes(callsBeforeRefresh + 1);
+      });
+      expect(navigateInput).toHaveFocus();
       expect(screen.queryByRole("listbox")).not.toBeInTheDocument();
     });
 

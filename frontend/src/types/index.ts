@@ -275,6 +275,18 @@ export interface RecentFileSearchResponse {
   result_limit?: number;
 }
 
+export interface RecentDirectory {
+  id: string;
+  connection_id: string;
+  path: string;
+  last_visited_at: string;
+}
+
+export interface RecentDirectorySearchResponse {
+  results: RecentDirectory[];
+  result_limit: number;
+}
+
 export interface RecentFileValidationError {
   code:
     | "recent_file_target_missing"
@@ -347,6 +359,7 @@ export interface CurrentUserSettings {
   };
   browser: {
     quick_nav_include_dot_directories: boolean;
+    quick_bar_shortcut_hint_visibility: "auto" | "always" | "never";
     file_browser_view_mode: "list" | "details";
     pane_mode: "single" | "dual";
     selected_connection_id: string | null;
@@ -368,6 +381,7 @@ export interface CurrentUserSettingsUpdate {
   };
   browser?: {
     quick_nav_include_dot_directories?: boolean;
+    quick_bar_shortcut_hint_visibility?: "auto" | "always" | "never";
     file_browser_view_mode?: "list" | "details";
     pane_mode?: "single" | "dual";
     selected_connection_id?: string | null;

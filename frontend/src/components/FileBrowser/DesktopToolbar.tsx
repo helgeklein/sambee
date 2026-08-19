@@ -25,6 +25,7 @@ interface DesktopToolbarProps {
   /** Remove toolbar controls from Tab order (dual-pane mode uses Tab for pane switching) */
   disableTabFocus?: boolean;
   modeOptions?: UnifiedSearchBarModeOption[];
+  showKeyboardHints?: boolean;
 }
 
 //
@@ -47,6 +48,7 @@ export function DesktopToolbar({
   onSearchArrowDownToFileList,
   disableTabFocus,
   modeOptions,
+  showKeyboardHints,
 }: DesktopToolbarProps) {
   return (
     <>
@@ -74,6 +76,7 @@ export function DesktopToolbar({
             onArrowDownToFileList={onSearchArrowDownToFileList}
             disableTabFocus={disableTabFocus}
             modeOptions={modeOptions}
+            showKeyboardHints={showKeyboardHints}
           />
         </Box>
       )}

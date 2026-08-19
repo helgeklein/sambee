@@ -1,5 +1,7 @@
-import { Alert, Box, CircularProgress, Dialog, useMediaQuery, useTheme } from "@mui/material";
-import { memo, useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { Alert, Box, Button, CircularProgress, Dialog, useMediaQuery, useTheme } from "@mui/material";
+import { animated, useSpring } from "@react-spring/web";
+import { useDrag } from "@use-gesture/react";
+import { memo, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { Document, Page, pdfjs } from "react-pdf";
 import "react-pdf/dist/Page/AnnotationLayer.css";
@@ -33,7 +35,14 @@ pdfjs.GlobalWorkerOptions.workerSrc = `//unpkg.com/pdfjs-dist@${pdfjs.version}/b
 
 type ZoomMode = "fit-page" | "fit-width" | number;
 
-const SWIPE_MIN_DISTANCE_PX = 48;
+const SWIPE_COMMIT_DISTANCE_RATIO = 0.22;
+const SWIPE_COMMIT_VELOCITY = 0.5;
+const SWIPE_EDGE_RESISTANCE = 0.2;
+const SWIPE_SPRING_CONFIG = {
+  tension: 320,
+  friction: 32,
+};
+const CAROUSEL_CENTER_OFFSET = "-33.333333%";
 
 /**
  * Match location within extracted PDF text.
@@ -48,12 +57,6 @@ interface PdfInternalLinkTarget {
   dest?: unknown;
   pageIndex?: number;
   pageNumber?: number;
-}
-
-interface PointerStart {
-  pointerId: number;
-  clientX: number;
-  clientY: number;
 }
 
 /**
@@ -71,6 +74,7 @@ const PDFViewer: React.FC<ViewerComponentProps> = ({ connectionId, path, onClose
   const [shareFile, setShareFile] = useState<File | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [loadAttempt, setLoadAttempt] = useState(0);
   const [shareError, setShareError] = useState<string | null>(null);
   const [searchText, setSearchText] = useState<string>("");
   const [currentMatch, setCurrentMatch] = useState<number>(0);
@@ -81,7 +85,8 @@ const PDFViewer: React.FC<ViewerComponentProps> = ({ connectionId, path, onClose
   const [rotation, setRotation] = useState<number>(0); // 0, 90, 180, 270
   const containerRef = useRef<HTMLDivElement>(null);
   const dialogRef = useRef<HTMLDivElement>(null);
-  const pointerStartRef = useRef<PointerStart | null>(null);
+  const pendingSwipePageRef = useRef<number | null>(null);
+  const swipeTransitionIdRef = useRef(0);
   const numPagesRef = useRef(0);
   const searchHighlightsRef = useRef<DomTextSearchMatch[]>([]);
   const currentMatchRef = useRef(0);
@@ -94,8 +99,10 @@ const PDFViewer: React.FC<ViewerComponentProps> = ({ connectionId, path, onClose
   const [searchPanelOpen, setSearchPanelOpen] = useState(false);
   const [isSearchable, setIsSearchable] = useState(true); // Assume searchable until proven otherwise
   const [showHelp, setShowHelp] = useState(false);
-  const [pageRenderTrigger, setPageRenderTrigger] = useState(0); // Increments when page renders
+  const [renderedTextLayerPage, setRenderedTextLayerPage] = useState<number | null>(null);
   const [sharing, setSharing] = useState(false);
+  const [isSwipeTransitioning, setIsSwipeTransitioning] = useState(false);
+  const [{ carouselX }, carouselApi] = useSpring(() => ({ carouselX: 0 }));
   const fetchWithRetry = useApiRetry();
 
   const { currentTheme } = useSambeeTheme();
@@ -111,6 +118,14 @@ const PDFViewer: React.FC<ViewerComponentProps> = ({ connectionId, path, onClose
 
   // Extract filename from path
   const filename = path.split("/").pop() || path;
+
+  const cancelSwipeTransition = useCallback(() => {
+    swipeTransitionIdRef.current += 1;
+    pendingSwipePageRef.current = null;
+    carouselApi.stop();
+    carouselApi.set({ carouselX: 0 });
+    setIsSwipeTransitioning(false);
+  }, [carouselApi]);
 
   // Rotation handlers
   const handleRotateLeft = useCallback((_event?: KeyboardEvent) => {
@@ -129,12 +144,17 @@ const PDFViewer: React.FC<ViewerComponentProps> = ({ connectionId, path, onClose
 
     const fetchPdf = async () => {
       try {
+        cancelSwipeTransition();
         setLoading(true);
         setError(null);
         setShareFile(null);
+        if (loadAttempt > 0) {
+          setPdfUrl(null);
+        }
         numPagesRef.current = 0;
         setNumPages(0);
         setCurrentPage(1);
+        setRenderedTextLayerPage(null);
         setPageTexts(new Map());
         matchLocationsRef.current = [];
         currentMatchRef.current = 0;
@@ -195,7 +215,11 @@ const PDFViewer: React.FC<ViewerComponentProps> = ({ connectionId, path, onClose
       }
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [connectionId, path, fetchWithRetry, filename]);
+  }, [connectionId, path, fetchWithRetry, filename, cancelSwipeTransition, loadAttempt]);
+
+  const handleRetryLoad = useCallback(() => {
+    setLoadAttempt((attempt) => attempt + 1);
+  }, []);
 
   // Measure container dimensions with ResizeObserver
   // Trigger after PDF loads to ensure container is in DOM
@@ -275,20 +299,6 @@ const PDFViewer: React.FC<ViewerComponentProps> = ({ connectionId, path, onClose
       setNumPages(pdf.numPages);
       setCurrentPage(1);
 
-      // Get actual page dimensions from the PDF
-      pdf
-        .getPage(1)
-        // biome-ignore lint/suspicious/noExplicitAny: PDF.js page type not fully typed
-        .then((page: any) => {
-          const viewport = page.getViewport({ scale: 1.0 });
-          setPdfPageWidth(viewport.width);
-          setPdfPageHeight(viewport.height);
-        })
-        // biome-ignore lint/suspicious/noExplicitAny: Error type is unknown
-        .catch((err: any) => {
-          logError("Failed to get page dimensions", err);
-        });
-
       // Extract text from all pages for search functionality
       const extractAllText = async () => {
         setExtractingText(true);
@@ -348,53 +358,126 @@ const PDFViewer: React.FC<ViewerComponentProps> = ({ connectionId, path, onClose
     setError(getApiErrorMessage(err, "Failed to load PDF", { includeOriginalMessage: true }));
   }, []);
 
-  // Page navigation
-  const handlePageChange = useCallback((page: number) => {
-    const totalPages = numPagesRef.current;
-
-    if (page >= 1 && page <= totalPages) {
-      setCurrentPage(page);
-    }
-  }, []);
-
-  const handlePointerDown = useCallback(
-    (event: React.PointerEvent<HTMLDivElement>) => {
-      if (!swipeNavigationEnabled || event.pointerType !== "touch" || !event.isPrimary) {
-        return;
-      }
-
-      pointerStartRef.current = {
-        pointerId: event.pointerId,
-        clientX: event.clientX,
-        clientY: event.clientY,
-      };
+  const handleActivePageLoadSuccess = useCallback(
+    // biome-ignore lint/suspicious/noExplicitAny: PDF.js page type not fully typed
+    (page: any) => {
+      const viewport = page.getViewport({ scale: 1.0, rotation });
+      setPdfPageWidth((width) => (width === viewport.width ? width : viewport.width));
+      setPdfPageHeight((height) => (height === viewport.height ? height : viewport.height));
     },
-    [swipeNavigationEnabled]
+    [rotation]
   );
 
-  const clearPointerStart = useCallback(() => {
-    pointerStartRef.current = null;
-  }, []);
+  const handleActiveTextLayerRenderSuccess = useCallback(() => {
+    setRenderedTextLayerPage(currentPage);
+  }, [currentPage]);
 
-  const handlePointerUp = useCallback(
-    (event: React.PointerEvent<HTMLDivElement>) => {
-      const pointerStart = pointerStartRef.current;
-      clearPointerStart();
-
-      if (!swipeNavigationEnabled || !pointerStart || event.pointerId !== pointerStart.pointerId) {
-        return;
+  // Page navigation
+  const handlePageChange = useCallback(
+    (page: number, preserveSwipeTransition = false) => {
+      if (!preserveSwipeTransition) {
+        cancelSwipeTransition();
       }
 
-      const horizontalDistance = event.clientX - pointerStart.clientX;
-      const verticalDistance = event.clientY - pointerStart.clientY;
+      const totalPages = numPagesRef.current;
 
-      if (Math.abs(horizontalDistance) < SWIPE_MIN_DISTANCE_PX || Math.abs(horizontalDistance) <= Math.abs(verticalDistance)) {
-        return;
+      if (page >= 1 && page <= totalPages) {
+        if (page !== currentPage) {
+          setRenderedTextLayerPage(null);
+          setCurrentPage(page);
+        }
       }
-
-      handlePageChange(currentPage + (horizontalDistance < 0 ? 1 : -1));
     },
-    [clearPointerStart, currentPage, handlePageChange, swipeNavigationEnabled]
+    [cancelSwipeTransition, currentPage]
+  );
+
+  useEffect(() => {
+    if (!swipeNavigationEnabled) {
+      cancelSwipeTransition();
+    }
+  }, [cancelSwipeTransition, swipeNavigationEnabled]);
+
+  useLayoutEffect(() => {
+    if (pendingSwipePageRef.current !== currentPage) {
+      return;
+    }
+
+    carouselApi.set({ carouselX: 0 });
+    pendingSwipePageRef.current = null;
+    setIsSwipeTransitioning(false);
+  }, [carouselApi, currentPage]);
+
+  const bindSwipeDrag = useDrag(
+    ({ active, movement: [movementX], velocity: [velocityX] }) => {
+      if (!swipeNavigationEnabled || isSwipeTransitioning || containerWidth === 0) {
+        return;
+      }
+
+      if (active) {
+        const pageDelta = movementX < 0 ? 1 : -1;
+        const targetPage = currentPage + pageDelta;
+        const resistance = targetPage < 1 || targetPage > numPages ? SWIPE_EDGE_RESISTANCE : 1;
+
+        carouselApi.start({
+          carouselX: movementX * resistance,
+          immediate: true,
+        });
+        return;
+      }
+
+      const pageDelta = movementX < 0 ? 1 : -1;
+      const targetPage = currentPage + pageDelta;
+      const hasTargetPage = targetPage >= 1 && targetPage <= numPages;
+      const hasReachedDistanceThreshold = Math.abs(movementX) >= containerWidth * SWIPE_COMMIT_DISTANCE_RATIO;
+      const hasReachedVelocityThreshold = Math.abs(velocityX) >= SWIPE_COMMIT_VELOCITY;
+
+      if (hasTargetPage && (hasReachedDistanceThreshold || hasReachedVelocityThreshold)) {
+        const transitionId = swipeTransitionIdRef.current + 1;
+        swipeTransitionIdRef.current = transitionId;
+        pendingSwipePageRef.current = targetPage;
+        setIsSwipeTransitioning(true);
+        carouselApi.start({
+          carouselX: -pageDelta * containerWidth,
+          config: {
+            ...SWIPE_SPRING_CONFIG,
+            velocity: -pageDelta * velocityX,
+          },
+          onRest: () => {
+            if (swipeTransitionIdRef.current === transitionId) {
+              handlePageChange(targetPage, true);
+            }
+          },
+        });
+        return;
+      }
+
+      carouselApi.start({
+        carouselX: 0,
+        config: SWIPE_SPRING_CONFIG,
+      });
+    },
+    {
+      axis: "x",
+      enabled: swipeNavigationEnabled && !isSwipeTransitioning,
+      filterTaps: true,
+      pointer: { capture: false },
+    }
+  );
+
+  const renderPdfPage = (pageNumber: number, isActive: boolean) => (
+    <div key={pageNumber} style={{ position: "relative", display: "inline-block" }} data-page-number={isActive ? pageNumber : undefined}>
+      <Page
+        pageNumber={pageNumber}
+        scale={pageScale || undefined}
+        width={pageWidth || undefined}
+        rotate={rotation}
+        renderTextLayer={isActive}
+        renderAnnotationLayer={isActive}
+        loading={<CircularProgress />}
+        onLoadSuccess={isActive ? handleActivePageLoadSuccess : undefined}
+        onRenderTextLayerSuccess={isActive ? handleActiveTextLayerRenderSuccess : undefined}
+      />
+    </div>
   );
 
   const handleInternalLinkNavigation = useCallback(
@@ -504,14 +587,14 @@ const PDFViewer: React.FC<ViewerComponentProps> = ({ connectionId, path, onClose
         currentMatchRef.current = 1;
         setCurrentMatch(1);
         if (matches[0]) {
-          setCurrentPage(matches[0].page);
+          handlePageChange(matches[0].page);
         }
       } else {
         currentMatchRef.current = 0;
         setCurrentMatch(0);
       }
     },
-    [pageTexts, numPages]
+    [handlePageChange, pageTexts, numPages]
   );
 
   // Debounced search handler
@@ -537,31 +620,37 @@ const PDFViewer: React.FC<ViewerComponentProps> = ({ connectionId, path, onClose
   // Search matches count is simply the total from extracted text
   const searchMatches = matchLocations.length;
 
-  const handleSearchNext = useCallback((_event?: KeyboardEvent) => {
-    const latestMatchLocations = matchLocationsRef.current;
-    if (latestMatchLocations.length === 0) return;
+  const handleSearchNext = useCallback(
+    (_event?: KeyboardEvent) => {
+      const latestMatchLocations = matchLocationsRef.current;
+      if (latestMatchLocations.length === 0) return;
 
-    const nextMatch = currentMatchRef.current >= latestMatchLocations.length ? 1 : currentMatchRef.current + 1;
-    currentMatchRef.current = nextMatch;
-    setCurrentMatch(nextMatch);
-    const nextLocation = latestMatchLocations[nextMatch - 1];
-    if (nextLocation) {
-      setCurrentPage(nextLocation.page);
-    }
-  }, []);
+      const nextMatch = currentMatchRef.current >= latestMatchLocations.length ? 1 : currentMatchRef.current + 1;
+      currentMatchRef.current = nextMatch;
+      setCurrentMatch(nextMatch);
+      const nextLocation = latestMatchLocations[nextMatch - 1];
+      if (nextLocation) {
+        handlePageChange(nextLocation.page);
+      }
+    },
+    [handlePageChange]
+  );
 
-  const handleSearchPrevious = useCallback((_event?: KeyboardEvent) => {
-    const latestMatchLocations = matchLocationsRef.current;
-    if (latestMatchLocations.length === 0) return;
+  const handleSearchPrevious = useCallback(
+    (_event?: KeyboardEvent) => {
+      const latestMatchLocations = matchLocationsRef.current;
+      if (latestMatchLocations.length === 0) return;
 
-    const prevMatch = currentMatchRef.current <= 1 ? latestMatchLocations.length : currentMatchRef.current - 1;
-    currentMatchRef.current = prevMatch;
-    setCurrentMatch(prevMatch);
-    const prevLocation = latestMatchLocations[prevMatch - 1];
-    if (prevLocation) {
-      setCurrentPage(prevLocation.page);
-    }
-  }, []);
+      const prevMatch = currentMatchRef.current <= 1 ? latestMatchLocations.length : currentMatchRef.current - 1;
+      currentMatchRef.current = prevMatch;
+      setCurrentMatch(prevMatch);
+      const prevLocation = latestMatchLocations[prevMatch - 1];
+      if (prevLocation) {
+        handlePageChange(prevLocation.page);
+      }
+    },
+    [handlePageChange]
+  );
 
   const getCurrentPageMatchIndex = useCallback(() => {
     if (currentMatch <= 0) {
@@ -583,8 +672,7 @@ const PDFViewer: React.FC<ViewerComponentProps> = ({ connectionId, path, onClose
     return pageMatchIndex;
   }, [currentMatch, currentPage, matchLocations]);
 
-  // Rebuild highlights from the rendered text layer so split/merged react-pdf spans stay searchable.
-  // biome-ignore lint/correctness/useExhaustiveDependencies: pageRenderTrigger intentionally retries after async text layer rendering
+  // Rebuild highlights after react-pdf reports the active text layer is ready.
   useEffect(() => {
     const textLayers = document.querySelectorAll(".react-pdf__Page__textContent");
     for (const layer of textLayers) {
@@ -592,24 +680,18 @@ const PDFViewer: React.FC<ViewerComponentProps> = ({ connectionId, path, onClose
     }
     searchHighlightsRef.current = [];
 
-    if (!searchText.trim() || matchLocations.length === 0) {
+    if (!searchText.trim() || matchLocations.length === 0 || renderedTextLayerPage !== currentPage) {
       return;
     }
 
     const pageContainer = document.querySelector(`[data-page-number="${currentPage}"]`);
     if (!pageContainer) {
-      const retryTimer = setTimeout(() => {
-        setPageRenderTrigger((prev) => prev + 1);
-      }, 50);
-      return () => clearTimeout(retryTimer);
+      return;
     }
 
     const textLayer = pageContainer.querySelector(".react-pdf__Page__textContent");
     if (!(textLayer instanceof HTMLElement) || !textLayer.textContent?.trim()) {
-      const retryTimer = setTimeout(() => {
-        setPageRenderTrigger((prev) => prev + 1);
-      }, 50);
-      return () => clearTimeout(retryTimer);
+      return;
     }
 
     const highlights = applyDomTextSearchHighlights(textLayer, searchText);
@@ -620,7 +702,7 @@ const PDFViewer: React.FC<ViewerComponentProps> = ({ connectionId, path, onClose
       clearDomTextSearchHighlights(textLayer);
       searchHighlightsRef.current = [];
     };
-  }, [currentPage, getCurrentPageMatchIndex, matchLocations, pageRenderTrigger, searchText]);
+  }, [currentPage, getCurrentPageMatchIndex, matchLocations, renderedTextLayerPage, searchText]);
 
   useEffect(() => {
     activateDomTextSearchMatch(searchHighlightsRef.current, getCurrentPageMatchIndex());
@@ -965,16 +1047,16 @@ const PDFViewer: React.FC<ViewerComponentProps> = ({ connectionId, path, onClose
           ref={containerRef}
           data-testid="pdf-viewer-content"
           tabIndex={0}
-          onPointerDown={handlePointerDown}
-          onPointerUp={handlePointerUp}
-          onPointerCancel={clearPointerStart}
+          {...bindSwipeDrag()}
           sx={{
             flex: 1,
             display: "flex",
             alignItems: "center",
             justifyContent: "center",
-            overflow: "auto",
+            overflow: swipeNavigationEnabled ? "hidden" : "auto",
             touchAction: swipeNavigationEnabled ? "pan-y" : "auto",
+            userSelect: swipeNavigationEnabled ? "none" : "auto",
+            WebkitUserSelect: swipeNavigationEnabled ? "none" : "auto",
             minHeight: 0,
             backgroundColor: viewerBg,
             "&:focus": {
@@ -1002,7 +1084,16 @@ const PDFViewer: React.FC<ViewerComponentProps> = ({ connectionId, path, onClose
           {/* Error state */}
           {error && (
             <Box p={2}>
-              <Alert severity="error">{error}</Alert>
+              <Alert
+                severity="error"
+                action={
+                  <Button color="inherit" size="small" onClick={handleRetryLoad}>
+                    {t("common.actions.retry")}
+                  </Button>
+                }
+              >
+                {error}
+              </Alert>
             </Box>
           )}
 
@@ -1022,6 +1113,8 @@ const PDFViewer: React.FC<ViewerComponentProps> = ({ connectionId, path, onClose
                   display: "flex",
                   alignItems: "center",
                   justifyContent: "center",
+                  width: "100%",
+                  height: "100%",
                 },
                 "& .react-pdf__Page": {
                   padding: 0,
@@ -1067,23 +1160,44 @@ const PDFViewer: React.FC<ViewerComponentProps> = ({ connectionId, path, onClose
                   </Box>
                 }
               >
-                {numPages > 0 && (
-                  <div style={{ position: "relative", display: "inline-block" }} data-page-number={currentPage}>
-                    <Page
-                      pageNumber={currentPage}
-                      scale={pageScale || undefined}
-                      width={pageWidth || undefined}
-                      rotate={rotation}
-                      renderTextLayer={true}
-                      renderAnnotationLayer={true}
-                      loading={<CircularProgress />}
-                      onRenderSuccess={() => {
-                        // Trigger highlighting effect when page finishes rendering
-                        setPageRenderTrigger((prev) => prev + 1);
-                      }}
-                    />
-                  </div>
-                )}
+                {numPages > 0 &&
+                  (swipeNavigationEnabled ? (
+                    <Box data-testid="pdf-swipe-viewport" sx={{ width: "100%", height: "100%", overflow: "hidden" }}>
+                      <animated.div
+                        data-testid="pdf-swipe-track"
+                        style={{
+                          display: "flex",
+                          width: "300%",
+                          height: "100%",
+                          transform: carouselX.to((offset) => `translate3d(calc(${CAROUSEL_CENTER_OFFSET} + ${offset}px), 0, 0)`),
+                          willChange: "transform",
+                        }}
+                      >
+                        {[-1, 0, 1].map((pageOffset) => {
+                          const pageNumber = currentPage + pageOffset;
+                          const isPageAvailable = pageNumber >= 1 && pageNumber <= numPages;
+
+                          return (
+                            <Box
+                              key={pageOffset}
+                              sx={{
+                                flex: "0 0 33.333333%",
+                                display: "flex",
+                                alignItems: "center",
+                                justifyContent: "center",
+                                minWidth: 0,
+                                height: "100%",
+                              }}
+                            >
+                              {isPageAvailable && renderPdfPage(pageNumber, pageOffset === 0)}
+                            </Box>
+                          );
+                        })}
+                      </animated.div>
+                    </Box>
+                  ) : (
+                    renderPdfPage(currentPage, true)
+                  ))}
               </Document>
             </Box>
           )}

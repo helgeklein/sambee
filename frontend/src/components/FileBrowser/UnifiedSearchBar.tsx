@@ -145,6 +145,8 @@ interface UnifiedSearchBarProps {
   modeSelectorAriaLabel?: string;
   /** Temporarily suppress the results dropdown while a higher-priority overlay is open. */
   suppressDropdown?: boolean;
+  /** Whether keyboard shortcut hints are relevant in the current input context. */
+  showKeyboardHints?: boolean;
 }
 
 export interface UnifiedSearchBarModeOption {
@@ -175,6 +177,7 @@ export function UnifiedSearchBar({
   modeOptions,
   modeSelectorAriaLabel,
   suppressDropdown = false,
+  showKeyboardHints = true,
 }: UnifiedSearchBarProps) {
   // ── State ──────────────────────────────────────────────────────────────
   const [internalQuery, setInternalQuery] = useState("");
@@ -184,6 +187,7 @@ export function UnifiedSearchBar({
   const [isDropdownOpen, setIsDropdownOpen] = useState(false);
   const [hasSearched, setHasSearched] = useState(false);
   const [searchError, setSearchError] = useState(false);
+  const [removeError, setRemoveError] = useState(false);
   const [isFocused, setIsFocused] = useState(false);
   const [isSearchPending, setIsSearchPending] = useState(false);
 
@@ -450,6 +454,7 @@ export function UnifiedSearchBar({
         setIsSearchPending(false);
         setIsLoading(true);
         setSearchError(false);
+        setRemoveError(false);
         const fetchedResults = await providerRef.current.fetchResults(searchQuery, controller.signal);
 
         if (!controller.signal.aborted) {
@@ -496,6 +501,7 @@ export function UnifiedSearchBar({
       const effectiveBelowMinimumMessage = getEffectiveBelowMinimumMessage(newQuery);
 
       setQuery(newQuery);
+      setRemoveError(false);
 
       if (disableDropdown) {
         setResults([]);
@@ -557,11 +563,14 @@ export function UnifiedSearchBar({
     }
 
     try {
+      setRemoveError(false);
       if (await providerRef.current.onRemoveSelected(selectedResult.value)) {
         await executeSearch(query);
         effectiveInputRef.current?.focus();
       }
     } catch {
+      setRemoveError(true);
+      setIsDropdownOpen(true);
       effectiveInputRef.current?.focus();
     }
   }, [effectiveInputRef, executeSearch, query, results, selectedIndex]);
@@ -899,6 +908,7 @@ export function UnifiedSearchBar({
       setSelectedIndex(0);
       setHasSearched(false);
       setSearchError(false);
+      setRemoveError(false);
     }
 
     setIsLoading(shouldSearchOnActivation);
@@ -966,9 +976,17 @@ export function UnifiedSearchBar({
   const effectiveMinQueryLength = getEffectiveMinQueryLength(query);
   const effectiveBelowMinimumMessage = getEffectiveBelowMinimumMessage(query);
   const showSearchError = searchError && query.length >= effectiveMinQueryLength && !isLoading && !isSearchPending;
+  const showRemoveError = removeError && !isLoading && !isSearchPending;
   const showNoResults =
-    hasSearched && query.length >= effectiveMinQueryLength && !isLoading && !isSearchPending && !showSearchError && results.length === 0;
+    hasSearched &&
+    query.length > 0 &&
+    query.length >= effectiveMinQueryLength &&
+    !isLoading &&
+    !isSearchPending &&
+    !showSearchError &&
+    results.length === 0;
   const showBelowMinimum = query.length > 0 && query.length < effectiveMinQueryLength && !!effectiveBelowMinimumMessage;
+  const showSearchProgress = query.length > 0 && (isSearchPending || isLoading || statusInfo !== null);
 
   // ── Render ─────────────────────────────────────────────────────────────
   return (
@@ -1069,13 +1087,7 @@ export function UnifiedSearchBar({
             !suppressDropdown &&
             !disableDropdown &&
             isDropdownOpen &&
-            (results.length > 0 ||
-              showNoResults ||
-              showSearchError ||
-              showBelowMinimum ||
-              isSearchPending ||
-              isLoading ||
-              statusInfo !== null)
+            (results.length > 0 || showNoResults || showSearchError || showRemoveError || showBelowMinimum || showSearchProgress)
           }
           anchorEl={anchorRef.current}
           placement="bottom"
@@ -1111,7 +1123,7 @@ export function UnifiedSearchBar({
                   display: "flex",
                   alignItems: "center",
                   gap: 1,
-                  borderBottom: results.length > 0 || showNoResults || showSearchError ? 1 : 0,
+                  borderBottom: results.length > 0 || showNoResults || showSearchError || showRemoveError ? 1 : 0,
                   borderColor: "divider",
                 }}
               >
@@ -1214,6 +1226,14 @@ export function UnifiedSearchBar({
               </Box>
             )}
 
+            {showRemoveError && (
+              <Box sx={{ px: 2, py: 2, textAlign: "center" }} role="alert">
+                <Typography variant="body2" sx={{ color: "error.main" }}>
+                  {t("fileBrowser.search.results.removeFailed")}
+                </Typography>
+              </Box>
+            )}
+
             {/* Footer */}
             {(footerHint || provider.footerInfo) && (
               <Box
@@ -1229,7 +1249,7 @@ export function UnifiedSearchBar({
                   backgroundColor: "action.selected",
                 }}
               >
-                {footerHint && (
+                {showKeyboardHints && footerHint && (
                   <Box
                     sx={{
                       display: "flex",

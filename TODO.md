@@ -10,12 +10,6 @@
    - 2-column design on desktop, 1-column on smaller devices
    - background colors, etc.
 
-## Quick bar
-
-- Directory navigation:
-   - Show 5 (?) most recently visited directories at the top of the list, then all others
-   - This could/should be similar to what VS Code does in the navigation that opens on Ctrl+P
-
 ## Misc. commands
 
 - Add a command to open the current file list location in a new browser tab (which keyboard shortcut to assign? Ctrl+(Shift)+Tab is needed by the browser)

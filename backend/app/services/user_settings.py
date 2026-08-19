@@ -14,6 +14,7 @@ from app.core.user_setting_definitions import (
     DEFAULT_FILE_BROWSER_VIEW_MODE,
     DEFAULT_LANGUAGE_PREFERENCE,
     DEFAULT_PANE_MODE,
+    DEFAULT_QUICK_BAR_SHORTCUT_HINT_VISIBILITY,
     DEFAULT_QUICK_NAV_INCLUDE_DOT_DIRECTORIES,
     DEFAULT_REGIONAL_LOCALE_PREFERENCE,
     DEFAULT_TEXT_EDITOR_MAX_FILE_SIZE_BYTES,
@@ -36,6 +37,7 @@ TRUE_VALUES = {"1", "true", "yes", "on"}
 FALSE_VALUES = {"0", "false", "no", "off"}
 VALID_FILE_BROWSER_VIEW_MODES = {"list", "details"}
 VALID_PANE_MODES = {"single", "dual"}
+VALID_QUICK_BAR_SHORTCUT_HINT_VISIBILITIES = {"auto", "always", "never"}
 MIN_TEXT_EDITOR_MAX_FILE_SIZE_BYTES = 65_536
 MAX_TEXT_EDITOR_MAX_FILE_SIZE_BYTES = 104_857_600
 VALID_THEME_MODES = {"light", "dark"}
@@ -236,6 +238,12 @@ def build_current_user_settings_read(*, user_id: uuid.UUID, session: Session) ->
                 key=UserSettingKey.BROWSER_QUICK_NAV_INCLUDE_DOT_DIRECTORIES,
                 default=DEFAULT_QUICK_NAV_INCLUDE_DOT_DIRECTORIES,
             ),
+            quick_bar_shortcut_hint_visibility=_parse_choice(
+                values.get(UserSettingKey.BROWSER_QUICK_BAR_SHORTCUT_HINT_VISIBILITY.value),
+                key=UserSettingKey.BROWSER_QUICK_BAR_SHORTCUT_HINT_VISIBILITY,
+                valid_values=VALID_QUICK_BAR_SHORTCUT_HINT_VISIBILITIES,
+                default=DEFAULT_QUICK_BAR_SHORTCUT_HINT_VISIBILITY,
+            ),
             file_browser_view_mode=_parse_choice(
                 values.get(UserSettingKey.BROWSER_FILE_BROWSER_VIEW_MODE.value),
                 key=UserSettingKey.BROWSER_FILE_BROWSER_VIEW_MODE,
@@ -335,6 +343,19 @@ def update_current_user_settings(*, user_id: uuid.UUID, payload: CurrentUserSett
             user_id=user_id,
             key=UserSettingKey.BROWSER_QUICK_NAV_INCLUDE_DOT_DIRECTORIES,
             value="true" if payload.browser.quick_nav_include_dot_directories else "false",
+            session=session,
+        )
+        has_updates = True
+
+    if payload.browser and payload.browser.quick_bar_shortcut_hint_visibility is not None:
+        shortcut_hint_visibility = payload.browser.quick_bar_shortcut_hint_visibility.strip().lower()
+        if shortcut_hint_visibility not in VALID_QUICK_BAR_SHORTCUT_HINT_VISIBILITIES:
+            raise ValueError("Quick Bar shortcut hint visibility must be one of: auto, always, never")
+
+        _upsert_user_setting(
+            user_id=user_id,
+            key=UserSettingKey.BROWSER_QUICK_BAR_SHORTCUT_HINT_VISIBILITY,
+            value=shortcut_hint_visibility,
             session=session,
         )
         has_updates = True

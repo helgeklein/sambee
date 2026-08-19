@@ -37,7 +37,7 @@ vi.mock("axios", () => {
 });
 
 import axios from "axios";
-import { apiService } from "../api";
+import { apiService, PDF_VIEWER_REQUEST_TIMEOUT_MS } from "../api";
 
 const mockedAxios = vi.mocked(axios);
 const mockAxiosInstance = mockedAxios.create() as ReturnType<typeof mockedAxios.create> & {
@@ -362,6 +362,27 @@ describe("Viewer API Contract Tests", () => {
           status: 500,
         },
       });
+    });
+  });
+
+  describe("Contract Tests - GET /viewer/{connection_id}/file (PDF Blob)", () => {
+    it("uses the bounded PDF viewer timeout", async () => {
+      mockAxiosInstance.get.mockResolvedValueOnce({
+        data: new ArrayBuffer(128),
+        status: 200,
+        statusText: "OK",
+        headers: { "content-type": "application/pdf" },
+        config: {},
+      } as unknown as AxiosResponse);
+
+      await apiService.getPdfBlob(testConnectionId, testPath);
+
+      expect(mockAxiosInstance.get).toHaveBeenCalledWith(
+        `/viewer/${testConnectionId}/file`,
+        expect.objectContaining({
+          timeout: PDF_VIEWER_REQUEST_TIMEOUT_MS,
+        })
+      );
     });
   });
 

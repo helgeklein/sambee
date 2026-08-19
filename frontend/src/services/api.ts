@@ -40,6 +40,8 @@ import type {
   OidcTestedIdentity,
   OidcTestStartResponse,
   PublicSupportReport,
+  RecentDirectory,
+  RecentDirectorySearchResponse,
   RecentFile,
   RecentFileSearchResponse,
   SmbSettings,
@@ -71,6 +73,7 @@ const CONNECTIONS_API_BASE = "/connections";
 const API_PATH_SUFFIX = "/api";
 const LOCAL_DRIVE_EDIT_LOCKS_UNSUPPORTED_MESSAGE = "Edit locks are not supported for local drives";
 const DIRECTORY_LIST_REQUEST_TIMEOUT_MS = 40_000;
+export const PDF_VIEWER_REQUEST_TIMEOUT_MS = 90_000;
 export const OIDC_FINALIZATION_REQUEST_TIMEOUT_MS = 15_000;
 
 let controlledReauthenticationInProgress = false;
@@ -725,6 +728,32 @@ class ApiService {
     return response.data.deleted_count;
   }
 
+  async recordRecentDirectory(connectionId: string, path: string): Promise<RecentDirectory> {
+    const response = await this.api.post<RecentDirectory>("/browse/recent-directories", {
+      connection_id: connectionId,
+      path,
+      is_directory: true,
+    });
+    return response.data;
+  }
+
+  async searchRecentDirectories(query: string, limit: number, signal?: AbortSignal): Promise<RecentDirectorySearchResponse> {
+    const response = await this.api.get<RecentDirectorySearchResponse>("/browse/recent-directories", {
+      params: { q: query, limit },
+      signal,
+    });
+    return response.data;
+  }
+
+  async removeRecentDirectory(recordId: string): Promise<void> {
+    await this.api.delete(`/browse/recent-directories/${recordId}`);
+  }
+
+  async clearRecentDirectories(): Promise<number> {
+    const response = await this.api.delete<{ deleted_count: number }>("/browse/recent-directories");
+    return response.data.deleted_count;
+  }
+
   async getSmbSettings(): Promise<SmbSettings> {
     const response = await this.api.get<SmbSettings>("/admin/settings/smb");
     return response.data;
@@ -1358,6 +1387,7 @@ class ApiService {
         params: { path },
         responseType: "arraybuffer",
         signal: options.signal,
+        timeout: PDF_VIEWER_REQUEST_TIMEOUT_MS,
       });
 
       const contentType = getResponseContentType(response.headers["content-type"], "application/pdf");
