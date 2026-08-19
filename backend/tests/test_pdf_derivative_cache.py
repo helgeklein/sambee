@@ -53,3 +53,23 @@ def test_cache_isolated_per_user_and_zero_quota_bypasses_storage(tmp_path) -> No
     assert first_zero_quota_hit is False
     assert second_zero_quota_hit is False
     assert create_calls == 4
+
+    def test_cache_get_and_invalidate_use_metadata_without_creating(tmp_path) -> None:
+        cache = PDFDerivativeCache(tmp_path)
+        cache.get_or_create(
+            user_id="user-a",
+            connection_id="connection",
+            revision=REVISION,
+            variant="normalized",
+            policy=POLICY,
+            create=lambda: VALID_DERIVATIVE,
+        )
+
+        assert (
+            cache.get(user_id="user-a", connection_id="connection", revision=REVISION, variant="normalized", policy=POLICY)
+            == VALID_DERIVATIVE
+        )
+
+        cache.invalidate(user_id="user-a", connection_id="connection", revision=REVISION, variant="normalized")
+
+        assert cache.get(user_id="user-a", connection_id="connection", revision=REVISION, variant="normalized", policy=POLICY) is None

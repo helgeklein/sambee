@@ -232,6 +232,8 @@ export interface PdfAdvancedSettings {
   cache_inactivity_ttl_seconds: IntegerSystemSetting;
   max_source_size_bytes: IntegerSystemSetting;
   max_output_size_bytes: IntegerSystemSetting;
+  address_space_bytes: IntegerSystemSetting;
+  temporary_disk_bytes: IntegerSystemSetting;
   timeout_seconds: IntegerSystemSetting;
   max_concurrent: IntegerSystemSetting;
   queue_wait_seconds: IntegerSystemSetting;
@@ -256,6 +258,8 @@ export interface AdvancedSystemSettingsUpdate {
     cache_inactivity_ttl_seconds?: number;
     max_source_size_bytes?: number;
     max_output_size_bytes?: number;
+    address_space_bytes?: number;
+    temporary_disk_bytes?: number;
     timeout_seconds?: number;
     max_concurrent?: number;
     queue_wait_seconds?: number;

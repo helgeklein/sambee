@@ -28,6 +28,7 @@ import subprocess
 import tempfile
 import time
 from dataclasses import dataclass
+from functools import lru_cache
 from pathlib import Path
 from threading import Condition
 from typing import Callable, Optional, TypeVar
@@ -61,6 +62,7 @@ class PDFNormalizationLimits:
     cpu_time_seconds: int = 60
     address_space_bytes: int = 512 * 1024 * 1024
     output_size_bytes: int = 512 * 1024 * 1024
+    temporary_disk_bytes: int = 1024 * 1024 * 1024
 
 
 class PDFNormalizationQueue:
@@ -95,6 +97,37 @@ def is_valid_pdf_output(pdf_bytes: bytes) -> bool:
     """Return whether bytes contain the minimum complete-PDF markers required for caching."""
 
     return len(pdf_bytes) > len(PDF_HEADER) and pdf_bytes.startswith(PDF_HEADER) and PDF_TRAILER in pdf_bytes[-PDF_TRAILER_SEARCH_BYTES:]
+
+
+@lru_cache(maxsize=1)
+def get_ghostscript_version() -> str:
+    """Return the installed Ghostscript version for derivative cache invalidation."""
+
+    if not GHOSTSCRIPT_PATH:
+        return "unavailable"
+    try:
+        completed = subprocess.run([GHOSTSCRIPT_PATH, "--version"], capture_output=True, check=True, text=True, timeout=5)
+    except (OSError, subprocess.SubprocessError):
+        return "unknown"
+    return completed.stdout.strip() or "unknown"
+
+
+def _is_structurally_valid_pdf(path: Path, timeout_seconds: int) -> bool:
+    """Use Ghostscript's parser to reject marker-valid but malformed output."""
+
+    if not GHOSTSCRIPT_PATH:
+        return False
+    try:
+        completed = subprocess.run(
+            [GHOSTSCRIPT_PATH, "-dSAFER", "-dBATCH", "-dNOPAUSE", "-dQUIET", "-sDEVICE=nullpage", str(path)],
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL,
+            timeout=timeout_seconds,
+            check=False,
+        )
+    except (OSError, subprocess.TimeoutExpired):
+        return False
+    return completed.returncode == 0
 
 
 def _resource_limiter(limits: PDFNormalizationLimits) -> None:
@@ -155,6 +188,9 @@ def normalize_pdf_strict(
     start_time = time.perf_counter()
     temp_base = "/dev/shm" if os.path.isdir("/dev/shm") and len(pdf_bytes) < 25 * 1024 * 1024 else None
 
+    if len(pdf_bytes) + limits.output_size_bytes > limits.temporary_disk_bytes:
+        raise PDFNormalizationError("PDF conversion exceeds the configured temporary-disk limit", code="temporary_disk_limit")
+
     try:
         temp_context = tempfile.TemporaryDirectory(prefix="sambee_pdf_", dir=temp_base)
         temp_dir = temp_context.__enter__()
@@ -164,6 +200,11 @@ def normalize_pdf_strict(
 
     try:
         temp_path = Path(temp_dir)
+        try:
+            if shutil.disk_usage(temp_path).free < len(pdf_bytes) + limits.output_size_bytes:
+                raise PDFNormalizationError("Insufficient temporary disk space for PDF conversion", code="temporary_disk_limit")
+        except OSError as exc:
+            raise PDFNormalizationError("Could not inspect temporary disk space", code="temporary_disk_unavailable") from exc
         input_path = temp_path / "input.pdf"
         output_path = temp_path / "output.pdf"
         input_path.write_bytes(pdf_bytes)
@@ -210,10 +251,12 @@ def normalize_pdf_strict(
             raise PDFNormalizationError("Ghostscript output exceeded the configured limit", code="output_limit")
         if not is_valid_pdf_output(normalized_bytes):
             raise PDFNormalizationError("Ghostscript output was not a complete PDF", code="invalid_output")
+        if not _is_structurally_valid_pdf(output_path, limits.timeout_seconds):
+            raise PDFNormalizationError("Ghostscript output failed structural validation", code="invalid_output")
 
         duration_ms = (time.perf_counter() - start_time) * 1000
         logger.info(
-            "PDF compatibility derivative created for %s (%d -> %d bytes) in %.0f ms",
+            "pdf_derivative outcome=created filename=%r source_bytes=%d derivative_bytes=%d duration_ms=%.0f",
             filename,
             len(pdf_bytes),
             len(normalized_bytes),

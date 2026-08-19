@@ -7,13 +7,13 @@ import json
 import os
 import threading
 import time
-from dataclasses import asdict, dataclass
+from dataclasses import dataclass
 from pathlib import Path
 from typing import Callable
 
 from app.core.config import static
 from app.core.logging import get_logger
-from app.services.pdf_normalizer import NORMALIZER_CONFIG_VERSION, is_valid_pdf_output
+from app.services.pdf_normalizer import NORMALIZER_CONFIG_VERSION, get_ghostscript_version, is_valid_pdf_output
 
 logger = get_logger(__name__)
 CACHE_DIRECTORY_NAME = "pdf_derivatives"
@@ -26,6 +26,12 @@ class PDFSourceRevision:
     path: str
     size: int | None
     modified_at: str | None
+    content_digest: str | None = None
+
+    def cache_identity(self) -> dict[str, str | int | None]:
+        """Return revision values obtainable without reading the SMB file."""
+
+        return {"path": self.path, "size": self.size, "modified_at": self.modified_at}
 
 
 @dataclass(frozen=True)
@@ -47,11 +53,40 @@ class PDFDerivativeCache:
         payload = {
             "connection_id": connection_id,
             "normalizer_config_version": NORMALIZER_CONFIG_VERSION,
-            "revision": asdict(revision),
+            "ghostscript_version": get_ghostscript_version(),
+            "revision": revision.cache_identity(),
             "user_id": user_id,
             "variant": variant,
         }
         return hashlib.sha256(json.dumps(payload, sort_keys=True, separators=(",", ":")).encode("utf-8")).hexdigest()
+
+    def get(
+        self,
+        *,
+        user_id: str,
+        connection_id: str,
+        revision: PDFSourceRevision,
+        variant: str,
+        policy: PDFDerivativeCachePolicy,
+    ) -> bytes | None:
+        """Read an existing derivative using only SMB metadata supplied by the caller."""
+
+        if policy.quota_bytes == 0:
+            return None
+        return self._read(user_id, self.cache_key(user_id, connection_id, revision, variant), revision, policy)
+
+    def invalidate(
+        self,
+        *,
+        user_id: str,
+        connection_id: str,
+        revision: PDFSourceRevision,
+        variant: str,
+    ) -> None:
+        """Remove a user's derivative for the supplied source metadata."""
+
+        pdf_path, metadata_path = self._entry_paths(user_id, self.cache_key(user_id, connection_id, revision, variant))
+        self._delete(pdf_path, metadata_path)
 
     def get_or_create(
         self,
@@ -73,13 +108,13 @@ class PDFDerivativeCache:
         if policy.quota_bytes == 0:
             return create(), False
 
-        cached = self._read(user_id, key, revision, policy)
+        cached = self.get(user_id=user_id, connection_id=connection_id, revision=revision, variant=variant, policy=policy)
         if cached is not None:
             return cached, True
 
         lock = self._lock_for(key)
         with lock:
-            cached = self._read(user_id, key, revision, policy)
+            cached = self.get(user_id=user_id, connection_id=connection_id, revision=revision, variant=variant, policy=policy)
             if cached is not None:
                 return cached, True
             derivative = create()
@@ -102,7 +137,7 @@ class PDFDerivativeCache:
         pdf_path, metadata_path = self._entry_paths(user_id, key)
         try:
             metadata = json.loads(metadata_path.read_text(encoding="utf-8"))
-            if metadata.get("revision") != asdict(revision):
+            if metadata.get("revision") != revision.cache_identity():
                 self._delete(pdf_path, metadata_path)
                 return None
             if time.time() - float(metadata["last_accessed_at"]) > policy.inactivity_ttl_seconds:
@@ -134,7 +169,8 @@ class PDFDerivativeCache:
         metadata = {
             "created_at": now,
             "last_accessed_at": now,
-            "revision": asdict(revision),
+            "revision": revision.cache_identity(),
+            "source_digest": revision.content_digest,
             "size": len(derivative),
         }
         self._atomic_write(pdf_path, derivative)

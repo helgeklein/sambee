@@ -251,11 +251,13 @@ const PDFViewer: React.FC<ViewerComponentProps> = ({ connectionId, path, onClose
       return;
     }
     pdfPasswordCallback(pdfPassword);
+    setPdfPassword("");
     setPdfPasswordCallback(null);
   }, [pdfPassword, pdfPasswordCallback]);
 
   const handlePdfPasswordCancel = useCallback(() => {
     pdfPasswordCallback?.(null);
+    setPdfPassword("");
     setPdfPasswordCallback(null);
     setError("This PDF is password-protected. Download the original file to open it elsewhere.");
   }, [pdfPasswordCallback]);
@@ -397,6 +399,12 @@ const PDFViewer: React.FC<ViewerComponentProps> = ({ connectionId, path, onClose
       logError("PDF load error", { error: err.message });
       const failureMessage = getApiErrorMessage(err, "Failed to load PDF", { includeOriginalMessage: true });
 
+      if (/password|encrypted/i.test(err.message)) {
+        setDocumentFailure(failureMessage);
+        setError("This PDF is password-protected. Download the original file to open it elsewhere.");
+        return;
+      }
+
       if (pdfSourceVariant === "original" && /InvalidPDFException|Invalid PDF structure/i.test(err.message)) {
         setPdfSourceVariant("normalized");
         setDocumentFailure(null);
@@ -404,6 +412,11 @@ const PDFViewer: React.FC<ViewerComponentProps> = ({ connectionId, path, onClose
         return;
       }
 
+      if (pdfSourceVariant === "normalized") {
+        void apiService.invalidatePdfDerivative(connectionId, path).catch((invalidationError: unknown) => {
+          logError("Failed to invalidate PDF compatibility derivative", { error: invalidationError, path });
+        });
+      }
       setDocumentFailure(failureMessage);
       setError(
         pdfSourceVariant === "normalized"
@@ -411,13 +424,18 @@ const PDFViewer: React.FC<ViewerComponentProps> = ({ connectionId, path, onClose
           : failureMessage
       );
     },
-    [pdfSourceVariant]
+    [connectionId, path, pdfSourceVariant]
   );
 
   const handlePageRenderError = useCallback(
     (err: Error) => {
       logError("PDF page render error", { error: err.message });
       const failureMessage = getApiErrorMessage(err, "Failed to render PDF page", { includeOriginalMessage: true });
+      if (pdfSourceVariant === "normalized") {
+        void apiService.invalidatePdfDerivative(connectionId, path).catch((invalidationError: unknown) => {
+          logError("Failed to invalidate PDF compatibility derivative", { error: invalidationError, path });
+        });
+      }
       setDocumentFailure(failureMessage);
       setError(
         pdfSourceVariant === "normalized"
@@ -425,7 +443,7 @@ const PDFViewer: React.FC<ViewerComponentProps> = ({ connectionId, path, onClose
           : failureMessage
       );
     },
-    [pdfSourceVariant]
+    [connectionId, path, pdfSourceVariant]
   );
 
   const handleActivePageLoadSuccess = useCallback(

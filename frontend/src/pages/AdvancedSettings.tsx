@@ -26,6 +26,8 @@ interface AdvancedSettingsFormState {
   pdfCacheInactivityTtlSeconds: number | null;
   pdfMaxSourceSizeBytes: number | null;
   pdfMaxOutputSizeBytes: number | null;
+  pdfAddressSpaceBytes: number | null;
+  pdfTemporaryDiskBytes: number | null;
   pdfTimeoutSeconds: number | null;
   pdfMaxConcurrent: number | null;
   pdfQueueWaitSeconds: number | null;
@@ -74,6 +76,8 @@ function createFormState(settings: AdvancedSystemSettings): AdvancedSettingsForm
     pdfCacheInactivityTtlSeconds: settings.pdf?.cache_inactivity_ttl_seconds.value ?? null,
     pdfMaxSourceSizeBytes: settings.pdf?.max_source_size_bytes.value ?? null,
     pdfMaxOutputSizeBytes: settings.pdf?.max_output_size_bytes.value ?? null,
+    pdfAddressSpaceBytes: settings.pdf?.address_space_bytes.value ?? null,
+    pdfTemporaryDiskBytes: settings.pdf?.temporary_disk_bytes.value ?? null,
     pdfTimeoutSeconds: settings.pdf?.timeout_seconds.value ?? null,
     pdfMaxConcurrent: settings.pdf?.max_concurrent.value ?? null,
     pdfQueueWaitSeconds: settings.pdf?.queue_wait_seconds.value ?? null,
@@ -136,6 +140,8 @@ function buildUpdatePayload(formState: AdvancedSettingsFormState): AdvancedSyste
     formState.pdfCacheInactivityTtlSeconds,
     formState.pdfMaxSourceSizeBytes,
     formState.pdfMaxOutputSizeBytes,
+    formState.pdfAddressSpaceBytes,
+    formState.pdfTemporaryDiskBytes,
     formState.pdfTimeoutSeconds,
     formState.pdfMaxConcurrent,
     formState.pdfQueueWaitSeconds,
@@ -155,6 +161,8 @@ function buildUpdatePayload(formState: AdvancedSettingsFormState): AdvancedSyste
             cache_inactivity_ttl_seconds: toOptionalNumber(formState.pdfCacheInactivityTtlSeconds),
             max_source_size_bytes: toOptionalNumber(formState.pdfMaxSourceSizeBytes),
             max_output_size_bytes: toOptionalNumber(formState.pdfMaxOutputSizeBytes),
+            address_space_bytes: toOptionalNumber(formState.pdfAddressSpaceBytes),
+            temporary_disk_bytes: toOptionalNumber(formState.pdfTemporaryDiskBytes),
             timeout_seconds: toOptionalNumber(formState.pdfTimeoutSeconds),
             max_concurrent: toOptionalNumber(formState.pdfMaxConcurrent),
             queue_wait_seconds: toOptionalNumber(formState.pdfQueueWaitSeconds),
@@ -468,6 +476,10 @@ export function AdvancedSettings({ dialogSafeHeader = false }: AdvancedSettingsP
       pdfMaxOutputSizeBytes: settings.pdf
         ? validateByteSizeSetting(settings.pdf.max_output_size_bytes, formState.pdfMaxOutputSizeBytes)
         : null,
+      pdfAddressSpaceBytes: settings.pdf ? validateByteSizeSetting(settings.pdf.address_space_bytes, formState.pdfAddressSpaceBytes) : null,
+      pdfTemporaryDiskBytes: settings.pdf
+        ? validateByteSizeSetting(settings.pdf.temporary_disk_bytes, formState.pdfTemporaryDiskBytes)
+        : null,
       pdfTimeoutSeconds: settings.pdf
         ? validateIntegerSetting(settings.pdf.timeout_seconds, formState.pdfTimeoutSeconds, t("settings.advanced.fields.seconds"))
         : null,
@@ -628,6 +640,24 @@ export function AdvancedSettings({ dialogSafeHeader = false }: AdvancedSettingsP
                     errorText={validationErrors?.pdfMaxOutputSizeBytes}
                     showErrors={submitAttempted}
                     onReset={() => handleReset(settings.pdf.max_output_size_bytes.key, settings.pdf.max_output_size_bytes.label)}
+                    resetDisabled={saving || loading || hasUnsavedChanges}
+                  />
+                  <ByteSizeSettingField
+                    setting={settings.pdf.address_space_bytes}
+                    value={formState.pdfAddressSpaceBytes}
+                    onChange={(value) => setFormState((current) => (current ? { ...current, pdfAddressSpaceBytes: value } : current))}
+                    errorText={validationErrors?.pdfAddressSpaceBytes}
+                    showErrors={submitAttempted}
+                    onReset={() => handleReset(settings.pdf.address_space_bytes.key, settings.pdf.address_space_bytes.label)}
+                    resetDisabled={saving || loading || hasUnsavedChanges}
+                  />
+                  <ByteSizeSettingField
+                    setting={settings.pdf.temporary_disk_bytes}
+                    value={formState.pdfTemporaryDiskBytes}
+                    onChange={(value) => setFormState((current) => (current ? { ...current, pdfTemporaryDiskBytes: value } : current))}
+                    errorText={validationErrors?.pdfTemporaryDiskBytes}
+                    showErrors={submitAttempted}
+                    onReset={() => handleReset(settings.pdf.temporary_disk_bytes.key, settings.pdf.temporary_disk_bytes.label)}
                     resetDisabled={saving || loading || hasUnsavedChanges}
                   />
                   <SettingField

@@ -40,6 +40,8 @@ class PdfAdvancedSettingsRead(SQLModel):
     cache_inactivity_ttl_seconds: IntegerSystemSettingRead
     max_source_size_bytes: IntegerSystemSettingRead
     max_output_size_bytes: IntegerSystemSettingRead
+    address_space_bytes: IntegerSystemSettingRead
+    temporary_disk_bytes: IntegerSystemSettingRead
     timeout_seconds: IntegerSystemSettingRead
     max_concurrent: IntegerSystemSettingRead
     queue_wait_seconds: IntegerSystemSettingRead
@@ -105,6 +107,8 @@ class PdfAdvancedSettingsUpdate(SQLModel):
     cache_inactivity_ttl_seconds: Optional[int] = None
     max_source_size_bytes: Optional[int] = None
     max_output_size_bytes: Optional[int] = None
+    address_space_bytes: Optional[int] = None
+    temporary_disk_bytes: Optional[int] = None
     timeout_seconds: Optional[int] = None
     max_concurrent: Optional[int] = None
     queue_wait_seconds: Optional[int] = None

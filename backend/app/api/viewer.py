@@ -1,4 +1,5 @@
 import asyncio
+import hashlib
 import uuid
 from collections.abc import AsyncIterator
 from datetime import datetime, timedelta, timezone
@@ -104,10 +105,12 @@ async def read_pdf_derivative_source(
             status_code=status.HTTP_409_CONFLICT,
             detail="The PDF changed while compatibility processing was being prepared. Try again.",
         )
-    return b"".join(chunks), PDFSourceRevision(
+    pdf_bytes = b"".join(chunks)
+    return pdf_bytes, PDFSourceRevision(
         path=path,
         size=initial_size,
         modified_at=initial_modified_at.isoformat() if initial_modified_at else None,
+        content_digest=hashlib.sha256(pdf_bytes).hexdigest(),
     )
 
 
@@ -135,13 +138,6 @@ async def create_normalized_pdf_response(
             detail="This PDF exceeds the configured compatibility-processing size limit.",
         )
 
-    pdf_bytes, revision = await read_pdf_derivative_source(backend, path, initial_size, initial_modified_at)
-    if len(pdf_bytes) > max_source_size:
-        raise HTTPException(
-            status_code=status.HTTP_413_REQUEST_ENTITY_TOO_LARGE,
-            detail="This PDF exceeds the configured compatibility-processing size limit.",
-        )
-
     policy = PDFDerivativeCachePolicy(
         quota_bytes=get_integer_setting_value(SystemSettingKey.PDF_VIEWER_CACHE_QUOTA_BYTES),
         inactivity_ttl_seconds=get_integer_setting_value(SystemSettingKey.PDF_VIEWER_CACHE_INACTIVITY_TTL_SECONDS),
@@ -149,9 +145,52 @@ async def create_normalized_pdf_response(
     limits = PDFNormalizationLimits(
         timeout_seconds=get_integer_setting_value(SystemSettingKey.PDF_NORMALIZER_TIMEOUT_SECONDS),
         cpu_time_seconds=get_integer_setting_value(SystemSettingKey.PDF_NORMALIZER_TIMEOUT_SECONDS),
+        address_space_bytes=get_integer_setting_value(SystemSettingKey.PDF_NORMALIZER_ADDRESS_SPACE_BYTES),
         output_size_bytes=get_integer_setting_value(SystemSettingKey.PDF_NORMALIZER_MAX_OUTPUT_SIZE_BYTES),
+        temporary_disk_bytes=get_integer_setting_value(SystemSettingKey.PDF_NORMALIZER_TEMPORARY_DISK_BYTES),
     )
     loop = asyncio.get_running_loop()
+    metadata_revision = PDFSourceRevision(
+        path=path,
+        size=initial_size,
+        modified_at=initial_modified_at.isoformat() if initial_modified_at else None,
+    )
+    cached_derivative = await loop.run_in_executor(
+        None,
+        partial(
+            pdf_derivative_cache.get,
+            user_id=str(user_id),
+            connection_id=str(connection_id),
+            revision=metadata_revision,
+            variant="normalized",
+            policy=policy,
+        ),
+    )
+    if cached_derivative is not None:
+        logger.info(
+            "pdf_derivative outcome=cache_hit connection_id=%s path=%r variant=normalized derivative_bytes=%d",
+            connection_id,
+            path,
+            len(cached_derivative),
+        )
+        await disconnect_backend_safely(backend, logger=logger, context=f"PDF derivative cache hit for '{path}'")
+        return Response(
+            content=cached_derivative,
+            media_type="application/pdf",
+            headers={
+                "Content-Disposition": f'inline; filename="{filename}"',
+                "X-PDF-Variant": "normalized",
+                "X-PDF-Derivative-Cache": "hit",
+                "Cache-Control": "private, no-store",
+            },
+        )
+
+    pdf_bytes, revision = await read_pdf_derivative_source(backend, path, initial_size, initial_modified_at)
+    if len(pdf_bytes) > max_source_size:
+        raise HTTPException(
+            status_code=status.HTTP_413_REQUEST_ENTITY_TOO_LARGE,
+            detail="This PDF exceeds the configured compatibility-processing size limit.",
+        )
 
     try:
         derivative, cache_hit = await loop.run_in_executor(
@@ -173,12 +212,19 @@ async def create_normalized_pdf_response(
             ),
         )
     except PDFNormalizationError as exc:
-        logger.warning("PDF compatibility processing failed: connection_id=%s path=%r outcome=%s", connection_id, path, exc.code)
+        logger.warning("pdf_derivative outcome=failed connection_id=%s path=%r variant=normalized code=%s", connection_id, path, exc.code)
         raise HTTPException(
             status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
             detail="PDF compatibility processing could not make this file viewable.",
         ) from exc
 
+    logger.info(
+        "pdf_derivative outcome=%s connection_id=%s path=%r variant=normalized derivative_bytes=%d",
+        "cache_hit" if cache_hit else "created",
+        connection_id,
+        path,
+        len(derivative),
+    )
     return Response(
         content=derivative,
         media_type="application/pdf",
@@ -189,6 +235,42 @@ async def create_normalized_pdf_response(
             "Cache-Control": "private, no-store",
         },
     )
+
+
+@router.delete("/{connection_id}/pdf-derivative", status_code=status.HTTP_204_NO_CONTENT)
+async def invalidate_pdf_derivative(
+    connection_id: uuid.UUID,
+    path: str = Query(..., description="Path to the PDF source"),
+    current_user: User = Depends(get_current_user_with_auth_check),
+    session: Session = Depends(get_session),
+) -> Response:
+    """Discard the current user's compatibility derivative after PDF.js rejects it."""
+
+    connection = get_accessible_connection_or_404(session, current_user, connection_id)
+    backend = build_smb_backend(connection, backend_factory=SMBBackend)
+    try:
+        await backend.connect()
+        file_info = await backend.get_file_info(path)
+        if file_info.type == FileType.DIRECTORY or not needs_pdf_normalization(file_info.name):
+            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="PDF derivative invalidation requires a PDF file")
+        revision = PDFSourceRevision(
+            path=path,
+            size=file_info.size,
+            modified_at=file_info.modified_at.isoformat() if file_info.modified_at else None,
+        )
+        await asyncio.get_running_loop().run_in_executor(
+            None,
+            partial(
+                pdf_derivative_cache.invalidate,
+                user_id=str(current_user.id),
+                connection_id=str(connection_id),
+                revision=revision,
+                variant="normalized",
+            ),
+        )
+    finally:
+        await disconnect_backend_safely(backend, logger=logger, context=f"PDF derivative invalidation for '{path}'")
+    return Response(status_code=status.HTTP_204_NO_CONTENT)
 
 
 #

@@ -330,6 +330,8 @@ def build_advanced_system_settings_read() -> AdvancedSystemSettingsRead:
             ),
             max_source_size_bytes=_build_integer_read(SYSTEM_SETTING_DEFINITIONS[SystemSettingKey.PDF_NORMALIZER_MAX_SOURCE_SIZE_BYTES]),
             max_output_size_bytes=_build_integer_read(SYSTEM_SETTING_DEFINITIONS[SystemSettingKey.PDF_NORMALIZER_MAX_OUTPUT_SIZE_BYTES]),
+            address_space_bytes=_build_integer_read(SYSTEM_SETTING_DEFINITIONS[SystemSettingKey.PDF_NORMALIZER_ADDRESS_SPACE_BYTES]),
+            temporary_disk_bytes=_build_integer_read(SYSTEM_SETTING_DEFINITIONS[SystemSettingKey.PDF_NORMALIZER_TEMPORARY_DISK_BYTES]),
             timeout_seconds=_build_integer_read(SYSTEM_SETTING_DEFINITIONS[SystemSettingKey.PDF_NORMALIZER_TIMEOUT_SECONDS]),
             max_concurrent=_build_integer_read(SYSTEM_SETTING_DEFINITIONS[SystemSettingKey.PDF_NORMALIZER_MAX_CONCURRENT]),
             queue_wait_seconds=_build_integer_read(SYSTEM_SETTING_DEFINITIONS[SystemSettingKey.PDF_NORMALIZER_QUEUE_WAIT_SECONDS]),
@@ -652,6 +654,10 @@ def _extract_updates(payload: AdvancedSystemSettingsUpdate) -> dict[SystemSettin
             updates[SystemSettingKey.PDF_NORMALIZER_MAX_SOURCE_SIZE_BYTES] = pdf.max_source_size_bytes
         if pdf.max_output_size_bytes is not None:
             updates[SystemSettingKey.PDF_NORMALIZER_MAX_OUTPUT_SIZE_BYTES] = pdf.max_output_size_bytes
+        if pdf.address_space_bytes is not None:
+            updates[SystemSettingKey.PDF_NORMALIZER_ADDRESS_SPACE_BYTES] = pdf.address_space_bytes
+        if pdf.temporary_disk_bytes is not None:
+            updates[SystemSettingKey.PDF_NORMALIZER_TEMPORARY_DISK_BYTES] = pdf.temporary_disk_bytes
         if pdf.timeout_seconds is not None:
             updates[SystemSettingKey.PDF_NORMALIZER_TIMEOUT_SECONDS] = pdf.timeout_seconds
         if pdf.max_concurrent is not None:

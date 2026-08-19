@@ -13,6 +13,8 @@ class SystemSettingKey(StrEnum):
     PDF_VIEWER_CACHE_INACTIVITY_TTL_SECONDS = "pdf.viewer.cache_inactivity_ttl_seconds"
     PDF_NORMALIZER_MAX_SOURCE_SIZE_BYTES = "pdf.normalizer.max_source_size_bytes"
     PDF_NORMALIZER_MAX_OUTPUT_SIZE_BYTES = "pdf.normalizer.max_output_size_bytes"
+    PDF_NORMALIZER_ADDRESS_SPACE_BYTES = "pdf.normalizer.address_space_bytes"
+    PDF_NORMALIZER_TEMPORARY_DISK_BYTES = "pdf.normalizer.temporary_disk_bytes"
     PDF_NORMALIZER_TIMEOUT_SECONDS = "pdf.normalizer.timeout_seconds"
     PDF_NORMALIZER_MAX_CONCURRENT = "pdf.normalizer.max_concurrent"
     PDF_NORMALIZER_QUEUE_WAIT_SECONDS = "pdf.normalizer.queue_wait_seconds"
@@ -107,6 +109,26 @@ SYSTEM_SETTING_DEFINITIONS: dict[SystemSettingKey, IntegerSystemSettingDefinitio
         min_value=1 * 1024 * 1024,
         max_value=2 * 1024 * 1024 * 1024,
         step=1024 * 1024,
+    ),
+    SystemSettingKey.PDF_NORMALIZER_ADDRESS_SPACE_BYTES: IntegerSystemSettingDefinition(
+        key=SystemSettingKey.PDF_NORMALIZER_ADDRESS_SPACE_BYTES,
+        config_attr=None,
+        label="PDF compatibility address-space limit",
+        description="Maximum virtual memory available to one Ghostscript compatibility conversion.",
+        default_value=512 * 1024 * 1024,
+        min_value=128 * 1024 * 1024,
+        max_value=8 * 1024 * 1024 * 1024,
+        step=64 * 1024 * 1024,
+    ),
+    SystemSettingKey.PDF_NORMALIZER_TEMPORARY_DISK_BYTES: IntegerSystemSettingDefinition(
+        key=SystemSettingKey.PDF_NORMALIZER_TEMPORARY_DISK_BYTES,
+        config_attr=None,
+        label="PDF compatibility temporary-disk limit",
+        description="Maximum temporary space reserved for one compatibility conversion input and output.",
+        default_value=1024 * 1024 * 1024,
+        min_value=128 * 1024 * 1024,
+        max_value=8 * 1024 * 1024 * 1024,
+        step=64 * 1024 * 1024,
     ),
     SystemSettingKey.PDF_NORMALIZER_TIMEOUT_SECONDS: IntegerSystemSettingDefinition(
         key=SystemSettingKey.PDF_NORMALIZER_TIMEOUT_SECONDS,

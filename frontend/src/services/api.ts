@@ -1442,6 +1442,15 @@ class ApiService {
     }
   }
 
+  async invalidatePdfDerivative(connectionId: string, path: string): Promise<void> {
+    const segment = getBrowseSegment(connectionId);
+    const { client, extraConfig } = await this.getClientConfig(connectionId);
+    await client.delete(`/viewer/${segment}/pdf-derivative`, {
+      ...extraConfig,
+      params: { path },
+    });
+  }
+
   /**
    * Get frontend logging configuration
    */

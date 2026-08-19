@@ -243,6 +243,32 @@ class TestViewerFile:
         assert response.headers["x-pdf-derivative-cache"] == "miss"
         cache_get_or_create.assert_called_once()
 
+        def test_view_pdf_normalized_cache_hit_does_not_read_source(self, client, auth_headers_user, test_connection, mock_pdf_file):
+            """A cache hit must avoid a costly SMB content read."""
+            derivative_bytes = b"%PDF-1.4\ncached PDF bytes\n%%EOF"
+
+            with (
+                patch("app.api.viewer.SMBBackend") as mock_backend,
+                patch("app.api.viewer.pdf_derivative_cache.get", return_value=derivative_bytes) as cache_get,
+            ):
+                backend_instance = AsyncMock()
+                backend_instance.get_file_info.return_value = mock_pdf_file
+                backend_instance.read_file = lambda path, **kwargs: (_ for _ in ()).throw(AssertionError("source must not be read"))
+                backend_instance.connect.return_value = None
+                backend_instance.disconnect.return_value = None
+                mock_backend.return_value = backend_instance
+
+                response = client.get(
+                    f"/api/viewer/{test_connection.id}/file",
+                    headers=auth_headers_user,
+                    params={"path": "/document.pdf", "pdf_variant": "normalized"},
+                )
+
+            assert response.status_code == 200
+            assert response.content == derivative_bytes
+            assert response.headers["x-pdf-derivative-cache"] == "hit"
+            cache_get.assert_called_once()
+
     def test_view_file_without_auth(self, client, test_connection):
         """Test that viewing requires authentication."""
         response = client.get(
