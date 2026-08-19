@@ -26,5 +26,11 @@ The settings gained a new category page:
 
 ## PDF Viewer
 
+### New Approach to Normalization
+
+Earlier versions normalized every PDF with Ghostscript. This introduced occasional issues and slowed down the viewer. Sambee now opens PDFs in their original form first. When a PDF cannot be displayed because its internal structure is incompatible with the viewer, Sambee can create a separate normalized version for viewing; the original file is never modified. Compatibility processing is limited by file size, processing time, memory, and temporary storage, and each normalized PDF is checked before use.
+
+### Other Changes
+
 - Swipe to move between pages on mobile
 - Bugfix: geometry changes between pages, e.g., from portrait to landscape, would create endless "flicker loop"
