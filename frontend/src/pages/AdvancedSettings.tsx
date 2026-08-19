@@ -22,6 +22,13 @@ interface AdvancedSettingsProps {
 interface AdvancedSettingsFormState {
   imagemagickMaxFileSizeBytes: number | null;
   imagemagickTimeoutSeconds: number | null;
+  pdfCacheQuotaBytes: number | null;
+  pdfCacheInactivityTtlSeconds: number | null;
+  pdfMaxSourceSizeBytes: number | null;
+  pdfMaxOutputSizeBytes: number | null;
+  pdfTimeoutSeconds: number | null;
+  pdfMaxConcurrent: number | null;
+  pdfQueueWaitSeconds: number | null;
 }
 
 const DESKTOP_FIELD_ROW_MAX_WIDTH = 440;
@@ -63,6 +70,13 @@ function createFormState(settings: AdvancedSystemSettings): AdvancedSettingsForm
   return {
     imagemagickMaxFileSizeBytes: settings.preprocessors.imagemagick.max_file_size_bytes.value,
     imagemagickTimeoutSeconds: settings.preprocessors.imagemagick.timeout_seconds.value,
+    pdfCacheQuotaBytes: settings.pdf?.cache_quota_bytes.value ?? null,
+    pdfCacheInactivityTtlSeconds: settings.pdf?.cache_inactivity_ttl_seconds.value ?? null,
+    pdfMaxSourceSizeBytes: settings.pdf?.max_source_size_bytes.value ?? null,
+    pdfMaxOutputSizeBytes: settings.pdf?.max_output_size_bytes.value ?? null,
+    pdfTimeoutSeconds: settings.pdf?.timeout_seconds.value ?? null,
+    pdfMaxConcurrent: settings.pdf?.max_concurrent.value ?? null,
+    pdfQueueWaitSeconds: settings.pdf?.queue_wait_seconds.value ?? null,
   };
 }
 
@@ -117,6 +131,15 @@ function validateByteSizeSetting(setting: IntegerSystemSetting, value: number | 
 
 function buildUpdatePayload(formState: AdvancedSettingsFormState): AdvancedSystemSettingsUpdate {
   const toOptionalNumber = (value: number | null): number | undefined => value ?? undefined;
+  const includesPdfSettings = [
+    formState.pdfCacheQuotaBytes,
+    formState.pdfCacheInactivityTtlSeconds,
+    formState.pdfMaxSourceSizeBytes,
+    formState.pdfMaxOutputSizeBytes,
+    formState.pdfTimeoutSeconds,
+    formState.pdfMaxConcurrent,
+    formState.pdfQueueWaitSeconds,
+  ].some((value) => value !== null);
 
   return {
     preprocessors: {
@@ -125,6 +148,19 @@ function buildUpdatePayload(formState: AdvancedSettingsFormState): AdvancedSyste
         timeout_seconds: toOptionalNumber(formState.imagemagickTimeoutSeconds),
       },
     },
+    ...(includesPdfSettings
+      ? {
+          pdf: {
+            cache_quota_bytes: toOptionalNumber(formState.pdfCacheQuotaBytes),
+            cache_inactivity_ttl_seconds: toOptionalNumber(formState.pdfCacheInactivityTtlSeconds),
+            max_source_size_bytes: toOptionalNumber(formState.pdfMaxSourceSizeBytes),
+            max_output_size_bytes: toOptionalNumber(formState.pdfMaxOutputSizeBytes),
+            timeout_seconds: toOptionalNumber(formState.pdfTimeoutSeconds),
+            max_concurrent: toOptionalNumber(formState.pdfMaxConcurrent),
+            queue_wait_seconds: toOptionalNumber(formState.pdfQueueWaitSeconds),
+          },
+        }
+      : {}),
   };
 }
 
@@ -418,6 +454,27 @@ export function AdvancedSettings({ dialogSafeHeader = false }: AdvancedSettingsP
         formState.imagemagickTimeoutSeconds,
         t("settings.advanced.fields.seconds")
       ),
+      pdfCacheQuotaBytes: settings.pdf ? validateByteSizeSetting(settings.pdf.cache_quota_bytes, formState.pdfCacheQuotaBytes) : null,
+      pdfCacheInactivityTtlSeconds: settings.pdf
+        ? validateIntegerSetting(
+            settings.pdf.cache_inactivity_ttl_seconds,
+            formState.pdfCacheInactivityTtlSeconds,
+            t("settings.advanced.fields.seconds")
+          )
+        : null,
+      pdfMaxSourceSizeBytes: settings.pdf
+        ? validateByteSizeSetting(settings.pdf.max_source_size_bytes, formState.pdfMaxSourceSizeBytes)
+        : null,
+      pdfMaxOutputSizeBytes: settings.pdf
+        ? validateByteSizeSetting(settings.pdf.max_output_size_bytes, formState.pdfMaxOutputSizeBytes)
+        : null,
+      pdfTimeoutSeconds: settings.pdf
+        ? validateIntegerSetting(settings.pdf.timeout_seconds, formState.pdfTimeoutSeconds, t("settings.advanced.fields.seconds"))
+        : null,
+      pdfMaxConcurrent: settings.pdf ? validateIntegerSetting(settings.pdf.max_concurrent, formState.pdfMaxConcurrent) : null,
+      pdfQueueWaitSeconds: settings.pdf
+        ? validateIntegerSetting(settings.pdf.queue_wait_seconds, formState.pdfQueueWaitSeconds, t("settings.advanced.fields.seconds"))
+        : null,
     };
   }, [formState, settings, t]);
 
@@ -530,6 +587,80 @@ export function AdvancedSettings({ dialogSafeHeader = false }: AdvancedSettingsP
                   resetDisabled={saving || loading || hasUnsavedChanges}
                 />
               </SettingsGroup>
+              {settings.pdf && (
+                <SettingsGroup title={t("settings.advanced.sections.pdfCompatibility")} level="subsection">
+                  <ByteSizeSettingField
+                    setting={settings.pdf.cache_quota_bytes}
+                    value={formState.pdfCacheQuotaBytes}
+                    onChange={(value) => setFormState((current) => (current ? { ...current, pdfCacheQuotaBytes: value } : current))}
+                    errorText={validationErrors?.pdfCacheQuotaBytes}
+                    showErrors={submitAttempted}
+                    onReset={() => handleReset(settings.pdf.cache_quota_bytes.key, settings.pdf.cache_quota_bytes.label)}
+                    resetDisabled={saving || loading || hasUnsavedChanges}
+                  />
+                  <SettingField
+                    setting={settings.pdf.cache_inactivity_ttl_seconds}
+                    value={formState.pdfCacheInactivityTtlSeconds}
+                    onChange={(value) =>
+                      setFormState((current) => (current ? { ...current, pdfCacheInactivityTtlSeconds: value } : current))
+                    }
+                    errorText={validationErrors?.pdfCacheInactivityTtlSeconds}
+                    showErrors={submitAttempted}
+                    unitAdornment={t("settings.advanced.fields.seconds")}
+                    onReset={() =>
+                      handleReset(settings.pdf.cache_inactivity_ttl_seconds.key, settings.pdf.cache_inactivity_ttl_seconds.label)
+                    }
+                    resetDisabled={saving || loading || hasUnsavedChanges}
+                  />
+                  <ByteSizeSettingField
+                    setting={settings.pdf.max_source_size_bytes}
+                    value={formState.pdfMaxSourceSizeBytes}
+                    onChange={(value) => setFormState((current) => (current ? { ...current, pdfMaxSourceSizeBytes: value } : current))}
+                    errorText={validationErrors?.pdfMaxSourceSizeBytes}
+                    showErrors={submitAttempted}
+                    onReset={() => handleReset(settings.pdf.max_source_size_bytes.key, settings.pdf.max_source_size_bytes.label)}
+                    resetDisabled={saving || loading || hasUnsavedChanges}
+                  />
+                  <ByteSizeSettingField
+                    setting={settings.pdf.max_output_size_bytes}
+                    value={formState.pdfMaxOutputSizeBytes}
+                    onChange={(value) => setFormState((current) => (current ? { ...current, pdfMaxOutputSizeBytes: value } : current))}
+                    errorText={validationErrors?.pdfMaxOutputSizeBytes}
+                    showErrors={submitAttempted}
+                    onReset={() => handleReset(settings.pdf.max_output_size_bytes.key, settings.pdf.max_output_size_bytes.label)}
+                    resetDisabled={saving || loading || hasUnsavedChanges}
+                  />
+                  <SettingField
+                    setting={settings.pdf.timeout_seconds}
+                    value={formState.pdfTimeoutSeconds}
+                    onChange={(value) => setFormState((current) => (current ? { ...current, pdfTimeoutSeconds: value } : current))}
+                    errorText={validationErrors?.pdfTimeoutSeconds}
+                    showErrors={submitAttempted}
+                    unitAdornment={t("settings.advanced.fields.seconds")}
+                    onReset={() => handleReset(settings.pdf.timeout_seconds.key, settings.pdf.timeout_seconds.label)}
+                    resetDisabled={saving || loading || hasUnsavedChanges}
+                  />
+                  <SettingField
+                    setting={settings.pdf.max_concurrent}
+                    value={formState.pdfMaxConcurrent}
+                    onChange={(value) => setFormState((current) => (current ? { ...current, pdfMaxConcurrent: value } : current))}
+                    errorText={validationErrors?.pdfMaxConcurrent}
+                    showErrors={submitAttempted}
+                    onReset={() => handleReset(settings.pdf.max_concurrent.key, settings.pdf.max_concurrent.label)}
+                    resetDisabled={saving || loading || hasUnsavedChanges}
+                  />
+                  <SettingField
+                    setting={settings.pdf.queue_wait_seconds}
+                    value={formState.pdfQueueWaitSeconds}
+                    onChange={(value) => setFormState((current) => (current ? { ...current, pdfQueueWaitSeconds: value } : current))}
+                    errorText={validationErrors?.pdfQueueWaitSeconds}
+                    showErrors={submitAttempted}
+                    unitAdornment={t("settings.advanced.fields.seconds")}
+                    onReset={() => handleReset(settings.pdf.queue_wait_seconds.key, settings.pdf.queue_wait_seconds.label)}
+                    resetDisabled={saving || loading || hasUnsavedChanges}
+                  />
+                </SettingsGroup>
+              )}
             </Stack>
           </SettingsGroup>
         </SettingsSectionList>

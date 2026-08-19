@@ -39,6 +39,7 @@ from app.models.system_settings import (
     IntegerSystemSettingRead,
     NetworkSettingsRead,
     NetworkSettingsUpdate,
+    PdfAdvancedSettingsRead,
     PreprocessorAdvancedSettingsRead,
     PublicSupportReportRead,
     SmbAuthenticationMode,
@@ -322,6 +323,17 @@ def build_advanced_system_settings_read() -> AdvancedSystemSettingsRead:
                 timeout_seconds=_build_integer_read(SYSTEM_SETTING_DEFINITIONS[SystemSettingKey.PREPROCESSOR_IMAGEMAGICK_TIMEOUT_SECONDS]),
             ),
         },
+        pdf=PdfAdvancedSettingsRead(
+            cache_quota_bytes=_build_integer_read(SYSTEM_SETTING_DEFINITIONS[SystemSettingKey.PDF_VIEWER_CACHE_QUOTA_BYTES]),
+            cache_inactivity_ttl_seconds=_build_integer_read(
+                SYSTEM_SETTING_DEFINITIONS[SystemSettingKey.PDF_VIEWER_CACHE_INACTIVITY_TTL_SECONDS]
+            ),
+            max_source_size_bytes=_build_integer_read(SYSTEM_SETTING_DEFINITIONS[SystemSettingKey.PDF_NORMALIZER_MAX_SOURCE_SIZE_BYTES]),
+            max_output_size_bytes=_build_integer_read(SYSTEM_SETTING_DEFINITIONS[SystemSettingKey.PDF_NORMALIZER_MAX_OUTPUT_SIZE_BYTES]),
+            timeout_seconds=_build_integer_read(SYSTEM_SETTING_DEFINITIONS[SystemSettingKey.PDF_NORMALIZER_TIMEOUT_SECONDS]),
+            max_concurrent=_build_integer_read(SYSTEM_SETTING_DEFINITIONS[SystemSettingKey.PDF_NORMALIZER_MAX_CONCURRENT]),
+            queue_wait_seconds=_build_integer_read(SYSTEM_SETTING_DEFINITIONS[SystemSettingKey.PDF_NORMALIZER_QUEUE_WAIT_SECONDS]),
+        ),
     )
 
 
@@ -629,6 +641,23 @@ def _extract_updates(payload: AdvancedSystemSettingsUpdate) -> dict[SystemSettin
             updates[SystemSettingKey.PREPROCESSOR_IMAGEMAGICK_MAX_FILE_SIZE_BYTES] = imagemagick.max_file_size_bytes
         if imagemagick.timeout_seconds is not None:
             updates[SystemSettingKey.PREPROCESSOR_IMAGEMAGICK_TIMEOUT_SECONDS] = imagemagick.timeout_seconds
+
+    pdf = payload.pdf
+    if pdf:
+        if pdf.cache_quota_bytes is not None:
+            updates[SystemSettingKey.PDF_VIEWER_CACHE_QUOTA_BYTES] = pdf.cache_quota_bytes
+        if pdf.cache_inactivity_ttl_seconds is not None:
+            updates[SystemSettingKey.PDF_VIEWER_CACHE_INACTIVITY_TTL_SECONDS] = pdf.cache_inactivity_ttl_seconds
+        if pdf.max_source_size_bytes is not None:
+            updates[SystemSettingKey.PDF_NORMALIZER_MAX_SOURCE_SIZE_BYTES] = pdf.max_source_size_bytes
+        if pdf.max_output_size_bytes is not None:
+            updates[SystemSettingKey.PDF_NORMALIZER_MAX_OUTPUT_SIZE_BYTES] = pdf.max_output_size_bytes
+        if pdf.timeout_seconds is not None:
+            updates[SystemSettingKey.PDF_NORMALIZER_TIMEOUT_SECONDS] = pdf.timeout_seconds
+        if pdf.max_concurrent is not None:
+            updates[SystemSettingKey.PDF_NORMALIZER_MAX_CONCURRENT] = pdf.max_concurrent
+        if pdf.queue_wait_seconds is not None:
+            updates[SystemSettingKey.PDF_NORMALIZER_QUEUE_WAIT_SECONDS] = pdf.queue_wait_seconds
 
     return updates
 

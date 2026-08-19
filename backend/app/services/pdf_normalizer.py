@@ -21,12 +21,16 @@ Common issues this fixes:
 
 import logging
 import os
+import resource
 import shutil
+import signal
 import subprocess
 import tempfile
 import time
+from dataclasses import dataclass
 from pathlib import Path
-from typing import Optional
+from threading import Condition
+from typing import Callable, Optional, TypeVar
 
 logger = logging.getLogger(__name__)
 
@@ -34,12 +38,87 @@ logger = logging.getLogger(__name__)
 # Check for Ghostscript availability
 GHOSTSCRIPT_PATH: Optional[str] = shutil.which("gs") or shutil.which("ghostscript")
 GHOSTSCRIPT_AVAILABLE = GHOSTSCRIPT_PATH is not None
+NORMALIZER_CONFIG_VERSION = "2"
+PDF_HEADER = b"%PDF"
+PDF_TRAILER = b"%%EOF"
+PDF_TRAILER_SEARCH_BYTES = 1024
+ResultType = TypeVar("ResultType")
 
 
 class PDFNormalizationError(Exception):
     """Exception raised when PDF normalization fails."""
 
-    pass
+    def __init__(self, message: str, *, code: str) -> None:
+        super().__init__(message)
+        self.code = code
+
+
+@dataclass(frozen=True)
+class PDFNormalizationLimits:
+    """Resource limits for one Ghostscript compatibility conversion."""
+
+    timeout_seconds: int = 60
+    cpu_time_seconds: int = 60
+    address_space_bytes: int = 512 * 1024 * 1024
+    output_size_bytes: int = 512 * 1024 * 1024
+
+
+class PDFNormalizationQueue:
+    """A dynamically bounded, process-wide queue for Ghostscript work."""
+
+    def __init__(self) -> None:
+        self._active = 0
+        self._condition = Condition()
+
+    def run(self, *, maximum_concurrent: int, wait_seconds: int, operation: Callable[[], ResultType]) -> ResultType:
+        deadline = time.monotonic() + wait_seconds
+        with self._condition:
+            while self._active >= maximum_concurrent:
+                remaining_seconds = deadline - time.monotonic()
+                if remaining_seconds <= 0:
+                    raise PDFNormalizationError("PDF compatibility conversion queue is full", code="queue_saturated")
+                self._condition.wait(timeout=remaining_seconds)
+            self._active += 1
+
+        try:
+            return operation()
+        finally:
+            with self._condition:
+                self._active -= 1
+                self._condition.notify()
+
+
+pdf_normalization_queue = PDFNormalizationQueue()
+
+
+def is_valid_pdf_output(pdf_bytes: bytes) -> bool:
+    """Return whether bytes contain the minimum complete-PDF markers required for caching."""
+
+    return len(pdf_bytes) > len(PDF_HEADER) and pdf_bytes.startswith(PDF_HEADER) and PDF_TRAILER in pdf_bytes[-PDF_TRAILER_SEARCH_BYTES:]
+
+
+def _resource_limiter(limits: PDFNormalizationLimits) -> None:
+    """Apply subprocess-only resource limits on POSIX platforms."""
+
+    resource.setrlimit(resource.RLIMIT_CPU, (limits.cpu_time_seconds, limits.cpu_time_seconds))
+    resource.setrlimit(resource.RLIMIT_AS, (limits.address_space_bytes, limits.address_space_bytes))
+    resource.setrlimit(resource.RLIMIT_FSIZE, (limits.output_size_bytes, limits.output_size_bytes))
+
+
+def _terminate_process_group(process: subprocess.Popen[bytes]) -> None:
+    """Terminate a Ghostscript process group without leaving child processes behind."""
+
+    if process.poll() is not None:
+        return
+    try:
+        os.killpg(process.pid, signal.SIGTERM)
+        process.wait(timeout=2)
+    except (ProcessLookupError, subprocess.TimeoutExpired):
+        try:
+            os.killpg(process.pid, signal.SIGKILL)
+        except ProcessLookupError:
+            return
+        process.wait()
 
 
 #
@@ -54,6 +133,112 @@ def is_pdf_normalization_available() -> bool:
     """
 
     return GHOSTSCRIPT_AVAILABLE
+
+
+def normalize_pdf_strict(
+    pdf_bytes: bytes,
+    filename: str = "document.pdf",
+    limits: PDFNormalizationLimits = PDFNormalizationLimits(),
+) -> tuple[bytes, float]:
+    """Produce a validated compatibility derivative or raise ``PDFNormalizationError``.
+
+    Unlike ``normalize_pdf``, this function never returns original bytes after a
+    Ghostscript failure. Callers use that distinction to present a terminal
+    compatibility error instead of treating the original as a repaired file.
+    """
+
+    if not GHOSTSCRIPT_AVAILABLE:
+        raise PDFNormalizationError("Ghostscript is not available", code="unavailable")
+    if not pdf_bytes.startswith(PDF_HEADER):
+        raise PDFNormalizationError("Source does not have a PDF signature", code="invalid_source")
+
+    start_time = time.perf_counter()
+    temp_base = "/dev/shm" if os.path.isdir("/dev/shm") and len(pdf_bytes) < 25 * 1024 * 1024 else None
+
+    try:
+        temp_context = tempfile.TemporaryDirectory(prefix="sambee_pdf_", dir=temp_base)
+        temp_dir = temp_context.__enter__()
+    except OSError:
+        temp_context = tempfile.TemporaryDirectory(prefix="sambee_pdf_")
+        temp_dir = temp_context.__enter__()
+
+    try:
+        temp_path = Path(temp_dir)
+        input_path = temp_path / "input.pdf"
+        output_path = temp_path / "output.pdf"
+        input_path.write_bytes(pdf_bytes)
+        gs_path: str = GHOSTSCRIPT_PATH  # type: ignore[assignment]
+        command = [
+            gs_path,
+            "-dNOPAUSE",
+            "-dBATCH",
+            "-dQUIET",
+            "-dSAFER",
+            "-sDEVICE=pdfwrite",
+            "-dCompatibilityLevel=1.4",
+            "-dAutoRotatePages=/None",
+            f"-sOutputFile={output_path}",
+            str(input_path),
+        ]
+
+        try:
+            process = subprocess.Popen(
+                command,
+                stdout=subprocess.DEVNULL,
+                stderr=subprocess.PIPE,
+                start_new_session=True,
+                preexec_fn=lambda: _resource_limiter(limits),
+            )
+            _, stderr = process.communicate(timeout=limits.timeout_seconds)
+        except subprocess.TimeoutExpired as exc:
+            _terminate_process_group(process)
+            raise PDFNormalizationError("Ghostscript conversion timed out", code="timeout") from exc
+        except OSError as exc:
+            raise PDFNormalizationError("Could not start Ghostscript", code="spawn_failed") from exc
+
+        if process.returncode != 0:
+            stderr_text = stderr.decode("utf-8", errors="replace")[:500]
+            logger.warning(
+                "Ghostscript compatibility conversion failed for %s: exit code %s: %s", filename, process.returncode, stderr_text
+            )
+            raise PDFNormalizationError("Ghostscript could not repair this PDF", code="conversion_failed")
+        if not output_path.exists():
+            raise PDFNormalizationError("Ghostscript produced no output", code="invalid_output")
+
+        normalized_bytes = output_path.read_bytes()
+        if len(normalized_bytes) > limits.output_size_bytes:
+            raise PDFNormalizationError("Ghostscript output exceeded the configured limit", code="output_limit")
+        if not is_valid_pdf_output(normalized_bytes):
+            raise PDFNormalizationError("Ghostscript output was not a complete PDF", code="invalid_output")
+
+        duration_ms = (time.perf_counter() - start_time) * 1000
+        logger.info(
+            "PDF compatibility derivative created for %s (%d -> %d bytes) in %.0f ms",
+            filename,
+            len(pdf_bytes),
+            len(normalized_bytes),
+            duration_ms,
+        )
+        return normalized_bytes, duration_ms
+    finally:
+        temp_context.__exit__(None, None, None)
+
+
+def normalize_pdf_with_queue(
+    pdf_bytes: bytes,
+    filename: str,
+    limits: PDFNormalizationLimits,
+    maximum_concurrent: int,
+    queue_wait_seconds: int,
+) -> bytes:
+    """Create a derivative while enforcing the configured process-wide queue limits."""
+
+    normalized_bytes, _ = pdf_normalization_queue.run(
+        maximum_concurrent=maximum_concurrent,
+        wait_seconds=queue_wait_seconds,
+        operation=lambda: normalize_pdf_strict(pdf_bytes, filename, limits),
+    )
+    return normalized_bytes
 
 
 #
@@ -88,125 +273,16 @@ def normalize_pdf(
         PDFNormalizationError: If normalization fails and no fallback is possible
     """
 
-    if not GHOSTSCRIPT_AVAILABLE:
-        logger.warning("Ghostscript not available, skipping PDF normalization")
+    try:
+        normalized_bytes, duration_ms = normalize_pdf_strict(
+            pdf_bytes,
+            filename,
+            limits=PDFNormalizationLimits(timeout_seconds=timeout_seconds, cpu_time_seconds=timeout_seconds),
+        )
+        return normalized_bytes, normalized_bytes != pdf_bytes, duration_ms
+    except PDFNormalizationError as exc:
+        logger.warning("PDF normalization failed for %s: %s", filename, exc)
         return pdf_bytes, False, 0.0
-
-    start_time = time.perf_counter()
-
-    # Use /dev/shm (RAM-based tmpfs) if available for faster I/O
-    # Only use for PDFs under 25MB (need space for input + output + overhead)
-    # Falls back to system temp directory for larger files or if not available
-    pdf_size_mb = len(pdf_bytes) / (1024 * 1024)
-    use_ramdisk = os.path.isdir("/dev/shm") and pdf_size_mb < 25
-    temp_base: str | None = "/dev/shm" if use_ramdisk else None
-
-    # Create temp files for input and output
-    # Try ramdisk first, fall back to system temp if it fails (e.g., no space)
-    try:
-        temp_context = tempfile.TemporaryDirectory(prefix="sambee_pdf_", dir=temp_base)
-        temp_dir = temp_context.__enter__()
-    except OSError as e:
-        if temp_base is not None:
-            logger.debug(f"Ramdisk temp creation failed ({e}), falling back to system temp")
-            temp_base = None
-            temp_context = tempfile.TemporaryDirectory(prefix="sambee_pdf_", dir=None)
-            temp_dir = temp_context.__enter__()
-        else:
-            raise
-
-    try:
-        temp_path = Path(temp_dir)
-        input_path = temp_path / "input.pdf"
-        output_path = temp_path / "output.pdf"
-
-        # Write input PDF to temp file
-        input_path.write_bytes(pdf_bytes)
-
-        # Ghostscript command to normalize PDF
-        # Performance optimizations:
-        # - Using RAM-backed temp dir when available
-        # Quality settings:
-        # - dCompatibilityLevel=1.4 ensures wide browser compatibility
-        # - Available quality presets:
-        #   - dPDFSETTINGS=/ebook: Medium quality (150 dpi images), balanced size and quality.
-        #   - dPDFSETTINGS=/printer: Higher quality (300 dpi images), larger file size. Use if quality is a concern.
-        #   - Notes:
-        #     - ebook "should" be good enough, but Helge noticed serious aliasing and moiré patterns with certain images.
-        # Note: GHOSTSCRIPT_PATH is guaranteed to be non-None here (checked above)
-        gs_path: str = GHOSTSCRIPT_PATH  # type: ignore[assignment]
-        cmd = [
-            gs_path,
-            "-dNOPAUSE",  # Do not pause between pages
-            "-dBATCH",  # Exit after processing
-            "-dQUIET",  # Suppress routine info output
-            "-dSAFER",  # Restrict file operations for security
-            "-sDEVICE=pdfwrite",
-            "-dCompatibilityLevel=1.4",
-            "-dPDFSETTINGS=/printer",
-            "-dAutoRotatePages=/None",  # Preserve page orientation
-            f"-sOutputFile={output_path}",
-            str(input_path),
-        ]
-
-        try:
-            result = subprocess.run(
-                cmd,
-                capture_output=True,
-                timeout=timeout_seconds,
-                check=False,
-            )
-
-            if result.returncode != 0:
-                stderr = result.stderr.decode("utf-8", errors="replace")
-                logger.warning(f"Ghostscript normalization failed for {filename}: exit code {result.returncode}, stderr: {stderr[:500]}")
-                # Return original PDF on failure
-                duration_ms = (time.perf_counter() - start_time) * 1000
-                return pdf_bytes, False, duration_ms
-
-            if not output_path.exists():
-                logger.warning(f"Ghostscript produced no output for {filename}")
-                duration_ms = (time.perf_counter() - start_time) * 1000
-                return pdf_bytes, False, duration_ms
-
-            # Read the normalized PDF
-            normalized_bytes = output_path.read_bytes()
-
-            if len(normalized_bytes) == 0:
-                logger.warning(f"Ghostscript produced empty output for {filename}")
-                duration_ms = (time.perf_counter() - start_time) * 1000
-                return pdf_bytes, False, duration_ms
-
-            duration_ms = (time.perf_counter() - start_time) * 1000
-
-            # Check if the PDF was actually modified
-            was_modified = normalized_bytes != pdf_bytes
-
-            if was_modified:
-                size_change = len(normalized_bytes) - len(pdf_bytes)
-                size_change_pct = (size_change / len(pdf_bytes)) * 100 if pdf_bytes else 0
-                logger.info(
-                    f"PDF normalized: {filename} "
-                    f"({len(pdf_bytes) / 1024:.0f} → {len(normalized_bytes) / 1024:.0f} KB, "
-                    f"{size_change_pct:+.1f}%) in {duration_ms:.0f} ms"
-                )
-            else:
-                logger.debug(f"PDF unchanged after normalization: {filename}")
-
-            return normalized_bytes, was_modified, duration_ms
-
-        except subprocess.TimeoutExpired:
-            logger.error(f"PDF normalization timed out after {timeout_seconds}s: {filename}")
-            duration_ms = (time.perf_counter() - start_time) * 1000
-            return pdf_bytes, False, duration_ms
-
-        except Exception as e:
-            logger.error(f"PDF normalization failed for {filename}: {type(e).__name__}: {e}")
-            duration_ms = (time.perf_counter() - start_time) * 1000
-            return pdf_bytes, False, duration_ms
-
-    finally:
-        temp_context.__exit__(None, None, None)
 
 
 # needs_pdf_normalization

@@ -75,6 +75,19 @@ def mock_binary_file():
 
 
 @pytest.fixture
+def mock_pdf_file():
+    """Create a PDF file info for original-viewer streaming tests."""
+    return FileInfo(
+        name="document.pdf",
+        path="/document.pdf",
+        type=FileType.FILE,
+        size=31,
+        modified_at=datetime(2024, 1, 1, 12, 0, 0),
+        mime_type="application/pdf",
+    )
+
+
+@pytest.fixture
 def mock_directory():
     """Create a mock directory info."""
     return FileInfo(
@@ -179,6 +192,56 @@ class TestViewerFile:
             assert response.status_code == 200
             assert response.headers["content-type"] == "image/png"
             assert response.content.startswith(b"\x89PNG")
+
+    def test_view_pdf_streams_original_bytes(self, client, auth_headers_user, test_connection, mock_pdf_file):
+        """PDF viewing must not rewrite the original before compatibility fallback."""
+        pdf_bytes = b"%PDF-1.4\noriginal PDF bytes\n%%EOF"
+
+        with patch("app.api.viewer.SMBBackend") as mock:
+            backend_instance = AsyncMock()
+            backend_instance.get_file_info.return_value = mock_pdf_file
+            backend_instance.read_file = lambda path, **kwargs: AsyncIteratorMock([pdf_bytes])
+            backend_instance.connect.return_value = None
+            backend_instance.disconnect.return_value = None
+            mock.return_value = backend_instance
+
+            response = client.get(
+                f"/api/viewer/{test_connection.id}/file",
+                headers=auth_headers_user,
+                params={"path": "/document.pdf"},
+            )
+
+        assert response.status_code == 200
+        assert response.headers["content-type"] == "application/pdf"
+        assert response.content == pdf_bytes
+
+    def test_view_pdf_normalized_variant_returns_explicit_derivative(self, client, auth_headers_user, test_connection, mock_pdf_file):
+        """A normalized variant is opt-in and identifies its derivative response."""
+        source_bytes = b"%PDF-1.4\nsource PDF bytes\n%%EOF"
+        derivative_bytes = b"%PDF-1.4\nnormalized PDF bytes\n%%EOF"
+
+        with (
+            patch("app.api.viewer.SMBBackend") as mock_backend,
+            patch("app.api.viewer.pdf_derivative_cache.get_or_create", return_value=(derivative_bytes, False)) as cache_get_or_create,
+        ):
+            backend_instance = AsyncMock()
+            backend_instance.get_file_info.return_value = mock_pdf_file
+            backend_instance.read_file = lambda path, **kwargs: AsyncIteratorMock([source_bytes])
+            backend_instance.connect.return_value = None
+            backend_instance.disconnect.return_value = None
+            mock_backend.return_value = backend_instance
+
+            response = client.get(
+                f"/api/viewer/{test_connection.id}/file",
+                headers=auth_headers_user,
+                params={"path": "/document.pdf", "pdf_variant": "normalized"},
+            )
+
+        assert response.status_code == 200
+        assert response.content == derivative_bytes
+        assert response.headers["x-pdf-variant"] == "normalized"
+        assert response.headers["x-pdf-derivative-cache"] == "miss"
+        cache_get_or_create.assert_called_once()
 
     def test_view_file_without_auth(self, client, test_connection):
         """Test that viewing requires authentication."""

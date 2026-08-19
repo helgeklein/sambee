@@ -1,4 +1,4 @@
-import { Alert, Box, Button, CircularProgress, Dialog, useMediaQuery, useTheme } from "@mui/material";
+import { Alert, Box, Button, CircularProgress, Dialog, TextField, useMediaQuery, useTheme } from "@mui/material";
 import { animated, useSpring } from "@react-spring/web";
 import { useDrag } from "@use-gesture/react";
 import { memo, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
@@ -34,6 +34,8 @@ import { ViewerControls, ViewerFilenameBadge } from "./ViewerControls";
 pdfjs.GlobalWorkerOptions.workerSrc = `//unpkg.com/pdfjs-dist@${pdfjs.version}/build/pdf.worker.min.mjs`;
 
 type ZoomMode = "fit-page" | "fit-width" | number;
+type PdfSourceVariant = "original" | "normalized";
+type PdfPasswordCallback = (password: string | null) => void;
 
 const SWIPE_COMMIT_DISTANCE_RATIO = 0.22;
 const SWIPE_COMMIT_VELOCITY = 0.5;
@@ -75,6 +77,10 @@ const PDFViewer: React.FC<ViewerComponentProps> = ({ connectionId, path, onClose
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [loadAttempt, setLoadAttempt] = useState(0);
+  const [pdfSourceVariant, setPdfSourceVariant] = useState<PdfSourceVariant>("original");
+  const [documentFailure, setDocumentFailure] = useState<string | null>(null);
+  const [pdfPasswordCallback, setPdfPasswordCallback] = useState<PdfPasswordCallback | null>(null);
+  const [pdfPassword, setPdfPassword] = useState("");
   const [shareError, setShareError] = useState<string | null>(null);
   const [searchText, setSearchText] = useState<string>("");
   const [currentMatch, setCurrentMatch] = useState<number>(0);
@@ -165,6 +171,7 @@ const PDFViewer: React.FC<ViewerComponentProps> = ({ connectionId, path, onClose
           () =>
             apiService.getPdfBlob(connectionId, path, {
               signal: abortController.signal,
+              ...(pdfSourceVariant === "normalized" ? { pdfVariant: "normalized" } : {}),
             }),
           {
             signal: abortController.signal,
@@ -196,7 +203,11 @@ const PDFViewer: React.FC<ViewerComponentProps> = ({ connectionId, path, onClose
           detail: isApiError(err) ? err.response?.data?.detail : undefined,
           status: isApiError(err) ? err.response?.status : undefined,
         });
-        setError(errorMessage);
+        setError(
+          pdfSourceVariant === "normalized"
+            ? "PDF compatibility processing could not make this file viewable. You can still download the original file."
+            : errorMessage
+        );
       } finally {
         if (isMounted) {
           setLoading(false);
@@ -215,11 +226,39 @@ const PDFViewer: React.FC<ViewerComponentProps> = ({ connectionId, path, onClose
       }
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [connectionId, path, fetchWithRetry, filename, cancelSwipeTransition, loadAttempt]);
+  }, [connectionId, path, fetchWithRetry, filename, cancelSwipeTransition, loadAttempt, pdfSourceVariant]);
 
   const handleRetryLoad = useCallback(() => {
+    setPdfSourceVariant("original");
+    setDocumentFailure(null);
     setLoadAttempt((attempt) => attempt + 1);
   }, []);
+
+  const handleCompatibilityRetry = useCallback(() => {
+    setPdfSourceVariant("normalized");
+    setDocumentFailure(null);
+    setError(null);
+    setLoadAttempt((attempt) => attempt + 1);
+  }, []);
+
+  const handleDocumentPassword = useCallback((callback: PdfPasswordCallback) => {
+    setPdfPassword("");
+    setPdfPasswordCallback(() => callback);
+  }, []);
+
+  const handlePdfPasswordSubmit = useCallback(() => {
+    if (!pdfPasswordCallback || !pdfPassword) {
+      return;
+    }
+    pdfPasswordCallback(pdfPassword);
+    setPdfPasswordCallback(null);
+  }, [pdfPassword, pdfPasswordCallback]);
+
+  const handlePdfPasswordCancel = useCallback(() => {
+    pdfPasswordCallback?.(null);
+    setPdfPasswordCallback(null);
+    setError("This PDF is password-protected. Download the original file to open it elsewhere.");
+  }, [pdfPasswordCallback]);
 
   // Measure container dimensions with ResizeObserver
   // Trigger after PDF loads to ensure container is in DOM
@@ -353,10 +392,41 @@ const PDFViewer: React.FC<ViewerComponentProps> = ({ connectionId, path, onClose
   );
 
   // Handle document load error
-  const handleDocumentLoadError = useCallback((err: Error) => {
-    logError("PDF load error", { error: err.message });
-    setError(getApiErrorMessage(err, "Failed to load PDF", { includeOriginalMessage: true }));
-  }, []);
+  const handleDocumentLoadError = useCallback(
+    (err: Error) => {
+      logError("PDF load error", { error: err.message });
+      const failureMessage = getApiErrorMessage(err, "Failed to load PDF", { includeOriginalMessage: true });
+
+      if (pdfSourceVariant === "original" && /InvalidPDFException|Invalid PDF structure/i.test(err.message)) {
+        setPdfSourceVariant("normalized");
+        setDocumentFailure(null);
+        setLoadAttempt((attempt) => attempt + 1);
+        return;
+      }
+
+      setDocumentFailure(failureMessage);
+      setError(
+        pdfSourceVariant === "normalized"
+          ? "PDF compatibility processing could not make this file viewable. You can still download the original file."
+          : failureMessage
+      );
+    },
+    [pdfSourceVariant]
+  );
+
+  const handlePageRenderError = useCallback(
+    (err: Error) => {
+      logError("PDF page render error", { error: err.message });
+      const failureMessage = getApiErrorMessage(err, "Failed to render PDF page", { includeOriginalMessage: true });
+      setDocumentFailure(failureMessage);
+      setError(
+        pdfSourceVariant === "normalized"
+          ? "PDF compatibility processing could not make this file viewable. You can still download the original file."
+          : failureMessage
+      );
+    },
+    [pdfSourceVariant]
+  );
 
   const handleActivePageLoadSuccess = useCallback(
     // biome-ignore lint/suspicious/noExplicitAny: PDF.js page type not fully typed
@@ -475,6 +545,7 @@ const PDFViewer: React.FC<ViewerComponentProps> = ({ connectionId, path, onClose
         renderAnnotationLayer={isActive}
         loading={<CircularProgress />}
         onLoadSuccess={isActive ? handleActivePageLoadSuccess : undefined}
+        onRenderError={isActive ? handlePageRenderError : undefined}
         onRenderTextLayerSuccess={isActive ? handleActiveTextLayerRenderSuccess : undefined}
       />
     </div>
@@ -1087,9 +1158,17 @@ const PDFViewer: React.FC<ViewerComponentProps> = ({ connectionId, path, onClose
               <Alert
                 severity="error"
                 action={
-                  <Button color="inherit" size="small" onClick={handleRetryLoad}>
-                    {t("common.actions.retry")}
-                  </Button>
+                  pdfSourceVariant === "original" ? (
+                    documentFailure ? (
+                      <Button color="inherit" size="small" onClick={handleCompatibilityRetry}>
+                        Try compatibility mode
+                      </Button>
+                    ) : (
+                      <Button color="inherit" size="small" onClick={handleRetryLoad}>
+                        {t("common.actions.retry")}
+                      </Button>
+                    )
+                  ) : undefined
                 }
               >
                 {error}
@@ -1153,6 +1232,7 @@ const PDFViewer: React.FC<ViewerComponentProps> = ({ connectionId, path, onClose
                 onItemClick={handleInternalLinkNavigation}
                 onLoadSuccess={handleDocumentLoadSuccess}
                 onLoadError={handleDocumentLoadError}
+                onPassword={handleDocumentPassword}
                 loading={<CircularProgress />}
                 error={
                   <Box p={2}>
@@ -1199,6 +1279,40 @@ const PDFViewer: React.FC<ViewerComponentProps> = ({ connectionId, path, onClose
                     renderPdfPage(currentPage, true)
                   ))}
               </Document>
+            </Box>
+          )}
+
+          {pdfPasswordCallback && (
+            <Box p={2} sx={{ position: "absolute", inset: 0, display: "flex", alignItems: "center", justifyContent: "center", zIndex: 3 }}>
+              <Alert
+                severity="info"
+                action={
+                  <Button color="inherit" size="small" onClick={handlePdfPasswordCancel}>
+                    Cancel
+                  </Button>
+                }
+              >
+                <Box
+                  component="form"
+                  onSubmit={(event) => {
+                    event.preventDefault();
+                    handlePdfPasswordSubmit();
+                  }}
+                  sx={{ display: "flex", gap: 1, alignItems: "center" }}
+                >
+                  <TextField
+                    autoFocus
+                    label="PDF password"
+                    type="password"
+                    size="small"
+                    value={pdfPassword}
+                    onChange={(event) => setPdfPassword(event.target.value)}
+                  />
+                  <Button type="submit" variant="contained" disabled={!pdfPassword}>
+                    Open
+                  </Button>
+                </Box>
+              </Alert>
             </Box>
           )}
         </Box>

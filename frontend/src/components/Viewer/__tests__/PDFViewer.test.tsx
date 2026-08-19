@@ -16,6 +16,7 @@ vi.mock("react-pdf", () => ({
     children,
     onLoadSuccess,
     onLoadError,
+    onPassword,
     file,
     onItemClick,
   }: {
@@ -35,6 +36,7 @@ vi.mock("react-pdf", () => ({
       }>;
     }) => void;
     onLoadError?: (error: Error) => void;
+    onPassword?: (callback: (password: string | null) => void) => void;
     file: string;
     onItemClick?: (args: { dest?: unknown; pageIndex?: number; pageNumber?: number }) => void;
   }) => {
@@ -77,7 +79,19 @@ vi.mock("react-pdf", () => ({
     }, []);
 
     useEffect(() => {
-      if (file && !file.includes("error") && loadedFileRef.current !== file) {
+      const nextLoadError = mockDocumentLoadErrors.shift();
+      if (mockPasswordRequest && onPassword) {
+        mockPasswordRequest = false;
+        queueMicrotask(() => {
+          onPassword((password) => {
+            submittedPdfPassword = password;
+          });
+        });
+      } else if (nextLoadError) {
+        queueMicrotask(() => {
+          onLoadError?.(nextLoadError);
+        });
+      } else if (file && loadedFileRef.current !== file) {
         loadedFileRef.current = file;
 
         queueMicrotask(() => {
@@ -94,12 +108,8 @@ vi.mock("react-pdf", () => ({
           };
           onLoadSuccess?.(mockPdf);
         });
-      } else if (file?.includes("error")) {
-        queueMicrotask(() => {
-          onLoadError?.(new Error("Failed to load PDF"));
-        });
       }
-    }, [file, getPageItems, onLoadError, onLoadSuccess]);
+    }, [file, getPageItems, onLoadError, onLoadSuccess, onPassword]);
 
     return (
       <div data-testid="pdf-document" data-file={file}>
@@ -190,6 +200,9 @@ let capturedInitialDocumentItemClick: ((args: { dest?: unknown; pageIndex?: numb
 let mockBlobUrlCounter = 0;
 let mockMissingTextLayerPage: number | null = null;
 let mockPageRenderCounts = new Map<number, number>();
+let mockDocumentLoadErrors: Error[] = [];
+let mockPasswordRequest = false;
+let submittedPdfPassword: string | null = null;
 
 function mockMatchMedia(matches: boolean) {
   Object.defineProperty(window, "matchMedia", {
@@ -300,6 +313,9 @@ describe("PDFViewer", () => {
     mockBlobUrlCounter = 0;
     mockMissingTextLayerPage = null;
     mockPageRenderCounts = new Map();
+    mockDocumentLoadErrors = [];
+    mockPasswordRequest = false;
+    submittedPdfPassword = null;
     mockCreateObjectURL.mockImplementation(() => `blob:mock-url-${++mockBlobUrlCounter}`);
     mockMatchMedia(false);
     Object.defineProperty(globalThis, "navigator", {
@@ -377,6 +393,55 @@ describe("PDFViewer", () => {
     it("shows CircularProgress while loading", () => {
       renderPDFViewer();
       expect(screen.getByRole("progressbar")).toBeInTheDocument();
+    });
+
+    it("automatically retries Invalid PDF structure with the normalized variant", async () => {
+      mockDocumentLoadErrors = [new Error("InvalidPDFException: Invalid PDF structure")];
+
+      renderPDFViewer();
+
+      await waitFor(() => {
+        expect(apiService.getPdfBlob).toHaveBeenCalledTimes(2);
+      });
+
+      expect(apiService.getPdfBlob).toHaveBeenLastCalledWith(
+        "test-conn-id",
+        "/test/document.pdf",
+        expect.objectContaining({ pdfVariant: "normalized" })
+      );
+    });
+
+    it("offers manual compatibility mode for a non-structural document error", async () => {
+      mockDocumentLoadErrors = [new Error("Unsupported PDF feature")];
+
+      renderPDFViewer();
+
+      await waitFor(() => {
+        expect(screen.getByRole("button", { name: "Try compatibility mode" })).toBeInTheDocument();
+      });
+
+      await userEvent.click(screen.getByRole("button", { name: "Try compatibility mode" }));
+
+      await waitFor(() => {
+        expect(apiService.getPdfBlob).toHaveBeenLastCalledWith(
+          "test-conn-id",
+          "/test/document.pdf",
+          expect.objectContaining({ pdfVariant: "normalized" })
+        );
+      });
+    });
+
+    it("submits an encrypted PDF password without requesting compatibility mode", async () => {
+      mockPasswordRequest = true;
+      const user = userEvent.setup();
+
+      renderPDFViewer();
+
+      await user.type(await screen.findByLabelText("PDF password"), "secret");
+      await user.click(screen.getByRole("button", { name: "Open" }));
+
+      expect(submittedPdfPassword).toBe("secret");
+      expect(apiService.getPdfBlob).toHaveBeenCalledTimes(1);
     });
   });
 
@@ -583,7 +648,7 @@ describe("PDFViewer", () => {
     });
 
     it("handles onLoadError callback", async () => {
-      mockCreateObjectURL.mockReturnValue("blob:error-url");
+      mockDocumentLoadErrors = [new Error("Failed to load PDF")];
 
       renderPDFViewer();
 

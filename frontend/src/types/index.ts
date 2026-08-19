@@ -227,10 +227,21 @@ export interface PreprocessorAdvancedSettings {
   timeout_seconds: IntegerSystemSetting;
 }
 
+export interface PdfAdvancedSettings {
+  cache_quota_bytes: IntegerSystemSetting;
+  cache_inactivity_ttl_seconds: IntegerSystemSetting;
+  max_source_size_bytes: IntegerSystemSetting;
+  max_output_size_bytes: IntegerSystemSetting;
+  timeout_seconds: IntegerSystemSetting;
+  max_concurrent: IntegerSystemSetting;
+  queue_wait_seconds: IntegerSystemSetting;
+}
+
 export interface AdvancedSystemSettings {
   preprocessors: {
     imagemagick: PreprocessorAdvancedSettings;
   };
+  pdf?: PdfAdvancedSettings;
 }
 
 export interface AdvancedSystemSettingsUpdate {
@@ -239,6 +250,15 @@ export interface AdvancedSystemSettingsUpdate {
       max_file_size_bytes?: number;
       timeout_seconds?: number;
     };
+  };
+  pdf?: {
+    cache_quota_bytes?: number;
+    cache_inactivity_ttl_seconds?: number;
+    max_source_size_bytes?: number;
+    max_output_size_bytes?: number;
+    timeout_seconds?: number;
+    max_concurrent?: number;
+    queue_wait_seconds?: number;
   };
   reset_keys?: string[];
 }

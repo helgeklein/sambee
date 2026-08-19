@@ -1378,13 +1378,13 @@ class ApiService {
    * Fetch PDF as blob with authentication headers.
    * Returns blob data that can be used to create object URLs for react-pdf.
    */
-  async getPdfBlob(connectionId: string, path: string, options: { signal?: AbortSignal } = {}): Promise<Blob> {
+  async getPdfBlob(connectionId: string, path: string, options: { signal?: AbortSignal; pdfVariant?: "normalized" } = {}): Promise<Blob> {
     try {
       const segment = getBrowseSegment(connectionId);
       const { client, extraConfig } = await this.getClientConfig(connectionId);
       const response = await client.get<ArrayBuffer>(`/viewer/${segment}/file`, {
         ...extraConfig,
-        params: { path },
+        params: { path, ...(options.pdfVariant ? { pdf_variant: options.pdfVariant } : {}) },
         responseType: "arraybuffer",
         signal: options.signal,
         timeout: PDF_VIEWER_REQUEST_TIMEOUT_MS,
