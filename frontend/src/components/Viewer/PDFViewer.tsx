@@ -107,6 +107,9 @@ const PDFViewer: React.FC<ViewerComponentProps> = ({ connectionId, path, onClose
   const searchHighlightsRef = useRef<DomTextSearchMatch[]>([]);
   const currentMatchRef = useRef(0);
   const matchLocationsRef = useRef<MatchLocation[]>([]);
+  const pageTextsRef = useRef<Map<number, string>>(new Map());
+  const searchedPageTextsRef = useRef<Map<number, string> | null>(null);
+  const searchTextRef = useRef("");
 
   // Search state
   const [pageTexts, setPageTexts] = useState<Map<number, string>>(new Map());
@@ -171,6 +174,8 @@ const PDFViewer: React.FC<ViewerComponentProps> = ({ connectionId, path, onClose
         setNumPages(0);
         setCurrentPage(1);
         setRenderedTextLayerPage(null);
+        pageTextsRef.current = new Map();
+        searchedPageTextsRef.current = null;
         setPageTexts(new Map());
         matchLocationsRef.current = [];
         currentMatchRef.current = 0;
@@ -361,17 +366,17 @@ const PDFViewer: React.FC<ViewerComponentProps> = ({ connectionId, path, onClose
             const page = await pdf.getPage(i);
             const textContent = await page.getTextContent();
 
-            // Build a searchable logical text stream with separators between items.
+            // Match PDF.js text-layer semantics: adjacent items form one text
+            // stream, while hasEOL becomes a line break in the rendered layer.
             let fullText = "";
 
-            for (let itemIndex = 0; itemIndex < textContent.items.length; itemIndex++) {
-              const textItem = textContent.items[itemIndex];
+            for (const textItem of textContent.items) {
               // biome-ignore lint/suspicious/noExplicitAny: PDF.js text item type not fully typed
               const item = textItem as any;
               fullText += item.str;
-
-              // Preserve item boundaries so cross-item words do not become false positives.
-              fullText += " ";
+              if (item.hasEOL) {
+                fullText += "\n";
+              }
             }
 
             texts.set(i, fullText);
@@ -382,6 +387,7 @@ const PDFViewer: React.FC<ViewerComponentProps> = ({ connectionId, path, onClose
             }
           }
 
+          pageTextsRef.current = texts;
           setPageTexts(texts);
           setIsSearchable(hasText);
 
@@ -649,7 +655,8 @@ const PDFViewer: React.FC<ViewerComponentProps> = ({ connectionId, path, onClose
    */
   const performSearch = useCallback(
     (query: string) => {
-      if (!query.trim() || pageTexts.size === 0) {
+      const extractedPageTexts = pageTextsRef.current;
+      if (!query.trim() || extractedPageTexts.size === 0) {
         matchLocationsRef.current = [];
         currentMatchRef.current = 0;
         setMatchLocations([]);
@@ -663,8 +670,8 @@ const PDFViewer: React.FC<ViewerComponentProps> = ({ connectionId, path, onClose
       const matches: MatchLocation[] = [];
 
       // Search through all pages
-      for (let pageNum = 1; pageNum <= numPages; pageNum++) {
-        const fullText = pageTexts.get(pageNum);
+      for (let pageNum = 1; pageNum <= numPagesRef.current; pageNum++) {
+        const fullText = extractedPageTexts.get(pageNum);
         if (!fullText) continue;
 
         let match: RegExpExecArray | null;
@@ -693,14 +700,27 @@ const PDFViewer: React.FC<ViewerComponentProps> = ({ connectionId, path, onClose
         setCurrentMatch(0);
       }
     },
-    [handlePageChange, pageTexts, numPages]
+    [handlePageChange]
   );
+
+  useEffect(() => {
+    if (pageTexts.size === 0 || searchedPageTextsRef.current === pageTexts) {
+      return;
+    }
+
+    searchedPageTextsRef.current = pageTexts;
+    const query = searchTextRef.current;
+    if (query.trim()) {
+      performSearch(query);
+    }
+  }, [pageTexts, performSearch]);
 
   // Debounced search handler
   const searchTimeoutRef = useRef<number | null>(null);
 
   const handleSearchChange = useCallback(
     (text: string) => {
+      searchTextRef.current = text;
       setSearchText(text);
 
       // Clear existing timeout

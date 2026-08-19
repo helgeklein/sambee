@@ -54,14 +54,26 @@ vi.mock("react-pdf", () => ({
             height: 12,
           },
           {
-            str: "MDT Dimmaktor",
+            str: "MDT Di",
             transform: [1, 0, 0, 1, 0, 16],
             width: 120,
             height: 12,
           },
           {
-            str: "MDT_DB_Dimmaktor_02.pdf",
+            str: "mmaktor",
             transform: [1, 0, 0, 1, 0, 32],
+            width: 160,
+            height: 12,
+          },
+          {
+            str: "MDT_DB_Di",
+            transform: [1, 0, 0, 1, 0, 48],
+            width: 160,
+            height: 12,
+          },
+          {
+            str: "mmaktor_02.pdf",
+            transform: [1, 0, 0, 1, 0, 64],
             width: 160,
             height: 12,
           },
@@ -100,10 +112,14 @@ vi.mock("react-pdf", () => ({
             getPage: (pageNum: number) =>
               Promise.resolve({
                 getViewport: () => ({ width: 612, height: 792 }),
-                getTextContent: () =>
-                  Promise.resolve({
-                    items: getPageItems(pageNum),
-                  }),
+                getTextContent: async () => {
+                  if (mockTextExtractionDelayMs > 0) {
+                    await new Promise<void>((resolve) => {
+                      window.setTimeout(resolve, mockTextExtractionDelayMs);
+                    });
+                  }
+                  return { items: getPageItems(pageNum) };
+                },
               }),
           };
           onLoadSuccess?.(mockPdf);
@@ -203,6 +219,7 @@ let mockPageRenderCounts = new Map<number, number>();
 let mockDocumentLoadErrors: Error[] = [];
 let mockPasswordRequest = false;
 let submittedPdfPassword: string | null = null;
+let mockTextExtractionDelayMs = 0;
 
 function mockMatchMedia(matches: boolean) {
   Object.defineProperty(window, "matchMedia", {
@@ -316,6 +333,7 @@ describe("PDFViewer", () => {
     mockDocumentLoadErrors = [];
     mockPasswordRequest = false;
     submittedPdfPassword = null;
+    mockTextExtractionDelayMs = 0;
     mockCreateObjectURL.mockImplementation(() => `blob:mock-url-${++mockBlobUrlCounter}`);
     mockMatchMedia(false);
     Object.defineProperty(globalThis, "navigator", {
@@ -973,6 +991,45 @@ describe("PDFViewer", () => {
       expect(
         document.querySelectorAll(`${DOM_TEXT_SEARCH_HIGHLIGHT_SELECTOR}[${DOM_TEXT_SEARCH_CURRENT_MATCH_ATTRIBUTE}="true"]`)
       ).toHaveLength(2);
+    });
+
+    it("navigates to the next split-item match on the current page", async () => {
+      renderPDFViewer();
+
+      await waitFor(() => {
+        expect(screen.getByTestId("pdf-page")).toHaveAttribute("data-page", "1");
+      });
+
+      const searchInput = await viewerSearch.openSearch("dimm");
+
+      await waitFor(() => {
+        expect(findPageCounterText("1 / 2")).toBeInTheDocument();
+      });
+
+      fireEvent.keyDown(searchInput, { key: "F3" });
+
+      await waitFor(() => {
+        expect(findPageCounterText("2 / 2")).toBeInTheDocument();
+        expect(screen.getByTestId("pdf-page")).toHaveAttribute("data-page", "1");
+      });
+    });
+
+    it("runs a search entered before PDF text extraction completes", async () => {
+      mockTextExtractionDelayMs = 100;
+      renderPDFViewer();
+
+      await waitFor(() => {
+        expect(screen.getByTestId("pdf-page")).toHaveAttribute("data-page", "1");
+      });
+
+      await viewerSearch.openSearch("dimm");
+
+      await waitFor(
+        () => {
+          expect(findPageCounterText("1 / 2")).toBeInTheDocument();
+        },
+        { timeout: 2000 }
+      );
     });
 
     it("rebuilds highlights when navigating to later pages with split text-layer spans", async () => {
