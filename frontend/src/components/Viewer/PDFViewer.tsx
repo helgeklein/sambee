@@ -55,6 +55,11 @@ const SWIPE_SPRING_CONFIG = {
 };
 const CAROUSEL_CENTER_OFFSET = "-33.333333%";
 const SCREEN_DERIVATIVE_ZOOM_PERCENT = 200;
+const FULL_ROTATION_DEGREES = 360;
+
+function normalizeRotation(rotation: number): number {
+  return ((rotation % FULL_ROTATION_DEGREES) + FULL_ROTATION_DEGREES) % FULL_ROTATION_DEGREES;
+}
 
 function getScreenProfile(): { width: number; height: number; zoomPercent: number } {
   const pixelRatio = window.devicePixelRatio || 1;
@@ -107,7 +112,8 @@ const PDFViewer: React.FC<ViewerComponentProps> = ({ connectionId, path, onClose
   const [containerHeight, setContainerHeight] = useState<number>(0);
   const [pdfPageWidth, setPdfPageWidth] = useState<number>(612); // Default to US Letter
   const [pdfPageHeight, setPdfPageHeight] = useState<number>(792);
-  const [rotation, setRotation] = useState<number>(0); // 0, 90, 180, 270
+  const [userRotation, setUserRotation] = useState<number>(0); // 0, 90, 180, 270
+  const [pageIntrinsicRotations, setPageIntrinsicRotations] = useState<Map<number, number>>(new Map());
   const containerRef = useRef<HTMLDivElement>(null);
   const dialogRef = useRef<HTMLDivElement>(null);
   const pendingSwipePageRef = useRef<number | null>(null);
@@ -137,7 +143,7 @@ const PDFViewer: React.FC<ViewerComponentProps> = ({ connectionId, path, onClose
   const muiTheme = useTheme();
   const searchHighlightColors = useMemo(() => getSearchHighlightColors(muiTheme, currentTheme), [currentTheme, muiTheme]);
   const isMobile = useMediaQuery(muiTheme.breakpoints.down("sm"));
-  const swipeNavigationEnabled = isMobile && scale === "fit-page" && rotation % 180 === 0;
+  const swipeNavigationEnabled = isMobile && scale === "fit-page" && userRotation % 180 === 0;
   const shareEnabled = isMobile && supportsNativeShare();
   const { viewerBg, toolbarBg, toolbarText } = getViewerColors(currentTheme, "pdf");
   const readOnlyIndicator = isReadOnly ? (
@@ -157,11 +163,11 @@ const PDFViewer: React.FC<ViewerComponentProps> = ({ connectionId, path, onClose
 
   // Rotation handlers
   const handleRotateLeft = useCallback((_event?: KeyboardEvent) => {
-    setRotation((r) => (r - 90 + 360) % 360);
+    setUserRotation((rotation) => normalizeRotation(rotation - 90));
   }, []);
 
   const handleRotateRight = useCallback((_event?: KeyboardEvent) => {
-    setRotation((r) => (r + 90) % 360);
+    setUserRotation((rotation) => normalizeRotation(rotation + 90));
   }, []);
 
   // Fetch PDF via API with auth header, then create blob URL
@@ -183,6 +189,7 @@ const PDFViewer: React.FC<ViewerComponentProps> = ({ connectionId, path, onClose
         setNumPages(0);
         setCurrentPage(1);
         setRenderedTextLayerPage(null);
+        setPageIntrinsicRotations(new Map());
         pageTextsRef.current = new Map();
         searchedPageTextsRef.current = null;
         setPageTexts(new Map());
@@ -471,14 +478,29 @@ const PDFViewer: React.FC<ViewerComponentProps> = ({ connectionId, path, onClose
     [connectionId, path, pdfSourceVariant]
   );
 
-  const handleActivePageLoadSuccess = useCallback(
+  const handlePageLoadSuccess = useCallback(
     // biome-ignore lint/suspicious/noExplicitAny: PDF.js page type not fully typed
-    (page: any) => {
-      const viewport = page.getViewport({ scale: 1.0, rotation });
+    (pageNumber: number, isActive: boolean, page: any) => {
+      const intrinsicRotation = normalizeRotation(page.rotate ?? 0);
+      const effectiveRotation = normalizeRotation(intrinsicRotation + userRotation);
+      setPageIntrinsicRotations((rotations) => {
+        if (rotations.get(pageNumber) === intrinsicRotation) {
+          return rotations;
+        }
+        const nextRotations = new Map(rotations);
+        nextRotations.set(pageNumber, intrinsicRotation);
+        return nextRotations;
+      });
+
+      if (!isActive) {
+        return;
+      }
+
+      const viewport = page.getViewport({ scale: 1.0, rotation: effectiveRotation });
       setPdfPageWidth((width) => (width === viewport.width ? width : viewport.width));
       setPdfPageHeight((height) => (height === viewport.height ? height : viewport.height));
     },
-    [rotation]
+    [userRotation]
   );
 
   const handleActiveTextLayerRenderSuccess = useCallback(() => {
@@ -577,22 +599,27 @@ const PDFViewer: React.FC<ViewerComponentProps> = ({ connectionId, path, onClose
     }
   );
 
-  const renderPdfPage = (pageNumber: number, isActive: boolean) => (
-    <div key={pageNumber} style={{ position: "relative", display: "inline-block" }} data-page-number={isActive ? pageNumber : undefined}>
-      <Page
-        pageNumber={pageNumber}
-        scale={pageScale || undefined}
-        width={pageWidth || undefined}
-        rotate={rotation}
-        renderTextLayer={isActive}
-        renderAnnotationLayer={isActive}
-        loading={<CircularProgress />}
-        onLoadSuccess={isActive ? handleActivePageLoadSuccess : undefined}
-        onRenderError={isActive ? handlePageRenderError : undefined}
-        onRenderTextLayerSuccess={isActive ? handleActiveTextLayerRenderSuccess : undefined}
-      />
-    </div>
-  );
+  const renderPdfPage = (pageNumber: number, isActive: boolean) => {
+    const intrinsicRotation = pageIntrinsicRotations.get(pageNumber);
+    const effectiveRotation = intrinsicRotation === undefined ? undefined : normalizeRotation(intrinsicRotation + userRotation);
+
+    return (
+      <div key={pageNumber} style={{ position: "relative", display: "inline-block" }} data-page-number={isActive ? pageNumber : undefined}>
+        <Page
+          pageNumber={pageNumber}
+          scale={pageScale || undefined}
+          width={pageWidth || undefined}
+          rotate={effectiveRotation}
+          renderTextLayer={isActive}
+          renderAnnotationLayer={isActive}
+          loading={<CircularProgress />}
+          onLoadSuccess={(page) => handlePageLoadSuccess(pageNumber, isActive, page)}
+          onRenderError={isActive ? handlePageRenderError : undefined}
+          onRenderTextLayerSuccess={isActive ? handleActiveTextLayerRenderSuccess : undefined}
+        />
+      </div>
+    );
+  };
 
   const handleInternalLinkNavigation = useCallback(
     ({ dest, pageIndex, pageNumber }: PdfInternalLinkTarget) => {
