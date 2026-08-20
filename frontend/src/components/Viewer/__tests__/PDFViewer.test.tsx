@@ -493,7 +493,8 @@ describe("PDFViewer", () => {
       renderPDFViewer();
 
       await user.type(await screen.findByLabelText("PDF password"), "secret");
-      await user.click(screen.getByRole("button", { name: "Open" }));
+      expect(screen.queryByRole("progressbar")).not.toBeInTheDocument();
+      await user.click(screen.getByRole("button", { name: "Open PDF" }));
 
       expect(submittedPdfPassword).toBe("secret");
       expect(apiService.getPdfBlob).toHaveBeenCalledTimes(1);

@@ -1,4 +1,5 @@
-import { Alert, Box, Button, CircularProgress, Dialog, TextField, useMediaQuery, useTheme } from "@mui/material";
+import { Visibility, VisibilityOff } from "@mui/icons-material";
+import { Alert, Box, Button, CircularProgress, Dialog, IconButton, InputAdornment, Paper, TextField, Tooltip, Typography, useMediaQuery, useTheme } from "@mui/material";
 import { animated, useSpring } from "@react-spring/web";
 import { useDrag } from "@use-gesture/react";
 import pdfWorkerUrl from "pdfjs-dist/build/pdf.worker.min.mjs?url";
@@ -105,6 +106,7 @@ const PDFViewer: React.FC<ViewerComponentProps> = ({ connectionId, path, onClose
   const [documentFailure, setDocumentFailure] = useState<string | null>(null);
   const [pdfPasswordCallback, setPdfPasswordCallback] = useState<PdfPasswordCallback | null>(null);
   const [pdfPassword, setPdfPassword] = useState("");
+  const [showPdfPassword, setShowPdfPassword] = useState(false);
   const [shareError, setShareError] = useState<string | null>(null);
   const [searchText, setSearchText] = useState<string>("");
   const [currentMatch, setCurrentMatch] = useState<number>(0);
@@ -274,6 +276,7 @@ const PDFViewer: React.FC<ViewerComponentProps> = ({ connectionId, path, onClose
 
   const handleDocumentPassword = useCallback((callback: PdfPasswordCallback) => {
     setPdfPassword("");
+    setShowPdfPassword(false);
     setPdfPasswordCallback(() => callback);
   }, []);
 
@@ -283,12 +286,14 @@ const PDFViewer: React.FC<ViewerComponentProps> = ({ connectionId, path, onClose
     }
     pdfPasswordCallback(pdfPassword);
     setPdfPassword("");
+    setShowPdfPassword(false);
     setPdfPasswordCallback(null);
   }, [pdfPassword, pdfPasswordCallback]);
 
   const handlePdfPasswordCancel = useCallback(() => {
     pdfPasswordCallback?.(null);
     setPdfPassword("");
+    setShowPdfPassword(false);
     setPdfPasswordCallback(null);
     setError("This PDF is password-protected. Download the original file to open it elsewhere.");
   }, [pdfPasswordCallback]);
@@ -1220,7 +1225,7 @@ const PDFViewer: React.FC<ViewerComponentProps> = ({ connectionId, path, onClose
           }}
         >
           {/* Loading state */}
-          {loading && (
+          {loading && !pdfPasswordCallback && (
             <Box
               sx={{
                 display: "flex",
@@ -1368,36 +1373,89 @@ const PDFViewer: React.FC<ViewerComponentProps> = ({ connectionId, path, onClose
           )}
 
           {pdfPasswordCallback && (
-            <Box p={2} sx={{ position: "absolute", inset: 0, display: "flex", alignItems: "center", justifyContent: "center", zIndex: 3 }}>
-              <Alert
-                severity="info"
-                action={
-                  <Button color="inherit" size="small" onClick={handlePdfPasswordCancel}>
+            <Box
+              role="dialog"
+              aria-modal="true"
+              aria-labelledby="pdf-password-dialog-title"
+              aria-describedby="pdf-password-dialog-description"
+              sx={{
+                position: "absolute",
+                inset: 0,
+                zIndex: 3,
+                display: "flex",
+                alignItems: "center",
+                justifyContent: "center",
+                p: { xs: 2, sm: 3 },
+                backgroundColor: "rgba(31, 38, 43, 0.48)",
+              }}
+            >
+              <Paper
+                component="form"
+                elevation={8}
+                onKeyDown={(event) => {
+                  if (event.key === "Escape") {
+                    event.preventDefault();
+                    handlePdfPasswordCancel();
+                  }
+                }}
+                onSubmit={(event) => {
+                  event.preventDefault();
+                  handlePdfPasswordSubmit();
+                }}
+                sx={{ width: "min(100%, 26rem)", p: { xs: 2.5, sm: 3 }, borderRadius: 1 }}
+              >
+                <Typography id="pdf-password-dialog-title" component="h2" variant="h6">
+                  Unlock PDF
+                </Typography>
+                <Typography id="pdf-password-dialog-description" color="text.secondary" sx={{ mt: 0.75 }}>
+                  Enter the password to view this PDF.
+                </Typography>
+                <TextField
+                  autoFocus
+                  fullWidth
+                  label="PDF password"
+                  type={showPdfPassword ? "text" : "password"}
+                  autoComplete="current-password"
+                  value={pdfPassword}
+                  onChange={(event) => setPdfPassword(event.target.value)}
+                  slotProps={{
+                    input: {
+                      endAdornment: (
+                        <InputAdornment position="end">
+                          <Tooltip title={showPdfPassword ? "Hide password" : "Show password"}>
+                            <IconButton
+                              aria-label={showPdfPassword ? "Hide password" : "Show password"}
+                              edge="end"
+                              onClick={() => setShowPdfPassword((visible) => !visible)}
+                            >
+                              {showPdfPassword ? <VisibilityOff /> : <Visibility />}
+                            </IconButton>
+                          </Tooltip>
+                        </InputAdornment>
+                      ),
+                    },
+                  }}
+                  sx={{ mt: 3 }}
+                />
+                <Box sx={{ display: "flex", justifyContent: "flex-end", gap: 1, mt: 3 }}>
+                  <Button color="inherit" onClick={handlePdfPasswordCancel}>
                     Cancel
                   </Button>
-                }
-              >
-                <Box
-                  component="form"
-                  onSubmit={(event) => {
-                    event.preventDefault();
-                    handlePdfPasswordSubmit();
-                  }}
-                  sx={{ display: "flex", gap: 1, alignItems: "center" }}
-                >
-                  <TextField
-                    autoFocus
-                    label="PDF password"
-                    type="password"
-                    size="small"
-                    value={pdfPassword}
-                    onChange={(event) => setPdfPassword(event.target.value)}
-                  />
-                  <Button type="submit" variant="contained" disabled={!pdfPassword}>
-                    Open
+                  <Button
+                    color="inherit"
+                    type="submit"
+                    variant="contained"
+                    disabled={!pdfPassword}
+                    sx={{
+                      bgcolor: "text.primary",
+                      color: "background.paper",
+                      "&:hover": { bgcolor: "text.secondary" },
+                    }}
+                  >
+                    Open PDF
                   </Button>
                 </Box>
-              </Alert>
+              </Paper>
             </Box>
           )}
         </Box>
