@@ -423,14 +423,14 @@ class TestViewerFile:
             assert response.status_code == 400
 
     def test_view_file_with_special_chars_in_name(self, client, auth_headers_user, test_connection):
-        """Test viewing a file with special characters in the filename."""
+        """Test viewing a file with a Unicode filename."""
         special_file = FileInfo(
-            name="document (copy) #1.txt",
-            path="/folder/document (copy) #1.txt",
+            name="TSTATS_ collection, search, retention, and audit — App Dev Best Practices.pdf",
+            path="/folder/TSTATS_ collection, search, retention, and audit — App Dev Best Practices.pdf",
             type=FileType.FILE,
             size=100,
             modified_at=datetime(2024, 1, 1, 12, 0, 0),
-            mime_type="text/plain",
+            mime_type="application/pdf",
         )
 
         with patch("app.api.viewer.SMBBackend") as mock:
@@ -444,11 +444,26 @@ class TestViewerFile:
             response = client.get(
                 f"/api/viewer/{test_connection.id}/file",
                 headers=auth_headers_user,
-                params={"path": "/folder/document (copy) #1.txt"},
+                params={"path": special_file.path},
             )
 
             assert response.status_code == 200
-            assert response.headers["content-type"] == "text/plain; charset=utf-8"
+            assert response.headers["content-type"] == "application/pdf"
+            assert response.headers["content-disposition"] == (
+                "inline; filename*=UTF-8''TSTATS_%20collection%2C%20search%2C%20retention%2C%20and%20audit%20"
+                "%E2%80%94%20App%20Dev%20Best%20Practices.pdf"
+            )
+
+    def test_content_disposition_encodes_unicode_and_control_characters(self):
+        """Filename encoding must stay ASCII-only and prevent header injection."""
+        from app.utils.content_disposition import build_content_disposition
+
+        header = build_content_disposition("attachment", "report — final\r\nX-Injected: value.pdf")
+
+        assert header == "attachment; filename*=UTF-8''report%20%E2%80%94%20final%0D%0AX-Injected%3A%20value.pdf"
+        assert "\r" not in header
+        assert "\n" not in header
+        header.encode("latin-1")
 
     def test_view_smb_connection_failure(self, client, auth_headers_user, test_connection):
         """Test handling of SMB connection failures."""
@@ -524,7 +539,7 @@ class TestDownloadFile:
             )
 
             assert response.status_code == 200
-            assert response.headers["content-disposition"] == 'attachment; filename="document.txt"'
+            assert response.headers["content-disposition"] == "attachment; filename*=UTF-8''document.txt"
             assert response.headers["content-type"] == "application/octet-stream"
             assert response.content == content
 
@@ -546,7 +561,7 @@ class TestDownloadFile:
             )
 
             assert response.status_code == 200
-            assert response.headers["content-disposition"] == 'attachment; filename="image.png"'
+            assert response.headers["content-disposition"] == "attachment; filename*=UTF-8''image.png"
             assert response.content == png_data
 
     def test_download_large_file_chunks(self, client, auth_headers_user, test_connection):

@@ -51,6 +51,7 @@ from app.services.companion_downloads import (
 )
 from app.services.connection_access import get_accessible_connection_or_404, require_connection_write_access
 from app.storage.smb import SMBBackend
+from app.utils.content_disposition import build_content_disposition
 
 router = APIRouter()
 logger = get_logger(__name__)
@@ -943,7 +944,7 @@ async def download_file_for_companion(
                 context=f"companion download stream: connection_id={connection_id}, path='{path}'",
             )
 
-    headers = {"Content-Disposition": f'attachment; filename="{file_info.name}"'}
+    headers = {"Content-Disposition": build_content_disposition("attachment", file_info.name)}
     return StreamingResponse(file_streamer(), media_type=file_info.mime_type or "application/octet-stream", headers=headers)
 
 
