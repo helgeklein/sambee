@@ -14,7 +14,7 @@ from pathlib import Path
 from unittest.mock import MagicMock, patch
 
 import pytest
-from fastapi import Response
+from fastapi import FastAPI, Response
 from fastapi.testclient import TestClient
 from sqlmodel import Session, select
 
@@ -285,6 +285,27 @@ class TestStaticFileServing:
         assert response.headers["Cache-Control"] == IMMUTABLE_ASSET_CACHE_CONTROL
         assert "Pragma" not in response.headers
         assert "Expires" not in response.headers
+
+    def test_pdfjs_wasm_is_served_as_a_revalidated_static_file(self, tmp_path):
+        """PDF.js decoders must not fall through to the SPA HTML response."""
+        from app.main import REVALIDATED_STATIC_CACHE_CONTROL, mount_production_static_files
+
+        static_directory = tmp_path / "static"
+        for directory in ("assets", "icons", "pdfjs/wasm"):
+            (static_directory / directory).mkdir(parents=True, exist_ok=True)
+        wasm_content = b"\x00asm\x01\x00\x00\x00"
+        (static_directory / "pdfjs" / "wasm" / "openjpeg.wasm").write_bytes(wasm_content)
+
+        application = FastAPI()
+        mount_production_static_files(application, static_directory)
+
+        with TestClient(application) as client:
+            response = client.get("/pdfjs/wasm/openjpeg.wasm")
+
+        assert response.status_code == 200
+        assert response.headers["content-type"] == "application/wasm"
+        assert response.headers["cache-control"] == REVALIDATED_STATIC_CACHE_CONTROL
+        assert response.content == wasm_content
 
 
 @pytest.mark.integration

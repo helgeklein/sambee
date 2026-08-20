@@ -163,6 +163,26 @@ class CacheControlledStaticFiles(StaticFiles):
         return apply_cache_headers(response, self._cache_control)
 
 
+def mount_production_static_files(application: FastAPI, static_directory: Path) -> None:
+    """Mount production frontend resources with their required cache policies."""
+
+    application.mount(
+        "/assets",
+        CacheControlledStaticFiles(directory=static_directory / "assets", cache_control=IMMUTABLE_ASSET_CACHE_CONTROL),
+        name="assets",
+    )
+    application.mount(
+        "/icons",
+        CacheControlledStaticFiles(directory=static_directory / "icons", cache_control=REVALIDATED_STATIC_CACHE_CONTROL),
+        name="icons",
+    )
+    application.mount(
+        "/pdfjs",
+        CacheControlledStaticFiles(directory=static_directory / "pdfjs", cache_control=REVALIDATED_STATIC_CACHE_CONTROL),
+        name="pdfjs",
+    )
+
+
 # ---------------------------------------------------------------------------
 # Work around a known smbprotocol bug: when an SMB connection times out, the
 # library's internal message-worker thread calls self.disconnect() which tries
@@ -455,16 +475,7 @@ async def version_info() -> dict[str, str]:
 # Serve static files in production
 static_path = Path("/app/static")
 if static_path.exists():
-    app.mount(
-        "/assets",
-        CacheControlledStaticFiles(directory=static_path / "assets", cache_control=IMMUTABLE_ASSET_CACHE_CONTROL),
-        name="assets",
-    )
-    app.mount(
-        "/icons",
-        CacheControlledStaticFiles(directory=static_path / "icons", cache_control=REVALIDATED_STATIC_CACHE_CONTROL),
-        name="icons",
-    )
+    mount_production_static_files(app, static_path)
 
     #
     # serve_spa
