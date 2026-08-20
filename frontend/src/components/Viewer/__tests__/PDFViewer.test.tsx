@@ -25,7 +25,7 @@ vi.mock("react-pdf", () => ({
     onLoadSuccess?: (pdf: {
       numPages: number;
       getPage: (pageNum: number) => Promise<{
-        getViewport: (params: { scale: number }) => { width: number; height: number };
+        getViewport: (params: { scale: number; rotation?: number }) => { width: number; height: number };
         getTextContent: () => Promise<{
           items: Array<{
             str: string;
@@ -119,6 +119,7 @@ vi.mock("react-pdf", () => ({
             numPages: 5,
             getPage: (pageNum: number) =>
               Promise.resolve({
+                rotate: mockIntrinsicPageRotations.get(pageNum) ?? 0,
                 getViewport: () => ({ width: 612, height: 792 }),
                 getTextContent: async () => {
                   if (mockTextExtractionDelayMs > 0) {
@@ -170,24 +171,30 @@ vi.mock("react-pdf", () => ({
     width?: number;
     rotate?: number;
     renderTextLayer?: boolean;
-    onLoadSuccess?: (page: { getViewport: (params: { scale: number; rotation?: number }) => { width: number; height: number } }) => void;
+    onLoadSuccess?: (page: {
+      rotate: number;
+      getViewport: (params: { scale: number; rotation?: number }) => { width: number; height: number };
+    }) => void;
     onRenderTextLayerSuccess?: () => void;
   }) => {
     const pageWidth = pageNumber === 1 ? 612 : 1224;
     const pageHeight = 792;
+    const intrinsicRotation = mockIntrinsicPageRotations.get(pageNumber) ?? 0;
+    const effectiveRotation = rotate ?? intrinsicRotation;
     mockPageRenderCounts.set(pageNumber, (mockPageRenderCounts.get(pageNumber) ?? 0) + 1);
 
     useEffect(() => {
       onLoadSuccess?.({
+        rotate: intrinsicRotation,
         getViewport: ({ rotation: viewportRotation }) =>
-          viewportRotation && viewportRotation % 180 !== 0
+          (viewportRotation ?? intrinsicRotation) % 180 !== 0
             ? { width: pageHeight, height: pageWidth }
             : { width: pageWidth, height: pageHeight },
       });
       if (renderTextLayer && pageNumber !== mockMissingTextLayerPage) {
         onRenderTextLayerSuccess?.();
       }
-    }, [onLoadSuccess, onRenderTextLayerSuccess, pageNumber, pageWidth, renderTextLayer]);
+    }, [intrinsicRotation, onLoadSuccess, onRenderTextLayerSuccess, pageNumber, pageWidth, renderTextLayer]);
 
     const textLayerSpans =
       pageNumber === 1
@@ -197,7 +204,7 @@ vi.mock("react-pdf", () => ({
           : ["Page sample text"];
 
     return (
-      <div data-testid="pdf-page" data-page={pageNumber} data-scale={scale} data-width={width} data-rotate={rotate}>
+      <div data-testid="pdf-page" data-page={pageNumber} data-scale={scale} data-width={width} data-rotate={effectiveRotation}>
         <canvas />
         {renderTextLayer && pageNumber !== mockMissingTextLayerPage && (
           <div className="react-pdf__Page__textContent">
@@ -232,6 +239,7 @@ let capturedInitialDocumentItemClick: ((args: { dest?: unknown; pageIndex?: numb
 let mockBlobUrlCounter = 0;
 let mockMissingTextLayerPage: number | null = null;
 let mockPageRenderCounts = new Map<number, number>();
+let mockIntrinsicPageRotations = new Map<number, number>();
 let mockDocumentLoadErrors: Error[] = [];
 let mockPasswordRequest = false;
 let submittedPdfPassword: string | null = null;
@@ -346,6 +354,7 @@ describe("PDFViewer", () => {
     mockBlobUrlCounter = 0;
     mockMissingTextLayerPage = null;
     mockPageRenderCounts = new Map();
+    mockIntrinsicPageRotations = new Map();
     mockDocumentLoadErrors = [];
     mockPasswordRequest = false;
     submittedPdfPassword = null;
@@ -484,7 +493,8 @@ describe("PDFViewer", () => {
       renderPDFViewer();
 
       await user.type(await screen.findByLabelText("PDF password"), "secret");
-      await user.click(screen.getByRole("button", { name: "Open" }));
+      expect(screen.queryByRole("progressbar")).not.toBeInTheDocument();
+      await user.click(screen.getByRole("button", { name: "Open PDF" }));
 
       expect(submittedPdfPassword).toBe("secret");
       expect(apiService.getPdfBlob).toHaveBeenCalledTimes(1);
@@ -1548,6 +1558,56 @@ describe("PDFViewer", () => {
   });
 
   describe("Rotation", () => {
+    it("preserves a page's intrinsic rotation", async () => {
+      mockIntrinsicPageRotations.set(1, 90);
+      renderPDFViewer();
+
+      await waitFor(() => {
+        expect(screen.getByTestId("pdf-page")).toHaveAttribute("data-rotate", "90");
+      });
+    });
+
+    it("applies manual rotation on top of a page's intrinsic rotation", async () => {
+      mockIntrinsicPageRotations.set(1, 90);
+      renderPDFViewer();
+
+      await waitFor(() => {
+        expect(screen.getByTestId("pdf-page")).toHaveAttribute("data-rotate", "90");
+      });
+
+      fireEvent.click(screen.getByLabelText(/rotate right/i));
+
+      await waitFor(() => {
+        expect(screen.getByTestId("pdf-page")).toHaveAttribute("data-rotate", "180");
+      });
+    });
+
+    it("uses each page's intrinsic rotation when navigating between pages", async () => {
+      mockIntrinsicPageRotations.set(1, 90);
+      renderPDFViewer();
+
+      await waitFor(() => {
+        expect(screen.getByTestId("pdf-page")).toHaveAttribute("data-rotate", "90");
+      });
+
+      fireEvent.click(screen.getByLabelText("Next page"));
+
+      await waitFor(() => {
+        const page = screen.getByTestId("pdf-page");
+        expect(page).toHaveAttribute("data-page", "2");
+        expect(page).toHaveAttribute("data-rotate", "0");
+      });
+    });
+
+    it("fits a page using its effective rotation", async () => {
+      mockIntrinsicPageRotations.set(1, 90);
+      renderPDFViewer();
+
+      await waitFor(() => {
+        expect(screen.getByTestId("pdf-page")).toHaveAttribute("data-scale", (600 / 612).toString());
+      });
+    });
+
     it("rotates page right using keyboard shortcut (R)", async () => {
       renderPDFViewer();
 

@@ -1,4 +1,19 @@
-import { Alert, Box, Button, CircularProgress, Dialog, TextField, useMediaQuery, useTheme } from "@mui/material";
+import { Visibility, VisibilityOff } from "@mui/icons-material";
+import {
+  Alert,
+  Box,
+  Button,
+  CircularProgress,
+  Dialog,
+  IconButton,
+  InputAdornment,
+  Paper,
+  TextField,
+  Tooltip,
+  Typography,
+  useMediaQuery,
+  useTheme,
+} from "@mui/material";
 import { animated, useSpring } from "@react-spring/web";
 import { useDrag } from "@use-gesture/react";
 import pdfWorkerUrl from "pdfjs-dist/build/pdf.worker.min.mjs?url";
@@ -55,6 +70,11 @@ const SWIPE_SPRING_CONFIG = {
 };
 const CAROUSEL_CENTER_OFFSET = "-33.333333%";
 const SCREEN_DERIVATIVE_ZOOM_PERCENT = 200;
+const FULL_ROTATION_DEGREES = 360;
+
+function normalizeRotation(rotation: number): number {
+  return ((rotation % FULL_ROTATION_DEGREES) + FULL_ROTATION_DEGREES) % FULL_ROTATION_DEGREES;
+}
 
 function getScreenProfile(): { width: number; height: number; zoomPercent: number } {
   const pixelRatio = window.devicePixelRatio || 1;
@@ -100,6 +120,7 @@ const PDFViewer: React.FC<ViewerComponentProps> = ({ connectionId, path, onClose
   const [documentFailure, setDocumentFailure] = useState<string | null>(null);
   const [pdfPasswordCallback, setPdfPasswordCallback] = useState<PdfPasswordCallback | null>(null);
   const [pdfPassword, setPdfPassword] = useState("");
+  const [showPdfPassword, setShowPdfPassword] = useState(false);
   const [shareError, setShareError] = useState<string | null>(null);
   const [searchText, setSearchText] = useState<string>("");
   const [currentMatch, setCurrentMatch] = useState<number>(0);
@@ -107,7 +128,8 @@ const PDFViewer: React.FC<ViewerComponentProps> = ({ connectionId, path, onClose
   const [containerHeight, setContainerHeight] = useState<number>(0);
   const [pdfPageWidth, setPdfPageWidth] = useState<number>(612); // Default to US Letter
   const [pdfPageHeight, setPdfPageHeight] = useState<number>(792);
-  const [rotation, setRotation] = useState<number>(0); // 0, 90, 180, 270
+  const [userRotation, setUserRotation] = useState<number>(0); // 0, 90, 180, 270
+  const [pageIntrinsicRotations, setPageIntrinsicRotations] = useState<Map<number, number>>(new Map());
   const containerRef = useRef<HTMLDivElement>(null);
   const dialogRef = useRef<HTMLDivElement>(null);
   const pendingSwipePageRef = useRef<number | null>(null);
@@ -137,7 +159,7 @@ const PDFViewer: React.FC<ViewerComponentProps> = ({ connectionId, path, onClose
   const muiTheme = useTheme();
   const searchHighlightColors = useMemo(() => getSearchHighlightColors(muiTheme, currentTheme), [currentTheme, muiTheme]);
   const isMobile = useMediaQuery(muiTheme.breakpoints.down("sm"));
-  const swipeNavigationEnabled = isMobile && scale === "fit-page" && rotation % 180 === 0;
+  const swipeNavigationEnabled = isMobile && scale === "fit-page" && userRotation % 180 === 0;
   const shareEnabled = isMobile && supportsNativeShare();
   const { viewerBg, toolbarBg, toolbarText } = getViewerColors(currentTheme, "pdf");
   const readOnlyIndicator = isReadOnly ? (
@@ -157,11 +179,11 @@ const PDFViewer: React.FC<ViewerComponentProps> = ({ connectionId, path, onClose
 
   // Rotation handlers
   const handleRotateLeft = useCallback((_event?: KeyboardEvent) => {
-    setRotation((r) => (r - 90 + 360) % 360);
+    setUserRotation((rotation) => normalizeRotation(rotation - 90));
   }, []);
 
   const handleRotateRight = useCallback((_event?: KeyboardEvent) => {
-    setRotation((r) => (r + 90) % 360);
+    setUserRotation((rotation) => normalizeRotation(rotation + 90));
   }, []);
 
   // Fetch PDF via API with auth header, then create blob URL
@@ -183,6 +205,7 @@ const PDFViewer: React.FC<ViewerComponentProps> = ({ connectionId, path, onClose
         setNumPages(0);
         setCurrentPage(1);
         setRenderedTextLayerPage(null);
+        setPageIntrinsicRotations(new Map());
         pageTextsRef.current = new Map();
         searchedPageTextsRef.current = null;
         setPageTexts(new Map());
@@ -267,6 +290,7 @@ const PDFViewer: React.FC<ViewerComponentProps> = ({ connectionId, path, onClose
 
   const handleDocumentPassword = useCallback((callback: PdfPasswordCallback) => {
     setPdfPassword("");
+    setShowPdfPassword(false);
     setPdfPasswordCallback(() => callback);
   }, []);
 
@@ -276,12 +300,14 @@ const PDFViewer: React.FC<ViewerComponentProps> = ({ connectionId, path, onClose
     }
     pdfPasswordCallback(pdfPassword);
     setPdfPassword("");
+    setShowPdfPassword(false);
     setPdfPasswordCallback(null);
   }, [pdfPassword, pdfPasswordCallback]);
 
   const handlePdfPasswordCancel = useCallback(() => {
     pdfPasswordCallback?.(null);
     setPdfPassword("");
+    setShowPdfPassword(false);
     setPdfPasswordCallback(null);
     setError("This PDF is password-protected. Download the original file to open it elsewhere.");
   }, [pdfPasswordCallback]);
@@ -471,14 +497,29 @@ const PDFViewer: React.FC<ViewerComponentProps> = ({ connectionId, path, onClose
     [connectionId, path, pdfSourceVariant]
   );
 
-  const handleActivePageLoadSuccess = useCallback(
+  const handlePageLoadSuccess = useCallback(
     // biome-ignore lint/suspicious/noExplicitAny: PDF.js page type not fully typed
-    (page: any) => {
-      const viewport = page.getViewport({ scale: 1.0, rotation });
+    (pageNumber: number, isActive: boolean, page: any) => {
+      const intrinsicRotation = normalizeRotation(page.rotate ?? 0);
+      const effectiveRotation = normalizeRotation(intrinsicRotation + userRotation);
+      setPageIntrinsicRotations((rotations) => {
+        if (rotations.get(pageNumber) === intrinsicRotation) {
+          return rotations;
+        }
+        const nextRotations = new Map(rotations);
+        nextRotations.set(pageNumber, intrinsicRotation);
+        return nextRotations;
+      });
+
+      if (!isActive) {
+        return;
+      }
+
+      const viewport = page.getViewport({ scale: 1.0, rotation: effectiveRotation });
       setPdfPageWidth((width) => (width === viewport.width ? width : viewport.width));
       setPdfPageHeight((height) => (height === viewport.height ? height : viewport.height));
     },
-    [rotation]
+    [userRotation]
   );
 
   const handleActiveTextLayerRenderSuccess = useCallback(() => {
@@ -577,22 +618,27 @@ const PDFViewer: React.FC<ViewerComponentProps> = ({ connectionId, path, onClose
     }
   );
 
-  const renderPdfPage = (pageNumber: number, isActive: boolean) => (
-    <div key={pageNumber} style={{ position: "relative", display: "inline-block" }} data-page-number={isActive ? pageNumber : undefined}>
-      <Page
-        pageNumber={pageNumber}
-        scale={pageScale || undefined}
-        width={pageWidth || undefined}
-        rotate={rotation}
-        renderTextLayer={isActive}
-        renderAnnotationLayer={isActive}
-        loading={<CircularProgress />}
-        onLoadSuccess={isActive ? handleActivePageLoadSuccess : undefined}
-        onRenderError={isActive ? handlePageRenderError : undefined}
-        onRenderTextLayerSuccess={isActive ? handleActiveTextLayerRenderSuccess : undefined}
-      />
-    </div>
-  );
+  const renderPdfPage = (pageNumber: number, isActive: boolean) => {
+    const intrinsicRotation = pageIntrinsicRotations.get(pageNumber);
+    const effectiveRotation = intrinsicRotation === undefined ? undefined : normalizeRotation(intrinsicRotation + userRotation);
+
+    return (
+      <div key={pageNumber} style={{ position: "relative", display: "inline-block" }} data-page-number={isActive ? pageNumber : undefined}>
+        <Page
+          pageNumber={pageNumber}
+          scale={pageScale || undefined}
+          width={pageWidth || undefined}
+          rotate={effectiveRotation}
+          renderTextLayer={isActive}
+          renderAnnotationLayer={isActive}
+          loading={<CircularProgress />}
+          onLoadSuccess={(page) => handlePageLoadSuccess(pageNumber, isActive, page)}
+          onRenderError={isActive ? handlePageRenderError : undefined}
+          onRenderTextLayerSuccess={isActive ? handleActiveTextLayerRenderSuccess : undefined}
+        />
+      </div>
+    );
+  };
 
   const handleInternalLinkNavigation = useCallback(
     ({ dest, pageIndex, pageNumber }: PdfInternalLinkTarget) => {
@@ -1193,7 +1239,7 @@ const PDFViewer: React.FC<ViewerComponentProps> = ({ connectionId, path, onClose
           }}
         >
           {/* Loading state */}
-          {loading && (
+          {loading && !pdfPasswordCallback && (
             <Box
               sx={{
                 display: "flex",
@@ -1341,36 +1387,89 @@ const PDFViewer: React.FC<ViewerComponentProps> = ({ connectionId, path, onClose
           )}
 
           {pdfPasswordCallback && (
-            <Box p={2} sx={{ position: "absolute", inset: 0, display: "flex", alignItems: "center", justifyContent: "center", zIndex: 3 }}>
-              <Alert
-                severity="info"
-                action={
-                  <Button color="inherit" size="small" onClick={handlePdfPasswordCancel}>
+            <Box
+              role="dialog"
+              aria-modal="true"
+              aria-labelledby="pdf-password-dialog-title"
+              aria-describedby="pdf-password-dialog-description"
+              sx={{
+                position: "absolute",
+                inset: 0,
+                zIndex: 3,
+                display: "flex",
+                alignItems: "center",
+                justifyContent: "center",
+                p: { xs: 2, sm: 3 },
+                backgroundColor: "rgba(31, 38, 43, 0.48)",
+              }}
+            >
+              <Paper
+                component="form"
+                elevation={8}
+                onKeyDown={(event) => {
+                  if (event.key === "Escape") {
+                    event.preventDefault();
+                    handlePdfPasswordCancel();
+                  }
+                }}
+                onSubmit={(event) => {
+                  event.preventDefault();
+                  handlePdfPasswordSubmit();
+                }}
+                sx={{ width: "min(100%, 26rem)", p: { xs: 2.5, sm: 3 }, borderRadius: 1 }}
+              >
+                <Typography id="pdf-password-dialog-title" component="h2" variant="h6">
+                  Unlock PDF
+                </Typography>
+                <Typography id="pdf-password-dialog-description" color="text.secondary" sx={{ mt: 0.75 }}>
+                  Enter the password to view this PDF.
+                </Typography>
+                <TextField
+                  autoFocus
+                  fullWidth
+                  label="PDF password"
+                  type={showPdfPassword ? "text" : "password"}
+                  autoComplete="current-password"
+                  value={pdfPassword}
+                  onChange={(event) => setPdfPassword(event.target.value)}
+                  slotProps={{
+                    input: {
+                      endAdornment: (
+                        <InputAdornment position="end">
+                          <Tooltip title={showPdfPassword ? "Hide password" : "Show password"}>
+                            <IconButton
+                              aria-label={showPdfPassword ? "Hide password" : "Show password"}
+                              edge="end"
+                              onClick={() => setShowPdfPassword((visible) => !visible)}
+                            >
+                              {showPdfPassword ? <VisibilityOff /> : <Visibility />}
+                            </IconButton>
+                          </Tooltip>
+                        </InputAdornment>
+                      ),
+                    },
+                  }}
+                  sx={{ mt: 3 }}
+                />
+                <Box sx={{ display: "flex", justifyContent: "flex-end", gap: 1, mt: 3 }}>
+                  <Button color="inherit" onClick={handlePdfPasswordCancel}>
                     Cancel
                   </Button>
-                }
-              >
-                <Box
-                  component="form"
-                  onSubmit={(event) => {
-                    event.preventDefault();
-                    handlePdfPasswordSubmit();
-                  }}
-                  sx={{ display: "flex", gap: 1, alignItems: "center" }}
-                >
-                  <TextField
-                    autoFocus
-                    label="PDF password"
-                    type="password"
-                    size="small"
-                    value={pdfPassword}
-                    onChange={(event) => setPdfPassword(event.target.value)}
-                  />
-                  <Button type="submit" variant="contained" disabled={!pdfPassword}>
-                    Open
+                  <Button
+                    color="inherit"
+                    type="submit"
+                    variant="contained"
+                    disabled={!pdfPassword}
+                    sx={{
+                      bgcolor: "text.primary",
+                      color: "background.paper",
+                      "&:hover": { bgcolor: "text.secondary" },
+                    }}
+                  >
+                    Open PDF
                   </Button>
                 </Box>
-              </Alert>
+              </Paper>
             </Box>
           )}
         </Box>

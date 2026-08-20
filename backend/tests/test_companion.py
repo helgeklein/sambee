@@ -1467,7 +1467,7 @@ class TestOperationScopedFileTransfer:
             backend_instance.get_file_info.return_value = type(
                 "FileInfoStub",
                 (),
-                {"name": "report.docx", "size": 14, "type": "file", "mime_type": "application/octet-stream"},
+                {"name": "report — final.docx", "size": 14, "type": "file", "mime_type": "application/octet-stream"},
             )()
 
             async def read_file(_path, **_kwargs):
@@ -1490,6 +1490,7 @@ class TestOperationScopedFileTransfer:
 
         assert response.status_code == 200
         assert response.content == b"download bytes"
+        assert response.headers["content-disposition"] == "attachment; filename*=UTF-8''report%20%E2%80%94%20final.docx"
 
     def test_download_rejects_browser_token_for_operation_scope(
         self,

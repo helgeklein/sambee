@@ -38,6 +38,7 @@ from app.services.pdf_normalizer import (
 )
 from app.services.system_settings import get_integer_setting_value
 from app.storage.smb import SMBBackend
+from app.utils.content_disposition import build_content_disposition
 from app.utils.file_type_registry import needs_processing
 
 router = APIRouter()
@@ -205,7 +206,7 @@ async def create_normalized_pdf_response(
             content=cached_derivative,
             media_type="application/pdf",
             headers={
-                "Content-Disposition": f'inline; filename="{filename}"',
+                "Content-Disposition": build_content_disposition("inline", filename),
                 "X-PDF-Variant": cached_variant,
                 "X-PDF-Derivative-Cache": "hit",
                 "Cache-Control": "private, no-store",
@@ -290,7 +291,7 @@ async def create_normalized_pdf_response(
         content=derivative,
         media_type="application/pdf",
         headers={
-            "Content-Disposition": f'inline; filename="{filename}"',
+            "Content-Disposition": build_content_disposition("inline", filename),
             "X-PDF-Variant": selected_variant,
             "X-PDF-Derivative-Cache": "hit" if cache_hit else "miss",
             "Cache-Control": "private, no-store",
@@ -404,7 +405,7 @@ async def read_and_convert_image(
         return Response(
             content=converted_bytes,
             media_type=converted_mime,
-            headers={"Content-Disposition": f'inline; filename="{filename}"'},
+            headers={"Content-Disposition": build_content_disposition("inline", filename)},
         )
 
     except TimeoutError as e:
@@ -565,7 +566,7 @@ async def view_file(
         return StreamingResponse(
             create_file_streamer(backend, path),
             media_type=file_info.mime_type,
-            headers={"Content-Disposition": f'inline; filename="{file_info.name}"'},
+            headers={"Content-Disposition": build_content_disposition("inline", file_info.name)},
         )
 
     except HTTPException:
@@ -668,7 +669,7 @@ async def download_file(
             raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Path is not a file")
 
         # Stream the file
-        headers = {"Content-Disposition": f'attachment; filename="{file_info.name}"'}
+        headers = {"Content-Disposition": build_content_disposition("attachment", file_info.name)}
         if file_info.size:
             headers["Content-Length"] = str(file_info.size)
 
