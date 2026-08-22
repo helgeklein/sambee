@@ -38,6 +38,9 @@ export function buildCodeMirrorSurfaceTheme({
         ".cm-selectionBackground": {
           backgroundColor: selectionBackground,
         },
+        "&.cm-focused > .cm-scroller > .cm-selectionLayer .cm-selectionBackground": {
+          backgroundColor: selectionBackground,
+        },
         ".cm-searchMatch": {
           backgroundColor: otherSearchMatchBackground,
         },

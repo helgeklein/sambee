@@ -1941,12 +1941,6 @@ const Browser: React.FC = () => {
         handler: () => openQuickBarMode("commands"),
         enabled: noSettings,
       },
-      // Command palette alternate binding (F1)
-      {
-        ...BROWSER_SHORTCUTS.COMMAND_PALETTE_ALTERNATE,
-        handler: () => openQuickBarMode("commands"),
-        enabled: noSettings,
-      },
       // Focus connection selector (Ctrl+Down)
       {
         ...BROWSER_SHORTCUTS.FOCUS_CONNECTION_SELECTOR,
@@ -1962,6 +1956,11 @@ const Browser: React.FC = () => {
       // Show help
       {
         ...BROWSER_SHORTCUTS.SHOW_HELP,
+        handler: () => setShowHelp(true),
+        enabled: browsing,
+      },
+      {
+        ...BROWSER_SHORTCUTS.SHOW_HELP_ALTERNATE,
         handler: () => setShowHelp(true),
         enabled: browsing,
       },

@@ -3,7 +3,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import apiService from "../../services/api";
 import { logger } from "../../services/logger";
-import { useCachedImageGallery } from "../useCachedImageGallery";
+import { IMAGE_LOAD_CANCELED_MESSAGE, useCachedImageGallery } from "../useCachedImageGallery";
 
 vi.mock("../../services/api", () => ({
   default: {
@@ -43,6 +43,66 @@ describe("useCachedImageGallery", () => {
 
   beforeEach(() => {
     vi.clearAllMocks();
+    vi.stubGlobal("URL", {
+      createObjectURL: vi.fn(() => "blob:gallery-image"),
+      revokeObjectURL: vi.fn(),
+    });
+  });
+
+  it("waits for native image decoding before marking the current image ready", async () => {
+    vi.mocked(apiService.getImageBlob).mockResolvedValue(new Blob(["image"], { type: "image/jpeg" }));
+
+    const { result } = renderHook(() =>
+      useCachedImageGallery({
+        connectionId: "conn-1",
+        images: ["/0.jpg"],
+        preloadRange: 0,
+      })
+    );
+
+    await waitFor(() => {
+      expect(result.current.currentImageLoadPhase).toBe("decoding");
+    });
+
+    act(() => {
+      result.current.markImageAsDecoded(0, "blob:gallery-image");
+    });
+
+    expect(result.current.currentImageLoadPhase).toBe("ready");
+    expect(result.current.loadingStates.get(0)).toBe(false);
+  });
+
+  it("cancels the active image without treating cancellation as a fetch error", async () => {
+    const capturedSignals: AbortSignal[] = [];
+    vi.mocked(apiService.getImageBlob).mockImplementation((_connectionId: string, _path: string, options?: { signal?: AbortSignal }) => {
+      if (options?.signal) {
+        capturedSignals.push(options.signal);
+      }
+
+      return new Promise<Blob>(() => {
+        // The request remains pending until the viewer cancels it.
+      });
+    });
+
+    const { result } = renderHook(() =>
+      useCachedImageGallery({
+        connectionId: "conn-1",
+        images: ["/0.jpg"],
+        preloadRange: 0,
+      })
+    );
+
+    await waitFor(() => {
+      expect(capturedSignals).toHaveLength(1);
+    });
+
+    act(() => {
+      result.current.cancelCurrentImageLoad();
+    });
+
+    expect(capturedSignals[0]?.aborted).toBe(true);
+    expect(result.current.currentImageLoadPhase).toBe("canceled");
+    expect(result.current.errorStates.get(0)).toBe(IMAGE_LOAD_CANCELED_MESSAGE);
   });
 
   it("aborts stale in-flight preload requests when the desired preload window moves", async () => {

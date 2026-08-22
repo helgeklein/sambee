@@ -1,5 +1,6 @@
 import type { ViewUpdate } from "@codemirror/view";
 import { act, configure, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
+import userEvent from "@testing-library/user-event";
 import { forwardRef, useEffect, useImperativeHandle, useRef, useState } from "react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import apiService from "../../../services/api";
@@ -49,6 +50,10 @@ const mockMarkdownEditorCommands = {
   insertTable: vi.fn(),
   insertThematicBreak: vi.fn(),
   insertCodeBlock: vi.fn(),
+  replaceAllSearchResults: vi.fn(),
+  replaceCurrentSearchResult: vi.fn(),
+  toggleBold: vi.fn(),
+  toggleItalic: vi.fn(),
   toggleInlineCode: vi.fn(),
 };
 
@@ -70,9 +75,13 @@ const MockMarkdownRichEditor = forwardRef<
     focusCurrentSearchResult: () => boolean;
     nextSearchResult: () => void;
     previousSearchResult: () => void;
+    replaceAllSearchResults: () => void;
+    replaceCurrentSearchResult: () => void;
     createLink: () => void;
     insertTable: () => void;
     insertThematicBreak: () => void;
+    toggleBold: () => void;
+    toggleItalic: () => void;
     toggleInlineCode: () => void;
     insertCodeBlock: () => void;
   },
@@ -87,12 +96,17 @@ const MockMarkdownRichEditor = forwardRef<
     searchText?: string;
     searchOpen?: boolean;
     searchAutoNavigate?: boolean;
+    searchCaseSensitive?: boolean;
+    searchRegexp?: boolean;
+    searchReplaceText?: string;
+    searchWholeWord?: boolean;
     onSearchStateChange?: (state: {
       searchText: string;
       searchMatches: number;
       currentMatch: number;
       isSearchOpen: boolean;
       isSearchable: boolean;
+      isValid: boolean;
       viewMode: "rich-text" | "source" | "diff";
     }) => void;
   }
@@ -149,6 +163,7 @@ const MockMarkdownRichEditor = forwardRef<
         currentMatch: searchText ? currentMatch : 0,
         isSearchOpen: searchOpen,
         isSearchable: true,
+        isValid: true,
         viewMode: "rich-text",
       });
     }, [currentMatch, onSearchStateChange, searchOpen, searchText]);
@@ -315,6 +330,12 @@ const MockMarkdownRichEditor = forwardRef<
 
         setCurrentMatch((previousMatch) => (previousMatch <= 1 ? 2 : previousMatch - 1));
       },
+      replaceCurrentSearchResult: () => {
+        mockMarkdownEditorCommands.replaceCurrentSearchResult();
+      },
+      replaceAllSearchResults: () => {
+        mockMarkdownEditorCommands.replaceAllSearchResults();
+      },
       createLink: () => {
         mockMarkdownEditorCommands.createLink();
       },
@@ -323,6 +344,12 @@ const MockMarkdownRichEditor = forwardRef<
       },
       insertThematicBreak: () => {
         mockMarkdownEditorCommands.insertThematicBreak();
+      },
+      toggleBold: () => {
+        mockMarkdownEditorCommands.toggleBold();
+      },
+      toggleItalic: () => {
+        mockMarkdownEditorCommands.toggleItalic();
       },
       toggleInlineCode: () => {
         mockMarkdownEditorCommands.toggleInlineCode();
@@ -444,6 +471,10 @@ describe("MarkdownViewer", () => {
     mockMarkdownEditorCommands.insertTable.mockReset();
     mockMarkdownEditorCommands.insertThematicBreak.mockReset();
     mockMarkdownEditorCommands.insertCodeBlock.mockReset();
+    mockMarkdownEditorCommands.replaceAllSearchResults.mockReset();
+    mockMarkdownEditorCommands.replaceCurrentSearchResult.mockReset();
+    mockMarkdownEditorCommands.toggleBold.mockReset();
+    mockMarkdownEditorCommands.toggleItalic.mockReset();
     mockMarkdownEditorCommands.toggleInlineCode.mockReset();
   });
 
@@ -509,6 +540,83 @@ describe("MarkdownViewer", () => {
     });
     expect(acquireLockSpy).toHaveBeenCalledWith("conn1", "/docs/readme.md", expect.any(String));
     expect(getFileContentSpy).toHaveBeenCalledTimes(1);
+  });
+
+  it("runs bold and italic shortcuts while Markdown editing has focus", async () => {
+    vi.spyOn(apiService, "getFileContent").mockResolvedValueOnce("# Readme\n");
+    vi.spyOn(apiService, "supportsEditLocks").mockReturnValue(true);
+    vi.spyOn(apiService, "releaseEditLock").mockResolvedValue();
+    vi.spyOn(apiService, "acquireEditLock").mockResolvedValueOnce(mockEditLockInfo);
+
+    renderViewer();
+
+    await screen.findByText("Readme");
+    await userEvent.setup().click(screen.getByRole("button", { name: "Edit" }));
+
+    const editor = await screen.findByRole("textbox", { name: "Markdown editor" });
+    editor.focus();
+    fireEvent.keyDown(editor, { key: "b", ctrlKey: true });
+    fireEvent.keyDown(editor, { key: "i", ctrlKey: true });
+
+    expect(mockMarkdownEditorCommands.toggleBold).toHaveBeenCalledTimes(1);
+    expect(mockMarkdownEditorCommands.toggleItalic).toHaveBeenCalledTimes(1);
+  });
+
+  it("shows only Markdown editor shortcuts from the edit toolbar Help menu and F1", async () => {
+    vi.spyOn(apiService, "getFileContent").mockResolvedValueOnce("# Readme\n");
+    vi.spyOn(apiService, "supportsEditLocks").mockReturnValue(true);
+    vi.spyOn(apiService, "releaseEditLock").mockResolvedValue();
+    vi.spyOn(apiService, "acquireEditLock").mockResolvedValueOnce(mockEditLockInfo);
+
+    renderViewer();
+
+    await screen.findByText("Readme");
+    await userEvent.setup().click(screen.getByRole("button", { name: "Edit" }));
+
+    const editor = await screen.findByRole("textbox", { name: "Markdown editor" });
+    await userEvent.setup().click(screen.getByRole("button", { name: "Help" }));
+    await userEvent.setup().click(screen.getByRole("menuitem", { name: "Keyboard shortcuts" }));
+
+    expect(await screen.findByRole("heading", { name: "Markdown editor shortcuts" })).toBeInTheDocument();
+    expect(screen.getByText("Bold")).toBeInTheDocument();
+    expect(screen.queryByText("Edit")).not.toBeInTheDocument();
+    expect(screen.queryByText("Toggle fullscreen")).not.toBeInTheDocument();
+
+    await userEvent.setup().keyboard("{Escape}");
+    await waitFor(() => {
+      expect(screen.queryByRole("heading", { name: "Markdown editor shortcuts" })).not.toBeInTheDocument();
+    });
+    editor.focus();
+    fireEvent.keyDown(editor, { key: "F1" });
+
+    expect(await screen.findByRole("heading", { name: "Markdown editor shortcuts" })).toBeInTheDocument();
+  });
+
+  it("keeps question marks as Markdown input and limits preview Help to viewer shortcuts", async () => {
+    vi.spyOn(apiService, "getFileContent").mockResolvedValueOnce("# Readme\n");
+    vi.spyOn(apiService, "supportsEditLocks").mockReturnValue(true);
+    vi.spyOn(apiService, "releaseEditLock").mockResolvedValue();
+    vi.spyOn(apiService, "acquireEditLock").mockResolvedValueOnce(mockEditLockInfo);
+
+    renderViewer();
+
+    await screen.findByText("Readme");
+    fireEvent.keyDown(document, { key: "?" });
+
+    expect(await screen.findByRole("heading", { name: "Markdown viewer shortcuts" })).toBeInTheDocument();
+    expect(screen.queryByText("Bold")).not.toBeInTheDocument();
+
+    await userEvent.setup().keyboard("{Escape}");
+    await waitFor(() => {
+      expect(screen.queryByRole("heading", { name: "Markdown viewer shortcuts" })).not.toBeInTheDocument();
+    });
+    await userEvent.setup().click(screen.getByRole("button", { name: "Edit" }));
+    const editor = await screen.findByRole("textbox", { name: "Markdown editor" });
+    await userEvent.setup().click(editor);
+    await userEvent.setup().keyboard("?");
+
+    expect(editor).toHaveValue("# Readme\n?");
+    expect(screen.queryByRole("heading", { name: "Markdown editor shortcuts" })).not.toBeInTheDocument();
   });
 
   it("retries loading the editor after a transient module-load failure", async () => {
@@ -1839,7 +1947,7 @@ describe("MarkdownViewer", () => {
     fireEvent.keyDown(document, { key: "f", ctrlKey: true });
 
     await waitFor(() => {
-      expect(screen.getByPlaceholderText("Search")).toHaveValue("beta");
+      expect(screen.getByPlaceholderText("Search (⇅ for history)")).toHaveValue("beta");
       expect(mockMarkdownEditorBehavior.lastSearchText).toBe("beta");
       expect(editor.selectionStart).toBe(selectionStart);
       expect(editor.selectionEnd).toBe(selectionEnd);
@@ -1864,7 +1972,7 @@ describe("MarkdownViewer", () => {
 
     fireEvent.keyDown(document, { key: "f", ctrlKey: true });
 
-    const firstSearchInput = await screen.findByPlaceholderText("Search");
+    const firstSearchInput = await screen.findByPlaceholderText("Search (⇅ for history)");
 
     await waitFor(() => {
       expect(firstSearchInput).toHaveValue("beta");
@@ -1873,7 +1981,7 @@ describe("MarkdownViewer", () => {
     fireEvent.keyDown(firstSearchInput, { key: "Escape" });
 
     await waitFor(() => {
-      expect(screen.queryByPlaceholderText("Search")).not.toBeInTheDocument();
+      expect(screen.queryByPlaceholderText("Search (⇅ for history)")).not.toBeInTheDocument();
     });
 
     const alphaStart = editor.value.lastIndexOf("alpha");
@@ -1885,14 +1993,14 @@ describe("MarkdownViewer", () => {
     fireEvent.keyDown(document, { key: "f", ctrlKey: true });
 
     await waitFor(() => {
-      expect(screen.getByPlaceholderText("Search")).toHaveValue("alpha");
+      expect(screen.getByPlaceholderText("Search (⇅ for history)")).toHaveValue("alpha");
       expect(mockMarkdownEditorBehavior.lastSearchText).toBe("alpha");
       expect(editor.selectionStart).toBe(alphaStart);
       expect(editor.selectionEnd).toBe(alphaEnd);
     });
   });
 
-  it("focuses the search input when reopening edit-mode search without a selection", async () => {
+  it("clears the search input when reopening edit-mode search without a selection", async () => {
     vi.spyOn(apiService, "getFileContent").mockResolvedValueOnce("# Alpha\n\nAlpha beta alpha\n");
     vi.spyOn(apiService, "supportsEditLocks").mockReturnValue(false);
 
@@ -1910,7 +2018,7 @@ describe("MarkdownViewer", () => {
 
     fireEvent.keyDown(document, { key: "f", ctrlKey: true });
 
-    const firstSearchInput = await screen.findByPlaceholderText("Search");
+    const firstSearchInput = await screen.findByPlaceholderText("Search (⇅ for history)");
 
     await waitFor(() => {
       expect(firstSearchInput).toHaveValue("beta");
@@ -1919,7 +2027,7 @@ describe("MarkdownViewer", () => {
     fireEvent.keyDown(firstSearchInput, { key: "Escape" });
 
     await waitFor(() => {
-      expect(screen.queryByPlaceholderText("Search")).not.toBeInTheDocument();
+      expect(screen.queryByPlaceholderText("Search (⇅ for history)")).not.toBeInTheDocument();
     });
 
     editor.focus();
@@ -1927,11 +2035,11 @@ describe("MarkdownViewer", () => {
 
     fireEvent.keyDown(document, { key: "f", ctrlKey: true });
 
-    const reopenedSearchInput = await screen.findByPlaceholderText("Search");
+    const reopenedSearchInput = await screen.findByPlaceholderText("Search (⇅ for history)");
 
     await waitFor(() => {
       expect(reopenedSearchInput).toHaveFocus();
-      expect(reopenedSearchInput).toHaveValue("beta");
+      expect(reopenedSearchInput).toHaveValue("");
       expect(mockMarkdownEditorBehavior.lastSearchAutoNavigate).toBe(false);
     });
   });
@@ -1957,7 +2065,7 @@ describe("MarkdownViewer", () => {
     fireEvent.keyDown(searchInput, { key: "Escape" });
 
     await waitFor(() => {
-      expect(screen.queryByPlaceholderText("Search")).not.toBeInTheDocument();
+      expect(screen.queryByPlaceholderText("Search (⇅ for history)")).not.toBeInTheDocument();
       expect(editor).toHaveFocus();
     });
 
@@ -1969,8 +2077,8 @@ describe("MarkdownViewer", () => {
     fireEvent.click(screen.getByRole("button", { name: "Search" }));
 
     await waitFor(() => {
-      expect(screen.getByPlaceholderText("Search")).toHaveValue("alpha");
-      expect(screen.getByText("1 / 2")).toBeInTheDocument();
+      expect(screen.getByPlaceholderText("Search (⇅ for history)")).toHaveValue("");
+      expect(screen.queryByText("1 / 2")).not.toBeInTheDocument();
     });
   });
 
@@ -1986,7 +2094,7 @@ describe("MarkdownViewer", () => {
 
     fireEvent.click(screen.getByRole("button", { name: "Search" }));
 
-    const searchInput = await screen.findByPlaceholderText("Search");
+    const searchInput = await screen.findByPlaceholderText("Search (⇅ for history)");
     fireEvent.change(searchInput, { target: { value: "alpha" } });
 
     await waitFor(() => {
@@ -1995,6 +2103,59 @@ describe("MarkdownViewer", () => {
       expect(mockMarkdownEditorBehavior.lastSearchText).toBe("alpha");
       expect(mockMarkdownEditorBehavior.lastSearchAutoNavigate).toBe(false);
     });
+  });
+
+  it("opens find and replace with Ctrl+H and keeps F3 navigation available from the panel", async () => {
+    vi.spyOn(apiService, "getFileContent").mockResolvedValueOnce("# Alpha\n\nAlpha beta alpha\n");
+    vi.spyOn(apiService, "supportsEditLocks").mockReturnValue(false);
+
+    renderViewer();
+
+    await screen.findByText("Alpha");
+    fireEvent.click(screen.getByRole("button", { name: "Edit" }));
+
+    const editor = await screen.findByRole("textbox", { name: "Markdown editor" });
+    editor.focus();
+    fireEvent.keyDown(editor, { key: "h", ctrlKey: true });
+
+    const findInput = await screen.findByRole("textbox", { name: "Find" });
+    const replaceInput = await screen.findByRole("textbox", { name: "Replace" });
+    await waitFor(() => {
+      expect(findInput).toHaveFocus();
+    });
+
+    fireEvent.change(findInput, { target: { value: "alpha" } });
+
+    await waitFor(() => {
+      expect(screen.getByText("1 / 2")).toBeInTheDocument();
+    });
+
+    fireEvent.keyDown(findInput, { altKey: true, key: "c" });
+    fireEvent.keyDown(findInput, { altKey: true, key: "w" });
+    fireEvent.keyDown(findInput, { altKey: true, key: "r" });
+
+    expect(screen.getByRole("button", { name: "Match case" })).toHaveAttribute("aria-pressed", "true");
+    expect(screen.getByRole("button", { name: "Match whole word" })).toHaveAttribute("aria-pressed", "true");
+    expect(screen.getByRole("button", { name: "Use regular expression" })).toHaveAttribute("aria-pressed", "true");
+
+    fireEvent.keyDown(findInput, { key: "F3" });
+
+    await waitFor(() => {
+      expect(screen.getByText("2 / 2")).toBeInTheDocument();
+    });
+
+    fireEvent.keyDown(document, { key: "F3", shiftKey: true });
+
+    await waitFor(() => {
+      expect(screen.getByText("1 / 2")).toBeInTheDocument();
+    });
+
+    fireEvent.change(replaceInput, { target: { value: "done" } });
+    fireEvent.click(screen.getByRole("button", { name: "Replace current match" }));
+    fireEvent.click(screen.getByRole("button", { name: "Replace all" }));
+
+    expect(mockMarkdownEditorCommands.replaceCurrentSearchResult).toHaveBeenCalledTimes(1);
+    expect(mockMarkdownEditorCommands.replaceAllSearchResults).toHaveBeenCalledTimes(1);
   });
 
   it("does not restore preview highlights after exiting edit mode when edit search was already closed", async () => {
@@ -2016,7 +2177,7 @@ describe("MarkdownViewer", () => {
     fireEvent.keyDown(searchInput, { key: "Escape" });
 
     await waitFor(() => {
-      expect(screen.queryByPlaceholderText("Search")).not.toBeInTheDocument();
+      expect(screen.queryByPlaceholderText("Search (⇅ for history)")).not.toBeInTheDocument();
       expect(editor).toHaveFocus();
     });
 

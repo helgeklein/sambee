@@ -14,7 +14,13 @@ import { useTranslation } from "react-i18next";
 import ReactMarkdown from "react-markdown";
 import rehypeHighlight from "rehype-highlight";
 import remarkGfm from "remark-gfm";
-import { BROWSER_SHORTCUTS, COMMON_SHORTCUTS, MARKDOWN_EDITOR_SHORTCUTS, VIEWER_SHORTCUTS } from "../../config/keyboardShortcuts";
+import {
+  BROWSER_SHORTCUTS,
+  CODEMIRROR_EDITOR_SHORTCUTS,
+  COMMON_SHORTCUTS,
+  MARKDOWN_EDITOR_SHORTCUTS,
+  VIEWER_SHORTCUTS,
+} from "../../config/keyboardShortcuts";
 import { checkIsTransientError, getTransientErrorMessage, useApiRetry } from "../../hooks/useApiRetry";
 import { useKeyboardShortcuts } from "../../hooks/useKeyboardShortcuts";
 import apiService from "../../services/api";
@@ -27,6 +33,7 @@ import {
   getMarkdownTableSurfaceColors,
   getViewerColors,
   MARKDOWN_CONTENT_PADDING,
+  MARKDOWN_SELECTION_HORIZONTAL_INSET_CSS_VARIABLE,
 } from "../../theme/viewerStyles";
 import type { EditLockInfo } from "../../types";
 import { isApiError } from "../../types";
@@ -44,7 +51,9 @@ import type { ViewerComponentProps } from "../../utils/FileTypeRegistry";
 import { blurActiveToolbarControl } from "../../utils/keyboardUtils";
 import { createShareFile, shareNativeContent, shouldWarmNativeSharePayload, supportsNativeShare } from "../../utils/nativeShare";
 import { ResponsiveFormDialog } from "../Admin/ResponsiveFormDialog";
+import { HelpMenu } from "../FileBrowser/HelpMenu";
 import { KeyboardShortcutsHelp } from "../KeyboardShortcutsHelp";
+import { CodeMirrorFindReplacePopover } from "./CodeMirrorFindReplacePopover";
 import { scheduleRetriableFocusRestore } from "./focusRestoration";
 import { loadMarkdownRichEditor } from "./loadMarkdownRichEditor";
 import MarkdownEditorErrorBoundary from "./MarkdownEditorErrorBoundary";
@@ -175,13 +184,20 @@ export const MarkdownViewer: React.FC<ViewerComponentProps> = ({ connectionId, p
   const [shareError, setShareError] = useState<string | null>(null);
   const [draftStorageWarning, setDraftStorageWarning] = useState<string | null>(null);
   const [recoveryDraft, setRecoveryDraft] = useState<DraftSnapshot | null>(null);
-  const [showHelp, setShowHelp] = useState(false);
+  const [showViewerHelp, setShowViewerHelp] = useState(false);
+  const [showEditorHelp, setShowEditorHelp] = useState(false);
   const [isEditing, setIsEditing] = useState(false);
   const [isSaving, setIsSaving] = useState(false);
   const [editLockInfo, setEditLockInfo] = useState<EditLockInfo | null>(null);
   const [sharing, setSharing] = useState(false);
   const [viewerSearchText, setViewerSearchText] = useState("");
+  const [editorSearchCaseSensitive, setEditorSearchCaseSensitive] = useState(false);
+  const [editorSearchFocusTarget, setEditorSearchFocusTarget] = useState<"find" | "replace" | null>(null);
+  const [editorSearchMode, setEditorSearchMode] = useState<"find" | "replace">("find");
+  const [editorSearchRegexp, setEditorSearchRegexp] = useState(false);
+  const [editorSearchReplaceText, setEditorSearchReplaceText] = useState("");
   const [editorSearchText, setEditorSearchText] = useState("");
+  const [editorSearchWholeWord, setEditorSearchWholeWord] = useState(false);
   const [searchMatches, setSearchMatches] = useState(0);
   const [currentSearchMatch, setCurrentSearchMatch] = useState(0);
   const [searchPanelOpen, setSearchPanelOpen] = useState(false);
@@ -199,6 +215,7 @@ export const MarkdownViewer: React.FC<ViewerComponentProps> = ({ connectionId, p
     currentMatch: 0,
     isSearchOpen: false,
     isSearchable: true,
+    isValid: true,
     viewMode: "rich-text",
   });
   const contentRef = useRef<HTMLDivElement>(null);
@@ -1029,6 +1046,11 @@ export const MarkdownViewer: React.FC<ViewerComponentProps> = ({ connectionId, p
     ({ preserveQuery, restoreEditorFocus }: { preserveQuery: boolean; restoreEditorFocus: boolean }) => {
       setSearchPanelOpen(false);
 
+      if (isEditing) {
+        setEditorSearchFocusTarget(null);
+        setEditorSearchMode("find");
+      }
+
       if (!preserveQuery) {
         if (isEditing) {
           setEditorSearchText("");
@@ -1092,16 +1114,31 @@ export const MarkdownViewer: React.FC<ViewerComponentProps> = ({ connectionId, p
         const selectedText = editorRef.current?.getPrimarySelectionText() ?? "";
 
         setEditorSearchAutoNavigate(false);
-
-        if (selectedText.length > 0) {
-          setEditorSearchText(selectedText);
-        }
+        setEditorSearchMode("find");
+        setEditorSearchFocusTarget("find");
+        setEditorSearchText(selectedText);
+        setEditorSearchReplaceText("");
       }
 
       setSearchPanelOpen(true);
     },
     [editorSearchState.isSearchable, error, isEditing, loading]
   );
+
+  const handleOpenReplace = useCallback(() => {
+    if (loading || error || !isEditing || !editorSearchState.isSearchable) {
+      return;
+    }
+
+    const selectedText = editorRef.current?.getPrimarySelectionText() ?? "";
+    setEditorSearchAutoNavigate(false);
+    setEditorSearchMode("replace");
+    setEditorSearchFocusTarget(selectedText.trim().length > 0 ? "replace" : "find");
+    setEditorSearchText(selectedText);
+    setEditorSearchReplaceText("");
+
+    setSearchPanelOpen(true);
+  }, [editorSearchState.isSearchable, error, isEditing, loading]);
 
   const handleSearchChange = useCallback(
     (text: string) => {
@@ -1122,6 +1159,11 @@ export const MarkdownViewer: React.FC<ViewerComponentProps> = ({ connectionId, p
   const handleSearchPanelToggle = useCallback(
     (open: boolean) => {
       if (open) {
+        if (isEditing) {
+          setEditorSearchText("");
+          setEditorSearchReplaceText("");
+          setEditorSearchFocusTarget("find");
+        }
         setSearchPanelOpen(true);
         return;
       }
@@ -1157,6 +1199,20 @@ export const MarkdownViewer: React.FC<ViewerComponentProps> = ({ connectionId, p
     [EditorComponent, connectionId, editorFailed, editorLoadError, editorLoadState, isEditing, path, t]
   );
 
+  const handleReplaceCurrent = useCallback(() => {
+    setEditorSearchAutoNavigate(false);
+    runEditorCommand(t("viewer.edit.replace"), () => {
+      editorRef.current?.replaceCurrentSearchResult();
+    });
+  }, [runEditorCommand, t]);
+
+  const handleReplaceAll = useCallback(() => {
+    setEditorSearchAutoNavigate(false);
+    runEditorCommand(t("viewer.edit.replaceAll"), () => {
+      editorRef.current?.replaceAllSearchResults();
+    });
+  }, [runEditorCommand, t]);
+
   const handleEditorCrashed = useCallback(
     (error: Error, errorInfo: ErrorInfo) => {
       setEditorFailed(true);
@@ -1183,6 +1239,18 @@ export const MarkdownViewer: React.FC<ViewerComponentProps> = ({ connectionId, p
   const handleToggleInlineCode = useCallback(() => {
     runEditorCommand(t("viewer.shortcuts.inlineCode"), () => {
       editorRef.current?.toggleInlineCode();
+    });
+  }, [runEditorCommand, t]);
+
+  const handleToggleBold = useCallback(() => {
+    runEditorCommand(t("viewer.shortcuts.bold"), () => {
+      editorRef.current?.toggleBold();
+    });
+  }, [runEditorCommand, t]);
+
+  const handleToggleItalic = useCallback(() => {
+    runEditorCommand(t("viewer.shortcuts.italic"), () => {
+      editorRef.current?.toggleItalic();
     });
   }, [runEditorCommand, t]);
 
@@ -1276,34 +1344,40 @@ export const MarkdownViewer: React.FC<ViewerComponentProps> = ({ connectionId, p
     [handleEscape, unsavedChangesDialogOpen]
   );
 
-  const handleShowHelp = useCallback(() => {
-    setShowHelp(true);
+  const handleShowViewerHelp = useCallback(() => {
+    setShowViewerHelp(true);
   }, []);
 
-  // Keyboard shortcuts using centralized system
-  const markdownShortcuts = useMemo(
+  const handleShowEditorHelp = useCallback(() => {
+    setShowEditorHelp(true);
+  }, []);
+
+  const handleOpenDocumentation = useCallback(() => {
+    openExternalUrl("https://sambee.net/docs/");
+  }, []);
+
+  const markdownViewerShortcuts = useMemo(
     () => [
-      // Download
       {
         ...COMMON_SHORTCUTS.DOWNLOAD,
         handler: handleDownload,
+        enabled: !isEditing,
       },
       {
         ...COMMON_SHORTCUTS.SEARCH,
         handler: handleOpenSearch,
-        enabled: !loading && !error && (!isEditing || editorSearchState.isSearchable),
+        enabled: !isEditing && !loading && !error,
       },
       {
         ...COMMON_SHORTCUTS.NEXT_MATCH,
         handler: handleSearchNext,
-        enabled: searchMatches > 0,
+        enabled: !isEditing && searchMatches > 0,
       },
       {
         ...COMMON_SHORTCUTS.PREVIOUS_MATCH,
         handler: handleSearchPrevious,
-        enabled: searchMatches > 0,
+        enabled: !isEditing && searchMatches > 0,
       },
-      // Enter edit mode
       {
         ...COMMON_SHORTCUTS.EDIT,
         handler: () => {
@@ -1311,13 +1385,113 @@ export const MarkdownViewer: React.FC<ViewerComponentProps> = ({ connectionId, p
         },
         enabled: !isEditing && !isReadOnly,
       },
-      // Save while editing
+      {
+        ...VIEWER_SHORTCUTS.FULLSCREEN,
+        handler: handleToggleFullscreen,
+        enabled: !isEditing,
+      },
+      {
+        ...COMMON_SHORTCUTS.CLOSE,
+        handler: handleEscape,
+        allowInInput: false,
+        enabled: !isEditing && !unsavedChangesDialogOpen,
+      },
+      {
+        ...BROWSER_SHORTCUTS.SHOW_HELP,
+        handler: handleShowViewerHelp,
+        enabled: !isEditing,
+      },
+      {
+        ...BROWSER_SHORTCUTS.SHOW_HELP_ALTERNATE,
+        handler: handleShowViewerHelp,
+        enabled: !isEditing,
+      },
+    ],
+    [
+      handleDownload,
+      handleEnterEditMode,
+      handleEscape,
+      handleOpenSearch,
+      handleSearchNext,
+      handleSearchPrevious,
+      handleShowViewerHelp,
+      handleToggleFullscreen,
+      error,
+      isEditing,
+      isReadOnly,
+      loading,
+      searchMatches,
+      unsavedChangesDialogOpen,
+    ]
+  );
+
+  const markdownEditorShortcuts = useMemo(
+    () => [
+      {
+        ...COMMON_SHORTCUTS.DOWNLOAD,
+        handler: handleDownload,
+        enabled: isEditing,
+      },
+      {
+        ...COMMON_SHORTCUTS.SEARCH,
+        handler: handleOpenSearch,
+        enabled: isEditing && !loading && !error && editorSearchState.isSearchable,
+      },
+      {
+        ...COMMON_SHORTCUTS.NEXT_MATCH,
+        handler: handleSearchNext,
+        enabled: isEditing && searchMatches > 0,
+      },
+      {
+        ...COMMON_SHORTCUTS.PREVIOUS_MATCH,
+        handler: handleSearchPrevious,
+        enabled: isEditing && searchMatches > 0,
+      },
       {
         ...COMMON_SHORTCUTS.SAVE,
         handler: () => {
           void handleSave();
         },
-        allowInInput: true,
+        enabled: isEditing && !isSaving,
+      },
+      {
+        ...MARKDOWN_EDITOR_SHORTCUTS.BOLD,
+        handler: handleToggleBold,
+        enabled: isEditing && !isSaving,
+      },
+      {
+        ...CODEMIRROR_EDITOR_SHORTCUTS.REPLACE,
+        handler: handleOpenReplace,
+        enabled: isEditing && !isSaving,
+      },
+      {
+        ...CODEMIRROR_EDITOR_SHORTCUTS.REPLACE_CURRENT,
+        handler: handleReplaceCurrent,
+        enabled: isEditing && !isSaving && editorSearchMode === "replace" && searchPanelOpen,
+      },
+      {
+        ...CODEMIRROR_EDITOR_SHORTCUTS.REPLACE_ALL,
+        handler: handleReplaceAll,
+        enabled: isEditing && !isSaving && editorSearchMode === "replace" && searchPanelOpen,
+      },
+      {
+        ...CODEMIRROR_EDITOR_SHORTCUTS.TOGGLE_CASE_SENSITIVE,
+        handler: () => setEditorSearchCaseSensitive((enabled) => !enabled),
+        enabled: isEditing && searchPanelOpen,
+      },
+      {
+        ...CODEMIRROR_EDITOR_SHORTCUTS.TOGGLE_WHOLE_WORD,
+        handler: () => setEditorSearchWholeWord((enabled) => !enabled),
+        enabled: isEditing && searchPanelOpen,
+      },
+      {
+        ...CODEMIRROR_EDITOR_SHORTCUTS.TOGGLE_REGULAR_EXPRESSION,
+        handler: () => setEditorSearchRegexp((enabled) => !enabled),
+        enabled: isEditing && searchPanelOpen,
+      },
+      {
+        ...MARKDOWN_EDITOR_SHORTCUTS.ITALIC,
+        handler: handleToggleItalic,
         enabled: isEditing && !isSaving,
       },
       {
@@ -1345,45 +1519,43 @@ export const MarkdownViewer: React.FC<ViewerComponentProps> = ({ connectionId, p
         handler: handleInsertCodeBlock,
         enabled: isEditing && !isSaving,
       },
-      // Fullscreen
-      {
-        ...VIEWER_SHORTCUTS.FULLSCREEN,
-        handler: handleToggleFullscreen,
-      },
-      // Close viewer or exit fullscreen on Escape
       {
         ...COMMON_SHORTCUTS.CLOSE,
         handler: handleEscape,
         allowInInput: false,
-        enabled: !unsavedChangesDialogOpen,
+        enabled: isEditing && !unsavedChangesDialogOpen,
       },
-      // Show help
       {
-        ...BROWSER_SHORTCUTS.SHOW_HELP,
-        handler: handleShowHelp,
+        ...MARKDOWN_EDITOR_SHORTCUTS.SHOW_HELP,
+        handler: handleShowEditorHelp,
+        enabled: isEditing,
       },
     ],
     [
-      handleDownload,
+      editorSearchState.isSearchable,
+      error,
       handleCreateLink,
-      handleEnterEditMode,
+      handleDownload,
       handleEscape,
-      handleOpenSearch,
-      handleSave,
-      handleSearchNext,
-      handleSearchPrevious,
-      handleShowHelp,
       handleInsertCodeBlock,
       handleInsertTable,
       handleInsertThematicBreak,
-      handleToggleFullscreen,
+      handleOpenSearch,
+      handleOpenReplace,
+      handleReplaceAll,
+      handleReplaceCurrent,
+      handleSave,
+      handleSearchNext,
+      handleSearchPrevious,
+      handleShowEditorHelp,
+      handleToggleBold,
       handleToggleInlineCode,
-      editorSearchState.isSearchable,
-      error,
+      handleToggleItalic,
       isEditing,
-      isReadOnly,
       isSaving,
       loading,
+      editorSearchMode,
+      searchPanelOpen,
       searchMatches,
       unsavedChangesDialogOpen,
     ]
@@ -1394,8 +1566,8 @@ export const MarkdownViewer: React.FC<ViewerComponentProps> = ({ connectionId, p
     : !loading && !error && content.trim().length > 0;
 
   useKeyboardShortcuts({
-    active: !showHelp,
-    shortcuts: markdownShortcuts,
+    active: !showViewerHelp && !showEditorHelp,
+    shortcuts: [...markdownViewerShortcuts, ...markdownEditorShortcuts],
     inputSelector: "input, textarea",
   });
 
@@ -1511,6 +1683,15 @@ export const MarkdownViewer: React.FC<ViewerComponentProps> = ({ connectionId, p
               toolbarBackground={toolbarBg}
               toolbarText={toolbarText}
               actions={toolbarActions}
+              toolbarAccessory={
+                isEditing ? (
+                  <HelpMenu
+                    menuId="markdown-editor-help-menu"
+                    onOpenHelp={handleShowEditorHelp}
+                    onOpenDocumentation={handleOpenDocumentation}
+                  />
+                ) : undefined
+              }
               config={{
                 download: true,
                 share: shareEnabled,
@@ -1532,6 +1713,7 @@ export const MarkdownViewer: React.FC<ViewerComponentProps> = ({ connectionId, p
                 clearSearchOnClose: !isEditing,
                 isSearchable,
                 searchUnavailableTitle: isEditing ? t("viewer.edit.searchUnavailable") : undefined,
+                hideSearchPanel: isEditing,
               }}
               onDownload={handleDownload}
               onShare={handleShare}
@@ -1539,6 +1721,34 @@ export const MarkdownViewer: React.FC<ViewerComponentProps> = ({ connectionId, p
               shareDisabled={sharing}
             />
           </Box>
+
+          {isEditing && (
+            <CodeMirrorFindReplacePopover
+              caseSensitive={editorSearchCaseSensitive}
+              currentMatch={currentSearchMatch}
+              disabled={isSaving || editorLoadState !== "loaded" || Boolean(editorLoadError) || editorFailed}
+              focusTarget={editorSearchFocusTarget}
+              isReplaceMode={editorSearchMode === "replace"}
+              isSearchValid={editorSearchState.isValid}
+              onCaseSensitiveChange={setEditorSearchCaseSensitive}
+              onClose={() => closeSearchPanel({ preserveQuery: true, restoreEditorFocus: true })}
+              onFindNext={handleSearchNext}
+              onFindPrevious={handleSearchPrevious}
+              onFocusHandled={() => setEditorSearchFocusTarget(null)}
+              onRegexChange={setEditorSearchRegexp}
+              onReplaceAll={handleReplaceAll}
+              onReplaceChange={setEditorSearchReplaceText}
+              onReplaceCurrent={handleReplaceCurrent}
+              onSearchChange={handleSearchChange}
+              onWholeWordChange={setEditorSearchWholeWord}
+              open={searchPanelOpen}
+              regex={editorSearchRegexp}
+              replaceText={editorSearchReplaceText}
+              searchMatches={searchMatches}
+              searchText={editorSearchText}
+              wholeWord={editorSearchWholeWord}
+            />
+          )}
 
           {editError && (
             <Alert severity="error" sx={{ m: 2, flexShrink: 0 }}>
@@ -1604,6 +1814,10 @@ export const MarkdownViewer: React.FC<ViewerComponentProps> = ({ connectionId, p
                   "& .sambee-markdown-editor": {
                     flex: 1,
                     minHeight: 0,
+                    [MARKDOWN_SELECTION_HORIZONTAL_INSET_CSS_VARIABLE]: muiTheme.spacing(MARKDOWN_CONTENT_PADDING.xs),
+                    [muiTheme.breakpoints.up("sm")]: {
+                      [MARKDOWN_SELECTION_HORIZONTAL_INSET_CSS_VARIABLE]: muiTheme.spacing(MARKDOWN_CONTENT_PADDING.sm),
+                    },
                   },
                   "& .sambee-markdown-editor .cm-content": {
                     p: MARKDOWN_CONTENT_PADDING,
@@ -1670,7 +1884,11 @@ export const MarkdownViewer: React.FC<ViewerComponentProps> = ({ connectionId, p
                       searchText={activeEditorSearchText}
                       searchOpen={searchPanelOpen}
                       searchAutoNavigate={editorSearchAutoNavigate}
+                      searchCaseSensitive={editorSearchCaseSensitive}
                       onSearchStateChange={handleEditorSearchStateChange}
+                      searchRegexp={editorSearchRegexp}
+                      searchReplaceText={editorSearchReplaceText}
+                      searchWholeWord={editorSearchWholeWord}
                     />
                   </MarkdownEditorErrorBoundary>
                 ) : null}
@@ -1822,12 +2040,17 @@ export const MarkdownViewer: React.FC<ViewerComponentProps> = ({ connectionId, p
         {null}
       </ResponsiveFormDialog>
 
-      {/* Keyboard Shortcuts Help Dialog */}
       <KeyboardShortcutsHelp
-        open={showHelp}
-        onClose={() => setShowHelp(false)}
-        shortcuts={markdownShortcuts}
+        open={showViewerHelp}
+        onClose={() => setShowViewerHelp(false)}
+        shortcuts={markdownViewerShortcuts}
         title={t("keyboardShortcutsHelp.titles.markdownViewer")}
+      />
+      <KeyboardShortcutsHelp
+        open={showEditorHelp}
+        onClose={() => setShowEditorHelp(false)}
+        shortcuts={markdownEditorShortcuts}
+        title={t("keyboardShortcutsHelp.titles.markdownEditor")}
       />
     </>
   );

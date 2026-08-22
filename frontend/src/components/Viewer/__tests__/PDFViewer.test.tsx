@@ -1,4 +1,4 @@
-import { fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { act, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { useCallback, useEffect, useRef } from "react";
 import type { Mock } from "vitest";
@@ -164,6 +164,7 @@ vi.mock("react-pdf", () => ({
     rotate,
     renderTextLayer,
     onLoadSuccess,
+    onRenderSuccess,
     onRenderTextLayerSuccess,
   }: {
     pageNumber: number;
@@ -175,13 +176,19 @@ vi.mock("react-pdf", () => ({
       rotate: number;
       getViewport: (params: { scale: number; rotation?: number }) => { width: number; height: number };
     }) => void;
+    onRenderSuccess?: () => void;
     onRenderTextLayerSuccess?: () => void;
   }) => {
     const pageWidth = pageNumber === 1 ? 612 : 1224;
     const pageHeight = 792;
     const intrinsicRotation = mockIntrinsicPageRotations.get(pageNumber) ?? 0;
     const effectiveRotation = rotate ?? intrinsicRotation;
+    const onRenderSuccessRef = useRef(onRenderSuccess);
     mockPageRenderCounts.set(pageNumber, (mockPageRenderCounts.get(pageNumber) ?? 0) + 1);
+
+    useEffect(() => {
+      onRenderSuccessRef.current = onRenderSuccess;
+    }, [onRenderSuccess]);
 
     useEffect(() => {
       onLoadSuccess?.({
@@ -191,6 +198,11 @@ vi.mock("react-pdf", () => ({
             ? { width: pageHeight, height: pageWidth }
             : { width: pageWidth, height: pageHeight },
       });
+      if (mockPageRenderDelayMs > 0) {
+        const renderTimer = window.setTimeout(() => onRenderSuccessRef.current?.(), mockPageRenderDelayMs);
+        return () => window.clearTimeout(renderTimer);
+      }
+      onRenderSuccessRef.current?.();
       if (renderTextLayer && pageNumber !== mockMissingTextLayerPage) {
         onRenderTextLayerSuccess?.();
       }
@@ -244,6 +256,7 @@ let mockDocumentLoadErrors: Error[] = [];
 let mockPasswordRequest = false;
 let submittedPdfPassword: string | null = null;
 let mockTextExtractionDelayMs = 0;
+let mockPageRenderDelayMs = 0;
 
 function mockMatchMedia(matches: boolean) {
   Object.defineProperty(window, "matchMedia", {
@@ -359,6 +372,7 @@ describe("PDFViewer", () => {
     mockPasswordRequest = false;
     submittedPdfPassword = null;
     mockTextExtractionDelayMs = 0;
+    mockPageRenderDelayMs = 0;
     mockCreateObjectURL.mockImplementation(() => `blob:mock-url-${++mockBlobUrlCounter}`);
     mockMatchMedia(false);
     Object.defineProperty(globalThis, "navigator", {
@@ -448,6 +462,69 @@ describe("PDFViewer", () => {
     it("shows CircularProgress while loading", () => {
       renderPDFViewer();
       expect(screen.getByRole("progressbar")).toBeInTheDocument();
+    });
+
+    it("does not show loading text for a promptly rendered PDF", async () => {
+      renderPDFViewer();
+
+      await waitFor(() => {
+        expect(screen.queryByTestId("pdf-loading-overlay")).not.toBeInTheDocument();
+      });
+
+      expect(screen.queryByTestId("pdf-loading-status")).not.toBeInTheDocument();
+    });
+
+    it("keeps users informed until the first page has rendered", async () => {
+      vi.useFakeTimers();
+      mockPageRenderDelayMs = 6000;
+
+      try {
+        renderPDFViewer();
+        await act(async () => {
+          await Promise.resolve();
+          await Promise.resolve();
+        });
+
+        expect(screen.getByTestId("pdf-loading-overlay")).toBeInTheDocument();
+        expect(screen.queryByTestId("pdf-loading-status")).not.toBeInTheDocument();
+        expect(screen.getByLabelText("Zoom in")).toBeDisabled();
+        expect(screen.getByLabelText("Rotate right")).toBeDisabled();
+        expect(screen.getByLabelText("Search")).toBeDisabled();
+        expect(screen.getByLabelText("Download")).toBeDisabled();
+
+        await act(async () => {
+          await vi.advanceTimersByTimeAsync(500);
+        });
+        expect(screen.getByText("Loading PDF")).toBeInTheDocument();
+
+        await act(async () => {
+          await vi.advanceTimersByTimeAsync(1500);
+        });
+        expect(screen.getByText("Rendering page 1")).toBeInTheDocument();
+
+        await act(async () => {
+          await vi.advanceTimersByTimeAsync(3000);
+        });
+        expect(screen.getByText("This PDF is taking longer than usual.")).toBeInTheDocument();
+        expect(screen.getByRole("button", { name: "Cancel" })).toBeInTheDocument();
+
+        fireEvent.click(screen.getByRole("button", { name: "Cancel" }));
+        expect(screen.getByText("PDF loading was canceled. You can still download the original file.")).toBeInTheDocument();
+        expect(screen.queryByRole("button", { name: "Try compatibility mode" })).not.toBeInTheDocument();
+        expect(screen.getByLabelText("Zoom in")).toBeDisabled();
+        expect(screen.getByLabelText("Download")).toBeEnabled();
+
+        fireEvent.click(screen.getByLabelText("Download"));
+        expect(apiService.downloadFile).toHaveBeenCalledWith("test-conn-id", "/test/document.pdf", "document.pdf");
+
+        await act(async () => {
+          await vi.advanceTimersByTimeAsync(6000);
+        });
+        expect(screen.queryByTestId("pdf-loading-overlay")).not.toBeInTheDocument();
+      } finally {
+        vi.clearAllTimers();
+        vi.useRealTimers();
+      }
     });
 
     it("automatically retries Invalid PDF structure with the normalized variant", async () => {
@@ -590,6 +667,7 @@ describe("PDFViewer", () => {
         expect(screen.getByTestId("pdf-document")).toBeInTheDocument();
       });
 
+      await waitForPageNavigationReady();
       fireEvent.click(screen.getByLabelText("Share"));
 
       await waitFor(() => {
@@ -682,6 +760,7 @@ describe("PDFViewer", () => {
         expect(screen.getByTestId("pdf-page")).toHaveAttribute("data-page", "1");
       });
 
+      await waitForPageNavigationReady();
       // Navigate to page 3
       const nextButton = screen.getByLabelText("Next page");
       fireEvent.click(nextButton);
@@ -736,6 +815,7 @@ describe("PDFViewer", () => {
         expect(screen.getByTestId("pdf-page")).toHaveAttribute("data-page", "1");
       });
 
+      await waitForPageNavigationReady();
       const nextButton = screen.getByLabelText("Next page");
       fireEvent.click(nextButton);
 
@@ -751,6 +831,7 @@ describe("PDFViewer", () => {
         expect(screen.getByTestId("pdf-page")).toBeInTheDocument();
       });
 
+      await waitForPageNavigationReady();
       // Go to page 2 first
       const nextButton = screen.getByLabelText("Next page");
       fireEvent.click(nextButton);
@@ -944,6 +1025,7 @@ describe("PDFViewer", () => {
         expect(screen.getByTestId("pdf-page")).toBeInTheDocument();
       });
 
+      await waitForPageNavigationReady();
       // Verify previous button is disabled on first page
       const prevButton = screen.getByLabelText("Previous page");
       expect(prevButton).toBeDisabled();
@@ -1366,6 +1448,7 @@ describe("PDFViewer", () => {
         expect(screen.getByTestId("pdf-page")).toHaveAttribute("data-page", "1");
       });
 
+      await waitForPageNavigationReady();
       fireEvent.click(screen.getByLabelText("Next page"));
 
       await waitFor(() => {
@@ -1575,6 +1658,7 @@ describe("PDFViewer", () => {
         expect(screen.getByTestId("pdf-page")).toHaveAttribute("data-rotate", "90");
       });
 
+      await waitForPageNavigationReady();
       fireEvent.click(screen.getByLabelText(/rotate right/i));
 
       await waitFor(() => {
@@ -1590,6 +1674,7 @@ describe("PDFViewer", () => {
         expect(screen.getByTestId("pdf-page")).toHaveAttribute("data-rotate", "90");
       });
 
+      await waitForPageNavigationReady();
       fireEvent.click(screen.getByLabelText("Next page"));
 
       await waitFor(() => {

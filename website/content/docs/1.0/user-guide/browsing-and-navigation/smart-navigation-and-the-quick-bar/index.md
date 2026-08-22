@@ -8,7 +8,7 @@ The quick bar has multiple modes:
 
 - Smart navigation with <kbd>Ctrl</kbd> + <kbd>K</kbd>
 - File Search with <kbd>/</kbd>
-- Command mode with <kbd>Ctrl</kbd> + <kbd>P</kbd> or <kbd>F1</kbd>
+- Command mode with <kbd>Ctrl</kbd> + <kbd>P</kbd>
 
 ## Jump to Any Directory with Smart Navigation
 
@@ -60,6 +60,6 @@ Choose when shortcut hints appear in **Settings** > **File Browser** > **Shortcu
 
 ## Locate and Run Any Command
 
-1. Press <kbd>Ctrl</kbd> + <kbd>P</kbd> or <kbd>F1</kbd> to open command mode.
+1. Press <kbd>Ctrl</kbd> + <kbd>P</kbd> to open command mode.
 1. Type part of a command name.
 1. Choose the command to run.

@@ -1,15 +1,18 @@
 import { LanguageDescription } from "@codemirror/language";
 import { languages } from "@codemirror/language-data";
-import { findNext, findPrevious } from "@codemirror/search";
+import { findNext, findPrevious, replaceAll, replaceNext } from "@codemirror/search";
 import type { Extension } from "@codemirror/state";
 import { forwardRef, useCallback, useEffect, useImperativeHandle, useMemo, useRef, useState } from "react";
 import { buildPassiveSearchHighlightExtension } from "../Editor/buildCodeMirrorSearchHighlights";
 import { buildCommonEditorExtensions } from "../Editor/buildCommonEditorExtensions";
-import { buildSelectionLayerExtension } from "../Editor/buildEditorSelectionLayer";
 import { buildTextEditorTheme, type TextEditorThemeOptions } from "../Editor/buildTextEditorTheme";
 import { SourceTextEditor } from "../Editor/SourceTextEditor";
 import type { SourceTextEditorHandle } from "../Editor/sourceTextEditorTypes";
-import { getRootSearchMetrics, shouldAutoNavigateSearch, updateRootSearchQuery } from "./markdownEditorSearch";
+import {
+  getCodeMirrorFindReplaceMetrics,
+  shouldAutoNavigateCodeMirrorFindReplace,
+  updateCodeMirrorFindReplaceQuery,
+} from "./codeMirrorFindReplace";
 
 export interface TextCodeEditorHandle {
   focus: () => void;
@@ -21,6 +24,8 @@ export interface TextCodeEditorHandle {
   focusCurrentSearchResult: () => boolean;
   nextSearchResult: () => void;
   previousSearchResult: () => void;
+  replaceAllSearchResults: () => void;
+  replaceCurrentSearchResult: () => void;
 }
 
 export interface TextCodeEditorSearchState {
@@ -29,6 +34,7 @@ export interface TextCodeEditorSearchState {
   currentMatch: number;
   isSearchOpen: boolean;
   isSearchable: boolean;
+  isValid: boolean;
   viewMode: "source";
 }
 
@@ -45,6 +51,10 @@ export interface TextCodeEditorProps {
   searchText?: string;
   searchOpen?: boolean;
   searchAutoNavigate?: boolean;
+  searchCaseSensitive?: boolean;
+  searchRegexp?: boolean;
+  searchReplaceText?: string;
+  searchWholeWord?: boolean;
   onSearchStateChange?: (state: TextCodeEditorSearchState) => void;
 }
 
@@ -65,18 +75,27 @@ export const TextCodeEditor = forwardRef<TextCodeEditorHandle, TextCodeEditorPro
       searchText = "",
       searchOpen = false,
       searchAutoNavigate = true,
+      searchCaseSensitive = false,
+      searchRegexp = false,
+      searchReplaceText = "",
+      searchWholeWord = false,
       onSearchStateChange,
     },
     ref
   ) => {
     const editorRef = useRef<SourceTextEditorHandle | null>(null);
     const [languageExtensions, setLanguageExtensions] = useState<Extension[]>(EMPTY_EXTENSIONS);
-    const previousSearchRequestRef = useRef<{ searchText: string; searchOpen: boolean } | null>(null);
+    const previousSearchRequestRef = useRef<{
+      caseSensitive: boolean;
+      regexp: boolean;
+      searchOpen: boolean;
+      searchText: string;
+      wholeWord: boolean;
+    } | null>(null);
     const extensions = useMemo(
       () => [
-        ...buildCommonEditorExtensions({ drawSelection: false, highlightSelectionMatches: false, lineWrapping: false }),
+        ...buildCommonEditorExtensions({ drawSelection: true, highlightSelectionMatches: false, lineWrapping: false }),
         ...buildTextEditorTheme(theme),
-        buildSelectionLayerExtension(),
         buildPassiveSearchHighlightExtension(),
         ...languageExtensions,
       ],
@@ -117,36 +136,64 @@ export const TextCodeEditor = forwardRef<TextCodeEditorHandle, TextCodeEditorPro
         return;
       }
 
-      const metrics = getRootSearchMetrics(editorRef.current?.getView());
+      const metrics = getCodeMirrorFindReplaceMetrics(editorRef.current?.getView());
       onSearchStateChange({
         searchText: searchOpen ? searchText : "",
         searchMatches: searchOpen ? metrics.matches : 0,
         currentMatch: searchOpen ? metrics.currentMatch : 0,
         isSearchOpen: searchOpen,
         isSearchable: metrics.isSearchable,
+        isValid: metrics.isValid,
         viewMode: "source",
       });
     }, [onSearchStateChange, searchOpen, searchText]);
 
     useEffect(() => {
-      const currentRequest = { searchText, searchOpen };
+      const currentRequest = {
+        caseSensitive: searchCaseSensitive,
+        regexp: searchRegexp,
+        searchOpen,
+        searchText,
+        wholeWord: searchWholeWord,
+      };
       const previousRequest = previousSearchRequestRef.current;
       previousSearchRequestRef.current = currentRequest;
 
       if (!searchOpen || searchText.trim().length === 0) {
-        updateRootSearchQuery(editorRef.current?.getView(), "");
+        updateCodeMirrorFindReplaceQuery(editorRef.current?.getView(), {
+          caseSensitive: searchCaseSensitive,
+          regexp: searchRegexp,
+          replace: searchReplaceText,
+          searchText: "",
+          wholeWord: searchWholeWord,
+        });
         reportSearchState();
         return;
       }
 
-      updateRootSearchQuery(editorRef.current?.getView(), searchText);
+      updateCodeMirrorFindReplaceQuery(editorRef.current?.getView(), {
+        caseSensitive: searchCaseSensitive,
+        regexp: searchRegexp,
+        replace: searchReplaceText,
+        searchText,
+        wholeWord: searchWholeWord,
+      });
 
-      if (shouldAutoNavigateSearch(previousRequest, currentRequest, searchAutoNavigate)) {
+      if (shouldAutoNavigateCodeMirrorFindReplace(previousRequest, currentRequest, searchAutoNavigate)) {
         editorRef.current?.runCommand(findNext);
       }
 
       reportSearchState();
-    }, [reportSearchState, searchAutoNavigate, searchOpen, searchText]);
+    }, [
+      reportSearchState,
+      searchAutoNavigate,
+      searchCaseSensitive,
+      searchOpen,
+      searchRegexp,
+      searchReplaceText,
+      searchText,
+      searchWholeWord,
+    ]);
 
     useImperativeHandle(
       ref,
@@ -173,6 +220,14 @@ export const TextCodeEditor = forwardRef<TextCodeEditorHandle, TextCodeEditorPro
           editorRef.current?.runCommand(findPrevious);
           reportSearchState();
         },
+        replaceCurrentSearchResult: () => {
+          editorRef.current?.runCommand(replaceNext);
+          reportSearchState();
+        },
+        replaceAllSearchResults: () => {
+          editorRef.current?.runCommand(replaceAll);
+          reportSearchState();
+        },
       }),
       [reportSearchState, text]
     );
@@ -188,6 +243,9 @@ export const TextCodeEditor = forwardRef<TextCodeEditorHandle, TextCodeEditorPro
         ariaLabel={ariaLabel}
         onChange={onChange}
         onUserEdit={onUserEdit}
+        onUpdate={() => {
+          reportSearchState();
+        }}
       />
     );
   }
