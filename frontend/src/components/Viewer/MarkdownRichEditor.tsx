@@ -1,4 +1,4 @@
-import { findNext, findPrevious } from "@codemirror/search";
+import { findNext, findPrevious, replaceAll, replaceNext } from "@codemirror/search";
 import { EditorSelection } from "@codemirror/state";
 import type { ViewUpdate } from "@codemirror/view";
 import { insertEmptyMarkdownTable } from "codemirror-markdown-tables";
@@ -7,7 +7,11 @@ import { buildMarkdownEditorExtensions } from "../Editor/buildMarkdownEditorExte
 import type { MarkdownEditorThemeOptions } from "../Editor/buildMarkdownEditorTheme";
 import { SourceTextEditor } from "../Editor/SourceTextEditor";
 import type { SourceTextEditorHandle } from "../Editor/sourceTextEditorTypes";
-import { getRootSearchMetrics, shouldAutoNavigateSearch, updateRootSearchQuery } from "./markdownEditorSearch";
+import {
+  getCodeMirrorFindReplaceMetrics,
+  shouldAutoNavigateCodeMirrorFindReplace,
+  updateCodeMirrorFindReplaceQuery,
+} from "./codeMirrorFindReplace";
 import {
   normalizeMarkdownTableCellLineBreaks,
   prepareMarkdownTableCellLineBreaksForEditor,
@@ -28,9 +32,13 @@ export interface MarkdownRichEditorHandle {
   focusCurrentSearchResult: () => boolean;
   nextSearchResult: () => void;
   previousSearchResult: () => void;
+  replaceAllSearchResults: () => void;
+  replaceCurrentSearchResult: () => void;
   createLink: () => void;
   insertTable: () => void;
   insertThematicBreak: () => void;
+  toggleBold: () => void;
+  toggleItalic: () => void;
   toggleInlineCode: () => void;
   insertCodeBlock: () => void;
 }
@@ -41,6 +49,7 @@ export interface MarkdownRichEditorSearchState {
   currentMatch: number;
   isSearchOpen: boolean;
   isSearchable: boolean;
+  isValid: boolean;
   viewMode: "rich-text" | "source" | "diff";
 }
 
@@ -57,6 +66,10 @@ export interface MarkdownRichEditorProps {
   searchText?: string;
   searchOpen?: boolean;
   searchAutoNavigate?: boolean;
+  searchCaseSensitive?: boolean;
+  searchRegexp?: boolean;
+  searchReplaceText?: string;
+  searchWholeWord?: boolean;
   onSearchStateChange?: (state: MarkdownRichEditorSearchState) => void;
 }
 
@@ -89,7 +102,10 @@ function getEventTargetElement(target: EventTarget | null): Element | null {
 
 function replaceSelectionWithText(
   editorRef: React.RefObject<SourceTextEditorHandle | null>,
-  getInsert: (selectedText: string) => { insert: string; selection: { anchor: number; head: number } }
+  getInsert: (
+    selectedText: string,
+    adjacentText: { before: string; after: string }
+  ) => { insert: string; selection: { anchor: number; head: number }; replaceFromOffset?: number; replaceToOffset?: number }
 ): void {
   const view = editorRef.current?.getView();
 
@@ -99,11 +115,17 @@ function replaceSelectionWithText(
 
   const mainSelection = view.state.selection.main;
   const selectedText = view.state.sliceDoc(mainSelection.from, mainSelection.to);
-  const nextValue = getInsert(selectedText);
+  const adjacentText = {
+    before: view.state.sliceDoc(0, mainSelection.from),
+    after: view.state.sliceDoc(mainSelection.to),
+  };
+  const nextValue = getInsert(selectedText, adjacentText);
+  const replaceFrom = mainSelection.from + (nextValue.replaceFromOffset ?? 0);
+  const replaceTo = mainSelection.to + (nextValue.replaceToOffset ?? 0);
 
   view.dispatch({
-    changes: { from: mainSelection.from, to: mainSelection.to, insert: nextValue.insert },
-    selection: EditorSelection.range(mainSelection.from + nextValue.selection.anchor, mainSelection.from + nextValue.selection.head),
+    changes: { from: replaceFrom, to: replaceTo, insert: nextValue.insert },
+    selection: EditorSelection.range(replaceFrom + nextValue.selection.anchor, replaceFrom + nextValue.selection.head),
     userEvent: "input",
   });
   view.focus();
@@ -157,6 +179,39 @@ function insertThematicBreakCommand(editorRef: React.RefObject<SourceTextEditorH
   view.focus();
 }
 
+function toggleDelimitedMarkdownCommand(editorRef: React.RefObject<SourceTextEditorHandle | null>, delimiter: string): void {
+  replaceSelectionWithText(editorRef, (selectedText, adjacentText) => {
+    if (selectedText.length === 0) {
+      return { insert: `${delimiter}${delimiter}`, selection: { anchor: delimiter.length, head: delimiter.length } };
+    }
+
+    if (selectedText.startsWith(delimiter) && selectedText.endsWith(delimiter) && selectedText.length >= delimiter.length * 2) {
+      const insert = selectedText.slice(delimiter.length, -delimiter.length);
+      return { insert, selection: { anchor: 0, head: insert.length } };
+    }
+
+    if (adjacentText.before.endsWith(delimiter) && adjacentText.after.startsWith(delimiter)) {
+      return {
+        insert: selectedText,
+        selection: { anchor: 0, head: selectedText.length },
+        replaceFromOffset: -delimiter.length,
+        replaceToOffset: delimiter.length,
+      };
+    }
+
+    const insert = `${delimiter}${selectedText}${delimiter}`;
+    return { insert, selection: { anchor: delimiter.length, head: insert.length - delimiter.length } };
+  });
+}
+
+function toggleBoldCommand(editorRef: React.RefObject<SourceTextEditorHandle | null>): void {
+  toggleDelimitedMarkdownCommand(editorRef, "**");
+}
+
+function toggleItalicCommand(editorRef: React.RefObject<SourceTextEditorHandle | null>): void {
+  toggleDelimitedMarkdownCommand(editorRef, "*");
+}
+
 function toggleInlineCodeCommand(editorRef: React.RefObject<SourceTextEditorHandle | null>): void {
   replaceSelectionWithText(editorRef, (selectedText) => {
     if (selectedText.length === 0) {
@@ -199,12 +254,22 @@ const MarkdownRichEditor = forwardRef<MarkdownRichEditorHandle, MarkdownRichEdit
       searchText = "",
       searchOpen = false,
       searchAutoNavigate = true,
+      searchCaseSensitive = false,
+      searchRegexp = false,
+      searchReplaceText = "",
+      searchWholeWord = false,
       onSearchStateChange,
     },
     ref
   ) => {
     const editorRef = useRef<SourceTextEditorHandle | null>(null);
-    const previousSearchRequestRef = useRef<{ searchText: string; searchOpen: boolean } | null>(null);
+    const previousSearchRequestRef = useRef<{
+      caseSensitive: boolean;
+      regexp: boolean;
+      searchText: string;
+      searchOpen: boolean;
+      wholeWord: boolean;
+    } | null>(null);
     const lastPublishedCanonicalMarkdownRef = useRef<string | null>(null);
     const nestedPublicationStateRef = useRef<NestedPublicationState>({
       observedGeneration: 0,
@@ -278,38 +343,66 @@ const MarkdownRichEditor = forwardRef<MarkdownRichEditorHandle, MarkdownRichEdit
         return;
       }
 
-      const metrics = getRootSearchMetrics(editorRef.current?.getView());
+      const metrics = getCodeMirrorFindReplaceMetrics(editorRef.current?.getView());
       onSearchStateChange({
         searchText: searchOpen ? searchText : "",
         searchMatches: searchOpen ? metrics.matches : 0,
         currentMatch: searchOpen ? metrics.currentMatch : 0,
         isSearchOpen: searchOpen,
         isSearchable: metrics.isSearchable,
+        isValid: metrics.isValid,
         viewMode: "source",
       });
     }, [onSearchStateChange, searchOpen, searchText]);
 
     useEffect(() => {
-      const currentRequest = { searchText, searchOpen };
+      const currentRequest = {
+        caseSensitive: searchCaseSensitive,
+        regexp: searchRegexp,
+        searchText,
+        searchOpen,
+        wholeWord: searchWholeWord,
+      };
       const previousRequest = previousSearchRequestRef.current;
       previousSearchRequestRef.current = currentRequest;
 
       if (!searchOpen || searchText.trim().length === 0) {
-        updateRootSearchQuery(editorRef.current?.getView(), "");
+        updateCodeMirrorFindReplaceQuery(editorRef.current?.getView(), {
+          caseSensitive: searchCaseSensitive,
+          regexp: searchRegexp,
+          replace: searchReplaceText,
+          searchText: "",
+          wholeWord: searchWholeWord,
+        });
         reportSearchState();
         return;
       }
 
-      updateRootSearchQuery(editorRef.current?.getView(), searchText);
+      updateCodeMirrorFindReplaceQuery(editorRef.current?.getView(), {
+        caseSensitive: searchCaseSensitive,
+        regexp: searchRegexp,
+        replace: searchReplaceText,
+        searchText,
+        wholeWord: searchWholeWord,
+      });
 
-      const shouldJumpToFirstResult = shouldAutoNavigateSearch(previousRequest, currentRequest, searchAutoNavigate);
+      const shouldJumpToFirstResult = shouldAutoNavigateCodeMirrorFindReplace(previousRequest, currentRequest, searchAutoNavigate);
 
       if (shouldJumpToFirstResult) {
         editorRef.current?.runCommand(findNext);
       }
 
       reportSearchState();
-    }, [reportSearchState, searchAutoNavigate, searchOpen, searchText]);
+    }, [
+      reportSearchState,
+      searchAutoNavigate,
+      searchCaseSensitive,
+      searchOpen,
+      searchRegexp,
+      searchReplaceText,
+      searchText,
+      searchWholeWord,
+    ]);
 
     useEffect(() => {
       const rootView = editorRef.current?.getView();
@@ -378,6 +471,14 @@ const MarkdownRichEditor = forwardRef<MarkdownRichEditorHandle, MarkdownRichEdit
           editorRef.current?.runCommand(findPrevious);
           reportSearchState();
         },
+        replaceCurrentSearchResult: () => {
+          editorRef.current?.runCommand(replaceNext);
+          reportSearchState();
+        },
+        replaceAllSearchResults: () => {
+          editorRef.current?.runCommand(replaceAll);
+          reportSearchState();
+        },
         createLink: () => {
           createLinkCommand(editorRef);
           reportSearchState();
@@ -388,6 +489,14 @@ const MarkdownRichEditor = forwardRef<MarkdownRichEditorHandle, MarkdownRichEdit
         },
         insertThematicBreak: () => {
           insertThematicBreakCommand(editorRef);
+          reportSearchState();
+        },
+        toggleBold: () => {
+          toggleBoldCommand(editorRef);
+          reportSearchState();
+        },
+        toggleItalic: () => {
+          toggleItalicCommand(editorRef);
           reportSearchState();
         },
         toggleInlineCode: () => {

@@ -1,3 +1,4 @@
+import { CODEMIRROR_FIND_REPLACE_REPLACE_INPUT_SELECTOR } from "../components/Viewer/codeMirrorFindReplaceConstants";
 import type { KeyboardShortcut } from "../hooks/useKeyboardShortcuts";
 import { translate } from "../i18n";
 
@@ -240,7 +241,98 @@ export const VIEWER_SHORTCUTS = {
   },
 } as const satisfies Record<string, ShortcutDefinition>;
 
+export const CODEMIRROR_EDITOR_SHORTCUTS = {
+  REPLACE: {
+    id: "codemirror-replace",
+    keys: ["h", "H"],
+    ctrl: true,
+    allowInInput: true,
+    get description() {
+      return translate("viewer.edit.replace");
+    },
+    label: "Ctrl+H",
+    helpGroup: "editing",
+  },
+  REPLACE_CURRENT: {
+    id: "codemirror-replace-current",
+    keys: "Enter",
+    allowInInputWithin: CODEMIRROR_FIND_REPLACE_REPLACE_INPUT_SELECTOR,
+    get description() {
+      return translate("viewer.edit.replaceCurrent");
+    },
+    label: "Enter",
+    helpGroup: "editing",
+  },
+  REPLACE_ALL: {
+    id: "codemirror-replace-all",
+    keys: "Enter",
+    alt: true,
+    allowInInputWithin: CODEMIRROR_FIND_REPLACE_REPLACE_INPUT_SELECTOR,
+    ctrl: true,
+    get description() {
+      return translate("viewer.edit.replaceAll");
+    },
+    label: "Ctrl+Alt+Enter",
+    helpGroup: "editing",
+  },
+  TOGGLE_CASE_SENSITIVE: {
+    id: "codemirror-toggle-case-sensitive",
+    keys: ["c", "C"],
+    alt: true,
+    allowInInput: true,
+    get description() {
+      return translate("viewer.edit.toggleCaseSensitive");
+    },
+    label: "Alt+C",
+    helpGroup: "editing",
+  },
+  TOGGLE_WHOLE_WORD: {
+    id: "codemirror-toggle-whole-word",
+    keys: ["w", "W"],
+    alt: true,
+    allowInInput: true,
+    get description() {
+      return translate("viewer.edit.toggleWholeWord");
+    },
+    label: "Alt+W",
+    helpGroup: "editing",
+  },
+  TOGGLE_REGULAR_EXPRESSION: {
+    id: "codemirror-toggle-regular-expression",
+    keys: ["r", "R"],
+    alt: true,
+    allowInInput: true,
+    get description() {
+      return translate("viewer.edit.toggleRegularExpression");
+    },
+    label: "Alt+R",
+    helpGroup: "editing",
+  },
+} as const satisfies Record<string, ShortcutDefinition>;
+
 export const MARKDOWN_EDITOR_SHORTCUTS = {
+  BOLD: {
+    id: "markdown-bold",
+    keys: ["b", "B"],
+    ctrl: true,
+    allowInInput: true,
+    get description() {
+      return translate("viewer.shortcuts.bold");
+    },
+    label: "Ctrl+B",
+    helpGroup: "editing",
+  },
+  ITALIC: {
+    id: "markdown-italic",
+    keys: ["i", "I"],
+    ctrl: true,
+    allowInInput: true,
+    get description() {
+      return translate("viewer.shortcuts.italic");
+    },
+    label: "Ctrl+I",
+    helpGroup: "editing",
+  },
   CREATE_LINK: {
     id: "markdown-create-link",
     keys: ["k", "K"],
@@ -299,6 +391,16 @@ export const MARKDOWN_EDITOR_SHORTCUTS = {
     },
     label: "Ctrl+Shift+E",
     helpGroup: "editing",
+  },
+  SHOW_HELP: {
+    id: "markdown-editor-show-help",
+    keys: "F1",
+    allowInInput: true,
+    get description() {
+      return translate("fileBrowser.shortcuts.showHelp");
+    },
+    label: "F1",
+    helpGroup: "general",
   },
 } as const satisfies Record<string, ShortcutDefinition>;
 
@@ -382,16 +484,6 @@ export const BROWSER_SHORTCUTS = {
     ctrl: true,
     allowInInput: true,
   },
-  COMMAND_PALETTE_ALTERNATE: {
-    id: "command-palette-alternate",
-    keys: "F1",
-    get description() {
-      return translate("fileBrowser.shortcuts.showCommands");
-    },
-    label: "F1",
-    helpGroup: "search",
-    allowInInput: true,
-  },
   FOCUS_CONNECTION_SELECTOR: {
     id: "focus-connection-selector",
     keys: "ArrowDown",
@@ -421,6 +513,16 @@ export const BROWSER_SHORTCUTS = {
       return translate("fileBrowser.shortcuts.showHelp");
     },
     label: "?",
+    helpGroup: "general",
+  },
+  SHOW_HELP_ALTERNATE: {
+    id: "show-help-alternate",
+    keys: "F1",
+    allowInInput: true,
+    get description() {
+      return translate("fileBrowser.shortcuts.showHelp");
+    },
+    label: "F1",
     helpGroup: "general",
   },
   REFRESH: {

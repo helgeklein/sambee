@@ -30,6 +30,9 @@ const PRELOAD_RANGE_DEFAULT = 1;
 const MAX_ACTIVE_VIEWER_REQUESTS = 2;
 const TRANSIENT_RETRY_DELAY_MS = 1000;
 const CURRENT_FAILURE_RETRY_DELAY_MS = 1000;
+export const IMAGE_LOAD_CANCELED_MESSAGE = "Image loading was canceled. You can still download the original file.";
+
+export type ImageLoadPhase = "fetching" | "decoding" | "ready" | "canceled" | "error";
 
 // Clamp value to ensure index stays within valid range
 const clamp = (value: number, min: number, max: number) => {
@@ -51,7 +54,6 @@ export interface UseImageGalleryDataParams {
   cacheRange?: number;
   preloadRange?: number;
   isTouchDevice?: boolean;
-  shouldDeferStateUpdates?: () => boolean;
   shouldSuspendPreload?: () => boolean;
 }
 
@@ -64,8 +66,11 @@ export interface UseImageGalleryDataResult {
   getCachedImageSrc: (index: number) => string | undefined;
   loadingStates: Map<number, boolean>;
   errorStates: Map<number, string | null>;
+  currentImageLoadPhase: ImageLoadPhase;
   showLoadingSpinner: boolean;
-  markCachedImagesAsLoaded: () => void;
+  markImageAsDecoded: (index: number, source: string) => void;
+  markImageDecodeFailed: (index: number, source: string) => void;
+  cancelCurrentImageLoad: () => void;
   abortControllersRef: React.MutableRefObject<Map<number, AbortController>>;
 }
 
@@ -87,6 +92,7 @@ interface GallerySessionView {
   index: number;
   loadingStates: Map<number, boolean>;
   errorStates: Map<number, string | null>;
+  loadPhases: Map<number, ImageLoadPhase>;
 }
 
 interface GallerySessionResources {
@@ -132,6 +138,7 @@ function createGallerySessionView(galleryIdentity: string, generation: number, i
     index,
     loadingStates: new Map(),
     errorStates: new Map(),
+    loadPhases: new Map(),
   };
 }
 
@@ -290,7 +297,6 @@ export const useCachedImageGallery = ({
   cacheRange = CACHE_RANGE_DEFAULT,
   preloadRange = PRELOAD_RANGE_DEFAULT,
   isTouchDevice = false,
-  shouldDeferStateUpdates,
   shouldSuspendPreload,
 }: UseImageGalleryDataParams): UseImageGalleryDataResult => {
   const safeInitialIndex = clamp(initialIndex, 0, Math.max(images.length - 1, 0));
@@ -317,6 +323,7 @@ export const useCachedImageGallery = ({
   const currentIndex = activeSessionView.index;
   const loadingStates = activeSessionView.loadingStates;
   const errorStates = activeSessionView.errorStates;
+  const loadPhases = activeSessionView.loadPhases;
   // Controls spinner visibility after delay to avoid flicker
   const [showLoadingSpinner, setShowLoadingSpinner] = useState(false);
   const retryTimerRef = useRef<number | null>(null);
@@ -386,12 +393,10 @@ export const useCachedImageGallery = ({
     return parts[parts.length - 1] ?? currentPath;
   }, [currentPath]);
 
-  // Optional callbacks for deferring updates during animations or suspending preload during zoom
-  // Memoize to prevent creating new functions on every render (which would cause effect loops)
-  const shouldDeferRef = useRef(shouldDeferStateUpdates ?? (() => false));
-  shouldDeferRef.current = shouldDeferStateUpdates ?? (() => false);
-  const shouldDefer = useCallback(() => shouldDeferRef.current(), []);
+  const currentImageLoadPhase =
+    loadPhases.get(currentIndex) ?? (errorStates.get(currentIndex) ? "error" : loadingStates.get(currentIndex) ? "fetching" : "ready");
 
+  // Memoize the preload suspension callback to avoid effect loops during zoom.
   const shouldSuspendRef = useRef(shouldSuspendPreload ?? (() => false));
   shouldSuspendRef.current = shouldSuspendPreload ?? (() => false);
   const suspendPreload = useCallback(() => shouldSuspendRef.current(), []);
@@ -538,8 +543,10 @@ export const useCachedImageGallery = ({
             prev.loadingStates.get(index) === true ? prev.loadingStates : new Map(prev.loadingStates).set(index, true);
           const currentError = prev.errorStates.get(index) ?? null;
           const nextErrorStates = currentError === null ? prev.errorStates : new Map(prev.errorStates).set(index, null);
+          const nextLoadPhases =
+            prev.loadPhases.get(index) === "fetching" ? prev.loadPhases : new Map(prev.loadPhases).set(index, "fetching");
 
-          if (nextLoadingStates === prev.loadingStates && nextErrorStates === prev.errorStates) {
+          if (nextLoadingStates === prev.loadingStates && nextErrorStates === prev.errorStates && nextLoadPhases === prev.loadPhases) {
             return prev;
           }
 
@@ -547,6 +554,7 @@ export const useCachedImageGallery = ({
             ...prev,
             loadingStates: nextLoadingStates,
             errorStates: nextErrorStates,
+            loadPhases: nextLoadPhases,
           };
         });
 
@@ -675,19 +683,11 @@ export const useCachedImageGallery = ({
           );
         }
 
-        // Optionally defer state updates during animations to prevent jank
-        if (!shouldDefer()) {
-          updateSessionView(requestGalleryIdentity, requestGeneration, (prev) => {
-            if ((prev.loadingStates.get(index) ?? false) === false) {
-              return prev;
-            }
-
-            return {
-              ...prev,
-              loadingStates: new Map(prev.loadingStates).set(index, false),
-            };
-          });
-        }
+        // The browser still needs to decode the blob URL before the image is ready.
+        updateSessionView(requestGalleryIdentity, requestGeneration, (prev) => ({
+          ...prev,
+          loadPhases: new Map(prev.loadPhases).set(index, "decoding"),
+        }));
 
         resolvePromise();
       } catch (err) {
@@ -765,6 +765,7 @@ export const useCachedImageGallery = ({
               ...prev,
               loadingStates: nextLoadingStates,
               errorStates: nextErrorStates,
+              loadPhases: new Map(prev.loadPhases).set(index, "error"),
             };
           });
         });
@@ -780,7 +781,7 @@ export const useCachedImageGallery = ({
         }
       }
     },
-    [connectionId, images, isTouchDevice, shouldDefer, updateSessionView]
+    [connectionId, images, isTouchDevice, updateSessionView]
   );
 
   // Store fetchAndCacheImage in a ref to avoid recreating the effect
@@ -989,34 +990,59 @@ export const useCachedImageGallery = ({
     };
   }, []);
 
-  //
-  // markCachedImagesAsLoaded
-  //
-  /**
-   * Marks all currently cached images as loaded. Useful after navigation events
-   * to sync loading states with the cache.
-   */
-  const markCachedImagesAsLoaded = useCallback(() => {
-    updateSessionView(galleryIdentity, pendingSessionGeneration, (prev) => {
-      const updated = new Map(prev.loadingStates);
-      let changed = false;
-
-      sessionResourcesRef.current.imageCache.forEach((_, index) => {
-        if (prev.loadingStates.get(index) !== false) {
-          updated.set(index, false);
-          changed = true;
+  const markImageAsDecoded = useCallback(
+    (index: number, source: string) => {
+      updateSessionView(galleryIdentity, pendingSessionGeneration, (prev) => {
+        if (sessionResourcesRef.current.imageCache.get(index) !== source || prev.loadPhases.get(index) !== "decoding") {
+          return prev;
         }
+
+        return {
+          ...prev,
+          loadingStates: new Map(prev.loadingStates).set(index, false),
+          loadPhases: new Map(prev.loadPhases).set(index, "ready"),
+        };
       });
+    },
+    [galleryIdentity, pendingSessionGeneration, updateSessionView]
+  );
 
-      if (!changed) {
-        return prev;
-      }
+  const markImageDecodeFailed = useCallback(
+    (index: number, source: string) => {
+      updateSessionView(galleryIdentity, pendingSessionGeneration, (prev) => {
+        if (sessionResourcesRef.current.imageCache.get(index) !== source) {
+          return prev;
+        }
 
-      return {
-        ...prev,
-        loadingStates: updated,
-      };
-    });
+        return {
+          ...prev,
+          loadingStates: new Map(prev.loadingStates).set(index, false),
+          errorStates: new Map(prev.errorStates).set(index, "Failed to render image"),
+          loadPhases: new Map(prev.loadPhases).set(index, "error"),
+        };
+      });
+    },
+    [galleryIdentity, pendingSessionGeneration, updateSessionView]
+  );
+
+  const cancelCurrentImageLoad = useCallback(() => {
+    const resources = sessionResourcesRef.current;
+    const index = currentIndexRef.current;
+    const cachedSource = resources.imageCache.get(index);
+    retireRequest(resources.inFlightRequests, resources.abortControllers, index);
+
+    if (cachedSource) {
+      URL.revokeObjectURL(cachedSource);
+      resources.imageCache.delete(index);
+    }
+
+    resources.currentRetryGate = { index, policy: "user-action", retryAt: null };
+    updateSessionView(galleryIdentity, pendingSessionGeneration, (prev) => ({
+      ...prev,
+      loadingStates: new Map(prev.loadingStates).set(index, false),
+      errorStates: new Map(prev.errorStates).set(index, IMAGE_LOAD_CANCELED_MESSAGE),
+      loadPhases: new Map(prev.loadPhases).set(index, "canceled"),
+    }));
   }, [galleryIdentity, pendingSessionGeneration, updateSessionView]);
 
   const getCachedImageSrc = useCallback(
@@ -1033,8 +1059,11 @@ export const useCachedImageGallery = ({
     getCachedImageSrc,
     loadingStates,
     errorStates,
+    currentImageLoadPhase,
     showLoadingSpinner,
-    markCachedImagesAsLoaded,
+    markImageAsDecoded,
+    markImageDecodeFailed,
+    cancelCurrentImageLoad,
     abortControllersRef,
   };
 };

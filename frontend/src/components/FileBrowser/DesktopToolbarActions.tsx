@@ -1,14 +1,10 @@
-import DescriptionOutlinedIcon from "@mui/icons-material/DescriptionOutlined";
-import HelpOutlineIcon from "@mui/icons-material/HelpOutlineOutlined";
-import KeyboardIcon from "@mui/icons-material/Keyboard";
 import SettingsIcon from "@mui/icons-material/Settings";
-import { Box, ListItemIcon, ListItemText, Menu, MenuItem } from "@mui/material";
+import { Box } from "@mui/material";
 import { BROWSER_SHORTCUTS } from "../../config/keyboardShortcuts";
 import { withShortcut } from "../../hooks/useKeyboardShortcuts";
-import { usePillButtonMenu } from "../../hooks/usePillButtonMenu";
 import { translate } from "../../i18n";
-import { secondaryToolbarMenuPaperSx } from "../../theme/commonStyles";
 import { createEscapeHandler } from "../../utils/keyboardUtils";
+import { HelpMenu } from "./HelpMenu";
 import { ToolbarIconButton } from "./ToolbarIconButton";
 
 //
@@ -32,69 +28,15 @@ export function DesktopToolbarActions({
   onEscape,
   disableTabFocus,
 }: DesktopToolbarActionsProps) {
-  const { anchorEl, open, handleClick, handleKeyDown, handleKeyUp, handleClose } = usePillButtonMenu(onEscape);
-
   return (
     <Box sx={{ display: "flex", alignItems: "center", gap: 0.5 }}>
-      <ToolbarIconButton
-        label={translate("fileBrowser.chrome.toolbar.help")}
-        tooltip={translate("fileBrowser.chrome.toolbar.help")}
-        onClick={handleClick}
-        onKeyDown={handleKeyDown}
-        onKeyUp={handleKeyUp}
+      <HelpMenu
+        menuId="help-menu"
+        onOpenHelp={onOpenHelp}
+        onOpenDocumentation={onOpenDocumentation}
+        onEscape={onEscape}
         tabIndex={disableTabFocus ? -1 : undefined}
-        ariaControls={open ? "help-menu" : undefined}
-        ariaExpanded={open}
-        ariaHaspopup="menu"
-      >
-        <HelpOutlineIcon />
-      </ToolbarIconButton>
-      <Menu
-        id="help-menu"
-        anchorEl={anchorEl}
-        open={open}
-        onClose={handleClose}
-        disableRestoreFocus
-        anchorOrigin={{
-          vertical: "bottom",
-          horizontal: "right",
-        }}
-        transformOrigin={{
-          vertical: "top",
-          horizontal: "right",
-        }}
-        slotProps={{
-          list: {
-            role: "menu",
-          },
-          paper: {
-            sx: secondaryToolbarMenuPaperSx,
-          },
-        }}
-      >
-        <MenuItem
-          onClick={() => {
-            handleClose();
-            onOpenHelp();
-          }}
-        >
-          <ListItemIcon>
-            <KeyboardIcon fontSize="small" />
-          </ListItemIcon>
-          <ListItemText primary={translate("fileBrowser.chrome.helpMenu.keyboardShortcuts")} />
-        </MenuItem>
-        <MenuItem
-          onClick={() => {
-            handleClose();
-            onOpenDocumentation();
-          }}
-        >
-          <ListItemIcon>
-            <DescriptionOutlinedIcon fontSize="small" />
-          </ListItemIcon>
-          <ListItemText primary={translate("fileBrowser.chrome.helpMenu.documentation")} />
-        </MenuItem>
-      </Menu>
+      />
       <ToolbarIconButton
         label={translate("fileBrowser.chrome.toolbar.openSettings")}
         tooltip={withShortcut(BROWSER_SHORTCUTS.OPEN_SETTINGS)}

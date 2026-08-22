@@ -75,6 +75,8 @@ export interface SearchState {
   onSearchNext?: () => void;
   onSearchPrevious?: () => void;
   searchPanelOpen?: boolean;
+  /** Keep the toolbar search control collapsed while another surface owns the panel. */
+  hideSearchPanel?: boolean;
   onSearchPanelToggle?: (open: boolean) => void;
   onSearchClose?: (reason: "escape" | "toggle") => void;
   clearSearchOnClose?: boolean;
@@ -103,6 +105,8 @@ export interface ViewerControlsProps {
   search?: SearchState;
   /** Generic viewer actions rendered as text buttons or icon buttons */
   actions?: ViewerToolbarAction[];
+  /** Optional component rendered with viewer actions in the toolbar */
+  toolbarAccessory?: React.ReactNode;
   /** Download handler (optional) */
   onDownload?: () => void;
   /** Share handler (optional) */
@@ -111,6 +115,12 @@ export interface ViewerControlsProps {
   onShareIntent?: () => void;
   /** Disable share button while work is in progress */
   shareDisabled?: boolean;
+  /** Disable page and viewing controls while content is unavailable */
+  controlsDisabled?: boolean;
+  /** Override gallery navigation disable behavior when navigation remains safe */
+  navigationDisabled?: boolean;
+  /** Disable download while the source is not yet available */
+  downloadDisabled?: boolean;
   /** Toolbar background color from theme */
   toolbarBackground?: string;
   /** Toolbar text color from theme */
@@ -187,10 +197,14 @@ export const ViewerControls: React.FC<ViewerControlsProps> = ({
   rotation,
   search,
   actions,
+  toolbarAccessory,
   onDownload,
   onShare,
   onShareIntent,
   shareDisabled = false,
+  controlsDisabled = false,
+  navigationDisabled = controlsDisabled,
+  downloadDisabled = false,
   toolbarBackground = VIEWER_DEFAULTS.TOOLBAR_BG,
   toolbarText = VIEWER_DEFAULTS.TOOLBAR_TEXT,
   showCloseButton = true,
@@ -204,7 +218,7 @@ export const ViewerControls: React.FC<ViewerControlsProps> = ({
   const searchInputRef = useRef<HTMLInputElement>(null);
 
   // Use controlled search panel state if provided, otherwise use local state
-  const showSearch = search?.searchPanelOpen !== undefined ? search.searchPanelOpen : localShowSearch;
+  const showSearch = !search?.hideSearchPanel && (search?.searchPanelOpen !== undefined ? search.searchPanelOpen : localShowSearch);
   const searchTextLength = search?.searchText.length ?? 0;
   const searchMatches = search?.searchMatches ?? 0;
   const currentMatch = search?.currentMatch ?? 0;
@@ -316,7 +330,7 @@ export const ViewerControls: React.FC<ViewerControlsProps> = ({
           onClick={action.onClick}
           aria-label={action.ariaLabel ?? action.label}
           title={action.title ?? action.label}
-          disabled={action.disabled}
+          disabled={controlsDisabled || action.disabled}
           size={isMobile ? "small" : "medium"}
         >
           {action.icon}
@@ -331,7 +345,7 @@ export const ViewerControls: React.FC<ViewerControlsProps> = ({
         onClick={action.onClick}
         aria-label={action.ariaLabel ?? action.label}
         title={action.title ?? action.label}
-        disabled={action.disabled}
+        disabled={controlsDisabled || action.disabled}
         size={isMobile ? "small" : "medium"}
         variant={action.variant ?? "text"}
         sx={{
@@ -436,7 +450,7 @@ export const ViewerControls: React.FC<ViewerControlsProps> = ({
             <IconButton
               color="inherit"
               onClick={navigation.onPrevious}
-              disabled={navigation.currentIndex === 0}
+              disabled={navigationDisabled || navigation.currentIndex === 0}
               title={withShortcut(COMMON_SHORTCUTS.PREVIOUS_ARROW)}
               aria-label={t("viewer.controls.previous")}
               size={isMobile ? "small" : "medium"}
@@ -452,7 +466,7 @@ export const ViewerControls: React.FC<ViewerControlsProps> = ({
             <IconButton
               color="inherit"
               onClick={navigation.onNext}
-              disabled={navigation.currentIndex === navigation.totalItems - 1}
+              disabled={navigationDisabled || navigation.currentIndex === navigation.totalItems - 1}
               title={withShortcut(COMMON_SHORTCUTS.NEXT_ARROW)}
               aria-label={t("viewer.controls.next")}
               size={isMobile ? "small" : "medium"}
@@ -481,7 +495,7 @@ export const ViewerControls: React.FC<ViewerControlsProps> = ({
             <IconButton
               color="inherit"
               onClick={handlePreviousPage}
-              disabled={pageNavigation.currentPage <= 1}
+              disabled={controlsDisabled || pageNavigation.currentPage <= 1}
               title={withShortcut(COMMON_SHORTCUTS.PAGE_UP)}
               aria-label={t("viewer.controls.previousPage")}
               size={isMobile ? "small" : "medium"}
@@ -497,6 +511,7 @@ export const ViewerControls: React.FC<ViewerControlsProps> = ({
             <TextField
               value={pageInput}
               onChange={handlePageInputChange}
+              disabled={controlsDisabled}
               size="small"
               slotProps={{
                 htmlInput: {
@@ -534,7 +549,7 @@ export const ViewerControls: React.FC<ViewerControlsProps> = ({
             <IconButton
               color="inherit"
               onClick={handleNextPage}
-              disabled={pageNavigation.currentPage >= pageNavigation.totalPages}
+              disabled={controlsDisabled || pageNavigation.currentPage >= pageNavigation.totalPages}
               title={withShortcut(COMMON_SHORTCUTS.PAGE_DOWN)}
               aria-label={t("viewer.controls.nextPage")}
               size={isMobile ? "small" : "medium"}
@@ -555,6 +570,7 @@ export const ViewerControls: React.FC<ViewerControlsProps> = ({
             <IconButton
               color="inherit"
               onClick={zoom.onZoomOut}
+              disabled={controlsDisabled}
               title={withShortcut(VIEWER_SHORTCUTS.ZOOM_OUT)}
               aria-label={t("viewer.controls.zoomOut")}
               size="medium"
@@ -565,6 +581,7 @@ export const ViewerControls: React.FC<ViewerControlsProps> = ({
             <IconButton
               color="inherit"
               onClick={zoom.onZoomIn}
+              disabled={controlsDisabled}
               title={withShortcut(VIEWER_SHORTCUTS.ZOOM_IN)}
               aria-label={t("viewer.controls.zoomIn")}
               size="medium"
@@ -581,6 +598,7 @@ export const ViewerControls: React.FC<ViewerControlsProps> = ({
               <IconButton
                 color="inherit"
                 onClick={rotation.onRotateLeft}
+                disabled={controlsDisabled}
                 title={withShortcut(VIEWER_SHORTCUTS.ROTATE_LEFT)}
                 aria-label={t("viewer.controls.rotateLeft")}
                 size="medium"
@@ -592,6 +610,7 @@ export const ViewerControls: React.FC<ViewerControlsProps> = ({
             <IconButton
               color="inherit"
               onClick={rotation.onRotateRight}
+              disabled={controlsDisabled}
               title={withShortcut(VIEWER_SHORTCUTS.ROTATE_RIGHT)}
               aria-label={t("viewer.controls.rotateRight")}
               size={isMobile ? "small" : "medium"}
@@ -619,6 +638,7 @@ export const ViewerControls: React.FC<ViewerControlsProps> = ({
               <TextField
                 value={search.searchText}
                 onChange={(e) => search.onSearchChange(e.target.value)}
+                disabled={controlsDisabled}
                 onKeyDown={(e) => {
                   if (e.key === "Enter" && search.onSearchNext) {
                     e.preventDefault();
@@ -682,7 +702,7 @@ export const ViewerControls: React.FC<ViewerControlsProps> = ({
                 <IconButton
                   color="inherit"
                   onClick={search.onSearchPrevious}
-                  disabled={!search.onSearchPrevious || !canNavigateSearch}
+                  disabled={controlsDisabled || !search.onSearchPrevious || !canNavigateSearch}
                   title={t("common.search.previousMatch")}
                   aria-label={t("common.search.previousMatch")}
                   size="small"
@@ -699,7 +719,7 @@ export const ViewerControls: React.FC<ViewerControlsProps> = ({
                 <IconButton
                   color="inherit"
                   onClick={search.onSearchNext}
-                  disabled={!search.onSearchNext || !canNavigateSearch}
+                  disabled={controlsDisabled || !search.onSearchNext || !canNavigateSearch}
                   title={t("common.search.nextMatch")}
                   aria-label={t("common.search.nextMatch")}
                   size="small"
@@ -721,6 +741,7 @@ export const ViewerControls: React.FC<ViewerControlsProps> = ({
                   title={t("common.search.closeSearch", { defaultValue: "Close search" })}
                   aria-label={t("common.search.closeSearch", { defaultValue: "Close search" })}
                   size="small"
+                  disabled={controlsDisabled}
                   sx={{ flexShrink: 0 }}
                 >
                   <Close fontSize="small" />
@@ -740,7 +761,7 @@ export const ViewerControls: React.FC<ViewerControlsProps> = ({
               }
               aria-label={t("common.search.action")}
               size={isMobile ? "small" : "medium"}
-              disabled={search.isSearchable === false}
+              disabled={controlsDisabled || search.isSearchable === false}
               sx={{
                 ...(search.isSearchable === false && {
                   opacity: 0.5,
@@ -760,6 +781,7 @@ export const ViewerControls: React.FC<ViewerControlsProps> = ({
             title={withShortcut(COMMON_SHORTCUTS.DOWNLOAD)}
             aria-label={t("common.actions.download")}
             size="medium"
+            disabled={downloadDisabled}
           >
             <Download />
           </IconButton>
@@ -774,11 +796,13 @@ export const ViewerControls: React.FC<ViewerControlsProps> = ({
             aria-label={t("common.actions.share")}
             title={t("common.actions.share")}
             size="small"
-            disabled={shareDisabled}
+            disabled={controlsDisabled || shareDisabled}
           >
             <IosShare fontSize="small" />
           </IconButton>
         )}
+
+        {toolbarAccessory}
 
         {actions?.map(renderToolbarAction)}
 

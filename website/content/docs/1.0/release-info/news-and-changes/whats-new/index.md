@@ -16,6 +16,10 @@ File search supercedes file filtering mode which was removed.
 
 Directory navigation gets a history functionality that makes it possible to instantly navigate to the folders you need most.
 
+### Other Changes
+
+- Changed <kbd>F1</kbd> to consistently invoke keyboard shortcuts help
+
 ## Settings & Dialogs
 
 ### New Settings
@@ -26,11 +30,35 @@ The settings gained a new category page:
 
 ## PDF Viewer
 
-### New Approach to Normalization
+### More Speed and Higher Fidelity: New Approach to Normalization
 
 Earlier versions normalized every PDF with Ghostscript. This introduced occasional issues and slowed down the viewer. Sambee now opens PDFs in their original form first. When a PDF cannot be displayed because its internal structure is incompatible with the viewer, Sambee can create a separate normalized version for viewing; the original file is never modified. Compatibility processing is limited by file size, processing time, memory, and temporary storage, and each normalized PDF is checked before use.
 
 ### Other Changes
 
-- Swipe to move between pages on mobile
+- Mobile: swipe to move between pages
+- Encrypted PDFs: the user is now asked to enter a password
+- Large PDFs: better user feedback while loading
+- Color rendering: support for ICC profiles and CMYK
+- Image codecs: support for JPEG 2000 (JXL)
 - Bugfix: geometry changes between pages, e.g., from portrait to landscape, would create endless "flicker loop"
+- Bugfix: page rotation commands in the file were not honored
+
+## Image Viewer
+
+- Large images: better user feedback while loading
+
+## Text and Markdown Editors
+
+### Search and Replace
+
+In any editor, search and replace are essential functions that need to work efficiently while providing granular control. The text and the Markdown editors got just that: compact search and replace popouts with history, regex support and full keyboard usability.
+
+### Other Changes
+
+- Added keyboard shortcuts help
+- Bugfix: text selection highlighting
+
+## Markdown Editor
+
+- Added <kbd>Ctrl+B</kbd> and <kbd>Ctrl+I</kbd> keyboard shortcuts for bold and italic formatting

@@ -8,7 +8,7 @@ import userEvent from "@testing-library/user-event";
 import { createRef, useState } from "react";
 import { describe, expect, it, vi } from "vitest";
 import { buildCommonEditorExtensions } from "../buildCommonEditorExtensions";
-import { buildSelectionLayerExtension, getSelectionLineSegments } from "../buildEditorSelectionLayer";
+import { getSelectionLineSegments } from "../buildEditorSelectionLayer";
 import {
   buildMarkdownAutocompleteUi,
   createMarkdownSnippetAutocompleter,
@@ -232,7 +232,7 @@ describe("SourceTextEditor", () => {
     });
   });
 
-  it("uses the custom markdown selection layer without CodeMirror block selection overlays", async () => {
+  it("uses CodeMirror's selection layer for Markdown", async () => {
     const user = userEvent.setup();
     const editorRef = createRef<SourceTextEditorHandle>();
 
@@ -258,8 +258,8 @@ describe("SourceTextEditor", () => {
     view.dispatch({ selection: EditorSelection.range(0, 14) });
 
     await waitFor(() => {
-      expect(editor.closest(".cm-editor")?.querySelectorAll(".cm-selectionBackground")).toHaveLength(0);
-      expect(editor.closest(".cm-editor")?.querySelector(".sambee-editor-selection-layer")).not.toBeNull();
+      expect(editor.closest(".cm-editor")?.querySelector(".cm-selectionLayer")).not.toBeNull();
+      expect(editor.closest(".cm-editor")?.querySelector(".sambee-editor-selection-layer")).toBeNull();
     });
   });
 
@@ -273,7 +273,7 @@ describe("SourceTextEditor", () => {
     ]);
   });
 
-  it("uses the shared selection layer for plain text editors", async () => {
+  it("uses CodeMirror's selection layer for plain text editors", async () => {
     const user = userEvent.setup();
     const editorRef = createRef<SourceTextEditorHandle>();
 
@@ -281,11 +281,7 @@ describe("SourceTextEditor", () => {
       <SourceTextEditor
         ref={editorRef}
         value={["Line 1", "2", "", "5", "", "7"].join("\n")}
-        extensions={[
-          ...buildCommonEditorExtensions({ drawSelection: false }),
-          ...buildTextEditorTheme(TEST_TEXT_THEME),
-          buildSelectionLayerExtension(),
-        ]}
+        extensions={[...buildCommonEditorExtensions({ drawSelection: true }), ...buildTextEditorTheme(TEST_TEXT_THEME)]}
         ariaLabel="Plain text selection editor"
         onChange={() => {}}
       />
@@ -303,8 +299,8 @@ describe("SourceTextEditor", () => {
     view.dispatch({ selection: EditorSelection.range(0, 11) });
 
     await waitFor(() => {
-      expect(editor.closest(".cm-editor")?.querySelectorAll(".cm-selectionBackground")).toHaveLength(0);
-      expect(editor.closest(".cm-editor")?.querySelector(".sambee-editor-selection-layer")).not.toBeNull();
+      expect(editor.closest(".cm-editor")?.querySelector(".cm-selectionLayer")).not.toBeNull();
+      expect(editor.closest(".cm-editor")?.querySelector(".sambee-editor-selection-layer")).toBeNull();
     });
   });
 

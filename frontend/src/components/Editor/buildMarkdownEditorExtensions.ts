@@ -7,12 +7,7 @@ import { EditorView, keymap } from "@codemirror/view";
 import { markdownTableAutocompleter, markdownTables } from "codemirror-markdown-tables";
 import { buildPassiveSearchHighlightExtension } from "./buildCodeMirrorSearchHighlights";
 import { buildCommonEditorExtensions } from "./buildCommonEditorExtensions";
-import {
-  buildSelectionLayerExtension,
-  EDITOR_SELECTION_RANGE_CLASS,
-  getSelectionLineSegments,
-  type SelectionLineSegment,
-} from "./buildEditorSelectionLayer";
+import { EDITOR_SELECTION_RANGE_CLASS, getSelectionLineSegments, type SelectionLineSegment } from "./buildEditorSelectionLayer";
 import { buildMarkdownAutocompleteUi, createMarkdownSnippetAutocompleter } from "./buildMarkdownAutocomplete";
 import { buildMarkdownEditorTheme, type MarkdownEditorThemeOptions } from "./buildMarkdownEditorTheme";
 import { buildMarkdownTableTheme } from "./buildMarkdownTableTheme";
@@ -39,12 +34,11 @@ export function buildMarkdownEditorExtensions(theme: MarkdownEditorThemeOptions)
   return [
     ...buildCommonEditorExtensions({
       defaultSyntaxHighlighting: false,
-      drawSelection: false,
+      drawSelection: true,
       highlightSelectionMatches: false,
       lineWrapping: true,
     }),
     ...buildMarkdownEditorTheme(theme),
-    buildSelectionLayerExtension(),
     buildPassiveSearchHighlightExtension(),
     buildMarkdownAutocompleteUi(),
     pasteURLAsLink,

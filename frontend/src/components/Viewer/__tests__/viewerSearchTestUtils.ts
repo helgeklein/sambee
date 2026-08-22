@@ -21,10 +21,30 @@ interface CreateViewerSearchTestDriverOptions {
   assertCurrentMatchActive?: () => void;
 }
 
+const EDITOR_SEARCH_PLACEHOLDER = "Search (⇅ for history)";
+const VIEWER_SEARCH_PLACEHOLDER = "Search";
+
+function getSearchInput(): HTMLInputElement | null {
+  return screen.queryByPlaceholderText(EDITOR_SEARCH_PLACEHOLDER) ?? screen.queryByPlaceholderText(VIEWER_SEARCH_PLACEHOLDER);
+}
+
+async function findSearchInput(): Promise<HTMLInputElement> {
+  await waitFor(() => {
+    expect(getSearchInput()).not.toBeNull();
+  });
+
+  const searchInput = getSearchInput();
+  if (!searchInput) {
+    throw new Error("Search input did not open");
+  }
+
+  return searchInput;
+}
+
 export async function openViewerSearch(searchTerm?: string): Promise<HTMLElement> {
   fireEvent.click(screen.getByRole("button", { name: "Search" }));
 
-  const searchInput = await screen.findByPlaceholderText("Search");
+  const searchInput = await findSearchInput();
   if (searchTerm !== undefined) {
     fireEvent.change(searchInput, { target: { value: searchTerm } });
   }
@@ -40,7 +60,7 @@ export async function expectEscapeClosesViewerSearch({
   fireEvent.keyDown(searchInput, { key: "Escape" });
 
   await waitFor(() => {
-    expect(screen.queryByPlaceholderText("Search")).not.toBeInTheDocument();
+    expect(getSearchInput()).not.toBeInTheDocument();
   });
 
   assertViewerStillOpen?.();
@@ -64,7 +84,12 @@ export async function expectRefinedViewerSearchKeepsCurrentMatchActive({
   expectedCounterText,
   assertCurrentMatchActive,
 }: RefinedViewerSearchMatchOptions): Promise<void> {
-  fireEvent.change(screen.getByPlaceholderText("Search"), { target: { value: refinedSearchTerm } });
+  const searchInput = getSearchInput();
+  if (!searchInput) {
+    throw new Error("Search input is not open");
+  }
+
+  fireEvent.change(searchInput, { target: { value: refinedSearchTerm } });
 
   await waitFor(() => {
     expect(screen.getByText(expectedCounterText)).toBeInTheDocument();

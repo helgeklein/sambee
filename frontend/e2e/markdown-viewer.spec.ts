@@ -5,6 +5,14 @@ const DEMO_PATH = "note.md";
 
 const LINE_BREAK_MARKDOWN = "alpha\n\n| Col 1 | Col 2 |\n| --- | --- |\n| A1 | B1 |\n| A2 | B2 |\n\nomega\n";
 const SEARCH_MARKDOWN = "alpha\n\n| Col 1 | Col 2 |\n| --- | --- |\n| alpha | B1 |\n| A2 | alpha |\n\nomega alpha\n";
+const WRAPPED_SELECTION_MARKDOWN = [
+  "- **TestOps:** Ongoing improvement of the TestOps integration testing framework, initially to be used with uberAgent, ",
+  "but potentially valuable to other teams as well.",
+].join("");
+const SCROLLED_SELECTION_MARKDOWN = [
+  ...Array.from({ length: 120 }, (_, index) => `Filler line ${index + 1}`),
+  WRAPPED_SELECTION_MARKDOWN,
+].join("\n");
 
 interface MockMarkdownViewerApiOptions {
   initialMarkdown: string;
@@ -28,7 +36,7 @@ async function mockMarkdownViewerApi(page: Page, { initialMarkdown, onUploadBody
     const pathname = url.pathname;
 
     if (pathname.endsWith("/auth/config")) {
-      await fulfillJson(route, { auth_method: "none" });
+      await fulfillJson(route, { sign_in_mode: "none", oidc: null });
       return;
     }
 
@@ -186,6 +194,10 @@ async function openMarkdownViewer(page: Page): Promise<void> {
 async function enterMarkdownEditMode(page: Page): Promise<void> {
   await page.getByRole("button", { name: "Edit" }).click();
   await page.getByRole("textbox", { name: "Markdown editor" }).waitFor();
+}
+
+async function enterMarkdownEditModeWithTable(page: Page): Promise<void> {
+  await enterMarkdownEditMode(page);
   await page.locator(".tbl-table-widget").first().waitFor();
 }
 
@@ -263,7 +275,7 @@ test.describe("markdown viewer table editing", () => {
     });
 
     await openMarkdownViewer(page);
-    await enterMarkdownEditMode(page);
+    await enterMarkdownEditModeWithTable(page);
     const targetCell = page.locator(".tbl-data-cell .tbl-cell-view").first();
     await targetCell.waitFor();
     const activeCellEditor = await activateCellEditor(targetCell);
@@ -289,7 +301,7 @@ test.describe("markdown viewer table editing", () => {
     await mockMarkdownViewerApi(page, { initialMarkdown: SEARCH_MARKDOWN });
 
     await openMarkdownViewer(page);
-    await enterMarkdownEditMode(page);
+    await enterMarkdownEditModeWithTable(page);
     const targetCell = page.locator(".tbl-data-cell .tbl-cell-view").first();
     await targetCell.waitFor();
     await activateCellEditor(targetCell);
@@ -306,5 +318,70 @@ test.describe("markdown viewer table editing", () => {
     await page.getByRole("button", { name: "Previous match" }).click();
     await expect(page.getByText(/current match\..*on line 5\./)).toBeVisible();
     await expect(page.getByText("2 / 4")).toBeVisible();
+  });
+});
+
+test.describe("markdown editor selection", () => {
+  test("renders a wrapped selection without a native browser overlay", async ({ page }) => {
+    await mockMarkdownViewerApi(page, { initialMarkdown: WRAPPED_SELECTION_MARKDOWN });
+
+    await openMarkdownViewer(page);
+    await enterMarkdownEditMode(page);
+
+    const editor = page.getByRole("textbox", { name: "Markdown editor" });
+    const editorRoot = page.locator(".sambee-markdown-editor .cm-editor");
+    await editor.click();
+    await page.keyboard.press("Control+A");
+
+    await expect(page.locator(".cm-selectionLayer")).toHaveCount(1);
+    await expect(page.locator(".sambee-editor-selection-layer")).toHaveCount(0);
+    await expect(editorRoot.locator(".cm-selectionBackground").first()).toBeVisible();
+    await expect(editorRoot.locator(".cm-selectionBackground").first()).toHaveCSS("background-color", "rgba(194, 68, 0, 0.18)");
+    await expect(editor).toHaveScreenshot("wrapped-selection.png");
+
+    await page.keyboard.press("ArrowRight");
+    await page.keyboard.press("Control+Shift+ArrowLeft");
+    await expect(editorRoot.locator(".cm-selectionBackground").first()).toBeVisible();
+    await expect(editorRoot.locator(".cm-selectionBackground").first()).toHaveCSS("background-color", "rgba(194, 68, 0, 0.18)");
+    await expect(editor).toHaveScreenshot("single-line-selection.png");
+
+    await page.keyboard.press("ArrowRight");
+    await page.keyboard.type("!");
+    await expect(editor).toContainText("well.!");
+  });
+
+  test("keeps a selection visible after scrolling", async ({ page }) => {
+    await mockMarkdownViewerApi(page, { initialMarkdown: SCROLLED_SELECTION_MARKDOWN });
+
+    await openMarkdownViewer(page);
+    await enterMarkdownEditMode(page);
+
+    const editor = page.getByRole("textbox", { name: "Markdown editor" });
+    const editorRoot = page.locator(".sambee-markdown-editor .cm-editor");
+    const scroller = editorRoot.locator(".cm-scroller");
+    const selection = editorRoot.locator(".cm-selectionBackground").first();
+
+    await editor.click();
+    await page.keyboard.press("Control+End");
+    await expect.poll(() => scroller.evaluate((element) => element.scrollTop)).toBeGreaterThan(0);
+
+    await page.keyboard.press("Control+Shift+ArrowLeft");
+    await expect(selection).toBeVisible();
+    await expect(selection).toHaveCSS("background-color", "rgba(194, 68, 0, 0.18)");
+
+    const selectionInsideViewport = await editorRoot.evaluate((root) => {
+      const selectionMarker = root.querySelector(".cm-selectionBackground");
+      const scrollContainer = root.querySelector(".cm-scroller");
+
+      if (!(selectionMarker instanceof HTMLElement) || !(scrollContainer instanceof HTMLElement)) {
+        return false;
+      }
+
+      const selectionRect = selectionMarker.getBoundingClientRect();
+      const scrollerRect = scrollContainer.getBoundingClientRect();
+      return selectionRect.top >= scrollerRect.top && selectionRect.bottom <= scrollerRect.bottom;
+    });
+
+    expect(selectionInsideViewport).toBe(true);
   });
 });

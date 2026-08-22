@@ -1,8 +1,10 @@
-import { fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { fireEvent, render, screen, waitFor, within } from "@testing-library/react";
+import userEvent from "@testing-library/user-event";
 import { forwardRef, useEffect, useImperativeHandle, useRef } from "react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import apiService from "../../../services/api";
 import { SambeeThemeProvider } from "../../../theme";
+import { CODEMIRROR_FIND_HISTORY_STORAGE_KEY, CODEMIRROR_REPLACE_HISTORY_STORAGE_KEY } from "../codeMirrorFindReplaceConstants";
 
 interface MockTextCodeEditorProps {
   ariaLabel: string;
@@ -12,6 +14,7 @@ interface MockTextCodeEditorProps {
     currentMatch: number;
     isSearchOpen: boolean;
     isSearchable: boolean;
+    isValid: boolean;
     searchMatches: number;
     searchText: string;
     viewMode: "source";
@@ -19,11 +22,21 @@ interface MockTextCodeEditorProps {
   onUserEdit?: () => void;
   readOnly?: boolean;
   searchOpen?: boolean;
+  searchCaseSensitive?: boolean;
+  searchRegexp?: boolean;
+  searchReplaceText?: string;
   searchText?: string;
+  searchWholeWord?: boolean;
   text: string;
 }
 
-const { readTextEditorMaxFileSizeBytesPreferenceMock } = vi.hoisted(() => ({
+const { mockTextEditorCommands, readTextEditorMaxFileSizeBytesPreferenceMock } = vi.hoisted(() => ({
+  mockTextEditorCommands: {
+    nextSearchResult: vi.fn(),
+    previousSearchResult: vi.fn(),
+    replaceAllSearchResults: vi.fn(),
+    replaceCurrentSearchResult: vi.fn(),
+  },
   readTextEditorMaxFileSizeBytesPreferenceMock: vi.fn(() => 52_428_800),
 }));
 
@@ -45,8 +58,10 @@ vi.mock("../TextCodeEditor", () => {
       preserveSelection: vi.fn(),
       restorePreservedSelection: vi.fn().mockReturnValue(true),
       focusCurrentSearchResult: vi.fn().mockReturnValue(true),
-      nextSearchResult: vi.fn(),
-      previousSearchResult: vi.fn(),
+      nextSearchResult: mockTextEditorCommands.nextSearchResult,
+      previousSearchResult: mockTextEditorCommands.previousSearchResult,
+      replaceAllSearchResults: mockTextEditorCommands.replaceAllSearchResults,
+      replaceCurrentSearchResult: mockTextEditorCommands.replaceCurrentSearchResult,
     }));
 
     useEffect(() => {
@@ -56,6 +71,7 @@ vi.mock("../TextCodeEditor", () => {
         currentMatch: props.searchText ? 1 : 0,
         isSearchOpen: props.searchOpen,
         isSearchable: true,
+        isValid: true,
         viewMode: "source",
       });
     }, [props.onSearchStateChange, props.searchOpen, props.searchText]);
@@ -104,6 +120,10 @@ describe("TextViewer", () => {
     vi.spyOn(apiService, "saveTextFile").mockResolvedValue();
     vi.spyOn(apiService, "downloadFile").mockResolvedValue();
     vi.spyOn(apiService, "getFileBlob").mockResolvedValue(new Blob(["test"]));
+    mockTextEditorCommands.nextSearchResult.mockReset();
+    mockTextEditorCommands.previousSearchResult.mockReset();
+    mockTextEditorCommands.replaceAllSearchResults.mockReset();
+    mockTextEditorCommands.replaceCurrentSearchResult.mockReset();
   });
 
   it("enters edit mode and saves text changes", async () => {
@@ -126,6 +146,38 @@ describe("TextViewer", () => {
     });
   });
 
+  it("shows only Text editor shortcuts from the edit toolbar Help menu", async () => {
+    const user = userEvent.setup();
+    renderViewer();
+
+    await user.click(await screen.findByRole("button", { name: /^edit$/i }));
+
+    await waitFor(() => {
+      expect(apiService.acquireEditLock).toHaveBeenCalledWith("conn1", "/docs/readme.txt", expect.any(String));
+    });
+
+    await user.click(screen.getByRole("button", { name: "Help" }));
+    await user.click(screen.getByRole("menuitem", { name: "Keyboard shortcuts" }));
+
+    expect(await screen.findByRole("heading", { name: "Text editor shortcuts" })).toBeInTheDocument();
+    expect(screen.getByText("Save")).toBeInTheDocument();
+    expect(screen.getByText("Replace")).toBeInTheDocument();
+    expect(screen.queryByText("viewer.shortcuts.replace")).not.toBeInTheDocument();
+    expect(screen.queryByText("Edit")).not.toBeInTheDocument();
+    expect(screen.queryByText("Toggle fullscreen")).not.toBeInTheDocument();
+
+    await user.keyboard("{Escape}");
+    await waitFor(() => {
+      expect(screen.queryByRole("heading", { name: "Text editor shortcuts" })).not.toBeInTheDocument();
+    });
+
+    const editor = screen.getByRole("textbox", { name: "Text editor" });
+    editor.focus();
+    fireEvent.keyDown(editor, { key: "F1" });
+
+    expect(await screen.findByRole("heading", { name: "Text editor shortcuts" })).toBeInTheDocument();
+  });
+
   it("falls back to read-only large-file mode when the configured limit is exceeded", async () => {
     readTextEditorMaxFileSizeBytesPreferenceMock.mockReturnValue(4);
     vi.spyOn(apiService, "getFileContent").mockResolvedValueOnce("this content is too large");
@@ -134,5 +186,146 @@ describe("TextViewer", () => {
 
     expect(await screen.findByText(/exceeds your Text Editor limit/i)).toBeInTheDocument();
     expect(screen.queryByRole("button", { name: /^edit$/i })).toBeDisabled();
+  });
+
+  it("resets field history navigation when reopening find and replace", async () => {
+    localStorage.setItem(CODEMIRROR_FIND_HISTORY_STORAGE_KEY, JSON.stringify(["recent find"]));
+    localStorage.setItem(CODEMIRROR_REPLACE_HISTORY_STORAGE_KEY, JSON.stringify(["recent replace"]));
+    renderViewer();
+
+    fireEvent.click(await screen.findByRole("button", { name: /^edit$/i }));
+
+    await waitFor(() => {
+      expect(apiService.acquireEditLock).toHaveBeenCalledWith("conn1", "/docs/readme.txt", expect.any(String));
+    });
+
+    const editor = screen.getByRole("textbox", { name: "Text editor" });
+    fireEvent.keyDown(editor, { ctrlKey: true, key: "h" });
+
+    const findInput = await screen.findByRole("textbox", { name: "Find" });
+    const replaceInput = screen.getByRole("textbox", { name: "Replace" });
+    fireEvent.keyDown(findInput, { key: "ArrowUp" });
+    fireEvent.keyDown(replaceInput, { key: "ArrowUp" });
+
+    expect(findInput).toHaveValue("recent find");
+    expect(replaceInput).toHaveValue("recent replace");
+
+    fireEvent.click(within(screen.getByTestId("code-mirror-find-replace-popover")).getByRole("button", { name: "Close" }));
+
+    await waitFor(() => {
+      expect(screen.queryByRole("textbox", { name: "Find" })).not.toBeInTheDocument();
+    });
+
+    fireEvent.keyDown(editor, { ctrlKey: true, key: "h" });
+
+    const reopenedFindInput = await screen.findByRole("textbox", { name: "Find" });
+    const reopenedReplaceInput = screen.getByRole("textbox", { name: "Replace" });
+    expect(reopenedFindInput).toHaveValue("");
+    expect(reopenedReplaceInput).toHaveValue("");
+
+    fireEvent.keyDown(reopenedFindInput, { key: "ArrowDown" });
+    fireEvent.keyDown(reopenedReplaceInput, { key: "ArrowDown" });
+
+    expect(reopenedFindInput).toHaveValue("");
+    expect(reopenedReplaceInput).toHaveValue("");
+  });
+
+  it("opens shared find and replace controls and keeps navigation shortcuts active", async () => {
+    const user = userEvent.setup();
+    localStorage.setItem(CODEMIRROR_FIND_HISTORY_STORAGE_KEY, JSON.stringify(["recent find"]));
+    localStorage.setItem(CODEMIRROR_REPLACE_HISTORY_STORAGE_KEY, JSON.stringify(["recent replace"]));
+    renderViewer();
+
+    fireEvent.click(await screen.findByRole("button", { name: /^edit$/i }));
+
+    await waitFor(() => {
+      expect(apiService.acquireEditLock).toHaveBeenCalledWith("conn1", "/docs/readme.txt", expect.any(String));
+    });
+
+    const editor = await screen.findByRole("textbox", { name: "Text editor" });
+
+    fireEvent.keyDown(editor, { ctrlKey: true, key: "h" });
+
+    const findInput = await screen.findByRole("textbox", { name: "Find" });
+    const replaceInput = await screen.findByRole("textbox", { name: "Replace" });
+
+    expect(findInput).toHaveAttribute("placeholder", "Search (⇅ for history)");
+    expect(replaceInput).toHaveAttribute("placeholder", "Replace (⇅ for history)");
+    expect(findInput).toHaveValue("");
+    expect(replaceInput).toHaveValue("");
+    expect(screen.getByTestId("code-mirror-find-replace-popover")).toBeInTheDocument();
+
+    await waitFor(() => {
+      expect(findInput).toHaveFocus();
+    });
+    await user.keyboard("{Tab}");
+    expect(replaceInput).toHaveFocus();
+
+    fireEvent.keyDown(replaceInput, { key: "ArrowDown" });
+    expect(replaceInput).toHaveValue("");
+    fireEvent.keyDown(replaceInput, { key: "ArrowUp" });
+    expect(replaceInput).toHaveValue("recent replace");
+    fireEvent.keyDown(replaceInput, { key: "ArrowDown" });
+    expect(replaceInput).toHaveValue("");
+
+    fireEvent.change(replaceInput, { target: { value: "draft replacement" } });
+    fireEvent.keyDown(replaceInput, { key: "ArrowUp" });
+    expect(replaceInput).toHaveValue("recent replace");
+    fireEvent.keyDown(replaceInput, { key: "ArrowDown" });
+    expect(replaceInput).toHaveValue("draft replacement");
+
+    findInput.focus();
+    fireEvent.keyDown(findInput, { key: "ArrowDown" });
+    expect(findInput).toHaveValue("");
+    fireEvent.keyDown(findInput, { key: "ArrowUp" });
+    expect(findInput).toHaveValue("recent find");
+    fireEvent.keyDown(findInput, { key: "ArrowDown" });
+    expect(findInput).toHaveValue("");
+
+    fireEvent.change(findInput, { target: { value: "hello" } });
+    fireEvent.keyDown(findInput, { key: "ArrowUp" });
+    expect(findInput).toHaveValue("recent find");
+    fireEvent.keyDown(findInput, { key: "ArrowDown" });
+    expect(findInput).toHaveValue("hello");
+
+    await waitFor(() => {
+      expect(screen.getByText("1 / 2")).toBeInTheDocument();
+    });
+
+    fireEvent.keyDown(findInput, { altKey: true, key: "c" });
+    fireEvent.keyDown(findInput, { altKey: true, key: "w" });
+    fireEvent.keyDown(findInput, { altKey: true, key: "r" });
+    fireEvent.keyDown(findInput, { key: "F3" });
+    fireEvent.keyDown(findInput, { key: "F3", shiftKey: true });
+
+    expect(screen.getByRole("button", { name: "Match case" })).toHaveAttribute("aria-pressed", "true");
+    expect(screen.getByRole("button", { name: "Match whole word" })).toHaveAttribute("aria-pressed", "true");
+    expect(screen.getByRole("button", { name: "Use regular expression" })).toHaveAttribute("aria-pressed", "true");
+    expect(mockTextEditorCommands.nextSearchResult).toHaveBeenCalledTimes(1);
+    expect(mockTextEditorCommands.previousSearchResult).toHaveBeenCalledTimes(1);
+
+    await user.hover(screen.getByRole("button", { name: "Next match" }));
+    expect(await screen.findByRole("tooltip")).toHaveTextContent("Next match (F3)");
+
+    await user.unhover(screen.getByRole("button", { name: "Next match" }));
+    await user.hover(screen.getByRole("button", { name: "Match case" }));
+    expect(await screen.findByRole("tooltip")).toHaveTextContent("Toggle case-sensitive matching (Alt+C)");
+
+    const replaceAllButton = screen.getByRole("button", { name: "Replace all" });
+    replaceAllButton.focus();
+    await user.keyboard("{Tab}");
+    expect(findInput).toHaveFocus();
+    await user.keyboard("{Shift>}{Tab}{/Shift}");
+    expect(replaceAllButton).toHaveFocus();
+
+    fireEvent.change(replaceInput, { target: { value: "goodbye" } });
+    replaceInput.focus();
+    fireEvent.keyDown(replaceInput, { key: "Enter" });
+    expect(replaceInput).toHaveFocus();
+    fireEvent.keyDown(replaceInput, { altKey: true, ctrlKey: true, key: "Enter" });
+    expect(replaceInput).toHaveFocus();
+
+    expect(mockTextEditorCommands.replaceCurrentSearchResult).toHaveBeenCalledTimes(1);
+    expect(mockTextEditorCommands.replaceAllSearchResults).toHaveBeenCalledTimes(1);
   });
 });

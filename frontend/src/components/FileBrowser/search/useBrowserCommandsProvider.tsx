@@ -74,6 +74,6 @@ export function useBrowserCommandsProvider({ commands, onSelect }: BrowserComman
       t("fileBrowser.search.results.commandCount", {
         count: resultCount,
       }),
-    shortcutHint: `${BROWSER_SHORTCUTS.COMMAND_PALETTE.label} / ${BROWSER_SHORTCUTS.COMMAND_PALETTE_ALTERNATE.label}`,
+    shortcutHint: BROWSER_SHORTCUTS.COMMAND_PALETTE.label,
   };
 }

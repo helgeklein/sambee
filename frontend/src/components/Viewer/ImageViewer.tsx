@@ -1,4 +1,4 @@
-import { Alert, Box, CircularProgress, Dialog, useMediaQuery, useTheme } from "@mui/material";
+import { Alert, Box, Button, CircularProgress, Dialog, Typography, useMediaQuery, useTheme } from "@mui/material";
 import { memo, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 import Lightbox, { type Slide } from "yet-another-react-lightbox";
@@ -27,6 +27,8 @@ interface LightboxImageSlide extends Slide {
   originalPath: string;
 }
 
+type ImageLoadingFeedbackStage = "spinner" | "phase" | "slow";
+
 const isTouchDevice = () => {
   if (typeof window === "undefined") {
     return false;
@@ -51,6 +53,8 @@ const PRELOAD_COUNT = 5;
 
 // Number of slides to cache in each direction (we cache aggressively)
 const CACHE_COUNT = 20;
+const IMAGE_LOADING_PHASE_DELAY_MS = 2000;
+const IMAGE_LOADING_SLOW_DELAY_MS = 5000;
 
 // Transparent 1x1 pixel PNG as placeholder to avoid broken image icon while loading
 const TRANSPARENT_PIXEL =
@@ -105,8 +109,11 @@ const ImageViewer: React.FC<ViewerComponentProps> = ({
     getCachedImageSrc,
     loadingStates,
     errorStates,
+    currentImageLoadPhase,
     showLoadingSpinner,
-    markCachedImagesAsLoaded,
+    markImageAsDecoded,
+    markImageDecodeFailed,
+    cancelCurrentImageLoad,
   } = useCachedImageGallery({
     connectionId,
     images,
@@ -120,6 +127,10 @@ const ImageViewer: React.FC<ViewerComponentProps> = ({
     filename,
     gallerySize: images.length,
   });
+  const [imageLoadingFeedbackStage, setImageLoadingFeedbackStage] = useState<ImageLoadingFeedbackStage>("spinner");
+  const isCurrentImageLoading = currentImageLoadPhase === "fetching" || currentImageLoadPhase === "decoding";
+  const isCurrentImageReady = currentImageLoadPhase === "ready";
+  const currentImageError = errorStates.get(currentIndex) ?? null;
 
   useEffect(() => {
     viewerSessionMetaRef.current = {
@@ -136,6 +147,19 @@ const ImageViewer: React.FC<ViewerComponentProps> = ({
     setRotate(0);
     setHideControls(false);
     zoomRef.current?.changeZoom(1, true);
+  }, [currentIndex]);
+
+  // The active image index deliberately restarts the staged feedback timer.
+  // biome-ignore lint/correctness/useExhaustiveDependencies: currentIndex is an intentional timer reset trigger.
+  useEffect(() => {
+    setImageLoadingFeedbackStage("spinner");
+    const phaseTimer = window.setTimeout(() => setImageLoadingFeedbackStage("phase"), IMAGE_LOADING_PHASE_DELAY_MS);
+    const slowTimer = window.setTimeout(() => setImageLoadingFeedbackStage("slow"), IMAGE_LOADING_SLOW_DELAY_MS);
+
+    return () => {
+      window.clearTimeout(phaseTimer);
+      window.clearTimeout(slowTimer);
+    };
   }, [currentIndex]);
 
   useEffect(() => {
@@ -221,9 +245,8 @@ const ImageViewer: React.FC<ViewerComponentProps> = ({
       if (index !== currentIndex) {
         setCurrentIndex(index);
       }
-      markCachedImagesAsLoaded();
     },
-    [currentIndex, setCurrentIndex, markCachedImagesAsLoaded]
+    [currentIndex, setCurrentIndex]
   );
 
   const handleZoomChange = useCallback(({ zoom }: { zoom: number }) => {
@@ -373,28 +396,51 @@ const ImageViewer: React.FC<ViewerComponentProps> = ({
     ({ slide }: { slide: Slide }) => {
       const typedSlide = slide as LightboxImageSlide;
       const imageIndex = typedSlide.imageIndex;
-      const isLoading = loadingStates.get(imageIndex);
-      const error = errorStates.get(imageIndex);
+      const isCurrentSlide = imageIndex === currentIndex;
 
       return (
         <>
-          {isLoading && showLoadingSpinner && (
+          {isCurrentSlide && isCurrentImageLoading && showLoadingSpinner && (
             <Box
+              data-testid="image-loading-overlay"
               sx={{
                 position: "absolute",
                 inset: 0,
                 display: "flex",
                 alignItems: "center",
                 justifyContent: "center",
-                zIndex: 2,
-                pointerEvents: "none",
+                zIndex: 3,
+                color: toolbarText,
               }}
             >
               <CircularProgress sx={{ color: toolbarText }} />
+              {imageLoadingFeedbackStage !== "spinner" && (
+                <Box
+                  role="status"
+                  aria-live="polite"
+                  data-testid="image-loading-status"
+                  sx={{
+                    position: "absolute",
+                    top: "calc(50% + 28px)",
+                    textAlign: "center",
+                    px: 2,
+                  }}
+                >
+                  <Typography>{currentImageLoadPhase === "decoding" ? "Rendering image" : "Preparing image"}</Typography>
+                  {imageLoadingFeedbackStage === "slow" && (
+                    <>
+                      <Typography variant="body2">This image is taking longer than usual.</Typography>
+                      <Button color="inherit" size="small" onClick={cancelCurrentImageLoad}>
+                        Cancel
+                      </Button>
+                    </>
+                  )}
+                </Box>
+              )}
             </Box>
           )}
 
-          {error && (
+          {isCurrentSlide && currentImageError && (
             <Box
               sx={{
                 position: "absolute",
@@ -402,7 +448,7 @@ const ImageViewer: React.FC<ViewerComponentProps> = ({
                 display: "flex",
                 alignItems: "center",
                 justifyContent: "center",
-                zIndex: 2,
+                zIndex: 3,
                 pointerEvents: "none",
               }}
             >
@@ -413,14 +459,48 @@ const ImageViewer: React.FC<ViewerComponentProps> = ({
                   px: 2,
                 }}
               >
-                {error}
+                {currentImageError}
               </Box>
             </Box>
           )}
         </>
       );
     },
-    [errorStates, loadingStates, showLoadingSpinner, toolbarText]
+    [
+      cancelCurrentImageLoad,
+      currentImageError,
+      currentImageLoadPhase,
+      currentIndex,
+      imageLoadingFeedbackStage,
+      isCurrentImageLoading,
+      showLoadingSpinner,
+      toolbarText,
+    ]
+  );
+
+  const imageProps = useCallback(
+    (slide: Slide) => {
+      const typedSlide = slide as LightboxImageSlide;
+      const source = getCachedImageSrc(typedSlide.imageIndex);
+
+      return {
+        style: {
+          maxWidth: "100%",
+          maxHeight: "100%",
+        },
+        onLoadCapture: () => {
+          if (source && typedSlide.src === source) {
+            markImageAsDecoded(typedSlide.imageIndex, source);
+          }
+        },
+        onErrorCapture: () => {
+          if (source && typedSlide.src === source) {
+            markImageDecodeFailed(typedSlide.imageIndex, source);
+          }
+        },
+      };
+    },
+    [getCachedImageSrc, markImageAsDecoded, markImageDecodeFailed]
   );
 
   const imageShortcuts = useMemo(
@@ -428,30 +508,37 @@ const ImageViewer: React.FC<ViewerComponentProps> = ({
       {
         ...COMMON_SHORTCUTS.DOWNLOAD,
         handler: handleDownload,
+        enabled: isCurrentImageReady,
       },
       {
         ...VIEWER_SHORTCUTS.ZOOM_IN,
         handler: handleZoomIn,
+        enabled: isCurrentImageReady,
       },
       {
         ...VIEWER_SHORTCUTS.ZOOM_OUT,
         handler: handleZoomOut,
+        enabled: isCurrentImageReady,
       },
       {
         ...VIEWER_SHORTCUTS.ZOOM_RESET,
         handler: handleZoomReset,
+        enabled: isCurrentImageReady,
       },
       {
         ...VIEWER_SHORTCUTS.ROTATE_RIGHT,
         handler: handleRotateRight,
+        enabled: isCurrentImageReady,
       },
       {
         ...VIEWER_SHORTCUTS.ROTATE_LEFT,
         handler: handleRotateLeft,
+        enabled: isCurrentImageReady,
       },
       {
         ...VIEWER_SHORTCUTS.FULLSCREEN,
         handler: handleToggleFullscreen,
+        enabled: isCurrentImageReady,
       },
       {
         ...COMMON_SHORTCUTS.CLOSE,
@@ -459,6 +546,10 @@ const ImageViewer: React.FC<ViewerComponentProps> = ({
       },
       {
         ...BROWSER_SHORTCUTS.SHOW_HELP,
+        handler: handleShowHelp,
+      },
+      {
+        ...BROWSER_SHORTCUTS.SHOW_HELP_ALTERNATE,
         handler: handleShowHelp,
       },
     ],
@@ -472,6 +563,7 @@ const ImageViewer: React.FC<ViewerComponentProps> = ({
       handleZoomIn,
       handleZoomOut,
       handleZoomReset,
+      isCurrentImageReady,
     ]
   );
 
@@ -568,7 +660,10 @@ const ImageViewer: React.FC<ViewerComponentProps> = ({
               onDownload={handleDownload}
               onShare={handleShare}
               onShareIntent={handleShareIntent}
-              shareDisabled={sharing}
+              shareDisabled={sharing || !isCurrentImageReady}
+              controlsDisabled={!isCurrentImageReady}
+              navigationDisabled={false}
+              downloadDisabled={isCurrentImageLoading}
             />
           </Box>
         )}
@@ -613,12 +708,7 @@ const ImageViewer: React.FC<ViewerComponentProps> = ({
                 spacing: SLIDE_GAP_PX,
                 imageFit: "contain",
                 preload: PRELOAD_COUNT,
-                imageProps: {
-                  style: {
-                    maxWidth: "100%",
-                    maxHeight: "100%",
-                  },
-                },
+                imageProps,
               }}
               animation={{
                 fade: 0,

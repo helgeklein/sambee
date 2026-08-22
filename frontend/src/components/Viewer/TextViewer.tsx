@@ -1,7 +1,7 @@
 import { Alert, Box, Button, CircularProgress, Dialog, useMediaQuery, useTheme } from "@mui/material";
 import { memo, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
-import { BROWSER_SHORTCUTS, COMMON_SHORTCUTS, VIEWER_SHORTCUTS } from "../../config/keyboardShortcuts";
+import { BROWSER_SHORTCUTS, CODEMIRROR_EDITOR_SHORTCUTS, COMMON_SHORTCUTS, VIEWER_SHORTCUTS } from "../../config/keyboardShortcuts";
 import { checkIsTransientError, getTransientErrorMessage, useApiRetry } from "../../hooks/useApiRetry";
 import { useKeyboardShortcuts } from "../../hooks/useKeyboardShortcuts";
 import { readTextEditorMaxFileSizeBytesPreference } from "../../pages/FileBrowser/preferences";
@@ -10,14 +10,17 @@ import { clearDraft, type DraftSnapshot, loadDraft, registerDraftSnapshot, saveD
 import { error as logError, info as logInfo } from "../../services/logger";
 import { useSambeeTheme } from "../../theme";
 import { getSearchHighlightColors } from "../../theme/commonStyles";
-import { getViewerColors } from "../../theme/viewerStyles";
+import { getViewerColors, TEXT_SELECTION_HORIZONTAL_INSET_CSS_VARIABLE } from "../../theme/viewerStyles";
 import type { EditLockInfo } from "../../types";
 import { getApiErrorMessage } from "../../utils/apiErrors";
+import { openExternalUrl } from "../../utils/externalLinks";
 import type { ViewerComponentProps } from "../../utils/FileTypeRegistry";
 import { blurActiveToolbarControl } from "../../utils/keyboardUtils";
 import { createShareFile, shareNativeContent, shouldWarmNativeSharePayload, supportsNativeShare } from "../../utils/nativeShare";
 import { ResponsiveFormDialog } from "../Admin/ResponsiveFormDialog";
+import { HelpMenu } from "../FileBrowser/HelpMenu";
 import { KeyboardShortcutsHelp } from "../KeyboardShortcutsHelp";
+import { CodeMirrorFindReplacePopover } from "./CodeMirrorFindReplacePopover";
 import { scheduleRetriableFocusRestore } from "./focusRestoration";
 import MarkdownEditorErrorBoundary from "./MarkdownEditorErrorBoundary";
 import { TextCodeEditor, type TextCodeEditorHandle, type TextCodeEditorSearchState } from "./TextCodeEditor";
@@ -79,6 +82,7 @@ function areTextEditorSearchStatesEqual(left: TextCodeEditorSearchState, right: 
     left.currentMatch === right.currentMatch &&
     left.isSearchOpen === right.isSearchOpen &&
     left.isSearchable === right.isSearchable &&
+    left.isValid === right.isValid &&
     left.viewMode === right.viewMode
   );
 }
@@ -93,12 +97,19 @@ export const TextViewer: React.FC<ViewerComponentProps> = ({ connectionId, path,
   const [shareError, setShareError] = useState<string | null>(null);
   const [draftStorageWarning, setDraftStorageWarning] = useState<string | null>(null);
   const [recoveryDraft, setRecoveryDraft] = useState<DraftSnapshot | null>(null);
-  const [showHelp, setShowHelp] = useState(false);
+  const [showViewerHelp, setShowViewerHelp] = useState(false);
+  const [showEditorHelp, setShowEditorHelp] = useState(false);
   const [isEditing, setIsEditing] = useState(false);
   const [isSaving, setIsSaving] = useState(false);
   const [editLockInfo, setEditLockInfo] = useState<EditLockInfo | null>(null);
   const [sharing, setSharing] = useState(false);
+  const [searchCaseSensitive, setSearchCaseSensitive] = useState(false);
+  const [searchFocusTarget, setSearchFocusTarget] = useState<"find" | "replace" | null>(null);
+  const [searchMode, setSearchMode] = useState<"find" | "replace">("find");
+  const [searchRegexp, setSearchRegexp] = useState(false);
+  const [searchReplaceText, setSearchReplaceText] = useState("");
   const [searchText, setSearchText] = useState("");
+  const [searchWholeWord, setSearchWholeWord] = useState(false);
   const [searchMatches, setSearchMatches] = useState(0);
   const [currentSearchMatch, setCurrentSearchMatch] = useState(0);
   const [searchPanelOpen, setSearchPanelOpen] = useState(false);
@@ -111,6 +122,7 @@ export const TextViewer: React.FC<ViewerComponentProps> = ({ connectionId, path,
     currentMatch: 0,
     isSearchOpen: false,
     isSearchable: true,
+    isValid: true,
     viewMode: "source",
   });
   const contentRef = useRef<HTMLDivElement>(null);
@@ -554,6 +566,8 @@ export const TextViewer: React.FC<ViewerComponentProps> = ({ connectionId, path,
 
   const closeSearchPanel = useCallback(({ preserveQuery, restoreEditorFocus }: { preserveQuery: boolean; restoreEditorFocus: boolean }) => {
     setSearchPanelOpen(false);
+    setSearchFocusTarget(null);
+    setSearchMode("find");
 
     if (!preserveQuery) {
       setSearchText("");
@@ -586,11 +600,27 @@ export const TextViewer: React.FC<ViewerComponentProps> = ({ connectionId, path,
 
     const selectedText = editorRef.current?.getPrimarySelectionText() ?? "";
     setSearchAutoNavigate(false);
-    if (selectedText.length > 0) {
-      setSearchText(selectedText);
-    }
+    setSearchMode("find");
+    setSearchFocusTarget("find");
+    setSearchText(selectedText);
+    setSearchReplaceText("");
     setSearchPanelOpen(true);
   }, [editorSearchState.isSearchable, error, exceedsEditorLimit, loading]);
+
+  const handleOpenReplace = useCallback(() => {
+    if (loading || error || exceedsEditorLimit || !isEditing || isSaving || !editorSearchState.isSearchable) {
+      return;
+    }
+
+    const selectedText = editorRef.current?.getPrimarySelectionText() ?? "";
+    setSearchAutoNavigate(false);
+    setSearchMode("replace");
+    setSearchFocusTarget(selectedText.trim().length > 0 ? "replace" : "find");
+    setSearchText(selectedText);
+    setSearchReplaceText("");
+
+    setSearchPanelOpen(true);
+  }, [editorSearchState.isSearchable, error, exceedsEditorLimit, isEditing, isSaving, loading]);
 
   const handleSearchChange = useCallback((text: string) => {
     setSearchAutoNavigate(false);
@@ -600,6 +630,9 @@ export const TextViewer: React.FC<ViewerComponentProps> = ({ connectionId, path,
   const handleSearchPanelToggle = useCallback(
     (open: boolean) => {
       if (open) {
+        setSearchText("");
+        setSearchReplaceText("");
+        setSearchFocusTarget("find");
         setSearchPanelOpen(true);
         return;
       }
@@ -633,6 +666,24 @@ export const TextViewer: React.FC<ViewerComponentProps> = ({ connectionId, path,
     editorRef.current?.focusCurrentSearchResult();
     editorRef.current?.previousSearchResult();
   }, [searchMatches]);
+
+  const handleReplaceCurrent = useCallback(() => {
+    if (!isEditing || isSaving) {
+      return;
+    }
+
+    setSearchAutoNavigate(false);
+    editorRef.current?.replaceCurrentSearchResult();
+  }, [isEditing, isSaving]);
+
+  const handleReplaceAll = useCallback(() => {
+    if (!isEditing || isSaving) {
+      return;
+    }
+
+    setSearchAutoNavigate(false);
+    editorRef.current?.replaceAllSearchResults();
+  }, [isEditing, isSaving]);
 
   const handlePaperKeyDown = useCallback(
     (event: React.KeyboardEvent) => {
@@ -671,21 +722,25 @@ export const TextViewer: React.FC<ViewerComponentProps> = ({ connectionId, path,
     }
   }, []);
 
-  const textShortcuts = useMemo(
+  const handleOpenDocumentation = useCallback(() => {
+    openExternalUrl("https://sambee.net/docs/");
+  }, []);
+
+  const textViewerShortcuts = useMemo(
     () => [
-      { ...COMMON_SHORTCUTS.DOWNLOAD, handler: handleDownload },
+      { ...COMMON_SHORTCUTS.DOWNLOAD, handler: handleDownload, enabled: !isEditing },
       {
         ...COMMON_SHORTCUTS.SEARCH,
         handler: handleOpenSearch,
-        enabled: !loading && !error && !exceedsEditorLimit && editorSearchState.isSearchable,
+        enabled: !isEditing && !loading && !error && !exceedsEditorLimit && editorSearchState.isSearchable,
       },
-      { ...COMMON_SHORTCUTS.NEXT_MATCH, handler: handleSearchNext, enabled: searchMatches > 0 },
-      { ...COMMON_SHORTCUTS.PREVIOUS_MATCH, handler: handleSearchPrevious, enabled: searchMatches > 0 },
+      { ...COMMON_SHORTCUTS.NEXT_MATCH, handler: handleSearchNext, enabled: !isEditing && searchMatches > 0 },
+      { ...COMMON_SHORTCUTS.PREVIOUS_MATCH, handler: handleSearchPrevious, enabled: !isEditing && searchMatches > 0 },
       { ...COMMON_SHORTCUTS.EDIT, handler: () => void handleEnterEditMode(), enabled: !isEditing && !isReadOnly && !exceedsEditorLimit },
-      { ...COMMON_SHORTCUTS.SAVE, handler: () => void handleSave(), allowInInput: true, enabled: isEditing && !isSaving },
-      { ...VIEWER_SHORTCUTS.FULLSCREEN, handler: handleToggleFullscreen },
-      { ...COMMON_SHORTCUTS.CLOSE, handler: handleEscape, allowInInput: false, enabled: !unsavedChangesDialogOpen },
-      { ...BROWSER_SHORTCUTS.SHOW_HELP, handler: () => setShowHelp(true) },
+      { ...VIEWER_SHORTCUTS.FULLSCREEN, handler: handleToggleFullscreen, enabled: !isEditing },
+      { ...COMMON_SHORTCUTS.CLOSE, handler: handleEscape, allowInInput: false, enabled: !isEditing && !unsavedChangesDialogOpen },
+      { ...BROWSER_SHORTCUTS.SHOW_HELP, handler: () => setShowViewerHelp(true), enabled: !isEditing },
+      { ...BROWSER_SHORTCUTS.SHOW_HELP_ALTERNATE, handler: () => setShowViewerHelp(true), enabled: !isEditing },
     ],
     [
       editorSearchState.isSearchable,
@@ -695,22 +750,87 @@ export const TextViewer: React.FC<ViewerComponentProps> = ({ connectionId, path,
       handleEnterEditMode,
       handleEscape,
       handleOpenSearch,
-      handleSave,
       handleSearchNext,
       handleSearchPrevious,
       handleToggleFullscreen,
       isEditing,
       isReadOnly,
-      isSaving,
       loading,
       searchMatches,
       unsavedChangesDialogOpen,
     ]
   );
 
+  const textEditorShortcuts = useMemo(
+    () => [
+      { ...COMMON_SHORTCUTS.DOWNLOAD, handler: handleDownload, enabled: isEditing },
+      {
+        ...COMMON_SHORTCUTS.SEARCH,
+        handler: handleOpenSearch,
+        enabled: isEditing && !loading && !error && !exceedsEditorLimit && editorSearchState.isSearchable,
+      },
+      {
+        ...CODEMIRROR_EDITOR_SHORTCUTS.REPLACE,
+        handler: handleOpenReplace,
+        enabled: isEditing && !isSaving && !exceedsEditorLimit && editorSearchState.isSearchable,
+      },
+      {
+        ...CODEMIRROR_EDITOR_SHORTCUTS.REPLACE_CURRENT,
+        handler: handleReplaceCurrent,
+        enabled: isEditing && !isSaving && !exceedsEditorLimit && searchMode === "replace" && searchPanelOpen,
+      },
+      {
+        ...CODEMIRROR_EDITOR_SHORTCUTS.REPLACE_ALL,
+        handler: handleReplaceAll,
+        enabled: isEditing && !isSaving && !exceedsEditorLimit && searchMode === "replace" && searchPanelOpen,
+      },
+      {
+        ...CODEMIRROR_EDITOR_SHORTCUTS.TOGGLE_CASE_SENSITIVE,
+        handler: () => setSearchCaseSensitive((enabled) => !enabled),
+        enabled: searchPanelOpen && !exceedsEditorLimit,
+      },
+      {
+        ...CODEMIRROR_EDITOR_SHORTCUTS.TOGGLE_WHOLE_WORD,
+        handler: () => setSearchWholeWord((enabled) => !enabled),
+        enabled: searchPanelOpen && !exceedsEditorLimit,
+      },
+      {
+        ...CODEMIRROR_EDITOR_SHORTCUTS.TOGGLE_REGULAR_EXPRESSION,
+        handler: () => setSearchRegexp((enabled) => !enabled),
+        enabled: searchPanelOpen && !exceedsEditorLimit,
+      },
+      { ...COMMON_SHORTCUTS.NEXT_MATCH, handler: handleSearchNext, enabled: isEditing && searchMatches > 0 },
+      { ...COMMON_SHORTCUTS.PREVIOUS_MATCH, handler: handleSearchPrevious, enabled: isEditing && searchMatches > 0 },
+      { ...COMMON_SHORTCUTS.SAVE, handler: () => void handleSave(), allowInInput: true, enabled: isEditing && !isSaving },
+      { ...COMMON_SHORTCUTS.CLOSE, handler: handleEscape, allowInInput: false, enabled: isEditing && !unsavedChangesDialogOpen },
+      { ...BROWSER_SHORTCUTS.SHOW_HELP_ALTERNATE, handler: () => setShowEditorHelp(true), enabled: isEditing },
+    ],
+    [
+      editorSearchState.isSearchable,
+      error,
+      exceedsEditorLimit,
+      handleDownload,
+      handleEscape,
+      handleOpenSearch,
+      handleOpenReplace,
+      handleReplaceAll,
+      handleReplaceCurrent,
+      handleSave,
+      handleSearchNext,
+      handleSearchPrevious,
+      isEditing,
+      isSaving,
+      loading,
+      searchMatches,
+      searchMode,
+      searchPanelOpen,
+      unsavedChangesDialogOpen,
+    ]
+  );
+
   useKeyboardShortcuts({
-    active: !showHelp,
-    shortcuts: textShortcuts,
+    active: !showViewerHelp && !showEditorHelp,
+    shortcuts: [...textViewerShortcuts, ...textEditorShortcuts],
     inputSelector: "input, textarea",
   });
 
@@ -849,6 +969,15 @@ export const TextViewer: React.FC<ViewerComponentProps> = ({ connectionId, path,
               toolbarBackground={toolbarBg}
               toolbarText={toolbarText}
               actions={toolbarActions}
+              toolbarAccessory={
+                isEditing ? (
+                  <HelpMenu
+                    menuId="text-editor-help-menu"
+                    onOpenHelp={() => setShowEditorHelp(true)}
+                    onOpenDocumentation={handleOpenDocumentation}
+                  />
+                ) : undefined
+              }
               config={{ download: true, share: shareEnabled, search: !exceedsEditorLimit }}
               onClose={() => {
                 void handleRequestClose();
@@ -864,6 +993,7 @@ export const TextViewer: React.FC<ViewerComponentProps> = ({ connectionId, path,
                 onSearchPanelToggle: handleSearchPanelToggle,
                 onSearchClose: handleSearchClose,
                 clearSearchOnClose: false,
+                hideSearchPanel: true,
                 isSearchable: !exceedsEditorLimit && editorSearchState.isSearchable,
                 searchUnavailableTitle: exceedsEditorLimit ? t("viewer.text.limitSearchUnavailable") : undefined,
               }}
@@ -873,6 +1003,32 @@ export const TextViewer: React.FC<ViewerComponentProps> = ({ connectionId, path,
               shareDisabled={sharing}
             />
           </Box>
+
+          <CodeMirrorFindReplacePopover
+            caseSensitive={searchCaseSensitive}
+            currentMatch={currentSearchMatch}
+            disabled={isSaving}
+            focusTarget={searchFocusTarget}
+            isReplaceMode={searchMode === "replace"}
+            isSearchValid={editorSearchState.isValid}
+            onCaseSensitiveChange={setSearchCaseSensitive}
+            onClose={() => closeSearchPanel({ preserveQuery: true, restoreEditorFocus: true })}
+            onFindNext={handleSearchNext}
+            onFindPrevious={handleSearchPrevious}
+            onFocusHandled={() => setSearchFocusTarget(null)}
+            onRegexChange={setSearchRegexp}
+            onReplaceAll={handleReplaceAll}
+            onReplaceChange={setSearchReplaceText}
+            onReplaceCurrent={handleReplaceCurrent}
+            onSearchChange={handleSearchChange}
+            onWholeWordChange={setSearchWholeWord}
+            open={searchPanelOpen}
+            regex={searchRegexp}
+            replaceText={searchReplaceText}
+            searchMatches={searchMatches}
+            searchText={searchText}
+            wholeWord={searchWholeWord}
+          />
 
           {editError ? (
             <Alert severity="error" sx={{ m: 2, flexShrink: 0 }}>
@@ -940,6 +1096,7 @@ export const TextViewer: React.FC<ViewerComponentProps> = ({ connectionId, path,
                   "& .sambee-text-editor": {
                     flex: 1,
                     minHeight: 0,
+                    [TEXT_SELECTION_HORIZONTAL_INSET_CSS_VARIABLE]: "20px",
                   },
                   "& .sambee-text-editor .cm-content": {
                     p: "16px 20px",
@@ -975,11 +1132,15 @@ export const TextViewer: React.FC<ViewerComponentProps> = ({ connectionId, path,
                     searchText={searchPanelOpen ? searchText : ""}
                     searchOpen={searchPanelOpen}
                     searchAutoNavigate={searchAutoNavigate}
+                    searchCaseSensitive={searchCaseSensitive}
                     onSearchStateChange={(nextState) => {
                       setEditorSearchState((previousState) =>
                         areTextEditorSearchStatesEqual(previousState, nextState) ? previousState : nextState
                       );
                     }}
+                    searchRegexp={searchRegexp}
+                    searchReplaceText={searchReplaceText}
+                    searchWholeWord={searchWholeWord}
                   />
                 </MarkdownEditorErrorBoundary>
               </Box>
@@ -1081,10 +1242,16 @@ export const TextViewer: React.FC<ViewerComponentProps> = ({ connectionId, path,
       </ResponsiveFormDialog>
 
       <KeyboardShortcutsHelp
-        open={showHelp}
-        onClose={() => setShowHelp(false)}
-        shortcuts={textShortcuts}
+        open={showViewerHelp}
+        onClose={() => setShowViewerHelp(false)}
+        shortcuts={textViewerShortcuts}
         title={t("keyboardShortcutsHelp.titles.textViewer")}
+      />
+      <KeyboardShortcutsHelp
+        open={showEditorHelp}
+        onClose={() => setShowEditorHelp(false)}
+        shortcuts={textEditorShortcuts}
+        title={t("keyboardShortcutsHelp.titles.textEditor")}
       />
     </>
   );

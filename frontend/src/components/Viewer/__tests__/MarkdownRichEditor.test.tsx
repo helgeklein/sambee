@@ -71,6 +71,48 @@ describe("MarkdownRichEditor", () => {
     expect(latestState?.searchMatches).toBe(2);
   });
 
+  it("replaces the active match and all remaining matches through the command bridge", async () => {
+    const editorRef = createRef<MarkdownRichEditorHandle>();
+
+    render(
+      <>
+        <input aria-label="Replace" />
+        <MarkdownRichEditor
+          ref={editorRef}
+          markdown="alpha beta alpha"
+          ariaLabel="Markdown editor"
+          theme={TEST_MARKDOWN_THEME}
+          onChange={() => {}}
+          searchOpen={true}
+          searchReplaceText="done"
+          searchText="alpha"
+        />
+      </>
+    );
+
+    await screen.findByLabelText("Markdown editor");
+
+    await waitFor(() => {
+      expect(editorRef.current?.getCanonicalMarkdown()).toBe("alpha beta alpha");
+    });
+
+    const replaceInput = screen.getByRole("textbox", { name: "Replace" });
+    replaceInput.focus();
+    editorRef.current?.replaceCurrentSearchResult();
+
+    await waitFor(() => {
+      expect(editorRef.current?.getCanonicalMarkdown()).toBe("done beta alpha");
+    });
+    expect(replaceInput).toHaveFocus();
+
+    editorRef.current?.replaceAllSearchResults();
+
+    await waitFor(() => {
+      expect(editorRef.current?.getCanonicalMarkdown()).toBe("done beta done");
+    });
+    expect(replaceInput).toHaveFocus();
+  });
+
   it("supports the command bridge methods", async () => {
     const user = userEvent.setup();
     const onChange = vi.fn();
@@ -97,6 +139,31 @@ describe("MarkdownRichEditor", () => {
     editorRef.current?.toggleInlineCode();
     editorRef.current?.insertCodeBlock();
     editorRef.current?.insertThematicBreak();
+  });
+
+  it("toggles bold and italic Markdown delimiters", async () => {
+    const user = userEvent.setup();
+    const editorRef = createRef<MarkdownRichEditorHandle>();
+
+    render(
+      <MarkdownRichEditor ref={editorRef} markdown="text" ariaLabel="Markdown editor" theme={TEST_MARKDOWN_THEME} onChange={() => {}} />
+    );
+
+    const editor = await screen.findByLabelText("Markdown editor");
+    await user.click(editor);
+    await user.keyboard("{Control>}a{/Control}");
+
+    editorRef.current?.toggleBold();
+    expect(editorRef.current?.getCanonicalMarkdown()).toBe("**text**");
+
+    editorRef.current?.toggleBold();
+    expect(editorRef.current?.getCanonicalMarkdown()).toBe("text");
+
+    editorRef.current?.toggleItalic();
+    expect(editorRef.current?.getCanonicalMarkdown()).toBe("*text*");
+
+    editorRef.current?.toggleItalic();
+    expect(editorRef.current?.getCanonicalMarkdown()).toBe("text");
   });
 
   it("keeps canonical table-cell breaks at the editor boundary", async () => {
