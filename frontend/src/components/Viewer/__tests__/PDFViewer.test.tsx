@@ -408,6 +408,12 @@ describe("PDFViewer", () => {
     });
   };
 
+  const waitForZoomControlsReady = async () => {
+    await waitFor(() => {
+      expect(screen.getByLabelText("Zoom in")).toBeEnabled();
+    });
+  };
+
   it("shows a read-only badge in the toolbar when opened in read-only mode", async () => {
     renderPDFViewer({
       ...defaultProps,
@@ -1512,12 +1518,13 @@ describe("PDFViewer", () => {
         expect(screen.getByTestId("pdf-page")).toBeInTheDocument();
       });
 
+      await waitForZoomControlsReady();
       const zoomInButton = screen.getByLabelText("Zoom in");
+      const initialScale = screen.getByTestId("pdf-page").getAttribute("data-scale");
       fireEvent.click(zoomInButton);
 
       await waitFor(() => {
-        // Component doesn't display percentage, just verify page is still rendered
-        expect(screen.getByTestId("pdf-page")).toBeInTheDocument();
+        expect(screen.getByTestId("pdf-page")).not.toHaveAttribute("data-scale", initialScale);
       });
     });
 
@@ -1528,6 +1535,7 @@ describe("PDFViewer", () => {
         expect(screen.getByTestId("pdf-page")).toBeInTheDocument();
       });
 
+      await waitForZoomControlsReady();
       const zoomInButton = screen.getByLabelText("Zoom in");
       const initialScale = screen.getByTestId("pdf-page").getAttribute("data-scale");
 
