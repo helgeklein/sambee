@@ -495,6 +495,7 @@ export const ViewerControls: React.FC<ViewerControlsProps> = ({
             <IconButton
               color="inherit"
               onClick={handlePreviousPage}
+              type="button"
               disabled={controlsDisabled || pageNavigation.currentPage <= 1}
               title={withShortcut(COMMON_SHORTCUTS.PAGE_UP)}
               aria-label={t("viewer.controls.previousPage")}
@@ -549,6 +550,7 @@ export const ViewerControls: React.FC<ViewerControlsProps> = ({
             <IconButton
               color="inherit"
               onClick={handleNextPage}
+              type="button"
               disabled={controlsDisabled || pageNavigation.currentPage >= pageNavigation.totalPages}
               title={withShortcut(COMMON_SHORTCUTS.PAGE_DOWN)}
               aria-label={t("viewer.controls.nextPage")}

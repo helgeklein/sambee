@@ -42,7 +42,11 @@ async function findSearchInput(): Promise<HTMLInputElement> {
 }
 
 export async function openViewerSearch(searchTerm?: string): Promise<HTMLElement> {
-  fireEvent.click(screen.getByRole("button", { name: "Search" }));
+  const searchButton = screen.getByRole("button", { name: "Search" });
+  await waitFor(() => {
+    expect(searchButton).toBeEnabled();
+  });
+  fireEvent.click(searchButton);
 
   const searchInput = await findSearchInput();
   if (searchTerm !== undefined) {

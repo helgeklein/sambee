@@ -667,6 +667,7 @@ describe("PDFViewer", () => {
         expect(screen.getByTestId("pdf-document")).toBeInTheDocument();
       });
 
+      await waitForPageNavigationReady();
       fireEvent.click(screen.getByLabelText("Share"));
 
       await waitFor(() => {
@@ -759,6 +760,7 @@ describe("PDFViewer", () => {
         expect(screen.getByTestId("pdf-page")).toHaveAttribute("data-page", "1");
       });
 
+      await waitForPageNavigationReady();
       // Navigate to page 3
       const nextButton = screen.getByLabelText("Next page");
       fireEvent.click(nextButton);
@@ -813,6 +815,7 @@ describe("PDFViewer", () => {
         expect(screen.getByTestId("pdf-page")).toHaveAttribute("data-page", "1");
       });
 
+      await waitForPageNavigationReady();
       const nextButton = screen.getByLabelText("Next page");
       fireEvent.click(nextButton);
 
@@ -828,6 +831,7 @@ describe("PDFViewer", () => {
         expect(screen.getByTestId("pdf-page")).toBeInTheDocument();
       });
 
+      await waitForPageNavigationReady();
       // Go to page 2 first
       const nextButton = screen.getByLabelText("Next page");
       fireEvent.click(nextButton);
@@ -1021,6 +1025,7 @@ describe("PDFViewer", () => {
         expect(screen.getByTestId("pdf-page")).toBeInTheDocument();
       });
 
+      await waitForPageNavigationReady();
       // Verify previous button is disabled on first page
       const prevButton = screen.getByLabelText("Previous page");
       expect(prevButton).toBeDisabled();
@@ -1443,6 +1448,7 @@ describe("PDFViewer", () => {
         expect(screen.getByTestId("pdf-page")).toHaveAttribute("data-page", "1");
       });
 
+      await waitForPageNavigationReady();
       fireEvent.click(screen.getByLabelText("Next page"));
 
       await waitFor(() => {
@@ -1652,6 +1658,7 @@ describe("PDFViewer", () => {
         expect(screen.getByTestId("pdf-page")).toHaveAttribute("data-rotate", "90");
       });
 
+      await waitForPageNavigationReady();
       fireEvent.click(screen.getByLabelText(/rotate right/i));
 
       await waitFor(() => {
@@ -1667,6 +1674,7 @@ describe("PDFViewer", () => {
         expect(screen.getByTestId("pdf-page")).toHaveAttribute("data-rotate", "90");
       });
 
+      await waitForPageNavigationReady();
       fireEvent.click(screen.getByLabelText("Next page"));
 
       await waitFor(() => {

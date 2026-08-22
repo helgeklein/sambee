@@ -5,6 +5,7 @@
 
 import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
+import { useEffect, useRef } from "react";
 import { MemoryRouter, Route, Routes } from "react-router-dom";
 import type { MockedObject } from "vitest";
 import { beforeEach, describe, expect, it, vi } from "vitest";
@@ -37,28 +38,46 @@ vi.mock("react-pdf", () => ({
     }) => void;
     file: string;
   }) => {
-    // Simulate successful load
-    setTimeout(() => {
-      const mockPdf = {
-        numPages: 10,
-        getPage: () =>
-          Promise.resolve({
-            getViewport: () => ({ width: 612, height: 792 }),
-          }),
-      };
-      onLoadSuccess?.(mockPdf);
-    }, 0);
+    const loadedFileRef = useRef<string | null>(null);
+
+    useEffect(() => {
+      if (!file || loadedFileRef.current === file) {
+        return;
+      }
+
+      loadedFileRef.current = file;
+      const loadTimer = window.setTimeout(() => {
+        const mockPdf = {
+          numPages: 10,
+          getPage: () =>
+            Promise.resolve({
+              getViewport: () => ({ width: 612, height: 792 }),
+              getTextContent: () => Promise.resolve({ items: [] }),
+            }),
+        };
+        onLoadSuccess?.(mockPdf);
+      }, 0);
+
+      return () => window.clearTimeout(loadTimer);
+    }, [file, onLoadSuccess]);
+
     return (
       <div data-testid="pdf-document" data-file={file}>
         {children}
       </div>
     );
   },
-  Page: ({ pageNumber }: { pageNumber: number }) => (
-    <div data-testid="pdf-page" data-page={pageNumber}>
-      PDF Page {pageNumber}
-    </div>
-  ),
+  Page: ({ pageNumber, onRenderSuccess }: { pageNumber: number; onRenderSuccess?: () => void }) => {
+    useEffect(() => {
+      onRenderSuccess?.();
+    }, [onRenderSuccess]);
+
+    return (
+      <div data-testid="pdf-page" data-page={pageNumber}>
+        PDF Page {pageNumber}
+      </div>
+    );
+  },
   pdfjs: { version: "3.11.174", GlobalWorkerOptions: { workerSrc: "" } },
 }));
 
@@ -289,6 +308,7 @@ describe("Browser - PDF Viewer Integration", () => {
         expect(screen.getByTestId("pdf-page")).toHaveAttribute("data-page", "1");
       });
 
+      await waitForPageNavigationReady();
       const nextButton = screen.getByLabelText("Next page");
       fireEvent.click(nextButton);
 
@@ -307,6 +327,7 @@ describe("Browser - PDF Viewer Integration", () => {
         expect(screen.getByTestId("pdf-page")).toBeInTheDocument();
       });
 
+      await waitForPageNavigationReady();
       // Go to page 2
       const nextButton = screen.getByLabelText("Next page");
       fireEvent.click(nextButton);
@@ -335,7 +356,8 @@ describe("Browser - PDF Viewer Integration", () => {
         expect(screen.getByTestId("pdf-page")).toBeInTheDocument();
       });
 
-      const pageInput = screen.getByRole("textbox");
+      await waitForPageNavigationReady();
+      const pageInput = screen.getByDisplayValue("1");
       await user.clear(pageInput);
       await user.type(pageInput, "5");
       fireEvent.blur(pageInput);
@@ -384,11 +406,12 @@ describe("Browser - PDF Viewer Integration", () => {
         expect(screen.getByTestId("pdf-page")).toBeInTheDocument();
       });
 
+      await waitForPageNavigationReady();
       screen.getByTestId("pdf-viewer-content").focus();
       expect(screen.getByTestId("pdf-viewer-content")).toHaveFocus();
 
       // Go to page 5
-      const pageInput = screen.getByRole("textbox");
+      const pageInput = screen.getByDisplayValue("1");
       await user.clear(pageInput);
       await user.type(pageInput, "5");
       fireEvent.blur(pageInput);
