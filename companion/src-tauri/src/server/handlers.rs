@@ -465,6 +465,7 @@ pub async fn browse_info(Path(drive): Path<String>, Query(query): Query<BrowseQu
 
     let relative = query.path.as_deref().unwrap_or("");
     let normalized_relative = normalize_drive_relative_path(&drive, relative)?;
+    let source_path = resolve_drive_relative_source_path(&base_path, &drive, relative)?;
     let full_path = resolve_safe_path(&base_path, &drive, relative)?;
 
     let metadata = tokio::fs::metadata(&full_path).await.map_err(|error| {
@@ -475,7 +476,7 @@ pub async fn browse_info(Path(drive): Path<String>, Query(query): Query<BrowseQu
         }
     })?;
 
-    let name = full_path.file_name().unwrap_or_default().to_string_lossy().to_string();
+    let name = source_path.file_name().unwrap_or_default().to_string_lossy().to_string();
 
     let file_type = if metadata.is_dir() { FileType::Directory } else { FileType::File };
 
@@ -488,9 +489,9 @@ pub async fn browse_info(Path(drive): Path<String>, Query(query): Query<BrowseQu
     };
 
     let is_hidden = name.starts_with('.');
-    let link_kind = source_link_kind(&full_path)
+    let link_kind = source_link_kind(&source_path)
         .await
-        .map_err(|error| map_io_error(error, &full_path))?;
+        .map_err(|error| map_io_error(error, &source_path))?;
 
     Ok(Json(FileInfo {
         name,
@@ -1178,18 +1179,9 @@ fn normalize_drive_relative_path(drive: &str, path: &str) -> Result<String, ApiE
 
 /// Resolve a relative path against a base path, preventing path traversal.
 fn resolve_safe_path(base: &std::path::Path, drive: &str, relative: &str) -> Result<PathBuf, ApiError> {
-    // Normalize the relative path — reject any ".." components
-    let clean = normalize_drive_relative_path(drive, relative)?;
+    let full = resolve_drive_relative_source_path(base, drive, relative)?;
 
-    for component in clean.split('/') {
-        if component == ".." {
-            return Err(ApiError::BadRequest("Path traversal not allowed".to_string()));
-        }
-    }
-
-    let full = if clean.is_empty() { base.to_path_buf() } else { base.join(&clean) };
-
-    // Verify the resolved path is still under the base
+    // Verify the resolved path is still under the base.
     let canonical_base = std::fs::canonicalize(base).map_err(|e| ApiError::NotFound(format!("Drive root inaccessible: {e}")))?;
 
     let canonical_full = std::fs::canonicalize(&full).map_err(|e| map_io_error(e, &full))?;
@@ -1201,18 +1193,27 @@ fn resolve_safe_path(base: &std::path::Path, drive: &str, relative: &str) -> Res
     Ok(canonical_full)
 }
 
+/// Build an uncanonicalized path under a drive root after rejecting traversal.
+fn resolve_drive_relative_source_path(base: &std::path::Path, drive: &str, relative: &str) -> Result<PathBuf, ApiError> {
+    let clean = normalize_drive_relative_path(drive, relative)?;
+
+    for component in clean.split('/') {
+        if component == ".." {
+            return Err(ApiError::BadRequest("Path traversal not allowed".to_string()));
+        }
+    }
+
+    let full = if clean.is_empty() { base.to_path_buf() } else { base.join(&clean) };
+    Ok(full)
+}
+
 /// Validate an activation source without resolving its links.
 ///
 /// Resolution is deliberately deferred to `resolve_activation_target` so a
 /// valid link may cross to another exposed local drive. Other browse actions
 /// continue to use `resolve_safe_path` and therefore remain root-bound.
 fn resolve_activation_source_path(base: &std::path::Path, drive: &str, relative: &str) -> Result<PathBuf, ApiError> {
-    let clean = normalize_drive_relative_path(drive, relative)?;
-    if clean.split('/').any(|component| component == "..") {
-        return Err(ApiError::BadRequest("Path traversal not allowed".to_string()));
-    }
-
-    Ok(if clean.is_empty() { base.to_path_buf() } else { base.join(clean) })
+    resolve_drive_relative_source_path(base, drive, relative)
 }
 
 fn map_link_resolution_error(error: LinkResolutionError) -> ApiError {
@@ -1608,8 +1609,9 @@ async fn copy_dir_recursive(src: &std::path::Path, dst: &std::path::Path) -> Res
 #[cfg(test)]
 mod tests {
     use super::{
-        build_file_info, build_pair_status_response, classify_link_target, normalize_drive_relative_path, resolve_link_target_metadata,
-        resolve_pair_cancel_origin, resolve_pair_confirm_origin, resolve_pair_status_origin,
+        build_file_info, build_pair_status_response, classify_link_target, normalize_drive_relative_path,
+        resolve_drive_relative_source_path, resolve_link_target_metadata, resolve_pair_cancel_origin, resolve_pair_confirm_origin,
+        resolve_pair_status_origin, resolve_safe_path, source_link_kind,
     };
     use crate::server::models::{FileType, LinkKind, LinkTargetState, LinkTargetType, PublicPairingStatus};
     use crate::server::pairing::PairingState;
@@ -1668,6 +1670,26 @@ mod tests {
         assert_eq!(info.file_type, FileType::Directory);
         assert!(info.is_readable);
         assert_eq!(info.link_kind, Some(LinkKind::FilesystemLink));
+    }
+
+    #[cfg(unix)]
+    #[tokio::test]
+    async fn preserves_symlink_source_identity_for_browse_info() {
+        let directory = tempfile::tempdir().expect("temporary directory should be created");
+        let target = directory.path().join("target.txt");
+        let link = directory.path().join("source-link");
+        std::fs::write(&target, "target").expect("temporary file should be written");
+        symlink(&target, &link).expect("symbolic link should be created");
+
+        let source_path = resolve_drive_relative_source_path(directory.path(), "", "source-link").expect("source path should be valid");
+        let resolved_path = resolve_safe_path(directory.path(), "", "source-link").expect("target should remain in the drive");
+
+        assert_eq!(source_path, link);
+        assert_eq!(
+            source_link_kind(&source_path).await.expect("source should be readable"),
+            Some(LinkKind::FilesystemLink)
+        );
+        assert_eq!(resolved_path, std::fs::canonicalize(target).expect("target should canonicalize"));
     }
 
     #[cfg(unix)]

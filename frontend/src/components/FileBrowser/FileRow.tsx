@@ -70,14 +70,14 @@ export const FileRow = React.memo(
     ) => {
       const { t } = useTranslation();
       const isListMode = viewMode === "list";
-      const isFile = file.type !== "directory";
+      const linkTarget = file.link_target?.target;
+      const isFile = file.type !== "directory" && linkTarget?.type !== "directory";
       const rowTextSx = useCompactLayout ? { fontSize: "16px" } : undefined;
       const hasContextMenu = !!(
         onRename ||
         (isFile && (onOpenAssociatedViewer || onOpenViewerPicker || onOpenAssociatedNativeApp || onOpenNativePicker))
       );
       const itemTypeLabel = t(file.type === "directory" ? "fileBrowser.row.itemTypes.folder" : "fileBrowser.row.itemTypes.file");
-      const linkTarget = file.link_target?.target;
       const linkTargetName = linkTarget?.name;
       const ariaLabel = `${itemTypeLabel}: ${file.name}${
         linkTargetName
@@ -321,6 +321,8 @@ export const FileRow = React.memo(
     prev.file.name === next.file.name &&
     prev.file.modified_at === next.file.modified_at &&
     prev.file.size === next.file.size &&
+    prev.file.link_kind === next.file.link_kind &&
+    prev.file.link_target === next.file.link_target &&
     prev.virtualStart === next.virtualStart &&
     prev.virtualSize === next.virtualSize &&
     prev.viewMode === next.viewMode &&

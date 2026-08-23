@@ -93,4 +93,58 @@ describe("FileRow", () => {
     expect(screen.getByRole("button", { name: /shortcut target: Project Archive/i })).toBeInTheDocument();
     expect(screen.getByTestId("ShortcutIcon")).toBeInTheDocument();
   });
+
+  it("rerenders when deferred shortcut metadata arrives", () => {
+    const props = createDefaultFileRowProps();
+    props.isMultiSelected = false;
+    props.file = {
+      ...props.file,
+      name: "Project.lnk",
+      link_kind: "windows_shortcut",
+    };
+
+    const { rerender } = render(<FileRow {...props} />);
+
+    expect(screen.queryByText(/-> Project Archive/)).not.toBeInTheDocument();
+
+    rerender(
+      <FileRow
+        {...props}
+        file={{
+          ...props.file,
+          link_target: {
+            source_path: "Project.lnk",
+            state: "resolved",
+            target: { name: "Project Archive", type: "directory" },
+          },
+        }}
+      />
+    );
+
+    expect(screen.getByText(/-> Project Archive/)).toBeInTheDocument();
+  });
+
+  it("hides file actions for a shortcut resolving to a directory", () => {
+    const props = createDefaultFileRowProps();
+    props.isMultiSelected = false;
+    props.file = {
+      ...props.file,
+      name: "Project.lnk",
+      link_kind: "windows_shortcut",
+      link_target: {
+        source_path: "Project.lnk",
+        state: "resolved",
+        target: { name: "Project Archive", type: "directory" },
+      },
+    };
+
+    render(<FileRow {...props} />);
+    fireEvent.contextMenu(screen.getByRole("button", { name: /shortcut target: Project Archive/i }));
+
+    expect(screen.getByText(translate("common.actions.rename"))).toBeInTheDocument();
+    expect(screen.queryByText(translate("fileBrowser.row.openInBrowserViewer"))).not.toBeInTheDocument();
+    expect(screen.queryByText(translate("fileBrowser.row.chooseBrowserViewer"))).not.toBeInTheDocument();
+    expect(screen.queryByText(translate("fileBrowser.row.openInNativeApp"))).not.toBeInTheDocument();
+    expect(screen.queryByText(translate("fileBrowser.row.chooseNativeApp"))).not.toBeInTheDocument();
+  });
 });
