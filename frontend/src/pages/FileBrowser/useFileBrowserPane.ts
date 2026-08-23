@@ -1476,13 +1476,14 @@ export function useFileBrowserPane(config: UseFileBrowserPaneConfig): UseFileBro
       const name = path.split("/").pop();
       if (!name || !path) return;
       let file = { name, type: "file", mime_type: "application/octet-stream" } as FileEntry;
+      const requestId = recentRecordId ? ++latestLocalActivationRequestIdRef.current : undefined;
+      const isActivationCurrent = () => requestId === undefined || requestId === latestLocalActivationRequestIdRef.current;
 
       if (recentRecordId) {
         if (isLocalDrive(targetConnectionId)) {
-          const requestId = ++latestLocalActivationRequestIdRef.current;
           try {
             const resolution = await api.resolveLocalActivation(targetConnectionId, path);
-            if (requestId !== latestLocalActivationRequestIdRef.current) {
+            if (!isActivationCurrent()) {
               logger.debug("Ignoring superseded recent local activation target", { targetConnectionId, path }, "browser");
               return;
             }
@@ -1493,11 +1494,11 @@ export function useFileBrowserPane(config: UseFileBrowserPaneConfig): UseFileBro
               resolution.item,
               mode,
               recentRecordId,
-              () => requestId === latestLocalActivationRequestIdRef.current
+              isActivationCurrent
             );
             return;
           } catch (error: unknown) {
-            if (requestId !== latestLocalActivationRequestIdRef.current) {
+            if (!isActivationCurrent()) {
               return;
             }
             if (getApiErrorCode(error) === "local_link_target_missing") {
@@ -1512,7 +1513,13 @@ export function useFileBrowserPane(config: UseFileBrowserPaneConfig): UseFileBro
         } else {
           try {
             file = await api.validateRecentFileTarget(recentRecordId);
+            if (!isActivationCurrent()) {
+              return;
+            }
           } catch (error: unknown) {
+            if (!isActivationCurrent()) {
+              return;
+            }
             const validationError = getRecentFileValidationError(error);
             if (validationError && STALE_RECENT_FILE_CODES.has(validationError.code)) {
               publishRecentFilesChanged();
@@ -1522,6 +1529,9 @@ export function useFileBrowserPane(config: UseFileBrowserPaneConfig): UseFileBro
             return;
           }
         }
+      }
+      if (!isActivationCurrent()) {
+        return;
       }
       const mimeType = file.mime_type || "application/octet-stream";
 
@@ -1534,10 +1544,14 @@ export function useFileBrowserPane(config: UseFileBrowserPaneConfig): UseFileBro
         return;
       }
       if (mode === "force-viewer-picker") {
-        void openBrowserViewerPicker(file, path, mimeType, { includeAllViewers: true, connectionId: targetConnectionId });
+        void openBrowserViewerPicker(file, path, mimeType, {
+          includeAllViewers: true,
+          connectionId: targetConnectionId,
+          isActivationCurrent,
+        });
         return;
       }
-      openFileWithAssociatedViewer(file, path, mimeType, targetConnectionId);
+      openFileWithAssociatedViewer(file, path, mimeType, targetConnectionId, isActivationCurrent);
     },
     [activateResolvedLocalTarget, openBrowserViewerPicker, openFileWithAssociatedViewer, openNativeFile, removeRecentFileRecord]
   );

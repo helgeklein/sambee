@@ -567,6 +567,76 @@ describe("useFileBrowserPane", () => {
     expect(result.current.viewInfo).toBeNull();
   });
 
+  it("lets a non-local recent file supersede a pending local link activation", async () => {
+    const localConnection = { ...mockConnections[0], id: "local-drive:c", slug: "c", type: "local" };
+    const remoteConnection = { ...mockConnections[0], id: "conn-2", slug: "archive", name: "Archive" };
+    const link = {
+      name: "Report.lnk",
+      path: "Report.lnk",
+      type: FileType.FILE,
+      is_readable: true,
+      is_hidden: false,
+    };
+    const defaultSettings = await api.getCurrentUserSettings();
+    vi.mocked(api.getCurrentUserSettings).mockClear();
+    let resolveSettings!: (value: Awaited<ReturnType<typeof api.getCurrentUserSettings>>) => void;
+    vi.mocked(api.resolveLocalActivation).mockResolvedValue({
+      drive_id: "c",
+      path: "Reports/quarterly.pdf",
+      item: {
+        name: "quarterly.pdf",
+        path: "Reports/quarterly.pdf",
+        type: FileType.FILE,
+        mime_type: "application/pdf",
+        is_readable: true,
+        is_hidden: false,
+      },
+    });
+    vi.mocked(api.validateRecentFileTarget).mockResolvedValue({
+      name: "outside.png",
+      path: "outside.png",
+      type: FileType.FILE,
+      mime_type: "image/png",
+      size: 100,
+      is_readable: true,
+      is_hidden: false,
+    });
+    vi.mocked(api.getCurrentUserSettings).mockImplementation(
+      () =>
+        new Promise((resolve) => {
+          resolveSettings = resolve;
+        })
+    );
+
+    const { result } = renderHook(
+      () =>
+        useFileBrowserPane({
+          rowHeight: 40,
+          connections: [localConnection, remoteConnection],
+        }),
+      { wrapper }
+    );
+
+    act(() => {
+      result.current.applyLocation("local-drive:c", "Links");
+      result.current.handleOpenFileForFile(link, 0);
+    });
+    await waitFor(() => {
+      expect(api.getCurrentUserSettings).toHaveBeenCalled();
+    });
+
+    await act(async () => {
+      await result.current.handleOpenFileAtPath("conn-2", "outside.png", "associated-viewer", "recent-2");
+      resolveSettings(defaultSettings);
+    });
+
+    await waitFor(() => {
+      expect(result.current.viewInfo).toMatchObject({ connectionId: "conn-2", path: "outside.png" });
+    });
+    expect(api.recordRecentFile).toHaveBeenCalledTimes(1);
+    expect(api.recordRecentFile).toHaveBeenCalledWith("conn-2", "outside.png");
+  });
+
   it("does not record a failed directory navigation after a later reload succeeds", async () => {
     const documentsDirectory = mockDirectoryListing.items.find((item) => item.type === "directory" && item.name === "Documents");
 
