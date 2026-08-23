@@ -1306,9 +1306,7 @@ fn normalize_windows_display_path(path: &str) -> String {
         return format!("{WINDOWS_UNC_PATH_PREFIX}{unc_path}");
     }
 
-    path.strip_prefix(WINDOWS_EXTENDED_PATH_PREFIX)
-        .unwrap_or(path)
-        .to_string()
+    path.strip_prefix(WINDOWS_EXTENDED_PATH_PREFIX).unwrap_or(path).to_string()
 }
 
 fn resolve_link_target_metadata(source_path: String, source: PathBuf) -> LinkTargetResolution {
@@ -1644,9 +1642,9 @@ async fn copy_dir_recursive(src: &std::path::Path, dst: &std::path::Path) -> Res
 #[cfg(test)]
 mod tests {
     use super::{
-        build_file_info, build_pair_status_response, classify_link_target, normalize_drive_relative_path,
-        normalize_windows_display_path, resolve_drive_relative_source_path, resolve_link_target_metadata, resolve_pair_cancel_origin,
-        resolve_pair_confirm_origin, resolve_pair_status_origin, resolve_safe_path, source_link_kind,
+        build_file_info, build_pair_status_response, classify_link_target, normalize_drive_relative_path, normalize_windows_display_path,
+        resolve_drive_relative_source_path, resolve_link_target_metadata, resolve_pair_cancel_origin, resolve_pair_confirm_origin,
+        resolve_pair_status_origin, resolve_safe_path, source_link_kind,
     };
     use crate::server::models::{FileType, LinkKind, LinkTargetState, LinkTargetType, PublicPairingStatus};
     use crate::server::pairing::PairingState;
