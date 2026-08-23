@@ -223,7 +223,7 @@ export interface UseFileBrowserPaneReturn {
   handleOpenFile: (options?: { requireListFocus?: boolean; mode?: BrowserOpenMode }) => void;
   handleOpenFileForFile: (file: FileEntry, index: number, mode?: BrowserOpenMode) => void;
   handleOpenFileAtPath: (connectionId: string, path: string, mode?: BrowserOpenMode, recentRecordId?: string) => Promise<void>;
-  navigateToPath: (path: string, options?: { blurActiveElement?: boolean }) => void;
+  navigateToPath: (path: string) => void;
   prepareDirectoryTransition: (connectionId: string, path: string) => void;
   handleNavigateUpDirectory: () => void;
   handleNavigateUp: () => void;

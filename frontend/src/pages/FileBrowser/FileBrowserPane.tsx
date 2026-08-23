@@ -320,7 +320,7 @@ export const FileBrowserPane: React.FC<FileBrowserPaneProps> = ({
   /** Navigate to a breadcrumb path segment. */
   const handleBreadcrumbNavigate = React.useCallback(
     (path: string) => {
-      pane.navigateToPath(path, { blurActiveElement: true });
+      pane.navigateToPath(path);
     },
     [pane]
   );

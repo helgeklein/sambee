@@ -62,3 +62,7 @@ In any editor, search and replace are essential functions that need to work effi
 ## Markdown Editor
 
 - Added <kbd>Ctrl+B</kbd> and <kbd>Ctrl+I</kbd> keyboard shortcuts for bold and italic formatting
+
+## File List
+
+- Keyboard navigation: removed delay after entering a new directory

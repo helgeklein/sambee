@@ -23,6 +23,26 @@ const expectDirectoryLoad = (connectionId: string, path: string) => {
   );
 };
 
+const createDirectoryEntry = (name: string, path: string): FileInfo => ({
+  name,
+  path,
+  type: FileType.DIRECTORY,
+  size: null,
+  modified_at: "2024-01-12T10:00:00Z",
+  is_readable: true,
+  is_hidden: false,
+});
+
+const createFileEntry = (name: string, path: string): FileInfo => ({
+  name,
+  path,
+  type: FileType.FILE,
+  size: 512,
+  modified_at: "2024-01-12T10:00:00Z",
+  is_readable: true,
+  is_hidden: false,
+});
+
 // Mock the API module
 vi.mock("../../services/api");
 
@@ -90,7 +110,97 @@ describe("Browser Component - Navigation", () => {
     await waitFor(() => {
       const file1Elements = screen.getAllByText("file1.txt");
       expect(file1Elements.length).toBeGreaterThan(0);
+      expect(screen.getByTestId("file-list-container")).toHaveFocus();
     });
+  });
+
+  it("starts a fresh typeahead search immediately after a delayed keyboard directory navigation", async () => {
+    const destinationFiles = [createFileEntry("Alpha.txt", "Destination/Alpha.txt"), createFileEntry("Zebra.txt", "Destination/Zebra.txt")];
+    const rootFiles = [createDirectoryEntry("Destination", "Destination"), createFileEntry("Other.txt", "Other.txt")];
+    let resolveDestination: ((value: { items: FileInfo[]; path: string; total: number }) => void) | undefined;
+
+    vi.mocked(api.listDirectory).mockImplementation((_connectionId, path) => {
+      if (path === "Destination") {
+        return new Promise((resolve) => {
+          resolveDestination = resolve;
+        });
+      }
+
+      return Promise.resolve({ items: rootFiles, path: "", total: rootFiles.length });
+    });
+
+    const user = userEvent.setup();
+    renderBrowser("/browse/smb/test-server-1");
+
+    const listContainer = await screen.findByTestId("file-list-container");
+    listContainer.focus();
+    await user.keyboard("d");
+
+    await waitFor(() => {
+      expect(screen.getByRole("button", { name: /folder: destination/i })).toHaveAttribute("data-selected", "true");
+    });
+
+    await user.keyboard("{Enter}");
+    await waitFor(() => {
+      expectDirectoryLoad("conn-1", "Destination");
+      expect(screen.getByRole("progressbar")).toBeInTheDocument();
+    });
+
+    resolveDestination?.({ items: destinationFiles, path: "Destination", total: destinationFiles.length });
+
+    const destinationList = await screen.findByTestId("file-list-container");
+    expect(destinationList).toHaveFocus();
+
+    await user.keyboard("z");
+
+    await waitFor(() => {
+      expect(screen.getByRole("button", { name: /file: zebra\.txt/i })).toHaveAttribute("data-selected", "true");
+    });
+  });
+
+  it("retains typeahead focus when revisiting a cached directory with the same item count", async () => {
+    const destinationFiles = [createFileEntry("Alpha.txt", "Destination/Alpha.txt"), createFileEntry("Zebra.txt", "Destination/Zebra.txt")];
+    const rootFiles = [createDirectoryEntry("Destination", "Destination"), createFileEntry("Other.txt", "Other.txt")];
+
+    vi.mocked(api.listDirectory).mockImplementation(async (_connectionId, path) => {
+      if (path === "Destination") {
+        return { items: destinationFiles, path, total: destinationFiles.length };
+      }
+
+      return { items: rootFiles, path: "", total: rootFiles.length };
+    });
+
+    const user = userEvent.setup();
+    renderBrowser("/browse/smb/test-server-1");
+
+    const focusDestinationAndOpen = async () => {
+      const listContainer = await screen.findByTestId("file-list-container");
+      listContainer.focus();
+      await user.keyboard("d");
+      await waitFor(() => {
+        expect(screen.getByRole("button", { name: /folder: destination/i })).toHaveAttribute("data-selected", "true");
+      });
+      await user.keyboard("{Enter}");
+      return screen.findByRole("button", { name: /file: zebra\.txt/i });
+    };
+
+    await focusDestinationAndOpen();
+
+    await user.click(screen.getByRole("button", { name: /navigate to root directory/i }));
+    await screen.findByRole("button", { name: /folder: destination/i });
+
+    await focusDestinationAndOpen();
+    const cachedDestinationList = screen.getByTestId("file-list-container");
+    expect(cachedDestinationList).toHaveFocus();
+
+    await user.keyboard("z");
+
+    await waitFor(() => {
+      expect(screen.getByRole("button", { name: /file: zebra\.txt/i })).toHaveAttribute("data-selected", "true");
+    });
+
+    const destinationLoads = vi.mocked(api.listDirectory).mock.calls.filter(([_connectionId, path]) => path === "Destination");
+    expect(destinationLoads).toHaveLength(1);
   });
 
   it("does not repaint the previous directory contents while loading a child directory", async () => {
@@ -184,6 +294,7 @@ describe("Browser Component - Navigation", () => {
     // Should navigate back to root
     await waitFor(() => {
       expectDirectoryLoad("conn-1", "");
+      expect(screen.getByTestId("file-list-container")).toHaveFocus();
     });
   });
 
