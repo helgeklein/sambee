@@ -16,6 +16,14 @@ pub const RECENT_FILE_TARGET_MISSING_CODE: &str = "recent_file_target_missing";
 pub const RECENT_FILE_TARGET_NOT_FILE_CODE: &str = "recent_file_target_not_file";
 /// Stable error code for a confirmed failure to launch a local native application.
 pub const RECENT_FILE_NATIVE_LAUNCH_FAILED_CODE: &str = "recent_file_native_launch_failed";
+/// Stable error code for a link whose target no longer exists.
+pub const LOCAL_LINK_TARGET_MISSING_CODE: &str = "local_link_target_missing";
+/// Stable error code for a link whose target cannot be read by the Companion.
+pub const LOCAL_LINK_TARGET_ACCESS_DENIED_CODE: &str = "local_link_target_access_denied";
+/// Stable error code for a malformed or non-filesystem local link.
+pub const LOCAL_LINK_TARGET_UNRESOLVABLE_CODE: &str = "local_link_target_unresolvable";
+/// Stable error code for a link whose target is not available through a local drive route.
+pub const LOCAL_LINK_TARGET_UNMAPPED_DRIVE_CODE: &str = "local_link_target_unmapped_drive";
 
 /// API error type that converts into appropriate HTTP responses.
 #[derive(Debug, thiserror::Error)]
@@ -34,6 +42,9 @@ pub enum ApiError {
 
     #[error("Forbidden: {0}")]
     Forbidden(String),
+
+    #[error("Forbidden: {message}")]
+    ForbiddenWithCode { message: String, code: &'static str },
 
     #[error("Too many requests: {0}")]
     TooManyRequests(String),
@@ -83,6 +94,11 @@ impl ApiError {
         ApiError::BadRequestWithCode { message: msg.into(), code }
     }
 
+    /// Create a forbidden response with a stable machine-readable code.
+    pub fn forbidden_code(msg: impl Into<String>, code: &'static str) -> Self {
+        ApiError::ForbiddenWithCode { message: msg.into(), code }
+    }
+
     /// Create an internal-error response with a stable machine-readable code.
     pub fn internal_code(msg: impl Into<String>, code: &'static str) -> Self {
         ApiError::InternalWithCode { message: msg.into(), code }
@@ -97,6 +113,7 @@ impl IntoResponse for ApiError {
             ApiError::BadRequest(msg) => (StatusCode::BAD_REQUEST, Value::String(msg), None),
             ApiError::BadRequestWithCode { message, code } => (StatusCode::BAD_REQUEST, Value::String(message), Some(code)),
             ApiError::Forbidden(msg) => (StatusCode::FORBIDDEN, Value::String(msg), None),
+            ApiError::ForbiddenWithCode { message, code } => (StatusCode::FORBIDDEN, Value::String(message), Some(code)),
             ApiError::TooManyRequests(msg) => (StatusCode::TOO_MANY_REQUESTS, Value::String(msg), None),
             ApiError::Conflict(val) => (StatusCode::CONFLICT, val, None),
             ApiError::ConflictWithCode { message, code } => (StatusCode::CONFLICT, Value::String(message), Some(code)),

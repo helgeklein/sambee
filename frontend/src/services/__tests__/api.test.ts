@@ -809,6 +809,30 @@ describe("API Service", () => {
         params: { path: "/document.pdf" },
       });
     });
+
+    it("resolveLocalActivation() resolves through the Companion API", async () => {
+      const resolution = {
+        drive_id: "d",
+        path: "Documents/report.pdf",
+        item: {
+          name: "report.pdf",
+          path: "Documents/report.pdf",
+          type: FileType.FILE,
+          is_readable: true,
+          is_hidden: false,
+        },
+      };
+      localStorage.setItem("companion_secret", "test-companion-secret");
+      mockAxiosInstance.get.mockResolvedValueOnce({ data: resolution } as AxiosResponse);
+
+      const result = await apiService.resolveLocalActivation("local-drive:c", "Links/report.lnk");
+
+      expect(result).toEqual(resolution);
+      expect(mockAxiosInstance.get).toHaveBeenCalledWith("/browse/c/resolve-activation", {
+        headers: expect.any(Object),
+        params: { path: "Links/report.lnk" },
+      });
+    });
   });
 
   describe("Viewer Operations", () => {

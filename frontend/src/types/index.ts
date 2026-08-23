@@ -447,6 +447,13 @@ export interface DirectoryListing {
   total: number;
 }
 
+/** Canonical local-drive target returned before activating a local entry. */
+export interface LocalActivationResolution {
+  drive_id: string;
+  path: string;
+  item: FileInfo;
+}
+
 export interface DirectorySearchResult {
   results: string[];
   total_matches: number;

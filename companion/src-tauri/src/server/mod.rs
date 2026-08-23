@@ -8,6 +8,7 @@ pub mod auth;
 pub mod drives;
 pub mod errors;
 pub mod handlers;
+pub mod links;
 pub mod localization;
 pub mod models;
 pub mod pairing;
@@ -105,6 +106,10 @@ fn build_router(state: Arc<AppState>) -> Router {
         .route("/api/drives", axum::routing::get(handlers::list_drives))
         .route("/api/browse/{drive}/list", axum::routing::get(handlers::browse_list))
         .route("/api/browse/{drive}/info", axum::routing::get(handlers::browse_info))
+        .route(
+            "/api/browse/{drive}/resolve-activation",
+            axum::routing::get(handlers::browse_resolve_activation),
+        )
         .route("/api/browse/{drive}/item", axum::routing::delete(handlers::browse_delete))
         .route("/api/browse/{drive}/rename", axum::routing::post(handlers::browse_rename))
         .route("/api/browse/{drive}/create", axum::routing::post(handlers::browse_create))

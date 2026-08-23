@@ -25,9 +25,11 @@ use crate::{commands, show_pairing_success, show_pairing_window};
 use super::auth;
 use super::drives;
 use super::errors::{
-    ApiError, PAIR_CONFIRMATION_PENDING_CODE, RECENT_FILE_NATIVE_LAUNCH_FAILED_CODE, RECENT_FILE_TARGET_MISSING_CODE,
-    RECENT_FILE_TARGET_NOT_FILE_CODE,
+    ApiError, LOCAL_LINK_TARGET_ACCESS_DENIED_CODE, LOCAL_LINK_TARGET_MISSING_CODE, LOCAL_LINK_TARGET_UNMAPPED_DRIVE_CODE,
+    LOCAL_LINK_TARGET_UNRESOLVABLE_CODE, PAIR_CONFIRMATION_PENDING_CODE, RECENT_FILE_NATIVE_LAUNCH_FAILED_CODE,
+    RECENT_FILE_TARGET_MISSING_CODE, RECENT_FILE_TARGET_NOT_FILE_CODE,
 };
+use super::links::{resolve_activation_target, LinkResolutionError};
 use super::models::*;
 use super::pairing::{PairingInitiateError, PairingState};
 use super::AppState;
@@ -441,6 +443,38 @@ pub async fn browse_info(Path(drive): Path<String>, Query(query): Query<BrowseQu
         modified_at: system_time_to_chrono(metadata.modified().ok()),
         is_readable: true, // We can read it if we could stat it
         is_hidden,
+    }))
+}
+
+/// `GET /api/browse/{drive}/resolve-activation` — resolve a local entry before opening it.
+///
+/// The response always uses a canonical path rooted in an exposed local drive,
+/// including when a filesystem link or Windows shortcut points to another drive.
+pub async fn browse_resolve_activation(
+    Path(drive): Path<String>,
+    Query(query): Query<BrowseQuery>,
+) -> Result<Json<ActivationResolution>, ApiError> {
+    let base_path = drives::resolve_drive_path(&drive).ok_or_else(|| ApiError::NotFound(format!("Unknown drive: {drive}")))?;
+    let relative = query.path.as_deref().unwrap_or("");
+    let source_path = resolve_activation_source_path(&base_path, &drive, relative)?;
+    let target_path = tokio::task::spawn_blocking(move || resolve_activation_target(&source_path))
+        .await
+        .map_err(|error| ApiError::Internal(format!("Link resolution task failed: {error}")))?
+        .map_err(map_link_resolution_error)?;
+
+    let (target_drive_id, target_relative_path) = drives::drive_for_path(&target_path).ok_or_else(|| {
+        ApiError::forbidden_code(
+            "The link target is not on an accessible local drive",
+            LOCAL_LINK_TARGET_UNMAPPED_DRIVE_CODE,
+        )
+    })?;
+    let target_relative = target_relative_path.to_string_lossy().replace('\\', "/");
+    let item = build_file_info_from_path(&target_path, &target_relative).await?;
+
+    Ok(Json(ActivationResolution {
+        drive_id: target_drive_id,
+        path: target_relative,
+        item,
     }))
 }
 
@@ -1100,9 +1134,45 @@ fn resolve_safe_path(base: &std::path::Path, drive: &str, relative: &str) -> Res
     Ok(canonical_full)
 }
 
+/// Validate an activation source without resolving its links.
+///
+/// Resolution is deliberately deferred to `resolve_activation_target` so a
+/// valid link may cross to another exposed local drive. Other browse actions
+/// continue to use `resolve_safe_path` and therefore remain root-bound.
+fn resolve_activation_source_path(base: &std::path::Path, drive: &str, relative: &str) -> Result<PathBuf, ApiError> {
+    let clean = normalize_drive_relative_path(drive, relative)?;
+    if clean.split('/').any(|component| component == "..") {
+        return Err(ApiError::BadRequest("Path traversal not allowed".to_string()));
+    }
+
+    Ok(if clean.is_empty() { base.to_path_buf() } else { base.join(clean) })
+}
+
+fn map_link_resolution_error(error: LinkResolutionError) -> ApiError {
+    match error {
+        LinkResolutionError::TargetMissing => ApiError::not_found_code("The link target no longer exists", LOCAL_LINK_TARGET_MISSING_CODE),
+        LinkResolutionError::TargetAccessDenied => {
+            ApiError::forbidden_code("The link target is not accessible", LOCAL_LINK_TARGET_ACCESS_DENIED_CODE)
+        }
+        LinkResolutionError::Unresolvable(message) => ApiError::bad_request_code(message, LOCAL_LINK_TARGET_UNRESOLVABLE_CODE),
+    }
+}
+
 /// Build a `FileInfo` from a `DirEntry`.
 async fn build_file_info(entry: &tokio::fs::DirEntry, parent_path: &str) -> Result<FileInfo, std::io::Error> {
-    let metadata = entry.metadata().await?;
+    let filesystem_path = entry.path();
+    let (metadata, is_readable) = match tokio::fs::metadata(&filesystem_path).await {
+        Ok(metadata) => (metadata, true),
+        Err(metadata_error) => {
+            let fallback = tokio::fs::symlink_metadata(&filesystem_path).await?;
+            if !fallback.file_type().is_symlink() {
+                return Err(metadata_error);
+            }
+            // Preserve a broken link in the listing so activation can report
+            // its classified resolution error instead of making it disappear.
+            (fallback, false)
+        }
+    };
     let name = entry.file_name().to_string_lossy().to_string();
 
     let entry_path = if parent_path.is_empty() {
@@ -1131,7 +1201,7 @@ async fn build_file_info(entry: &tokio::fs::DirEntry, parent_path: &str) -> Resu
         mime_type,
         created_at: system_time_to_chrono(metadata.created().ok()),
         modified_at: system_time_to_chrono(metadata.modified().ok()),
-        is_readable: true,
+        is_readable,
         is_hidden,
     })
 }
@@ -1364,13 +1434,66 @@ async fn copy_dir_recursive(src: &std::path::Path, dst: &std::path::Path) -> Res
 #[cfg(test)]
 mod tests {
     use super::{
-        build_pair_status_response, normalize_drive_relative_path, resolve_pair_cancel_origin, resolve_pair_confirm_origin,
-        resolve_pair_status_origin,
+        build_file_info, build_pair_status_response, normalize_drive_relative_path, resolve_pair_cancel_origin,
+        resolve_pair_confirm_origin, resolve_pair_status_origin,
     };
-    use crate::server::models::PublicPairingStatus;
+    use crate::server::models::{FileType, PublicPairingStatus};
     use crate::server::pairing::PairingState;
     use axum::http::{HeaderMap, HeaderValue};
+    #[cfg(unix)]
+    use std::os::unix::fs::symlink;
     const NONCE_A: &str = "00112233445566778899aabbccddeeff00112233445566778899aabbccddeeff";
+
+    #[cfg(unix)]
+    #[tokio::test]
+    async fn lists_a_broken_symbolic_link_for_activation_error_handling() {
+        let directory = tempfile::tempdir().expect("temporary directory should be created");
+        let link = directory.path().join("missing-target");
+        symlink(directory.path().join("does-not-exist"), &link).expect("symbolic link should be created");
+        let mut entries = tokio::fs::read_dir(directory.path()).await.expect("directory should be readable");
+        let entry = entries
+            .next_entry()
+            .await
+            .expect("directory entry should be readable")
+            .expect("symbolic link should be listed");
+
+        let info = build_file_info(&entry, "")
+            .await
+            .expect("broken symbolic link should have fallback metadata");
+
+        assert_eq!(info.name, "missing-target");
+        assert_eq!(info.file_type, FileType::File);
+        assert!(!info.is_readable);
+    }
+
+    #[cfg(unix)]
+    #[tokio::test]
+    async fn lists_a_directory_symbolic_link_as_a_directory() {
+        let directory = tempfile::tempdir().expect("temporary directory should be created");
+        let target = directory.path().join("target-directory");
+        let link = directory.path().join("directory-link");
+        std::fs::create_dir(&target).expect("target directory should be created");
+        symlink(&target, &link).expect("symbolic link should be created");
+        let mut entries = tokio::fs::read_dir(directory.path()).await.expect("directory should be readable");
+        let entry = loop {
+            let entry = entries
+                .next_entry()
+                .await
+                .expect("directory entry should be readable")
+                .expect("directory symbolic link should be listed");
+            if entry.file_name() == "directory-link" {
+                break entry;
+            }
+        };
+
+        let info = build_file_info(&entry, "")
+            .await
+            .expect("directory symbolic link should have target metadata");
+
+        assert_eq!(info.name, "directory-link");
+        assert_eq!(info.file_type, FileType::Directory);
+        assert!(info.is_readable);
+    }
 
     #[test]
     fn normalizes_same_drive_absolute_windows_paths() {
