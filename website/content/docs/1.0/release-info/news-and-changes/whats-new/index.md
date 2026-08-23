@@ -57,6 +57,7 @@ In any editor, search and replace are essential functions that need to work effi
 ### Other Changes
 
 - Added keyboard shortcuts help
+- Added word wrap (toggled by keyboard shortcut <kbd>Alt+Z</kbd>)
 - Bugfix: text selection highlighting
 
 ## Markdown Editor
