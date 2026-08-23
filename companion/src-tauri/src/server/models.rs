@@ -43,6 +43,17 @@ pub struct DirectoryListing {
     pub total: usize,
 }
 
+/// The final local-drive target selected for an activation request.
+#[derive(Debug, Serialize)]
+pub struct ActivationResolution {
+    /// Companion drive ID containing the canonical target.
+    pub drive_id: String,
+    /// Canonical target path relative to `drive_id`.
+    pub path: String,
+    /// Metadata for the target used to choose navigation or file opening.
+    pub item: FileInfo,
+}
+
 /// A mounted drive / volume visible to the companion.
 #[derive(Debug, Serialize)]
 pub struct DriveInfo {

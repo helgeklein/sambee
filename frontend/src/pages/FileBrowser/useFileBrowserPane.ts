@@ -22,7 +22,7 @@ import React, { useCallback, useEffect, useLayoutEffect, useMemo, useState } fro
 import { useDirectorySearchProvider } from "../../components/FileBrowser/search";
 import api from "../../services/api";
 import { isClientTimeoutError, isLocalAbortError } from "../../services/backendAvailability";
-import { isLocalDrive, normalizeLocalDrivePath } from "../../services/backendRouter";
+import { isLocalDrive, LOCAL_DRIVE_PREFIX, normalizeLocalDrivePath } from "../../services/backendRouter";
 import { logger } from "../../services/logger";
 import { publishRecentDirectoriesChanged } from "../../services/recentDirectoriesSync";
 import { publishRecentFilesChanged } from "../../services/recentFilesSync";
@@ -1274,10 +1274,85 @@ export function useFileBrowserPane(config: UseFileBrowserPaneConfig): UseFileBro
     [openBrowserViewerPicker, openFileInViewer]
   );
 
+  const navigateToResolvedDirectory = useCallback(
+    (sourceFile: FileEntry, targetConnectionId: string, targetPath: string) => {
+      if (targetConnectionId !== connectionIdRef.current) {
+        onNavigateDirectory?.(targetConnectionId, targetPath);
+        return;
+      }
+
+      const currentScrollOffset = parentRef.current?.scrollTop || 0;
+      navigationHistory.current.set(currentPathRef.current, {
+        focusedIndex,
+        scrollOffset: currentScrollOffset,
+        selectedFileName: sourceFile.name,
+      });
+      pendingDirectoryEntryIntentRef.current = { kind: "fresh" };
+      logger.info(
+        "Navigating to resolved local directory",
+        { from: currentPathRef.current, to: targetPath, source: sourceFile.name },
+        "browser"
+      );
+      navigateToPath(targetPath);
+    },
+    [focusedIndex, navigateToPath, onNavigateDirectory]
+  );
+
+  const resolveAndActivateLocalEntry = useCallback(
+    async (sourceFile: FileEntry, sourcePath: string, mode: BrowserOpenMode) => {
+      const sourceConnectionId = connectionIdRef.current;
+      if (!sourceConnectionId) return;
+
+      try {
+        const resolution = await api.resolveLocalActivation(sourceConnectionId, sourcePath);
+        const targetConnectionId = `${LOCAL_DRIVE_PREFIX}${resolution.drive_id}`;
+        const targetFile = resolution.item;
+
+        if (targetFile.type === FileType.DIRECTORY) {
+          navigateToResolvedDirectory(sourceFile, targetConnectionId, resolution.path);
+          return;
+        }
+
+        const mimeType = targetFile.mime_type || "application/octet-stream";
+        if (mode === "associated-native-app") {
+          await openNativeFile(targetFile, undefined, { connectionId: targetConnectionId, path: resolution.path });
+          return;
+        }
+        if (mode === "force-native-picker") {
+          await openNativeFile(targetFile, { forcePicker: true }, { connectionId: targetConnectionId, path: resolution.path });
+          return;
+        }
+        if (mode === "force-viewer-picker") {
+          await openBrowserViewerPicker(targetFile, resolution.path, mimeType, {
+            includeAllViewers: true,
+            connectionId: targetConnectionId,
+          });
+          return;
+        }
+
+        openFileWithAssociatedViewer(targetFile, resolution.path, mimeType, targetConnectionId);
+      } catch (error: unknown) {
+        const detail =
+          isApiError(error) && typeof error.response?.data?.detail === "string"
+            ? error.response.data.detail
+            : "Failed to resolve local link.";
+        setError(detail);
+        logger.error("Failed to resolve local activation target", { sourceConnectionId, sourcePath, error }, "browser");
+      }
+    },
+    [navigateToResolvedDirectory, openBrowserViewerPicker, openFileWithAssociatedViewer, openNativeFile]
+  );
+
   const handleFileClick = useCallback(
     (file: FileEntry, index?: number) => {
       if (index !== undefined) {
         updateFocus(index, { immediate: true });
+      }
+
+      const filePath = currentPathRef.current ? `${currentPathRef.current}/${file.name}` : file.name;
+      if (isLocalDrive(connectionIdRef.current)) {
+        void resolveAndActivateLocalEntry(file, filePath, "associated-viewer");
+        return;
       }
 
       if (file.type === "directory") {
@@ -1297,22 +1372,26 @@ export function useFileBrowserPane(config: UseFileBrowserPaneConfig): UseFileBro
         return;
       }
 
-      const filePath = currentPath ? `${currentPath}/${file.name}` : file.name;
       const mimeType = file.mime_type || "application/octet-stream";
 
       openFileWithAssociatedViewer(file, filePath, mimeType);
     },
-    [currentPath, updateFocus, focusedIndex, navigateToPath, openFileWithAssociatedViewer]
+    [currentPath, updateFocus, focusedIndex, navigateToPath, openFileWithAssociatedViewer, resolveAndActivateLocalEntry]
   );
 
   const handleOpenFileForFile = useCallback(
     (file: FileEntry, index: number, mode: BrowserOpenMode = "associated-viewer") => {
+      const filePath = currentPathRef.current ? `${currentPathRef.current}/${file.name}` : file.name;
+      if (isLocalDrive(connectionIdRef.current)) {
+        void resolveAndActivateLocalEntry(file, filePath, mode);
+        return;
+      }
+
       if (file.type === "directory") {
         handleFileClick(file, index);
         return;
       }
 
-      const filePath = currentPathRef.current ? `${currentPathRef.current}/${file.name}` : file.name;
       const mimeType = file.mime_type || "application/octet-stream";
 
       if (mode === "associated-native-app") {
@@ -1332,7 +1411,7 @@ export function useFileBrowserPane(config: UseFileBrowserPaneConfig): UseFileBro
 
       openFileWithAssociatedViewer(file, filePath, mimeType);
     },
-    [handleFileClick, openNativeFile, openBrowserViewerPicker, openFileWithAssociatedViewer]
+    [handleFileClick, openNativeFile, openBrowserViewerPicker, openFileWithAssociatedViewer, resolveAndActivateLocalEntry]
   );
 
   const handleOpenFileAtPath = useCallback(
@@ -1779,17 +1858,27 @@ export function useFileBrowserPane(config: UseFileBrowserPaneConfig): UseFileBro
       if (!connectionId) return;
       const file = filesRef.current[focusedIndex];
       if (!file || file.type === "directory") return;
+      const filePath = currentPathRef.current ? `${currentPathRef.current}/${file.name}` : file.name;
+      if (isLocalDrive(connectionIdRef.current)) {
+        await resolveAndActivateLocalEntry(file, filePath, options?.forcePicker ? "force-native-picker" : "associated-native-app");
+        return;
+      }
       await openNativeFile(file, options);
     },
-    [connectionId, focusedIndex, openNativeFile]
+    [connectionId, focusedIndex, openNativeFile, resolveAndActivateLocalEntry]
   );
 
   const handleOpenInAppForFile = useCallback(
     async (file: FileEntry, _index: number, options?: { forcePicker?: boolean }) => {
       if (!connectionId || file.type === "directory") return;
+      const filePath = currentPathRef.current ? `${currentPathRef.current}/${file.name}` : file.name;
+      if (isLocalDrive(connectionIdRef.current)) {
+        await resolveAndActivateLocalEntry(file, filePath, options?.forcePicker ? "force-native-picker" : "associated-native-app");
+        return;
+      }
       await openNativeFile(file, options);
     },
-    [connectionId, openNativeFile]
+    [connectionId, openNativeFile, resolveAndActivateLocalEntry]
   );
 
   const closeBrowserViewerPicker = useCallback(() => {
@@ -2076,7 +2165,7 @@ export function useFileBrowserPane(config: UseFileBrowserPaneConfig): UseFileBro
     return () => {
       window.removeEventListener("keydown", handleKeyDown);
     };
-  }, [clearIncrementalSearch, disabled, viewInfo, updateFocus, listContainerEl]);
+  }, [disabled, viewInfo, updateFocus, listContainerEl]);
 
   useEffect(() => {
     if (!listContainerEl) return;

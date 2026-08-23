@@ -59,6 +59,34 @@ pub fn resolve_drive_path(drive_id: &str) -> Option<PathBuf> {
     drives.iter().find(|_d| _d.id == drive_id).map(|_| drive_id_to_path(drive_id))
 }
 
+/// Map a canonical filesystem path to the most-specific exposed drive.
+///
+/// The returned path is relative to the selected drive root. Nested mount
+/// points take precedence over their parents so that a target remains in the
+/// drive the browser can address directly.
+pub fn drive_for_path(path: &Path) -> Option<(String, PathBuf)> {
+    let canonical_path = std::fs::canonicalize(path).ok()?;
+    let mut best_match: Option<(String, PathBuf, usize)> = None;
+
+    for drive in enumerate_platform_drives() {
+        let root = drive_id_to_path(&drive.id);
+        let canonical_root = match std::fs::canonicalize(&root) {
+            Ok(root) => root,
+            Err(_) => continue,
+        };
+        let Ok(relative) = canonical_path.strip_prefix(&canonical_root) else {
+            continue;
+        };
+
+        let depth = canonical_root.components().count();
+        if best_match.as_ref().is_none_or(|(_, _, best_depth)| depth > *best_depth) {
+            best_match = Some((drive.id, relative.to_path_buf(), depth));
+        }
+    }
+
+    best_match.map(|(drive_id, relative, _)| (drive_id, relative))
+}
+
 /// Convert a drive ID back to its filesystem path.
 fn drive_id_to_path(drive_id: &str) -> PathBuf {
     // On Windows, drive IDs are lowercase letter: "c" -> "C:\\"

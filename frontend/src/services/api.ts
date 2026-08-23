@@ -28,6 +28,7 @@ import type {
   FileInfo,
   FileSearchSettingsRead,
   FileSearchSettingsUpdate,
+  LocalActivationResolution,
   NetworkSettings,
   NetworkSettingsUpdate,
   OidcAdminConfigurationRead,
@@ -795,6 +796,17 @@ class ApiService {
     const segment = getBrowseSegment(connectionId);
     const { client, extraConfig } = await this.getClientConfig(connectionId);
     const response = await client.get<FileInfo>(`/browse/${segment}/info`, {
+      ...extraConfig,
+      params: { path },
+    });
+    return response.data;
+  }
+
+  /** Resolve a local entry to its canonical drive-relative activation target. */
+  async resolveLocalActivation(connectionId: string, path: string): Promise<LocalActivationResolution> {
+    const segment = getBrowseSegment(connectionId);
+    const { client, extraConfig } = await this.getClientConfig(connectionId);
+    const response = await client.get<LocalActivationResolution>(`/browse/${segment}/resolve-activation`, {
       ...extraConfig,
       params: { path },
     });

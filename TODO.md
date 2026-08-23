@@ -41,7 +41,3 @@
 - Plugin system to support additional backends like S3 or SFTP
    - Every backend must use the new system.
    - This means we need to move the existing storage support (SMB and local drives) to the new system.
-
-## Local drives
-
-- Google Drive: "My Drive.lnk" doesn't work

@@ -37,6 +37,8 @@ Use these shortcuts when the main file list or browser shell has focus.
 | <kbd>Shift</kbd> + <kbd>F7</kbd> | Create a new file |
 | <kbd>Ctrl</kbd> + <kbd>Enter</kbd> | Open the focused file in the companion app |
 
+When the focused item is a local shortcut or filesystem link, Sambee resolves its target before activating it. A directory target opens in its drive and directory, including a different local drive. A file target follows the same behavior as opening that file directly: <kbd>Enter</kbd> uses the selected viewer, while <kbd>Ctrl</kbd> + <kbd>Enter</kbd> opens it in the companion app. If the target is missing or inaccessible, Sambee shows an error instead of opening the link itself.
+
 ## Selection and Dual-Pane Workflows
 
 These shortcuts matter most when you are working keyboard-first across one or two panes.

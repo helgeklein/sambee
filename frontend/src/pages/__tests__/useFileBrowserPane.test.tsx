@@ -214,6 +214,11 @@ describe("useFileBrowserPane", () => {
 
     expect(documentsDirectory).toBeDefined();
     vi.mocked(api.getFileInfo).mockResolvedValue({ type: FileType.DIRECTORY } as never);
+    vi.mocked(api.resolveLocalActivation).mockImplementation(async (_connectionId, path) => ({
+      drive_id: "d",
+      path,
+      item: { ...documentsDirectory!, path, type: FileType.DIRECTORY },
+    }));
 
     const { result } = renderHook(
       () =>
@@ -251,6 +256,188 @@ describe("useFileBrowserPane", () => {
       expect(api.getFileInfo).toHaveBeenCalledWith("local-drive:d", "Documents/Other");
     });
     expect(api.recordRecentDirectory).toHaveBeenCalledTimes(1);
+  });
+
+  it("navigates to a directory resolved from a local link on another drive", async () => {
+    const sourceConnection = { ...mockConnections[0], id: "local-drive:c", slug: "c", type: "local" };
+    const targetConnection = { ...mockConnections[0], id: "local-drive:d", slug: "d", type: "local", name: "Drive D" };
+    const link = {
+      name: "Archive.lnk",
+      path: "Archive.lnk",
+      type: FileType.FILE,
+      is_readable: true,
+      is_hidden: false,
+    };
+    const onNavigateDirectory = vi.fn();
+    vi.mocked(api.resolveLocalActivation).mockResolvedValue({
+      drive_id: "d",
+      path: "Projects/Archive",
+      item: {
+        name: "Archive",
+        path: "Projects/Archive",
+        type: FileType.DIRECTORY,
+        is_readable: true,
+        is_hidden: false,
+      },
+    });
+
+    const { result } = renderHook(
+      () =>
+        useFileBrowserPane({
+          rowHeight: 40,
+          connections: [sourceConnection, targetConnection],
+          onNavigateDirectory,
+        }),
+      { wrapper }
+    );
+
+    act(() => {
+      result.current.applyLocation("local-drive:c", "Links");
+    });
+    await waitFor(() => {
+      expect(result.current.connectionId).toBe("local-drive:c");
+    });
+    act(() => {
+      result.current.handleOpenFileForFile(link, 0);
+    });
+
+    await waitFor(() => {
+      expect(api.resolveLocalActivation).toHaveBeenCalledWith("local-drive:c", "Links/Archive.lnk");
+      expect(onNavigateDirectory).toHaveBeenCalledWith("local-drive:d", "Projects/Archive");
+    });
+  });
+
+  it("opens the resolved local file rather than its link source", async () => {
+    const localConnection = { ...mockConnections[0], id: "local-drive:c", slug: "c", type: "local" };
+    const link = {
+      name: "Report.lnk",
+      path: "Report.lnk",
+      type: FileType.FILE,
+      is_readable: true,
+      is_hidden: false,
+    };
+    vi.mocked(api.resolveLocalActivation).mockResolvedValue({
+      drive_id: "d",
+      path: "Reports/quarterly.pdf",
+      item: {
+        name: "quarterly.pdf",
+        path: "Reports/quarterly.pdf",
+        type: FileType.FILE,
+        mime_type: "application/pdf",
+        is_readable: true,
+        is_hidden: false,
+      },
+    });
+
+    const { result } = renderHook(
+      () =>
+        useFileBrowserPane({
+          rowHeight: 40,
+          connections: [localConnection],
+        }),
+      { wrapper }
+    );
+
+    act(() => {
+      result.current.applyLocation("local-drive:c", "Links");
+    });
+    await waitFor(() => {
+      expect(result.current.connectionId).toBe("local-drive:c");
+    });
+    act(() => {
+      result.current.handleOpenFileForFile(link, 0);
+    });
+
+    await waitFor(() => {
+      expect(result.current.viewInfo).toMatchObject({
+        connectionId: "local-drive:d",
+        path: "Reports/quarterly.pdf",
+        mimeType: "application/pdf",
+      });
+    });
+  });
+
+  it("opens a resolved local link target with the native app", async () => {
+    const localConnection = { ...mockConnections[0], id: "local-drive:c", slug: "c", type: "local" };
+    const link = {
+      name: "Report.lnk",
+      path: "Report.lnk",
+      type: FileType.FILE,
+      is_readable: true,
+      is_hidden: false,
+    };
+    vi.mocked(api.resolveLocalActivation).mockResolvedValue({
+      drive_id: "d",
+      path: "Reports/quarterly.docx",
+      item: {
+        name: "quarterly.docx",
+        path: "Reports/quarterly.docx",
+        type: FileType.FILE,
+        is_readable: true,
+        is_hidden: false,
+      },
+    });
+    vi.mocked(api.openLocalFile).mockResolvedValue();
+
+    const { result } = renderHook(
+      () =>
+        useFileBrowserPane({
+          rowHeight: 40,
+          connections: [localConnection],
+        }),
+      { wrapper }
+    );
+
+    act(() => {
+      result.current.applyLocation("local-drive:c", "Links");
+    });
+    await waitFor(() => {
+      expect(result.current.connectionId).toBe("local-drive:c");
+    });
+    await act(async () => {
+      await result.current.handleOpenInAppForFile(link, 0);
+    });
+
+    expect(api.openLocalFile).toHaveBeenCalledWith("local-drive:d", "Reports/quarterly.docx", { forcePicker: false });
+  });
+
+  it("shows a link-resolution error without opening the source file", async () => {
+    const localConnection = { ...mockConnections[0], id: "local-drive:c", slug: "c", type: "local" };
+    const link = {
+      name: "Missing.lnk",
+      path: "Missing.lnk",
+      type: FileType.FILE,
+      is_readable: true,
+      is_hidden: false,
+    };
+    vi.mocked(api.resolveLocalActivation).mockRejectedValue({
+      response: { data: { detail: "The link target no longer exists", code: "local_link_target_missing" }, status: 404 },
+    });
+
+    const { result } = renderHook(
+      () =>
+        useFileBrowserPane({
+          rowHeight: 40,
+          connections: [localConnection],
+        }),
+      { wrapper }
+    );
+
+    act(() => {
+      result.current.applyLocation("local-drive:c", "Links");
+    });
+    await waitFor(() => {
+      expect(result.current.connectionId).toBe("local-drive:c");
+    });
+    act(() => {
+      result.current.handleOpenFileForFile(link, 0);
+    });
+
+    await waitFor(() => {
+      expect(result.current.error).toBe("The link target no longer exists");
+    });
+    expect(result.current.viewInfo).toBeNull();
+    expect(api.openLocalFile).not.toHaveBeenCalled();
   });
 
   it("does not record a failed directory navigation after a later reload succeeds", async () => {

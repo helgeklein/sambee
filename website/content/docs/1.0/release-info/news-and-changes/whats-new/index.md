@@ -66,4 +66,11 @@ In any editor, search and replace are essential functions that need to work effi
 
 ## File List
 
+### Local Drives: Resolve .LNK Files
+
+Shortcuts (`.lnk` files) on local drives are now resolved properly: file targets are opened whereas directory targets are navigated to.
+
+### Other Changes
+
 - Keyboard navigation: removed delay after entering a new directory
+- Typeahead buffer: cleared when <kbd>Esc</kbd> is pressed
