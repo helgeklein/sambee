@@ -20,10 +20,16 @@ const sourceTextEditorBaseTheme = EditorView.theme({
   ".cm-content": {
     minHeight: "100%",
     boxSizing: "border-box",
-    padding: `16px var(${CODEMIRROR_EDITOR_HORIZONTAL_INSET_CSS_VARIABLE}, 16px)`,
+    padding: `16px 0 16px var(${CODEMIRROR_EDITOR_HORIZONTAL_INSET_CSS_VARIABLE}, 16px)`,
   },
   ".cm-line": {
     padding: 0,
+  },
+  ".cm-line::after": {
+    content: '""',
+    display: "inline-block",
+    pointerEvents: "none",
+    width: `var(${CODEMIRROR_EDITOR_HORIZONTAL_INSET_CSS_VARIABLE}, 16px)`,
   },
 });
 
@@ -94,6 +100,7 @@ export const SourceTextEditor = forwardRef<SourceTextEditorHandle, SourceTextEdi
     const contentAttributesCompartmentRef = useRef(new Compartment());
     const initialValueRef = useRef(value);
     const initialExtensionsRef = useRef(extensions);
+    const appliedExtensionsRef = useRef(extensions);
     const initialReadOnlyRef = useRef(readOnly);
     const initialAutoFocusRef = useRef(autoFocus);
     const initialAriaLabelRef = useRef(ariaLabel);
@@ -194,7 +201,14 @@ export const SourceTextEditor = forwardRef<SourceTextEditorHandle, SourceTextEdi
         return;
       }
 
-      view.dispatch({ effects: extensionsCompartmentRef.current.reconfigure(extensions) });
+      if (appliedExtensionsRef.current === extensions) {
+        return;
+      }
+
+      appliedExtensionsRef.current = extensions;
+      view.dispatch({
+        effects: [extensionsCompartmentRef.current.reconfigure(extensions), view.scrollSnapshot()],
+      });
     }, [extensions]);
 
     useEffect(() => {

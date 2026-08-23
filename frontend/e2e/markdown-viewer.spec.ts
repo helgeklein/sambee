@@ -9,6 +9,7 @@ const WRAPPED_SELECTION_MARKDOWN = [
   "- **TestOps:** Ongoing improvement of the TestOps integration testing framework, initially to be used with uberAgent, ",
   "but potentially valuable to other teams as well.",
 ].join("");
+const LONG_UNWRAPPED_LINE = "long unwrapped editor content ".repeat(200);
 const SCROLLED_SELECTION_MARKDOWN = [
   ...Array.from({ length: 120 }, (_, index) => `Filler line ${index + 1}`),
   WRAPPED_SELECTION_MARKDOWN,
@@ -67,11 +68,13 @@ async function mockMarkdownViewerApi(page: Page, { initialMarkdown, onUploadBody
         localization: { language: "browser", regional_locale: "browser" },
         browser: {
           quick_nav_include_dot_directories: false,
+          quick_bar_shortcut_hint_visibility: "auto",
           file_browser_view_mode: "list",
           pane_mode: "single",
           selected_connection_id: null,
           viewer_associations: {},
         },
+        text_editor: { max_file_size_bytes: 52428800, word_wrap_enabled: null },
       });
       return;
     }
@@ -82,11 +85,13 @@ async function mockMarkdownViewerApi(page: Page, { initialMarkdown, onUploadBody
         localization: { language: "browser", regional_locale: "browser" },
         browser: {
           quick_nav_include_dot_directories: false,
+          quick_bar_shortcut_hint_visibility: "auto",
           file_browser_view_mode: "list",
           pane_mode: "single",
           selected_connection_id: null,
           viewer_associations: {},
         },
+        text_editor: { max_file_size_bytes: 52428800, word_wrap_enabled: null },
       });
       return;
     }
@@ -337,6 +342,83 @@ test.describe("markdown editor selection", () => {
 
     await page.keyboard.press("Alt+Z");
     await expect(editor).toHaveClass(/cm-lineWrapping/);
+  });
+
+  test("keeps the caret at the document end after toggling word wrap", async ({ page }) => {
+    await mockMarkdownViewerApi(page, { initialMarkdown: WRAPPED_SELECTION_MARKDOWN });
+
+    await openMarkdownViewer(page);
+    await enterMarkdownEditMode(page);
+
+    const editor = page.getByRole("textbox", { name: "Markdown editor" });
+    await editor.click();
+    await page.keyboard.press("Control+End");
+    await page.keyboard.press("Alt+Z");
+
+    // Wait past the persistence cooldown and its settings-response render.
+    await page.waitForTimeout(500);
+    await page.keyboard.type("!");
+
+    await expect(editor).toContainText("well.!");
+  });
+
+  test("keeps the right gutter visible at the end of an unwrapped long line", async ({ page }) => {
+    await mockMarkdownViewerApi(page, { initialMarkdown: LONG_UNWRAPPED_LINE });
+
+    await openMarkdownViewer(page);
+    await enterMarkdownEditMode(page);
+
+    const editor = page.getByRole("textbox", { name: "Markdown editor" });
+    await editor.click();
+    await page.keyboard.press("Alt+Z");
+    await page.keyboard.press("Control+End");
+
+    await expect.poll(() =>
+      editor.evaluate((content) => {
+        const editorRoot = content.closest(".cm-editor");
+        const scroller = editorRoot?.querySelector(".cm-scroller");
+        const cursor = editorRoot?.querySelector(".cm-cursor");
+
+        if (!(scroller instanceof HTMLElement) || !(cursor instanceof HTMLElement)) {
+          return null;
+        }
+
+        const inset = Number.parseFloat(getComputedStyle(content).getPropertyValue("--sambee-codemirror-editor-horizontal-inset"));
+        const scrollerRect = scroller.getBoundingClientRect();
+        const cursorRect = cursor.getBoundingClientRect();
+        return cursorRect.right <= scrollerRect.right - inset + 1;
+      })
+    ).toBe(true);
+  });
+
+  test("does not add artificial vertical space after a short document", async ({ page }) => {
+    await mockMarkdownViewerApi(page, { initialMarkdown: "Short document" });
+
+    await openMarkdownViewer(page);
+    await enterMarkdownEditMode(page);
+
+    const editor = page.getByRole("textbox", { name: "Markdown editor" });
+
+    await expect.poll(() =>
+      editor.evaluate((content) => {
+        const scroller = content.closest(".cm-editor")?.querySelector(".cm-scroller");
+
+        if (!(scroller instanceof HTMLElement)) {
+          return null;
+        }
+
+        return {
+          hasInlineBottomPadding: content.style.paddingBottom.length > 0,
+          scrollHeight: scroller.scrollHeight,
+          clientHeight: scroller.clientHeight,
+        };
+      })
+    ).toEqual({ hasInlineBottomPadding: false, scrollHeight: expect.any(Number), clientHeight: expect.any(Number) });
+
+    await expect(editor.evaluate((content) => {
+      const scroller = content.closest(".cm-editor")?.querySelector(".cm-scroller");
+      return scroller instanceof HTMLElement && scroller.scrollHeight === scroller.clientHeight;
+    })).resolves.toBe(true);
   });
 
   test("renders a wrapped selection without a native browser overlay", async ({ page }) => {

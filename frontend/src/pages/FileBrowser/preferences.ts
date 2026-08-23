@@ -88,12 +88,18 @@ function persistPendingWordWrapOverride(): void {
 
     wordWrapRequestInFlight = null;
 
-    if (settings) {
-      backendWordWrapOverride = settings.text_editor.word_wrap_enabled;
+    const persistedWordWrapOverride = settings?.text_editor?.word_wrap_enabled;
+
+    if (typeof persistedWordWrapOverride === "boolean") {
+      backendWordWrapOverride = persistedWordWrapOverride;
       if (pendingWordWrapWrite?.sequence === request.sequence) {
         pendingWordWrapWrite = null;
         hasLocalWordWrapOverride = false;
       }
+    } else if (settings && pendingWordWrapWrite?.sequence === request.sequence) {
+      // Older servers may accept the update but omit this newer field from the
+      // response. Keep the local override instead of reverting the editor.
+      pendingWordWrapWrite = null;
     } else if (pendingWordWrapWrite?.sequence === request.sequence) {
       pendingWordWrapWrite = null;
       logError("Failed to persist text editor word wrap preference; keeping the local setting");

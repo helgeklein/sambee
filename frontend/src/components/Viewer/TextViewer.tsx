@@ -1114,7 +1114,7 @@ export const TextViewer: React.FC<ViewerComponentProps> = ({ connectionId, path,
                     },
                   },
                   "& .sambee-text-editor .cm-content": {
-                    p: CODEMIRROR_EDITOR_CONTENT_PADDING,
+                    py: CODEMIRROR_EDITOR_CONTENT_PADDING,
                   },
                 }}
               >

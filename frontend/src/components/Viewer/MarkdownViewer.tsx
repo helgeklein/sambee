@@ -1829,7 +1829,7 @@ export const MarkdownViewer: React.FC<ViewerComponentProps> = ({ connectionId, p
                     },
                   },
                   "& .sambee-markdown-editor .cm-content": {
-                    p: CODEMIRROR_EDITOR_CONTENT_PADDING,
+                    py: CODEMIRROR_EDITOR_CONTENT_PADDING,
                   },
                 }}
               >
