@@ -25,7 +25,7 @@ const sourceTextEditorBaseTheme = EditorView.theme({
   ".cm-line": {
     padding: 0,
   },
-  ".cm-line::after": {
+  ".cm-line:not(:has(> br:only-child))::after": {
     content: '""',
     display: "inline-block",
     pointerEvents: "none",

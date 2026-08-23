@@ -421,6 +421,44 @@ test.describe("markdown editor selection", () => {
     })).resolves.toBe(true);
   });
 
+  test("keeps empty editor lines at the normal line height", async ({ page }) => {
+    await mockMarkdownViewerApi(page, { initialMarkdown: "First line\n\nSecond line" });
+
+    await openMarkdownViewer(page);
+    await enterMarkdownEditMode(page);
+
+    const editor = page.getByRole("textbox", { name: "Markdown editor" });
+
+    await expect.poll(() =>
+      editor.evaluate((content) => {
+        const lines = Array.from(content.querySelectorAll(".cm-line"));
+        const nonEmptyLine = lines.find((line) => line.textContent === "First line");
+        const emptyLine = lines.find((line) => line.textContent === "");
+
+        if (!(nonEmptyLine instanceof HTMLElement) || !(emptyLine instanceof HTMLElement)) {
+          return null;
+        }
+
+        return {
+          emptyLineHeight: emptyLine.getBoundingClientRect().height,
+          normalLineHeight: nonEmptyLine.getBoundingClientRect().height,
+          emptyLineSpacer: getComputedStyle(emptyLine, "::after").content,
+        };
+      })
+    ).toEqual({ emptyLineHeight: expect.any(Number), normalLineHeight: expect.any(Number), emptyLineSpacer: "none" });
+
+    await expect(editor.evaluate((content) => {
+      const lines = Array.from(content.querySelectorAll(".cm-line"));
+      const nonEmptyLine = lines.find((line) => line.textContent === "First line");
+      const emptyLine = lines.find((line) => line.textContent === "");
+      return (
+        nonEmptyLine instanceof HTMLElement &&
+        emptyLine instanceof HTMLElement &&
+        Math.abs(emptyLine.getBoundingClientRect().height - nonEmptyLine.getBoundingClientRect().height) < 1
+      );
+    })).resolves.toBe(true);
+  });
+
   test("renders a wrapped selection without a native browser overlay", async ({ page }) => {
     await mockMarkdownViewerApi(page, { initialMarkdown: WRAPPED_SELECTION_MARKDOWN });
 
