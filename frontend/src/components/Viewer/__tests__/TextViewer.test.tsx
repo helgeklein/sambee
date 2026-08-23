@@ -113,6 +113,22 @@ function renderViewer() {
   );
 }
 
+async function enterEditMode(): Promise<HTMLElement> {
+  const editButton = await screen.findByRole("button", { name: /^edit$/i });
+
+  await waitFor(() => {
+    expect(editButton).toBeEnabled();
+  });
+
+  fireEvent.click(editButton);
+
+  await waitFor(() => {
+    expect(apiService.acquireEditLock).toHaveBeenCalledWith("conn1", "/docs/readme.txt", expect.any(String));
+  });
+
+  return screen.getByRole("textbox", { name: "Text editor" });
+}
+
 describe("TextViewer", () => {
   beforeEach(() => {
     vi.clearAllMocks();
@@ -167,14 +183,7 @@ describe("TextViewer", () => {
   it("enters edit mode and saves text changes", async () => {
     renderViewer();
 
-    const editButton = await screen.findByRole("button", { name: /edit/i });
-    fireEvent.click(editButton);
-
-    await waitFor(() => {
-      expect(apiService.acquireEditLock).toHaveBeenCalledWith("conn1", "/docs/readme.txt", expect.any(String));
-    });
-
-    const editor = screen.getByRole("textbox", { name: "Text editor" });
+    const editor = await enterEditMode();
     fireEvent.change(editor, { target: { value: "updated text" } });
 
     fireEvent.click(screen.getByRole("button", { name: /save/i }));
@@ -188,11 +197,7 @@ describe("TextViewer", () => {
     const user = userEvent.setup();
     renderViewer();
 
-    await user.click(await screen.findByRole("button", { name: /^edit$/i }));
-
-    await waitFor(() => {
-      expect(apiService.acquireEditLock).toHaveBeenCalledWith("conn1", "/docs/readme.txt", expect.any(String));
-    });
+    await enterEditMode();
 
     await user.click(screen.getByRole("button", { name: "Help" }));
     await user.click(screen.getByRole("menuitem", { name: "Keyboard shortcuts" }));
@@ -231,13 +236,7 @@ describe("TextViewer", () => {
     localStorage.setItem(CODEMIRROR_REPLACE_HISTORY_STORAGE_KEY, JSON.stringify(["recent replace"]));
     renderViewer();
 
-    fireEvent.click(await screen.findByRole("button", { name: /^edit$/i }));
-
-    await waitFor(() => {
-      expect(apiService.acquireEditLock).toHaveBeenCalledWith("conn1", "/docs/readme.txt", expect.any(String));
-    });
-
-    const editor = screen.getByRole("textbox", { name: "Text editor" });
+    const editor = await enterEditMode();
     fireEvent.keyDown(editor, { ctrlKey: true, key: "h" });
 
     const findInput = await screen.findByRole("textbox", { name: "Find" });
@@ -274,13 +273,7 @@ describe("TextViewer", () => {
     localStorage.setItem(CODEMIRROR_REPLACE_HISTORY_STORAGE_KEY, JSON.stringify(["recent replace"]));
     renderViewer();
 
-    fireEvent.click(await screen.findByRole("button", { name: /^edit$/i }));
-
-    await waitFor(() => {
-      expect(apiService.acquireEditLock).toHaveBeenCalledWith("conn1", "/docs/readme.txt", expect.any(String));
-    });
-
-    const editor = await screen.findByRole("textbox", { name: "Text editor" });
+    const editor = await enterEditMode();
 
     fireEvent.keyDown(editor, { ctrlKey: true, key: "h" });
 
