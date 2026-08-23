@@ -1475,11 +1475,16 @@ mod tests {
         std::fs::create_dir(&target).expect("target directory should be created");
         symlink(&target, &link).expect("symbolic link should be created");
         let mut entries = tokio::fs::read_dir(directory.path()).await.expect("directory should be readable");
-        let entry = entries
-            .next_entry()
-            .await
-            .expect("directory entry should be readable")
-            .expect("symbolic link should be listed");
+        let entry = loop {
+            let entry = entries
+                .next_entry()
+                .await
+                .expect("directory entry should be readable")
+                .expect("directory symbolic link should be listed");
+            if entry.file_name() == "directory-link" {
+                break entry;
+            }
+        };
 
         let info = build_file_info(&entry, "")
             .await
