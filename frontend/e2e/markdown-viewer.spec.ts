@@ -362,6 +362,37 @@ test.describe("markdown editor selection", () => {
     await expect(editor).toContainText("well.!");
   });
 
+  test("keeps the end caret visible after the word-wrap settings response", async ({ page }) => {
+    await mockMarkdownViewerApi(page, { initialMarkdown: SCROLLED_SELECTION_MARKDOWN });
+
+    await openMarkdownViewer(page);
+    await enterMarkdownEditMode(page);
+
+    const editor = page.getByRole("textbox", { name: "Markdown editor" });
+    await editor.click();
+    await page.keyboard.press("Control+End");
+    await page.keyboard.press("Alt+Z");
+
+    // Wait past the persistence cooldown and its settings-response render.
+    await page.waitForTimeout(500);
+
+    await expect.poll(() =>
+      editor.evaluate((content) => {
+        const editorRoot = content.closest(".cm-editor");
+        const scroller = editorRoot?.querySelector(".cm-scroller");
+        const cursor = editorRoot?.querySelector(".cm-cursor");
+
+        if (!(scroller instanceof HTMLElement) || !(cursor instanceof HTMLElement)) {
+          return false;
+        }
+
+        const scrollerRect = scroller.getBoundingClientRect();
+        const cursorRect = cursor.getBoundingClientRect();
+        return cursorRect.top >= scrollerRect.top && cursorRect.bottom <= scrollerRect.bottom;
+      })
+    ).toBe(true);
+  });
+
   test("keeps the right gutter visible at the end of an unwrapped long line", async ({ page }) => {
     await mockMarkdownViewerApi(page, { initialMarkdown: LONG_UNWRAPPED_LINE });
 

@@ -1,7 +1,8 @@
-import { fireEvent, render, screen, waitFor, within } from "@testing-library/react";
+import { act, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { forwardRef, useEffect, useImperativeHandle, useRef } from "react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
+import i18n from "../../../i18n";
 import apiService from "../../../services/api";
 import { SambeeThemeProvider } from "../../../theme";
 import { CODEMIRROR_FIND_HISTORY_STORAGE_KEY, CODEMIRROR_REPLACE_HISTORY_STORAGE_KEY } from "../codeMirrorFindReplaceConstants";
@@ -30,7 +31,13 @@ interface MockTextCodeEditorProps {
   text: string;
 }
 
-const { mockTextEditorCommands, readTextEditorMaxFileSizeBytesPreferenceMock, useTextEditorWordWrapPreferenceMock } = vi.hoisted(() => ({
+const {
+  mockSetWordWrapEnabled,
+  mockTextEditorCommands,
+  readTextEditorMaxFileSizeBytesPreferenceMock,
+  useTextEditorWordWrapPreferenceMock,
+} = vi.hoisted(() => ({
+  mockSetWordWrapEnabled: vi.fn(),
   mockTextEditorCommands: {
     nextSearchResult: vi.fn(),
     previousSearchResult: vi.fn(),
@@ -38,7 +45,7 @@ const { mockTextEditorCommands, readTextEditorMaxFileSizeBytesPreferenceMock, us
     replaceCurrentSearchResult: vi.fn(),
   },
   readTextEditorMaxFileSizeBytesPreferenceMock: vi.fn(() => 52_428_800),
-  useTextEditorWordWrapPreferenceMock: vi.fn(() => [false, vi.fn()] as const),
+  useTextEditorWordWrapPreferenceMock: vi.fn(() => [false, mockSetWordWrapEnabled] as const),
 }));
 
 vi.mock("../../../pages/FileBrowser/preferences", () => ({
@@ -126,6 +133,35 @@ describe("TextViewer", () => {
     mockTextEditorCommands.previousSearchResult.mockReset();
     mockTextEditorCommands.replaceAllSearchResults.mockReset();
     mockTextEditorCommands.replaceCurrentSearchResult.mockReset();
+    mockSetWordWrapEnabled.mockReset();
+  });
+
+  it("toggles word wrap with Alt+Z while viewing read-only text", async () => {
+    renderViewer();
+
+    const editor = await screen.findByRole("textbox", { name: "Text editor" });
+    editor.focus();
+    fireEvent.keyDown(editor, { altKey: true, key: "z" });
+
+    expect(mockSetWordWrapEnabled).toHaveBeenCalledWith(true);
+  });
+
+  it("does not reload the file when the active translation changes", async () => {
+    const originalLanguage = i18n.language;
+    renderViewer();
+
+    await screen.findByRole("textbox", { name: "Text editor" });
+    expect(apiService.getFileContent).toHaveBeenCalledTimes(1);
+
+    await act(async () => {
+      await i18n.changeLanguage(originalLanguage === "de" ? "en" : "de");
+    });
+
+    expect(apiService.getFileContent).toHaveBeenCalledTimes(1);
+
+    await act(async () => {
+      await i18n.changeLanguage(originalLanguage);
+    });
   });
 
   it("enters edit mode and saves text changes", async () => {

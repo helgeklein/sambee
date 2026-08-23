@@ -1,4 +1,4 @@
-import { useEffect, useState, useSyncExternalStore } from "react";
+import { useCallback, useEffect, useState, useSyncExternalStore } from "react";
 import { authSession } from "../../services/authSession";
 import { error as logError } from "../../services/logger";
 import { loadCurrentUserSettings, patchCurrentUserSettings, USER_SETTINGS_CHANGED_EVENT } from "../../services/userSettingsSync";
@@ -42,12 +42,10 @@ let pendingWordWrapWrite: PendingWordWrapWrite | null = null;
 let wordWrapRequestInFlight: PendingWordWrapWrite | null = null;
 let wordWrapDebounceTimer: number | null = null;
 let wordWrapSequence = 0;
-let wordWrapRevision = 0;
 let wordWrapSettingsLoaded = false;
 let wordWrapSessionGeneration = 0;
 
 function notifyWordWrapListeners(): void {
-  wordWrapRevision += 1;
   for (const listener of wordWrapListeners) {
     listener();
   }
@@ -153,8 +151,8 @@ function subscribeToWordWrapPreference(listener: () => void): () => void {
   };
 }
 
-function getWordWrapSnapshot(): number {
-  return wordWrapRevision;
+function getWordWrapPreferenceValue(fallbackValue: boolean): boolean {
+  return hasLocalWordWrapOverride ? localWordWrapOverride : (backendWordWrapOverride ?? fallbackValue);
 }
 
 function ensureWordWrapSettingsLoaded(): void {
@@ -171,7 +169,8 @@ function ensureWordWrapSettingsLoaded(): void {
 (authSession as AuthSessionLike).subscribeToClear?.(resetWordWrapPreference);
 
 export function useTextEditorWordWrapPreference(fallbackValue: boolean): [boolean, (value: boolean) => void] {
-  useSyncExternalStore(subscribeToWordWrapPreference, getWordWrapSnapshot, getWordWrapSnapshot);
+  const getSnapshot = useCallback(() => getWordWrapPreferenceValue(fallbackValue), [fallbackValue]);
+  const wordWrapEnabled = useSyncExternalStore(subscribeToWordWrapPreference, getSnapshot, getSnapshot);
 
   useEffect(() => {
     const handleUserSettingsChanged = (event: Event) => {
@@ -186,7 +185,6 @@ export function useTextEditorWordWrapPreference(fallbackValue: boolean): [boolea
     };
   }, []);
 
-  const wordWrapEnabled = hasLocalWordWrapOverride ? localWordWrapOverride : (backendWordWrapOverride ?? fallbackValue);
   return [wordWrapEnabled, setWordWrapPreference];
 }
 

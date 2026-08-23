@@ -116,6 +116,38 @@ describe("File Browser preferences", () => {
     expect(patchCurrentUserSettingsMock).toHaveBeenCalledWith({ text_editor: { word_wrap_enabled: false } });
   });
 
+  it("does not rerender when persistence confirms the current word-wrap value", async () => {
+    vi.useFakeTimers();
+    patchCurrentUserSettingsMock.mockResolvedValue({
+      ...initialSettings,
+      text_editor: { max_file_size_bytes: 52428800, word_wrap_enabled: true },
+    });
+    let renderCount = 0;
+    const { result } = renderHook(() => {
+      renderCount += 1;
+      return useTextEditorWordWrapPreference(false);
+    });
+
+    await act(async () => {
+      await Promise.resolve();
+    });
+
+    const initialRenderCount = renderCount;
+
+    act(() => {
+      result.current[1](true);
+    });
+
+    expect(result.current[0]).toBe(true);
+    expect(renderCount).toBe(initialRenderCount + 1);
+
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(350);
+    });
+
+    expect(renderCount).toBe(initialRenderCount + 1);
+  });
+
   it("shows Quick Bar hints according to compact layout, saved evidence, and visibility mode", () => {
     const { result, rerender } = renderHook(({ visibility, compact }) => useQuickBarKeyboardHints(visibility, compact), {
       initialProps: { visibility: "auto" as const, compact: true },

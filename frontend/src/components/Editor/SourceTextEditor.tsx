@@ -207,7 +207,8 @@ export const SourceTextEditor = forwardRef<SourceTextEditorHandle, SourceTextEdi
 
       appliedExtensionsRef.current = extensions;
       view.dispatch({
-        effects: [extensionsCompartmentRef.current.reconfigure(extensions), view.scrollSnapshot()],
+        effects: extensionsCompartmentRef.current.reconfigure(extensions),
+        scrollIntoView: true,
       });
     }, [extensions]);
 

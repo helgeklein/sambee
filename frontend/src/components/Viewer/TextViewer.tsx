@@ -139,6 +139,7 @@ export const TextViewer: React.FC<ViewerComponentProps> = ({ connectionId, path,
   const lockHeldRef = useRef<EditLockInfo | null>(null);
   const editSessionIdRef = useRef(typeof crypto.randomUUID === "function" ? crypto.randomUUID() : `${Date.now()}-${Math.random()}`);
   const isEditingRef = useRef(false);
+  const translationRef = useRef(t);
   const fetchWithRetry = useApiRetry();
 
   const { currentTheme } = useSambeeTheme();
@@ -177,6 +178,10 @@ export const TextViewer: React.FC<ViewerComponentProps> = ({ connectionId, path,
     ]
   );
 
+  const handleEditorSearchStateChange = useCallback((nextState: TextCodeEditorSearchState) => {
+    setEditorSearchState((previousState) => (areTextEditorSearchStatesEqual(previousState, nextState) ? previousState : nextState));
+  }, []);
+
   const setEditBaselineContent = useCallback((nextContent: string) => {
     editBaselineContentRef.current = nextContent;
   }, []);
@@ -184,6 +189,10 @@ export const TextViewer: React.FC<ViewerComponentProps> = ({ connectionId, path,
   useEffect(() => {
     isEditingRef.current = isEditing;
   }, [isEditing]);
+
+  useEffect(() => {
+    translationRef.current = t;
+  }, [t]);
 
   const restoreEditingFocus = useCallback(() => {
     if (!isEditing) {
@@ -255,9 +264,9 @@ export const TextViewer: React.FC<ViewerComponentProps> = ({ connectionId, path,
         }
 
         if (checkIsTransientError(err)) {
-          setError(getTransientErrorMessage(err, t("errors.failedToLoadFile")));
+          setError(getTransientErrorMessage(err, translationRef.current("errors.failedToLoadFile")));
         } else {
-          setError(getApiErrorMessage(err, t("errors.failedToLoadFile"), { includeOriginalMessage: true }));
+          setError(getApiErrorMessage(err, translationRef.current("errors.failedToLoadFile"), { includeOriginalMessage: true }));
         }
       } finally {
         if (!abortController.signal.aborted) {
@@ -271,7 +280,7 @@ export const TextViewer: React.FC<ViewerComponentProps> = ({ connectionId, path,
     return () => {
       abortController.abort();
     };
-  }, [connectionId, fetchWithRetry, path, setEditBaselineContent, t]);
+  }, [connectionId, fetchWithRetry, path, setEditBaselineContent]);
 
   useEffect(() => {
     if (!isEditing || draftContent === editBaselineContentRef.current) {
@@ -807,7 +816,7 @@ export const TextViewer: React.FC<ViewerComponentProps> = ({ connectionId, path,
       {
         ...CODEMIRROR_EDITOR_SHORTCUTS.TOGGLE_WORD_WRAP,
         handler: () => setWordWrapEnabled(!wordWrapEnabled),
-        enabled: isEditing && !isSaving && !exceedsEditorLimit,
+        enabled: !loading && !error && !exceedsEditorLimit,
       },
       { ...COMMON_SHORTCUTS.NEXT_MATCH, handler: handleSearchNext, enabled: isEditing && searchMatches > 0 },
       { ...COMMON_SHORTCUTS.PREVIOUS_MATCH, handler: handleSearchPrevious, enabled: isEditing && searchMatches > 0 },
@@ -1149,11 +1158,7 @@ export const TextViewer: React.FC<ViewerComponentProps> = ({ connectionId, path,
                     searchOpen={searchPanelOpen}
                     searchAutoNavigate={searchAutoNavigate}
                     searchCaseSensitive={searchCaseSensitive}
-                    onSearchStateChange={(nextState) => {
-                      setEditorSearchState((previousState) =>
-                        areTextEditorSearchStatesEqual(previousState, nextState) ? previousState : nextState
-                      );
-                    }}
+                    onSearchStateChange={handleEditorSearchStateChange}
                     searchRegexp={searchRegexp}
                     searchReplaceText={searchReplaceText}
                     searchWholeWord={searchWholeWord}

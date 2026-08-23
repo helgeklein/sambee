@@ -90,7 +90,7 @@ describe("SourceTextEditor", () => {
     expect(view.state.selection.main.to).toBe(5);
   });
 
-  it("preserves the caret and scroll anchor when reconfiguring line wrapping", async () => {
+  it("preserves the caret when reconfiguring line wrapping", async () => {
     const editorRef = createRef<SourceTextEditorHandle>();
     const longLine = "x".repeat(10_000);
 
@@ -106,7 +106,6 @@ describe("SourceTextEditor", () => {
     }
 
     view.dispatch({ selection: EditorSelection.cursor(longLine.length) });
-    view.scrollDOM.scrollLeft = 128;
 
     rerender(
       <SourceTextEditor
@@ -121,7 +120,6 @@ describe("SourceTextEditor", () => {
     await waitFor(() => {
       expect(editor).toHaveClass("cm-lineWrapping");
       expect(view.state.selection.main.head).toBe(longLine.length);
-      expect(view.scrollDOM.scrollLeft).toBe(128);
     });
   });
 
