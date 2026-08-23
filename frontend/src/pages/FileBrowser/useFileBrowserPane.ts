@@ -64,7 +64,6 @@ const DIRECTORY_LOAD_NETWORK_ERROR = "Failed to load files. Please check your co
 const DIRECTORY_LOAD_TIMEOUT_ERROR = "Directory listing timed out. The remote share took too long to respond.";
 const RECENT_FILE_DEFAULT_ERROR = "The recent file could not be opened.";
 const RECENT_FILE_MISSING_ERROR = "The recent file no longer exists.";
-const RECENT_FILE_NOT_FILE_ERROR = "The recent target is no longer a regular file.";
 const PERMANENT_LOCAL_RECENT_OPEN_FAILURE_CODES = [
   "recent_file_target_missing",
   "recent_file_target_not_file",
@@ -334,6 +333,7 @@ export function useFileBrowserPane(config: UseFileBrowserPaneConfig): UseFileBro
         connectionId: nextConnectionId,
         path: normalizedPath,
       };
+      latestLocalActivationRequestIdRef.current += 1;
 
       prepareDirectoryTransition(nextConnectionId, normalizedPath);
       setCurrentPath(normalizedPath);
@@ -391,6 +391,7 @@ export function useFileBrowserPane(config: UseFileBrowserPaneConfig): UseFileBro
   const connectionIdRef = React.useRef<string>("");
   const currentPathRef = React.useRef<string>("");
   const pendingLocationRef = React.useRef<{ connectionId: string; path: string } | null>(null);
+  const latestLocalActivationRequestIdRef = React.useRef(0);
   const loadFilesRef = React.useRef<(path: string, forceRefresh?: boolean) => Promise<void>>();
   const latestLoadRequestIdRef = React.useRef(0);
   const directoryLoadAbortRef = React.useRef<AbortController | null>(null);
@@ -941,6 +942,7 @@ export function useFileBrowserPane(config: UseFileBrowserPaneConfig): UseFileBro
         connectionId: newConnectionId,
         path: "",
       };
+      latestLocalActivationRequestIdRef.current += 1;
       prepareDirectoryTransition(newConnectionId, "");
       setConnectionId(newConnectionId);
       setCurrentPath("");
@@ -1298,40 +1300,67 @@ export function useFileBrowserPane(config: UseFileBrowserPaneConfig): UseFileBro
     [focusedIndex, navigateToPath, onNavigateDirectory]
   );
 
+  const activateResolvedLocalTarget = useCallback(
+    async (
+      sourceFile: FileEntry,
+      targetConnectionId: string,
+      targetPath: string,
+      targetFile: FileEntry,
+      mode: BrowserOpenMode,
+      recentRecordId?: string
+    ) => {
+      if (targetFile.type === FileType.DIRECTORY) {
+        navigateToResolvedDirectory(sourceFile, targetConnectionId, targetPath);
+        return;
+      }
+
+      const mimeType = targetFile.mime_type || "application/octet-stream";
+      if (mode === "associated-native-app") {
+        await openNativeFile(targetFile, undefined, { connectionId: targetConnectionId, path: targetPath, recentRecordId });
+        return;
+      }
+      if (mode === "force-native-picker") {
+        await openNativeFile(targetFile, { forcePicker: true }, { connectionId: targetConnectionId, path: targetPath, recentRecordId });
+        return;
+      }
+      if (mode === "force-viewer-picker") {
+        await openBrowserViewerPicker(targetFile, targetPath, mimeType, {
+          includeAllViewers: true,
+          connectionId: targetConnectionId,
+        });
+        return;
+      }
+
+      openFileWithAssociatedViewer(targetFile, targetPath, mimeType, targetConnectionId);
+    },
+    [navigateToResolvedDirectory, openBrowserViewerPicker, openFileWithAssociatedViewer, openNativeFile]
+  );
+
   const resolveAndActivateLocalEntry = useCallback(
     async (sourceFile: FileEntry, sourcePath: string, mode: BrowserOpenMode) => {
       const sourceConnectionId = connectionIdRef.current;
       if (!sourceConnectionId) return;
+      const requestId = ++latestLocalActivationRequestIdRef.current;
 
       try {
         const resolution = await api.resolveLocalActivation(sourceConnectionId, sourcePath);
-        const targetConnectionId = `${LOCAL_DRIVE_PREFIX}${resolution.drive_id}`;
-        const targetFile = resolution.item;
-
-        if (targetFile.type === FileType.DIRECTORY) {
-          navigateToResolvedDirectory(sourceFile, targetConnectionId, resolution.path);
+        if (requestId !== latestLocalActivationRequestIdRef.current) {
+          logger.debug("Ignoring superseded local activation target", { sourceConnectionId, sourcePath }, "browser");
           return;
         }
 
-        const mimeType = targetFile.mime_type || "application/octet-stream";
-        if (mode === "associated-native-app") {
-          await openNativeFile(targetFile, undefined, { connectionId: targetConnectionId, path: resolution.path });
-          return;
-        }
-        if (mode === "force-native-picker") {
-          await openNativeFile(targetFile, { forcePicker: true }, { connectionId: targetConnectionId, path: resolution.path });
-          return;
-        }
-        if (mode === "force-viewer-picker") {
-          await openBrowserViewerPicker(targetFile, resolution.path, mimeType, {
-            includeAllViewers: true,
-            connectionId: targetConnectionId,
-          });
-          return;
-        }
-
-        openFileWithAssociatedViewer(targetFile, resolution.path, mimeType, targetConnectionId);
+        await activateResolvedLocalTarget(
+          sourceFile,
+          `${LOCAL_DRIVE_PREFIX}${resolution.drive_id}`,
+          resolution.path,
+          resolution.item,
+          mode
+        );
       } catch (error: unknown) {
+        if (requestId !== latestLocalActivationRequestIdRef.current) {
+          return;
+        }
+
         const detail =
           isApiError(error) && typeof error.response?.data?.detail === "string"
             ? error.response.data.detail
@@ -1340,7 +1369,7 @@ export function useFileBrowserPane(config: UseFileBrowserPaneConfig): UseFileBro
         logger.error("Failed to resolve local activation target", { sourceConnectionId, sourcePath, error }, "browser");
       }
     },
-    [navigateToResolvedDirectory, openBrowserViewerPicker, openFileWithAssociatedViewer, openNativeFile]
+    [activateResolvedLocalTarget]
   );
 
   const handleFileClick = useCallback(
@@ -1423,14 +1452,18 @@ export function useFileBrowserPane(config: UseFileBrowserPaneConfig): UseFileBro
       if (recentRecordId) {
         if (isLocalDrive(targetConnectionId)) {
           try {
-            file = await api.getFileInfo(targetConnectionId, path);
-            if (file.type !== FileType.FILE) {
-              await removeRecentFileRecord(recentRecordId);
-              setError(RECENT_FILE_NOT_FILE_ERROR);
-              return;
-            }
+            const resolution = await api.resolveLocalActivation(targetConnectionId, path);
+            await activateResolvedLocalTarget(
+              file,
+              `${LOCAL_DRIVE_PREFIX}${resolution.drive_id}`,
+              resolution.path,
+              resolution.item,
+              mode,
+              recentRecordId
+            );
+            return;
           } catch (error: unknown) {
-            if (getApiErrorCode(error) === "recent_file_target_missing") {
+            if (getApiErrorCode(error) === "local_link_target_missing") {
               await removeRecentFileRecord(recentRecordId);
               setError(RECENT_FILE_MISSING_ERROR);
             } else {
@@ -1469,7 +1502,7 @@ export function useFileBrowserPane(config: UseFileBrowserPaneConfig): UseFileBro
       }
       openFileWithAssociatedViewer(file, path, mimeType, targetConnectionId);
     },
-    [openBrowserViewerPicker, openFileWithAssociatedViewer, openNativeFile, removeRecentFileRecord]
+    [activateResolvedLocalTarget, openBrowserViewerPicker, openFileWithAssociatedViewer, openNativeFile, removeRecentFileRecord]
   );
 
   const handleOpenFile = useCallback(
@@ -2034,6 +2067,7 @@ export function useFileBrowserPane(config: UseFileBrowserPaneConfig): UseFileBro
             }
           : null
       );
+      latestLocalActivationRequestIdRef.current += 1;
       setConnectionId(snapshot.connectionId);
       setCurrentPath(normalizedPath);
       setFiles(nextItems);
@@ -2073,6 +2107,7 @@ export function useFileBrowserPane(config: UseFileBrowserPaneConfig): UseFileBro
         const nextCacheKey = `${nextConnectionId}:${normalizedPath}`;
         const seededSnapshot = directoryCache.current.get(nextCacheKey);
         pendingDirectoryEntryIntentRef.current = { kind: "fresh" };
+        latestLocalActivationRequestIdRef.current += 1;
         prepareDirectoryTransition(nextConnectionId, normalizedPath);
         setConnectionId(nextConnectionId);
         setCurrentPath(normalizedPath);
@@ -2092,6 +2127,7 @@ export function useFileBrowserPane(config: UseFileBrowserPaneConfig): UseFileBro
         if (!matchedPendingLocation) {
           pendingDirectoryEntryIntentRef.current = { kind: "restore-history" };
         }
+        latestLocalActivationRequestIdRef.current += 1;
         prepareDirectoryTransition(nextConnectionId, normalizedPath);
         setCurrentPath(normalizedPath);
         setViewInfo(null);

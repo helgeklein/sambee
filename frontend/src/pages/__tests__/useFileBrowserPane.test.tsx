@@ -440,6 +440,68 @@ describe("useFileBrowserPane", () => {
     expect(api.openLocalFile).not.toHaveBeenCalled();
   });
 
+  it("ignores a local activation result after navigation supersedes it", async () => {
+    const localConnection = { ...mockConnections[0], id: "local-drive:c", slug: "c", type: "local" };
+    const link = {
+      name: "Report.lnk",
+      path: "Report.lnk",
+      type: FileType.FILE,
+      is_readable: true,
+      is_hidden: false,
+    };
+    let resolveActivation!: (value: Awaited<ReturnType<typeof api.resolveLocalActivation>>) => void;
+    vi.mocked(api.resolveLocalActivation).mockImplementation(
+      () =>
+        new Promise((resolve) => {
+          resolveActivation = resolve;
+        })
+    );
+
+    const { result } = renderHook(
+      () =>
+        useFileBrowserPane({
+          rowHeight: 40,
+          connections: [localConnection],
+        }),
+      { wrapper }
+    );
+
+    act(() => {
+      result.current.applyLocation("local-drive:c", "Links");
+    });
+    await waitFor(() => {
+      expect(result.current.currentPath).toBe("Links");
+    });
+
+    act(() => {
+      result.current.handleOpenFileForFile(link, 0);
+    });
+    await waitFor(() => {
+      expect(api.resolveLocalActivation).toHaveBeenCalledWith("local-drive:c", "Links/Report.lnk");
+    });
+
+    act(() => {
+      result.current.applyLocation("local-drive:c", "Elsewhere");
+    });
+    await act(async () => {
+      resolveActivation({
+        drive_id: "c",
+        path: "Reports/quarterly.pdf",
+        item: {
+          name: "quarterly.pdf",
+          path: "Reports/quarterly.pdf",
+          type: FileType.FILE,
+          mime_type: "application/pdf",
+          is_readable: true,
+          is_hidden: false,
+        },
+      });
+    });
+
+    expect(result.current.currentPath).toBe("Elsewhere");
+    expect(result.current.viewInfo).toBeNull();
+  });
+
   it("does not record a failed directory navigation after a later reload succeeds", async () => {
     const documentsDirectory = mockDirectoryListing.items.find((item) => item.type === "directory" && item.name === "Documents");
 
@@ -683,8 +745,8 @@ describe("useFileBrowserPane", () => {
 
   it("removes a local recent record only when Companion confirms its target is missing", async () => {
     const localConnection = { ...mockConnections[0], id: "local-drive:c", slug: "c", type: "local" };
-    vi.mocked(api.getFileInfo).mockRejectedValue({
-      response: { data: { code: "recent_file_target_missing" }, status: 404 },
+    vi.mocked(api.resolveLocalActivation).mockRejectedValue({
+      response: { data: { code: "local_link_target_missing" }, status: 404 },
     });
     vi.mocked(api.removeRecentFile).mockResolvedValue(undefined);
 
@@ -707,7 +769,7 @@ describe("useFileBrowserPane", () => {
 
   it("preserves a local recent record when Companion is unavailable", async () => {
     const localConnection = { ...mockConnections[0], id: "local-drive:c", slug: "c", type: "local" };
-    vi.mocked(api.getFileInfo).mockRejectedValue({
+    vi.mocked(api.resolveLocalActivation).mockRejectedValue({
       response: { data: { detail: "Unknown drive" }, status: 404 },
     });
 
@@ -733,14 +795,18 @@ describe("useFileBrowserPane", () => {
     ["recent_file_target_not_file", "Not a file: Documents/report.txt"],
   ])("removes a local recent record after a classified %s native-open failure", async (code, detail) => {
     const localConnection = { ...mockConnections[0], id: "local-drive:c", slug: "c", type: "local" };
-    vi.mocked(api.getFileInfo).mockResolvedValue({
-      name: "report.txt",
+    vi.mocked(api.resolveLocalActivation).mockResolvedValue({
+      drive_id: "c",
       path: "Documents/report.txt",
-      type: FileType.FILE,
-      mime_type: "text/plain",
-      size: 100,
-      is_readable: true,
-      is_hidden: false,
+      item: {
+        name: "report.txt",
+        path: "Documents/report.txt",
+        type: FileType.FILE,
+        mime_type: "text/plain",
+        size: 100,
+        is_readable: true,
+        is_hidden: false,
+      },
     });
     vi.mocked(api.openLocalFile).mockRejectedValue({ response: { data: { code, detail }, status: 500 } });
     vi.mocked(api.removeRecentFile).mockResolvedValue(undefined);
@@ -762,6 +828,74 @@ describe("useFileBrowserPane", () => {
       expect(api.removeRecentFile).toHaveBeenCalledWith("recent-1");
       expect(result.current.error).toBe(detail);
     });
+  });
+
+  it("opens a local recent shortcut at its resolved file target", async () => {
+    const sourceConnection = { ...mockConnections[0], id: "local-drive:c", slug: "c", type: "local" };
+    vi.mocked(api.resolveLocalActivation).mockResolvedValue({
+      drive_id: "d",
+      path: "Reports/quarterly.pdf",
+      item: {
+        name: "quarterly.pdf",
+        path: "Reports/quarterly.pdf",
+        type: FileType.FILE,
+        mime_type: "application/pdf",
+        is_readable: true,
+        is_hidden: false,
+      },
+    });
+
+    const { result } = renderHook(
+      () =>
+        useFileBrowserPane({
+          rowHeight: 40,
+          connections: [sourceConnection],
+        }),
+      { wrapper }
+    );
+
+    await act(async () => {
+      await result.current.handleOpenFileAtPath("local-drive:c", "Links/Report.lnk", "associated-viewer", "recent-1");
+    });
+
+    expect(api.resolveLocalActivation).toHaveBeenCalledWith("local-drive:c", "Links/Report.lnk");
+    expect(result.current.viewInfo).toMatchObject({
+      connectionId: "local-drive:d",
+      path: "Reports/quarterly.pdf",
+      mimeType: "application/pdf",
+    });
+  });
+
+  it("navigates to a directory resolved from a local recent shortcut", async () => {
+    const sourceConnection = { ...mockConnections[0], id: "local-drive:c", slug: "c", type: "local" };
+    const onNavigateDirectory = vi.fn();
+    vi.mocked(api.resolveLocalActivation).mockResolvedValue({
+      drive_id: "d",
+      path: "Projects/Archive",
+      item: {
+        name: "Archive",
+        path: "Projects/Archive",
+        type: FileType.DIRECTORY,
+        is_readable: true,
+        is_hidden: false,
+      },
+    });
+
+    const { result } = renderHook(
+      () =>
+        useFileBrowserPane({
+          rowHeight: 40,
+          connections: [sourceConnection],
+          onNavigateDirectory,
+        }),
+      { wrapper }
+    );
+
+    await act(async () => {
+      await result.current.handleOpenFileAtPath("local-drive:c", "Links/Archive.lnk", "associated-viewer", "recent-1");
+    });
+
+    expect(onNavigateDirectory).toHaveBeenCalledWith("local-drive:d", "Projects/Archive");
   });
 
   it("opens an image recent outside the active pane without reusing its gallery", async () => {

@@ -107,6 +107,38 @@ mod tests {
     use super::{resolve_activation_target, LinkResolutionError};
     use std::fs;
 
+    #[cfg(windows)]
+    fn create_windows_shortcut(shortcut: &std::path::Path, target: &std::path::Path) {
+        use std::iter;
+        use std::os::windows::ffi::OsStrExt;
+
+        use windows::core::{Interface, PCWSTR};
+        use windows::Win32::System::Com::{
+            CoCreateInstance, CoInitializeEx, CoUninitialize, IPersistFile, CLSCTX_INPROC_SERVER, COINIT_APARTMENTTHREADED,
+        };
+        use windows::Win32::UI::Shell::{IShellLinkW, ShellLink};
+
+        let shortcut_wide: Vec<u16> = shortcut.as_os_str().encode_wide().chain(iter::once(0)).collect();
+        let target_wide: Vec<u16> = target.as_os_str().encode_wide().chain(iter::once(0)).collect();
+
+        unsafe {
+            CoInitializeEx(None, COINIT_APARTMENTTHREADED)
+                .ok()
+                .expect("COM should initialize for shortcut test");
+
+            let result = (|| {
+                let shell_link: IShellLinkW = CoCreateInstance(&ShellLink, None, CLSCTX_INPROC_SERVER)?;
+                shell_link.SetPath(PCWSTR(target_wide.as_ptr()))?;
+                let persist_file: IPersistFile = shell_link.cast()?;
+                persist_file.Save(PCWSTR(shortcut_wide.as_ptr()), true)?;
+                Ok::<_, windows::core::Error>(())
+            })();
+
+            CoUninitialize();
+            result.expect("Windows shortcut should be created");
+        }
+    }
+
     #[test]
     fn resolves_a_regular_file_to_its_canonical_path() {
         let directory = tempfile::tempdir().expect("temporary directory should be created");
@@ -142,6 +174,52 @@ mod tests {
 
         assert!(matches!(
             resolve_activation_target(&directory.path().join("missing")),
+            Err(LinkResolutionError::TargetMissing)
+        ));
+    }
+
+    #[cfg(windows)]
+    #[test]
+    fn resolves_a_windows_shortcut_to_a_file_target() {
+        let directory = tempfile::tempdir().expect("temporary directory should be created");
+        let target = directory.path().join("report.txt");
+        let shortcut = directory.path().join("report.lnk");
+        fs::write(&target, "report").expect("temporary file should be written");
+        create_windows_shortcut(&shortcut, &target);
+
+        assert_eq!(
+            resolve_activation_target(&shortcut).expect("shortcut should resolve"),
+            fs::canonicalize(target).unwrap()
+        );
+    }
+
+    #[cfg(windows)]
+    #[test]
+    fn resolves_a_windows_shortcut_to_a_directory_target() {
+        let directory = tempfile::tempdir().expect("temporary directory should be created");
+        let target = directory.path().join("archive");
+        let shortcut = directory.path().join("archive.lnk");
+        fs::create_dir(&target).expect("temporary directory should be created");
+        create_windows_shortcut(&shortcut, &target);
+
+        assert_eq!(
+            resolve_activation_target(&shortcut).expect("shortcut should resolve"),
+            fs::canonicalize(target).unwrap()
+        );
+    }
+
+    #[cfg(windows)]
+    #[test]
+    fn reports_a_missing_target_for_a_windows_shortcut() {
+        let directory = tempfile::tempdir().expect("temporary directory should be created");
+        let target = directory.path().join("report.txt");
+        let shortcut = directory.path().join("report.lnk");
+        fs::write(&target, "report").expect("temporary file should be written");
+        create_windows_shortcut(&shortcut, &target);
+        fs::remove_file(&target).expect("temporary file should be removed");
+
+        assert!(matches!(
+            resolve_activation_target(&shortcut),
             Err(LinkResolutionError::TargetMissing)
         ));
     }
