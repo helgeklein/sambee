@@ -322,6 +322,23 @@ test.describe("markdown viewer table editing", () => {
 });
 
 test.describe("markdown editor selection", () => {
+  test("toggles word wrapping with Alt+Z", async ({ page }) => {
+    await mockMarkdownViewerApi(page, { initialMarkdown: WRAPPED_SELECTION_MARKDOWN });
+
+    await openMarkdownViewer(page);
+    await enterMarkdownEditMode(page);
+
+    const editor = page.getByRole("textbox", { name: "Markdown editor" });
+    await expect(editor).toHaveClass(/cm-lineWrapping/);
+
+    await editor.click();
+    await page.keyboard.press("Alt+Z");
+    await expect(editor).not.toHaveClass(/cm-lineWrapping/);
+
+    await page.keyboard.press("Alt+Z");
+    await expect(editor).toHaveClass(/cm-lineWrapping/);
+  });
+
   test("renders a wrapped selection without a native browser overlay", async ({ page }) => {
     await mockMarkdownViewerApi(page, { initialMarkdown: WRAPPED_SELECTION_MARKDOWN });
 

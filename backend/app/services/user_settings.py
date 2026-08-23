@@ -113,6 +113,20 @@ def _parse_bool(raw_value: str | None, *, key: UserSettingKey, default: bool) ->
     return default
 
 
+def _parse_optional_bool(raw_value: str | None, *, key: UserSettingKey) -> bool | None:
+    if raw_value is None:
+        return None
+
+    normalized = raw_value.strip().lower()
+    if normalized in TRUE_VALUES:
+        return True
+    if normalized in FALSE_VALUES:
+        return False
+
+    logger.error(f"Invalid stored boolean for {key.value}: {raw_value}")
+    return None
+
+
 def _parse_choice(raw_value: str | None, *, key: UserSettingKey, valid_values: set[str], default: str) -> str:
     if raw_value is None:
         return default
@@ -264,7 +278,11 @@ def build_current_user_settings_read(*, user_id: uuid.UUID, session: Session) ->
                 values.get(UserSettingKey.TEXT_EDITOR_MAX_FILE_SIZE_BYTES.value),
                 key=UserSettingKey.TEXT_EDITOR_MAX_FILE_SIZE_BYTES,
                 default=DEFAULT_TEXT_EDITOR_MAX_FILE_SIZE_BYTES,
-            )
+            ),
+            word_wrap_enabled=_parse_optional_bool(
+                values.get(UserSettingKey.TEXT_EDITOR_WORD_WRAP_ENABLED.value),
+                key=UserSettingKey.TEXT_EDITOR_WORD_WRAP_ENABLED,
+            ),
         ),
     )
 
@@ -443,6 +461,15 @@ def update_current_user_settings(*, user_id: uuid.UUID, payload: CurrentUserSett
             user_id=user_id,
             key=UserSettingKey.TEXT_EDITOR_MAX_FILE_SIZE_BYTES,
             value=str(max_file_size_bytes),
+            session=session,
+        )
+        has_updates = True
+
+    if payload.text_editor and payload.text_editor.word_wrap_enabled is not None:
+        _upsert_user_setting(
+            user_id=user_id,
+            key=UserSettingKey.TEXT_EDITOR_WORD_WRAP_ENABLED,
+            value="true" if payload.text_editor.word_wrap_enabled else "false",
             session=session,
         )
         has_updates = True

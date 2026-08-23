@@ -22,6 +22,7 @@ class TestCurrentUserSettingsApi:
         assert data["browser"]["selected_connection_id"] is None
         assert data["browser"]["viewer_associations"] == {}
         assert data["text_editor"]["max_file_size_bytes"] == 52428800
+        assert data["text_editor"]["word_wrap_enabled"] is None
 
     def test_user_can_update_own_settings(self, client: TestClient, auth_headers_user: dict[str, str], session: Session) -> None:
         response = client.put(
@@ -56,6 +57,7 @@ class TestCurrentUserSettingsApi:
                 },
                 "text_editor": {
                     "max_file_size_bytes": 4194304,
+                    "word_wrap_enabled": True,
                 },
             },
         )
@@ -76,6 +78,7 @@ class TestCurrentUserSettingsApi:
             "application/pdf": "pdf",
         }
         assert data["text_editor"]["max_file_size_bytes"] == 4194304
+        assert data["text_editor"]["word_wrap_enabled"] is True
 
         rows = session.exec(select(UserSetting)).all()
         values = {row.key: row.value for row in rows}
@@ -90,6 +93,7 @@ class TestCurrentUserSettingsApi:
         assert values[UserSettingKey.BROWSER_SELECTED_CONNECTION_ID.value] == "conn-123"
         assert values[UserSettingKey.BROWSER_VIEWER_ASSOCIATIONS.value] == '{".md":"markdown","application/pdf":"pdf"}'
         assert values[UserSettingKey.TEXT_EDITOR_MAX_FILE_SIZE_BYTES.value] == "4194304"
+        assert values[UserSettingKey.TEXT_EDITOR_WORD_WRAP_ENABLED.value] == "true"
 
     def test_user_can_clear_custom_themes(self, client: TestClient, auth_headers_user: dict[str, str], session: Session) -> None:
         seed_response = client.put(

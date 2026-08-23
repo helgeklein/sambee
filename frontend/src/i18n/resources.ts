@@ -1094,6 +1094,7 @@ export const EN_TRANSLATIONS = {
       toggleCaseSensitive: "Toggle case-sensitive matching",
       toggleWholeWord: "Toggle whole-word matching",
       toggleRegularExpression: "Toggle regular-expression matching",
+      toggleWordWrap: "Toggle word wrap",
       removeItalic: "Remove italic",
       underline: "Underline",
       removeUnderline: "Remove underline",

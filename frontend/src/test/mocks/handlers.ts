@@ -79,6 +79,7 @@ let currentUserSettingsResponse: CurrentUserSettings = {
   },
   text_editor: {
     max_file_size_bytes: 52428800,
+    word_wrap_enabled: null,
   },
 };
 

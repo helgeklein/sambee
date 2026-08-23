@@ -40,6 +40,36 @@ function appendNestedEditorTarget(editor: HTMLElement): HTMLElement {
 }
 
 describe("MarkdownRichEditor", () => {
+  it("reconfigures ordinary Markdown line wrapping", async () => {
+    const { rerender } = render(
+      <MarkdownRichEditor
+        ariaLabel="Markdown editor"
+        lineWrapping={true}
+        markdown="A long line"
+        theme={TEST_MARKDOWN_THEME}
+        onChange={() => {}}
+      />
+    );
+
+    const editor = await screen.findByLabelText("Markdown editor");
+    expect(editor).toHaveClass("cm-lineWrapping");
+
+    rerender(
+      <MarkdownRichEditor
+        ariaLabel="Markdown editor"
+        lineWrapping={false}
+        markdown="A long line"
+        theme={TEST_MARKDOWN_THEME}
+        onChange={() => {}}
+      />
+    );
+
+    await waitFor(() => {
+      expect(editor).not.toHaveClass("cm-lineWrapping");
+    });
+    expect(editor).toHaveTextContent("A long line");
+  });
+
   it("reports source-mode search state and navigates matches", async () => {
     const states: MarkdownRichEditorSearchState[] = [];
 

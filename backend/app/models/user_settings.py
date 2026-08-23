@@ -39,6 +39,7 @@ class BrowserUserSettingsRead(SQLModel):
 
 class TextEditorUserSettingsRead(SQLModel):
     max_file_size_bytes: int
+    word_wrap_enabled: Optional[bool] = None
 
 
 class CurrentUserSettingsRead(SQLModel):
@@ -69,6 +70,7 @@ class BrowserUserSettingsUpdate(SQLModel):
 
 class TextEditorUserSettingsUpdate(SQLModel):
     max_file_size_bytes: Optional[int] = None
+    word_wrap_enabled: Optional[bool] = None
 
 
 class CurrentUserSettingsUpdate(SQLModel):

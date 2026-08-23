@@ -1,4 +1,6 @@
-import { useEffect, useState } from "react";
+import { useEffect, useState, useSyncExternalStore } from "react";
+import { authSession } from "../../services/authSession";
+import { error as logError } from "../../services/logger";
 import { loadCurrentUserSettings, patchCurrentUserSettings, USER_SETTINGS_CHANGED_EVENT } from "../../services/userSettingsSync";
 import type { CurrentUserSettings } from "../../types";
 import type { PaneMode, ViewMode } from "./types";
@@ -16,11 +18,171 @@ const VIEW_MODE_PREFERENCE_EVENT = "sambee:file-browser-view-mode-changed";
 const PANE_MODE_PREFERENCE_EVENT = "sambee:file-browser-pane-mode-changed";
 const SELECTED_CONNECTION_PREFERENCE_EVENT = "sambee:selected-connection-changed";
 const TEXT_EDITOR_MAX_FILE_SIZE_PREFERENCE_EVENT = "sambee:text-editor-max-file-size-bytes-changed";
+const WORD_WRAP_PERSIST_COOLDOWN_MS = 350;
 const ENABLED_STORAGE_VALUE = "true";
 const DISABLED_STORAGE_VALUE = "false";
 const DEFAULT_TEXT_EDITOR_MAX_FILE_SIZE_BYTES = 52_428_800;
 const QUICK_BAR_KEYBOARD_EVIDENCE_SESSION_STORAGE_KEY = "quick-bar-keyboard-evidence";
 const KEYBOARD_MODIFIER_KEYS = new Set(["Alt", "AltGraph", "CapsLock", "Control", "Meta", "NumLock", "ScrollLock", "Shift"]);
+
+interface PendingWordWrapWrite {
+  sequence: number;
+  value: boolean;
+}
+
+interface AuthSessionLike {
+  subscribeToClear?: (listener: () => void) => () => void;
+}
+
+const wordWrapListeners = new Set<() => void>();
+let backendWordWrapOverride: boolean | null = null;
+let hasLocalWordWrapOverride = false;
+let localWordWrapOverride = false;
+let pendingWordWrapWrite: PendingWordWrapWrite | null = null;
+let wordWrapRequestInFlight: PendingWordWrapWrite | null = null;
+let wordWrapDebounceTimer: number | null = null;
+let wordWrapSequence = 0;
+let wordWrapRevision = 0;
+let wordWrapSettingsLoaded = false;
+let wordWrapSessionGeneration = 0;
+
+function notifyWordWrapListeners(): void {
+  wordWrapRevision += 1;
+  for (const listener of wordWrapListeners) {
+    listener();
+  }
+}
+
+function clearWordWrapDebounceTimer(): void {
+  if (wordWrapDebounceTimer !== null) {
+    window.clearTimeout(wordWrapDebounceTimer);
+    wordWrapDebounceTimer = null;
+  }
+}
+
+function applyBackendWordWrapOverride(settings: CurrentUserSettings | null): void {
+  if (!settings) {
+    return;
+  }
+
+  backendWordWrapOverride = settings.text_editor?.word_wrap_enabled ?? null;
+  wordWrapSettingsLoaded = true;
+  notifyWordWrapListeners();
+}
+
+function persistPendingWordWrapOverride(): void {
+  wordWrapDebounceTimer = null;
+
+  if (wordWrapRequestInFlight || !pendingWordWrapWrite) {
+    return;
+  }
+
+  const request = pendingWordWrapWrite;
+  const sessionGeneration = wordWrapSessionGeneration;
+  wordWrapRequestInFlight = request;
+
+  const completeRequest = (settings: CurrentUserSettings | null): void => {
+    if (sessionGeneration !== wordWrapSessionGeneration) {
+      return;
+    }
+
+    wordWrapRequestInFlight = null;
+
+    if (settings) {
+      backendWordWrapOverride = settings.text_editor.word_wrap_enabled;
+      if (pendingWordWrapWrite?.sequence === request.sequence) {
+        pendingWordWrapWrite = null;
+        hasLocalWordWrapOverride = false;
+      }
+    } else if (pendingWordWrapWrite?.sequence === request.sequence) {
+      pendingWordWrapWrite = null;
+      logError("Failed to persist text editor word wrap preference; keeping the local setting");
+    }
+
+    if (pendingWordWrapWrite) {
+      scheduleWordWrapPersistence();
+    }
+
+    notifyWordWrapListeners();
+  };
+
+  void patchCurrentUserSettings({ text_editor: { word_wrap_enabled: request.value } })
+    .then(completeRequest)
+    .catch((error: unknown) => {
+      logError("Failed to persist text editor word wrap preference; keeping the local setting", { error });
+      completeRequest(null);
+    });
+}
+
+function scheduleWordWrapPersistence(): void {
+  clearWordWrapDebounceTimer();
+  wordWrapDebounceTimer = window.setTimeout(persistPendingWordWrapOverride, WORD_WRAP_PERSIST_COOLDOWN_MS);
+}
+
+function setWordWrapPreference(value: boolean): void {
+  hasLocalWordWrapOverride = true;
+  localWordWrapOverride = value;
+  wordWrapSequence += 1;
+  pendingWordWrapWrite = { sequence: wordWrapSequence, value };
+  scheduleWordWrapPersistence();
+  notifyWordWrapListeners();
+}
+
+function resetWordWrapPreference(): void {
+  clearWordWrapDebounceTimer();
+  backendWordWrapOverride = null;
+  hasLocalWordWrapOverride = false;
+  pendingWordWrapWrite = null;
+  wordWrapRequestInFlight = null;
+  wordWrapSequence += 1;
+  wordWrapSettingsLoaded = false;
+  wordWrapSessionGeneration += 1;
+  notifyWordWrapListeners();
+}
+
+function subscribeToWordWrapPreference(listener: () => void): () => void {
+  wordWrapListeners.add(listener);
+  return () => {
+    wordWrapListeners.delete(listener);
+  };
+}
+
+function getWordWrapSnapshot(): number {
+  return wordWrapRevision;
+}
+
+function ensureWordWrapSettingsLoaded(): void {
+  if (wordWrapSettingsLoaded) {
+    return;
+  }
+
+  wordWrapSettingsLoaded = true;
+  void loadCurrentUserSettings().then((settings) => {
+    applyBackendWordWrapOverride(settings);
+  });
+}
+
+(authSession as AuthSessionLike).subscribeToClear?.(resetWordWrapPreference);
+
+export function useTextEditorWordWrapPreference(fallbackValue: boolean): [boolean, (value: boolean) => void] {
+  useSyncExternalStore(subscribeToWordWrapPreference, getWordWrapSnapshot, getWordWrapSnapshot);
+
+  useEffect(() => {
+    const handleUserSettingsChanged = (event: Event) => {
+      applyBackendWordWrapOverride((event as CustomEvent<CurrentUserSettings>).detail);
+    };
+
+    window.addEventListener(USER_SETTINGS_CHANGED_EVENT, handleUserSettingsChanged);
+    ensureWordWrapSettingsLoaded();
+
+    return () => {
+      window.removeEventListener(USER_SETTINGS_CHANGED_EVENT, handleUserSettingsChanged);
+    };
+  }, []);
+
+  const wordWrapEnabled = hasLocalWordWrapOverride ? localWordWrapOverride : (backendWordWrapOverride ?? fallbackValue);
+  return [wordWrapEnabled, setWordWrapPreference];
+}
 
 export type QuickBarShortcutHintVisibility = "auto" | "always" | "never";
 

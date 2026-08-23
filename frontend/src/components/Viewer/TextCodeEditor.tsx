@@ -47,6 +47,7 @@ export interface TextCodeEditorProps {
   theme: TextEditorThemeOptions;
   autoFocus?: boolean;
   readOnly?: boolean;
+  lineWrapping?: boolean;
   className?: string;
   searchText?: string;
   searchOpen?: boolean;
@@ -71,6 +72,7 @@ export const TextCodeEditor = forwardRef<TextCodeEditorHandle, TextCodeEditorPro
       theme,
       autoFocus = false,
       readOnly = false,
+      lineWrapping = false,
       className,
       searchText = "",
       searchOpen = false,
@@ -94,12 +96,12 @@ export const TextCodeEditor = forwardRef<TextCodeEditorHandle, TextCodeEditorPro
     } | null>(null);
     const extensions = useMemo(
       () => [
-        ...buildCommonEditorExtensions({ drawSelection: true, highlightSelectionMatches: false, lineWrapping: false }),
+        ...buildCommonEditorExtensions({ drawSelection: true, highlightSelectionMatches: false, lineWrapping }),
         ...buildTextEditorTheme(theme),
         buildPassiveSearchHighlightExtension(),
         ...languageExtensions,
       ],
-      [languageExtensions, theme]
+      [languageExtensions, lineWrapping, theme]
     );
 
     useEffect(() => {

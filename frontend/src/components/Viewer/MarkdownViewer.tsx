@@ -23,17 +23,18 @@ import {
 } from "../../config/keyboardShortcuts";
 import { checkIsTransientError, getTransientErrorMessage, useApiRetry } from "../../hooks/useApiRetry";
 import { useKeyboardShortcuts } from "../../hooks/useKeyboardShortcuts";
+import { useTextEditorWordWrapPreference } from "../../pages/FileBrowser/preferences";
 import apiService from "../../services/api";
 import { clearDraft, type DraftSnapshot, loadDraft, registerDraftSnapshot, saveDraft } from "../../services/draftRecovery";
 import { error as logError, info as logInfo } from "../../services/logger";
 import { useSambeeTheme } from "../../theme";
 import { getSearchHighlightColors } from "../../theme/commonStyles";
 import {
+  CODEMIRROR_EDITOR_CONTENT_PADDING,
+  CODEMIRROR_EDITOR_HORIZONTAL_INSET_CSS_VARIABLE,
   getMarkdownContentStyles,
   getMarkdownTableSurfaceColors,
   getViewerColors,
-  MARKDOWN_CONTENT_PADDING,
-  MARKDOWN_SELECTION_HORIZONTAL_INSET_CSS_VARIABLE,
 } from "../../theme/viewerStyles";
 import type { EditLockInfo } from "../../types";
 import { isApiError } from "../../types";
@@ -209,6 +210,7 @@ export const MarkdownViewer: React.FC<ViewerComponentProps> = ({ connectionId, p
   const [editorLoadNonce, setEditorLoadNonce] = useState(0);
   const [EditorComponent, setEditorComponent] = useState<MarkdownRichEditorComponent | null>(null);
   const [pendingUnsavedChangesAction, setPendingUnsavedChangesAction] = useState<PendingUnsavedChangesAction | null>(null);
+  const [wordWrapEnabled, setWordWrapEnabled] = useTextEditorWordWrapPreference(true);
   const [editorSearchState, setEditorSearchState] = useState<MarkdownRichEditorSearchState>({
     searchText: "",
     searchMatches: 0,
@@ -1490,6 +1492,11 @@ export const MarkdownViewer: React.FC<ViewerComponentProps> = ({ connectionId, p
         enabled: isEditing && searchPanelOpen,
       },
       {
+        ...CODEMIRROR_EDITOR_SHORTCUTS.TOGGLE_WORD_WRAP,
+        handler: () => setWordWrapEnabled(!wordWrapEnabled),
+        enabled: isEditing && !isSaving,
+      },
+      {
         ...MARKDOWN_EDITOR_SHORTCUTS.ITALIC,
         handler: handleToggleItalic,
         enabled: isEditing && !isSaving,
@@ -1557,7 +1564,9 @@ export const MarkdownViewer: React.FC<ViewerComponentProps> = ({ connectionId, p
       editorSearchMode,
       searchPanelOpen,
       searchMatches,
+      setWordWrapEnabled,
       unsavedChangesDialogOpen,
+      wordWrapEnabled,
     ]
   );
 
@@ -1814,13 +1823,13 @@ export const MarkdownViewer: React.FC<ViewerComponentProps> = ({ connectionId, p
                   "& .sambee-markdown-editor": {
                     flex: 1,
                     minHeight: 0,
-                    [MARKDOWN_SELECTION_HORIZONTAL_INSET_CSS_VARIABLE]: muiTheme.spacing(MARKDOWN_CONTENT_PADDING.xs),
+                    [CODEMIRROR_EDITOR_HORIZONTAL_INSET_CSS_VARIABLE]: muiTheme.spacing(CODEMIRROR_EDITOR_CONTENT_PADDING.xs),
                     [muiTheme.breakpoints.up("sm")]: {
-                      [MARKDOWN_SELECTION_HORIZONTAL_INSET_CSS_VARIABLE]: muiTheme.spacing(MARKDOWN_CONTENT_PADDING.sm),
+                      [CODEMIRROR_EDITOR_HORIZONTAL_INSET_CSS_VARIABLE]: muiTheme.spacing(CODEMIRROR_EDITOR_CONTENT_PADDING.sm),
                     },
                   },
                   "& .sambee-markdown-editor .cm-content": {
-                    p: MARKDOWN_CONTENT_PADDING,
+                    p: CODEMIRROR_EDITOR_CONTENT_PADDING,
                   },
                 }}
               >
@@ -1876,6 +1885,7 @@ export const MarkdownViewer: React.FC<ViewerComponentProps> = ({ connectionId, p
                       markdown={draftContent}
                       diffMarkdown={content}
                       theme={markdownEditorTheme}
+                      lineWrapping={wordWrapEnabled}
                       onChange={handleEditorChange}
                       onUserEdit={handleEditorUserEdit}
                       ariaLabel={t("viewer.edit.editorLabel")}

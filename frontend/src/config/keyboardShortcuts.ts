@@ -308,6 +308,17 @@ export const CODEMIRROR_EDITOR_SHORTCUTS = {
     label: "Alt+R",
     helpGroup: "editing",
   },
+  TOGGLE_WORD_WRAP: {
+    id: "codemirror-toggle-word-wrap",
+    keys: ["z", "Z"],
+    alt: true,
+    allowInInput: true,
+    get description() {
+      return translate("viewer.edit.toggleWordWrap");
+    },
+    label: "Alt+Z",
+    helpGroup: "editing",
+  },
 } as const satisfies Record<string, ShortcutDefinition>;
 
 export const MARKDOWN_EDITOR_SHORTCUTS = {

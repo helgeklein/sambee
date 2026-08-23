@@ -30,7 +30,7 @@ interface MockTextCodeEditorProps {
   text: string;
 }
 
-const { mockTextEditorCommands, readTextEditorMaxFileSizeBytesPreferenceMock } = vi.hoisted(() => ({
+const { mockTextEditorCommands, readTextEditorMaxFileSizeBytesPreferenceMock, useTextEditorWordWrapPreferenceMock } = vi.hoisted(() => ({
   mockTextEditorCommands: {
     nextSearchResult: vi.fn(),
     previousSearchResult: vi.fn(),
@@ -38,10 +38,12 @@ const { mockTextEditorCommands, readTextEditorMaxFileSizeBytesPreferenceMock } =
     replaceCurrentSearchResult: vi.fn(),
   },
   readTextEditorMaxFileSizeBytesPreferenceMock: vi.fn(() => 52_428_800),
+  useTextEditorWordWrapPreferenceMock: vi.fn(() => [false, vi.fn()] as const),
 }));
 
 vi.mock("../../../pages/FileBrowser/preferences", () => ({
   readTextEditorMaxFileSizeBytesPreference: readTextEditorMaxFileSizeBytesPreferenceMock,
+  useTextEditorWordWrapPreference: useTextEditorWordWrapPreferenceMock,
 }));
 
 vi.mock("../TextCodeEditor", () => {
