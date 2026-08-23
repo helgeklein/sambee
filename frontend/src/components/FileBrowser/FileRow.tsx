@@ -13,6 +13,7 @@ import { useTranslation } from "react-i18next";
 import { formatDate, formatFileSize } from "../../pages/FileBrowser/formatters";
 import type { ViewMode } from "../../pages/FileBrowser/types";
 import type { FileEntry } from "../../types";
+import { isShortcutFile } from "../../utils/fileEntries";
 import { getFileIcon } from "../../utils/fileIcons";
 import { FileRowButton } from "./FileRowButton";
 
@@ -135,7 +136,7 @@ function TargetPathLabel({ path, rowTextSx }: { path: string; rowTextSx?: Record
   return (
     <>
       <Typography variant="body2" component="span" noWrap sx={{ ...rowTextSx, color: "text.secondary", flex: "0 0 auto" }}>
-        {" -> "}
+        {" \u2192 "}
       </Typography>
       <Typography
         ref={labelRef}
@@ -186,6 +187,7 @@ export const FileRow = React.memo(
       const { t } = useTranslation();
       const isListMode = viewMode === "list";
       const linkTarget = file.link_target?.target;
+      const isShortcut = isShortcutFile(file);
       const isFile = file.type !== "directory" && linkTarget?.type !== "directory";
       const rowTextSx = useCompactLayout ? { fontSize: "16px" } : undefined;
       const hasContextMenu = !!(
@@ -198,7 +200,7 @@ export const FileRow = React.memo(
       const ariaLabel = `${itemTypeLabel}: ${file.name}${
         linkTargetPath
           ? t("fileBrowser.row.shortcutTargetSuffix", { target: linkTargetPath })
-          : file.link_kind
+          : isShortcut
             ? t("fileBrowser.row.shortcutSuffix")
             : ""
       }${isMultiSelected ? t("fileBrowser.row.selectedSuffix") : ""}`;
@@ -298,37 +300,15 @@ export const FileRow = React.memo(
                   return <CheckCircleIcon sx={{ fontSize: 24, color: "primary.main" }} />;
                 }
 
-                if (!file.link_kind) {
-                  return getFileIcon({
-                    filename: file.name,
-                    isDirectory: file.type === "directory",
-                    size: 24,
-                  });
-                }
-
-                if (!linkTarget) {
+                if (isShortcut) {
                   return <ShortcutIcon sx={{ fontSize: 24, color: "text.secondary" }} />;
                 }
 
-                return (
-                  <Box sx={{ display: "grid", height: 24, placeItems: "center", position: "relative", width: 24 }}>
-                    {getFileIcon({
-                      filename: linkTarget.name,
-                      isDirectory: linkTarget.type === "directory",
-                      size: 24,
-                    })}
-                    <ShortcutIcon
-                      sx={{
-                        backgroundColor: "background.paper",
-                        bottom: -1,
-                        color: "text.secondary",
-                        fontSize: 12,
-                        position: "absolute",
-                        right: -2,
-                      }}
-                    />
-                  </Box>
-                );
+                return getFileIcon({
+                  filename: file.name,
+                  isDirectory: file.type === "directory",
+                  size: 24,
+                });
               })();
 
               return isListMode ? (

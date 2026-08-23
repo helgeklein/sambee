@@ -5,6 +5,7 @@
 import { Box, Typography } from "@mui/material";
 import { formatDate, formatFileSize } from "../../pages/FileBrowser/formatters";
 import type { FileEntry } from "../../types";
+import { isShortcutFile } from "../../utils/fileEntries";
 import { STATUS_BAR_STRINGS } from "./statusBarStrings";
 
 /** Shared height constant so breadcrumb bar and status bar match exactly. */
@@ -25,7 +26,11 @@ export function StatusBar({ files, focusedIndex }: StatusBarProps) {
   }
 
   const selectedFile = files[focusedIndex];
-  const linkTargetStatus = selectedFile?.link_target ? STATUS_BAR_STRINGS.linkTargetStatus(selectedFile.link_target) : null;
+  const linkTargetStatus = selectedFile?.link_target
+    ? STATUS_BAR_STRINGS.linkTargetStatus(selectedFile.link_target)
+    : selectedFile && isShortcutFile(selectedFile)
+      ? STATUS_BAR_STRINGS.UNRESOLVABLE_SHORTCUT
+      : null;
 
   return (
     <Box

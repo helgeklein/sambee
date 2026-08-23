@@ -91,6 +91,18 @@ describe("FileRow", () => {
 
     expect(screen.getByTitle("C:\\Users\\Sambee\\Projects\\Project Archive")).toBeInTheDocument();
     expect(screen.getByRole("button", { name: /shortcut target: C:\\Users\\Sambee\\Projects\\Project Archive/i })).toBeInTheDocument();
+    expect(screen.getByText(/\u2192/)).toBeInTheDocument();
+    expect(screen.getByTestId("ShortcutIcon")).toBeInTheDocument();
+    expect(screen.queryByTestId("FolderIcon")).not.toBeInTheDocument();
+  });
+
+  it("renders an unresolved shortcut extension with the shortcut icon", () => {
+    const props = createDefaultFileRowProps();
+    props.isMultiSelected = false;
+    props.file = { ...props.file, name: "My Drive.lnk" };
+
+    render(<FileRow {...props} />);
+
     expect(screen.getByTestId("ShortcutIcon")).toBeInTheDocument();
   });
 

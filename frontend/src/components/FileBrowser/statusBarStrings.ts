@@ -8,6 +8,9 @@ export const STATUS_BAR_STRINGS = {
   itemCount(count: number) {
     return translate("fileBrowser.chrome.statusBar.itemCount", { count });
   },
+  get UNRESOLVABLE_SHORTCUT() {
+    return translate("fileBrowser.chrome.statusBar.linkTargetUnresolvable");
+  },
   linkTargetStatus(resolution: LocalLinkTargetResolution) {
     if (resolution.target?.type === "other") {
       return translate("fileBrowser.chrome.statusBar.linkTargetUnsupported");
