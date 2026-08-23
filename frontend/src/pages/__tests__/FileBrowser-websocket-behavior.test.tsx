@@ -151,6 +151,23 @@ describe("FileBrowser WebSocket behavior", () => {
     expect(infoSpy.mock.calls.some(([, context]) => JSON.stringify(context).includes("fake-token"))).toBe(false);
   });
 
+  it("redacts the companion WebSocket signature from connection logs", async () => {
+    mockUseCompanion.mockReturnValue({
+      ...buildDefaultCompanionResult(),
+      status: "paired",
+    });
+    const infoSpy = vi.spyOn(logger, "info");
+    const { renderBrowser } = await import("./FileBrowser.test.utils");
+
+    renderBrowser("/browse/local/c/Users");
+
+    await waitFor(() => {
+      expect(infoSpy).toHaveBeenCalledWith("Connecting to companion WebSocket", { wsUrl: "ws://localhost:21549/api/ws" }, "websocket");
+    });
+
+    expect(infoSpy.mock.calls.some(([, context]) => JSON.stringify(context).includes("hmac=test"))).toBe(false);
+  });
+
   it("does not mark the backend as reconnecting when the realtime socket closes", async () => {
     const { renderBrowser } = await import("./FileBrowser.test.utils");
 

@@ -1142,7 +1142,7 @@ const Browser: React.FC = () => {
       const wsUrl = await buildCompanionWsUrl();
       if (!wsUrl || disposed) return;
 
-      logger.info("Connecting to companion WebSocket", { wsUrl }, "websocket");
+      logger.info("Connecting to companion WebSocket", { wsUrl: getSafeWebSocketLogUrl(wsUrl) }, "websocket");
       const ws = new WebSocket(wsUrl);
       activeWs = ws;
 
