@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef } from "react";
-import { authSession } from "../services/authSession";
+import { AuthSessionError, authSession } from "../services/authSession";
 import {
   type BackendAvailabilityStatus,
   getBackendAvailabilitySnapshot,
@@ -12,10 +12,11 @@ import { logger } from "../services/logger";
 
 const HEALTH_CHECK_PATH = "/health";
 const AUTHENTICATED_PROBE_PATH = "/auth/me";
-const HEALTH_CHECK_TIMEOUT_MS = 5_000;
+const HEALTH_CHECK_TIMEOUT_MS = 2_500;
 const PROBE_FAILURES_BEFORE_UNAVAILABLE = 3;
-const RECOVERY_RETRY_DELAYS_MS = [750, 1_250, 2_000, 3_000] as const;
+const RECOVERY_RETRY_DELAYS_MS = [500, 750, 1_250, 2_000] as const;
 const PROACTIVE_PROBE_MIN_INTERVAL_MS = 30_000;
+const TOKEN_REFRESH_SUCCESS_REASON = "token-refresh-success";
 const PROACTIVE_RECOVERY_REASONS = new Set(["visibility-visible", "window-focus", "window-online", "window-pageshow"]);
 
 interface BackendRecoveryMonitorOptions {
@@ -23,6 +24,7 @@ interface BackendRecoveryMonitorOptions {
   status: BackendAvailabilityStatus;
   onRecovered?: (reason: string, wasRecovering: boolean) => void;
   onReconnectNow?: (reason: string) => void;
+  onAuthenticationFailure?: () => void;
 }
 
 function getRecoveryDelay(failures: number): number {
@@ -57,7 +59,13 @@ function buildRecoveryProbeRequest(): RecoveryProbeRequest {
   };
 }
 
-export function useBackendRecoveryMonitor({ enabled = true, status, onRecovered, onReconnectNow }: BackendRecoveryMonitorOptions): void {
+export function useBackendRecoveryMonitor({
+  enabled = true,
+  status,
+  onRecovered,
+  onReconnectNow,
+  onAuthenticationFailure,
+}: BackendRecoveryMonitorOptions): void {
   const timerRef = useRef<number | null>(null);
   const probeInFlightRef = useRef(false);
   const queuedProbeReasonRef = useRef<string | null>(null);
@@ -65,10 +73,12 @@ export function useBackendRecoveryMonitor({ enabled = true, status, onRecovered,
   const lastProbeStartedAtRef = useRef<number>(0);
   const onRecoveredRef = useRef(onRecovered);
   const onReconnectNowRef = useRef(onReconnectNow);
+  const onAuthenticationFailureRef = useRef(onAuthenticationFailure);
   const runHealthProbeRef = useRef<(reason: string) => void>(() => undefined);
 
   onRecoveredRef.current = onRecovered;
   onReconnectNowRef.current = onReconnectNow;
+  onAuthenticationFailureRef.current = onAuthenticationFailure;
 
   const clearProbeTimer = useCallback(() => {
     if (timerRef.current !== null) {
@@ -117,11 +127,22 @@ export function useBackendRecoveryMonitor({ enabled = true, status, onRecovered,
           headers: probeRequest.headers,
         });
 
+        if (response.status === 401 && probeRequest.headers.Authorization) {
+          markBackendAvailable();
+          await authSession.requestRefresh();
+          logger.info("Backend recovery token refresh succeeded", { reason, url: probeRequest.url }, "backend-recovery");
+          scheduleProbe(0, TOKEN_REFRESH_SUCCESS_REASON);
+          return;
+        }
+
         if (!response.ok) {
           throw new Error(`Backend recovery probe failed with status ${response.status}`);
         }
 
-        const wasRecovering = getBackendAvailabilitySnapshot().status !== "available" || consecutiveFailuresRef.current > 0;
+        const wasRecovering =
+          getBackendAvailabilitySnapshot().status !== "available" ||
+          consecutiveFailuresRef.current > 0 ||
+          reason === TOKEN_REFRESH_SUCCESS_REASON;
         const shouldNotifyRecovery = wasRecovering || PROACTIVE_RECOVERY_REASONS.has(reason);
         consecutiveFailuresRef.current = 0;
         markBackendAvailable();
@@ -132,6 +153,17 @@ export function useBackendRecoveryMonitor({ enabled = true, status, onRecovered,
           onRecoveredRef.current?.("health-probe-success", wasRecovering);
         }
       } catch (error) {
+        const shouldKeepRecovering =
+          error instanceof AuthSessionError &&
+          (error.code === "transient" || (error.code === "refresh-uncertain" && authSession.hasUsableAccessToken()));
+
+        if (error instanceof AuthSessionError && !shouldKeepRecovering) {
+          logger.warn("Backend recovery requires authentication", { reason, url: probeRequest.url, error }, "backend-recovery");
+          markBackendAvailable();
+          onAuthenticationFailureRef.current?.();
+          return;
+        }
+
         consecutiveFailuresRef.current += 1;
 
         if (consecutiveFailuresRef.current >= PROBE_FAILURES_BEFORE_UNAVAILABLE) {
