@@ -817,6 +817,8 @@ export const EN_TRANSLATIONS = {
         folder: "Folder",
         file: "File",
       },
+      shortcutSuffix: " (shortcut)",
+      shortcutTargetSuffix: " (shortcut target: {{target}})",
       selectedSuffix: " (selected)",
     },
     viewerPicker: {
@@ -904,6 +906,11 @@ export const EN_TRANSLATIONS = {
         noSelection: "No selection",
         itemCount_one: "{{count}} item",
         itemCount_other: "{{count}} items",
+        linkTargetMissing: "Shortcut target not found",
+        linkTargetAccessDenied: "Shortcut target access denied",
+        linkTargetUnresolvable: "Shortcut target cannot be resolved",
+        linkTargetUnmappedDrive: "Shortcut target is outside available drives",
+        linkTargetUnsupported: "Shortcut target is not a file or folder",
       },
       alerts: {
         welcomeTitle: "Welcome to Sambee!",

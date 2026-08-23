@@ -21,8 +21,9 @@ pub enum LinkResolutionError {
 /// Resolve a path to its final filesystem target.
 ///
 /// On Unix-like systems and for Windows filesystem links, canonicalization
-/// follows symbolic links and junctions. Windows `.lnk` files require the
-/// Shell Link API because they are regular files rather than filesystem links.
+/// follows symbolic links and junctions. Windows `.lnk` files are regular
+/// files, so their stored filesystem target is read through the Shell Link API
+/// without invoking Shell target repair or search behavior.
 pub fn resolve_activation_target(source: &Path) -> Result<PathBuf, LinkResolutionError> {
     #[cfg(target_os = "windows")]
     let target = if is_windows_shortcut(source) {
@@ -51,16 +52,18 @@ fn is_windows_shortcut(path: &Path) -> bool {
 }
 
 #[cfg(target_os = "windows")]
+const WINDOWS_SHORTCUT_GET_PATH_FLAGS: u32 = 0;
+
+#[cfg(target_os = "windows")]
 fn resolve_windows_shortcut(source: &Path) -> Result<PathBuf, LinkResolutionError> {
     use std::iter;
     use std::os::windows::ffi::OsStrExt;
 
     use windows::core::{Interface, PCWSTR};
-    use windows::Win32::Foundation::HWND;
     use windows::Win32::System::Com::{
         CoCreateInstance, CoInitializeEx, CoUninitialize, IPersistFile, CLSCTX_INPROC_SERVER, COINIT_APARTMENTTHREADED, STGM_READ,
     };
-    use windows::Win32::UI::Shell::{IShellLinkW, ShellLink, SLGP_RAWPATH, SLR_NO_UI};
+    use windows::Win32::UI::Shell::{IShellLinkW, ShellLink};
 
     let source_wide: Vec<u16> = source.as_os_str().encode_wide().chain(iter::once(0)).collect();
 
@@ -79,13 +82,10 @@ fn resolve_windows_shortcut(source: &Path) -> Result<PathBuf, LinkResolutionErro
             persist_file
                 .Load(PCWSTR(source_wide.as_ptr()), STGM_READ)
                 .map_err(|error| LinkResolutionError::Unresolvable(format!("could not load shortcut: {error}")))?;
-            shell_link
-                .Resolve(HWND::default(), SLR_NO_UI.0 as u32)
-                .map_err(|error| LinkResolutionError::Unresolvable(format!("could not resolve shortcut: {error}")))?;
 
             let mut target = [0u16; 32_768];
             shell_link
-                .GetPath(&mut target, std::ptr::null_mut(), SLGP_RAWPATH.0 as u32)
+                .GetPath(&mut target, std::ptr::null_mut(), WINDOWS_SHORTCUT_GET_PATH_FLAGS)
                 .map_err(|error| LinkResolutionError::Unresolvable(format!("could not read shortcut target: {error}")))?;
             let length = target.iter().position(|character| *character == 0).unwrap_or(target.len());
             if length == 0 {
@@ -217,6 +217,23 @@ mod tests {
         fs::write(&target, "report").expect("temporary file should be written");
         create_windows_shortcut(&shortcut, &target);
         fs::remove_file(&target).expect("temporary file should be removed");
+
+        assert!(matches!(
+            resolve_activation_target(&shortcut),
+            Err(LinkResolutionError::TargetMissing)
+        ));
+    }
+
+    #[cfg(windows)]
+    #[test]
+    fn does_not_search_for_a_renamed_windows_shortcut_target() {
+        let directory = tempfile::tempdir().expect("temporary directory should be created");
+        let target = directory.path().join("report.txt");
+        let renamed_target = directory.path().join("renamed-report.txt");
+        let shortcut = directory.path().join("report.lnk");
+        fs::write(&target, "report").expect("temporary file should be written");
+        create_windows_shortcut(&shortcut, &target);
+        fs::rename(&target, &renamed_target).expect("target should be renamed");
 
         assert!(matches!(
             resolve_activation_target(&shortcut),

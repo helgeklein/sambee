@@ -25,6 +25,7 @@ export function StatusBar({ files, focusedIndex }: StatusBarProps) {
   }
 
   const selectedFile = files[focusedIndex];
+  const linkTargetStatus = selectedFile?.link_target ? STATUS_BAR_STRINGS.linkTargetStatus(selectedFile.link_target) : null;
 
   return (
     <Box
@@ -80,6 +81,11 @@ export function StatusBar({ files, focusedIndex }: StatusBarProps) {
               {selectedFile.modified_at && (
                 <Typography variant="caption" noWrap>
                   {formatDate(selectedFile.modified_at)}
+                </Typography>
+              )}
+              {linkTargetStatus && (
+                <Typography variant="caption" noWrap sx={{ color: "error.main" }}>
+                  {linkTargetStatus}
                 </Typography>
               )}
             </Box>

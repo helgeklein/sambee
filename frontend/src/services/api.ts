@@ -29,6 +29,7 @@ import type {
   FileSearchSettingsRead,
   FileSearchSettingsUpdate,
   LocalActivationResolution,
+  LocalLinkTargetListing,
   NetworkSettings,
   NetworkSettingsUpdate,
   OidcAdminConfigurationRead,
@@ -74,6 +75,7 @@ const CONNECTIONS_API_BASE = "/connections";
 const API_PATH_SUFFIX = "/api";
 const LOCAL_DRIVE_EDIT_LOCKS_UNSUPPORTED_MESSAGE = "Edit locks are not supported for local drives";
 const DIRECTORY_LIST_REQUEST_TIMEOUT_MS = 40_000;
+const LOCAL_LINK_TARGET_REQUEST_TIMEOUT_MS = 15_000;
 export const PDF_VIEWER_REQUEST_TIMEOUT_MS = 90_000;
 export const OIDC_FINALIZATION_REQUEST_TIMEOUT_MS = 15_000;
 
@@ -809,6 +811,23 @@ class ApiService {
     const response = await client.get<LocalActivationResolution>(`/browse/${segment}/resolve-activation`, {
       ...extraConfig,
       params: { path },
+    });
+    return response.data;
+  }
+
+  /** Resolve display-safe target metadata for link sources in a local directory. */
+  async listLocalLinkTargets(connectionId: string, path: string, options?: { signal?: AbortSignal }): Promise<LocalLinkTargetListing> {
+    if (!isLocalDrive(connectionId)) {
+      throw new Error("Link target metadata is only available for local drives");
+    }
+
+    const segment = getBrowseSegment(connectionId);
+    const { client, extraConfig } = await this.getClientConfig(connectionId);
+    const response = await client.get<LocalLinkTargetListing>(`/browse/${segment}/link-targets`, {
+      ...extraConfig,
+      params: { path },
+      timeout: LOCAL_LINK_TARGET_REQUEST_TIMEOUT_MS,
+      ...(options?.signal ? { signal: options.signal } : {}),
     });
     return response.data;
   }

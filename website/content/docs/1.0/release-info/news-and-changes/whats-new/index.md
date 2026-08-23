@@ -68,7 +68,7 @@ In any editor, search and replace are essential functions that need to work effi
 
 ### Local Drives: Resolve .LNK Files
 
-Shortcuts (`.lnk` files) on local drives are now resolved properly: file targets are opened whereas directory targets are navigated to.
+Shortcuts (`.lnk` files), symlinks, and junctions on local drives now show the target path (pulled in asynchronously after the directory list has loaded; we don't want to give up on that snappy UI, after all). Paths are sensibly shortened to fit the available row width. When activated, file targets are opened whereas directory targets are navigated to.
 
 ### Other Changes
 

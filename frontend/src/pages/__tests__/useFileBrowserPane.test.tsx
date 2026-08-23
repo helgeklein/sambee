@@ -7,11 +7,19 @@ import { authSession } from "../../services/authSession";
 import { clearCurrentUserSettingsCache } from "../../services/userSettingsSync";
 import { type ApiMock, setupSuccessfulApiMocks } from "../../test/helpers";
 import { SambeeThemeProvider } from "../../theme/ThemeContext";
-import { FileType } from "../../types";
+import { FileType, type LocalLinkTargetListing } from "../../types";
 import { useFileBrowserPane } from "../FileBrowser/useFileBrowserPane";
 import { mockConnections, mockDirectoryListing, mockEmptyDirectory, mockNestedDirectory } from "./FileBrowser.test.utils";
 
 vi.mock("../../services/api");
+
+function deferred<T>() {
+  let resolve: (value: T) => void;
+  const promise = new Promise<T>((nextResolve) => {
+    resolve = nextResolve;
+  });
+  return { promise, resolve: (value: T) => resolve(value) };
+}
 
 describe("useFileBrowserPane", () => {
   const wrapper = ({ children }: { children: ReactNode }) => <SambeeThemeProvider>{children}</SambeeThemeProvider>;
@@ -200,6 +208,202 @@ describe("useFileBrowserPane", () => {
       expect(result.current.connectionId).toBe("local-drive:d");
       expect(result.current.currentPath).toBe("temp");
     });
+  });
+
+  it("enriches a current local directory with deferred link target metadata", async () => {
+    const localDriveConnection = { ...mockConnections[0], id: "local-drive:c", slug: "c", type: "local" };
+    const linksListing = {
+      path: "Links",
+      total: 1,
+      items: [
+        {
+          name: "Archive.lnk",
+          path: "Links/Archive.lnk",
+          type: FileType.FILE,
+          is_readable: true,
+          is_hidden: false,
+          link_kind: "windows_shortcut" as const,
+        },
+      ],
+    };
+    vi.mocked(api.listDirectory).mockResolvedValue(linksListing);
+    vi.mocked(api.listLocalLinkTargets).mockResolvedValue({
+      items: [
+        {
+          source_path: "Links/Archive.lnk",
+          state: "resolved",
+          target: { name: "Archive", path: "C:\\Users\\Sambee\\Archive", type: "directory" },
+        },
+      ],
+    });
+
+    const { result } = renderHook(
+      () =>
+        useFileBrowserPane({
+          rowHeight: 40,
+          connections: [localDriveConnection],
+        }),
+      { wrapper }
+    );
+
+    act(() => {
+      result.current.applyLocation("local-drive:c", "Links");
+    });
+
+    await waitFor(() => {
+      expect(result.current.files[0]?.link_target).toEqual({
+        source_path: "Links/Archive.lnk",
+        state: "resolved",
+        target: { name: "Archive", path: "C:\\Users\\Sambee\\Archive", type: "directory" },
+      });
+    });
+    expect(api.listLocalLinkTargets).toHaveBeenCalledWith(
+      "local-drive:c",
+      "Links",
+      expect.objectContaining({ signal: expect.any(AbortSignal) })
+    );
+  });
+
+  it("enriches cached local links when an earlier metadata request was interrupted", async () => {
+    const localDriveConnection = { ...mockConnections[0], id: "local-drive:c", slug: "c", type: "local" };
+    const linksListing = {
+      path: "Links",
+      total: 1,
+      items: [
+        {
+          name: "Archive.lnk",
+          path: "Links/Archive.lnk",
+          type: FileType.FILE,
+          is_readable: true,
+          is_hidden: false,
+          link_kind: "windows_shortcut" as const,
+        },
+      ],
+    };
+    const interruptedRequest = deferred<LocalLinkTargetListing>();
+    const resolvedListing: LocalLinkTargetListing = {
+      items: [
+        {
+          source_path: "Links/Archive.lnk",
+          state: "resolved",
+          target: { name: "Archive", type: "directory" },
+        },
+      ],
+    };
+    vi.mocked(api.listDirectory).mockImplementation(async (_connectionId, path) =>
+      path === "Links" ? linksListing : { path, total: 0, items: [] }
+    );
+    vi.mocked(api.listLocalLinkTargets)
+      .mockImplementationOnce(() => interruptedRequest.promise)
+      .mockResolvedValueOnce(resolvedListing);
+
+    const { result } = renderHook(
+      () =>
+        useFileBrowserPane({
+          rowHeight: 40,
+          connections: [localDriveConnection],
+        }),
+      { wrapper }
+    );
+
+    act(() => {
+      result.current.applyLocation("local-drive:c", "Links");
+    });
+
+    await waitFor(() => {
+      expect(api.listLocalLinkTargets).toHaveBeenCalledTimes(1);
+    });
+
+    act(() => {
+      result.current.applyLocation("local-drive:c", "");
+    });
+
+    await waitFor(() => {
+      expect(result.current.currentPath).toBe("");
+    });
+
+    act(() => {
+      result.current.applyLocation("local-drive:c", "Links");
+    });
+
+    await waitFor(() => {
+      expect(result.current.files[0]?.link_target).toEqual(resolvedListing.items[0]);
+    });
+    expect(api.listLocalLinkTargets).toHaveBeenCalledTimes(2);
+  });
+
+  it("ignores deferred link target metadata after navigating away", async () => {
+    const localDriveConnection = { ...mockConnections[0], id: "local-drive:c", slug: "c", type: "local" };
+    const targets = deferred<LocalLinkTargetListing>();
+    vi.mocked(api.listDirectory).mockImplementation(async (_connectionId, path) =>
+      path === "Links"
+        ? {
+            path,
+            total: 1,
+            items: [
+              {
+                name: "Archive.lnk",
+                path: "Links/Archive.lnk",
+                type: FileType.FILE,
+                is_readable: true,
+                is_hidden: false,
+                link_kind: "windows_shortcut" as const,
+              },
+            ],
+          }
+        : {
+            path,
+            total: 1,
+            items: [
+              {
+                name: "elsewhere.txt",
+                path: "Elsewhere/elsewhere.txt",
+                type: FileType.FILE,
+                is_readable: true,
+                is_hidden: false,
+              },
+            ],
+          }
+    );
+    vi.mocked(api.listLocalLinkTargets).mockReturnValueOnce(targets.promise);
+
+    const { result } = renderHook(
+      () =>
+        useFileBrowserPane({
+          rowHeight: 40,
+          connections: [localDriveConnection],
+        }),
+      { wrapper }
+    );
+
+    act(() => {
+      result.current.applyLocation("local-drive:c", "Links");
+    });
+    await waitFor(() => {
+      expect(api.listLocalLinkTargets).toHaveBeenCalled();
+    });
+
+    act(() => {
+      result.current.applyLocation("local-drive:c", "Elsewhere");
+    });
+    await waitFor(() => {
+      expect(result.current.files[0]?.name).toBe("elsewhere.txt");
+    });
+
+    await act(async () => {
+      targets.resolve({
+        items: [
+          {
+            source_path: "Links/Archive.lnk",
+            state: "resolved",
+            target: { name: "Archive", type: "directory" },
+          },
+        ],
+      });
+    });
+
+    expect(result.current.files[0]?.name).toBe("elsewhere.txt");
+    expect(result.current.files[0]?.link_target).toBeUndefined();
   });
 
   it("records a local directory only after Companion confirms its type", async () => {

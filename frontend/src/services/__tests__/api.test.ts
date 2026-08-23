@@ -833,6 +833,29 @@ describe("API Service", () => {
         params: { path: "Links/report.lnk" },
       });
     });
+
+    it("listLocalLinkTargets() requests deferred Companion link metadata", async () => {
+      const listing = {
+        items: [
+          {
+            source_path: "Links/report.lnk",
+            state: "resolved",
+            target: { name: "report.pdf", path: "C:\\Users\\sambee\\Documents\\report.pdf", type: "file" },
+          },
+        ],
+      };
+      localStorage.setItem("companion_secret", "test-companion-secret");
+      mockAxiosInstance.get.mockResolvedValueOnce({ data: listing } as AxiosResponse);
+
+      const result = await apiService.listLocalLinkTargets("local-drive:c", "Links");
+
+      expect(result).toEqual(listing);
+      expect(mockAxiosInstance.get).toHaveBeenCalledWith("/browse/c/link-targets", {
+        headers: expect.any(Object),
+        params: { path: "Links" },
+        timeout: 15_000,
+      });
+    });
   });
 
   describe("Viewer Operations", () => {

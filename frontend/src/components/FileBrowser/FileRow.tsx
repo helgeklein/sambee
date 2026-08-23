@@ -5,9 +5,10 @@
 import CheckCircleIcon from "@mui/icons-material/CheckCircle";
 import EditIcon from "@mui/icons-material/Edit";
 import OpenInNewIcon from "@mui/icons-material/OpenInNew";
+import ShortcutIcon from "@mui/icons-material/Shortcut";
 import VisibilityIcon from "@mui/icons-material/Visibility";
 import { Box, ListItemIcon, ListItemText, Menu, MenuItem, Typography } from "@mui/material";
-import React, { useCallback, useState } from "react";
+import React, { useCallback, useEffect, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { formatDate, formatFileSize } from "../../pages/FileBrowser/formatters";
 import type { ViewMode } from "../../pages/FileBrowser/types";
@@ -41,6 +42,121 @@ interface FileRowProps {
   onRename?: (file: FileEntry, index: number) => void;
 }
 
+const ELLIPSIS = "...";
+
+type TextMeasurer = (text: string) => number;
+
+/** Preserve the end of a label when its complete text cannot fit. */
+function shortenTextFromStart(text: string, availableWidth: number, measureText: TextMeasurer): string {
+  if (availableWidth <= 0 || measureText(text) <= availableWidth) {
+    return text;
+  }
+
+  let low = 0;
+  let high = text.length;
+  while (low < high) {
+    const middle = Math.floor((low + high) / 2);
+    if (measureText(`${ELLIPSIS}${text.slice(middle)}`) <= availableWidth) {
+      high = middle;
+    } else {
+      low = middle + 1;
+    }
+  }
+
+  return `${ELLIPSIS}${text.slice(low)}`;
+}
+
+/** Preserve the target basename while collapsing ancestor directories to fit. */
+export function shortenTargetPath(path: string, availableWidth: number, measureText: TextMeasurer): string {
+  if (availableWidth <= 0 || measureText(path) <= availableWidth) {
+    return path;
+  }
+
+  const separator = path.includes("\\") ? "\\" : "/";
+  const driveMatch = path.match(/^[A-Za-z]:[\\/]/);
+  const root = driveMatch ? `${driveMatch[0][0]}:${separator}` : path.startsWith(separator) ? separator : "";
+  const segments = path.slice(root.length).split(/[\\/]/).filter(Boolean);
+  const basename = segments.pop();
+  if (!basename) {
+    return path;
+  }
+
+  if (measureText(basename) > availableWidth) {
+    return shortenTextFromStart(basename, availableWidth, measureText);
+  }
+
+  if (segments.length === 0) {
+    return basename;
+  }
+
+  const prefix = root ? `${root}${ELLIPSIS}${separator}` : `${ELLIPSIS}${separator}`;
+  let shortened = `${prefix}${basename}`;
+  while (segments.length > 0) {
+    const candidate = `${prefix}${segments.at(-1)}${separator}${shortened.slice(prefix.length)}`;
+    if (measureText(candidate) > availableWidth) {
+      break;
+    }
+    shortened = candidate;
+    segments.pop();
+  }
+
+  return shortened;
+}
+
+function TargetPathLabel({ path, rowTextSx }: { path: string; rowTextSx?: Record<string, string> }) {
+  const labelRef = useRef<HTMLSpanElement>(null);
+  const measureRef = useRef<HTMLSpanElement>(null);
+  const [displayPath, setDisplayPath] = useState(path);
+
+  useEffect(() => {
+    const label = labelRef.current;
+    const measurement = measureRef.current;
+    if (!label || !measurement) return;
+
+    const updatePath = () => {
+      const availableWidth = label.clientWidth;
+      if (availableWidth <= 0) {
+        setDisplayPath(path);
+        return;
+      }
+      const measureText = (text: string) => {
+        measurement.textContent = text;
+        return measurement.getBoundingClientRect().width;
+      };
+      setDisplayPath(shortenTargetPath(path, availableWidth, measureText));
+    };
+
+    updatePath();
+    const observer = new ResizeObserver(updatePath);
+    observer.observe(label);
+    return () => observer.disconnect();
+  }, [path]);
+
+  return (
+    <>
+      <Typography variant="body2" component="span" noWrap sx={{ ...rowTextSx, color: "text.secondary", flex: "0 0 auto" }}>
+        {" -> "}
+      </Typography>
+      <Typography
+        ref={labelRef}
+        variant="body2"
+        component="span"
+        noWrap
+        title={path}
+        sx={{ ...rowTextSx, color: "text.secondary", flex: "1 1 50%", minWidth: 0, overflow: "hidden", textOverflow: "ellipsis" }}
+      >
+        {displayPath}
+      </Typography>
+      <Typography
+        ref={measureRef}
+        aria-hidden
+        component="span"
+        sx={{ ...rowTextSx, left: -10000, position: "fixed", visibility: "hidden", whiteSpace: "nowrap" }}
+      />
+    </>
+  );
+}
+
 /**
  * Individual file row component for virtualized list
  * Optimized with React.memo and custom comparison
@@ -69,14 +185,23 @@ export const FileRow = React.memo(
     ) => {
       const { t } = useTranslation();
       const isListMode = viewMode === "list";
-      const isFile = file.type !== "directory";
+      const linkTarget = file.link_target?.target;
+      const isFile = file.type !== "directory" && linkTarget?.type !== "directory";
       const rowTextSx = useCompactLayout ? { fontSize: "16px" } : undefined;
       const hasContextMenu = !!(
         onRename ||
         (isFile && (onOpenAssociatedViewer || onOpenViewerPicker || onOpenAssociatedNativeApp || onOpenNativePicker))
       );
       const itemTypeLabel = t(file.type === "directory" ? "fileBrowser.row.itemTypes.folder" : "fileBrowser.row.itemTypes.file");
-      const ariaLabel = `${itemTypeLabel}: ${file.name}${isMultiSelected ? t("fileBrowser.row.selectedSuffix") : ""}`;
+      const linkTargetName = linkTarget?.name;
+      const linkTargetPath = linkTarget?.path ?? linkTargetName;
+      const ariaLabel = `${itemTypeLabel}: ${file.name}${
+        linkTargetPath
+          ? t("fileBrowser.row.shortcutTargetSuffix", { target: linkTargetPath })
+          : file.link_kind
+            ? t("fileBrowser.row.shortcutSuffix")
+            : ""
+      }${isMultiSelected ? t("fileBrowser.row.selectedSuffix") : ""}`;
 
       // Compute the correct row style based on focused + multi-selected state
       const rowStyle =
@@ -129,6 +254,21 @@ export const FileRow = React.memo(
         onRename?.(file, index);
       }, [onRename, file, index]);
 
+      const fileName = (
+        <Box sx={{ display: "flex", minWidth: 0, width: "100%" }}>
+          <Typography
+            variant="body2"
+            component="span"
+            noWrap
+            title={file.name}
+            sx={{ ...rowTextSx, color: "text.primary", flex: linkTargetPath ? "1 1 50%" : 1, minWidth: 0 }}
+          >
+            {file.name}
+          </Typography>
+          {linkTargetPath ? <TargetPathLabel path={linkTargetPath} rowTextSx={rowTextSx} /> : null}
+        </Box>
+      );
+
       return (
         <div
           ref={ref}
@@ -153,25 +293,49 @@ export const FileRow = React.memo(
           >
             {/* Icon: show checkmark when multi-selected, file icon otherwise */}
             {(() => {
-              const icon = isMultiSelected ? (
-                <CheckCircleIcon sx={{ fontSize: 24, color: "primary.main" }} />
-              ) : (
-                getFileIcon({
-                  filename: file.name,
-                  isDirectory: file.type === "directory",
-                  size: 24,
-                })
-              );
+              const icon = (() => {
+                if (isMultiSelected) {
+                  return <CheckCircleIcon sx={{ fontSize: 24, color: "primary.main" }} />;
+                }
+
+                if (!file.link_kind) {
+                  return getFileIcon({
+                    filename: file.name,
+                    isDirectory: file.type === "directory",
+                    size: 24,
+                  });
+                }
+
+                if (!linkTarget) {
+                  return <ShortcutIcon sx={{ fontSize: 24, color: "text.secondary" }} />;
+                }
+
+                return (
+                  <Box sx={{ display: "grid", height: 24, placeItems: "center", position: "relative", width: 24 }}>
+                    {getFileIcon({
+                      filename: linkTarget.name,
+                      isDirectory: linkTarget.type === "directory",
+                      size: 24,
+                    })}
+                    <ShortcutIcon
+                      sx={{
+                        backgroundColor: "background.paper",
+                        bottom: -1,
+                        color: "text.secondary",
+                        fontSize: 12,
+                        position: "absolute",
+                        right: -2,
+                      }}
+                    />
+                  </Box>
+                );
+              })();
 
               return isListMode ? (
                 // List mode: icon + name only
                 <>
                   <Box sx={fileRowStyles.iconBox}>{icon}</Box>
-                  <Box sx={fileRowStyles.contentBox}>
-                    <Typography variant="body2" noWrap title={file.name} sx={{ ...rowTextSx, color: "text.primary" }}>
-                      {file.name}
-                    </Typography>
-                  </Box>
+                  <Box sx={{ ...fileRowStyles.contentBox, minWidth: 0 }}>{fileName}</Box>
                 </>
               ) : (
                 // Details mode: icon + name + size + date in grid layout
@@ -185,11 +349,7 @@ export const FileRow = React.memo(
                   }}
                 >
                   <Box sx={fileRowStyles.iconBox}>{icon}</Box>
-                  <Box sx={{ ...fileRowStyles.contentBox, minWidth: 0 }}>
-                    <Typography variant="body2" noWrap title={file.name} sx={{ ...rowTextSx, color: "text.primary" }}>
-                      {file.name}
-                    </Typography>
-                  </Box>
+                  <Box sx={{ ...fileRowStyles.contentBox, minWidth: 0 }}>{fileName}</Box>
                   <Typography
                     variant="body2"
                     sx={{ textAlign: "right", minWidth: "80px", ml: 1, mr: 3, ...rowTextSx, color: "text.secondary" }}
@@ -262,11 +422,14 @@ export const FileRow = React.memo(
   // Custom comparison for optimal re-renders
   (prev, next) =>
     prev.index === next.index &&
+    prev.useCompactLayout === next.useCompactLayout &&
     prev.isSelected === next.isSelected &&
     prev.isMultiSelected === next.isMultiSelected &&
     prev.file.name === next.file.name &&
     prev.file.modified_at === next.file.modified_at &&
     prev.file.size === next.file.size &&
+    prev.file.link_kind === next.file.link_kind &&
+    prev.file.link_target === next.file.link_target &&
     prev.virtualStart === next.virtualStart &&
     prev.virtualSize === next.virtualSize &&
     prev.viewMode === next.viewMode &&
