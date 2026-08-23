@@ -14,6 +14,7 @@ import { mockConnections, mockDirectoryListing, mockEmptyDirectory, mockNestedDi
 export interface ApiMock {
   getConnections: Mock;
   listDirectory: Mock;
+  listLocalLinkTargets: Mock;
   getCurrentUser: Mock;
   getCurrentUserSettings: Mock;
   testConnection: Mock;
@@ -57,6 +58,7 @@ export function setupSuccessfulApiMocks(api: ApiMock): void {
 
   api.getConnections.mockResolvedValue(mockConnections);
   api.listDirectory.mockResolvedValue(mockDirectoryListing);
+  api.listLocalLinkTargets.mockResolvedValue({ items: [] });
   api.getCurrentUser.mockResolvedValue({
     username: "admin",
     role: "admin",

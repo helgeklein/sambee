@@ -292,6 +292,9 @@ export function useFileBrowserPane(config: UseFileBrowserPaneConfig): UseFileBro
   const prepareDirectoryTransition = useCallback((nextConnectionId: string, nextPath: string): void => {
     directoryLoadAbortRef.current?.abort();
     directoryLoadAbortRef.current = null;
+    linkTargetLoadAbortRef.current?.abort();
+    linkTargetLoadAbortRef.current = null;
+    latestLinkTargetLoadRequestIdRef.current += 1;
 
     if (!nextConnectionId) {
       setFiles([]);
@@ -397,6 +400,8 @@ export function useFileBrowserPane(config: UseFileBrowserPaneConfig): UseFileBro
   const loadFilesRef = React.useRef<(path: string, forceRefresh?: boolean) => Promise<void>>();
   const latestLoadRequestIdRef = React.useRef(0);
   const directoryLoadAbortRef = React.useRef<AbortController | null>(null);
+  const latestLinkTargetLoadRequestIdRef = React.useRef(0);
+  const linkTargetLoadAbortRef = React.useRef<AbortController | null>(null);
 
   const pendingFocusedIndexRef = React.useRef<number | null>(null);
   const focusCommitRafRef = React.useRef<number | null>(null);
@@ -481,11 +486,81 @@ export function useFileBrowserPane(config: UseFileBrowserPaneConfig): UseFileBro
   // Data Loading
   // ──────────────────────────────────────────────────────────────────────────
 
+  const loadLocalLinkTargets = useCallback(
+    (targetConnectionId: string, targetPath: string, sourceItems: FileEntry[], directoryRequestId: number): void => {
+      if (!isLocalDrive(targetConnectionId) || !sourceItems.some((item) => item.link_kind && !item.link_target)) {
+        return;
+      }
+
+      linkTargetLoadAbortRef.current?.abort();
+      const abortController = new AbortController();
+      linkTargetLoadAbortRef.current = abortController;
+      const linkTargetRequestId = latestLinkTargetLoadRequestIdRef.current + 1;
+      latestLinkTargetLoadRequestIdRef.current = linkTargetRequestId;
+      const cacheKey = `${targetConnectionId}:${targetPath}`;
+
+      void api
+        .listLocalLinkTargets(targetConnectionId, targetPath, { signal: abortController.signal })
+        .then((listing) => {
+          const isCurrentRequest =
+            !abortController.signal.aborted &&
+            latestLinkTargetLoadRequestIdRef.current === linkTargetRequestId &&
+            latestLoadRequestIdRef.current === directoryRequestId &&
+            connectionIdRef.current === targetConnectionId &&
+            currentPathRef.current === targetPath;
+          if (!isCurrentRequest) {
+            return;
+          }
+
+          const resolutionBySourcePath = new Map(listing.items.map((item) => [item.source_path, item]));
+          setFiles((currentItems) => {
+            const stillCurrent =
+              latestLinkTargetLoadRequestIdRef.current === linkTargetRequestId &&
+              latestLoadRequestIdRef.current === directoryRequestId &&
+              connectionIdRef.current === targetConnectionId &&
+              currentPathRef.current === targetPath;
+            if (!stillCurrent) {
+              return currentItems;
+            }
+
+            const enrichedItems = currentItems.map((item) => {
+              const linkTarget = resolutionBySourcePath.get(item.path);
+              return linkTarget ? { ...item, link_target: linkTarget } : item;
+            });
+            const cached = directoryCache.current.get(cacheKey);
+            directoryCache.current.set(cacheKey, {
+              items: enrichedItems,
+              timestamp: cached?.timestamp ?? Date.now(),
+            });
+            return enrichedItems;
+          });
+        })
+        .catch((error: unknown) => {
+          if (!abortController.signal.aborted && !isLocalAbortError(error)) {
+            logger.warn(
+              "Failed to load local link target metadata",
+              { error, connectionId: targetConnectionId, path: targetPath },
+              "browser"
+            );
+          }
+        })
+        .finally(() => {
+          if (linkTargetLoadAbortRef.current === abortController) {
+            linkTargetLoadAbortRef.current = null;
+          }
+        });
+    },
+    []
+  );
+
   const loadFiles = useCallback(
     async (path: string, forceRefresh = false, preserveVisibleContent = false) => {
       if (!connectionId) return;
 
       directoryLoadAbortRef.current?.abort();
+      linkTargetLoadAbortRef.current?.abort();
+      linkTargetLoadAbortRef.current = null;
+      latestLinkTargetLoadRequestIdRef.current += 1;
 
       const abortController = new AbortController();
       directoryLoadAbortRef.current = abortController;
@@ -503,6 +578,7 @@ export function useFileBrowserPane(config: UseFileBrowserPaneConfig): UseFileBro
           setFiles(cached.items);
           setLoading(false);
           setError(null);
+          loadLocalLinkTargets(targetConnectionId, targetPath, cached.items, requestId);
           const pendingVisit = pendingRecentDirectoryVisitRef.current;
           if (pendingVisit?.connectionId === targetConnectionId && pendingVisit.path === targetPath) {
             pendingRecentDirectoryVisitRef.current = null;
@@ -544,6 +620,7 @@ export function useFileBrowserPane(config: UseFileBrowserPaneConfig): UseFileBro
         }
 
         setFiles(items);
+        loadLocalLinkTargets(targetConnectionId, targetPath, items, requestId);
         const pendingVisit = pendingRecentDirectoryVisitRef.current;
         if (pendingVisit?.connectionId === targetConnectionId && pendingVisit.path === targetPath) {
           pendingRecentDirectoryVisitRef.current = null;
@@ -630,7 +707,7 @@ export function useFileBrowserPane(config: UseFileBrowserPaneConfig): UseFileBro
         }
       }
     },
-    [clearPendingRecentDirectoryVisit, connectionId, recordRecentDirectoryVisit]
+    [clearPendingRecentDirectoryVisit, connectionId, loadLocalLinkTargets, recordRecentDirectoryVisit]
   );
 
   useEffect(() => {
@@ -666,6 +743,8 @@ export function useFileBrowserPane(config: UseFileBrowserPaneConfig): UseFileBro
     return () => {
       directoryLoadAbortRef.current?.abort();
       directoryLoadAbortRef.current = null;
+      linkTargetLoadAbortRef.current?.abort();
+      linkTargetLoadAbortRef.current = null;
     };
   }, []);
 

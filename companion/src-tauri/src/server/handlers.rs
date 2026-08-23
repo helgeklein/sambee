@@ -18,6 +18,7 @@ use log::{info, warn};
 use serde::Deserialize;
 use tauri::Emitter;
 use tokio::fs::File;
+use tokio::task::JoinSet;
 use tokio_util::io::ReaderStream;
 
 use crate::{commands, show_pairing_success, show_pairing_window};
@@ -26,8 +27,8 @@ use super::auth;
 use super::drives;
 use super::errors::{
     ApiError, LOCAL_LINK_TARGET_ACCESS_DENIED_CODE, LOCAL_LINK_TARGET_MISSING_CODE, LOCAL_LINK_TARGET_UNMAPPED_DRIVE_CODE,
-    LOCAL_LINK_TARGET_UNRESOLVABLE_CODE, PAIR_CONFIRMATION_PENDING_CODE, RECENT_FILE_NATIVE_LAUNCH_FAILED_CODE,
-    RECENT_FILE_TARGET_MISSING_CODE, RECENT_FILE_TARGET_NOT_FILE_CODE,
+    LOCAL_LINK_TARGET_UNRESOLVABLE_CODE, LOCAL_LINK_TARGET_UNSUPPORTED_TYPE_CODE, PAIR_CONFIRMATION_PENDING_CODE,
+    RECENT_FILE_NATIVE_LAUNCH_FAILED_CODE, RECENT_FILE_TARGET_MISSING_CODE, RECENT_FILE_TARGET_NOT_FILE_CODE,
 };
 use super::links::{resolve_activation_target, LinkResolutionError};
 use super::models::*;
@@ -39,6 +40,8 @@ const FORBIDDEN_NAME_CHARS: &[char] = &['\\', '/', ':', '*', '?', '"', '<', '>',
 
 /// Prefix used by the frontend for synthetic local-drive connection IDs.
 const LOCAL_DRIVE_PREFIX: &str = "local-drive:";
+/// Maximum number of potentially blocking local target resolutions per batch.
+const LINK_TARGET_RESOLUTION_CONCURRENCY: usize = 4;
 
 // ─── WebSocket ───────────────────────────────────────────────────────────────
 
@@ -403,6 +406,59 @@ pub async fn browse_list(Path(drive): Path<String>, Query(query): Query<BrowseQu
     }))
 }
 
+/// `GET /api/browse/{drive}/link-targets` — resolve display-safe target metadata for links in one directory.
+///
+/// This intentionally runs separately from directory listing so unavailable
+/// link targets never delay the file browser's initial render.
+pub async fn browse_list_link_targets(
+    Path(drive): Path<String>,
+    Query(query): Query<BrowseQuery>,
+) -> Result<Json<LinkTargetListing>, ApiError> {
+    let base_path = drives::resolve_drive_path(&drive).ok_or_else(|| ApiError::NotFound(format!("Unknown drive: {drive}")))?;
+    let relative = query.path.as_deref().unwrap_or("");
+    let normalized_relative = normalize_drive_relative_path(&drive, relative)?;
+    let full_path = resolve_safe_path(&base_path, &drive, relative)?;
+    let mut entries = tokio::fs::read_dir(&full_path)
+        .await
+        .map_err(|error| map_io_error(error, &full_path))?;
+    let mut pending = JoinSet::new();
+    let mut items = Vec::new();
+
+    while let Some(entry) = entries.next_entry().await.map_err(ApiError::Io)? {
+        let source_path = entry.path();
+        let is_link = match source_link_kind(&source_path).await {
+            Ok(Some(_)) => true,
+            Ok(None) => false,
+            Err(error) => {
+                log::debug!("Skipping link target metadata for {:?}: {error}", entry.file_name());
+                false
+            }
+        };
+        if !is_link {
+            continue;
+        }
+
+        let name = entry.file_name().to_string_lossy().to_string();
+        let source_relative_path = if normalized_relative.is_empty() {
+            name
+        } else {
+            format!("{normalized_relative}/{name}")
+        };
+
+        if pending.len() >= LINK_TARGET_RESOLUTION_CONCURRENCY {
+            collect_link_target_resolution(&mut pending, &mut items).await?;
+        }
+        pending.spawn_blocking(move || resolve_link_target_metadata(source_relative_path, source_path));
+    }
+
+    while !pending.is_empty() {
+        collect_link_target_resolution(&mut pending, &mut items).await?;
+    }
+
+    items.sort_by(|left: &LinkTargetResolution, right: &LinkTargetResolution| left.source_path.cmp(&right.source_path));
+    Ok(Json(LinkTargetListing { items }))
+}
+
 /// `GET /api/browse/{drive}/info` — get metadata for a single file/directory.
 pub async fn browse_info(Path(drive): Path<String>, Query(query): Query<BrowseQuery>) -> Result<Json<FileInfo>, ApiError> {
     let base_path = drives::resolve_drive_path(&drive).ok_or_else(|| ApiError::NotFound(format!("Unknown drive: {drive}")))?;
@@ -432,6 +488,9 @@ pub async fn browse_info(Path(drive): Path<String>, Query(query): Query<BrowseQu
     };
 
     let is_hidden = name.starts_with('.');
+    let link_kind = source_link_kind(&full_path)
+        .await
+        .map_err(|error| map_io_error(error, &full_path))?;
 
     Ok(Json(FileInfo {
         name,
@@ -443,6 +502,7 @@ pub async fn browse_info(Path(drive): Path<String>, Query(query): Query<BrowseQu
         modified_at: system_time_to_chrono(metadata.modified().ok()),
         is_readable: true, // We can read it if we could stat it
         is_hidden,
+        link_kind,
     }))
 }
 
@@ -461,6 +521,13 @@ pub async fn browse_resolve_activation(
         .await
         .map_err(|error| ApiError::Internal(format!("Link resolution task failed: {error}")))?
         .map_err(map_link_resolution_error)?;
+
+    if classify_link_target(&target_path).await? == LinkTargetType::Other {
+        return Err(ApiError::bad_request_code(
+            "The link target is not a regular file or directory",
+            LOCAL_LINK_TARGET_UNSUPPORTED_TYPE_CODE,
+        ));
+    }
 
     let (target_drive_id, target_relative_path) = drives::drive_for_path(&target_path).ok_or_else(|| {
         ApiError::forbidden_code(
@@ -1158,9 +1225,114 @@ fn map_link_resolution_error(error: LinkResolutionError) -> ApiError {
     }
 }
 
+async fn source_link_kind(path: &std::path::Path) -> Result<Option<LinkKind>, std::io::Error> {
+    let metadata = tokio::fs::symlink_metadata(path).await?;
+    if metadata.file_type().is_symlink() {
+        return Ok(Some(LinkKind::FilesystemLink));
+    }
+
+    #[cfg(target_os = "windows")]
+    {
+        use std::os::windows::fs::MetadataExt;
+
+        use windows::Win32::Storage::FileSystem::FILE_ATTRIBUTE_REPARSE_POINT;
+
+        if metadata.file_attributes() & FILE_ATTRIBUTE_REPARSE_POINT.0 != 0 {
+            return Ok(Some(LinkKind::FilesystemLink));
+        }
+        if path.extension().is_some_and(|extension| extension.eq_ignore_ascii_case("lnk")) {
+            return Ok(Some(LinkKind::WindowsShortcut));
+        }
+    }
+
+    Ok(None)
+}
+
+fn classify_link_target_metadata(metadata: &std::fs::Metadata) -> LinkTargetType {
+    if metadata.is_dir() {
+        LinkTargetType::Directory
+    } else if metadata.is_file() {
+        LinkTargetType::File
+    } else {
+        LinkTargetType::Other
+    }
+}
+
+async fn classify_link_target(path: &std::path::Path) -> Result<LinkTargetType, ApiError> {
+    let metadata = tokio::fs::metadata(path).await.map_err(|error| map_io_error(error, path))?;
+    Ok(classify_link_target_metadata(&metadata))
+}
+
+fn link_target_state_from_error(error: LinkResolutionError) -> LinkTargetState {
+    match error {
+        LinkResolutionError::TargetMissing => LinkTargetState::Missing,
+        LinkResolutionError::TargetAccessDenied => LinkTargetState::AccessDenied,
+        LinkResolutionError::Unresolvable(_) => LinkTargetState::Unresolvable,
+    }
+}
+
+fn link_target_state_from_io_error(error: &std::io::Error) -> LinkTargetState {
+    match error.kind() {
+        std::io::ErrorKind::NotFound => LinkTargetState::Missing,
+        std::io::ErrorKind::PermissionDenied => LinkTargetState::AccessDenied,
+        _ => LinkTargetState::Unresolvable,
+    }
+}
+
+fn resolve_link_target_metadata(source_path: String, source: PathBuf) -> LinkTargetResolution {
+    let target_path = match resolve_activation_target(&source) {
+        Ok(path) => path,
+        Err(error) => {
+            return LinkTargetResolution {
+                source_path,
+                state: link_target_state_from_error(error),
+                target: None,
+            };
+        }
+    };
+    let metadata = match std::fs::metadata(&target_path) {
+        Ok(metadata) => metadata,
+        Err(error) => {
+            return LinkTargetResolution {
+                source_path,
+                state: link_target_state_from_io_error(&error),
+                target: None,
+            };
+        }
+    };
+    let target_type = classify_link_target_metadata(&metadata);
+    let target_name = target_path
+        .file_name()
+        .map(|name| name.to_string_lossy().to_string())
+        .filter(|name| !name.is_empty());
+    let state = if drives::drive_for_path(&target_path).is_some() {
+        LinkTargetState::Resolved
+    } else {
+        LinkTargetState::UnmappedDrive
+    };
+
+    LinkTargetResolution {
+        source_path,
+        state,
+        target: target_name.map(|name| LinkTargetInfo { name, target_type }),
+    }
+}
+
+async fn collect_link_target_resolution(
+    pending: &mut JoinSet<LinkTargetResolution>,
+    items: &mut Vec<LinkTargetResolution>,
+) -> Result<(), ApiError> {
+    if let Some(result) = pending.join_next().await {
+        let item = result.map_err(|error| ApiError::Internal(format!("Link target resolution task failed: {error}")))?;
+        items.push(item);
+    }
+    Ok(())
+}
+
 /// Build a `FileInfo` from a `DirEntry`.
 async fn build_file_info(entry: &tokio::fs::DirEntry, parent_path: &str) -> Result<FileInfo, std::io::Error> {
     let filesystem_path = entry.path();
+    let link_kind = source_link_kind(&filesystem_path).await?;
     let (metadata, is_readable) = match tokio::fs::metadata(&filesystem_path).await {
         Ok(metadata) => (metadata, true),
         Err(metadata_error) => {
@@ -1203,6 +1375,7 @@ async fn build_file_info(entry: &tokio::fs::DirEntry, parent_path: &str) -> Resu
         modified_at: system_time_to_chrono(metadata.modified().ok()),
         is_readable,
         is_hidden,
+        link_kind,
     })
 }
 
@@ -1388,6 +1561,7 @@ async fn build_file_info_from_path(path: &std::path::Path, relative: &str) -> Re
         modified_at: system_time_to_chrono(metadata.modified().ok()),
         is_readable: true,
         is_hidden,
+        link_kind: None,
     })
 }
 
@@ -1434,10 +1608,10 @@ async fn copy_dir_recursive(src: &std::path::Path, dst: &std::path::Path) -> Res
 #[cfg(test)]
 mod tests {
     use super::{
-        build_file_info, build_pair_status_response, normalize_drive_relative_path, resolve_pair_cancel_origin,
-        resolve_pair_confirm_origin, resolve_pair_status_origin,
+        build_file_info, build_pair_status_response, classify_link_target, normalize_drive_relative_path, resolve_link_target_metadata,
+        resolve_pair_cancel_origin, resolve_pair_confirm_origin, resolve_pair_status_origin,
     };
-    use crate::server::models::{FileType, PublicPairingStatus};
+    use crate::server::models::{FileType, LinkKind, LinkTargetState, LinkTargetType, PublicPairingStatus};
     use crate::server::pairing::PairingState;
     use axum::http::{HeaderMap, HeaderValue};
     #[cfg(unix)]
@@ -1456,7 +1630,6 @@ mod tests {
             .await
             .expect("directory entry should be readable")
             .expect("symbolic link should be listed");
-
         let info = build_file_info(&entry, "")
             .await
             .expect("broken symbolic link should have fallback metadata");
@@ -1464,6 +1637,7 @@ mod tests {
         assert_eq!(info.name, "missing-target");
         assert_eq!(info.file_type, FileType::File);
         assert!(!info.is_readable);
+        assert_eq!(info.link_kind, Some(LinkKind::FilesystemLink));
     }
 
     #[cfg(unix)]
@@ -1493,6 +1667,43 @@ mod tests {
         assert_eq!(info.name, "directory-link");
         assert_eq!(info.file_type, FileType::Directory);
         assert!(info.is_readable);
+        assert_eq!(info.link_kind, Some(LinkKind::FilesystemLink));
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn resolves_local_link_target_metadata_without_exposing_its_path() {
+        let directory = tempfile::tempdir().expect("temporary directory should be created");
+        let target = directory.path().join("report.txt");
+        let link = directory.path().join("report-link");
+        std::fs::write(&target, "report").expect("target file should be created");
+        symlink(&target, &link).expect("symbolic link should be created");
+
+        let resolution = resolve_link_target_metadata("report-link".to_string(), link);
+
+        assert_eq!(resolution.source_path, "report-link");
+        assert!(matches!(
+            resolution.state,
+            LinkTargetState::Resolved | LinkTargetState::UnmappedDrive
+        ));
+        assert_eq!(
+            resolution.target,
+            Some(crate::server::models::LinkTargetInfo {
+                name: "report.txt".to_string(),
+                target_type: LinkTargetType::File,
+            })
+        );
+    }
+
+    #[cfg(unix)]
+    #[tokio::test]
+    async fn classifies_non_file_non_directory_targets_as_other() {
+        assert_eq!(
+            classify_link_target(std::path::Path::new("/dev/null"))
+                .await
+                .expect("device metadata should be readable"),
+            LinkTargetType::Other
+        );
     }
 
     #[test]

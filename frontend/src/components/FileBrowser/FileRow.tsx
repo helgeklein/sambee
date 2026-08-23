@@ -5,6 +5,7 @@
 import CheckCircleIcon from "@mui/icons-material/CheckCircle";
 import EditIcon from "@mui/icons-material/Edit";
 import OpenInNewIcon from "@mui/icons-material/OpenInNew";
+import ShortcutIcon from "@mui/icons-material/Shortcut";
 import VisibilityIcon from "@mui/icons-material/Visibility";
 import { Box, ListItemIcon, ListItemText, Menu, MenuItem, Typography } from "@mui/material";
 import React, { useCallback, useState } from "react";
@@ -76,7 +77,15 @@ export const FileRow = React.memo(
         (isFile && (onOpenAssociatedViewer || onOpenViewerPicker || onOpenAssociatedNativeApp || onOpenNativePicker))
       );
       const itemTypeLabel = t(file.type === "directory" ? "fileBrowser.row.itemTypes.folder" : "fileBrowser.row.itemTypes.file");
-      const ariaLabel = `${itemTypeLabel}: ${file.name}${isMultiSelected ? t("fileBrowser.row.selectedSuffix") : ""}`;
+      const linkTarget = file.link_target?.target;
+      const linkTargetName = linkTarget?.name;
+      const ariaLabel = `${itemTypeLabel}: ${file.name}${
+        linkTargetName
+          ? t("fileBrowser.row.shortcutTargetSuffix", { target: linkTargetName })
+          : file.link_kind
+            ? t("fileBrowser.row.shortcutSuffix")
+            : ""
+      }${isMultiSelected ? t("fileBrowser.row.selectedSuffix") : ""}`;
 
       // Compute the correct row style based on focused + multi-selected state
       const rowStyle =
@@ -129,6 +138,31 @@ export const FileRow = React.memo(
         onRename?.(file, index);
       }, [onRename, file, index]);
 
+      const fileName = (
+        <Box sx={{ display: "flex", minWidth: 0, width: "100%" }}>
+          <Typography
+            variant="body2"
+            component="span"
+            noWrap
+            title={file.name}
+            sx={{ ...rowTextSx, color: "text.primary", flex: linkTargetName ? "1 1 50%" : 1, minWidth: 0 }}
+          >
+            {file.name}
+          </Typography>
+          {linkTargetName ? (
+            <Typography
+              variant="body2"
+              component="span"
+              noWrap
+              title={linkTargetName}
+              sx={{ ...rowTextSx, color: "text.secondary", flex: "1 1 50%", minWidth: 0 }}
+            >
+              {` -> ${linkTargetName}`}
+            </Typography>
+          ) : null}
+        </Box>
+      );
+
       return (
         <div
           ref={ref}
@@ -153,25 +187,49 @@ export const FileRow = React.memo(
           >
             {/* Icon: show checkmark when multi-selected, file icon otherwise */}
             {(() => {
-              const icon = isMultiSelected ? (
-                <CheckCircleIcon sx={{ fontSize: 24, color: "primary.main" }} />
-              ) : (
-                getFileIcon({
-                  filename: file.name,
-                  isDirectory: file.type === "directory",
-                  size: 24,
-                })
-              );
+              const icon = (() => {
+                if (isMultiSelected) {
+                  return <CheckCircleIcon sx={{ fontSize: 24, color: "primary.main" }} />;
+                }
+
+                if (!file.link_kind) {
+                  return getFileIcon({
+                    filename: file.name,
+                    isDirectory: file.type === "directory",
+                    size: 24,
+                  });
+                }
+
+                if (!linkTarget) {
+                  return <ShortcutIcon sx={{ fontSize: 24, color: "text.secondary" }} />;
+                }
+
+                return (
+                  <Box sx={{ display: "grid", height: 24, placeItems: "center", position: "relative", width: 24 }}>
+                    {getFileIcon({
+                      filename: linkTarget.name,
+                      isDirectory: linkTarget.type === "directory",
+                      size: 24,
+                    })}
+                    <ShortcutIcon
+                      sx={{
+                        backgroundColor: "background.paper",
+                        bottom: -1,
+                        color: "text.secondary",
+                        fontSize: 12,
+                        position: "absolute",
+                        right: -2,
+                      }}
+                    />
+                  </Box>
+                );
+              })();
 
               return isListMode ? (
                 // List mode: icon + name only
                 <>
                   <Box sx={fileRowStyles.iconBox}>{icon}</Box>
-                  <Box sx={fileRowStyles.contentBox}>
-                    <Typography variant="body2" noWrap title={file.name} sx={{ ...rowTextSx, color: "text.primary" }}>
-                      {file.name}
-                    </Typography>
-                  </Box>
+                  <Box sx={{ ...fileRowStyles.contentBox, minWidth: 0 }}>{fileName}</Box>
                 </>
               ) : (
                 // Details mode: icon + name + size + date in grid layout
@@ -185,11 +243,7 @@ export const FileRow = React.memo(
                   }}
                 >
                   <Box sx={fileRowStyles.iconBox}>{icon}</Box>
-                  <Box sx={{ ...fileRowStyles.contentBox, minWidth: 0 }}>
-                    <Typography variant="body2" noWrap title={file.name} sx={{ ...rowTextSx, color: "text.primary" }}>
-                      {file.name}
-                    </Typography>
-                  </Box>
+                  <Box sx={{ ...fileRowStyles.contentBox, minWidth: 0 }}>{fileName}</Box>
                   <Typography
                     variant="body2"
                     sx={{ textAlign: "right", minWidth: "80px", ml: 1, mr: 3, ...rowTextSx, color: "text.secondary" }}

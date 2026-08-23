@@ -105,6 +105,10 @@ fn build_router(state: Arc<AppState>) -> Router {
         .route("/api/localization", axum::routing::post(handlers::sync_localization))
         .route("/api/drives", axum::routing::get(handlers::list_drives))
         .route("/api/browse/{drive}/list", axum::routing::get(handlers::browse_list))
+        .route(
+            "/api/browse/{drive}/link-targets",
+            axum::routing::get(handlers::browse_list_link_targets),
+        )
         .route("/api/browse/{drive}/info", axum::routing::get(handlers::browse_info))
         .route(
             "/api/browse/{drive}/resolve-activation",

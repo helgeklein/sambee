@@ -72,4 +72,25 @@ describe("FileRow", () => {
 
     expect(props.onClick).toHaveBeenCalledWith(props.file, props.index);
   });
+
+  it("renders a shortcut target name without exposing its path", () => {
+    const props = createDefaultFileRowProps();
+    props.isMultiSelected = false;
+    props.file = {
+      ...props.file,
+      name: "Project.lnk",
+      link_kind: "windows_shortcut",
+      link_target: {
+        source_path: "Project.lnk",
+        state: "resolved",
+        target: { name: "Project Archive", type: "directory" },
+      },
+    };
+
+    render(<FileRow {...props} />);
+
+    expect(screen.getByText(/-> Project Archive/)).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: /shortcut target: Project Archive/i })).toBeInTheDocument();
+    expect(screen.getByTestId("ShortcutIcon")).toBeInTheDocument();
+  });
 });

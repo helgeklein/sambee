@@ -68,7 +68,7 @@ In any editor, search and replace are essential functions that need to work effi
 
 ### Local Drives: Resolve .LNK Files
 
-Shortcuts (`.lnk` files) on local drives are now resolved properly: file targets are opened whereas directory targets are navigated to.
+Shortcuts (`.lnk` files), symlinks, and junctions on local drives now use a shortcut indicator and show the target name after the directory list has loaded. When activated, file targets are opened whereas directory targets are navigated to. If a selected shortcut has a missing, inaccessible, unsupported, or unavailable target, Sambee shows a concise status message and does not attempt to open it as a file.
 
 ### Other Changes
 

@@ -24,6 +24,8 @@ pub const LOCAL_LINK_TARGET_ACCESS_DENIED_CODE: &str = "local_link_target_access
 pub const LOCAL_LINK_TARGET_UNRESOLVABLE_CODE: &str = "local_link_target_unresolvable";
 /// Stable error code for a link whose target is not available through a local drive route.
 pub const LOCAL_LINK_TARGET_UNMAPPED_DRIVE_CODE: &str = "local_link_target_unmapped_drive";
+/// Stable error code for a link whose target is not a regular file or directory.
+pub const LOCAL_LINK_TARGET_UNSUPPORTED_TYPE_CODE: &str = "local_link_target_unsupported_type";
 
 /// API error type that converts into appropriate HTTP responses.
 #[derive(Debug, thiserror::Error)]

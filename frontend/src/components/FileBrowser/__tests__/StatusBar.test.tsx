@@ -32,4 +32,24 @@ describe("StatusBar", () => {
     expect(screen.getByText("[Ńó šéĺéćťíóń]")).toBeInTheDocument();
     expect(screen.getByText("[1 íťéḿ]")).toBeInTheDocument();
   });
+
+  it("reports a missing shortcut target for the selected item", () => {
+    renderWithProvider(
+      <StatusBar
+        files={[
+          {
+            ...baseFile,
+            link_kind: "windows_shortcut",
+            link_target: {
+              source_path: "notes.txt.lnk",
+              state: "missing",
+            },
+          },
+        ]}
+        focusedIndex={0}
+      />
+    );
+
+    expect(screen.getByText("Shortcut target not found")).toBeInTheDocument();
+  });
 });

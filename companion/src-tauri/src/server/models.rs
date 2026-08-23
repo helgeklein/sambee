@@ -14,6 +14,57 @@ pub enum FileType {
     Directory,
 }
 
+/// Kind of local filesystem link represented by a directory entry.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "snake_case")]
+pub enum LinkKind {
+    FilesystemLink,
+    WindowsShortcut,
+}
+
+/// Filesystem category of a resolved local link target.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "lowercase")]
+pub enum LinkTargetType {
+    File,
+    Directory,
+    Other,
+}
+
+/// Result state for background local link target resolution.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "snake_case")]
+pub enum LinkTargetState {
+    Resolved,
+    Missing,
+    AccessDenied,
+    Unresolvable,
+    UnmappedDrive,
+}
+
+/// Display-safe target metadata for a local filesystem link.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct LinkTargetInfo {
+    pub name: String,
+    #[serde(rename = "type")]
+    pub target_type: LinkTargetType,
+}
+
+/// Background resolution result for a local link in a directory listing.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct LinkTargetResolution {
+    pub source_path: String,
+    pub state: LinkTargetState,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub target: Option<LinkTargetInfo>,
+}
+
+/// Batched local link target metadata for one directory.
+#[derive(Debug, Serialize)]
+pub struct LinkTargetListing {
+    pub items: Vec<LinkTargetResolution>,
+}
+
 /// Metadata for a single file or directory.
 /// Matches the backend `FileInfo` Pydantic model.
 #[derive(Debug, Clone, Serialize)]
@@ -32,6 +83,9 @@ pub struct FileInfo {
     pub modified_at: Option<DateTime<Utc>>,
     pub is_readable: bool,
     pub is_hidden: bool,
+    /// Companion-only metadata identifying a local filesystem link source.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub link_kind: Option<LinkKind>,
 }
 
 /// A listing of directory contents.

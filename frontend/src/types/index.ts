@@ -439,6 +439,10 @@ export interface FileInfo {
   modified_at?: string;
   is_readable: boolean;
   is_hidden: boolean;
+  /** Companion-only source link classification. Absent for normal and remote entries. */
+  link_kind?: LocalLinkKind;
+  /** Client-side enrichment returned by Companion's deferred local link metadata request. */
+  link_target?: LocalLinkTargetResolution;
 }
 
 export interface DirectoryListing {
@@ -452,6 +456,25 @@ export interface LocalActivationResolution {
   drive_id: string;
   path: string;
   item: FileInfo;
+}
+
+export type LocalLinkKind = "filesystem_link" | "windows_shortcut";
+export type LocalLinkTargetType = "file" | "directory" | "other";
+export type LocalLinkTargetState = "resolved" | "missing" | "access_denied" | "unresolvable" | "unmapped_drive";
+
+export interface LocalLinkTargetInfo {
+  name: string;
+  type: LocalLinkTargetType;
+}
+
+export interface LocalLinkTargetResolution {
+  source_path: string;
+  state: LocalLinkTargetState;
+  target?: LocalLinkTargetInfo;
+}
+
+export interface LocalLinkTargetListing {
+  items: LocalLinkTargetResolution[];
 }
 
 export interface DirectorySearchResult {
