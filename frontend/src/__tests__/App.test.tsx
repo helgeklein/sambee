@@ -31,20 +31,25 @@ vi.mock("../pages/Login", () => ({
   default: () => <div>Login Page</div>,
 }));
 
-vi.mock("../services/authSession", () => ({
-  authSession: {
-    isBootstrapComplete: () => true,
-    bootstrap: vi.fn().mockResolvedValue("idle"),
-    getAccessToken: () => null,
-    getUserId: () => null,
-    hasUsableAccessToken: () => false,
-    requestRefresh: vi.fn().mockRejectedValue(new Error("No renewable session")),
-    refreshIfNeeded: vi.fn().mockResolvedValue(undefined),
-    setAuthenticated: vi.fn(),
-    clear: vi.fn(),
-    logout: vi.fn().mockResolvedValue(undefined),
-  },
-}));
+vi.mock("../services/authSession", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("../services/authSession")>();
+
+  return {
+    ...actual,
+    authSession: {
+      isBootstrapComplete: () => true,
+      bootstrap: vi.fn().mockResolvedValue("idle"),
+      getAccessToken: () => null,
+      getUserId: () => null,
+      hasUsableAccessToken: () => false,
+      requestRefresh: vi.fn().mockRejectedValue(new Error("No renewable session")),
+      refreshIfNeeded: vi.fn().mockResolvedValue(undefined),
+      setAuthenticated: vi.fn(),
+      clear: vi.fn(),
+      logout: vi.fn().mockResolvedValue(undefined),
+    },
+  };
+});
 
 vi.mock("../pages/FileBrowser", () => ({
   __esModule: true,
