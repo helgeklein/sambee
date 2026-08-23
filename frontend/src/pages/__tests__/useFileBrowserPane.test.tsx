@@ -502,6 +502,71 @@ describe("useFileBrowserPane", () => {
     expect(result.current.viewInfo).toBeNull();
   });
 
+  it("ignores deferred viewer selection for a superseded local activation", async () => {
+    const localConnection = { ...mockConnections[0], id: "local-drive:c", slug: "c", type: "local" };
+    const link = {
+      name: "Report.lnk",
+      path: "Report.lnk",
+      type: FileType.FILE,
+      is_readable: true,
+      is_hidden: false,
+    };
+    const defaultSettings = await api.getCurrentUserSettings();
+    vi.mocked(api.getCurrentUserSettings).mockClear();
+    let resolveSettings!: (value: Awaited<ReturnType<typeof api.getCurrentUserSettings>>) => void;
+    vi.mocked(api.resolveLocalActivation).mockResolvedValue({
+      drive_id: "c",
+      path: "Reports/quarterly.pdf",
+      item: {
+        name: "quarterly.pdf",
+        path: "Reports/quarterly.pdf",
+        type: FileType.FILE,
+        mime_type: "application/pdf",
+        is_readable: true,
+        is_hidden: false,
+      },
+    });
+    vi.mocked(api.getCurrentUserSettings).mockImplementation(
+      () =>
+        new Promise((resolve) => {
+          resolveSettings = resolve;
+        })
+    );
+
+    const { result } = renderHook(
+      () =>
+        useFileBrowserPane({
+          rowHeight: 40,
+          connections: [localConnection],
+        }),
+      { wrapper }
+    );
+
+    act(() => {
+      result.current.applyLocation("local-drive:c", "Links");
+    });
+    await waitFor(() => {
+      expect(result.current.currentPath).toBe("Links");
+    });
+
+    act(() => {
+      result.current.handleOpenFileForFile(link, 0);
+    });
+    await waitFor(() => {
+      expect(api.getCurrentUserSettings).toHaveBeenCalled();
+    });
+
+    act(() => {
+      result.current.applyLocation("local-drive:c", "Elsewhere");
+    });
+    await act(async () => {
+      resolveSettings(defaultSettings);
+    });
+
+    expect(result.current.currentPath).toBe("Elsewhere");
+    expect(result.current.viewInfo).toBeNull();
+  });
+
   it("does not record a failed directory navigation after a later reload succeeds", async () => {
     const documentsDirectory = mockDirectoryListing.items.find((item) => item.type === "directory" && item.name === "Documents");
 

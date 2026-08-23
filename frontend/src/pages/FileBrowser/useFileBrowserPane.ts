@@ -78,6 +78,8 @@ const STALE_RECENT_FILE_CODES = new Set<RecentFileValidationError["code"]>([
   "recent_file_access_denied",
 ]);
 
+type ActivationCurrentGuard = () => boolean;
+
 type DirectoryEntryIntent = { kind: "fresh" } | { kind: "restore-history" } | { kind: "parent-return"; childName: string };
 
 // ============================================================================
@@ -1225,9 +1227,18 @@ export function useFileBrowserPane(config: UseFileBrowserPaneConfig): UseFileBro
   );
 
   const openBrowserViewerPicker = useCallback(
-    async (file: FileEntry, filePath: string, mimeType: string, options?: { includeAllViewers?: boolean; connectionId?: string }) => {
+    async (
+      file: FileEntry,
+      filePath: string,
+      mimeType: string,
+      options?: { includeAllViewers?: boolean; connectionId?: string; isActivationCurrent?: ActivationCurrentGuard }
+    ) => {
       const compatibleViewerIds = getCompatibleViewerIds(file.name, mimeType);
       const preferredViewerId = await getPreferredViewerId(file.name, mimeType);
+      if (options?.isActivationCurrent && !options.isActivationCurrent()) {
+        logger.debug("Ignoring superseded local viewer picker", { filePath }, "browser");
+        return;
+      }
       const defaultViewerId = compatibleViewerIds[0] ?? null;
       const viewerIds =
         options?.includeAllViewers ||
@@ -1252,16 +1263,26 @@ export function useFileBrowserPane(config: UseFileBrowserPaneConfig): UseFileBro
   );
 
   const openFileWithAssociatedViewer = useCallback(
-    (file: FileEntry, filePath: string, mimeType: string, targetConnectionId = connectionIdRef.current) => {
+    (
+      file: FileEntry,
+      filePath: string,
+      mimeType: string,
+      targetConnectionId = connectionIdRef.current,
+      isActivationCurrent?: ActivationCurrentGuard
+    ) => {
       const compatibleViewerIds = getCompatibleViewerIds(file.name, mimeType);
       void getPreferredViewerId(file.name, mimeType).then((preferredViewerId) => {
+        if (isActivationCurrent && !isActivationCurrent()) {
+          logger.debug("Ignoring superseded local viewer activation", { filePath }, "browser");
+          return;
+        }
         if (preferredViewerId) {
           openFileInViewer(file, filePath, mimeType, preferredViewerId, targetConnectionId);
           return;
         }
 
         if (compatibleViewerIds.length === 0) {
-          void openBrowserViewerPicker(file, filePath, mimeType, { connectionId: targetConnectionId });
+          void openBrowserViewerPicker(file, filePath, mimeType, { connectionId: targetConnectionId, isActivationCurrent });
           return;
         }
 
@@ -1270,7 +1291,7 @@ export function useFileBrowserPane(config: UseFileBrowserPaneConfig): UseFileBro
           return;
         }
 
-        void openBrowserViewerPicker(file, filePath, mimeType, { connectionId: targetConnectionId });
+        void openBrowserViewerPicker(file, filePath, mimeType, { connectionId: targetConnectionId, isActivationCurrent });
       });
     },
     [openBrowserViewerPicker, openFileInViewer]
@@ -1307,8 +1328,12 @@ export function useFileBrowserPane(config: UseFileBrowserPaneConfig): UseFileBro
       targetPath: string,
       targetFile: FileEntry,
       mode: BrowserOpenMode,
-      recentRecordId?: string
+      recentRecordId?: string,
+      isActivationCurrent?: ActivationCurrentGuard
     ) => {
+      if (isActivationCurrent && !isActivationCurrent()) {
+        return;
+      }
       if (targetFile.type === FileType.DIRECTORY) {
         navigateToResolvedDirectory(sourceFile, targetConnectionId, targetPath);
         return;
@@ -1327,11 +1352,12 @@ export function useFileBrowserPane(config: UseFileBrowserPaneConfig): UseFileBro
         await openBrowserViewerPicker(targetFile, targetPath, mimeType, {
           includeAllViewers: true,
           connectionId: targetConnectionId,
+          isActivationCurrent,
         });
         return;
       }
 
-      openFileWithAssociatedViewer(targetFile, targetPath, mimeType, targetConnectionId);
+      openFileWithAssociatedViewer(targetFile, targetPath, mimeType, targetConnectionId, isActivationCurrent);
     },
     [navigateToResolvedDirectory, openBrowserViewerPicker, openFileWithAssociatedViewer, openNativeFile]
   );
@@ -1354,7 +1380,9 @@ export function useFileBrowserPane(config: UseFileBrowserPaneConfig): UseFileBro
           `${LOCAL_DRIVE_PREFIX}${resolution.drive_id}`,
           resolution.path,
           resolution.item,
-          mode
+          mode,
+          undefined,
+          () => requestId === latestLocalActivationRequestIdRef.current
         );
       } catch (error: unknown) {
         if (requestId !== latestLocalActivationRequestIdRef.current) {
@@ -1464,7 +1492,8 @@ export function useFileBrowserPane(config: UseFileBrowserPaneConfig): UseFileBro
               resolution.path,
               resolution.item,
               mode,
-              recentRecordId
+              recentRecordId,
+              () => requestId === latestLocalActivationRequestIdRef.current
             );
             return;
           } catch (error: unknown) {
