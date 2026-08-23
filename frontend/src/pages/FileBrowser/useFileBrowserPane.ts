@@ -1451,8 +1451,13 @@ export function useFileBrowserPane(config: UseFileBrowserPaneConfig): UseFileBro
 
       if (recentRecordId) {
         if (isLocalDrive(targetConnectionId)) {
+          const requestId = ++latestLocalActivationRequestIdRef.current;
           try {
             const resolution = await api.resolveLocalActivation(targetConnectionId, path);
+            if (requestId !== latestLocalActivationRequestIdRef.current) {
+              logger.debug("Ignoring superseded recent local activation target", { targetConnectionId, path }, "browser");
+              return;
+            }
             await activateResolvedLocalTarget(
               file,
               `${LOCAL_DRIVE_PREFIX}${resolution.drive_id}`,
@@ -1463,6 +1468,9 @@ export function useFileBrowserPane(config: UseFileBrowserPaneConfig): UseFileBro
             );
             return;
           } catch (error: unknown) {
+            if (requestId !== latestLocalActivationRequestIdRef.current) {
+              return;
+            }
             if (getApiErrorCode(error) === "local_link_target_missing") {
               await removeRecentFileRecord(recentRecordId);
               setError(RECENT_FILE_MISSING_ERROR);

@@ -898,6 +898,61 @@ describe("useFileBrowserPane", () => {
     expect(onNavigateDirectory).toHaveBeenCalledWith("local-drive:d", "Projects/Archive");
   });
 
+  it("ignores a recent local activation result after navigation supersedes it", async () => {
+    const localConnection = { ...mockConnections[0], id: "local-drive:c", slug: "c", type: "local" };
+    let resolveActivation!: (value: Awaited<ReturnType<typeof api.resolveLocalActivation>>) => void;
+    vi.mocked(api.resolveLocalActivation).mockImplementation(
+      () =>
+        new Promise((resolve) => {
+          resolveActivation = resolve;
+        })
+    );
+
+    const { result } = renderHook(
+      () =>
+        useFileBrowserPane({
+          rowHeight: 40,
+          connections: [localConnection],
+        }),
+      { wrapper }
+    );
+
+    act(() => {
+      result.current.applyLocation("local-drive:c", "Links");
+    });
+    await waitFor(() => {
+      expect(result.current.currentPath).toBe("Links");
+    });
+
+    let activation: Promise<void>;
+    act(() => {
+      activation = result.current.handleOpenFileAtPath("local-drive:c", "Links/Archive.lnk", "associated-viewer", "recent-1");
+    });
+    await waitFor(() => {
+      expect(api.resolveLocalActivation).toHaveBeenCalledWith("local-drive:c", "Links/Archive.lnk");
+    });
+
+    act(() => {
+      result.current.applyLocation("local-drive:c", "Elsewhere");
+    });
+    await act(async () => {
+      resolveActivation({
+        drive_id: "c",
+        path: "Projects/Archive",
+        item: {
+          name: "Archive",
+          path: "Projects/Archive",
+          type: FileType.DIRECTORY,
+          is_readable: true,
+          is_hidden: false,
+        },
+      });
+      await activation;
+    });
+
+    expect(result.current.currentPath).toBe("Elsewhere");
+  });
+
   it("opens an image recent outside the active pane without reusing its gallery", async () => {
     const viewerConnections = [mockConnections[0], { ...mockConnections[0], id: "conn-2", name: "Archive", slug: "archive" }];
     vi.mocked(api.validateRecentFileTarget).mockResolvedValue({
