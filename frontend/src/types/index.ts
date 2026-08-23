@@ -464,6 +464,8 @@ export type LocalLinkTargetState = "resolved" | "missing" | "access_denied" | "u
 
 export interface LocalLinkTargetInfo {
   name: string;
+  /** Full canonical path for an exposed local target; omitted for unavailable targets. */
+  path?: string;
   type: LocalLinkTargetType;
 }
 

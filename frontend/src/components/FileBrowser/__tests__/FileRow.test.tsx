@@ -2,7 +2,7 @@ import { fireEvent, render, screen } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { setLocale, translate } from "../../../i18n";
 import { FileType } from "../../../types";
-import { FileRow } from "../FileRow";
+import { FileRow, shortenTargetPath } from "../FileRow";
 
 function createDefaultFileRowProps() {
   return {
@@ -73,7 +73,7 @@ describe("FileRow", () => {
     expect(props.onClick).toHaveBeenCalledWith(props.file, props.index);
   });
 
-  it("renders a shortcut target name without exposing its path", () => {
+  it("renders a shortcut's full target path", () => {
     const props = createDefaultFileRowProps();
     props.isMultiSelected = false;
     props.file = {
@@ -83,15 +83,24 @@ describe("FileRow", () => {
       link_target: {
         source_path: "Project.lnk",
         state: "resolved",
-        target: { name: "Project Archive", type: "directory" },
+        target: { name: "Project Archive", path: "C:\\Users\\Sambee\\Projects\\Project Archive", type: "directory" },
       },
     };
 
     render(<FileRow {...props} />);
 
-    expect(screen.getByText(/-> Project Archive/)).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: /shortcut target: Project Archive/i })).toBeInTheDocument();
+    expect(screen.getByText(/-> C:\\Users\\Sambee\\Projects\\Project Archive/)).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: /shortcut target: C:\\Users\\Sambee\\Projects\\Project Archive/i })).toBeInTheDocument();
     expect(screen.getByTestId("ShortcutIcon")).toBeInTheDocument();
+  });
+
+  it("shortens target paths from the ancestor end while retaining the basename", () => {
+    const measureCharacters = (text: string) => text.length;
+
+    expect(shortenTargetPath("/Users/sambee/Projects/Archive/report.pdf", 17, measureCharacters)).toBe("/.../report.pdf");
+    expect(shortenTargetPath("C:\\Users\\sambee\\Projects\\report.pdf", 18, measureCharacters)).toBe("C:\\...\\report.pdf");
+    expect(shortenTargetPath("/Users/sambee/report.pdf", 100, measureCharacters)).toBe("/Users/sambee/report.pdf");
+    expect(shortenTargetPath("report.pdf", 3, measureCharacters)).toBe("report.pdf");
   });
 
   it("rerenders when deferred shortcut metadata arrives", () => {

@@ -840,7 +840,7 @@ describe("API Service", () => {
           {
             source_path: "Links/report.lnk",
             state: "resolved",
-            target: { name: "report.pdf", type: "file" },
+            target: { name: "report.pdf", path: "C:\\Users\\sambee\\Documents\\report.pdf", type: "file" },
           },
         ],
       };

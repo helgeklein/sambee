@@ -1306,16 +1306,20 @@ fn resolve_link_target_metadata(source_path: String, source: PathBuf) -> LinkTar
         .file_name()
         .map(|name| name.to_string_lossy().to_string())
         .filter(|name| !name.is_empty());
-    let state = if drives::drive_for_path(&target_path).is_some() {
-        LinkTargetState::Resolved
+    let (state, target_display_path) = if drives::drive_for_path(&target_path).is_some() {
+        (LinkTargetState::Resolved, Some(target_path.to_string_lossy().to_string()))
     } else {
-        LinkTargetState::UnmappedDrive
+        (LinkTargetState::UnmappedDrive, None)
     };
 
     LinkTargetResolution {
         source_path,
         state,
-        target: target_name.map(|name| LinkTargetInfo { name, target_type }),
+        target: target_name.map(|name| LinkTargetInfo {
+            name,
+            path: target_display_path,
+            target_type,
+        }),
     }
 }
 
@@ -1694,7 +1698,7 @@ mod tests {
 
     #[cfg(unix)]
     #[test]
-    fn resolves_local_link_target_metadata_without_exposing_its_path() {
+    fn returns_target_path_only_for_an_exposed_drive() {
         let directory = tempfile::tempdir().expect("temporary directory should be created");
         let target = directory.path().join("report.txt");
         let link = directory.path().join("report-link");
@@ -1712,6 +1716,16 @@ mod tests {
             resolution.target,
             Some(crate::server::models::LinkTargetInfo {
                 name: "report.txt".to_string(),
+                path: if resolution.state == LinkTargetState::Resolved {
+                    Some(
+                        std::fs::canonicalize(target)
+                            .expect("target should canonicalize")
+                            .to_string_lossy()
+                            .to_string(),
+                    )
+                } else {
+                    None
+                },
                 target_type: LinkTargetType::File,
             })
         );

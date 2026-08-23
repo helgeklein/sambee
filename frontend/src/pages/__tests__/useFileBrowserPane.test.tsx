@@ -232,7 +232,7 @@ describe("useFileBrowserPane", () => {
         {
           source_path: "Links/Archive.lnk",
           state: "resolved",
-          target: { name: "Archive", type: "directory" },
+          target: { name: "Archive", path: "C:\\Users\\Sambee\\Archive", type: "directory" },
         },
       ],
     });
@@ -254,7 +254,7 @@ describe("useFileBrowserPane", () => {
       expect(result.current.files[0]?.link_target).toEqual({
         source_path: "Links/Archive.lnk",
         state: "resolved",
-        target: { name: "Archive", type: "directory" },
+        target: { name: "Archive", path: "C:\\Users\\Sambee\\Archive", type: "directory" },
       });
     });
     expect(api.listLocalLinkTargets).toHaveBeenCalledWith(

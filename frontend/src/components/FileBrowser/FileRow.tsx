@@ -8,7 +8,7 @@ import OpenInNewIcon from "@mui/icons-material/OpenInNew";
 import ShortcutIcon from "@mui/icons-material/Shortcut";
 import VisibilityIcon from "@mui/icons-material/Visibility";
 import { Box, ListItemIcon, ListItemText, Menu, MenuItem, Typography } from "@mui/material";
-import React, { useCallback, useState } from "react";
+import React, { useCallback, useEffect, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { formatDate, formatFileSize } from "../../pages/FileBrowser/formatters";
 import type { ViewMode } from "../../pages/FileBrowser/types";
@@ -40,6 +40,91 @@ interface FileRowProps {
   onOpenNativePicker?: (file: FileEntry, index: number) => void;
   /** Called when "Rename" is chosen from the context menu */
   onRename?: (file: FileEntry, index: number) => void;
+}
+
+const ELLIPSIS = "...";
+
+type TextMeasurer = (text: string) => number;
+
+/** Preserve the target basename while collapsing ancestor directories to fit. */
+export function shortenTargetPath(path: string, availableWidth: number, measureText: TextMeasurer): string {
+  if (availableWidth <= 0 || measureText(path) <= availableWidth) {
+    return path;
+  }
+
+  const separator = path.includes("\\") ? "\\" : "/";
+  const driveMatch = path.match(/^[A-Za-z]:[\\/]/);
+  const root = driveMatch ? `${driveMatch[0][0]}:${separator}` : path.startsWith(separator) ? separator : "";
+  const segments = path.slice(root.length).split(/[\\/]/).filter(Boolean);
+  const basename = segments.pop();
+  if (!basename || segments.length === 0) {
+    return path;
+  }
+
+  const prefix = root ? `${root}${ELLIPSIS}${separator}` : `${ELLIPSIS}${separator}`;
+  let shortened = `${prefix}${basename}`;
+  while (segments.length > 0) {
+    const candidate = `${prefix}${segments.at(-1)}${separator}${shortened.slice(prefix.length)}`;
+    if (measureText(candidate) > availableWidth) {
+      break;
+    }
+    shortened = candidate;
+    segments.pop();
+  }
+
+  return shortened;
+}
+
+function TargetPathLabel({ path, rowTextSx }: { path: string; rowTextSx?: Record<string, string> }) {
+  const labelRef = useRef<HTMLSpanElement>(null);
+  const measureRef = useRef<HTMLSpanElement>(null);
+  const [displayPath, setDisplayPath] = useState(path);
+
+  useEffect(() => {
+    const label = labelRef.current;
+    const measurement = measureRef.current;
+    if (!label || !measurement) return;
+
+    const updatePath = () => {
+      const availableWidth = label.clientWidth;
+      if (availableWidth <= 0) {
+        setDisplayPath(path);
+        return;
+      }
+      const measureText = (text: string) => {
+        measurement.textContent = text;
+        return measurement.getBoundingClientRect().width;
+      };
+      const arrowWidth = measureText(" -> ");
+      setDisplayPath(shortenTargetPath(path, availableWidth - arrowWidth, measureText));
+    };
+
+    updatePath();
+    const observer = new ResizeObserver(updatePath);
+    observer.observe(label);
+    return () => observer.disconnect();
+  }, [path]);
+
+  return (
+    <>
+      <Typography
+        ref={labelRef}
+        variant="body2"
+        component="span"
+        noWrap
+        title={path}
+        sx={{ ...rowTextSx, color: "text.secondary", flex: "1 1 50%", minWidth: 0, overflow: "hidden", textOverflow: "ellipsis" }}
+      >
+        {` -> ${displayPath}`}
+      </Typography>
+      <Typography
+        ref={measureRef}
+        aria-hidden
+        component="span"
+        sx={{ ...rowTextSx, left: -10000, position: "fixed", visibility: "hidden", whiteSpace: "nowrap" }}
+      />
+    </>
+  );
 }
 
 /**
@@ -79,9 +164,10 @@ export const FileRow = React.memo(
       );
       const itemTypeLabel = t(file.type === "directory" ? "fileBrowser.row.itemTypes.folder" : "fileBrowser.row.itemTypes.file");
       const linkTargetName = linkTarget?.name;
+      const linkTargetPath = linkTarget?.path ?? linkTargetName;
       const ariaLabel = `${itemTypeLabel}: ${file.name}${
-        linkTargetName
-          ? t("fileBrowser.row.shortcutTargetSuffix", { target: linkTargetName })
+        linkTargetPath
+          ? t("fileBrowser.row.shortcutTargetSuffix", { target: linkTargetPath })
           : file.link_kind
             ? t("fileBrowser.row.shortcutSuffix")
             : ""
@@ -145,21 +231,11 @@ export const FileRow = React.memo(
             component="span"
             noWrap
             title={file.name}
-            sx={{ ...rowTextSx, color: "text.primary", flex: linkTargetName ? "1 1 50%" : 1, minWidth: 0 }}
+            sx={{ ...rowTextSx, color: "text.primary", flex: linkTargetPath ? "1 1 50%" : 1, minWidth: 0 }}
           >
             {file.name}
           </Typography>
-          {linkTargetName ? (
-            <Typography
-              variant="body2"
-              component="span"
-              noWrap
-              title={linkTargetName}
-              sx={{ ...rowTextSx, color: "text.secondary", flex: "1 1 50%", minWidth: 0 }}
-            >
-              {` -> ${linkTargetName}`}
-            </Typography>
-          ) : null}
+          {linkTargetPath ? <TargetPathLabel path={linkTargetPath} rowTextSx={rowTextSx} /> : null}
         </Box>
       );
 
