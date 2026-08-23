@@ -397,6 +397,7 @@ export interface CurrentUserSettings {
   };
   text_editor: {
     max_file_size_bytes: number;
+    word_wrap_enabled: boolean | null;
   };
 }
 
@@ -419,6 +420,7 @@ export interface CurrentUserSettingsUpdate {
   };
   text_editor?: {
     max_file_size_bytes?: number;
+    word_wrap_enabled?: boolean;
   };
 }
 

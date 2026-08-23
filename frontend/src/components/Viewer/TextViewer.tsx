@@ -4,13 +4,17 @@ import { useTranslation } from "react-i18next";
 import { BROWSER_SHORTCUTS, CODEMIRROR_EDITOR_SHORTCUTS, COMMON_SHORTCUTS, VIEWER_SHORTCUTS } from "../../config/keyboardShortcuts";
 import { checkIsTransientError, getTransientErrorMessage, useApiRetry } from "../../hooks/useApiRetry";
 import { useKeyboardShortcuts } from "../../hooks/useKeyboardShortcuts";
-import { readTextEditorMaxFileSizeBytesPreference } from "../../pages/FileBrowser/preferences";
+import { readTextEditorMaxFileSizeBytesPreference, useTextEditorWordWrapPreference } from "../../pages/FileBrowser/preferences";
 import apiService from "../../services/api";
 import { clearDraft, type DraftSnapshot, loadDraft, registerDraftSnapshot, saveDraft } from "../../services/draftRecovery";
 import { error as logError, info as logInfo } from "../../services/logger";
 import { useSambeeTheme } from "../../theme";
 import { getSearchHighlightColors } from "../../theme/commonStyles";
-import { getViewerColors, TEXT_SELECTION_HORIZONTAL_INSET_CSS_VARIABLE } from "../../theme/viewerStyles";
+import {
+  CODEMIRROR_EDITOR_CONTENT_PADDING,
+  CODEMIRROR_EDITOR_HORIZONTAL_INSET_CSS_VARIABLE,
+  getViewerColors,
+} from "../../theme/viewerStyles";
 import type { EditLockInfo } from "../../types";
 import { getApiErrorMessage } from "../../utils/apiErrors";
 import { openExternalUrl } from "../../utils/externalLinks";
@@ -135,6 +139,7 @@ export const TextViewer: React.FC<ViewerComponentProps> = ({ connectionId, path,
   const lockHeldRef = useRef<EditLockInfo | null>(null);
   const editSessionIdRef = useRef(typeof crypto.randomUUID === "function" ? crypto.randomUUID() : `${Date.now()}-${Math.random()}`);
   const isEditingRef = useRef(false);
+  const translationRef = useRef(t);
   const fetchWithRetry = useApiRetry();
 
   const { currentTheme } = useSambeeTheme();
@@ -147,6 +152,7 @@ export const TextViewer: React.FC<ViewerComponentProps> = ({ connectionId, path,
   const searchHighlightColors = useMemo(() => getSearchHighlightColors(muiTheme, currentTheme), [currentTheme, muiTheme]);
   const filename = path.split("/").pop() || path;
   const maxFileSizeBytes = readTextEditorMaxFileSizeBytesPreference();
+  const [wordWrapEnabled, setWordWrapEnabled] = useTextEditorWordWrapPreference(false);
   const contentSizeBytes = useMemo(() => new Blob([content]).size, [content]);
   const exceedsEditorLimit = !loading && !error && contentSizeBytes > maxFileSizeBytes;
   const textEditorTheme = useMemo(
@@ -172,6 +178,10 @@ export const TextViewer: React.FC<ViewerComponentProps> = ({ connectionId, path,
     ]
   );
 
+  const handleEditorSearchStateChange = useCallback((nextState: TextCodeEditorSearchState) => {
+    setEditorSearchState((previousState) => (areTextEditorSearchStatesEqual(previousState, nextState) ? previousState : nextState));
+  }, []);
+
   const setEditBaselineContent = useCallback((nextContent: string) => {
     editBaselineContentRef.current = nextContent;
   }, []);
@@ -179,6 +189,10 @@ export const TextViewer: React.FC<ViewerComponentProps> = ({ connectionId, path,
   useEffect(() => {
     isEditingRef.current = isEditing;
   }, [isEditing]);
+
+  useEffect(() => {
+    translationRef.current = t;
+  }, [t]);
 
   const restoreEditingFocus = useCallback(() => {
     if (!isEditing) {
@@ -250,9 +264,9 @@ export const TextViewer: React.FC<ViewerComponentProps> = ({ connectionId, path,
         }
 
         if (checkIsTransientError(err)) {
-          setError(getTransientErrorMessage(err, t("errors.failedToLoadFile")));
+          setError(getTransientErrorMessage(err, translationRef.current("errors.failedToLoadFile")));
         } else {
-          setError(getApiErrorMessage(err, t("errors.failedToLoadFile"), { includeOriginalMessage: true }));
+          setError(getApiErrorMessage(err, translationRef.current("errors.failedToLoadFile"), { includeOriginalMessage: true }));
         }
       } finally {
         if (!abortController.signal.aborted) {
@@ -266,7 +280,7 @@ export const TextViewer: React.FC<ViewerComponentProps> = ({ connectionId, path,
     return () => {
       abortController.abort();
     };
-  }, [connectionId, fetchWithRetry, path, setEditBaselineContent, t]);
+  }, [connectionId, fetchWithRetry, path, setEditBaselineContent]);
 
   useEffect(() => {
     if (!isEditing || draftContent === editBaselineContentRef.current) {
@@ -799,6 +813,11 @@ export const TextViewer: React.FC<ViewerComponentProps> = ({ connectionId, path,
         handler: () => setSearchRegexp((enabled) => !enabled),
         enabled: searchPanelOpen && !exceedsEditorLimit,
       },
+      {
+        ...CODEMIRROR_EDITOR_SHORTCUTS.TOGGLE_WORD_WRAP,
+        handler: () => setWordWrapEnabled(!wordWrapEnabled),
+        enabled: !loading && !error && !exceedsEditorLimit,
+      },
       { ...COMMON_SHORTCUTS.NEXT_MATCH, handler: handleSearchNext, enabled: isEditing && searchMatches > 0 },
       { ...COMMON_SHORTCUTS.PREVIOUS_MATCH, handler: handleSearchPrevious, enabled: isEditing && searchMatches > 0 },
       { ...COMMON_SHORTCUTS.SAVE, handler: () => void handleSave(), allowInInput: true, enabled: isEditing && !isSaving },
@@ -824,7 +843,9 @@ export const TextViewer: React.FC<ViewerComponentProps> = ({ connectionId, path,
       searchMatches,
       searchMode,
       searchPanelOpen,
+      setWordWrapEnabled,
       unsavedChangesDialogOpen,
+      wordWrapEnabled,
     ]
   );
 
@@ -1096,10 +1117,13 @@ export const TextViewer: React.FC<ViewerComponentProps> = ({ connectionId, path,
                   "& .sambee-text-editor": {
                     flex: 1,
                     minHeight: 0,
-                    [TEXT_SELECTION_HORIZONTAL_INSET_CSS_VARIABLE]: "20px",
+                    [CODEMIRROR_EDITOR_HORIZONTAL_INSET_CSS_VARIABLE]: muiTheme.spacing(CODEMIRROR_EDITOR_CONTENT_PADDING.xs),
+                    [muiTheme.breakpoints.up("sm")]: {
+                      [CODEMIRROR_EDITOR_HORIZONTAL_INSET_CSS_VARIABLE]: muiTheme.spacing(CODEMIRROR_EDITOR_CONTENT_PADDING.sm),
+                    },
                   },
                   "& .sambee-text-editor .cm-content": {
-                    p: "16px 20px",
+                    py: CODEMIRROR_EDITOR_CONTENT_PADDING,
                   },
                 }}
               >
@@ -1129,15 +1153,12 @@ export const TextViewer: React.FC<ViewerComponentProps> = ({ connectionId, path,
                     ariaLabel={t("viewer.text.editorLabel")}
                     autoFocus={true}
                     readOnly={editorShouldBeReadOnly}
+                    lineWrapping={wordWrapEnabled}
                     searchText={searchPanelOpen ? searchText : ""}
                     searchOpen={searchPanelOpen}
                     searchAutoNavigate={searchAutoNavigate}
                     searchCaseSensitive={searchCaseSensitive}
-                    onSearchStateChange={(nextState) => {
-                      setEditorSearchState((previousState) =>
-                        areTextEditorSearchStatesEqual(previousState, nextState) ? previousState : nextState
-                      );
-                    }}
+                    onSearchStateChange={handleEditorSearchStateChange}
                     searchRegexp={searchRegexp}
                     searchReplaceText={searchReplaceText}
                     searchWholeWord={searchWholeWord}

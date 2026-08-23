@@ -22,7 +22,7 @@ export const MARKDOWN_SELECTION_RANGE_CLASS = EDITOR_SELECTION_RANGE_CLASS;
 export type MarkdownSelectionLineSegment = SelectionLineSegment;
 export const getMarkdownSelectionLineSegments = getSelectionLineSegments;
 
-export function buildMarkdownEditorExtensions(theme: MarkdownEditorThemeOptions): Extension[] {
+export function buildMarkdownEditorExtensions(theme: MarkdownEditorThemeOptions, lineWrapping: boolean = true): Extension[] {
   const markdownLanguageSupport = markdown({ base: markdownLanguage, codeLanguages: languages });
   const snippetAutocompleter = createMarkdownSnippetAutocompleter();
   const tableAutocompleter = markdownTableAutocompleter({ options: MARKDOWN_TABLE_AUTOCOMPLETE_OPTIONS });
@@ -36,7 +36,7 @@ export function buildMarkdownEditorExtensions(theme: MarkdownEditorThemeOptions)
       defaultSyntaxHighlighting: false,
       drawSelection: true,
       highlightSelectionMatches: false,
-      lineWrapping: true,
+      lineWrapping,
     }),
     ...buildMarkdownEditorTheme(theme),
     buildPassiveSearchHighlightExtension(),

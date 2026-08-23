@@ -62,6 +62,7 @@ export interface MarkdownRichEditorProps {
   theme: MarkdownEditorThemeOptions;
   autoFocus?: boolean;
   readOnly?: boolean;
+  lineWrapping?: boolean;
   className?: string;
   searchText?: string;
   searchOpen?: boolean;
@@ -250,6 +251,7 @@ const MarkdownRichEditor = forwardRef<MarkdownRichEditorHandle, MarkdownRichEdit
       theme,
       autoFocus = false,
       readOnly = false,
+      lineWrapping = true,
       className,
       searchText = "",
       searchOpen = false,
@@ -277,7 +279,7 @@ const MarkdownRichEditor = forwardRef<MarkdownRichEditorHandle, MarkdownRichEdit
       pendingPromise: null,
       resolvePending: null,
     });
-    const extensions = useMemo(() => buildMarkdownEditorExtensions(theme), [theme]);
+    const extensions = useMemo(() => buildMarkdownEditorExtensions(theme, lineWrapping), [lineWrapping, theme]);
     const [editorMarkdown, setEditorMarkdown] = useState(() => prepareMarkdownTableCellLineBreaksForEditor(markdown));
 
     useEffect(() => {

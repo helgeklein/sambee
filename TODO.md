@@ -1,11 +1,10 @@
 # TODO
 
-## Shared CodeMirror Editor
+## File List
 
-- Propoerly support long lines.
-   - Add a word wrap option (keyboard shortcut: Alt+Z)
-   - Make sure the left+right gutters are respected when editing and selecting.
-      - Currently, the gutters are ignored once the cursor reaches a long line and moves to the end, for example.
+- After typing a few characters to move focus to an item, I want to be able to press ESC to reset the typing buffer.
+   - Focus should remain unchanged.
+   - But then I type again after having pressed ESC, I want the focus move to start from scratch.
 
 ## Settings
 

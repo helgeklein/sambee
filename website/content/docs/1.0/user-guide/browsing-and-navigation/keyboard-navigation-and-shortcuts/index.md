@@ -90,6 +90,7 @@ Markdown files build on the shared viewer shortcuts and add editor-specific form
 | <kbd>Alt</kbd> + <kbd>C</kbd> | Toggle case-sensitive matching while the find panel is open |
 | <kbd>Alt</kbd> + <kbd>W</kbd> | Toggle whole-word matching while the find panel is open |
 | <kbd>Alt</kbd> + <kbd>R</kbd> | Toggle regular-expression matching while the find panel is open |
+| <kbd>Alt</kbd> + <kbd>Z</kbd> | Toggle word wrap |
 | <kbd>F1</kbd> | Show Text editor shortcuts |
 | <kbd>Ctrl</kbd> + <kbd>K</kbd> | Create a link |
 | <kbd>Ctrl</kbd> + <kbd>Alt</kbd> + <kbd>T</kbd> | Insert a table |
@@ -115,6 +116,7 @@ Text files use the same CodeMirror find controls as the Markdown editor. Find is
 | <kbd>Alt</kbd> + <kbd>C</kbd> | Toggle case-sensitive matching while the find panel is open |
 | <kbd>Alt</kbd> + <kbd>W</kbd> | Toggle whole-word matching while the find panel is open |
 | <kbd>Alt</kbd> + <kbd>R</kbd> | Toggle regular-expression matching while the find panel is open |
+| <kbd>Alt</kbd> + <kbd>Z</kbd> | Toggle word wrap |
 
 ## When to Use the Built-In Shortcut Help
 

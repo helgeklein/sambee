@@ -1,6 +1,7 @@
 import { Annotation, Compartment, EditorSelection, EditorState, type TransactionSpec } from "@codemirror/state";
 import { type Command, EditorView, type ViewUpdate } from "@codemirror/view";
 import { forwardRef, useEffect, useImperativeHandle, useRef } from "react";
+import { CODEMIRROR_EDITOR_HORIZONTAL_INSET_CSS_VARIABLE } from "../../theme/viewerStyles";
 import type { SourceTextEditorHandle, SourceTextEditorProps } from "./sourceTextEditorTypes";
 
 const EXTERNAL_SYNC_ANNOTATION = Annotation.define<boolean>();
@@ -19,11 +20,27 @@ const sourceTextEditorBaseTheme = EditorView.theme({
   ".cm-content": {
     minHeight: "100%",
     boxSizing: "border-box",
-    padding: "16px 20px",
+    padding: `16px 0 16px var(${CODEMIRROR_EDITOR_HORIZONTAL_INSET_CSS_VARIABLE}, 16px)`,
   },
   ".cm-line": {
     padding: 0,
   },
+  ".cm-line:not(:has(> br:only-child))::after": {
+    content: '""',
+    display: "inline-block",
+    pointerEvents: "none",
+    width: `var(${CODEMIRROR_EDITOR_HORIZONTAL_INSET_CSS_VARIABLE}, 16px)`,
+  },
+});
+
+const sourceTextEditorScrollMargins = EditorView.scrollMargins.of((view) => {
+  const rawInset = view.contentDOM.ownerDocument.defaultView
+    ?.getComputedStyle(view.contentDOM)
+    .getPropertyValue(CODEMIRROR_EDITOR_HORIZONTAL_INSET_CSS_VARIABLE);
+  const inset = Number.parseFloat(rawInset ?? "");
+  const horizontalInset = Number.isFinite(inset) && inset >= 0 ? inset : 0;
+
+  return { left: horizontalInset, right: horizontalInset };
 });
 
 interface PreservedSelectionSnapshot {
@@ -83,6 +100,7 @@ export const SourceTextEditor = forwardRef<SourceTextEditorHandle, SourceTextEdi
     const contentAttributesCompartmentRef = useRef(new Compartment());
     const initialValueRef = useRef(value);
     const initialExtensionsRef = useRef(extensions);
+    const appliedExtensionsRef = useRef(extensions);
     const initialReadOnlyRef = useRef(readOnly);
     const initialAutoFocusRef = useRef(autoFocus);
     const initialAriaLabelRef = useRef(ariaLabel);
@@ -125,6 +143,7 @@ export const SourceTextEditor = forwardRef<SourceTextEditorHandle, SourceTextEdi
         doc: initialValueRef.current,
         extensions: [
           sourceTextEditorBaseTheme,
+          sourceTextEditorScrollMargins,
           updateListener,
           readOnlyCompartmentRef.current.of(createReadOnlyExtension(initialReadOnlyRef.current)),
           extensionsCompartmentRef.current.of(initialExtensionsRef.current),
@@ -182,7 +201,15 @@ export const SourceTextEditor = forwardRef<SourceTextEditorHandle, SourceTextEdi
         return;
       }
 
-      view.dispatch({ effects: extensionsCompartmentRef.current.reconfigure(extensions) });
+      if (appliedExtensionsRef.current === extensions) {
+        return;
+      }
+
+      appliedExtensionsRef.current = extensions;
+      view.dispatch({
+        effects: extensionsCompartmentRef.current.reconfigure(extensions),
+        scrollIntoView: true,
+      });
     }, [extensions]);
 
     useEffect(() => {

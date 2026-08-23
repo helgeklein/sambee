@@ -17,6 +17,38 @@ const TEST_TEXT_THEME: TextEditorThemeOptions = {
 };
 
 describe("TextCodeEditor", () => {
+  it("reconfigures line wrapping without recreating the editor", async () => {
+    const { rerender } = render(
+      <TextCodeEditor
+        ariaLabel="Text editor"
+        filename="notes.txt"
+        lineWrapping={false}
+        onChange={() => {}}
+        text="A long line"
+        theme={TEST_TEXT_THEME}
+      />
+    );
+
+    const editor = await screen.findByLabelText("Text editor");
+    expect(editor).not.toHaveClass("cm-lineWrapping");
+
+    rerender(
+      <TextCodeEditor
+        ariaLabel="Text editor"
+        filename="notes.txt"
+        lineWrapping={true}
+        onChange={() => {}}
+        text="A long line"
+        theme={TEST_TEXT_THEME}
+      />
+    );
+
+    await waitFor(() => {
+      expect(editor).toHaveClass("cm-lineWrapping");
+    });
+    expect(editor).toHaveTextContent("A long line");
+  });
+
   it("replaces the selected and remaining CodeMirror search matches", async () => {
     const editorRef = createRef<TextCodeEditorHandle>();
 

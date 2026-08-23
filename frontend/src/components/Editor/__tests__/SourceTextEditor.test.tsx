@@ -3,6 +3,7 @@ import { undo } from "@codemirror/commands";
 import { markdown } from "@codemirror/lang-markdown";
 import { languages } from "@codemirror/language-data";
 import { EditorSelection, EditorState } from "@codemirror/state";
+import { EditorView } from "@codemirror/view";
 import { render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { createRef, useState } from "react";
@@ -87,6 +88,39 @@ describe("SourceTextEditor", () => {
     expect(editorRef.current.restorePreservedSelection()).toBe(true);
     expect(view.state.selection.main.from).toBe(0);
     expect(view.state.selection.main.to).toBe(5);
+  });
+
+  it("preserves the caret when reconfiguring line wrapping", async () => {
+    const editorRef = createRef<SourceTextEditorHandle>();
+    const longLine = "x".repeat(10_000);
+
+    const { rerender } = render(
+      <SourceTextEditor ref={editorRef} value={longLine} extensions={[]} ariaLabel="Wrapping source editor" onChange={() => {}} />
+    );
+
+    const editor = await screen.findByLabelText("Wrapping source editor");
+    const view = editorRef.current?.getView();
+
+    if (!view) {
+      throw new Error("Expected editor view to be available");
+    }
+
+    view.dispatch({ selection: EditorSelection.cursor(longLine.length) });
+
+    rerender(
+      <SourceTextEditor
+        ref={editorRef}
+        value={longLine}
+        extensions={[EditorView.lineWrapping]}
+        ariaLabel="Wrapping source editor"
+        onChange={() => {}}
+      />
+    );
+
+    await waitFor(() => {
+      expect(editor).toHaveClass("cm-lineWrapping");
+      expect(view.state.selection.main.head).toBe(longLine.length);
+    });
   });
 
   it("retains undo history across controlled value updates", async () => {

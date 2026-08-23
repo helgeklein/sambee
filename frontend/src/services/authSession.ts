@@ -38,6 +38,7 @@ export class AuthSessionManager {
   private refreshGeneration: number | null = null;
   private readonly refreshChannel: BroadcastChannel | null;
   private readonly refreshClient = axios.create({ baseURL: API_BASE_URL, withCredentials: true });
+  private readonly clearListeners = new Set<() => void>();
 
   constructor() {
     this.refreshChannel = typeof BroadcastChannel === "undefined" ? null : new BroadcastChannel("sambee-oidc-refresh");
@@ -78,6 +79,13 @@ export class AuthSessionManager {
     this.scheduleRefresh();
   }
 
+  subscribeToClear(listener: () => void): () => void {
+    this.clearListeners.add(listener);
+    return () => {
+      this.clearListeners.delete(listener);
+    };
+  }
+
   clear(): void {
     this.accessToken = null;
     this.expiresAt = null;
@@ -87,6 +95,9 @@ export class AuthSessionManager {
     this.refreshGeneration = null;
     this.state = "idle";
     this.clearRefreshTimer();
+    for (const listener of this.clearListeners) {
+      listener();
+    }
   }
 
   async bootstrap(): Promise<AuthSessionState> {

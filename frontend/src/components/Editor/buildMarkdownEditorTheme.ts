@@ -2,7 +2,7 @@ import { HighlightStyle, syntaxHighlighting } from "@codemirror/language";
 import type { Extension } from "@codemirror/state";
 import { EditorView } from "@codemirror/view";
 import { tags } from "@lezer/highlight";
-import { MARKDOWN_SELECTION_HORIZONTAL_INSET_CSS_VARIABLE } from "../../theme/viewerStyles";
+import { CODEMIRROR_EDITOR_HORIZONTAL_INSET_CSS_VARIABLE } from "../../theme/viewerStyles";
 import { buildCodeMirrorSurfaceTheme } from "./buildCodeMirrorSurfaceTheme";
 
 export interface MarkdownEditorThemeOptions {
@@ -49,7 +49,7 @@ export function buildMarkdownEditorTheme({
       ".cm-selectionLayer": {
         width: "100%",
         height: "100%",
-        clipPath: `inset(0 var(${MARKDOWN_SELECTION_HORIZONTAL_INSET_CSS_VARIABLE}, 0px))`,
+        clipPath: `inset(0 var(${CODEMIRROR_EDITOR_HORIZONTAL_INSET_CSS_VARIABLE}, 0px) 0 var(${CODEMIRROR_EDITOR_HORIZONTAL_INSET_CSS_VARIABLE}, 0px))`,
       },
     }),
   ];
