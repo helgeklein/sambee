@@ -1,5 +1,12 @@
 # TODO
 
+## Shared CodeMirror Editor
+
+- Propoerly support long lines.
+   - Add a word wrap option (keyboard shortcut: Alt+Z)
+   - Make sure the left+right gutters are respected when editing and selecting.
+      - Currently, the gutters are ignored once the cursor reaches a long line and moves to the end, for example.
+
 ## Settings
 
 ### Styling

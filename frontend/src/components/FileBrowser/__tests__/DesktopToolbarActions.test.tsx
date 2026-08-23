@@ -22,9 +22,10 @@ describe("DesktopToolbarActions", () => {
     expect(await screen.findByText("Open settings (Ctrl+,)")).toBeInTheDocument();
   });
 
-  it("opens the help menu and runs both actions", () => {
+  it("opens the help menu and runs its actions and external links", () => {
     const onOpenHelp = vi.fn();
     const onOpenDocumentation = vi.fn();
+    const openExternalUrl = vi.spyOn(window, "open").mockImplementation(() => null);
 
     renderWithProvider(
       <DesktopToolbarActions onOpenHelp={onOpenHelp} onOpenDocumentation={onOpenDocumentation} onOpenSettings={vi.fn()} />
@@ -37,5 +38,13 @@ describe("DesktopToolbarActions", () => {
     fireEvent.click(screen.getByLabelText("Help"));
     fireEvent.click(screen.getByRole("menuitem", { name: "Documentation" }));
     expect(onOpenDocumentation).toHaveBeenCalledTimes(1);
+
+    fireEvent.click(screen.getByLabelText("Help"));
+    fireEvent.click(screen.getByRole("menuitem", { name: "Issues" }));
+    expect(openExternalUrl).toHaveBeenCalledWith("https://github.com/helgeklein/sambee/issues", "_blank", "noopener,noreferrer");
+
+    fireEvent.click(screen.getByLabelText("Help"));
+    fireEvent.click(screen.getByRole("menuitem", { name: "Discussions" }));
+    expect(openExternalUrl).toHaveBeenCalledWith("https://github.com/helgeklein/sambee/discussions", "_blank", "noopener,noreferrer");
   });
 });

@@ -1,11 +1,17 @@
+import BugReportOutlinedIcon from "@mui/icons-material/BugReportOutlined";
 import DescriptionOutlinedIcon from "@mui/icons-material/DescriptionOutlined";
+import ForumOutlinedIcon from "@mui/icons-material/ForumOutlined";
 import HelpOutlineIcon from "@mui/icons-material/HelpOutlineOutlined";
 import KeyboardIcon from "@mui/icons-material/Keyboard";
 import { ListItemIcon, ListItemText, Menu, MenuItem } from "@mui/material";
 import { usePillButtonMenu } from "../../hooks/usePillButtonMenu";
 import { translate } from "../../i18n";
 import { secondaryToolbarMenuPaperSx } from "../../theme/commonStyles";
+import { openExternalUrl } from "../../utils/externalLinks";
 import { ToolbarIconButton } from "./ToolbarIconButton";
+
+const SAMBEE_ISSUES_URL = "https://github.com/helgeklein/sambee/issues";
+const SAMBEE_DISCUSSIONS_URL = "https://github.com/helgeklein/sambee/discussions";
 
 interface HelpMenuProps {
   onOpenHelp: () => void;
@@ -77,6 +83,28 @@ export function HelpMenu({ onOpenHelp, onOpenDocumentation, onEscape, tabIndex, 
             <DescriptionOutlinedIcon fontSize="small" />
           </ListItemIcon>
           <ListItemText primary={translate("fileBrowser.chrome.helpMenu.documentation")} />
+        </MenuItem>
+        <MenuItem
+          onClick={() => {
+            handleClose();
+            openExternalUrl(SAMBEE_ISSUES_URL);
+          }}
+        >
+          <ListItemIcon>
+            <BugReportOutlinedIcon fontSize="small" />
+          </ListItemIcon>
+          <ListItemText primary={translate("fileBrowser.chrome.helpMenu.issues")} />
+        </MenuItem>
+        <MenuItem
+          onClick={() => {
+            handleClose();
+            openExternalUrl(SAMBEE_DISCUSSIONS_URL);
+          }}
+        >
+          <ListItemIcon>
+            <ForumOutlinedIcon fontSize="small" />
+          </ListItemIcon>
+          <ListItemText primary={translate("fileBrowser.chrome.helpMenu.discussions")} />
         </MenuItem>
       </Menu>
     </>

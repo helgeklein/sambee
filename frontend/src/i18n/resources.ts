@@ -939,6 +939,8 @@ export const EN_TRANSLATIONS = {
       helpMenu: {
         keyboardShortcuts: "Keyboard shortcuts",
         documentation: "Documentation",
+        issues: "Issues",
+        discussions: "Discussions",
       },
       toolbar: {
         help: "Help",
