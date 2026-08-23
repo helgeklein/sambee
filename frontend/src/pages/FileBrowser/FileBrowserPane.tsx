@@ -176,6 +176,8 @@ export const FileBrowserPane: React.FC<FileBrowserPaneProps> = ({
   const connectionIsReadOnly = isConnectionReadOnly(currentConnection);
   const canRenameItems = !connectionIsReadOnly;
   const canOpenFocusedFileInApp = canOpenFileInApp(currentConnection);
+  const [closingBrowserViewerPickerState, setClosingBrowserViewerPickerState] = React.useState<typeof browserViewerPickerState>(null);
+  const renderedBrowserViewerPickerState = browserViewerPickerState ?? closingBrowserViewerPickerState;
 
   // ──────────────────────────────────────────────────────────────────────────
   // File Row Styles — depend on isUsingKeyboard (global) and theme
@@ -313,9 +315,14 @@ export const FileBrowserPane: React.FC<FileBrowserPaneProps> = ({
   }, [isActive, onPaneFocus]);
 
   const handleCloseBrowserViewerPicker = React.useCallback(() => {
+    setClosingBrowserViewerPickerState(browserViewerPickerState);
     closeBrowserViewerPicker();
-    setTimeout(() => listContainerEl?.focus(), 0);
-  }, [closeBrowserViewerPicker, listContainerEl]);
+  }, [browserViewerPickerState, closeBrowserViewerPicker]);
+
+  const handleBrowserViewerPickerExited = React.useCallback(() => {
+    setClosingBrowserViewerPickerState(null);
+    listContainerEl?.focus({ preventScroll: true });
+  }, [listContainerEl]);
 
   /** Navigate to a breadcrumb path segment. */
   const handleBreadcrumbNavigate = React.useCallback(
@@ -437,15 +444,16 @@ export const FileBrowserPane: React.FC<FileBrowserPaneProps> = ({
         </Box>
       )}
 
-      {browserViewerPickerState ? (
+      {renderedBrowserViewerPickerState ? (
         <BrowserViewerPicker
-          open={true}
-          fileName={browserViewerPickerState.fileName}
-          viewerIds={browserViewerPickerState.viewerIds}
-          defaultViewerId={browserViewerPickerState.defaultViewerId}
-          preferredViewerId={browserViewerPickerState.preferredViewerId}
-          showNativeOption={browserViewerPickerState.showNativeOption}
+          open={browserViewerPickerState !== null}
+          fileName={renderedBrowserViewerPickerState.fileName}
+          viewerIds={renderedBrowserViewerPickerState.viewerIds}
+          defaultViewerId={renderedBrowserViewerPickerState.defaultViewerId}
+          preferredViewerId={renderedBrowserViewerPickerState.preferredViewerId}
+          showNativeOption={renderedBrowserViewerPickerState.showNativeOption}
           onClose={handleCloseBrowserViewerPicker}
+          onTransitionExited={handleBrowserViewerPickerExited}
           onConfirm={(selection) => {
             void confirmBrowserViewerPicker(selection);
           }}

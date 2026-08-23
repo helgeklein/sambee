@@ -11,24 +11,26 @@ import { DialogReadOnlyField } from "../Admin/DialogReadOnlyField";
 import { ResponsiveFormDialog } from "../Admin/ResponsiveFormDialog";
 
 interface BrowserViewerPickerProps {
-  open: boolean;
+  open?: boolean;
   fileName: string;
   viewerIds: ViewerId[];
   defaultViewerId: ViewerId | null;
   preferredViewerId: ViewerId | null;
   showNativeOption: boolean;
   onClose: () => void;
+  onTransitionExited?: () => void;
   onConfirm: (selection: { viewerId: ViewerId | null; rememberSelection: boolean }) => void;
 }
 
 export function BrowserViewerPicker({
-  open,
+  open = true,
   fileName,
   viewerIds,
   defaultViewerId,
   preferredViewerId,
   showNativeOption,
   onClose,
+  onTransitionExited,
   onConfirm,
 }: BrowserViewerPickerProps) {
   const { t } = useTranslation();
@@ -108,6 +110,7 @@ export function BrowserViewerPicker({
       title={t("fileBrowser.viewerPicker.title")}
       maxWidth="sm"
       disableRestoreFocus
+      onTransitionExited={onTransitionExited}
       actions={
         <>
           <Button onClick={onClose}>{t("common.actions.cancel")}</Button>

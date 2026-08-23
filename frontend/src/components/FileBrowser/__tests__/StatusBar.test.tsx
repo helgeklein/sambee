@@ -52,4 +52,10 @@ describe("StatusBar", () => {
 
     expect(screen.getByText("Shortcut target not found")).toBeInTheDocument();
   });
+
+  it("reports an unresolved shortcut extension for the selected item", () => {
+    renderWithProvider(<StatusBar files={[{ ...baseFile, name: "My Drive.lnk" }]} focusedIndex={0} />);
+
+    expect(screen.getByText("Shortcut target cannot be resolved")).toBeInTheDocument();
+  });
 });

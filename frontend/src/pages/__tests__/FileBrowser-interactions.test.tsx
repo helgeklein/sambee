@@ -614,6 +614,41 @@ describe("Browser Component - Interactions", () => {
       });
     });
 
+    it("returns focus to the file list after cancelling the ZIP viewer picker", async () => {
+      const user = userEvent.setup();
+
+      vi.mocked(api.listDirectory).mockResolvedValue({
+        path: "",
+        items: [
+          {
+            name: "temp.zip",
+            path: "temp.zip",
+            type: FileType.FILE,
+            size: 102400,
+            modified_at: "2024-01-01T00:00:00Z",
+            mime_type: "application/zip",
+            is_readable: true,
+            is_hidden: false,
+          },
+        ],
+        total: 1,
+      });
+
+      renderBrowser("/browse/smb/test-server-1");
+
+      const virtualList = await screen.findByTestId("virtual-list");
+      await user.click(virtualList);
+      await user.keyboard("{Enter}");
+      await screen.findByRole("dialog", { name: "Choose Viewer" });
+
+      await user.keyboard("{Escape}");
+
+      await waitFor(() => {
+        expect(screen.queryByRole("dialog", { name: "Choose Viewer" })).not.toBeInTheDocument();
+        expect(screen.getByTestId("file-list-container")).toHaveFocus();
+      });
+    });
+
     it("opens the saved preferred Sambee viewer on Enter even when it is outside the default compatible subset", async () => {
       const user = userEvent.setup();
 
