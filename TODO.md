@@ -1,11 +1,5 @@
 # TODO
 
-## File List
-
-- After typing a few characters to move focus to an item, I want to be able to press ESC to reset the typing buffer.
-   - Focus should remain unchanged.
-   - But then I type again after having pressed ESC, I want the focus move to start from scratch.
-
 ## Settings
 
 ### Styling

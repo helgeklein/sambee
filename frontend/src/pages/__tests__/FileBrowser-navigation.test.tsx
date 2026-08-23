@@ -158,6 +158,34 @@ describe("Browser Component - Navigation", () => {
     });
   });
 
+  it("clears the typeahead search when a file-list item consumes Escape", async () => {
+    const rootFiles = [createDirectoryEntry("Destination", "Destination"), createFileEntry("Other.txt", "Other.txt")];
+    vi.mocked(api.listDirectory).mockResolvedValue({ items: rootFiles, path: "", total: rootFiles.length });
+
+    const user = userEvent.setup();
+    renderBrowser("/browse/smb/test-server-1");
+
+    const listContainer = await screen.findByTestId("file-list-container");
+    listContainer.focus();
+    await user.keyboard("d");
+    await waitFor(() => {
+      expect(screen.getByRole("button", { name: /folder: destination/i })).toHaveAttribute("data-selected", "true");
+    });
+
+    const destinationButton = screen.getByRole("button", { name: /folder: destination/i });
+    destinationButton.focus();
+    destinationButton.addEventListener("keydown", (event) => {
+      if (event.key === "Escape") {
+        event.stopPropagation();
+      }
+    });
+
+    await user.keyboard("{Escape}o");
+    await waitFor(() => {
+      expect(screen.getByRole("button", { name: /file: other\.txt/i })).toHaveAttribute("data-selected", "true");
+    });
+  });
+
   it("retains typeahead focus when revisiting a cached directory with the same item count", async () => {
     const destinationFiles = [createFileEntry("Alpha.txt", "Destination/Alpha.txt"), createFileEntry("Zebra.txt", "Destination/Zebra.txt")];
     const rootFiles = [createDirectoryEntry("Destination", "Destination"), createFileEntry("Other.txt", "Other.txt")];

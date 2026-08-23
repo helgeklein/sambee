@@ -52,6 +52,7 @@ import { getPreferredViewerId, setPreferredViewerId } from "./viewerPreferences"
 
 /** How long a cached directory listing is considered fresh. */
 const DIRECTORY_CACHE_TTL_MS = 30_000;
+const INCREMENTAL_SEARCH_RESET_DELAY_MS = 1_000;
 
 /**
  * After an explicit forced reload (e.g. delete / rename), WebSocket-triggered
@@ -2018,6 +2019,7 @@ export function useFileBrowserPane(config: UseFileBrowserPaneConfig): UseFileBro
   useEffect(() => {
     const handleKeyDown = (e?: KeyboardEvent) => {
       if (!e) return;
+
       if (disabled || viewInfo) return;
       if (e.defaultPrevented) return;
 
@@ -2065,7 +2067,8 @@ export function useFileBrowserPane(config: UseFileBrowserPaneConfig): UseFileBro
 
         searchTimeoutRef.current = window.setTimeout(() => {
           searchBufferRef.current = "";
-        }, 1000);
+          searchTimeoutRef.current = null;
+        }, INCREMENTAL_SEARCH_RESET_DELAY_MS);
       }
     };
 
@@ -2073,7 +2076,23 @@ export function useFileBrowserPane(config: UseFileBrowserPaneConfig): UseFileBro
     return () => {
       window.removeEventListener("keydown", handleKeyDown);
     };
-  }, [disabled, viewInfo, updateFocus, listContainerEl]);
+  }, [clearIncrementalSearch, disabled, viewInfo, updateFocus, listContainerEl]);
+
+  useEffect(() => {
+    if (!listContainerEl) return;
+
+    // Capture before a focused file-list control can consume Escape.
+    const handleFileListKeyDownCapture = (event: KeyboardEvent) => {
+      if (event.key === "Escape") {
+        clearIncrementalSearch();
+      }
+    };
+
+    listContainerEl.addEventListener("keydown", handleFileListKeyDownCapture, { capture: true });
+    return () => {
+      listContainerEl.removeEventListener("keydown", handleFileListKeyDownCapture, { capture: true });
+    };
+  }, [clearIncrementalSearch, listContainerEl]);
 
   // ──────────────────────────────────────────────────────────────────────────
   // Return
