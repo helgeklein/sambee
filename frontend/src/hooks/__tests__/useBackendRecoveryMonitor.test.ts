@@ -1,6 +1,6 @@
 import { act, renderHook } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { authSession } from "../../services/authSession";
+import { AuthSessionError, authSession } from "../../services/authSession";
 import { getBackendAvailabilitySnapshot, resetBackendAvailabilityForTests } from "../../services/backendAvailability";
 import { useBackendRecoveryMonitor } from "../useBackendRecoveryMonitor";
 
@@ -42,7 +42,7 @@ describe("useBackendRecoveryMonitor", () => {
     expect(getBackendAvailabilitySnapshot().status).toBe("reconnecting");
 
     await act(async () => {
-      await vi.advanceTimersByTimeAsync(750);
+      await vi.advanceTimersByTimeAsync(500);
     });
 
     await flushAsyncWork();
@@ -181,6 +181,85 @@ describe("useBackendRecoveryMonitor", () => {
     );
   });
 
+  it("refreshes an expired authenticated probe and retries immediately", async () => {
+    const fetchMock = vi
+      .fn<typeof fetch>()
+      .mockResolvedValueOnce(new Response(null, { status: 401 }))
+      .mockResolvedValueOnce(new Response(null, { status: 200 }));
+    const refreshMock = vi.spyOn(authSession, "requestRefresh").mockResolvedValue({ access_token: "renewed-token", token_type: "bearer" });
+    const onReconnectNow = vi.fn();
+
+    authSession.setAuthenticated({ access_token: "expired-token", token_type: "bearer" }, false);
+    vi.stubGlobal("fetch", fetchMock);
+
+    const { rerender } = renderHook(({ status }) => useBackendRecoveryMonitor({ status, onReconnectNow }), {
+      initialProps: { status: "available" as const },
+    });
+
+    rerender({ status: "unavailable" });
+    await flushAsyncWork();
+
+    expect(refreshMock).toHaveBeenCalledTimes(1);
+    expect(getBackendAvailabilitySnapshot().status).toBe("available");
+    onReconnectNow.mockClear();
+
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(0);
+    });
+
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+    expect(getBackendAvailabilitySnapshot().status).toBe("available");
+    expect(onReconnectNow).toHaveBeenCalledWith("health-probe-success");
+  });
+
+  it("keeps retrying when an OIDC refresh result is uncertain but the access token is usable", async () => {
+    const fetchMock = vi.fn<typeof fetch>().mockResolvedValue(new Response(null, { status: 401 }));
+    const onAuthenticationFailure = vi.fn();
+
+    vi.spyOn(authSession, "requestRefresh").mockRejectedValue(new AuthSessionError("refresh-uncertain", "Refresh result is uncertain."));
+    authSession.setAuthenticated(
+      { access_token: "still-usable-token", token_type: "bearer", access_token_expires_at: new Date(Date.now() + 60_000).toISOString() },
+      true
+    );
+    vi.stubGlobal("fetch", fetchMock);
+
+    const { rerender } = renderHook(({ status }) => useBackendRecoveryMonitor({ status, onAuthenticationFailure }), {
+      initialProps: { status: "available" as const },
+    });
+
+    rerender({ status: "unavailable" });
+    await flushAsyncWork();
+
+    expect(onAuthenticationFailure).not.toHaveBeenCalled();
+    expect(getBackendAvailabilitySnapshot().status).toBe("reconnecting");
+
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(500);
+    });
+
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+    expect(onAuthenticationFailure).not.toHaveBeenCalled();
+  });
+
+  it("requests controlled reauthentication when a recovery token refresh fails", async () => {
+    const fetchMock = vi.fn<typeof fetch>().mockResolvedValue(new Response(null, { status: 401 }));
+    const onAuthenticationFailure = vi.fn();
+
+    vi.spyOn(authSession, "requestRefresh").mockRejectedValue(new AuthSessionError("reauthentication-required", "Sign-in required."));
+    authSession.setAuthenticated({ access_token: "expired-token", token_type: "bearer" }, false);
+    vi.stubGlobal("fetch", fetchMock);
+
+    const { rerender } = renderHook(({ status }) => useBackendRecoveryMonitor({ status, onAuthenticationFailure }), {
+      initialProps: { status: "available" as const },
+    });
+
+    rerender({ status: "unavailable" });
+    await flushAsyncWork();
+
+    expect(onAuthenticationFailure).toHaveBeenCalledTimes(1);
+    expect(getBackendAvailabilitySnapshot().status).toBe("available");
+  });
+
   it("escalates to unavailable after repeated failed probes", async () => {
     const fetchMock = vi.fn<typeof fetch>().mockRejectedValue(new Error("offline"));
 
@@ -197,13 +276,13 @@ describe("useBackendRecoveryMonitor", () => {
     expect(getBackendAvailabilitySnapshot().status).toBe("reconnecting");
 
     await act(async () => {
-      await vi.advanceTimersByTimeAsync(750);
+      await vi.advanceTimersByTimeAsync(500);
     });
     await flushAsyncWork();
     expect(fetchMock).toHaveBeenCalledTimes(2);
 
     await act(async () => {
-      await vi.advanceTimersByTimeAsync(1_250);
+      await vi.advanceTimersByTimeAsync(750);
     });
     await flushAsyncWork();
     expect(fetchMock).toHaveBeenCalledTimes(3);

@@ -20,6 +20,7 @@ import { NetworkSettings } from "./pages/NetworkSettings";
 import { AppearanceSettings } from "./pages/PreferencesSettings";
 import { TextEditorSettings } from "./pages/TextEditorSettings";
 import { UserManagementSettings } from "./pages/UserManagementSettings";
+import { startControlledReauthentication } from "./services/api";
 import { authSession } from "./services/authSession";
 import { useBackendAvailability } from "./services/backendAvailability";
 import { emitBackendRecoveryConfirmed, emitBackendRecoveryReconnect } from "./services/backendRecoveryEvents";
@@ -53,6 +54,7 @@ function AppContent() {
     onReconnectNow: (reason) => {
       emitBackendRecoveryReconnect(reason);
     },
+    onAuthenticationFailure: startControlledReauthentication,
     onRecovered: (_reason, wasRecovering) => {
       if (wasRecovering) {
         return;

@@ -74,3 +74,7 @@ Shortcuts (`.lnk` files) on local drives are now resolved properly: file targets
 
 - Keyboard navigation: removed delay after entering a new directory
 - Typeahead buffer: cleared when <kbd>Esc</kbd> is pressed
+
+## Under the Hood
+
+- Frontend: improved recovery after network unavailability (e.g., after suspend/resume)

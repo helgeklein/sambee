@@ -92,7 +92,7 @@ function isPublicAuthRequest(url: string): boolean {
   }
 }
 
-function startControlledReauthentication(): void {
+export function startControlledReauthentication(): void {
   controlledReauthenticationInProgress = true;
   clearBrowserRecoverySnapshot();
   snapshotRegisteredDrafts();

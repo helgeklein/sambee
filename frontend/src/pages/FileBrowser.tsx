@@ -106,6 +106,15 @@ const COMPANION_WEBSOCKET_CONNECT_TIMEOUT_MS = 15_000;
 
 const COMPANION_STATUS_QUERY_PARAM = "companion_status";
 
+function getSafeWebSocketLogUrl(wsUrl: string): string {
+  try {
+    const url = new URL(wsUrl);
+    return `${url.origin}${url.pathname}`;
+  } catch {
+    return "invalid-websocket-url";
+  }
+}
+
 function parseCompanionLifecycleStatus(rawStatus: string | null): CompanionLifecycleStatus | null {
   switch (rawStatus) {
     case "renewal_required":
@@ -975,8 +984,9 @@ const Browser: React.FC = () => {
 
       const accessToken = authSession.getAccessToken();
       const wsUrl = buildServerWebSocketUrl(window.location, accessToken);
+      const wsLogUrl = getSafeWebSocketLogUrl(wsUrl);
 
-      logger.info("Connecting to WebSocket", { wsUrl, reason }, "websocket");
+      logger.info("Connecting to WebSocket", { wsUrl: wsLogUrl, reason }, "websocket");
       const ws = new WebSocket(wsUrl);
       activeWs = ws;
 
@@ -987,7 +997,7 @@ const Browser: React.FC = () => {
         }
         serverReconnectAttemptRef.current = 0;
         markBackendAvailable();
-        logger.info("WebSocket connected", { wsUrl }, "websocket");
+        logger.info("WebSocket connected", { wsUrl: wsLogUrl }, "websocket");
         wsRef.current = ws;
         setServerDirectoryWs(ws);
       };
@@ -1017,7 +1027,7 @@ const Browser: React.FC = () => {
         if (disposed || activeWs !== ws) {
           return;
         }
-        logger.error("WebSocket error", { wsUrl, error: String(error) }, "websocket");
+        logger.error("WebSocket error", { wsUrl: wsLogUrl, error: String(error) }, "websocket");
       };
 
       ws.onclose = () => {
@@ -1042,7 +1052,7 @@ const Browser: React.FC = () => {
           return;
         }
 
-        logger.warn("WebSocket disconnected", { wsUrl, willReconnect: !disposed }, "websocket");
+        logger.warn("WebSocket disconnected", { wsUrl: wsLogUrl, willReconnect: !disposed }, "websocket");
         if (activeWs === ws) {
           activeWs = null;
         }
@@ -1132,7 +1142,7 @@ const Browser: React.FC = () => {
       const wsUrl = await buildCompanionWsUrl();
       if (!wsUrl || disposed) return;
 
-      logger.info("Connecting to companion WebSocket", { wsUrl }, "websocket");
+      logger.info("Connecting to companion WebSocket", { wsUrl: getSafeWebSocketLogUrl(wsUrl) }, "websocket");
       const ws = new WebSocket(wsUrl);
       activeWs = ws;
 
