@@ -46,7 +46,7 @@ pub enum LinkTargetState {
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 pub struct LinkTargetInfo {
     pub name: String,
-    /// Full canonical path, present only for targets on an exposed local drive.
+    /// Full user-facing target path, present only for targets on an exposed local drive.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub path: Option<String>,
     #[serde(rename = "type")]

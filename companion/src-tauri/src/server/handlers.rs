@@ -42,6 +42,12 @@ const FORBIDDEN_NAME_CHARS: &[char] = &['\\', '/', ':', '*', '?', '"', '<', '>',
 const LOCAL_DRIVE_PREFIX: &str = "local-drive:";
 /// Maximum number of potentially blocking local target resolutions per batch.
 const LINK_TARGET_RESOLUTION_CONCURRENCY: usize = 4;
+#[cfg(any(windows, test))]
+const WINDOWS_EXTENDED_PATH_PREFIX: &str = "\\\\?\\";
+#[cfg(any(windows, test))]
+const WINDOWS_EXTENDED_UNC_PATH_PREFIX: &str = "\\\\?\\UNC\\";
+#[cfg(any(windows, test))]
+const WINDOWS_UNC_PATH_PREFIX: &str = "\\\\";
 
 // ─── WebSocket ───────────────────────────────────────────────────────────────
 
@@ -1280,6 +1286,31 @@ fn link_target_state_from_io_error(error: &std::io::Error) -> LinkTargetState {
     }
 }
 
+fn display_target_path(path: &std::path::Path) -> String {
+    let path = path.to_string_lossy();
+
+    #[cfg(windows)]
+    {
+        normalize_windows_display_path(&path)
+    }
+
+    #[cfg(not(windows))]
+    {
+        path.into_owned()
+    }
+}
+
+#[cfg(any(windows, test))]
+fn normalize_windows_display_path(path: &str) -> String {
+    if let Some(unc_path) = path.strip_prefix(WINDOWS_EXTENDED_UNC_PATH_PREFIX) {
+        return format!("{WINDOWS_UNC_PATH_PREFIX}{unc_path}");
+    }
+
+    path.strip_prefix(WINDOWS_EXTENDED_PATH_PREFIX)
+        .unwrap_or(path)
+        .to_string()
+}
+
 fn resolve_link_target_metadata(source_path: String, source: PathBuf) -> LinkTargetResolution {
     let target_path = match resolve_activation_target(&source) {
         Ok(path) => path,
@@ -1307,7 +1338,7 @@ fn resolve_link_target_metadata(source_path: String, source: PathBuf) -> LinkTar
         .map(|name| name.to_string_lossy().to_string())
         .filter(|name| !name.is_empty());
     let (state, target_display_path) = if drives::drive_for_path(&target_path).is_some() {
-        (LinkTargetState::Resolved, Some(target_path.to_string_lossy().to_string()))
+        (LinkTargetState::Resolved, Some(display_target_path(&target_path)))
     } else {
         (LinkTargetState::UnmappedDrive, None)
     };
@@ -1614,8 +1645,8 @@ async fn copy_dir_recursive(src: &std::path::Path, dst: &std::path::Path) -> Res
 mod tests {
     use super::{
         build_file_info, build_pair_status_response, classify_link_target, normalize_drive_relative_path,
-        resolve_drive_relative_source_path, resolve_link_target_metadata, resolve_pair_cancel_origin, resolve_pair_confirm_origin,
-        resolve_pair_status_origin, resolve_safe_path, source_link_kind,
+        normalize_windows_display_path, resolve_drive_relative_source_path, resolve_link_target_metadata, resolve_pair_cancel_origin,
+        resolve_pair_confirm_origin, resolve_pair_status_origin, resolve_safe_path, source_link_kind,
     };
     use crate::server::models::{FileType, LinkKind, LinkTargetState, LinkTargetType, PublicPairingStatus};
     use crate::server::pairing::PairingState;
@@ -1623,6 +1654,18 @@ mod tests {
     #[cfg(unix)]
     use std::os::unix::fs::symlink;
     const NONCE_A: &str = "00112233445566778899aabbccddeeff00112233445566778899aabbccddeeff";
+
+    #[test]
+    fn normalizes_windows_extended_paths_for_display() {
+        assert_eq!(
+            normalize_windows_display_path(r"\\?\C:\Users\Sambee\report.pdf"),
+            r"C:\Users\Sambee\report.pdf"
+        );
+        assert_eq!(
+            normalize_windows_display_path(r"\\?\UNC\server\share\report.pdf"),
+            r"\\server\share\report.pdf"
+        );
+    }
 
     #[cfg(unix)]
     #[tokio::test]

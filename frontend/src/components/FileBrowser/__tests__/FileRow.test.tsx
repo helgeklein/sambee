@@ -89,7 +89,7 @@ describe("FileRow", () => {
 
     render(<FileRow {...props} />);
 
-    expect(screen.getByText(/-> C:\\Users\\Sambee\\Projects\\Project Archive/)).toBeInTheDocument();
+    expect(screen.getByTitle("C:\\Users\\Sambee\\Projects\\Project Archive")).toBeInTheDocument();
     expect(screen.getByRole("button", { name: /shortcut target: C:\\Users\\Sambee\\Projects\\Project Archive/i })).toBeInTheDocument();
     expect(screen.getByTestId("ShortcutIcon")).toBeInTheDocument();
   });
@@ -100,7 +100,17 @@ describe("FileRow", () => {
     expect(shortenTargetPath("/Users/sambee/Projects/Archive/report.pdf", 17, measureCharacters)).toBe("/.../report.pdf");
     expect(shortenTargetPath("C:\\Users\\sambee\\Projects\\report.pdf", 18, measureCharacters)).toBe("C:\\...\\report.pdf");
     expect(shortenTargetPath("/Users/sambee/report.pdf", 100, measureCharacters)).toBe("/Users/sambee/report.pdf");
-    expect(shortenTargetPath("report.pdf", 3, measureCharacters)).toBe("report.pdf");
+    expect(shortenTargetPath("report.pdf", 3, measureCharacters)).toBe("...");
+    expect(shortenTargetPath("/Users/sambee/very-long-report.pdf", 14, measureCharacters)).toBe("...-report.pdf");
+  });
+
+  it("rerenders when compact layout changes", () => {
+    const props = createDefaultFileRowProps();
+    const { rerender } = render(<FileRow {...props} />);
+
+    rerender(<FileRow {...props} useCompactLayout />);
+
+    expect(screen.getByText("report.pdf")).toHaveStyle({ fontSize: "16px" });
   });
 
   it("rerenders when deferred shortcut metadata arrives", () => {
@@ -130,7 +140,7 @@ describe("FileRow", () => {
       />
     );
 
-    expect(screen.getByText(/-> Project Archive/)).toBeInTheDocument();
+    expect(screen.getByText("Project Archive")).toBeInTheDocument();
   });
 
   it("hides file actions for a shortcut resolving to a directory", () => {

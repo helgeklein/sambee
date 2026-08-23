@@ -46,6 +46,26 @@ const ELLIPSIS = "...";
 
 type TextMeasurer = (text: string) => number;
 
+/** Preserve the end of a label when its complete text cannot fit. */
+function shortenTextFromStart(text: string, availableWidth: number, measureText: TextMeasurer): string {
+  if (availableWidth <= 0 || measureText(text) <= availableWidth) {
+    return text;
+  }
+
+  let low = 0;
+  let high = text.length;
+  while (low < high) {
+    const middle = Math.floor((low + high) / 2);
+    if (measureText(`${ELLIPSIS}${text.slice(middle)}`) <= availableWidth) {
+      high = middle;
+    } else {
+      low = middle + 1;
+    }
+  }
+
+  return `${ELLIPSIS}${text.slice(low)}`;
+}
+
 /** Preserve the target basename while collapsing ancestor directories to fit. */
 export function shortenTargetPath(path: string, availableWidth: number, measureText: TextMeasurer): string {
   if (availableWidth <= 0 || measureText(path) <= availableWidth) {
@@ -57,8 +77,16 @@ export function shortenTargetPath(path: string, availableWidth: number, measureT
   const root = driveMatch ? `${driveMatch[0][0]}:${separator}` : path.startsWith(separator) ? separator : "";
   const segments = path.slice(root.length).split(/[\\/]/).filter(Boolean);
   const basename = segments.pop();
-  if (!basename || segments.length === 0) {
+  if (!basename) {
     return path;
+  }
+
+  if (measureText(basename) > availableWidth) {
+    return shortenTextFromStart(basename, availableWidth, measureText);
+  }
+
+  if (segments.length === 0) {
+    return basename;
   }
 
   const prefix = root ? `${root}${ELLIPSIS}${separator}` : `${ELLIPSIS}${separator}`;
@@ -95,8 +123,7 @@ function TargetPathLabel({ path, rowTextSx }: { path: string; rowTextSx?: Record
         measurement.textContent = text;
         return measurement.getBoundingClientRect().width;
       };
-      const arrowWidth = measureText(" -> ");
-      setDisplayPath(shortenTargetPath(path, availableWidth - arrowWidth, measureText));
+      setDisplayPath(shortenTargetPath(path, availableWidth, measureText));
     };
 
     updatePath();
@@ -107,6 +134,9 @@ function TargetPathLabel({ path, rowTextSx }: { path: string; rowTextSx?: Record
 
   return (
     <>
+      <Typography variant="body2" component="span" noWrap sx={{ ...rowTextSx, color: "text.secondary", flex: "0 0 auto" }}>
+        {" -> "}
+      </Typography>
       <Typography
         ref={labelRef}
         variant="body2"
@@ -115,7 +145,7 @@ function TargetPathLabel({ path, rowTextSx }: { path: string; rowTextSx?: Record
         title={path}
         sx={{ ...rowTextSx, color: "text.secondary", flex: "1 1 50%", minWidth: 0, overflow: "hidden", textOverflow: "ellipsis" }}
       >
-        {` -> ${displayPath}`}
+        {displayPath}
       </Typography>
       <Typography
         ref={measureRef}
@@ -392,6 +422,7 @@ export const FileRow = React.memo(
   // Custom comparison for optimal re-renders
   (prev, next) =>
     prev.index === next.index &&
+    prev.useCompactLayout === next.useCompactLayout &&
     prev.isSelected === next.isSelected &&
     prev.isMultiSelected === next.isMultiSelected &&
     prev.file.name === next.file.name &&
