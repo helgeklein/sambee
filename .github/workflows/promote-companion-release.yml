@@ -4,7 +4,7 @@ on:
   workflow_dispatch:
     inputs:
       release_ref:
-        description: Companion release tag or GitHub release URL
+        description: Companion release tag, GitHub release URL, or numeric GitHub release ID
         required: true
         type: string
       companion_channel_test:
@@ -59,30 +59,41 @@ jobs:
       - name: Checkout sambee
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
+      - name: Resolve Companion release
+        id: resolve
+        shell: bash
+        env:
+          GITHUB_TOKEN: ${{ secrets.COMPANION_RELEASE_REPO_TOKEN }}
+          RELEASE_REF: ${{ inputs.release_ref }}
+        run: |
+          resolved_release="$(python3 .github/scripts/promote_companion_release.py \
+            --resolve-release \
+            --release-ref "$RELEASE_REF" \
+            --release-owner "${{ env.COMPANION_RELEASE_REPO_OWNER }}" \
+            --release-repo "${{ env.COMPANION_RELEASE_REPO_NAME }}")"
+          release_id="$(jq -er '.release_id | if type == "number" and . > 0 and floor == . then . else error("invalid release ID") end' <<<"$resolved_release")"
+          release_tag="$(jq -er '.release_tag | strings' <<<"$resolved_release")"
+          build_tag="$(jq -er '.build_tag | strings' <<<"$resolved_release")"
+          source_sha="$(jq -er '.source_sha | strings' <<<"$resolved_release")"
+          printf 'release_id=%s\n' "$release_id" >> "$GITHUB_OUTPUT"
+          printf 'release_tag=%s\n' "$release_tag" >> "$GITHUB_OUTPUT"
+          printf 'build_tag=%s\n' "$build_tag" >> "$GITHUB_OUTPUT"
+          printf 'source_sha=%s\n' "$source_sha" >> "$GITHUB_OUTPUT"
+
       - name: Validate Companion provenance
         id: provenance
         shell: bash
         env:
-          COMPANION_TOKEN: ${{ secrets.COMPANION_RELEASE_REPO_TOKEN }}
+          BUILD_TAG: ${{ steps.resolve.outputs.build_tag }}
+          SOURCE_SHA: ${{ steps.resolve.outputs.source_sha }}
         run: |
-          provenance_dir="$RUNNER_TEMP/companion-provenance"
-          mkdir -p "$provenance_dir"
-          companion_tag="$(GH_TOKEN="$COMPANION_TOKEN" gh release view "${{ inputs.release_ref }}" \
-            --repo "${{ env.COMPANION_RELEASE_REPO_OWNER }}/${{ env.COMPANION_RELEASE_REPO_NAME }}" \
-            --json tagName --jq .tagName)"
-          GH_TOKEN="$COMPANION_TOKEN" gh release download "$companion_tag" \
-            --repo "${{ env.COMPANION_RELEASE_REPO_OWNER }}/${{ env.COMPANION_RELEASE_REPO_NAME }}" \
-            --pattern companion-release-provenance.json \
-            --dir "$provenance_dir"
-          build_tag="$(jq -er '.build_tag | strings' "$provenance_dir/companion-release-provenance.json")"
-          source_sha="$(jq -er '.source_sha | strings' "$provenance_dir/companion-release-provenance.json")"
-          git fetch origin "refs/tags/$build_tag:refs/tags/$build_tag"
-          if [[ "$(git rev-parse "refs/tags/$build_tag^{commit}")" != "$source_sha" ]]; then
-            echo "Companion provenance source SHA does not match canonical tag $build_tag." >&2
+          git fetch origin "refs/tags/$BUILD_TAG:refs/tags/$BUILD_TAG"
+          if [[ "$(git rev-parse "refs/tags/$BUILD_TAG^{commit}")" != "$SOURCE_SHA" ]]; then
+            echo "Companion provenance source SHA does not match canonical tag $BUILD_TAG." >&2
             exit 1
           fi
-          echo "build_tag=$build_tag" >> "$GITHUB_OUTPUT"
-          echo "source_sha=$source_sha" >> "$GITHUB_OUTPUT"
+          printf 'build_tag=%s\n' "$BUILD_TAG" >> "$GITHUB_OUTPUT"
+          printf 'source_sha=%s\n' "$SOURCE_SHA" >> "$GITHUB_OUTPUT"
 
       - name: Checkout release repository
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -95,6 +106,8 @@ jobs:
       - name: Generate feed files
         env:
           GITHUB_TOKEN: ${{ secrets.COMPANION_RELEASE_REPO_TOKEN }}
+          RELEASE_ID: ${{ steps.resolve.outputs.release_id }}
+          RELEASE_TAG: ${{ steps.resolve.outputs.release_tag }}
         run: |
           args=()
           if [[ "${{ github.event.inputs.companion_channel_test }}" == "true" ]]; then
@@ -111,20 +124,18 @@ jobs:
           fi
 
           python3 .github/scripts/promote_companion_release.py \
-            --release-ref "${{ github.event.inputs.release_ref }}" \
+            --release-ref "$RELEASE_ID" \
             --release-owner "${{ env.COMPANION_RELEASE_REPO_OWNER }}" \
             --release-repo "${{ env.COMPANION_RELEASE_REPO_NAME }}" \
             --release-repo-path "$PWD/release-repo" \
+            --expected-release-id "$RELEASE_ID" \
+            --expected-release-tag "$RELEASE_TAG" \
             "${args[@]}"
 
       - name: Commit and push feed updates
         env:
-          GH_TOKEN: ${{ secrets.COMPANION_RELEASE_REPO_TOKEN }}
+          RELEASE_TAG: ${{ steps.resolve.outputs.release_tag }}
         run: |
-          release_tag="$(gh release view "${{ inputs.release_ref }}" \
-            --repo "${{ env.COMPANION_RELEASE_REPO_OWNER }}/${{ env.COMPANION_RELEASE_REPO_NAME }}" \
-            --json tagName --jq .tagName)"
-
           git -C release-repo config user.name "github-actions[bot]"
           git -C release-repo config user.email "41898282+github-actions[bot]@users.noreply.github.com"
           git -C release-repo add docs/feeds
@@ -134,7 +145,7 @@ jobs:
             exit 0
           fi
 
-          git -C release-repo commit -m "Promote ${release_tag} release feeds"
+          git -C release-repo commit -m "Promote ${RELEASE_TAG} release feeds"
           if ! git -C release-repo push origin HEAD:${{ env.COMPANION_RELEASE_REPO_BRANCH }}; then
             targets=()
             [[ "${{ github.event.inputs.companion_channel_test }}" == "true" ]] && targets+=("Companion test feed")

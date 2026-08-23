@@ -163,22 +163,39 @@ def request_asset_bytes(asset: dict, token: str | None = None) -> bytes:
     return request_bytes(asset["browser_download_url"])
 
 
-def normalize_release_tag(release_ref: str) -> str:
-    release_ref = release_ref.strip()
-    match = re.search(r"/releases/tag/([^/?#]+)", release_ref)
-    if match:
-        return urllib.parse.unquote(match.group(1))
-    return release_ref
+def parse_release_reference(
+    release_ref: str, owner: str, repo: str
+) -> tuple[int | None, str | None]:
+    normalized_ref = release_ref.strip()
+    if not normalized_ref:
+        fail("Release reference must not be empty")
+    if normalized_ref.isdigit():
+        return int(normalized_ref), None
 
+    parsed_url = urllib.parse.urlparse(normalized_ref)
+    if not parsed_url.scheme and not parsed_url.netloc:
+        return None, normalized_ref
+    if parsed_url.scheme != "https" or parsed_url.netloc.casefold() != "github.com":
+        fail("GitHub release URLs must use https://github.com")
 
-def parse_release_id(release_ref: str) -> int | None:
-    release_ref = release_ref.strip()
-    match = re.search(r"/releases/(\d+)(?:[/?#]|$)", release_ref)
-    if match:
-        return int(match.group(1))
-    if release_ref.isdigit():
-        return int(release_ref)
-    return None
+    path_parts = [part for part in parsed_url.path.split("/") if part]
+    if (
+        len(path_parts) < 4
+        or path_parts[0].casefold() != owner.casefold()
+        or path_parts[1].casefold() != repo.casefold()
+        or path_parts[2] != "releases"
+    ):
+        fail(f"Release URL must refer to https://github.com/{owner}/{repo}")
+    if path_parts[3] == "tag":
+        if len(path_parts) < 5:
+            fail("GitHub release tag URLs must include a tag name")
+        tag_name = urllib.parse.unquote("/".join(path_parts[4:]))
+        if not tag_name or "\r" in tag_name or "\n" in tag_name:
+            fail("GitHub release tag URL contains an invalid tag name")
+        return None, tag_name
+    if len(path_parts) == 4 and path_parts[3].isdigit():
+        return int(path_parts[3]), None
+    fail("GitHub release URL must identify a release tag or numeric release ID")
 
 
 def normalize_version(tag_name: str) -> str:
@@ -492,7 +509,7 @@ def build_promoted_releases_feed(output_root: Path) -> dict:
 
 
 def fetch_release(release_ref: str, owner: str, repo: str, token: str) -> dict:
-    release_id = parse_release_id(release_ref)
+    release_id, tag_name = parse_release_reference(release_ref, owner, repo)
     if release_id is not None:
         release_url = (
             f"https://api.github.com/repos/{owner}/{repo}/releases/{release_id}"
@@ -508,7 +525,7 @@ def fetch_release(release_ref: str, owner: str, repo: str, token: str) -> dict:
             fail(f"Unexpected API response while fetching release ID {release_id}")
         return release
 
-    tag_name = normalize_release_tag(release_ref)
+    assert tag_name is not None
     release_url = (
         f"https://api.github.com/repos/{owner}/{repo}/releases/tags/"
         f"{urllib.parse.quote(tag_name, safe='')}"
@@ -547,6 +564,73 @@ def fetch_release(release_ref: str, owner: str, repo: str, token: str) -> dict:
     return release
 
 
+def release_identity(release: dict) -> tuple[int, str]:
+    release_id = release.get("id")
+    tag_name = release.get("tag_name")
+    if not isinstance(release_id, int) or release_id <= 0:
+        fail("GitHub release has an invalid ID")
+    if (
+        not isinstance(tag_name, str)
+        or not tag_name
+        or "\r" in tag_name
+        or "\n" in tag_name
+    ):
+        fail("GitHub release has an invalid tag name")
+    return release_id, tag_name
+
+
+def validate_release_eligibility(
+    release: dict, tag_name: str, allow_draft: bool
+) -> None:
+    if release.get("prerelease"):
+        fail(f"Release {tag_name} is a GitHub prerelease")
+    if release.get("draft") and not allow_draft:
+        fail(f"Release {tag_name} is still a draft")
+
+
+def required_provenance_string(provenance: dict, field_name: str) -> str:
+    value = provenance.get(field_name)
+    if not isinstance(value, str) or not value or "\r" in value or "\n" in value:
+        fail(f"Companion release provenance has an invalid {field_name}")
+    return value
+
+
+def resolve_release(
+    release_ref: str, owner: str, repo: str, token: str
+) -> dict[str, int | str]:
+    release = fetch_release(release_ref, owner, repo, token)
+    release_id, tag_name = release_identity(release)
+    validate_release_eligibility(release, tag_name, allow_draft=False)
+    assets = release.get("assets")
+    if not isinstance(assets, list) or not assets:
+        fail(f"Release {tag_name} has no assets")
+    provenance = fetch_json_asset(asset_by_name(assets, PROVENANCE_ASSET_NAME), token)
+    return {
+        "release_id": release_id,
+        "release_tag": tag_name,
+        "build_tag": required_provenance_string(provenance, "build_tag"),
+        "source_sha": required_provenance_string(provenance, "source_sha"),
+    }
+
+
+def validate_expected_release_identity(
+    release_id: int,
+    tag_name: str,
+    expected_release_id: int | None,
+    expected_release_tag: str | None,
+) -> None:
+    if expected_release_id is not None and release_id != expected_release_id:
+        fail(
+            f"Resolved release ID {release_id} does not match expected release ID "
+            f"{expected_release_id}"
+        )
+    if expected_release_tag is not None and tag_name != expected_release_tag:
+        fail(
+            f"Resolved release tag {tag_name} does not match expected release tag "
+            f"{expected_release_tag}"
+        )
+
+
 def main() -> None:
     parser = argparse.ArgumentParser()
     parser.add_argument("--release-ref")
@@ -554,8 +638,11 @@ def main() -> None:
     parser.add_argument("--release-repo")
     parser.add_argument("--release-repo-path")
     parser.add_argument("--build-promoted-releases-index", action="store_true")
+    parser.add_argument("--resolve-release", action="store_true")
     parser.add_argument("--verify-only", action="store_true")
     parser.add_argument("--allow-draft", action="store_true")
+    parser.add_argument("--expected-release-id", type=int)
+    parser.add_argument("--expected-release-tag")
     parser.add_argument("--companion-channel-test", action="store_true")
     parser.add_argument("--companion-channel-beta", action="store_true")
     parser.add_argument("--companion-channel-stable", action="store_true")
@@ -572,7 +659,14 @@ def main() -> None:
     )
 
     if args.build_promoted_releases_index:
-        if args.verify_only or args.allow_draft or selected_promotion_target:
+        if (
+            args.resolve_release
+            or args.verify_only
+            or args.allow_draft
+            or args.expected_release_id is not None
+            or args.expected_release_tag is not None
+            or selected_promotion_target
+        ):
             fail(
                 "--build-promoted-releases-index cannot be combined with release "
                 "verification or promotion targets"
@@ -597,12 +691,42 @@ def main() -> None:
             "for release verification or promotion"
         )
 
-    if not args.verify_only and not selected_promotion_target:
+    if args.resolve_release:
+        if (
+            args.verify_only
+            or args.allow_draft
+            or args.expected_release_id is not None
+            or args.expected_release_tag is not None
+            or args.release_repo_path
+            or selected_promotion_target
+        ):
+            fail(
+                "--resolve-release cannot be combined with verification or promotion options"
+            )
+    elif not args.verify_only and not selected_promotion_target:
         fail("At least one promotion target must be selected")
 
     token = os.environ.get("GITHUB_TOKEN")
     if not token:
         fail("GITHUB_TOKEN environment variable is required")
+
+    if args.allow_draft and not args.verify_only:
+        fail("--allow-draft may only be used with --verify-only")
+
+    if args.resolve_release:
+        print(
+            json.dumps(
+                resolve_release(
+                    args.release_ref,
+                    args.release_owner,
+                    args.release_repo,
+                    token,
+                ),
+                separators=(",", ":"),
+                sort_keys=True,
+            )
+        )
+        return
 
     release = fetch_release(
         args.release_ref,
@@ -610,15 +734,17 @@ def main() -> None:
         args.release_repo,
         token,
     )
-    tag_name = str(release.get("tag_name") or normalize_release_tag(args.release_ref))
-
-    if args.allow_draft and not args.verify_only:
-        fail("--allow-draft may only be used with --verify-only")
-    if release.get("draft") and not args.allow_draft:
-        fail(f"Release {tag_name} is still a draft")
+    release_id, tag_name = release_identity(release)
+    validate_expected_release_identity(
+        release_id,
+        tag_name,
+        args.expected_release_id,
+        args.expected_release_tag,
+    )
+    validate_release_eligibility(release, tag_name, args.allow_draft)
 
     assets = release.get("assets", [])
-    if not assets:
+    if not isinstance(assets, list) or not assets:
         fail(f"Release {tag_name} has no assets")
 
     verify_release_integrity(release, assets, token)

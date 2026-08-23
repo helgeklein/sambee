@@ -93,7 +93,7 @@ def make_release(payload: bytes) -> tuple[dict, list[dict], dict[str, bytes]]:
         },
     ]
     urls["https://example.test/signature"] = signature_payload
-    return {"tag_name": "companion-v1.2.3"}, assets, urls
+    return {"id": 123, "tag_name": "companion-v1.2.3"}, assets, urls
 
 
 def test_verify_release_integrity_accepts_matching_assets(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -192,6 +192,132 @@ def test_completion_asset_set_digest_is_order_independent_and_excludes_its_marke
     assert MODULE.COMPLETION_MARKER_ASSET_NAME not in {asset["name"] for asset in expected_assets}
     assert completion["expected_assets_sha256"] == MODULE.expected_asset_set_digest(list(reversed(expected_assets)))
     assert release["tag_name"] == completion["release_tag"]
+
+
+def test_fetch_release_resolves_a_matching_github_release_url(monkeypatch: pytest.MonkeyPatch) -> None:
+    requested_urls = []
+
+    def request(url: str, _token: str) -> dict:
+        requested_urls.append(url)
+        return {"id": 123, "tag_name": "companion-v1.2.3"}
+
+    monkeypatch.setattr(MODULE, "request_json", request)
+
+    release = MODULE.fetch_release(
+        "https://github.com/HelgeKlein/Sambee-Companion/releases/tag/companion-v1.2.3?view=1#notes",
+        "helgeklein",
+        "sambee-companion",
+        "token",
+    )
+
+    assert release["id"] == 123
+    assert requested_urls == ["https://api.github.com/repos/helgeklein/sambee-companion/releases/tags/companion-v1.2.3"]
+
+
+def test_fetch_release_preserves_slashes_in_github_release_url_tags(monkeypatch: pytest.MonkeyPatch) -> None:
+    requested_urls = []
+
+    def request(url: str, _token: str) -> dict:
+        requested_urls.append(url)
+        return {"id": 123, "tag_name": "companion-v1.2.3/rc.1"}
+
+    monkeypatch.setattr(MODULE, "request_json", request)
+
+    MODULE.fetch_release(
+        "https://github.com/helgeklein/sambee-companion/releases/tag/companion-v1.2.3%2Frc.1/",
+        "helgeklein",
+        "sambee-companion",
+        "token",
+    )
+
+    assert requested_urls == ["https://api.github.com/repos/helgeklein/sambee-companion/releases/tags/companion-v1.2.3%2Frc.1"]
+
+
+def test_fetch_release_rejects_foreign_github_release_urls(capsys: pytest.CaptureFixture[str]) -> None:
+    with pytest.raises(SystemExit):
+        MODULE.fetch_release(
+            "https://github.com/other/repository/releases/tag/companion-v1.2.3",
+            "helgeklein",
+            "sambee-companion",
+            "token",
+        )
+    assert "must refer" in capsys.readouterr().err
+
+
+def test_resolve_release_returns_verified_identity_and_provenance(monkeypatch: pytest.MonkeyPatch) -> None:
+    release, assets, urls = make_release(b"installer")
+    release.update({"draft": False, "prerelease": False, "assets": assets})
+    monkeypatch.setattr(MODULE, "fetch_release", lambda *_args: release)
+    monkeypatch.setattr(
+        MODULE,
+        "request_asset_bytes",
+        lambda asset, _token=None: urls[asset["browser_download_url"]],
+    )
+
+    assert MODULE.resolve_release("companion-v1.2.3", "owner", "repo", "token") == {
+        "release_id": 123,
+        "release_tag": "companion-v1.2.3",
+        "build_tag": "build-v1.2.3",
+        "source_sha": "a" * 40,
+    }
+
+
+def test_resolve_release_rejects_github_prereleases(monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]) -> None:
+    release, assets, _urls = make_release(b"installer")
+    release.update({"draft": False, "prerelease": True, "assets": assets})
+    monkeypatch.setattr(MODULE, "fetch_release", lambda *_args: release)
+
+    with pytest.raises(SystemExit):
+        MODULE.resolve_release("companion-v1.2.3", "owner", "repo", "token")
+    assert "GitHub prerelease" in capsys.readouterr().err
+
+
+def test_main_resolves_release_to_machine_readable_json(monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]) -> None:
+    monkeypatch.setenv("GITHUB_TOKEN", "token")
+    monkeypatch.setattr(
+        MODULE,
+        "resolve_release",
+        lambda *_args: {
+            "release_id": 123,
+            "release_tag": "companion-v1.2.3",
+            "build_tag": "build-v1.2.3",
+            "source_sha": "a" * 40,
+        },
+    )
+    monkeypatch.setattr(
+        MODULE.sys,
+        "argv",
+        [
+            str(SCRIPT),
+            "--resolve-release",
+            "--release-ref",
+            "https://github.com/helgeklein/sambee-companion/releases/tag/companion-v1.2.3",
+            "--release-owner",
+            "helgeklein",
+            "--release-repo",
+            "sambee-companion",
+        ],
+    )
+
+    MODULE.main()
+
+    assert json.loads(capsys.readouterr().out) == {
+        "release_id": 123,
+        "release_tag": "companion-v1.2.3",
+        "build_tag": "build-v1.2.3",
+        "source_sha": "a" * 40,
+    }
+
+
+def test_validate_expected_release_identity_rejects_mismatched_tag(capsys: pytest.CaptureFixture[str]) -> None:
+    with pytest.raises(SystemExit):
+        MODULE.validate_expected_release_identity(
+            123,
+            "companion-v1.2.3",
+            123,
+            "companion-v1.2.4",
+        )
+    assert "expected release tag" in capsys.readouterr().err
 
 
 def test_build_promoted_releases_feed_aggregates_existing_feeds(tmp_path: Path) -> None:

@@ -16,8 +16,8 @@ Run the promotion workflow when:
 - Sambee should start offering direct downloads for that same published release.
 - You want to move an already published release from one visibility level to another without rebuilding it.
 
-Do not use this workflow for draft releases.
-Promotion should target a published release only.
+Do not use this workflow for draft or GitHub prerelease releases.
+Promotion should target a published, non-prerelease release only.
 
 ## Inputs
 
@@ -27,14 +27,14 @@ The manual workflow accepts these inputs:
 |---|---|---|
 | `release_ref` | The release to promote. | Use the Companion tag for the clearest intent, for example `companion-v0.6.0`. |
 | `companion_channel_test` | Update the Companion `test` updater feed. | Use when installed test-channel builds should see this release. |
-| `companion_channel_beta` | Update the Companion `beta` updater feed. | Use when prerelease users should see this release. |
+| `companion_channel_beta` | Update the Companion `beta` updater feed. | Use when installed beta-channel builds should see this release. |
 | `companion_channel_stable` | Update the Companion `stable` updater feed. | Use when the release is approved for normal users. |
 | `sambee` | Update the Sambee Companion download-metadata feed. | Use when Sambee should offer this release for direct download. |
 
 `release_ref` can be:
 
 - A Companion tag such as `companion-v0.6.0`.
-- A GitHub release URL.
+- A GitHub release URL for `helgeklein/sambee-companion`, such as `https://github.com/helgeklein/sambee-companion/releases/tag/companion-v0.6.0`.
 - A numeric GitHub release ID.
 
 Before updating feeds, the workflow verifies that the selected release's immutable provenance refers to a canonical build tag at the recorded source commit. A matching public Sambee release or Docker image is not required.
@@ -57,6 +57,7 @@ It fails when:
 
 - No promotion target was selected.
 - The referenced release is still a draft.
+- The referenced release is a GitHub prerelease.
 - The release has no assets.
 - The external release provenance or completion marker does not exactly match its assets and checksums.
 - The Companion provenance build tag does not resolve to the recorded source commit.

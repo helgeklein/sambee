@@ -360,15 +360,35 @@ def test_companion_promotion_serializes_feed_updates_and_reports_push_targets() 
     assert workflow["concurrency"]["cancel-in-progress"] is False
 
     steps = workflow["jobs"]["promote"]["steps"]
+    resolve_step = next(step for step in steps if step.get("name") == "Resolve Companion release")
+    assert "--resolve-release" in resolve_step["run"]
+    assert resolve_step["env"]["RELEASE_REF"] == "${{ inputs.release_ref }}"
+    assert resolve_step["env"]["GITHUB_TOKEN"] == "${{ secrets.COMPANION_RELEASE_REPO_TOKEN }}"
+    assert '"$RELEASE_REF"' in resolve_step["run"]
+
     provenance_step = next(step for step in steps if step.get("name") == "Validate Companion provenance")
-    assert 'build_tag="$(jq -er' in provenance_step["run"]
-    assert 'source_sha="$(jq -er' in provenance_step["run"]
+    assert provenance_step["env"]["BUILD_TAG"] == "${{ steps.resolve.outputs.build_tag }}"
+    assert provenance_step["env"]["SOURCE_SHA"] == "${{ steps.resolve.outputs.source_sha }}"
+    assert "gh release download" not in provenance_step["run"]
     assert "sambee-release.json" not in provenance_step["run"]
     assert "validate_release_scope.py" not in provenance_step["run"]
     assert "sambee_release_tag" not in provenance_step["run"]
+
+    generate_step = next(step for step in steps if step.get("name") == "Generate feed files")
+    assert generate_step["env"]["RELEASE_ID"] == "${{ steps.resolve.outputs.release_id }}"
+    assert generate_step["env"]["RELEASE_TAG"] == "${{ steps.resolve.outputs.release_tag }}"
+    assert '--release-ref "$RELEASE_ID"' in generate_step["run"]
+    assert '--expected-release-id "$RELEASE_ID"' in generate_step["run"]
+    assert '--expected-release-tag "$RELEASE_TAG"' in generate_step["run"]
+
     push_step = next(step for step in steps if step.get("name") == "Commit and push feed updates")
+    assert push_step["env"]["RELEASE_TAG"] == "${{ steps.resolve.outputs.release_tag }}"
+    assert "gh release view" not in push_step["run"]
     assert "Failed to push feed updates for:" in push_step["run"]
     assert "remote feed state is unknown" in push_step["run"]
+
+    workflow_run = "\n".join(step.get("run", "") for step in steps)
+    assert "${{ inputs.release_ref }}" not in workflow_run
 
 
 def test_companion_finalizer_recovers_exact_artifacts_and_uploads_completion_last() -> None:
