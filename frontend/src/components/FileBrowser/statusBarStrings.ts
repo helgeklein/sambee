@@ -9,7 +9,7 @@ export const STATUS_BAR_STRINGS = {
     return translate("fileBrowser.chrome.statusBar.itemCount", { count });
   },
   get UNRESOLVABLE_SHORTCUT() {
-    return translate("fileBrowser.chrome.statusBar.linkTargetUnresolvable");
+    return translate("fileBrowser.chrome.statusBar.linkTargetLocalDrivesOnly");
   },
   linkTargetStatus(resolution: LocalLinkTargetResolution) {
     if (resolution.target?.type === "other") {
