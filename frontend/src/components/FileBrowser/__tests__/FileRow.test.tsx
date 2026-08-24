@@ -94,6 +94,8 @@ describe("FileRow", () => {
     expect(screen.getByText(/\u2192/)).toBeInTheDocument();
     expect(screen.getByTestId("ShortcutIcon")).toBeInTheDocument();
     expect(screen.queryByTestId("FolderIcon")).not.toBeInTheDocument();
+    expect(screen.getByTitle("Project.lnk")).toHaveStyle({ flex: "0 1 auto" });
+    expect(screen.getByTitle("C:\\Users\\Sambee\\Projects\\Project Archive")).toHaveStyle({ flex: "1 1 auto" });
   });
 
   it("renders an unresolved shortcut extension with the shortcut icon", () => {

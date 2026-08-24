@@ -629,12 +629,6 @@ export function Preferences({ onClose }: PreferencesProps) {
                   <dd class="preferences__status-value">{localizedUpdatePublishedAt ?? updateActionState.status.publishedAt}</dd>
                 </div>
               )}
-              {updateActionState.status.notes && (
-                <div class="preferences__status-row">
-                  <dt class="preferences__status-label">{translate("preferences.updateStatus.notesLabel")}</dt>
-                  <dd class="preferences__status-value preferences__status-value--multiline">{updateActionState.status.notes}</dd>
-                </div>
-              )}
             </dl>
           )}
           {updateActionState.kind === "installed" && (

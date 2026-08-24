@@ -14,13 +14,14 @@ export const STATUS_BAR_HEIGHT = 32;
 interface StatusBarProps {
   files: FileEntry[];
   focusedIndex: number;
+  canResolveShortcutTargets: boolean;
 }
 
 /**
  * Status bar showing selected file info and total count
  * Desktop only component
  */
-export function StatusBar({ files, focusedIndex }: StatusBarProps) {
+export function StatusBar({ files, focusedIndex, canResolveShortcutTargets }: StatusBarProps) {
   if (files.length === 0) {
     return null;
   }
@@ -28,7 +29,7 @@ export function StatusBar({ files, focusedIndex }: StatusBarProps) {
   const selectedFile = files[focusedIndex];
   const linkTargetStatus = selectedFile?.link_target
     ? STATUS_BAR_STRINGS.linkTargetStatus(selectedFile.link_target)
-    : selectedFile && isShortcutFile(selectedFile)
+    : selectedFile && isShortcutFile(selectedFile) && !canResolveShortcutTargets
       ? STATUS_BAR_STRINGS.UNRESOLVABLE_SHORTCUT
       : null;
 
@@ -75,7 +76,7 @@ export function StatusBar({ files, focusedIndex }: StatusBarProps) {
 
           return (
             <Box sx={{ display: "flex", gap: 4, alignItems: "center", minWidth: 0 }}>
-              <Typography variant="caption" noWrap>
+              <Typography data-testid="status-bar-focused-file-name" variant="caption" noWrap>
                 {selectedFile.name}
               </Typography>
               {selectedFile.type === "file" && selectedFile.size !== undefined && selectedFile.size !== null && (

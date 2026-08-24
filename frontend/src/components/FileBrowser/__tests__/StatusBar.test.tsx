@@ -27,7 +27,7 @@ describe("StatusBar", () => {
   it("uses translated empty selection and count strings", async () => {
     await setLocale("en-XA");
 
-    renderWithProvider(<StatusBar files={[baseFile]} focusedIndex={5} />);
+    renderWithProvider(<StatusBar files={[baseFile]} focusedIndex={5} canResolveShortcutTargets={false} />);
 
     expect(screen.getByText("[Ńó šéĺéćťíóń]")).toBeInTheDocument();
     expect(screen.getByText("[1 íťéḿ]")).toBeInTheDocument();
@@ -47,6 +47,7 @@ describe("StatusBar", () => {
           },
         ]}
         focusedIndex={0}
+        canResolveShortcutTargets
       />
     );
 
@@ -54,7 +55,29 @@ describe("StatusBar", () => {
   });
 
   it("reports an unresolved shortcut extension for the selected item", () => {
-    renderWithProvider(<StatusBar files={[{ ...baseFile, name: "My Drive.lnk" }]} focusedIndex={0} />);
+    renderWithProvider(<StatusBar files={[{ ...baseFile, name: "My Drive.lnk" }]} focusedIndex={0} canResolveShortcutTargets={false} />);
+
+    expect(screen.getByText("Shortcut targets can only be resolved on local drives")).toBeInTheDocument();
+  });
+
+  it("reports a Companion unresolvable target independently of connection type", () => {
+    renderWithProvider(
+      <StatusBar
+        files={[
+          {
+            ...baseFile,
+            name: "Broken.lnk",
+            link_kind: "windows_shortcut",
+            link_target: {
+              source_path: "Broken.lnk",
+              state: "unresolvable",
+            },
+          },
+        ]}
+        focusedIndex={0}
+        canResolveShortcutTargets
+      />
+    );
 
     expect(screen.getByText("Shortcut target cannot be resolved")).toBeInTheDocument();
   });
