@@ -78,3 +78,12 @@ Shortcuts (`.lnk` files), symlinks, and junctions on local drives now show the t
 ## Under the Hood
 
 - Frontend: improved recovery after network unavailability (e.g., after suspend/resume)
+
+## Internals
+
+### Release Workflow: Companion Alignment with Docker Image
+
+Companion's release process has been simplified and aligned to match the Docker image workflow:
+
+1. When a new Companion build is created, its GitHub release is published automatically and promoted to the `test` channel.
+1. Interim Companion GitHub releases are deleted automatically when they're no longer needed.

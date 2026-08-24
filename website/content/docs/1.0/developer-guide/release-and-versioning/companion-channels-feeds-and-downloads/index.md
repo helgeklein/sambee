@@ -27,6 +27,8 @@ The current model uses four moving parts:
 
 The important consequence is simple: channels are feed pointers, not separate binaries.
 
+Every successful Companion build moves only the `test` updater feed. It does not change `beta`, `stable`, or the Sambee download-metadata feed.
+
 ## Public Distribution Surface
 
 Published Companion releases live in `helgeklein/sambee-companion` as GitHub Releases.
@@ -62,6 +64,7 @@ Sambee and Companion do not read the same feed.
 - Promoting a Companion channel changes auto-update visibility for installed desktop apps.
 - Promoting the Sambee metadata feed changes which direct downloads the product surfaces.
 - The same published release can move across `test`, `beta`, and `stable` over time.
+- The build workflow promotes `test` automatically; later promotion targets remain manual.
 
 ## Feed Rules
 

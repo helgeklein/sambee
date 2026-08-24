@@ -305,6 +305,9 @@ def resolve_state(
                 f"{', '.join(sorted(unexpected_names))}."
             )
         if not missing_names:
+            if release.get("draft", False):
+                validate_recovery_metadata(provenance)
+                return "recover-finalizer"
             return "complete"
         if not release.get("draft", False):
             fail_new_candidate(
