@@ -12,6 +12,7 @@ import type {
   AdvancedSystemSettings,
   AdvancedSystemSettingsUpdate,
   ArchiveDirectoryListing,
+  ArchiveExtractionDecisionAction,
   ArchiveOperation,
   ArchiveOperationPhase,
   ArchiveOperationPrepare,
@@ -819,12 +820,7 @@ class ApiService {
     return response.data;
   }
 
-  async getArchiveMember(
-    connectionId: string,
-    archivePath: string,
-    memberPath: string,
-    download = false
-  ): Promise<Blob> {
+  async getArchiveMember(connectionId: string, archivePath: string, memberPath: string, download = false): Promise<Blob> {
     const segment = getBrowseSegment(connectionId);
     const { client, extraConfig } = await this.getClientConfig(connectionId);
     const response = await client.get<Blob>(`/viewer/${segment}/archive/member`, {
@@ -864,6 +860,18 @@ class ApiService {
 
   async executeArchiveExtraction(operationId: string): Promise<ArchiveOperation> {
     const response = await this.api.post<ArchiveOperation>(`/archive/operations/${operationId}/execute-extract`);
+    return response.data;
+  }
+
+  async decideArchiveExtraction(
+    operationId: string,
+    action: ArchiveExtractionDecisionAction,
+    memberPath?: string
+  ): Promise<ArchiveOperation> {
+    const response = await this.api.post<ArchiveOperation>(`/archive/operations/${operationId}/decide-extraction`, {
+      action,
+      member_path: memberPath,
+    });
     return response.data;
   }
 

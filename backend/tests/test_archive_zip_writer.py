@@ -6,8 +6,9 @@ from collections.abc import AsyncIterator
 
 import pytest
 
-from app.models.file import FileInfo, FileType
+from app.models.file import DirectoryListing, FileInfo, FileType
 from app.services.archive.creation import ArchiveCreationCancelled, create_archive_from_files
+from app.services.archive.zip_reader import ArchiveFormatError
 from app.services.archive.zip_writer import PortableZipWriter
 
 
@@ -31,10 +32,32 @@ class MemoryExclusiveWriter:
 class MemoryCreationBackend:
     def __init__(self, files: dict[str, bytes]) -> None:
         self.files = files
+        self.directories: set[str] = set()
+        for path in files:
+            parent = path.rpartition("/")[0]
+            while parent:
+                self.directories.add(parent)
+                parent = parent.rpartition("/")[0]
         self.target = MemoryExclusiveWriter()
 
     async def get_file_info(self, path: str) -> FileInfo:
-        return FileInfo(name=path.rsplit("/", 1)[-1], path=path, type=FileType.FILE, size=len(self.files[path]))
+        if path in self.files:
+            return FileInfo(name=path.rsplit("/", 1)[-1], path=path, type=FileType.FILE, size=len(self.files[path]))
+        if path in self.directories:
+            return FileInfo(name=path.rsplit("/", 1)[-1], path=path, type=FileType.DIRECTORY)
+        raise FileNotFoundError(path)
+
+    async def list_directory(self, path: str = "") -> DirectoryListing:
+        prefix = f"{path}/" if path else ""
+        items: list[FileInfo] = []
+        for candidate in sorted(self.directories | set(self.files)):
+            if not candidate.startswith(prefix):
+                continue
+            relative = candidate[len(prefix) :]
+            if "/" in relative:
+                continue
+            items.append(await self.get_file_info(candidate))
+        return DirectoryListing(path=path, items=items, total=len(items))
 
     async def open_exclusive_writer(self, path: str) -> MemoryExclusiveWriter:
         return self.target
@@ -94,6 +117,58 @@ async def test_cancellation_deletes_the_owned_partial_target() -> None:
             target_path="out.zip",
             is_cancelled=lambda: _cancelled(),
         )
+
+    assert backend.target.data == b""
+
+
+@pytest.mark.asyncio
+async def test_creates_archive_from_directory_sources_with_explicit_directories() -> None:
+    backend = MemoryCreationBackend({"input/empty/.keep": b"", "input/docs/readme.txt": b"readme"})
+    backend.directories.add("input/empty-dir")
+
+    result = await create_archive_from_files(backend, source_paths=["input"], target_path="out.zip")
+
+    assert result.files_created == 2
+    assert result.directories_created == 4
+    with zipfile.ZipFile(io.BytesIO(backend.target.data)) as archive:
+        assert archive.namelist() == [
+            "input/",
+            "input/docs/",
+            "input/docs/readme.txt",
+            "input/empty/",
+            "input/empty/.keep",
+            "input/empty-dir/",
+        ]
+
+
+@pytest.mark.asyncio
+async def test_rejects_archive_target_inside_selected_directory() -> None:
+    backend = MemoryCreationBackend({"input/readme.txt": b"readme"})
+
+    with pytest.raises(ArchiveFormatError, match="inside a selected source directory"):
+        await create_archive_from_files(backend, source_paths=["input"], target_path="input/out.zip")
+
+
+@pytest.mark.asyncio
+async def test_rejects_duplicate_normalized_member_names_before_opening_target() -> None:
+    backend = MemoryCreationBackend({"first/Report.txt": b"first", "second/report.txt": b"second"})
+
+    with pytest.raises(ArchiveFormatError, match="duplicate normalized entry names"):
+        await create_archive_from_files(
+            backend,
+            source_paths=["first/Report.txt", "second/report.txt"],
+            target_path="out.zip",
+        )
+
+    assert backend.target.data == b""
+
+
+@pytest.mark.asyncio
+async def test_rejects_existing_target_before_opening_writer() -> None:
+    backend = MemoryCreationBackend({"input.txt": b"input", "out.zip": b"existing"})
+
+    with pytest.raises(ArchiveFormatError, match="target already exists"):
+        await create_archive_from_files(backend, source_paths=["input.txt"], target_path="out.zip")
 
     assert backend.target.data == b""
 

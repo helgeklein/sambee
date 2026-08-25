@@ -29,7 +29,7 @@ import { publishRecentFilesChanged } from "../../services/recentFilesSync";
 import { useSambeeTheme } from "../../theme";
 import type { FileEntry, RecentFileValidationError } from "../../types";
 import { FileType, isApiError } from "../../types";
-import { getAllViewerIds, getCompatibleViewerIds, isImageFile } from "../../utils/FileTypeRegistry";
+import { getAllViewerIds, getCompatibleViewerIds, getFileTypeByExtension, isImageFile } from "../../utils/FileTypeRegistry";
 import { compareLocalizedStrings } from "../../utils/localeFormatting";
 import { getConnectionById, isConnectionReadOnly } from "./access";
 import {
@@ -64,6 +64,12 @@ const DIRECTORY_LOAD_NETWORK_ERROR = "Failed to load files. Please check your co
 const DIRECTORY_LOAD_TIMEOUT_ERROR = "Directory listing timed out. The remote share took too long to respond.";
 const RECENT_FILE_DEFAULT_ERROR = "The recent file could not be opened.";
 const RECENT_FILE_MISSING_ERROR = "The recent file no longer exists.";
+const ZIP_EXTENSION = ".zip";
+
+function isZipArchive(fileName: string): boolean {
+  return getFileTypeByExtension(fileName)?.category === "archive" && fileName.toLowerCase().endsWith(ZIP_EXTENSION);
+}
+
 const PERMANENT_LOCAL_RECENT_OPEN_FAILURE_CODES = [
   "recent_file_target_missing",
   "recent_file_target_not_file",
@@ -171,6 +177,7 @@ export function useFileBrowserPane(config: UseFileBrowserPaneConfig): UseFileBro
     onNavigatePath,
     onNavigateConnection,
     onNavigateDirectory,
+    onOpenArchive,
   } = config;
 
   const { currentTheme } = useSambeeTheme();
@@ -1509,11 +1516,16 @@ export function useFileBrowserPane(config: UseFileBrowserPaneConfig): UseFileBro
         return;
       }
 
+      if (!isLocalDrive(connectionIdRef.current) && isZipArchive(file.name)) {
+        onOpenArchive?.(connectionIdRef.current, filePath);
+        return;
+      }
+
       const mimeType = file.mime_type || "application/octet-stream";
 
       openFileWithAssociatedViewer(file, filePath, mimeType);
     },
-    [currentPath, updateFocus, focusedIndex, navigateToPath, openFileWithAssociatedViewer, resolveAndActivateLocalEntry]
+    [currentPath, updateFocus, focusedIndex, navigateToPath, onOpenArchive, openFileWithAssociatedViewer, resolveAndActivateLocalEntry]
   );
 
   const handleOpenFileForFile = useCallback(
@@ -1526,6 +1538,11 @@ export function useFileBrowserPane(config: UseFileBrowserPaneConfig): UseFileBro
 
       if (file.type === "directory") {
         handleFileClick(file, index);
+        return;
+      }
+
+      if (isZipArchive(file.name)) {
+        onOpenArchive?.(connectionIdRef.current, filePath);
         return;
       }
 
@@ -1548,7 +1565,7 @@ export function useFileBrowserPane(config: UseFileBrowserPaneConfig): UseFileBro
 
       openFileWithAssociatedViewer(file, filePath, mimeType);
     },
-    [handleFileClick, openNativeFile, openBrowserViewerPicker, openFileWithAssociatedViewer, resolveAndActivateLocalEntry]
+    [handleFileClick, onOpenArchive, openNativeFile, openBrowserViewerPicker, openFileWithAssociatedViewer, resolveAndActivateLocalEntry]
   );
 
   const handleOpenFileAtPath = useCallback(

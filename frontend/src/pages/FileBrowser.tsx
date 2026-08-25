@@ -19,16 +19,18 @@
  * @see FileBrowserPane — renders a single pane's UI (breadcrumbs, file list, etc.)
  */
 
-import { AppBar, Box, Container, Divider, Snackbar, Toolbar, useMediaQuery, useTheme } from "@mui/material";
+import { AppBar, Box, Container, Divider, Snackbar, Toolbar, Typography, useMediaQuery, useTheme } from "@mui/material";
 import React, { useCallback, useEffect, useLayoutEffect, useMemo, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { useLocation, useNavigate, useParams, useSearchParams } from "react-router-dom";
+import { ArchiveBrowser } from "../components/FileBrowser/ArchiveBrowser";
 import CopyMoveDialog, { type CopyMoveMode, type OverwriteStrategy } from "../components/FileBrowser/CopyMoveDialog";
 import { DesktopToolbar } from "../components/FileBrowser/DesktopToolbar";
 import { DynamicViewer } from "../components/FileBrowser/DynamicViewer";
 import type { CompanionLifecycleStatus } from "../components/FileBrowser/FileBrowserAlerts";
 import { FileBrowserAlerts } from "../components/FileBrowser/FileBrowserAlerts";
 import { MobileToolbar } from "../components/FileBrowser/MobileToolbar";
+import NameInputDialog from "../components/FileBrowser/NameInputDialog";
 import OverwriteConflictDialog, { type ConflictResolution } from "../components/FileBrowser/OverwriteConflictDialog";
 import { SecondaryActionStrip } from "../components/FileBrowser/SecondaryActionStrip";
 import { useBrowserCommandsProvider } from "../components/FileBrowser/search";
@@ -315,6 +317,15 @@ const Browser: React.FC = () => {
   } | null>(null);
   const [copyMoveError, setCopyMoveError] = useState<string | null>(null);
 
+  const [archiveCreateContext, setArchiveCreateContext] = useState<{
+    connectionId: string;
+    destinationPath: string;
+    sourcePaths: string[];
+  } | null>(null);
+  const [archiveCreateError, setArchiveCreateError] = useState<string | null>(null);
+  const [isCreatingArchive, setIsCreatingArchive] = useState(false);
+  const [archiveBrowser, setArchiveBrowser] = useState<{ connectionId: string; archivePath: string } | null>(null);
+
   // Overwrite conflict dialog state
   const [conflictDialogOpen, setConflictDialogOpen] = useState(false);
   const [conflictInfo, setConflictInfo] = useState<ConflictInfo | null>(null);
@@ -416,6 +427,7 @@ const Browser: React.FC = () => {
     onNavigatePath: (path) => leftPathNavigateRef.current(path),
     onNavigateConnection: (connectionId) => leftConnectionNavigateRef.current(connectionId),
     onNavigateDirectory: (connectionId, path) => leftDirectoryNavigateRef.current(connectionId, path),
+    onOpenArchive: (connectionId, archivePath) => setArchiveBrowser({ connectionId, archivePath }),
   });
 
   // Right pane — always instantiated (React hooks rule: no conditional hooks),
@@ -429,6 +441,7 @@ const Browser: React.FC = () => {
     onNavigatePath: (path) => rightPathNavigateRef.current(path),
     onNavigateConnection: (connectionId) => rightConnectionNavigateRef.current(connectionId),
     onNavigateDirectory: (connectionId, path) => rightDirectoryNavigateRef.current(connectionId, path),
+    onOpenArchive: (connectionId, archivePath) => setArchiveBrowser({ connectionId, archivePath }),
   });
 
   /**
@@ -458,6 +471,10 @@ const Browser: React.FC = () => {
     isDualMode && quickBarFocusedFile !== undefined && canCopyToConnection(quickBarPaneConnection, quickBarOtherPaneConnection);
   const quickBarCanMoveToOtherPane =
     isDualMode && quickBarFocusedFile !== undefined && canMoveBetweenConnections(quickBarPaneConnection, quickBarOtherPaneConnection);
+  const quickBarCanCreateArchive =
+    quickBarPaneWritable &&
+    quickBarPane.getEffectiveSelection().length > 0 &&
+    (!isLocalDrive(quickBarPane.connectionId) || companion.status === "paired");
   const hasVisibleLocalDrivePane =
     Boolean(leftPane.connectionId && isLocalDrive(leftPane.connectionId)) ||
     Boolean(isDualMode && rightPane.connectionId && isLocalDrive(rightPane.connectionId));
@@ -1679,6 +1696,64 @@ const Browser: React.FC = () => {
     [focusQuickBarInput, isDualMode, quickBarPaneId]
   );
 
+  const handleCreateArchiveRequest = useCallback(() => {
+    if (!quickBarCanCreateArchive) {
+      return;
+    }
+    const sourcePaths = quickBarPane.getEffectiveSelection().map((file) => file.path);
+    if (sourcePaths.length === 0) {
+      return;
+    }
+    setArchiveCreateError(null);
+    setArchiveCreateContext({
+      connectionId: quickBarPane.connectionId,
+      destinationPath: quickBarPane.currentPath,
+      sourcePaths,
+    });
+  }, [quickBarCanCreateArchive, quickBarPane]);
+
+  const handleCreateArchiveConfirm = useCallback(
+    async (archiveName: string) => {
+      if (!archiveCreateContext) {
+        return;
+      }
+      const targetPath = archiveCreateContext.destinationPath ? `${archiveCreateContext.destinationPath}/${archiveName}` : archiveName;
+      setIsCreatingArchive(true);
+      setArchiveCreateError(null);
+      try {
+        if (isLocalDrive(archiveCreateContext.connectionId)) {
+          await companionService.createArchive(
+            archiveCreateContext.connectionId.replace("local-drive:", ""),
+            archiveCreateContext.sourcePaths,
+            targetPath
+          );
+        } else {
+          const operation = await api.prepareArchiveOperation({
+            kind: "create",
+            source_connection_id: archiveCreateContext.connectionId,
+            source_path: "",
+            destination_connection_id: archiveCreateContext.connectionId,
+            destination_path: targetPath,
+            plan_json: JSON.stringify({ source_paths: archiveCreateContext.sourcePaths }),
+          });
+          await api.executeArchiveCreation(operation.id);
+        }
+        setArchiveCreateContext(null);
+        quickBarPane.handleRefresh();
+      } catch (error: unknown) {
+        const detail =
+          isApiError(error) && typeof error.response?.data?.detail === "string"
+            ? error.response.data.detail
+            : t("fileBrowser.archive.errorGeneric");
+        setArchiveCreateError(detail);
+        logger.error("Archive creation failed", { error, targetPath }, "file-browser");
+      } finally {
+        setIsCreatingArchive(false);
+      }
+    },
+    [archiveCreateContext, quickBarPane, t]
+  );
+
   const browserCommandContext = useMemo(
     () => ({
       isDualMode,
@@ -1691,6 +1766,7 @@ const Browser: React.FC = () => {
       hasFocusedFile: quickBarPane.focusedIndex >= 0 && quickBarPane.filesRef.current[quickBarPane.focusedIndex] !== undefined,
       connectionSelected: quickBarPane.connectionId !== "",
       connectionWritable: quickBarPaneWritable,
+      canCreateArchive: quickBarCanCreateArchive,
       canOpenFocusedFileInApp: quickBarCanOpenInApp,
       canCopyToOtherPane: quickBarCanCopyToOtherPane,
       canMoveToOtherPane: quickBarCanMoveToOtherPane,
@@ -1707,6 +1783,7 @@ const Browser: React.FC = () => {
       deleteFocusedItem: () => quickBarPane.handleDeleteRequest({ requireListFocus: false }),
       newDirectory: quickBarPane.handleNewDirectoryRequest,
       newFile: quickBarPane.handleNewFileRequest,
+      createArchive: handleCreateArchiveRequest,
       openInApp: () => {
         void quickBarPane.handleOpenInApp();
       },
@@ -1723,6 +1800,7 @@ const Browser: React.FC = () => {
     }),
     [
       handleCopyToOtherPane,
+      handleCreateArchiveRequest,
       handleFocusLeftPane,
       handleFocusRightPane,
       handleMoveToOtherPane,
@@ -1734,6 +1812,7 @@ const Browser: React.FC = () => {
       openConnectionsSettings,
       openQuickBarMode,
       quickBarCanCopyToOtherPane,
+      quickBarCanCreateArchive,
       quickBarCanMoveToOtherPane,
       quickBarCanOpenInApp,
       quickBarMode,
@@ -1772,6 +1851,8 @@ const Browser: React.FC = () => {
     mobileSettingsOpen ||
     copyMoveDialogOpen ||
     conflictDialogOpen ||
+    archiveCreateContext !== null ||
+    archiveBrowser !== null ||
     leftPane.viewInfo !== null ||
     rightPane.viewInfo !== null ||
     leftPane.browserViewerPickerState !== null ||
@@ -2460,6 +2541,37 @@ const Browser: React.FC = () => {
         shortcuts={browserShortcuts}
         title={t("keyboardShortcutsHelp.titles.fileBrowser")}
       />
+      <NameInputDialog
+        open={archiveCreateContext !== null}
+        title={t("fileBrowser.archive.createTitle")}
+        description={
+          <Typography variant="body2" sx={{ color: "text.secondary" }}>
+            {t("fileBrowser.archive.createPrompt", { count: archiveCreateContext?.sourcePaths.length ?? 0 })}
+          </Typography>
+        }
+        inputLabel={t("fileBrowser.archive.nameLabel")}
+        initialValue="archive.zip"
+        submitLabel={t("fileBrowser.archive.buttonCreate")}
+        submittingLabel={t("fileBrowser.archive.buttonCreating")}
+        isSubmitting={isCreatingArchive}
+        onClose={() => {
+          if (!isCreatingArchive) {
+            setArchiveCreateContext(null);
+            setArchiveCreateError(null);
+          }
+        }}
+        onConfirm={handleCreateArchiveConfirm}
+        apiError={archiveCreateError}
+        extraValidate={(name) => (name.toLowerCase().endsWith(".zip") ? null : t("fileBrowser.archive.validationExtension"))}
+        autoSelectRange={[0, "archive".length]}
+      />
+      {archiveBrowser ? (
+        <ArchiveBrowser
+          connectionId={archiveBrowser.connectionId}
+          archivePath={archiveBrowser.archivePath}
+          onClose={() => setArchiveBrowser(null)}
+        />
+      ) : null}
       {/* Companion app guidance hint */}
       <Snackbar
         open={companionHintOpen}

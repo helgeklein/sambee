@@ -11,6 +11,7 @@ from app.core.logging import get_logger, set_user
 from app.core.security import get_current_user_with_auth_check
 from app.db.database import get_session
 from app.models.archive_operation import (
+    ArchiveExtractionDecision,
     ArchiveOperation,
     ArchiveOperationKind,
     ArchiveOperationPhase,
@@ -20,8 +21,14 @@ from app.models.archive_operation import (
 )
 from app.models.user import User
 from app.services.archive.creation import ArchiveCreationCancelled, create_archive_from_files
-from app.services.archive.extraction import ArchiveExtractionCancelled, extract_archive_to_new_paths
-from app.services.archive.operations import fail_operation, request_operation_cancellation, update_operation_phase
+from app.services.archive.extraction import ArchiveExtractionCancelled, ArchiveExtractionConflicts, extract_archive_to_new_paths
+from app.services.archive.operations import (
+    apply_existing_file_decision,
+    await_operation_decision,
+    fail_operation,
+    request_operation_cancellation,
+    update_operation_phase,
+)
 from app.services.connection_access import get_accessible_connection_or_404, require_connection_write_access
 from app.services.history_common import LOCAL_DRIVE_PREFIX
 from app.storage.smb import SMBBackend
@@ -109,6 +116,23 @@ def _creation_source_paths(operation: ArchiveOperation) -> list[str]:
     return source_paths
 
 
+def _member_collision_actions(operation: ArchiveOperation) -> dict[str, str]:
+    """Return validated per-member choices recorded while resolving grouped conflicts."""
+
+    try:
+        checkpoint = json.loads(operation.checkpoint_json or "{}")
+    except json.JSONDecodeError as exc:
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="Archive operation checkpoint is invalid") from exc
+    if not isinstance(checkpoint, dict):
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="Archive operation checkpoint is invalid")
+    member_actions = checkpoint.get("member_collision_actions", {})
+    if not isinstance(member_actions, dict) or not all(
+        isinstance(member_path, str) and action in {"skip", "replace"} for member_path, action in member_actions.items()
+    ):
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="Archive operation checkpoint is invalid")
+    return member_actions
+
+
 @router.post("/operations/{operation_id}/execute-create", response_model=ArchiveOperationRead)
 async def execute_archive_creation(
     operation_id: uuid.UUID,
@@ -154,7 +178,13 @@ async def execute_archive_creation(
             target_path=operation.destination_path,
             is_cancelled=is_cancelled,
         )
-        operation.checkpoint_json = json.dumps({"files_created": result.files_created, "source_bytes": result.source_bytes})
+        operation.checkpoint_json = json.dumps(
+            {
+                "files_created": result.files_created,
+                "directories_created": result.directories_created,
+                "source_bytes": result.source_bytes,
+            }
+        )
         update_operation_phase(
             session, operation, expected_phase=ArchiveOperationPhase.STREAMING, next_phase=ArchiveOperationPhase.VERIFYING
         )
@@ -196,13 +226,18 @@ async def execute_archive_extraction(
     try:
         connection = get_accessible_connection_or_404(session, current_user, uuid.UUID(operation.source_connection_id))
     except ValueError as exc:
-        raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_CONTENT, detail="Archive extraction connection ID is invalid") from exc
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_CONTENT, detail="Archive extraction connection ID is invalid"
+        ) from exc
     require_connection_write_access(current_user, connection, action="extract archive", path=operation.destination_path)
     if operation.phase == ArchiveOperationPhase.PREPARED:
         update_operation_phase(session, operation, expected_phase=ArchiveOperationPhase.PREPARED, next_phase=ArchiveOperationPhase.ACCEPTED)
-    if operation.phase != ArchiveOperationPhase.ACCEPTED:
+    if operation.phase == ArchiveOperationPhase.ACCEPTED:
+        update_operation_phase(
+            session, operation, expected_phase=ArchiveOperationPhase.ACCEPTED, next_phase=ArchiveOperationPhase.STREAMING
+        )
+    elif operation.phase != ArchiveOperationPhase.STREAMING:
         raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="Archive extraction operation is not ready to execute")
-    update_operation_phase(session, operation, expected_phase=ArchiveOperationPhase.ACCEPTED, next_phase=ArchiveOperationPhase.STREAMING)
 
     backend = build_smb_backend(connection, backend_factory=SMBBackend)
     try:
@@ -216,6 +251,8 @@ async def execute_archive_extraction(
             backend,
             archive_path=operation.source_path,
             destination_root=operation.destination_path,
+            existing_file_policy=operation.collision_policy,
+            member_collision_actions=_member_collision_actions(operation),
             is_cancelled=is_cancelled,
         )
         operation.checkpoint_json = json.dumps(
@@ -223,6 +260,10 @@ async def execute_archive_extraction(
                 "files_extracted": result.files_extracted,
                 "directories_created": result.directories_created,
                 "extracted_bytes": result.extracted_bytes,
+                "files_skipped": result.files_skipped,
+                "files_replaced": result.files_replaced,
+                "skipped_members": list(result.skipped_members),
+                "replaced_members": list(result.replaced_members),
             }
         )
         update_operation_phase(
@@ -235,6 +276,16 @@ async def execute_archive_extraction(
         return update_operation_phase(
             session, operation, expected_phase=ArchiveOperationPhase.STREAMING, next_phase=ArchiveOperationPhase.CANCELLED
         )
+    except ArchiveExtractionConflicts as exc:
+        return await_operation_decision(
+            session,
+            operation,
+            {
+                "kind": "existing_files",
+                "allowed_actions": ["skip", "skip_all", "replace", "replace_all", "replace_older"],
+                "conflicts": [{"member_path": conflict.member_path, "target_path": conflict.target_path} for conflict in exc.conflicts],
+            },
+        )
     except HTTPException:
         raise
     except Exception as exc:
@@ -242,6 +293,26 @@ async def execute_archive_extraction(
         raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail="Archive extraction failed") from exc
     finally:
         await disconnect_backend_safely(backend, logger=logger, context=f"archive extraction operation {operation.id}")
+
+
+@router.post("/operations/{operation_id}/decide-extraction", response_model=ArchiveOperationRead)
+async def decide_archive_extraction(
+    operation_id: uuid.UUID,
+    payload: ArchiveExtractionDecision,
+    current_user: User = Depends(get_current_user_with_auth_check),
+    session: Session = Depends(get_session),
+) -> ArchiveOperation:
+    """Apply an allowed all-files collision policy or cancel the paused extraction."""
+
+    operation = _get_owned_operation_or_404(session, current_user, operation_id)
+    if payload.action == "cancel":
+        return update_operation_phase(
+            session,
+            operation,
+            expected_phase=ArchiveOperationPhase.AWAITING_USER_DECISION,
+            next_phase=ArchiveOperationPhase.CANCELLED,
+        )
+    return apply_existing_file_decision(session, operation, payload.action, payload.member_path)
 
 
 @router.post("/operations/{operation_id}/cancel", response_model=ArchiveOperationRead)

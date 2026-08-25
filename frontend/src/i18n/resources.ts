@@ -766,6 +766,9 @@ export const EN_TRANSLATIONS = {
         newFile: {
           title: "Create New File",
         },
+        createArchive: {
+          title: "Create ZIP Archive",
+        },
         openInApp: {
           title: "Open Focused File In Native App",
         },
@@ -981,6 +984,23 @@ export const EN_TRANSLATIONS = {
       promptFile: "A new file will be created in <directory>{{directory}}</directory>:",
       promptDirectory: "A new directory will be created in <directory>{{directory}}</directory>:",
       buttonCreating: "Creating…",
+    },
+    archive: {
+      createTitle: "Create ZIP Archive",
+      nameLabel: "Archive name",
+      createPrompt_one: "Create a ZIP archive from 1 selected item.",
+      createPrompt_other: "Create a ZIP archive from {{count}} selected items.",
+      buttonCreate: "Create archive",
+      buttonCreating: "Creating archive…",
+      validationExtension: "Archive names must end with .zip.",
+      errorGeneric: "Archive creation failed.",
+      browseError: "Archive contents could not be loaded.",
+      downloadError: "Archive member could not be downloaded.",
+      closeBrowser: "Close archive browser",
+      root: "Archive root",
+      up: "Up",
+      more: "Load more",
+      entryUnavailable: "Unavailable",
     },
     nameDialog: {
       validationEmpty: "Name is required.",

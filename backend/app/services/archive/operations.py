@@ -84,3 +84,72 @@ def fail_operation(session: Session, operation: ArchiveOperation, message: str) 
     session.commit()
     session.refresh(operation)
     return operation
+
+
+def await_operation_decision(session: Session, operation: ArchiveOperation, decision: dict[str, object]) -> ArchiveOperation:
+    """Persist a structured conflict/error decision and release the active executor."""
+
+    if operation.phase != ArchiveOperationPhase.STREAMING:
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="Archive operation is not streaming")
+    now = datetime.now(timezone.utc)
+    operation.phase = ArchiveOperationPhase.AWAITING_USER_DECISION
+    operation.pending_decision_json = json.dumps(decision)
+    operation.updated_at = now
+    operation.heartbeat_at = now
+    session.add(operation)
+    session.commit()
+    session.refresh(operation)
+    return operation
+
+
+def apply_existing_file_decision(
+    session: Session,
+    operation: ArchiveOperation,
+    action: str,
+    member_path: str | None = None,
+) -> ArchiveOperation:
+    """Store a validated collision choice and return a paused extraction to streaming."""
+
+    if operation.phase != ArchiveOperationPhase.AWAITING_USER_DECISION:
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="Archive operation is not awaiting a decision")
+    try:
+        pending = json.loads(operation.pending_decision_json or "{}")
+    except json.JSONDecodeError as exc:
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="Archive operation decision state is invalid") from exc
+    if pending.get("kind") != "existing_files" or action not in pending.get("allowed_actions", []):
+        raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_CONTENT, detail="Archive operation decision is not allowed")
+    is_member_action = action in {"skip", "replace"}
+    if is_member_action:
+        conflicts = pending.get("conflicts")
+        if not isinstance(member_path, str) or not isinstance(conflicts, list):
+            raise HTTPException(
+                status_code=status.HTTP_422_UNPROCESSABLE_CONTENT, detail="Archive member decision requires a pending member"
+            )
+        if not any(isinstance(conflict, dict) and conflict.get("member_path") == member_path for conflict in conflicts):
+            raise HTTPException(
+                status_code=status.HTTP_422_UNPROCESSABLE_CONTENT, detail="Archive member is not awaiting a collision decision"
+            )
+        try:
+            checkpoint = json.loads(operation.checkpoint_json or "{}")
+        except json.JSONDecodeError as exc:
+            raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="Archive operation checkpoint is invalid") from exc
+        if not isinstance(checkpoint, dict):
+            raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="Archive operation checkpoint is invalid")
+        member_actions = checkpoint.setdefault("member_collision_actions", {})
+        if not isinstance(member_actions, dict):
+            raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="Archive operation checkpoint is invalid")
+        member_actions[member_path] = action
+        operation.checkpoint_json = json.dumps(checkpoint)
+    elif member_path is not None:
+        raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_CONTENT, detail="Archive all-files decision cannot target a member")
+    now = datetime.now(timezone.utc)
+    if not is_member_action:
+        operation.collision_policy = action
+    operation.pending_decision_json = None
+    operation.phase = ArchiveOperationPhase.STREAMING
+    operation.updated_at = now
+    operation.heartbeat_at = now
+    session.add(operation)
+    session.commit()
+    session.refresh(operation)
+    return operation

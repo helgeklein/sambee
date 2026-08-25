@@ -3,6 +3,7 @@
 import uuid
 from datetime import datetime, timezone
 from enum import StrEnum
+from typing import Literal
 
 from sqlmodel import Field, SQLModel
 
@@ -85,3 +86,8 @@ class ArchiveOperationRead(SQLModel):
 class ArchiveOperationTransition(SQLModel):
     expected_phase: ArchiveOperationPhase
     next_phase: ArchiveOperationPhase
+
+
+class ArchiveExtractionDecision(SQLModel):
+    action: Literal["skip", "skip_all", "replace", "replace_all", "replace_older", "cancel"]
+    member_path: str | None = None

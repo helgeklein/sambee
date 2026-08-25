@@ -130,6 +130,9 @@ export interface UseFileBrowserPaneConfig {
 
   /** Called when the pane should navigate to a directory in any accessible connection. */
   onNavigateDirectory?: (connectionId: string, path: string) => void;
+
+  /** Called when a readable ZIP archive should open in the archive browser. */
+  onOpenArchive?: (connectionId: string, path: string) => void;
 }
 
 /** Everything returned by useFileBrowserPane for use by the parent and pane component. */

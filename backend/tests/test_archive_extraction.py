@@ -3,11 +3,12 @@
 import io
 import zipfile
 from collections.abc import AsyncIterator
+from datetime import datetime, timezone
 
 import pytest
 
 from app.models.file import FileInfo, FileType
-from app.services.archive.extraction import ArchiveExtractionCancelled, extract_archive_to_new_paths
+from app.services.archive.extraction import ArchiveExtractionCancelled, ArchiveExtractionConflicts, extract_archive_to_new_paths
 
 
 class MemoryRandomReader:
@@ -28,6 +29,7 @@ class MemoryExtractionBackend:
         self.reader = MemoryRandomReader(archive)
         self.directories: set[str] = set()
         self.files: dict[str, bytes] = {}
+        self.modified_at: dict[str, datetime] = {}
 
     async def get_file_info(self, path: str) -> FileInfo:
         if path == "input.zip":
@@ -35,7 +37,13 @@ class MemoryExtractionBackend:
         if path in self.directories:
             return FileInfo(name=path.rsplit("/", 1)[-1], path=path, type=FileType.DIRECTORY)
         if path in self.files:
-            return FileInfo(name=path.rsplit("/", 1)[-1], path=path, type=FileType.FILE, size=len(self.files[path]))
+            return FileInfo(
+                name=path.rsplit("/", 1)[-1],
+                path=path,
+                type=FileType.FILE,
+                size=len(self.files[path]),
+                modified_at=self.modified_at.get(path),
+            )
         raise FileNotFoundError(path)
 
     async def open_random_access_reader(self, path: str) -> MemoryRandomReader:
@@ -55,8 +63,8 @@ class MemoryExtractionBackend:
         overwrite: bool = False,
         source_mtime: object | None = None,
     ) -> int:
-        del overwrite, source_mtime
-        if path in self.files:
+        del source_mtime
+        if path in self.files and not overwrite:
             raise FileExistsError(path)
         content = b"".join([chunk async for chunk in stream])
         self.files[path] = content
@@ -85,6 +93,100 @@ async def test_extracts_safe_members_to_new_paths() -> None:
 
 
 @pytest.mark.asyncio
+async def test_skip_all_policy_preserves_existing_files() -> None:
+    backend = MemoryExtractionBackend(_archive_bytes())
+    backend.files["output/root.txt"] = b"existing"
+
+    result = await extract_archive_to_new_paths(
+        backend, archive_path="input.zip", destination_root="output", existing_file_policy="skip_all"
+    )
+
+    assert result.files_extracted == 1
+    assert backend.files == {"output/docs/readme.txt": b"readme", "output/root.txt": b"existing"}
+
+
+@pytest.mark.asyncio
+async def test_replace_all_policy_replaces_existing_files() -> None:
+    backend = MemoryExtractionBackend(_archive_bytes())
+    backend.files["output/root.txt"] = b"existing"
+
+    result = await extract_archive_to_new_paths(
+        backend, archive_path="input.zip", destination_root="output", existing_file_policy="replace_all"
+    )
+
+    assert result.files_extracted == 2
+    assert backend.files["output/root.txt"] == b"root"
+
+
+@pytest.mark.asyncio
+async def test_individual_skip_policy_preserves_only_the_selected_member() -> None:
+    backend = MemoryExtractionBackend(_archive_bytes())
+    backend.files["output/root.txt"] = b"existing"
+
+    result = await extract_archive_to_new_paths(
+        backend,
+        archive_path="input.zip",
+        destination_root="output",
+        member_collision_actions={"root.txt": "skip"},
+    )
+
+    assert result.files_extracted == 1
+    assert result.skipped_members == ("root.txt",)
+    assert backend.files["output/root.txt"] == b"existing"
+
+
+@pytest.mark.asyncio
+async def test_individual_replace_policy_replaces_only_the_selected_member() -> None:
+    backend = MemoryExtractionBackend(_archive_bytes())
+    backend.files["output/root.txt"] = b"existing"
+
+    result = await extract_archive_to_new_paths(
+        backend,
+        archive_path="input.zip",
+        destination_root="output",
+        member_collision_actions={"root.txt": "replace"},
+    )
+
+    assert result.files_replaced == 1
+    assert result.replaced_members == ("root.txt",)
+    assert backend.files["output/root.txt"] == b"root"
+
+
+@pytest.mark.asyncio
+async def test_replace_older_policy_replaces_only_strictly_older_destination() -> None:
+    backend = MemoryExtractionBackend(_archive_bytes())
+    backend.files["output/root.txt"] = b"existing"
+    backend.modified_at["output/root.txt"] = datetime(1979, 1, 1)
+
+    result = await extract_archive_to_new_paths(
+        backend, archive_path="input.zip", destination_root="output", existing_file_policy="replace_older"
+    )
+
+    assert result.files_extracted == 2
+    assert result.files_replaced == 1
+    assert result.files_skipped == 0
+    assert result.replaced_members == ("root.txt",)
+    assert backend.files["output/root.txt"] == b"root"
+
+
+@pytest.mark.asyncio
+async def test_replace_older_policy_skips_incomparable_timestamps() -> None:
+    backend = MemoryExtractionBackend(_archive_bytes())
+    backend.files["output/root.txt"] = b"existing"
+    backend.modified_at["output/root.txt"] = datetime(1979, 1, 1, tzinfo=timezone.utc)
+
+    result = await extract_archive_to_new_paths(
+        backend, archive_path="input.zip", destination_root="output", existing_file_policy="replace_older"
+    )
+
+    assert result.files_extracted == 1
+    assert result.files_replaced == 0
+    assert result.files_skipped == 1
+    assert result.skipped_members == ("root.txt",)
+    assert backend.files["output/root.txt"] == b"existing"
+
+
+@pytest.mark.asyncio
 async def test_cancellation_stops_before_writing_members() -> None:
     backend = MemoryExtractionBackend(_archive_bytes())
 
@@ -97,6 +199,20 @@ async def test_cancellation_stops_before_writing_members() -> None:
         )
 
     assert backend.files == {}
+    assert backend.reader.closed is True
+
+
+@pytest.mark.asyncio
+async def test_preflights_existing_file_collisions_before_writing() -> None:
+    backend = MemoryExtractionBackend(_archive_bytes())
+    backend.files["output/root.txt"] = b"existing"
+
+    with pytest.raises(ArchiveExtractionConflicts) as error:
+        await extract_archive_to_new_paths(backend, archive_path="input.zip", destination_root="output")
+
+    assert [(conflict.member_path, conflict.target_path) for conflict in error.value.conflicts] == [("root.txt", "output/root.txt")]
+    assert backend.files == {"output/root.txt": b"existing"}
+    assert backend.directories == set()
     assert backend.reader.closed is True
 
 

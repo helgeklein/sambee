@@ -4,6 +4,7 @@
 //! frontend to browse and manage local drives through the same API contract
 //! used by the main Python backend for SMB shares.
 
+pub mod archive;
 pub mod auth;
 pub mod drives;
 pub mod errors;
@@ -125,6 +126,7 @@ fn build_router(state: Arc<AppState>) -> Router {
             axum::routing::get(handlers::browse_search_directories),
         )
         .route("/api/browse/{drive}/upload", axum::routing::post(handlers::browse_upload))
+        .route("/api/browse/{drive}/archive", axum::routing::post(handlers::browse_create_archive))
         .layer(axum::middleware::from_fn_with_state(state.clone(), auth::require_auth));
 
     // Viewer routes support both header-based and query-param auth so that

@@ -23,6 +23,7 @@ use tokio_util::io::ReaderStream;
 
 use crate::{commands, show_pairing_success, show_pairing_window};
 
+use super::archive::{build_local_archive_manifest, create_local_archive, LocalArchiveError};
 use super::auth;
 use super::drives;
 use super::errors::{
@@ -940,6 +941,69 @@ pub async fn browse_open(
         selected_app.name
     );
     Ok(StatusCode::NO_CONTENT)
+}
+
+// ─── Archive Creation ───────────────────────────────────────────────────────
+
+/// `POST /api/browse/{drive}/archive` — write a ZIP directly from local selections.
+pub async fn browse_create_archive(
+    Path(drive): Path<String>,
+    Json(body): Json<ArchiveCreateRequest>,
+) -> Result<Json<ArchiveCreationResponse>, ApiError> {
+    if body.source_paths.is_empty() || body.target_path.trim().is_empty() {
+        return Err(ApiError::BadRequest(
+            "Archive creation requires source paths and a target path".to_string(),
+        ));
+    }
+    let base_path = drives::resolve_drive_path(&drive).ok_or_else(|| ApiError::NotFound(format!("Unknown drive: {drive}")))?;
+    let sources = body
+        .source_paths
+        .iter()
+        .map(|source_path| resolve_safe_path(&base_path, &drive, source_path))
+        .collect::<Result<Vec<_>, _>>()?;
+    let target = resolve_safe_path_for_new(&base_path, &drive, &body.target_path)?;
+    let Some(parent) = target.parent() else {
+        return Err(ApiError::BadRequest("Archive target path is invalid".to_string()));
+    };
+    if !parent.is_dir() {
+        return Err(ApiError::BadRequest("Archive target parent directory does not exist".to_string()));
+    }
+
+    let result = tokio::task::spawn_blocking(move || {
+        let manifest = build_local_archive_manifest(&sources, &target)?;
+        create_local_archive(&target, &manifest, || false)
+    })
+    .await
+    .map_err(|error| ApiError::Internal(format!("Local archive task failed: {error}")))?
+    .map_err(map_local_archive_error)?;
+
+    info!(
+        "Created local archive with {} files and {} directories",
+        result.files_created, result.directories_created
+    );
+    Ok(Json(ArchiveCreationResponse {
+        files_created: result.files_created,
+        directories_created: result.directories_created,
+        source_bytes: result.source_bytes,
+    }))
+}
+
+fn map_local_archive_error(error: LocalArchiveError) -> ApiError {
+    match error {
+        LocalArchiveError::TargetExists => ApiError::conflict_message("Archive output already exists"),
+        LocalArchiveError::TargetInsideSource => {
+            ApiError::BadRequest("Archive output cannot be inside a selected source directory".to_string())
+        }
+        LocalArchiveError::UnsafeEntryPath | LocalArchiveError::DuplicateEntryPath | LocalArchiveError::UnsupportedSource => {
+            ApiError::BadRequest(error.to_string())
+        }
+        LocalArchiveError::Cancelled => ApiError::BadRequest("Archive creation was cancelled".to_string()),
+        LocalArchiveError::Io(error) => ApiError::Io(error),
+        LocalArchiveError::Zip(error) => {
+            warn!("Local archive creation failed while writing ZIP data: {error}");
+            ApiError::Internal("Local archive creation failed".to_string())
+        }
+    }
 }
 
 // ─── Directory Search ────────────────────────────────────────────────────────

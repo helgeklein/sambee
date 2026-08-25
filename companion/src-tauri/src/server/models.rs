@@ -100,6 +100,21 @@ pub struct DirectoryListing {
     pub total: usize,
 }
 
+/// Request to create a local archive from selected paths on one drive.
+#[derive(Debug, Deserialize)]
+pub struct ArchiveCreateRequest {
+    pub source_paths: Vec<String>,
+    pub target_path: String,
+}
+
+/// Summary returned after a local archive has been written directly.
+#[derive(Debug, Serialize)]
+pub struct ArchiveCreationResponse {
+    pub files_created: u64,
+    pub directories_created: u64,
+    pub source_bytes: u64,
+}
+
 /// The final local-drive target selected for an activation request.
 #[derive(Debug, Serialize)]
 pub struct ActivationResolution {

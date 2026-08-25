@@ -81,6 +81,12 @@ export interface DriveInfo {
   drive_type: "fixed" | "removable" | "network" | "virtual" | "unknown";
 }
 
+export interface CompanionArchiveCreationResult {
+  files_created: number;
+  directories_created: number;
+  source_bytes: number;
+}
+
 /** Pairing initiation response from the companion. */
 interface PairInitiateResponse {
   pairing_id: string;
@@ -210,6 +216,7 @@ class CompanionService {
     this.getDrives = this.getDrives.bind(this);
     this.listDirectory = this.listDirectory.bind(this);
     this.getFileInfo = this.getFileInfo.bind(this);
+    this.createArchive = this.createArchive.bind(this);
   }
 
   // ── Auth Header Construction ─────────────────────────────────────────────
@@ -390,6 +397,17 @@ class CompanionService {
       headers,
       params: { path },
     });
+    return response.data;
+  }
+
+  /** Create a ZIP directly from selected local paths. */
+  async createArchive(driveId: string, sourcePaths: string[], targetPath: string): Promise<CompanionArchiveCreationResult> {
+    const headers = await this.buildAuthHeaders();
+    const response = await this.client.post<CompanionArchiveCreationResult>(
+      `/browse/${driveId}/archive`,
+      { source_paths: sourcePaths, target_path: targetPath },
+      { headers }
+    );
     return response.data;
   }
 }

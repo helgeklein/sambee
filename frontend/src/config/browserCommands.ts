@@ -12,6 +12,7 @@ export interface BrowserCommandContext {
   hasFocusedFile: boolean;
   connectionSelected: boolean;
   connectionWritable: boolean;
+  canCreateArchive: boolean;
   canOpenFocusedFileInApp: boolean;
   canCopyToOtherPane: boolean;
   canMoveToOtherPane: boolean;
@@ -28,6 +29,7 @@ export interface BrowserCommandContext {
   deleteFocusedItem: () => void;
   newDirectory: () => void;
   newFile: () => void;
+  createArchive: () => void;
   openInApp: () => void;
   openInViewerPicker: () => void;
   openInNativePicker: () => void;
@@ -175,6 +177,14 @@ const BROWSER_COMMANDS = [
     shortcutLabel: "Shift+F7",
     isEnabled: (context) => context.connectionSelected && context.connectionWritable,
     run: (context) => context.newFile(),
+  }),
+  createCommand({
+    id: "browser.createArchive",
+    titleKey: "fileBrowser.commands.items.createArchive.title",
+    categoryKey: "fileBrowser.commands.categories.files",
+    keywords: ["archive", "zip", "compress", "bundle"],
+    isEnabled: (context) => context.canCreateArchive,
+    run: (context) => context.createArchive(),
   }),
   createCommand({
     id: "browser.openInApp",

@@ -521,6 +521,8 @@ export interface ArchiveOperation {
   heartbeat_at: string;
 }
 
+export type ArchiveExtractionDecisionAction = "skip" | "skip_all" | "replace" | "replace_all" | "replace_older" | "cancel";
+
 /** Canonical local-drive target returned before activating a local entry. */
 export interface LocalActivationResolution {
   drive_id: string;

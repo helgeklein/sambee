@@ -7,7 +7,7 @@ from fastapi.testclient import TestClient
 
 from app.models.connection import Connection
 from app.services.archive.creation import ArchiveCreationResult
-from app.services.archive.extraction import ArchiveExtractionResult
+from app.services.archive.extraction import ArchiveExtractionConflict, ArchiveExtractionConflicts, ArchiveExtractionResult
 
 
 def test_prepare_read_and_cancel_archive_operation(
@@ -89,7 +89,7 @@ def test_executes_same_connection_creation_from_immutable_plan(
 
     assert response.status_code == 200
     assert response.json()["phase"] == "completed"
-    assert json.loads(response.json()["checkpoint_json"]) == {"files_created": 2, "source_bytes": 11}
+    assert json.loads(response.json()["checkpoint_json"]) == {"files_created": 2, "directories_created": 0, "source_bytes": 11}
     create_archive.assert_awaited_once_with(
         backend,
         source_paths=["first.txt", "second.txt"],
@@ -133,10 +133,112 @@ def test_executes_same_connection_extraction(
         "files_extracted": 2,
         "directories_created": 2,
         "extracted_bytes": 10,
+        "files_skipped": 0,
+        "files_replaced": 0,
+        "skipped_members": [],
+        "replaced_members": [],
     }
     extract_archive.assert_awaited_once_with(
         backend,
         archive_path="input.zip",
         destination_root="output",
+        existing_file_policy=None,
+        member_collision_actions={},
         is_cancelled=ANY,
     )
+
+
+def test_extraction_conflicts_become_pending_user_decisions(
+    client: TestClient,
+    auth_headers_user: dict,
+    test_connection: Connection,
+) -> None:
+    prepared = client.post(
+        "/api/archive/operations",
+        headers=auth_headers_user,
+        json={
+            "kind": "extract",
+            "source_connection_id": str(test_connection.id),
+            "source_path": "input.zip",
+            "destination_connection_id": str(test_connection.id),
+            "destination_path": "output",
+        },
+    ).json()
+    backend = AsyncMock()
+    backend.connect.return_value = None
+    backend.disconnect.return_value = None
+
+    with (
+        patch("app.api.archive_operations.SMBBackend", return_value=backend),
+        patch(
+            "app.api.archive_operations.extract_archive_to_new_paths",
+            new=AsyncMock(side_effect=ArchiveExtractionConflicts([ArchiveExtractionConflict("root.txt", "output/root.txt")])),
+        ),
+    ):
+        response = client.post(f"/api/archive/operations/{prepared['id']}/execute-extract", headers=auth_headers_user)
+
+    assert response.status_code == 200
+    assert response.json()["phase"] == "awaiting_user_decision"
+    assert json.loads(response.json()["pending_decision_json"])["conflicts"] == [
+        {"member_path": "root.txt", "target_path": "output/root.txt"}
+    ]
+
+    decision = client.post(
+        f"/api/archive/operations/{prepared['id']}/decide-extraction",
+        headers=auth_headers_user,
+        json={"action": "skip_all"},
+    )
+    assert decision.status_code == 200
+    assert decision.json()["phase"] == "streaming"
+    assert decision.json()["collision_policy"] == "skip_all"
+
+
+def test_individual_extraction_decision_is_limited_to_pending_member(
+    client: TestClient,
+    auth_headers_user: dict,
+    test_connection: Connection,
+) -> None:
+    prepared = client.post(
+        "/api/archive/operations",
+        headers=auth_headers_user,
+        json={
+            "kind": "extract",
+            "source_connection_id": str(test_connection.id),
+            "source_path": "input.zip",
+            "destination_connection_id": str(test_connection.id),
+            "destination_path": "output",
+        },
+    ).json()
+    backend = AsyncMock()
+    backend.connect.return_value = None
+    backend.disconnect.return_value = None
+    with (
+        patch("app.api.archive_operations.SMBBackend", return_value=backend),
+        patch(
+            "app.api.archive_operations.extract_archive_to_new_paths",
+            new=AsyncMock(side_effect=ArchiveExtractionConflicts([ArchiveExtractionConflict("root.txt", "output/root.txt")])),
+        ),
+    ):
+        client.post(f"/api/archive/operations/{prepared['id']}/execute-extract", headers=auth_headers_user)
+
+    response = client.post(
+        f"/api/archive/operations/{prepared['id']}/decide-extraction",
+        headers=auth_headers_user,
+        json={"action": "skip", "member_path": "root.txt"},
+    )
+
+    assert response.status_code == 200
+    assert response.json()["phase"] == "streaming"
+    assert response.json()["collision_policy"] is None
+    assert json.loads(response.json()["checkpoint_json"]) == {"member_collision_actions": {"root.txt": "skip"}}
+
+    with patch(
+        "app.api.archive_operations.extract_archive_to_new_paths",
+        new=AsyncMock(return_value=ArchiveExtractionResult(1, 1, 6, files_skipped=1, skipped_members=("root.txt",))),
+    ) as extract_archive:
+        resumed = client.post(f"/api/archive/operations/{prepared['id']}/execute-extract", headers=auth_headers_user)
+
+    assert resumed.status_code == 200
+    assert resumed.json()["phase"] == "completed"
+    assert json.loads(resumed.json()["checkpoint_json"])["skipped_members"] == ["root.txt"]
+    assert extract_archive.await_args.kwargs["member_collision_actions"] == {"root.txt": "skip"}

@@ -1,11 +1,12 @@
 """Same-executor direct ZIP extraction without archive or member staging."""
 
-from collections.abc import AsyncIterator, Awaitable, Callable
+from collections.abc import AsyncIterator, Awaitable, Callable, Mapping
 from dataclasses import dataclass
+from datetime import datetime
 from typing import Protocol
 
 from app.models.file import FileInfo, FileType
-from app.services.archive.zip_reader import ArchiveFormatError, ZipReader
+from app.services.archive.zip_reader import ArchiveFormatError, ZipEntry, ZipReader
 from app.storage.base import RandomAccessReader
 
 
@@ -31,10 +32,28 @@ class ArchiveExtractionResult:
     files_extracted: int
     directories_created: int
     extracted_bytes: int
+    files_skipped: int = 0
+    files_replaced: int = 0
+    skipped_members: tuple[str, ...] = ()
+    replaced_members: tuple[str, ...] = ()
 
 
 class ArchiveExtractionCancelled(Exception):
     """Raised when extraction is cancelled between bounded member chunks."""
+
+
+@dataclass(frozen=True)
+class ArchiveExtractionConflict:
+    member_path: str
+    target_path: str
+
+
+class ArchiveExtractionConflicts(Exception):
+    """Raised before direct writes when regular-file target collisions exist."""
+
+    def __init__(self, conflicts: list[ArchiveExtractionConflict]) -> None:
+        self.conflicts = conflicts
+        super().__init__("Archive extraction requires a decision for existing destination files")
 
 
 def _target_path(destination_root: str, member_path: str) -> str:
@@ -47,6 +66,8 @@ async def extract_archive_to_new_paths(
     *,
     archive_path: str,
     destination_root: str,
+    existing_file_policy: str | None = None,
+    member_collision_actions: Mapping[str, str] | None = None,
     is_cancelled: Callable[[], Awaitable[bool]] | None = None,
 ) -> ArchiveExtractionResult:
     """Extract safe, readable ZIP members without replacing existing files."""
@@ -58,9 +79,16 @@ async def extract_archive_to_new_paths(
     try:
         zip_reader = ZipReader(random_reader, archive_info.size)
         entries = [entry for entry in await zip_reader.entries() if entry.is_safe]
+        conflicts = await _preflight_file_conflicts(backend, entries, destination_root, existing_file_policy, member_collision_actions)
+        if conflicts:
+            raise ArchiveExtractionConflicts(conflicts)
         created_directories: set[str] = set()
         files_extracted = 0
         extracted_bytes = 0
+        files_skipped = 0
+        files_replaced = 0
+        skipped_members: list[str] = []
+        replaced_members: list[str] = []
         for entry in entries:
             if is_cancelled is not None and await is_cancelled():
                 raise ArchiveExtractionCancelled("Archive extraction was cancelled")
@@ -73,19 +101,103 @@ async def extract_archive_to_new_paths(
             parent = target_path.rpartition("/")[0]
             if parent:
                 await _ensure_directory(backend, parent, created_directories)
+            overwrite = await _should_overwrite_existing(backend, entry, target_path, existing_file_policy, member_collision_actions)
+            if overwrite is None:
+                files_skipped += 1
+                skipped_members.append(entry.path)
+                continue
             written = await backend.write_file_from_stream(
                 target_path,
                 _cancellable_chunks(zip_reader.stream_member(entry.path), is_cancelled),
-                overwrite=False,
+                overwrite=overwrite,
                 source_mtime=entry.modified_at,
             )
             if written != entry.uncompressed_size:
                 raise ArchiveFormatError("Archive extraction output size does not match member metadata")
             files_extracted += 1
             extracted_bytes += written
-        return ArchiveExtractionResult(files_extracted, len(created_directories), extracted_bytes)
+            if overwrite:
+                files_replaced += 1
+                replaced_members.append(entry.path)
+        return ArchiveExtractionResult(
+            files_extracted=files_extracted,
+            directories_created=len(created_directories),
+            extracted_bytes=extracted_bytes,
+            files_skipped=files_skipped,
+            files_replaced=files_replaced,
+            skipped_members=tuple(skipped_members),
+            replaced_members=tuple(replaced_members),
+        )
     finally:
         await random_reader.close()
+
+
+async def _preflight_file_conflicts(
+    backend: ArchiveExtractionBackend,
+    entries: list[ZipEntry],
+    destination_root: str,
+    existing_file_policy: str | None,
+    member_collision_actions: Mapping[str, str] | None,
+) -> list[ArchiveExtractionConflict]:
+    conflicts: list[ArchiveExtractionConflict] = []
+    for entry in entries:
+        if entry.is_directory or entry.encrypted or entry.compression_method not in {0, 8, 12}:
+            continue
+        target_path = _target_path(destination_root, entry.path)
+        try:
+            existing = await backend.get_file_info(target_path)
+        except FileNotFoundError:
+            continue
+        if existing.type != FileType.FILE:
+            raise ArchiveFormatError("Archive extraction destination has a file/directory conflict")
+        member_action = member_collision_actions.get(entry.path) if member_collision_actions is not None else None
+        if member_action not in {"skip", "replace"} and existing_file_policy not in {
+            "skip_all",
+            "replace_all",
+            "replace_older",
+        }:
+            conflicts.append(ArchiveExtractionConflict(member_path=entry.path, target_path=target_path))
+    return conflicts
+
+
+async def _should_overwrite_existing(
+    backend: ArchiveExtractionBackend,
+    entry: ZipEntry,
+    target_path: str,
+    existing_file_policy: str | None,
+    member_collision_actions: Mapping[str, str] | None,
+) -> bool | None:
+    try:
+        existing = await backend.get_file_info(target_path)
+    except FileNotFoundError:
+        return False
+    if existing.type != FileType.FILE:
+        raise ArchiveFormatError("Archive extraction destination has a file/directory conflict")
+    member_action = member_collision_actions.get(entry.path) if member_collision_actions is not None else None
+    if member_action == "skip":
+        return None
+    if member_action == "replace":
+        return True
+    if existing_file_policy == "skip_all":
+        return None
+    if existing_file_policy == "replace_all":
+        return True
+    if existing_file_policy == "replace_older":
+        return _is_strictly_newer(entry.modified_at, existing.modified_at)
+    raise ArchiveExtractionConflicts([ArchiveExtractionConflict(member_path=entry.path, target_path=target_path)])
+
+
+def _is_strictly_newer(member_modified_at: object | None, destination_modified_at: object | None) -> bool | None:
+    """Compare only matching datetime kinds; unknown or mixed-zone times are incomparable."""
+
+    if not isinstance(member_modified_at, datetime) or not isinstance(destination_modified_at, datetime):
+        return None
+    if (member_modified_at.tzinfo is None) != (destination_modified_at.tzinfo is None):
+        return None
+    try:
+        return member_modified_at > destination_modified_at
+    except ValueError:
+        return None
 
 
 async def _ensure_directory(
