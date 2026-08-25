@@ -58,6 +58,91 @@ def test_prepare_read_and_cancel_archive_operation(
     assert second_cancel.json()["cancellation_requested"] is True
 
 
+def test_lists_owner_archive_operations_with_active_filter(
+    client: TestClient,
+    auth_headers_user: dict,
+    test_connection: Connection,
+) -> None:
+    active = client.post(
+        "/api/archive/operations",
+        headers=auth_headers_user,
+        json={
+            "kind": "extract",
+            "source_connection_id": str(test_connection.id),
+            "source_path": "active.zip",
+            "destination_connection_id": str(test_connection.id),
+            "destination_path": "active",
+        },
+    ).json()
+    completed = client.post(
+        "/api/archive/operations",
+        headers=auth_headers_user,
+        json={
+            "kind": "create",
+            "source_connection_id": str(test_connection.id),
+            "source_path": "",
+            "destination_connection_id": str(test_connection.id),
+            "destination_path": "completed.zip",
+            "plan_json": json.dumps({"source_paths": ["source.txt"]}),
+        },
+    ).json()
+    client.post(
+        f"/api/archive/operations/{completed['id']}/phase",
+        headers=auth_headers_user,
+        json={"expected_phase": "prepared", "next_phase": "cancelled"},
+    )
+
+    all_operations = client.get("/api/archive/operations", headers=auth_headers_user)
+    active_operations = client.get("/api/archive/operations?active_only=true", headers=auth_headers_user)
+
+    assert all_operations.status_code == 200
+    assert {operation["id"] for operation in all_operations.json()} >= {active["id"], completed["id"]}
+    assert active_operations.status_code == 200
+    assert [operation["id"] for operation in active_operations.json()] == [active["id"]]
+
+
+def test_mints_companion_session_only_for_local_zip_to_smb_extraction(
+    client: TestClient,
+    auth_headers_user: dict,
+    test_connection: Connection,
+) -> None:
+    prepared = client.post(
+        "/api/archive/operations",
+        headers=auth_headers_user,
+        json={
+            "kind": "extract",
+            "source_connection_id": "local-drive:c",
+            "source_path": "backup.zip",
+            "destination_connection_id": str(test_connection.id),
+            "destination_path": "backup",
+        },
+    ).json()
+
+    session = client.post(f"/api/archive/operations/{prepared['id']}/companion-session", headers=auth_headers_user)
+
+    assert session.status_code == 200
+    assert session.json()["expires_in"] == 900
+    assert session.json()["operation"]["phase"] == "accepted"
+    assert isinstance(session.json()["token"], str)
+
+    repeated = client.post(f"/api/archive/operations/{prepared['id']}/companion-session", headers=auth_headers_user)
+    assert repeated.status_code == 409
+
+    same_provider = client.post(
+        "/api/archive/operations",
+        headers=auth_headers_user,
+        json={
+            "kind": "extract",
+            "source_connection_id": str(test_connection.id),
+            "source_path": "backup.zip",
+            "destination_connection_id": str(test_connection.id),
+            "destination_path": "backup",
+        },
+    ).json()
+    rejected = client.post(f"/api/archive/operations/{same_provider['id']}/companion-session", headers=auth_headers_user)
+    assert rejected.status_code == 422
+
+
 def test_executes_same_connection_creation_from_immutable_plan(
     client: TestClient,
     auth_headers_user: dict,

@@ -859,6 +859,16 @@ class ApiService {
     return response.data;
   }
 
+  async listArchiveOperations(activeOnly = false): Promise<ArchiveOperation[]> {
+    const response = await this.api.get<ArchiveOperation[]>("/archive/operations", { params: { active_only: activeOnly } });
+    return response.data;
+  }
+
+  async getArchiveCompanionSession(operationId: string): Promise<ArchiveCompanionSession> {
+    const response = await this.api.post<ArchiveCompanionSession>(`/archive/operations/${operationId}/companion-session`);
+    return response.data;
+  }
+
   async transitionArchiveOperation(
     operationId: string,
     expectedPhase: ArchiveOperationPhase,

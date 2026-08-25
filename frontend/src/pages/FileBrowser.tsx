@@ -19,11 +19,25 @@
  * @see FileBrowserPane — renders a single pane's UI (breadcrumbs, file list, etc.)
  */
 
-import { AppBar, Box, Container, Divider, Snackbar, Toolbar, Typography, useMediaQuery, useTheme } from "@mui/material";
+import PendingActionsIcon from "@mui/icons-material/PendingActions";
+import {
+  AppBar,
+  Box,
+  Container,
+  Divider,
+  IconButton,
+  Snackbar,
+  Toolbar,
+  Tooltip,
+  Typography,
+  useMediaQuery,
+  useTheme,
+} from "@mui/material";
 import React, { useCallback, useEffect, useLayoutEffect, useMemo, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { useLocation, useNavigate, useParams, useSearchParams } from "react-router-dom";
 import { ArchiveBrowser } from "../components/FileBrowser/ArchiveBrowser";
+import { ArchiveOperationsDialog } from "../components/FileBrowser/ArchiveOperationsDialog";
 import CopyMoveDialog, { type CopyMoveMode, type OverwriteStrategy } from "../components/FileBrowser/CopyMoveDialog";
 import { DesktopToolbar } from "../components/FileBrowser/DesktopToolbar";
 import { DynamicViewer } from "../components/FileBrowser/DynamicViewer";
@@ -326,6 +340,7 @@ const Browser: React.FC = () => {
   const [archiveCreateError, setArchiveCreateError] = useState<string | null>(null);
   const [isCreatingArchive, setIsCreatingArchive] = useState(false);
   const [archiveBrowser, setArchiveBrowser] = useState<{ connectionId: string; archivePath: string } | null>(null);
+  const [archiveOperationsOpen, setArchiveOperationsOpen] = useState(false);
 
   // Overwrite conflict dialog state
   const [conflictDialogOpen, setConflictDialogOpen] = useState(false);
@@ -2385,6 +2400,15 @@ const Browser: React.FC = () => {
               showKeyboardHints={showQuickBarKeyboardHints}
             />
           )}
+          <Tooltip title={t("fileBrowser.archive.operationsTitle")}>
+            <IconButton
+              color="inherit"
+              aria-label={t("fileBrowser.archive.operationsTitle")}
+              onClick={() => setArchiveOperationsOpen(true)}
+            >
+              <PendingActionsIcon />
+            </IconButton>
+          </Tooltip>
         </Toolbar>
       </AppBar>
       {/* Secondary action strip — view mode & sort controls for the active pane (desktop only) */}
@@ -2591,6 +2615,7 @@ const Browser: React.FC = () => {
           onExtracted={handleArchiveExtracted}
         />
       ) : null}
+      <ArchiveOperationsDialog open={archiveOperationsOpen} onClose={() => setArchiveOperationsOpen(false)} />
       {/* Companion app guidance hint */}
       <Snackbar
         open={companionHintOpen}

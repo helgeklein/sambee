@@ -521,6 +521,12 @@ export interface ArchiveOperation {
   heartbeat_at: string;
 }
 
+export interface ArchiveCompanionSession {
+  token: string;
+  expires_in: number;
+  operation: ArchiveOperation;
+}
+
 export type ArchiveExtractionDecisionAction = "skip" | "skip_all" | "replace" | "replace_all" | "replace_older" | "rename" | "cancel";
 
 /** Canonical local-drive target returned before activating a local entry. */

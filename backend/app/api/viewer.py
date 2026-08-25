@@ -1,5 +1,6 @@
 import asyncio
 import hashlib
+import mimetypes
 import uuid
 from collections.abc import AsyncIterator
 from datetime import datetime, timedelta, timezone
@@ -44,6 +45,7 @@ from app.utils.file_type_registry import needs_processing
 
 router = APIRouter()
 logger = get_logger(__name__)
+MAX_ARCHIVE_MEMBER_PREVIEW_BYTES = 5 * 1024 * 1024
 
 
 @router.get("/{connection_id}/archive/member")
@@ -67,7 +69,12 @@ async def stream_archive_member(
             raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_CONTENT, detail="Archive path must identify a regular file")
         reader = await backend.open_random_access_reader(archive_path)
         zip_reader = ZipReader(reader, archive_info.size)
-        await zip_reader.validate_member(member_path)
+        member = await zip_reader.validate_member(member_path)
+        if not download and member.uncompressed_size > MAX_ARCHIVE_MEMBER_PREVIEW_BYTES:
+            raise HTTPException(
+                status_code=status.HTTP_413_REQUEST_ENTITY_TOO_LARGE,
+                detail="Archive member exceeds the inline preview size limit",
+            )
         member_name = member_path.replace("\\", "/").rsplit("/", 1)[-1]
 
         async def stream_member() -> AsyncIterator[bytes]:
@@ -85,7 +92,7 @@ async def stream_archive_member(
         disposition = "attachment" if download else "inline"
         return StreamingResponse(
             stream_member(),
-            media_type="application/octet-stream",
+            media_type=mimetypes.guess_type(member_name)[0] or "application/octet-stream",
             headers={"Content-Disposition": build_content_disposition(disposition, member_name)},
         )
     except ArchiveFormatError as exc:

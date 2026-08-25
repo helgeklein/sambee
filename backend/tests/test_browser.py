@@ -263,8 +263,40 @@ class TestStreamArchiveMember:
 
         assert response.status_code == 200
         assert response.content == b"hello"
+        assert response.headers["content-type"].startswith("text/plain")
         assert response.headers["content-disposition"].startswith("inline;")
         assert archive_reader.closed is True
+
+    def test_rejects_oversized_inline_archive_member_before_streaming(
+        self,
+        client: TestClient,
+        auth_headers_user: dict,
+        test_connection: Connection,
+    ):
+        data = _archive_bytes()
+        backend = AsyncMock()
+        backend.connect.return_value = None
+        backend.disconnect.return_value = None
+        backend.get_file_info.return_value = FileInfo(
+            name="backup.zip",
+            path="backup.zip",
+            type=FileType.FILE,
+            size=len(data),
+        )
+        backend.open_random_access_reader = AsyncMock(return_value=_MemoryRandomAccessReader(data))
+
+        with (
+            patch("app.api.viewer.SMBBackend", return_value=backend),
+            patch("app.api.viewer.MAX_ARCHIVE_MEMBER_PREVIEW_BYTES", 1),
+        ):
+            response = client.get(
+                f"/api/viewer/{test_connection.id}/archive/member",
+                headers=auth_headers_user,
+                params={"archive_path": "backup.zip", "member_path": "docs/readme.txt"},
+            )
+
+        assert response.status_code == 413
+        assert response.json()["detail"] == "Archive member exceeds the inline preview size limit"
 
 
 @pytest.mark.integration

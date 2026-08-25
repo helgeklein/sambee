@@ -55,6 +55,9 @@ pub enum ApiError {
     #[error("Too many requests: {0}")]
     TooManyRequests(String),
 
+    #[error("Payload too large: {0}")]
+    PayloadTooLarge(String),
+
     #[error("Conflict")]
     Conflict(Value),
 
@@ -121,6 +124,7 @@ impl IntoResponse for ApiError {
             ApiError::Forbidden(msg) => (StatusCode::FORBIDDEN, Value::String(msg), None),
             ApiError::ForbiddenWithCode { message, code } => (StatusCode::FORBIDDEN, Value::String(message), Some(code)),
             ApiError::TooManyRequests(msg) => (StatusCode::TOO_MANY_REQUESTS, Value::String(msg), None),
+            ApiError::PayloadTooLarge(msg) => (StatusCode::PAYLOAD_TOO_LARGE, Value::String(msg), None),
             ApiError::Conflict(val) => (StatusCode::CONFLICT, val, None),
             ApiError::ConflictWithCode { message, code } => (StatusCode::CONFLICT, Value::String(message), Some(code)),
             ApiError::Io(ref e) => {

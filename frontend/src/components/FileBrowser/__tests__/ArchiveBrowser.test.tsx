@@ -121,6 +121,36 @@ describe("ArchiveBrowser", () => {
     });
   });
 
+  it("opens a read-only inline preview for previewable archive members", async () => {
+    const user = userEvent.setup();
+    vi.mocked(api.listArchiveDirectory).mockResolvedValue({
+      archive: { path: "archive.zip", size: 1024 },
+      path: "",
+      items: [
+        {
+          name: "readme.txt",
+          path: "readme.txt",
+          type: FileType.FILE,
+          size: 5,
+          state: "readable",
+          is_hidden: false,
+        },
+      ],
+      total: 1,
+      next_cursor: null,
+      page_size: 100,
+    });
+    vi.mocked(api.getArchiveMember).mockResolvedValue(new Blob(["hello"], { type: "text/plain" }));
+
+    render(<ArchiveBrowser connectionId="local-drive:c" archivePath="archive.zip" onClose={vi.fn()} />);
+
+    await user.click(await screen.findByRole("button", { name: /readme.txt/i }));
+
+    expect(await screen.findByRole("dialog", { name: "readme.txt" })).toBeInTheDocument();
+    expect(await screen.findByText("hello")).toBeInTheDocument();
+    expect(api.getArchiveMember).toHaveBeenCalledWith("local-drive:c", "archive.zip", "readme.txt");
+  });
+
   it("extracts local archives through Companion instead of the SMB operation API", async () => {
     const user = userEvent.setup();
     const onExtracted = vi.fn();

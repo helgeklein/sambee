@@ -42,6 +42,8 @@ use super::AppState;
 
 /// Characters forbidden in file/directory names (matches backend validation).
 const FORBIDDEN_NAME_CHARS: &[char] = &['\\', '/', ':', '*', '?', '"', '<', '>', '|'];
+/// Largest archive member returned inline for a browser preview.
+const MAX_ARCHIVE_MEMBER_PREVIEW_BYTES: u64 = 5 * 1024 * 1024;
 
 /// Prefix used by the frontend for synthetic local-drive connection IDs.
 const LOCAL_DRIVE_PREFIX: &str = "local-drive:";
@@ -736,10 +738,15 @@ pub async fn viewer_archive_member(Path(drive): Path<String>, Query(query): Quer
     let member_path = query.member_path.replace('\\', "/");
     let validation_path = archive_path.clone();
     let validation_member_path = member_path.clone();
-    tokio::task::spawn_blocking(move || validate_local_archive_member(&validation_path, &validation_member_path))
+    let member = tokio::task::spawn_blocking(move || validate_local_archive_member(&validation_path, &validation_member_path))
         .await
         .map_err(|error| ApiError::Internal(format!("Local archive validation task failed: {error}")))?
         .map_err(map_local_archive_read_error)?;
+    if !query.download && member.uncompressed_size > MAX_ARCHIVE_MEMBER_PREVIEW_BYTES {
+        return Err(ApiError::PayloadTooLarge(
+            "Archive member exceeds the inline preview size limit".to_string(),
+        ));
+    }
 
     let (writer, reader) = tokio::io::duplex(ARCHIVE_COPY_BUFFER_SIZE);
     tokio::task::spawn_blocking(move || {
@@ -751,13 +758,14 @@ pub async fn viewer_archive_member(Path(drive): Path<String>, Query(query): Quer
 
     let normalized_member_path = query.member_path.replace('\\', "/");
     let member_name = normalized_member_path.rsplit('/').next().unwrap_or("download");
+    let mime_type = mime_guess::from_path(member_name).first_or_octet_stream().to_string();
     let disposition = format!(
         "{}; filename=\"{member_name}\"",
         if query.download { "attachment" } else { "inline" }
     );
     Response::builder()
         .status(StatusCode::OK)
-        .header("Content-Type", FALLBACK_MIME)
+        .header("Content-Type", mime_type)
         .header(
             "Content-Disposition",
             HeaderValue::from_str(&disposition).unwrap_or_else(|_| HeaderValue::from_static("attachment")),

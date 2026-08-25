@@ -88,6 +88,14 @@ class ArchiveOperationTransition(SQLModel):
     next_phase: ArchiveOperationPhase
 
 
+class ArchiveCompanionSession(SQLModel):
+    """Short-lived backend capability handed to the paired Companion executor."""
+
+    token: str
+    expires_in: int
+    operation: ArchiveOperationRead
+
+
 class ArchiveExtractionDecision(SQLModel):
     action: Literal["skip", "skip_all", "replace", "replace_all", "replace_older", "rename", "cancel"]
     member_path: str | None = None

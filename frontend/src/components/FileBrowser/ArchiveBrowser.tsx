@@ -29,6 +29,7 @@ import { isLocalDrive } from "../../services/backendRouter";
 import type { ArchiveEntryInfo, ArchiveOperation } from "../../types";
 import { ArchiveExtractDialog } from "./ArchiveExtractDialog";
 import { ArchiveExtractionConflictDialog } from "./ArchiveExtractionConflictDialog";
+import { ArchiveMemberPreview, canPreviewArchiveMember } from "./ArchiveMemberPreview";
 
 const LOCAL_ARCHIVE_EXTRACTION_PARTIAL_CODE = "local_archive_extraction_partial";
 
@@ -75,6 +76,7 @@ export function ArchiveBrowser({ connectionId, archivePath, onClose, onExtracted
     operationId: string;
     conflicts: Array<{ member_path: string; target_path: string; is_directory?: boolean }>;
   } | null>(null);
+  const [previewMember, setPreviewMember] = useState<{ name: string; path: string; size?: number | null } | null>(null);
 
   useEffect(() => {
     triggerElementRef.current = document.activeElement instanceof HTMLElement ? document.activeElement : null;
@@ -360,6 +362,8 @@ export function ArchiveBrowser({ connectionId, archivePath, onClose, onExtracted
                 onClick={() => {
                   if (item.type === "directory") {
                     navigateTo(item.path);
+                  } else if (canPreviewArchiveMember(item.name, item.size)) {
+                    setPreviewMember({ name: item.name, path: item.path, size: item.size });
                   } else {
                     void downloadMember(item.path);
                   }
@@ -401,6 +405,14 @@ export function ArchiveBrowser({ connectionId, archivePath, onClose, onExtracted
         open={pendingExtraction !== null}
         onDecision={resolveExtractionConflict}
       />
+      {previewMember ? (
+        <ArchiveMemberPreview
+          connectionId={connectionId}
+          archivePath={archivePath}
+          member={previewMember}
+          onClose={() => setPreviewMember(null)}
+        />
+      ) : null}
     </Box>
   );
 }

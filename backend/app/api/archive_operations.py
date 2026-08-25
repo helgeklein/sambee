@@ -2,15 +2,18 @@
 
 import json
 import uuid
+from datetime import timedelta
 
-from fastapi import APIRouter, Depends, HTTPException, status
-from sqlmodel import Session
+from fastapi import APIRouter, Depends, HTTPException, Query, status
+from sqlmodel import Session, select
 
 from app.api._smb_helpers import build_smb_backend, disconnect_backend_safely
 from app.core.logging import get_logger, set_user
-from app.core.security import get_current_user_with_auth_check
+from app.core.security import create_access_token, get_current_user_with_auth_check
 from app.db.database import get_session
 from app.models.archive_operation import (
+    TERMINAL_ARCHIVE_OPERATION_PHASES,
+    ArchiveCompanionSession,
     ArchiveExtractionDecision,
     ArchiveOperation,
     ArchiveOperationKind,
@@ -35,6 +38,11 @@ from app.storage.smb import SMBBackend
 
 router = APIRouter()
 logger = get_logger(__name__)
+
+ARCHIVE_COMPANION_TOKEN_EXPIRE_MINUTES = 15
+ARCHIVE_COMPANION_TOKEN_CLAIM = "archive_operation"
+ARCHIVE_COMPANION_TOKEN_CLASS = "archive_operation"
+ARCHIVE_COMPANION_EXTRACTION_PURPOSE = "local_zip_to_smb_extract"
 
 
 def _verify_operation_connection_scope(
@@ -90,6 +98,73 @@ async def get_archive_operation(
     """Return one operation only to its initiating user."""
 
     return _get_owned_operation_or_404(session, current_user, operation_id)
+
+
+@router.get("/operations", response_model=list[ArchiveOperationRead])
+async def list_archive_operations(
+    active_only: bool = Query(default=False),
+    limit: int = Query(default=25, ge=1, le=100),
+    current_user: User = Depends(get_current_user_with_auth_check),
+    session: Session = Depends(get_session),
+) -> list[ArchiveOperation]:
+    """List recent owner-scoped archive operations for durable status recovery."""
+
+    query = select(ArchiveOperation).where(ArchiveOperation.user_id == current_user.id)
+    if active_only:
+        query = query.where(ArchiveOperation.phase.not_in(TERMINAL_ARCHIVE_OPERATION_PHASES))
+    query = query.order_by(ArchiveOperation.updated_at.desc()).limit(limit)
+    return list(session.exec(query).all())
+
+
+@router.post("/operations/{operation_id}/companion-session", response_model=ArchiveCompanionSession)
+async def create_archive_companion_session(
+    operation_id: uuid.UUID,
+    current_user: User = Depends(get_current_user_with_auth_check),
+    session: Session = Depends(get_session),
+) -> ArchiveCompanionSession:
+    """Mint a capability limited to one local-ZIP to SMB extraction operation."""
+
+    operation = _get_owned_operation_or_404(session, current_user, operation_id)
+    if (
+        operation.kind != ArchiveOperationKind.EXTRACT
+        or not operation.source_connection_id.startswith(LOCAL_DRIVE_PREFIX)
+        or operation.destination_connection_id.startswith(LOCAL_DRIVE_PREFIX)
+    ):
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
+            detail="Archive Companion execution is only available for local ZIP extraction to SMB",
+        )
+    if operation.phase != ArchiveOperationPhase.PREPARED:
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="Archive operation is not ready for Companion execution")
+
+    operation = update_operation_phase(
+        session,
+        operation,
+        expected_phase=ArchiveOperationPhase.PREPARED,
+        next_phase=ArchiveOperationPhase.ACCEPTED,
+    )
+    token = create_access_token(
+        data={
+            "sub": current_user.username,
+            "tv": current_user.token_version,
+            "jti": uuid.uuid4().hex,
+            ARCHIVE_COMPANION_TOKEN_CLAIM: True,
+            "token_class": ARCHIVE_COMPANION_TOKEN_CLASS,
+            "purpose": ARCHIVE_COMPANION_EXTRACTION_PURPOSE,
+            "archive_operation_id": str(operation.id),
+            "source_connection_id": operation.source_connection_id,
+            "source_path": operation.source_path,
+            "destination_connection_id": operation.destination_connection_id,
+            "destination_path": operation.destination_path,
+            "manifest_hash": operation.manifest_hash,
+        },
+        expires_delta=timedelta(minutes=ARCHIVE_COMPANION_TOKEN_EXPIRE_MINUTES),
+    )
+    return ArchiveCompanionSession(
+        token=token,
+        expires_in=ARCHIVE_COMPANION_TOKEN_EXPIRE_MINUTES * 60,
+        operation=ArchiveOperationRead.model_validate(operation),
+    )
 
 
 @router.post("/operations/{operation_id}/phase", response_model=ArchiveOperationRead)
