@@ -17,7 +17,7 @@ import {
   Toolbar,
   Typography,
 } from "@mui/material";
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 import api from "../../services/api";
 import type { ArchiveEntryInfo } from "../../types";
@@ -32,6 +32,7 @@ interface ArchiveBrowserProps {
 
 export function ArchiveBrowser({ connectionId, archivePath, onClose }: ArchiveBrowserProps) {
   const { t } = useTranslation();
+  const triggerElementRef = useRef<HTMLElement | null>(null);
   const [virtualPath, setVirtualPath] = useState("");
   const [items, setItems] = useState<ArchiveEntryInfo[]>([]);
   const [pageCursor, setPageCursor] = useState<string | null>(null);
@@ -44,8 +45,18 @@ export function ArchiveBrowser({ connectionId, archivePath, onClose }: ArchiveBr
   const [isExtracting, setIsExtracting] = useState(false);
   const [pendingExtraction, setPendingExtraction] = useState<{
     operationId: string;
-    conflicts: Array<{ member_path: string; target_path: string }>;
+    conflicts: Array<{ member_path: string; target_path: string; is_directory?: boolean }>;
   } | null>(null);
+
+  useEffect(() => {
+    triggerElementRef.current = document.activeElement instanceof HTMLElement ? document.activeElement : null;
+    return () => {
+      const triggerElement = triggerElementRef.current;
+      if (triggerElement?.isConnected) {
+        requestAnimationFrame(() => triggerElement.focus());
+      }
+    };
+  }, []);
 
   useEffect(() => {
     const controller = new AbortController();

@@ -182,7 +182,7 @@ def test_extraction_conflicts_become_pending_user_decisions(
     assert response.status_code == 200
     assert response.json()["phase"] == "awaiting_user_decision"
     assert json.loads(response.json()["pending_decision_json"])["conflicts"] == [
-        {"member_path": "root.txt", "target_path": "output/root.txt"}
+        {"member_path": "root.txt", "target_path": "output/root.txt", "is_directory": False}
     ]
 
     decision = client.post(

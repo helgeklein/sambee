@@ -614,7 +614,7 @@ describe("Browser Component - Interactions", () => {
       });
     });
 
-    it("returns focus to the file list after cancelling the ZIP viewer picker", async () => {
+    it("returns focus to the file list after closing the ZIP archive browser", async () => {
       const user = userEvent.setup();
 
       vi.mocked(api.listDirectory).mockResolvedValue({
@@ -649,12 +649,11 @@ describe("Browser Component - Interactions", () => {
       const virtualList = await screen.findByTestId("virtual-list");
       await user.click(virtualList);
       await user.keyboard("{Enter}");
-      await screen.findByRole("dialog", { name: "Choose Viewer" });
+      const closeArchiveButton = await screen.findByRole("button", { name: "Close archive browser" });
 
-      await user.keyboard("{Escape}");
+      await user.click(closeArchiveButton);
 
       await waitFor(() => {
-        expect(screen.queryByRole("dialog", { name: "Choose Viewer" })).not.toBeInTheDocument();
         expect(screen.getByTestId("file-list-container")).toHaveFocus();
       });
 

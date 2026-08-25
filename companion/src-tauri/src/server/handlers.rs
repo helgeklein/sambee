@@ -19,11 +19,14 @@ use serde::Deserialize;
 use tauri::Emitter;
 use tokio::fs::File;
 use tokio::task::JoinSet;
-use tokio_util::io::ReaderStream;
+use tokio_util::io::{ReaderStream, SyncIoBridge};
 
 use crate::{commands, show_pairing_success, show_pairing_window};
 
-use super::archive::{build_local_archive_manifest, create_local_archive, LocalArchiveError};
+use super::archive::{
+    build_local_archive_manifest, create_local_archive, list_local_archive_directory, stream_local_archive_member,
+    validate_local_archive_member, LocalArchiveError, ARCHIVE_COPY_BUFFER_SIZE,
+};
 use super::auth;
 use super::drives;
 use super::errors::{
@@ -382,6 +385,14 @@ pub struct BrowseQuery {
     pub path: Option<String>,
 }
 
+#[derive(Deserialize)]
+pub struct ArchiveListQuery {
+    pub archive_path: String,
+    pub virtual_path: Option<String>,
+    pub cursor: Option<String>,
+    pub page_size: Option<usize>,
+}
+
 /// `GET /api/browse/{drive}/list` — list directory contents.
 pub async fn browse_list(Path(drive): Path<String>, Query(query): Query<BrowseQuery>) -> Result<Json<DirectoryListing>, ApiError> {
     let base_path = drives::resolve_drive_path(&drive).ok_or_else(|| ApiError::NotFound(format!("Unknown drive: {drive}")))?;
@@ -410,6 +421,76 @@ pub async fn browse_list(Path(drive): Path<String>, Query(query): Query<BrowseQu
         path: normalized_relative,
         items,
         total,
+    }))
+}
+
+/// `GET /api/browse/{drive}/archive/list` — list a bounded virtual ZIP directory page.
+pub async fn browse_list_archive(
+    Path(drive): Path<String>,
+    Query(query): Query<ArchiveListQuery>,
+) -> Result<Json<ArchiveDirectoryListing>, ApiError> {
+    if query.archive_path.trim().is_empty() {
+        return Err(ApiError::BadRequest("Archive path is required".to_string()));
+    }
+    let page_size = query.page_size.unwrap_or(100);
+    if !(1..=500).contains(&page_size) {
+        return Err(ApiError::BadRequest(
+            "Archive listing page size must be between 1 and 500".to_string(),
+        ));
+    }
+    let base_path = drives::resolve_drive_path(&drive).ok_or_else(|| ApiError::NotFound(format!("Unknown drive: {drive}")))?;
+    let archive_path = resolve_safe_path(&base_path, &drive, &query.archive_path)?;
+    let metadata = tokio::fs::metadata(&archive_path)
+        .await
+        .map_err(|error| map_io_error(error, &archive_path))?;
+    if !metadata.is_file() {
+        return Err(ApiError::BadRequest("Archive path must identify a regular file".to_string()));
+    }
+    let archive_size = metadata.len();
+    let archive_modified_at = metadata.modified().ok().map(DateTime::<Utc>::from);
+    let virtual_path = query.virtual_path.unwrap_or_default();
+    let requested_virtual_path = virtual_path.clone();
+    let cursor = query.cursor;
+    let page = tokio::task::spawn_blocking(move || {
+        list_local_archive_directory(&archive_path, &requested_virtual_path, cursor.as_deref(), page_size)
+    })
+    .await
+    .map_err(|error| ApiError::Internal(format!("Local archive listing task failed: {error}")))?
+    .map_err(map_local_archive_read_error)?;
+
+    let items = page
+        .entries
+        .into_iter()
+        .map(|entry| ArchiveEntryInfo {
+            name: entry.name.clone(),
+            path: entry.path,
+            file_type: if entry.is_directory { FileType::Directory } else { FileType::File },
+            size: entry.uncompressed_size,
+            compressed_size: entry.compressed_size,
+            compression_method: entry.compression_method,
+            crc32: entry.crc32,
+            modified_at: entry.modified_at,
+            state: if entry.encrypted {
+                ArchiveEntryState::Blocked
+            } else if entry.is_available {
+                ArchiveEntryState::Readable
+            } else {
+                ArchiveEntryState::Unavailable
+            },
+            is_hidden: entry.name.starts_with('.'),
+        })
+        .collect();
+    Ok(Json(ArchiveDirectoryListing {
+        archive: ArchiveIdentity {
+            path: query.archive_path,
+            size: archive_size,
+            modified_at: archive_modified_at,
+        },
+        path: virtual_path.trim_end_matches('/').to_string(),
+        items,
+        total: page.total,
+        next_cursor: page.next_cursor,
+        page_size,
     }))
 }
 
@@ -572,6 +653,14 @@ pub struct ViewerQuery {
     pub no_resizing: Option<bool>,
 }
 
+#[derive(Deserialize)]
+pub struct ArchiveMemberQuery {
+    pub archive_path: String,
+    pub member_path: String,
+    #[serde(default)]
+    pub download: bool,
+}
+
 /// Default MIME type for files we can't identify.
 const FALLBACK_MIME: &str = "application/octet-stream";
 
@@ -627,6 +716,53 @@ pub async fn viewer_download(Path(drive): Path<String>, Query(query): Query<View
         .header("Content-Length", content_length)
         .body(body)
         .map_err(|e| ApiError::Internal(format!("Failed to build response: {e}")))
+}
+
+/// `GET /api/viewer/{drive}/archive/member` — stream a parser-validated archive member.
+pub async fn viewer_archive_member(Path(drive): Path<String>, Query(query): Query<ArchiveMemberQuery>) -> Result<Response<Body>, ApiError> {
+    if query.archive_path.trim().is_empty() || query.member_path.trim().is_empty() {
+        return Err(ApiError::BadRequest("Archive and member paths are required".to_string()));
+    }
+    let base_path = drives::resolve_drive_path(&drive).ok_or_else(|| ApiError::NotFound(format!("Unknown drive: {drive}")))?;
+    let archive_path = resolve_safe_path(&base_path, &drive, &query.archive_path)?;
+    let metadata = tokio::fs::metadata(&archive_path)
+        .await
+        .map_err(|error| map_io_error(error, &archive_path))?;
+    if !metadata.is_file() {
+        return Err(ApiError::BadRequest("Archive path must identify a regular file".to_string()));
+    }
+
+    let member_path = query.member_path.replace('\\', "/");
+    let validation_path = archive_path.clone();
+    let validation_member_path = member_path.clone();
+    tokio::task::spawn_blocking(move || validate_local_archive_member(&validation_path, &validation_member_path))
+        .await
+        .map_err(|error| ApiError::Internal(format!("Local archive validation task failed: {error}")))?
+        .map_err(map_local_archive_read_error)?;
+
+    let (writer, reader) = tokio::io::duplex(ARCHIVE_COPY_BUFFER_SIZE);
+    tokio::task::spawn_blocking(move || {
+        let mut output = SyncIoBridge::new(writer);
+        if let Err(error) = stream_local_archive_member(&archive_path, &member_path, &mut output) {
+            warn!("Local archive member stream failed: {error}");
+        }
+    });
+
+    let normalized_member_path = query.member_path.replace('\\', "/");
+    let member_name = normalized_member_path.rsplit('/').next().unwrap_or("download");
+    let disposition = format!(
+        "{}; filename=\"{member_name}\"",
+        if query.download { "attachment" } else { "inline" }
+    );
+    Response::builder()
+        .status(StatusCode::OK)
+        .header("Content-Type", FALLBACK_MIME)
+        .header(
+            "Content-Disposition",
+            HeaderValue::from_str(&disposition).unwrap_or_else(|_| HeaderValue::from_static("attachment")),
+        )
+        .body(Body::from_stream(ReaderStream::new(reader)))
+        .map_err(|error| ApiError::Internal(format!("Failed to build archive member response: {error}")))
 }
 
 /// Resolve drive + query path for viewer endpoints, returning the full path and MIME type.
@@ -1005,6 +1141,11 @@ fn map_local_archive_error(error: LocalArchiveError) -> ApiError {
             ApiError::Internal("Local archive creation failed".to_string())
         }
     }
+}
+
+fn map_local_archive_read_error(error: super::archive::LocalArchiveReadError) -> ApiError {
+    warn!("Local archive could not be parsed: {error}");
+    ApiError::BadRequest(error.to_string())
 }
 
 // ─── Directory Search ────────────────────────────────────────────────────────

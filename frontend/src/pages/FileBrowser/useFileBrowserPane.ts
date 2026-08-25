@@ -1494,6 +1494,10 @@ export function useFileBrowserPane(config: UseFileBrowserPaneConfig): UseFileBro
       }
 
       const filePath = currentPathRef.current ? `${currentPathRef.current}/${file.name}` : file.name;
+      if (file.type === "file" && isZipArchive(file.name)) {
+        onOpenArchive?.(connectionIdRef.current, filePath);
+        return;
+      }
       if (isLocalDrive(connectionIdRef.current)) {
         void resolveAndActivateLocalEntry(file, filePath, "associated-viewer");
         return;
@@ -1516,11 +1520,6 @@ export function useFileBrowserPane(config: UseFileBrowserPaneConfig): UseFileBro
         return;
       }
 
-      if (!isLocalDrive(connectionIdRef.current) && isZipArchive(file.name)) {
-        onOpenArchive?.(connectionIdRef.current, filePath);
-        return;
-      }
-
       const mimeType = file.mime_type || "application/octet-stream";
 
       openFileWithAssociatedViewer(file, filePath, mimeType);
@@ -1531,6 +1530,10 @@ export function useFileBrowserPane(config: UseFileBrowserPaneConfig): UseFileBro
   const handleOpenFileForFile = useCallback(
     (file: FileEntry, index: number, mode: BrowserOpenMode = "associated-viewer") => {
       const filePath = currentPathRef.current ? `${currentPathRef.current}/${file.name}` : file.name;
+      if (file.type === "file" && isZipArchive(file.name)) {
+        onOpenArchive?.(connectionIdRef.current, filePath);
+        return;
+      }
       if (isLocalDrive(connectionIdRef.current)) {
         void resolveAndActivateLocalEntry(file, filePath, mode);
         return;
@@ -1538,11 +1541,6 @@ export function useFileBrowserPane(config: UseFileBrowserPaneConfig): UseFileBro
 
       if (file.type === "directory") {
         handleFileClick(file, index);
-        return;
-      }
-
-      if (isZipArchive(file.name)) {
-        onOpenArchive?.(connectionIdRef.current, filePath);
         return;
       }
 

@@ -115,6 +115,57 @@ pub struct ArchiveCreationResponse {
     pub source_bytes: u64,
 }
 
+/// Stable identity for a locally hosted archive.
+#[derive(Debug, Serialize)]
+pub struct ArchiveIdentity {
+    pub path: String,
+    pub size: u64,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub modified_at: Option<DateTime<Utc>>,
+}
+
+/// Whether an archive member can be read by the current Companion capability.
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "lowercase")]
+pub enum ArchiveEntryState {
+    Readable,
+    Blocked,
+    Unavailable,
+}
+
+/// Metadata for a single immediate virtual archive child.
+#[derive(Debug, Serialize)]
+pub struct ArchiveEntryInfo {
+    pub name: String,
+    pub path: String,
+    #[serde(rename = "type")]
+    pub file_type: FileType,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub size: Option<u64>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub compressed_size: Option<u64>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub compression_method: Option<u16>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub crc32: Option<u32>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub modified_at: Option<DateTime<Utc>>,
+    pub state: ArchiveEntryState,
+    pub is_hidden: bool,
+}
+
+/// A bounded page of virtual ZIP directory entries.
+#[derive(Debug, Serialize)]
+pub struct ArchiveDirectoryListing {
+    pub archive: ArchiveIdentity,
+    pub path: String,
+    pub items: Vec<ArchiveEntryInfo>,
+    pub total: usize,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub next_cursor: Option<String>,
+    pub page_size: usize,
+}
+
 /// The final local-drive target selected for an activation request.
 #[derive(Debug, Serialize)]
 pub struct ActivationResolution {

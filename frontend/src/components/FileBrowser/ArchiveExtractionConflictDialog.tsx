@@ -2,10 +2,11 @@ import { Alert, Box, Button, CircularProgress, List, ListItem, ListItemText, Tex
 import { useState } from "react";
 import { useTranslation } from "react-i18next";
 import { ResponsiveFormDialog } from "../Admin/ResponsiveFormDialog";
+import { SettingsFormGroup, SettingsFormRow, SettingsFormSurface, settingsFormOutlinedControlSx } from "../Settings/SettingsFormLayout";
 
 interface ArchiveExtractionConflictDialogProps {
   open: boolean;
-  conflicts: Array<{ member_path: string; target_path: string }>;
+  conflicts: Array<{ member_path: string; target_path: string; is_directory?: boolean }>;
   isSubmitting: boolean;
   error: string | null;
   onDecision: (
@@ -24,6 +25,11 @@ function suggestedRenameTarget(memberPath: string): string {
   return `${directory}${fileName.slice(0, extensionIndex)} (copy)${fileName.slice(extensionIndex)}`;
 }
 
+function isSafeRelativePath(path: string): boolean {
+  const normalized = path.trim().replaceAll("\\", "/");
+  return Boolean(normalized) && !normalized.startsWith("/") && normalized.split("/").every((part) => part && part !== "." && part !== "..");
+}
+
 export function ArchiveExtractionConflictDialog({
   open,
   conflicts,
@@ -34,10 +40,21 @@ export function ArchiveExtractionConflictDialog({
   const { t } = useTranslation();
   const [renameMemberPath, setRenameMemberPath] = useState<string | null>(null);
   const [renameTargetPath, setRenameTargetPath] = useState("");
+  const [renameValidationError, setRenameValidationError] = useState(false);
 
   const beginRename = (memberPath: string) => {
     setRenameMemberPath(memberPath);
     setRenameTargetPath(suggestedRenameTarget(memberPath));
+    setRenameValidationError(false);
+  };
+
+  const confirmRename = () => {
+    if (!renameMemberPath) return;
+    if (!isSafeRelativePath(renameTargetPath)) {
+      setRenameValidationError(true);
+      return;
+    }
+    onDecision("rename", renameMemberPath, renameTargetPath.trim().replaceAll("\\", "/"));
   };
 
   return (
@@ -80,12 +97,16 @@ export function ArchiveExtractionConflictDialog({
                   <Box sx={{ display: "flex", flexDirection: "column", gap: 1, mt: 0.5 }}>
                     <Typography variant="body2">{conflict.target_path}</Typography>
                     <Box sx={{ display: "flex", gap: 1, flexWrap: "wrap" }}>
-                      <Button size="small" onClick={() => onDecision("skip", conflict.member_path)} disabled={isSubmitting}>
-                        {t("fileBrowser.archive.buttonSkip")}
-                      </Button>
-                      <Button size="small" onClick={() => onDecision("replace", conflict.member_path)} disabled={isSubmitting}>
-                        {t("fileBrowser.archive.buttonReplace")}
-                      </Button>
+                      {!conflict.is_directory ? (
+                        <>
+                          <Button size="small" onClick={() => onDecision("skip", conflict.member_path)} disabled={isSubmitting}>
+                            {t("fileBrowser.archive.buttonSkip")}
+                          </Button>
+                          <Button size="small" onClick={() => onDecision("replace", conflict.member_path)} disabled={isSubmitting}>
+                            {t("fileBrowser.archive.buttonReplace")}
+                          </Button>
+                        </>
+                      ) : null}
                       <Button size="small" onClick={() => beginRename(conflict.member_path)} disabled={isSubmitting}>
                         {t("fileBrowser.archive.buttonRename")}
                       </Button>
@@ -97,23 +118,29 @@ export function ArchiveExtractionConflictDialog({
           ))}
         </List>
         {renameMemberPath ? (
-          <Box sx={{ display: "flex", gap: 1 }}>
-            <TextField
-              autoFocus
-              fullWidth
-              label={t("fileBrowser.archive.renameTargetLabel")}
-              value={renameTargetPath}
-              onChange={(event) => setRenameTargetPath(event.target.value)}
-              disabled={isSubmitting}
-            />
-            <Button
-              variant="contained"
-              onClick={() => onDecision("rename", renameMemberPath, renameTargetPath)}
-              disabled={isSubmitting || !renameTargetPath.trim()}
-            >
-              {t("fileBrowser.archive.buttonRename")}
-            </Button>
-          </Box>
+          <SettingsFormSurface>
+            <SettingsFormGroup>
+              <SettingsFormRow sx={{ display: { md: "block" } }}>
+                <TextField
+                  autoFocus
+                  fullWidth
+                  label={t("fileBrowser.archive.renameTargetLabel")}
+                  value={renameTargetPath}
+                  onChange={(event) => {
+                    setRenameTargetPath(event.target.value);
+                    setRenameValidationError(false);
+                  }}
+                  disabled={isSubmitting}
+                  error={renameValidationError}
+                  helperText={renameValidationError ? t("fileBrowser.archive.validationDestinationUnsafe") : " "}
+                  sx={settingsFormOutlinedControlSx}
+                />
+                <Button variant="contained" onClick={confirmRename} disabled={isSubmitting} sx={{ mt: 1 }}>
+                  {t("fileBrowser.archive.buttonRename")}
+                </Button>
+              </SettingsFormRow>
+            </SettingsFormGroup>
+          </SettingsFormSurface>
         ) : null}
         {conflicts.length > 10 ? (
           <Typography variant="body2">{t("fileBrowser.archive.collisionMore", { count: conflicts.length - 10 })}</Typography>

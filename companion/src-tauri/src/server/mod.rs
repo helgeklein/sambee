@@ -107,6 +107,10 @@ fn build_router(state: Arc<AppState>) -> Router {
         .route("/api/drives", axum::routing::get(handlers::list_drives))
         .route("/api/browse/{drive}/list", axum::routing::get(handlers::browse_list))
         .route(
+            "/api/browse/{drive}/archive/list",
+            axum::routing::get(handlers::browse_list_archive),
+        )
+        .route(
             "/api/browse/{drive}/link-targets",
             axum::routing::get(handlers::browse_list_link_targets),
         )
@@ -134,6 +138,10 @@ fn build_router(state: Arc<AppState>) -> Router {
     let viewer_routes = Router::new()
         .route("/api/viewer/{drive}/file", axum::routing::get(handlers::viewer_file))
         .route("/api/viewer/{drive}/download", axum::routing::get(handlers::viewer_download))
+        .route(
+            "/api/viewer/{drive}/archive/member",
+            axum::routing::get(handlers::viewer_archive_member),
+        )
         .layer(axum::middleware::from_fn_with_state(state.clone(), auth::require_auth_or_query));
 
     // WebSocket route — uses query-param auth (browser WS API has no custom headers).

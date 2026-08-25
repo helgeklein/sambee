@@ -172,6 +172,34 @@ async def test_individual_rename_writes_member_to_the_persisted_target() -> None
 
 
 @pytest.mark.asyncio
+async def test_directory_rename_remaps_implicit_directory_descendants() -> None:
+    backend = MemoryExtractionBackend(_archive_bytes())
+    backend.files["output/docs"] = b"existing file"
+
+    result = await extract_archive_to_new_paths(
+        backend,
+        archive_path="input.zip",
+        destination_root="output",
+        member_rename_targets={"docs": "renamed-docs"},
+    )
+
+    assert result.renamed_members == ("docs/readme.txt",)
+    assert backend.files["output/docs"] == b"existing file"
+    assert backend.files["output/renamed-docs/readme.txt"] == b"readme"
+
+
+@pytest.mark.asyncio
+async def test_preflights_file_destination_at_implicit_directory_path() -> None:
+    backend = MemoryExtractionBackend(_archive_bytes())
+    backend.files["output/docs"] = b"existing file"
+
+    with pytest.raises(ArchiveExtractionConflicts) as error:
+        await extract_archive_to_new_paths(backend, archive_path="input.zip", destination_root="output")
+
+    assert [(conflict.member_path, conflict.is_directory) for conflict in error.value.conflicts] == [("docs", True)]
+
+
+@pytest.mark.asyncio
 async def test_rename_rejects_unsafe_or_colliding_output_paths() -> None:
     backend = MemoryExtractionBackend(_archive_bytes())
 

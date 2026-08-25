@@ -511,6 +511,41 @@ describe("useFileBrowserPane", () => {
     });
   });
 
+  it("opens a local ZIP in the archive browser instead of resolving a native file", async () => {
+    const localConnection = { ...mockConnections[0], id: "local-drive:c", slug: "c", type: "local" };
+    const onOpenArchive = vi.fn();
+    const archive = {
+      name: "backup.zip",
+      path: "backup.zip",
+      type: FileType.FILE,
+      is_readable: true,
+      is_hidden: false,
+    };
+
+    const { result } = renderHook(
+      () =>
+        useFileBrowserPane({
+          rowHeight: 40,
+          connections: [localConnection],
+          onOpenArchive,
+        }),
+      { wrapper }
+    );
+
+    act(() => {
+      result.current.applyLocation("local-drive:c", "Archives");
+    });
+    await waitFor(() => {
+      expect(result.current.connectionId).toBe("local-drive:c");
+    });
+    act(() => {
+      result.current.handleOpenFileForFile(archive, 0);
+    });
+
+    expect(onOpenArchive).toHaveBeenCalledWith("local-drive:c", "Archives/backup.zip");
+    expect(api.resolveLocalActivation).not.toHaveBeenCalled();
+  });
+
   it("opens the resolved local file rather than its link source", async () => {
     const localConnection = { ...mockConnections[0], id: "local-drive:c", slug: "c", type: "local" };
     const link = {

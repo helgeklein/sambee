@@ -42,9 +42,10 @@ sha2 = "0.10"
 hex = "0.4"
 keyring = { version = "3", features = ["apple-native", "windows-native", "sync-secret-service"] }
 chrono = { version = "0.4", features = ["serde"] }
-tokio-util = { version = "0.7", features = ["io"] }
+tokio-util = { version = "0.7", features = ["io", "io-util"] }
 notify = "8"
 zip = { version = "4.6.1", default-features = false, features = ["deflate-flate2-zlib-rs"] }
+flate2 = { version = "1.1.9", default-features = false, features = ["zlib-rs"] }
 unicode-normalization = "0.1"
 unicode-casefold = "0.2.0"
 

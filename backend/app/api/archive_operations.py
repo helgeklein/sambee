@@ -300,7 +300,14 @@ async def execute_archive_extraction(
             {
                 "kind": "existing_files",
                 "allowed_actions": ["skip", "skip_all", "replace", "replace_all", "replace_older", "rename"],
-                "conflicts": [{"member_path": conflict.member_path, "target_path": conflict.target_path} for conflict in exc.conflicts],
+                "conflicts": [
+                    {
+                        "member_path": conflict.member_path,
+                        "target_path": conflict.target_path,
+                        "is_directory": conflict.is_directory,
+                    }
+                    for conflict in exc.conflicts
+                ],
             },
         )
     except HTTPException:
