@@ -78,6 +78,7 @@ Shortcuts (`.lnk` files), symlinks, and junctions on local drives now show the t
 ## Under the Hood
 
 - Frontend: improved recovery after network unavailability (e.g., after suspend/resume)
+- Security: updated all **dependencies** with known vulnerabilities to fixed versions
 
 ## Internals
 

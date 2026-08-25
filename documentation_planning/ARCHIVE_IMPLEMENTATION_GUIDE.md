@@ -24,6 +24,13 @@ which to make the changes.
 - Source consistency is best effort, using size and modification-time checks.
 - Existing target files are handled interactively during extraction; existing
   target directories remain in place.
+- The first release creates only the portable Stored/Deflate ZIP profile. It
+  uses Deflate level 6 by default, a 64 KiB per-member probe, and Stored only
+  when that probe saves less than 1 KiB and less than 5 percent after method
+  overhead. Native creation profiles are deferred.
+- Inspection chooses a legacy filename encoding automatically. Extraction asks
+  for confirmation before writing only when several safe encodings produce
+  different output paths and browser locale preference breaks the tie.
 - A partial archive is still openable. Serve any readable structure; otherwise
   return the actual archive-read error.
 - A provider without random reads, exclusive creation, and streaming writes
@@ -71,6 +78,15 @@ Define at least:
 Use normalized POSIX-style archive paths internally. Keep physical provider paths
 and archive entry paths in separate fields throughout the API.
 
+All browser operation requests use typed JSON bodies. Every phase-changing body
+contains `expected_phase` and `idempotency_key`; executor-originated bodies also
+contain `lease_epoch`. Return operation reads with `operation_id`, `phase`,
+`progress`, optional `pending_decision`, and optional `error`. Return errors as
+`{ "code", "message", "retryable" }`: use 409 for a phase or collision
+conflict, 410 for an expired operation, 422 for invalid input, and 429 for a
+full operation queue. Archive listings default to 100 items and reject page
+sizes over 500.
+
 ### Persist operation state
 
 Create `backend/app/models/archive_operation.py` with a SQLModel table. Include:
@@ -89,9 +105,11 @@ Create `backend/app/models/archive_operation.py` with a SQLModel table. Include:
 The immutable operation plan is the authorization source after preparation. It
 contains the ordered members/sources, source identities, selected decoding,
 approved final paths, output remaps, allowed metadata, creation target, and the
-initiating browser's validated IANA timezone for ZIP timestamp encoding. Hash the
-canonical serialized plan, but retain the plan itself so a restarted executor
-can scope work without rebuilding mutable input.
+initiating browser's validated IANA timezone for ZIP timestamp encoding. A
+selected legacy encoding is copied from the current browser state only when this
+plan is prepared; it is not archive-scoped metadata or a reusable preference.
+Hash the canonical serialized plan, but retain the plan itself so a restarted
+executor can scope work without rebuilding mutable input.
 
 Store the credential binding claims required to validate requests (user, origin,
 operation ID, source/destination scope, permitted route/action, manifest hash,
@@ -268,7 +286,8 @@ per-codec resource limits, and implementation feature-set version. Probe it at
 startup and whenever an executor updates; include the selected source-reader and
 target-writer profile versions, codecs, and limits in the immutable operation
 plan hash. A capability is advertised only after its bounded adapter passes the
-shared corpus against parser-validated compressed member ranges.
+shared corpus against parser-validated compressed member ranges. In the first
+release, creation advertises only Stored and Deflate in the portable profile.
 
 The ZIP parser must:
 
@@ -281,8 +300,8 @@ The ZIP parser must:
   executor; reject only a requested member operation that lacks a permitted
   bounded decoder;
 - validate Info-ZIP Unicode Path extra-field version and CRC before using it;
-- use UTF-8 flag, validated Unicode field, CP437, then the documented legacy
-  candidate-codepage scoring policy; and
+- use UTF-8 flag, validated Unicode field, then the automatic legacy policy:
+  unflagged UTF-8, a browser-locale candidate, and CP437; and
 - verify local header metadata and CRC/byte count when streaming or extracting a
   member.
 
@@ -302,13 +321,17 @@ does not require stable file IDs.
 
 Define a language-neutral archive-reader conformance format: versioned ZIP
 fixtures plus canonical JSON results for normalized entries, metadata, member
-bytes/CRC outcomes, and structured errors. Python and Rust readers must consume
-the same fixtures and produce the same structural result or error classification
-for ZIP64, encoding, traversal, malformed headers, collision, and partial
-archives. Codec fixtures also assert each profile's declared readable, blocked,
-or unavailable state rather than forcing Python and Rust to share one codec
-ceiling. Keep runtime parsers separate, but make this corpus the single
-compatibility contract.
+bytes/CRC outcomes, and structured errors. `archive_testdata/manifest-v1.json`
+lists every fixture filename and SHA-256. Each expected result contains raw
+filename hex, decoded name, normalized path, kind, method, sizes, CRC, state,
+and either no error or one stable error code. Start with Stored, Deflate, ZIP64,
+data-descriptor, self-extracting-prefix, unsafe-path, and malformed-central-
+directory fixtures. Python and Rust readers must consume the same fixtures and
+produce the same structural result or error classification for ZIP64, encoding,
+traversal, malformed headers, collision, and partial archives. Codec fixtures
+also assert each profile's declared readable, blocked, or unavailable state
+rather than forcing Python and Rust to share one codec ceiling. Keep runtime
+parsers separate, but make this corpus the single compatibility contract.
 
 Extend this corpus with writer interoperability assertions. Archives created by
 each implementation must be accepted by both custom readers and a neutral
@@ -330,16 +353,20 @@ Store the corpus once under a new repository-root `archive_testdata/` directory,
 with ZIP inputs and versioned expected-result JSON. Backend and Companion tests
 read this shared data directly; do not maintain language-specific copies.
 
-Keep raw filename bytes and the selected decoding in the index. When the legacy
-candidate scoring is ambiguous, return the candidates to the browser before
-extraction, persist the selected encoding against the current archive identity,
-and invalidate that choice when the identity changes.
+Keep raw filename bytes and the automatic decoding in the index. The browser may
+hold a user override in its current state and URL, but the index stores no
+archive-scoped encoding preference. Before extraction, prompt only when several
+safe candidates yield different normalized paths and browser locale preference
+would choose one; show the recommended encoding, a filename preview, CP437, and
+a More encodings choice. Copy a confirmed selection into the immutable operation
+plan before any output directory or writer is opened.
 
-The browser language and regional locale affect only presentation. They must not
-alter selected archive-name decoding, raw/decoded member names, normalized-path
-keys, collision decisions, or canonical cursor ordering. Do not translate or
-case-transform member names. Apply locale-aware display sorting only within an
-already loaded page, never as a substitute for server cursor order.
+The browser language and regional locale may rank automatic legacy-decoding
+candidates before a decoding is selected. They must not alter selected
+archive-name decoding, raw/decoded member names, normalized-path keys, collision
+decisions, or canonical cursor ordering. Do not translate or case-transform
+member names. Apply locale-aware display sorting only within an already loaded
+page, never as a substitute for server cursor order.
 
 The index exposes `ArchiveDirectoryListing` pages in fixed canonical order. A
 cursor embeds the archive identity, virtual directory, sort revision, and page
@@ -363,8 +390,9 @@ page.
 `paths.py` must reject leading or volume-qualified paths, empty, `.` and `..`
 segments, NUL bytes, malformed names, archive links, and special files. Treat
 both slash types as separators and preserve a canonical `/`-separated path with
-the trailing-separator directory signal. Use normalized case-folded and
-Unicode-normalized keys where the destination may be insensitive.
+the trailing-separator directory signal. Use a portable collision key of Unicode
+NFC normalization and Unicode case folding for every destination; do not probe
+or guess local or SMB filesystem comparison behavior in the first release.
 
 Do not reject a readable archive merely because members collide after
 normalization. Before extracting a colliding member, transition the operation to
@@ -378,17 +406,18 @@ the same existing output directory.
 ## Resource And Scheduling Controls
 
 Keep all reads, writes, decompression, parser buffers, and response pages
-bounded by configured chunk or page limits. Coalesce simultaneous index builds
-for one archive identity. Limit concurrent archive operations per user and
-provider, queue excess work, and expose queue/phase status through the durable
-operation. These controls bound operational concurrency only; they do not
-restrict the supported archive size. Apply separate configured byte budgets to
-in-memory index pages, temporary derived-metadata storage, and concurrent
-decompression buffers; evict or fail with a specific resource-exhausted error
-before an allocation can exhaust the process. One SMB inspection uses one
-connection and one archive handle.
+bounded. Use a 256 KiB archive I/O chunk for SMB ranges, HTTP frames,
+compression buffers, hashing, and writes; clamp it to negotiated SMB limits.
+Use a 64 MiB in-memory index budget and a 256 MiB temporary derived-metadata
+budget. Coalesce simultaneous index builds for one archive identity. Limit
+concurrent archive operations to two per user and four per provider, queue
+excess work, and expose queue/phase status through the durable operation. These
+controls bound operational concurrency only; they do not restrict the supported
+archive size. Evict or fail with a specific resource-exhausted error before an
+allocation can exhaust the process. One SMB inspection uses one connection and
+one archive handle.
 
-Run Python compression, decompression, encoding scoring, and merge-sort work in
+Run Python compression, decompression, encoding selection, and merge-sort work in
 a dedicated bounded archive CPU worker pool, not the default executor used for
 blocking SMB calls. Apply matching bounded `spawn_blocking` capacity in the
 Companion. Choose one configured archive I/O chunk size per operation and use it
@@ -436,6 +465,14 @@ The decision route accepts only the currently pending member and its allowed
 actions, and validates a requested collision rename before returning to
 `streaming`.
 
+Use ordinary user authentication for browser operation control routes. Companion
+executor routes carry the operation credential in the `Authorization` header;
+no operation credential appears in a URL or page body. The source-range body
+contains `session_id`, `offset`, and bounded `length`; chunk writes additionally
+contain `write_session_id`, `offset`, `byte_count`, `sha256`, and
+`idempotency_key`. These fields, their response offsets, and the shared error
+envelope are the transport contract for backend, Companion, and frontend work.
+
 For SMB-only operations, preparation validates and persists the complete plan.
 For any local source or destination, the backend treats browser-supplied local
 paths as untrusted declarations: the authenticated Companion validates and
@@ -451,7 +488,7 @@ selected reader profile, then sends bounded uncompressed chunks through the
 existing scoped transport to a different destination owner. The archive target
 owner performs creation with its writer profile. Persist the source-reader and
 target-writer profiles so a later capability change fails preparation or requires
-a new plan; never silently downgrade a selected native codec.
+a new plan; never silently downgrade the selected portable codec.
 
 Extend `backend/app/api/viewer.py` with archive-entry file and download routes
 under `/api/viewer/{connection_id}/archive/`. Refactor existing stream helpers
@@ -524,19 +561,20 @@ streaming. Add `companion/src-tauri/src/server/archive_operations.rs` for local
 job acceptance, execution, heartbeat, pending-decision state, and backend bridge
 calls. Register both modules in `companion/src-tauri/src/server/mod.rs`.
 
-Add the selected ZIP/Deflate dependency to `companion/src-tauri/Cargo.toml` only
-after following the repository dependency-update workflow. Choose an audited
-crate that supports ZIP64, streaming creation, and the required compression
-methods. Prefer the mature `zip` crate's `ZipWriter::new_stream()` for direct
-creation only after qualification against the shared corpus. Configure it with
-`default-features = false`, then enable every audited, bounded decoder needed by
-the Companion profile rather than Deflate alone. Do not enable AES, legacy
-encryption, or any feature outside the explicit product/security policy.
-`async_zip` is not a default substitute: its documented ZIP64 support is
-initial, so selection requires an explicit benchmark and conformance gate.
-Keep the central-directory parser incremental; do not introduce a crate API that
-materializes every entry without review. Never use `zip::unstable` APIs without
-an exact-version dependency decision and a separate compatibility review.
+After following the repository dependency-update workflow, add the Companion
+writer dependency as:
+
+```toml
+zip = { version = "4.6.1", default-features = false, features = ["deflate-flate2-zlib-rs"] }
+```
+
+Use `zip::ZipWriter::new_stream()` only for direct archive creation. It does not
+require `Seek`, and its lack of rollback APIs matches the direct-output policy.
+Keep the central-directory parser incremental and custom; do not use
+`zip::ZipArchive` as the reader, indexer, navigator, or extractor. Do not enable
+AES, legacy encryption, or additional codecs in the first release. Do not use
+pre-release `zip` versions or substitute `async_zip` without a new explicit
+compatibility, security, and conformance decision.
 
 Implement Python codec adapters for every available standard-library decoder
 (currently Stored, Deflate, BZIP2, and LZMA when their modules are present) and
@@ -614,13 +652,17 @@ and target location.
 
 Extend File Browser URL parsing in `frontend/src/pages/FileBrowser/routing.ts`
 with separate physical directory, archive filename, and virtual entry-path
-fields. Do not overload the ordinary `path` field with a synthetic archive path.
+fields plus an optional current-view encoding override. Do not overload the
+ordinary `path` field with a synthetic archive path, and do not persist that
+override as archive metadata.
 
 ### Pane state and navigation
 
 Extend `useFileBrowserPane.ts` and its result types in `pages/FileBrowser/types.ts`:
 
 - model either a physical location or an `ArchiveLocation`;
+- keep any user-selected legacy encoding in current browser state and the
+  archive URL fields only;
 - fetch and append cursor pages for archive directories;
 - preserve archive identity while paging and, on a stale archive error, retain
   the visible archive context with an explicit refresh/reopen action rather than
@@ -665,17 +707,21 @@ Add focused File Browser components:
   only; default the destination to the current physical directory in a single
   pane or the other pane's writable physical directory in dual-pane mode. Show
   source and destination connection/location, selected count and known total
-  size, portable Deflate-level-6 default or explicitly selected native profile,
-  conflict count, and the direct-output warning before acceptance.
+  size, portable Deflate-level-6 profile, conflict count, and the direct-output
+  warning before acceptance.
 - `ArchiveDecisionDialog.tsx`: existing-file choices, internal collision rename,
   retry, ignore, and cancel. It must resume the persisted operation through the
-  decision route; it must not keep an HTTP request open while visible. Group
+  decision route; it must not keep an HTTP request open while visible. For an
+  ambiguous extraction encoding, use the compact `ResponsiveFormDialog`
+  decision pattern before any output directory or writer is opened: recommend
+  the browser-locale candidate, preview affected names, offer CP437 and More
+  encodings, and focus the cancellation action initially. Inspection instead
+  shows a non-blocking encoding control. Group
   preflight-discovered existing-file collisions with count and representative
   source/destination paths, sizes, and timestamps; use a non-destructive
   initial focus, while final-open races use the same single-member decision
   presentation. Show rename validation beside the proposed archive-relative
-  path. Add an encoding-choice state that previews candidate names and affected
-  count before persisting a selection.
+  path.
 - `ArchiveOperationStatus.tsx` or pane-integrated status UI: stage progress,
   current member, files/bytes completed and remaining, pending decision,
   partial-target error, and cancellation. Keep it reachable from a global
@@ -710,27 +756,33 @@ available with direct keyboard focus/shortcuts as well as pointer interaction.
 ### Direct extraction
 
 1. Prepare an operation and inspect the full central-directory manifest.
-2. Validate member names, source access, and destination access. Detect internal
+2. Resolve legacy decoding before any output directory or writer is opened. If
+  ZIP metadata is not authoritative, candidates produce different normalized
+  paths, and browser locale preference would choose one, wait for the compact
+  encoding confirmation decision. Persist the confirmed decoding only in the
+  operation plan. If no candidate produces safe, non-colliding paths, fail
+  extraction without writing output.
+3. Validate member names, source access, and destination access. Detect internal
   output collisions without rejecting the archive, then preflight manifest paths
   against the destination with bounded provider-aware checks and present known
   regular-file collisions as one grouped decision before streaming. Persist any
   user-approved directory-subtree remapping or all-files policy before its first
   affected write. Final output open still revalidates containment, type, and
   collision disposition to handle destination changes after preflight.
-3. Create missing directories directly. Keep existing directories unchanged.
-4. Resolve all collision remaps before streaming file payloads. Process regular
+4. Create missing directories directly. Keep existing directories unchanged.
+5. Resolve all collision remaps before streaming file payloads. Process regular
   members in ascending local-header/data offset order to minimize remote seeks,
   while keeping the persisted remap independent of I/O order. For each file,
   use the secure output-open primitive to revalidate containment, file/directory
   type, and the selected collision disposition, then stream/decompress to its
   final path in bounded chunks.
-5. On an existing regular file, transition to `awaiting_user_decision`; apply
+6. On an existing regular file, transition to `awaiting_user_decision`; apply
   the chosen single-file or persisted all-files policy when resumed. For the
   newer-only policy, replace only with a valid member timestamp strictly newer
   than the destination timestamp; otherwise skip and record it.
-6. On write/decompression/CRC failure, transition to `awaiting_user_decision`
+7. On write/decompression/CRC failure, transition to `awaiting_user_decision`
    with retry, ignore, and cancel. Do not clean direct output.
-7. Compute byte count and CRC from decompressed chunks as they are accepted by
+8. Compute byte count and CRC from decompressed chunks as they are accepted by
   the output writer; after close, record that in-stream verification and restore
   only the member modification time. Do not reread the extracted target. Treat
   a file/directory type conflict as an error rather than replacing either target.
@@ -764,21 +816,20 @@ available with direct keyboard focus/shortcuts as well as pointer interaction.
   IANA timezone, round its DOS value down to two-second precision, and emit its
   UTC Extended Timestamp; omit both timestamp fields when the source time is
   unavailable. Default to Deflate at zlib level 6 in the portable
-  Stored/Deflate profile. For every
-  regular-file member, read at most `COMPRESSION_PROBE_BYTES` once before
-  opening its ZIP entry, compress that bounded sample with the same Deflate
-  settings, and select Stored only when the result does not meet both
-  `MIN_COMPRESSION_SAVINGS_BYTES` and `MIN_COMPRESSION_SAVINGS_RATIO` after
-  method overhead. Write the already-read probe buffer into the selected entry,
+  Stored/Deflate profile. For every regular-file member, read at most 64 KiB
+  once before opening its ZIP entry, compress that bounded sample with the same
+  Deflate settings, and select Stored only when it saves less than 1 KiB and
+  less than 5 percent after method overhead. Write the already-read probe buffer
+  into the selected entry,
   then continue streaming the source; do not classify by extension alone, trial
   compress an entire member, or reread source bytes. Persist the per-member
-  method in the immutable manifest so retries reproduce the same output.
-  Offer a clearly labelled native codec only when the target owner advertises it
-  and persist that explicit choice in the plan; it never silently replaces the
-  portable default. Python uses a non-seekable writer adapter with
-  `allowZip64=True` and `force_zip64=True` when a member's size is unknown;
-  Rust uses `ZipWriter::new_stream()` and never invokes rollback APIs unsupported
-  by its destination.
+  method in the immutable manifest so retries reproduce the same output. Do not
+  offer native codecs in the first release. The complete manifest records every
+  source size before writing begins, so writers emit ZIP64 only when the known
+  member, archive, or entry-count limits require it. Python uses a non-seekable
+  writer adapter with `allowZip64=True` but does not force ZIP64 for an unknown
+  member; Rust uses `ZipWriter::new_stream()` and never invokes rollback APIs
+  unsupported by its destination.
 4. Explicitly finish or close the writer and flush the exclusive destination;
   never rely on writer drop/destruction, which can hide finalization errors.
   If a member write, finalization, or flush fails, stop the operation and report
@@ -797,7 +848,7 @@ available with direct keyboard focus/shortcuts as well as pointer interaction.
 | Backend archive service | New `backend/tests/test_archive_*.py` plus language-neutral fixtures | EOCD/ZIP64, self-extracting prefixes, data descriptors, all known method identifiers, per-profile readable/blocked/unavailable states, malformed/encrypted/multi-disk archives, encodings, cursor paging, stale identity, indexed external-sort pages, byte-budgeted derived-metadata cache/spill behavior, portable Deflate-level-6 selection, bounded no-reread Stored selection, creation writer-metadata budget, authorization revocation, per-user/provider queueing, and reader/writer conformance corpus results. |
 | Backend routes/operations | `backend/tests/test_browser.py`, `test_viewer.py`, new `test_archive_operations.py` | Authorization, typed locations, Companion local-plan activation, immutable plans, source-reader and target-writer capability selection, capability-plan hash mismatch, lease claim/expiry races, stale-epoch cancellation, request-hash idempotency receipts, ambiguous-write reconciliation, operation phases, decisions, partial target behavior, and audit events. |
 | Companion | Unit tests adjacent to new archive modules plus handler tests | Local parsing/writing, all enabled decoder adapters, shared profile-aware conformance corpus, bounded CPU worker capacity, secure output-open path races, local-plan activation, scoped bridge calls, stale-epoch handle closure, decision pause/resume, and all mixed directions. |
-| Frontend services | New `archiveApi.test.ts` plus `browseApi.test.ts` and `viewerApi.test.ts` | Remote/local endpoint resolution, typed archive DTOs, active-operation re-entry, locale-independent archive decoding/cursors, URLs, operation calls, and structured error mapping without expanding `ApiService`. |
+| Frontend services | New `archiveApi.test.ts` plus `browseApi.test.ts` and `viewerApi.test.ts` | Remote/local endpoint resolution, typed archive DTOs, active-operation re-entry, locale-ranked automatic decoding, selected-decoding/cursor stability, URL state, operation calls, and structured error mapping without expanding `ApiService`. |
 | Frontend components | New dialog tests and File Browser page tests | Commands, shortcuts, breadcrumbs, URL history, explicit stale-archive refresh, paging, archive-specific actions, preflight summaries, grouped conflicts, codec states, read-only actions, conflict choices, localized plural/count/size/time presentation, pseudo-locale and RTL layout, progress, partial archive messaging, terminal summaries, and keyboard/screen-reader dialog behavior. |
 | End to end | Existing browser flow suites plus focused archive scenarios | Single pane, dual pane, SMB/local combinations, cancellation, retries, and visible partial output. |
 

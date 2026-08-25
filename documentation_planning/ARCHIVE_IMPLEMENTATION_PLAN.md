@@ -13,11 +13,12 @@ and creation for SMB and local drives. ZIP is the first supported format.
   operations in the first release.
 - Treat source consistency as best effort. Detect obvious changes with size and
   modification-time checks, but do not promise snapshots or locks.
-- Use the portable ZIP creation profile by default: Deflate at zlib level 6 for
-  broadly compatible, balanced compression. Choose Stored for an individual
-  member only when a bounded, first-read Deflate probe fails configured absolute
-  and relative savings thresholds. Feed that probe buffer to the chosen writer;
-  never pre-scan, reread, or retain an entire source member to select compression.
+- Use one portable ZIP creation profile in the first release: Deflate at zlib
+  level 6 for broadly compatible, balanced compression. Read a 64 KiB first-read
+  probe per regular member and choose Stored only when it saves less than 1 KiB
+  and less than 5 percent after method overhead. Feed that probe buffer to the
+  chosen writer; never pre-scan, reread, or retain an entire source member to
+  select compression. Native creation profiles are out of scope for this release.
 - Do not overwrite or merge existing destinations.
 
 ## Storage Capabilities
@@ -85,12 +86,10 @@ The archive source owner performs member decoding with its own reader profile,
 then streams bounded uncompressed chunks to a different destination executor.
 Do not intersect source-read and destination-write codec support for extraction,
 viewing, or downloading. Archive creation uses the target owner's writer
-profile. The browser defaults creation to the portable Stored/Deflate profile;
-it may offer an explicitly labelled native profile only when the selected target
-executor advertises it. Persist the selected profile, codec, and all limits in
+profile. The browser offers only the portable Stored/Deflate profile in this
+release. Persist that profile, the per-member codec choice, and all limits in
 the immutable plan. The portable profile selects Deflate at zlib level 6 unless
-the bounded per-member probe selects Stored; native profiles are explicit choices
-and never silently replace the portable default.
+the bounded per-member probe selects Stored.
 
 ## Portable ZIP Writer Compatibility
 
@@ -111,10 +110,9 @@ Extended Timestamp extra field with the UTC instant. If no source modification
 time exists, omit both fields. UI formatting labels archive timestamps with
 their archive-local timezone and precision; it does not reinterpret them as UTC.
 
-Native creation profiles are explicitly non-portable: show the actual selected
-method and a compatibility warning before creation and in the completed
-operation details. They require their own external-reader qualification and may
-not inherit the portable profile's compatibility claim.
+Native creation profiles are deferred. A later release may add them only after a
+separate external-reader qualification; they must not inherit the portable
+profile's compatibility claim.
 
 Index keys use provider, connection, physical path, size, and modified time.
 Stable file IDs are not required for this best-effort release. Indexes are
@@ -134,17 +132,32 @@ the loaded page.
 ## Filename, Metadata, And Source Rules
 
 Decode ZIP entry names in this order: UTF-8 flag, a validated Info-ZIP Unicode
-Path field, then CP437. Accept the Unicode Path field only when its version is
-supported and its CRC-32 matches the raw filename bytes; otherwise ignore it,
-record a non-sensitive diagnostic, and continue with the fallback policy. For
-malformed legacy archives, use a documented candidate-codepage set and
-deterministic scoring. Preserve the raw bytes and chosen decoding. When
-confidence is ambiguous, let the user select an encoding before extraction and
-persist that choice for the current archive identity.
+Path field, then the automatic legacy policy. Accept the Unicode Path field only
+when its version is supported and its CRC-32 matches the raw filename bytes;
+otherwise ignore it, record a non-sensitive diagnostic, and continue with the
+fallback policy. The automatic legacy policy tries unflagged UTF-8, the
+browser-locale candidate (Windows-1252 for Western locales, Shift_JIS for
+Japanese, GBK or Big5 for Simplified or Traditional Chinese, and EUC-KR for
+Korean), then CP437. Discard a candidate that produces replacement or control
+characters, unsafe paths, or normalized-name collisions. For inspection, choose
+the best remaining candidate without interrupting the user and show a quiet
+encoding control. The browser locale ranks candidates but never overrides ZIP
+metadata. Preserve the raw bytes and chosen decoding.
 
-The application language, regional locale, and localized display sorting never
-change archive-name decoding, normalized-path collision keys, or server cursor
-ordering. Preserve decoded archive names as archive metadata, never translate or
+Before extraction, do not write output until the decoding is authoritative, all
+remaining candidates produce the same normalized paths, or one candidate clearly
+wins because every alternative is invalid. If several safe candidates produce
+different paths and the browser locale breaks the tie, show a compact
+confirmation dialog with the recommended encoding, a filename preview, CP437,
+and a More encodings choice. The user must confirm before extraction begins.
+Keep an inspection override only in the current browser state and URL; copy it
+into the immutable operation plan only when an operation is prepared. Do not
+persist an encoding preference or archive-scoped encoding metadata.
+
+The application language and regional locale may rank automatic legacy-decoding
+candidates before a decoding is selected. They never change selected
+archive-name decoding, normalized-path collision keys, or server cursor ordering.
+Preserve decoded archive names as archive metadata, never translate or
 case-transform them. Use localized numbers, sizes, durations, and dates only for
 presentation; operation decisions such as newer-only extraction use typed
 timestamps and sizes, not their displayed strings. Map structured archive error
@@ -163,26 +176,29 @@ file is completely written.
 
 ## Security And Collisions
 
-Normalize every member name before creating output. Treat both forward slash and backslash as
-separators, then store one canonical `/`-separated path. A trailing separator
-marks a directory; reject leading separators, volume-qualified paths, empty
-internal segments, `.` or `..` segments, NUL bytes, malformed names, duplicate
-normalized targets, links inside archives, and special files. Use the canonical
-path for all traversal and collision checks, including case-folded and
-Unicode-normalized comparisons where the destination may be insensitive.
+Normalize every member name before creating output. Treat both forward slash and
+backslash as separators, then store one canonical `/`-separated path. A trailing
+separator marks a directory; reject leading separators, volume-qualified paths,
+empty internal segments, `.` or `..` segments, NUL bytes, malformed names,
+duplicate normalized targets, links inside archives, and special files. Use the
+canonical path for all traversal and collision checks. In the first release,
+compare every destination with a portable key made from Unicode NFC
+normalization and Unicode case folding, regardless of the local platform or SMB
+server. This conservative rule avoids filesystem-specific guessing; the final
+secure output open still catches native filesystem races.
 
 Creation uses one simple safe collision policy: fail preflight if the final
 archive target exists, if source entries collide after normalization, or if
-entries collide after case folding or Unicode normalization on a destination
-that may be insensitive. Show a conflict summary; do not offer replace, merge,
-or skip for archive creation in the first release. The preflight must also
-reject a final target that is itself a selected source or lies inside any
-selected source directory, preventing the archive from including its own output.
+entries collide after the portable comparison key. Show a conflict summary; do
+not offer replace, merge, or skip for archive creation in the first release. The
+preflight must also reject a final target that is itself a selected source or
+lies inside any selected source directory, preventing the archive from including
+its own output.
 
 Extraction resolves collisions one member at a time as described below. It
 must not reject an otherwise readable archive merely because archive members
-map to the same canonical target, including case-folded or Unicode-normalized
-collisions for an insensitive destination. Before writing a colliding member,
+map to the same canonical target under the portable comparison key. Before
+writing a colliding member,
 ask the user for a new relative output name. For a directory collision, rename
 that output directory and remap all of its descendants; for a file collision,
 rename only that member. Revalidate the proposed name using the normal path,
@@ -406,10 +422,14 @@ or rollback.
 ## Resource Behavior
 
 Use bounded chunks, bounded parser buffers, cursor paging, cancellation checks,
-and deterministic handle closure. Coalesce simultaneous index builds for the
-same archive identity. Limit concurrent archive operations per user/provider and
-queue excess work; this constrains operational concurrency, not supported archive
-size. A single SMB inspection uses one connection and one archive handle.
+and deterministic handle closure. Use a 256 KiB archive I/O chunk for SMB ranges,
+HTTP frames, compression buffers, hashing, and writes, clamped by negotiated SMB
+limits. Coalesce simultaneous index builds for the same archive identity. Limit
+concurrent archive operations to two per user and four per provider, and queue
+excess work; this constrains operational concurrency, not supported archive size.
+Use a 64 MiB in-memory index budget and a 256 MiB temporary derived-metadata
+budget; fail with a resource-exhausted error before exceeding either. A single
+SMB inspection uses one connection and one archive handle.
 
 ## Tests And Delivery Order
 
@@ -436,8 +456,8 @@ credential reuse, range response integrity, idempotent chunk retries,
 write-session path scoping, pending collision/error decisions and resume,
 all four mixed SMB/local paths, and backend/Companion restarts that leave and
 report partial final targets. Test source-owner decoding across every mixed path,
-target-owner portable and native creation profiles, capability changes between
-prepare and execution, and capability-plan hash rejection. Test archive-list
+the portable creation profile, capability changes between prepare and execution,
+and capability-plan hash rejection. Test archive-list
 cursors for stable ordering, no duplicates, omissions, or use after the archive
 identity changes.
 Test frontend navigation, read-only archive behavior, commands, dialogs,
