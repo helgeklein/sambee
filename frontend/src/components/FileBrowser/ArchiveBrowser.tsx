@@ -2,6 +2,8 @@ import ArrowBackIcon from "@mui/icons-material/ArrowBack";
 import DownloadIcon from "@mui/icons-material/Download";
 import FolderIcon from "@mui/icons-material/Folder";
 import InsertDriveFileIcon from "@mui/icons-material/InsertDriveFile";
+import NavigateBeforeIcon from "@mui/icons-material/NavigateBefore";
+import NavigateNextIcon from "@mui/icons-material/NavigateNext";
 import UnarchiveIcon from "@mui/icons-material/Unarchive";
 import {
   Alert,
@@ -21,11 +23,14 @@ import {
 import { isAxiosError } from "axios";
 import { useEffect, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
+import { formatFileSize } from "../../pages/FileBrowser/formatters";
 import api from "../../services/api";
 import { isLocalDrive } from "../../services/backendRouter";
 import type { ArchiveEntryInfo, ArchiveOperation } from "../../types";
 import { ArchiveExtractDialog } from "./ArchiveExtractDialog";
 import { ArchiveExtractionConflictDialog } from "./ArchiveExtractionConflictDialog";
+
+const LOCAL_ARCHIVE_EXTRACTION_PARTIAL_CODE = "local_archive_extraction_partial";
 
 interface ArchiveBrowserProps {
   connectionId: string;
@@ -53,6 +58,8 @@ export function ArchiveBrowser({ connectionId, archivePath, onClose, onExtracted
   const { t } = useTranslation();
   const triggerElementRef = useRef<HTMLElement | null>(null);
   const [virtualPath, setVirtualPath] = useState("");
+  const [pathHistory, setPathHistory] = useState<string[]>([]);
+  const [forwardPathHistory, setForwardPathHistory] = useState<string[]>([]);
   const [items, setItems] = useState<ArchiveEntryInfo[]>([]);
   const [pageCursor, setPageCursor] = useState<string | null>(null);
   const [nextCursor, setNextCursor] = useState<string | null>(null);
@@ -123,12 +130,39 @@ export function ArchiveBrowser({ connectionId, archivePath, onClose, onExtracted
   };
 
   const navigateTo = (path: string) => {
+    if (path === virtualPath) {
+      return;
+    }
     setPageCursor(null);
+    setPathHistory((currentHistory) => [...currentHistory, virtualPath]);
+    setForwardPathHistory([]);
     setVirtualPath(path);
   };
 
   const navigateUp = () => {
     navigateTo(virtualPath.includes("/") ? virtualPath.slice(0, virtualPath.lastIndexOf("/")) : "");
+  };
+
+  const navigateBack = () => {
+    const previousPath = pathHistory.at(-1);
+    if (previousPath === undefined) {
+      return;
+    }
+    setPageCursor(null);
+    setPathHistory((currentHistory) => currentHistory.slice(0, -1));
+    setForwardPathHistory((currentHistory) => [...currentHistory, virtualPath]);
+    setVirtualPath(previousPath);
+  };
+
+  const navigateForward = () => {
+    const nextPath = forwardPathHistory.at(-1);
+    if (nextPath === undefined) {
+      return;
+    }
+    setPageCursor(null);
+    setForwardPathHistory((currentHistory) => currentHistory.slice(0, -1));
+    setPathHistory((currentHistory) => [...currentHistory, virtualPath]);
+    setVirtualPath(nextPath);
   };
 
   const getExtractionNotice = (filesSkipped: number) =>
@@ -173,10 +207,16 @@ export function ArchiveBrowser({ connectionId, archivePath, onClose, onExtracted
         setExtractError(t("fileBrowser.archive.extractError"));
       }
     } catch (error) {
+      const hasPartialLocalOutput = isAxiosError(error) && error.response?.data?.code === LOCAL_ARCHIVE_EXTRACTION_PARTIAL_CODE;
+      if (hasPartialLocalOutput) {
+        onExtracted?.(connectionId, archivePath);
+      }
       setExtractError(
-        isAxiosError(error) && error.response?.status === 409
-          ? t("fileBrowser.archive.validationDestinationExists")
-          : t("fileBrowser.archive.extractError")
+        hasPartialLocalOutput
+          ? t("fileBrowser.archive.extractPartialOutputError")
+          : isAxiosError(error) && error.response?.status === 409
+            ? t("fileBrowser.archive.validationDestinationExists")
+            : t("fileBrowser.archive.extractError")
       );
     } finally {
       setIsExtracting(false);
@@ -250,6 +290,16 @@ export function ArchiveBrowser({ connectionId, archivePath, onClose, onExtracted
           <IconButton aria-label={t("fileBrowser.archive.closeBrowser")} onClick={onClose} edge="start">
             <ArrowBackIcon />
           </IconButton>
+          <IconButton aria-label={t("fileBrowser.archive.historyBack")} disabled={pathHistory.length === 0} onClick={navigateBack}>
+            <NavigateBeforeIcon />
+          </IconButton>
+          <IconButton
+            aria-label={t("fileBrowser.archive.historyForward")}
+            disabled={forwardPathHistory.length === 0}
+            onClick={navigateForward}
+          >
+            <NavigateNextIcon />
+          </IconButton>
           <Box sx={{ ml: 2, minWidth: 0, flex: 1 }}>
             <Typography noWrap variant="h6">
               {archivePath.split("/").at(-1)}
@@ -318,7 +368,13 @@ export function ArchiveBrowser({ connectionId, archivePath, onClose, onExtracted
                 <ListItemIcon>{item.type === "directory" ? <FolderIcon /> : <InsertDriveFileIcon />}</ListItemIcon>
                 <ListItemText
                   primary={item.name}
-                  secondary={item.state === "readable" ? undefined : t("fileBrowser.archive.entryUnavailable")}
+                  secondary={
+                    item.state !== "readable"
+                      ? t("fileBrowser.archive.entryUnavailable")
+                      : item.type === "file"
+                        ? formatFileSize(item.size ?? undefined)
+                        : undefined
+                  }
                 />
                 {item.type === "file" && item.state === "readable" ? <DownloadIcon color="action" /> : null}
               </ListItemButton>

@@ -32,6 +32,16 @@ def _zip_bytes() -> bytes:
     return buffer.getvalue()
 
 
+def _symbolic_link_zip_bytes() -> bytes:
+    buffer = io.BytesIO()
+    with zipfile.ZipFile(buffer, "w", compression=zipfile.ZIP_STORED) as archive:
+        member = zipfile.ZipInfo("link")
+        member.create_system = 3
+        member.external_attr = 0o120777 << 16
+        archive.writestr(member, "target")
+    return buffer.getvalue()
+
+
 @pytest.mark.asyncio
 async def test_lists_root_and_implicit_directory() -> None:
     data = _zip_bytes()
@@ -97,6 +107,17 @@ async def test_normalizes_backslash_member_names() -> None:
     assert total == 1
     assert items[0].name == "folder"
     assert items[0].type == FileType.DIRECTORY
+
+
+@pytest.mark.asyncio
+async def test_hides_symbolic_link_members_from_virtual_listings() -> None:
+    data = _symbolic_link_zip_bytes()
+
+    items, total, next_cursor = await ZipReader(MemoryRandomAccessReader(data), len(data)).list_directory("", None, 10)
+
+    assert items == []
+    assert total == 0
+    assert next_cursor is None
 
 
 @pytest.mark.asyncio

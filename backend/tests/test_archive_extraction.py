@@ -80,6 +80,23 @@ def _archive_bytes() -> bytes:
     return output.getvalue()
 
 
+def _unsafe_archive_bytes() -> bytes:
+    output = io.BytesIO()
+    with zipfile.ZipFile(output, "w", compression=zipfile.ZIP_DEFLATED) as archive:
+        archive.writestr("../unsafe.txt", "unsafe")
+    return output.getvalue()
+
+
+def _symbolic_link_archive_bytes() -> bytes:
+    output = io.BytesIO()
+    with zipfile.ZipFile(output, "w", compression=zipfile.ZIP_DEFLATED) as archive:
+        member = zipfile.ZipInfo("link")
+        member.create_system = 3
+        member.external_attr = 0o120777 << 16
+        archive.writestr(member, "target")
+    return output.getvalue()
+
+
 @pytest.mark.asyncio
 async def test_extracts_safe_members_to_new_paths() -> None:
     backend = MemoryExtractionBackend(_archive_bytes())
@@ -90,6 +107,30 @@ async def test_extracts_safe_members_to_new_paths() -> None:
     assert result.extracted_bytes == 10
     assert backend.directories == {"output", "output/docs"}
     assert backend.files == {"output/docs/readme.txt": b"readme", "output/root.txt": b"root"}
+    assert backend.reader.closed is True
+
+
+@pytest.mark.asyncio
+async def test_rejects_unsafe_members_before_creating_output() -> None:
+    backend = MemoryExtractionBackend(_unsafe_archive_bytes())
+
+    with pytest.raises(ArchiveFormatError, match="unsafe member path"):
+        await extract_archive_to_new_paths(backend, archive_path="input.zip", destination_root="output")
+
+    assert backend.directories == set()
+    assert backend.files == {}
+    assert backend.reader.closed is True
+
+
+@pytest.mark.asyncio
+async def test_rejects_symbolic_link_members_before_creating_output() -> None:
+    backend = MemoryExtractionBackend(_symbolic_link_archive_bytes())
+
+    with pytest.raises(ArchiveFormatError, match="symbolic link"):
+        await extract_archive_to_new_paths(backend, archive_path="input.zip", destination_root="output")
+
+    assert backend.directories == set()
+    assert backend.files == {}
     assert backend.reader.closed is True
 
 

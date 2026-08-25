@@ -27,6 +27,10 @@ _ZIP64_SENTINEL_U32 = 0xFFFFFFFF
 _ZIP64_SENTINEL_U16 = 0xFFFF
 _READABLE_METHODS = {0, 8, 12}
 _ARCHIVE_IO_CHUNK_BYTES = 256 * 1024
+_UNIX_HOST_SYSTEM = 3
+_UNIX_FILE_TYPE_MASK = 0o170000
+_UNIX_DIRECTORY_FILE_TYPE = 0o040000
+_UNIX_REGULAR_FILE_TYPE = 0o100000
 
 
 class ArchiveFormatError(ValueError):
@@ -55,6 +59,7 @@ class ZipEntry:
     modified_at: datetime | None
     encrypted: bool
     is_safe: bool
+    has_supported_file_type: bool
     local_header_offset: int
     flags: int
     raw_name: bytes
@@ -148,6 +153,13 @@ def _is_safe_path(name: str, normalized_path: str) -> bool:
     )
 
 
+def _has_supported_file_type(version_made_by: int, external_attributes: int) -> bool:
+    if version_made_by >> 8 != _UNIX_HOST_SYSTEM:
+        return True
+    file_type = (external_attributes >> 16) & _UNIX_FILE_TYPE_MASK
+    return file_type in {0, _UNIX_DIRECTORY_FILE_TYPE, _UNIX_REGULAR_FILE_TYPE}
+
+
 def _dos_datetime(date_value: int, time_value: int) -> datetime | None:
     year = ((date_value >> 9) & 0x7F) + 1980
     month = (date_value >> 5) & 0x0F
@@ -235,6 +247,8 @@ class ZipReader:
             if fixed[:4] != _CENTRAL_DIRECTORY_SIGNATURE:
                 raise ArchiveFormatError("ZIP central-directory entry is invalid")
             flags = _u16(fixed, 8)
+            version_made_by = _u16(fixed, 4)
+            external_attributes = _u32(fixed, 38)
             method = _u16(fixed, 10)
             time_value = _u16(fixed, 12)
             date_value = _u16(fixed, 14)
@@ -270,6 +284,7 @@ class ZipReader:
                     modified_at=_dos_datetime(date_value, time_value),
                     encrypted=bool(flags & 1),
                     is_safe=_is_safe_path(decoded_name, path),
+                    has_supported_file_type=_has_supported_file_type(version_made_by, external_attributes),
                     local_header_offset=local_header_offset,
                     flags=flags,
                     raw_name=raw_name,
@@ -285,7 +300,14 @@ class ZipReader:
         normalized_path, is_directory = _normalize_path(path)
         if is_directory or not normalized_path:
             raise ArchiveFormatError("Archive member path must identify a regular file")
-        entry = next((candidate for candidate in await self.entries() if candidate.is_safe and candidate.path == normalized_path), None)
+        entry = next(
+            (
+                candidate
+                for candidate in await self.entries()
+                if candidate.is_safe and candidate.has_supported_file_type and candidate.path == normalized_path
+            ),
+            None,
+        )
         if entry is None:
             raise ArchiveFormatError("Archive member was not found")
         if entry.encrypted or entry.compression_method not in _READABLE_METHODS:
@@ -383,7 +405,7 @@ class ZipReader:
         prefix = f"{normalized_path}/" if normalized_path else ""
         children: dict[str, ArchiveEntryInfo] = {}
         for entry in await self.entries():
-            if not entry.is_safe or not entry.path.startswith(prefix):
+            if not entry.is_safe or not entry.has_supported_file_type or not entry.path.startswith(prefix):
                 continue
             remainder = entry.path[len(prefix) :]
             if not remainder:

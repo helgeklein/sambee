@@ -30,9 +30,10 @@ use super::archive::{
 use super::auth;
 use super::drives;
 use super::errors::{
-    ApiError, LOCAL_LINK_TARGET_ACCESS_DENIED_CODE, LOCAL_LINK_TARGET_MISSING_CODE, LOCAL_LINK_TARGET_UNMAPPED_DRIVE_CODE,
-    LOCAL_LINK_TARGET_UNRESOLVABLE_CODE, LOCAL_LINK_TARGET_UNSUPPORTED_TYPE_CODE, PAIR_CONFIRMATION_PENDING_CODE,
-    RECENT_FILE_NATIVE_LAUNCH_FAILED_CODE, RECENT_FILE_TARGET_MISSING_CODE, RECENT_FILE_TARGET_NOT_FILE_CODE,
+    ApiError, LOCAL_ARCHIVE_CREATION_PARTIAL_CODE, LOCAL_ARCHIVE_EXTRACTION_PARTIAL_CODE, LOCAL_LINK_TARGET_ACCESS_DENIED_CODE,
+    LOCAL_LINK_TARGET_MISSING_CODE, LOCAL_LINK_TARGET_UNMAPPED_DRIVE_CODE, LOCAL_LINK_TARGET_UNRESOLVABLE_CODE,
+    LOCAL_LINK_TARGET_UNSUPPORTED_TYPE_CODE, PAIR_CONFIRMATION_PENDING_CODE, RECENT_FILE_NATIVE_LAUNCH_FAILED_CODE,
+    RECENT_FILE_TARGET_MISSING_CODE, RECENT_FILE_TARGET_NOT_FILE_CODE,
 };
 use super::links::{resolve_activation_target, LinkResolutionError};
 use super::models::*;
@@ -1156,10 +1157,25 @@ fn map_local_archive_error(error: LocalArchiveError) -> ApiError {
             ApiError::BadRequest("Archive output cannot be inside a selected source directory".to_string())
         }
         LocalArchiveError::UnsafeEntryPath
+        | LocalArchiveError::UnsupportedArchiveMember
         | LocalArchiveError::TargetOutsideRoot
         | LocalArchiveError::DuplicateEntryPath
         | LocalArchiveError::UnsupportedSource => ApiError::BadRequest(error.to_string()),
         LocalArchiveError::Cancelled => ApiError::BadRequest("Archive creation was cancelled".to_string()),
+        LocalArchiveError::PartialOutput(error) => {
+            warn!("Local archive extraction left partial output: {error}");
+            ApiError::internal_code(
+                "Archive extraction failed after creating incomplete output",
+                LOCAL_ARCHIVE_EXTRACTION_PARTIAL_CODE,
+            )
+        }
+        LocalArchiveError::PartialArchiveOutput(error) => {
+            warn!("Local archive creation left partial output: {error}");
+            ApiError::internal_code(
+                "Archive creation failed after creating incomplete output",
+                LOCAL_ARCHIVE_CREATION_PARTIAL_CODE,
+            )
+        }
         LocalArchiveError::Io(error) => ApiError::Io(error),
         LocalArchiveError::Zip(error) => {
             warn!("Local archive creation failed while writing ZIP data: {error}");
@@ -1874,16 +1890,60 @@ async fn copy_dir_recursive(src: &std::path::Path, dst: &std::path::Path) -> Res
 #[cfg(test)]
 mod tests {
     use super::{
-        build_file_info, build_pair_status_response, classify_link_target, normalize_drive_relative_path, normalize_windows_display_path,
-        resolve_drive_relative_source_path, resolve_link_target_metadata, resolve_pair_cancel_origin, resolve_pair_confirm_origin,
-        resolve_pair_status_origin, resolve_safe_path, source_link_kind,
+        build_file_info, build_pair_status_response, classify_link_target, map_local_archive_error, normalize_drive_relative_path,
+        normalize_windows_display_path, resolve_drive_relative_source_path, resolve_link_target_metadata, resolve_pair_cancel_origin,
+        resolve_pair_confirm_origin, resolve_pair_status_origin, resolve_safe_path, source_link_kind,
     };
+    use crate::server::archive::{LocalArchiveError, LocalArchiveReadError};
+    use crate::server::errors::{LOCAL_ARCHIVE_CREATION_PARTIAL_CODE, LOCAL_ARCHIVE_EXTRACTION_PARTIAL_CODE};
     use crate::server::models::{FileType, LinkKind, LinkTargetState, LinkTargetType, PublicPairingStatus};
     use crate::server::pairing::PairingState;
+    use axum::body::to_bytes;
     use axum::http::{HeaderMap, HeaderValue};
+    use axum::response::IntoResponse;
     #[cfg(unix)]
     use std::os::unix::fs::symlink;
     const NONCE_A: &str = "00112233445566778899aabbccddeeff00112233445566778899aabbccddeeff";
+
+    #[tokio::test]
+    async fn maps_partial_local_archive_output_to_a_stable_error_code() {
+        let response = map_local_archive_error(LocalArchiveError::PartialOutput(Box::new(LocalArchiveError::ArchiveRead(
+            LocalArchiveReadError::MemberIntegrityFailure,
+        ))))
+        .into_response();
+
+        assert_eq!(response.status(), axum::http::StatusCode::INTERNAL_SERVER_ERROR);
+        let body = to_bytes(response.into_body(), usize::MAX)
+            .await
+            .expect("response body should be readable");
+        assert_eq!(
+            serde_json::from_slice::<serde_json::Value>(&body).expect("response body should be JSON"),
+            serde_json::json!({
+                "detail": "Archive extraction failed after creating incomplete output",
+                "code": LOCAL_ARCHIVE_EXTRACTION_PARTIAL_CODE,
+            })
+        );
+    }
+
+    #[tokio::test]
+    async fn maps_partial_local_archive_creation_to_a_stable_error_code() {
+        let response = map_local_archive_error(LocalArchiveError::PartialArchiveOutput(Box::new(LocalArchiveError::Io(
+            std::io::Error::other("source read failed"),
+        ))))
+        .into_response();
+
+        assert_eq!(response.status(), axum::http::StatusCode::INTERNAL_SERVER_ERROR);
+        let body = to_bytes(response.into_body(), usize::MAX)
+            .await
+            .expect("response body should be readable");
+        assert_eq!(
+            serde_json::from_slice::<serde_json::Value>(&body).expect("response body should be JSON"),
+            serde_json::json!({
+                "detail": "Archive creation failed after creating incomplete output",
+                "code": LOCAL_ARCHIVE_CREATION_PARTIAL_CODE,
+            })
+        );
+    }
 
     #[test]
     fn normalizes_windows_extended_paths_for_display() {

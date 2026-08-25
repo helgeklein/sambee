@@ -28,6 +28,9 @@ function createArchiveOperation(overrides: Partial<ArchiveOperation> = {}): Arch
 }
 
 vi.mock("../../../services/api");
+vi.mock("../../../pages/FileBrowser/formatters", () => ({
+  formatFileSize: (bytes?: number) => (bytes === undefined ? "" : "1.0 KB"),
+}));
 vi.mock("react-i18next", () => ({
   useTranslation: () => ({
     t: translate,
@@ -59,6 +62,14 @@ describe("ArchiveBrowser", () => {
                   state: "unavailable",
                   is_hidden: false,
                 },
+                {
+                  name: "readme.txt",
+                  path: "readme.txt",
+                  type: FileType.FILE,
+                  size: 1024,
+                  state: "readable",
+                  is_hidden: false,
+                },
               ],
               total: 1,
               next_cursor: null,
@@ -71,6 +82,7 @@ describe("ArchiveBrowser", () => {
 
     const directory = await screen.findByRole("button", { name: /nested/i });
     expect(directory).toBeEnabled();
+    expect(screen.getByText("1.0 KB")).toBeInTheDocument();
     await user.click(directory);
 
     await waitFor(() => {
@@ -82,6 +94,24 @@ describe("ArchiveBrowser", () => {
     });
 
     await user.click(screen.getByRole("button", { name: "fileBrowser.archive.root" }));
+    await waitFor(() => {
+      expect(api.listArchiveDirectory).toHaveBeenLastCalledWith("local-drive:c", "archive.zip", "", {
+        cursor: undefined,
+        pageSize: 100,
+        signal: expect.any(AbortSignal),
+      });
+    });
+
+    await user.click(screen.getByRole("button", { name: "fileBrowser.archive.historyBack" }));
+    await waitFor(() => {
+      expect(api.listArchiveDirectory).toHaveBeenLastCalledWith("local-drive:c", "archive.zip", "nested", {
+        cursor: undefined,
+        pageSize: 100,
+        signal: expect.any(AbortSignal),
+      });
+    });
+
+    await user.click(screen.getByRole("button", { name: "fileBrowser.archive.historyForward" }));
     await waitFor(() => {
       expect(api.listArchiveDirectory).toHaveBeenLastCalledWith("local-drive:c", "archive.zip", "", {
         cursor: undefined,
@@ -145,6 +175,31 @@ describe("ArchiveBrowser", () => {
 
     expect(await screen.findByText("fileBrowser.archive.validationDestinationExists")).toBeInTheDocument();
     expect(screen.getByRole("dialog")).toBeInTheDocument();
+  });
+
+  it("warns that a local extraction may have left incomplete output", async () => {
+    const user = userEvent.setup();
+    const onExtracted = vi.fn();
+    vi.mocked(api.listArchiveDirectory).mockResolvedValue({
+      archive: { path: "archive.zip", size: 1024 },
+      path: "",
+      items: [],
+      total: 0,
+      next_cursor: null,
+      page_size: 100,
+    });
+    vi.mocked(api.extractLocalArchive).mockRejectedValue({
+      isAxiosError: true,
+      response: { data: { code: "local_archive_extraction_partial" }, status: 500 },
+    });
+
+    render(<ArchiveBrowser connectionId="local-drive:c" archivePath="archive.zip" onClose={vi.fn()} onExtracted={onExtracted} />);
+
+    await user.click(await screen.findByRole("button", { name: "fileBrowser.archive.buttonExtract" }));
+    await user.click(within(screen.getByRole("dialog")).getByRole("button", { name: "fileBrowser.archive.buttonExtract" }));
+
+    expect(await screen.findByText("fileBrowser.archive.extractPartialOutputError")).toBeInTheDocument();
+    expect(onExtracted).toHaveBeenCalledWith("local-drive:c", "archive.zip");
   });
 
   it("reports skipped members after a completed SMB extraction", async () => {

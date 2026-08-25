@@ -153,7 +153,11 @@ async def extract_archive_to_new_paths(
     random_reader = await backend.open_random_access_reader(archive_path)
     try:
         zip_reader = ZipReader(random_reader, archive_info.size)
-        entries = [entry for entry in await zip_reader.entries() if entry.is_safe]
+        entries = await zip_reader.entries()
+        if any(not entry.is_safe for entry in entries):
+            raise ArchiveFormatError("Archive extraction contains an unsafe member path")
+        if any(not entry.has_supported_file_type for entry in entries):
+            raise ArchiveFormatError("Archive extraction contains a symbolic link or unsupported special member")
         rename_targets = _validated_rename_targets(entries, member_rename_targets)
         conflicts = await _preflight_file_conflicts(
             backend, entries, destination_root, existing_file_policy, member_collision_actions, rename_targets

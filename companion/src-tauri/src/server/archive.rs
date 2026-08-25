@@ -27,6 +27,10 @@ const MAX_COMMENT_BYTES: usize = u16::MAX as usize;
 const MAX_ENTRY_VARIABLE_BYTES: usize = u16::MAX as usize * 3;
 const ZIP64_SENTINEL_U16: u16 = u16::MAX;
 const ZIP64_SENTINEL_U32: u32 = u32::MAX;
+const UNIX_HOST_SYSTEM: u16 = 3;
+const UNIX_FILE_TYPE_MASK: u16 = 0o170000;
+const UNIX_DIRECTORY_FILE_TYPE: u16 = 0o040000;
+const UNIX_REGULAR_FILE_TYPE: u16 = 0o100000;
 
 /// A safe entry parsed from a local ZIP central directory.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -40,6 +44,7 @@ pub struct LocalArchiveReadEntry {
     pub modified_at: Option<DateTime<Utc>>,
     pub encrypted: bool,
     pub is_safe: bool,
+    pub has_supported_file_type: bool,
     pub local_header_offset: u64,
     pub flags: u16,
     pub raw_name: Vec<u8>,
@@ -98,6 +103,8 @@ pub struct LocalArchiveExtractionResult {
 pub enum LocalArchiveError {
     #[error("archive entry path is unsafe")]
     UnsafeEntryPath,
+    #[error("archive contains a symbolic link or unsupported special member")]
+    UnsupportedArchiveMember,
     #[error("archive output already exists")]
     TargetExists,
     #[error("archive extraction destination already exists")]
@@ -112,6 +119,10 @@ pub enum LocalArchiveError {
     UnsupportedSource,
     #[error("archive operation was cancelled")]
     Cancelled,
+    #[error("archive extraction failed after creating partial output: {0}")]
+    PartialOutput(#[source] Box<LocalArchiveError>),
+    #[error("archive creation failed after creating partial output: {0}")]
+    PartialArchiveOutput(#[source] Box<LocalArchiveError>),
     #[error(transparent)]
     Io(#[from] std::io::Error),
     #[error(transparent)]
@@ -220,6 +231,16 @@ fn is_safe_virtual_path(path: &str, normalized_path: &str) -> bool {
         .clone()
         .all(|segment| !segment.is_empty() && !matches!(segment, "." | "..") && !segment.contains(':'))
         && normalized_path == trimmed
+}
+
+fn has_supported_file_type(version_made_by: u16, external_attributes: u32) -> bool {
+    if version_made_by >> 8 != UNIX_HOST_SYSTEM {
+        return true;
+    }
+    matches!(
+        (external_attributes >> 16) as u16 & UNIX_FILE_TYPE_MASK,
+        0 | UNIX_DIRECTORY_FILE_TYPE | UNIX_REGULAR_FILE_TYPE
+    )
 }
 
 fn dos_datetime(date_value: u16, time_value: u16) -> Option<DateTime<Utc>> {
@@ -347,6 +368,8 @@ fn read_local_archive_entries(archive_path: &Path) -> Result<Vec<LocalArchiveRea
         )?;
         let raw_name = variable[..name_length].to_vec();
         let flags = u16_le(&fixed, 8);
+        let version_made_by = u16_le(&fixed, 4);
+        let external_attributes = u32_le(&fixed, 38);
         let decoded_name = decode_entry_name(&raw_name, flags);
         let (path, is_directory) = normalize_virtual_path(&decoded_name);
         let (compressed_size, uncompressed_size, local_header_offset) = zip64_member_values(
@@ -365,6 +388,7 @@ fn read_local_archive_entries(archive_path: &Path) -> Result<Vec<LocalArchiveRea
             modified_at: dos_datetime(u16_le(&fixed, 14), u16_le(&fixed, 12)),
             encrypted: flags & 1 != 0,
             is_safe: is_safe_virtual_path(&decoded_name, &path),
+            has_supported_file_type: has_supported_file_type(version_made_by, external_attributes),
             local_header_offset,
             flags,
             raw_name,
@@ -397,7 +421,7 @@ pub fn list_local_archive_directory(
     };
     let mut children = BTreeMap::new();
     for entry in read_local_archive_entries(archive_path)? {
-        if !entry.is_safe || !entry.path.starts_with(&prefix) {
+        if !entry.is_safe || !entry.has_supported_file_type || !entry.path.starts_with(&prefix) {
             continue;
         }
         let remainder = &entry.path[prefix.len()..];
@@ -476,7 +500,9 @@ pub fn validate_local_archive_member(archive_path: &Path, member_path: &str) -> 
     }
     let entry = read_local_archive_entries(archive_path)?
         .into_iter()
-        .find(|candidate| candidate.is_safe && !candidate.is_directory && candidate.path == normalized_path)
+        .find(|candidate| {
+            candidate.is_safe && candidate.has_supported_file_type && !candidate.is_directory && candidate.path == normalized_path
+        })
         .ok_or(LocalArchiveReadError::MemberNotFound)?;
     if entry.encrypted || !matches!(entry.compression_method, 0 | 8) {
         return Err(LocalArchiveReadError::UnavailableMember);
@@ -610,52 +636,61 @@ pub fn extract_local_archive_to_new_directory(
         return Err(LocalArchiveError::ExtractionTargetExists);
     }
     let entries = read_local_archive_entries(archive_path)?;
+    if entries.iter().any(|entry| !entry.is_safe) {
+        return Err(LocalArchiveError::UnsafeEntryPath);
+    }
+    if entries.iter().any(|entry| !entry.has_supported_file_type) {
+        return Err(LocalArchiveError::UnsupportedArchiveMember);
+    }
     validate_extraction_output_paths(&entries)?;
     revalidate_target_parent(drive_root, destination_path)?;
     fs::create_dir(destination_path)?;
-    let mut files_extracted = 0;
-    let mut directories_created = 1;
-    let mut extracted_bytes = 0;
-    let mut files_skipped = 0;
-    let mut output_paths = HashSet::new();
+    (|| {
+        let mut files_extracted = 0;
+        let mut directories_created = 1;
+        let mut extracted_bytes = 0;
+        let mut files_skipped = 0;
+        let mut output_paths = HashSet::new();
 
-    for entry in entries.into_iter().filter(|entry| entry.is_safe) {
-        if entry.is_directory {
-            directories_created += ensure_extraction_directory(drive_root, destination_path, &destination_path.join(&entry.path))?;
-            continue;
+        for entry in entries {
+            if entry.is_directory {
+                directories_created += ensure_extraction_directory(drive_root, destination_path, &destination_path.join(&entry.path))?;
+                continue;
+            }
+            if entry.encrypted || !matches!(entry.compression_method, 0 | 8) {
+                files_skipped += 1;
+                continue;
+            }
+            if !output_paths.insert(collision_key(&entry.path)) {
+                return Err(LocalArchiveError::DuplicateEntryPath);
+            }
+            let output_path = destination_path.join(&entry.path);
+            let parent = output_path.parent().ok_or(LocalArchiveError::TargetOutsideRoot)?;
+            directories_created += ensure_extraction_directory(drive_root, destination_path, parent)?;
+            revalidate_target_parent(drive_root, &output_path)?;
+            let mut output = OpenOptions::new().write(true).create_new(true).open(&output_path)?;
+            stream_local_archive_member(archive_path, &entry.path, &mut output)?;
+            output.flush()?;
+            if let Some(modified_at) = entry.modified_at {
+                output.set_modified(modified_at.into())?;
+            }
+            files_extracted += 1;
+            extracted_bytes += entry.uncompressed_size;
         }
-        if entry.encrypted || !matches!(entry.compression_method, 0 | 8) {
-            files_skipped += 1;
-            continue;
-        }
-        if !output_paths.insert(collision_key(&entry.path)) {
-            return Err(LocalArchiveError::DuplicateEntryPath);
-        }
-        let output_path = destination_path.join(&entry.path);
-        let parent = output_path.parent().ok_or(LocalArchiveError::TargetOutsideRoot)?;
-        directories_created += ensure_extraction_directory(drive_root, destination_path, parent)?;
-        revalidate_target_parent(drive_root, &output_path)?;
-        let mut output = OpenOptions::new().write(true).create_new(true).open(&output_path)?;
-        stream_local_archive_member(archive_path, &entry.path, &mut output)?;
-        output.flush()?;
-        if let Some(modified_at) = entry.modified_at {
-            output.set_modified(modified_at.into())?;
-        }
-        files_extracted += 1;
-        extracted_bytes += entry.uncompressed_size;
-    }
-    Ok(LocalArchiveExtractionResult {
-        files_extracted,
-        directories_created,
-        extracted_bytes,
-        files_skipped,
-    })
+        Ok(LocalArchiveExtractionResult {
+            files_extracted,
+            directories_created,
+            extracted_bytes,
+            files_skipped,
+        })
+    })()
+    .map_err(|error| LocalArchiveError::PartialOutput(Box::new(error)))
 }
 
 fn validate_extraction_output_paths(entries: &[LocalArchiveReadEntry]) -> Result<(), LocalArchiveError> {
     let mut file_paths = HashSet::new();
     let mut directory_paths = HashSet::new();
-    for entry in entries.iter().filter(|entry| entry.is_safe) {
+    for entry in entries {
         let parts = entry.path.split('/').collect::<Vec<_>>();
         let directory_count = if entry.is_directory {
             parts.len()
@@ -791,47 +826,50 @@ pub fn create_local_archive(
 ) -> Result<LocalArchiveCreationResult, LocalArchiveError> {
     revalidate_target_parent(drive_root, target_path)?;
     let output = OpenOptions::new().write(true).create_new(true).open(target_path)?;
-    let mut writer = ZipWriter::new_stream(output);
-    let options = SimpleFileOptions::default()
-        .compression_method(CompressionMethod::Deflated)
-        .compression_level(Some(6));
-    let mut files_created = 0;
-    let mut directories_created = 0;
-    let mut source_bytes = 0;
-    let mut buffer = vec![0; ARCHIVE_COPY_BUFFER_SIZE];
+    (|| {
+        let mut writer = ZipWriter::new_stream(output);
+        let options = SimpleFileOptions::default()
+            .compression_method(CompressionMethod::Deflated)
+            .compression_level(Some(6));
+        let mut files_created = 0;
+        let mut directories_created = 0;
+        let mut source_bytes = 0;
+        let mut buffer = vec![0; ARCHIVE_COPY_BUFFER_SIZE];
 
-    for entry in entries {
-        if is_cancelled() {
-            return Err(LocalArchiveError::Cancelled);
-        }
-        if entry.is_directory {
-            writer.add_directory(normalized_archive_path(&entry.archive_path, true)?, options)?;
-            directories_created += 1;
-            continue;
-        }
-        writer.start_file(normalized_archive_path(&entry.archive_path, false)?, options)?;
-        let mut source = FsFile::open(&entry.source_path)?;
-        loop {
+        for entry in entries {
             if is_cancelled() {
                 return Err(LocalArchiveError::Cancelled);
             }
-            let read = source.read(&mut buffer)?;
-            if read == 0 {
-                break;
+            if entry.is_directory {
+                writer.add_directory(normalized_archive_path(&entry.archive_path, true)?, options)?;
+                directories_created += 1;
+                continue;
             }
-            writer.write_all(&buffer[..read])?;
-            source_bytes += read as u64;
+            writer.start_file(normalized_archive_path(&entry.archive_path, false)?, options)?;
+            let mut source = FsFile::open(&entry.source_path)?;
+            loop {
+                if is_cancelled() {
+                    return Err(LocalArchiveError::Cancelled);
+                }
+                let read = source.read(&mut buffer)?;
+                if read == 0 {
+                    break;
+                }
+                writer.write_all(&buffer[..read])?;
+                source_bytes += read as u64;
+            }
+            files_created += 1;
         }
-        files_created += 1;
-    }
 
-    let mut output = writer.finish()?;
-    output.flush()?;
-    Ok(LocalArchiveCreationResult {
-        files_created,
-        directories_created,
-        source_bytes,
-    })
+        let mut output = writer.finish()?;
+        output.flush()?;
+        Ok(LocalArchiveCreationResult {
+            files_created,
+            directories_created,
+            source_bytes,
+        })
+    })()
+    .map_err(|error| LocalArchiveError::PartialArchiveOutput(Box::new(error)))
 }
 
 fn revalidate_target_parent(drive_root: &Path, target_path: &Path) -> Result<(), LocalArchiveError> {
@@ -886,6 +924,23 @@ mod tests {
         let mut notes = String::new();
         archive.by_name("source/notes.txt").unwrap().read_to_string(&mut notes).unwrap();
         assert_eq!(notes, "notes");
+    }
+
+    #[test]
+    fn reports_partial_archive_output_after_source_read_failure() {
+        let directory = tempdir().unwrap();
+        let target = directory.path().join("archive.zip");
+        let entries = [LocalArchiveEntry {
+            source_path: directory.path().join("missing.txt"),
+            archive_path: "missing.txt".to_string(),
+            is_directory: false,
+        }];
+
+        assert!(matches!(
+            create_local_archive(directory.path(), &target, &entries, || false),
+            Err(LocalArchiveError::PartialArchiveOutput(_))
+        ));
+        assert!(target.is_file());
     }
 
     #[test]
@@ -986,6 +1041,91 @@ mod tests {
             Err(LocalArchiveError::DuplicateEntryPath)
         ));
         assert!(!destination.exists());
+    }
+
+    #[test]
+    fn rejects_unsafe_members_before_creating_the_destination() {
+        let directory = tempdir().unwrap();
+        let archive_path = directory.path().join("unsafe.zip");
+        let output = OpenOptions::new().write(true).create_new(true).open(&archive_path).unwrap();
+        let mut writer = ZipWriter::new_stream(output);
+        writer
+            .start_file(
+                "../unsafe.txt",
+                SimpleFileOptions::default().compression_method(CompressionMethod::Stored),
+            )
+            .unwrap();
+        writer.write_all(b"unsafe").unwrap();
+        writer.finish().unwrap();
+        let destination = directory.path().join("output");
+
+        assert!(matches!(
+            extract_local_archive_to_new_directory(directory.path(), &archive_path, &destination),
+            Err(LocalArchiveError::UnsafeEntryPath)
+        ));
+        assert!(!destination.exists());
+    }
+
+    #[test]
+    fn rejects_symbolic_link_members_before_creating_the_destination() {
+        let directory = tempdir().unwrap();
+        let archive_path = directory.path().join("symbolic-link.zip");
+        let output = OpenOptions::new().write(true).create_new(true).open(&archive_path).unwrap();
+        let mut writer = ZipWriter::new_stream(output);
+        writer
+            .start_file("link", SimpleFileOptions::default().compression_method(CompressionMethod::Stored))
+            .unwrap();
+        writer.write_all(b"target").unwrap();
+        writer.finish().unwrap();
+        let mut archive_bytes = fs::read(&archive_path).unwrap();
+        let central_directory_offset = archive_bytes
+            .windows(CENTRAL_DIRECTORY_SIGNATURE.len())
+            .position(|value| value == CENTRAL_DIRECTORY_SIGNATURE)
+            .unwrap();
+        archive_bytes[central_directory_offset + 4..central_directory_offset + 6].copy_from_slice(&0x0314_u16.to_le_bytes());
+        archive_bytes[central_directory_offset + 38..central_directory_offset + 42].copy_from_slice(&(0o120777_u32 << 16).to_le_bytes());
+        fs::write(&archive_path, archive_bytes).unwrap();
+        let destination = directory.path().join("output");
+
+        assert!(list_local_archive_directory(&archive_path, "", None, 100)
+            .unwrap()
+            .entries
+            .is_empty());
+        assert!(matches!(
+            extract_local_archive_to_new_directory(directory.path(), &archive_path, &destination),
+            Err(LocalArchiveError::UnsupportedArchiveMember)
+        ));
+        assert!(!destination.exists());
+    }
+
+    #[test]
+    fn reports_partial_output_after_member_integrity_failure() {
+        let directory = tempdir().unwrap();
+        let archive_path = directory.path().join("corrupt.zip");
+        let output = OpenOptions::new().write(true).create_new(true).open(&archive_path).unwrap();
+        let mut writer = ZipWriter::new_stream(output);
+        writer
+            .start_file(
+                "notes.txt",
+                SimpleFileOptions::default().compression_method(CompressionMethod::Stored),
+            )
+            .unwrap();
+        writer.write_all(b"contents").unwrap();
+        writer.finish().unwrap();
+        let mut archive_bytes = fs::read(&archive_path).unwrap();
+        let central_directory_offset = archive_bytes
+            .windows(CENTRAL_DIRECTORY_SIGNATURE.len())
+            .position(|value| value == CENTRAL_DIRECTORY_SIGNATURE)
+            .unwrap();
+        archive_bytes[central_directory_offset + 16] ^= 1;
+        fs::write(&archive_path, archive_bytes).unwrap();
+        let destination = directory.path().join("output");
+
+        assert!(matches!(
+            extract_local_archive_to_new_directory(directory.path(), &archive_path, &destination),
+            Err(LocalArchiveError::PartialOutput(_))
+        ));
+        assert!(destination.join("notes.txt").is_file());
     }
 
     #[test]

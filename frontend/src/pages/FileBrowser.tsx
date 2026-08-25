@@ -107,6 +107,7 @@ const COMPANION_WEBSOCKET_RECONNECT_DELAY_MS = 5_000;
 const COMPANION_WEBSOCKET_CONNECT_TIMEOUT_MS = 15_000;
 
 const COMPANION_STATUS_QUERY_PARAM = "companion_status";
+const LOCAL_ARCHIVE_CREATION_PARTIAL_CODE = "local_archive_creation_partial";
 
 function getSafeWebSocketLogUrl(wsUrl: string): string {
   try {
@@ -1753,11 +1754,16 @@ const Browser: React.FC = () => {
         setArchiveCreateContext(null);
         quickBarPane.handleRefresh();
       } catch (error: unknown) {
-        const detail =
-          isApiError(error) && typeof error.response?.data?.detail === "string"
+        const hasPartialArchiveOutput = isApiError(error) && error.response?.data?.code === LOCAL_ARCHIVE_CREATION_PARTIAL_CODE;
+        const detail = hasPartialArchiveOutput
+          ? t("fileBrowser.archive.createPartialOutputError")
+          : isApiError(error) && typeof error.response?.data?.detail === "string"
             ? error.response.data.detail
             : t("fileBrowser.archive.errorGeneric");
         setArchiveCreateError(detail);
+        if (hasPartialArchiveOutput) {
+          quickBarPane.handleRefresh();
+        }
         logger.error("Archive creation failed", { error, targetPath }, "file-browser");
       } finally {
         setIsCreatingArchive(false);
