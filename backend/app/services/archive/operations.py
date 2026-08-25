@@ -107,6 +107,7 @@ def apply_existing_file_decision(
     operation: ArchiveOperation,
     action: str,
     member_path: str | None = None,
+    target_path: str | None = None,
 ) -> ArchiveOperation:
     """Store a validated collision choice and return a paused extraction to streaming."""
 
@@ -118,7 +119,7 @@ def apply_existing_file_decision(
         raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="Archive operation decision state is invalid") from exc
     if pending.get("kind") != "existing_files" or action not in pending.get("allowed_actions", []):
         raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_CONTENT, detail="Archive operation decision is not allowed")
-    is_member_action = action in {"skip", "replace"}
+    is_member_action = action in {"skip", "replace", "rename"}
     if is_member_action:
         conflicts = pending.get("conflicts")
         if not isinstance(member_path, str) or not isinstance(conflicts, list):
@@ -135,12 +136,20 @@ def apply_existing_file_decision(
             raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="Archive operation checkpoint is invalid") from exc
         if not isinstance(checkpoint, dict):
             raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="Archive operation checkpoint is invalid")
-        member_actions = checkpoint.setdefault("member_collision_actions", {})
-        if not isinstance(member_actions, dict):
-            raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="Archive operation checkpoint is invalid")
-        member_actions[member_path] = action
+        if action == "rename":
+            if not _is_safe_relative_target_path(target_path):
+                raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_CONTENT, detail="Archive rename target path is invalid")
+            rename_targets = checkpoint.setdefault("member_rename_targets", {})
+            if not isinstance(rename_targets, dict):
+                raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="Archive operation checkpoint is invalid")
+            rename_targets[member_path] = target_path
+        else:
+            member_actions = checkpoint.setdefault("member_collision_actions", {})
+            if not isinstance(member_actions, dict):
+                raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="Archive operation checkpoint is invalid")
+            member_actions[member_path] = action
         operation.checkpoint_json = json.dumps(checkpoint)
-    elif member_path is not None:
+    elif member_path is not None or target_path is not None:
         raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_CONTENT, detail="Archive all-files decision cannot target a member")
     now = datetime.now(timezone.utc)
     if not is_member_action:
@@ -153,3 +162,10 @@ def apply_existing_file_decision(
     session.commit()
     session.refresh(operation)
     return operation
+
+
+def _is_safe_relative_target_path(target_path: object) -> bool:
+    if not isinstance(target_path, str) or not target_path or "\x00" in target_path:
+        return False
+    normalized = target_path.replace("\\", "/")
+    return not normalized.startswith("/") and all(part not in {"", ".", ".."} for part in normalized.split("/"))

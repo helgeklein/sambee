@@ -971,7 +971,7 @@ pub async fn browse_create_archive(
 
     let result = tokio::task::spawn_blocking(move || {
         let manifest = build_local_archive_manifest(&sources, &target)?;
-        create_local_archive(&target, &manifest, || false)
+        create_local_archive(&base_path, &target, &manifest, || false)
     })
     .await
     .map_err(|error| ApiError::Internal(format!("Local archive task failed: {error}")))?
@@ -994,9 +994,10 @@ fn map_local_archive_error(error: LocalArchiveError) -> ApiError {
         LocalArchiveError::TargetInsideSource => {
             ApiError::BadRequest("Archive output cannot be inside a selected source directory".to_string())
         }
-        LocalArchiveError::UnsafeEntryPath | LocalArchiveError::DuplicateEntryPath | LocalArchiveError::UnsupportedSource => {
-            ApiError::BadRequest(error.to_string())
-        }
+        LocalArchiveError::UnsafeEntryPath
+        | LocalArchiveError::TargetOutsideRoot
+        | LocalArchiveError::DuplicateEntryPath
+        | LocalArchiveError::UnsupportedSource => ApiError::BadRequest(error.to_string()),
         LocalArchiveError::Cancelled => ApiError::BadRequest("Archive creation was cancelled".to_string()),
         LocalArchiveError::Io(error) => ApiError::Io(error),
         LocalArchiveError::Zip(error) => {

@@ -9,6 +9,7 @@ import pytest
 
 from app.models.file import FileInfo, FileType
 from app.services.archive.extraction import ArchiveExtractionCancelled, ArchiveExtractionConflicts, extract_archive_to_new_paths
+from app.services.archive.zip_reader import ArchiveFormatError
 
 
 class MemoryRandomReader:
@@ -150,6 +151,51 @@ async def test_individual_replace_policy_replaces_only_the_selected_member() -> 
     assert result.files_replaced == 1
     assert result.replaced_members == ("root.txt",)
     assert backend.files["output/root.txt"] == b"root"
+
+
+@pytest.mark.asyncio
+async def test_individual_rename_writes_member_to_the_persisted_target() -> None:
+    backend = MemoryExtractionBackend(_archive_bytes())
+    backend.files["output/root.txt"] = b"existing"
+
+    result = await extract_archive_to_new_paths(
+        backend,
+        archive_path="input.zip",
+        destination_root="output",
+        member_rename_targets={"root.txt": "renamed/root-copy.txt"},
+    )
+
+    assert result.files_extracted == 2
+    assert result.renamed_members == ("root.txt",)
+    assert backend.files["output/root.txt"] == b"existing"
+    assert backend.files["output/renamed/root-copy.txt"] == b"root"
+
+
+@pytest.mark.asyncio
+async def test_rename_rejects_unsafe_or_colliding_output_paths() -> None:
+    backend = MemoryExtractionBackend(_archive_bytes())
+
+    with pytest.raises(ArchiveFormatError, match="safe relative path"):
+        await extract_archive_to_new_paths(
+            backend,
+            archive_path="input.zip",
+            destination_root="output",
+            member_rename_targets={"root.txt": "../escape.txt"},
+        )
+    with pytest.raises(ArchiveFormatError, match="collide after normalization"):
+        await extract_archive_to_new_paths(
+            backend,
+            archive_path="input.zip",
+            destination_root="output",
+            member_rename_targets={"root.txt": "docs/README.txt"},
+        )
+    with pytest.raises(ArchiveFormatError, match="file/directory collision"):
+        await extract_archive_to_new_paths(
+            backend,
+            archive_path="input.zip",
+            destination_root="output",
+            member_rename_targets={"root.txt": "docs"},
+        )
 
 
 @pytest.mark.asyncio

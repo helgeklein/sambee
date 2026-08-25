@@ -1,5 +1,6 @@
 """Same-executor direct ZIP extraction without archive or member staging."""
 
+import unicodedata
 from collections.abc import AsyncIterator, Awaitable, Callable, Mapping
 from dataclasses import dataclass
 from datetime import datetime
@@ -36,6 +37,7 @@ class ArchiveExtractionResult:
     files_replaced: int = 0
     skipped_members: tuple[str, ...] = ()
     replaced_members: tuple[str, ...] = ()
+    renamed_members: tuple[str, ...] = ()
 
 
 class ArchiveExtractionCancelled(Exception):
@@ -56,9 +58,55 @@ class ArchiveExtractionConflicts(Exception):
         super().__init__("Archive extraction requires a decision for existing destination files")
 
 
-def _target_path(destination_root: str, member_path: str) -> str:
+def _target_path(destination_root: str, member_path: str, member_rename_targets: Mapping[str, str] | None = None) -> str:
     root = destination_root.replace("\\", "/").strip("/")
-    return f"{root}/{member_path}" if root else member_path
+    output_path = member_rename_targets.get(member_path, member_path) if member_rename_targets is not None else member_path
+    return f"{root}/{output_path}" if root else output_path
+
+
+def _normalized_relative_path(path: str) -> str:
+    normalized = path.replace("\\", "/")
+    if not normalized or normalized.startswith("/") or "\x00" in normalized:
+        raise ArchiveFormatError("Archive extraction rename target must be a safe relative path")
+    segments = normalized.split("/")
+    if any(segment in {"", ".", ".."} for segment in segments):
+        raise ArchiveFormatError("Archive extraction rename target must be a safe relative path")
+    return normalized
+
+
+def _validated_rename_targets(entries: list[ZipEntry], member_rename_targets: Mapping[str, str] | None) -> dict[str, str]:
+    if member_rename_targets is None:
+        return {}
+    entry_paths = {entry.path for entry in entries if not entry.is_directory}
+    targets: dict[str, str] = {}
+    for member_path, target_path in member_rename_targets.items():
+        if member_path not in entry_paths or not isinstance(target_path, str):
+            raise ArchiveFormatError("Archive extraction rename state is invalid")
+        targets[member_path] = _normalized_relative_path(target_path)
+    output_file_keys: set[str] = set()
+    required_directory_keys: set[str] = set()
+    for entry in entries:
+        if entry.is_directory:
+            directory_path = entry.path
+            required_directory_keys.update(_parent_path_keys(directory_path, include_path=True))
+            continue
+        output_path = targets.get(entry.path, entry.path)
+        output_key = unicodedata.normalize("NFC", output_path).casefold()
+        if output_key in output_file_keys:
+            raise ArchiveFormatError("Archive extraction output paths collide after normalization")
+        output_file_keys.add(output_key)
+        required_directory_keys.update(_parent_path_keys(output_path, include_path=False))
+    if output_file_keys & required_directory_keys:
+        raise ArchiveFormatError("Archive extraction output paths create a file/directory collision")
+    return targets
+
+
+def _parent_path_keys(path: str, *, include_path: bool) -> set[str]:
+    """Return portable collision keys for all output-directory ancestors of *path*."""
+
+    parts = path.split("/")
+    last_index = len(parts) if include_path else len(parts) - 1
+    return {unicodedata.normalize("NFC", "/".join(parts[:index])).casefold() for index in range(1, last_index + 1)}
 
 
 async def extract_archive_to_new_paths(
@@ -68,6 +116,7 @@ async def extract_archive_to_new_paths(
     destination_root: str,
     existing_file_policy: str | None = None,
     member_collision_actions: Mapping[str, str] | None = None,
+    member_rename_targets: Mapping[str, str] | None = None,
     is_cancelled: Callable[[], Awaitable[bool]] | None = None,
 ) -> ArchiveExtractionResult:
     """Extract safe, readable ZIP members without replacing existing files."""
@@ -79,7 +128,10 @@ async def extract_archive_to_new_paths(
     try:
         zip_reader = ZipReader(random_reader, archive_info.size)
         entries = [entry for entry in await zip_reader.entries() if entry.is_safe]
-        conflicts = await _preflight_file_conflicts(backend, entries, destination_root, existing_file_policy, member_collision_actions)
+        rename_targets = _validated_rename_targets(entries, member_rename_targets)
+        conflicts = await _preflight_file_conflicts(
+            backend, entries, destination_root, existing_file_policy, member_collision_actions, rename_targets
+        )
         if conflicts:
             raise ArchiveExtractionConflicts(conflicts)
         created_directories: set[str] = set()
@@ -89,6 +141,7 @@ async def extract_archive_to_new_paths(
         files_replaced = 0
         skipped_members: list[str] = []
         replaced_members: list[str] = []
+        renamed_members: list[str] = []
         for entry in entries:
             if is_cancelled is not None and await is_cancelled():
                 raise ArchiveExtractionCancelled("Archive extraction was cancelled")
@@ -97,7 +150,7 @@ async def extract_archive_to_new_paths(
                 continue
             if entry.encrypted or entry.compression_method not in {0, 8, 12}:
                 continue
-            target_path = _target_path(destination_root, entry.path)
+            target_path = _target_path(destination_root, entry.path, rename_targets)
             parent = target_path.rpartition("/")[0]
             if parent:
                 await _ensure_directory(backend, parent, created_directories)
@@ -119,6 +172,8 @@ async def extract_archive_to_new_paths(
             if overwrite:
                 files_replaced += 1
                 replaced_members.append(entry.path)
+            if entry.path in rename_targets:
+                renamed_members.append(entry.path)
         return ArchiveExtractionResult(
             files_extracted=files_extracted,
             directories_created=len(created_directories),
@@ -127,6 +182,7 @@ async def extract_archive_to_new_paths(
             files_replaced=files_replaced,
             skipped_members=tuple(skipped_members),
             replaced_members=tuple(replaced_members),
+            renamed_members=tuple(renamed_members),
         )
     finally:
         await random_reader.close()
@@ -138,12 +194,13 @@ async def _preflight_file_conflicts(
     destination_root: str,
     existing_file_policy: str | None,
     member_collision_actions: Mapping[str, str] | None,
+    member_rename_targets: Mapping[str, str],
 ) -> list[ArchiveExtractionConflict]:
     conflicts: list[ArchiveExtractionConflict] = []
     for entry in entries:
         if entry.is_directory or entry.encrypted or entry.compression_method not in {0, 8, 12}:
             continue
-        target_path = _target_path(destination_root, entry.path)
+        target_path = _target_path(destination_root, entry.path, member_rename_targets)
         try:
             existing = await backend.get_file_info(target_path)
         except FileNotFoundError:

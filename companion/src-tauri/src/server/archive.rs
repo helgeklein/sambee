@@ -39,6 +39,8 @@ pub enum LocalArchiveError {
     TargetExists,
     #[error("archive output is inside a selected source directory")]
     TargetInsideSource,
+    #[error("archive output is outside the allowed drive root")]
+    TargetOutsideRoot,
     #[error("archive sources produce duplicate normalized entry names")]
     DuplicateEntryPath,
     #[error("archive source is not a regular file or directory")]
@@ -135,10 +137,12 @@ pub fn build_local_archive_manifest(source_paths: &[PathBuf], target_path: &Path
 
 /// Create a ZIP directly at a previously non-existent local output path.
 pub fn create_local_archive(
+    drive_root: &Path,
     target_path: &Path,
     entries: &[LocalArchiveEntry],
     is_cancelled: impl Fn() -> bool,
 ) -> Result<LocalArchiveCreationResult, LocalArchiveError> {
+    revalidate_target_parent(drive_root, target_path)?;
     let output = OpenOptions::new().write(true).create_new(true).open(target_path)?;
     let mut writer = ZipWriter::new_stream(output);
     let options = SimpleFileOptions::default()
@@ -183,6 +187,16 @@ pub fn create_local_archive(
     })
 }
 
+fn revalidate_target_parent(drive_root: &Path, target_path: &Path) -> Result<(), LocalArchiveError> {
+    let canonical_root = fs::canonicalize(drive_root)?;
+    let parent = target_path.parent().ok_or(LocalArchiveError::TargetOutsideRoot)?;
+    let canonical_parent = fs::canonicalize(parent)?;
+    if !canonical_parent.starts_with(canonical_root) {
+        return Err(LocalArchiveError::TargetOutsideRoot);
+    }
+    Ok(())
+}
+
 #[cfg(test)]
 mod tests {
     use std::fs;
@@ -213,7 +227,7 @@ mod tests {
         let target = directory.path().join("archive.zip");
         let entries = build_local_archive_manifest(&[source_root], &target).unwrap();
 
-        let result = create_local_archive(&target, &entries, || false).unwrap();
+        let result = create_local_archive(directory.path(), &target, &entries, || false).unwrap();
 
         assert_eq!(result.files_created, 1);
         assert_eq!(result.directories_created, 2);
@@ -236,6 +250,25 @@ mod tests {
         assert!(matches!(
             build_local_archive_manifest(std::slice::from_ref(&source_root), &source_root.join("archive.zip")),
             Err(LocalArchiveError::TargetInsideSource)
+        ));
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn rejects_target_parent_symlinked_outside_drive_root() {
+        use std::os::unix::fs::symlink;
+
+        let root = tempdir().unwrap();
+        let outside = tempdir().unwrap();
+        let source = root.path().join("source.txt");
+        fs::write(&source, b"source").unwrap();
+        symlink(outside.path(), root.path().join("escape")).unwrap();
+        let target = root.path().join("escape/archive.zip");
+        let entries = build_local_archive_manifest(&[source], &target).unwrap();
+
+        assert!(matches!(
+            create_local_archive(root.path(), &target, &entries, || false),
+            Err(LocalArchiveError::TargetOutsideRoot)
         ));
     }
 }

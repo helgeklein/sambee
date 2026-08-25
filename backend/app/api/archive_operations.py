@@ -133,6 +133,21 @@ def _member_collision_actions(operation: ArchiveOperation) -> dict[str, str]:
     return member_actions
 
 
+def _member_rename_targets(operation: ArchiveOperation) -> dict[str, str]:
+    """Return persisted per-member output remaps after structural validation."""
+
+    try:
+        checkpoint = json.loads(operation.checkpoint_json or "{}")
+    except json.JSONDecodeError as exc:
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="Archive operation checkpoint is invalid") from exc
+    rename_targets = checkpoint.get("member_rename_targets", {}) if isinstance(checkpoint, dict) else None
+    if not isinstance(rename_targets, dict) or not all(
+        isinstance(member_path, str) and isinstance(target_path, str) for member_path, target_path in rename_targets.items()
+    ):
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="Archive operation checkpoint is invalid")
+    return rename_targets
+
+
 @router.post("/operations/{operation_id}/execute-create", response_model=ArchiveOperationRead)
 async def execute_archive_creation(
     operation_id: uuid.UUID,
@@ -253,6 +268,7 @@ async def execute_archive_extraction(
             destination_root=operation.destination_path,
             existing_file_policy=operation.collision_policy,
             member_collision_actions=_member_collision_actions(operation),
+            member_rename_targets=_member_rename_targets(operation),
             is_cancelled=is_cancelled,
         )
         operation.checkpoint_json = json.dumps(
@@ -264,6 +280,7 @@ async def execute_archive_extraction(
                 "files_replaced": result.files_replaced,
                 "skipped_members": list(result.skipped_members),
                 "replaced_members": list(result.replaced_members),
+                "renamed_members": list(result.renamed_members),
             }
         )
         update_operation_phase(
@@ -282,7 +299,7 @@ async def execute_archive_extraction(
             operation,
             {
                 "kind": "existing_files",
-                "allowed_actions": ["skip", "skip_all", "replace", "replace_all", "replace_older"],
+                "allowed_actions": ["skip", "skip_all", "replace", "replace_all", "replace_older", "rename"],
                 "conflicts": [{"member_path": conflict.member_path, "target_path": conflict.target_path} for conflict in exc.conflicts],
             },
         )
@@ -312,7 +329,7 @@ async def decide_archive_extraction(
             expected_phase=ArchiveOperationPhase.AWAITING_USER_DECISION,
             next_phase=ArchiveOperationPhase.CANCELLED,
         )
-    return apply_existing_file_decision(session, operation, payload.action, payload.member_path)
+    return apply_existing_file_decision(session, operation, payload.action, payload.member_path, payload.target_path)
 
 
 @router.post("/operations/{operation_id}/cancel", response_model=ArchiveOperationRead)

@@ -89,5 +89,6 @@ class ArchiveOperationTransition(SQLModel):
 
 
 class ArchiveExtractionDecision(SQLModel):
-    action: Literal["skip", "skip_all", "replace", "replace_all", "replace_older", "cancel"]
+    action: Literal["skip", "skip_all", "replace", "replace_all", "replace_older", "rename", "cancel"]
     member_path: str | None = None
+    target_path: str | None = None

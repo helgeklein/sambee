@@ -866,11 +866,13 @@ class ApiService {
   async decideArchiveExtraction(
     operationId: string,
     action: ArchiveExtractionDecisionAction,
-    memberPath?: string
+    memberPath?: string,
+    targetPath?: string
   ): Promise<ArchiveOperation> {
     const response = await this.api.post<ArchiveOperation>(`/archive/operations/${operationId}/decide-extraction`, {
       action,
       member_path: memberPath,
+      target_path: targetPath,
     });
     return response.data;
   }
