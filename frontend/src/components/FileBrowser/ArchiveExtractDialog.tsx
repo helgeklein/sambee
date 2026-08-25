@@ -8,9 +8,11 @@ interface ArchiveExtractDialogProps {
   archivePath: string;
   open: boolean;
   isExtracting: boolean;
+  isCancelling?: boolean;
   error: string | null;
   onClose: () => void;
   onConfirm: (destinationPath: string) => void;
+  onCancelExtraction?: () => void;
 }
 
 function defaultDestinationPath(archivePath: string): string {
@@ -26,7 +28,16 @@ function validateDestinationPath(value: string): string | null {
   return null;
 }
 
-export function ArchiveExtractDialog({ archivePath, open, isExtracting, error, onClose, onConfirm }: ArchiveExtractDialogProps) {
+export function ArchiveExtractDialog({
+  archivePath,
+  open,
+  isExtracting,
+  isCancelling = false,
+  error,
+  onClose,
+  onConfirm,
+  onCancelExtraction,
+}: ArchiveExtractDialogProps) {
   const { t } = useTranslation();
   const inputRef = useRef<HTMLInputElement>(null);
   const [destinationPath, setDestinationPath] = useState(defaultDestinationPath(archivePath));
@@ -67,9 +78,15 @@ export function ArchiveExtractDialog({ archivePath, open, isExtracting, error, o
       contentSx={{ p: 2 }}
       actions={
         <>
-          <Button onClick={onClose} disabled={isExtracting}>
-            {t("common.actions.cancel")}
-          </Button>
+          {isExtracting && onCancelExtraction ? (
+            <Button onClick={onCancelExtraction} disabled={isCancelling}>
+              {t("fileBrowser.archive.buttonCancelExtraction")}
+            </Button>
+          ) : (
+            <Button onClick={onClose} disabled={isExtracting}>
+              {t("common.actions.cancel")}
+            </Button>
+          )}
           <Button
             variant="contained"
             onClick={handleConfirm}

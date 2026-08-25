@@ -131,6 +131,10 @@ fn build_router(state: Arc<AppState>) -> Router {
         )
         .route("/api/browse/{drive}/upload", axum::routing::post(handlers::browse_upload))
         .route("/api/browse/{drive}/archive", axum::routing::post(handlers::browse_create_archive))
+        .route(
+            "/api/browse/{drive}/archive/extract",
+            axum::routing::post(handlers::browse_extract_archive),
+        )
         .layer(axum::middleware::from_fn_with_state(state.clone(), auth::require_auth));
 
     // Viewer routes support both header-based and query-param auth so that

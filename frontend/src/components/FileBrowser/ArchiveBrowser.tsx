@@ -7,6 +7,7 @@ import {
   Alert,
   AppBar,
   Box,
+  Breadcrumbs,
   Button,
   CircularProgress,
   IconButton,
@@ -17,10 +18,12 @@ import {
   Toolbar,
   Typography,
 } from "@mui/material";
+import { isAxiosError } from "axios";
 import { useEffect, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 import api from "../../services/api";
-import type { ArchiveEntryInfo } from "../../types";
+import { isLocalDrive } from "../../services/backendRouter";
+import type { ArchiveEntryInfo, ArchiveOperation } from "../../types";
 import { ArchiveExtractDialog } from "./ArchiveExtractDialog";
 import { ArchiveExtractionConflictDialog } from "./ArchiveExtractionConflictDialog";
 
@@ -28,9 +31,25 @@ interface ArchiveBrowserProps {
   connectionId: string;
   archivePath: string;
   onClose: () => void;
+  onExtracted?: (connectionId: string, archivePath: string) => void;
 }
 
-export function ArchiveBrowser({ connectionId, archivePath, onClose }: ArchiveBrowserProps) {
+type ExtractionNotice = { message: string; severity: "info" | "success" };
+
+function getSkippedMemberCount(operation: ArchiveOperation): number {
+  try {
+    const checkpoint: unknown = JSON.parse(operation.checkpoint_json);
+    if (typeof checkpoint !== "object" || checkpoint === null || !("files_skipped" in checkpoint)) {
+      return 0;
+    }
+    const filesSkipped = checkpoint.files_skipped;
+    return typeof filesSkipped === "number" && Number.isSafeInteger(filesSkipped) && filesSkipped > 0 ? filesSkipped : 0;
+  } catch {
+    return 0;
+  }
+}
+
+export function ArchiveBrowser({ connectionId, archivePath, onClose, onExtracted }: ArchiveBrowserProps) {
   const { t } = useTranslation();
   const triggerElementRef = useRef<HTMLElement | null>(null);
   const [virtualPath, setVirtualPath] = useState("");
@@ -41,8 +60,10 @@ export function ArchiveBrowser({ connectionId, archivePath, onClose }: ArchiveBr
   const [error, setError] = useState<string | null>(null);
   const [extractDialogOpen, setExtractDialogOpen] = useState(false);
   const [extractError, setExtractError] = useState<string | null>(null);
-  const [extractNotice, setExtractNotice] = useState<string | null>(null);
+  const [extractNotice, setExtractNotice] = useState<ExtractionNotice | null>(null);
   const [isExtracting, setIsExtracting] = useState(false);
+  const [activeExtractionOperationId, setActiveExtractionOperationId] = useState<string | null>(null);
+  const [isCancellingExtraction, setIsCancellingExtraction] = useState(false);
   const [pendingExtraction, setPendingExtraction] = useState<{
     operationId: string;
     conflicts: Array<{ member_path: string; target_path: string; is_directory?: boolean }>;
@@ -101,17 +122,33 @@ export function ArchiveBrowser({ connectionId, archivePath, onClose }: ArchiveBr
     }
   };
 
-  const navigateUp = () => {
-    const parts = virtualPath.split("/");
-    parts.pop();
+  const navigateTo = (path: string) => {
     setPageCursor(null);
-    setVirtualPath(parts.join("/"));
+    setVirtualPath(path);
+  };
+
+  const navigateUp = () => {
+    navigateTo(virtualPath.includes("/") ? virtualPath.slice(0, virtualPath.lastIndexOf("/")) : "");
+  };
+
+  const getExtractionNotice = (filesSkipped: number) =>
+    filesSkipped > 0 ? t("fileBrowser.archive.extractPartialSuccess", { count: filesSkipped }) : t("fileBrowser.archive.extractSuccess");
+
+  const setExtractionSuccessNotice = (filesSkipped: number) => {
+    setExtractNotice({ message: getExtractionNotice(filesSkipped), severity: "success" });
   };
 
   const extractArchive = async (destinationPath: string) => {
     setIsExtracting(true);
     setExtractError(null);
     try {
+      if (isLocalDrive(connectionId)) {
+        const result = await api.extractLocalArchive(connectionId, archivePath, destinationPath);
+        setExtractDialogOpen(false);
+        setExtractionSuccessNotice(result.files_skipped);
+        onExtracted?.(connectionId, archivePath);
+        return;
+      }
       const operation = await api.prepareArchiveOperation({
         kind: "extract",
         source_connection_id: connectionId,
@@ -119,19 +156,45 @@ export function ArchiveBrowser({ connectionId, archivePath, onClose }: ArchiveBr
         destination_connection_id: connectionId,
         destination_path: destinationPath,
       });
+      setActiveExtractionOperationId(operation.id);
       const result = await api.executeArchiveExtraction(operation.id);
-      setExtractDialogOpen(false);
       if (result.phase === "awaiting_user_decision") {
+        setExtractDialogOpen(false);
         const pendingDecision = JSON.parse(result.pending_decision_json ?? "{}");
         const conflicts = Array.isArray(pendingDecision.conflicts) ? pendingDecision.conflicts : [];
         setPendingExtraction({ operationId: result.id, conflicts });
+      } else if (result.phase === "completed") {
+        setExtractDialogOpen(false);
+        setExtractionSuccessNotice(getSkippedMemberCount(result));
+      } else if (result.phase === "cancelled") {
+        setExtractDialogOpen(false);
+        setExtractNotice({ message: t("fileBrowser.archive.extractCancelled"), severity: "info" });
       } else {
-        setExtractNotice(t("fileBrowser.archive.extractSuccess"));
+        setExtractError(t("fileBrowser.archive.extractError"));
       }
-    } catch {
-      setExtractError(t("fileBrowser.archive.extractError"));
+    } catch (error) {
+      setExtractError(
+        isAxiosError(error) && error.response?.status === 409
+          ? t("fileBrowser.archive.validationDestinationExists")
+          : t("fileBrowser.archive.extractError")
+      );
     } finally {
       setIsExtracting(false);
+      setActiveExtractionOperationId(null);
+      setIsCancellingExtraction(false);
+    }
+  };
+
+  const cancelExtraction = async () => {
+    if (!activeExtractionOperationId) {
+      return;
+    }
+    setIsCancellingExtraction(true);
+    try {
+      await api.cancelArchiveOperation(activeExtractionOperationId);
+    } catch {
+      setExtractError(t("fileBrowser.archive.extractError"));
+      setIsCancellingExtraction(false);
     }
   };
 
@@ -153,7 +216,15 @@ export function ArchiveBrowser({ connectionId, archivePath, onClose }: ArchiveBr
           setPendingExtraction({ operationId: result.id, conflicts });
           return;
         }
-        setExtractNotice(t("fileBrowser.archive.extractSuccess"));
+        if (result.phase === "completed") {
+          setExtractionSuccessNotice(getSkippedMemberCount(result));
+        } else if (result.phase === "cancelled") {
+          setExtractNotice({ message: t("fileBrowser.archive.extractCancelled"), severity: "info" });
+        } else {
+          setExtractError(t("fileBrowser.archive.extractError"));
+        }
+      } else if (decision.phase === "cancelled") {
+        setExtractNotice({ message: t("fileBrowser.archive.extractCancelled"), severity: "info" });
       }
       setPendingExtraction(null);
     } catch {
@@ -183,9 +254,29 @@ export function ArchiveBrowser({ connectionId, archivePath, onClose }: ArchiveBr
             <Typography noWrap variant="h6">
               {archivePath.split("/").at(-1)}
             </Typography>
-            <Typography noWrap variant="body2" color="text.secondary">
-              {virtualPath || t("fileBrowser.archive.root")}
-            </Typography>
+            {virtualPath ? (
+              <Breadcrumbs aria-label={t("fileBrowser.archive.breadcrumbs")} separator="/">
+                <Button color="inherit" size="small" onClick={() => navigateTo("")}>
+                  {t("fileBrowser.archive.root")}
+                </Button>
+                {virtualPath.split("/").map((part, index, parts) => {
+                  const path = parts.slice(0, index + 1).join("/");
+                  return index === parts.length - 1 ? (
+                    <Typography key={path} noWrap variant="body2" color="text.secondary">
+                      {part}
+                    </Typography>
+                  ) : (
+                    <Button key={path} color="inherit" size="small" onClick={() => navigateTo(path)}>
+                      {part}
+                    </Button>
+                  );
+                })}
+              </Breadcrumbs>
+            ) : (
+              <Typography noWrap variant="body2" color="text.secondary">
+                {t("fileBrowser.archive.root")}
+              </Typography>
+            )}
           </Box>
           <Button onClick={navigateUp} disabled={!virtualPath}>
             {t("fileBrowser.archive.up")}
@@ -202,8 +293,8 @@ export function ArchiveBrowser({ connectionId, archivePath, onClose }: ArchiveBr
           </Alert>
         ) : null}
         {extractNotice ? (
-          <Alert severity="success" sx={{ mb: 2 }}>
-            {extractNotice}
+          <Alert severity={extractNotice.severity} sx={{ mb: 2 }}>
+            {extractNotice.message}
           </Alert>
         ) : null}
         {loading ? (
@@ -215,11 +306,10 @@ export function ArchiveBrowser({ connectionId, archivePath, onClose }: ArchiveBr
             {items.map((item) => (
               <ListItemButton
                 key={item.path}
-                disabled={item.state !== "readable"}
+                disabled={item.type === "file" && item.state !== "readable"}
                 onClick={() => {
                   if (item.type === "directory") {
-                    setPageCursor(null);
-                    setVirtualPath(item.path);
+                    navigateTo(item.path);
                   } else {
                     void downloadMember(item.path);
                   }
@@ -240,8 +330,10 @@ export function ArchiveBrowser({ connectionId, archivePath, onClose }: ArchiveBr
       <ArchiveExtractDialog
         archivePath={archivePath}
         error={extractError}
+        isCancelling={isCancellingExtraction}
         isExtracting={isExtracting}
         open={extractDialogOpen}
+        onCancelExtraction={activeExtractionOperationId ? cancelExtraction : undefined}
         onClose={() => setExtractDialogOpen(false)}
         onConfirm={extractArchive}
       />

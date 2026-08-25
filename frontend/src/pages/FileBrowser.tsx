@@ -444,6 +444,18 @@ const Browser: React.FC = () => {
     onOpenArchive: (connectionId, archivePath) => setArchiveBrowser({ connectionId, archivePath }),
   });
 
+  const handleArchiveExtracted = useCallback(
+    (connectionId: string, archivePath: string) => {
+      const archiveParentPath = archivePath.includes("/") ? (archivePath.slice(0, archivePath.lastIndexOf("/")) ?? "") : "";
+      for (const pane of [leftPane, rightPane]) {
+        if (pane.connectionId === connectionId && pane.currentPath === archiveParentPath) {
+          pane.forceReloadCurrentDirectory(true);
+        }
+      }
+    },
+    [leftPane, rightPane]
+  );
+
   /**
    * Active pane — the pane that receives keyboard input and toolbar actions.
    * In single-pane mode, always the left pane. In dual mode, whichever has focus.
@@ -2570,6 +2582,7 @@ const Browser: React.FC = () => {
           connectionId={archiveBrowser.connectionId}
           archivePath={archiveBrowser.archivePath}
           onClose={() => setArchiveBrowser(null)}
+          onExtracted={handleArchiveExtracted}
         />
       ) : null}
       {/* Companion app guidance hint */}

@@ -24,8 +24,8 @@ use tokio_util::io::{ReaderStream, SyncIoBridge};
 use crate::{commands, show_pairing_success, show_pairing_window};
 
 use super::archive::{
-    build_local_archive_manifest, create_local_archive, list_local_archive_directory, stream_local_archive_member,
-    validate_local_archive_member, LocalArchiveError, ARCHIVE_COPY_BUFFER_SIZE,
+    build_local_archive_manifest, create_local_archive, extract_local_archive_to_new_directory, list_local_archive_directory,
+    stream_local_archive_member, validate_local_archive_member, LocalArchiveError, ARCHIVE_COPY_BUFFER_SIZE,
 };
 use super::auth;
 use super::drives;
@@ -1124,9 +1124,34 @@ pub async fn browse_create_archive(
     }))
 }
 
+/// `POST /api/browse/{drive}/archive/extract` — extract a ZIP into a new local directory.
+pub async fn browse_extract_archive(
+    Path(drive): Path<String>,
+    Json(body): Json<ArchiveExtractRequest>,
+) -> Result<Json<ArchiveExtractionResponse>, ApiError> {
+    if body.archive_path.trim().is_empty() || body.destination_path.trim().is_empty() {
+        return Err(ApiError::BadRequest("Archive and destination paths are required".to_string()));
+    }
+    let base_path = drives::resolve_drive_path(&drive).ok_or_else(|| ApiError::NotFound(format!("Unknown drive: {drive}")))?;
+    let archive_path = resolve_safe_path(&base_path, &drive, &body.archive_path)?;
+    let destination_path = resolve_safe_path_for_new(&base_path, &drive, &body.destination_path)?;
+    let result = tokio::task::spawn_blocking(move || extract_local_archive_to_new_directory(&base_path, &archive_path, &destination_path))
+        .await
+        .map_err(|error| ApiError::Internal(format!("Local archive extraction task failed: {error}")))?
+        .map_err(map_local_archive_error)?;
+    Ok(Json(ArchiveExtractionResponse {
+        files_extracted: result.files_extracted,
+        directories_created: result.directories_created,
+        extracted_bytes: result.extracted_bytes,
+        files_skipped: result.files_skipped,
+    }))
+}
+
 fn map_local_archive_error(error: LocalArchiveError) -> ApiError {
     match error {
-        LocalArchiveError::TargetExists => ApiError::conflict_message("Archive output already exists"),
+        LocalArchiveError::TargetExists | LocalArchiveError::ExtractionTargetExists => {
+            ApiError::conflict_message("Archive output already exists")
+        }
         LocalArchiveError::TargetInsideSource => {
             ApiError::BadRequest("Archive output cannot be inside a selected source directory".to_string())
         }
@@ -1140,6 +1165,7 @@ fn map_local_archive_error(error: LocalArchiveError) -> ApiError {
             warn!("Local archive creation failed while writing ZIP data: {error}");
             ApiError::Internal("Local archive creation failed".to_string())
         }
+        LocalArchiveError::ArchiveRead(error) => map_local_archive_read_error(error),
     }
 }
 

@@ -831,6 +831,24 @@ class ApiService {
     return response.data;
   }
 
+  async extractLocalArchive(
+    connectionId: string,
+    archivePath: string,
+    destinationPath: string
+  ): Promise<{ files_extracted: number; directories_created: number; extracted_bytes: number; files_skipped: number }> {
+    const segment = getBrowseSegment(connectionId);
+    const { client, extraConfig } = await this.getClientConfig(connectionId);
+    const response = await client.post(
+      `/browse/${segment}/archive/extract`,
+      {
+        archive_path: archivePath,
+        destination_path: destinationPath,
+      },
+      extraConfig
+    );
+    return response.data;
+  }
+
   async prepareArchiveOperation(payload: ArchiveOperationPrepare): Promise<ArchiveOperation> {
     const response = await this.api.post<ArchiveOperation>("/archive/operations", payload);
     return response.data;

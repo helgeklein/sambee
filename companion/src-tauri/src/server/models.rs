@@ -115,6 +115,22 @@ pub struct ArchiveCreationResponse {
     pub source_bytes: u64,
 }
 
+/// Request to extract a local archive into a new relative destination directory.
+#[derive(Debug, Deserialize)]
+pub struct ArchiveExtractRequest {
+    pub archive_path: String,
+    pub destination_path: String,
+}
+
+/// Summary returned after a local archive extraction completes.
+#[derive(Debug, Serialize)]
+pub struct ArchiveExtractionResponse {
+    pub files_extracted: u64,
+    pub directories_created: u64,
+    pub extracted_bytes: u64,
+    pub files_skipped: u64,
+}
+
 /// Stable identity for a locally hosted archive.
 #[derive(Debug, Serialize)]
 pub struct ArchiveIdentity {
