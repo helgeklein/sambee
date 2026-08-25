@@ -458,6 +458,8 @@ def test_companion_build_publishes_then_promotes_only_test_and_cleans_up() -> No
     assert "release_id_after_publish" in publish_step["run"]
     assert "release_tag_after_publish" in publish_step["run"]
     assert "published_at" in publish_step["run"]
+    assert 'draft_after_publish="$(jq -r' in publish_step["run"]
+    assert 'prerelease_after_publish="$(jq -r' in publish_step["run"]
 
     published_verify_step = next(step for step in finalizer_steps if step.get("name") == "Verify published Companion release")
     assert "--verify-only" in published_verify_step["run"]
