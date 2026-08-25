@@ -1,6 +1,7 @@
 """Transactional archive-operation lifecycle helpers."""
 
 from datetime import datetime, timezone
+import json
 
 from fastapi import HTTPException, status
 from sqlmodel import Session
@@ -66,4 +67,20 @@ def request_operation_cancellation(session: Session, operation: ArchiveOperation
         session.add(operation)
         session.commit()
         session.refresh(operation)
+    return operation
+
+
+def fail_operation(session: Session, operation: ArchiveOperation, message: str) -> ArchiveOperation:
+    """Record an executor failure without masking the original request error."""
+
+    if operation.phase in TERMINAL_ARCHIVE_OPERATION_PHASES:
+        return operation
+    now = datetime.now(timezone.utc)
+    operation.phase = ArchiveOperationPhase.FAILED
+    operation.last_error_json = json.dumps({"code": "archive_creation_failed", "message": message})
+    operation.updated_at = now
+    operation.heartbeat_at = now
+    session.add(operation)
+    session.commit()
+    session.refresh(operation)
     return operation

@@ -7,7 +7,7 @@ from collections.abc import AsyncIterator
 import pytest
 
 from app.models.file import FileInfo, FileType
-from app.services.archive.creation import create_archive_from_files
+from app.services.archive.creation import ArchiveCreationCancelled, create_archive_from_files
 from app.services.archive.zip_writer import PortableZipWriter
 
 
@@ -81,3 +81,22 @@ async def test_creates_direct_archive_from_regular_file_sources() -> None:
     with zipfile.ZipFile(io.BytesIO(backend.target.data)) as archive:
         assert archive.read("first.txt") == b"first"
         assert archive.read("second.txt") == b"second"
+
+
+@pytest.mark.asyncio
+async def test_cancellation_deletes_the_owned_partial_target() -> None:
+    backend = MemoryCreationBackend({"in/first.txt": b"first"})
+
+    with pytest.raises(ArchiveCreationCancelled):
+        await create_archive_from_files(
+            backend,
+            source_paths=["in/first.txt"],
+            target_path="out.zip",
+            is_cancelled=lambda: _cancelled(),
+        )
+
+    assert backend.target.data == b""
+
+
+async def _cancelled() -> bool:
+    return True

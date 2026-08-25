@@ -1,6 +1,6 @@
 """Same-executor direct ZIP creation without source staging."""
 
-from collections.abc import AsyncIterator
+from collections.abc import AsyncIterator, Awaitable, Callable
 from dataclasses import dataclass
 from typing import Protocol
 
@@ -24,6 +24,10 @@ class ArchiveCreationResult:
     source_bytes: int
 
 
+class ArchiveCreationCancelled(Exception):
+    """Raised when a direct archive operation is cancelled between source chunks."""
+
+
 def _source_entry_name(path: str) -> str:
     normalized = path.replace("\\", "/").rstrip("/")
     return normalized.rsplit("/", 1)[-1]
@@ -34,6 +38,7 @@ async def create_archive_from_files(
     *,
     source_paths: list[str],
     target_path: str,
+    is_cancelled: Callable[[], Awaitable[bool]] | None = None,
 ) -> ArchiveCreationResult:
     """Create a portable ZIP directly at *target_path* from regular-file sources."""
 
@@ -54,10 +59,24 @@ async def create_archive_from_files(
     completed = False
     try:
         for source_path, info in sources:
-            await archive_writer.add_file(_source_entry_name(source_path), backend.read_file(source_path), info.modified_at)
+            await archive_writer.add_file(
+                _source_entry_name(source_path),
+                _cancellable_chunks(backend.read_file(source_path), is_cancelled),
+                info.modified_at,
+            )
         await archive_writer.close()
         completed = True
         return ArchiveCreationResult(files_created=len(sources), source_bytes=sum(info.size or 0 for _, info in sources))
     finally:
         if not completed:
             await writer_handle.abort_and_delete_if_owned()
+
+
+async def _cancellable_chunks(
+    source: AsyncIterator[bytes],
+    is_cancelled: Callable[[], Awaitable[bool]] | None,
+) -> AsyncIterator[bytes]:
+    async for chunk in source:
+        if is_cancelled is not None and await is_cancelled():
+            raise ArchiveCreationCancelled("Archive creation was cancelled")
+        yield chunk

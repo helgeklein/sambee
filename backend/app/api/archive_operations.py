@@ -1,20 +1,25 @@
 """Owner-scoped durable archive-operation lifecycle endpoints."""
 
+import json
 import uuid
 
 from fastapi import APIRouter, Depends, HTTPException, status
 from sqlmodel import Session
 
-from app.core.logging import set_user
+from app.api._smb_helpers import build_smb_backend, disconnect_backend_safely
+from app.core.logging import get_logger, set_user
 from app.core.security import get_current_user_with_auth_check
 from app.db.database import get_session
-from app.models.archive_operation import ArchiveOperation, ArchiveOperationPrepare, ArchiveOperationRead, ArchiveOperationTransition
+from app.models.archive_operation import ArchiveOperation, ArchiveOperationKind, ArchiveOperationPhase, ArchiveOperationPrepare, ArchiveOperationRead, ArchiveOperationTransition
 from app.models.user import User
-from app.services.archive.operations import request_operation_cancellation, update_operation_phase
+from app.services.archive.creation import ArchiveCreationCancelled, create_archive_from_files
+from app.services.archive.operations import fail_operation, request_operation_cancellation, update_operation_phase
 from app.services.connection_access import get_accessible_connection_or_404, require_connection_write_access
 from app.services.history_common import LOCAL_DRIVE_PREFIX
+from app.storage.smb import SMBBackend
 
 router = APIRouter()
+logger = get_logger(__name__)
 
 
 def _verify_operation_connection_scope(
@@ -83,6 +88,72 @@ async def transition_archive_operation(
 
     operation = _get_owned_operation_or_404(session, current_user, operation_id)
     return update_operation_phase(session, operation, expected_phase=payload.expected_phase, next_phase=payload.next_phase)
+
+
+def _creation_source_paths(operation: ArchiveOperation) -> list[str]:
+    try:
+        plan = json.loads(operation.plan_json)
+    except json.JSONDecodeError as exc:
+        raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_CONTENT, detail="Archive creation plan is invalid") from exc
+    source_paths = plan.get("source_paths") if isinstance(plan, dict) else None
+    if not isinstance(source_paths, list) or not source_paths or not all(isinstance(path, str) and path for path in source_paths):
+        raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_CONTENT, detail="Archive creation plan has no valid source files")
+    return source_paths
+
+
+@router.post("/operations/{operation_id}/execute-create", response_model=ArchiveOperationRead)
+async def execute_archive_creation(
+    operation_id: uuid.UUID,
+    current_user: User = Depends(get_current_user_with_auth_check),
+    session: Session = Depends(get_session),
+) -> ArchiveOperation:
+    """Create the operation's direct SMB target from its immutable file-source plan."""
+
+    operation = _get_owned_operation_or_404(session, current_user, operation_id)
+    if operation.kind != ArchiveOperationKind.CREATE:
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="Archive operation is not a creation operation")
+    if operation.source_connection_id != operation.destination_connection_id:
+        raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_CONTENT, detail="Mixed archive creation requires the Companion executor")
+    if operation.source_connection_id.startswith(LOCAL_DRIVE_PREFIX):
+        raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_CONTENT, detail="Local archive creation requires the Companion executor")
+    source_paths = _creation_source_paths(operation)
+    try:
+        connection = get_accessible_connection_or_404(session, current_user, uuid.UUID(operation.source_connection_id))
+    except ValueError as exc:
+        raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_CONTENT, detail="Archive creation connection ID is invalid") from exc
+    require_connection_write_access(current_user, connection, action="create archive", path=operation.destination_path)
+    if operation.phase == ArchiveOperationPhase.PREPARED:
+        update_operation_phase(session, operation, expected_phase=ArchiveOperationPhase.PREPARED, next_phase=ArchiveOperationPhase.ACCEPTED)
+    if operation.phase != ArchiveOperationPhase.ACCEPTED:
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="Archive creation operation is not ready to execute")
+    update_operation_phase(session, operation, expected_phase=ArchiveOperationPhase.ACCEPTED, next_phase=ArchiveOperationPhase.STREAMING)
+
+    backend = build_smb_backend(connection, backend_factory=SMBBackend)
+    try:
+        await backend.connect()
+
+        async def is_cancelled() -> bool:
+            session.refresh(operation)
+            return operation.cancellation_requested
+
+        result = await create_archive_from_files(
+            backend,
+            source_paths=source_paths,
+            target_path=operation.destination_path,
+            is_cancelled=is_cancelled,
+        )
+        operation.checkpoint_json = json.dumps({"files_created": result.files_created, "source_bytes": result.source_bytes})
+        update_operation_phase(session, operation, expected_phase=ArchiveOperationPhase.STREAMING, next_phase=ArchiveOperationPhase.VERIFYING)
+        return update_operation_phase(session, operation, expected_phase=ArchiveOperationPhase.VERIFYING, next_phase=ArchiveOperationPhase.COMPLETED)
+    except ArchiveCreationCancelled:
+        return update_operation_phase(session, operation, expected_phase=ArchiveOperationPhase.STREAMING, next_phase=ArchiveOperationPhase.CANCELLED)
+    except HTTPException:
+        raise
+    except Exception as exc:
+        fail_operation(session, operation, str(exc))
+        raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail="Archive creation failed") from exc
+    finally:
+        await disconnect_backend_safely(backend, logger=logger, context=f"archive creation operation {operation.id}")
 
 
 @router.post("/operations/{operation_id}/cancel", response_model=ArchiveOperationRead)
