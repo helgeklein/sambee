@@ -49,7 +49,12 @@ def _dos_time_and_date(modified_at: datetime | None) -> tuple[int, int]:
 def _normalize_entry_name(name: str, *, directory: bool) -> str:
     normalized = name.replace("\\", "/").rstrip("/")
     segments = normalized.split("/")
-    if not normalized or normalized.startswith("/") or "\x00" in normalized or any(not part or part in {".", ".."} or ":" in part for part in segments):
+    if (
+        not normalized
+        or normalized.startswith("/")
+        or "\x00" in normalized
+        or any(not part or part in {".", ".."} or ":" in part for part in segments)
+    ):
         raise ArchiveFormatError("Archive output entry name is unsafe")
     return f"{normalized}/" if directory else normalized
 
@@ -135,7 +140,9 @@ class PortableZipWriter:
             raise ArchiveFormatError("ZIP64 output entries are not implemented")
         await self._write(struct.pack("<IIII", 0x08074B50, crc & _ZIP32_MAX, compressed_size, uncompressed_size))
         self._entries.append(
-            _WrittenEntry(name, flags, method, dos_time, dos_date, crc & _ZIP32_MAX, compressed_size, uncompressed_size, local_offset, is_directory)
+            _WrittenEntry(
+                name, flags, method, dos_time, dos_date, crc & _ZIP32_MAX, compressed_size, uncompressed_size, local_offset, is_directory
+            )
         )
 
     async def close(self) -> None:

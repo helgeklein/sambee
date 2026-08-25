@@ -862,6 +862,11 @@ class ApiService {
     return response.data;
   }
 
+  async executeArchiveExtraction(operationId: string): Promise<ArchiveOperation> {
+    const response = await this.api.post<ArchiveOperation>(`/archive/operations/${operationId}/execute-extract`);
+    return response.data;
+  }
+
   async cancelArchiveOperation(operationId: string): Promise<ArchiveOperation> {
     const response = await this.api.post<ArchiveOperation>(`/archive/operations/${operationId}/cancel`);
     return response.data;

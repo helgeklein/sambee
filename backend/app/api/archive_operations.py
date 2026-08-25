@@ -10,9 +10,17 @@ from app.api._smb_helpers import build_smb_backend, disconnect_backend_safely
 from app.core.logging import get_logger, set_user
 from app.core.security import get_current_user_with_auth_check
 from app.db.database import get_session
-from app.models.archive_operation import ArchiveOperation, ArchiveOperationKind, ArchiveOperationPhase, ArchiveOperationPrepare, ArchiveOperationRead, ArchiveOperationTransition
+from app.models.archive_operation import (
+    ArchiveOperation,
+    ArchiveOperationKind,
+    ArchiveOperationPhase,
+    ArchiveOperationPrepare,
+    ArchiveOperationRead,
+    ArchiveOperationTransition,
+)
 from app.models.user import User
 from app.services.archive.creation import ArchiveCreationCancelled, create_archive_from_files
+from app.services.archive.extraction import ArchiveExtractionCancelled, extract_archive_to_new_paths
 from app.services.archive.operations import fail_operation, request_operation_cancellation, update_operation_phase
 from app.services.connection_access import get_accessible_connection_or_404, require_connection_write_access
 from app.services.history_common import LOCAL_DRIVE_PREFIX
@@ -113,9 +121,13 @@ async def execute_archive_creation(
     if operation.kind != ArchiveOperationKind.CREATE:
         raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="Archive operation is not a creation operation")
     if operation.source_connection_id != operation.destination_connection_id:
-        raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_CONTENT, detail="Mixed archive creation requires the Companion executor")
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_CONTENT, detail="Mixed archive creation requires the Companion executor"
+        )
     if operation.source_connection_id.startswith(LOCAL_DRIVE_PREFIX):
-        raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_CONTENT, detail="Local archive creation requires the Companion executor")
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_CONTENT, detail="Local archive creation requires the Companion executor"
+        )
     source_paths = _creation_source_paths(operation)
     try:
         connection = get_accessible_connection_or_404(session, current_user, uuid.UUID(operation.source_connection_id))
@@ -143,10 +155,16 @@ async def execute_archive_creation(
             is_cancelled=is_cancelled,
         )
         operation.checkpoint_json = json.dumps({"files_created": result.files_created, "source_bytes": result.source_bytes})
-        update_operation_phase(session, operation, expected_phase=ArchiveOperationPhase.STREAMING, next_phase=ArchiveOperationPhase.VERIFYING)
-        return update_operation_phase(session, operation, expected_phase=ArchiveOperationPhase.VERIFYING, next_phase=ArchiveOperationPhase.COMPLETED)
+        update_operation_phase(
+            session, operation, expected_phase=ArchiveOperationPhase.STREAMING, next_phase=ArchiveOperationPhase.VERIFYING
+        )
+        return update_operation_phase(
+            session, operation, expected_phase=ArchiveOperationPhase.VERIFYING, next_phase=ArchiveOperationPhase.COMPLETED
+        )
     except ArchiveCreationCancelled:
-        return update_operation_phase(session, operation, expected_phase=ArchiveOperationPhase.STREAMING, next_phase=ArchiveOperationPhase.CANCELLED)
+        return update_operation_phase(
+            session, operation, expected_phase=ArchiveOperationPhase.STREAMING, next_phase=ArchiveOperationPhase.CANCELLED
+        )
     except HTTPException:
         raise
     except Exception as exc:
@@ -154,6 +172,76 @@ async def execute_archive_creation(
         raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail="Archive creation failed") from exc
     finally:
         await disconnect_backend_safely(backend, logger=logger, context=f"archive creation operation {operation.id}")
+
+
+@router.post("/operations/{operation_id}/execute-extract", response_model=ArchiveOperationRead)
+async def execute_archive_extraction(
+    operation_id: uuid.UUID,
+    current_user: User = Depends(get_current_user_with_auth_check),
+    session: Session = Depends(get_session),
+) -> ArchiveOperation:
+    """Extract the operation's archive into new paths on its source SMB connection."""
+
+    operation = _get_owned_operation_or_404(session, current_user, operation_id)
+    if operation.kind != ArchiveOperationKind.EXTRACT:
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="Archive operation is not an extraction operation")
+    if operation.source_connection_id != operation.destination_connection_id:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_CONTENT, detail="Mixed archive extraction requires the Companion executor"
+        )
+    if operation.source_connection_id.startswith(LOCAL_DRIVE_PREFIX):
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_CONTENT, detail="Local archive extraction requires the Companion executor"
+        )
+    try:
+        connection = get_accessible_connection_or_404(session, current_user, uuid.UUID(operation.source_connection_id))
+    except ValueError as exc:
+        raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_CONTENT, detail="Archive extraction connection ID is invalid") from exc
+    require_connection_write_access(current_user, connection, action="extract archive", path=operation.destination_path)
+    if operation.phase == ArchiveOperationPhase.PREPARED:
+        update_operation_phase(session, operation, expected_phase=ArchiveOperationPhase.PREPARED, next_phase=ArchiveOperationPhase.ACCEPTED)
+    if operation.phase != ArchiveOperationPhase.ACCEPTED:
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="Archive extraction operation is not ready to execute")
+    update_operation_phase(session, operation, expected_phase=ArchiveOperationPhase.ACCEPTED, next_phase=ArchiveOperationPhase.STREAMING)
+
+    backend = build_smb_backend(connection, backend_factory=SMBBackend)
+    try:
+        await backend.connect()
+
+        async def is_cancelled() -> bool:
+            session.refresh(operation)
+            return operation.cancellation_requested
+
+        result = await extract_archive_to_new_paths(
+            backend,
+            archive_path=operation.source_path,
+            destination_root=operation.destination_path,
+            is_cancelled=is_cancelled,
+        )
+        operation.checkpoint_json = json.dumps(
+            {
+                "files_extracted": result.files_extracted,
+                "directories_created": result.directories_created,
+                "extracted_bytes": result.extracted_bytes,
+            }
+        )
+        update_operation_phase(
+            session, operation, expected_phase=ArchiveOperationPhase.STREAMING, next_phase=ArchiveOperationPhase.VERIFYING
+        )
+        return update_operation_phase(
+            session, operation, expected_phase=ArchiveOperationPhase.VERIFYING, next_phase=ArchiveOperationPhase.COMPLETED
+        )
+    except ArchiveExtractionCancelled:
+        return update_operation_phase(
+            session, operation, expected_phase=ArchiveOperationPhase.STREAMING, next_phase=ArchiveOperationPhase.CANCELLED
+        )
+    except HTTPException:
+        raise
+    except Exception as exc:
+        fail_operation(session, operation, str(exc))
+        raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail="Archive extraction failed") from exc
+    finally:
+        await disconnect_backend_safely(backend, logger=logger, context=f"archive extraction operation {operation.id}")
 
 
 @router.post("/operations/{operation_id}/cancel", response_model=ArchiveOperationRead)

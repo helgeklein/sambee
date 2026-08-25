@@ -56,7 +56,7 @@ Earlier versions normalized every PDF with Ghostscript. This introduced occasion
 
 ### ZIP Archive Creation, Inspection, and Extraction
 
-Sambee lets you navigate seamlessly into ZIP archives the same way you'd navigate into subdirectories to explore their contents. The UX is instantaneous as the only the relevant parts of the ZIP file are decoded
+Sambee lets you navigate seamlessly into ZIP archives the same way you'd navigate into subdirectories to explore their contents. The UX is instantaneous - only the relevant parts of the ZIP file are decoded. When extracting and compressing, the archive is streamed to minimize CPU, memory, and disk utilzation.
 
 ### Local Drives: Resolve .LNK Files
 

@@ -7,6 +7,7 @@ from fastapi.testclient import TestClient
 
 from app.models.connection import Connection
 from app.services.archive.creation import ArchiveCreationResult
+from app.services.archive.extraction import ArchiveExtractionResult
 
 
 def test_prepare_read_and_cancel_archive_operation(
@@ -80,7 +81,9 @@ def test_executes_same_connection_creation_from_immutable_plan(
 
     with (
         patch("app.api.archive_operations.SMBBackend", return_value=backend),
-        patch("app.api.archive_operations.create_archive_from_files", new=AsyncMock(return_value=ArchiveCreationResult(2, 11))) as create_archive,
+        patch(
+            "app.api.archive_operations.create_archive_from_files", new=AsyncMock(return_value=ArchiveCreationResult(2, 11))
+        ) as create_archive,
     ):
         response = client.post(f"/api/archive/operations/{prepared['id']}/execute-create", headers=auth_headers_user)
 
@@ -91,5 +94,49 @@ def test_executes_same_connection_creation_from_immutable_plan(
         backend,
         source_paths=["first.txt", "second.txt"],
         target_path="backup.zip",
+        is_cancelled=ANY,
+    )
+
+
+def test_executes_same_connection_extraction(
+    client: TestClient,
+    auth_headers_user: dict,
+    test_connection: Connection,
+) -> None:
+    prepared = client.post(
+        "/api/archive/operations",
+        headers=auth_headers_user,
+        json={
+            "kind": "extract",
+            "source_connection_id": str(test_connection.id),
+            "source_path": "input.zip",
+            "destination_connection_id": str(test_connection.id),
+            "destination_path": "output",
+        },
+    ).json()
+    backend = AsyncMock()
+    backend.connect.return_value = None
+    backend.disconnect.return_value = None
+
+    with (
+        patch("app.api.archive_operations.SMBBackend", return_value=backend),
+        patch(
+            "app.api.archive_operations.extract_archive_to_new_paths",
+            new=AsyncMock(return_value=ArchiveExtractionResult(2, 2, 10)),
+        ) as extract_archive,
+    ):
+        response = client.post(f"/api/archive/operations/{prepared['id']}/execute-extract", headers=auth_headers_user)
+
+    assert response.status_code == 200
+    assert response.json()["phase"] == "completed"
+    assert json.loads(response.json()["checkpoint_json"]) == {
+        "files_extracted": 2,
+        "directories_created": 2,
+        "extracted_bytes": 10,
+    }
+    extract_archive.assert_awaited_once_with(
+        backend,
+        archive_path="input.zip",
+        destination_root="output",
         is_cancelled=ANY,
     )
