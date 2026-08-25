@@ -1,32 +1,10 @@
-name: "Release: Promote Companion Release"
+name: "Maintenance: Clean Up Companion Releases"
 
 on:
+  schedule:
+    - cron: '39 3 * * 0'
+    - cron: '43 3 * * 3'
   workflow_dispatch:
-    inputs:
-      release_ref:
-        description: Companion release tag, GitHub release URL, or numeric GitHub release ID
-        required: true
-        type: string
-      companion_channel_test:
-        description: Update Companion test channel feed
-        required: true
-        type: boolean
-        default: false
-      companion_channel_beta:
-        description: Update Companion beta channel feed
-        required: true
-        type: boolean
-        default: false
-      companion_channel_stable:
-        description: Update Companion stable channel feed
-        required: true
-        type: boolean
-        default: false
-      sambee:
-        description: Update Sambee Companion feed
-        required: true
-        type: boolean
-        default: false
 
 env:
   COMPANION_RELEASE_REPO_OWNER: helgeklein
@@ -39,34 +17,10 @@ concurrency:
 
 permissions:
   contents: read
-  packages: read
 
 jobs:
-  promote:
+  cleanup:
     runs-on: ubuntu-latest
-
-    steps:
-      - name: Checkout sambee
-        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-
-      - name: Promote Companion release
-        uses: ./.github/actions/promote-companion-release
-        with:
-          release-ref: ${{ inputs.release_ref }}
-          companion-channel-test: ${{ inputs.companion_channel_test }}
-          companion-channel-beta: ${{ inputs.companion_channel_beta }}
-          companion-channel-stable: ${{ inputs.companion_channel_stable }}
-          sambee: ${{ inputs.sambee }}
-          release-repo-token: ${{ secrets.COMPANION_RELEASE_REPO_TOKEN }}
-          release-repo-owner: ${{ env.COMPANION_RELEASE_REPO_OWNER }}
-          release-repo-name: ${{ env.COMPANION_RELEASE_REPO_NAME }}
-          release-repo-branch: ${{ env.COMPANION_RELEASE_REPO_BRANCH }}
-
-  cleanup-releases:
-    needs: promote
-    if: ${{ needs.promote.result == 'success' }}
-    runs-on: ubuntu-latest
-
     steps:
       - name: Checkout cleanup scripts
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1

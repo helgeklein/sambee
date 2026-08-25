@@ -909,6 +909,7 @@ export const EN_TRANSLATIONS = {
         linkTargetMissing: "Shortcut target not found",
         linkTargetAccessDenied: "Shortcut target access denied",
         linkTargetUnresolvable: "Shortcut target cannot be resolved",
+        linkTargetLocalDrivesOnly: "Shortcut targets can only be resolved on local drives",
         linkTargetUnmappedDrive: "Shortcut target is outside available drives",
         linkTargetUnsupported: "Shortcut target is not a file or folder",
       },

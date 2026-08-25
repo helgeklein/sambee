@@ -1326,6 +1326,7 @@ export function useFileBrowserPane(config: UseFileBrowserPaneConfig): UseFileBro
           ? getAllViewerIds()
           : compatibleViewerIds;
 
+      listContainerEl?.focus({ preventScroll: true });
       setBrowserViewerPickerState({
         connectionId: options?.connectionId,
         fileName: file.name,
@@ -1338,7 +1339,7 @@ export function useFileBrowserPane(config: UseFileBrowserPaneConfig): UseFileBro
         showNativeOption: compatibleViewerIds.length === 0,
       });
     },
-    []
+    [listContainerEl]
   );
 
   const openFileWithAssociatedViewer = useCallback(

@@ -109,7 +109,6 @@ export function BrowserViewerPicker({
       onKeyDown={handleDialogKeyDown}
       title={t("fileBrowser.viewerPicker.title")}
       maxWidth="sm"
-      disableRestoreFocus
       onTransitionExited={onTransitionExited}
       actions={
         <>

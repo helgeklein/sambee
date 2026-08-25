@@ -649,6 +649,55 @@ jobs:
             --verify-only \
             --allow-draft
 
+      - name: Publish verified Companion release
+        shell: bash
+        env:
+          GH_TOKEN: ${{ secrets.COMPANION_RELEASE_REPO_TOKEN }}
+          RELEASE_REPOSITORY: ${{ env.COMPANION_RELEASE_REPO_OWNER }}/${{ env.COMPANION_RELEASE_REPO_NAME }}
+          RELEASE_TAG: ${{ needs.prepare.outputs.release_tag }}
+          VERSION: ${{ needs.prepare.outputs.version }}
+          BUILD_TAG: ${{ needs.prepare.outputs.build_tag }}
+          SOURCE_SHA: ${{ needs.prepare.outputs.checkout_ref }}
+        run: |
+          state="$(GITHUB_TOKEN="$GH_TOKEN" python3 .github/scripts/resolve_companion_release_state.py \
+            --owner "${RELEASE_REPOSITORY%%/*}" \
+            --repo "${RELEASE_REPOSITORY#*/}" \
+            --version "$VERSION" \
+            --build-tag "$BUILD_TAG" \
+            --source-sha "$SOURCE_SHA" \
+            --release-tag "$RELEASE_TAG")"
+          release_id="$(sed -n 's/^release_id=//p' <<<"$state")"
+          if [[ ! "$release_id" =~ ^[0-9]+$ ]]; then
+            echo "Unable to resolve the verified Companion draft release ID." >&2
+            exit 1
+          fi
+
+          gh api --method PATCH "repos/$RELEASE_REPOSITORY/releases/$release_id" -f draft=false > "$RUNNER_TEMP/published-companion-release.json"
+          release_id_after_publish="$(jq -er '.id | if type == "number" and . > 0 and floor == . then . else error("invalid release ID") end' "$RUNNER_TEMP/published-companion-release.json")"
+          release_tag_after_publish="$(jq -er '.tag_name | strings' "$RUNNER_TEMP/published-companion-release.json")"
+            draft_after_publish="$(jq -r '.draft | if type == "boolean" then . else error("invalid draft state") end' "$RUNNER_TEMP/published-companion-release.json")"
+            prerelease_after_publish="$(jq -r '.prerelease | if type == "boolean" then . else error("invalid prerelease state") end' "$RUNNER_TEMP/published-companion-release.json")"
+          published_at="$(jq -er '.published_at | strings' "$RUNNER_TEMP/published-companion-release.json")"
+          if [[ "$release_id_after_publish" != "$release_id" || \
+                "$release_tag_after_publish" != "$RELEASE_TAG" || \
+                "$draft_after_publish" != "false" || \
+                "$prerelease_after_publish" != "false" || \
+                -z "$published_at" ]]; then
+            echo "Companion release publication returned an unexpected release identity or state." >&2
+            exit 1
+          fi
+
+      - name: Verify published Companion release
+        shell: bash
+        env:
+          GITHUB_TOKEN: ${{ secrets.COMPANION_RELEASE_REPO_TOKEN }}
+        run: |
+          python3 .github/scripts/promote_companion_release.py \
+            --release-ref "${{ needs.prepare.outputs.release_tag }}" \
+            --release-owner "${{ env.COMPANION_RELEASE_REPO_OWNER }}" \
+            --release-repo "${{ env.COMPANION_RELEASE_REPO_NAME }}" \
+            --verify-only
+
       - name: Summarize Companion publication
         if: always()
         shell: bash
@@ -674,5 +723,77 @@ jobs:
               echo "- Artifact manifest SHA-256: \`$(jq -r '.artifact_manifest_sha256' "$provenance")\`"
               echo "- Platforms: \`$(jq -r '[.platforms[] | .platform] | join(", ")' "$provenance")\`"
             fi
+          } >> "$GITHUB_STEP_SUMMARY"
+
+  promote-test:
+    needs: [prepare, finalize-release]
+    if: ${{ always() && (needs.prepare.outputs.publication_state == 'complete' || needs.finalize-release.result == 'success') }}
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - name: Checkout promotion scripts
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ github.sha }}
+
+      - name: Promote Companion release to test
+        uses: ./.github/actions/promote-companion-release
+        with:
+          release-ref: ${{ needs.prepare.outputs.release_tag }}
+          companion-channel-test: true
+          companion-channel-beta: false
+          companion-channel-stable: false
+          sambee: false
+          release-repo-token: ${{ secrets.COMPANION_RELEASE_REPO_TOKEN }}
+          release-repo-owner: ${{ env.COMPANION_RELEASE_REPO_OWNER }}
+          release-repo-name: ${{ env.COMPANION_RELEASE_REPO_NAME }}
+          release-repo-branch: ${{ env.COMPANION_RELEASE_REPO_BRANCH }}
+
+  cleanup-releases:
+    needs: promote-test
+    if: ${{ needs.promote-test.result == 'success' }}
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - name: Checkout cleanup scripts
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ github.sha }}
+
+      - name: Checkout release repository
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          repository: ${{ env.COMPANION_RELEASE_REPO_OWNER }}/${{ env.COMPANION_RELEASE_REPO_NAME }}
+          ref: ${{ env.COMPANION_RELEASE_REPO_BRANCH }}
+          token: ${{ secrets.COMPANION_RELEASE_REPO_TOKEN }}
+          path: release-repo
+
+      - name: Delete obsolete Companion releases
+        shell: bash
+        env:
+          GITHUB_TOKEN: ${{ secrets.COMPANION_RELEASE_REPO_TOKEN }}
+        run: |
+          set -o pipefail
+          python3 .github/scripts/cleanup_companion_releases.py \
+            --release-repo-path "$PWD/release-repo" \
+            --release-owner "${{ env.COMPANION_RELEASE_REPO_OWNER }}" \
+            --release-repo "${{ env.COMPANION_RELEASE_REPO_NAME }}" | tee "$RUNNER_TEMP/companion-release-cleanup.jsonl"
+
+      - name: Summarize Companion release cleanup
+        if: always()
+        shell: bash
+        run: |
+          cleanup_log="$RUNNER_TEMP/companion-release-cleanup.jsonl"
+          {
+            echo '## Companion release cleanup'
+            echo
+            if [[ ! -f "$cleanup_log" ]]; then
+              echo 'Cleanup did not produce a classification log.'
+              exit 0
+            fi
+            jq -r 'select(.action == "protect") | "- Keep `\(.tag_name // "untagged")`: \(.classification)"' "$cleanup_log"
+            jq -r 'select(.action == "delete") | "- Delete `\(.tag_name // "untagged")`"' "$cleanup_log"
           } >> "$GITHUB_STEP_SUMMARY"
 

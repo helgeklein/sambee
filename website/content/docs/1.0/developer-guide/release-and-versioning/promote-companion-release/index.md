@@ -2,7 +2,7 @@
 title = "Promote Companion Release"
 +++
 
-This is step 2 of the Companion release flow.
+This is the manual promotion step of the Companion release flow.
 
 Use this workflow to point one or more public feeds at an already published Companion release. GitHub Actions displays this workflow as `Release: Promote Companion Release`.
 
@@ -12,9 +12,11 @@ This workflow does not rebuild binaries. It rewrites feed files in the public re
 
 Run the promotion workflow when:
 
-- A published Companion release should become visible on `test`, `beta`, or `stable`.
+- A published Companion release should become visible on `beta` or `stable`.
 - Sambee should start offering direct downloads for that same published release.
 - You want to move an already published release from one visibility level to another without rebuilding it.
+
+New builds already promote their verified published release to `test` automatically. You can still select `test` manually when you need to repair or deliberately move that feed.
 
 Do not use this workflow for draft or GitHub prerelease releases.
 Promotion should target a published, non-prerelease release only.
@@ -47,7 +49,7 @@ The workflow checks out both repositories, resolves the release, and rewrites on
 
 Selected Companion channel targets update the appropriate updater manifest. The Sambee target updates the direct-download metadata document. [Companion Channels, Feeds, And Downloads](../companion-channels-feeds-and-downloads/) defines those files and their consumers.
 
-After rewriting the files, the workflow commits and pushes the feed updates to the release repository, where they become available to their consumers.
+After rewriting the files, the workflow commits and pushes the feed updates to the release repository, where they become available to their consumers. A successful promotion then runs the same release cleanup used by new builds.
 
 ## Validation Rules
 
@@ -81,11 +83,10 @@ Use [Companion Channels, Feeds, And Downloads](../companion-channels-feeds-and-d
 
 Use this order when you are promoting a Companion release:
 
-1. Publish the reviewed draft release in `helgeklein/sambee-companion`.
-2. Start `Release: Promote Companion Release`.
-3. Set `release_ref` to the exact published release you want to expose.
-4. Select only the feed targets you intend to change.
-5. Let the workflow verify the Companion provenance, then update and push the selected feed files.
-6. Validate the affected updater channel or Sambee download surface.
-7. Rerun the same workflow later if that same release should move from `test` to `beta` or `stable`.
+1. Start `Release: Promote Companion Release`.
+1. Set `release_ref` to the exact published release you want to expose.
+1. Select only the feed targets you intend to change.
+1. Let the workflow verify the Companion provenance, then update and push the selected feed files.
+1. Validate the affected updater channel or Sambee download surface.
+1. Rerun the same workflow later if that same release should move from `test` to `beta` or `stable`.
 

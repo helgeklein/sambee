@@ -1,0 +1,167 @@
+name: Promote Companion Release
+description: Validate and promote one published Companion release to selected feeds.
+
+inputs:
+  release-ref:
+    description: Companion release tag, URL, or numeric release ID.
+    required: true
+  companion-channel-test:
+    description: Update the Companion test updater feed.
+    required: true
+  companion-channel-beta:
+    description: Update the Companion beta updater feed.
+    required: true
+  companion-channel-stable:
+    description: Update the Companion stable updater feed.
+    required: true
+  sambee:
+    description: Update the Sambee Companion download metadata feed.
+    required: true
+  release-repo-token:
+    description: Token with read/write access to the Companion release repository.
+    required: true
+  release-repo-owner:
+    description: Owner of the Companion release repository.
+    required: true
+  release-repo-name:
+    description: Name of the Companion release repository.
+    required: true
+  release-repo-branch:
+    description: Branch containing the public feed files.
+    required: true
+
+outputs:
+  release-id:
+    description: Resolved GitHub Release ID.
+    value: ${{ steps.resolve.outputs.release_id }}
+  release-tag:
+    description: Resolved Companion release tag.
+    value: ${{ steps.resolve.outputs.release_tag }}
+
+runs:
+  using: composite
+  steps:
+    - name: Validate selection
+      shell: bash
+      env:
+        COMPANION_CHANNEL_TEST: ${{ inputs.companion-channel-test }}
+        COMPANION_CHANNEL_BETA: ${{ inputs.companion-channel-beta }}
+        COMPANION_CHANNEL_STABLE: ${{ inputs.companion-channel-stable }}
+        SAMBEE: ${{ inputs.sambee }}
+      run: |
+        if [[ "$COMPANION_CHANNEL_TEST" != "true" && \
+              "$COMPANION_CHANNEL_BETA" != "true" && \
+              "$COMPANION_CHANNEL_STABLE" != "true" && \
+              "$SAMBEE" != "true" ]]; then
+          echo "At least one promotion target must be selected." >&2
+          exit 1
+        fi
+
+    - name: Resolve Companion release
+      id: resolve
+      shell: bash
+      env:
+        GITHUB_TOKEN: ${{ inputs.release-repo-token }}
+        RELEASE_REF: ${{ inputs.release-ref }}
+        RELEASE_OWNER: ${{ inputs.release-repo-owner }}
+        RELEASE_REPO: ${{ inputs.release-repo-name }}
+      run: |
+        resolved_release="$(python3 .github/scripts/promote_companion_release.py \
+          --resolve-release \
+          --release-ref "$RELEASE_REF" \
+          --release-owner "$RELEASE_OWNER" \
+          --release-repo "$RELEASE_REPO")"
+        release_id="$(jq -er '.release_id | if type == "number" and . > 0 and floor == . then . else error("invalid release ID") end' <<<"$resolved_release")"
+        release_tag="$(jq -er '.release_tag | strings' <<<"$resolved_release")"
+        build_tag="$(jq -er '.build_tag | strings' <<<"$resolved_release")"
+        source_sha="$(jq -er '.source_sha | strings' <<<"$resolved_release")"
+        printf 'release_id=%s\n' "$release_id" >> "$GITHUB_OUTPUT"
+        printf 'release_tag=%s\n' "$release_tag" >> "$GITHUB_OUTPUT"
+        printf 'build_tag=%s\n' "$build_tag" >> "$GITHUB_OUTPUT"
+        printf 'source_sha=%s\n' "$source_sha" >> "$GITHUB_OUTPUT"
+
+    - name: Validate Companion provenance
+      shell: bash
+      env:
+        BUILD_TAG: ${{ steps.resolve.outputs.build_tag }}
+        SOURCE_SHA: ${{ steps.resolve.outputs.source_sha }}
+      run: |
+        git fetch origin "refs/tags/$BUILD_TAG:refs/tags/$BUILD_TAG"
+        if [[ "$(git rev-parse "refs/tags/$BUILD_TAG^{commit}")" != "$SOURCE_SHA" ]]; then
+          echo "Companion provenance source SHA does not match canonical tag $BUILD_TAG." >&2
+          exit 1
+        fi
+
+    - name: Checkout release repository
+      uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      with:
+        repository: ${{ inputs.release-repo-owner }}/${{ inputs.release-repo-name }}
+        ref: ${{ inputs.release-repo-branch }}
+        token: ${{ inputs.release-repo-token }}
+        path: release-repo
+
+    - name: Generate feed files
+      shell: bash
+      env:
+        GITHUB_TOKEN: ${{ inputs.release-repo-token }}
+        RELEASE_ID: ${{ steps.resolve.outputs.release_id }}
+        RELEASE_TAG: ${{ steps.resolve.outputs.release_tag }}
+        RELEASE_OWNER: ${{ inputs.release-repo-owner }}
+        RELEASE_REPO: ${{ inputs.release-repo-name }}
+        COMPANION_CHANNEL_TEST: ${{ inputs.companion-channel-test }}
+        COMPANION_CHANNEL_BETA: ${{ inputs.companion-channel-beta }}
+        COMPANION_CHANNEL_STABLE: ${{ inputs.companion-channel-stable }}
+        SAMBEE: ${{ inputs.sambee }}
+      run: |
+        args=()
+        if [[ "$COMPANION_CHANNEL_TEST" == "true" ]]; then
+          args+=(--companion-channel-test)
+        fi
+        if [[ "$COMPANION_CHANNEL_BETA" == "true" ]]; then
+          args+=(--companion-channel-beta)
+        fi
+        if [[ "$COMPANION_CHANNEL_STABLE" == "true" ]]; then
+          args+=(--companion-channel-stable)
+        fi
+        if [[ "$SAMBEE" == "true" ]]; then
+          args+=(--sambee)
+        fi
+
+        python3 .github/scripts/promote_companion_release.py \
+          --release-ref "$RELEASE_ID" \
+          --release-owner "$RELEASE_OWNER" \
+          --release-repo "$RELEASE_REPO" \
+          --release-repo-path "$PWD/release-repo" \
+          --expected-release-id "$RELEASE_ID" \
+          --expected-release-tag "$RELEASE_TAG" \
+          "${args[@]}"
+
+    - name: Commit and push feed updates
+      shell: bash
+      env:
+        RELEASE_TAG: ${{ steps.resolve.outputs.release_tag }}
+        RELEASE_REPO_BRANCH: ${{ inputs.release-repo-branch }}
+        COMPANION_CHANNEL_TEST: ${{ inputs.companion-channel-test }}
+        COMPANION_CHANNEL_BETA: ${{ inputs.companion-channel-beta }}
+        COMPANION_CHANNEL_STABLE: ${{ inputs.companion-channel-stable }}
+        SAMBEE: ${{ inputs.sambee }}
+      run: |
+        git -C release-repo config user.name "github-actions[bot]"
+        git -C release-repo config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+        git -C release-repo add docs/feeds
+
+        if git -C release-repo diff --cached --quiet; then
+          echo "No feed changes to commit."
+          exit 0
+        fi
+
+        git -C release-repo commit -m "Promote $RELEASE_TAG release feeds"
+        if ! git -C release-repo push origin "HEAD:$RELEASE_REPO_BRANCH"; then
+          targets=()
+          [[ "$COMPANION_CHANNEL_TEST" == "true" ]] && targets+=("Companion test feed")
+          [[ "$COMPANION_CHANNEL_BETA" == "true" ]] && targets+=("Companion beta feed")
+          [[ "$COMPANION_CHANNEL_STABLE" == "true" ]] && targets+=("Companion stable feed")
+          [[ "$SAMBEE" == "true" ]] && targets+=("Sambee Companion metadata")
+          echo "Failed to push feed updates for: ${targets[*]}. The remote feed state is unknown; inspect those targets before retrying." >&2
+          exit 1
+        fi
