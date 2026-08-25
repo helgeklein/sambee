@@ -675,8 +675,8 @@ jobs:
           gh api --method PATCH "repos/$RELEASE_REPOSITORY/releases/$release_id" -f draft=false > "$RUNNER_TEMP/published-companion-release.json"
           release_id_after_publish="$(jq -er '.id | if type == "number" and . > 0 and floor == . then . else error("invalid release ID") end' "$RUNNER_TEMP/published-companion-release.json")"
           release_tag_after_publish="$(jq -er '.tag_name | strings' "$RUNNER_TEMP/published-companion-release.json")"
-          draft_after_publish="$(jq -er '.draft | if type == "boolean" then . else error("invalid draft state") end' "$RUNNER_TEMP/published-companion-release.json")"
-          prerelease_after_publish="$(jq -er '.prerelease | if type == "boolean" then . else error("invalid prerelease state") end' "$RUNNER_TEMP/published-companion-release.json")"
+            draft_after_publish="$(jq -r '.draft | if type == "boolean" then . else error("invalid draft state") end' "$RUNNER_TEMP/published-companion-release.json")"
+            prerelease_after_publish="$(jq -r '.prerelease | if type == "boolean" then . else error("invalid prerelease state") end' "$RUNNER_TEMP/published-companion-release.json")"
           published_at="$(jq -er '.published_at | strings' "$RUNNER_TEMP/published-companion-release.json")"
           if [[ "$release_id_after_publish" != "$release_id" || \
                 "$release_tag_after_publish" != "$RELEASE_TAG" || \
