@@ -12,6 +12,9 @@ import type {
   AdvancedSystemSettings,
   AdvancedSystemSettingsUpdate,
   ArchiveDirectoryListing,
+  ArchiveOperation,
+  ArchiveOperationPhase,
+  ArchiveOperationPrepare,
   AuthenticationMode,
   AuthenticationModeActivationResponse,
   AuthToken,
@@ -829,6 +832,33 @@ class ApiService {
       params: { archive_path: archivePath, member_path: memberPath, download },
       responseType: "blob",
     });
+    return response.data;
+  }
+
+  async prepareArchiveOperation(payload: ArchiveOperationPrepare): Promise<ArchiveOperation> {
+    const response = await this.api.post<ArchiveOperation>("/archive/operations", payload);
+    return response.data;
+  }
+
+  async getArchiveOperation(operationId: string): Promise<ArchiveOperation> {
+    const response = await this.api.get<ArchiveOperation>(`/archive/operations/${operationId}`);
+    return response.data;
+  }
+
+  async transitionArchiveOperation(
+    operationId: string,
+    expectedPhase: ArchiveOperationPhase,
+    nextPhase: ArchiveOperationPhase
+  ): Promise<ArchiveOperation> {
+    const response = await this.api.post<ArchiveOperation>(`/archive/operations/${operationId}/phase`, {
+      expected_phase: expectedPhase,
+      next_phase: nextPhase,
+    });
+    return response.data;
+  }
+
+  async cancelArchiveOperation(operationId: string): Promise<ArchiveOperation> {
+    const response = await this.api.post<ArchiveOperation>(`/archive/operations/${operationId}/cancel`);
     return response.data;
   }
 

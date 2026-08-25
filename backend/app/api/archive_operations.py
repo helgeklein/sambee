@@ -8,9 +8,9 @@ from sqlmodel import Session
 from app.core.logging import set_user
 from app.core.security import get_current_user_with_auth_check
 from app.db.database import get_session
-from app.models.archive_operation import ArchiveOperation, ArchiveOperationPrepare, ArchiveOperationRead
+from app.models.archive_operation import ArchiveOperation, ArchiveOperationPrepare, ArchiveOperationRead, ArchiveOperationTransition
 from app.models.user import User
-from app.services.archive.operations import request_operation_cancellation
+from app.services.archive.operations import request_operation_cancellation, update_operation_phase
 from app.services.connection_access import get_accessible_connection_or_404, require_connection_write_access
 from app.services.history_common import LOCAL_DRIVE_PREFIX
 
@@ -70,6 +70,19 @@ async def get_archive_operation(
     """Return one operation only to its initiating user."""
 
     return _get_owned_operation_or_404(session, current_user, operation_id)
+
+
+@router.post("/operations/{operation_id}/phase", response_model=ArchiveOperationRead)
+async def transition_archive_operation(
+    operation_id: uuid.UUID,
+    payload: ArchiveOperationTransition,
+    current_user: User = Depends(get_current_user_with_auth_check),
+    session: Session = Depends(get_session),
+) -> ArchiveOperation:
+    """Advance one operation through an idempotent permitted transition."""
+
+    operation = _get_owned_operation_or_404(session, current_user, operation_id)
+    return update_operation_phase(session, operation, expected_phase=payload.expected_phase, next_phase=payload.next_phase)
 
 
 @router.post("/operations/{operation_id}/cancel", response_model=ArchiveOperationRead)

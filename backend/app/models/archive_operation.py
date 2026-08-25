@@ -80,3 +80,8 @@ class ArchiveOperationRead(SQLModel):
     created_at: datetime
     updated_at: datetime
     heartbeat_at: datetime
+
+
+class ArchiveOperationTransition(SQLModel):
+    expected_phase: ArchiveOperationPhase
+    next_phase: ArchiveOperationPhase

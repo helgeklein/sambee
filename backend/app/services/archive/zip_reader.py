@@ -359,11 +359,16 @@ class ZipReader:
                 part = await self._read_exact(offset, min(chunk_size, remaining))
                 offset += len(part)
                 remaining -= len(part)
-                output = decompressor.decompress(part)
-                if output:
-                    crc = zlib.crc32(output, crc)
-                    total += len(output)
-                    yield output
+                pending = part
+                while pending or not decompressor.needs_input:
+                    output = decompressor.decompress(pending, max_length=chunk_size)
+                    pending = b""
+                    if output:
+                        crc = zlib.crc32(output, crc)
+                        total += len(output)
+                        yield output
+                    if decompressor.eof or decompressor.needs_input:
+                        break
             if not decompressor.eof:
                 raise ArchiveFormatError("ZIP BZIP2 member is truncated")
         else:

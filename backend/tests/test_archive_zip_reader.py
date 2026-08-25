@@ -97,3 +97,17 @@ async def test_normalizes_backslash_member_names() -> None:
     assert total == 1
     assert items[0].name == "folder"
     assert items[0].type == FileType.DIRECTORY
+
+
+@pytest.mark.asyncio
+async def test_streams_bzip2_member_in_bounded_chunks() -> None:
+    buffer = io.BytesIO()
+    expected = b"bounded bzip2 member " * 20_000
+    with zipfile.ZipFile(buffer, "w", compression=zipfile.ZIP_BZIP2) as archive:
+        archive.writestr("data.txt", expected)
+    data = buffer.getvalue()
+
+    chunks = [chunk async for chunk in ZipReader(MemoryRandomAccessReader(data), len(data)).stream_member("data.txt", chunk_size=1024)]
+
+    assert b"".join(chunks) == expected
+    assert max(map(len, chunks)) <= 1024

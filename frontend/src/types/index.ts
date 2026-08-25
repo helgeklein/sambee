@@ -481,6 +481,46 @@ export interface ArchiveDirectoryListing {
   page_size: number;
 }
 
+export type ArchiveOperationKind = "create" | "extract";
+export type ArchiveOperationPhase =
+  | "prepared"
+  | "accepted"
+  | "streaming"
+  | "awaiting_user_decision"
+  | "verifying"
+  | "completed"
+  | "cancelled"
+  | "failed";
+
+export interface ArchiveOperationPrepare {
+  kind: ArchiveOperationKind;
+  source_connection_id: string;
+  source_path: string;
+  destination_connection_id: string;
+  destination_path: string;
+  manifest_hash?: string;
+  plan_json?: string;
+}
+
+export interface ArchiveOperation {
+  id: string;
+  kind: ArchiveOperationKind;
+  phase: ArchiveOperationPhase;
+  source_connection_id: string;
+  source_path: string;
+  destination_connection_id: string;
+  destination_path: string;
+  manifest_hash: string;
+  checkpoint_json: string;
+  pending_decision_json?: string | null;
+  collision_policy?: string | null;
+  cancellation_requested: boolean;
+  last_error_json?: string | null;
+  created_at: string;
+  updated_at: string;
+  heartbeat_at: string;
+}
+
 /** Canonical local-drive target returned before activating a local entry. */
 export interface LocalActivationResolution {
   drive_id: string;
