@@ -20,13 +20,21 @@ Directory navigation gets a history functionality that makes it possible to inst
 
 - Changed <kbd>F1</kbd> to consistently invoke keyboard shortcuts help
 
-## Settings & Dialogs
+## Text and Markdown Editors
 
-### New Settings
+### Search and Replace
 
-The settings gained a new category page:
+In any editor, search and replace are essential functions that need to work efficiently while providing granular control. The text and the Markdown editors got just that: compact search and replace popouts with history, regex support and full keyboard usability.
 
-- New admin **File Search** settings page
+### Other Changes
+
+- Added keyboard shortcuts help
+- Added word wrap (toggled by keyboard shortcut <kbd>Alt+Z</kbd>)
+- Bugfix: text selection highlighting
+
+### Markdown Editor
+
+- Added <kbd>Ctrl+B</kbd> and <kbd>Ctrl+I</kbd> keyboard shortcuts for bold and italic formatting
 
 ## PDF Viewer
 
@@ -44,27 +52,11 @@ Earlier versions normalized every PDF with Ghostscript. This introduced occasion
 - Bugfix: geometry changes between pages, e.g., from portrait to landscape, would create endless "flicker loop"
 - Bugfix: page rotation commands in the file were not honored
 
-## Image Viewer
-
-- Large images: better user feedback while loading
-
-## Text and Markdown Editors
-
-### Search and Replace
-
-In any editor, search and replace are essential functions that need to work efficiently while providing granular control. The text and the Markdown editors got just that: compact search and replace popouts with history, regex support and full keyboard usability.
-
-### Other Changes
-
-- Added keyboard shortcuts help
-- Added word wrap (toggled by keyboard shortcut <kbd>Alt+Z</kbd>)
-- Bugfix: text selection highlighting
-
-## Markdown Editor
-
-- Added <kbd>Ctrl+B</kbd> and <kbd>Ctrl+I</kbd> keyboard shortcuts for bold and italic formatting
-
 ## File List
+
+### Zip Archive Creation, Inspection, and Extraction
+
+Navigate seamlessly into Zip archives the same way you'd navigate into subdirectories.
 
 ### Local Drives: Resolve .LNK Files
 
@@ -74,6 +66,18 @@ Shortcuts (`.lnk` files), symlinks, and junctions on local drives now show the t
 
 - Keyboard navigation: removed delay after entering a new directory
 - Typeahead buffer: cleared when <kbd>Esc</kbd> is pressed
+
+## Settings & Dialogs
+
+### New Settings
+
+The settings gained a new category page:
+
+- New admin **File Search** settings page
+
+## Image Viewer
+
+- Large images: better user feedback while loading
 
 ## Under the Hood
 

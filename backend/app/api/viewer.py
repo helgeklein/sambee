@@ -25,6 +25,7 @@ from app.models.connection import Connection
 from app.models.edit_lock import HEARTBEAT_TIMEOUT_SECONDS, EditLock
 from app.models.file import FileType
 from app.models.user import User
+from app.services.archive.zip_reader import ArchiveFormatError, ZipReader
 from app.services.connection_access import get_accessible_connection_or_404
 from app.services.image_converter import convert_image_for_viewer
 from app.services.pdf_derivative_cache import PDFDerivativeCachePolicy, PDFSourceRevision, pdf_derivative_cache
@@ -43,6 +44,60 @@ from app.utils.file_type_registry import needs_processing
 
 router = APIRouter()
 logger = get_logger(__name__)
+
+
+@router.get("/{connection_id}/archive/member")
+async def stream_archive_member(
+    connection_id: uuid.UUID,
+    archive_path: str = Query(..., min_length=1, description="Path to the ZIP archive"),
+    member_path: str = Query(..., min_length=1, description="Virtual archive member path"),
+    download: bool = Query(False, description="Return an attachment instead of inline content"),
+    current_user: User = Depends(get_current_user_with_auth_check),
+    session: Session = Depends(get_session),
+) -> StreamingResponse:
+    """Stream one parser-validated, permitted member without staging the archive."""
+
+    connection = get_accessible_connection_or_404(session, current_user, connection_id)
+    backend = build_smb_backend(connection, backend_factory=SMBBackend)
+    reader = None
+    try:
+        await backend.connect()
+        archive_info = await backend.get_file_info(archive_path)
+        if archive_info.type != FileType.FILE or archive_info.size is None:
+            raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_CONTENT, detail="Archive path must identify a regular file")
+        reader = await backend.open_random_access_reader(archive_path)
+        zip_reader = ZipReader(reader, archive_info.size)
+        await zip_reader.validate_member(member_path)
+        member_name = member_path.replace("\\", "/").rsplit("/", 1)[-1]
+
+        async def stream_member() -> AsyncIterator[bytes]:
+            try:
+                async for chunk in zip_reader.stream_member(member_path):
+                    yield chunk
+            finally:
+                await reader.close()
+                await disconnect_backend_safely(
+                    backend,
+                    logger=logger,
+                    context=f"archive member stream: connection_id={connection_id}, archive_path={archive_path!r}",
+                )
+
+        disposition = "attachment" if download else "inline"
+        return StreamingResponse(
+            stream_member(),
+            media_type="application/octet-stream",
+            headers={"Content-Disposition": build_content_disposition(disposition, member_name)},
+        )
+    except ArchiveFormatError as exc:
+        if reader is not None:
+            await reader.close()
+        await disconnect_backend_safely(backend, logger=logger, context=f"invalid archive member request: {archive_path!r}")
+        raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_CONTENT, detail={"code": "invalid_zip", "message": str(exc)}) from exc
+    except Exception:
+        if reader is not None:
+            await reader.close()
+        await disconnect_backend_safely(backend, logger=logger, context=f"failed archive member request: {archive_path!r}")
+        raise
 
 
 def _get_active_lock(connection_id: uuid.UUID, path: str, session: Session) -> EditLock | None:

@@ -20,6 +20,7 @@ from app.api.companion import (
 from app.core.logging import get_logger, set_user
 from app.core.security import decrypt_password, get_current_user_for_token, get_current_user_with_auth_check, oauth2_scheme_optional
 from app.db.database import get_session
+from app.models.archive import ArchiveDirectoryListing, ArchiveIdentity
 from app.models.connection import Connection
 from app.models.edit_lock import HEARTBEAT_TIMEOUT_SECONDS, EditLock
 from app.models.file import (
@@ -48,6 +49,7 @@ from app.models.recent_file import (
     RecentFileValidationError,
 )
 from app.models.user import User
+from app.services.archive.zip_reader import ArchiveFormatError, ZipReader
 from app.services.connection_access import get_accessible_connection_or_404, require_connection_write_access
 from app.services.cross_connection import cross_connection_copy, cross_connection_move
 from app.services.history_common import LOCAL_DRIVE_PREFIX, normalize_recent_history_path
@@ -416,6 +418,53 @@ def _get_active_lock(connection_id: uuid.UUID, path: str, session: Session) -> E
         .where(EditLock.last_heartbeat >= cutoff)
     )
     return session.exec(statement).first()
+
+
+@router.get("/{connection_id}/archive/list", response_model=ArchiveDirectoryListing)
+async def list_archive_directory(
+    connection_id: uuid.UUID,
+    archive_path: str = Query(..., min_length=1, description="Path to the ZIP archive within the share"),
+    virtual_path: str = Query("", description="Virtual directory path within the archive"),
+    cursor: str | None = Query(None, description="Opaque archive listing cursor"),
+    page_size: int = Query(100, ge=1, le=500, description="Maximum virtual entries to return"),
+    current_user: User = Depends(get_current_user_with_auth_check),
+    session: Session = Depends(get_session),
+) -> ArchiveDirectoryListing:
+    """Return one bounded page from a ZIP archive without staging its contents."""
+
+    set_user(current_user.username)
+    connection = _get_connection_or_404(session, current_user, connection_id)
+    backend = build_smb_backend(connection, backend_factory=SMBBackend)
+    reader = None
+    try:
+        await backend.connect()
+        archive_info = await backend.get_file_info(archive_path)
+        if archive_info.type != FileType.FILE or archive_info.size is None:
+            raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_CONTENT, detail="Archive path must identify a regular file")
+        reader = await backend.open_random_access_reader(archive_path)
+        items, total, next_cursor = await ZipReader(reader, archive_info.size).list_directory(virtual_path, cursor, page_size)
+        return ArchiveDirectoryListing(
+            archive=ArchiveIdentity(path=archive_path, size=archive_info.size, modified_at=archive_info.modified_at),
+            path=virtual_path.rstrip("/"),
+            items=items,
+            total=total,
+            next_cursor=next_cursor,
+            page_size=page_size,
+        )
+    except ArchiveFormatError as exc:
+        raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_CONTENT, detail={"code": "invalid_zip", "message": str(exc)}) from exc
+    except FileNotFoundError as exc:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Archive file was not found") from exc
+    except TimeoutError as exc:
+        raise HTTPException(status_code=status.HTTP_504_GATEWAY_TIMEOUT, detail="Archive read timed out") from exc
+    finally:
+        if reader is not None:
+            await reader.close()
+        await disconnect_backend_safely(
+            backend,
+            logger=logger,
+            context=f"archive listing request: connection_id={connection_id}, archive_path={archive_path!r}",
+        )
 
 
 #

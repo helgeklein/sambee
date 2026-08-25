@@ -914,6 +914,79 @@ class TestFileReading:
         mock_file.close.assert_called_once()
 
 
+class TestRandomAccessReading:
+    """Test operation-scoped SMB readers used by archive operations."""
+
+    @pytest.mark.asyncio
+    @patch("app.storage.smb.smbclient.open_file")
+    async def test_random_reader_reads_at_offset_and_closes(self, mock_open):
+        mock_file = MagicMock()
+        mock_file.read.return_value = b"archive"
+        mock_open.return_value = mock_file
+        backend = SMBBackend(host="server.local", share_name="share", username="user", password="pass")
+
+        reader = await backend.open_random_access_reader("backup.zip")
+        assert await reader.read_at(128, 7) == b"archive"
+
+        mock_file.seek.assert_called_once_with(128)
+        mock_file.read.assert_called_once_with(7)
+
+        await reader.close()
+        await reader.close()
+        mock_file.close.assert_called_once()
+
+    @pytest.mark.asyncio
+    @patch("app.storage.smb.smbclient.open_file")
+    async def test_random_reader_rejects_invalid_offsets_and_closed_reads(self, mock_open):
+        mock_open.return_value = MagicMock()
+        backend = SMBBackend(host="server.local", share_name="share", username="user", password="pass")
+        reader = await backend.open_random_access_reader("backup.zip")
+
+        with pytest.raises(ValueError, match="non-negative"):
+            await reader.read_at(-1, 1)
+        with pytest.raises(ValueError, match="non-negative"):
+            await reader.read_at(0, -1)
+
+        await reader.close()
+        with pytest.raises(ValueError, match="closed"):
+            await reader.read_at(0, 1)
+
+
+class TestExclusiveArchiveWriting:
+    """Test direct final-target writers used by archive creation."""
+
+    @pytest.mark.asyncio
+    @patch("app.storage.smb.smbclient.open_file")
+    async def test_exclusive_writer_appends_and_closes(self, mock_open):
+        mock_file = MagicMock()
+        mock_file.write.return_value = 3
+        mock_open.return_value = mock_file
+        backend = SMBBackend(host="server.local", share_name="share", username="user", password="pass")
+
+        writer = await backend.open_exclusive_writer("backup.zip")
+        assert await writer.write(b"zip") == 3
+        await writer.close()
+        await writer.close()
+
+        assert mock_open.call_args.kwargs["mode"] == "x+b"
+        assert mock_open.call_args.kwargs["share_access"] == "rwd"
+        mock_file.write.assert_called_once_with(b"zip")
+        mock_file.close.assert_called_once()
+
+    @pytest.mark.asyncio
+    @patch("app.storage.smb.smbclient.remove")
+    @patch("app.storage.smb.smbclient.open_file")
+    async def test_exclusive_writer_deletes_only_while_active(self, mock_open, mock_remove):
+        mock_open.return_value = MagicMock()
+        backend = SMBBackend(host="server.local", share_name="share", username="user", password="pass")
+
+        writer = await backend.open_exclusive_writer("partial.zip")
+        assert await writer.abort_and_delete_if_owned() is True
+        assert await writer.abort_and_delete_if_owned() is False
+
+        mock_remove.assert_called_once()
+
+
 class TestFileExistence:
     """Test file existence checks."""
 

@@ -12,7 +12,7 @@ from smbclient._os import FileAttributes
 from app.core.system_setting_definitions import SystemSettingKey
 from app.models.file import DirectoryListing, FileInfo, FileType
 from app.services.system_settings import get_integer_setting_value, get_smbclient_policy_kwargs
-from app.storage.base import ProgressCallback, StorageBackend
+from app.storage.base import ExclusiveWriter, ProgressCallback, RandomAccessReader, StorageBackend
 from app.storage.smb_pool import get_connection_pool, get_smb_connection_cache
 from app.utils.file_type_registry import get_mime_type
 
@@ -28,6 +28,115 @@ SMB_EXISTS_TIMEOUT_SECONDS = 10.0
 SMB_DELETE_TIMEOUT_SECONDS = 120.0
 
 BlockingResultT = TypeVar("BlockingResultT")
+
+
+class _SMBRandomAccessReader:
+    """One SMB handle with serialized offset reads for an archive operation."""
+
+    def __init__(self, *, backend: "SMBBackend", smb_path: str, handle: BinaryIO, connection_lease: object) -> None:
+        self._backend = backend
+        self._smb_path = smb_path
+        self._handle = handle
+        self._connection_lease = connection_lease
+        self._lock = asyncio.Lock()
+        self._closed = False
+
+    async def read_at(self, offset: int, length: int) -> bytes:
+        if offset < 0 or length < 0:
+            raise ValueError("SMB random-access reads require non-negative offset and length")
+
+        async with self._lock:
+            if self._closed:
+                raise ValueError("SMB random-access reader is closed")
+
+            def _read_at() -> bytes:
+                self._handle.seek(offset)
+                return self._handle.read(length)
+
+            return await self._backend._run_blocking_smb_call(
+                "read_file_at",
+                _read_at,
+                SMB_READ_CHUNK_TIMEOUT_SECONDS,
+                smb_path=self._smb_path,
+            )
+
+    async def close(self) -> None:
+        async with self._lock:
+            if self._closed:
+                return
+            self._closed = True
+            try:
+                await self._backend._run_blocking_smb_call(
+                    "close_file_after_random_read",
+                    self._handle.close,
+                    SMB_FILE_CLOSE_TIMEOUT_SECONDS,
+                    smb_path=self._smb_path,
+                )
+            finally:
+                await self._connection_lease.__aexit__(None, None, None)  # type: ignore[attr-defined]
+
+
+class _SMBExclusiveWriter:
+    """One exclusively created SMB target, retained until close or cleanup."""
+
+    def __init__(self, *, backend: "SMBBackend", smb_path: str, handle: BinaryIO, connection_lease: object) -> None:
+        self._backend = backend
+        self._smb_path = smb_path
+        self._handle = handle
+        self._connection_lease = connection_lease
+        self._lock = asyncio.Lock()
+        self._closed = False
+
+    async def write(self, data: bytes) -> int:
+        if not data:
+            return 0
+        async with self._lock:
+            if self._closed:
+                raise ValueError("SMB exclusive writer is closed")
+            return await self._backend._run_blocking_smb_call(
+                "write_exclusive_file",
+                lambda: self._handle.write(data),
+                SMB_WRITE_FILE_TIMEOUT_SECONDS,
+                smb_path=self._smb_path,
+            )
+
+    async def close(self) -> None:
+        async with self._lock:
+            if self._closed:
+                return
+            self._closed = True
+            try:
+                await self._backend._run_blocking_smb_call(
+                    "close_exclusive_file",
+                    self._handle.close,
+                    SMB_FILE_CLOSE_TIMEOUT_SECONDS,
+                    smb_path=self._smb_path,
+                )
+            finally:
+                await self._connection_lease.__aexit__(None, None, None)  # type: ignore[attr-defined]
+
+    async def abort_and_delete_if_owned(self) -> bool:
+        async with self._lock:
+            if self._closed:
+                return False
+            try:
+                await self._backend._run_blocking_smb_call(
+                    "delete_owned_exclusive_file",
+                    lambda: smbclient.remove(self._smb_path, **self._backend._smb_auth_kwargs()),
+                    SMB_DELETE_TIMEOUT_SECONDS,
+                    smb_path=self._smb_path,
+                )
+            except OSError:
+                return False
+            await self._backend._run_blocking_smb_call(
+                "close_deleted_exclusive_file",
+                self._handle.close,
+                SMB_FILE_CLOSE_TIMEOUT_SECONDS,
+                smb_path=self._smb_path,
+            )
+            self._closed = True
+            await self._connection_lease.__aexit__(None, None, None)  # type: ignore[attr-defined]
+            return True
 
 
 class SMBBackend(StorageBackend):
@@ -558,6 +667,82 @@ class SMBBackend(StorageBackend):
         except Exception as e:
             logger.error(f"Failed to read file {path}: {e}")
             raise
+
+    async def open_random_access_reader(self, path: str) -> RandomAccessReader:
+        """Open a pooled SMB handle for serialized bounded offset reads."""
+
+        smb_path = self._build_smb_path(path)
+        pool = await get_connection_pool()
+        connection_lease = pool.get_connection(
+            host=self.host,
+            port=self.port,
+            username=self.username,
+            password=self.password,
+            share_name=self.share_name,
+            connection_cache=self._connection_cache,
+        )
+
+        await connection_lease.__aenter__()
+        try:
+            handle = await self._run_blocking_smb_call(
+                "open_file_for_random_read",
+                lambda: smbclient.open_file(
+                    smb_path,
+                    mode="rb",
+                    buffering=0,
+                    share_access="rwd",
+                    **self._smb_auth_kwargs(),
+                ),
+                SMB_FILE_OPEN_TIMEOUT_SECONDS,
+                smb_path=smb_path,
+            )
+        except BaseException:
+            await connection_lease.__aexit__(None, None, None)
+            raise
+
+        return _SMBRandomAccessReader(
+            backend=self,
+            smb_path=smb_path,
+            handle=handle,
+            connection_lease=connection_lease,
+        )
+
+    async def open_exclusive_writer(self, path: str) -> ExclusiveWriter:
+        """Create a final SMB target without replacement and retain its handle."""
+
+        smb_path = self._build_smb_path(path)
+        pool = await get_connection_pool()
+        connection_lease = pool.get_connection(
+            host=self.host,
+            port=self.port,
+            username=self.username,
+            password=self.password,
+            share_name=self.share_name,
+            connection_cache=self._connection_cache,
+        )
+        await connection_lease.__aenter__()
+        try:
+            handle = await self._run_blocking_smb_call(
+                "open_file_for_exclusive_write",
+                lambda: smbclient.open_file(
+                    smb_path,
+                    mode="x+b",
+                    buffering=0,
+                    share_access="rwd",
+                    **self._smb_auth_kwargs(),
+                ),
+                SMB_FILE_OPEN_TIMEOUT_SECONDS,
+                smb_path=smb_path,
+            )
+        except BaseException:
+            await connection_lease.__aexit__(None, None, None)
+            raise
+        return _SMBExclusiveWriter(
+            backend=self,
+            smb_path=smb_path,
+            handle=handle,
+            connection_lease=connection_lease,
+        )
 
     #
     # write_file

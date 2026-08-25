@@ -3,7 +3,9 @@ Tests for file browsing functionality.
 Uses mocked SMB backend to avoid dependency on real SMB server.
 """
 
+import io
 import uuid
+import zipfile
 from datetime import datetime, timedelta, timezone
 from unittest.mock import AsyncMock, patch
 
@@ -16,6 +18,26 @@ from app.core.security import create_access_token
 from app.models.connection import Connection, ConnectionScope
 from app.models.edit_lock import EditLock
 from app.models.file import DirectoryListing, FileInfo, FileType
+
+
+class _MemoryRandomAccessReader:
+    def __init__(self, data: bytes) -> None:
+        self._data = data
+        self.closed = False
+
+    async def read_at(self, offset: int, length: int) -> bytes:
+        return self._data[offset : offset + length]
+
+    async def close(self) -> None:
+        self.closed = True
+
+
+def _archive_bytes() -> bytes:
+    output = io.BytesIO()
+    with zipfile.ZipFile(output, "w", compression=zipfile.ZIP_DEFLATED) as archive:
+        archive.writestr("docs/readme.txt", "hello")
+        archive.writestr("root.txt", "root")
+    return output.getvalue()
 
 
 @pytest.fixture
@@ -174,6 +196,75 @@ class TestListDirectory:
             params={"path": ""},
         )
         assert response.status_code == 400
+
+
+@pytest.mark.integration
+class TestListArchiveDirectory:
+    def test_lists_zip_root_with_authenticated_connection(
+        self,
+        client: TestClient,
+        auth_headers_user: dict,
+        test_connection: Connection,
+        mock_smb_backend,
+    ):
+        _, backend = mock_smb_backend
+        data = _archive_bytes()
+        archive_reader = _MemoryRandomAccessReader(data)
+        backend.get_file_info.return_value = FileInfo(
+            name="backup.zip",
+            path="backup.zip",
+            type=FileType.FILE,
+            size=len(data),
+        )
+        backend.open_random_access_reader = AsyncMock(return_value=archive_reader)
+
+        response = client.get(
+            f"/api/browse/{test_connection.id}/archive/list",
+            headers=auth_headers_user,
+            params={"archive_path": "backup.zip", "page_size": 1},
+        )
+
+        assert response.status_code == 200
+        result = response.json()
+        assert result["total"] == 2
+        assert result["items"][0]["name"] == "docs"
+        assert result["items"][0]["type"] == "directory"
+        assert result["next_cursor"] is not None
+        assert archive_reader.closed is True
+
+
+@pytest.mark.integration
+class TestStreamArchiveMember:
+    def test_streams_validated_zip_member(
+        self,
+        client: TestClient,
+        auth_headers_user: dict,
+        test_connection: Connection,
+    ):
+        data = _archive_bytes()
+        archive_reader = _MemoryRandomAccessReader(data)
+        backend = AsyncMock()
+        backend.connect.return_value = None
+        backend.disconnect.return_value = None
+        backend.get_file_info.return_value = FileInfo(
+            name="backup.zip",
+            path="backup.zip",
+            type=FileType.FILE,
+            size=len(data),
+        )
+        backend.open_random_access_reader = AsyncMock(return_value=archive_reader)
+
+        with patch("app.api.viewer.SMBBackend", return_value=backend):
+            response = client.get(
+                f"/api/viewer/{test_connection.id}/archive/member",
+                headers=auth_headers_user,
+                params={"archive_path": "backup.zip", "member_path": "docs/readme.txt"},
+            )
+
+        assert response.status_code == 200
+        assert response.content == b"hello"
+        assert response.headers["content-disposition"].startswith("inline;")
+        assert archive_reader.closed is True
 
 
 @pytest.mark.integration

@@ -17,7 +17,7 @@ from sqlmodel import Session, select
 from starlette.types import Scope
 
 from app import __version__
-from app.api import admin, admin_auth, auth, browser, companion, connections, logs, system_settings, viewer, websocket
+from app.api import admin, admin_auth, archive_operations, auth, browser, companion, connections, logs, system_settings, viewer, websocket
 from app.core.config import consume_unsupported_config_settings, settings
 from app.core.environment import DEV_CORS_ORIGINS, IS_DEVELOPMENT, IS_PRODUCTION
 from app.core.exceptions import ConfigurationError, SambeeError
@@ -440,6 +440,7 @@ app.include_router(admin_auth.router, prefix="/api/admin", tags=["admin-auth"])
 app.include_router(system_settings.router, prefix="/api/admin", tags=["admin-settings"])
 app.include_router(browser.router, prefix="/api/browse", tags=["browse"])
 app.include_router(viewer.router, prefix="/api/viewer", tags=["viewer"])
+app.include_router(archive_operations.router, prefix="/api/archive", tags=["archive"])
 app.include_router(companion.router, prefix="/api/companion", tags=["companion"])
 app.include_router(logs.router, prefix="/api/logs", tags=["logs"])
 app.include_router(websocket.router, prefix="/api", tags=["websocket"])

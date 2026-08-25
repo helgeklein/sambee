@@ -451,6 +451,36 @@ export interface DirectoryListing {
   total: number;
 }
 
+export type ArchiveEntryState = "readable" | "blocked" | "unavailable";
+
+export interface ArchiveIdentity {
+  path: string;
+  size: number;
+  modified_at?: string | null;
+}
+
+export interface ArchiveEntryInfo {
+  name: string;
+  path: string;
+  type: FileType;
+  size?: number | null;
+  compressed_size?: number | null;
+  compression_method?: number | null;
+  crc32?: number | null;
+  modified_at?: string | null;
+  state: ArchiveEntryState;
+  is_hidden: boolean;
+}
+
+export interface ArchiveDirectoryListing {
+  archive: ArchiveIdentity;
+  path: string;
+  items: ArchiveEntryInfo[];
+  total: number;
+  next_cursor?: string | null;
+  page_size: number;
+}
+
 /** Canonical local-drive target returned before activating a local entry. */
 export interface LocalActivationResolution {
   drive_id: string;

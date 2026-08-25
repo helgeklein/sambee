@@ -11,6 +11,7 @@ import type {
   AdminUserUpdateInput,
   AdvancedSystemSettings,
   AdvancedSystemSettingsUpdate,
+  ArchiveDirectoryListing,
   AuthenticationMode,
   AuthenticationModeActivationResponse,
   AuthToken,
@@ -790,6 +791,43 @@ class ApiService {
       params: { path },
       timeout: options?.timeoutMs ?? DIRECTORY_LIST_REQUEST_TIMEOUT_MS,
       ...(options?.signal ? { signal: options.signal } : {}),
+    });
+    return response.data;
+  }
+
+  async listArchiveDirectory(
+    connectionId: string,
+    archivePath: string,
+    virtualPath = "",
+    options?: { cursor?: string; pageSize?: number; signal?: AbortSignal }
+  ): Promise<ArchiveDirectoryListing> {
+    const segment = getBrowseSegment(connectionId);
+    const { client, extraConfig } = await this.getClientConfig(connectionId);
+    const response = await client.get<ArchiveDirectoryListing>(`/browse/${segment}/archive/list`, {
+      ...extraConfig,
+      params: {
+        archive_path: archivePath,
+        virtual_path: virtualPath,
+        cursor: options?.cursor,
+        page_size: options?.pageSize,
+      },
+      signal: options?.signal,
+    });
+    return response.data;
+  }
+
+  async getArchiveMember(
+    connectionId: string,
+    archivePath: string,
+    memberPath: string,
+    download = false
+  ): Promise<Blob> {
+    const segment = getBrowseSegment(connectionId);
+    const { client, extraConfig } = await this.getClientConfig(connectionId);
+    const response = await client.get<Blob>(`/viewer/${segment}/archive/member`, {
+      ...extraConfig,
+      params: { archive_path: archivePath, member_path: memberPath, download },
+      responseType: "blob",
     });
     return response.data;
   }

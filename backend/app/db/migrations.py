@@ -660,6 +660,49 @@ def _apply_recent_directories_migration(connection: Connection) -> None:
     )
 
 
+def _apply_archive_operations_migration(connection: Connection) -> None:
+    inspector = inspect(connection)
+    if inspector.has_table("archive_operations"):
+        return
+    connection.execute(
+        text(
+            """
+            CREATE TABLE archive_operations (
+                id CHAR(32) NOT NULL PRIMARY KEY,
+                user_id CHAR(32) NOT NULL,
+                kind VARCHAR(32) NOT NULL,
+                phase VARCHAR(64) NOT NULL,
+                source_connection_id VARCHAR(256) NOT NULL,
+                source_path VARCHAR(4096) NOT NULL,
+                destination_connection_id VARCHAR(256) NOT NULL,
+                destination_path VARCHAR(4096) NOT NULL,
+                manifest_hash VARCHAR(128) NOT NULL,
+                plan_json TEXT NOT NULL,
+                checkpoint_json TEXT NOT NULL,
+                pending_decision_json TEXT,
+                collision_policy VARCHAR(64),
+                cancellation_requested BOOLEAN NOT NULL DEFAULT 0,
+                last_error_json TEXT,
+                created_at DATETIME NOT NULL,
+                updated_at DATETIME NOT NULL,
+                heartbeat_at DATETIME NOT NULL,
+                FOREIGN KEY(user_id) REFERENCES user (id)
+            )
+            """
+        )
+    )
+    for column in (
+        "user_id",
+        "kind",
+        "phase",
+        "source_connection_id",
+        "destination_connection_id",
+        "manifest_hash",
+        "cancellation_requested",
+    ):
+        connection.execute(text(f"CREATE INDEX IF NOT EXISTS ix_archive_operations_{column} ON archive_operations ({column})"))
+
+
 MIGRATIONS: tuple[Migration, ...] = (
     Migration(version=1, name="ensure_connection_slugs", apply=_apply_connection_slug_migration),
     Migration(version=2, name="add_user_role_and_session_fields", apply=_apply_user_role_migration),
@@ -688,6 +731,7 @@ MIGRATIONS: tuple[Migration, ...] = (
     Migration(version=25, name="add_oidc_auto_link_by_username", apply=_apply_oidc_auto_link_by_username_migration),
     Migration(version=26, name="add_recent_files", apply=_apply_recent_files_migration),
     Migration(version=27, name="add_recent_directories", apply=_apply_recent_directories_migration),
+    Migration(version=28, name="add_archive_operations", apply=_apply_archive_operations_migration),
 )
 
 
