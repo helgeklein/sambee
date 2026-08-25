@@ -16,17 +16,18 @@
 
 ## File list
 
-- Zip files: inspection, extraction, and creation
-   - ENTER should open the archive like a normal directory, i.e., display its contents
+- Zip files and other types of archives: inspection, extraction, and creation
+   - ENTER should open an archive like a normal directory, i.e., display its contents
       - The user should then be able to navigate the (virtualized) archive contents like any other directory
-   - Alt+F9 should extract the archive:
-      - Single-pane mode: extract to subdir of current dir, ask for subdir name (default: name of archive without extension)
-      - Dual-pane mode: extract to the other pane after asking for confirmation
-   - Alt+F5 should create an archive with the currently selected element(s)
+   - Alt+F9 should extract an archive:
+      - Single-pane mode: extract to subdir of current dir, ask for target subdir name (default: name of archive without extension)
+      - Dual-pane mode: extract to the current dir in the other pane after asking for confirmation
+   - Alt+F5 should create an archive with the currently selected files and dirs
       - Single-pane mode: create the archive in current dir, ask for type (e.g., zip) and archive name
       - Dual-pane mode: create the archive in the other pane's dir, ask for type (e.g., zip) and archive name
-   - Codepages used for filenames should be autodetected
-   - Can we support other types of archives, too, while keeping dependencies minimal?
+   - Codepages used for extracting file/dir names should be autodetected
+   - Can we support other types of archives in addition to zip, too, while keeping dependencies minimal?
+      - The inspection feature probably makes it necessary to support each type archive both in the backend and in companion
 - Settings > File browser: add a setting to control whether dot directories are shown in the list
 - Make file operations discoverable by adding a toolbar with icons below the bar that contains the connection list
 - Dual-pane mode: Ctrl+left/right to change the location (connection+path) of the left pane to that of the right pane and vice-versa
