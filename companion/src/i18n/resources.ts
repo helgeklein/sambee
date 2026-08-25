@@ -202,7 +202,6 @@ export const EN_TRANSLATIONS = {
       currentVersionLabel: "Current version",
       latestVersionLabel: "Available version",
       publishedAtLabel: "Published",
-      notesLabel: "Release notes",
       errorLabel: "Details",
       upToDate: "You are up to date on the {{channel}} channel.",
       updateAvailable: "Update {{version}} is available on the {{channel}} channel.",

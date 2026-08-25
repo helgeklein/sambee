@@ -135,8 +135,8 @@ function TargetPathLabel({ path, rowTextSx }: { path: string; rowTextSx?: Record
 
   return (
     <>
-      <Typography variant="body2" component="span" noWrap sx={{ ...rowTextSx, color: "text.secondary", flex: "0 0 auto" }}>
-        {" \u2192 "}
+      <Typography variant="body2" component="span" noWrap sx={{ ...rowTextSx, color: "text.secondary", flex: "0 0 auto", mx: 1 }}>
+        {"\u2192"}
       </Typography>
       <Typography
         ref={labelRef}
@@ -144,7 +144,7 @@ function TargetPathLabel({ path, rowTextSx }: { path: string; rowTextSx?: Record
         component="span"
         noWrap
         title={path}
-        sx={{ ...rowTextSx, color: "text.secondary", flex: "1 1 50%", minWidth: 0, overflow: "hidden", textOverflow: "ellipsis" }}
+        sx={{ ...rowTextSx, color: "text.secondary", flex: "1 1 auto", minWidth: 0, overflow: "hidden", textOverflow: "ellipsis" }}
       >
         {displayPath}
       </Typography>
@@ -263,7 +263,7 @@ export const FileRow = React.memo(
             component="span"
             noWrap
             title={file.name}
-            sx={{ ...rowTextSx, color: "text.primary", flex: linkTargetPath ? "1 1 50%" : 1, minWidth: 0 }}
+            sx={{ ...rowTextSx, color: "text.primary", flex: linkTargetPath ? "0 1 auto" : 1, minWidth: 0 }}
           >
             {file.name}
           </Typography>

@@ -13,6 +13,13 @@ def load_workflow(name: str) -> dict:
     return payload
 
 
+def load_action(name: str) -> dict:
+    with (WORKSPACE / ".github/actions" / name / "action.yml").open(encoding="utf-8") as file:
+        payload = yaml.safe_load(file)
+    assert isinstance(payload, dict)
+    return payload
+
+
 def workflow_inputs(workflow: dict) -> dict:
     trigger = workflow.get("on", workflow.get(True, {}))
     assert isinstance(trigger, dict)
@@ -360,13 +367,25 @@ def test_companion_promotion_serializes_feed_updates_and_reports_push_targets() 
     assert workflow["concurrency"]["cancel-in-progress"] is False
 
     steps = workflow["jobs"]["promote"]["steps"]
-    resolve_step = next(step for step in steps if step.get("name") == "Resolve Companion release")
+    assert any(step.get("uses", "").startswith("actions/checkout@") for step in steps)
+    promote_step = next(step for step in steps if step.get("name") == "Promote Companion release")
+    assert promote_step["uses"] == "./.github/actions/promote-companion-release"
+    assert promote_step["with"]["release-ref"] == "${{ inputs.release_ref }}"
+    assert promote_step["with"]["release-repo-token"] == "${{ secrets.COMPANION_RELEASE_REPO_TOKEN }}"
+
+    action = load_action("promote-companion-release")
+    action_inputs = action["inputs"]
+    assert action_inputs["release-repo-token"]["required"] is True
+    assert action_inputs["release-ref"]["required"] is True
+
+    action_steps = action["runs"]["steps"]
+    resolve_step = next(step for step in action_steps if step.get("name") == "Resolve Companion release")
     assert "--resolve-release" in resolve_step["run"]
-    assert resolve_step["env"]["RELEASE_REF"] == "${{ inputs.release_ref }}"
-    assert resolve_step["env"]["GITHUB_TOKEN"] == "${{ secrets.COMPANION_RELEASE_REPO_TOKEN }}"
+    assert resolve_step["env"]["RELEASE_REF"] == "${{ inputs.release-ref }}"
+    assert resolve_step["env"]["GITHUB_TOKEN"] == "${{ inputs.release-repo-token }}"
     assert '"$RELEASE_REF"' in resolve_step["run"]
 
-    provenance_step = next(step for step in steps if step.get("name") == "Validate Companion provenance")
+    provenance_step = next(step for step in action_steps if step.get("name") == "Validate Companion provenance")
     assert provenance_step["env"]["BUILD_TAG"] == "${{ steps.resolve.outputs.build_tag }}"
     assert provenance_step["env"]["SOURCE_SHA"] == "${{ steps.resolve.outputs.source_sha }}"
     assert "gh release download" not in provenance_step["run"]
@@ -374,21 +393,21 @@ def test_companion_promotion_serializes_feed_updates_and_reports_push_targets() 
     assert "validate_release_scope.py" not in provenance_step["run"]
     assert "sambee_release_tag" not in provenance_step["run"]
 
-    generate_step = next(step for step in steps if step.get("name") == "Generate feed files")
+    generate_step = next(step for step in action_steps if step.get("name") == "Generate feed files")
     assert generate_step["env"]["RELEASE_ID"] == "${{ steps.resolve.outputs.release_id }}"
     assert generate_step["env"]["RELEASE_TAG"] == "${{ steps.resolve.outputs.release_tag }}"
     assert '--release-ref "$RELEASE_ID"' in generate_step["run"]
     assert '--expected-release-id "$RELEASE_ID"' in generate_step["run"]
     assert '--expected-release-tag "$RELEASE_TAG"' in generate_step["run"]
 
-    push_step = next(step for step in steps if step.get("name") == "Commit and push feed updates")
+    push_step = next(step for step in action_steps if step.get("name") == "Commit and push feed updates")
     assert push_step["env"]["RELEASE_TAG"] == "${{ steps.resolve.outputs.release_tag }}"
     assert "gh release view" not in push_step["run"]
     assert "Failed to push feed updates for:" in push_step["run"]
     assert "remote feed state is unknown" in push_step["run"]
 
-    workflow_run = "\n".join(step.get("run", "") for step in steps)
-    assert "${{ inputs.release_ref }}" not in workflow_run
+    action_run = "\n".join(step.get("run", "") for step in action_steps)
+    assert "${{ inputs.release-ref }}" not in action_run
 
 
 def test_companion_finalizer_recovers_exact_artifacts_and_uploads_completion_last() -> None:
@@ -428,3 +447,54 @@ def test_companion_finalizer_recovers_exact_artifacts_and_uploads_completion_las
     assert "promote_companion_release.py" in verify_step["run"]
     assert "--verify-only" in verify_step["run"]
     assert "--allow-draft" in verify_step["run"]
+
+
+def test_companion_build_publishes_then_promotes_only_test_and_cleans_up() -> None:
+    workflow = load_workflow("build-companion.yml")
+    finalizer_steps = workflow["jobs"]["finalize-release"]["steps"]
+
+    publish_step = next(step for step in finalizer_steps if step.get("name") == "Publish verified Companion release")
+    assert 'gh api --method PATCH "repos/$RELEASE_REPOSITORY/releases/$release_id" -f draft=false' in publish_step["run"]
+    assert "release_id_after_publish" in publish_step["run"]
+    assert "release_tag_after_publish" in publish_step["run"]
+    assert "published_at" in publish_step["run"]
+    assert 'draft_after_publish="$(jq -r' in publish_step["run"]
+    assert 'prerelease_after_publish="$(jq -r' in publish_step["run"]
+
+    published_verify_step = next(step for step in finalizer_steps if step.get("name") == "Verify published Companion release")
+    assert "--verify-only" in published_verify_step["run"]
+    assert "--allow-draft" not in published_verify_step["run"]
+
+    promote_test = workflow["jobs"]["promote-test"]
+    assert promote_test["needs"] == ["prepare", "finalize-release"]
+    assert "publication_state == 'complete'" in promote_test["if"]
+    assert "needs.finalize-release.result == 'success'" in promote_test["if"]
+    action_step = next(step for step in promote_test["steps"] if step.get("name") == "Promote Companion release to test")
+    assert action_step["uses"] == "./.github/actions/promote-companion-release"
+    assert action_step["with"]["companion-channel-test"] is True
+    assert action_step["with"]["companion-channel-beta"] is False
+    assert action_step["with"]["companion-channel-stable"] is False
+    assert action_step["with"]["sambee"] is False
+
+    cleanup = workflow["jobs"]["cleanup-releases"]
+    assert cleanup["needs"] == "promote-test"
+    assert cleanup["if"] == "${{ needs.promote-test.result == 'success' }}"
+    cleanup_step = next(step for step in cleanup["steps"] if step.get("name") == "Delete obsolete Companion releases")
+    assert "cleanup_companion_releases.py" in cleanup_step["run"]
+    assert cleanup_step["env"]["GITHUB_TOKEN"] == "${{ secrets.COMPANION_RELEASE_REPO_TOKEN }}"
+
+
+def test_companion_cleanup_workflow_and_manual_promotion_share_cleanup_contract() -> None:
+    manual_promotion = load_workflow("promote-companion-release.yml")
+    manual_cleanup = manual_promotion["jobs"]["cleanup-releases"]
+    assert manual_cleanup["needs"] == "promote"
+    assert manual_cleanup["if"] == "${{ needs.promote.result == 'success' }}"
+
+    maintenance = load_workflow("cleanup-companion-releases.yml")
+    assert maintenance["concurrency"]["group"] == "companion-release-publication"
+    assert maintenance["concurrency"]["cancel-in-progress"] is False
+    cleanup_step = next(
+        step for step in maintenance["jobs"]["cleanup"]["steps"] if step.get("name") == "Delete obsolete Companion releases"
+    )
+    assert "cleanup_companion_releases.py" in cleanup_step["run"]
+    assert cleanup_step["env"]["GITHUB_TOKEN"] == "${{ secrets.COMPANION_RELEASE_REPO_TOKEN }}"

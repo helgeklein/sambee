@@ -269,6 +269,7 @@ items = [
   "promote-companion-release",
   "companion-channels-feeds-and-downloads",
   "dependency-update-workflow",
+  "companion-release-cleanup",
 ]
 
 [[sections.website-dev-guide.items]]

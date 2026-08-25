@@ -169,7 +169,7 @@ def test_draft_with_completion_marker_and_missing_asset_recovers(
     assert MODULE.resolve_state(CURRENT_RELEASE, IDENTITY, "token") == "recover-finalizer"
 
 
-def test_completion_marker_accepts_github_normalized_asset_name(
+def test_completed_draft_with_normalized_asset_name_returns_to_finalizer(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     global CURRENT_RELEASE
@@ -184,7 +184,7 @@ def test_completion_marker_accepts_github_normalized_asset_name(
     monkeypatch.setattr(MODULE, "request_asset_json", asset_json)
     monkeypatch.setattr(MODULE, "request_asset_bytes", asset_bytes)
 
-    assert MODULE.resolve_state(CURRENT_RELEASE, IDENTITY, "token") == "complete"
+    assert MODULE.resolve_state(CURRENT_RELEASE, IDENTITY, "token") == "recover-finalizer"
 
 
 def test_completion_marker_rejects_unexpected_release_asset(

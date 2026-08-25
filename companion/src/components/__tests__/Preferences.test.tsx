@@ -299,7 +299,7 @@ describe("Preferences", () => {
     expect(screen.getByText("0.5.0")).toBeInTheDocument();
   });
 
-  it("shows available update details and installs on demand", async () => {
+  it("does not show release descriptions and installs available updates on demand", async () => {
     const prefs: UserPreferences = {
       allowedServers: [],
       uploadConflictAction: "ask",
@@ -340,7 +340,7 @@ describe("Preferences", () => {
     fireEvent.click(screen.getByRole("button", { name: "Check for updates" }));
 
     expect(await screen.findByText("Update 0.6.0 is available on the Beta channel.")).toBeInTheDocument();
-    expect(screen.getByText("Bug fixes and feed-based update checks.")).toBeInTheDocument();
+    expect(screen.queryByText("Bug fixes and feed-based update checks.")).not.toBeInTheDocument();
 
     fireEvent.click(screen.getByRole("button", { name: "Install update" }));
 

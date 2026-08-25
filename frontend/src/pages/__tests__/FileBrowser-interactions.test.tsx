@@ -630,8 +630,18 @@ describe("Browser Component - Interactions", () => {
             is_readable: true,
             is_hidden: false,
           },
+          {
+            name: "zebra.txt",
+            path: "zebra.txt",
+            type: FileType.FILE,
+            size: 2048,
+            modified_at: "2024-01-02T00:00:00Z",
+            mime_type: "text/plain",
+            is_readable: true,
+            is_hidden: false,
+          },
         ],
-        total: 1,
+        total: 2,
       });
 
       renderBrowser("/browse/smb/test-server-1");
@@ -646,6 +656,12 @@ describe("Browser Component - Interactions", () => {
       await waitFor(() => {
         expect(screen.queryByRole("dialog", { name: "Choose Viewer" })).not.toBeInTheDocument();
         expect(screen.getByTestId("file-list-container")).toHaveFocus();
+      });
+
+      await user.keyboard("{ArrowDown}");
+
+      await waitFor(() => {
+        expect(screen.getByTestId("status-bar-focused-file-name")).toHaveTextContent("zebra.txt");
       });
     });
 
