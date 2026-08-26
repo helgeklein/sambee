@@ -408,7 +408,8 @@ class ImageMagickPreprocessor(PreprocessorInterface):
                 )
             except subprocess.CalledProcessError as e:
                 error_msg = e.stderr.decode("utf-8", errors="replace") if e.stderr else "Unknown error"
-                raise PreprocessorError(f"ImageMagick conversion failed: {error_msg}") from None
+                logger.warning("ImageMagick failed to convert %s: %s", filename, error_msg)
+                raise PreprocessorError("The image could not be converted.") from None
 
             duration_ms = (time.perf_counter() - start_time) * 1000
 

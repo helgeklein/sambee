@@ -24,7 +24,7 @@ class ArchiveExtractionBackend(Protocol):
         stream: AsyncIterator[bytes],
         *,
         overwrite: bool = False,
-        source_mtime: object | None = None,
+        source_mtime: datetime | None = None,
     ) -> int: ...
 
 

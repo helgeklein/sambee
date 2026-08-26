@@ -4,6 +4,7 @@ import { useTranslation } from "react-i18next";
 import { BROWSER_SHORTCUTS, CODEMIRROR_EDITOR_SHORTCUTS, COMMON_SHORTCUTS, VIEWER_SHORTCUTS } from "../../config/keyboardShortcuts";
 import { checkIsTransientError, getTransientErrorMessage, useApiRetry } from "../../hooks/useApiRetry";
 import { useKeyboardShortcuts } from "../../hooks/useKeyboardShortcuts";
+import { readViewerContent, readVirtualContent } from "../../pages/FileBrowser/contentProviders";
 import { readTextEditorMaxFileSizeBytesPreference, useTextEditorWordWrapPreference } from "../../pages/FileBrowser/preferences";
 import apiService from "../../services/api";
 import { clearDraft, type DraftSnapshot, loadDraft, registerDraftSnapshot, saveDraft } from "../../services/draftRecovery";
@@ -30,6 +31,7 @@ import MarkdownEditorErrorBoundary from "./MarkdownEditorErrorBoundary";
 import { TextCodeEditor, type TextCodeEditorHandle, type TextCodeEditorSearchState } from "./TextCodeEditor";
 import { useMarkdownEditSession } from "./useMarkdownEditSession";
 import { VIEWER_SEARCH_INPUT_ATTRIBUTE, ViewerControls, ViewerFilenameBadge } from "./ViewerControls";
+import { downloadViewerBlob } from "./viewerContent";
 import { createEditToolbarAction, createSaveToolbarAction } from "./viewerToolbarActions";
 
 type PendingUnsavedChangesAction = "cancel-edit" | "close-viewer" | "stay-edit";
@@ -91,7 +93,14 @@ function areTextEditorSearchStatesEqual(left: TextCodeEditorSearchState, right: 
   );
 }
 
-export const TextViewer: React.FC<ViewerComponentProps> = ({ connectionId, path, onClose, isReadOnly = false }) => {
+export const TextViewer: React.FC<ViewerComponentProps> = ({
+  connectionId,
+  path,
+  onClose,
+  isReadOnly: connectionIsReadOnly = false,
+  virtualSource,
+}) => {
+  const isReadOnly = connectionIsReadOnly || virtualSource !== undefined;
   const { t } = useTranslation();
   const [content, setContent] = useState("");
   const [draftContent, setDraftContent] = useState("");
@@ -241,13 +250,19 @@ export const TextViewer: React.FC<ViewerComponentProps> = ({ connectionId, path,
       try {
         setLoading(true);
         setError(null);
-        const data = await fetchWithRetry(() => apiService.getFileContent(connectionId, path), {
-          signal: abortController.signal,
-          maxRetries: 1,
-          retryDelay: 1000,
-        });
+        const data = await fetchWithRetry(
+          () =>
+            readViewerContent(connectionId, path, { kind: "text" }, { signal: abortController.signal, virtualSource }).then((blob) =>
+              blob.text()
+            ),
+          {
+            signal: abortController.signal,
+            maxRetries: 1,
+            retryDelay: 1000,
+          }
+        );
         setContent(data);
-        if (!isEditingRef.current) {
+        if (!isEditingRef.current && !isReadOnly) {
           const recoveredDraft = loadDraft(connectionId, path, "text");
           const nextDraft = recoveredDraft?.baseline === data ? recoveredDraft.content : data;
           setDraftContent(nextDraft);
@@ -280,7 +295,7 @@ export const TextViewer: React.FC<ViewerComponentProps> = ({ connectionId, path,
     return () => {
       abortController.abort();
     };
-  }, [connectionId, fetchWithRetry, path, setEditBaselineContent]);
+  }, [connectionId, fetchWithRetry, isReadOnly, path, setEditBaselineContent, virtualSource]);
 
   useEffect(() => {
     if (!isEditing || draftContent === editBaselineContentRef.current) {
@@ -364,7 +379,9 @@ export const TextViewer: React.FC<ViewerComponentProps> = ({ connectionId, path,
         return sharePrefetchPromiseRef.current;
       }
 
-      const shareFilePromise = apiService.getFileBlob(connectionId, path, { signal }).then((blob) => createShareFile(blob, filename));
+      const shareFilePromise = readViewerContent(connectionId, path, { kind: "raw" }, { signal, virtualSource }).then((blob) =>
+        createShareFile(blob, filename)
+      );
       sharePrefetchPromiseRef.current = shareFilePromise;
 
       try {
@@ -375,16 +392,20 @@ export const TextViewer: React.FC<ViewerComponentProps> = ({ connectionId, path,
         }
       }
     },
-    [connectionId, filename, path]
+    [connectionId, filename, path, virtualSource]
   );
 
   const handleDownload = useCallback(async () => {
     try {
+      if (virtualSource) {
+        downloadViewerBlob(await readVirtualContent(virtualSource, path, { download: true }), filename);
+        return;
+      }
       await apiService.downloadFile(connectionId, path, filename);
     } catch (err) {
       logError("Failed to download file", { error: err, path, connectionId });
     }
-  }, [connectionId, filename, path]);
+  }, [connectionId, filename, path, virtualSource]);
 
   const handleShareIntent = useCallback(() => {
     if (!shareWarmEnabled) {

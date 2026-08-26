@@ -439,6 +439,8 @@ export interface FileInfo {
   modified_at?: string;
   is_readable: boolean;
   is_hidden: boolean;
+  /** Availability reported by a virtual content provider. Absent for physical entries. */
+  archive_entry_state?: ArchiveEntryState;
   /** Companion-only source link classification. Absent for normal and remote entries. */
   link_kind?: LocalLinkKind;
   /** Client-side enrichment returned by Companion's deferred local link metadata request. */

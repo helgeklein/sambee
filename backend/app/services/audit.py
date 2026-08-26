@@ -34,6 +34,8 @@ class AuditEventName(StrEnum):
     USER_ROLE_CHANGED = "oidc.user.role_changed"
     USER_ROLE_ASSIGNMENT_CHANGED = "oidc.user.role_assignment_changed"
     USER_ROLE_SYNC_BLOCKED = "oidc.user.role_sync_blocked"
+    ARCHIVE_OPERATION_LIFECYCLE = "archive.operation.lifecycle"
+    ARCHIVE_OPERATION_DECISION = "archive.operation.decision"
 
 
 class AuditResult(StrEnum):
@@ -52,6 +54,10 @@ class AuditDetails(BaseModel):
     changed_fields: tuple[str, ...] | None = None
     local_password_exists: bool | None = None
     mapping_count: int | None = None
+    archive_operation_kind: str | None = None
+    archive_phase: str | None = None
+    archive_previous_phase: str | None = None
+    archive_decision: str | None = None
 
 
 def diagnostic_subject_hash(issuer: str, subject: str) -> str:

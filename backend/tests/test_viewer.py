@@ -16,6 +16,7 @@ import pytest
 
 from app.models.file import FileInfo, FileType
 from app.services.pdf_inspector import PDFScreenAnalysis
+from app.services.pdf_normalizer import PDFNormalizationError
 
 
 class AsyncIteratorMock:
@@ -307,6 +308,33 @@ class TestViewerFile:
         assert response.status_code == 200
         assert response.headers["x-pdf-variant"] == "screen-5120x2880-z200"
         assert cache_get_or_create.call_args.kwargs["variant"] == "screen-5120x2880-z200"
+
+    def test_view_pdf_normalizer_error_returns_unprocessable_content(self, client, auth_headers_user, test_connection, mock_pdf_file):
+        source_bytes = b"%PDF-1.4\nsource PDF bytes\n%%EOF"
+
+        with (
+            patch("app.api.viewer.SMBBackend") as mock_backend,
+            patch("app.api.viewer.pdf_derivative_cache.get", return_value=None),
+            patch(
+                "app.api.viewer.pdf_derivative_cache.get_or_create",
+                side_effect=PDFNormalizationError("normalizer failed", code="normalizer-failed"),
+            ),
+        ):
+            backend_instance = AsyncMock()
+            backend_instance.get_file_info.return_value = mock_pdf_file
+            backend_instance.read_file = lambda path, **kwargs: AsyncIteratorMock([source_bytes])
+            backend_instance.connect.return_value = None
+            backend_instance.disconnect.return_value = None
+            mock_backend.return_value = backend_instance
+
+            response = client.get(
+                f"/api/viewer/{test_connection.id}/file",
+                headers=auth_headers_user,
+                params={"path": "/document.pdf", "pdf_variant": "normalized"},
+            )
+
+        assert response.status_code == 422
+        assert response.json()["detail"] == "PDF compatibility processing could not make this file viewable."
 
     def test_view_pdf_screen_policy_does_not_reuse_normalized_cache_for_oversized_document(
         self, client, auth_headers_user, test_connection, mock_pdf_file

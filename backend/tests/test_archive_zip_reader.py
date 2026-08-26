@@ -1,7 +1,9 @@
 """Unit tests for the bounded custom ZIP metadata reader."""
 
 import io
+import struct
 import zipfile
+import zlib
 
 import pytest
 
@@ -42,6 +44,30 @@ def _symbolic_link_zip_bytes() -> bytes:
     return buffer.getvalue()
 
 
+def _zip_with_unicode_path_extra(*, valid_crc: bool) -> bytes:
+    raw_name = b"cafe.txt"
+    buffer = io.BytesIO()
+    with zipfile.ZipFile(buffer, "w", compression=zipfile.ZIP_STORED) as archive:
+        archive.writestr("cafe.txt", "content")
+    data = bytearray(buffer.getvalue())
+    local_offset = data.index(b"PK\x03\x04")
+    central_offset = data.index(b"PK\x01\x02")
+    data[local_offset + 30 : local_offset + 30 + len(raw_name)] = raw_name
+    data[central_offset + 46 : central_offset + 46 + len(raw_name)] = raw_name
+    crc32 = zlib.crc32(raw_name) & 0xFFFFFFFF
+    unicode_extra = (
+        struct.pack("<HHBI", 0x7075, 1 + 4 + len("café.txt".encode()), 1, crc32 if valid_crc else crc32 ^ 1) + "café.txt".encode()
+    )
+    name_length = struct.unpack_from("<H", data, central_offset + 28)[0]
+    struct.pack_into("<H", data, central_offset + 30, len(unicode_extra))
+    insert_at = central_offset + 46 + name_length
+    data[insert_at:insert_at] = unicode_extra
+    eocd_offset = data.rindex(b"PK\x05\x06")
+    directory_size = struct.unpack_from("<I", data, eocd_offset + 12)[0]
+    struct.pack_into("<I", data, eocd_offset + 12, directory_size + len(unicode_extra))
+    return bytes(data)
+
+
 @pytest.mark.asyncio
 async def test_lists_root_and_implicit_directory() -> None:
     data = _zip_bytes()
@@ -66,6 +92,18 @@ async def test_pages_subdirectory_listing_stably() -> None:
     assert [item.name for item in first_page] == ["deeper"]
     assert [item.name for item in second_page] == ["nested.txt"]
     assert final_cursor is None
+
+
+@pytest.mark.asyncio
+async def test_lists_subdirectory_with_canonical_path() -> None:
+    data = _zip_bytes()
+    reader = ZipReader(MemoryRandomAccessReader(data), len(data))
+
+    items, total, next_cursor = await reader.list_directory("folder", None, 10)
+
+    assert total == 2
+    assert next_cursor is None
+    assert [item.name for item in items] == ["deeper", "nested.txt"]
 
 
 @pytest.mark.asyncio
@@ -107,6 +145,24 @@ async def test_normalizes_backslash_member_names() -> None:
     assert total == 1
     assert items[0].name == "folder"
     assert items[0].type == FileType.DIRECTORY
+
+
+@pytest.mark.asyncio
+async def test_uses_validated_infozip_unicode_path_for_unflagged_names() -> None:
+    data = _zip_with_unicode_path_extra(valid_crc=True)
+
+    entries = await ZipReader(MemoryRandomAccessReader(data), len(data)).entries()
+
+    assert entries[0].path == "café.txt"
+
+
+@pytest.mark.asyncio
+async def test_ignores_infozip_unicode_path_when_its_crc_does_not_match() -> None:
+    data = _zip_with_unicode_path_extra(valid_crc=False)
+
+    entries = await ZipReader(MemoryRandomAccessReader(data), len(data)).entries()
+
+    assert entries[0].path == "cafe.txt"
 
 
 @pytest.mark.asyncio

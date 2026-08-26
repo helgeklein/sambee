@@ -106,6 +106,7 @@ warn_required_dynamic_aliases = true
 # Third-party libraries without type stubs
 [[tool.mypy.overrides]]
 module = [
+    "smbclient",
     "smbclient.*",
     "pyvips.*",
     "smbprotocol.*",

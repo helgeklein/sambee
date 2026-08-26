@@ -401,12 +401,17 @@ class CompanionService {
   }
 
   /** Create a ZIP directly from selected local paths. */
-  async createArchive(driveId: string, sourcePaths: string[], targetPath: string): Promise<CompanionArchiveCreationResult> {
+  async createArchive(
+    driveId: string,
+    sourcePaths: string[],
+    targetPath: string,
+    signal?: AbortSignal
+  ): Promise<CompanionArchiveCreationResult> {
     const headers = await this.buildAuthHeaders();
     const response = await this.client.post<CompanionArchiveCreationResult>(
       `/browse/${driveId}/archive`,
       { source_paths: sourcePaths, target_path: targetPath },
-      { headers }
+      { headers, signal }
     );
     return response.data;
   }

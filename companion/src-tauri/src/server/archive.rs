@@ -6,15 +6,18 @@ use std::io::{Read, Write};
 use std::path::{Path, PathBuf};
 
 use chrono::{DateTime, NaiveDate, Utc};
-use flate2::read::DeflateDecoder;
+use flate2::{read::DeflateDecoder, write::DeflateEncoder, Compression};
 use thiserror::Error;
+use tokio::sync::mpsc::Receiver;
 use unicode_casefold::UnicodeCaseFold;
 use unicode_normalization::UnicodeNormalization;
-use zip::write::{SimpleFileOptions, ZipWriter};
+use zip::write::{SimpleFileOptions, StreamWriter, ZipWriter};
 use zip::CompressionMethod;
 
 /// Bounded source-read size for direct local archive output.
 pub const ARCHIVE_COPY_BUFFER_SIZE: usize = 64 * 1024;
+const STORED_SAVINGS_BYTES: usize = 1024;
+const STORED_SAVINGS_RATIO: f64 = 0.05;
 const EOCD_SIGNATURE: &[u8; 4] = b"PK\x05\x06";
 const CENTRAL_DIRECTORY_SIGNATURE: &[u8; 4] = b"PK\x01\x02";
 const ZIP64_LOCATOR_SIGNATURE: &[u8; 4] = b"PK\x06\x07";
@@ -27,6 +30,10 @@ const MAX_COMMENT_BYTES: usize = u16::MAX as usize;
 const MAX_ENTRY_VARIABLE_BYTES: usize = u16::MAX as usize * 3;
 const ZIP64_SENTINEL_U16: u16 = u16::MAX;
 const ZIP64_SENTINEL_U32: u32 = u32::MAX;
+const INFOZIP_UNICODE_PATH_FIELD_ID: u16 = 0x7075;
+const INFOZIP_UNICODE_PATH_VERSION: u8 = 1;
+const CP437_EXTENDED_CHARACTERS: &str =
+    "ÇüéâäàåçêëèïîìÄÅÉæÆôöòûùÿÖÜ¢£¥₧ƒáíóúñÑªº¿⌐¬½¼¡«»░▒▓│┤╡╢╖╕╣║╗╝╜╛┐└┴┬├─┼╞╟╚╔╩╦╠═╬╧╨╤╥╙╘╒╓╫╪┘┌█▄▌▐▀αßΓπΣσµτΦΘΩδ∞φε∩≡±≥≤⌠⌡÷≈°∙·√ⁿ²■ ";
 const UNIX_HOST_SYSTEM: u16 = 3;
 const UNIX_FILE_TYPE_MASK: u16 = 0o170000;
 const UNIX_DIRECTORY_FILE_TYPE: u16 = 0o040000;
@@ -87,6 +94,21 @@ pub struct LocalArchiveCreationResult {
     pub files_created: u64,
     pub directories_created: u64,
     pub source_bytes: u64,
+}
+
+/// One bounded source-stream event supplied by the asynchronous SMB relay.
+pub enum LocalArchiveRelayChunk {
+    Data(Vec<u8>),
+    Complete,
+    Failed,
+}
+
+/// Stateful local ZIP writer used while an asynchronous source relay streams one member at a time.
+pub struct LocalArchiveRelayWriter {
+    writer: ZipWriter<StreamWriter<FsFile>>,
+    files_created: u64,
+    directories_created: u64,
+    source_bytes: u64,
 }
 
 /// Summary of a completed local archive extraction.
@@ -203,14 +225,54 @@ fn read_exact_at(file: &mut FsFile, archive_size: u64, offset: u64, length: usiz
     Ok(data)
 }
 
-fn decode_entry_name(raw_name: &[u8], flags: u16) -> String {
-    if flags & 0x0800 != 0 {
-        String::from_utf8_lossy(raw_name).into_owned()
-    } else {
-        // CP437 filenames are rare in current archives. Lossy decoding preserves
-        // bounded parsing while unsafe paths are still rejected below.
-        String::from_utf8_lossy(raw_name).into_owned()
+fn unicode_path_name(raw_name: &[u8], extra: &[u8]) -> Option<String> {
+    let mut position = 0;
+    while position + 4 <= extra.len() {
+        let field_id = u16_le(extra, position);
+        let field_length = usize::from(u16_le(extra, position + 2));
+        position += 4;
+        if position + field_length > extra.len() {
+            return None;
+        }
+        let field = &extra[position..position + field_length];
+        position += field_length;
+        if field_id != INFOZIP_UNICODE_PATH_FIELD_ID || field.len() < 5 {
+            continue;
+        }
+        if field[0] != INFOZIP_UNICODE_PATH_VERSION || u32_le(field, 1) != !update_crc32(u32::MAX, raw_name) {
+            continue;
+        }
+        if let Ok(name) = std::str::from_utf8(&field[5..]) {
+            return Some(name.to_owned());
+        }
     }
+    None
+}
+
+fn decode_entry_name(raw_name: &[u8], flags: u16, extra: &[u8]) -> String {
+    if flags & 0x0800 != 0 {
+        return String::from_utf8_lossy(raw_name).into_owned();
+    }
+    if let Some(name) = unicode_path_name(raw_name, extra) {
+        return name;
+    }
+    decode_cp437(raw_name)
+}
+
+fn decode_cp437(bytes: &[u8]) -> String {
+    bytes
+        .iter()
+        .map(|byte| {
+            if *byte < 0x80 {
+                char::from(*byte)
+            } else {
+                CP437_EXTENDED_CHARACTERS
+                    .chars()
+                    .nth(usize::from(*byte - 0x80))
+                    .expect("CP437 mapping must contain all 128 extended characters")
+            }
+        })
+        .collect()
 }
 
 fn normalize_virtual_path(path: &str) -> (String, bool) {
@@ -370,10 +432,11 @@ fn read_local_archive_entries(archive_path: &Path) -> Result<Vec<LocalArchiveRea
         let flags = u16_le(&fixed, 8);
         let version_made_by = u16_le(&fixed, 4);
         let external_attributes = u32_le(&fixed, 38);
-        let decoded_name = decode_entry_name(&raw_name, flags);
+        let extra = &variable[name_length..name_length + extra_length];
+        let decoded_name = decode_entry_name(&raw_name, flags, extra);
         let (path, is_directory) = normalize_virtual_path(&decoded_name);
         let (compressed_size, uncompressed_size, local_header_offset) = zip64_member_values(
-            &variable[name_length..name_length + extra_length],
+            extra,
             u64::from(u32_le(&fixed, 20)),
             u64::from(u32_le(&fixed, 24)),
             u64::from(u32_le(&fixed, 42)),
@@ -626,6 +689,25 @@ pub fn stream_local_archive_member(archive_path: &Path, member_path: &str, outpu
     Ok(())
 }
 
+/// Validate every entry that a mixed-executor extraction will relay.
+///
+/// Unlike direct local extraction, mixed extraction does not silently skip
+/// unreadable entries because the remote destination cannot be rolled back.
+pub fn validate_local_archive_extraction(archive_path: &Path) -> Result<Vec<LocalArchiveReadEntry>, LocalArchiveError> {
+    let entries = read_local_archive_entries(archive_path)?;
+    if entries.iter().any(|entry| !entry.is_safe) {
+        return Err(LocalArchiveError::UnsafeEntryPath);
+    }
+    if entries.iter().any(|entry| !entry.has_supported_file_type) {
+        return Err(LocalArchiveError::UnsupportedArchiveMember);
+    }
+    validate_extraction_output_paths(&entries)?;
+    for entry in entries.iter().filter(|entry| !entry.is_directory) {
+        validate_local_archive_member(archive_path, &entry.path)?;
+    }
+    Ok(entries)
+}
+
 /// Extract safe and readable members into a destination directory that does not yet exist.
 pub fn extract_local_archive_to_new_directory(
     drive_root: &Path,
@@ -735,6 +817,66 @@ fn ensure_extraction_directory(drive_root: &Path, destination_path: &Path, direc
     Ok(created)
 }
 
+/// Create a new extraction root after revalidating its parent containment.
+pub fn create_local_extraction_root(drive_root: &Path, destination_path: &Path) -> Result<(), LocalArchiveError> {
+    if destination_path.exists() {
+        return Err(LocalArchiveError::ExtractionTargetExists);
+    }
+    revalidate_target_parent(drive_root, destination_path)?;
+    fs::create_dir(destination_path)?;
+    Ok(())
+}
+
+/// Create required local descendants under an already-owned extraction root.
+pub fn ensure_local_extraction_directory(
+    drive_root: &Path,
+    destination_path: &Path,
+    directory_path: &Path,
+) -> Result<u64, LocalArchiveError> {
+    ensure_extraction_directory(drive_root, destination_path, directory_path)
+}
+
+/// Open one new local output file after revalidating containment and parents.
+pub fn open_local_extraction_file(drive_root: &Path, destination_path: &Path) -> Result<FsFile, LocalArchiveError> {
+    revalidate_target_parent(drive_root, destination_path)?;
+    OpenOptions::new()
+        .write(true)
+        .create_new(true)
+        .open(destination_path)
+        .map_err(LocalArchiveError::Io)
+}
+
+/// Validate a manifest member path before combining it with a local destination root.
+pub fn validate_local_extraction_member_path(member_path: &str, is_directory: bool) -> Result<(), LocalArchiveError> {
+    normalized_archive_path(member_path, is_directory).map(|_| ())
+}
+
+/// Validate all remote creation entries before opening the local ZIP target.
+pub fn validate_local_archive_creation_manifest(entries: &[(&str, bool)]) -> Result<(), LocalArchiveError> {
+    let mut file_paths = HashSet::new();
+    let mut directory_paths = HashSet::new();
+    for (path, is_directory) in entries {
+        let normalized = normalized_archive_path(path, *is_directory)?;
+        let trimmed = normalized.trim_end_matches('/');
+        let parts = trimmed.split('/').collect::<Vec<_>>();
+        let directory_count = if *is_directory {
+            parts.len()
+        } else {
+            parts.len().saturating_sub(1)
+        };
+        for index in 1..=directory_count {
+            directory_paths.insert(collision_key(&parts[..index].join("/")));
+        }
+        if !*is_directory && !file_paths.insert(collision_key(trimmed)) {
+            return Err(LocalArchiveError::DuplicateEntryPath);
+        }
+    }
+    if !file_paths.is_disjoint(&directory_paths) {
+        return Err(LocalArchiveError::DuplicateEntryPath);
+    }
+    Ok(())
+}
+
 fn normalized_archive_path(value: &str, is_directory: bool) -> Result<String, LocalArchiveError> {
     let path = value.replace('\\', "/");
     if path.is_empty() || path.starts_with('/') || path.contains('\0') {
@@ -767,14 +909,25 @@ pub fn build_local_archive_manifest(source_paths: &[PathBuf], target_path: &Path
     if target_path.exists() {
         return Err(LocalArchiveError::TargetExists);
     }
+    build_local_archive_manifest_inner(source_paths, Some(target_path))
+}
 
+/// Build a complete recursive manifest for a ZIP target owned by another provider.
+pub fn build_local_archive_manifest_for_remote_target(source_paths: &[PathBuf]) -> Result<Vec<LocalArchiveEntry>, LocalArchiveError> {
+    build_local_archive_manifest_inner(source_paths, None)
+}
+
+fn build_local_archive_manifest_inner(
+    source_paths: &[PathBuf],
+    target_path: Option<&Path>,
+) -> Result<Vec<LocalArchiveEntry>, LocalArchiveError> {
     let mut entries = Vec::new();
     let mut names = HashSet::new();
 
     fn visit(
         source_path: &Path,
         archive_path: &str,
-        target_path: &Path,
+        target_path: Option<&Path>,
         entries: &mut Vec<LocalArchiveEntry>,
         names: &mut HashSet<String>,
     ) -> Result<(), LocalArchiveError> {
@@ -783,7 +936,7 @@ pub fn build_local_archive_manifest(source_paths: &[PathBuf], target_path: &Path
         if !is_directory && !metadata.file_type().is_file() {
             return Err(LocalArchiveError::UnsupportedSource);
         }
-        if is_directory && target_path.starts_with(source_path) {
+        if is_directory && target_path.is_some_and(|target| target.starts_with(source_path)) {
             return Err(LocalArchiveError::TargetInsideSource);
         }
         let archive_path = normalized_archive_path(archive_path, is_directory)?;
@@ -826,11 +979,17 @@ pub fn create_local_archive(
 ) -> Result<LocalArchiveCreationResult, LocalArchiveError> {
     revalidate_target_parent(drive_root, target_path)?;
     let output = OpenOptions::new().write(true).create_new(true).open(target_path)?;
+    write_local_archive_stream(output, entries, is_cancelled).map_err(|error| LocalArchiveError::PartialArchiveOutput(Box::new(error)))
+}
+
+/// Write a portable ZIP to an already-owned synchronous output stream.
+pub fn write_local_archive_stream<W: Write>(
+    output: W,
+    entries: &[LocalArchiveEntry],
+    is_cancelled: impl Fn() -> bool,
+) -> Result<LocalArchiveCreationResult, LocalArchiveError> {
     (|| {
         let mut writer = ZipWriter::new_stream(output);
-        let options = SimpleFileOptions::default()
-            .compression_method(CompressionMethod::Deflated)
-            .compression_level(Some(6));
         let mut files_created = 0;
         let mut directories_created = 0;
         let mut source_bytes = 0;
@@ -841,12 +1000,18 @@ pub fn create_local_archive(
                 return Err(LocalArchiveError::Cancelled);
             }
             if entry.is_directory {
-                writer.add_directory(normalized_archive_path(&entry.archive_path, true)?, options)?;
+                writer.add_directory(normalized_archive_path(&entry.archive_path, true)?, directory_options())?;
                 directories_created += 1;
                 continue;
             }
-            writer.start_file(normalized_archive_path(&entry.archive_path, false)?, options)?;
             let mut source = FsFile::open(&entry.source_path)?;
+            let probe_size = source.read(&mut buffer)?;
+            writer.start_file(
+                normalized_archive_path(&entry.archive_path, false)?,
+                regular_file_options(&buffer[..probe_size])?,
+            )?;
+            writer.write_all(&buffer[..probe_size])?;
+            source_bytes += probe_size as u64;
             loop {
                 if is_cancelled() {
                     return Err(LocalArchiveError::Cancelled);
@@ -869,7 +1034,165 @@ pub fn create_local_archive(
             source_bytes,
         })
     })()
-    .map_err(|error| LocalArchiveError::PartialArchiveOutput(Box::new(error)))
+}
+
+fn directory_options() -> SimpleFileOptions {
+    SimpleFileOptions::default().compression_method(CompressionMethod::Stored)
+}
+
+fn regular_file_options(probe: &[u8]) -> Result<SimpleFileOptions, LocalArchiveError> {
+    let method = if should_store(probe)? {
+        CompressionMethod::Stored
+    } else {
+        CompressionMethod::Deflated
+    };
+    Ok(SimpleFileOptions::default()
+        .compression_method(method)
+        .compression_level((method == CompressionMethod::Deflated).then_some(6)))
+}
+
+fn should_store(probe: &[u8]) -> Result<bool, LocalArchiveError> {
+    if probe.is_empty() {
+        return Ok(true);
+    }
+    let mut encoder = DeflateEncoder::new(Vec::new(), Compression::new(6));
+    encoder.write_all(probe)?;
+    let compressed_size = encoder.finish()?.len();
+    let savings = probe.len().saturating_sub(compressed_size);
+    Ok(savings < STORED_SAVINGS_BYTES && (savings as f64 / probe.len() as f64) < STORED_SAVINGS_RATIO)
+}
+
+fn receive_compression_probe(chunks: &mut Receiver<LocalArchiveRelayChunk>) -> Result<(Vec<u8>, Option<Vec<u8>>, bool), LocalArchiveError> {
+    let mut probe = Vec::with_capacity(ARCHIVE_COPY_BUFFER_SIZE);
+    while probe.len() < ARCHIVE_COPY_BUFFER_SIZE {
+        match chunks.blocking_recv() {
+            Some(LocalArchiveRelayChunk::Data(chunk)) => {
+                if chunk.len() > ARCHIVE_COPY_BUFFER_SIZE {
+                    return Err(LocalArchiveError::Io(std::io::Error::new(
+                        std::io::ErrorKind::InvalidData,
+                        "Archive source relay chunk exceeds the configured bound",
+                    )));
+                }
+                let remaining = ARCHIVE_COPY_BUFFER_SIZE - probe.len();
+                if chunk.len() <= remaining {
+                    probe.extend_from_slice(&chunk);
+                    continue;
+                }
+                probe.extend_from_slice(&chunk[..remaining]);
+                return Ok((probe, Some(chunk[remaining..].to_vec()), false));
+            }
+            Some(LocalArchiveRelayChunk::Complete) => return Ok((probe, None, true)),
+            Some(LocalArchiveRelayChunk::Failed) => {
+                return Err(LocalArchiveError::Io(std::io::Error::other("Archive source relay failed")));
+            }
+            None => {
+                return Err(LocalArchiveError::Io(std::io::Error::new(
+                    std::io::ErrorKind::UnexpectedEof,
+                    "Archive source relay ended before completion",
+                )));
+            }
+        }
+    }
+    Ok((probe, None, false))
+}
+
+/// Create a new local ZIP target that receives source bytes through bounded relay channels.
+pub fn create_local_archive_relay_writer(drive_root: &Path, target_path: &Path) -> Result<LocalArchiveRelayWriter, LocalArchiveError> {
+    if target_path.exists() {
+        return Err(LocalArchiveError::TargetExists);
+    }
+    revalidate_target_parent(drive_root, target_path)?;
+    let output = OpenOptions::new().write(true).create_new(true).open(target_path)?;
+    Ok(LocalArchiveRelayWriter {
+        writer: ZipWriter::new_stream(output),
+        files_created: 0,
+        directories_created: 0,
+        source_bytes: 0,
+    })
+}
+
+impl LocalArchiveRelayWriter {
+    /// Add one explicit directory entry to the local ZIP.
+    pub fn add_directory(mut self, archive_path: &str) -> Result<Self, LocalArchiveError> {
+        (|| {
+            self.writer
+                .add_directory(normalized_archive_path(archive_path, true)?, directory_options())?;
+            self.directories_created += 1;
+            Ok(self)
+        })()
+        .map_err(|error| LocalArchiveError::PartialArchiveOutput(Box::new(error)))
+    }
+
+    /// Write one regular member from a bounded asynchronous-relay channel.
+    pub fn write_file(
+        mut self,
+        archive_path: &str,
+        expected_size: u64,
+        mut chunks: Receiver<LocalArchiveRelayChunk>,
+    ) -> Result<Self, LocalArchiveError> {
+        (|| {
+            let (probe, pending_chunk, source_completed) = receive_compression_probe(&mut chunks)?;
+            self.writer
+                .start_file(normalized_archive_path(archive_path, false)?, regular_file_options(&probe)?)?;
+            self.writer.write_all(&probe)?;
+            let mut written = probe.len() as u64;
+            if let Some(chunk) = pending_chunk {
+                self.writer.write_all(&chunk)?;
+                written = written
+                    .checked_add(chunk.len() as u64)
+                    .ok_or_else(|| LocalArchiveError::Io(std::io::Error::other("Archive source size overflow")))?;
+            }
+            if !source_completed {
+                loop {
+                    match chunks.blocking_recv() {
+                        Some(LocalArchiveRelayChunk::Data(chunk)) => {
+                            self.writer.write_all(&chunk)?;
+                            written = written
+                                .checked_add(chunk.len() as u64)
+                                .ok_or_else(|| LocalArchiveError::Io(std::io::Error::other("Archive source size overflow")))?;
+                        }
+                        Some(LocalArchiveRelayChunk::Complete) => break,
+                        Some(LocalArchiveRelayChunk::Failed) => {
+                            return Err(LocalArchiveError::Io(std::io::Error::other("Archive source relay failed")));
+                        }
+                        None => {
+                            return Err(LocalArchiveError::Io(std::io::Error::new(
+                                std::io::ErrorKind::UnexpectedEof,
+                                "Archive source relay ended before completion",
+                            )));
+                        }
+                    }
+                }
+            }
+            if written != expected_size {
+                return Err(LocalArchiveError::Io(std::io::Error::new(
+                    std::io::ErrorKind::InvalidData,
+                    "Archive source size does not match its manifest",
+                )));
+            }
+            self.files_created += 1;
+            self.source_bytes = self
+                .source_bytes
+                .checked_add(written)
+                .ok_or_else(|| LocalArchiveError::Io(std::io::Error::other("Archive source size overflow")))?;
+            Ok(self)
+        })()
+        .map_err(|error| LocalArchiveError::PartialArchiveOutput(Box::new(error)))
+    }
+
+    /// Finalize the ZIP central directory and return its creation summary.
+    pub fn finish(self) -> Result<LocalArchiveCreationResult, LocalArchiveError> {
+        (|| {
+            let mut output = self.writer.finish()?;
+            output.flush()?;
+            Ok(LocalArchiveCreationResult {
+                files_created: self.files_created,
+                directories_created: self.directories_created,
+                source_bytes: self.source_bytes,
+            })
+        })()
+        .map_err(|error| LocalArchiveError::PartialArchiveOutput(Box::new(error)))
+    }
 }
 
 fn revalidate_target_parent(drive_root: &Path, target_path: &Path) -> Result<(), LocalArchiveError> {
@@ -886,10 +1209,41 @@ fn revalidate_target_parent(drive_root: &Path, target_path: &Path) -> Result<(),
 mod tests {
     use std::fs;
 
+    use serde::Deserialize;
+    use sha2::{Digest, Sha256};
     use tempfile::tempdir;
     use zip::ZipArchive;
 
     use super::*;
+
+    #[derive(Deserialize)]
+    struct ConformanceManifest {
+        version: u8,
+        fixtures: Vec<ConformanceFixture>,
+    }
+
+    #[derive(Deserialize)]
+    struct ConformanceFixture {
+        name: String,
+        sha256: String,
+        entries: Vec<ConformanceEntry>,
+    }
+
+    #[derive(Deserialize)]
+    struct ConformanceEntry {
+        raw_name_hex: String,
+        path: String,
+        directory: bool,
+        method: u16,
+        uncompressed_size: u64,
+        safe: bool,
+        data_descriptor: bool,
+        member_sha256: Option<String>,
+    }
+
+    fn conformance_corpus_root() -> PathBuf {
+        PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../..").join("archive_testdata")
+    }
 
     #[test]
     fn rejects_unsafe_archive_entry_paths() {
@@ -901,6 +1255,72 @@ mod tests {
             normalized_archive_path("C:/unsafe", false),
             Err(LocalArchiveError::UnsafeEntryPath)
         ));
+    }
+
+    #[test]
+    fn uses_validated_infozip_unicode_path_for_unflagged_names() {
+        let raw_name = b"cafe.txt";
+        let unicode_name = "café.txt";
+        let field_length = u16::try_from(1 + 4 + unicode_name.len()).unwrap();
+        let mut extra = Vec::new();
+        extra.extend_from_slice(&INFOZIP_UNICODE_PATH_FIELD_ID.to_le_bytes());
+        extra.extend_from_slice(&field_length.to_le_bytes());
+        extra.push(INFOZIP_UNICODE_PATH_VERSION);
+        extra.extend_from_slice(&(!update_crc32(u32::MAX, raw_name)).to_le_bytes());
+        extra.extend_from_slice(unicode_name.as_bytes());
+
+        assert_eq!(decode_entry_name(raw_name, 0, &extra), unicode_name);
+    }
+
+    #[test]
+    fn ignores_infozip_unicode_path_with_a_mismatched_crc() {
+        let raw_name = b"cafe.txt";
+        let unicode_name = "café.txt";
+        let field_length = u16::try_from(1 + 4 + unicode_name.len()).unwrap();
+        let mut extra = Vec::new();
+        extra.extend_from_slice(&INFOZIP_UNICODE_PATH_FIELD_ID.to_le_bytes());
+        extra.extend_from_slice(&field_length.to_le_bytes());
+        extra.push(INFOZIP_UNICODE_PATH_VERSION);
+        extra.extend_from_slice(&(!update_crc32(u32::MAX, raw_name) ^ 1).to_le_bytes());
+        extra.extend_from_slice(unicode_name.as_bytes());
+
+        assert_eq!(decode_entry_name(raw_name, 0, &extra), "cafe.txt");
+    }
+
+    #[test]
+    fn decodes_unflagged_legacy_names_as_cp437() {
+        assert_eq!(decode_entry_name(b"caf\x82.txt", 0, &[]), "café.txt");
+    }
+
+    #[test]
+    fn passes_v1_zip_reader_conformance_corpus() {
+        let corpus_root = conformance_corpus_root();
+        let manifest: ConformanceManifest = serde_json::from_slice(&fs::read(corpus_root.join("manifest-v1.json")).unwrap()).unwrap();
+        assert_eq!(manifest.version, 1);
+
+        for fixture in manifest.fixtures {
+            let fixture_path = corpus_root.join(&fixture.name);
+            let fixture_data = fs::read(&fixture_path).unwrap();
+            assert_eq!(hex::encode(Sha256::digest(fixture_data)), fixture.sha256);
+            let entries = read_local_archive_entries(&fixture_path).unwrap();
+            assert_eq!(entries.len(), fixture.entries.len());
+            for (entry, expected) in entries.iter().zip(fixture.entries) {
+                assert_eq!(hex::encode(&entry.raw_name), expected.raw_name_hex);
+                assert_eq!(entry.path, expected.path);
+                assert_eq!(entry.is_directory, expected.directory);
+                assert_eq!(entry.compression_method, expected.method);
+                assert_eq!(entry.uncompressed_size, expected.uncompressed_size);
+                assert_eq!(entry.is_safe, expected.safe);
+                assert_eq!(entry.flags & 0x0008 != 0, expected.data_descriptor);
+                if expected.safe {
+                    if let Some(member_sha256) = expected.member_sha256 {
+                        let mut member = Vec::new();
+                        stream_local_archive_member(&fixture_path, &entry.path, &mut member).unwrap();
+                        assert_eq!(hex::encode(Sha256::digest(member)), member_sha256);
+                    }
+                }
+            }
+        }
     }
 
     #[test]
@@ -916,7 +1336,7 @@ mod tests {
 
         assert_eq!(result.files_created, 1);
         assert_eq!(result.directories_created, 2);
-        let mut archive = ZipArchive::new(FsFile::open(target).unwrap()).unwrap();
+        let mut archive = ZipArchive::new(FsFile::open(&target).unwrap()).unwrap();
         assert_eq!(
             archive.file_names().collect::<Vec<_>>(),
             ["source/", "source/empty/", "source/notes.txt"]
@@ -924,6 +1344,52 @@ mod tests {
         let mut notes = String::new();
         archive.by_name("source/notes.txt").unwrap().read_to_string(&mut notes).unwrap();
         assert_eq!(notes, "notes");
+    }
+
+    #[test]
+    fn writes_relayed_members_to_a_readable_zip_without_staging() {
+        let directory = tempdir().unwrap();
+        let target = directory.path().join("archive.zip");
+        let writer = create_local_archive_relay_writer(directory.path(), &target).unwrap();
+        let (sender, receiver) = tokio::sync::mpsc::channel(2);
+        sender.try_send(LocalArchiveRelayChunk::Data(b"notes".to_vec())).unwrap();
+        sender.try_send(LocalArchiveRelayChunk::Complete).unwrap();
+        let result = writer.write_file("notes.txt", 5, receiver).unwrap().finish().unwrap();
+
+        assert_eq!(result.files_created, 1);
+        assert_eq!(result.source_bytes, 5);
+        let mut archive = ZipArchive::new(FsFile::open(&target).unwrap()).unwrap();
+        let mut notes = String::new();
+        archive.by_name("notes.txt").unwrap().read_to_string(&mut notes).unwrap();
+        assert_eq!(notes, "notes");
+        assert_eq!(validate_local_archive_member(&target, "notes.txt").unwrap().compression_method, 0);
+    }
+
+    #[test]
+    fn deflates_compressible_relayed_members() {
+        let directory = tempdir().unwrap();
+        let target = directory.path().join("archive.zip");
+        let writer = create_local_archive_relay_writer(directory.path(), &target).unwrap();
+        let content = vec![b'x'; ARCHIVE_COPY_BUFFER_SIZE];
+        let (sender, receiver) = tokio::sync::mpsc::channel(2);
+        sender.try_send(LocalArchiveRelayChunk::Data(content.clone())).unwrap();
+        sender.try_send(LocalArchiveRelayChunk::Complete).unwrap();
+
+        writer
+            .write_file("notes.txt", content.len() as u64, receiver)
+            .unwrap()
+            .finish()
+            .unwrap();
+
+        assert_eq!(validate_local_archive_member(&target, "notes.txt").unwrap().compression_method, 8);
+    }
+
+    #[test]
+    fn rejects_colliding_relay_manifest_before_opening_output() {
+        assert!(matches!(
+            validate_local_archive_creation_manifest(&[("folder", false), ("folder/child.txt", false)]),
+            Err(LocalArchiveError::DuplicateEntryPath)
+        ));
     }
 
     #[test]
@@ -974,7 +1440,7 @@ mod tests {
     fn streams_a_validated_deflate_member_without_staging() {
         let directory = tempdir().unwrap();
         let source = directory.path().join("notes.txt");
-        fs::write(&source, b"local archive member").unwrap();
+        fs::write(&source, vec![b'x'; ARCHIVE_COPY_BUFFER_SIZE]).unwrap();
         let target = directory.path().join("archive.zip");
         let entries = build_local_archive_manifest(&[source], &target).unwrap();
         create_local_archive(directory.path(), &target, &entries, || false).unwrap();
@@ -983,11 +1449,34 @@ mod tests {
         assert_eq!(member.compression_method, 8);
         let mut output = Vec::new();
         stream_local_archive_member(&target, "notes.txt", &mut output).unwrap();
-        assert_eq!(output, b"local archive member");
+        assert_eq!(output, vec![b'x'; ARCHIVE_COPY_BUFFER_SIZE]);
         assert!(matches!(
             validate_local_archive_member(&target, "../notes.txt"),
             Err(LocalArchiveReadError::InvalidMemberPath)
         ));
+    }
+
+    #[test]
+    fn stores_incompressible_members_after_a_bounded_probe() {
+        let directory = tempdir().unwrap();
+        let source = directory.path().join("data.bin");
+        let mut content = Vec::with_capacity(ARCHIVE_COPY_BUFFER_SIZE);
+        let mut state = 0x4d595df4_u32;
+        for _ in 0..ARCHIVE_COPY_BUFFER_SIZE {
+            state = state.wrapping_mul(1_664_525).wrapping_add(1_013_904_223);
+            content.push((state >> 24) as u8);
+        }
+        fs::write(&source, &content).unwrap();
+        let target = directory.path().join("archive.zip");
+        let entries = build_local_archive_manifest(&[source], &target).unwrap();
+
+        create_local_archive(directory.path(), &target, &entries, || false).unwrap();
+
+        let member = validate_local_archive_member(&target, "data.bin").unwrap();
+        assert_eq!(member.compression_method, 0);
+        let mut output = Vec::new();
+        stream_local_archive_member(&target, "data.bin", &mut output).unwrap();
+        assert_eq!(output, content);
     }
 
     #[test]

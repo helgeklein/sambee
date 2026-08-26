@@ -5,10 +5,15 @@
  */
 
 import { render } from "@testing-library/react";
-import { MemoryRouter, Route, Routes } from "react-router-dom";
+import { MemoryRouter, Route, Routes, useLocation } from "react-router-dom";
 import { LocalePreferencesProvider } from "../../i18n/LocalePreferencesProvider";
 import { SambeeThemeProvider } from "../../theme/ThemeContext";
 import FileBrowser from "../FileBrowser";
+
+const RouterLocationProbe = () => {
+  const location = useLocation();
+  return <output data-testid="router-location" hidden>{`${location.pathname}${location.search}`}</output>;
+};
 
 // Re-export test fixtures from centralized location
 export {
@@ -26,6 +31,7 @@ export const renderBrowser = (initialPath = "/browse") => {
     <LocalePreferencesProvider>
       <SambeeThemeProvider>
         <MemoryRouter initialEntries={[initialPath]}>
+          <RouterLocationProbe />
           <Routes>
             <Route path="/browse/:targetType/:targetId/*" element={<FileBrowser />} />
             <Route path="/browse" element={<FileBrowser />} />

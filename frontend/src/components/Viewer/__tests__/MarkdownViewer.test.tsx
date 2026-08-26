@@ -516,6 +516,42 @@ describe("MarkdownViewer", () => {
     expect(acquireLockSpy).not.toHaveBeenCalled();
   });
 
+  it("loads virtual markdown through its provider and blocks editing", async () => {
+    const virtualSource = {
+      kind: "virtual" as const,
+      path: "docs/readme.md",
+      location: {
+        kind: "virtual" as const,
+        providerId: "zip",
+        connectionId: "conn1",
+        source: { kind: "physical" as const, connectionId: "conn1", path: "archives/backup.zip" },
+        path: "docs",
+      },
+    };
+    const getArchiveMemberSpy = vi
+      .spyOn(apiService, "getArchiveMember")
+      .mockResolvedValue(new Blob(["# Virtual Readme\n"], { type: "text/markdown" }));
+    const getFileContentSpy = vi.spyOn(apiService, "getFileContent").mockResolvedValue("physical content");
+    const acquireLockSpy = vi.spyOn(apiService, "acquireEditLock");
+
+    render(
+      <SambeeThemeProvider>
+        <MarkdownViewer connectionId="conn1" path="docs/readme.md" onClose={() => {}} virtualSource={virtualSource} />
+      </SambeeThemeProvider>
+    );
+
+    await screen.findByText("Virtual Readme");
+    expect(getArchiveMemberSpy).toHaveBeenCalledWith("conn1", "archives/backup.zip", "docs/readme.md", {
+      download: undefined,
+      request: { kind: "text" },
+      signal: expect.anything(),
+    });
+    expect(getFileContentSpy).not.toHaveBeenCalled();
+    expect(screen.getByText("Read only")).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Edit" })).not.toBeInTheDocument();
+    expect(acquireLockSpy).not.toHaveBeenCalled();
+  });
+
   it("enters edit mode and acquires a lock for server-backed markdown files", async () => {
     const getFileContentSpy = vi.spyOn(apiService, "getFileContent").mockResolvedValueOnce("# Readme\n");
     vi.spyOn(apiService, "supportsEditLocks").mockReturnValue(true);

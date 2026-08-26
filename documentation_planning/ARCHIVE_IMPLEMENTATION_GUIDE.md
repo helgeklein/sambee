@@ -10,6 +10,33 @@ The plan remains the source of product decisions. This guide identifies the
 existing code boundaries to extend, the new modules to add, and the order in
 which to make the changes.
 
+## Implemented Execution Boundary
+
+Archive work is foreground and nonresumable. The active Create dialog and the
+Archive Extract dialog are the only user-facing control surfaces; there is no
+archive operations panel, history view, global activity affordance, or resume
+workflow.
+
+Backend-backed same-SMB and mixed SMB/local work persists an
+`ArchiveOperation` for scoped authorization, cancellation, and terminal error
+reporting. Streaming work refreshes its heartbeat. The backend expires a stale
+nonterminal operation after 120 seconds, checking every 30 seconds, with the
+`archive_interrupted` error. It never starts a worker, queues the work, or
+resumes a stale operation.
+
+The browser stores only the active backend operation ID and a timestamp in
+`sessionStorage`. On `pagehide`, it issues best-effort cancellation with a
+keepalive request; `beforeunload` warns while archive work is active. On reload,
+the browser retries cancellation and shows an interruption notice rather than
+restoring the prior action. A failed cancellation leaves the marker in place
+for the next recovery attempt.
+
+Direct local create and extract requests have no backend operation ID. They use
+an in-memory `AbortController`, passed to the authenticated Companion request.
+Aborting terminates the browser request but cannot promise that the Companion's
+synchronous direct handler has stopped or removed output. The UI therefore
+reports cancellation/interruption without claiming cleanup or rollback.
+
 ## Fixed Product Decisions
 
 - ZIP is the first supported format. TAR variants, 7z, and RAR are later,
@@ -31,6 +58,9 @@ which to make the changes.
 - Inspection chooses a legacy filename encoding automatically. Extraction asks
   for confirmation before writing only when several safe encodings produce
   different output paths and browser locale preference breaks the tie.
+- Current readers validate and apply Info-ZIP Unicode Path metadata for
+  unflagged names; Companion falls back to CP437. Locale-ranked candidate
+  selection and extraction confirmation remain follow-up work.
 - A partial archive is still openable. Serve any readable structure; otherwise
   return the actual archive-read error.
 - A provider without random reads, exclusive creation, and streaming writes
@@ -41,12 +71,12 @@ which to make the changes.
 | Area | Existing files | Required change |
 | --- | --- | --- |
 | Storage contract | [backend/app/storage/base.py](../backend/app/storage/base.py), [backend/app/storage/smb.py](../backend/app/storage/smb.py) | Add random reads and exclusive direct-output writers. |
-| Backend browser and viewer APIs | [backend/app/api/browser.py](../backend/app/api/browser.py), [backend/app/api/viewer.py](../backend/app/api/viewer.py), [backend/app/main.py](../backend/app/main.py) | Add archive listing, content, and operation routes; register the operation router. |
-| Backend data and persistence | [backend/app/models/file.py](../backend/app/models/file.py), [backend/app/models/edit_lock.py](../backend/app/models/edit_lock.py), [backend/app/db/database.py](../backend/app/db/database.py), [backend/app/db/migrations.py](../backend/app/db/migrations.py) | Add archive API models and durable operation state, following the existing lock-table registration pattern. |
-| Authorization and auditing | [backend/app/services/connection_access.py](../backend/app/services/connection_access.py), [backend/app/models/audit.py](../backend/app/models/audit.py) | Enforce source reads and destination writes for every phase; audit without member names by default. |
-| Frontend browser | [frontend/src/pages/FileBrowser/useFileBrowserPane.ts](../frontend/src/pages/FileBrowser/useFileBrowserPane.ts), [frontend/src/pages/FileBrowser/FileBrowserPane.tsx](../frontend/src/pages/FileBrowser/FileBrowserPane.tsx), [frontend/src/components/FileBrowser/BreadcrumbsNavigation.tsx](../frontend/src/components/FileBrowser/BreadcrumbsNavigation.tsx) | Add archive location state, virtual navigation, dialogs, progress, and decisions. |
-| Frontend commands and transport | [frontend/src/config/browserCommands.ts](../frontend/src/config/browserCommands.ts), [frontend/src/config/keyboardShortcuts.ts](../frontend/src/config/keyboardShortcuts.ts), [frontend/src/services/api.ts](../frontend/src/services/api.ts), [frontend/src/types/index.ts](../frontend/src/types/index.ts) | Add commands, shortcuts, shared archive DTOs, and backend/Companion API calls. |
-| Companion local API | [companion/src-tauri/src/server/models.rs](../companion/src-tauri/src/server/models.rs), [companion/src-tauri/src/server/handlers.rs](../companion/src-tauri/src/server/handlers.rs), [companion/src-tauri/src/server/mod.rs](../companion/src-tauri/src/server/mod.rs) | Mirror local browse, content, write-session, and job-acceptance contracts. |
+| Backend browser and viewer APIs | [backend/app/api/archive_operations.py](../backend/app/api/archive_operations.py), [backend/app/api/browser.py](../backend/app/api/browser.py), [backend/app/api/viewer.py](../backend/app/api/viewer.py), [backend/app/main.py](../backend/app/main.py) | Archive listing, content, operation routes, heartbeat calls, and stale-operation monitoring. |
+| Backend data and persistence | [backend/app/models/archive_operation.py](../backend/app/models/archive_operation.py), [backend/app/services/archive/operations.py](../backend/app/services/archive/operations.py), [backend/app/services/archive/operation_monitor.py](../backend/app/services/archive/operation_monitor.py) | Durable scoped state and heartbeat expiry for backend-backed foreground work; not a job queue. |
+| Authorization and auditing | [backend/app/services/connection_access.py](../backend/app/services/connection_access.py), [backend/app/models/audit.py](../backend/app/models/audit.py), [backend/app/services/archive/operations.py](../backend/app/services/archive/operations.py) | Enforce source reads and destination writes for every phase. Lifecycle and decision audit events are correlation-scoped and omit member names. |
+| Frontend browser | [frontend/src/pages/FileBrowser.tsx](../frontend/src/pages/FileBrowser.tsx), [frontend/src/components/FileBrowser/ArchiveBrowser.tsx](../frontend/src/components/FileBrowser/ArchiveBrowser.tsx), [frontend/src/components/FileBrowser/NameInputDialog.tsx](../frontend/src/components/FileBrowser/NameInputDialog.tsx) | Foreground Create/Extract dialogs, cancellation controls, reload interruption notice, and close gating while work is active. |
+| Frontend commands and transport | [frontend/src/services/foregroundArchiveOperation.ts](../frontend/src/services/foregroundArchiveOperation.ts), [frontend/src/services/api.ts](../frontend/src/services/api.ts), [frontend/src/services/companion.ts](../frontend/src/services/companion.ts) | Backend operation markers and direct-local abort signals. The marker never stores sensitive data. |
+| Companion local API | [companion/src-tauri/src/server/archive.rs](../companion/src-tauri/src/server/archive.rs), [companion/src-tauri/src/server/handlers.rs](../companion/src-tauri/src/server/handlers.rs), [companion/src-tauri/src/server/mod.rs](../companion/src-tauri/src/server/mod.rs) | Direct local archive handlers and scoped mixed-operation execution. Direct handlers remain request-scoped. |
 | Companion backend bridge | [companion/src-tauri/src/http_client.rs](../companion/src-tauri/src/http_client.rs) | Add scoped backend requests for mixed operations. |
 
 ## Shared Models And Persistence
@@ -84,7 +114,7 @@ contain `lease_epoch`. Return operation reads with `operation_id`, `phase`,
 `progress`, optional `pending_decision`, and optional `error`. Return errors as
 `{ "code", "message", "retryable" }`: use 409 for a phase or collision
 conflict, 410 for an expired operation, 422 for invalid input, and 429 for a
-full operation queue. Archive listings default to 100 items and reject page
+configured request-throttling limit. Archive listings default to 100 items and reject page
 sizes over 500.
 
 ### Persist operation state
@@ -108,8 +138,9 @@ approved final paths, output remaps, allowed metadata, creation target, and the
 initiating browser's validated IANA timezone for ZIP timestamp encoding. A
 selected legacy encoding is copied from the current browser state only when this
 plan is prepared; it is not archive-scoped metadata or a reusable preference.
-Hash the canonical serialized plan, but retain the plan itself so a restarted
-executor can scope work without rebuilding mutable input.
+Hash the canonical serialized plan, but retain the plan for authorization,
+cancellation, and terminal error reporting only. A restarted executor must not
+use it to resume direct output; the user prepares a new foreground action.
 
 Store the credential binding claims required to validate requests (user, origin,
 operation ID, source/destination scope, permitted route/action, manifest hash,
@@ -148,11 +179,13 @@ operation. Run an operation-expiry reaper at startup and periodically; any
 executor request also detects and finalizes its own expired lease before
 returning a response.
 
-Update `backend/app/db/database.py` so the model is imported before
-`SQLModel.metadata.create_all()`. Add an idempotent migration in
-`backend/app/db/migrations.py`, following the existing individual-table migration
-pattern. Do not reuse `EditLock`: archive jobs have multiple paths, multiple
-members, and a different lifecycle.
+Register the model before SQLModel metadata initialization and add an idempotent
+migration following the existing individual-table migration pattern. Run the
+application-owned monitor from `backend/app/main.py`; its 30-second sweep fails
+nonterminal operations with a heartbeat older than 120 seconds as
+`archive_interrupted`. Do not reuse `EditLock`: archive operations have
+multiple paths and a different lifecycle. Do not build a background worker,
+queue, or recovery executor.
 
 ### Register audit events
 
@@ -409,13 +442,12 @@ Keep all reads, writes, decompression, parser buffers, and response pages
 bounded. Use a 256 KiB archive I/O chunk for SMB ranges, HTTP frames,
 compression buffers, hashing, and writes; clamp it to negotiated SMB limits.
 Use a 64 MiB in-memory index budget and a 256 MiB temporary derived-metadata
-budget. Coalesce simultaneous index builds for one archive identity. Limit
-concurrent archive operations to two per user and four per provider, queue
-excess work, and expose queue/phase status through the durable operation. These
-controls bound operational concurrency only; they do not restrict the supported
-archive size. Evict or fail with a specific resource-exhausted error before an
-allocation can exhaust the process. One SMB inspection uses one connection and
-one archive handle.
+budget. Coalesce simultaneous index builds for one archive identity. There is
+no deferred archive queue: active-request or provider limits reject or wait
+within the foreground request rather than creating work that can later be
+re-entered. These controls do not restrict the supported archive size. Evict or
+fail with a specific resource-exhausted error before an allocation can exhaust
+the process. One SMB inspection uses one connection and one archive handle.
 
 Run Python compression, decompression, encoding selection, and merge-sort work in
 a dedicated bounded archive CPU worker pool, not the default executor used for
@@ -555,11 +587,12 @@ write. Use explicit archive-specific action names in audit events.
 
 ### Add archive modules and dependencies
 
-Add `companion/src-tauri/src/server/archive.rs` for local ZIP parsing, local
+Use `companion/src-tauri/src/server/archive.rs` for local ZIP parsing, local
 range readers, direct extraction, direct ZIP creation, and local member content
-streaming. Add `companion/src-tauri/src/server/archive_operations.rs` for local
-job acceptance, execution, heartbeat, pending-decision state, and backend bridge
-calls. Register both modules in `companion/src-tauri/src/server/mod.rs`.
+streaming. Keep the direct and mixed endpoints in
+`companion/src-tauri/src/server/handlers.rs` and register them in `server/mod.rs`.
+They execute within the request that initiated the work; do not add a local job
+acceptance, background worker, or recovery module.
 
 After following the repository dependency-update workflow, add the Companion
 writer dependency as:
@@ -629,26 +662,22 @@ then initiates all backend calls because its local HTTP server is loopback-only.
 | SMB files/directories | Local archive | Fetch approved source bytes and write an exclusive local target ZIP. |
 | Local files/directories | SMB archive | Build ZIP bytes locally and stream them to an exclusive backend target. |
 
-All four directions report progress and pending decisions through the persisted
-operation. They are not globally atomic. An interruption may leave a partial
-final target; report it, do not attempt later cleanup or rollback.
+Backend-backed mixed directions use their persisted operation while the
+foreground request remains live. They are not globally atomic. An interruption
+may leave a partial final target; report it, do not attempt later cleanup,
+rollback, or resume.
 
 ## Frontend Implementation
 
 ### Types, API client, and routing
 
-Add shared TypeScript archive DTOs in `frontend/src/types/index.ts`. Create
-`frontend/src/services/archiveApi.ts` for archive list/info/content and
-operation methods: prepare, poll/status, decide, cancel, and accept. Extract the
-connection-specific Axios/HMAC selection currently behind `ApiService`'s
-`getClientConfig()` into a small shared `connectionApiClient.ts`; use it for
-same-provider archive browse/content calls without growing the existing
-cross-backend transfer facade. Route durable operation control directly to the
-main backend, and use the Companion local API only for accepting and executing a
-local job. Add an authenticated active-operations query so status remains
-reachable after pane navigation or reload; it returns only the user's
-non-terminal and recently terminal archive operations with their scoped status
-and target location.
+Keep archive browse, extraction, creation, and backend operation calls in
+`frontend/src/services/api.ts`. Keep direct local creation in
+`frontend/src/services/companion.ts`; both direct-local create and extract take
+an optional `AbortSignal`. Use
+`frontend/src/services/foregroundArchiveOperation.ts` for the backend operation
+ID marker and the in-memory direct-local abort controller. Do not add an
+active-operations query, polling loop, durable status cache, or re-entry route.
 
 Extend File Browser URL parsing in `frontend/src/pages/FileBrowser/routing.ts`
 with separate physical directory, archive filename, and virtual entry-path
@@ -658,7 +687,9 @@ override as archive metadata.
 
 ### Pane state and navigation
 
-Extend `useFileBrowserPane.ts` and its result types in `pages/FileBrowser/types.ts`:
+`ArchiveBrowser.tsx` owns archive virtual navigation and its foreground
+extraction workflow. `FileBrowser.tsx` owns archive creation and the page-level
+interruption handlers. The archive-specific behavior is:
 
 - model either a physical location or an `ArchiveLocation`;
 - keep any user-selected legacy encoding in current browser state and the
@@ -670,7 +701,9 @@ Extend `useFileBrowserPane.ts` and its result types in `pages/FileBrowser/types.
 - open a ZIP with `Enter`, descend virtual directories, and make `Up` from the
   virtual root return to the physical parent;
 - disable in-archive rename, delete, copy, move, and new-item actions; and
-- track active operations, progress, errors, and pending user decisions.
+- keep cancellation, progress, errors, and pending user decisions in the active
+  dialog only; do not retain a global active-operation state after navigation
+  or reload.
 
 Update `BreadcrumbsNavigation.tsx` to render physical segments, an archive-icon
 boundary segment, and virtual segments. Physical segments navigate the real
@@ -691,16 +724,17 @@ Add `browser.extractArchive` and `browser.createArchive` to
 `config/browserCommands.ts`; add `Alt+F9` and `Alt+F5` definitions to
 `config/keyboardShortcuts.ts`. Include both in command search and keyboard help.
 
-Add focused File Browser components:
+Use the existing focused File Browser components:
 
-- `ExtractArchiveDialog.tsx`: choose target directory/name and confirm the
+- the extraction dialog owned by `ArchiveBrowser.tsx`: choose target
+  directory/name and confirm the
   single-pane or other-pane destination. In a single pane, default to a sibling
   basename-derived directory; in dual-pane mode, require confirmation before
   using the other pane's writable physical directory. Existing target
   directories remain in place. Before acceptance, show source and destination
   connection/location, selected count and known total size, existing-directory
   effect, known collision count, and the direct-output warning.
-- `CreateArchiveDialog.tsx`: ZIP type, archive name, selected-source summary,
+- `NameInputDialog.tsx` for creation: ZIP type, archive name, selected-source summary,
   conflict summary, and preflight errors. Creation has no replace, merge, or
   skip option: reject existing targets, duplicate normalized names, insensitive
   name collisions, and targets inside selected source directories. Offer ZIP
@@ -709,9 +743,10 @@ Add focused File Browser components:
   source and destination connection/location, selected count and known total
   size, portable Deflate-level-6 profile, conflict count, and the direct-output
   warning before acceptance.
-- `ArchiveDecisionDialog.tsx`: existing-file choices, internal collision rename,
-  retry, ignore, and cancel. It must resume the persisted operation through the
-  decision route; it must not keep an HTTP request open while visible. For an
+- the conflict dialog path in `ArchiveBrowser.tsx`: existing-file choices,
+  internal collision rename, retry, ignore, and cancel. It continues the
+  current foreground backend operation through the decision route; reload or
+  navigation does not resume it. For an
   ambiguous extraction encoding, use the compact `ResponsiveFormDialog`
   decision pattern before any output directory or writer is opened: recommend
   the browser-locale candidate, preview affected names, offer CP437 and More
@@ -722,12 +757,11 @@ Add focused File Browser components:
   initial focus, while final-open races use the same single-member decision
   presentation. Show rename validation beside the proposed archive-relative
   path.
-- `ArchiveOperationStatus.tsx` or pane-integrated status UI: stage progress,
-  current member, files/bytes completed and remaining, pending decision,
-  partial-target error, and cancellation. Keep it reachable from a global
-  active-operations affordance after navigation/reload. Terminal status shows
-  completed, skipped, failed, and partial counts with target-location and
-  details actions.
+- do not add `ArchiveOperationStatus.tsx`, a pane-integrated global status UI,
+  or an active-operations affordance. The active Create/Extract dialog shows
+  cancellation and any available result. It remains open while work is active;
+  closing the archive browser is gated during extraction. Reload shows only an
+  interruption notice after best-effort cancellation.
 
 Follow the existing responsive form/dialog pattern. Add all visible strings to
 `frontend/src/i18n/resources.ts`, then extend localization typing tests. Use
@@ -845,11 +879,11 @@ available with direct keyboard focus/shortcuts as well as pointer interaction.
 | Layer | Files to add or extend | Coverage |
 | --- | --- | --- |
 | Backend storage | `backend/tests/test_smb_backend.py` | Random reads, EOF, deterministic closure, raw offset-read behavior, negotiated-size/credit clamping, one-handle serialization, read-session pool-lease/handle reuse, CREATE identity reuse, source/output share modes, security-policy propagation, separate concurrent handles, exclusive creation, readable active target, secure output-open race handling, abort ownership, and timeouts. |
-| Backend archive service | New `backend/tests/test_archive_*.py` plus language-neutral fixtures | EOCD/ZIP64, self-extracting prefixes, data descriptors, all known method identifiers, per-profile readable/blocked/unavailable states, malformed/encrypted/multi-disk archives, encodings, cursor paging, stale identity, indexed external-sort pages, byte-budgeted derived-metadata cache/spill behavior, portable Deflate-level-6 selection, bounded no-reread Stored selection, creation writer-metadata budget, authorization revocation, per-user/provider queueing, and reader/writer conformance corpus results. |
+| Backend archive service | New `backend/tests/test_archive_*.py` plus language-neutral fixtures | EOCD/ZIP64, self-extracting prefixes, data descriptors, all known method identifiers, per-profile readable/blocked/unavailable states, malformed/encrypted/multi-disk archives, encodings, cursor paging, stale identity, indexed external-sort pages, byte-budgeted derived-metadata cache/spill behavior, portable Deflate-level-6 selection, bounded no-reread Stored selection, creation writer-metadata budget, authorization revocation, heartbeat expiry without resumption, and reader/writer conformance corpus results. |
 | Backend routes/operations | `backend/tests/test_browser.py`, `test_viewer.py`, new `test_archive_operations.py` | Authorization, typed locations, Companion local-plan activation, immutable plans, source-reader and target-writer capability selection, capability-plan hash mismatch, lease claim/expiry races, stale-epoch cancellation, request-hash idempotency receipts, ambiguous-write reconciliation, operation phases, decisions, partial target behavior, and audit events. |
-| Companion | Unit tests adjacent to new archive modules plus handler tests | Local parsing/writing, all enabled decoder adapters, shared profile-aware conformance corpus, bounded CPU worker capacity, secure output-open path races, local-plan activation, scoped bridge calls, stale-epoch handle closure, decision pause/resume, and all mixed directions. |
-| Frontend services | New `archiveApi.test.ts` plus `browseApi.test.ts` and `viewerApi.test.ts` | Remote/local endpoint resolution, typed archive DTOs, active-operation re-entry, locale-ranked automatic decoding, selected-decoding/cursor stability, URL state, operation calls, and structured error mapping without expanding `ApiService`. |
-| Frontend components | New dialog tests and File Browser page tests | Commands, shortcuts, breadcrumbs, URL history, explicit stale-archive refresh, paging, archive-specific actions, preflight summaries, grouped conflicts, codec states, read-only actions, conflict choices, localized plural/count/size/time presentation, pseudo-locale and RTL layout, progress, partial archive messaging, terminal summaries, and keyboard/screen-reader dialog behavior. |
+| Companion | Unit tests adjacent to archive modules plus handler tests | Local parsing/writing, all enabled decoder adapters, shared profile-aware conformance corpus, bounded CPU worker capacity, secure output-open path races, local-plan activation, scoped bridge calls, stale-epoch handle closure, foreground cancellation limits, and all mixed directions. |
+| Frontend services | `foregroundArchiveOperation.test.ts`, `companionService.test.ts`, plus browse and viewer service tests | Remote/local endpoint resolution, typed archive DTOs, backend marker storage, direct-local abort signals, reload cancellation recovery without re-entry, locale-ranked automatic decoding, selected-decoding/cursor stability, URL state, operation calls, and structured error mapping. |
+| Frontend components | Dialog tests, `ArchiveBrowser.test.tsx`, and `FileBrowser-archive-interruption.test.tsx` | Commands, shortcuts, breadcrumbs, URL history, explicit stale-archive refresh, paging, archive-specific actions, preflight summaries, grouped conflicts, codec states, read-only actions, conflict choices, localized plural/count/size/time presentation, pseudo-locale and RTL layout, progress, partial archive messaging, reload cancellation recovery, pagehide/beforeunload behavior, terminal summaries, and keyboard/screen-reader dialog behavior. |
 | End to end | Existing browser flow suites plus focused archive scenarios | Single pane, dual pane, SMB/local combinations, cancellation, retries, and visible partial output. |
 
 The focused suites must also cover source-size/modified-time changes; opening a
@@ -872,8 +906,8 @@ writer finalization and flush failures, inline extraction CRC verification,
 source-owner decoding across mixed routes, SMB
 policy/credit/handle telemetry, explicit Rust feature/policy rejection, and
 cross-language profile-aware reader/writer fixture conformance in the required
-failure coverage. Include direct-output warning acknowledgement, background
-operation re-entry, grouped collision presentation with final-open races,
+failure coverage. Include direct-output warning acknowledgement, pagehide and
+reload cancellation recovery without re-entry, grouped collision presentation with final-open races,
 capability-state explanations, partial/in-progress archive actions, explicit
 stale-archive refresh, terminal outcome summaries, and keyboard/screen-reader
 status announcements in the frontend/end-to-end coverage. Verify locale changes
@@ -898,10 +932,10 @@ or add Rust dependencies without following the repository dependency workflow.
 2. **Read-only ZIP browsing:** parser, index, paged archive routes, local
    Companion parity, URL state, breadcrumbs, and archive viewer/download.
 3. **Same-provider operations:** manifest validation, direct extraction,
-   direct creation, collision/error decisions, dialogs, and status UI.
-4. **Durable operation protocol:** immutable operation plans, fenced leases,
-   idempotency receipts, scoped credentials, decisions, auditing, and
-   cancellation.
+  direct creation, collision/error decisions, and foreground dialogs.
+4. **Foreground operation lifecycle:** immutable operation plans, scoped
+  credentials, heartbeat expiry, cancellation, interruption reporting, and
+  auditing without a worker queue or resume path.
 5. **Mixed execution:** Companion backend bridge and all four SMB/local paths.
 6. **Hardening:** encoding override UI, scalability tests, failure behavior,
   capability-denial behavior, accessibility, and end-to-end coverage.
@@ -924,11 +958,12 @@ The ZIP feature is complete when the following are true:
 - Backend and Companion enforce the same path, permission, credential, chunk,
   lease epoch, and idempotency rules.
 - No executor can mutate an operation after its lease expires or another
-  executor claims a newer epoch; restart reports partial direct output rather
-  than resuming it.
+  executor claims a newer epoch; interruption reports partial direct output
+  rather than resuming it.
 - Python and Rust archive readers pass the same versioned conformance corpus.
 - Unsupported providers fail clearly without staging or copying source archives,
-  and resource controls queue excess work without imposing an archive-size cap.
+  and resource controls bound active work without implying a deferred queue or
+  imposing an archive-size cap.
 - SMB archive sessions preserve required signing and configured encryption while
   reusing negotiated, credit-aware handles without requiring unsupported SMB3
   durability or multichannel features.

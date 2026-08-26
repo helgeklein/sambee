@@ -7,6 +7,7 @@ import type React from "react";
 import type { SearchProvider } from "../../components/FileBrowser/search/types";
 import type { Connection, FileEntry, FileType } from "../../types";
 import type { ViewerId } from "../../utils/FileTypeRegistry";
+import type { BrowserItem, ContentCapabilities, VirtualContentProviderId, VirtualItemHandle } from "./contentProviders";
 
 export type SortField = "name" | "size" | "modified" | "type";
 
@@ -28,6 +29,7 @@ export interface ViewInfo {
   path: string;
   mimeType: string;
   viewerId?: ViewerId;
+  virtualSource?: VirtualItemHandle;
   images?: string[];
   currentIndex?: number;
   sessionId: string;
@@ -38,6 +40,8 @@ export interface BrowserViewerPickerState {
   fileName: string;
   filePath: string;
   mimeType: string;
+  virtualSource?: VirtualItemHandle;
+  virtualActivationId?: number;
   viewerIds: ViewerId[];
   compatibleViewerIds: ViewerId[];
   defaultViewerId: ViewerId | null;
@@ -56,9 +60,17 @@ export interface DirectoryCacheEntry {
   timestamp: number;
 }
 
+/** A ZIP directory shown through an ordinary file-browser pane. */
+export interface ArchiveLocation {
+  providerId: VirtualContentProviderId;
+  archivePath: string;
+  virtualPath: string;
+}
+
 export interface FileBrowserPaneRecoverySnapshot {
   connectionId: string;
   path: string;
+  archiveLocation?: ArchiveLocation | null;
   items: FileEntry[];
   sortBy: SortField;
   sortDirection: "asc" | "desc";
@@ -93,6 +105,13 @@ export const RIGHT_PANE_QUERY_KEY = "p2";
 
 /** Query parameter recording which pane has focus (1 = left, 2 = right). */
 export const ACTIVE_PANE_QUERY_KEY = "active";
+
+/** A provider-neutral, read-only location layered on a physical route path. */
+export interface VirtualRouteLocation {
+  providerId: VirtualContentProviderId;
+  sourcePath: string;
+  virtualPath: string;
+}
 
 // ============================================================================
 // Pane hook configuration & return types
@@ -131,8 +150,11 @@ export interface UseFileBrowserPaneConfig {
   /** Called when the pane should navigate to a directory in any accessible connection. */
   onNavigateDirectory?: (connectionId: string, path: string) => void;
 
-  /** Called when a readable ZIP archive should open in the archive browser. */
-  onOpenArchive?: (connectionId: string, path: string) => void;
+  /** Called when the pane should navigate into or out of a virtual provider location. */
+  onNavigateVirtualLocation?: (location: VirtualRouteLocation | null) => void;
+
+  /** Called when an incoming route resolves to a canonical existing location. */
+  onResolveRouteLocation?: (path: string, archiveLocation: ArchiveLocation | null) => void;
 }
 
 /** Everything returned by useFileBrowserPane for use by the parent and pane component. */
@@ -142,6 +164,10 @@ export interface UseFileBrowserPaneReturn {
   setConnectionId: React.Dispatch<React.SetStateAction<string>>;
   currentPath: string;
   setCurrentPath: React.Dispatch<React.SetStateAction<string>>;
+  archiveLocation: ArchiveLocation | null;
+  contentCapabilities: ContentCapabilities;
+  archiveHasMore: boolean;
+  archiveLoadingMore: boolean;
   files: FileEntry[];
   loading: boolean;
   error: string | null;
@@ -173,7 +199,7 @@ export interface UseFileBrowserPaneReturn {
    * Returns the effective selection: if files are explicitly selected,
    * returns those; otherwise returns the single focused file.
    */
-  getEffectiveSelection: () => FileEntry[];
+  getEffectiveSelection: () => BrowserItem[];
 
   // ── Computed Data ──────────────────────────────────────────────────────
   sortedFiles: FileEntry[];
@@ -187,10 +213,10 @@ export interface UseFileBrowserPaneReturn {
 
   // ── Dialog State ───────────────────────────────────────────────────────
   deleteDialogOpen: boolean;
-  deleteTarget: FileEntry | null;
+  deleteTargets: BrowserItem[];
   isDeleting: boolean;
   renameDialogOpen: boolean;
-  renameTarget: FileEntry | null;
+  renameTarget: BrowserItem | null;
   isRenaming: boolean;
   renameError: string | null;
   createDialogOpen: boolean;
@@ -226,6 +252,10 @@ export interface UseFileBrowserPaneReturn {
   handleOpenFile: (options?: { requireListFocus?: boolean; mode?: BrowserOpenMode }) => void;
   handleOpenFileForFile: (file: FileEntry, index: number, mode?: BrowserOpenMode) => void;
   handleOpenFileAtPath: (connectionId: string, path: string, mode?: BrowserOpenMode, recentRecordId?: string) => Promise<void>;
+  openArchive: (archivePath: string) => void;
+  navigateArchiveToPath: (virtualPath: string) => void;
+  loadMoreArchive: () => void;
+  closeArchive: () => void;
   navigateToPath: (path: string) => void;
   prepareDirectoryTransition: (connectionId: string, path: string) => void;
   handleNavigateUpDirectory: () => void;

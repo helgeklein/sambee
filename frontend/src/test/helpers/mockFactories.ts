@@ -94,7 +94,9 @@ export function setupSuccessfulApiMocks(api: ApiMock): void {
       is_hidden: false,
     })
   );
-  api.getFileInfo.mockResolvedValue({ type: "directory" });
+  api.getFileInfo.mockImplementation(async (_connectionId: string, path: string) => ({
+    type: path.toLowerCase().endsWith(".zip") ? "file" : "directory",
+  }));
 
   // Mock getImageBlob to return a fake blob
   api.getImageBlob.mockResolvedValue(new Blob(["fake-image-data"], { type: "image/png" }));

@@ -10,6 +10,7 @@ from datetime import datetime, timedelta, timezone
 from unittest.mock import AsyncMock, patch
 
 import pytest
+from fastapi.responses import Response
 from fastapi.testclient import TestClient
 from sqlmodel import Session, select
 
@@ -32,11 +33,13 @@ class _MemoryRandomAccessReader:
         self.closed = True
 
 
-def _archive_bytes() -> bytes:
+def _archive_bytes(extra_members: dict[str, bytes] | None = None) -> bytes:
     output = io.BytesIO()
     with zipfile.ZipFile(output, "w", compression=zipfile.ZIP_DEFLATED) as archive:
         archive.writestr("docs/readme.txt", "hello")
         archive.writestr("root.txt", "root")
+        for path, content in (extra_members or {}).items():
+            archive.writestr(path, content)
     return output.getvalue()
 
 
@@ -232,6 +235,36 @@ class TestListArchiveDirectory:
         assert result["next_cursor"] is not None
         assert archive_reader.closed is True
 
+    def test_lists_zip_subdirectory_with_canonical_path(
+        self,
+        client: TestClient,
+        auth_headers_user: dict,
+        test_connection: Connection,
+        mock_smb_backend,
+    ):
+        _, backend = mock_smb_backend
+        data = _archive_bytes()
+        archive_reader = _MemoryRandomAccessReader(data)
+        backend.get_file_info.return_value = FileInfo(
+            name="backup.zip",
+            path="backup.zip",
+            type=FileType.FILE,
+            size=len(data),
+        )
+        backend.open_random_access_reader = AsyncMock(return_value=archive_reader)
+
+        response = client.get(
+            f"/api/browse/{test_connection.id}/archive/list",
+            headers=auth_headers_user,
+            params={"archive_path": "backup.zip", "virtual_path": "docs"},
+        )
+
+        assert response.status_code == 200
+        result = response.json()
+        assert result["path"] == "docs"
+        assert [(item["name"], item["type"]) for item in result["items"]] == [("readme.txt", "file")]
+        assert archive_reader.closed is True
+
 
 @pytest.mark.integration
 class TestStreamArchiveMember:
@@ -267,13 +300,14 @@ class TestStreamArchiveMember:
         assert response.headers["content-disposition"].startswith("inline;")
         assert archive_reader.closed is True
 
-    def test_rejects_oversized_inline_archive_member_before_streaming(
+    def test_streams_large_raw_archive_members_like_physical_files(
         self,
         client: TestClient,
         auth_headers_user: dict,
         test_connection: Connection,
     ):
-        data = _archive_bytes()
+        large_content = b"a" * (5 * 1024 * 1024 + 1)
+        data = _archive_bytes({"docs/large.txt": large_content})
         backend = AsyncMock()
         backend.connect.return_value = None
         backend.disconnect.return_value = None
@@ -285,18 +319,98 @@ class TestStreamArchiveMember:
         )
         backend.open_random_access_reader = AsyncMock(return_value=_MemoryRandomAccessReader(data))
 
+        with patch("app.api.viewer.SMBBackend", return_value=backend):
+            response = client.get(
+                f"/api/viewer/{test_connection.id}/archive/member",
+                headers=auth_headers_user,
+                params={"archive_path": "backup.zip", "member_path": "docs/large.txt"},
+            )
+
+        assert response.status_code == 200
+        assert response.content == large_content
+
+    def test_converts_archive_jpeg_xl_for_browser_viewing(
+        self,
+        client: TestClient,
+        auth_headers_user: dict,
+        test_connection: Connection,
+    ):
+        data = _archive_bytes({"images/photo.jxl": b"valid JPEG XL"})
+        archive_reader = _MemoryRandomAccessReader(data)
+        backend = AsyncMock()
+        backend.connect.return_value = None
+        backend.disconnect.return_value = None
+        backend.get_file_info.return_value = FileInfo(
+            name="backup.zip",
+            path="backup.zip",
+            type=FileType.FILE,
+            size=len(data),
+        )
+        backend.open_random_access_reader = AsyncMock(return_value=archive_reader)
+
         with (
             patch("app.api.viewer.SMBBackend", return_value=backend),
-            patch("app.api.viewer.MAX_ARCHIVE_MEMBER_PREVIEW_BYTES", 1),
+            patch("app.api.viewer.convert_image_for_viewer", return_value=(b"converted", "image/webp", "libvips", 1)),
         ):
             response = client.get(
                 f"/api/viewer/{test_connection.id}/archive/member",
                 headers=auth_headers_user,
-                params={"archive_path": "backup.zip", "member_path": "docs/readme.txt"},
+                params={
+                    "archive_path": "backup.zip",
+                    "member_path": "images/photo.jxl",
+                    "view_kind": "image",
+                    "viewport_width": 1280,
+                    "viewport_height": 720,
+                },
             )
 
-        assert response.status_code == 413
-        assert response.json()["detail"] == "Archive member exceeds the inline preview size limit"
+        assert response.status_code == 200
+        assert response.content == b"converted"
+        assert response.headers["content-type"].startswith("image/webp")
+        assert archive_reader.closed is True
+
+    def test_normalizes_archive_pdf_through_the_shared_derivative_pipeline(
+        self,
+        client: TestClient,
+        auth_headers_user: dict,
+        test_connection: Connection,
+    ):
+        data = _archive_bytes({"docs/inside.pdf": b"%PDF-1.7"})
+        archive_reader = _MemoryRandomAccessReader(data)
+        backend = AsyncMock()
+        backend.connect.return_value = None
+        backend.disconnect.return_value = None
+        backend.get_file_info.return_value = FileInfo(
+            name="backup.zip",
+            path="backup.zip",
+            type=FileType.FILE,
+            size=len(data),
+        )
+        backend.open_random_access_reader = AsyncMock(return_value=archive_reader)
+
+        with (
+            patch("app.api.viewer.SMBBackend", return_value=backend),
+            patch(
+                "app.api.viewer.create_normalized_pdf_response_for_source",
+                new_callable=AsyncMock,
+                return_value=Response(content=b"normalized", media_type="application/pdf"),
+            ) as normalize_pdf,
+        ):
+            response = client.get(
+                f"/api/viewer/{test_connection.id}/archive/member",
+                headers=auth_headers_user,
+                params={
+                    "archive_path": "backup.zip",
+                    "member_path": "docs/inside.pdf",
+                    "view_kind": "pdf",
+                    "pdf_variant": "normalized",
+                },
+            )
+
+        assert response.status_code == 200
+        assert response.content == b"normalized"
+        assert normalize_pdf.await_count == 1
+        assert archive_reader.closed is True
 
 
 @pytest.mark.integration

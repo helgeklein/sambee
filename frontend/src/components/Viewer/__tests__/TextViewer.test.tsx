@@ -162,6 +162,42 @@ describe("TextViewer", () => {
     expect(mockSetWordWrapEnabled).toHaveBeenCalledWith(true);
   });
 
+  it("loads virtual text through its provider and blocks editing", async () => {
+    const virtualSource = {
+      kind: "virtual" as const,
+      path: "docs/notes.txt",
+      location: {
+        kind: "virtual" as const,
+        providerId: "zip",
+        connectionId: "conn1",
+        source: { kind: "physical" as const, connectionId: "conn1", path: "archives/backup.zip" },
+        path: "docs",
+      },
+    };
+    const getArchiveMemberSpy = vi
+      .spyOn(apiService, "getArchiveMember")
+      .mockResolvedValue(new Blob(["virtual text"], { type: "text/plain" }));
+    const getFileContentSpy = vi.spyOn(apiService, "getFileContent");
+    const acquireLockSpy = vi.spyOn(apiService, "acquireEditLock");
+
+    render(
+      <SambeeThemeProvider>
+        <TextViewer connectionId="conn1" path="docs/notes.txt" onClose={vi.fn()} virtualSource={virtualSource} />
+      </SambeeThemeProvider>
+    );
+
+    expect(await screen.findByRole("textbox", { name: "Text editor" })).toHaveValue("virtual text");
+    expect(getArchiveMemberSpy).toHaveBeenCalledWith("conn1", "archives/backup.zip", "docs/notes.txt", {
+      download: undefined,
+      request: { kind: "text" },
+      signal: expect.anything(),
+    });
+    expect(getFileContentSpy).not.toHaveBeenCalled();
+    expect(screen.getByText("Read only")).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: /^edit$/i })).not.toBeInTheDocument();
+    expect(acquireLockSpy).not.toHaveBeenCalled();
+  });
+
   it("does not reload the file when the active translation changes", async () => {
     const originalLanguage = i18n.language;
     renderViewer();

@@ -84,6 +84,10 @@ const LOCAL_LINK_TARGET_REQUEST_TIMEOUT_MS = 15_000;
 export const PDF_VIEWER_REQUEST_TIMEOUT_MS = 90_000;
 export const OIDC_FINALIZATION_REQUEST_TIMEOUT_MS = 15_000;
 
+function getDevicePixelDimension(value: number | undefined): number | undefined {
+  return value === undefined ? undefined : Math.round(value * window.devicePixelRatio);
+}
+
 let controlledReauthenticationInProgress = false;
 
 export function isControlledReauthenticationInProgress(): boolean {
@@ -820,21 +824,70 @@ class ApiService {
     return response.data;
   }
 
-  async getArchiveMember(connectionId: string, archivePath: string, memberPath: string, download = false): Promise<Blob> {
-    const segment = getBrowseSegment(connectionId);
-    const { client, extraConfig } = await this.getClientConfig(connectionId);
-    const response = await client.get<Blob>(`/viewer/${segment}/archive/member`, {
-      ...extraConfig,
-      params: { archive_path: archivePath, member_path: memberPath, download },
-      responseType: "blob",
-    });
-    return response.data;
+  async getArchiveMember(
+    connectionId: string,
+    archivePath: string,
+    memberPath: string,
+    options: {
+      download?: boolean;
+      request?:
+        | { kind: "raw" }
+        | { kind: "text" }
+        | { kind: "image"; viewportWidth?: number; viewportHeight?: number; noResizing?: boolean }
+        | { kind: "pdf"; variant?: "normalized"; screenProfile?: { width: number; height: number; zoomPercent: number } };
+      signal?: AbortSignal;
+    } = {}
+  ): Promise<Blob> {
+    try {
+      const segment = getBrowseSegment(connectionId);
+      const { client, extraConfig } = await this.getClientConfig(connectionId);
+      const response = await client.get<Blob>(`/viewer/${segment}/archive/member`, {
+        ...extraConfig,
+        params: {
+          archive_path: archivePath,
+          member_path: memberPath,
+          download: options.download ?? false,
+          view_kind: options.request?.kind ?? "raw",
+          ...(options.request?.kind === "image"
+            ? {
+                viewport_width: getDevicePixelDimension(options.request.viewportWidth),
+                viewport_height: getDevicePixelDimension(options.request.viewportHeight),
+                no_resizing: options.request.noResizing ? 1 : undefined,
+              }
+            : {}),
+          ...(options.request?.kind === "pdf"
+            ? {
+                pdf_variant: options.request.variant,
+                screen_width: options.request.screenProfile?.width,
+                screen_height: options.request.screenProfile?.height,
+                screen_zoom_percent: options.request.screenProfile?.zoomPercent,
+              }
+            : {}),
+        },
+        responseType: "blob",
+        signal: options.signal,
+      });
+      return response.data;
+    } catch (error) {
+      if (axios.isAxiosError(error) && error.response?.data instanceof Blob) {
+        try {
+          const data = JSON.parse(await error.response.data.text());
+          throw { ...error, response: { ...error.response, data } };
+        } catch (parseError) {
+          if (!(parseError instanceof SyntaxError)) {
+            throw parseError;
+          }
+        }
+      }
+      throw error;
+    }
   }
 
   async extractLocalArchive(
     connectionId: string,
     archivePath: string,
-    destinationPath: string
+    destinationPath: string,
+    signal?: AbortSignal
   ): Promise<{ files_extracted: number; directories_created: number; extracted_bytes: number; files_skipped: number }> {
     const segment = getBrowseSegment(connectionId);
     const { client, extraConfig } = await this.getClientConfig(connectionId);
@@ -843,6 +896,92 @@ class ApiService {
       {
         archive_path: archivePath,
         destination_path: destinationPath,
+      },
+      { ...extraConfig, signal }
+    );
+    return response.data;
+  }
+
+  async extractLocalArchiveToSmb(
+    connectionId: string,
+    archivePath: string,
+    operationId: string,
+    operationToken: string
+  ): Promise<{ files_extracted: number; directories_created: number; extracted_bytes: number; files_skipped: number }> {
+    const segment = getBrowseSegment(connectionId);
+    const { client, extraConfig } = await this.getClientConfig(connectionId);
+    const response = await client.post(
+      `/browse/${segment}/archive/extract-to-smb`,
+      {
+        archive_path: archivePath,
+        server_url: getCompanionServerUrl(this.api.defaults.baseURL),
+        operation_id: operationId,
+        operation_token: operationToken,
+      },
+      extraConfig
+    );
+    return response.data;
+  }
+
+  async extractSmbArchiveToLocal(
+    destinationConnectionId: string,
+    destinationPath: string,
+    operationId: string,
+    operationToken: string
+  ): Promise<{ files_extracted: number; directories_created: number; extracted_bytes: number; files_skipped: number }> {
+    const segment = getBrowseSegment(destinationConnectionId);
+    const { client, extraConfig } = await this.getClientConfig(destinationConnectionId);
+    const response = await client.post(
+      `/browse/${segment}/archive/extract-from-smb`,
+      {
+        destination_path: destinationPath,
+        server_url: getCompanionServerUrl(this.api.defaults.baseURL),
+        operation_id: operationId,
+        operation_token: operationToken,
+      },
+      extraConfig
+    );
+    return response.data;
+  }
+
+  async createSmbArchiveToLocal(
+    destinationConnectionId: string,
+    targetPath: string,
+    operationId: string,
+    operationToken: string
+  ): Promise<{ files_created: number; directories_created: number; source_bytes: number }> {
+    const segment = getBrowseSegment(destinationConnectionId);
+    const { client, extraConfig } = await this.getClientConfig(destinationConnectionId);
+    const response = await client.post(
+      `/browse/${segment}/archive/create-from-smb`,
+      {
+        target_path: targetPath,
+        server_url: getCompanionServerUrl(this.api.defaults.baseURL),
+        operation_id: operationId,
+        operation_token: operationToken,
+      },
+      extraConfig
+    );
+    return response.data;
+  }
+
+  async createLocalArchiveToSmb(
+    sourceConnectionId: string,
+    sourcePaths: string[],
+    targetPath: string,
+    operationId: string,
+    operationToken: string
+  ): Promise<{ files_created: number; directories_created: number; source_bytes: number }> {
+    const segment = getBrowseSegment(sourceConnectionId);
+    const { client, extraConfig } = await this.getClientConfig(sourceConnectionId);
+    const response = await client.post(
+      `/browse/${segment}/archive/create-to-smb`,
+      {
+        source_paths: sourcePaths,
+        target_path: targetPath,
+        server_url: getCompanionServerUrl(this.api.defaults.baseURL),
+        operation_id: operationId,
+        operation_token: operationToken,
       },
       extraConfig
     );
@@ -1087,7 +1226,7 @@ class ApiService {
    * Download a file's raw bytes from any backend (companion or server).
    * Returns the data as a `Blob`.
    */
-  private async downloadFileBlob(connectionId: string, path: string): Promise<Blob> {
+  async getOriginalFileBlob(connectionId: string, path: string, options: { signal?: AbortSignal } = {}): Promise<Blob> {
     const baseUrl = getBaseUrl(connectionId);
     const segment = getBrowseSegment(connectionId);
     const url = `${baseUrl}/viewer/${segment}/download?path=${encodeURIComponent(path)}`;
@@ -1100,7 +1239,7 @@ class ApiService {
       if (token) headers["Authorization"] = `Bearer ${token}`;
     }
 
-    const response = await fetch(url, { headers });
+    const response = await fetch(url, { headers, signal: options.signal });
     if (!response.ok) {
       throw new Error(`Download failed (${response.status}): ${response.statusText}`);
     }
@@ -1443,10 +1582,10 @@ class ApiService {
 
       // Add viewport dimensions if provided (for server-side resizing)
       if (options.viewportWidth) {
-        params["viewport_width"] = Math.round(options.viewportWidth * window.devicePixelRatio);
+        params["viewport_width"] = getDevicePixelDimension(options.viewportWidth);
       }
       if (options.viewportHeight) {
-        params["viewport_height"] = Math.round(options.viewportHeight * window.devicePixelRatio);
+        params["viewport_height"] = getDevicePixelDimension(options.viewportHeight);
       }
       if (options.no_resizing) {
         params["no_resizing"] = 1;
@@ -1618,6 +1757,30 @@ class ApiService {
       ...extraConfig,
       params: {
         path,
+        ...(screenProfile
+          ? {
+              screen_width: screenProfile.width,
+              screen_height: screenProfile.height,
+              screen_zoom_percent: screenProfile.zoomPercent,
+            }
+          : {}),
+      },
+    });
+  }
+
+  async invalidateArchiveMemberPdfDerivative(
+    connectionId: string,
+    archivePath: string,
+    memberPath: string,
+    screenProfile?: { width: number; height: number; zoomPercent: number }
+  ): Promise<void> {
+    const segment = getBrowseSegment(connectionId);
+    const { client, extraConfig } = await this.getClientConfig(connectionId);
+    await client.delete(`/viewer/${segment}/archive/member/pdf-derivative`, {
+      ...extraConfig,
+      params: {
+        archive_path: archivePath,
+        member_path: memberPath,
         ...(screenProfile
           ? {
               screen_width: screenProfile.width,

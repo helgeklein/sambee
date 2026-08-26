@@ -46,8 +46,14 @@ interface NameInputDialogProps {
   submittingLabel: string;
   /** Whether an operation is in progress */
   isSubmitting: boolean;
+  /** Whether cancellation of an active operation is in progress. */
+  isCancelling?: boolean;
   /** Called when the user cancels */
   onClose: () => void;
+  /** Cancels an active operation while retaining the dialog until it settles. */
+  onCancelSubmitting?: () => void;
+  /** Optional active-operation cancellation label. */
+  cancelSubmittingLabel?: string;
   /** Called when the user confirms with the validated name */
   onConfirm: (name: string) => void;
   /** Error message from the API */
@@ -78,7 +84,10 @@ const NameInputDialog: React.FC<NameInputDialogProps> = ({
   submitLabel,
   submittingLabel,
   isSubmitting,
+  isCancelling = false,
   onClose,
+  onCancelSubmitting,
+  cancelSubmittingLabel,
   onConfirm,
   apiError,
   extraValidate,
@@ -223,9 +232,15 @@ const NameInputDialog: React.FC<NameInputDialogProps> = ({
       description={description}
       actions={
         <>
-          <Button onClick={onClose} disabled={isSubmitting}>
-            {NAME_DIALOG_STRINGS.BUTTON_CANCEL}
-          </Button>
+          {isSubmitting && onCancelSubmitting ? (
+            <Button onClick={onCancelSubmitting} disabled={isCancelling}>
+              {cancelSubmittingLabel ?? NAME_DIALOG_STRINGS.BUTTON_CANCEL}
+            </Button>
+          ) : (
+            <Button onClick={onClose} disabled={isSubmitting}>
+              {NAME_DIALOG_STRINGS.BUTTON_CANCEL}
+            </Button>
+          )}
           <Button
             onClick={handleSubmit}
             variant="contained"

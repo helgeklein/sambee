@@ -7,6 +7,7 @@ from fastapi import HTTPException, status
 from sqlmodel import Session
 
 from app.models.archive_operation import TERMINAL_ARCHIVE_OPERATION_PHASES, ArchiveOperation, ArchiveOperationPhase
+from app.services.audit import AuditDetails, AuditEventName, AuditResult, write_audit_event
 
 _ALLOWED_TRANSITIONS: dict[ArchiveOperationPhase, frozenset[ArchiveOperationPhase]] = {
     ArchiveOperationPhase.PREPARED: frozenset({ArchiveOperationPhase.ACCEPTED, ArchiveOperationPhase.CANCELLED}),
@@ -29,6 +30,30 @@ _ALLOWED_TRANSITIONS: dict[ArchiveOperationPhase, frozenset[ArchiveOperationPhas
 }
 
 
+def _write_archive_lifecycle_audit(
+    session: Session,
+    operation: ArchiveOperation,
+    *,
+    previous_phase: ArchiveOperationPhase | None,
+    decision: str | None = None,
+) -> None:
+    event_name = AuditEventName.ARCHIVE_OPERATION_DECISION if decision is not None else AuditEventName.ARCHIVE_OPERATION_LIFECYCLE
+    result = AuditResult.FAILED if operation.phase == ArchiveOperationPhase.FAILED else AuditResult.SUCCEEDED
+    write_audit_event(
+        session,
+        event_name=event_name,
+        result=result,
+        acting_user_id=operation.user_id,
+        correlation_id=str(operation.id),
+        details=AuditDetails(
+            archive_operation_kind=operation.kind.value,
+            archive_phase=operation.phase.value,
+            archive_previous_phase=previous_phase.value if previous_phase is not None else None,
+            archive_decision=decision,
+        ),
+    )
+
+
 def update_operation_phase(
     session: Session,
     operation: ArchiveOperation,
@@ -45,10 +70,12 @@ def update_operation_phase(
     if next_phase not in _ALLOWED_TRANSITIONS[operation.phase]:
         raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="Archive operation transition is not allowed")
     now = datetime.now(timezone.utc)
+    previous_phase = operation.phase
     operation.phase = next_phase
     operation.updated_at = now
     operation.heartbeat_at = now
     session.add(operation)
+    _write_archive_lifecycle_audit(session, operation, previous_phase=previous_phase)
     session.commit()
     session.refresh(operation)
     return operation
@@ -65,9 +92,23 @@ def request_operation_cancellation(session: Session, operation: ArchiveOperation
         operation.updated_at = now
         operation.heartbeat_at = now
         session.add(operation)
+        _write_archive_lifecycle_audit(session, operation, previous_phase=None, decision="cancellation_requested")
         session.commit()
         session.refresh(operation)
     return operation
+
+
+def heartbeat_operation(session: Session, operation: ArchiveOperation) -> None:
+    """Refresh a foreground operation lease while a bounded transfer is making progress."""
+
+    if operation.phase in TERMINAL_ARCHIVE_OPERATION_PHASES:
+        return
+    now = datetime.now(timezone.utc)
+    operation.heartbeat_at = now
+    operation.updated_at = now
+    session.add(operation)
+    session.commit()
+    session.refresh(operation)
 
 
 def fail_operation(session: Session, operation: ArchiveOperation, message: str) -> ArchiveOperation:
@@ -76,11 +117,13 @@ def fail_operation(session: Session, operation: ArchiveOperation, message: str) 
     if operation.phase in TERMINAL_ARCHIVE_OPERATION_PHASES:
         return operation
     now = datetime.now(timezone.utc)
+    previous_phase = operation.phase
     operation.phase = ArchiveOperationPhase.FAILED
     operation.last_error_json = json.dumps({"code": "archive_creation_failed", "message": message})
     operation.updated_at = now
     operation.heartbeat_at = now
     session.add(operation)
+    _write_archive_lifecycle_audit(session, operation, previous_phase=previous_phase)
     session.commit()
     session.refresh(operation)
     return operation
@@ -92,11 +135,18 @@ def await_operation_decision(session: Session, operation: ArchiveOperation, deci
     if operation.phase != ArchiveOperationPhase.STREAMING:
         raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="Archive operation is not streaming")
     now = datetime.now(timezone.utc)
+    previous_phase = operation.phase
     operation.phase = ArchiveOperationPhase.AWAITING_USER_DECISION
     operation.pending_decision_json = json.dumps(decision)
     operation.updated_at = now
     operation.heartbeat_at = now
     session.add(operation)
+    _write_archive_lifecycle_audit(
+        session,
+        operation,
+        previous_phase=previous_phase,
+        decision=str(decision.get("kind", "awaiting_user_decision")),
+    )
     session.commit()
     session.refresh(operation)
     return operation
@@ -155,10 +205,12 @@ def apply_existing_file_decision(
     if not is_member_action:
         operation.collision_policy = action
     operation.pending_decision_json = None
+    previous_phase = operation.phase
     operation.phase = ArchiveOperationPhase.STREAMING
     operation.updated_at = now
     operation.heartbeat_at = now
     session.add(operation)
+    _write_archive_lifecycle_audit(session, operation, previous_phase=previous_phase, decision=action)
     session.commit()
     session.refresh(operation)
     return operation

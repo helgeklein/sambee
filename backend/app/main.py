@@ -299,6 +299,11 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
         start_lock_monitor()
         logger.info("Lock monitor started")
 
+        from app.services.archive.operation_monitor import start_archive_operation_monitor
+
+        start_archive_operation_monitor()
+        logger.info("Archive operation monitor started")
+
     except ConfigurationError as e:
         log_error(logger, f"Configuration error: {e}")
         log_error(logger, "Application startup failed. Exiting.")
@@ -322,6 +327,15 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
         logger.info("Lock monitor stopped")
     except Exception as e:
         log_error(logger, f"Error stopping lock monitor: {e}")
+
+    try:
+        from app.services.archive.operation_monitor import stop_archive_operation_monitor
+
+        logger.info("Stopping archive operation monitor...")
+        stop_archive_operation_monitor()
+        logger.info("Archive operation monitor stopped")
+    except Exception as e:
+        log_error(logger, f"Error stopping archive operation monitor: {e}")
 
     # Stop directory caches (CHANGE_NOTIFY watchers + rescan tasks)
     try:

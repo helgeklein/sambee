@@ -183,6 +183,8 @@ const BROWSER_COMMANDS = [
     titleKey: "fileBrowser.commands.items.createArchive.title",
     categoryKey: "fileBrowser.commands.categories.files",
     keywords: ["archive", "zip", "compress", "bundle"],
+    defaultShortcutIds: ["create-archive"],
+    shortcutLabel: "Alt+F5",
     isEnabled: (context) => context.canCreateArchive,
     run: (context) => context.createArchive(),
   }),

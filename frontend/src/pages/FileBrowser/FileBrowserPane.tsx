@@ -28,10 +28,20 @@ import type { SearchProvider } from "../../components/FileBrowser/search";
 import type { UnifiedSearchBarModeOption } from "../../components/FileBrowser/UnifiedSearchBar";
 import { UnifiedSearchBar } from "../../components/FileBrowser/UnifiedSearchBar";
 import { isLocalDrive } from "../../services/backendRouter";
-import type { Connection } from "../../types";
+import type { Connection, FileEntry } from "../../types";
 import { FileType } from "../../types";
 import { canOpenFileInApp, isConnectionReadOnly } from "./access";
+import { getVirtualContentProviderIdForFilename } from "./contentProviders";
 import type { PaneId, PaneMode, UseFileBrowserPaneReturn } from "./types";
+
+const READ_ONLY_CONTENT_CAPABILITIES = {
+  browse: true,
+  read: true,
+  download: true,
+  extract: false,
+  mutate: false,
+  openInNativeApp: false,
+} as const;
 
 // ============================================================================
 // Props
@@ -129,6 +139,8 @@ export const FileBrowserPane: React.FC<FileBrowserPaneProps> = ({
   const {
     connectionId,
     currentPath,
+    archiveLocation,
+    contentCapabilities = READ_ONLY_CONTENT_CAPABILITIES,
     error,
     loading,
     viewMode,
@@ -138,7 +150,7 @@ export const FileBrowserPane: React.FC<FileBrowserPaneProps> = ({
     // Dialogs
     browserViewerPickerState,
     deleteDialogOpen,
-    deleteTargets,
+    deleteTargets = [],
     isDeleting,
     renameDialogOpen,
     renameTarget,
@@ -175,8 +187,12 @@ export const FileBrowserPane: React.FC<FileBrowserPaneProps> = ({
   // Connection display name for breadcrumbs
   const connectionName = currentConnection?.name ?? "";
   const connectionIsReadOnly = isConnectionReadOnly(currentConnection);
-  const canRenameItems = !connectionIsReadOnly;
-  const canOpenFocusedFileInApp = canOpenFileInApp(currentConnection);
+  const canRenameItems = contentCapabilities.mutate && !connectionIsReadOnly;
+  const canOpenFocusedFileInApp = contentCapabilities.openInNativeApp && canOpenFileInApp(currentConnection);
+  const canOpenInBrowserViewer = React.useCallback(
+    (file: FileEntry) => !(archiveLocation && file.type === FileType.FILE && getVirtualContentProviderIdForFilename(file.name)),
+    [archiveLocation]
+  );
   const [closingBrowserViewerPickerState, setClosingBrowserViewerPickerState] = React.useState<typeof browserViewerPickerState>(null);
   const renderedBrowserViewerPickerState = browserViewerPickerState ?? closingBrowserViewerPickerState;
 
@@ -328,10 +344,26 @@ export const FileBrowserPane: React.FC<FileBrowserPaneProps> = ({
   /** Navigate to a breadcrumb path segment. */
   const handleBreadcrumbNavigate = React.useCallback(
     (path: string) => {
+      if (archiveLocation) {
+        if (path === archiveLocation.archivePath) {
+          pane.navigateArchiveToPath("");
+          return;
+        }
+        const archivePrefix = `${archiveLocation.archivePath}/`;
+        if (path.startsWith(archivePrefix)) {
+          pane.navigateArchiveToPath(path.slice(archivePrefix.length));
+          return;
+        }
+        pane.closeArchive();
+      }
       pane.navigateToPath(path);
     },
-    [pane]
+    [archiveLocation, pane]
   );
+
+  const breadcrumbPath = archiveLocation
+    ? [archiveLocation.archivePath, archiveLocation.virtualPath].filter(Boolean).join("/")
+    : currentPath;
 
   // ──────────────────────────────────────────────────────────────────────────
   // Render
@@ -354,7 +386,7 @@ export const FileBrowserPane: React.FC<FileBrowserPaneProps> = ({
           }}
         >
           <BreadcrumbsNavigation
-            currentPath={currentPath}
+            currentPath={breadcrumbPath}
             connectionName={connectionName}
             onNavigate={handleBreadcrumbNavigate}
             onEscape={() => listContainerEl?.focus()}
@@ -436,6 +468,7 @@ export const FileBrowserPane: React.FC<FileBrowserPaneProps> = ({
             viewMode={viewMode}
             onOpenAssociatedViewer={(file, index) => handleOpenFileForFile(file, index, "associated-viewer")}
             onOpenViewerPicker={(file, index) => handleOpenFileForFile(file, index, "force-viewer-picker")}
+            canOpenInBrowserViewer={canOpenInBrowserViewer}
             onOpenAssociatedNativeApp={canOpenFocusedFileInApp ? (file, index) => void handleOpenInAppForFile(file, index) : undefined}
             onOpenNativePicker={
               canOpenFocusedFileInApp ? (file, index) => void handleOpenInAppForFile(file, index, { forcePicker: true }) : undefined
@@ -463,13 +496,17 @@ export const FileBrowserPane: React.FC<FileBrowserPaneProps> = ({
 
       {/* Status Bar */}
       {!useCompactLayout && !loading && sortedFiles.length > 0 && (
-        <StatusBar files={sortedFiles} focusedIndex={focusedIndex} canResolveShortcutTargets={isLocalDrive(connectionId)} />
+        <StatusBar
+          files={sortedFiles}
+          focusedIndex={focusedIndex}
+          canResolveShortcutTargets={contentCapabilities.mutate && isLocalDrive(connectionId)}
+        />
       )}
 
       {/* Delete Confirmation Dialog */}
       <ConfirmDeleteDialog
         open={deleteDialogOpen}
-        items={deleteTargets}
+        items={deleteTargets.map((item) => item.entry)}
         isDeleting={isDeleting}
         onClose={closeDeleteDialog}
         onConfirm={handleDeleteConfirm}
@@ -478,8 +515,8 @@ export const FileBrowserPane: React.FC<FileBrowserPaneProps> = ({
       {/* Rename Dialog */}
       <RenameDialog
         open={renameDialogOpen}
-        itemName={renameTarget?.name ?? ""}
-        itemType={renameTarget?.type ?? FileType.FILE}
+        itemName={renameTarget?.entry.name ?? ""}
+        itemType={renameTarget?.entry.type ?? FileType.FILE}
         isRenaming={isRenaming}
         apiError={renameError}
         onClose={closeRenameDialog}

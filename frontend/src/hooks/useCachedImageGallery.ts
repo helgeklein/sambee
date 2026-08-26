@@ -16,7 +16,6 @@ import apiService from "../services/api";
 import { isLocalAbortError } from "../services/backendAvailability";
 import { error as logError, logger, info as logInfo } from "../services/logger";
 import { isApiError } from "../types";
-import { getApiErrorMessage } from "../utils/apiErrors";
 import { checkIsTransientError, getTransientErrorMessage } from "./useApiRetry";
 
 // Delay before showing spinner to avoid flicker on fast loads
@@ -31,6 +30,7 @@ const MAX_ACTIVE_VIEWER_REQUESTS = 2;
 const TRANSIENT_RETRY_DELAY_MS = 1000;
 const CURRENT_FAILURE_RETRY_DELAY_MS = 1000;
 export const IMAGE_LOAD_CANCELED_MESSAGE = "Image loading was canceled. You can still download the original file.";
+export const IMAGE_LOAD_FAILED_MESSAGE = "Failed to load image";
 
 export type ImageLoadPhase = "fetching" | "decoding" | "ready" | "canceled" | "error";
 
@@ -48,6 +48,8 @@ const clamp = (value: number, min: number, max: number) => {
 export interface UseImageGalleryDataParams {
   connectionId: string;
   images: string[];
+  gallerySourceKey?: string;
+  loadImageBlob?: (path: string, options: { signal: AbortSignal; viewportWidth: number; viewportHeight: number }) => Promise<Blob>;
   initialIndex?: number;
   onIndexChange?: (index: number) => void;
   spinnerDelayMs?: number;
@@ -67,6 +69,7 @@ export interface UseImageGalleryDataResult {
   loadingStates: Map<number, boolean>;
   errorStates: Map<number, string | null>;
   currentImageLoadPhase: ImageLoadPhase;
+  imageSourceRevision: number;
   showLoadingSpinner: boolean;
   markImageAsDecoded: (index: number, source: string) => void;
   markImageDecodeFailed: (index: number, source: string) => void;
@@ -109,6 +112,23 @@ interface CurrentRetryGate {
   index: number;
   policy: "backoff" | "user-action";
   retryAt: number | null;
+}
+
+function applyImageLoadFailure(
+  session: GallerySessionView,
+  index: number,
+  message: string,
+  options?: { showError?: boolean }
+): GallerySessionView {
+  const nextLoadingStates = new Map(session.loadingStates).set(index, false);
+  const nextErrorStates = options?.showError === false ? session.errorStates : new Map(session.errorStates).set(index, message);
+
+  return {
+    ...session,
+    loadingStates: nextLoadingStates,
+    errorStates: nextErrorStates,
+    loadPhases: new Map(session.loadPhases).set(index, "error"),
+  };
 }
 
 function buildGalleryFailureKey(galleryIdentity: string, imagePath: string): string {
@@ -291,6 +311,8 @@ function retireRequest(requests: Map<number, InFlightImageRequest>, controllers:
 export const useCachedImageGallery = ({
   connectionId,
   images,
+  gallerySourceKey,
+  loadImageBlob,
   initialIndex = 0,
   onIndexChange,
   spinnerDelayMs = SPINNER_DELAY_MS_DEFAULT,
@@ -300,7 +322,10 @@ export const useCachedImageGallery = ({
   shouldSuspendPreload,
 }: UseImageGalleryDataParams): UseImageGalleryDataResult => {
   const safeInitialIndex = clamp(initialIndex, 0, Math.max(images.length - 1, 0));
-  const galleryIdentity = useMemo(() => `${connectionId}\u0001${images.join("\u0001")}`, [connectionId, images]);
+  const galleryIdentity = useMemo(
+    () => (gallerySourceKey ? `${connectionId}\u0001${gallerySourceKey}` : `${connectionId}\u0001${images.join("\u0001")}`),
+    [connectionId, gallerySourceKey, images]
+  );
 
   const sessionResourcesRef = useRef<GallerySessionResources>(createGallerySessionResources(galleryIdentity, 0));
   const [sessionView, setSessionView] = useState<GallerySessionView>(() =>
@@ -326,6 +351,7 @@ export const useCachedImageGallery = ({
   const loadPhases = activeSessionView.loadPhases;
   // Controls spinner visibility after delay to avoid flicker
   const [showLoadingSpinner, setShowLoadingSpinner] = useState(false);
+  const [imageSourceRevision, setImageSourceRevision] = useState(0);
   const retryTimerRef = useRef<number | null>(null);
 
   // AbortControllers for in-flight requests, keyed by index
@@ -418,6 +444,7 @@ export const useCachedImageGallery = ({
       clearRetryTimer(retryTimerRef);
 
       disposeGallerySessionResources(committedResources);
+      setImageSourceRevision((revision) => revision + 1);
     } else {
       abortControllersRef.current = committedResources.abortControllers;
       imageCacheRef.current = committedResources.imageCache;
@@ -587,11 +614,17 @@ export const useCachedImageGallery = ({
 
         while (blob === null) {
           try {
-            blob = await apiService.getImageBlob(connectionId, imagePath, {
-              signal: abortController.signal,
-              viewportWidth,
-              viewportHeight,
-            });
+            blob = await (loadImageBlob
+              ? loadImageBlob(imagePath, {
+                  signal: abortController.signal,
+                  viewportWidth,
+                  viewportHeight,
+                })
+              : apiService.getImageBlob(connectionId, imagePath, {
+                  signal: abortController.signal,
+                  viewportWidth,
+                  viewportHeight,
+                }));
           } catch (err) {
             if (axios.isCancel(err) || isLocalAbortError(err)) {
               logInfo("Image fetch aborted", { index });
@@ -648,6 +681,7 @@ export const useCachedImageGallery = ({
         }
 
         requestSessionResources.imageCache.set(index, blobUrl);
+        setImageSourceRevision((revision) => revision + 1);
         requestSessionResources.failedBackgroundRequestKeys.delete(failureKey);
         if (requestSessionResources.currentRetryGate?.index === index) {
           requestSessionResources.currentRetryGate = null;
@@ -736,38 +770,13 @@ export const useCachedImageGallery = ({
           );
         }
 
-        const errorMessage = isTransientFailure
-          ? getTransientErrorMessage()
-          : getApiErrorMessage(err, "Failed to load image", { includeOriginalMessage: true });
+        const errorMessage = isTransientFailure ? getTransientErrorMessage() : IMAGE_LOAD_FAILED_MESSAGE;
 
         // Use RAF to batch state updates and avoid layout thrashing
         requestAnimationFrame(() => {
-          updateSessionView(requestGalleryIdentity, requestGeneration, (prev) => {
-            let nextLoadingStates = prev.loadingStates;
-            let nextErrorStates = prev.errorStates;
-
-            if ((prev.loadingStates.get(index) ?? false) !== false) {
-              nextLoadingStates = new Map(prev.loadingStates).set(index, false);
-            }
-
-            if (isCurrentFailure || !isTransientFailure) {
-              const existingError = prev.errorStates.get(index) ?? null;
-              if (existingError !== errorMessage) {
-                nextErrorStates = new Map(prev.errorStates).set(index, errorMessage);
-              }
-            }
-
-            if (nextLoadingStates === prev.loadingStates && nextErrorStates === prev.errorStates) {
-              return prev;
-            }
-
-            return {
-              ...prev,
-              loadingStates: nextLoadingStates,
-              errorStates: nextErrorStates,
-              loadPhases: new Map(prev.loadPhases).set(index, "error"),
-            };
-          });
+          updateSessionView(requestGalleryIdentity, requestGeneration, (prev) =>
+            applyImageLoadFailure(prev, index, errorMessage, { showError: isCurrentFailure || !isTransientFailure })
+          );
         });
 
         // Resolve instead of reject - we've handled the error, don't break preload chain
@@ -781,7 +790,7 @@ export const useCachedImageGallery = ({
         }
       }
     },
-    [connectionId, images, isTouchDevice, updateSessionView]
+    [connectionId, images, isTouchDevice, loadImageBlob, updateSessionView]
   );
 
   // Store fetchAndCacheImage in a ref to avoid recreating the effect
@@ -1014,12 +1023,7 @@ export const useCachedImageGallery = ({
           return prev;
         }
 
-        return {
-          ...prev,
-          loadingStates: new Map(prev.loadingStates).set(index, false),
-          errorStates: new Map(prev.errorStates).set(index, "Failed to render image"),
-          loadPhases: new Map(prev.loadPhases).set(index, "error"),
-        };
+        return applyImageLoadFailure(prev, index, IMAGE_LOAD_FAILED_MESSAGE);
       });
     },
     [galleryIdentity, pendingSessionGeneration, updateSessionView]
@@ -1034,6 +1038,7 @@ export const useCachedImageGallery = ({
     if (cachedSource) {
       URL.revokeObjectURL(cachedSource);
       resources.imageCache.delete(index);
+      setImageSourceRevision((revision) => revision + 1);
     }
 
     resources.currentRetryGate = { index, policy: "user-action", retryAt: null };
@@ -1060,6 +1065,7 @@ export const useCachedImageGallery = ({
     loadingStates,
     errorStates,
     currentImageLoadPhase,
+    imageSourceRevision,
     showLoadingSpinner,
     markImageAsDecoded,
     markImageDecodeFailed,

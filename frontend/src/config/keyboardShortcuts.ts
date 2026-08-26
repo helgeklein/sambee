@@ -614,6 +614,26 @@ export const BROWSER_SHORTCUTS = {
     helpGroup: "fileActions",
     shift: true,
   },
+  CREATE_ARCHIVE: {
+    id: "create-archive",
+    keys: "F5",
+    get description() {
+      return translate("fileBrowser.shortcuts.createArchive");
+    },
+    label: "Alt+F5",
+    helpGroup: "fileActions",
+    alt: true,
+  },
+  EXTRACT_ARCHIVE: {
+    id: "extract-archive",
+    keys: "F9",
+    get description() {
+      return translate("fileBrowser.shortcuts.extractArchive");
+    },
+    label: "Alt+F9",
+    helpGroup: "fileActions",
+    alt: true,
+  },
 } as const satisfies Record<string, ShortcutDefinition>;
 
 /**

@@ -4,7 +4,8 @@
 //! backend, producing identical JSON response shapes.
 
 use std::collections::HashSet;
-use std::path::PathBuf;
+use std::io::Write;
+use std::path::{Path as FsPath, PathBuf};
 use std::sync::Arc;
 
 use axum::body::Body;
@@ -15,17 +16,23 @@ use axum::response::Response;
 use axum::Json;
 use chrono::{DateTime, Utc};
 use log::{info, warn};
-use serde::Deserialize;
-use tauri::Emitter;
+use reqwest::{Client, Response as ReqwestResponse};
+use serde::{de::DeserializeOwned, Deserialize};
+use tauri::{Emitter, Manager};
 use tokio::fs::File;
+use tokio::io::AsyncWriteExt;
 use tokio::task::JoinSet;
 use tokio_util::io::{ReaderStream, SyncIoBridge};
 
+use crate::http_client::{classify_proxy_auth_intercept, log_request_error, SambeeHttpClientStore};
 use crate::{commands, show_pairing_success, show_pairing_window};
 
 use super::archive::{
-    build_local_archive_manifest, create_local_archive, extract_local_archive_to_new_directory, list_local_archive_directory,
-    stream_local_archive_member, validate_local_archive_member, LocalArchiveError, ARCHIVE_COPY_BUFFER_SIZE,
+    build_local_archive_manifest, build_local_archive_manifest_for_remote_target, create_local_archive, create_local_archive_relay_writer,
+    create_local_extraction_root, ensure_local_extraction_directory, extract_local_archive_to_new_directory, list_local_archive_directory,
+    open_local_extraction_file, stream_local_archive_member, validate_local_archive_creation_manifest, validate_local_archive_extraction,
+    validate_local_archive_member, validate_local_extraction_member_path, write_local_archive_stream, LocalArchiveError,
+    LocalArchiveReadEntry, LocalArchiveRelayChunk, ARCHIVE_COPY_BUFFER_SIZE,
 };
 use super::auth;
 use super::drives;
@@ -1133,6 +1140,320 @@ pub async fn browse_create_archive(
     }))
 }
 
+#[derive(Debug, Deserialize)]
+struct ArchiveCreationRelayManifest {
+    entries: Vec<ArchiveCreationRelayManifestEntry>,
+}
+
+#[derive(Debug, Deserialize)]
+struct ArchiveCreationRelayManifestEntry {
+    archive_path: String,
+    is_directory: bool,
+    source_size: u64,
+}
+
+/// `POST /api/browse/{drive}/archive/create-from-smb` — create a new local ZIP from scoped SMB sources.
+pub async fn browse_create_archive_from_smb(
+    State(state): State<Arc<AppState>>,
+    Path(drive): Path<String>,
+    headers: HeaderMap,
+    Json(body): Json<ArchiveCreateFromSmbRequest>,
+) -> Result<Json<ArchiveCreationResponse>, ApiError> {
+    if body.target_path.trim().is_empty()
+        || body.server_url.trim().is_empty()
+        || body.operation_id.trim().is_empty()
+        || body.operation_token.trim().is_empty()
+    {
+        return Err(ApiError::BadRequest(
+            "Archive target, server, operation, and operation token are required".to_string(),
+        ));
+    }
+    let operation_id =
+        uuid::Uuid::parse_str(&body.operation_id).map_err(|_| ApiError::BadRequest("Archive operation ID is invalid".to_string()))?;
+    let server_url = normalize_archive_server_url(&body.server_url)?;
+    if url::Url::parse(&server_url)
+        .map_err(|_| ApiError::BadRequest("Archive server URL is invalid".to_string()))?
+        .origin()
+        .ascii_serialization()
+        != extract_origin(&headers)?
+    {
+        return Err(ApiError::Forbidden(
+            "Archive server URL must match the paired browser origin".to_string(),
+        ));
+    }
+    let drive_root = drives::resolve_drive_path(&drive).ok_or_else(|| ApiError::NotFound(format!("Unknown drive: {drive}")))?;
+    let target_path = resolve_safe_path_for_new(&drive_root, &drive, &body.target_path)?;
+    if target_path.exists() {
+        return Err(ApiError::conflict_message("Archive output already exists"));
+    }
+    let http_clients = state
+        .app
+        .try_state::<SambeeHttpClientStore>()
+        .map(|clients| clients.inner().clone())
+        .ok_or_else(|| ApiError::Internal("Companion backend HTTP client is unavailable".to_string()))?;
+    let client = http_clients
+        .client_for_server_no_redirects(&server_url)
+        .map_err(ApiError::Internal)?;
+    let relay_url = archive_local_creation_relay_url(&server_url, operation_id);
+    let manifest = decode_archive_relay_json(
+        client
+            .post(format!("{relay_url}/begin"))
+            .bearer_auth(&body.operation_token)
+            .send()
+            .await
+            .map_err(|error| ApiError::Internal(log_request_error("Archive creation start", "POST", &relay_url, &error)))?,
+        "start",
+    )
+    .await?;
+
+    let creation_result =
+        create_smb_archive_manifest_locally(&client, &relay_url, &body.operation_token, &drive_root, &target_path, manifest).await;
+    let result = match creation_result {
+        Ok(result) => result,
+        Err(error) => {
+            let _ = report_archive_local_creation_relay_failure(&client, &relay_url, &body.operation_token).await;
+            if target_path.exists() {
+                return Err(ApiError::internal_code(
+                    "Archive creation failed after creating incomplete output",
+                    LOCAL_ARCHIVE_CREATION_PARTIAL_CODE,
+                ));
+            }
+            return Err(error);
+        }
+    };
+
+    relay_archive_response(
+        client
+            .post(format!("{relay_url}/complete"))
+            .bearer_auth(&body.operation_token)
+            .json(&serde_json::json!({
+                "files_created": result.files_created,
+                "directories_created": result.directories_created,
+                "source_bytes": result.source_bytes,
+            }))
+            .send()
+            .await
+            .map_err(|error| ApiError::Internal(log_request_error("Archive creation completion", "POST", &relay_url, &error)))?,
+        "complete",
+    )
+    .await?;
+
+    Ok(Json(result))
+}
+
+/// `POST /api/browse/{drive}/archive/create-to-smb` — stream a local ZIP into its scoped SMB target.
+pub async fn browse_create_archive_to_smb(
+    State(state): State<Arc<AppState>>,
+    Path(drive): Path<String>,
+    headers: HeaderMap,
+    Json(body): Json<ArchiveCreateToSmbRequest>,
+) -> Result<Json<ArchiveCreationResponse>, ApiError> {
+    if body.source_paths.is_empty()
+        || body.target_path.trim().is_empty()
+        || body.server_url.trim().is_empty()
+        || body.operation_id.trim().is_empty()
+        || body.operation_token.trim().is_empty()
+    {
+        return Err(ApiError::BadRequest(
+            "Archive sources, target, server, operation, and operation token are required".to_string(),
+        ));
+    }
+    let operation_id =
+        uuid::Uuid::parse_str(&body.operation_id).map_err(|_| ApiError::BadRequest("Archive operation ID is invalid".to_string()))?;
+    let server_url = normalize_archive_server_url(&body.server_url)?;
+    if url::Url::parse(&server_url)
+        .map_err(|_| ApiError::BadRequest("Archive server URL is invalid".to_string()))?
+        .origin()
+        .ascii_serialization()
+        != extract_origin(&headers)?
+    {
+        return Err(ApiError::Forbidden(
+            "Archive server URL must match the paired browser origin".to_string(),
+        ));
+    }
+    let drive_root = drives::resolve_drive_path(&drive).ok_or_else(|| ApiError::NotFound(format!("Unknown drive: {drive}")))?;
+    let sources = body
+        .source_paths
+        .iter()
+        .map(|source_path| resolve_safe_path(&drive_root, &drive, source_path))
+        .collect::<Result<Vec<_>, _>>()?;
+    let entries = tokio::task::spawn_blocking(move || build_local_archive_manifest_for_remote_target(&sources))
+        .await
+        .map_err(|error| ApiError::Internal(format!("Local archive validation task failed: {error}")))?
+        .map_err(map_local_archive_error)?;
+    let http_clients = state
+        .app
+        .try_state::<SambeeHttpClientStore>()
+        .map(|clients| clients.inner().clone())
+        .ok_or_else(|| ApiError::Internal("Companion backend HTTP client is unavailable".to_string()))?;
+    let client = http_clients
+        .client_for_server_no_redirects(&server_url)
+        .map_err(ApiError::Internal)?;
+    let relay_url = archive_smb_creation_relay_url(&server_url, operation_id);
+    let (writer, reader) = tokio::io::duplex(ARCHIVE_COPY_BUFFER_SIZE * 2);
+    let writer_task = tokio::task::spawn_blocking(move || -> Result<ArchiveCreationResponse, LocalArchiveError> {
+        let mut output = SyncIoBridge::new(writer);
+        let result = write_local_archive_stream(&mut output, &entries, || false)?;
+        output.flush()?;
+        Ok(ArchiveCreationResponse {
+            files_created: result.files_created,
+            directories_created: result.directories_created,
+            source_bytes: result.source_bytes,
+        })
+    });
+    let response = client
+        .put(format!("{relay_url}/stream"))
+        .bearer_auth(&body.operation_token)
+        .body(reqwest::Body::wrap_stream(ReaderStream::new(reader)))
+        .send()
+        .await;
+    let writer_result = match writer_task.await {
+        Ok(result) => result,
+        Err(error) => {
+            let _ = report_archive_smb_creation_relay_failure(&client, &relay_url, &body.operation_token).await;
+            return Err(ApiError::Internal(format!("Local archive streaming task failed: {error}")));
+        }
+    };
+    let response = match response {
+        Ok(response) => response,
+        Err(error) => {
+            let _ = report_archive_smb_creation_relay_failure(&client, &relay_url, &body.operation_token).await;
+            return Err(ApiError::Internal(log_request_error(
+                "Archive creation relay",
+                "PUT",
+                &relay_url,
+                &error,
+            )));
+        }
+    };
+    if !response.status().is_success() {
+        let _ = report_archive_smb_creation_relay_failure(&client, &relay_url, &body.operation_token).await;
+        return relay_archive_response(response, "write archive")
+            .await
+            .and(Err(ApiError::Internal("Archive creation relay failed".to_string())));
+    }
+    let result = match writer_result {
+        Ok(result) => result,
+        Err(error) => {
+            let _ = report_archive_smb_creation_relay_failure(&client, &relay_url, &body.operation_token).await;
+            return Err(map_local_archive_error(error));
+        }
+    };
+    relay_archive_response(response, "write archive").await?;
+    relay_archive_response(
+        client
+            .post(format!("{relay_url}/complete"))
+            .bearer_auth(&body.operation_token)
+            .json(&serde_json::json!({
+                "files_created": result.files_created,
+                "directories_created": result.directories_created,
+                "source_bytes": result.source_bytes,
+            }))
+            .send()
+            .await
+            .map_err(|error| ApiError::Internal(log_request_error("Archive creation completion", "POST", &relay_url, &error)))?,
+        "complete",
+    )
+    .await?;
+    Ok(Json(result))
+}
+
+async fn create_smb_archive_manifest_locally(
+    client: &Client,
+    relay_url: &str,
+    operation_token: &str,
+    drive_root: &FsPath,
+    target_path: &FsPath,
+    manifest: ArchiveCreationRelayManifest,
+) -> Result<ArchiveCreationResponse, ApiError> {
+    if manifest.entries.is_empty() {
+        return Err(ApiError::BadRequest("Archive creation manifest is empty".to_string()));
+    }
+    let manifest_paths = manifest
+        .entries
+        .iter()
+        .map(|entry| (entry.archive_path.as_str(), entry.is_directory))
+        .collect::<Vec<_>>();
+    validate_local_archive_creation_manifest(&manifest_paths).map_err(map_local_archive_error)?;
+    let root_drive = drive_root.to_path_buf();
+    let target = target_path.to_path_buf();
+    let mut writer = tokio::task::spawn_blocking(move || create_local_archive_relay_writer(&root_drive, &target))
+        .await
+        .map_err(|error| ApiError::Internal(format!("Local archive creation task failed: {error}")))?
+        .map_err(map_local_archive_error)?;
+
+    for entry in manifest.entries {
+        if entry.is_directory {
+            let archive_path = entry.archive_path;
+            writer = tokio::task::spawn_blocking(move || writer.add_directory(&archive_path))
+                .await
+                .map_err(|error| ApiError::Internal(format!("Local archive directory task failed: {error}")))?
+                .map_err(map_local_archive_error)?;
+            continue;
+        }
+
+        let archive_path = entry.archive_path;
+        let member_path = archive_path.clone();
+        let (sender, receiver) = tokio::sync::mpsc::channel(2);
+        let write_task = tokio::task::spawn_blocking(move || writer.write_file(&archive_path, entry.source_size, receiver));
+        let mut response = client
+            .get(format!("{relay_url}/member"))
+            .bearer_auth(operation_token)
+            .query(&[("archive_path", member_path.as_str())])
+            .send()
+            .await
+            .map_err(|error| ApiError::Internal(log_request_error("Archive member relay", "GET", relay_url, &error)))?;
+        if !response.status().is_success() {
+            let _ = sender.send(LocalArchiveRelayChunk::Failed).await;
+            let _ = write_task.await;
+            relay_archive_response(response, "read member").await?;
+            return Err(ApiError::Internal("Archive member read failed".to_string()));
+        }
+        loop {
+            match response.chunk().await {
+                Ok(Some(chunk)) => {
+                    for chunk in chunk.chunks(ARCHIVE_COPY_BUFFER_SIZE) {
+                        sender
+                            .send(LocalArchiveRelayChunk::Data(chunk.to_vec()))
+                            .await
+                            .map_err(|_| ApiError::Internal("Local archive writer stopped accepting source data".to_string()))?;
+                    }
+                }
+                Ok(None) => break,
+                Err(error) => {
+                    let _ = sender.send(LocalArchiveRelayChunk::Failed).await;
+                    let _ = write_task.await;
+                    return Err(ApiError::Internal(log_request_error(
+                        "Archive member relay",
+                        "GET",
+                        relay_url,
+                        &error,
+                    )));
+                }
+            }
+        }
+        sender
+            .send(LocalArchiveRelayChunk::Complete)
+            .await
+            .map_err(|_| ApiError::Internal("Local archive writer stopped accepting source data".to_string()))?;
+        drop(sender);
+        writer = write_task
+            .await
+            .map_err(|error| ApiError::Internal(format!("Local archive member task failed: {error}")))?
+            .map_err(map_local_archive_error)?;
+    }
+
+    let result = tokio::task::spawn_blocking(move || writer.finish())
+        .await
+        .map_err(|error| ApiError::Internal(format!("Local archive finalization task failed: {error}")))?
+        .map_err(map_local_archive_error)?;
+    Ok(ArchiveCreationResponse {
+        files_created: result.files_created,
+        directories_created: result.directories_created,
+        source_bytes: result.source_bytes,
+    })
+}
+
 /// `POST /api/browse/{drive}/archive/extract` — extract a ZIP into a new local directory.
 pub async fn browse_extract_archive(
     Path(drive): Path<String>,
@@ -1154,6 +1475,428 @@ pub async fn browse_extract_archive(
         extracted_bytes: result.extracted_bytes,
         files_skipped: result.files_skipped,
     }))
+}
+
+/// `POST /api/browse/{drive}/archive/extract-to-smb` — relay a local ZIP into one scoped SMB extraction operation.
+pub async fn browse_extract_archive_to_smb(
+    State(state): State<Arc<AppState>>,
+    Path(drive): Path<String>,
+    headers: HeaderMap,
+    Json(body): Json<ArchiveExtractToSmbRequest>,
+) -> Result<Json<ArchiveExtractionResponse>, ApiError> {
+    if body.archive_path.trim().is_empty()
+        || body.server_url.trim().is_empty()
+        || body.operation_id.trim().is_empty()
+        || body.operation_token.trim().is_empty()
+    {
+        return Err(ApiError::BadRequest(
+            "Archive, server, operation, and operation token are required".to_string(),
+        ));
+    }
+    let operation_id =
+        uuid::Uuid::parse_str(&body.operation_id).map_err(|_| ApiError::BadRequest("Archive operation ID is invalid".to_string()))?;
+    let server_url = normalize_archive_server_url(&body.server_url)?;
+    if url::Url::parse(&server_url)
+        .map_err(|_| ApiError::BadRequest("Archive server URL is invalid".to_string()))?
+        .origin()
+        .ascii_serialization()
+        != extract_origin(&headers)?
+    {
+        return Err(ApiError::Forbidden(
+            "Archive server URL must match the paired browser origin".to_string(),
+        ));
+    }
+    let base_path = drives::resolve_drive_path(&drive).ok_or_else(|| ApiError::NotFound(format!("Unknown drive: {drive}")))?;
+    let archive_path = resolve_safe_path(&base_path, &drive, &body.archive_path)?;
+    let archive_entries = tokio::task::spawn_blocking({
+        let archive_path = archive_path.clone();
+        move || validate_local_archive_extraction(&archive_path)
+    })
+    .await
+    .map_err(|error| ApiError::Internal(format!("Local archive validation task failed: {error}")))?
+    .map_err(map_local_archive_error)?;
+
+    let http_clients = state
+        .app
+        .try_state::<SambeeHttpClientStore>()
+        .map(|clients| clients.inner().clone())
+        .ok_or_else(|| ApiError::Internal("Companion backend HTTP client is unavailable".to_string()))?;
+    let client = http_clients
+        .client_for_server_no_redirects(&server_url)
+        .map_err(ApiError::Internal)?;
+    let relay_url = archive_relay_url(&server_url, operation_id);
+
+    relay_archive_response(
+        client
+            .post(format!("{relay_url}/begin"))
+            .bearer_auth(&body.operation_token)
+            .send()
+            .await
+            .map_err(|error| ApiError::Internal(log_request_error("Archive extraction start", "POST", &relay_url, &error)))?,
+        "start",
+    )
+    .await?;
+
+    let mut files_extracted = 0_u64;
+    let mut directories_created = 1_u64;
+    let mut extracted_bytes = 0_u64;
+    for entry in archive_entries {
+        if entry.is_directory {
+            relay_archive_directory(&client, &relay_url, &body.operation_token, &entry.path).await?;
+            directories_created += 1;
+            continue;
+        }
+        relay_archive_file(&client, &relay_url, &body.operation_token, &archive_path, &entry).await?;
+        files_extracted += 1;
+        extracted_bytes += entry.uncompressed_size;
+    }
+
+    relay_archive_response(
+        client
+            .post(format!("{relay_url}/complete"))
+            .bearer_auth(&body.operation_token)
+            .send()
+            .await
+            .map_err(|error| ApiError::Internal(log_request_error("Archive extraction completion", "POST", &relay_url, &error)))?,
+        "complete",
+    )
+    .await?;
+
+    Ok(Json(ArchiveExtractionResponse {
+        files_extracted,
+        directories_created,
+        extracted_bytes,
+        files_skipped: 0,
+    }))
+}
+
+#[derive(Debug, Deserialize)]
+struct ArchiveRelayManifest {
+    entries: Vec<ArchiveRelayManifestEntry>,
+}
+
+#[derive(Debug, Deserialize)]
+struct ArchiveRelayManifestEntry {
+    path: String,
+    is_directory: bool,
+    uncompressed_size: u64,
+}
+
+/// `POST /api/browse/{drive}/archive/extract-from-smb` — write scoped SMB ZIP members to a new local directory.
+pub async fn browse_extract_archive_from_smb(
+    State(state): State<Arc<AppState>>,
+    Path(drive): Path<String>,
+    headers: HeaderMap,
+    Json(body): Json<ArchiveExtractFromSmbRequest>,
+) -> Result<Json<ArchiveExtractionResponse>, ApiError> {
+    if body.destination_path.trim().is_empty()
+        || body.server_url.trim().is_empty()
+        || body.operation_id.trim().is_empty()
+        || body.operation_token.trim().is_empty()
+    {
+        return Err(ApiError::BadRequest(
+            "Destination, server, operation, and operation token are required".to_string(),
+        ));
+    }
+    let operation_id =
+        uuid::Uuid::parse_str(&body.operation_id).map_err(|_| ApiError::BadRequest("Archive operation ID is invalid".to_string()))?;
+    let server_url = normalize_archive_server_url(&body.server_url)?;
+    if url::Url::parse(&server_url)
+        .map_err(|_| ApiError::BadRequest("Archive server URL is invalid".to_string()))?
+        .origin()
+        .ascii_serialization()
+        != extract_origin(&headers)?
+    {
+        return Err(ApiError::Forbidden(
+            "Archive server URL must match the paired browser origin".to_string(),
+        ));
+    }
+    let drive_root = drives::resolve_drive_path(&drive).ok_or_else(|| ApiError::NotFound(format!("Unknown drive: {drive}")))?;
+    let destination_path = resolve_safe_path_for_new(&drive_root, &drive, &body.destination_path)?;
+    if destination_path.exists() {
+        return Err(ApiError::conflict_message("Archive output already exists"));
+    }
+    let http_clients = state
+        .app
+        .try_state::<SambeeHttpClientStore>()
+        .map(|clients| clients.inner().clone())
+        .ok_or_else(|| ApiError::Internal("Companion backend HTTP client is unavailable".to_string()))?;
+    let client = http_clients
+        .client_for_server_no_redirects(&server_url)
+        .map_err(ApiError::Internal)?;
+    let relay_url = archive_local_relay_url(&server_url, operation_id);
+    let manifest = decode_archive_relay_json(
+        client
+            .post(format!("{relay_url}/begin"))
+            .bearer_auth(&body.operation_token)
+            .send()
+            .await
+            .map_err(|error| ApiError::Internal(log_request_error("Archive extraction start", "POST", &relay_url, &error)))?,
+        "start",
+    )
+    .await?;
+
+    let extraction_result =
+        extract_smb_archive_manifest_to_local(&client, &relay_url, &body.operation_token, &drive_root, &destination_path, manifest).await;
+    let (files_extracted, directories_created, extracted_bytes) = match extraction_result {
+        Ok(result) => result,
+        Err(error) => {
+            let _ = report_archive_local_relay_failure(&client, &relay_url, &body.operation_token).await;
+            if destination_path.exists() {
+                return Err(ApiError::internal_code(
+                    "Archive extraction failed after creating incomplete output",
+                    LOCAL_ARCHIVE_EXTRACTION_PARTIAL_CODE,
+                ));
+            }
+            return Err(error);
+        }
+    };
+
+    relay_archive_response(
+        client
+            .post(format!("{relay_url}/complete"))
+            .bearer_auth(&body.operation_token)
+            .json(&serde_json::json!({
+                "files_extracted": files_extracted,
+                "directories_created": directories_created,
+                "extracted_bytes": extracted_bytes,
+            }))
+            .send()
+            .await
+            .map_err(|error| ApiError::Internal(log_request_error("Archive extraction completion", "POST", &relay_url, &error)))?,
+        "complete",
+    )
+    .await?;
+
+    Ok(Json(ArchiveExtractionResponse {
+        files_extracted,
+        directories_created,
+        extracted_bytes,
+        files_skipped: 0,
+    }))
+}
+
+async fn extract_smb_archive_manifest_to_local(
+    client: &Client,
+    relay_url: &str,
+    operation_token: &str,
+    drive_root: &FsPath,
+    destination_path: &FsPath,
+    manifest: ArchiveRelayManifest,
+) -> Result<(u64, u64, u64), ApiError> {
+    let root = destination_path.to_path_buf();
+    let root_drive = drive_root.to_path_buf();
+    tokio::task::spawn_blocking(move || create_local_extraction_root(&root_drive, &root))
+        .await
+        .map_err(|error| ApiError::Internal(format!("Local archive root task failed: {error}")))?
+        .map_err(map_local_archive_error)?;
+
+    let mut files_extracted = 0_u64;
+    let mut directories_created = 1_u64;
+    let mut extracted_bytes = 0_u64;
+    for entry in manifest.entries {
+        validate_local_extraction_member_path(&entry.path, entry.is_directory).map_err(map_local_archive_error)?;
+        let target_path = destination_path.join(&entry.path);
+        if entry.is_directory {
+            let root = destination_path.to_path_buf();
+            let drive_root = drive_root.to_path_buf();
+            directories_created += tokio::task::spawn_blocking(move || ensure_local_extraction_directory(&drive_root, &root, &target_path))
+                .await
+                .map_err(|error| ApiError::Internal(format!("Local archive directory task failed: {error}")))?
+                .map_err(map_local_archive_error)?;
+            continue;
+        }
+        let parent = target_path
+            .parent()
+            .ok_or_else(|| ApiError::BadRequest("Archive member target is invalid".to_string()))?
+            .to_path_buf();
+        let root = destination_path.to_path_buf();
+        let parent_drive_root = drive_root.to_path_buf();
+        directories_created += tokio::task::spawn_blocking(move || ensure_local_extraction_directory(&parent_drive_root, &root, &parent))
+            .await
+            .map_err(|error| ApiError::Internal(format!("Local archive directory task failed: {error}")))?
+            .map_err(map_local_archive_error)?;
+        let output_drive_root = drive_root.to_path_buf();
+        let output = tokio::task::spawn_blocking(move || open_local_extraction_file(&output_drive_root, &target_path))
+            .await
+            .map_err(|error| ApiError::Internal(format!("Local archive file task failed: {error}")))?
+            .map_err(map_local_archive_error)?;
+        let mut output = File::from_std(output);
+        let mut response = client
+            .get(format!("{relay_url}/member"))
+            .bearer_auth(operation_token)
+            .query(&[("member_path", entry.path.as_str())])
+            .send()
+            .await
+            .map_err(|error| ApiError::Internal(log_request_error("Archive member relay", "GET", relay_url, &error)))?;
+        if !response.status().is_success() {
+            return relay_archive_response(response, "read member")
+                .await
+                .and(Err(ApiError::Internal("Archive member read failed".to_string())));
+        }
+        let mut member_bytes = 0_u64;
+        while let Some(chunk) = response
+            .chunk()
+            .await
+            .map_err(|error| ApiError::Internal(log_request_error("Archive member relay", "GET", relay_url, &error)))?
+        {
+            output.write_all(&chunk).await.map_err(ApiError::Io)?;
+            member_bytes = member_bytes
+                .checked_add(chunk.len() as u64)
+                .ok_or_else(|| ApiError::Internal("Archive member size overflow".to_string()))?;
+        }
+        output.flush().await.map_err(ApiError::Io)?;
+        if member_bytes != entry.uncompressed_size {
+            return Err(ApiError::Internal("Archive member size does not match its manifest".to_string()));
+        }
+        files_extracted += 1;
+        extracted_bytes = extracted_bytes
+            .checked_add(member_bytes)
+            .ok_or_else(|| ApiError::Internal("Archive extraction size overflow".to_string()))?;
+    }
+    Ok((files_extracted, directories_created, extracted_bytes))
+}
+
+fn archive_local_relay_url(server_url: &str, operation_id: uuid::Uuid) -> String {
+    format!("{server_url}/api/archive/operations/{operation_id}/companion-local-extract")
+}
+
+fn archive_local_creation_relay_url(server_url: &str, operation_id: uuid::Uuid) -> String {
+    format!("{server_url}/api/archive/operations/{operation_id}/companion-local-create")
+}
+
+fn archive_smb_creation_relay_url(server_url: &str, operation_id: uuid::Uuid) -> String {
+    format!("{server_url}/api/archive/operations/{operation_id}/companion-smb-create")
+}
+
+async fn decode_archive_relay_json<T: DeserializeOwned>(response: ReqwestResponse, action: &str) -> Result<T, ApiError> {
+    if !response.status().is_success() {
+        relay_archive_response(response, action).await?;
+        return Err(ApiError::Internal("Archive relay returned an unexpected success state".to_string()));
+    }
+    response
+        .json::<T>()
+        .await
+        .map_err(|error| ApiError::Internal(format!("Archive relay returned an invalid {action} response: {error}")))
+}
+
+async fn report_archive_local_relay_failure(client: &Client, relay_url: &str, operation_token: &str) -> Result<(), ApiError> {
+    let response = client
+        .post(format!("{relay_url}/fail"))
+        .bearer_auth(operation_token)
+        .json(&serde_json::json!({ "message": "Companion local archive extraction failed" }))
+        .send()
+        .await
+        .map_err(|error| ApiError::Internal(log_request_error("Archive extraction failure", "POST", relay_url, &error)))?;
+    relay_archive_response(response, "record failure").await
+}
+
+async fn report_archive_local_creation_relay_failure(client: &Client, relay_url: &str, operation_token: &str) -> Result<(), ApiError> {
+    let response = client
+        .post(format!("{relay_url}/fail"))
+        .bearer_auth(operation_token)
+        .json(&serde_json::json!({ "message": "Companion local archive creation failed" }))
+        .send()
+        .await
+        .map_err(|error| ApiError::Internal(log_request_error("Archive creation failure", "POST", relay_url, &error)))?;
+    relay_archive_response(response, "record failure").await
+}
+
+async fn report_archive_smb_creation_relay_failure(client: &Client, relay_url: &str, operation_token: &str) -> Result<(), ApiError> {
+    let response = client
+        .post(format!("{relay_url}/fail"))
+        .bearer_auth(operation_token)
+        .json(&serde_json::json!({ "message": "Companion local archive creation failed" }))
+        .send()
+        .await
+        .map_err(|error| ApiError::Internal(log_request_error("Archive creation failure", "POST", relay_url, &error)))?;
+    relay_archive_response(response, "record failure").await
+}
+
+fn normalize_archive_server_url(value: &str) -> Result<String, ApiError> {
+    let mut url = url::Url::parse(value.trim()).map_err(|_| ApiError::BadRequest("Archive server URL is invalid".to_string()))?;
+    if !matches!(url.scheme(), "http" | "https") || url.host_str().is_none() || !url.username().is_empty() || url.password().is_some() {
+        return Err(ApiError::BadRequest("Archive server URL is invalid".to_string()));
+    }
+    if url.query().is_some() || url.fragment().is_some() {
+        return Err(ApiError::BadRequest(
+            "Archive server URL must not contain query parameters or a fragment".to_string(),
+        ));
+    }
+    let path = url.path().trim_end_matches('/').to_string();
+    url.set_path(&path);
+    Ok(url.to_string().trim_end_matches('/').to_string())
+}
+
+fn archive_relay_url(server_url: &str, operation_id: uuid::Uuid) -> String {
+    format!("{server_url}/api/archive/operations/{operation_id}/companion-extract")
+}
+
+async fn relay_archive_directory(client: &Client, relay_url: &str, operation_token: &str, member_path: &str) -> Result<(), ApiError> {
+    let response = client
+        .put(format!("{relay_url}/member"))
+        .bearer_auth(operation_token)
+        .query(&[("member_path", member_path), ("is_directory", "true")])
+        .send()
+        .await
+        .map_err(|error| ApiError::Internal(log_request_error("Archive directory relay", "PUT", relay_url, &error)))?;
+    relay_archive_response(response, "create directory").await
+}
+
+async fn relay_archive_file(
+    client: &Client,
+    relay_url: &str,
+    operation_token: &str,
+    archive_path: &FsPath,
+    entry: &LocalArchiveReadEntry,
+) -> Result<(), ApiError> {
+    let (writer, reader) = tokio::io::duplex(ARCHIVE_COPY_BUFFER_SIZE * 2);
+    let archive_path = archive_path.to_path_buf();
+    let member_path = entry.path.clone();
+    let writer_task = tokio::task::spawn_blocking(move || -> Result<(), String> {
+        let mut output = SyncIoBridge::new(writer);
+        stream_local_archive_member(&archive_path, &member_path, &mut output).map_err(|error| error.to_string())?;
+        output.flush().map_err(|error| error.to_string())
+    });
+    let response = client
+        .put(format!("{relay_url}/member"))
+        .bearer_auth(operation_token)
+        .query(&[("member_path", entry.path.as_str())])
+        .body(reqwest::Body::wrap_stream(ReaderStream::new(reader)))
+        .send()
+        .await;
+    let writer_result = writer_task
+        .await
+        .map_err(|error| ApiError::Internal(format!("Archive member streaming task failed: {error}")))?;
+    let response = response.map_err(|error| ApiError::Internal(log_request_error("Archive member relay", "PUT", relay_url, &error)))?;
+    if !response.status().is_success() {
+        return relay_archive_response(response, "write member").await;
+    }
+    writer_result.map_err(|error| ApiError::Internal(format!("Archive member streaming failed: {error}")))?;
+    relay_archive_response(response, "write member").await
+}
+
+async fn relay_archive_response(response: ReqwestResponse, action: &str) -> Result<(), ApiError> {
+    let status = response.status();
+    if status.is_success() {
+        return Ok(());
+    }
+    let content_type = response
+        .headers()
+        .get(reqwest::header::CONTENT_TYPE)
+        .and_then(|value| value.to_str().ok())
+        .map(str::to_owned);
+    let body = response.text().await.unwrap_or_default();
+    if let Some(message) = classify_proxy_auth_intercept("Archive relay", Some(status), content_type.as_deref(), &body) {
+        return Err(ApiError::Forbidden(message));
+    }
+    let message = format!("Archive relay could not {action}: backend returned HTTP {status}");
+    match status {
+        reqwest::StatusCode::CONFLICT => Err(ApiError::conflict_message(message)),
+        reqwest::StatusCode::UNAUTHORIZED | reqwest::StatusCode::FORBIDDEN => Err(ApiError::Forbidden(message)),
+        reqwest::StatusCode::BAD_REQUEST | reqwest::StatusCode::UNPROCESSABLE_ENTITY => Err(ApiError::BadRequest(message)),
+        _ => Err(ApiError::Internal(message)),
+    }
 }
 
 fn map_local_archive_error(error: LocalArchiveError) -> ApiError {

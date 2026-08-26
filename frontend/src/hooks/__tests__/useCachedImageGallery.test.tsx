@@ -3,7 +3,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import apiService from "../../services/api";
 import { logger } from "../../services/logger";
-import { IMAGE_LOAD_CANCELED_MESSAGE, useCachedImageGallery } from "../useCachedImageGallery";
+import { IMAGE_LOAD_CANCELED_MESSAGE, IMAGE_LOAD_FAILED_MESSAGE, useCachedImageGallery } from "../useCachedImageGallery";
 
 vi.mock("../../services/api", () => ({
   default: {
@@ -70,6 +70,63 @@ describe("useCachedImageGallery", () => {
 
     expect(result.current.currentImageLoadPhase).toBe("ready");
     expect(result.current.loadingStates.get(0)).toBe(false);
+  });
+
+  it("uses the same error message for image fetch and decode failures", async () => {
+    vi.mocked(apiService.getImageBlob).mockRejectedValue({ response: { status: 422, data: { detail: "Invalid PSD" } } });
+
+    const { result: fetchResult } = renderHook(() =>
+      useCachedImageGallery({
+        connectionId: "conn-1",
+        images: ["/invalid.psd"],
+        preloadRange: 0,
+      })
+    );
+
+    await waitFor(() => {
+      expect(fetchResult.current.errorStates.get(0)).toBe(IMAGE_LOAD_FAILED_MESSAGE);
+    });
+
+    vi.mocked(apiService.getImageBlob).mockResolvedValue(new Blob(["invalid PSD"], { type: "image/vnd.adobe.photoshop" }));
+    const { result: decodeResult } = renderHook(() =>
+      useCachedImageGallery({
+        connectionId: "conn-1",
+        images: ["/invalid.psd"],
+        preloadRange: 0,
+      })
+    );
+
+    await waitFor(() => {
+      expect(decodeResult.current.currentImageLoadPhase).toBe("decoding");
+    });
+
+    act(() => {
+      decodeResult.current.markImageDecodeFailed(0, "blob:gallery-image");
+    });
+
+    expect(decodeResult.current.errorStates.get(0)).toBe(IMAGE_LOAD_FAILED_MESSAGE);
+  });
+
+  it("uses an explicit image loader for non-filesystem image sources", async () => {
+    const loadImageBlob = vi.fn().mockResolvedValue(new Blob(["archive image"], { type: "image/png" }));
+
+    renderHook(() =>
+      useCachedImageGallery({
+        connectionId: "conn-1",
+        images: ["photos/inside.png"],
+        gallerySourceKey: "archive:backup.zip",
+        loadImageBlob,
+        preloadRange: 0,
+      })
+    );
+
+    await waitFor(() => {
+      expect(loadImageBlob).toHaveBeenCalledWith(
+        "photos/inside.png",
+        expect.objectContaining({ signal: expect.any(AbortSignal), viewportWidth: expect.any(Number), viewportHeight: expect.any(Number) })
+      );
+    });
+    expect(apiService.getImageBlob).not.toHaveBeenCalled();
   });
 
   it("cancels the active image without treating cancellation as a fetch error", async () => {

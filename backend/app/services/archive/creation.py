@@ -54,7 +54,7 @@ def _is_within_directory(path: str, directory: str) -> bool:
     return normalized_path.startswith(f"{normalized_directory}/")
 
 
-async def _build_creation_manifest(
+async def build_archive_creation_manifest(
     backend: ArchiveCreationBackend,
     source_paths: list[str],
     target_path: str,
@@ -113,7 +113,7 @@ async def create_archive_from_files(
         pass
     else:
         raise ArchiveFormatError("Archive creation target already exists")
-    sources = await _build_creation_manifest(backend, source_paths, target_path)
+    sources = await build_archive_creation_manifest(backend, source_paths, target_path)
 
     writer_handle = await backend.open_exclusive_writer(target_path)
     archive_writer = PortableZipWriter(writer_handle)
@@ -127,6 +127,7 @@ async def create_archive_from_files(
                     source.archive_path,
                     _cancellable_chunks(backend.read_file(source.source_path), is_cancelled),
                     source.info.modified_at,
+                    expected_uncompressed_size=source.info.size,
                 )
         await archive_writer.close()
         completed = True

@@ -37,6 +37,7 @@ interface FileRowProps {
   viewMode: ViewMode;
   onOpenAssociatedViewer?: (file: FileEntry, index: number) => void;
   onOpenViewerPicker?: (file: FileEntry, index: number) => void;
+  canOpenInBrowserViewer?: (file: FileEntry) => boolean;
   onOpenAssociatedNativeApp?: (file: FileEntry, index: number) => void;
   onOpenNativePicker?: (file: FileEntry, index: number) => void;
   /** Called when "Rename" is chosen from the context menu */
@@ -178,6 +179,7 @@ export const FileRow = React.memo(
         viewMode,
         onOpenAssociatedViewer,
         onOpenViewerPicker,
+        canOpenInBrowserViewer,
         onOpenAssociatedNativeApp,
         onOpenNativePicker,
         onRename,
@@ -189,10 +191,16 @@ export const FileRow = React.memo(
       const linkTarget = file.link_target?.target;
       const isShortcut = isShortcutFile(file);
       const isFile = file.type !== "directory" && linkTarget?.type !== "directory";
+      const isUnavailableArchiveEntry = file.archive_entry_state !== undefined && !file.is_readable;
+      const hasBrowserViewerActions = isFile && (canOpenInBrowserViewer?.(file) ?? true);
       const rowTextSx = useCompactLayout ? { fontSize: "16px" } : undefined;
       const hasContextMenu = !!(
-        onRename ||
-        (isFile && (onOpenAssociatedViewer || onOpenViewerPicker || onOpenAssociatedNativeApp || onOpenNativePicker))
+        !isUnavailableArchiveEntry &&
+        (onRename ||
+          (isFile &&
+            ((hasBrowserViewerActions && (onOpenAssociatedViewer || onOpenViewerPicker)) ||
+              onOpenAssociatedNativeApp ||
+              onOpenNativePicker)))
       );
       const itemTypeLabel = t(file.type === "directory" ? "fileBrowser.row.itemTypes.folder" : "fileBrowser.row.itemTypes.file");
       const linkTargetName = linkTarget?.name;
@@ -289,7 +297,8 @@ export const FileRow = React.memo(
             tabIndex={-1}
             onClick={() => onClick(file, index)}
             onContextMenu={handleContextMenu}
-            sx={rowStyle}
+            disabled={isUnavailableArchiveEntry}
+            sx={[rowStyle, isUnavailableArchiveEntry ? { cursor: "not-allowed", opacity: 0.5 } : {}]}
             dataSelected={isSelected ? "true" : undefined}
             ariaLabel={ariaLabel}
           >
@@ -361,7 +370,7 @@ export const FileRow = React.memo(
                   <ListItemText>{t("common.actions.rename")}</ListItemText>
                 </MenuItem>
               )}
-              {isFile && onOpenAssociatedViewer && (
+              {hasBrowserViewerActions && onOpenAssociatedViewer && (
                 <MenuItem onClick={handleOpenAssociatedViewerClick}>
                   <ListItemIcon>
                     <VisibilityIcon fontSize="small" />
@@ -369,7 +378,7 @@ export const FileRow = React.memo(
                   <ListItemText>{t("fileBrowser.row.openInBrowserViewer")}</ListItemText>
                 </MenuItem>
               )}
-              {isFile && onOpenViewerPicker && (
+              {hasBrowserViewerActions && onOpenViewerPicker && (
                 <MenuItem onClick={handleOpenViewerPickerClick}>
                   <ListItemIcon>
                     <VisibilityIcon fontSize="small" />
@@ -408,6 +417,8 @@ export const FileRow = React.memo(
     prev.file.name === next.file.name &&
     prev.file.modified_at === next.file.modified_at &&
     prev.file.size === next.file.size &&
+    prev.file.is_readable === next.file.is_readable &&
+    prev.file.archive_entry_state === next.file.archive_entry_state &&
     prev.file.link_kind === next.file.link_kind &&
     prev.file.link_target === next.file.link_target &&
     prev.virtualStart === next.virtualStart &&
@@ -415,6 +426,7 @@ export const FileRow = React.memo(
     prev.viewMode === next.viewMode &&
     prev.onOpenAssociatedViewer === next.onOpenAssociatedViewer &&
     prev.onOpenViewerPicker === next.onOpenViewerPicker &&
+    prev.canOpenInBrowserViewer === next.canOpenInBrowserViewer &&
     prev.onOpenAssociatedNativeApp === next.onOpenAssociatedNativeApp &&
     prev.onOpenNativePicker === next.onOpenNativePicker &&
     prev.onRename === next.onRename

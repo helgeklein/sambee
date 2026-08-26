@@ -1,6 +1,7 @@
 """Round-trip tests for direct portable ZIP creation."""
 
 import io
+import struct
 import zipfile
 from collections.abc import AsyncIterator
 
@@ -91,6 +92,26 @@ async def test_writes_readable_portable_zip_without_source_staging() -> None:
         assert archive.getinfo("notes.txt").compress_type == zipfile.ZIP_STORED
         assert archive.getinfo("repeated.txt").compress_type == zipfile.ZIP_DEFLATED
     assert target.closed is True
+
+
+@pytest.mark.asyncio
+async def test_writes_zip64_records_when_the_local_header_offset_requires_them() -> None:
+    target = MemoryExclusiveWriter()
+    writer = PortableZipWriter(target)
+    writer._offset = 0xFFFFFFFF
+
+    await writer.add_file("offset.zip64", _chunks(b"content"))
+    await writer.close()
+
+    local_header = struct.unpack_from("<IHHHHHIIIHH", target.data)
+    assert local_header[1] == 45
+    assert local_header[7:9] == (0xFFFFFFFF, 0xFFFFFFFF)
+    assert local_header[9] == len("offset.zip64")
+    assert local_header[10] == 20
+    assert b"PK\x01\x02" in target.data
+    assert b"PK\x06\x06" in target.data
+    assert b"PK\x06\x07" in target.data
+    assert target.data[-22:-18] == b"PK\x05\x06"
 
 
 @pytest.mark.asyncio

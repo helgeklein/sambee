@@ -754,6 +754,9 @@ async def exchange_companion_token(
 
     connection_id = payload.get("conn_id")
     path = payload.get("path")
+    if not isinstance(connection_id, str) or not isinstance(path, str):
+        logger.warning("Companion token exchange failed: malformed connection or path claim")
+        raise credentials_exception
 
     # Enforce single-use
     exp_timestamp = payload.get("exp", 0)

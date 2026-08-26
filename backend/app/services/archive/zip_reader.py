@@ -8,6 +8,7 @@ import zlib
 from collections.abc import AsyncIterator
 from dataclasses import dataclass
 from datetime import datetime
+from typing import Literal
 
 from app.models.archive import ArchiveEntryInfo
 from app.models.file import FileType
@@ -25,6 +26,8 @@ _MAX_ENTRY_VARIABLE_BYTES = 65_535 * 3
 _CENTRAL_DIRECTORY_FIXED_SIZE = 46
 _ZIP64_SENTINEL_U32 = 0xFFFFFFFF
 _ZIP64_SENTINEL_U16 = 0xFFFF
+_INFOZIP_UNICODE_PATH_FIELD_ID = 0x7075
+_INFOZIP_UNICODE_PATH_VERSION = 1
 _READABLE_METHODS = {0, 8, 12}
 _ARCHIVE_IO_CHUNK_BYTES = 256 * 1024
 _UNIX_HOST_SYSTEM = 3
@@ -66,23 +69,49 @@ class ZipEntry:
 
 
 def _u16(data: bytes, offset: int) -> int:
-    return struct.unpack_from("<H", data, offset)[0]
+    return int(struct.unpack_from("<H", data, offset)[0])
 
 
 def _u32(data: bytes, offset: int) -> int:
-    return struct.unpack_from("<I", data, offset)[0]
+    return int(struct.unpack_from("<I", data, offset)[0])
 
 
 def _u64(data: bytes, offset: int) -> int:
-    return struct.unpack_from("<Q", data, offset)[0]
+    return int(struct.unpack_from("<Q", data, offset)[0])
 
 
-def _decode_name(raw_name: bytes, flags: int) -> str:
+def _unicode_path_name(raw_name: bytes, extra: bytes) -> str | None:
+    """Return a validated Info-ZIP Unicode Path name, when one is present."""
+
+    position = 0
+    while position + 4 <= len(extra):
+        field_id = _u16(extra, position)
+        field_length = _u16(extra, position + 2)
+        position += 4
+        if position + field_length > len(extra):
+            return None
+        field = extra[position : position + field_length]
+        position += field_length
+        if field_id != _INFOZIP_UNICODE_PATH_FIELD_ID or len(field) < 5:
+            continue
+        if field[0] != _INFOZIP_UNICODE_PATH_VERSION or _u32(field, 1) != zlib.crc32(raw_name) & _ZIP64_SENTINEL_U32:
+            continue
+        try:
+            return field[5:].decode("utf-8")
+        except UnicodeDecodeError:
+            continue
+    return None
+
+
+def _decode_name(raw_name: bytes, flags: int, extra: bytes) -> str:
     if flags & 0x0800:
         try:
             return raw_name.decode("utf-8")
         except UnicodeDecodeError as exc:
             raise ArchiveFormatError("ZIP entry declares invalid UTF-8 filename") from exc
+    unicode_path_name = _unicode_path_name(raw_name, extra)
+    if unicode_path_name is not None:
+        return unicode_path_name
     try:
         return raw_name.decode("utf-8")
     except UnicodeDecodeError:
@@ -264,7 +293,7 @@ class ZipReader:
             variable = await self._read_exact(position + _CENTRAL_DIRECTORY_FIXED_SIZE, variable_length)
             raw_name = variable[:name_length]
             extra = variable[name_length : name_length + extra_length]
-            decoded_name = _decode_name(raw_name, flags)
+            decoded_name = _decode_name(raw_name, flags, extra)
             path, is_directory = _normalize_path(decoded_name)
             local_header_offset = _u32(fixed, 42)
             compressed_size, uncompressed_size, local_header_offset = _zip64_member_values(
@@ -355,43 +384,43 @@ class ZipReader:
                 total += len(part)
                 yield part
         elif entry.compression_method == 8:
-            decompressor = zlib.decompressobj(-zlib.MAX_WBITS)
+            deflate_decompressor = zlib.decompressobj(-zlib.MAX_WBITS)
             while remaining:
                 part = await self._read_exact(offset, min(chunk_size, remaining))
                 offset += len(part)
                 remaining -= len(part)
                 pending = part
                 while pending:
-                    output = decompressor.decompress(pending, chunk_size)
-                    pending = decompressor.unconsumed_tail
+                    output = deflate_decompressor.decompress(pending, chunk_size)
+                    pending = deflate_decompressor.unconsumed_tail
                     if output:
                         crc = zlib.crc32(output, crc)
                         total += len(output)
                         yield output
-            output = decompressor.flush(chunk_size)
+            output = deflate_decompressor.flush(chunk_size)
             if output:
                 crc = zlib.crc32(output, crc)
                 total += len(output)
                 yield output
-            if not decompressor.eof:
+            if not deflate_decompressor.eof:
                 raise ArchiveFormatError("ZIP Deflate member is truncated")
         elif entry.compression_method == 12:
-            decompressor = bz2.BZ2Decompressor()
+            bzip2_decompressor = bz2.BZ2Decompressor()
             while remaining:
                 part = await self._read_exact(offset, min(chunk_size, remaining))
                 offset += len(part)
                 remaining -= len(part)
                 pending = part
-                while pending or not decompressor.needs_input:
-                    output = decompressor.decompress(pending, max_length=chunk_size)
+                while pending or not bzip2_decompressor.needs_input:
+                    output = bzip2_decompressor.decompress(pending, max_length=chunk_size)
                     pending = b""
                     if output:
                         crc = zlib.crc32(output, crc)
                         total += len(output)
                         yield output
-                    if decompressor.eof or decompressor.needs_input:
+                    if bzip2_decompressor.eof or bzip2_decompressor.needs_input:
                         break
-            if not decompressor.eof:
+            if not bzip2_decompressor.eof:
                 raise ArchiveFormatError("ZIP BZIP2 member is truncated")
         else:
             raise ArchiveFormatError("Archive member codec is unavailable")
@@ -399,8 +428,8 @@ class ZipReader:
             raise ArchiveFormatError("ZIP member integrity check failed")
 
     async def list_directory(self, path: str, cursor: str | None, page_size: int) -> tuple[list[ArchiveEntryInfo], int, str | None]:
-        normalized_path, is_directory = _normalize_path(path)
-        if path and (not is_directory or not normalized_path):
+        normalized_path, _ = _normalize_path(path)
+        if path and not normalized_path:
             raise ArchiveFormatError("Archive directory path is invalid")
         prefix = f"{normalized_path}/" if normalized_path else ""
         children: dict[str, ArchiveEntryInfo] = {}
@@ -418,7 +447,9 @@ class ZipReader:
                     ArchiveEntryInfo(name=child_name, path=child_path, type=FileType.DIRECTORY, state="unavailable"),
                 )
                 continue
-            state = "blocked" if entry.encrypted else "readable" if entry.compression_method in _READABLE_METHODS else "unavailable"
+            state: Literal["readable", "blocked", "unavailable"] = (
+                "blocked" if entry.encrypted else "readable" if entry.compression_method in _READABLE_METHODS else "unavailable"
+            )
             children[child_path] = ArchiveEntryInfo(
                 name=child_name,
                 path=child_path,

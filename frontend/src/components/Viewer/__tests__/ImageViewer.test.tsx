@@ -48,6 +48,7 @@ const createGalleryMock = () => ({
   loadingStates: new Map(),
   errorStates: new Map(),
   currentImageLoadPhase: "ready" as const,
+  imageSourceRevision: 0,
   showLoadingSpinner: false,
   markImageAsDecoded: vi.fn(),
   markImageDecodeFailed: vi.fn(),
@@ -100,6 +101,58 @@ describe("ImageViewer", () => {
     );
 
     expect(screen.getByText("Read only")).toBeInTheDocument();
+  });
+
+  it("updates a preloaded slide source before marking it decoded", () => {
+    const markImageAsDecoded = vi.fn();
+    const gallery = {
+      ...createGalleryMock(),
+      currentImageLoadPhase: "decoding" as const,
+      imageSourceRevision: 0,
+      markImageAsDecoded,
+      getCachedImageSrc: () => undefined,
+    };
+    mockUseCachedImageGallery.mockImplementation(() => gallery);
+
+    const { rerender } = render(
+      <SambeeThemeProvider>
+        <ImageViewer connectionId="conn-1" path="archive/image.png" onClose={() => {}} />
+      </SambeeThemeProvider>
+    );
+
+    expect(screen.getByTestId("lightbox-image")).toHaveAttribute("src", expect.stringContaining("data:image/png"));
+
+    gallery.imageSourceRevision = 1;
+    gallery.getCachedImageSrc = () => "blob:preloaded-image";
+    rerender(
+      <SambeeThemeProvider>
+        <ImageViewer connectionId="conn-1" path="archive/image.png" onClose={() => {}} />
+      </SambeeThemeProvider>
+    );
+
+    const image = screen.getByTestId("lightbox-image");
+    expect(image).toHaveAttribute("src", "blob:preloaded-image");
+    fireEvent.load(image);
+    expect(markImageAsDecoded).toHaveBeenCalledWith(0, "blob:preloaded-image");
+  });
+
+  it("requests the next virtual page when the gallery reaches its loaded tail", () => {
+    const onLoadMoreItems = vi.fn();
+
+    render(
+      <SambeeThemeProvider>
+        <ImageViewer
+          connectionId="conn-1"
+          path="images/photo.jpg"
+          onClose={() => {}}
+          images={["images/photo.jpg"]}
+          hasMoreItems={true}
+          onLoadMoreItems={onLoadMoreItems}
+        />
+      </SambeeThemeProvider>
+    );
+
+    expect(onLoadMoreItems).toHaveBeenCalledOnce();
   });
 
   it("closes shortcuts help on Escape without closing the viewer", async () => {
@@ -163,6 +216,23 @@ describe("ImageViewer", () => {
     expect(markImageAsDecoded).not.toHaveBeenCalled();
     fireEvent.load(screen.getByTestId("lightbox-image"));
     expect(markImageAsDecoded).toHaveBeenCalledWith(0, "blob:decoded-image");
+  });
+
+  it("hides the lightbox error placeholder while showing the shared image error", () => {
+    mockUseCachedImageGallery.mockReturnValue({
+      ...createGalleryMock(),
+      errorStates: new Map([[0, "Failed to load image"]]),
+      currentImageLoadPhase: "error",
+    });
+
+    render(
+      <SambeeThemeProvider>
+        <ImageViewer connectionId="conn-1" path="/images/invalid.psd" onClose={() => {}} />
+      </SambeeThemeProvider>
+    );
+
+    expect(screen.getByText("Failed to load image")).toBeInTheDocument();
+    expect(screen.getByTestId("image-lightbox").parentElement).toHaveClass("image-viewer-load-error");
   });
 
   it("shows cancel feedback only after slow image loading and invokes cancellation", () => {

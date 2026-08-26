@@ -25,6 +25,7 @@ import "react-pdf/dist/Page/TextLayer.css";
 import { BROWSER_SHORTCUTS, COMMON_SHORTCUTS, VIEWER_SHORTCUTS } from "../../config/keyboardShortcuts";
 import { checkIsTransientError, getTransientErrorMessage, useApiRetry } from "../../hooks/useApiRetry";
 import { useKeyboardShortcuts } from "../../hooks/useKeyboardShortcuts";
+import { invalidateViewerPdfDerivative, readViewerContent, readVirtualContent } from "../../pages/FileBrowser/contentProviders";
 import apiService from "../../services/api";
 import { error as logError } from "../../services/logger";
 import { useSambeeTheme } from "../../theme";
@@ -45,6 +46,7 @@ import { blurActiveToolbarControl } from "../../utils/keyboardUtils";
 import { createShareFile, shareNativeContent, supportsNativeShare } from "../../utils/nativeShare";
 import { KeyboardShortcutsHelp } from "../KeyboardShortcutsHelp";
 import { ViewerControls, ViewerFilenameBadge } from "./ViewerControls";
+import { downloadViewerBlob } from "./viewerContent";
 
 const PDFJS_ASSET_BASE_URL = `${import.meta.env.BASE_URL}pdfjs/`;
 pdfjs.GlobalWorkerOptions.workerSrc = pdfWorkerUrl;
@@ -124,7 +126,14 @@ interface PdfInternalLinkTarget {
  * Uses react-pdf for client-side rendering to enable text search.
  * Fetches PDFs via API with authentication headers, then creates blob URLs.
  */
-const PDFViewer: React.FC<ViewerComponentProps> = ({ connectionId, path, onClose, isReadOnly = false }) => {
+const PDFViewer: React.FC<ViewerComponentProps> = ({
+  connectionId,
+  path,
+  onClose,
+  isReadOnly: connectionIsReadOnly = false,
+  virtualSource,
+}) => {
+  const isReadOnly = connectionIsReadOnly || virtualSource !== undefined;
   const { t } = useTranslation();
   const [numPages, setNumPages] = useState<number>(0);
   const [currentPage, setCurrentPage] = useState<number>(1);
@@ -275,10 +284,14 @@ const PDFViewer: React.FC<ViewerComponentProps> = ({ connectionId, path, onClose
 
         const blob = await fetchWithRetry(
           () =>
-            apiService.getPdfBlob(connectionId, path, {
-              signal: abortController.signal,
-              ...(pdfSourceVariant === "normalized" ? { pdfVariant: "normalized", screenProfile: getScreenProfile() } : {}),
-            }),
+            readViewerContent(
+              connectionId,
+              path,
+              pdfSourceVariant === "normalized"
+                ? { kind: "pdf", variant: "normalized", screenProfile: getScreenProfile() }
+                : { kind: "pdf" },
+              { signal: abortController.signal, virtualSource }
+            ),
           {
             signal: abortController.signal,
             maxRetries: 1,
@@ -337,7 +350,7 @@ const PDFViewer: React.FC<ViewerComponentProps> = ({ connectionId, path, onClose
       }
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [connectionId, path, fetchWithRetry, filename, cancelSwipeTransition, loadAttempt, pdfSourceVariant]);
+  }, [connectionId, path, fetchWithRetry, filename, cancelSwipeTransition, loadAttempt, pdfSourceVariant, virtualSource]);
 
   const handleRetryLoad = useCallback(() => {
     setPdfSourceVariant("original");
@@ -539,7 +552,7 @@ const PDFViewer: React.FC<ViewerComponentProps> = ({ connectionId, path, onClose
       }
 
       if (pdfSourceVariant === "normalized") {
-        void apiService.invalidatePdfDerivative(connectionId, path, getScreenProfile()).catch((invalidationError: unknown) => {
+        void invalidateViewerPdfDerivative(connectionId, path, getScreenProfile(), virtualSource).catch((invalidationError: unknown) => {
           logError("Failed to invalidate PDF compatibility derivative", { error: invalidationError, path });
         });
       }
@@ -551,7 +564,7 @@ const PDFViewer: React.FC<ViewerComponentProps> = ({ connectionId, path, onClose
       );
       setPdfLoadPhase("error");
     },
-    [connectionId, path, pdfSourceVariant]
+    [connectionId, path, pdfSourceVariant, virtualSource]
   );
 
   const handlePageRenderError = useCallback(
@@ -564,7 +577,7 @@ const PDFViewer: React.FC<ViewerComponentProps> = ({ connectionId, path, onClose
       setPdfLoadPhase("error");
       const failureMessage = getApiErrorMessage(err, "Failed to render PDF page", { includeOriginalMessage: true });
       if (pdfSourceVariant === "normalized") {
-        void apiService.invalidatePdfDerivative(connectionId, path, getScreenProfile()).catch((invalidationError: unknown) => {
+        void invalidateViewerPdfDerivative(connectionId, path, getScreenProfile(), virtualSource).catch((invalidationError: unknown) => {
           logError("Failed to invalidate PDF compatibility derivative", { error: invalidationError, path });
         });
       }
@@ -575,7 +588,7 @@ const PDFViewer: React.FC<ViewerComponentProps> = ({ connectionId, path, onClose
           : failureMessage
       );
     },
-    [connectionId, path, pdfSourceVariant]
+    [connectionId, path, pdfSourceVariant, virtualSource]
   );
 
   const handlePageLoadSuccess = useCallback(
@@ -765,12 +778,16 @@ const PDFViewer: React.FC<ViewerComponentProps> = ({ connectionId, path, onClose
   const handleDownload = useCallback(
     async (_event?: KeyboardEvent) => {
       try {
+        if (virtualSource) {
+          downloadViewerBlob(await readVirtualContent(virtualSource, path, { download: true }), filename);
+          return;
+        }
         await apiService.downloadFile(connectionId, path, filename);
       } catch (err) {
         logError("Failed to download file", { error: err, path, connectionId });
       }
     },
-    [connectionId, path, filename]
+    [connectionId, path, filename, virtualSource]
   );
 
   const handleCancelPdfLoad = useCallback(() => {
@@ -798,7 +815,8 @@ const PDFViewer: React.FC<ViewerComponentProps> = ({ connectionId, path, onClose
     setSharing(true);
 
     try {
-      const fileToShare = shareFile ?? createShareFile(await apiService.getPdfBlob(connectionId, path), filename);
+      const fileToShare =
+        shareFile ?? createShareFile(await readViewerContent(connectionId, path, { kind: "pdf" }, { virtualSource }), filename);
       const result = await shareNativeContent({
         file: fileToShare,
         title: filename,
@@ -813,7 +831,7 @@ const PDFViewer: React.FC<ViewerComponentProps> = ({ connectionId, path, onClose
     } finally {
       setSharing(false);
     }
-  }, [connectionId, filename, path, shareFile, t]);
+  }, [connectionId, filename, path, shareFile, t, virtualSource]);
 
   /**
    * Perform search across all extracted page texts using simple regex approach.

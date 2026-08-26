@@ -1,5 +1,24 @@
 # Archive Implementation Plan
 
+## Current Implementation Status
+
+The current implementation delivers foreground ZIP browsing, creation, and
+extraction for same-provider and SMB/local transfers. It includes:
+
+- portable Stored/Deflate creation with the 64 KiB adaptive probe in the
+  backend and Companion writers;
+- conditional ZIP64 records in the backend streaming writer;
+- validated Info-ZIP Unicode Path decoding in both readers and CP437 fallback
+  in Companion;
+- `Alt+F5` archive creation and contextual `Alt+F9` extraction shortcuts; and
+- correlation-scoped, path-free archive lifecycle and decision audit events.
+- a shared, hash-verified v1 reader conformance corpus consumed by both the
+  backend and Companion for Stored/Deflate, data-descriptor, unsafe path, and
+  Unicode Path ZIPs.
+
+The locale-ranked encoding override UI, expanded ZIP64/data-descriptor/malformed
+corpus coverage, and paired browser mutation qualification remain planned work.
+
 ## Scope And Invariants
 
 Deliver ZIP inspection, virtual browsing, entry viewing/downloading, extraction,
@@ -20,6 +39,36 @@ and creation for SMB and local drives. ZIP is the first supported format.
   chosen writer; never pre-scan, reread, or retain an entire source member to
   select compression. Native creation profiles are out of scope for this release.
 - Do not overwrite or merge existing destinations.
+- Archive execution is foreground and nonresumable. Durable backend records
+  secure, authorize, cancel, and report backend-backed work; they are not a
+  background job queue or evidence that an executor survives navigation,
+  reload, Companion restart, or backend restart.
+- The active Create or Extract dialog is the only operation control surface.
+  Do not add an archive history, activity panel, global active-operations
+  affordance, or operation re-entry UI for this release.
+- On `pagehide`, request best-effort cancellation for a backend-backed
+  operation and abort a direct-local browser request. `beforeunload` warns when
+  work is active. A reload never resumes work: it retries cancellation for a
+  stored backend operation ID and reports that the previous work was
+  interrupted. The marker contains only an operation ID and timestamp; it must
+  never contain paths, credentials, manifests, or capability tokens.
+
+## Foreground Execution And Interruption Model
+
+Same-SMB and mixed operations use persisted `ArchiveOperation` state for
+operation-scoped authorization, immutable source/destination metadata,
+cancellation, and terminal reporting. Streaming requests refresh a heartbeat.
+The backend monitor checks every 30 seconds and marks a nonterminal operation
+whose heartbeat is older than 120 seconds as `failed` with
+`archive_interrupted`. It does not restart, queue, or resume that operation;
+the user must prepare a new archive action.
+
+Direct local create and extract requests do not have a backend operation ID.
+Their foreground request is controlled by an in-memory `AbortController`. An
+abort ends the browser request, but the Companion's synchronous direct handler
+may already have written output. Do not claim server-side cancellation,
+rollback, cleanup, or completion for a direct-local request after its browser
+connection is interrupted.
 
 ## Storage Capabilities
 
@@ -327,24 +376,28 @@ browser command and shortcut registries.
 - ZIP is the only offered output format initially.
 
 Dialogs provide validation, conflict summaries, progress, cancellation, and
-responsive behavior using the existing settings-form dialog pattern. Operation
-status remains reachable after navigating away or reloading, identifies the
-current phase and member, reports files/bytes completed and remaining, and
-shows a pending-decision state. Dialogs and status views define initial focus,
-focus restoration, keyboard operation, screen-reader status announcements,
-error association, and non-color-only states.
+responsive behavior using the existing settings-form dialog pattern. Keep the
+active Create dialog and Archive Extract dialog open while their work is active;
+disable closing or starting a second extraction until work reaches a terminal
+result. Cancelling remains available in that dialog. Reload and navigation do
+not provide status re-entry or resumption: show a concise interruption notice
+after the best-effort cancellation attempt. Dialogs define initial focus, focus
+restoration, keyboard operation, screen-reader status announcements, error
+association, and non-color-only states.
 
 ## Archive Operations And Credentials
 
-Add a persisted `ArchiveOperation` separate from edit locks. It records user,
+Add a persisted `ArchiveOperation` separate from edit locks for backend-backed
+foreground work. It records user,
 source/destination locations, immutable manifest hash, executor, phase,
 heartbeat, archive-creation final target, extraction conflict policy, per-member
 outcome/checkpoint data, pending user decision, cancellation state, last
 reported error, and audit ID. A pending decision records the member identity,
 structured conflict or error details, allowed actions, and any proposed output
-path. The executor stores this state and releases its active request while the
-browser waits for the user; it never holds a streaming HTTP request open for a
-dialog.
+path. This state is not a durable worker contract: the executor is
+request-scoped and does not continue after the originating request, page, or
+process disappears. A terminal result may be inspected by the API for error
+handling, but the browser does not present a history or re-entry workflow.
 
 Use idempotent phase transitions:
 
@@ -413,23 +466,22 @@ all backend calls.
 | Local sources | SMB archive | Companion generates ZIP bytes and streams them directly to an exclusively created SMB archive target. |
 
 Archive creation and extraction both write directly to final destinations, and a
-mixed operation is never globally atomic. Durable state, idempotent requests,
-and heartbeats report progress while both sides are available. A failed,
-interrupted, or restarted operation reports the affected target paths and may
-leave partial output; it does not attempt automatic recovery, delayed cleanup,
-or rollback.
+mixed operation is never globally atomic. Durable state and heartbeats protect
+the request while both sides are available. A failed or interrupted operation
+may leave partial output; it does not continue after either side restarts and
+does not attempt automatic recovery, delayed cleanup, rollback, or resume.
 
 ## Resource Behavior
 
 Use bounded chunks, bounded parser buffers, cursor paging, cancellation checks,
 and deterministic handle closure. Use a 256 KiB archive I/O chunk for SMB ranges,
 HTTP frames, compression buffers, hashing, and writes, clamped by negotiated SMB
-limits. Coalesce simultaneous index builds for the same archive identity. Limit
-concurrent archive operations to two per user and four per provider, and queue
-excess work; this constrains operational concurrency, not supported archive size.
-Use a 64 MiB in-memory index budget and a 256 MiB temporary derived-metadata
-budget; fail with a resource-exhausted error before exceeding either. A single
-SMB inspection uses one connection and one archive handle.
+limits. Coalesce simultaneous index builds for the same archive identity. There
+is no archive worker queue in this release; request and provider limits must
+reject or wait within the active request rather than implying deferred work. Use
+a 64 MiB in-memory index budget and a 256 MiB temporary derived-metadata budget;
+fail with a resource-exhausted error before exceeding either. A single SMB
+inspection uses one connection and one archive handle.
 
 ## Tests And Delivery Order
 
@@ -453,16 +505,18 @@ preserves completed, replaced, and partial target output.
 
 Test operation credentials, phase idempotency, permission changes, token replay,
 credential reuse, range response integrity, idempotent chunk retries,
-write-session path scoping, pending collision/error decisions and resume,
-all four mixed SMB/local paths, and backend/Companion restarts that leave and
-report partial final targets. Test source-owner decoding across every mixed path,
+write-session path scoping, pending collision/error decisions, all four mixed
+SMB/local paths, and backend/Companion restarts that leave and report partial
+final targets without resuming work. Test source-owner decoding across every mixed path,
 the portable creation profile, capability changes between prepare and execution,
 and capability-plan hash rejection. Test archive-list
 cursors for stable ordering, no duplicates, omissions, or use after the archive
 identity changes.
 Test frontend navigation, read-only archive behavior, commands, dialogs,
 progress, cancellation, archive-aware breadcrumbs, physical and virtual
-breadcrumb navigation, and URL history.
+breadcrumb navigation, and URL history. Cover `pagehide`, `beforeunload`, and
+reload behavior: backend markers retry cancellation without clearing after a
+failed cancellation request; direct-local requests abort; neither flow resumes.
 
 Implement in this order:
 
@@ -470,7 +524,8 @@ Implement in this order:
 2. ZIP reader, metadata index, virtual navigation, and member streaming.
 3. Same-executor direct per-member extraction and direct exclusive archive
   creation.
-4. Durable operations, credentials, cancellation, auditing, and error status.
+4. Foreground backend-operation lifecycle, credentials, heartbeats,
+   cancellation, interruption expiry, auditing, and error status.
 5. Mixed SMB/local workflows.
 6. Encoding override and recovery UI.
 7. Separate format adapters for TAR variants, then evaluate 7z/RAR for parity,

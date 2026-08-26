@@ -96,6 +96,7 @@ describe("browserCommands", () => {
     archiveCommand?.run(context);
 
     expect(invoked).toBe(1);
+    expect(archiveCommand).toMatchObject({ defaultShortcutIds: ["create-archive"], shortcutLabel: "Alt+F5" });
     context.canCreateArchive = false;
     expect(getEnabledBrowserCommands(context).map((command) => command.id)).not.toContain("browser.createArchive");
   });

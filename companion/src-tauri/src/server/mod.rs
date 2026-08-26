@@ -85,7 +85,7 @@ fn build_router(state: Arc<AppState>) -> Router {
         .allow_origin(AllowOrigin::predicate(|origin, _| {
             origin.to_str().ok().map(auth::is_allowed_browser_origin_for_cors).unwrap_or(false)
         }))
-        .allow_methods([Method::GET, Method::POST, Method::DELETE])
+        .allow_methods([Method::GET, Method::POST, Method::PUT, Method::DELETE])
         .allow_headers([
             header::CONTENT_TYPE,
             header::ORIGIN,
@@ -132,8 +132,24 @@ fn build_router(state: Arc<AppState>) -> Router {
         .route("/api/browse/{drive}/upload", axum::routing::post(handlers::browse_upload))
         .route("/api/browse/{drive}/archive", axum::routing::post(handlers::browse_create_archive))
         .route(
+            "/api/browse/{drive}/archive/create-from-smb",
+            axum::routing::post(handlers::browse_create_archive_from_smb),
+        )
+        .route(
+            "/api/browse/{drive}/archive/create-to-smb",
+            axum::routing::post(handlers::browse_create_archive_to_smb),
+        )
+        .route(
             "/api/browse/{drive}/archive/extract",
             axum::routing::post(handlers::browse_extract_archive),
+        )
+        .route(
+            "/api/browse/{drive}/archive/extract-to-smb",
+            axum::routing::post(handlers::browse_extract_archive_to_smb),
+        )
+        .route(
+            "/api/browse/{drive}/archive/extract-from-smb",
+            axum::routing::post(handlers::browse_extract_archive_from_smb),
         )
         .layer(axum::middleware::from_fn_with_state(state.clone(), auth::require_auth));
 

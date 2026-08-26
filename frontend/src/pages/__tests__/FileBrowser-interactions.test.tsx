@@ -248,6 +248,39 @@ describe("Browser Component - Interactions", () => {
       });
     });
 
+    it("creates an archive from the active right pane and names its target directory", async () => {
+      const user = userEvent.setup();
+      const { container } = renderBrowser("/browse/smb/test-server-1");
+
+      await waitFor(() => {
+        expect(screen.getAllByText("Documents").length).toBeGreaterThan(0);
+      });
+      await user.keyboard("{Control>}b{/Control}");
+
+      const rightPane = await waitFor(() => {
+        const pane = container.querySelector('[data-pane-id="right"]');
+        expect(pane).toBeInstanceOf(HTMLElement);
+        return pane as HTMLElement;
+      });
+      await user.click(within(rightPane).getByRole("button", { name: /folder: documents/i }));
+      await waitFor(() => {
+        expect(within(rightPane).getByText("readme.txt")).toBeInTheDocument();
+      });
+
+      await user.click(within(rightPane).getByTestId("virtual-list"));
+      await waitFor(() => {
+        expect(localStorage.getItem("active-pane")).toBe("right");
+      });
+      const event = createEvent.keyDown(document, { key: "F5", altKey: true });
+      fireEvent(document, event);
+
+      expect(event.defaultPrevented).toBe(true);
+      const directory = await screen.findByTestId("archive-create-prompt-directory");
+      expect(directory).toHaveTextContent("Test Server 1:/Documents");
+      expect(directory.tagName).toBe("CODE");
+      expect(directory.parentElement).toHaveTextContent("Create a ZIP archive in Test Server 1:/Documents from 1 selected item.");
+    });
+
     it("reuses the current left-pane directory contents when opening dual-pane on the same target", async () => {
       const user = userEvent.setup();
       const { container } = renderBrowser("/browse/smb/test-server-1");
@@ -614,7 +647,7 @@ describe("Browser Component - Interactions", () => {
       });
     });
 
-    it("returns focus to the file list after closing the ZIP archive browser", async () => {
+    it("returns focus to the file list after navigating up from ZIP archive root", async () => {
       const user = userEvent.setup();
 
       vi.mocked(api.listDirectory).mockResolvedValue({
@@ -649,9 +682,8 @@ describe("Browser Component - Interactions", () => {
       const virtualList = await screen.findByTestId("virtual-list");
       await user.click(virtualList);
       await user.keyboard("{Enter}");
-      const closeArchiveButton = await screen.findByRole("button", { name: "Close archive browser" });
-
-      await user.click(closeArchiveButton);
+      await screen.findByText("temp.zip");
+      await user.keyboard("{Backspace}");
 
       await waitFor(() => {
         expect(screen.getByTestId("file-list-container")).toHaveFocus();
@@ -662,6 +694,47 @@ describe("Browser Component - Interactions", () => {
       await waitFor(() => {
         expect(screen.getByTestId("status-bar-focused-file-name")).toHaveTextContent("zebra.txt");
       });
+    });
+
+    it("does not open physical mutation dialogs from archive keyboard shortcuts", async () => {
+      const user = userEvent.setup();
+
+      vi.mocked(api.listDirectory).mockResolvedValue({
+        path: "",
+        items: [
+          {
+            name: "temp.zip",
+            path: "temp.zip",
+            type: FileType.FILE,
+            size: 102400,
+            modified_at: "2024-01-01T00:00:00Z",
+            mime_type: "application/zip",
+            is_readable: true,
+            is_hidden: false,
+          },
+        ],
+        total: 1,
+      });
+      vi.mocked(api.listArchiveDirectory).mockResolvedValue({
+        archive: { path: "temp.zip", size: 102400 },
+        path: "",
+        items: [{ name: "inside.txt", path: "inside.txt", type: FileType.FILE, state: "readable", is_hidden: false }],
+        total: 1,
+        page_size: 100,
+      });
+
+      renderBrowser("/browse/smb/test-server-1");
+
+      const virtualList = await screen.findByTestId("virtual-list");
+      await user.click(virtualList);
+      await user.keyboard("{Enter}");
+      await screen.findByRole("button", { name: /inside.txt/i });
+
+      await user.keyboard("{Delete}{F2}{F7}{Shift>}{F7}{/Shift}");
+
+      expect(screen.queryByText(/will be permanently deleted/i)).not.toBeInTheDocument();
+      expect(screen.queryByRole("dialog", { name: /rename/i })).not.toBeInTheDocument();
+      expect(screen.queryByRole("dialog", { name: /create/i })).not.toBeInTheDocument();
     });
 
     it("opens the saved preferred Sambee viewer on Enter even when it is outside the default compatible subset", async () => {

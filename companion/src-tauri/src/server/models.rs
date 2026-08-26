@@ -107,6 +107,25 @@ pub struct ArchiveCreateRequest {
     pub target_path: String,
 }
 
+/// Request to create a local ZIP from scoped SMB source members.
+#[derive(Debug, Deserialize)]
+pub struct ArchiveCreateFromSmbRequest {
+    pub target_path: String,
+    pub server_url: String,
+    pub operation_id: String,
+    pub operation_token: String,
+}
+
+/// Request to create a scoped SMB ZIP from local source paths.
+#[derive(Debug, Deserialize)]
+pub struct ArchiveCreateToSmbRequest {
+    pub source_paths: Vec<String>,
+    pub target_path: String,
+    pub server_url: String,
+    pub operation_id: String,
+    pub operation_token: String,
+}
+
 /// Summary returned after a local archive has been written directly.
 #[derive(Debug, Serialize)]
 pub struct ArchiveCreationResponse {
@@ -120,6 +139,24 @@ pub struct ArchiveCreationResponse {
 pub struct ArchiveExtractRequest {
     pub archive_path: String,
     pub destination_path: String,
+}
+
+/// Request to relay a local ZIP extraction to a scoped SMB archive operation.
+#[derive(Debug, Deserialize)]
+pub struct ArchiveExtractToSmbRequest {
+    pub archive_path: String,
+    pub server_url: String,
+    pub operation_id: String,
+    pub operation_token: String,
+}
+
+/// Request to extract a scoped SMB ZIP into a new local destination directory.
+#[derive(Debug, Deserialize)]
+pub struct ArchiveExtractFromSmbRequest {
+    pub destination_path: String,
+    pub server_url: String,
+    pub operation_id: String,
+    pub operation_token: String,
 }
 
 /// Summary returned after a local archive extraction completes.

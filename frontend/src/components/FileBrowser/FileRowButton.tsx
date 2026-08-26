@@ -8,6 +8,7 @@ interface FileRowButtonProps {
   onClick?: React.MouseEventHandler<HTMLButtonElement>;
   onContextMenu?: React.MouseEventHandler<HTMLButtonElement>;
   tabIndex?: number;
+  disabled?: boolean;
   ariaLabel?: string;
   dataSelected?: string;
 }
@@ -34,7 +35,7 @@ const fileRowButtonBaseSx: SxProps<Theme> = {
 };
 
 export const FileRowButton = React.forwardRef<HTMLButtonElement, FileRowButtonProps>(
-  ({ children, sx, onClick, onContextMenu, tabIndex = -1, ariaLabel, dataSelected }, ref) => (
+  ({ children, sx, onClick, onContextMenu, tabIndex = -1, disabled = false, ariaLabel, dataSelected }, ref) => (
     <ButtonBase
       ref={ref}
       type="button"
@@ -42,6 +43,7 @@ export const FileRowButton = React.forwardRef<HTMLButtonElement, FileRowButtonPr
       disableTouchRipple
       focusRipple={false}
       tabIndex={tabIndex}
+      disabled={disabled}
       aria-label={ariaLabel}
       data-selected={dataSelected}
       onClick={onClick}

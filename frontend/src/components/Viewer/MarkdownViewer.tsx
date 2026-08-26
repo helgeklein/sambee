@@ -23,6 +23,7 @@ import {
 } from "../../config/keyboardShortcuts";
 import { checkIsTransientError, getTransientErrorMessage, useApiRetry } from "../../hooks/useApiRetry";
 import { useKeyboardShortcuts } from "../../hooks/useKeyboardShortcuts";
+import { readViewerContent, readVirtualContent } from "../../pages/FileBrowser/contentProviders";
 import { useTextEditorWordWrapPreference } from "../../pages/FileBrowser/preferences";
 import apiService from "../../services/api";
 import { clearDraft, type DraftSnapshot, loadDraft, registerDraftSnapshot, saveDraft } from "../../services/draftRecovery";
@@ -72,6 +73,7 @@ import { areMarkdownSearchStatesEqual } from "./markdownSearchState";
 import { normalizeMarkdownTableCellLineBreaks, remarkRenderMarkdownTableCellLineBreaks } from "./markdownTableCellLineBreaks";
 import { useMarkdownEditSession } from "./useMarkdownEditSession";
 import { VIEWER_SEARCH_INPUT_ATTRIBUTE, ViewerControls, ViewerFilenameBadge } from "./ViewerControls";
+import { downloadViewerBlob } from "./viewerContent";
 import { createEditToolbarAction, createSaveToolbarAction } from "./viewerToolbarActions";
 import "highlight.js/styles/github.css";
 
@@ -175,7 +177,14 @@ function preserveMarkdownEditorSelection(editorRef: React.RefObject<MarkdownRich
  * Displays markdown files with syntax highlighting and GitHub-flavored markdown support.
  * Integrated with ViewerControls and keyboard shortcuts system.
  */
-export const MarkdownViewer: React.FC<ViewerComponentProps> = ({ connectionId, path, onClose, isReadOnly = false }) => {
+export const MarkdownViewer: React.FC<ViewerComponentProps> = ({
+  connectionId,
+  path,
+  onClose,
+  isReadOnly: connectionIsReadOnly = false,
+  virtualSource,
+}) => {
+  const isReadOnly = connectionIsReadOnly || virtualSource !== undefined;
   const { t } = useTranslation();
   const [content, setContent] = useState<string>("");
   const [draftContent, setDraftContent] = useState<string>("");
@@ -412,14 +421,20 @@ export const MarkdownViewer: React.FC<ViewerComponentProps> = ({ connectionId, p
       try {
         setLoading(true);
         setError(null);
-        const data = await fetchWithRetry(() => apiService.getFileContent(connectionId, path), {
-          signal: abortController.signal,
-          maxRetries: 1,
-          retryDelay: 1000,
-        });
+        const data = await fetchWithRetry(
+          () =>
+            readViewerContent(connectionId, path, { kind: "text" }, { signal: abortController.signal, virtualSource }).then((blob) =>
+              blob.text()
+            ),
+          {
+            signal: abortController.signal,
+            maxRetries: 1,
+            retryDelay: 1000,
+          }
+        );
         const normalizedData = normalizeMarkdownTableCellLineBreaks(data);
         setContent(normalizedData);
-        if (!isEditingRef.current) {
+        if (!isEditingRef.current && !isReadOnly) {
           const recoveredDraft = loadDraft(connectionId, path, "markdown");
           const nextDraft = recoveredDraft?.baseline === normalizedData ? recoveredDraft.content : normalizedData;
           setDraftContent(nextDraft);
@@ -458,7 +473,7 @@ export const MarkdownViewer: React.FC<ViewerComponentProps> = ({ connectionId, p
       abortController.abort();
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [connectionId, fetchWithRetry, path, setEditBaselineContent]);
+  }, [connectionId, fetchWithRetry, isReadOnly, path, setEditBaselineContent, virtualSource]);
 
   useEffect(() => {
     if (!isEditing || draftContent === editBaselineContentRef.current) {
@@ -616,12 +631,16 @@ export const MarkdownViewer: React.FC<ViewerComponentProps> = ({ connectionId, p
   const handleDownload = useCallback(
     async (_event?: KeyboardEvent) => {
       try {
+        if (virtualSource) {
+          downloadViewerBlob(await readVirtualContent(virtualSource, path, { download: true }), filename);
+          return;
+        }
         await apiService.downloadFile(connectionId, path, filename);
       } catch (err) {
         logError("Failed to download file", { error: err, path, connectionId });
       }
     },
-    [connectionId, path, filename]
+    [connectionId, path, filename, virtualSource]
   );
 
   const loadShareFile = useCallback(
@@ -634,7 +653,9 @@ export const MarkdownViewer: React.FC<ViewerComponentProps> = ({ connectionId, p
         return sharePrefetchPromiseRef.current;
       }
 
-      const shareFilePromise = apiService.getFileBlob(connectionId, path, { signal }).then((blob) => createShareFile(blob, filename));
+      const shareFilePromise = readViewerContent(connectionId, path, { kind: "raw" }, { signal, virtualSource }).then((blob) =>
+        createShareFile(blob, filename)
+      );
       sharePrefetchPromiseRef.current = shareFilePromise;
 
       try {
@@ -645,7 +666,7 @@ export const MarkdownViewer: React.FC<ViewerComponentProps> = ({ connectionId, p
         }
       }
     },
-    [connectionId, filename, path]
+    [connectionId, filename, path, virtualSource]
   );
 
   useEffect(() => {

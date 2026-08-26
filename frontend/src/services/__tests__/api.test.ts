@@ -875,6 +875,49 @@ describe("API Service", () => {
       expect(url).not.toContain("token=");
     });
 
+    it("getOriginalFileBlob() fetches untransformed bytes from the download endpoint", async () => {
+      authSession.setAuthenticated({ access_token: "download-token", token_type: "bearer", username: "testuser" }, false);
+      const controller = new AbortController();
+      const blob = new Blob(["original"]);
+      fetchMock.mockResolvedValueOnce({ ok: true, blob: vi.fn().mockResolvedValueOnce(blob) });
+
+      await expect(apiService.getOriginalFileBlob("conn1", "/photos/image.jxl", { signal: controller.signal })).resolves.toBe(blob);
+
+      expect(fetchMock).toHaveBeenCalledWith("http://localhost:3000/api/viewer/conn1/download?path=%2Fphotos%2Fimage.jxl", {
+        headers: { Authorization: "Bearer download-token" },
+        signal: controller.signal,
+      });
+    });
+
+    it("uses device-pixel viewport dimensions for physical and archive images", async () => {
+      vi.stubGlobal("devicePixelRatio", 2);
+      mockAxiosInstance.get
+        .mockResolvedValueOnce({ data: new Blob(["archive"]), headers: {} } as AxiosResponse)
+        .mockResolvedValueOnce({ data: new ArrayBuffer(0), headers: {} } as AxiosResponse);
+
+      await apiService.getArchiveMember("conn1", "photos.zip", "photos/image.jxl", {
+        request: { kind: "image", viewportWidth: 640, viewportHeight: 360 },
+      });
+      await apiService.getImageBlob("conn1", "photos/image.jxl", { viewportWidth: 640, viewportHeight: 360 });
+
+      expect(mockAxiosInstance.get).toHaveBeenNthCalledWith(
+        1,
+        "/viewer/conn1/archive/member",
+        expect.objectContaining({
+          params: expect.objectContaining({ viewport_width: 1280, viewport_height: 720 }),
+          responseType: "blob",
+        })
+      );
+      expect(mockAxiosInstance.get).toHaveBeenNthCalledWith(
+        2,
+        "/viewer/conn1/file",
+        expect.objectContaining({
+          params: expect.objectContaining({ path: "photos/image.jxl", viewport_width: 1280, viewport_height: 720 }),
+          responseType: "arraybuffer",
+        })
+      );
+    });
+
     it("getFileContent() fetches file content as text", async () => {
       localStorage.setItem("access_token", "content-token");
 

@@ -128,12 +128,14 @@ def convert_image_for_viewer(
 
             return result_bytes, mime_type, converter_name, duration_ms
 
-        except PreprocessorError as e:
-            # Preprocessing failed - provide helpful error
-            raise ValueError(f"Failed to convert {extension.upper()} file: {str(e)}") from e
-        except Exception as e:
-            # Conversion error
-            raise ValueError(f"Failed to convert {extension.upper()} file: {str(e)}") from e
+        except PreprocessorError:
+            file_type = extension.lstrip(".").upper()
+            logger.warning("Could not prepare %s for preview.", filename, exc_info=True)
+            raise ValueError(f"Unable to preview this {file_type} file. The file may be invalid or corrupted.") from None
+        except Exception:
+            logger.exception("Unexpected error preparing %s for preview.", filename)
+            file_type = extension.lstrip(".").upper()
+            raise ValueError(f"Unable to preview this {file_type} file. The file may be invalid or corrupted.") from None
 
     # Path 2: libvips conversion for all other formats
     try:

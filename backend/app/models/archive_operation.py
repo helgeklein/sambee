@@ -28,6 +28,9 @@ TERMINAL_ARCHIVE_OPERATION_PHASES = frozenset(
     {ArchiveOperationPhase.COMPLETED, ArchiveOperationPhase.CANCELLED, ArchiveOperationPhase.FAILED}
 )
 
+ARCHIVE_OPERATION_HEARTBEAT_TIMEOUT_SECONDS = 120
+ARCHIVE_OPERATION_ORPHAN_CHECK_INTERVAL_SECONDS = 30
+
 
 class ArchiveOperation(SQLModel, table=True):
     """State that lets direct archive output report progress after a request ends."""
@@ -94,6 +97,60 @@ class ArchiveCompanionSession(SQLModel):
     token: str
     expires_in: int
     operation: ArchiveOperationRead
+
+
+class ArchiveCompanionManifestEntry(SQLModel):
+    """One validated ZIP member that Companion may write to its local destination."""
+
+    path: str
+    is_directory: bool
+    uncompressed_size: int
+
+
+class ArchiveCompanionExtractionManifest(SQLModel):
+    """Safe, complete member manifest for one scoped SMB-to-local extraction."""
+
+    operation: ArchiveOperationRead
+    entries: list[ArchiveCompanionManifestEntry]
+
+
+class ArchiveCompanionExtractionSummary(SQLModel):
+    """Counts reported by the paired Companion after local extraction."""
+
+    files_extracted: int = Field(ge=0)
+    directories_created: int = Field(ge=0)
+    extracted_bytes: int = Field(ge=0)
+
+
+class ArchiveCompanionFailure(SQLModel):
+    """A bounded executor failure description safe to persist on an operation."""
+
+    message: str = Field(min_length=1, max_length=500)
+
+
+class ArchiveCompanionCreationManifestEntry(SQLModel):
+    """One validated SMB source item that Companion may add to a local ZIP."""
+
+    source_path: str
+    archive_path: str
+    is_directory: bool
+    source_size: int = Field(ge=0)
+    modified_at: datetime | None = None
+
+
+class ArchiveCompanionCreationManifest(SQLModel):
+    """Complete portable ZIP creation manifest for a local Companion executor."""
+
+    operation: ArchiveOperationRead
+    entries: list[ArchiveCompanionCreationManifestEntry]
+
+
+class ArchiveCompanionCreationSummary(SQLModel):
+    """Counts reported by the paired Companion after writing a local ZIP."""
+
+    files_created: int = Field(ge=0)
+    directories_created: int = Field(ge=0)
+    source_bytes: int = Field(ge=0)
 
 
 class ArchiveExtractionDecision(SQLModel):
