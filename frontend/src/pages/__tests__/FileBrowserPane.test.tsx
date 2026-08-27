@@ -243,6 +243,7 @@ function createMockPane(overrides: Partial<UseFileBrowserPaneReturn> = {}): UseF
     handleClose: vi.fn(),
     handleFocusSearch: vi.fn(),
     handleRefresh: vi.fn(),
+    reloadCurrentLocation: vi.fn(),
 
     // Viewer handlers
     handleViewIndexChange: vi.fn(),
@@ -271,7 +272,6 @@ function createMockPane(overrides: Partial<UseFileBrowserPaneReturn> = {}): UseF
     handleDirectoryChanged: vi.fn(),
     clearCaches: vi.fn(),
     invalidateConnectionCache: vi.fn(),
-    loadFiles: vi.fn(),
 
     ...overrides,
   };

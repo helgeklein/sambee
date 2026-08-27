@@ -161,10 +161,10 @@ def _expected_companion_creation_summary(operation: ArchiveOperation) -> Archive
         if not isinstance(entry, dict) or not isinstance(entry.get("is_directory"), bool):
             raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="Archive operation checkpoint is invalid")
         source_identity = entry.get("source_identity")
-        if not isinstance(source_identity, dict) or type(source_identity.get("size")) is not int:
+        if not isinstance(source_identity, dict):
             raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="Archive operation checkpoint is invalid")
-        size = source_identity["size"]
-        if size < 0:
+        size = source_identity.get("size")
+        if type(size) is not int or size < 0:
             raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="Archive operation checkpoint is invalid")
         if entry["is_directory"]:
             directories_created += 1
@@ -188,7 +188,10 @@ async def _ensure_mixed_archive_parent_directories(
 
     created = 0
     root_parts = destination_root.replace("\\", "/").strip("/").split("/")
-    parent_parts = target_path.split("/")[:-1]
+    target_parts = target_path.replace("\\", "/").strip("/").split("/")
+    if target_parts[: len(root_parts)] != root_parts:
+        raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_CONTENT, detail="Archive output path is outside its destination root")
+    parent_parts = target_parts[:-1]
     for index in range(len(root_parts) + 1, len(parent_parts) + 1):
         path = "/".join(parent_parts[:index])
         try:

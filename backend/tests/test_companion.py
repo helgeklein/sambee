@@ -448,15 +448,13 @@ class TestLockLifecycle:
         assert response.status_code == 409
 
     #
-    # test_same_user_relock
-    #
-    def test_same_user_relock(
+    def test_same_user_relock_is_rejected(
         self,
         client: TestClient,
         test_connection: Connection,
         admin_companion_session: str,
     ):
-        """Same user can re-lock a file they already hold."""
+        """A second Companion session for the same user cannot acquire the active lock."""
 
         # First lock
         first_response = client.post(
@@ -465,15 +463,13 @@ class TestLockLifecycle:
             headers=build_bootstrap_headers(admin_companion_session),
         )
 
-        # Re-lock by same user
         response = client.post(
             f"/api/companion/{test_connection.id}/lock",
             params={"path": "/docs/report.docx"},
             headers=build_bootstrap_headers(admin_companion_session),
         )
-        assert response.status_code == 200
-        assert response.json()["lock_capability"] == first_response.json()["lock_capability"]
-        assert response.json()["operation_id"] == first_response.json()["operation_id"]
+        assert first_response.status_code == 200
+        assert response.status_code == 409
 
     def test_same_user_relock_replaces_malformed_legacy_lock(
         self,

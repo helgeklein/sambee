@@ -21,6 +21,7 @@ import uuid
 from datetime import datetime, timezone
 from typing import ClassVar
 
+from sqlalchemy import Index
 from sqlmodel import Field, SQLModel
 
 
@@ -34,6 +35,7 @@ class EditLock(SQLModel, table=True):
     """
 
     __tablename__: ClassVar[str] = "edit_locks"
+    __table_args__: ClassVar[tuple[Index]] = (Index("uq_edit_locks_connection_path", "connection_id", "file_path", unique=True),)
 
     id: uuid.UUID = Field(default_factory=uuid.uuid4, primary_key=True)
     file_path: str = Field(index=True)

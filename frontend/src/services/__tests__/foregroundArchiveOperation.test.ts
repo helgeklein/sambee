@@ -26,6 +26,14 @@ describe("foreground archive operation tracking", () => {
     expect(loadForegroundArchiveOperation()).toBeNull();
   });
 
+  it("persists an opaque recovery handle for adapter-owned archive work", () => {
+    const recovery = { schemaVersion: 1, backendKind: "smb" as const, opaqueOperationId: "operation-a", expiresAt: Date.now() + 60_000 };
+
+    storeForegroundArchiveOperation(recovery);
+
+    expect(loadForegroundArchiveOperation()).toMatchObject({ operationId: "operation-a", recovery });
+  });
+
   it("sends a credentialed keepalive cancellation request", () => {
     const fetchSpy = vi.spyOn(globalThis, "fetch").mockResolvedValue(new Response(null, { status: 204 }));
 

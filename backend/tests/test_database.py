@@ -15,6 +15,7 @@ from unittest.mock import patch
 
 import pytest
 from sqlalchemy import inspect, text
+from sqlalchemy.exc import IntegrityError
 from sqlmodel import Session, SQLModel, create_engine, select
 
 from app.db.migrations import MIGRATION_TABLE_NAME, MIGRATIONS, run_migrations
@@ -354,6 +355,112 @@ class TestDatabaseEngine:
 
                 applied_versions = set(connection.execute(text(f"SELECT version FROM {MIGRATION_TABLE_NAME}")).scalars().all())
                 assert 11 in applied_versions
+        finally:
+            test_engine.dispose()
+
+    def test_run_migrations_enforces_unique_edit_lock_targets(self, tmp_path: Path):
+        """Duplicate historical locks are reduced to the most recently active row before enforcing uniqueness."""
+        db_path = tmp_path / "duplicate-edit-locks.db"
+        test_engine = create_engine(f"sqlite:///{db_path}")
+
+        try:
+            with test_engine.begin() as connection:
+                connection.execute(
+                    text(
+                        f"""
+                        CREATE TABLE {MIGRATION_TABLE_NAME} (
+                            version INTEGER PRIMARY KEY,
+                            name TEXT NOT NULL,
+                            applied_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+                        )
+                        """
+                    )
+                )
+                connection.execute(
+                    text(
+                        """
+                        CREATE TABLE edit_locks (
+                            id CHAR(32) NOT NULL PRIMARY KEY,
+                            file_path VARCHAR NOT NULL,
+                            connection_id CHAR(32) NOT NULL,
+                            locked_by VARCHAR NOT NULL,
+                            operation_id VARCHAR NOT NULL DEFAULT '',
+                            locked_at DATETIME NOT NULL,
+                            lock_capability VARCHAR NOT NULL DEFAULT '',
+                            last_heartbeat DATETIME NOT NULL
+                        )
+                        """
+                    )
+                )
+                connection.execute(
+                    text(
+                        """
+                        INSERT INTO edit_locks (
+                            id, file_path, connection_id, locked_by, operation_id, locked_at, lock_capability, last_heartbeat
+                        ) VALUES (
+                            :id, :file_path, :connection_id, :locked_by, :operation_id, :locked_at, :lock_capability, :last_heartbeat
+                        )
+                        """
+                    ),
+                    [
+                        {
+                            "id": "a" * 32,
+                            "file_path": "/docs/report.docx",
+                            "connection_id": "b" * 32,
+                            "locked_by": "alice",
+                            "operation_id": "first",
+                            "locked_at": "2026-08-27 12:00:00",
+                            "lock_capability": "first-capability",
+                            "last_heartbeat": "2026-08-27 12:00:00",
+                        },
+                        {
+                            "id": "c" * 32,
+                            "file_path": "/docs/report.docx",
+                            "connection_id": "b" * 32,
+                            "locked_by": "alice",
+                            "operation_id": "second",
+                            "locked_at": "2026-08-27 12:01:00",
+                            "lock_capability": "second-capability",
+                            "last_heartbeat": "2026-08-27 12:01:00",
+                        },
+                    ],
+                )
+                connection.execute(
+                    text(f"INSERT INTO {MIGRATION_TABLE_NAME} (version, name) VALUES (:version, :name)"),
+                    [{"version": migration.version, "name": migration.name} for migration in MIGRATIONS if migration.version < 29],
+                )
+
+            run_migrations(test_engine)
+
+            with test_engine.connect() as connection:
+                remaining_locks = connection.execute(text("SELECT id FROM edit_locks")).scalars().all()
+                assert remaining_locks == ["c" * 32]
+                indexes = {index["name"]: index for index in inspect(connection).get_indexes("edit_locks")}
+                assert indexes["uq_edit_locks_connection_path"]["unique"]
+
+            with pytest.raises(IntegrityError):
+                with test_engine.begin() as connection:
+                    connection.execute(
+                        text(
+                            """
+                            INSERT INTO edit_locks (
+                                id, file_path, connection_id, locked_by, operation_id, locked_at, lock_capability, last_heartbeat
+                            ) VALUES (
+                                :id, :file_path, :connection_id, :locked_by, :operation_id, :locked_at, :lock_capability, :last_heartbeat
+                            )
+                            """
+                        ),
+                        {
+                            "id": "d" * 32,
+                            "file_path": "/docs/report.docx",
+                            "connection_id": "b" * 32,
+                            "locked_by": "bob",
+                            "operation_id": "third",
+                            "locked_at": "2026-08-27 12:02:00",
+                            "lock_capability": "third-capability",
+                            "last_heartbeat": "2026-08-27 12:02:00",
+                        },
+                    )
         finally:
             test_engine.dispose()
 

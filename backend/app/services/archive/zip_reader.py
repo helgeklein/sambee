@@ -348,7 +348,6 @@ class ZipReader:
         local_flags = _u16(local_header, 6)
         local_method = _u16(local_header, 8)
         local_name_length = _u16(local_header, 26)
-        local_extra_length = _u16(local_header, 28)
         if local_flags != entry.flags:
             raise ArchiveFormatError("ZIP local header flags do not match central directory")
         if local_method != entry.compression_method:

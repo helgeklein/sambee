@@ -10,7 +10,8 @@ vi.mock("react-i18next", () => ({
 }));
 
 const defaultProps = {
-  archivePath: "backups/project.zip",
+  archiveName: "project.zip",
+  initialDestinationName: "project",
   open: true,
   isExtracting: false,
   error: null as string | null,
@@ -19,10 +20,10 @@ const defaultProps = {
 };
 
 describe("ArchiveExtractDialog", () => {
-  it("prefills a sibling directory named after the archive", () => {
+  it("prefills the provider-supplied destination name", () => {
     render(<ArchiveExtractDialog {...defaultProps} />);
 
-    expect(screen.getByLabelText("fileBrowser.archive.destinationLabel")).toHaveValue("backups/project");
+    expect(screen.getByLabelText("fileBrowser.archive.destinationLabel")).toHaveValue("project");
   });
 
   it("rejects traversal destination paths", async () => {

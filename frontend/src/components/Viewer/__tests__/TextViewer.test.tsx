@@ -123,7 +123,7 @@ async function enterEditMode(): Promise<HTMLElement> {
   fireEvent.click(editButton);
 
   await waitFor(() => {
-    expect(apiService.acquireEditLock).toHaveBeenCalledWith("conn1", "/docs/readme.txt", expect.any(String));
+    expect(apiService.acquireEditLock).toHaveBeenCalledWith("conn1", "/docs/readme.txt");
   });
 
   return screen.getByRole("textbox", { name: "Text editor" });
@@ -137,12 +137,14 @@ describe("TextViewer", () => {
     vi.spyOn(apiService, "getFileContent").mockResolvedValue("hello world");
     vi.spyOn(apiService, "acquireEditLock").mockResolvedValue({
       lock_id: "lock-1",
+      lock_capability: "capability-1",
+      operation_id: "operation-1",
       file_path: "/docs/readme.txt",
       locked_by: "alice",
       locked_at: "2026-03-23T12:00:00Z",
     });
     vi.spyOn(apiService, "releaseEditLock").mockResolvedValue();
-    vi.spyOn(apiService, "saveTextFile").mockResolvedValue();
+    vi.spyOn(apiService, "writeTextWithEditLock").mockResolvedValue();
     vi.spyOn(apiService, "downloadFile").mockResolvedValue();
     vi.spyOn(apiService, "getFileBlob").mockResolvedValue(new Blob(["test"]));
     mockTextEditorCommands.nextSearchResult.mockReset();
@@ -225,7 +227,13 @@ describe("TextViewer", () => {
     fireEvent.click(screen.getByRole("button", { name: /save/i }));
 
     await waitFor(() => {
-      expect(apiService.saveTextFile).toHaveBeenCalledWith("conn1", "/docs/readme.txt", "updated text", { filename: "readme.txt" });
+      expect(apiService.writeTextWithEditLock).toHaveBeenCalledWith(
+        "conn1",
+        "/docs/readme.txt",
+        "updated text",
+        { lock_id: "lock-1", lock_capability: "capability-1", operation_id: "operation-1" },
+        { mimeType: undefined }
+      );
     });
   });
 

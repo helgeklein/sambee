@@ -10,7 +10,7 @@ interface ArchiveExtractionConflictDialogProps {
   isSubmitting: boolean;
   error: string | null;
   onDecision: (
-    action: "skip" | "skip_all" | "replace" | "replace_all" | "rename" | "cancel",
+    action: "skip" | "skip_all" | "replace" | "replace_all" | "replace_older" | "rename" | "cancel",
     memberPath?: string,
     targetPath?: string
   ) => void;
@@ -82,6 +82,9 @@ export function ArchiveExtractionConflictDialog({
             startIcon={isSubmitting ? <CircularProgress size={16} /> : undefined}
           >
             {t("fileBrowser.archive.buttonReplaceAll")}
+          </Button>
+          <Button onClick={() => onDecision("replace_older")} disabled={isSubmitting}>
+            {t("fileBrowser.archive.buttonReplaceOlder")}
           </Button>
         </>
       }

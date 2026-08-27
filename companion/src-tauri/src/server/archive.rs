@@ -1062,7 +1062,9 @@ fn should_store(probe: &[u8]) -> Result<bool, LocalArchiveError> {
     Ok(savings < STORED_SAVINGS_BYTES && (savings as f64 / probe.len() as f64) < STORED_SAVINGS_RATIO)
 }
 
-fn receive_compression_probe(chunks: &mut Receiver<LocalArchiveRelayChunk>) -> Result<(Vec<u8>, Option<Vec<u8>>, bool), LocalArchiveError> {
+type CompressionProbe = (Vec<u8>, Option<Vec<u8>>, bool);
+
+fn receive_compression_probe(chunks: &mut Receiver<LocalArchiveRelayChunk>) -> Result<CompressionProbe, LocalArchiveError> {
     let mut probe = Vec::with_capacity(ARCHIVE_COPY_BUFFER_SIZE);
     while probe.len() < ARCHIVE_COPY_BUFFER_SIZE {
         match chunks.blocking_recv() {

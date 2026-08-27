@@ -12,7 +12,6 @@
 
 import axios from "axios";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import apiService from "../services/api";
 import { isLocalAbortError } from "../services/backendAvailability";
 import { error as logError, logger, info as logInfo } from "../services/logger";
 import { isApiError } from "../types";
@@ -49,7 +48,7 @@ export interface UseImageGalleryDataParams {
   connectionId: string;
   images: string[];
   gallerySourceKey?: string;
-  loadImageBlob?: (path: string, options: { signal: AbortSignal; viewportWidth: number; viewportHeight: number }) => Promise<Blob>;
+  loadImageBlob: (path: string, options: { signal: AbortSignal; viewportWidth: number; viewportHeight: number }) => Promise<Blob>;
   initialIndex?: number;
   onIndexChange?: (index: number) => void;
   spinnerDelayMs?: number;
@@ -614,17 +613,11 @@ export const useCachedImageGallery = ({
 
         while (blob === null) {
           try {
-            blob = await (loadImageBlob
-              ? loadImageBlob(imagePath, {
-                  signal: abortController.signal,
-                  viewportWidth,
-                  viewportHeight,
-                })
-              : apiService.getImageBlob(connectionId, imagePath, {
-                  signal: abortController.signal,
-                  viewportWidth,
-                  viewportHeight,
-                }));
+            blob = await loadImageBlob(imagePath, {
+              signal: abortController.signal,
+              viewportWidth,
+              viewportHeight,
+            });
           } catch (err) {
             if (axios.isCancel(err) || isLocalAbortError(err)) {
               logInfo("Image fetch aborted", { index });

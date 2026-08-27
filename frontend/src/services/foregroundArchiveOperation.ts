@@ -1,5 +1,6 @@
 import { authSession } from "./authSession";
 import { getServerBaseUrl } from "./backendRouter";
+import type { StorageRecoveryHandle } from "./storageContracts";
 
 const FOREGROUND_ARCHIVE_OPERATION_STORAGE_KEY = "sambee:foreground-archive-operation";
 const FOREGROUND_ARCHIVE_OPERATION_TTL_MS = 24 * 60 * 60_000;
@@ -9,6 +10,21 @@ let localArchiveAbortController: AbortController | null = null;
 export interface ForegroundArchiveOperation {
   operationId: string;
   startedAt: number;
+  recovery?: StorageRecoveryHandle;
+}
+
+function isStorageRecoveryHandle(value: unknown): value is StorageRecoveryHandle {
+  if (typeof value !== "object" || value === null) {
+    return false;
+  }
+  const handle = value as Partial<StorageRecoveryHandle>;
+  return (
+    handle.schemaVersion === 1 &&
+    (handle.backendKind === "smb" || handle.backendKind === "local") &&
+    typeof handle.opaqueOperationId === "string" &&
+    handle.opaqueOperationId.length > 0 &&
+    typeof handle.expiresAt === "number"
+  );
 }
 
 function isForegroundArchiveOperation(value: unknown): value is ForegroundArchiveOperation {
@@ -16,19 +32,27 @@ function isForegroundArchiveOperation(value: unknown): value is ForegroundArchiv
     return false;
   }
   const marker = value as Partial<ForegroundArchiveOperation>;
-  return typeof marker.operationId === "string" && marker.operationId.length > 0 && typeof marker.startedAt === "number";
+  return (
+    typeof marker.operationId === "string" &&
+    marker.operationId.length > 0 &&
+    typeof marker.startedAt === "number" &&
+    (marker.recovery === undefined || isStorageRecoveryHandle(marker.recovery))
+  );
 }
 
 function cancellationUrl(operationId: string): string {
   return new URL(`archive/operations/${encodeURIComponent(operationId)}/cancel`, `${getServerBaseUrl().replace(/\/$/, "")}/`).toString();
 }
 
-export function storeForegroundArchiveOperation(operationId: string): void {
+export function storeForegroundArchiveOperation(recovery: StorageRecoveryHandle | string): void {
+  const operationId = typeof recovery === "string" ? recovery : recovery.opaqueOperationId;
+  const marker: ForegroundArchiveOperation = {
+    operationId,
+    startedAt: Date.now(),
+    ...(typeof recovery === "string" ? {} : { recovery }),
+  };
   try {
-    sessionStorage.setItem(
-      FOREGROUND_ARCHIVE_OPERATION_STORAGE_KEY,
-      JSON.stringify({ operationId, startedAt: Date.now() } satisfies ForegroundArchiveOperation)
-    );
+    sessionStorage.setItem(FOREGROUND_ARCHIVE_OPERATION_STORAGE_KEY, JSON.stringify(marker));
   } catch {
     // Storage is best effort. The foreground dialog remains the primary control surface.
   }

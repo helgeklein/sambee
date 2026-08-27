@@ -31,21 +31,12 @@ function createFile(name: string): FileEntry {
   return { name, path: name, type: FileType.FILE, size: 100, modified_at: "2025-01-01T00:00:00", is_readable: true, is_hidden: false };
 }
 
-const CONNECTION_ID = "conn-1";
-const DEST_CONNECTION_ID = "conn-1";
-const SOURCE_PATH = "docs";
-const DEST_PATH = "backup";
-
 const defaultProps = {
   open: true,
   mode: "copy" as const,
   files: [createFile("readme.txt"), createFile("notes.md")],
-  sourceConnectionId: CONNECTION_ID,
-  sourcePath: SOURCE_PATH,
-  destConnectionId: DEST_CONNECTION_ID,
-  destConnectionName: "My Server",
-  destPath: DEST_PATH,
-  isSameConnection: true,
+  destinationLabel: "My Server:/backup",
+  isSameDirectory: false,
   onConfirm: vi.fn(),
   onCancel: vi.fn(),
   isProcessing: false,
@@ -103,8 +94,8 @@ describe("CopyMoveDialog", () => {
     expect(screen.queryByLabelText(S.LABEL_DESTINATION)).not.toBeInTheDocument();
   });
 
-  it("shows destination with leading slash for root path", () => {
-    render(<CopyMoveDialog {...defaultProps} destPath="" />);
+  it("shows the provider-provided root destination label", () => {
+    render(<CopyMoveDialog {...defaultProps} destinationLabel="My Server:/" />);
     expect(screen.getByText(S.PROMPT_COPY_MULTI(2))).toBeInTheDocument();
     expect(screen.getByLabelText(S.LABEL_DESTINATION)).toHaveValue("My Server:/");
   });
@@ -121,16 +112,16 @@ describe("CopyMoveDialog", () => {
     expect(input.value).toBe("readme.txt");
   });
 
-  it("calls onConfirm with destPath and no rename for multi-item", async () => {
+  it("calls onConfirm with no rename for multi-item", async () => {
     const onConfirm = vi.fn();
     const user = userEvent.setup();
     render(<CopyMoveDialog {...defaultProps} onConfirm={onConfirm} />);
 
     await user.click(screen.getByRole("button", { name: S.BUTTON_COPY }));
-    expect(onConfirm).toHaveBeenCalledWith(DEST_PATH, undefined, "ask");
+    expect(onConfirm).toHaveBeenCalledWith(undefined, "ask");
   });
 
-  it("calls onConfirm with destPath and preserves leading whitespace in a single-item rename", async () => {
+  it("preserves leading whitespace in a single-item rename", async () => {
     const onConfirm = vi.fn();
     const user = userEvent.setup();
     const props = { ...defaultProps, files: [createFile("readme.txt")], onConfirm };
@@ -141,7 +132,7 @@ describe("CopyMoveDialog", () => {
     await user.type(input, "  renamed.txt");
     await user.click(screen.getByRole("button", { name: S.BUTTON_COPY }));
 
-    expect(onConfirm).toHaveBeenCalledWith(DEST_PATH, "  renamed.txt", "ask");
+    expect(onConfirm).toHaveBeenCalledWith("  renamed.txt", "ask");
   });
 
   it("rejects a single-item rename with trailing whitespace", async () => {
@@ -159,14 +150,14 @@ describe("CopyMoveDialog", () => {
     expect(onConfirm).not.toHaveBeenCalled();
   });
 
-  it("calls onConfirm with destPath and no rename when single-item name unchanged", async () => {
+  it("calls onConfirm with no rename when single-item name is unchanged", async () => {
     const onConfirm = vi.fn();
     const user = userEvent.setup();
     const props = { ...defaultProps, files: [createFile("readme.txt")], onConfirm };
     render(<CopyMoveDialog {...props} />);
 
     await user.click(screen.getByRole("button", { name: S.BUTTON_COPY }));
-    expect(onConfirm).toHaveBeenCalledWith(DEST_PATH, undefined, "ask");
+    expect(onConfirm).toHaveBeenCalledWith(undefined, "ask");
   });
 
   it("calls onCancel when Cancel is clicked", async () => {
@@ -188,7 +179,7 @@ describe("CopyMoveDialog", () => {
     await user.click(input);
     await user.keyboard("{Enter}");
 
-    expect(onConfirm).toHaveBeenCalledWith(DEST_PATH, undefined, "ask");
+    expect(onConfirm).toHaveBeenCalledWith(undefined, "ask");
   });
 
   it("disables confirm button during processing", () => {
@@ -211,19 +202,19 @@ describe("CopyMoveDialog", () => {
     expect(screen.getByText(S.PROGRESS_MOVE(2, 5))).toBeInTheDocument();
   });
 
-  it("enables confirm when connections differ", () => {
-    render(<CopyMoveDialog {...defaultProps} isSameConnection={false} />);
+  it("enables confirm for distinct locations", () => {
+    render(<CopyMoveDialog {...defaultProps} isSameDirectory={false} />);
     expect(screen.getByRole("button", { name: S.BUTTON_COPY })).toBeEnabled();
   });
 
-  it("shows same-directory warning for multi-item when source equals dest", () => {
-    render(<CopyMoveDialog {...defaultProps} destPath={SOURCE_PATH} />);
+  it("shows same-directory warning for multi-item when source and destination match", () => {
+    render(<CopyMoveDialog {...defaultProps} isSameDirectory />);
     expect(screen.getByText(S.ERROR_SAME_DIRECTORY)).toBeInTheDocument();
     expect(screen.getByTestId("copy-move-destination-error")).toHaveClass("MuiAlert-colorError");
   });
 
-  it("disables confirm for multi-item when source equals dest directory", () => {
-    render(<CopyMoveDialog {...defaultProps} destPath={SOURCE_PATH} />);
+  it("disables confirm for multi-item when source and destination match", () => {
+    render(<CopyMoveDialog {...defaultProps} isSameDirectory />);
     expect(screen.getByRole("button", { name: S.BUTTON_COPY })).toBeDisabled();
   });
 
@@ -233,7 +224,7 @@ describe("CopyMoveDialog", () => {
     const props = {
       ...defaultProps,
       files: [createFile("readme.txt")],
-      destPath: SOURCE_PATH,
+      isSameDirectory: true,
       onConfirm,
     };
     render(<CopyMoveDialog {...props} />);
@@ -243,7 +234,7 @@ describe("CopyMoveDialog", () => {
     await user.type(input, "readme-copy.txt");
     await user.click(screen.getByRole("button", { name: S.BUTTON_COPY }));
 
-    expect(onConfirm).toHaveBeenCalledWith(SOURCE_PATH, "readme-copy.txt", "ask");
+    expect(onConfirm).toHaveBeenCalledWith("readme-copy.txt", "ask");
   });
 
   it("suggests a valid copy name for a single item copied to its current directory", async () => {
@@ -251,7 +242,7 @@ describe("CopyMoveDialog", () => {
     const props = {
       ...defaultProps,
       files: [createFile("readme.txt")],
-      destPath: SOURCE_PATH,
+      isSameDirectory: true,
       onConfirm,
     };
     const user = userEvent.setup();
@@ -264,7 +255,7 @@ describe("CopyMoveDialog", () => {
     expect(screen.getByRole("button", { name: S.BUTTON_COPY })).toBeEnabled();
 
     await user.click(screen.getByRole("button", { name: S.BUTTON_COPY }));
-    expect(onConfirm).toHaveBeenCalledWith(SOURCE_PATH, "readme (copy).txt", "ask");
+    expect(onConfirm).toHaveBeenCalledWith("readme (copy).txt", "ask");
   });
 
   it("shows a detailed filename error when a same-directory target is changed back to its original name", async () => {
@@ -272,7 +263,7 @@ describe("CopyMoveDialog", () => {
     const props = {
       ...defaultProps,
       files: [createFile("readme.txt")],
-      destPath: SOURCE_PATH,
+      isSameDirectory: true,
     };
     render(<CopyMoveDialog {...props} />);
 
@@ -292,7 +283,7 @@ describe("CopyMoveDialog", () => {
     const props = {
       ...defaultProps,
       files: [createFile("archive.tar.gz")],
-      destPath: SOURCE_PATH,
+      isSameDirectory: true,
     };
     render(<CopyMoveDialog {...props} />);
 
@@ -304,7 +295,7 @@ describe("CopyMoveDialog", () => {
       ...defaultProps,
       mode: "move" as const,
       files: [createFile("readme.txt")],
-      destPath: SOURCE_PATH,
+      isSameDirectory: true,
     };
     render(<CopyMoveDialog {...props} />);
 
@@ -313,11 +304,10 @@ describe("CopyMoveDialog", () => {
     expect(screen.getByRole("button", { name: S.BUTTON_MOVE })).toBeDisabled();
   });
 
-  it("allows same-path operations between different connections", () => {
+  it("allows operations when provider marks locations as distinct", () => {
     const props = {
       ...defaultProps,
-      destPath: SOURCE_PATH,
-      isSameConnection: false,
+      isSameDirectory: false,
     };
     render(<CopyMoveDialog {...props} />);
 

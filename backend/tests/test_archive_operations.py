@@ -1,5 +1,6 @@
 """Integration tests for persisted archive-operation lifecycle state."""
 
+import asyncio
 import json
 import uuid
 from datetime import datetime, timedelta, timezone
@@ -7,10 +8,13 @@ from io import BytesIO
 from unittest.mock import ANY, AsyncMock, patch
 from zipfile import ZipFile
 
+import pytest
+from fastapi import HTTPException, status
 from fastapi.testclient import TestClient
 from sqlmodel import select
 
-from app.models.archive_operation import ARCHIVE_OPERATION_HEARTBEAT_TIMEOUT_SECONDS, ArchiveOperation
+from app.api.archive_operations import _ensure_mixed_archive_parent_directories, _expected_companion_creation_summary
+from app.models.archive_operation import ARCHIVE_OPERATION_HEARTBEAT_TIMEOUT_SECONDS, ArchiveOperation, ArchiveOperationKind
 from app.models.audit import AuditEvent
 from app.models.connection import Connection
 from app.models.file import FileInfo, FileType
@@ -30,6 +34,34 @@ class MemoryRandomAccessReader:
 
     async def close(self) -> None:
         return None
+
+
+def test_companion_creation_summary_rejects_checkpoint_entry_without_size() -> None:
+    operation = ArchiveOperation(
+        user_id=uuid.uuid4(),
+        kind=ArchiveOperationKind.CREATE,
+        checkpoint_json=json.dumps({"source_manifest": [{"is_directory": False, "source_identity": {}}]}),
+    )
+
+    with pytest.raises(HTTPException, match="Archive operation checkpoint is invalid") as exc_info:
+        _expected_companion_creation_summary(operation)
+    assert exc_info.value.status_code == status.HTTP_409_CONFLICT
+
+
+def test_mixed_archive_parent_creation_rejects_target_outside_destination_root() -> None:
+    backend = AsyncMock()
+
+    with pytest.raises(HTTPException, match="Archive output path is outside its destination root") as exc_info:
+        asyncio.run(
+            _ensure_mixed_archive_parent_directories(
+                backend,
+                destination_root="extracted/archive",
+                target_path="other-root/escape.txt",
+            )
+        )
+
+    assert exc_info.value.status_code == status.HTTP_422_UNPROCESSABLE_CONTENT
+    backend.create_directory.assert_not_awaited()
 
 
 def test_prepare_read_and_cancel_archive_operation(

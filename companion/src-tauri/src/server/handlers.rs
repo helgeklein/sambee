@@ -36,6 +36,7 @@ use super::archive::{
 };
 use super::auth;
 use super::drives;
+use super::edit_locks::EDIT_LOCK_LOST_CODE;
 use super::errors::{
     ApiError, LOCAL_ARCHIVE_CREATION_PARTIAL_CODE, LOCAL_ARCHIVE_EXTRACTION_PARTIAL_CODE, LOCAL_LINK_TARGET_ACCESS_DENIED_CODE,
     LOCAL_LINK_TARGET_MISSING_CODE, LOCAL_LINK_TARGET_UNMAPPED_DRIVE_CODE, LOCAL_LINK_TARGET_UNRESOLVABLE_CODE,
@@ -2068,6 +2069,125 @@ fn walk_directories(base: &std::path::Path, max_dirs: usize, include_dot_directo
 pub struct UploadQuery {
     /// Destination path (relative to drive root) where the file will be written.
     pub path: String,
+    /// Browser editor lease context. All three values are required when any is supplied.
+    pub editor_operation_id: Option<String>,
+    pub editor_lock_id: Option<String>,
+    pub editor_lock_capability: Option<String>,
+}
+
+/// Query parameters used to identify the file covered by an edit lock.
+#[derive(Deserialize)]
+pub struct EditLockPathQuery {
+    pub path: String,
+}
+
+async fn validate_editor_write_target(dest: &FsPath) -> Result<(), ApiError> {
+    match tokio::fs::metadata(dest).await {
+        Ok(metadata) if metadata.is_file() => Ok(()),
+        Ok(_) => Err(ApiError::BadRequest("Editor writes cannot replace a directory".to_string())),
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => Ok(()),
+        Err(error) => Err(map_io_error(error, dest)),
+    }
+}
+
+fn lock_response(lock: super::edit_locks::LocalEditLock) -> EditLockResponse {
+    EditLockResponse {
+        lock_id: lock.lock_id,
+        lock_capability: lock.lock_capability,
+        operation_id: lock.operation_id,
+        file_path: lock.file_path,
+        locked_by: lock.locked_by,
+        locked_at: lock.locked_at.to_rfc3339(),
+    }
+}
+
+/// `POST /api/browse/{drive}/lock` — acquire an exclusive local editor lease.
+pub async fn browse_acquire_edit_lock(
+    State(state): State<Arc<AppState>>,
+    Path(drive): Path<String>,
+    Query(query): Query<EditLockPathQuery>,
+    headers: HeaderMap,
+) -> Result<Json<EditLockResponse>, ApiError> {
+    let base_path = drives::resolve_drive_path(&drive).ok_or_else(|| ApiError::NotFound(format!("Unknown drive: {drive}")))?;
+    let path = normalize_drive_relative_path(&drive, &query.path)?;
+    let full_path = resolve_safe_path(&base_path, &drive, &query.path)?;
+    if !tokio::fs::metadata(&full_path)
+        .await
+        .map_err(|error| map_io_error(error, &full_path))?
+        .is_file()
+    {
+        return Err(ApiError::BadRequest("Edit locks require an existing regular file".to_string()));
+    }
+    let lock = state.edit_locks.acquire(&drive, &path, extract_origin(&headers)?).await?;
+    Ok(Json(lock_response(lock)))
+}
+
+/// `POST /api/browse/{drive}/lock/heartbeat` — renew an active local editor lease.
+pub async fn browse_heartbeat_edit_lock(
+    State(state): State<Arc<AppState>>,
+    Path(drive): Path<String>,
+    Query(query): Query<EditLockPathQuery>,
+    headers: HeaderMap,
+    Json(control): Json<EditLockControlRequest>,
+) -> Result<StatusCode, ApiError> {
+    let path = normalize_drive_relative_path(&drive, &query.path)?;
+    state
+        .edit_locks
+        .heartbeat(
+            &drive,
+            &path,
+            &extract_origin(&headers)?,
+            &control.operation_id,
+            &control.lock_id,
+            &control.lock_capability,
+        )
+        .await?;
+    Ok(StatusCode::OK)
+}
+
+/// `DELETE /api/browse/{drive}/lock` — release an active local editor lease.
+pub async fn browse_release_edit_lock(
+    State(state): State<Arc<AppState>>,
+    Path(drive): Path<String>,
+    Query(query): Query<EditLockPathQuery>,
+    headers: HeaderMap,
+    Json(control): Json<EditLockControlRequest>,
+) -> Result<StatusCode, ApiError> {
+    let path = normalize_drive_relative_path(&drive, &query.path)?;
+    state
+        .edit_locks
+        .release(
+            &drive,
+            &path,
+            &extract_origin(&headers)?,
+            &control.operation_id,
+            &control.lock_id,
+            &control.lock_capability,
+        )
+        .await?;
+    Ok(StatusCode::OK)
+}
+
+/// `GET /api/browse/{drive}/lock-status` — return display-safe local lease state.
+pub async fn browse_edit_lock_status(
+    State(state): State<Arc<AppState>>,
+    Path(drive): Path<String>,
+    Query(query): Query<EditLockPathQuery>,
+) -> Result<Json<EditLockStatusResponse>, ApiError> {
+    let path = normalize_drive_relative_path(&drive, &query.path)?;
+    let response = match state.edit_locks.status(&drive, &path).await {
+        Some(lock) => EditLockStatusResponse {
+            locked: true,
+            locked_by: Some(lock.locked_by),
+            locked_at: Some(lock.locked_at.to_rfc3339()),
+        },
+        None => EditLockStatusResponse {
+            locked: false,
+            locked_by: None,
+            locked_at: None,
+        },
+    };
+    Ok(Json(response))
 }
 
 /// `POST /api/browse/{drive}/upload` — upload a file to a local drive.
@@ -2076,13 +2196,48 @@ pub struct UploadQuery {
 /// Writes the file to the specified `path` on the drive.
 /// Returns `UploadResponse` matching the backend's contract.
 pub async fn browse_upload(
+    State(state): State<Arc<AppState>>,
     Path(drive): Path<String>,
     Query(query): Query<UploadQuery>,
+    headers: HeaderMap,
     mut multipart: axum::extract::Multipart,
 ) -> Result<Json<UploadResponse>, ApiError> {
     let base_path = drives::resolve_drive_path(&drive).ok_or_else(|| ApiError::NotFound(format!("Unknown drive: {drive}")))?;
     let normalized_path = normalize_drive_relative_path(&drive, &query.path)?;
     let dest = resolve_safe_path_for_new(&base_path, &drive, &query.path)?;
+
+    let has_editor_lock_context =
+        query.editor_operation_id.is_some() || query.editor_lock_id.is_some() || query.editor_lock_capability.is_some();
+    if has_editor_lock_context {
+        let operation_id = query
+            .editor_operation_id
+            .as_deref()
+            .ok_or_else(|| ApiError::BadRequest("Missing browser editor lock context".to_string()))?;
+        let lock_id = query
+            .editor_lock_id
+            .as_deref()
+            .ok_or_else(|| ApiError::BadRequest("Missing browser editor lock context".to_string()))?;
+        let lock_capability = query
+            .editor_lock_capability
+            .as_deref()
+            .ok_or_else(|| ApiError::BadRequest("Missing browser editor lock context".to_string()))?;
+        validate_editor_write_target(&dest).await?;
+        state
+            .edit_locks
+            .validate(
+                &drive,
+                &normalized_path,
+                &extract_origin(&headers)?,
+                operation_id,
+                lock_id,
+                lock_capability,
+            )
+            .await
+            .map_err(|error| match error {
+                ApiError::NotFoundWithCode { .. } => ApiError::not_found_code("Edit lock not found or expired", EDIT_LOCK_LOST_CODE),
+                other => other,
+            })?;
+    }
 
     // Read the file field from the multipart body
     let mut file_data: Option<Vec<u8>> = None;
@@ -2643,7 +2798,7 @@ mod tests {
     use super::{
         build_file_info, build_pair_status_response, classify_link_target, map_local_archive_error, normalize_drive_relative_path,
         normalize_windows_display_path, resolve_drive_relative_source_path, resolve_link_target_metadata, resolve_pair_cancel_origin,
-        resolve_pair_confirm_origin, resolve_pair_status_origin, resolve_safe_path, source_link_kind,
+        resolve_pair_confirm_origin, resolve_pair_status_origin, resolve_safe_path, source_link_kind, validate_editor_write_target,
     };
     use crate::server::archive::{LocalArchiveError, LocalArchiveReadError};
     use crate::server::errors::{LOCAL_ARCHIVE_CREATION_PARTIAL_CODE, LOCAL_ARCHIVE_EXTRACTION_PARTIAL_CODE};
@@ -2674,6 +2829,23 @@ mod tests {
                 "code": LOCAL_ARCHIVE_EXTRACTION_PARTIAL_CODE,
             })
         );
+    }
+
+    #[tokio::test]
+    async fn permits_missing_editor_write_targets_but_rejects_directories() {
+        let directory = tempfile::tempdir().expect("temporary directory should be created");
+        let target = directory.path().join("recreated.md");
+
+        validate_editor_write_target(&target)
+            .await
+            .expect("a missing editor target should be recreatable");
+
+        tokio::fs::create_dir(&target).await.expect("target directory should be created");
+        let response = validate_editor_write_target(&target)
+            .await
+            .expect_err("an editor write must not replace a directory")
+            .into_response();
+        assert_eq!(response.status(), axum::http::StatusCode::BAD_REQUEST);
     }
 
     #[tokio::test]

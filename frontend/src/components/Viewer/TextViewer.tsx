@@ -4,9 +4,14 @@ import { useTranslation } from "react-i18next";
 import { BROWSER_SHORTCUTS, CODEMIRROR_EDITOR_SHORTCUTS, COMMON_SHORTCUTS, VIEWER_SHORTCUTS } from "../../config/keyboardShortcuts";
 import { checkIsTransientError, getTransientErrorMessage, useApiRetry } from "../../hooks/useApiRetry";
 import { useKeyboardShortcuts } from "../../hooks/useKeyboardShortcuts";
-import { readViewerContent, readVirtualContent } from "../../pages/FileBrowser/contentProviders";
+import {
+  beginViewerTextEdit,
+  type ContentEditSession,
+  readViewerContent,
+  readVirtualContent,
+  useContentProviderRegistry,
+} from "../../pages/FileBrowser/contentProviders";
 import { readTextEditorMaxFileSizeBytesPreference, useTextEditorWordWrapPreference } from "../../pages/FileBrowser/preferences";
-import apiService from "../../services/api";
 import { clearDraft, type DraftSnapshot, loadDraft, registerDraftSnapshot, saveDraft } from "../../services/draftRecovery";
 import { error as logError, info as logInfo } from "../../services/logger";
 import { useSambeeTheme } from "../../theme";
@@ -16,7 +21,6 @@ import {
   CODEMIRROR_EDITOR_HORIZONTAL_INSET_CSS_VARIABLE,
   getViewerColors,
 } from "../../theme/viewerStyles";
-import type { EditLockInfo } from "../../types";
 import { getApiErrorMessage } from "../../utils/apiErrors";
 import { openExternalUrl } from "../../utils/externalLinks";
 import type { ViewerComponentProps } from "../../utils/FileTypeRegistry";
@@ -101,6 +105,7 @@ export const TextViewer: React.FC<ViewerComponentProps> = ({
   virtualSource,
 }) => {
   const isReadOnly = connectionIsReadOnly || virtualSource !== undefined;
+  const contentProviders = useContentProviderRegistry();
   const { t } = useTranslation();
   const [content, setContent] = useState("");
   const [draftContent, setDraftContent] = useState("");
@@ -114,7 +119,7 @@ export const TextViewer: React.FC<ViewerComponentProps> = ({
   const [showEditorHelp, setShowEditorHelp] = useState(false);
   const [isEditing, setIsEditing] = useState(false);
   const [isSaving, setIsSaving] = useState(false);
-  const [editLockInfo, setEditLockInfo] = useState<EditLockInfo | null>(null);
+  const [editSession, setEditSession] = useState<ContentEditSession | null>(null);
   const [sharing, setSharing] = useState(false);
   const [searchCaseSensitive, setSearchCaseSensitive] = useState(false);
   const [searchFocusTarget, setSearchFocusTarget] = useState<"find" | "replace" | null>(null);
@@ -145,8 +150,7 @@ export const TextViewer: React.FC<ViewerComponentProps> = ({
   const prefetchedShareFileRef = useRef<File | null>(null);
   const sharePrefetchPromiseRef = useRef<Promise<File> | null>(null);
   const editBaselineContentRef = useRef("");
-  const lockHeldRef = useRef<EditLockInfo | null>(null);
-  const editSessionIdRef = useRef(typeof crypto.randomUUID === "function" ? crypto.randomUUID() : `${Date.now()}-${Math.random()}`);
+  const editSessionRef = useRef<ContentEditSession | null>(null);
   const isEditingRef = useRef(false);
   const translationRef = useRef(t);
   const fetchWithRetry = useApiRetry();
@@ -156,7 +160,6 @@ export const TextViewer: React.FC<ViewerComponentProps> = ({
   const isMobile = useMediaQuery(muiTheme.breakpoints.down("sm"));
   const shareEnabled = isMobile && supportsNativeShare();
   const shareWarmEnabled = shareEnabled && shouldWarmNativeSharePayload();
-  const supportsEditLocks = apiService.supportsEditLocks(connectionId);
   const { viewerBg, toolbarBg, toolbarText, viewerText, linkColor } = getViewerColors(currentTheme, "markdown");
   const searchHighlightColors = useMemo(() => getSearchHighlightColors(muiTheme, currentTheme), [currentTheme, muiTheme]);
   const filename = path.split("/").pop() || path;
@@ -252,9 +255,13 @@ export const TextViewer: React.FC<ViewerComponentProps> = ({
         setError(null);
         const data = await fetchWithRetry(
           () =>
-            readViewerContent(connectionId, path, { kind: "text" }, { signal: abortController.signal, virtualSource }).then((blob) =>
-              blob.text()
-            ),
+            readViewerContent(
+              connectionId,
+              path,
+              { kind: "text" },
+              { signal: abortController.signal, virtualSource },
+              contentProviders
+            ).then((blob) => blob.text()),
           {
             signal: abortController.signal,
             maxRetries: 1,
@@ -295,7 +302,7 @@ export const TextViewer: React.FC<ViewerComponentProps> = ({
     return () => {
       abortController.abort();
     };
-  }, [connectionId, fetchWithRetry, isReadOnly, path, setEditBaselineContent, virtualSource]);
+  }, [connectionId, contentProviders, fetchWithRetry, isReadOnly, path, setEditBaselineContent, virtualSource]);
 
   useEffect(() => {
     if (!isEditing || draftContent === editBaselineContentRef.current) {
@@ -325,31 +332,31 @@ export const TextViewer: React.FC<ViewerComponentProps> = ({
     };
   }, [connectionId, draftContent, path]);
 
-  const releaseEditLock = useCallback(async () => {
-    if (!editLockInfo) {
+  const releaseEditSession = useCallback(async () => {
+    if (!editSession) {
       return;
     }
 
     try {
-      await apiService.releaseEditLock(connectionId, path, editLockInfo);
+      await editSession.release();
     } catch (err) {
       logError("Failed to release text edit lock", { error: err, path, connectionId });
     } finally {
-      setEditLockInfo(null);
+      setEditSession(null);
     }
-  }, [connectionId, editLockInfo, path]);
+  }, [connectionId, editSession, path]);
 
   useEffect(() => {
-    lockHeldRef.current = editLockInfo;
-  }, [editLockInfo]);
+    editSessionRef.current = editSession;
+  }, [editSession]);
 
   useEffect(() => {
-    if (!isEditing || !editLockInfo) {
+    if (!isEditing || !editSession) {
       return;
     }
 
     const intervalId = window.setInterval(() => {
-      void apiService.heartbeatEditLock(connectionId, path, editLockInfo).catch((err) => {
+      void editSession.heartbeat().catch((err) => {
         logError("Failed to refresh text edit lock", { error: err, path, connectionId });
       });
     }, 30_000);
@@ -357,12 +364,12 @@ export const TextViewer: React.FC<ViewerComponentProps> = ({
     return () => {
       window.clearInterval(intervalId);
     };
-  }, [connectionId, editLockInfo, isEditing, path]);
+  }, [connectionId, editSession, isEditing, path]);
 
   useEffect(() => {
     return () => {
-      if (lockHeldRef.current) {
-        void apiService.releaseEditLock(connectionId, path, lockHeldRef.current).catch((err) => {
+      if (editSessionRef.current) {
+        void editSessionRef.current.release().catch((err) => {
           logError("Failed to release text edit lock during cleanup", { error: err, path, connectionId });
         });
       }
@@ -379,8 +386,8 @@ export const TextViewer: React.FC<ViewerComponentProps> = ({
         return sharePrefetchPromiseRef.current;
       }
 
-      const shareFilePromise = readViewerContent(connectionId, path, { kind: "raw" }, { signal, virtualSource }).then((blob) =>
-        createShareFile(blob, filename)
+      const shareFilePromise = readViewerContent(connectionId, path, { kind: "raw" }, { signal, virtualSource }, contentProviders).then(
+        (blob) => createShareFile(blob, filename)
       );
       sharePrefetchPromiseRef.current = shareFilePromise;
 
@@ -392,20 +399,20 @@ export const TextViewer: React.FC<ViewerComponentProps> = ({
         }
       }
     },
-    [connectionId, filename, path, virtualSource]
+    [connectionId, contentProviders, filename, path, virtualSource]
   );
 
   const handleDownload = useCallback(async () => {
     try {
       if (virtualSource) {
-        downloadViewerBlob(await readVirtualContent(virtualSource, path, { download: true }), filename);
+        downloadViewerBlob(await readVirtualContent(virtualSource, path, { download: true }, contentProviders), filename);
         return;
       }
-      await apiService.downloadFile(connectionId, path, filename);
+      downloadViewerBlob(await readViewerContent(connectionId, path, { kind: "raw" }, { download: true }, contentProviders), filename);
     } catch (err) {
       logError("Failed to download file", { error: err, path, connectionId });
     }
-  }, [connectionId, filename, path, virtualSource]);
+  }, [connectionId, contentProviders, filename, path, virtualSource]);
 
   const handleShareIntent = useCallback(() => {
     if (!shareWarmEnabled) {
@@ -446,7 +453,7 @@ export const TextViewer: React.FC<ViewerComponentProps> = ({
     async (nextContent = content) => {
       clearPendingBaselineSync();
       clearBaselineSyncWindow();
-      await releaseEditLock();
+      await releaseEditSession();
       setDraftContent(nextContent);
       setEditBaselineContent(nextContent);
       markEditSessionPristine();
@@ -455,16 +462,16 @@ export const TextViewer: React.FC<ViewerComponentProps> = ({
       setIsEditing(false);
       setPendingUnsavedChangesAction(null);
     },
-    [clearBaselineSyncWindow, clearPendingBaselineSync, content, markEditSessionPristine, releaseEditLock, setEditBaselineContent]
+    [clearBaselineSyncWindow, clearPendingBaselineSync, content, markEditSessionPristine, releaseEditSession, setEditBaselineContent]
   );
 
   const closeViewer = useCallback(async () => {
     clearPendingBaselineSync();
     clearBaselineSyncWindow();
-    await releaseEditLock();
+    await releaseEditSession();
     setPendingUnsavedChangesAction(null);
     onClose();
-  }, [clearBaselineSyncWindow, clearPendingBaselineSync, onClose, releaseEditLock]);
+  }, [clearBaselineSyncWindow, clearPendingBaselineSync, onClose, releaseEditSession]);
 
   const handleEnterEditMode = useCallback(async () => {
     if (isReadOnly || loading || error || exceedsEditorLimit) {
@@ -474,10 +481,9 @@ export const TextViewer: React.FC<ViewerComponentProps> = ({
     setEditError(null);
 
     try {
-      if (supportsEditLocks) {
-        const lockInfo = await apiService.acquireEditLock(connectionId, path, editSessionIdRef.current);
-        setEditLockInfo(lockInfo);
-      }
+      const editResult = await beginViewerTextEdit(connectionId, path, contentProviders);
+      if (editResult.kind !== "acquired") throw new Error(`Editing is ${editResult.kind}`);
+      setEditSession(editResult.session);
 
       setDraftContent(content);
       setEditBaselineContent(content);
@@ -496,6 +502,7 @@ export const TextViewer: React.FC<ViewerComponentProps> = ({
     beginBaselineSyncWindow,
     clearPendingBaselineSync,
     connectionId,
+    contentProviders,
     content,
     error,
     exceedsEditorLimit,
@@ -504,7 +511,6 @@ export const TextViewer: React.FC<ViewerComponentProps> = ({
     markEditSessionPristine,
     path,
     setEditBaselineContent,
-    supportsEditLocks,
     t,
   ]);
 
@@ -539,7 +545,8 @@ export const TextViewer: React.FC<ViewerComponentProps> = ({
           savedContent = editorRef.current.getCanonicalText();
         }
 
-        await apiService.saveTextFile(connectionId, path, savedContent, { filename });
+        if (!editSession) throw new Error("Edit session is no longer active");
+        await editSession.writeText(savedContent);
         setContent(savedContent);
         setDraftContent(savedContent);
         setEditBaselineContent(savedContent);
@@ -572,8 +579,8 @@ export const TextViewer: React.FC<ViewerComponentProps> = ({
       closeViewer,
       connectionId,
       draftContent,
+      editSession,
       exitEditMode,
-      filename,
       isEditing,
       isReadOnly,
       markEditSessionPristine,

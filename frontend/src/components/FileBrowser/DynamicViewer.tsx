@@ -3,7 +3,11 @@ import { Alert, Box, Button, Dialog, DialogActions, DialogContent, DialogTitle, 
 import { memo, useEffect, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { translate } from "../../i18n";
-import type { VirtualItemHandle } from "../../pages/FileBrowser/contentProviders";
+import {
+  type ContentProviderRegistry,
+  ContentProviderRegistryContext,
+  type VirtualItemHandle,
+} from "../../pages/FileBrowser/contentProviders";
 import { logger } from "../../services/logger";
 import type { ViewerComponentLoadResult, ViewerComponent as ViewerComponentType } from "../../utils/FileTypeRegistry";
 import { getViewerComponentLoadResult, getViewerLoadErrorDiagnostics } from "../../utils/FileTypeRegistry";
@@ -26,6 +30,7 @@ interface DynamicViewerProps {
   hasMoreItems?: boolean;
   isLoadingMoreItems?: boolean;
   onLoadMoreItems?: () => void;
+  contentProviders?: ContentProviderRegistry;
 }
 
 type DynamicViewerLoadState =
@@ -105,6 +110,7 @@ export const DynamicViewer = memo(function DynamicViewer({
   hasMoreItems = false,
   isLoadingMoreItems = false,
   onLoadMoreItems,
+  contentProviders,
 }: DynamicViewerProps) {
   const [loadState, setLoadState] = useState<DynamicViewerLoadState>({ status: "loading" });
   const [retryToken, setRetryToken] = useState(0);
@@ -216,19 +222,21 @@ export const DynamicViewer = memo(function DynamicViewer({
   const ViewerComponent = loadState.component;
 
   return (
-    <ViewerComponent
-      connectionId={connectionId}
-      path={viewInfo.path}
-      onClose={onClose}
-      isReadOnly={isReadOnly}
-      virtualSource={viewInfo.virtualSource}
-      hasMoreItems={hasMoreItems}
-      isLoadingMoreItems={isLoadingMoreItems}
-      onLoadMoreItems={onLoadMoreItems}
-      images={viewInfo.images}
-      currentIndex={viewInfo.currentIndex}
-      onCurrentIndexChange={onIndexChange}
-      sessionId={viewInfo.sessionId}
-    />
+    <ContentProviderRegistryContext.Provider value={contentProviders ?? null}>
+      <ViewerComponent
+        connectionId={connectionId}
+        path={viewInfo.path}
+        onClose={onClose}
+        isReadOnly={isReadOnly}
+        virtualSource={viewInfo.virtualSource}
+        hasMoreItems={hasMoreItems}
+        isLoadingMoreItems={isLoadingMoreItems}
+        onLoadMoreItems={onLoadMoreItems}
+        images={viewInfo.images}
+        currentIndex={viewInfo.currentIndex}
+        onCurrentIndexChange={onIndexChange}
+        sessionId={viewInfo.sessionId}
+      />
+    </ContentProviderRegistryContext.Provider>
   );
 });

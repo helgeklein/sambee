@@ -6,6 +6,7 @@ from typing import NoReturn, Optional
 
 from fastapi import APIRouter, Depends, File, HTTPException, Query, UploadFile, status
 from pydantic import BaseModel
+from sqlalchemy.exc import IntegrityError
 from sqlmodel import Session, select
 
 from app.api._smb_helpers import build_smb_backend, disconnect_backend_safely, require_share_name
@@ -53,6 +54,7 @@ from app.services.archive.zip_reader import ArchiveFormatError, ZipReader
 from app.services.connection_access import get_accessible_connection_or_404, require_connection_write_access
 from app.services.cross_connection import cross_connection_copy, cross_connection_move
 from app.services.history_common import LOCAL_DRIVE_PREFIX, normalize_recent_history_path
+from app.services.lock_manager import remove_expired_file_locks
 from app.services.recent_directories import (
     MAX_RECENT_DIRECTORY_RESULTS,
     clear_recent_directories,
@@ -739,22 +741,17 @@ async def acquire_browser_edit_lock(
     current_user: User = Depends(get_current_user_with_auth_check),
     session: Session = Depends(get_session),
 ) -> BrowserEditLockResponse:
-    """Acquire or refresh an edit lock for in-browser markdown editing."""
+    """Acquire an exclusive edit lock for in-browser markdown editing."""
 
     set_user(current_user.username)
 
     connection = _get_connection_or_404(session, current_user, connection_id)
     require_connection_write_access(current_user, connection, action="acquire_browser_lock", path=path)
 
+    remove_expired_file_locks(session, connection_id, path)
     existing = _get_active_lock(connection_id, path, session)
     if existing:
-        if existing.locked_by != current_user.username:
-            raise HTTPException(
-                status_code=status.HTTP_409_CONFLICT,
-                detail=f"File is locked for editing by {existing.locked_by}",
-            )
-
-        if not existing.lock_capability or not existing.operation_id:
+        if existing.locked_by == current_user.username and (not existing.lock_capability or not existing.operation_id):
             session.delete(existing)
             session.commit()
 
@@ -778,18 +775,9 @@ async def acquire_browser_edit_lock(
                 locked_at=replacement_lock.locked_at.isoformat(),
             )
 
-        existing.last_heartbeat = datetime.now(timezone.utc)
-        session.add(existing)
-        session.commit()
-        session.refresh(existing)
-
-        return BrowserEditLockResponse(
-            lock_id=str(existing.id),
-            lock_capability=existing.lock_capability,
-            operation_id=existing.operation_id,
-            file_path=existing.file_path,
-            locked_by=existing.locked_by,
-            locked_at=existing.locked_at.isoformat(),
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail=f"File is locked for editing by {existing.locked_by}",
         )
 
     lock = EditLock(
@@ -800,7 +788,11 @@ async def acquire_browser_edit_lock(
         lock_capability=_generate_lock_capability(),
     )
     session.add(lock)
-    session.commit()
+    try:
+        session.commit()
+    except IntegrityError as error:
+        session.rollback()
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="File is already locked for editing") from error
     session.refresh(lock)
 
     return BrowserEditLockResponse(
@@ -906,6 +898,9 @@ async def get_browser_edit_lock_status(
 async def upload_file(
     connection_id: uuid.UUID,
     path: str = Query(..., description="Destination path on the share"),
+    editor_operation_id: Optional[str] = Query(None, description="Active browser editor operation ID"),
+    editor_lock_id: Optional[str] = Query(None, description="Active browser editor lock ID"),
+    editor_lock_capability: Optional[str] = Query(None, description="Active browser editor lock capability"),
     operation_id: Optional[str] = Query(None, description="Active companion operation ID"),
     lock_id: Optional[str] = Query(None, description="Active companion lock ID"),
     lock_capability: Optional[str] = Query(None, description="Active companion lock capability"),
@@ -920,7 +915,24 @@ async def upload_file(
     back edited files) and the web UI (future upload feature).
     """
 
-    if operation_id or lock_id or lock_capability:
+    if editor_operation_id or editor_lock_id or editor_lock_capability:
+        if not editor_operation_id or not editor_lock_id or not editor_lock_capability:
+            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Missing browser editor lock context")
+        current_user = await get_current_user_for_token(token, session)
+        lock = _get_active_lock(connection_id, path, session)
+        if not lock:
+            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Lock not found or expired")
+        _validate_browser_lock_control(
+            lock,
+            BrowserEditLockControlRequest(
+                operation_id=editor_operation_id,
+                lock_id=editor_lock_id,
+                lock_capability=editor_lock_capability,
+            ),
+        )
+        if lock.locked_by != current_user.username:
+            raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Lock is held by another user")
+    elif operation_id or lock_id or lock_capability:
         if not operation_id or not lock_id or not lock_capability or not token:
             raise HTTPException(
                 status_code=status.HTTP_400_BAD_REQUEST,

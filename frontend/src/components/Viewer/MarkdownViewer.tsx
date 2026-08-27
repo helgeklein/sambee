@@ -23,9 +23,14 @@ import {
 } from "../../config/keyboardShortcuts";
 import { checkIsTransientError, getTransientErrorMessage, useApiRetry } from "../../hooks/useApiRetry";
 import { useKeyboardShortcuts } from "../../hooks/useKeyboardShortcuts";
-import { readViewerContent, readVirtualContent } from "../../pages/FileBrowser/contentProviders";
+import {
+  beginViewerTextEdit,
+  type ContentEditSession,
+  readViewerContent,
+  readVirtualContent,
+  useContentProviderRegistry,
+} from "../../pages/FileBrowser/contentProviders";
 import { useTextEditorWordWrapPreference } from "../../pages/FileBrowser/preferences";
-import apiService from "../../services/api";
 import { clearDraft, type DraftSnapshot, loadDraft, registerDraftSnapshot, saveDraft } from "../../services/draftRecovery";
 import { error as logError, info as logInfo } from "../../services/logger";
 import { useSambeeTheme } from "../../theme";
@@ -37,7 +42,6 @@ import {
   getMarkdownTableSurfaceColors,
   getViewerColors,
 } from "../../theme/viewerStyles";
-import type { EditLockInfo } from "../../types";
 import { isApiError } from "../../types";
 import { getApiErrorMessage } from "../../utils/apiErrors";
 import {
@@ -185,6 +189,7 @@ export const MarkdownViewer: React.FC<ViewerComponentProps> = ({
   virtualSource,
 }) => {
   const isReadOnly = connectionIsReadOnly || virtualSource !== undefined;
+  const contentProviders = useContentProviderRegistry();
   const { t } = useTranslation();
   const [content, setContent] = useState<string>("");
   const [draftContent, setDraftContent] = useState<string>("");
@@ -198,7 +203,7 @@ export const MarkdownViewer: React.FC<ViewerComponentProps> = ({
   const [showEditorHelp, setShowEditorHelp] = useState(false);
   const [isEditing, setIsEditing] = useState(false);
   const [isSaving, setIsSaving] = useState(false);
-  const [editLockInfo, setEditLockInfo] = useState<EditLockInfo | null>(null);
+  const [editSession, setEditSession] = useState<ContentEditSession | null>(null);
   const [sharing, setSharing] = useState(false);
   const [viewerSearchText, setViewerSearchText] = useState("");
   const [editorSearchCaseSensitive, setEditorSearchCaseSensitive] = useState(false);
@@ -233,11 +238,10 @@ export const MarkdownViewer: React.FC<ViewerComponentProps> = ({
   const editorRef = useRef<MarkdownRichEditorHandle | null>(null);
   const dialogRef = useRef<HTMLDivElement>(null);
   const unsavedChangesCancelButtonRef = useRef<HTMLButtonElement | null>(null);
-  const lockHeldRef = useRef<EditLockInfo | null>(null);
+  const editSessionRef = useRef<ContentEditSession | null>(null);
   const searchHighlightsRef = useRef<DomTextSearchMatch[]>([]);
   const prefetchedShareFileRef = useRef<File | null>(null);
   const sharePrefetchPromiseRef = useRef<Promise<File> | null>(null);
-  const editSessionIdRef = useRef(typeof crypto.randomUUID === "function" ? crypto.randomUUID() : `${Date.now()}-${Math.random()}`);
   const editBaselineContentRef = useRef("");
   const isEditingRef = useRef(false);
   const editorLoadStateRef = useRef<EditorModuleLoadState>("idle");
@@ -248,7 +252,6 @@ export const MarkdownViewer: React.FC<ViewerComponentProps> = ({
   const isMobile = useMediaQuery(muiTheme.breakpoints.down("sm"));
   const shareEnabled = isMobile && supportsNativeShare();
   const shareWarmEnabled = shareEnabled && shouldWarmNativeSharePayload();
-  const supportsEditLocks = apiService.supportsEditLocks(connectionId);
   const { viewerBg, toolbarBg, toolbarText, viewerText, linkColor, linkHoverColor } = getViewerColors(currentTheme, "markdown");
   const markdownTableSurfaceColors = getMarkdownTableSurfaceColors(muiTheme);
   const searchHighlightColors = useMemo(() => getSearchHighlightColors(muiTheme, currentTheme), [currentTheme, muiTheme]);
@@ -423,9 +426,13 @@ export const MarkdownViewer: React.FC<ViewerComponentProps> = ({
         setError(null);
         const data = await fetchWithRetry(
           () =>
-            readViewerContent(connectionId, path, { kind: "text" }, { signal: abortController.signal, virtualSource }).then((blob) =>
-              blob.text()
-            ),
+            readViewerContent(
+              connectionId,
+              path,
+              { kind: "text" },
+              { signal: abortController.signal, virtualSource },
+              contentProviders
+            ).then((blob) => blob.text()),
           {
             signal: abortController.signal,
             maxRetries: 1,
@@ -473,7 +480,7 @@ export const MarkdownViewer: React.FC<ViewerComponentProps> = ({
       abortController.abort();
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [connectionId, fetchWithRetry, isReadOnly, path, setEditBaselineContent, virtualSource]);
+  }, [connectionId, contentProviders, fetchWithRetry, isReadOnly, path, setEditBaselineContent, virtualSource]);
 
   useEffect(() => {
     if (!isEditing || draftContent === editBaselineContentRef.current) {
@@ -583,31 +590,31 @@ export const MarkdownViewer: React.FC<ViewerComponentProps> = ({
       </Box>
     ) : null;
 
-  const releaseEditLock = useCallback(async () => {
-    if (!editLockInfo) {
+  const releaseEditSession = useCallback(async () => {
+    if (!editSession) {
       return;
     }
 
     try {
-      await apiService.releaseEditLock(connectionId, path, editLockInfo);
+      await editSession.release();
     } catch (err) {
       logError("Failed to release markdown edit lock", { error: err, path, connectionId });
     } finally {
-      setEditLockInfo(null);
+      setEditSession(null);
     }
-  }, [connectionId, editLockInfo, path]);
+  }, [connectionId, editSession, path]);
 
   useEffect(() => {
-    lockHeldRef.current = editLockInfo;
-  }, [editLockInfo]);
+    editSessionRef.current = editSession;
+  }, [editSession]);
 
   useEffect(() => {
-    if (!isEditing || !editLockInfo) {
+    if (!isEditing || !editSession) {
       return;
     }
 
     const intervalId = window.setInterval(() => {
-      void apiService.heartbeatEditLock(connectionId, path, editLockInfo).catch((err) => {
+      void editSession.heartbeat().catch((err) => {
         logError("Failed to refresh markdown edit lock", { error: err, path, connectionId });
       });
     }, 30_000);
@@ -615,12 +622,12 @@ export const MarkdownViewer: React.FC<ViewerComponentProps> = ({
     return () => {
       window.clearInterval(intervalId);
     };
-  }, [connectionId, editLockInfo, isEditing, path]);
+  }, [connectionId, editSession, isEditing, path]);
 
   useEffect(() => {
     return () => {
-      if (lockHeldRef.current) {
-        void apiService.releaseEditLock(connectionId, path, lockHeldRef.current).catch((err) => {
+      if (editSessionRef.current) {
+        void editSessionRef.current.release().catch((err) => {
           logError("Failed to release markdown edit lock during cleanup", { error: err, path, connectionId });
         });
       }
@@ -632,15 +639,15 @@ export const MarkdownViewer: React.FC<ViewerComponentProps> = ({
     async (_event?: KeyboardEvent) => {
       try {
         if (virtualSource) {
-          downloadViewerBlob(await readVirtualContent(virtualSource, path, { download: true }), filename);
+          downloadViewerBlob(await readVirtualContent(virtualSource, path, { download: true }, contentProviders), filename);
           return;
         }
-        await apiService.downloadFile(connectionId, path, filename);
+        downloadViewerBlob(await readViewerContent(connectionId, path, { kind: "raw" }, { download: true }, contentProviders), filename);
       } catch (err) {
         logError("Failed to download file", { error: err, path, connectionId });
       }
     },
-    [connectionId, path, filename, virtualSource]
+    [connectionId, contentProviders, path, filename, virtualSource]
   );
 
   const loadShareFile = useCallback(
@@ -653,8 +660,8 @@ export const MarkdownViewer: React.FC<ViewerComponentProps> = ({
         return sharePrefetchPromiseRef.current;
       }
 
-      const shareFilePromise = readViewerContent(connectionId, path, { kind: "raw" }, { signal, virtualSource }).then((blob) =>
-        createShareFile(blob, filename)
+      const shareFilePromise = readViewerContent(connectionId, path, { kind: "raw" }, { signal, virtualSource }, contentProviders).then(
+        (blob) => createShareFile(blob, filename)
       );
       sharePrefetchPromiseRef.current = shareFilePromise;
 
@@ -666,7 +673,7 @@ export const MarkdownViewer: React.FC<ViewerComponentProps> = ({
         }
       }
     },
-    [connectionId, filename, path, virtualSource]
+    [connectionId, contentProviders, filename, path, virtualSource]
   );
 
   useEffect(() => {
@@ -766,7 +773,7 @@ export const MarkdownViewer: React.FC<ViewerComponentProps> = ({
     async (nextContent = content) => {
       clearPendingBaselineSync();
       clearBaselineSyncWindow();
-      await releaseEditLock();
+      await releaseEditSession();
       if (searchPanelOpen) {
         setViewerSearchText(editorSearchText);
       } else {
@@ -788,7 +795,7 @@ export const MarkdownViewer: React.FC<ViewerComponentProps> = ({
       content,
       editorSearchText,
       markEditSessionPristine,
-      releaseEditLock,
+      releaseEditSession,
       searchPanelOpen,
       setEditBaselineContent,
     ]
@@ -797,10 +804,10 @@ export const MarkdownViewer: React.FC<ViewerComponentProps> = ({
   const closeViewer = useCallback(async () => {
     clearPendingBaselineSync();
     clearBaselineSyncWindow();
-    await releaseEditLock();
+    await releaseEditSession();
     setPendingUnsavedChangesAction(null);
     onClose();
-  }, [clearBaselineSyncWindow, clearPendingBaselineSync, onClose, releaseEditLock]);
+  }, [clearBaselineSyncWindow, clearPendingBaselineSync, onClose, releaseEditSession]);
 
   const handleEnterEditMode = useCallback(async () => {
     if (isReadOnly || loading || error) {
@@ -811,10 +818,9 @@ export const MarkdownViewer: React.FC<ViewerComponentProps> = ({
     setEditorLoadError(null);
 
     try {
-      if (supportsEditLocks) {
-        const lockInfo = await apiService.acquireEditLock(connectionId, path, editSessionIdRef.current);
-        setEditLockInfo(lockInfo);
-      }
+      const editResult = await beginViewerTextEdit(connectionId, path, contentProviders);
+      if (editResult.kind !== "acquired") throw new Error(`Editing is ${editResult.kind}`);
+      setEditSession(editResult.session);
 
       setDraftContent(content);
       setEditBaselineContent(content);
@@ -842,6 +848,7 @@ export const MarkdownViewer: React.FC<ViewerComponentProps> = ({
     beginBaselineSyncWindow,
     clearPendingBaselineSync,
     connectionId,
+    contentProviders,
     content,
     EditorComponent,
     error,
@@ -851,7 +858,6 @@ export const MarkdownViewer: React.FC<ViewerComponentProps> = ({
     path,
     searchPanelOpen,
     setEditBaselineContent,
-    supportsEditLocks,
     t,
     viewerSearchText,
   ]);
@@ -911,10 +917,8 @@ export const MarkdownViewer: React.FC<ViewerComponentProps> = ({
 
         savedContent = normalizeMarkdownTableCellLineBreaks(savedContent);
 
-        await apiService.saveTextFile(connectionId, path, savedContent, {
-          filename,
-          mimeType: "text/markdown;charset=utf-8",
-        });
+        if (!editSession) throw new Error("Edit session is no longer active");
+        await editSession.writeText(savedContent, { mimeType: "text/markdown;charset=utf-8" });
         emitMarkdownDebugTrace("MarkdownViewer", "persistDraft:save-resolved", {
           savedContentLength: savedContent.length,
         });
@@ -959,8 +963,8 @@ export const MarkdownViewer: React.FC<ViewerComponentProps> = ({
       closeViewer,
       connectionId,
       draftContent,
+      editSession,
       exitEditMode,
-      filename,
       isEditing,
       isReadOnly,
       markEditSessionPristine,

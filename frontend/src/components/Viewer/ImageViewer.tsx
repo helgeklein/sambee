@@ -10,8 +10,7 @@ import "./ImageViewer.css";
 import { BROWSER_SHORTCUTS, COMMON_SHORTCUTS, VIEWER_SHORTCUTS } from "../../config/keyboardShortcuts";
 import { useCachedImageGallery } from "../../hooks/useCachedImageGallery";
 import { useKeyboardShortcuts } from "../../hooks/useKeyboardShortcuts";
-import { readViewerContent, readVirtualContent } from "../../pages/FileBrowser/contentProviders";
-import apiService from "../../services/api";
+import { readViewerContent, readVirtualContent, useContentProviderRegistry } from "../../pages/FileBrowser/contentProviders";
 import { error as logError, info as logInfo } from "../../services/logger";
 import { useSambeeTheme } from "../../theme";
 import { getViewerColors } from "../../theme/viewerStyles";
@@ -76,6 +75,7 @@ const ImageViewer: React.FC<ViewerComponentProps> = ({
   onCurrentIndexChange,
   sessionId,
 }) => {
+  const contentProviders = useContentProviderRegistry();
   const { t } = useTranslation();
   const [rotate, setRotate] = useState(0);
   const [hideControls, setHideControls] = useState(false);
@@ -118,9 +118,10 @@ const ImageViewer: React.FC<ViewerComponentProps> = ({
           viewportWidth: options.viewportWidth,
           viewportHeight: options.viewportHeight,
         },
-        { signal: options.signal, virtualSource }
+        { signal: options.signal, virtualSource },
+        contentProviders
       ),
-    [connectionId, virtualSource]
+    [connectionId, contentProviders, virtualSource]
   );
 
   const {
@@ -286,14 +287,17 @@ const ImageViewer: React.FC<ViewerComponentProps> = ({
   const handleDownload = useCallback(async () => {
     try {
       if (virtualSource) {
-        downloadViewerBlob(await readVirtualContent(virtualSource, currentPath, { download: true }), filename);
+        downloadViewerBlob(await readVirtualContent(virtualSource, currentPath, { download: true }, contentProviders), filename);
         return;
       }
-      await apiService.downloadFile(connectionId, currentPath, filename);
+      downloadViewerBlob(
+        await readViewerContent(connectionId, currentPath, { kind: "raw" }, { download: true }, contentProviders),
+        filename
+      );
     } catch (err) {
       logError("Failed to download file", { error: err, path: currentPath, connectionId });
     }
-  }, [connectionId, currentPath, filename, virtualSource]);
+  }, [connectionId, contentProviders, currentPath, filename, virtualSource]);
 
   const loadShareFile = useCallback(
     async (signal?: AbortSignal) => {
@@ -307,8 +311,8 @@ const ImageViewer: React.FC<ViewerComponentProps> = ({
 
       const shareFilePromise = (
         virtualSource
-          ? readViewerContent(connectionId, currentPath, { kind: "image", noResizing: true }, { signal, virtualSource })
-          : readViewerContent(connectionId, currentPath, { kind: "image", noResizing: true }, { signal })
+          ? readViewerContent(connectionId, currentPath, { kind: "image", noResizing: true }, { signal, virtualSource }, contentProviders)
+          : readViewerContent(connectionId, currentPath, { kind: "image", noResizing: true }, { signal }, contentProviders)
       ).then((blob) => createShareFile(blob, filename));
 
       sharePrefetchPromiseRef.current = shareFilePromise;
@@ -321,7 +325,7 @@ const ImageViewer: React.FC<ViewerComponentProps> = ({
         }
       }
     },
-    [connectionId, currentPath, filename, virtualSource]
+    [connectionId, contentProviders, currentPath, filename, virtualSource]
   );
 
   useEffect(() => {

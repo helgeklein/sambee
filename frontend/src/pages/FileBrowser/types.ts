@@ -5,9 +5,19 @@
 import type { Virtualizer } from "@tanstack/react-virtual";
 import type React from "react";
 import type { SearchProvider } from "../../components/FileBrowser/search/types";
+import type { BrowserHistoryService } from "../../services/browserHistoryService";
+import type { BrowserLinkTargetService } from "../../services/browserLinkTargetService";
+import type { StorageBackendRegistry } from "../../services/storageContracts";
 import type { Connection, FileEntry, FileType } from "../../types";
 import type { ViewerId } from "../../utils/FileTypeRegistry";
-import type { BrowserItem, ContentCapabilities, VirtualContentProviderId, VirtualItemHandle } from "./contentProviders";
+import type {
+  BrowserItem,
+  ContentCapabilities,
+  ContentLocation,
+  ContentProviderRegistry,
+  VirtualContentProviderId,
+  VirtualItemHandle,
+} from "./contentProviders";
 
 export type SortField = "name" | "size" | "modified" | "type";
 
@@ -65,6 +75,11 @@ export interface ArchiveLocation {
   providerId: VirtualContentProviderId;
   archivePath: string;
   virtualPath: string;
+}
+
+export interface DirectoryChange {
+  connectionId: string;
+  path: string;
 }
 
 export interface FileBrowserPaneRecoverySnapshot {
@@ -125,6 +140,18 @@ export interface UseFileBrowserPaneConfig {
   /** Available connections so the hook can derive capability state for the selected connection. */
   connections?: Connection[];
 
+  /** Browser-file providers composed at the page boundary. */
+  contentProviders?: ContentProviderRegistry;
+
+  /** Browser storage target resolver composed at the page boundary. */
+  storageRegistry?: StorageBackendRegistry;
+
+  /** Recent-history and directory-navigation service composed at the page boundary. */
+  history?: BrowserHistoryService;
+
+  /** Link-target metadata service composed at the page boundary. */
+  linkTargets?: BrowserLinkTargetService;
+
   /**
    * When true, keyboard handlers inside the pane are suppressed.
    * Use this when a global dialog (settings, help) is open.
@@ -164,6 +191,7 @@ export interface UseFileBrowserPaneReturn {
   setConnectionId: React.Dispatch<React.SetStateAction<string>>;
   currentPath: string;
   setCurrentPath: React.Dispatch<React.SetStateAction<string>>;
+  currentLocation: ContentLocation;
   archiveLocation: ArchiveLocation | null;
   contentCapabilities: ContentCapabilities;
   archiveHasMore: boolean;
@@ -257,13 +285,12 @@ export interface UseFileBrowserPaneReturn {
   loadMoreArchive: () => void;
   closeArchive: () => void;
   navigateToPath: (path: string) => void;
-  prepareDirectoryTransition: (connectionId: string, path: string) => void;
   handleNavigateUpDirectory: () => void;
   handleNavigateUp: () => void;
   handleClose: () => void;
   handleFocusSearch: () => void;
   handleRefresh: () => void;
-  forceReloadCurrentDirectory: (preserveVisibleContent?: boolean) => void;
+  reloadCurrentLocation: (options?: { forceRefresh?: boolean; preserveVisibleContent?: boolean }) => Promise<void>;
 
   // ── Viewer Handlers ────────────────────────────────────────────────────
   handleViewIndexChange: (index: number) => void;
@@ -294,15 +321,13 @@ export interface UseFileBrowserPaneReturn {
    * `directory_changed` event is received.  Invalidates the cache entry
    * and triggers a reload if this pane is viewing the affected directory.
    */
-  handleDirectoryChanged: (changedConnectionId: string, changedPath: string) => void;
+  handleDirectoryChanged: (change: DirectoryChange) => void;
 
   // ── Cache Management ───────────────────────────────────────────────────
   /** Clear all directory and navigation caches (e.g. on connection switch). */
   clearCaches: () => void;
   /** Invalidate cached entries for a specific connection (e.g. after settings change). */
   invalidateConnectionCache: (targetConnectionId: string) => void;
-  /** Load files for a specific path, optionally bypassing cache. */
-  loadFiles: (path: string, forceRefresh?: boolean, preserveVisibleContent?: boolean) => Promise<void>;
   /** Seed directory contents and cache from already-known data for a matching connection/path. */
   seedDirectorySnapshot: (connectionId: string, path: string, items: FileEntry[]) => void;
   /** Apply route-driven state from the browser location without triggering navigation again. */

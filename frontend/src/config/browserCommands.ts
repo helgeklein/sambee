@@ -13,6 +13,7 @@ export interface BrowserCommandContext {
   connectionSelected: boolean;
   connectionWritable: boolean;
   canCreateArchive: boolean;
+  canExtractArchive: boolean;
   canOpenFocusedFileInApp: boolean;
   canCopyToOtherPane: boolean;
   canMoveToOtherPane: boolean;
@@ -30,6 +31,7 @@ export interface BrowserCommandContext {
   newDirectory: () => void;
   newFile: () => void;
   createArchive: () => void;
+  extractArchive: () => void;
   openInApp: () => void;
   openInViewerPicker: () => void;
   openInNativePicker: () => void;
@@ -187,6 +189,16 @@ const BROWSER_COMMANDS = [
     shortcutLabel: "Alt+F5",
     isEnabled: (context) => context.canCreateArchive,
     run: (context) => context.createArchive(),
+  }),
+  createCommand({
+    id: "browser.extractArchive",
+    titleKey: "fileBrowser.commands.items.extractArchive.title",
+    categoryKey: "fileBrowser.commands.categories.files",
+    keywords: ["archive", "zip", "extract", "unpack"],
+    defaultShortcutIds: ["extract-archive"],
+    shortcutLabel: "Alt+F9",
+    isEnabled: (context) => context.canExtractArchive,
+    run: (context) => context.extractArchive(),
   }),
   createCommand({
     id: "browser.openInApp",

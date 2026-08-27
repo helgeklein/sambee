@@ -58,6 +58,8 @@ Earlier versions normalized every PDF with Ghostscript. This introduced occasion
 
 Sambee lets you navigate seamlessly into ZIP archives the same way you'd navigate into subdirectories to explore their contents. The UX is instantaneous - only the relevant parts of the ZIP file are decoded. When extracting or compressing, the archive is streamed directly from source to target to minimize CPU, memory, and disk utilization. ZIP operations, like any other, are fully supported across backend boundaries, i.e., between SMB connections and local drives.
 
+The addition of ZIP archive inspection was the right opportunity to implement storage and content provider abstraction layers. These new abstractions centralize knowledge of storage backends (e.g., SMB, Companion) and how to work with the data on the storage (e.g., regular files, archives), respectively. Introducing these abstractions significantly improves the product's architecture and will greatly simplify adding additional backends or container file types in the future.
+
 ### Local Drives: Resolve .LNK Files
 
 Shortcuts (`.lnk` files), symlinks, and junctions on local drives now show the target path (pulled in asynchronously after the directory list has loaded; we don't want to give up on that snappy UI, after all). Paths are sensibly shortened to fit the available row width. When activated, file targets are opened whereas directory targets are navigated to.

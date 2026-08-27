@@ -614,6 +614,30 @@ class TestBrowserEditLocks:
         assert replacement_lock.operation_id == data["operation_id"]
         assert replacement_lock.locked_by == regular_user.username
 
+    def test_acquire_browser_edit_lock_rejects_a_second_session_for_the_same_user(
+        self,
+        client: TestClient,
+        auth_headers_user: dict,
+        test_connection: Connection,
+        session: Session,
+    ):
+        first = client.post(
+            f"/api/browse/{test_connection.id}/lock",
+            headers=auth_headers_user,
+            params={"path": "/docs/readme.md"},
+        )
+        second = client.post(
+            f"/api/browse/{test_connection.id}/lock",
+            headers=auth_headers_user,
+            params={"path": "/docs/readme.md"},
+        )
+
+        assert first.status_code == 200
+        assert second.status_code == 409
+        locks = session.exec(select(EditLock).where(EditLock.connection_id == test_connection.id)).all()
+        assert len(locks) == 1
+        assert str(locks[0].id) == first.json()["lock_id"]
+
     def test_browser_edit_lock_heartbeat_and_release(
         self,
         client: TestClient,
@@ -1638,6 +1662,99 @@ class TestValidateItemName:
 @pytest.mark.integration
 class TestUploadFile:
     """Tests for POST /api/browse/{connection_id}/upload"""
+
+    def test_editor_upload_accepts_matching_browser_lock(
+        self,
+        client: TestClient,
+        auth_headers_user: dict,
+        test_connection: Connection,
+    ):
+        lock = client.post(
+            f"/api/browse/{test_connection.id}/lock",
+            headers=auth_headers_user,
+            params={"path": "/docs/readme.md"},
+        ).json()
+        mock_info = FileInfo(name="readme.md", path="/docs/readme.md", type=FileType.FILE, size=8)
+
+        with patch("app.api.browser.SMBBackend") as mock_backend:
+            backend = AsyncMock()
+            backend.write_file = AsyncMock(return_value=8)
+            backend.get_file_info = AsyncMock(return_value=mock_info)
+            mock_backend.return_value = backend
+            response = client.post(
+                f"/api/browse/{test_connection.id}/upload",
+                headers=auth_headers_user,
+                params={
+                    "path": "/docs/readme.md",
+                    "editor_operation_id": lock["operation_id"],
+                    "editor_lock_id": lock["lock_id"],
+                    "editor_lock_capability": lock["lock_capability"],
+                },
+                files={"file": ("readme.md", b"updated", "text/markdown")},
+            )
+
+        assert response.status_code == 200
+        backend.write_file.assert_awaited_once()
+
+    def test_editor_upload_recreates_missing_target_with_matching_browser_lock(
+        self,
+        client: TestClient,
+        auth_headers_user: dict,
+        test_connection: Connection,
+    ):
+        path = "/docs/recreated.md"
+        lock = client.post(
+            f"/api/browse/{test_connection.id}/lock",
+            headers=auth_headers_user,
+            params={"path": path},
+        ).json()
+        mock_info = FileInfo(name="recreated.md", path=path, type=FileType.FILE, size=8)
+
+        with patch("app.api.browser.SMBBackend") as mock_backend:
+            backend = AsyncMock()
+            backend.write_file = AsyncMock(return_value=8)
+            backend.get_file_info = AsyncMock(return_value=mock_info)
+            mock_backend.return_value = backend
+            response = client.post(
+                f"/api/browse/{test_connection.id}/upload",
+                headers=auth_headers_user,
+                params={
+                    "path": path,
+                    "editor_operation_id": lock["operation_id"],
+                    "editor_lock_id": lock["lock_id"],
+                    "editor_lock_capability": lock["lock_capability"],
+                },
+                files={"file": ("recreated.md", b"updated", "text/markdown")},
+            )
+
+        assert response.status_code == 200
+        backend.write_file.assert_awaited_once()
+
+    def test_editor_upload_rejects_mismatched_browser_lock(
+        self,
+        client: TestClient,
+        auth_headers_user: dict,
+        test_connection: Connection,
+    ):
+        lock = client.post(
+            f"/api/browse/{test_connection.id}/lock",
+            headers=auth_headers_user,
+            params={"path": "/docs/readme.md"},
+        ).json()
+
+        response = client.post(
+            f"/api/browse/{test_connection.id}/upload",
+            headers=auth_headers_user,
+            params={
+                "path": "/docs/readme.md",
+                "editor_operation_id": lock["operation_id"],
+                "editor_lock_id": lock["lock_id"],
+                "editor_lock_capability": "wrong-capability",
+            },
+            files={"file": ("readme.md", b"updated", "text/markdown")},
+        )
+
+        assert response.status_code == 403
 
     def test_upload_rejects_operation_token_without_operation_context(
         self,

@@ -5,7 +5,8 @@ import { ResponsiveFormDialog } from "../Admin/ResponsiveFormDialog";
 import { SettingsFormGroup, SettingsFormRow, SettingsFormSurface, settingsFormOutlinedControlSx } from "../Settings/SettingsFormLayout";
 
 interface ArchiveExtractDialogProps {
-  archivePath: string;
+  archiveName: string;
+  initialDestinationName: string;
   open: boolean;
   isExtracting: boolean;
   isCancelling?: boolean;
@@ -13,10 +14,6 @@ interface ArchiveExtractDialogProps {
   onClose: () => void;
   onConfirm: (destinationPath: string) => void;
   onCancelExtraction?: () => void;
-}
-
-function defaultDestinationPath(archivePath: string): string {
-  return archivePath.replace(/\.zip$/i, "");
 }
 
 function validateDestinationPath(value: string): string | null {
@@ -29,7 +26,8 @@ function validateDestinationPath(value: string): string | null {
 }
 
 export function ArchiveExtractDialog({
-  archivePath,
+  archiveName,
+  initialDestinationName,
   open,
   isExtracting,
   isCancelling = false,
@@ -40,16 +38,16 @@ export function ArchiveExtractDialog({
 }: ArchiveExtractDialogProps) {
   const { t } = useTranslation();
   const inputRef = useRef<HTMLInputElement>(null);
-  const [destinationPath, setDestinationPath] = useState(defaultDestinationPath(archivePath));
+  const [destinationPath, setDestinationPath] = useState(initialDestinationName);
   const [validationError, setValidationError] = useState<string | null>(null);
 
   useEffect(() => {
     if (open) {
-      setDestinationPath(defaultDestinationPath(archivePath));
+      setDestinationPath(initialDestinationName);
       setValidationError(null);
       requestAnimationFrame(() => inputRef.current?.select());
     }
-  }, [archivePath, open]);
+  }, [initialDestinationName, open]);
 
   const handleConfirm = () => {
     const validation = validateDestinationPath(destinationPath);
@@ -73,7 +71,7 @@ export function ArchiveExtractDialog({
       onClose={onClose}
       disableClose={isExtracting}
       title={t("fileBrowser.archive.extractTitle")}
-      description={t("fileBrowser.archive.extractPrompt", { archive: archivePath.split("/").at(-1) })}
+      description={t("fileBrowser.archive.extractPrompt", { archive: archiveName })}
       maxWidth="sm"
       contentSx={{ p: 2 }}
       actions={

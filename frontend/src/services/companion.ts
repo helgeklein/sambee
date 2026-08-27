@@ -13,15 +13,13 @@
  */
 
 import axios, { type AxiosInstance } from "axios";
+import { companionSession } from "./companionSession";
 import { logger } from "./logger";
 
 // ── Constants ────────────────────────────────────────────────────────────────
 
 /** The base URL for the companion's local API server. */
 export const COMPANION_BASE_URL = "http://localhost:21549/api";
-
-/** localStorage key prefix for companion pairing secrets. */
-const COMPANION_SECRET_KEY = "companion_secret";
 
 /** Timeout in milliseconds for the health-check probe. */
 const HEALTH_CHECK_TIMEOUT_MS = 1500;
@@ -108,26 +106,6 @@ interface CompanionApiErrorResponse {
   code?: string;
 }
 
-// ── HMAC Utilities ───────────────────────────────────────────────────────────
-
-/**
- * Compute HMAC-SHA256(secret, message) using the Web Crypto API.
- *
- * Returns the hex-encoded digest.
- */
-async function hmacSha256(secret: string, message: string): Promise<string> {
-  const encoder = new TextEncoder();
-  const keyData = encoder.encode(secret);
-  const msgData = encoder.encode(message);
-
-  const cryptoKey = await crypto.subtle.importKey("raw", keyData, { name: "HMAC", hash: "SHA-256" }, false, ["sign"]);
-
-  const signature = await crypto.subtle.sign("HMAC", cryptoKey, msgData);
-  return Array.from(new Uint8Array(signature))
-    .map((b) => b.toString(16).padStart(2, "0"))
-    .join("");
-}
-
 /**
  * Compute SHA-256 of a hex string, returning hex.
  *
@@ -174,24 +152,19 @@ function isWaitingForCompanionConfirmation(error: unknown): boolean {
 
 // ── Secret Persistence ──────────────────────────────────────────────────────
 
-/** Get the stored pairing secret for the companion. */
-function getStoredSecret(): string | null {
-  return localStorage.getItem(COMPANION_SECRET_KEY);
-}
-
 /** Store the pairing secret. */
 function storeSecret(secret: string): void {
-  localStorage.setItem(COMPANION_SECRET_KEY, secret);
+  companionSession.storeSecret(secret);
 }
 
 /** Remove the stored pairing secret. */
 export function clearStoredSecret(): void {
-  localStorage.removeItem(COMPANION_SECRET_KEY);
+  companionSession.clearPairing();
 }
 
 /** Check if we have a stored pairing secret. */
 export function hasStoredSecret(): boolean {
-  return getStoredSecret() !== null;
+  return companionSession.hasSecret();
 }
 
 // ── CompanionService ─────────────────────────────────────────────────────────
@@ -228,18 +201,7 @@ class CompanionService {
    * `X-Companion-Timestamp` headers.
    */
   private async buildAuthHeaders(): Promise<Record<string, string>> {
-    const secret = getStoredSecret();
-    if (!secret) {
-      throw new Error("Not paired with companion — no shared secret available");
-    }
-
-    const timestamp = Math.floor(Date.now() / 1000).toString();
-    const hmac = await hmacSha256(secret, timestamp);
-
-    return {
-      "X-Companion-Secret": hmac,
-      "X-Companion-Timestamp": timestamp,
-    };
+    return companionSession.getSigningHeaders();
   }
 
   // ── Health ───────────────────────────────────────────────────────────────
@@ -430,14 +392,9 @@ export default companionService;
  * Returns `null` if no pairing secret is stored.
  */
 export async function buildCompanionWsUrl(): Promise<string | null> {
-  const secret = getStoredSecret();
-  if (!secret) return null;
-
-  const timestamp = Math.floor(Date.now() / 1000).toString();
-  const hmac = await hmacSha256(secret, timestamp);
-  const origin = encodeURIComponent(window.location.origin);
+  if (!companionSession.hasSecret()) return null;
 
   // Derive ws:// URL from the HTTP base URL
   const wsBase = COMPANION_BASE_URL.replace(/^http/, "ws");
-  return `${wsBase}/ws?hmac=${hmac}&ts=${timestamp}&origin=${origin}`;
+  return `${wsBase}/ws?${await companionSession.getSignedQuery()}`;
 }

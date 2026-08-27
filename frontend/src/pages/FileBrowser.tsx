@@ -20,15 +20,16 @@
  */
 
 import { AppBar, Box, Container, Divider, Snackbar, Toolbar, Typography, useMediaQuery, useTheme } from "@mui/material";
-import React, { useCallback, useEffect, useLayoutEffect, useMemo, useState } from "react";
+import React, { useCallback, useEffect, useLayoutEffect, useMemo, useState, useSyncExternalStore } from "react";
 import { Trans, useTranslation } from "react-i18next";
 import { useLocation, useNavigate, useParams, useSearchParams } from "react-router-dom";
+import { ArchiveExtractDialog } from "../components/FileBrowser/ArchiveExtractDialog";
+import { ArchiveExtractionConflictDialog } from "../components/FileBrowser/ArchiveExtractionConflictDialog";
 import CopyMoveDialog, { type CopyMoveMode, type OverwriteStrategy } from "../components/FileBrowser/CopyMoveDialog";
 import { DesktopToolbar } from "../components/FileBrowser/DesktopToolbar";
 import { DynamicViewer } from "../components/FileBrowser/DynamicViewer";
 import type { CompanionLifecycleStatus } from "../components/FileBrowser/FileBrowserAlerts";
 import { FileBrowserAlerts } from "../components/FileBrowser/FileBrowserAlerts";
-import { formatConnectionPath } from "../components/FileBrowser/formatConnectionPath";
 import { InlineItemName } from "../components/FileBrowser/InlineItemName";
 import { MobileToolbar } from "../components/FileBrowser/MobileToolbar";
 import NameInputDialog from "../components/FileBrowser/NameInputDialog";
@@ -51,22 +52,17 @@ import { BROWSER_SHORTCUTS, COMMON_SHORTCUTS, COPY_MOVE_SHORTCUTS, PANE_SHORTCUT
 import { useCompanion } from "../hooks/useCompanion";
 import { type KeyboardShortcut, useKeyboardShortcuts } from "../hooks/useKeyboardShortcuts";
 import { signOutCurrentBrowser } from "../services/accountSession";
-import api from "../services/api";
 import { authSession } from "../services/authSession";
 import { markBackendAvailable, useBackendAvailability } from "../services/backendAvailability";
 import { subscribeBackendRecoveryConfirmed, subscribeBackendRecoveryReconnect } from "../services/backendRecoveryEvents";
 import { isLocalDrive, mergeConnections } from "../services/backendRouter";
+import { createBrowserContentServices } from "../services/browserContentServices";
 import { loadBrowserRecoverySnapshot, saveBrowserRecoverySnapshot } from "../services/browserRecoverySnapshot";
-import companionService, { buildCompanionWsUrl, type DriveInfo, hasStoredSecret } from "../services/companion";
+import { companionSession } from "../services/companionSession";
 import {
-  abortForegroundLocalArchiveRequest,
-  beginForegroundLocalArchiveRequest,
-  clearForegroundArchiveOperation,
-  clearForegroundLocalArchiveRequest,
   hasForegroundArchiveWork,
   loadForegroundArchiveOperation,
   requestForegroundArchiveCancellation,
-  storeForegroundArchiveOperation,
 } from "../services/foregroundArchiveOperation";
 import { logger } from "../services/logger";
 import { loginPath } from "../services/oidcAuth";
@@ -81,15 +77,28 @@ import type { ConflictInfo, Connection } from "../types";
 import { isApiError } from "../types";
 import { openExternalUrl } from "../utils/externalLinks";
 import { compareLocalizedStrings } from "../utils/localeFormatting";
+import { canOpenFileInApp, getConnectionById, isConnectionReadOnly, isConnectionWritable } from "./FileBrowser/access";
 import {
-  canCopyToConnection,
-  canMoveBetweenConnections,
-  canOpenFileInApp,
-  getConnectionById,
-  isConnectionReadOnly,
-  isConnectionWritable,
-} from "./FileBrowser/access";
-import { isPhysicalItem } from "./FileBrowser/contentProviders";
+  areSameContentLocations,
+  type ContentOperationExecution,
+  cancelForegroundContainerCreationOnPageHide,
+  executeTransfer,
+  getCreateContainerAvailability,
+  getLocationDisplayName,
+  getTransferAvailability,
+  hasForegroundContainerCreationWork,
+  isPartialContainerOutputError,
+  recoverInterruptedContainerCreation,
+  startCreateContainer,
+} from "./FileBrowser/contentOperations";
+import type {
+  ArchiveExtractionExecution,
+  ArchiveExtractionOutcome,
+  BrowserItem,
+  ContentItemHandle,
+  ContentLocation,
+  VirtualLocation,
+} from "./FileBrowser/contentProviders";
 import { FileBrowserPane } from "./FileBrowser/FileBrowserPane";
 import {
   readFileBrowserPaneModePreference,
@@ -106,7 +115,7 @@ import {
   resolveBrowseRouteState,
   serializeBrowseRoute,
 } from "./FileBrowser/routing";
-import type { ArchiveLocation, PaneId, PaneMode, VirtualRouteLocation } from "./FileBrowser/types";
+import type { ArchiveLocation, DirectoryChange, PaneId, PaneMode, VirtualRouteLocation } from "./FileBrowser/types";
 import { ACTIVE_PANE_QUERY_KEY, ACTIVE_PANE_STORAGE_KEY, RIGHT_PANE_QUERY_KEY } from "./FileBrowser/types";
 import { useFileBrowserPane } from "./FileBrowser/useFileBrowserPane";
 
@@ -119,7 +128,62 @@ const COMPANION_WEBSOCKET_RECONNECT_DELAY_MS = 5_000;
 const COMPANION_WEBSOCKET_CONNECT_TIMEOUT_MS = 15_000;
 
 const COMPANION_STATUS_QUERY_PARAM = "companion_status";
-const LOCAL_ARCHIVE_CREATION_PARTIAL_CODE = "local_archive_creation_partial";
+const IGNORED_REALTIME_MESSAGE_TYPES = new Set(["subscribed", "unsubscribed", "pong"]);
+
+function parentPath(path: string): string {
+  const separatorIndex = path.lastIndexOf("/");
+  return separatorIndex < 0 ? "" : path.slice(0, separatorIndex);
+}
+
+function fileName(path: string): string {
+  return path.slice(path.lastIndexOf("/") + 1);
+}
+
+function joinPath(parent: string, child: string): string {
+  return parent ? `${parent}/${child}` : child;
+}
+
+type RealtimeMessage =
+  | { type: "directory_changed"; change: DirectoryChange }
+  | { type: "transfer_progress"; bytesTransferred: number; totalBytes: number | null; itemName: string }
+  | { type: "ignored" };
+
+function parseRealtimeMessage(rawMessage: unknown): RealtimeMessage | null {
+  if (typeof rawMessage !== "string") {
+    return null;
+  }
+
+  try {
+    const parsed: unknown = JSON.parse(rawMessage);
+    if (!parsed || typeof parsed !== "object") {
+      return null;
+    }
+    const message = parsed as Record<string, unknown>;
+    if (typeof message.type === "string" && IGNORED_REALTIME_MESSAGE_TYPES.has(message.type)) {
+      return { type: "ignored" };
+    }
+    if (
+      message.type === "directory_changed" &&
+      typeof message.connection_id === "string" &&
+      message.connection_id.length > 0 &&
+      typeof message.path === "string"
+    ) {
+      return { type: "directory_changed", change: { connectionId: message.connection_id, path: message.path } };
+    }
+    if (message.type === "transfer_progress" && typeof message.bytes_transferred === "number") {
+      return {
+        type: "transfer_progress",
+        bytesTransferred: message.bytes_transferred,
+        totalBytes: typeof message.total_bytes === "number" ? message.total_bytes : null,
+        itemName: typeof message.item_name === "string" ? message.item_name : "",
+      };
+    }
+  } catch {
+    return null;
+  }
+
+  return null;
+}
 
 const toVirtualRouteLocation = (archiveLocation: ArchiveLocation | null): VirtualRouteLocation | null => {
   if (!archiveLocation) {
@@ -319,6 +383,31 @@ const Browser: React.FC = () => {
 
   /** Server connections merged with companion-provided local drives. */
   const allConnections = useMemo(() => mergeConnections(connections, companion.drives), [connections, companion.drives]);
+  const [browserContentServices] = useState(() => createBrowserContentServices(allConnections));
+  useSyncExternalStore(browserContentServices.subscribe, browserContentServices.getSnapshot, browserContentServices.getSnapshot);
+
+  useEffect(() => {
+    browserContentServices.updateConnections(allConnections);
+  }, [allConnections, browserContentServices]);
+
+  useEffect(() => {
+    const status =
+      companion.status === "paired"
+        ? "paired"
+        : companion.status === "detecting" || companion.status === "pending_local_approval"
+          ? "pairing"
+          : companion.status === "unavailable"
+            ? "unavailable"
+            : "unpaired";
+    browserContentServices.updateCompanionSnapshot({
+      status,
+      revision: companionSession.getSnapshot().revision,
+      drives: companion.drives.map((drive) => ({ driveId: drive.id, name: drive.name, path: "" })),
+      error: null,
+    });
+  }, [browserContentServices, companion.drives, companion.status]);
+
+  useEffect(() => () => browserContentServices.dispose(), [browserContentServices]);
 
   // ──────────────────────────────────────────────────────────────────────────
   // Copy / Move Dialog State
@@ -326,13 +415,12 @@ const Browser: React.FC = () => {
 
   const [copyMoveDialogOpen, setCopyMoveDialogOpen] = useState(false);
   const [copyMoveMode, setCopyMoveMode] = useState<CopyMoveMode>("copy");
-  const [copyMoveFiles, setCopyMoveFiles] = useState<import("../types").FileEntry[]>([]);
+  const [copyMoveItems, setCopyMoveItems] = useState<BrowserItem[]>([]);
   const [copyMoveSourcePaneId, setCopyMoveSourcePaneId] = useState<PaneId>("left");
-  const [copyMoveSourceConnectionId, setCopyMoveSourceConnectionId] = useState("");
-  const [copyMoveSourcePath, setCopyMoveSourcePath] = useState("");
-  const [copyMoveDestConnectionId, setCopyMoveDestConnectionId] = useState("");
-  const [copyMoveDestConnectionName, setCopyMoveDestConnectionName] = useState("");
-  const [copyMoveDestPath, setCopyMoveDestPath] = useState("");
+  const [copyMoveDestination, setCopyMoveDestination] = useState<ContentLocation | null>(null);
+  const [copyMoveDestinationLabel, setCopyMoveDestinationLabel] = useState("");
+  const [copyMoveSameDirectory, setCopyMoveSameDirectory] = useState(false);
+  const [copyMoveDestinationPaneId, setCopyMoveDestinationPaneId] = useState<PaneId>("right");
   const [copyMoveProcessing, setCopyMoveProcessing] = useState(false);
   const [copyMoveProgress, setCopyMoveProgress] = useState<{ current: number; total: number } | undefined>();
   const [copyMoveTransferProgress, setCopyMoveTransferProgress] = useState<{
@@ -343,43 +431,51 @@ const Browser: React.FC = () => {
   const [copyMoveError, setCopyMoveError] = useState<string | null>(null);
 
   const [archiveCreateContext, setArchiveCreateContext] = useState<{
-    connectionId: string;
-    destinationConnectionId: string;
-    destinationPath: string;
+    sources: ContentItemHandle[];
+    destination: ContentLocation;
+    destinationLabel: string;
     destinationPaneId: PaneId;
-    sourcePaths: string[];
   } | null>(null);
   const [archiveCreateError, setArchiveCreateError] = useState<string | null>(null);
   const [isCreatingArchive, setIsCreatingArchive] = useState(false);
-  const [activeArchiveCreationOperationId, setActiveArchiveCreationOperationId] = useState<string | null>(null);
   const [isCancellingArchiveCreation, setIsCancellingArchiveCreation] = useState(false);
-  const archiveCreationCancellationRequestedRef = React.useRef(false);
-  const activeLocalArchiveCreationSignalRef = React.useRef<AbortSignal | null>(null);
+  const archiveCreationExecutionRef = React.useRef<ContentOperationExecution | null>(null);
+  const [archiveExtractionContext, setArchiveExtractionContext] = useState<{
+    location: VirtualLocation;
+    parentPath: string;
+    archiveName: string;
+    initialDestinationName: string;
+  } | null>(null);
+  const [archiveExtractionError, setArchiveExtractionError] = useState<string | null>(null);
+  const [isExtractingArchive, setIsExtractingArchive] = useState(false);
+  const [isCancellingArchiveExtraction, setIsCancellingArchiveExtraction] = useState(false);
+  const [archiveExtractionConflicts, setArchiveExtractionConflicts] = useState<Array<{
+    member_path: string;
+    target_path: string;
+    is_directory?: boolean;
+  }> | null>(null);
+  const [isSubmittingArchiveExtractionDecision, setIsSubmittingArchiveExtractionDecision] = useState(false);
+  const archiveExtractionExecutionRef = React.useRef<ArchiveExtractionExecution | null>(null);
+  const [archiveExtractionNotice, setArchiveExtractionNotice] = useState<string | null>(null);
   const [archiveInterruptionNoticeOpen, setArchiveInterruptionNoticeOpen] = useState(false);
 
   useEffect(() => {
-    const interruptedOperation = loadForegroundArchiveOperation();
-    if (interruptedOperation) {
-      void api
-        .cancelArchiveOperation(interruptedOperation.operationId)
-        .then(() => {
-          clearForegroundArchiveOperation(interruptedOperation.operationId);
-          setArchiveInterruptionNoticeOpen(true);
-        })
-        .catch(() => {
-          setArchiveInterruptionNoticeOpen(true);
-        });
-    }
+    void recoverInterruptedContainerCreation(browserContentServices.archiveOperations).then((interrupted) => {
+      if (interrupted) setArchiveInterruptionNoticeOpen(true);
+    });
 
     const handlePageHide = () => {
-      const activeOperation = loadForegroundArchiveOperation();
-      if (activeOperation) {
-        requestForegroundArchiveCancellation(activeOperation.operationId);
+      cancelForegroundContainerCreationOnPageHide(browserContentServices.archiveOperations);
+      const extraction = archiveExtractionExecutionRef.current;
+      if (extraction) {
+        void extraction.cancel();
+      } else {
+        const operation = loadForegroundArchiveOperation();
+        if (operation) requestForegroundArchiveCancellation(operation.operationId);
       }
-      abortForegroundLocalArchiveRequest();
     };
     const handleBeforeUnload = (event: BeforeUnloadEvent) => {
-      if (hasForegroundArchiveWork()) {
+      if (hasForegroundContainerCreationWork(browserContentServices.archiveOperations) || hasForegroundArchiveWork()) {
         event.preventDefault();
         event.returnValue = "";
       }
@@ -390,7 +486,7 @@ const Browser: React.FC = () => {
       window.removeEventListener("pagehide", handlePageHide);
       window.removeEventListener("beforeunload", handleBeforeUnload);
     };
-  }, []);
+  }, [browserContentServices.archiveOperations]);
 
   // Overwrite conflict dialog state
   const [conflictDialogOpen, setConflictDialogOpen] = useState(false);
@@ -490,6 +586,10 @@ const Browser: React.FC = () => {
   // Left pane — always present, synced with URL
   const leftPane = useFileBrowserPane({
     connections: allConnections,
+    contentProviders: browserContentServices.providers,
+    storageRegistry: browserContentServices.registry,
+    history: browserContentServices.history,
+    linkTargets: browserContentServices.linkTargets,
     rowHeight,
     disabled: settingsOpen || mobileSettingsOpen,
     isActive: activePaneId === "left",
@@ -505,6 +605,10 @@ const Browser: React.FC = () => {
   // but only renders in dual mode. Disabled when not in dual mode.
   const rightPane = useFileBrowserPane({
     connections: allConnections,
+    contentProviders: browserContentServices.providers,
+    storageRegistry: browserContentServices.registry,
+    history: browserContentServices.history,
+    linkTargets: browserContentServices.linkTargets,
     rowHeight,
     disabled: settingsOpen || mobileSettingsOpen || paneMode === "single",
     isActive: activePaneId === "right" && paneMode === "dual",
@@ -531,32 +635,53 @@ const Browser: React.FC = () => {
   const viewerOverlayOpen = Boolean(leftPane.viewInfo || rightPane.viewInfo);
   const activePaneConnection = getConnectionById(allConnections, activePane.connectionId);
   const quickBarPaneConnection = getConnectionById(allConnections, quickBarPane.connectionId);
-  const quickBarOtherPaneConnection = getConnectionById(allConnections, quickBarOtherPane.connectionId);
   const leftPaneConnection = getConnectionById(allConnections, leftPane.connectionId);
   const rightPaneConnection = getConnectionById(allConnections, rightPane.connectionId);
   const activePaneFocusedFile = activePane.focusedIndex >= 0 ? activePane.filesRef.current[activePane.focusedIndex] : undefined;
   const quickBarFocusedFile = quickBarPane.focusedIndex >= 0 ? quickBarPane.filesRef.current[quickBarPane.focusedIndex] : undefined;
   const activePaneIsArchive = activePane.archiveLocation !== null;
+  const contentOperationEnvironment = useMemo(
+    () => ({
+      isCompanionPaired: companion.status === "paired",
+      storageRegistry: browserContentServices.registry,
+      archiveOperations: browserContentServices.archiveOperations,
+      history: browserContentServices.history,
+    }),
+    [browserContentServices.archiveOperations, browserContentServices.history, browserContentServices.registry, companion.status]
+  );
   const quickBarPaneWritable = quickBarPane.contentCapabilities.mutate && isConnectionWritable(quickBarPaneConnection);
   const activePaneCanOpenInApp =
     activePane.contentCapabilities.openInNativeApp && activePaneFocusedFile?.type === "file" && canOpenFileInApp(activePaneConnection);
   const quickBarCanOpenInApp =
     quickBarPane.contentCapabilities.openInNativeApp && quickBarFocusedFile?.type === "file" && canOpenFileInApp(quickBarPaneConnection);
+  const quickBarSelection = quickBarPane.getEffectiveSelection();
   const quickBarCanCopyToOtherPane =
-    quickBarPane.contentCapabilities.mutate &&
     isDualMode &&
-    quickBarFocusedFile !== undefined &&
-    canCopyToConnection(quickBarPaneConnection, quickBarOtherPaneConnection);
+    quickBarSelection.length > 0 &&
+    quickBarSelection.every(
+      (item) =>
+        getTransferAvailability(
+          { kind: "copy", source: item.handle, destination: quickBarOtherPane.currentLocation },
+          contentOperationEnvironment
+        ).available
+    );
   const quickBarCanMoveToOtherPane =
-    quickBarPane.contentCapabilities.mutate &&
     isDualMode &&
-    quickBarFocusedFile !== undefined &&
-    canMoveBetweenConnections(quickBarPaneConnection, quickBarOtherPaneConnection);
-  const activePaneCanCreateArchive =
-    activePane.contentCapabilities.mutate &&
-    isConnectionWritable(activePaneConnection) &&
-    activePane.getEffectiveSelection().length > 0 &&
-    (!isLocalDrive(activePane.connectionId) || companion.status === "paired");
+    quickBarSelection.length > 0 &&
+    quickBarSelection.every(
+      (item) =>
+        getTransferAvailability(
+          { kind: "move", source: item.handle, destination: quickBarOtherPane.currentLocation },
+          contentOperationEnvironment
+        ).available
+    );
+  const createContainerDestination = isDualMode
+    ? (effectiveActivePaneId === "left" ? rightPane : leftPane).currentLocation
+    : activePane.currentLocation;
+  const activePaneCanCreateArchive = getCreateContainerAvailability(
+    { sources: activePane.getEffectiveSelection().map((item) => item.handle), destination: createContainerDestination },
+    contentOperationEnvironment
+  ).available;
   const hasVisibleLocalDrivePane =
     Boolean(leftPane.connectionId && isLocalDrive(leftPane.connectionId)) ||
     Boolean(isDualMode && rightPane.connectionId && isLocalDrive(rightPane.connectionId));
@@ -592,11 +717,11 @@ const Browser: React.FC = () => {
 
   const refreshVisiblePanesAfterRecovery = useCallback(() => {
     if (leftPane.connectionIdRef.current) {
-      void leftPane.loadFiles(leftPane.currentPathRef.current, true, true);
+      void leftPane.reloadCurrentLocation({ forceRefresh: true, preserveVisibleContent: true });
     }
 
     if (paneMode === "dual" && rightPane.connectionIdRef.current) {
-      void rightPane.loadFiles(rightPane.currentPathRef.current, true, true);
+      void rightPane.reloadCurrentLocation({ forceRefresh: true, preserveVisibleContent: true });
     }
   }, [leftPane, paneMode, rightPane]);
 
@@ -1029,7 +1154,7 @@ const Browser: React.FC = () => {
           setSelectedConnectionIdPreference(persistedSelectedConnectionId, false);
         }
 
-        const data = await api.getConnections();
+        const data = await browserContentServices.connections.getConnections();
         setConnections(data);
 
         if (preserveVisibleUi) {
@@ -1200,21 +1325,25 @@ const Browser: React.FC = () => {
       };
 
       ws.onmessage = (event) => {
-        const data = JSON.parse(event.data);
-        if (data.type === "directory_changed") {
+        const message = parseRealtimeMessage(event.data);
+        if (!message) {
+          logger.warn("Ignoring malformed WebSocket message", undefined, "websocket");
+          return;
+        }
+        if (message.type === "directory_changed") {
           // Dispatch to both panes — each pane checks if it's viewing the affected directory
-          leftPane.handleDirectoryChanged(data.connection_id, data.path);
-          rightPane.handleDirectoryChanged(data.connection_id, data.path);
-        } else if (data.type === "transfer_progress") {
+          leftPane.handleDirectoryChanged(message.change);
+          rightPane.handleDirectoryChanged(message.change);
+        } else if (message.type === "transfer_progress") {
           // Byte-level progress for cross-connection copy/move
-          if (data.bytes_transferred === -1) {
+          if (message.bytesTransferred === -1) {
             // Sentinel: transfer complete — clear byte progress
             setCopyMoveTransferProgress(null);
           } else {
             setCopyMoveTransferProgress({
-              bytesTransferred: data.bytes_transferred,
-              totalBytes: data.total_bytes ?? null,
-              itemName: data.item_name ?? "",
+              bytesTransferred: message.bytesTransferred,
+              totalBytes: message.totalBytes,
+              itemName: message.itemName,
             });
           }
         }
@@ -1336,7 +1465,7 @@ const Browser: React.FC = () => {
     const connectCompanionWs = async () => {
       if (disposed) return;
 
-      const wsUrl = await buildCompanionWsUrl();
+      const wsUrl = await browserContentServices.connections.getCompanionWebSocketUrl();
       if (!wsUrl || disposed) return;
 
       logger.info("Connecting to companion WebSocket", { wsUrl: getSafeWebSocketLogUrl(wsUrl) }, "websocket");
@@ -1373,10 +1502,14 @@ const Browser: React.FC = () => {
       };
 
       ws.onmessage = (event) => {
-        const data = JSON.parse(event.data);
-        if (data.type === "directory_changed") {
-          leftPane.handleDirectoryChanged(data.connection_id, data.path);
-          rightPane.handleDirectoryChanged(data.connection_id, data.path);
+        const message = parseRealtimeMessage(event.data);
+        if (!message) {
+          logger.warn("Ignoring malformed companion WebSocket message", undefined, "websocket");
+          return;
+        }
+        if (message.type === "directory_changed") {
+          leftPane.handleDirectoryChanged(message.change);
+          rightPane.handleDirectoryChanged(message.change);
         }
       };
 
@@ -1621,38 +1754,34 @@ const Browser: React.FC = () => {
 
       const sourcePaneId = effectiveActivePaneIdRef.current;
       const sourcePane = sourcePaneId === "left" ? leftPane : rightPane;
-      const destPane = sourcePaneId === "left" ? rightPane : leftPane;
-      if (sourcePane.archiveLocation !== null) return;
-      const sourceConnection = getConnectionById(allConnections, sourcePane.connectionIdRef.current);
-      const destinationConnection = getConnectionById(allConnections, destPane.connectionIdRef.current);
-
-      if (mode === "copy") {
-        if (!canCopyToConnection(sourceConnection, destinationConnection)) return;
-      } else if (!canMoveBetweenConnections(sourceConnection, destinationConnection)) {
+      const destinationPane = sourcePaneId === "left" ? rightPane : leftPane;
+      const items = sourcePane.getEffectiveSelection();
+      const destination = destinationPane.currentLocation;
+      if (
+        items.length === 0 ||
+        !items.every(
+          (item) => getTransferAvailability({ kind: mode, source: item.handle, destination }, contentOperationEnvironment).available
+        )
+      ) {
         return;
       }
 
-      const files = sourcePane.getEffectiveSelection();
-      if (files.length === 0 || !files.every(isPhysicalItem)) return;
-
-      const destConnId = destPane.connectionIdRef.current;
-      const destConn = connections.find((c) => c.id === destConnId);
-
       setCopyMoveMode(mode);
-      setCopyMoveFiles(files.map((item) => item.entry));
+      setCopyMoveItems(items);
       setCopyMoveSourcePaneId(sourcePaneId);
-      setCopyMoveSourceConnectionId(sourcePane.connectionIdRef.current);
-      setCopyMoveSourcePath(sourcePane.currentPathRef.current);
-      setCopyMoveDestConnectionId(destConnId);
-      setCopyMoveDestConnectionName(destConn?.name ?? "");
-      setCopyMoveDestPath(destPane.currentPathRef.current);
+      setCopyMoveDestination(destination);
+      setCopyMoveDestinationLabel(
+        getLocationDisplayName(destination, (connectionId) => getConnectionById(allConnections, connectionId)?.name ?? connectionId)
+      );
+      setCopyMoveSameDirectory(areSameContentLocations(sourcePane.currentLocation, destination));
+      setCopyMoveDestinationPaneId(sourcePaneId === "left" ? "right" : "left");
       setCopyMoveError(null);
       setCopyMoveProgress(undefined);
       setCopyMoveTransferProgress(null);
       setCopyMoveProcessing(false);
       setCopyMoveDialogOpen(true);
     },
-    [allConnections, connections, isDualMode, leftPane, rightPane]
+    [allConnections, contentOperationEnvironment, isDualMode, leftPane, rightPane]
   );
 
   /** Open the copy dialog (F5). */
@@ -1666,142 +1795,95 @@ const Browser: React.FC = () => {
    * Shows progress per file. Both panes refresh via WebSocket after completion.
    */
   const handleCopyMoveConfirm = useCallback(
-    async (destPath: string, destFileName: string | undefined, overwriteStrategy: OverwriteStrategy) => {
-      if (copyMoveFiles.length === 0) return;
+    async (destFileName: string | undefined, overwriteStrategy: OverwriteStrategy) => {
+      if (copyMoveItems.length === 0 || !copyMoveDestination) return;
 
       setCopyMoveProcessing(true);
       setCopyMoveError(null);
       setCopyMoveTransferProgress(null);
-      setCopyMoveProgress({ current: 0, total: copyMoveFiles.length });
-
-      const apiFn = copyMoveMode === "copy" ? api.copyItem.bind(api) : api.moveItem.bind(api);
+      setCopyMoveProgress({ current: 0, total: copyMoveItems.length });
       const errors: string[] = [];
       let destinationMutated = false;
       let sourceMutated = false;
-
-      // Mutable state for "apply to all" decisions made during the loop
       let effectiveStrategy = overwriteStrategy;
       let conflictCount = 0;
 
-      for (let i = 0; i < copyMoveFiles.length; i++) {
-        const file = copyMoveFiles[i]!;
-        const sourcePath = copyMoveSourcePath ? `${copyMoveSourcePath}/${file.name}` : file.name;
-        // Use the renamed file name for single-item operations, otherwise keep original
-        const targetName = destFileName ?? file.name;
-        const fullDestPath = destPath ? `${destPath}/${targetName}` : targetName;
-        const crossConnId = copyMoveSourceConnectionId !== copyMoveDestConnectionId ? copyMoveDestConnectionId : undefined;
-
-        setCopyMoveProgress({ current: i + 1, total: copyMoveFiles.length });
+      for (let index = 0; index < copyMoveItems.length; index += 1) {
+        const item = copyMoveItems[index]!;
+        const request = { kind: copyMoveMode, source: item.handle, destination: copyMoveDestination, targetName: destFileName } as const;
+        const execute = (overwrite = false) => executeTransfer({ ...request, overwrite }, contentOperationEnvironment);
+        setCopyMoveProgress({ current: index + 1, total: copyMoveItems.length });
 
         try {
-          await apiFn(copyMoveSourceConnectionId, sourcePath, fullDestPath, crossConnId);
+          await execute();
           destinationMutated = true;
-          if (copyMoveMode === "move") {
-            sourceMutated = true;
-          }
-        } catch (err) {
-          // ── Handle 409 Conflict (destination already exists) ──
-          if (isApiError(err) && err.response?.status === 409) {
-            const detail = err.response?.data?.detail;
+          sourceMutated ||= copyMoveMode === "move";
+        } catch (error) {
+          if (isApiError(error) && error.response?.status === 409) {
+            const detail = error.response?.data?.detail;
             const conflict = typeof detail === "object" && detail !== null ? (detail as ConflictInfo) : null;
-
             if (conflict && effectiveStrategy === "ask") {
-              // Pause the loop and show the conflict dialog
-              conflictCount++;
+              conflictCount += 1;
               setConflictInfo(conflict);
-              setConflictProgress({ current: i + 1, total: copyMoveFiles.length, conflictsSoFar: conflictCount });
-
+              setConflictProgress({ current: index + 1, total: copyMoveItems.length, conflictsSoFar: conflictCount });
               const decision = await new Promise<{ resolution: ConflictResolution; applyToAll: boolean }>((resolve) => {
                 conflictResolveRef.current = resolve;
                 setConflictDialogOpen(true);
               });
-
               setConflictDialogOpen(false);
-
-              // If user chose "apply to all", convert the per-file decision
-              // into a batch strategy for the rest of the operation.
               if (decision.applyToAll) {
                 effectiveStrategy = decision.resolution === "replace" ? "replace-all" : "skip-all";
               }
-
-              if (decision.resolution === "replace") {
-                // Retry the operation with overwrite enabled
-                try {
-                  await apiFn(copyMoveSourceConnectionId, sourcePath, fullDestPath, crossConnId, true);
-                  destinationMutated = true;
-                  if (copyMoveMode === "move") {
-                    sourceMutated = true;
-                  }
-                } catch (retryErr) {
-                  const msg = (isApiError(retryErr) ? retryErr.message : undefined) ?? `Failed to ${copyMoveMode} ${file.name}`;
-                  errors.push(msg);
-                  logger.error(`${copyMoveMode} overwrite failed`, { file: file.name, error: retryErr }, "browser");
-                }
+              if (decision.resolution !== "replace") {
+                continue;
               }
-              // else: "skip" — do nothing, move to next file
-              continue;
-            }
-
-            if (effectiveStrategy === "replace-all") {
-              // Silently overwrite
-              try {
-                await apiFn(copyMoveSourceConnectionId, sourcePath, fullDestPath, crossConnId, true);
-                destinationMutated = true;
-                if (copyMoveMode === "move") {
-                  sourceMutated = true;
-                }
-              } catch (retryErr) {
-                const msg = (isApiError(retryErr) ? retryErr.message : undefined) ?? `Failed to ${copyMoveMode} ${file.name}`;
-                errors.push(msg);
-                logger.error(`${copyMoveMode} overwrite failed`, { file: file.name, error: retryErr }, "browser");
-              }
-              continue;
             }
 
             if (effectiveStrategy === "skip-all") {
-              // Silently skip
               continue;
+            }
+            if (effectiveStrategy === "replace-all" || conflict) {
+              try {
+                await execute(true);
+                destinationMutated = true;
+                sourceMutated ||= copyMoveMode === "move";
+                continue;
+              } catch (retryError) {
+                const message = (isApiError(retryError) ? retryError.message : undefined) ?? `Failed to ${copyMoveMode} ${item.entry.name}`;
+                errors.push(message);
+                logger.error(`${copyMoveMode} overwrite failed`, { file: item.entry.name, error: retryError }, "browser");
+                continue;
+              }
             }
           }
 
-          // ── Non-conflict errors ──
-          const msg = (isApiError(err) ? err.message : undefined) ?? `Failed to ${copyMoveMode} ${file.name}`;
-          errors.push(msg);
-          logger.error(`${copyMoveMode} failed`, { file: file.name, error: err }, "browser");
+          const message = (isApiError(error) ? error.message : undefined) ?? `Failed to ${copyMoveMode} ${item.entry.name}`;
+          errors.push(message);
+          logger.error(`${copyMoveMode} failed`, { file: item.entry.name, error }, "browser");
         }
       }
 
       setCopyMoveProcessing(false);
       setCopyMoveTransferProgress(null);
-
       const sourcePane = copyMoveSourcePaneId === "left" ? leftPane : rightPane;
-      const destPane = copyMoveSourcePaneId === "left" ? rightPane : leftPane;
-
-      if (destinationMutated) {
-        destPane.forceReloadCurrentDirectory();
-      }
-
-      if (sourceMutated) {
-        sourcePane.forceReloadCurrentDirectory();
-      }
+      const destinationPane = copyMoveDestinationPaneId === "left" ? leftPane : rightPane;
+      if (destinationMutated) void destinationPane.reloadCurrentLocation({ forceRefresh: true });
+      if (sourceMutated) void sourcePane.reloadCurrentLocation({ forceRefresh: true });
 
       if (errors.length > 0) {
         setCopyMoveError(errors.join("; "));
       } else {
-        // Success — close dialog and clear selection on the source pane
         setCopyMoveDialogOpen(false);
-        const sourcePaneId = effectiveActivePaneIdRef.current;
-        const sourcePane = sourcePaneId === "left" ? leftPane : rightPane;
         sourcePane.handleClearSelection();
       }
     },
     [
-      copyMoveFiles,
+      contentOperationEnvironment,
+      copyMoveDestination,
+      copyMoveDestinationPaneId,
+      copyMoveItems,
       copyMoveMode,
       copyMoveSourcePaneId,
-      copyMoveSourceConnectionId,
-      copyMoveSourcePath,
-      copyMoveDestConnectionId,
       leftPane,
       rightPane,
     ]
@@ -1888,160 +1970,190 @@ const Browser: React.FC = () => {
   );
 
   const handleCreateArchiveRequest = useCallback(() => {
-    if (!activePaneCanCreateArchive) {
-      return;
-    }
-    const selectedItems = activePane.getEffectiveSelection();
-    if (!selectedItems.every(isPhysicalItem)) {
-      return;
-    }
-    const sourcePaths = selectedItems.map((item) => item.handle.path);
-    if (sourcePaths.length === 0) {
-      return;
-    }
-    const sourcePaneId = effectiveActivePaneId;
-    const destinationPaneId: PaneId = sourcePaneId === "left" ? "right" : "left";
+    const sources = activePane.getEffectiveSelection().map((item) => item.handle);
+    const destinationPaneId: PaneId = isDualMode ? (effectiveActivePaneId === "left" ? "right" : "left") : effectiveActivePaneId;
     const destinationPane = destinationPaneId === "right" ? rightPane : leftPane;
-    const destinationConnection = getConnectionById(allConnections, destinationPane.connectionId);
-    const useMixedDestination =
-      isDualMode &&
-      isLocalDrive(activePane.connectionId) !== isLocalDrive(destinationPane.connectionId) &&
-      isConnectionWritable(destinationConnection);
+    const destination = destinationPane.currentLocation;
+    if (!getCreateContainerAvailability({ sources, destination }, contentOperationEnvironment).available) {
+      return;
+    }
     setArchiveCreateError(null);
     setArchiveCreateContext({
-      connectionId: activePane.connectionId,
-      destinationConnectionId: useMixedDestination ? destinationPane.connectionId : activePane.connectionId,
-      destinationPath: useMixedDestination ? destinationPane.currentPath : activePane.currentPath,
-      destinationPaneId: useMixedDestination ? destinationPaneId : sourcePaneId,
-      sourcePaths,
+      sources,
+      destination,
+      destinationLabel: getLocationDisplayName(
+        destination,
+        (connectionId) => getConnectionById(allConnections, connectionId)?.name ?? connectionId
+      ),
+      destinationPaneId,
     });
-  }, [activePane, activePaneCanCreateArchive, allConnections, effectiveActivePaneId, isDualMode, leftPane, rightPane]);
+  }, [activePane, allConnections, contentOperationEnvironment, effectiveActivePaneId, isDualMode, leftPane, rightPane]);
 
   const handleCreateArchiveConfirm = useCallback(
     async (archiveName: string) => {
       if (!archiveCreateContext) {
         return;
       }
-      const targetPath = archiveCreateContext.destinationPath ? `${archiveCreateContext.destinationPath}/${archiveName}` : archiveName;
-      let operationId: string | null = null;
-      let localArchiveSignal: AbortSignal | null = null;
-      let cancellationFailed = false;
-      const registerForegroundOperation = (id: string) => {
-        operationId = id;
-        setActiveArchiveCreationOperationId(id);
-        storeForegroundArchiveOperation(id);
-      };
+      const execution = startCreateContainer(
+        { sources: archiveCreateContext.sources, destination: archiveCreateContext.destination, name: archiveName },
+        contentOperationEnvironment
+      );
+      archiveCreationExecutionRef.current = execution;
       setIsCreatingArchive(true);
       setArchiveCreateError(null);
       try {
-        if (isLocalDrive(archiveCreateContext.connectionId) && !isLocalDrive(archiveCreateContext.destinationConnectionId)) {
-          const operation = await api.prepareArchiveOperation({
-            kind: "create",
-            source_connection_id: archiveCreateContext.connectionId,
-            source_path: "",
-            destination_connection_id: archiveCreateContext.destinationConnectionId,
-            destination_path: targetPath,
-            plan_json: JSON.stringify({ source_paths: archiveCreateContext.sourcePaths }),
-          });
-          registerForegroundOperation(operation.id);
-          const companionSession = await api.getArchiveCompanionSession(operation.id);
-          await api.createLocalArchiveToSmb(
-            archiveCreateContext.connectionId,
-            archiveCreateContext.sourcePaths,
-            targetPath,
-            operation.id,
-            companionSession.token
-          );
-        } else if (isLocalDrive(archiveCreateContext.connectionId)) {
-          localArchiveSignal = beginForegroundLocalArchiveRequest();
-          activeLocalArchiveCreationSignalRef.current = localArchiveSignal;
-          await companionService.createArchive(
-            archiveCreateContext.connectionId.replace("local-drive:", ""),
-            archiveCreateContext.sourcePaths,
-            targetPath,
-            localArchiveSignal
-          );
-        } else {
-          const operation = await api.prepareArchiveOperation({
-            kind: "create",
-            source_connection_id: archiveCreateContext.connectionId,
-            source_path: "",
-            destination_connection_id: archiveCreateContext.destinationConnectionId,
-            destination_path: targetPath,
-            plan_json: JSON.stringify({ source_paths: archiveCreateContext.sourcePaths }),
-          });
-          registerForegroundOperation(operation.id);
-          if (isLocalDrive(archiveCreateContext.destinationConnectionId)) {
-            const companionSession = await api.getArchiveCompanionSession(operation.id);
-            await api.createSmbArchiveToLocal(
-              archiveCreateContext.destinationConnectionId,
-              targetPath,
-              operation.id,
-              companionSession.token
-            );
-          } else {
-            await api.executeArchiveCreation(operation.id);
-          }
-        }
+        await execution.result;
         setArchiveCreateContext(null);
         (archiveCreateContext.destinationPaneId === "right" ? rightPane : leftPane).handleRefresh();
       } catch (error: unknown) {
-        if (operationId) {
-          try {
-            await api.cancelArchiveOperation(operationId);
-          } catch {
-            // Reload recovery retries cancellation while the foreground marker is still present.
-            cancellationFailed = true;
-          }
-        }
-        const hasPartialArchiveOutput = isApiError(error) && error.response?.data?.code === LOCAL_ARCHIVE_CREATION_PARTIAL_CODE;
-        const detail =
-          archiveCreationCancellationRequestedRef.current || localArchiveSignal?.aborted
-            ? t("fileBrowser.archive.createCancelled")
-            : hasPartialArchiveOutput
-              ? t("fileBrowser.archive.createPartialOutputError")
-              : isApiError(error) && typeof error.response?.data?.detail === "string"
-                ? error.response.data.detail
-                : t("fileBrowser.archive.errorGeneric");
+        const hasPartialArchiveOutput = isPartialContainerOutputError(error);
+        const detail = execution.isCancellationRequested()
+          ? t("fileBrowser.archive.createCancelled")
+          : hasPartialArchiveOutput
+            ? t("fileBrowser.archive.createPartialOutputError")
+            : isApiError(error) && typeof error.response?.data?.detail === "string"
+              ? error.response.data.detail
+              : t("fileBrowser.archive.errorGeneric");
         setArchiveCreateError(detail);
         if (hasPartialArchiveOutput) {
           (archiveCreateContext.destinationPaneId === "right" ? rightPane : leftPane).handleRefresh();
         }
-        logger.error("Archive creation failed", { error, targetPath }, "file-browser");
+        logger.error("Archive creation failed", { error, archiveName, destination: archiveCreateContext.destinationLabel }, "file-browser");
       } finally {
-        if (operationId && !cancellationFailed) {
-          clearForegroundArchiveOperation(operationId);
-        }
-        if (localArchiveSignal) {
-          clearForegroundLocalArchiveRequest(localArchiveSignal);
-          activeLocalArchiveCreationSignalRef.current = null;
-        }
-        archiveCreationCancellationRequestedRef.current = false;
-        setActiveArchiveCreationOperationId(null);
+        archiveCreationExecutionRef.current = null;
         setIsCancellingArchiveCreation(false);
         setIsCreatingArchive(false);
       }
     },
-    [archiveCreateContext, leftPane, rightPane, t]
+    [archiveCreateContext, contentOperationEnvironment, leftPane, rightPane, t]
   );
 
   const cancelArchiveCreation = useCallback(async () => {
-    archiveCreationCancellationRequestedRef.current = true;
-    setIsCancellingArchiveCreation(true);
-    if (!activeArchiveCreationOperationId) {
-      if (activeLocalArchiveCreationSignalRef.current) {
-        abortForegroundLocalArchiveRequest();
-      }
+    const execution = archiveCreationExecutionRef.current;
+    if (!execution) {
       return;
     }
+    setIsCancellingArchiveCreation(true);
     try {
-      await api.cancelArchiveOperation(activeArchiveCreationOperationId);
+      await execution.cancel();
     } catch {
-      archiveCreationCancellationRequestedRef.current = false;
       setIsCancellingArchiveCreation(false);
       setArchiveCreateError(t("fileBrowser.archive.errorGeneric"));
     }
-  }, [activeArchiveCreationOperationId, t]);
+  }, [t]);
+
+  const handleArchiveExtractionRequest = useCallback(() => {
+    const location = activePane.currentLocation;
+    if (location.kind !== "virtual" || !activePane.contentCapabilities.extract) {
+      return;
+    }
+    const archiveName = fileName(location.source.path);
+    setArchiveExtractionError(null);
+    setArchiveExtractionContext({
+      location,
+      parentPath: parentPath(location.source.path),
+      archiveName,
+      initialDestinationName: archiveName.replace(/\.zip$/i, "") || archiveName,
+    });
+  }, [activePane.contentCapabilities.extract, activePane.currentLocation]);
+
+  const completeArchiveExtraction = useCallback(
+    (outcome: ArchiveExtractionOutcome, context: NonNullable<typeof archiveExtractionContext>) => {
+      if (outcome.status === "awaiting-decision") {
+        setArchiveExtractionConflicts(
+          outcome.conflicts.map((conflict) => ({
+            member_path: conflict.memberPath,
+            target_path: conflict.targetPath,
+            is_directory: conflict.isDirectory,
+          }))
+        );
+        return;
+      }
+
+      archiveExtractionExecutionRef.current = null;
+      setArchiveExtractionConflicts(null);
+      setIsExtractingArchive(false);
+      setIsCancellingArchiveExtraction(false);
+      const change = { connectionId: context.location.connectionId, path: context.parentPath };
+      leftPane.handleDirectoryChanged(change);
+      rightPane.handleDirectoryChanged(change);
+      setArchiveExtractionContext(null);
+      if (outcome.status === "cancelled") {
+        setArchiveExtractionNotice(t("fileBrowser.archive.extractCancelled"));
+      } else {
+        setArchiveExtractionNotice(
+          outcome.filesSkipped > 0
+            ? t("fileBrowser.archive.extractPartialSuccess", { count: outcome.filesSkipped })
+            : t("fileBrowser.archive.extractSuccess")
+        );
+      }
+    },
+    [leftPane, rightPane, t]
+  );
+
+  const handleArchiveExtractionConfirm = useCallback(
+    async (destinationName: string) => {
+      if (!archiveExtractionContext) {
+        return;
+      }
+      setIsExtractingArchive(true);
+      setArchiveExtractionError(null);
+      setArchiveExtractionConflicts(null);
+      const destinationPath = joinPath(archiveExtractionContext.parentPath, destinationName);
+      const execution = browserContentServices.providers
+        .get(archiveExtractionContext.location)
+        .startExtraction(archiveExtractionContext.location, destinationPath);
+      archiveExtractionExecutionRef.current = execution;
+      try {
+        completeArchiveExtraction(await execution.result, archiveExtractionContext);
+      } catch (error: unknown) {
+        const detail =
+          isApiError(error) && error.response?.status === 409
+            ? t("fileBrowser.archive.validationDestinationExists")
+            : t("fileBrowser.archive.extractError");
+        setArchiveExtractionError(detail);
+        logger.error("Archive extraction failed", { error, destinationPath }, "file-browser");
+        archiveExtractionExecutionRef.current = null;
+        setIsExtractingArchive(false);
+        setIsCancellingArchiveExtraction(false);
+      }
+    },
+    [archiveExtractionContext, browserContentServices.providers, completeArchiveExtraction, t]
+  );
+
+  const cancelArchiveExtraction = useCallback(async () => {
+    const execution = archiveExtractionExecutionRef.current;
+    if (!execution || !archiveExtractionContext) return;
+    setIsCancellingArchiveExtraction(true);
+    try {
+      await execution.cancel();
+      if (archiveExtractionConflicts) {
+        completeArchiveExtraction({ status: "cancelled" }, archiveExtractionContext);
+      }
+    } catch (error) {
+      setIsCancellingArchiveExtraction(false);
+      setArchiveExtractionError(t("fileBrowser.archive.extractError"));
+      logger.error("Archive extraction cancellation failed", { error }, "file-browser");
+    }
+  }, [archiveExtractionConflicts, archiveExtractionContext, completeArchiveExtraction, t]);
+
+  const handleArchiveExtractionDecision = useCallback(
+    async (action: Parameters<ArchiveExtractionExecution["decide"]>[0], memberPath?: string, targetPath?: string) => {
+      const execution = archiveExtractionExecutionRef.current;
+      if (!execution || !archiveExtractionContext) return;
+      setIsSubmittingArchiveExtractionDecision(true);
+      setArchiveExtractionError(null);
+      try {
+        completeArchiveExtraction(await execution.decide(action, memberPath, targetPath), archiveExtractionContext);
+      } catch (error) {
+        setArchiveExtractionError(t("fileBrowser.archive.extractError"));
+        logger.error("Archive extraction collision decision failed", { error, action, memberPath }, "file-browser");
+      } finally {
+        setIsSubmittingArchiveExtractionDecision(false);
+      }
+    },
+    [archiveExtractionContext, completeArchiveExtraction, t]
+  );
 
   const browserCommandContext = useMemo(
     () => ({
@@ -2056,6 +2168,7 @@ const Browser: React.FC = () => {
       connectionSelected: quickBarPane.connectionId !== "",
       connectionWritable: quickBarPaneWritable,
       canCreateArchive: activePaneCanCreateArchive,
+      canExtractArchive: activePaneIsArchive && activePane.contentCapabilities.extract && archiveExtractionContext === null,
       canOpenFocusedFileInApp: quickBarCanOpenInApp,
       canCopyToOtherPane: quickBarCanCopyToOtherPane,
       canMoveToOtherPane: quickBarCanMoveToOtherPane,
@@ -2073,6 +2186,7 @@ const Browser: React.FC = () => {
       newDirectory: quickBarPane.handleNewDirectoryRequest,
       newFile: quickBarPane.handleNewFileRequest,
       createArchive: handleCreateArchiveRequest,
+      extractArchive: handleArchiveExtractionRequest,
       openInApp: () => {
         void quickBarPane.handleOpenInApp();
       },
@@ -2090,6 +2204,7 @@ const Browser: React.FC = () => {
     [
       handleCopyToOtherPane,
       handleCreateArchiveRequest,
+      handleArchiveExtractionRequest,
       handleFocusLeftPane,
       handleFocusRightPane,
       handleMoveToOtherPane,
@@ -2102,6 +2217,9 @@ const Browser: React.FC = () => {
       openQuickBarMode,
       quickBarCanCopyToOtherPane,
       activePaneCanCreateArchive,
+      activePaneIsArchive,
+      activePane.contentCapabilities.extract,
+      archiveExtractionContext,
       quickBarCanMoveToOtherPane,
       quickBarCanOpenInApp,
       quickBarMode,
@@ -2132,6 +2250,7 @@ const Browser: React.FC = () => {
     onOpenRecentFile: (file, mode) => {
       void quickBarPane.handleOpenFileAtPath(file.connection_id, file.path, mode, file.id);
     },
+    history: browserContentServices.history,
   });
 
   const suppressQuickBarDropdown =
@@ -2139,6 +2258,7 @@ const Browser: React.FC = () => {
     settingsOpen ||
     mobileSettingsOpen ||
     copyMoveDialogOpen ||
+    archiveExtractionContext !== null ||
     conflictDialogOpen ||
     archiveCreateContext !== null ||
     leftPane.viewInfo !== null ||
@@ -2385,6 +2505,12 @@ const Browser: React.FC = () => {
         handler: handleCreateArchiveRequest,
         enabled: browsing && noDialogOpen && activePaneCanCreateArchive,
       },
+      {
+        ...BROWSER_SHORTCUTS.EXTRACT_ARCHIVE,
+        handler: handleArchiveExtractionRequest,
+        enabled:
+          browsing && noDialogOpen && activePaneIsArchive && activePane.contentCapabilities.extract && archiveExtractionContext === null,
+      },
       // ── Selection Shortcuts (Norton Commander multi-select) ──────────────
       // Toggle selection on focused file, then move focus down (Insert / Space)
       {
@@ -2456,6 +2582,8 @@ const Browser: React.FC = () => {
     handleMoveToOtherPane,
     handleCreateArchiveRequest,
     activePaneCanCreateArchive,
+    handleArchiveExtractionRequest,
+    archiveExtractionContext,
     t,
   ]);
 
@@ -2527,18 +2655,16 @@ const Browser: React.FC = () => {
    */
   const handleConnectionsChanged = useCallback(async () => {
     try {
-      const data = await api.getConnections();
+      const data = await browserContentServices.connections.getConnections();
       setConnections(data);
 
       await companion.refresh();
 
-      let companionDrives: DriveInfo[] = [];
-      if (hasStoredSecret()) {
-        try {
-          companionDrives = await companionService.getDrives();
-        } catch (error) {
-          logger.warn("Failed to refresh companion drives after settings change", { error }, "companion");
-        }
+      let companionDrives = [];
+      try {
+        companionDrives = await browserContentServices.connections.getStoredCompanionDrives();
+      } catch (error) {
+        logger.warn("Failed to refresh companion drives after settings change", { error }, "companion");
       }
 
       const availableConnections = mergeConnections(data, companionDrives);
@@ -2548,12 +2674,12 @@ const Browser: React.FC = () => {
       const leftConnId = leftPane.connectionId;
       if (leftConnId && hasConnection(leftConnId)) {
         leftPane.invalidateConnectionCache(leftConnId);
-        leftPane.loadFiles(leftPane.currentPathRef.current, true);
+        void leftPane.reloadCurrentLocation({ forceRefresh: true });
       }
       const rightConnId = rightPane.connectionId;
       if (rightConnId && hasConnection(rightConnId)) {
         rightPane.invalidateConnectionCache(rightConnId);
-        rightPane.loadFiles(rightPane.currentPathRef.current, true);
+        void rightPane.reloadCurrentLocation({ forceRefresh: true });
       }
 
       // Check if left pane's connection still exists
@@ -2601,7 +2727,15 @@ const Browser: React.FC = () => {
     } catch (err) {
       logger.error("Error refreshing connections", { error: err }, "browser");
     }
-  }, [companion, leftPane, navigate, navigateToBrowseState, rightPane]);
+  }, [
+    browserContentServices.connections.getConnections,
+    browserContentServices.connections.getStoredCompanionDrives,
+    companion,
+    leftPane,
+    navigate,
+    navigateToBrowseState,
+    rightPane,
+  ]);
 
   // ── Computed values for the active pane (used in toolbar / mobile) ────────
   const activeCurrentPath = activePane.currentPath;
@@ -2611,12 +2745,6 @@ const Browser: React.FC = () => {
 
   // Force single-pane on mobile
   const effectivePaneMode: PaneMode = useCompactLayout ? "single" : paneMode;
-  const archiveDestination = archiveCreateContext
-    ? formatConnectionPath(
-        getConnectionById(allConnections, archiveCreateContext.destinationConnectionId)?.name ?? "",
-        archiveCreateContext.destinationPath
-      )
-    : "";
 
   // ──────────────────────────────────────────────────────────────────────────
   // Component Render
@@ -2833,6 +2961,7 @@ const Browser: React.FC = () => {
           hasMoreItems={leftPane.viewInfo.virtualSource ? leftPane.archiveHasMore : false}
           isLoadingMoreItems={leftPane.viewInfo.virtualSource ? leftPane.archiveLoadingMore : false}
           onLoadMoreItems={leftPane.viewInfo.virtualSource ? leftPane.loadMoreArchive : undefined}
+          contentProviders={browserContentServices.providers}
         />
       )}
       {rightPane.viewInfo && !leftPane.viewInfo && (
@@ -2845,6 +2974,7 @@ const Browser: React.FC = () => {
           hasMoreItems={rightPane.viewInfo.virtualSource ? rightPane.archiveHasMore : false}
           isLoadingMoreItems={rightPane.viewInfo.virtualSource ? rightPane.archiveLoadingMore : false}
           onLoadMoreItems={rightPane.viewInfo.virtualSource ? rightPane.loadMoreArchive : undefined}
+          contentProviders={browserContentServices.providers}
         />
       )}
       {/* Keyboard Shortcuts Help */}
@@ -2861,8 +2991,8 @@ const Browser: React.FC = () => {
           <Typography variant="body2" sx={{ color: "text.secondary" }}>
             <Trans
               i18nKey="fileBrowser.archive.createPrompt"
-              count={archiveCreateContext?.sourcePaths.length ?? 0}
-              values={{ directory: archiveDestination }}
+              count={archiveCreateContext?.sources.length ?? 0}
+              values={{ directory: archiveCreateContext?.destinationLabel ?? "" }}
               components={{ directory: <InlineItemName testId="archive-create-prompt-directory" /> }}
             />
           </Typography>
@@ -2873,9 +3003,7 @@ const Browser: React.FC = () => {
         submittingLabel={t("fileBrowser.archive.buttonCreating")}
         isSubmitting={isCreatingArchive}
         isCancelling={isCancellingArchiveCreation}
-        onCancelSubmitting={
-          activeArchiveCreationOperationId || activeLocalArchiveCreationSignalRef.current ? () => void cancelArchiveCreation() : undefined
-        }
+        onCancelSubmitting={isCreatingArchive ? () => void cancelArchiveCreation() : undefined}
         cancelSubmittingLabel={t("fileBrowser.archive.buttonCancelCreation")}
         onClose={() => {
           if (!isCreatingArchive) {
@@ -2887,6 +3015,36 @@ const Browser: React.FC = () => {
         apiError={archiveCreateError}
         extraValidate={(name) => (name.toLowerCase().endsWith(".zip") ? null : t("fileBrowser.archive.validationExtension"))}
         autoSelectRange={[0, "archive".length]}
+      />
+      <ArchiveExtractDialog
+        archiveName={archiveExtractionContext?.archiveName ?? ""}
+        initialDestinationName={archiveExtractionContext?.initialDestinationName ?? ""}
+        open={archiveExtractionContext !== null}
+        isExtracting={isExtractingArchive}
+        isCancelling={isCancellingArchiveExtraction}
+        error={archiveExtractionError}
+        onClose={() => {
+          if (!isExtractingArchive) {
+            setArchiveExtractionContext(null);
+            setArchiveExtractionError(null);
+          }
+        }}
+        onConfirm={(destinationName) => void handleArchiveExtractionConfirm(destinationName)}
+        onCancelExtraction={() => void cancelArchiveExtraction()}
+      />
+      <ArchiveExtractionConflictDialog
+        open={archiveExtractionConflicts !== null}
+        conflicts={archiveExtractionConflicts ?? []}
+        isSubmitting={isSubmittingArchiveExtractionDecision || isCancellingArchiveExtraction}
+        error={archiveExtractionError}
+        onDecision={(action, memberPath, targetPath) => void handleArchiveExtractionDecision(action, memberPath, targetPath)}
+      />
+      <Snackbar
+        open={archiveExtractionNotice !== null}
+        autoHideDuration={6000}
+        onClose={() => setArchiveExtractionNotice(null)}
+        anchorOrigin={{ vertical: "bottom", horizontal: "center" }}
+        message={archiveExtractionNotice}
       />
       {/* Companion app guidance hint */}
       <Snackbar
@@ -2907,13 +3065,9 @@ const Browser: React.FC = () => {
       <CopyMoveDialog
         open={copyMoveDialogOpen}
         mode={copyMoveMode}
-        files={copyMoveFiles}
-        sourceConnectionId={copyMoveSourceConnectionId}
-        sourcePath={copyMoveSourcePath}
-        destConnectionId={copyMoveDestConnectionId}
-        destConnectionName={copyMoveDestConnectionName}
-        destPath={copyMoveDestPath}
-        isSameConnection={copyMoveSourceConnectionId === copyMoveDestConnectionId}
+        files={copyMoveItems.map((item) => item.entry)}
+        destinationLabel={copyMoveDestinationLabel}
+        isSameDirectory={copyMoveSameDirectory}
         onConfirm={handleCopyMoveConfirm}
         onCancel={handleCopyMoveCancel}
         isProcessing={copyMoveProcessing}

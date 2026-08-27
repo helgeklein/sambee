@@ -547,8 +547,11 @@ describe("PDFViewer", () => {
         expect(screen.getByLabelText("Zoom in")).toBeDisabled();
         expect(screen.getByLabelText("Download")).toBeEnabled();
 
-        fireEvent.click(screen.getByLabelText("Download"));
-        expect(apiService.downloadFile).toHaveBeenCalledWith("test-conn-id", "/test/document.pdf", "document.pdf");
+        await act(async () => {
+          fireEvent.click(screen.getByLabelText("Download"));
+          await Promise.resolve();
+        });
+        expect(apiService.getOriginalFileBlob).toHaveBeenCalledWith("test-conn-id", "/test/document.pdf", { signal: undefined });
 
         await act(async () => {
           await vi.advanceTimersByTimeAsync(6000);

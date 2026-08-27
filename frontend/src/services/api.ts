@@ -68,6 +68,7 @@ import {
 import { getBaseUrl, getBrowseSegment, isLocalDrive } from "./backendRouter";
 import { clearBrowserRecoverySnapshot } from "./browserRecoverySnapshot";
 import { COMPANION_BASE_URL } from "./companion";
+import { companionSession } from "./companionSession";
 import { snapshotRegisteredDrafts } from "./draftRecovery";
 import { logger } from "./logger";
 
@@ -332,26 +333,7 @@ class ApiService {
    * Uses Web Crypto API for HMAC-SHA256(secret, timestamp).
    */
   private async buildCompanionHeaders(): Promise<Record<string, string>> {
-    const secret = localStorage.getItem("companion_secret");
-    if (!secret) {
-      throw new Error("Not paired with companion");
-    }
-
-    const timestamp = Math.floor(Date.now() / 1000).toString();
-    const encoder = new TextEncoder();
-    const keyData = encoder.encode(secret);
-    const msgData = encoder.encode(timestamp);
-
-    const cryptoKey = await crypto.subtle.importKey("raw", keyData, { name: "HMAC", hash: "SHA-256" }, false, ["sign"]);
-    const signature = await crypto.subtle.sign("HMAC", cryptoKey, msgData);
-    const hmac = Array.from(new Uint8Array(signature))
-      .map((b) => b.toString(16).padStart(2, "0"))
-      .join("");
-
-    return {
-      "X-Companion-Secret": hmac,
-      "X-Companion-Timestamp": timestamp,
-    };
+    return companionSession.getSigningHeaders();
   }
 
   /**
@@ -361,24 +343,7 @@ class ApiService {
    * Returns a query string fragment: `hmac=...&ts=...&origin=...`
    */
   private async buildCompanionQueryAuth(): Promise<string> {
-    const secret = localStorage.getItem("companion_secret");
-    if (!secret) {
-      throw new Error("Not paired with companion");
-    }
-
-    const timestamp = Math.floor(Date.now() / 1000).toString();
-    const encoder = new TextEncoder();
-    const keyData = encoder.encode(secret);
-    const msgData = encoder.encode(timestamp);
-
-    const cryptoKey = await crypto.subtle.importKey("raw", keyData, { name: "HMAC", hash: "SHA-256" }, false, ["sign"]);
-    const signature = await crypto.subtle.sign("HMAC", cryptoKey, msgData);
-    const hmac = Array.from(new Uint8Array(signature))
-      .map((b) => b.toString(16).padStart(2, "0"))
-      .join("");
-
-    const origin = encodeURIComponent(window.location.origin);
-    return `hmac=${hmac}&ts=${timestamp}&origin=${origin}`;
+    return companionSession.getSignedQuery();
   }
 
   /**
@@ -395,14 +360,8 @@ class ApiService {
     return { client: this.api, extraConfig: {} };
   }
 
-  private assertEditLocksSupported(connectionId: string): void {
-    if (isLocalDrive(connectionId)) {
-      throw new Error(LOCAL_DRIVE_EDIT_LOCKS_UNSUPPORTED_MESSAGE);
-    }
-  }
-
   supportsEditLocks(connectionId: string): boolean {
-    return !isLocalDrive(connectionId);
+    return Boolean(connectionId);
   }
 
   // Auth endpoints
@@ -1049,12 +1008,13 @@ class ApiService {
     return response.data;
   }
 
-  async getFileInfo(connectionId: string, path: string): Promise<FileInfo> {
+  async getFileInfo(connectionId: string, path: string, options: { signal?: AbortSignal } = {}): Promise<FileInfo> {
     const segment = getBrowseSegment(connectionId);
     const { client, extraConfig } = await this.getClientConfig(connectionId);
     const response = await client.get<FileInfo>(`/browse/${segment}/info`, {
       ...extraConfig,
       params: { path },
+      signal: options.signal,
     });
     return response.data;
   }
@@ -1253,7 +1213,13 @@ class ApiService {
    * Uses multipart form data with a single `file` field, matching both
    * the Python backend and the companion upload endpoints.
    */
-  private async uploadFileBlob(connectionId: string, destPath: string, blob: Blob, filename: string): Promise<void> {
+  private async uploadFileBlob(
+    connectionId: string,
+    destPath: string,
+    blob: Blob,
+    filename: string,
+    params?: Record<string, string>
+  ): Promise<void> {
     const baseUrl = getBaseUrl(connectionId);
     const segment = getBrowseSegment(connectionId);
     const url = `${baseUrl}/browse/${segment}/upload?path=${encodeURIComponent(destPath)}`;
@@ -1269,7 +1235,8 @@ class ApiService {
       if (token) headers["Authorization"] = `Bearer ${token}`;
     }
 
-    const response = await fetch(url, {
+    const requestUrl = params ? `${url}&${new URLSearchParams(params).toString()}` : url;
+    const response = await fetch(requestUrl, {
       method: "POST",
       headers,
       body: formData,
@@ -1279,6 +1246,10 @@ class ApiService {
       const text = await response.text().catch(() => response.statusText);
       throw new Error(`Upload failed (${response.status}): ${text}`);
     }
+  }
+
+  async writeFile(connectionId: string, destinationPath: string, content: Blob, filename: string): Promise<void> {
+    await this.uploadFileBlob(connectionId, destinationPath, content, filename);
   }
 
   /**
@@ -1496,9 +1467,23 @@ class ApiService {
     await this.uploadFileBlob(connectionId, path, blob, filename);
   }
 
-  async acquireEditLock(connectionId: string, path: string, _sessionId?: string): Promise<EditLockInfo> {
-    this.assertEditLocksSupported(connectionId);
+  async writeTextWithEditLock(
+    connectionId: string,
+    path: string,
+    content: string,
+    lockInfo: Required<Pick<EditLockInfo, "lock_id" | "lock_capability" | "operation_id">>,
+    options: { filename?: string; mimeType?: string } = {}
+  ): Promise<void> {
+    const filename = options.filename ?? path.split("/").pop() ?? path;
+    const mimeType = options.mimeType ?? "text/plain;charset=utf-8";
+    await this.uploadFileBlob(connectionId, path, new Blob([content], { type: mimeType }), filename, {
+      editor_lock_id: lockInfo.lock_id,
+      editor_lock_capability: lockInfo.lock_capability,
+      editor_operation_id: lockInfo.operation_id,
+    });
+  }
 
+  async acquireEditLock(connectionId: string, path: string, _sessionId?: string): Promise<EditLockInfo> {
     const segment = getBrowseSegment(connectionId);
     const { client, extraConfig } = await this.getClientConfig(connectionId);
     const response = await client.post<EditLockInfo>(`/browse/${segment}/lock`, undefined, {
@@ -1510,8 +1495,6 @@ class ApiService {
   }
 
   async heartbeatEditLock(connectionId: string, path: string, lockInfo: EditLockInfo): Promise<void> {
-    this.assertEditLocksSupported(connectionId);
-
     if (!lockInfo.operation_id || !lockInfo.lock_capability) {
       throw new Error("Edit lock context is incomplete");
     }
@@ -1533,8 +1516,6 @@ class ApiService {
   }
 
   async releaseEditLock(connectionId: string, path: string, lockInfo: EditLockInfo): Promise<void> {
-    this.assertEditLocksSupported(connectionId);
-
     if (!lockInfo.operation_id || !lockInfo.lock_capability) {
       throw new Error("Edit lock context is incomplete");
     }
@@ -1553,10 +1534,6 @@ class ApiService {
   }
 
   async getEditLockStatus(connectionId: string, path: string): Promise<EditLockStatus> {
-    if (isLocalDrive(connectionId)) {
-      return { locked: false };
-    }
-
     const segment = getBrowseSegment(connectionId);
     const { client, extraConfig } = await this.getClientConfig(connectionId);
     const response = await client.get<EditLockStatus>(`/browse/${segment}/lock-status`, {

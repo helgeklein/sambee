@@ -769,6 +769,9 @@ export const EN_TRANSLATIONS = {
         createArchive: {
           title: "Create ZIP Archive",
         },
+        extractArchive: {
+          title: "Extract ZIP Archive",
+        },
         openInApp: {
           title: "Open Focused File In Native App",
         },
@@ -1038,6 +1041,7 @@ export const EN_TRANSLATIONS = {
       collisionMore: "{{count}} more conflicting files.",
       buttonSkipAll: "Skip all",
       buttonReplaceAll: "Replace all",
+      buttonReplaceOlder: "Replace only older files",
       buttonSkip: "Skip",
       buttonReplace: "Replace",
       buttonRename: "Rename",

@@ -45,7 +45,6 @@ import { ResponsiveFormDialog } from "../Admin/ResponsiveFormDialog";
 import { SettingsFormGroup, SettingsFormRow, SettingsFormSurface, settingsFormOutlinedControlSx } from "../Settings/SettingsFormLayout";
 import { COPY_MOVE_STRINGS as S } from "./copyMoveDialogStrings";
 import { FILENAME_FIELD_PROPS, FILENAME_INPUT_PROPS, FILENAME_INPUT_SX } from "./filenameFieldProps";
-import { formatConnectionPath } from "./formatConnectionPath";
 import { InlineItemName } from "./InlineItemName";
 import { validateItemName } from "./nameDialogStrings";
 
@@ -72,20 +71,12 @@ export interface CopyMoveDialogProps {
   mode: CopyMoveMode;
   /** Files to copy/move. */
   files: FileEntry[];
-  /** Source connection ID. */
-  sourceConnectionId: string;
-  /** Source directory path (the directory containing the selected files). */
-  sourcePath: string;
-  /** Target connection ID (from the other pane). */
-  destConnectionId: string;
-  /** Target connection display name (for UI). */
-  destConnectionName: string;
-  /** Pre-filled destination directory path (from the other pane). */
-  destPath: string;
-  /** Whether source and destination are on the same connection. */
-  isSameConnection: boolean;
-  /** Called when the user confirms — receives the destination path, optional renamed file name, and overwrite strategy. */
-  onConfirm: (destPath: string, destFileName: string | undefined, overwriteStrategy: OverwriteStrategy) => void;
+  /** Provider-generated display label for the destination. */
+  destinationLabel: string;
+  /** Whether the source and destination locations are the same. */
+  isSameDirectory: boolean;
+  /** Called when the user confirms with an optional renamed file name and overwrite strategy. */
+  onConfirm: (destFileName: string | undefined, overwriteStrategy: OverwriteStrategy) => void;
   /** Called when the user cancels. */
   onCancel: () => void;
   /** Whether an operation is currently in progress. */
@@ -128,10 +119,8 @@ const CopyMoveDialog: React.FC<CopyMoveDialogProps> = ({
   open,
   mode,
   files,
-  sourcePath,
-  destConnectionName,
-  destPath,
-  isSameConnection,
+  destinationLabel,
+  isSameDirectory,
   onConfirm,
   onCancel,
   isProcessing,
@@ -143,8 +132,7 @@ const CopyMoveDialog: React.FC<CopyMoveDialogProps> = ({
   const isSingleItem = files.length === 1;
   const originalFileName = isSingleItem ? (files[0]!.name ?? "") : "";
   const isCopy = mode === "copy";
-  const sameDirectory = isSameConnection && destPath.replace(/\/+$/, "") === sourcePath.replace(/\/+$/, "");
-  const initialFileName = isSingleItem && isCopy && sameDirectory ? suggestCopyFileName(originalFileName) : originalFileName;
+  const initialFileName = isSingleItem && isCopy && isSameDirectory ? suggestCopyFileName(originalFileName) : originalFileName;
   const [destFileName, setDestFileName] = useState(initialFileName);
   const [overwriteStrategy, setOverwriteStrategy] = useState<OverwriteStrategy>("ask");
   const inputRef = useRef<HTMLInputElement>(null);
@@ -167,13 +155,12 @@ const CopyMoveDialog: React.FC<CopyMoveDialogProps> = ({
   }, [open, initialFileName, isSingleItem]);
 
   const title = isCopy ? S.TITLE_COPY : S.TITLE_MOVE;
-  const destination = formatConnectionPath(destConnectionName, destPath);
   const prompt = isCopy ? S.PROMPT_COPY_MULTI(files.length) : S.PROMPT_MOVE_MULTI(files.length);
   const description = isSingleItem ? (
     <Typography variant="body2" sx={{ color: "text.secondary" }}>
       <Trans
         i18nKey={isCopy ? "fileBrowser.copyMove.promptCopySingle" : "fileBrowser.copyMove.promptMoveSingle"}
-        values={{ name: originalFileName, destination }}
+        values={{ name: originalFileName, destination: destinationLabel }}
         components={{
           item: <InlineItemName testId="copy-move-prompt-item-name" />,
           destination: <InlineItemName testId="copy-move-prompt-destination" />,
@@ -188,8 +175,8 @@ const CopyMoveDialog: React.FC<CopyMoveDialogProps> = ({
 
   // A multi-item operation is a no-op in the same directory. A single item
   // is a no-op only when both its directory and file name are unchanged.
-  const sameFile = sameDirectory && isSingleItem && destFileName === originalFileName;
-  const isNoOpDestination = isSingleItem ? sameFile : sameDirectory;
+  const sameFile = isSameDirectory && isSingleItem && destFileName === originalFileName;
+  const isNoOpDestination = isSingleItem ? sameFile : isSameDirectory;
 
   const nameValidationError = isSingleItem ? validateItemName(destFileName) : null;
   const fileNameError = nameValidationError ?? (sameFile ? S.ERROR_SAME_FILENAME : undefined);
@@ -201,9 +188,9 @@ const CopyMoveDialog: React.FC<CopyMoveDialogProps> = ({
     if (canConfirm) {
       // Pass renamed file name only if it was changed for single-item operations
       const renamedFileName = isSingleItem && destFileName !== originalFileName ? destFileName : undefined;
-      onConfirm(destPath, renamedFileName, overwriteStrategy);
+      onConfirm(renamedFileName, overwriteStrategy);
     }
-  }, [canConfirm, destPath, destFileName, originalFileName, isSingleItem, onConfirm, overwriteStrategy]);
+  }, [canConfirm, destFileName, originalFileName, isSingleItem, onConfirm, overwriteStrategy]);
 
   const handleKeyDown = useMemo(() => dialogEnterKeyHandler(canConfirm ? handleConfirm : undefined), [canConfirm, handleConfirm]);
 
@@ -235,7 +222,7 @@ const CopyMoveDialog: React.FC<CopyMoveDialogProps> = ({
           <SettingsFormSurface>
             <SettingsFormGroup>
               <SettingsFormRow sx={{ display: { md: "block" } }}>
-                <DialogReadOnlyField ariaLabel={S.LABEL_DESTINATION} value={destination} codeBlock showFormSurface />
+                <DialogReadOnlyField ariaLabel={S.LABEL_DESTINATION} value={destinationLabel} codeBlock showFormSurface />
               </SettingsFormRow>
             </SettingsFormGroup>
           </SettingsFormSurface>

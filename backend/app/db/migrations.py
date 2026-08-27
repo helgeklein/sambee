@@ -335,6 +335,39 @@ def _apply_edit_lock_companion_session_drop_migration(connection: Connection) ->
     connection.execute(text("CREATE INDEX IF NOT EXISTS ix_edit_locks_lock_capability ON edit_locks (lock_capability)"))
 
 
+def _apply_edit_lock_target_uniqueness_migration(connection: Connection) -> None:
+    inspector = inspect(connection)
+    if not inspector.has_table("edit_locks"):
+        return
+
+    index_name = "uq_edit_locks_connection_path"
+    if any(index["name"] == index_name for index in inspector.get_indexes("edit_locks")):
+        return
+
+    rows = connection.execute(
+        text(
+            """
+            SELECT id, connection_id, file_path
+            FROM edit_locks
+            ORDER BY connection_id, file_path, last_heartbeat DESC, locked_at DESC, id DESC
+            """
+        )
+    ).mappings()
+    seen_targets: set[tuple[str, str]] = set()
+    duplicate_ids: list[str] = []
+    for row in rows:
+        target = (str(row["connection_id"]), str(row["file_path"]))
+        if target in seen_targets:
+            duplicate_ids.append(str(row["id"]))
+        else:
+            seen_targets.add(target)
+
+    if duplicate_ids:
+        connection.execute(text("DELETE FROM edit_locks WHERE id = :id"), [{"id": lock_id} for lock_id in duplicate_ids])
+
+    connection.execute(text(f"CREATE UNIQUE INDEX IF NOT EXISTS {index_name} ON edit_locks (connection_id, file_path)"))
+
+
 def _apply_nullable_user_password_migration(connection: Connection) -> None:
     inspector = inspect(connection)
     if not inspector.has_table("user"):
@@ -732,6 +765,7 @@ MIGRATIONS: tuple[Migration, ...] = (
     Migration(version=26, name="add_recent_files", apply=_apply_recent_files_migration),
     Migration(version=27, name="add_recent_directories", apply=_apply_recent_directories_migration),
     Migration(version=28, name="add_archive_operations", apply=_apply_archive_operations_migration),
+    Migration(version=29, name="enforce_unique_edit_lock_targets", apply=_apply_edit_lock_target_uniqueness_migration),
 )
 
 

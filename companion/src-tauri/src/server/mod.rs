@@ -7,6 +7,7 @@
 pub mod archive;
 pub mod auth;
 pub mod drives;
+pub mod edit_locks;
 pub mod errors;
 pub mod handlers;
 pub mod links;
@@ -25,6 +26,7 @@ use tauri::AppHandle;
 use tower_http::cors::{AllowOrigin, CorsLayer};
 
 use self::auth::AuthState;
+use self::edit_locks::EditLockManager;
 use self::localization::LocalizationState;
 use self::pairing::PairingState;
 use self::watcher::DirectoryWatcher;
@@ -39,6 +41,7 @@ pub struct AppState {
     pub pairing: Arc<PairingState>,
     pub localization: Arc<LocalizationState>,
     pub auth: AuthState,
+    pub edit_locks: Arc<EditLockManager>,
     pub watcher: DirectoryWatcher,
 }
 
@@ -66,6 +69,7 @@ async fn run_server(
         pairing,
         localization,
         auth: AuthState::new(),
+        edit_locks: Arc::new(EditLockManager::new()),
         watcher: DirectoryWatcher::new(),
     });
 
@@ -128,6 +132,19 @@ fn build_router(state: Arc<AppState>) -> Router {
         .route(
             "/api/browse/{drive}/directories",
             axum::routing::get(handlers::browse_search_directories),
+        )
+        .route("/api/browse/{drive}/lock", axum::routing::post(handlers::browse_acquire_edit_lock))
+        .route(
+            "/api/browse/{drive}/lock/heartbeat",
+            axum::routing::post(handlers::browse_heartbeat_edit_lock),
+        )
+        .route(
+            "/api/browse/{drive}/lock",
+            axum::routing::delete(handlers::browse_release_edit_lock),
+        )
+        .route(
+            "/api/browse/{drive}/lock-status",
+            axum::routing::get(handlers::browse_edit_lock_status),
         )
         .route("/api/browse/{drive}/upload", axum::routing::post(handlers::browse_upload))
         .route("/api/browse/{drive}/archive", axum::routing::post(handlers::browse_create_archive))

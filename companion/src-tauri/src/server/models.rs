@@ -331,6 +331,35 @@ pub struct UploadResponse {
     pub last_modified: Option<String>,
 }
 
+/// Opaque edit-lock control material sent by a browser editor.
+#[derive(Debug, Deserialize)]
+pub struct EditLockControlRequest {
+    pub operation_id: String,
+    pub lock_id: String,
+    pub lock_capability: String,
+}
+
+/// Active edit-lock state returned to a browser editor.
+#[derive(Debug, Serialize)]
+pub struct EditLockResponse {
+    pub lock_id: String,
+    pub lock_capability: String,
+    pub operation_id: String,
+    pub file_path: String,
+    pub locked_by: String,
+    pub locked_at: String,
+}
+
+/// Display-safe edit-lock status that intentionally omits secret material.
+#[derive(Debug, Serialize)]
+pub struct EditLockStatusResponse {
+    pub locked: bool,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub locked_by: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub locked_at: Option<String>,
+}
+
 /// Conflict detail for copy/move when the destination already exists.
 /// Matches the backend `ConflictInfo` Pydantic model.
 #[derive(Debug, Serialize)]
