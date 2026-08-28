@@ -163,6 +163,7 @@
     "mypy": true,
     "pytest": true,
     // Virtualenv Python
+    "/^((\\.\\/|\\/workspace\\/)?backend\\/|\\.\\/)?\\.venv\\/bin\\/python\\s+-c\\s+\\'import\\s+/": true,
     "/^((\\.\\/|\\/workspace\\/)?backend\\/|\\.\\/)?\\.venv\\/bin\\/python\\s+-m\\s+(compileall|mypy|py_compile|pytest|ruff)\\b/": true,
     "ruff": true,
     "/^python3 -m unittest\\b/": true,
@@ -176,6 +177,7 @@
     // Frontend validation and builds
     "/^npm\\s+run\\s+(?:build|check|docs\\:validate|format|info|lint|redirects\\:generate|search|test|typecheck|view)\\b/": true,
     // Rust validation and read-only inspection
+    "rustfmt": true,
     "/^cargo\\s+(?:test|check|clippy|fmt|metadata|tree|doc)\\b/": true,
     // Known repository validation scripts
     "/^(?:\\.\\/)?scripts\\/(?:lint|test|format)(?:\\s|$)/": true,

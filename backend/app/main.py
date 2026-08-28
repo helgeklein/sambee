@@ -348,6 +348,10 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
         log_error(logger, f"Error stopping directory caches: {e}")
 
     # Close all SMB connection pool connections
+    logger.info("Stopping live archive creation writers...")
+    await archive_operations.shutdown_local_to_smb_creation_writers()
+    logger.info("Live archive creation writers stopped")
+
     logger.info("Closing SMB connection pool...")
     await shutdown_connection_pool()
     logger.info("SMB connection pool closed")

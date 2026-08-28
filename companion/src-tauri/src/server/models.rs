@@ -102,9 +102,18 @@ pub struct DirectoryListing {
 
 /// Request to create a local archive from selected paths on one drive.
 #[derive(Debug, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct ArchiveCreateRequest {
     pub source_paths: Vec<String>,
     pub target_path: String,
+}
+
+/// Start either a direct local archive creation or extraction lifecycle execution.
+#[derive(Debug, Deserialize)]
+#[serde(tag = "kind", rename_all = "snake_case", deny_unknown_fields)]
+pub enum ArchiveExecutionStartRequest {
+    Create { source_paths: Vec<String>, target_path: String },
+    Extract { archive_path: String, destination_path: String },
 }
 
 /// Request to create a local ZIP from scoped SMB source members.
@@ -136,9 +145,62 @@ pub struct ArchiveCreationResponse {
 
 /// Request to extract a local archive into a new relative destination directory.
 #[derive(Debug, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct ArchiveExtractRequest {
     pub archive_path: String,
     pub destination_path: String,
+}
+
+/// Request to cancel a Companion-owned archive extraction execution.
+#[derive(Debug, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct ArchiveExecutionCancellationRequest {
+    #[serde(alias = "expectedRevision")]
+    pub expected_revision: u64,
+}
+
+/// Request to apply an explicit collision decision to a paused local extraction.
+#[derive(Debug, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct ArchiveExecutionDecisionRequest {
+    #[serde(alias = "expectedRevision")]
+    pub expected_revision: u64,
+    pub member_path: String,
+    pub action: ArchiveExecutionDecisionAction,
+    #[serde(default)]
+    pub target_path: Option<String>,
+}
+
+/// Supported local extraction collision decisions.
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum ArchiveExecutionDecisionAction {
+    Skip,
+    SkipAll,
+    Replace,
+    ReplaceAll,
+    ReplaceOlder,
+    Rename,
+    Retry,
+    Ignore,
+}
+
+/// The archive member currently awaiting a local collision decision.
+#[derive(Debug, Serialize)]
+pub struct ArchiveExecutionPendingDecision {
+    pub kind: String,
+    #[serde(rename = "memberPath")]
+    pub member_path: String,
+    #[serde(skip_serializing_if = "Option::is_none", rename = "targetPath")]
+    pub target_path: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none", rename = "isDirectory")]
+    pub is_directory: Option<bool>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub message: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none", rename = "partialOutput")]
+    pub partial_output: Option<bool>,
+    #[serde(rename = "allowedActions")]
+    pub allowed_actions: Vec<String>,
 }
 
 /// Request to relay a local ZIP extraction to a scoped SMB archive operation.
@@ -166,6 +228,125 @@ pub struct ArchiveExtractionResponse {
     pub directories_created: u64,
     pub extracted_bytes: u64,
     pub files_skipped: u64,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub phase: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub checkpoint_json: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub pending_decision_json: Option<String>,
+}
+
+/// Current lifecycle state for a short-lived Companion archive execution.
+#[derive(Debug, Serialize)]
+pub struct ArchiveExecutionResponse {
+    pub execution_id: String,
+    pub kind: String,
+    pub phase: String,
+    pub revision: u64,
+    pub progress: ArchiveExecutionProgress,
+    pub cancellation_requested: bool,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub files_extracted: Option<u64>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub directories_created: Option<u64>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub extracted_bytes: Option<u64>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub files_skipped: Option<u64>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub files_created: Option<u64>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub source_bytes: Option<u64>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub error: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none", rename = "pendingDecision")]
+    pub pending_decision: Option<ArchiveExecutionPendingDecision>,
+}
+
+/// Contract-shaped aggregate progress counters for an archive lifecycle execution.
+#[derive(Debug, Serialize)]
+pub struct ArchiveExecutionProgress {
+    #[serde(rename = "completedMembers")]
+    pub completed_members: u64,
+    #[serde(rename = "skippedMembers")]
+    pub skipped_members: u64,
+    #[serde(rename = "failedMembers")]
+    pub failed_members: u64,
+    #[serde(rename = "partialMembers")]
+    pub partial_members: u64,
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{
+        ArchiveExecutionCancellationRequest, ArchiveExecutionDecisionAction, ArchiveExecutionDecisionRequest, ArchiveExecutionStartRequest,
+    };
+
+    #[test]
+    fn accepts_kind_tagged_creation_and_extraction_payloads() {
+        assert!(matches!(
+            serde_json::from_str::<ArchiveExecutionStartRequest>(
+                r#"{"kind":"create","source_paths":["source.txt"],"target_path":"archive.zip"}"#
+            ),
+            Ok(ArchiveExecutionStartRequest::Create { .. })
+        ));
+        assert!(matches!(
+            serde_json::from_str::<ArchiveExecutionStartRequest>(
+                r#"{"kind":"extract","archive_path":"archive.zip","destination_path":"output"}"#
+            ),
+            Ok(ArchiveExecutionStartRequest::Extract { .. })
+        ));
+    }
+
+    #[test]
+    fn rejects_lifecycle_start_payloads_that_mix_creation_and_extraction_fields() {
+        let payload = r#"{
+            "kind": "create",
+            "source_paths": ["source.txt"],
+            "target_path": "archive.zip",
+            "archive_path": "archive.zip",
+            "destination_path": "output"
+        }"#;
+
+        assert!(serde_json::from_str::<ArchiveExecutionStartRequest>(payload).is_err());
+    }
+
+    #[test]
+    fn accepts_cancellation_revision_alias_but_rejects_unknown_fields() {
+        let request = serde_json::from_str::<ArchiveExecutionCancellationRequest>(r#"{"expectedRevision":2}"#)
+            .expect("camel-case revision should be accepted");
+        assert_eq!(request.expected_revision, 2);
+        assert!(serde_json::from_str::<ArchiveExecutionCancellationRequest>(r#"{"expected_revision":2,"kind":"extract"}"#).is_err());
+    }
+
+    #[test]
+    fn accepts_strict_local_archive_decisions() {
+        let request = serde_json::from_str::<ArchiveExecutionDecisionRequest>(
+            r#"{"expectedRevision":2,"member_path":"source.txt","action":"replace"}"#,
+        )
+        .expect("camel-case revision decision should be accepted");
+        assert_eq!(request.expected_revision, 2);
+        assert_eq!(request.member_path, "source.txt");
+        assert!(matches!(request.action, ArchiveExecutionDecisionAction::Replace));
+        assert!(matches!(
+            serde_json::from_str::<ArchiveExecutionDecisionRequest>(
+                r#"{"expected_revision":2,"member_path":"source.txt","action":"retry"}"#
+            )
+            .expect("retry should be accepted")
+            .action,
+            ArchiveExecutionDecisionAction::Retry
+        ));
+        let renamed = serde_json::from_str::<ArchiveExecutionDecisionRequest>(
+            r#"{"expected_revision":2,"member_path":"source.txt","action":"rename","target_path":"renamed.txt"}"#,
+        )
+        .expect("rename target should be accepted");
+        assert!(matches!(renamed.action, ArchiveExecutionDecisionAction::Rename));
+        assert_eq!(renamed.target_path.as_deref(), Some("renamed.txt"));
+        assert!(serde_json::from_str::<ArchiveExecutionDecisionRequest>(
+            r#"{"expected_revision":2,"member_path":"source.txt","action":"skip","target_path":"elsewhere","unknown":true}"#
+        )
+        .is_err());
+    }
 }
 
 /// Stable identity for a locally hosted archive.

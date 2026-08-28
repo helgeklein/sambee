@@ -1,0 +1,426 @@
+{
+  "version": 1,
+  "manifest_scenarios": [
+    {
+      "name": "normalizes_extraction_manifest_paths",
+      "entries": [
+        {
+          "path": "docs\\guides",
+          "is_directory": true,
+          "uncompressed_size": 0
+        },
+        {
+          "path": "docs\\guides\\readme.txt",
+          "is_directory": false,
+          "uncompressed_size": 7
+        }
+      ],
+      "normalized_entries": [
+        {
+          "path": "docs/guides",
+          "is_directory": true,
+          "uncompressed_size": 0
+        },
+        {
+          "path": "docs/guides/readme.txt",
+          "is_directory": false,
+          "uncompressed_size": 7
+        }
+      ]
+    },
+    {
+      "name": "empty_extraction_manifest_is_valid",
+      "entries": [],
+      "normalized_entries": []
+    },
+    {
+      "name": "unsafe_extraction_manifest_path_is_rejected",
+      "entries": [
+        {
+          "path": "../escape.txt",
+          "is_directory": false,
+          "uncompressed_size": 1
+        }
+      ],
+      "error": "unsafe_path"
+    },
+    {
+      "name": "case_folded_extraction_manifest_duplicate_is_rejected",
+      "entries": [
+        {
+          "path": "Report.txt",
+          "is_directory": false,
+          "uncompressed_size": 1
+        },
+        {
+          "path": "report.txt",
+          "is_directory": false,
+          "uncompressed_size": 1
+        }
+      ],
+      "error": "duplicate_path"
+    },
+    {
+      "name": "extraction_file_descendant_collision_is_rejected",
+      "entries": [
+        {
+          "path": "folder",
+          "is_directory": false,
+          "uncompressed_size": 1
+        },
+        {
+          "path": "folder/child.txt",
+          "is_directory": false,
+          "uncompressed_size": 1
+        }
+      ],
+      "error": "structural_collision"
+    }
+  ],
+  "behavioral_scenarios": [
+    {
+      "name": "collision_skip_is_terminal",
+      "collision_action": "skip",
+      "terminal_phase": "completed",
+      "progress": {
+        "files_skipped": 1
+      }
+    },
+    {
+      "name": "cancellation_stops_before_member_completion",
+      "terminal_phase": "cancelled",
+      "progress": {
+        "files_extracted": 0
+      }
+    },
+    {
+      "name": "rename_preserves_terminal_destination_metadata",
+      "rename_target": "renamed/root-copy.txt",
+      "terminal_phase": "completed",
+      "member_outcome": {
+        "status": "extracted",
+        "renamed": true
+      }
+    },
+    {
+      "name": "replace_older_replaces_strictly_older_destination",
+      "existing_file_policy": "replace_older",
+      "target_modified_at": "1979-01-01T00:00:00",
+      "terminal_phase": "completed",
+      "progress": {
+        "files_extracted": 2,
+        "files_replaced": 1,
+        "files_skipped": 0
+      }
+    },
+    {
+      "name": "partial_error_retry_completes_extraction",
+      "member_path": "source.txt",
+      "allowed_member_error_actions": [
+        "retry",
+        "ignore"
+      ],
+      "member_error_action": "retry",
+      "terminal_phase": "completed",
+      "progress": {
+        "files_extracted": 1,
+        "files_skipped": 0
+      },
+      "member_outcome": {
+        "status": "extracted",
+        "extracted_bytes": 5
+      }
+    },
+    {
+      "name": "partial_error_ignore_skips_member",
+      "member_path": "source.txt",
+      "allowed_member_error_actions": [
+        "retry",
+        "ignore"
+      ],
+      "member_error_action": "ignore",
+      "terminal_phase": "completed",
+      "progress": {
+        "files_extracted": 0,
+        "files_skipped": 1
+      },
+      "member_outcome": {
+        "status": "ignored",
+        "extracted_bytes": 0
+      }
+    }
+  ],
+  "scenarios": [
+    {
+      "name": "outcomes_are_authoritative_over_legacy_members",
+      "checkpoint": {
+        "written_members": [
+          "legacy-only.txt"
+        ],
+        "member_outcomes": {
+          "complete.txt": {
+            "status": "extracted"
+          },
+          "skipped.txt": {
+            "status": "skipped"
+          },
+          "partial.txt": {
+            "status": "partial"
+          }
+        }
+      },
+      "completed_members": [
+        "complete.txt",
+        "skipped.txt"
+      ]
+    },
+    {
+      "name": "legacy_members_are_used_without_an_outcome_ledger",
+      "checkpoint": {
+        "written_members": [
+          "legacy.txt"
+        ]
+      },
+      "completed_members": [
+        "legacy.txt"
+      ]
+    },
+    {
+      "name": "an_empty_outcome_ledger_is_authoritative",
+      "checkpoint": {
+        "written_members": [
+          "legacy.txt"
+        ],
+        "member_outcomes": {}
+      },
+      "completed_members": []
+    },
+    {
+      "name": "versioned_empty_outcome_ledger_is_authoritative",
+      "checkpoint": {
+        "extraction_outcome_checkpoint_version": 1,
+        "written_members": [
+          "legacy.txt"
+        ],
+        "member_outcomes": {}
+      },
+      "completed_members": []
+    },
+    {
+      "name": "terminal_destination_statuses_preserve_progress_and_replay_state",
+      "checkpoint": {
+        "member_outcomes": {
+          "directory": {
+            "status": "directory"
+          },
+          "extracted.txt": {
+            "status": "extracted"
+          },
+          "skipped.txt": {
+            "status": "skipped"
+          },
+          "ignored.txt": {
+            "status": "ignored"
+          },
+          "partial.txt": {
+            "status": "partial"
+          }
+        },
+        "files_extracted": 1,
+        "directories_created": 2,
+        "extracted_bytes": 7,
+        "files_skipped": 2,
+        "files_replaced": 1
+      },
+      "completed_members": [
+        "directory",
+        "extracted.txt",
+        "skipped.txt",
+        "ignored.txt"
+      ],
+      "progress": {
+        "files_extracted": 1,
+        "directories_created": 2,
+        "extracted_bytes": 7,
+        "files_skipped": 2,
+        "files_replaced": 1
+      }
+    },
+    {
+      "name": "partial_member_is_replayed_before_a_retry_finishes",
+      "checkpoint": {
+        "member_outcomes": {
+          "retry.txt": {
+            "status": "partial"
+          }
+        },
+        "files_extracted": 0,
+        "directories_created": 1,
+        "extracted_bytes": 0,
+        "files_skipped": 0,
+        "files_replaced": 0
+      },
+      "completed_members": [],
+      "progress": {
+        "files_extracted": 0,
+        "directories_created": 1,
+        "extracted_bytes": 0,
+        "files_skipped": 0,
+        "files_replaced": 0
+      }
+    },
+    {
+      "name": "retried_member_becomes_terminal_after_extraction",
+      "checkpoint": {
+        "member_outcomes": {
+          "retry.txt": {
+            "status": "extracted"
+          }
+        },
+        "files_extracted": 1,
+        "directories_created": 1,
+        "extracted_bytes": 9,
+        "files_skipped": 0,
+        "files_replaced": 0
+      },
+      "completed_members": [
+        "retry.txt"
+      ],
+      "progress": {
+        "files_extracted": 1,
+        "directories_created": 1,
+        "extracted_bytes": 9,
+        "files_skipped": 0,
+        "files_replaced": 0
+      }
+    },
+    {
+      "name": "terminal_destination_reports_are_idempotent",
+      "result_reports": [
+        {
+          "member_path": "docs",
+          "status": "directory",
+          "target_path": "output/docs",
+          "directories_created": 1
+        },
+        {
+          "member_path": "docs/readme.txt",
+          "status": "extracted",
+          "target_path": "output/docs/readme.txt",
+          "extracted_bytes": 7
+        },
+        {
+          "member_path": "obsolete.txt",
+          "status": "skipped",
+          "target_path": "output/obsolete.txt"
+        },
+        {
+          "member_path": "docs/readme.txt",
+          "status": "extracted",
+          "target_path": "output/docs/readme.txt",
+          "extracted_bytes": 7
+        }
+      ],
+      "member_outcomes": {
+        "docs": {
+          "status": "directory",
+          "target_path": "output/docs",
+          "extracted_bytes": 0,
+          "directories_created": 1,
+          "replaced": false,
+          "renamed": false
+        },
+        "docs/readme.txt": {
+          "status": "extracted",
+          "target_path": "output/docs/readme.txt",
+          "extracted_bytes": 7,
+          "directories_created": 0,
+          "replaced": false,
+          "renamed": false
+        },
+        "obsolete.txt": {
+          "status": "skipped",
+          "target_path": "output/obsolete.txt",
+          "extracted_bytes": 0,
+          "directories_created": 0,
+          "replaced": false,
+          "renamed": false
+        }
+      },
+      "completed_members": [
+        "docs",
+        "docs/readme.txt",
+        "obsolete.txt"
+      ],
+      "progress": {
+        "files_extracted": 1,
+        "directories_created": 1,
+        "extracted_bytes": 7,
+        "files_skipped": 1,
+        "files_replaced": 0
+      }
+    },
+    {
+      "name": "renamed_replacement_report_preserves_terminal_metadata",
+      "result_reports": [
+        {
+          "member_path": "report.txt",
+          "status": "extracted",
+          "target_path": "output/archive/report-renamed.txt",
+          "extracted_bytes": 11,
+          "replaced": true,
+          "renamed": true
+        }
+      ],
+      "member_outcomes": {
+        "report.txt": {
+          "status": "extracted",
+          "target_path": "output/archive/report-renamed.txt",
+          "extracted_bytes": 11,
+          "directories_created": 0,
+          "replaced": true,
+          "renamed": true
+        }
+      },
+      "completed_members": [
+        "report.txt"
+      ],
+      "progress": {
+        "files_extracted": 1,
+        "directories_created": 0,
+        "extracted_bytes": 11,
+        "files_skipped": 0,
+        "files_replaced": 1
+      }
+    },
+    {
+      "name": "unknown_member_outcome_status_is_rejected",
+      "checkpoint": {
+        "member_outcomes": {
+          "invalid.txt": {
+            "status": "unknown"
+          }
+        }
+      },
+      "error": "invalid_member_outcome"
+    },
+    {
+      "name": "versioned_checkpoint_without_an_outcome_ledger_is_rejected",
+      "checkpoint": {
+        "extraction_outcome_checkpoint_version": 1,
+        "written_members": [
+          "legacy.txt"
+        ]
+      },
+      "error": "missing_versioned_member_outcomes"
+    },
+    {
+      "name": "future_extraction_checkpoint_version_is_rejected",
+      "checkpoint": {
+        "extraction_outcome_checkpoint_version": 2,
+        "member_outcomes": {}
+      },
+      "error": "unsupported_checkpoint_version"
+    }
+  ]
+}

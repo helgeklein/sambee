@@ -17,6 +17,7 @@ describe("ArchiveExtractionConflictDialog", () => {
       <ArchiveExtractionConflictDialog
         open={true}
         conflicts={[{ member_path: "docs/readme.txt", target_path: "output/docs/readme.txt" }]}
+        allowedActions={["skip", "skip_all", "replace", "replace_all", "replace_older", "rename"]}
         isSubmitting={false}
         error={null}
         onDecision={onDecision}
@@ -37,6 +38,7 @@ describe("ArchiveExtractionConflictDialog", () => {
       <ArchiveExtractionConflictDialog
         open={true}
         conflicts={[{ member_path: "docs/readme.txt", target_path: "output/docs/readme.txt" }]}
+        allowedActions={["skip", "skip_all", "replace", "replace_all", "replace_older", "rename"]}
         isSubmitting={false}
         error={null}
         onDecision={onDecision}
@@ -55,6 +57,7 @@ describe("ArchiveExtractionConflictDialog", () => {
       <ArchiveExtractionConflictDialog
         open={true}
         conflicts={[{ member_path: "docs/readme.txt", target_path: "output/docs/readme.txt" }]}
+        allowedActions={["skip", "skip_all", "replace", "replace_all", "replace_older", "rename"]}
         isSubmitting={false}
         error={null}
         onDecision={onDecision}
@@ -66,5 +69,23 @@ describe("ArchiveExtractionConflictDialog", () => {
     await user.click(screen.getAllByRole("button", { name: "fileBrowser.archive.buttonRename" })[1]!);
 
     expect(onDecision).toHaveBeenCalledWith("rename", "docs/readme.txt", "docs/readme (copy).txt");
+  });
+
+  it("limits directory collisions to rename or cancel", () => {
+    render(
+      <ArchiveExtractionConflictDialog
+        open={true}
+        conflicts={[{ member_path: "docs", target_path: "output/docs", is_directory: true }]}
+        allowedActions={["rename"]}
+        isSubmitting={false}
+        error={null}
+        onDecision={vi.fn()}
+      />
+    );
+
+    expect(screen.getByRole("button", { name: "fileBrowser.archive.buttonRename" })).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "fileBrowser.archive.buttonSkipAll" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "fileBrowser.archive.buttonReplaceAll" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "fileBrowser.archive.buttonReplaceOlder" })).not.toBeInTheDocument();
   });
 });

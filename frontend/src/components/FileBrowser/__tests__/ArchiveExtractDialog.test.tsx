@@ -57,4 +57,98 @@ describe("ArchiveExtractDialog", () => {
     expect(screen.getByLabelText("fileBrowser.archive.destinationLabel")).toBeDisabled();
     expect(screen.getByRole("button", { name: "fileBrowser.archive.buttonExtracting" })).toBeDisabled();
   });
+
+  it("shows live extraction counters while a direct-local extraction is pending", () => {
+    render(
+      <ArchiveExtractDialog
+        {...defaultProps}
+        isExtracting={true}
+        progressSummary={{
+          filesExtracted: 2,
+          directoriesCreated: 1,
+          extractedBytes: 12,
+          filesSkipped: 0,
+          filesReplaced: 0,
+          partialMembers: 0,
+        }}
+      />
+    );
+
+    expect(screen.getByLabelText("fileBrowser.archive.summaryFilesExtracted")).toHaveValue("2");
+    expect(screen.getByLabelText("fileBrowser.archive.summaryDirectoriesCreated")).toHaveValue("1");
+    expect(screen.getByLabelText("fileBrowser.archive.summaryBytesWritten")).toHaveValue("12");
+  });
+
+  it("offers retry and ignore for a failed member while keeping cancellation available", async () => {
+    const user = userEvent.setup();
+    const onMemberErrorDecision = vi.fn();
+    const onCancelExtraction = vi.fn();
+    render(
+      <ArchiveExtractDialog
+        {...defaultProps}
+        isExtracting={true}
+        memberError={{
+          memberPath: "docs/readme.txt",
+          targetPath: "output/docs/readme.txt",
+          message: "Disk full",
+          partialOutput: true,
+        }}
+        onMemberErrorDecision={onMemberErrorDecision}
+        onCancelExtraction={onCancelExtraction}
+      />
+    );
+
+    expect(screen.getByText(/Disk full/)).toBeInTheDocument();
+    await user.click(screen.getByRole("button", { name: "fileBrowser.archive.buttonRetryMemberError" }));
+    await user.click(screen.getByRole("button", { name: "fileBrowser.archive.buttonIgnoreMemberError" }));
+    await user.click(screen.getByRole("button", { name: "fileBrowser.archive.buttonCancelExtraction" }));
+
+    expect(onMemberErrorDecision).toHaveBeenNthCalledWith(1, "retry");
+    expect(onMemberErrorDecision).toHaveBeenNthCalledWith(2, "ignore");
+    expect(onCancelExtraction).toHaveBeenCalledOnce();
+  });
+
+  it("shows terminal counts and opens the destination from the same dialog", async () => {
+    const user = userEvent.setup();
+    const onOpenDestination = vi.fn();
+    render(
+      <ArchiveExtractDialog
+        {...defaultProps}
+        completionSummary={{
+          filesExtracted: 2,
+          directoriesCreated: 1,
+          extractedBytes: 12,
+          filesSkipped: 1,
+          filesReplaced: 0,
+          partialMembers: 0,
+        }}
+        onOpenDestination={onOpenDestination}
+      />
+    );
+
+    expect(screen.getByLabelText("fileBrowser.archive.summaryFilesExtracted")).toHaveValue("2");
+    expect(screen.queryByLabelText("fileBrowser.archive.destinationLabel")).not.toBeInTheDocument();
+    await user.click(screen.getByRole("button", { name: "fileBrowser.archive.buttonOpenDestination" }));
+
+    expect(onOpenDestination).toHaveBeenCalledOnce();
+  });
+
+  it("keeps collision decisions inside the active extraction dialog", async () => {
+    const user = userEvent.setup();
+    const onConflictDecision = vi.fn();
+    render(
+      <ArchiveExtractDialog
+        {...defaultProps}
+        isExtracting={true}
+        conflicts={[{ member_path: "docs/readme.txt", target_path: "output/docs/readme.txt" }]}
+        allowedConflictActions={["skip_all"]}
+        onConflictDecision={onConflictDecision}
+      />
+    );
+
+    expect(screen.getByText("docs/readme.txt")).toBeInTheDocument();
+    await user.click(screen.getByRole("button", { name: "fileBrowser.archive.buttonSkipAll" }));
+
+    expect(onConflictDecision).toHaveBeenCalledWith("skip_all");
+  });
 });

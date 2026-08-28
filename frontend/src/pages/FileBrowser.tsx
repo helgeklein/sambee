@@ -24,7 +24,6 @@ import React, { useCallback, useEffect, useLayoutEffect, useMemo, useState, useS
 import { Trans, useTranslation } from "react-i18next";
 import { useLocation, useNavigate, useParams, useSearchParams } from "react-router-dom";
 import { ArchiveExtractDialog } from "../components/FileBrowser/ArchiveExtractDialog";
-import { ArchiveExtractionConflictDialog } from "../components/FileBrowser/ArchiveExtractionConflictDialog";
 import CopyMoveDialog, { type CopyMoveMode, type OverwriteStrategy } from "../components/FileBrowser/CopyMoveDialog";
 import { DesktopToolbar } from "../components/FileBrowser/DesktopToolbar";
 import { DynamicViewer } from "../components/FileBrowser/DynamicViewer";
@@ -81,24 +80,28 @@ import { canOpenFileInApp, getConnectionById, isConnectionReadOnly, isConnection
 import {
   areSameContentLocations,
   type ContentOperationExecution,
-  cancelForegroundContainerCreationOnPageHide,
+  cancelForegroundArchiveOperationOnPageHide,
   executeTransfer,
   getCreateContainerAvailability,
   getLocationDisplayName,
   getTransferAvailability,
-  hasForegroundContainerCreationWork,
+  hasForegroundArchiveOperationWork,
   isPartialContainerOutputError,
-  recoverInterruptedContainerCreation,
+  recoverInterruptedArchiveOperation,
+  startArchiveExtraction,
   startCreateContainer,
 } from "./FileBrowser/contentOperations";
 import type {
   ArchiveExtractionExecution,
   ArchiveExtractionOutcome,
+  ArchiveExtractionSummary,
   BrowserItem,
   ContentItemHandle,
   ContentLocation,
+  PhysicalLocation,
   VirtualLocation,
 } from "./FileBrowser/contentProviders";
+import { physicalLocation } from "./FileBrowser/contentProviders";
 import { FileBrowserPane } from "./FileBrowser/FileBrowserPane";
 import {
   readFileBrowserPaneModePreference,
@@ -442,7 +445,11 @@ const Browser: React.FC = () => {
   const archiveCreationExecutionRef = React.useRef<ContentOperationExecution | null>(null);
   const [archiveExtractionContext, setArchiveExtractionContext] = useState<{
     location: VirtualLocation;
-    parentPath: string;
+    destinationParent: PhysicalLocation;
+    destinationPaneId: PaneId;
+    usesSiblingDirectory: boolean;
+    destination: PhysicalLocation | null;
+    destinationLabel: string;
     archiveName: string;
     initialDestinationName: string;
   } | null>(null);
@@ -453,19 +460,37 @@ const Browser: React.FC = () => {
     member_path: string;
     target_path: string;
     is_directory?: boolean;
+    source_size?: number;
+    source_modified_at?: string;
+    target_size?: number;
+    target_modified_at?: string;
   }> | null>(null);
+  const [archiveExtractionMemberError, setArchiveExtractionMemberError] = useState<{
+    memberPath: string;
+    targetPath: string;
+    message: string;
+    partialOutput: boolean;
+  } | null>(null);
+  const [archiveExtractionCompletion, setArchiveExtractionCompletion] = useState<{
+    summary: ArchiveExtractionSummary;
+    destination: PhysicalLocation;
+  } | null>(null);
+  const [archiveExtractionProgress, setArchiveExtractionProgress] = useState<ArchiveExtractionSummary | null>(null);
+  const [archiveExtractionAllowedActions, setArchiveExtractionAllowedActions] = useState<
+    Array<"skip" | "skip_all" | "replace" | "replace_all" | "replace_older" | "rename">
+  >([]);
   const [isSubmittingArchiveExtractionDecision, setIsSubmittingArchiveExtractionDecision] = useState(false);
   const archiveExtractionExecutionRef = React.useRef<ArchiveExtractionExecution | null>(null);
   const [archiveExtractionNotice, setArchiveExtractionNotice] = useState<string | null>(null);
   const [archiveInterruptionNoticeOpen, setArchiveInterruptionNoticeOpen] = useState(false);
 
   useEffect(() => {
-    void recoverInterruptedContainerCreation(browserContentServices.archiveOperations).then((interrupted) => {
+    void recoverInterruptedArchiveOperation(browserContentServices.archiveOperations).then((interrupted) => {
       if (interrupted) setArchiveInterruptionNoticeOpen(true);
     });
 
     const handlePageHide = () => {
-      cancelForegroundContainerCreationOnPageHide(browserContentServices.archiveOperations);
+      cancelForegroundArchiveOperationOnPageHide(browserContentServices.archiveOperations);
       const extraction = archiveExtractionExecutionRef.current;
       if (extraction) {
         void extraction.cancel();
@@ -475,7 +500,7 @@ const Browser: React.FC = () => {
       }
     };
     const handleBeforeUnload = (event: BeforeUnloadEvent) => {
-      if (hasForegroundContainerCreationWork(browserContentServices.archiveOperations) || hasForegroundArchiveWork()) {
+      if (hasForegroundArchiveOperationWork(browserContentServices.archiveOperations) || hasForegroundArchiveWork()) {
         event.preventDefault();
         event.returnValue = "";
       }
@@ -2047,40 +2072,87 @@ const Browser: React.FC = () => {
     if (location.kind !== "virtual" || !activePane.contentCapabilities.extract) {
       return;
     }
+    const destinationPaneId: PaneId = isDualMode ? (effectiveActivePaneId === "left" ? "right" : "left") : effectiveActivePaneId;
+    const destinationPane = destinationPaneId === "right" ? rightPane : leftPane;
+    if (isDualMode && (destinationPane.currentLocation.kind !== "physical" || !destinationPane.contentCapabilities.mutate)) {
+      return;
+    }
     const archiveName = fileName(location.source.path);
+    const usesSiblingDirectory = !isDualMode;
     setArchiveExtractionError(null);
     setArchiveExtractionContext({
       location,
-      parentPath: parentPath(location.source.path),
+      destinationParent: usesSiblingDirectory
+        ? physicalLocation(location.source.connectionId, parentPath(location.source.path))
+        : destinationPane.currentLocation,
+      destinationPaneId,
+      usesSiblingDirectory,
+      destination: null,
+      destinationLabel: getLocationDisplayName(
+        usesSiblingDirectory
+          ? physicalLocation(location.source.connectionId, parentPath(location.source.path))
+          : destinationPane.currentLocation,
+        (connectionId) => getConnectionById(allConnections, connectionId)?.name ?? connectionId
+      ),
       archiveName,
       initialDestinationName: archiveName.replace(/\.zip$/i, "") || archiveName,
     });
-  }, [activePane.contentCapabilities.extract, activePane.currentLocation]);
+  }, [
+    activePane.contentCapabilities.extract,
+    activePane.currentLocation,
+    allConnections,
+    effectiveActivePaneId,
+    isDualMode,
+    leftPane,
+    rightPane,
+  ]);
 
   const completeArchiveExtraction = useCallback(
-    (outcome: ArchiveExtractionOutcome, context: NonNullable<typeof archiveExtractionContext>) => {
+    (
+      outcome: ArchiveExtractionOutcome,
+      context: NonNullable<typeof archiveExtractionContext>,
+      destination: PhysicalLocation = context.destination ?? context.destinationParent
+    ) => {
       if (outcome.status === "awaiting-decision") {
         setArchiveExtractionConflicts(
           outcome.conflicts.map((conflict) => ({
             member_path: conflict.memberPath,
             target_path: conflict.targetPath,
             is_directory: conflict.isDirectory,
+            source_size: conflict.sourceSize,
+            source_modified_at: conflict.sourceModifiedAt,
+            target_size: conflict.targetSize,
+            target_modified_at: conflict.targetModifiedAt,
           }))
         );
+        setArchiveExtractionAllowedActions(outcome.allowedActions);
+        return;
+      }
+      if (outcome.status === "awaiting-member-error") {
+        setArchiveExtractionMemberError(outcome.error);
         return;
       }
 
       archiveExtractionExecutionRef.current = null;
       setArchiveExtractionConflicts(null);
+      setArchiveExtractionAllowedActions([]);
+      setArchiveExtractionMemberError(null);
       setIsExtractingArchive(false);
       setIsCancellingArchiveExtraction(false);
-      const change = { connectionId: context.location.connectionId, path: context.parentPath };
-      leftPane.handleDirectoryChanged(change);
-      rightPane.handleDirectoryChanged(change);
-      setArchiveExtractionContext(null);
+      setArchiveExtractionProgress(null);
+      const destinationPane = context.destinationPaneId === "right" ? rightPane : leftPane;
+      destinationPane.handleDirectoryChanged({
+        connectionId: context.destinationParent.connectionId,
+        path: context.destinationParent.path,
+      });
       if (outcome.status === "cancelled") {
+        setArchiveExtractionContext(null);
         setArchiveExtractionNotice(t("fileBrowser.archive.extractCancelled"));
+      } else if (outcome.status === "interrupted") {
+        setArchiveExtractionContext(null);
+        setArchiveExtractionNotice(t("fileBrowser.archive.extractInterrupted"));
       } else {
+        setArchiveExtractionCompletion({ summary: outcome.summary, destination });
         setArchiveExtractionNotice(
           outcome.filesSkipped > 0
             ? t("fileBrowser.archive.extractPartialSuccess", { count: outcome.filesSkipped })
@@ -2099,23 +2171,39 @@ const Browser: React.FC = () => {
       setIsExtractingArchive(true);
       setArchiveExtractionError(null);
       setArchiveExtractionConflicts(null);
-      const destinationPath = joinPath(archiveExtractionContext.parentPath, destinationName);
-      const execution = browserContentServices.providers
-        .get(archiveExtractionContext.location)
-        .startExtraction(archiveExtractionContext.location, destinationPath);
+      setArchiveExtractionAllowedActions([]);
+      setArchiveExtractionMemberError(null);
+      setArchiveExtractionCompletion(null);
+      setArchiveExtractionProgress(null);
+      const destination = archiveExtractionContext.usesSiblingDirectory
+        ? physicalLocation(
+            archiveExtractionContext.destinationParent.connectionId,
+            joinPath(archiveExtractionContext.destinationParent.path, destinationName)
+          )
+        : archiveExtractionContext.destinationParent;
+      const executionContext = { ...archiveExtractionContext, destination };
+      setArchiveExtractionContext(executionContext);
+      const execution = startArchiveExtraction(browserContentServices.providers, {
+        source: executionContext.location,
+        destination,
+      });
       archiveExtractionExecutionRef.current = execution;
+      const unsubscribeProgress = execution.onProgress(setArchiveExtractionProgress);
       try {
-        completeArchiveExtraction(await execution.result, archiveExtractionContext);
+        completeArchiveExtraction(await execution.result, executionContext, destination);
       } catch (error: unknown) {
         const detail =
           isApiError(error) && error.response?.status === 409
             ? t("fileBrowser.archive.validationDestinationExists")
             : t("fileBrowser.archive.extractError");
         setArchiveExtractionError(detail);
-        logger.error("Archive extraction failed", { error, destinationPath }, "file-browser");
+        logger.error("Archive extraction failed", { error, destinationPath: destination.path }, "file-browser");
         archiveExtractionExecutionRef.current = null;
         setIsExtractingArchive(false);
         setIsCancellingArchiveExtraction(false);
+        setArchiveExtractionProgress(null);
+      } finally {
+        unsubscribeProgress();
       }
     },
     [archiveExtractionContext, browserContentServices.providers, completeArchiveExtraction, t]
@@ -2127,7 +2215,7 @@ const Browser: React.FC = () => {
     setIsCancellingArchiveExtraction(true);
     try {
       await execution.cancel();
-      if (archiveExtractionConflicts) {
+      if (archiveExtractionConflicts || archiveExtractionMemberError) {
         completeArchiveExtraction({ status: "cancelled" }, archiveExtractionContext);
       }
     } catch (error) {
@@ -2135,7 +2223,7 @@ const Browser: React.FC = () => {
       setArchiveExtractionError(t("fileBrowser.archive.extractError"));
       logger.error("Archive extraction cancellation failed", { error }, "file-browser");
     }
-  }, [archiveExtractionConflicts, archiveExtractionContext, completeArchiveExtraction, t]);
+  }, [archiveExtractionConflicts, archiveExtractionContext, archiveExtractionMemberError, completeArchiveExtraction, t]);
 
   const handleArchiveExtractionDecision = useCallback(
     async (action: Parameters<ArchiveExtractionExecution["decide"]>[0], memberPath?: string, targetPath?: string) => {
@@ -2144,7 +2232,11 @@ const Browser: React.FC = () => {
       setIsSubmittingArchiveExtractionDecision(true);
       setArchiveExtractionError(null);
       try {
-        completeArchiveExtraction(await execution.decide(action, memberPath, targetPath), archiveExtractionContext);
+        completeArchiveExtraction(
+          await execution.decide(action, memberPath, targetPath),
+          archiveExtractionContext,
+          archiveExtractionContext.destination ?? undefined
+        );
       } catch (error) {
         setArchiveExtractionError(t("fileBrowser.archive.extractError"));
         logger.error("Archive extraction collision decision failed", { error, action, memberPath }, "file-browser");
@@ -2153,6 +2245,29 @@ const Browser: React.FC = () => {
       }
     },
     [archiveExtractionContext, completeArchiveExtraction, t]
+  );
+
+  const handleArchiveExtractionMemberErrorDecision = useCallback(
+    async (action: "retry" | "ignore") => {
+      const execution = archiveExtractionExecutionRef.current;
+      if (!execution || !archiveExtractionContext || !archiveExtractionMemberError) return;
+      setIsSubmittingArchiveExtractionDecision(true);
+      setArchiveExtractionError(null);
+      try {
+        setArchiveExtractionMemberError(null);
+        completeArchiveExtraction(
+          await execution.decide(action, archiveExtractionMemberError.memberPath),
+          archiveExtractionContext,
+          archiveExtractionContext.destination ?? undefined
+        );
+      } catch (error) {
+        setArchiveExtractionError(t("fileBrowser.archive.extractError"));
+        logger.error("Archive extraction member error decision failed", { error }, "file-browser");
+      } finally {
+        setIsSubmittingArchiveExtractionDecision(false);
+      }
+    },
+    [archiveExtractionContext, archiveExtractionMemberError, completeArchiveExtraction, t]
   );
 
   const browserCommandContext = useMemo(
@@ -3019,25 +3134,40 @@ const Browser: React.FC = () => {
       <ArchiveExtractDialog
         archiveName={archiveExtractionContext?.archiveName ?? ""}
         initialDestinationName={archiveExtractionContext?.initialDestinationName ?? ""}
+        destinationLabel={archiveExtractionContext?.destinationLabel}
+        requiresDestinationName={archiveExtractionContext?.usesSiblingDirectory ?? true}
         open={archiveExtractionContext !== null}
         isExtracting={isExtractingArchive}
         isCancelling={isCancellingArchiveExtraction}
         error={archiveExtractionError}
+        memberError={archiveExtractionMemberError}
+        completionSummary={archiveExtractionCompletion?.summary}
+        progressSummary={archiveExtractionProgress}
+        conflicts={archiveExtractionConflicts}
+        allowedConflictActions={archiveExtractionAllowedActions}
+        isSubmittingConflictDecision={isSubmittingArchiveExtractionDecision || isCancellingArchiveExtraction}
         onClose={() => {
           if (!isExtractingArchive) {
             setArchiveExtractionContext(null);
             setArchiveExtractionError(null);
+            setArchiveExtractionCompletion(null);
           }
         }}
         onConfirm={(destinationName) => void handleArchiveExtractionConfirm(destinationName)}
         onCancelExtraction={() => void cancelArchiveExtraction()}
-      />
-      <ArchiveExtractionConflictDialog
-        open={archiveExtractionConflicts !== null}
-        conflicts={archiveExtractionConflicts ?? []}
-        isSubmitting={isSubmittingArchiveExtractionDecision || isCancellingArchiveExtraction}
-        error={archiveExtractionError}
-        onDecision={(action, memberPath, targetPath) => void handleArchiveExtractionDecision(action, memberPath, targetPath)}
+        onMemberErrorDecision={(action) => void handleArchiveExtractionMemberErrorDecision(action)}
+        onConflictDecision={(action, memberPath, targetPath) => void handleArchiveExtractionDecision(action, memberPath, targetPath)}
+        onOpenDestination={() => {
+          const completion = archiveExtractionCompletion;
+          if (!completion || !archiveExtractionContext) return;
+          if (archiveExtractionContext.destinationPaneId === "left") {
+            navigateLeftPane(completion.destination.connectionId, completion.destination.path, { activePaneId: "left" });
+          } else {
+            navigateRightPane(completion.destination.connectionId, completion.destination.path, { activePaneId: "right" });
+          }
+          setArchiveExtractionContext(null);
+          setArchiveExtractionCompletion(null);
+        }}
       />
       <Snackbar
         open={archiveExtractionNotice !== null}

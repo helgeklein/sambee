@@ -529,7 +529,16 @@ export interface ArchiveCompanionSession {
   operation: ArchiveOperation;
 }
 
-export type ArchiveExtractionDecisionAction = "skip" | "skip_all" | "replace" | "replace_all" | "replace_older" | "rename" | "cancel";
+export type ArchiveExtractionDecisionAction =
+  | "skip"
+  | "skip_all"
+  | "replace"
+  | "replace_all"
+  | "replace_older"
+  | "rename"
+  | "retry"
+  | "ignore"
+  | "cancel";
 
 /** Canonical local-drive target returned before activating a local entry. */
 export interface LocalActivationResolution {

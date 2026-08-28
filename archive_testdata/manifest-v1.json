@@ -83,6 +83,34 @@
       ],
       "name": "unicode-path-v1.zip",
       "sha256": "94d55b52a434b026c64c19a7851f7f86fdb023794080e8355f9816763b9a7466"
+    },
+    {
+      "entries": [
+        {
+          "data_descriptor": false,
+          "directory": false,
+          "member_sha256": "b9a3708757cc1690e4b4950203b5ee85577df73c70453c5c8a2be8477915f4d5",
+          "method": 8,
+          "path": "zip64.txt",
+          "raw_name_hex": "7a697036342e747874",
+          "safe": true,
+          "uncompressed_size": 768
+        }
+      ],
+      "name": "zip64-v1.zip",
+      "sha256": "7822b427f1ea13acfa5c5cd29e29446f39c17ce5a03ade5197d8162a2a928358"
+    },
+    {
+      "entries": [],
+      "expected_error": "format_error",
+      "name": "malformed-v1.zip",
+      "sha256": "bf1500171d6d150fcb14ba9a385e2759aa803fb5ec70e3c39e1f482a15fd194c"
+    },
+    {
+      "entries": [],
+      "expected_error": "format_error",
+      "name": "eocd-malformed-v1.zip",
+      "sha256": "13c9be8b08cbc19795cc2d15fd0ece082689c7be8d76a4bf9df7c55ec58fd251"
     }
   ],
   "version": 1

@@ -857,6 +857,46 @@ describe("API Service", () => {
         timeout: 15_000,
       });
     });
+
+    it("starts a direct-local archive creation lifecycle execution", async () => {
+      localStorage.setItem("companion_secret", "test-companion-secret");
+      mockAxiosInstance.post.mockResolvedValueOnce({
+        data: { execution_id: "create-1", kind: "create", phase: "accepted", revision: 1, cancellation_requested: false },
+      } as AxiosResponse);
+
+      await expect(
+        apiService.startLocalArchiveCreation("local-drive:c", ["Documents/report.txt"], "Archives/backup.zip")
+      ).resolves.toMatchObject({
+        execution_id: "create-1",
+        kind: "create",
+      });
+
+      expect(mockAxiosInstance.post).toHaveBeenCalledWith(
+        "/browse/c/archive/executions",
+        { kind: "create", source_paths: ["Documents/report.txt"], target_path: "Archives/backup.zip" },
+        { headers: expect.any(Object) }
+      );
+    });
+
+    it("retries local archive cancellation after a stale progress revision", async () => {
+      localStorage.setItem("companion_secret", "test-companion-secret");
+      mockAxiosInstance.post.mockRejectedValueOnce({ response: { status: 409 } }).mockResolvedValueOnce({
+        data: { execution_id: "create-1", kind: "create", phase: "streaming", revision: 3, cancellation_requested: true },
+      } as AxiosResponse);
+      mockAxiosInstance.get.mockResolvedValueOnce({
+        data: { execution_id: "create-1", kind: "create", phase: "streaming", revision: 2, cancellation_requested: false },
+      } as AxiosResponse);
+
+      await expect(apiService.cancelLocalArchiveExecutionWithRevisionRetry("local-drive:c", "create-1", 1)).resolves.toMatchObject({
+        revision: 3,
+        cancellation_requested: true,
+      });
+
+      expect(mockAxiosInstance.post.mock.calls.slice(-2)).toEqual([
+        ["/browse/c/archive/executions/create-1/cancellation", { expected_revision: 1 }, { headers: expect.any(Object) }],
+        ["/browse/c/archive/executions/create-1/cancellation", { expected_revision: 2 }, { headers: expect.any(Object) }],
+      ]);
+    });
   });
 
   describe("Viewer Operations", () => {

@@ -1,0 +1,744 @@
+openapi: 3.1.0
+info:
+  title: Archive Operation Contract
+  version: 1.0.0
+  description: >-
+    Versioned lifecycle and scoped-adapter contract for foreground archive
+    creation and extraction. Public lifecycle endpoints never accept arbitrary
+    filesystem paths or connection identifiers.
+paths:
+  /archive-executions:
+    post:
+      operationId: startArchiveExecution
+      summary: Start an archive execution from an immutable plan
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ArchiveExecutionStartRequest'
+      responses:
+        '201':
+          description: Execution started
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ArchiveExecution'
+        '409':
+          $ref: '#/components/responses/StaleRevision'
+  /archive-executions/{executionId}:
+    parameters:
+      - $ref: '#/components/parameters/ExecutionId'
+    get:
+      operationId: getArchiveExecution
+      summary: Retrieve current execution state and progress
+      responses:
+        '200':
+          description: Current execution
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ArchiveExecution'
+  /archive-executions/{executionId}/decisions:
+    parameters:
+      - $ref: '#/components/parameters/ExecutionId'
+    post:
+      operationId: decideArchiveExecution
+      summary: Apply the current pending user decision
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ArchiveExecutionDecisionRequest'
+      responses:
+        '200':
+          description: Decision applied
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ArchiveExecution'
+        '409':
+          $ref: '#/components/responses/StaleRevision'
+  /archive-executions/{executionId}/cancellation:
+    parameters:
+      - $ref: '#/components/parameters/ExecutionId'
+    post:
+      operationId: cancelArchiveExecution
+      summary: Request foreground execution cancellation
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ArchiveExecutionMutationRequest'
+      responses:
+        '200':
+          description: Cancellation requested
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ArchiveExecution'
+        '409':
+          $ref: '#/components/responses/StaleRevision'
+  /api/archive/operations/{operationId}/companion-relay/local_zip_to_smb_extract/begin:
+    post:
+      operationId: beginLocalZipToSmbExtractionRelay
+      summary: Begin a scoped local ZIP to SMB extraction relay
+      security: [{ArchiveOperationToken: []}]
+      parameters: [{$ref: '#/components/parameters/OperationId'}]
+      responses:
+        '200': {$ref: '#/components/responses/ArchiveOperation'}
+        '409': {$ref: '#/components/responses/RelayConflict'}
+  /api/archive/operations/{operationId}/companion-relay/local_zip_to_smb_extract/member:
+    put:
+      operationId: writeLocalZipToSmbExtractionMember
+      summary: Write one decoded local ZIP member to its scoped SMB destination
+      security: [{ArchiveOperationToken: []}]
+      parameters:
+        - $ref: '#/components/parameters/OperationId'
+        - $ref: '#/components/parameters/MemberPath'
+        - $ref: '#/components/parameters/IsDirectory'
+        - $ref: '#/components/parameters/SourceModifiedAt'
+      requestBody:
+        required: true
+        content:
+          application/octet-stream:
+            schema: {$ref: '#/components/schemas/ArchiveBinaryStream'}
+      responses:
+        '200': {$ref: '#/components/responses/ArchiveOperation'}
+        '409': {$ref: '#/components/responses/RelayConflict'}
+  /api/archive/operations/{operationId}/companion-relay/local_zip_to_smb_extract/complete:
+    post:
+      operationId: completeLocalZipToSmbExtractionRelay
+      summary: Complete a scoped local ZIP to SMB extraction relay
+      security: [{ArchiveOperationToken: []}]
+      parameters: [{$ref: '#/components/parameters/OperationId'}]
+      responses:
+        '200': {$ref: '#/components/responses/ArchiveOperation'}
+        '409': {$ref: '#/components/responses/RelayConflict'}
+  /api/archive/operations/{operationId}/companion-relay/local_zip_to_smb_extract/fail:
+    post:
+      operationId: failLocalZipToSmbExtractionRelay
+      summary: Fail a scoped local ZIP to SMB extraction relay
+      security: [{ArchiveOperationToken: []}]
+      parameters: [{$ref: '#/components/parameters/OperationId'}]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: {$ref: '#/components/schemas/ArchiveFailure'}
+      responses:
+        '200': {$ref: '#/components/responses/ArchiveOperation'}
+  /api/archive/operations/{operationId}/companion-relay/smb_zip_to_local_extract/begin:
+    post:
+      operationId: beginSmbZipToLocalExtractionRelay
+      summary: Begin a scoped SMB ZIP to local extraction relay
+      security: [{ArchiveOperationToken: []}]
+      parameters: [{$ref: '#/components/parameters/OperationId'}]
+      responses:
+        '200':
+          description: Validated SMB ZIP member manifest
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/ArchiveExtractionManifest'}
+        '409': {$ref: '#/components/responses/RelayConflict'}
+  /api/archive/operations/{operationId}/companion-relay/smb_zip_to_local_extract/member:
+    get:
+      operationId: readSmbZipToLocalExtractionMember
+      summary: Read one decoded member from a scoped SMB ZIP source
+      security: [{ArchiveOperationToken: []}]
+      parameters:
+        - $ref: '#/components/parameters/OperationId'
+        - $ref: '#/components/parameters/MemberPath'
+      responses:
+        '200':
+          description: Decoded archive member bytes
+          content:
+            application/octet-stream:
+              schema: {$ref: '#/components/schemas/ArchiveBinaryStream'}
+        '409': {$ref: '#/components/responses/RelayConflict'}
+  /api/archive/operations/{operationId}/companion-relay/smb_zip_to_local_extract/member-complete:
+    post:
+      operationId: completeSmbZipToLocalExtractionMember
+      summary: Record one completed local extraction member
+      security: [{ArchiveOperationToken: []}]
+      parameters: [{$ref: '#/components/parameters/OperationId'}]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: {$ref: '#/components/schemas/ArchiveExtractionMemberCompletion'}
+      responses:
+        '200': {$ref: '#/components/responses/ArchiveOperation'}
+        '409': {$ref: '#/components/responses/RelayConflict'}
+  /api/archive/operations/{operationId}/companion-relay/smb_zip_to_local_extract/member-collision:
+    post:
+      operationId: reportSmbZipToLocalExtractionCollision
+      summary: Pause for a local extraction collision decision
+      security: [{ArchiveOperationToken: []}]
+      parameters: [{$ref: '#/components/parameters/OperationId'}]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: {$ref: '#/components/schemas/ArchiveExtractionCollision'}
+      responses:
+        '200': {$ref: '#/components/responses/ArchiveOperation'}
+        '409': {$ref: '#/components/responses/RelayConflict'}
+  /api/archive/operations/{operationId}/companion-relay/smb_zip_to_local_extract/member-error:
+    post:
+      operationId: reportSmbZipToLocalExtractionMemberError
+      summary: Pause for a local extraction member error decision
+      security: [{ArchiveOperationToken: []}]
+      parameters: [{$ref: '#/components/parameters/OperationId'}]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: {$ref: '#/components/schemas/ArchiveExtractionMemberError'}
+      responses:
+        '200': {$ref: '#/components/responses/ArchiveOperation'}
+        '409': {$ref: '#/components/responses/RelayConflict'}
+  /api/archive/operations/{operationId}/companion-relay/smb_zip_to_local_extract/complete:
+    post:
+      operationId: completeSmbZipToLocalExtractionRelay
+      summary: Complete a scoped SMB ZIP to local extraction relay
+      security: [{ArchiveOperationToken: []}]
+      parameters: [{$ref: '#/components/parameters/OperationId'}]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: {$ref: '#/components/schemas/ArchiveExtractionSummary'}
+      responses:
+        '200': {$ref: '#/components/responses/ArchiveOperation'}
+        '409': {$ref: '#/components/responses/RelayConflict'}
+  /api/archive/operations/{operationId}/companion-relay/smb_zip_to_local_extract/fail:
+    post:
+      operationId: failSmbZipToLocalExtractionRelay
+      summary: Fail a scoped SMB ZIP to local extraction relay
+      security: [{ArchiveOperationToken: []}]
+      parameters: [{$ref: '#/components/parameters/OperationId'}]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: {$ref: '#/components/schemas/ArchiveFailure'}
+      responses:
+        '200': {$ref: '#/components/responses/ArchiveOperation'}
+  /api/archive/operations/{operationId}/companion-relay/smb_to_local_zip_create/begin:
+    post:
+      operationId: beginSmbToLocalZipCreationRelay
+      summary: Begin a scoped SMB to local ZIP creation relay
+      security: [{ArchiveOperationToken: []}]
+      parameters: [{$ref: '#/components/parameters/OperationId'}]
+      responses:
+        '200':
+          description: Validated SMB source manifest
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/ArchiveCreationManifest'}
+        '409': {$ref: '#/components/responses/RelayConflict'}
+  /api/archive/operations/{operationId}/companion-relay/smb_to_local_zip_create/member:
+    get:
+      operationId: readSmbToLocalZipCreationMember
+      summary: Read one approved SMB file for local ZIP creation
+      security: [{ArchiveOperationToken: []}]
+      parameters:
+        - $ref: '#/components/parameters/OperationId'
+        - $ref: '#/components/parameters/ArchivePath'
+      responses:
+        '200':
+          description: Source file bytes
+          content:
+            application/octet-stream:
+              schema: {$ref: '#/components/schemas/ArchiveBinaryStream'}
+        '409': {$ref: '#/components/responses/RelayConflict'}
+  /api/archive/operations/{operationId}/companion-relay/smb_to_local_zip_create/member-complete:
+    post:
+      operationId: completeSmbToLocalZipCreationMember
+      summary: Record one committed local ZIP member
+      security: [{ArchiveOperationToken: []}]
+      parameters: [{$ref: '#/components/parameters/OperationId'}]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: {$ref: '#/components/schemas/ArchiveCreationMemberCompletion'}
+      responses:
+        '200': {$ref: '#/components/responses/ArchiveOperation'}
+        '409': {$ref: '#/components/responses/RelayConflict'}
+  /api/archive/operations/{operationId}/companion-relay/smb_to_local_zip_create/complete:
+    post:
+      operationId: completeSmbToLocalZipCreationRelay
+      summary: Complete a scoped SMB to local ZIP creation relay
+      security: [{ArchiveOperationToken: []}]
+      parameters: [{$ref: '#/components/parameters/OperationId'}]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: {$ref: '#/components/schemas/ArchiveCreationSummary'}
+      responses:
+        '200': {$ref: '#/components/responses/ArchiveOperation'}
+        '409': {$ref: '#/components/responses/RelayConflict'}
+  /api/archive/operations/{operationId}/companion-relay/smb_to_local_zip_create/fail:
+    post:
+      operationId: failSmbToLocalZipCreationRelay
+      summary: Fail a scoped SMB to local ZIP creation relay
+      security: [{ArchiveOperationToken: []}]
+      parameters: [{$ref: '#/components/parameters/OperationId'}]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: {$ref: '#/components/schemas/ArchiveFailure'}
+      responses:
+        '200': {$ref: '#/components/responses/ArchiveOperation'}
+  /api/archive/operations/{operationId}/companion-relay/local_to_smb_zip_create/begin:
+    post:
+      operationId: beginLocalToSmbZipCreationRelay
+      summary: Begin a scoped local to SMB ZIP creation relay with its local source manifest
+      security: [{ArchiveOperationToken: []}]
+      parameters: [{$ref: '#/components/parameters/OperationId'}]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: {$ref: '#/components/schemas/ArchiveCreationSourceManifest'}
+      responses:
+        '200': {$ref: '#/components/responses/ArchiveOperation'}
+        '409': {$ref: '#/components/responses/RelayConflict'}
+  /api/archive/operations/{operationId}/companion-relay/local_to_smb_zip_create/member:
+    put:
+      operationId: writeLocalToSmbZipCreationMember
+      summary: Commit one approved local source member to the scoped SMB ZIP
+      security: [{ArchiveOperationToken: []}]
+      parameters:
+        - $ref: '#/components/parameters/OperationId'
+        - $ref: '#/components/parameters/ArchivePath'
+      requestBody:
+        required: true
+        content:
+          application/octet-stream:
+            schema: {$ref: '#/components/schemas/ArchiveBinaryStream'}
+      responses:
+        '200': {$ref: '#/components/responses/ArchiveOperation'}
+        '409': {$ref: '#/components/responses/RelayConflict'}
+  /api/archive/operations/{operationId}/companion-relay/local_to_smb_zip_create/complete:
+    post:
+      operationId: completeLocalToSmbZipCreationRelay
+      summary: Complete a scoped local to SMB ZIP creation relay
+      security: [{ArchiveOperationToken: []}]
+      parameters: [{$ref: '#/components/parameters/OperationId'}]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: {$ref: '#/components/schemas/ArchiveCreationSummary'}
+      responses:
+        '200': {$ref: '#/components/responses/ArchiveOperation'}
+        '409': {$ref: '#/components/responses/RelayConflict'}
+  /api/archive/operations/{operationId}/companion-relay/local_to_smb_zip_create/fail:
+    post:
+      operationId: failLocalToSmbZipCreationRelay
+      summary: Fail a scoped local to SMB ZIP creation relay
+      security: [{ArchiveOperationToken: []}]
+      parameters: [{$ref: '#/components/parameters/OperationId'}]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: {$ref: '#/components/schemas/ArchiveFailure'}
+      responses:
+        '200': {$ref: '#/components/responses/ArchiveOperation'}
+components:
+  parameters:
+    ExecutionId:
+      name: executionId
+      in: path
+      required: true
+      schema:
+        type: string
+        format: uuid
+    OperationId:
+      name: operationId
+      in: path
+      required: true
+      schema:
+        type: string
+        format: uuid
+    MemberPath:
+      name: member_path
+      in: query
+      required: true
+      schema:
+        type: string
+        minLength: 1
+    ArchivePath:
+      name: archive_path
+      in: query
+      required: true
+      schema:
+        type: string
+        minLength: 1
+    IsDirectory:
+      name: is_directory
+      in: query
+      required: false
+      schema:
+        type: boolean
+        default: false
+    SourceModifiedAt:
+      name: source_modified_at
+      in: query
+      required: false
+      schema:
+        type: string
+        format: date-time
+  securitySchemes:
+    ArchiveOperationToken:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+  responses:
+    StaleRevision:
+      description: The execution changed before the mutation could be applied.
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ArchiveContractError'
+    RelayConflict:
+      description: The scoped operation is not in a state that permits this relay action.
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ArchiveContractError'
+    ArchiveOperation:
+      description: Current durable operation state after a scoped relay action.
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ArchiveOperationRead'
+  schemas:
+    ArchiveBinaryStream:
+      type: string
+      format: binary
+    ArchiveOperationRead:
+      type: object
+      additionalProperties: false
+      required: [id, kind, phase, source_connection_id, source_path, destination_connection_id, destination_path, manifest_hash, revision, checkpoint_json, cancellation_requested, created_at, updated_at, heartbeat_at]
+      properties:
+        id: {type: string, format: uuid}
+        kind: {type: string, enum: [create, extract]}
+        phase: {type: string, enum: [prepared, accepted, streaming, awaiting_user_decision, verifying, completed, cancelled, failed]}
+        source_connection_id: {type: string}
+        source_path: {type: string}
+        destination_connection_id: {type: string}
+        destination_path: {type: string}
+        manifest_hash: {type: string}
+        revision: {type: integer, minimum: 0}
+        checkpoint_json: {type: string}
+        pending_decision_json: {type: [string, 'null']}
+        collision_policy: {type: [string, 'null']}
+        cancellation_requested: {type: boolean}
+        last_error_json: {type: [string, 'null']}
+        created_at: {type: string, format: date-time}
+        updated_at: {type: string, format: date-time}
+        heartbeat_at: {type: string, format: date-time}
+    ArchiveExtractionManifest:
+      type: object
+      additionalProperties: false
+      required: [operation, entries]
+      properties:
+        operation: {$ref: '#/components/schemas/ArchiveOperationRead'}
+        entries:
+          type: array
+          items: {$ref: '#/components/schemas/ArchiveExtractionManifestEntry'}
+    ArchiveExtractionManifestEntry:
+      type: object
+      additionalProperties: false
+      required: [path, is_directory, uncompressed_size]
+      properties:
+        path: {type: string, minLength: 1}
+        is_directory: {type: boolean}
+        uncompressed_size: {type: integer, minimum: 0}
+        modified_at: {type: [string, 'null'], format: date-time}
+    ArchiveExtractionMemberCompletion:
+      type: object
+      additionalProperties: false
+      required: [member_path, status, target_path, directories_created, extracted_bytes, replaced, renamed]
+      properties:
+        member_path: {type: string, minLength: 1}
+        status: {type: string, enum: [directory, extracted, skipped, ignored]}
+        target_path: {type: string, minLength: 1}
+        directories_created: {type: integer, minimum: 0}
+        extracted_bytes: {type: integer, minimum: 0}
+        replaced: {type: boolean}
+        renamed: {type: boolean}
+    ArchiveExtractionMemberResultV1:
+      description: Normalized terminal destination result shared by archive executors.
+      type: object
+      additionalProperties: false
+      required: [member_path, status, target_path, directories_created, extracted_bytes, replaced, renamed]
+      properties:
+        member_path: {type: string, minLength: 1}
+        status: {type: string, enum: [directory, extracted, skipped, ignored]}
+        target_path: {type: string, minLength: 1}
+        directories_created: {type: integer, minimum: 0}
+        extracted_bytes: {type: integer, minimum: 0}
+        replaced: {type: boolean}
+        renamed: {type: boolean}
+    ArchiveExtractionProgressV1:
+      description: Aggregate progress derived from normalized extraction member results.
+      type: object
+      additionalProperties: false
+      required: [files_extracted, directories_created, extracted_bytes, files_skipped, files_replaced, files_failed, partial_members]
+      properties:
+        files_extracted: {type: integer, minimum: 0}
+        directories_created: {type: integer, minimum: 0}
+        extracted_bytes: {type: integer, minimum: 0}
+        files_skipped: {type: integer, minimum: 0}
+        files_replaced: {type: integer, minimum: 0}
+        files_failed: {type: integer, minimum: 0}
+        partial_members: {type: integer, minimum: 0}
+    ArchiveExtractionPartialMemberV1:
+      description: A non-terminal direct-output state that may be retried or ignored.
+      type: object
+      additionalProperties: false
+      required: [member_path, target_path, partial_output]
+      properties:
+        member_path: {type: string, minLength: 1}
+        target_path: {type: string, minLength: 1}
+        partial_output: {type: boolean}
+    ArchiveExtractionMemberErrorV1:
+      description: A member failure that may be retried, ignored, or cancel the execution.
+      allOf:
+        - $ref: '#/components/schemas/ArchiveExtractionPartialMemberV1'
+        - type: object
+          additionalProperties: false
+          required: [message]
+          properties:
+            message: {type: string, minLength: 1, maxLength: 500}
+    ArchiveExtractionCollision:
+      type: object
+      additionalProperties: false
+      required: [member_path, is_directory]
+      properties:
+        member_path: {type: string, minLength: 1}
+        is_directory: {type: boolean}
+        target_size: {type: [integer, 'null'], minimum: 0}
+        target_modified_at: {type: [string, 'null'], format: date-time}
+    ArchiveExtractionMemberError:
+      type: object
+      additionalProperties: false
+      required: [member_path, message, partial_output]
+      properties:
+        member_path: {type: string, minLength: 1}
+        message: {type: string, minLength: 1, maxLength: 500}
+        partial_output: {type: boolean}
+    ArchiveExtractionSummary:
+      type: object
+      additionalProperties: false
+      required: [destination_root_created]
+      properties:
+        destination_root_created: {type: boolean}
+    ArchiveCreationMemberResultV1:
+      description: Normalized terminal archive creation result shared by archive executors.
+      type: object
+      additionalProperties: false
+      required: [archive_path, status, source_bytes]
+      properties:
+        archive_path: {type: string, minLength: 1}
+        status: {type: string, enum: [directory, created]}
+        source_bytes: {type: integer, minimum: 0}
+    ArchiveCreationProgressV1:
+      description: Aggregate progress derived from normalized creation member results.
+      type: object
+      additionalProperties: false
+      required: [files_created, directories_created, source_bytes]
+      properties:
+        files_created: {type: integer, minimum: 0}
+        directories_created: {type: integer, minimum: 0}
+        source_bytes: {type: integer, minimum: 0}
+    ArchiveCreationManifest:
+      type: object
+      additionalProperties: false
+      required: [operation, entries]
+      properties:
+        operation: {$ref: '#/components/schemas/ArchiveOperationRead'}
+        entries:
+          type: array
+          items: {$ref: '#/components/schemas/ArchiveCreationManifestEntry'}
+    ArchiveCreationManifestEntry:
+      type: object
+      additionalProperties: false
+      required: [source_path, archive_path, is_directory, source_size]
+      properties:
+        source_path: {type: string, minLength: 1}
+        archive_path: {type: string, minLength: 1}
+        is_directory: {type: boolean}
+        source_size: {type: integer, minimum: 0}
+        modified_at: {type: [string, 'null'], format: date-time}
+    ArchiveCreationSourceManifest:
+      type: object
+      additionalProperties: false
+      required: [entries]
+      properties:
+        entries:
+          type: array
+          minItems: 1
+          items: {$ref: '#/components/schemas/ArchiveCreationSourceManifestEntry'}
+    ArchiveCreationSourceManifestEntry:
+      type: object
+      additionalProperties: false
+      required: [archive_path, is_directory, source_size]
+      properties:
+        archive_path: {type: string, minLength: 1}
+        is_directory: {type: boolean}
+        source_size: {type: integer, minimum: 0}
+    ArchiveCreationSummary:
+      type: object
+      additionalProperties: false
+      required: [files_created, directories_created, source_bytes]
+      properties:
+        files_created: {type: integer, minimum: 0}
+        directories_created: {type: integer, minimum: 0}
+        source_bytes: {type: integer, minimum: 0}
+    ArchiveCreationMemberCompletion:
+      type: object
+      additionalProperties: false
+      required: [archive_path, status, source_bytes]
+      properties:
+        archive_path: {type: string, minLength: 1}
+        status: {type: string, enum: [directory, created]}
+        source_bytes: {type: integer, minimum: 0}
+    ArchiveFailure:
+      type: object
+      additionalProperties: false
+      required: [message]
+      properties:
+        message: {type: string, minLength: 1, maxLength: 500}
+    ArchiveExecutionStartRequest:
+      type: object
+      additionalProperties: false
+      required: [plan]
+      properties:
+        plan:
+          $ref: '#/components/schemas/ArchiveExecutionPlan'
+    ArchiveExecutionPlan:
+      type: object
+      additionalProperties: false
+      required: [kind, manifestHash, source, destination]
+      properties:
+        kind:
+          type: string
+          enum: [create, extract]
+        manifestHash:
+          type: string
+          minLength: 1
+        source:
+          $ref: '#/components/schemas/ArchiveEndpointDescriptor'
+        destination:
+          $ref: '#/components/schemas/ArchiveEndpointDescriptor'
+    ArchiveEndpointDescriptor:
+      type: object
+      additionalProperties: false
+      required: [provider, capabilityProfile]
+      properties:
+        provider:
+          type: string
+          enum: [local, smb]
+        capabilityProfile:
+          type: string
+          minLength: 1
+    ArchiveExecution:
+      type: object
+      additionalProperties: false
+      required: [executionId, kind, phase, revision, progress]
+      properties:
+        executionId:
+          type: string
+          format: uuid
+        kind:
+          type: string
+          enum: [create, extract]
+        phase:
+          type: string
+          enum: [prepared, accepted, streaming, awaiting_user_decision, verifying, completed, cancelled, failed]
+        revision:
+          type: integer
+          minimum: 0
+        progress:
+          $ref: '#/components/schemas/ArchiveProgress'
+        pendingDecision:
+          $ref: '#/components/schemas/ArchivePendingDecision'
+    ArchiveProgress:
+      type: object
+      additionalProperties: false
+      required: [completedMembers, skippedMembers, failedMembers, partialMembers]
+      properties:
+        completedMembers:
+          type: integer
+          minimum: 0
+        skippedMembers:
+          type: integer
+          minimum: 0
+        failedMembers:
+          type: integer
+          minimum: 0
+        partialMembers:
+          type: integer
+          minimum: 0
+    ArchivePendingDecision:
+      type: object
+      additionalProperties: false
+      required: [memberId, allowedActions]
+      properties:
+        memberId:
+          type: string
+          minLength: 1
+        allowedActions:
+          type: array
+          minItems: 1
+          items:
+            $ref: '#/components/schemas/ArchiveDecisionAction'
+    ArchiveExecutionMutationRequest:
+      type: object
+      additionalProperties: false
+      required: [expectedRevision]
+      properties:
+        expectedRevision:
+          type: integer
+          minimum: 0
+    ArchiveExecutionDecisionRequest:
+      allOf:
+        - $ref: '#/components/schemas/ArchiveExecutionMutationRequest'
+        - type: object
+          additionalProperties: false
+          required: [memberId, action, idempotencyKey]
+          properties:
+            memberId:
+              type: string
+              minLength: 1
+            action:
+              $ref: '#/components/schemas/ArchiveDecisionAction'
+            proposedOutputPath:
+              type: string
+              minLength: 1
+            idempotencyKey:
+              type: string
+              minLength: 1
+    ArchiveDecisionAction:
+      type: string
+      enum: [skip, skip_all, replace, replace_all, replace_older, rename, retry, ignore, cancel]
+    ArchiveContractError:
+      type: object
+      additionalProperties: false
+      required: [code, message]
+      properties:
+        code:
+          type: string
+        message:
+          type: string

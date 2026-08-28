@@ -7,6 +7,7 @@ from fastapi import HTTPException, status
 from sqlmodel import Session
 
 from app.models.archive_operation import TERMINAL_ARCHIVE_OPERATION_PHASES, ArchiveOperation, ArchiveOperationPhase
+from app.services.archive.state_store import ArchiveOperationStateStore, ArchiveStateStore
 from app.services.audit import AuditDetails, AuditEventName, AuditResult, write_audit_event
 
 _ALLOWED_TRANSITIONS: dict[ArchiveOperationPhase, frozenset[ArchiveOperationPhase]] = {
@@ -28,6 +29,8 @@ _ALLOWED_TRANSITIONS: dict[ArchiveOperationPhase, frozenset[ArchiveOperationPhas
     ArchiveOperationPhase.CANCELLED: frozenset(),
     ArchiveOperationPhase.FAILED: frozenset(),
 }
+
+_state_store: ArchiveStateStore = ArchiveOperationStateStore()
 
 
 def _write_archive_lifecycle_audit(
@@ -60,6 +63,7 @@ def update_operation_phase(
     *,
     expected_phase: ArchiveOperationPhase,
     next_phase: ArchiveOperationPhase,
+    additional_changes: dict[str, object] | None = None,
 ) -> ArchiveOperation:
     """Perform an idempotent, allowed phase transition for one operation."""
 
@@ -71,10 +75,15 @@ def update_operation_phase(
         raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="Archive operation transition is not allowed")
     now = datetime.now(timezone.utc)
     previous_phase = operation.phase
-    operation.phase = next_phase
-    operation.updated_at = now
-    operation.heartbeat_at = now
-    session.add(operation)
+    changes: dict[str, object] = {"phase": next_phase, "updated_at": now, "heartbeat_at": now}
+    if additional_changes is not None:
+        changes.update(additional_changes)
+    _state_store.compare_and_swap(
+        session,
+        operation,
+        expected_revision=operation.revision,
+        changes=changes,
+    )
     _write_archive_lifecycle_audit(session, operation, previous_phase=previous_phase)
     session.commit()
     session.refresh(operation)
@@ -88,10 +97,12 @@ def request_operation_cancellation(session: Session, operation: ArchiveOperation
         return operation
     if not operation.cancellation_requested:
         now = datetime.now(timezone.utc)
-        operation.cancellation_requested = True
-        operation.updated_at = now
-        operation.heartbeat_at = now
-        session.add(operation)
+        _state_store.compare_and_swap(
+            session,
+            operation,
+            expected_revision=operation.revision,
+            changes={"cancellation_requested": True, "updated_at": now, "heartbeat_at": now},
+        )
         _write_archive_lifecycle_audit(session, operation, previous_phase=None, decision="cancellation_requested")
         session.commit()
         session.refresh(operation)
@@ -104,11 +115,27 @@ def heartbeat_operation(session: Session, operation: ArchiveOperation) -> None:
     if operation.phase in TERMINAL_ARCHIVE_OPERATION_PHASES:
         return
     now = datetime.now(timezone.utc)
-    operation.heartbeat_at = now
-    operation.updated_at = now
-    session.add(operation)
+    _state_store.compare_and_swap(
+        session,
+        operation,
+        expected_revision=operation.revision,
+        changes={"heartbeat_at": now, "updated_at": now},
+    )
     session.commit()
-    session.refresh(operation)
+
+
+def update_operation_checkpoint(session: Session, operation: ArchiveOperation, checkpoint_json: str) -> ArchiveOperation:
+    """Persist a checkpoint through the common revisioned archive state store."""
+
+    now = datetime.now(timezone.utc)
+    _state_store.compare_and_swap(
+        session,
+        operation,
+        expected_revision=operation.revision,
+        changes={"checkpoint_json": checkpoint_json, "updated_at": now, "heartbeat_at": now},
+    )
+    session.commit()
+    return operation
 
 
 def fail_operation(session: Session, operation: ArchiveOperation, message: str) -> ArchiveOperation:
@@ -118,11 +145,18 @@ def fail_operation(session: Session, operation: ArchiveOperation, message: str) 
         return operation
     now = datetime.now(timezone.utc)
     previous_phase = operation.phase
-    operation.phase = ArchiveOperationPhase.FAILED
-    operation.last_error_json = json.dumps({"code": "archive_creation_failed", "message": message})
-    operation.updated_at = now
-    operation.heartbeat_at = now
-    session.add(operation)
+    error_code = "archive_extraction_failed" if operation.kind.value == "extract" else "archive_creation_failed"
+    _state_store.compare_and_swap(
+        session,
+        operation,
+        expected_revision=operation.revision,
+        changes={
+            "phase": ArchiveOperationPhase.FAILED,
+            "last_error_json": json.dumps({"code": error_code, "message": message}),
+            "updated_at": now,
+            "heartbeat_at": now,
+        },
+    )
     _write_archive_lifecycle_audit(session, operation, previous_phase=previous_phase)
     session.commit()
     session.refresh(operation)
@@ -136,11 +170,17 @@ def await_operation_decision(session: Session, operation: ArchiveOperation, deci
         raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="Archive operation is not streaming")
     now = datetime.now(timezone.utc)
     previous_phase = operation.phase
-    operation.phase = ArchiveOperationPhase.AWAITING_USER_DECISION
-    operation.pending_decision_json = json.dumps(decision)
-    operation.updated_at = now
-    operation.heartbeat_at = now
-    session.add(operation)
+    _state_store.compare_and_swap(
+        session,
+        operation,
+        expected_revision=operation.revision,
+        changes={
+            "phase": ArchiveOperationPhase.AWAITING_USER_DECISION,
+            "pending_decision_json": json.dumps(decision),
+            "updated_at": now,
+            "heartbeat_at": now,
+        },
+    )
     _write_archive_lifecycle_audit(
         session,
         operation,
@@ -167,6 +207,10 @@ def apply_existing_file_decision(
         pending = json.loads(operation.pending_decision_json or "{}")
     except json.JSONDecodeError as exc:
         raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="Archive operation decision state is invalid") from exc
+    if not isinstance(pending, dict):
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="Archive operation decision state is invalid")
+    if pending.get("kind") == "member_error":
+        return _apply_member_error_decision(session, operation, pending, action, member_path, target_path)
     if pending.get("kind") != "existing_files" or action not in pending.get("allowed_actions", []):
         raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_CONTENT, detail="Archive operation decision is not allowed")
     is_member_action = action in {"skip", "replace", "rename"}
@@ -176,9 +220,22 @@ def apply_existing_file_decision(
             raise HTTPException(
                 status_code=status.HTTP_422_UNPROCESSABLE_CONTENT, detail="Archive member decision requires a pending member"
             )
-        if not any(isinstance(conflict, dict) and conflict.get("member_path") == member_path for conflict in conflicts):
+        conflict = next(
+            (
+                pending_conflict
+                for pending_conflict in conflicts
+                if isinstance(pending_conflict, dict) and pending_conflict.get("member_path") == member_path
+            ),
+            None,
+        )
+        if conflict is None:
             raise HTTPException(
                 status_code=status.HTTP_422_UNPROCESSABLE_CONTENT, detail="Archive member is not awaiting a collision decision"
+            )
+        if conflict.get("is_directory") is True and action != "rename":
+            raise HTTPException(
+                status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
+                detail="Archive directory collisions can only be renamed or cancelled",
             )
         try:
             checkpoint = json.loads(operation.checkpoint_json or "{}")
@@ -198,18 +255,26 @@ def apply_existing_file_decision(
             if not isinstance(member_actions, dict):
                 raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="Archive operation checkpoint is invalid")
             member_actions[member_path] = action
-        operation.checkpoint_json = json.dumps(checkpoint)
+        checkpoint_json = json.dumps(checkpoint)
     elif member_path is not None or target_path is not None:
         raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_CONTENT, detail="Archive all-files decision cannot target a member")
+    else:
+        checkpoint_json = operation.checkpoint_json
     now = datetime.now(timezone.utc)
-    if not is_member_action:
-        operation.collision_policy = action
-    operation.pending_decision_json = None
     previous_phase = operation.phase
-    operation.phase = ArchiveOperationPhase.STREAMING
-    operation.updated_at = now
-    operation.heartbeat_at = now
-    session.add(operation)
+    _state_store.compare_and_swap(
+        session,
+        operation,
+        expected_revision=operation.revision,
+        changes={
+            "checkpoint_json": checkpoint_json,
+            "collision_policy": operation.collision_policy if is_member_action else action,
+            "pending_decision_json": None,
+            "phase": ArchiveOperationPhase.STREAMING,
+            "updated_at": now,
+            "heartbeat_at": now,
+        },
+    )
     _write_archive_lifecycle_audit(session, operation, previous_phase=previous_phase, decision=action)
     session.commit()
     session.refresh(operation)
@@ -221,3 +286,65 @@ def _is_safe_relative_target_path(target_path: object) -> bool:
         return False
     normalized = target_path.replace("\\", "/")
     return not normalized.startswith("/") and all(part not in {"", ".", ".."} for part in normalized.split("/"))
+
+
+def _apply_member_error_decision(
+    session: Session,
+    operation: ArchiveOperation,
+    pending: dict[str, object],
+    action: str,
+    member_path: str | None,
+    target_path: str | None,
+) -> ArchiveOperation:
+    """Resume a failed member only after a retry or explicit ignore decision."""
+
+    pending_member_path = pending.get("member_path")
+    allowed_actions = pending.get("allowed_actions")
+    if (
+        action not in {"retry", "ignore"}
+        or not isinstance(allowed_actions, list)
+        or action not in allowed_actions
+        or member_path != pending_member_path
+        or target_path is not None
+    ):
+        raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_CONTENT, detail="Archive member error decision is not allowed")
+    try:
+        checkpoint = json.loads(operation.checkpoint_json or "{}")
+    except json.JSONDecodeError as exc:
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="Archive operation checkpoint is invalid") from exc
+    if not isinstance(checkpoint, dict):
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="Archive operation checkpoint is invalid")
+    if action == "ignore":
+        ignored_members = checkpoint.setdefault("ignored_members", [])
+        if not isinstance(ignored_members, list) or not all(isinstance(path, str) for path in ignored_members):
+            raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="Archive operation checkpoint is invalid")
+        if member_path not in ignored_members:
+            ignored_members.append(member_path)
+        checkpoint_json = json.dumps(checkpoint)
+    elif pending.get("partial_output") is True:
+        retry_members = checkpoint.setdefault("retry_members", [])
+        if not isinstance(retry_members, list) or not all(isinstance(path, str) for path in retry_members):
+            raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="Archive operation checkpoint is invalid")
+        if member_path not in retry_members:
+            retry_members.append(member_path)
+        checkpoint_json = json.dumps(checkpoint)
+    else:
+        checkpoint_json = operation.checkpoint_json
+    now = datetime.now(timezone.utc)
+    previous_phase = operation.phase
+    _state_store.compare_and_swap(
+        session,
+        operation,
+        expected_revision=operation.revision,
+        changes={
+            "checkpoint_json": checkpoint_json,
+            "pending_decision_json": None,
+            "phase": ArchiveOperationPhase.STREAMING,
+            "updated_at": now,
+            "heartbeat_at": now,
+        },
+    )
+    _write_archive_lifecycle_audit(session, operation, previous_phase=previous_phase, decision=action)
+    session.commit()
+    session.refresh(operation)
+    return operation

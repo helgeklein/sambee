@@ -8,7 +8,7 @@ from collections.abc import AsyncIterator
 import pytest
 
 from app.models.file import DirectoryListing, FileInfo, FileType
-from app.services.archive.creation import ArchiveCreationCancelled, create_archive_from_files
+from app.services.archive.creation import ArchiveCreationCancelled, ArchiveCreationMemberOutcome, create_archive_from_files
 from app.services.archive.zip_reader import ArchiveFormatError
 from app.services.archive.zip_writer import PortableZipWriter
 
@@ -70,6 +70,31 @@ class MemoryCreationBackend:
         return self._read(self.files[path])
 
 
+class MemoryCreationSource:
+    def __init__(self, backend: MemoryCreationBackend) -> None:
+        self.backend = backend
+
+    async def get_file_info(self, path: str) -> FileInfo:
+        return await self.backend.get_file_info(path)
+
+    async def list_directory(self, path: str = "") -> DirectoryListing:
+        return await self.backend.list_directory(path)
+
+    def read_file(self, path: str) -> AsyncIterator[bytes]:
+        return self.backend.read_file(path)
+
+
+class MemoryCreationDestination:
+    def __init__(self, backend: MemoryCreationBackend) -> None:
+        self.backend = backend
+
+    async def get_file_info(self, path: str) -> FileInfo:
+        return await self.backend.get_file_info(path)
+
+    async def open_exclusive_writer(self, path: str) -> MemoryExclusiveWriter:
+        return await self.backend.open_exclusive_writer(path)
+
+
 async def _chunks(data: bytes) -> AsyncIterator[bytes]:
     for position in range(0, len(data), 3):
         yield data[position : position + 3]
@@ -117,11 +142,41 @@ async def test_writes_zip64_records_when_the_local_header_offset_requires_them()
 @pytest.mark.asyncio
 async def test_creates_direct_archive_from_regular_file_sources() -> None:
     backend = MemoryCreationBackend({"in/first.txt": b"first", "in/second.txt": b"second"})
+    outcomes = []
 
-    result = await create_archive_from_files(backend, source_paths=["in/first.txt", "in/second.txt"], target_path="out.zip")
+    async def record_outcome(outcome):
+        outcomes.append(outcome)
+
+    result = await create_archive_from_files(
+        backend,
+        source_paths=["in/first.txt", "in/second.txt"],
+        target_path="out.zip",
+        on_member_completed=record_outcome,
+    )
 
     assert result.files_created == 2
     assert result.source_bytes == 11
+    assert outcomes == [
+        ArchiveCreationMemberOutcome("first.txt", "created", 5),
+        ArchiveCreationMemberOutcome("second.txt", "created", 6),
+    ]
+    with zipfile.ZipFile(io.BytesIO(backend.target.data)) as archive:
+        assert archive.read("first.txt") == b"first"
+        assert archive.read("second.txt") == b"second"
+
+
+@pytest.mark.asyncio
+async def test_creates_archive_through_separate_source_and_destination_adapters() -> None:
+    backend = MemoryCreationBackend({"in/first.txt": b"first", "in/second.txt": b"second"})
+
+    result = await create_archive_from_files(
+        MemoryCreationSource(backend),
+        destination=MemoryCreationDestination(backend),
+        source_paths=["in/first.txt", "in/second.txt"],
+        target_path="out.zip",
+    )
+
+    assert result.files_created == 2
     with zipfile.ZipFile(io.BytesIO(backend.target.data)) as archive:
         assert archive.read("first.txt") == b"first"
         assert archive.read("second.txt") == b"second"

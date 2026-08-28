@@ -1,21 +1,12 @@
 import { createContext, useContext } from "react";
 import api from "../../services/api";
-import { isLocalAbortError } from "../../services/backendAvailability";
-import { isLocalDrive } from "../../services/backendRouter";
-import {
-  abortForegroundLocalArchiveRequest,
-  beginForegroundLocalArchiveRequest,
-  clearForegroundArchiveOperation,
-  clearForegroundLocalArchiveRequest,
-  storeForegroundArchiveOperation,
-} from "../../services/foregroundArchiveOperation";
 import type {
   ResolvedStorageDirectoryLocation,
   StorageBackendRegistry,
   StorageEditSession,
   StorageReadRequest,
 } from "../../services/storageContracts";
-import type { ArchiveEntryInfo, ArchiveExtractionDecisionAction, ArchiveOperation, FileEntry } from "../../types";
+import type { ArchiveEntryInfo, ArchiveExtractionDecisionAction, FileEntry } from "../../types";
 import { FileType } from "../../types";
 
 export type VirtualContentProviderId = "zip" | (string & {});
@@ -103,17 +94,47 @@ export interface ArchiveExtractionConflict {
   memberPath: string;
   targetPath: string;
   isDirectory?: boolean;
+  sourceSize?: number;
+  sourceModifiedAt?: string;
+  targetSize?: number;
+  targetModifiedAt?: string;
+}
+
+export interface ArchiveExtractionMemberError {
+  memberPath: string;
+  targetPath: string;
+  message: string;
+  partialOutput: boolean;
+}
+
+export interface ArchiveExtractionSummary {
+  filesExtracted: number;
+  directoriesCreated: number;
+  extractedBytes: number;
+  filesSkipped: number;
+  filesReplaced: number;
+  partialMembers: number;
+}
+
+export type ArchiveExtractionConflictAction = "skip" | "skip_all" | "replace" | "replace_all" | "replace_older" | "rename";
+
+export interface ArchiveExtractionRequest {
+  source: VirtualLocation;
+  destination: PhysicalLocation;
 }
 
 export type ArchiveExtractionOutcome =
-  | { status: "completed"; filesSkipped: number }
+  | { status: "completed"; filesSkipped: number; summary: ArchiveExtractionSummary }
   | { status: "cancelled" }
-  | { status: "awaiting-decision"; conflicts: ArchiveExtractionConflict[] };
+  | { status: "interrupted" }
+  | { status: "awaiting-decision"; conflicts: ArchiveExtractionConflict[]; allowedActions: ArchiveExtractionConflictAction[] }
+  | { status: "awaiting-member-error"; error: ArchiveExtractionMemberError };
 
 export interface ArchiveExtractionExecution {
   result: Promise<ArchiveExtractionOutcome>;
   cancel(): Promise<void>;
   decide(action: ArchiveExtractionDecisionAction, memberPath?: string, targetPath?: string): Promise<ArchiveExtractionOutcome>;
+  onProgress(listener: (summary: ArchiveExtractionSummary) => void): () => void;
   isCancellationRequested(): boolean;
 }
 
@@ -130,7 +151,6 @@ export interface ContentProvider {
   read(item: ContentItemHandle, request: ContentReadRequest, options?: ContentReadOptions): Promise<Blob>;
   beginEdit(item: ContentItemHandle): Promise<ContentEditStartResult>;
   invalidatePdfDerivative(item: ContentItemHandle, screenProfile?: PdfScreenProfile): Promise<void>;
-  startExtraction(location: VirtualLocation, destinationPath: string): ArchiveExtractionExecution;
 }
 
 export interface VirtualContentProvider extends ContentProvider {
@@ -222,183 +242,6 @@ function toArchiveEntry(entry: ArchiveEntryInfo): FileEntry {
   };
 }
 
-function getSkippedMemberCount(operation: ArchiveOperation): number {
-  try {
-    const checkpoint: unknown = JSON.parse(operation.checkpoint_json);
-    if (typeof checkpoint !== "object" || checkpoint === null || !("files_skipped" in checkpoint)) {
-      return 0;
-    }
-    const filesSkipped = checkpoint.files_skipped;
-    return typeof filesSkipped === "number" && Number.isSafeInteger(filesSkipped) && filesSkipped > 0 ? filesSkipped : 0;
-  } catch {
-    return 0;
-  }
-}
-
-function pendingConflicts(operation: ArchiveOperation): ArchiveExtractionConflict[] {
-  try {
-    const pending: unknown = JSON.parse(operation.pending_decision_json ?? "{}");
-    if (typeof pending !== "object" || pending === null || !("conflicts" in pending) || !Array.isArray(pending.conflicts)) {
-      throw new Error("Archive extraction conflict details are invalid");
-    }
-    return pending.conflicts.map((conflict) => {
-      if (
-        typeof conflict !== "object" ||
-        conflict === null ||
-        typeof conflict.member_path !== "string" ||
-        typeof conflict.target_path !== "string" ||
-        ("is_directory" in conflict && typeof conflict.is_directory !== "boolean")
-      ) {
-        throw new Error("Archive extraction conflict details are invalid");
-      }
-      return {
-        memberPath: conflict.member_path,
-        targetPath: conflict.target_path,
-        isDirectory: conflict.is_directory,
-      };
-    });
-  } catch (error) {
-    throw error instanceof Error ? error : new Error("Archive extraction conflict details are invalid");
-  }
-}
-
-function toExtractionOutcome(operation: ArchiveOperation): ArchiveExtractionOutcome {
-  if (operation.phase === "completed") {
-    return { status: "completed", filesSkipped: getSkippedMemberCount(operation) };
-  }
-  if (operation.phase === "cancelled") {
-    return { status: "cancelled" };
-  }
-  if (operation.phase === "awaiting_user_decision") {
-    return { status: "awaiting-decision", conflicts: pendingConflicts(operation) };
-  }
-  throw new Error("Archive extraction did not reach a terminal state");
-}
-
-function unsupportedArchiveExtraction(): ArchiveExtractionExecution {
-  return {
-    result: Promise.reject(new Error("Physical content cannot be extracted")),
-    cancel: async () => undefined,
-    decide: async () => {
-      throw new Error("Physical content cannot be extracted");
-    },
-    isCancellationRequested: () => false,
-  };
-}
-
-function startZipArchiveExtraction(location: VirtualLocation, destinationPath: string): ArchiveExtractionExecution {
-  if (location.providerId !== "zip") {
-    return {
-      result: Promise.reject(new Error("Archive extraction is unavailable for this content provider")),
-      cancel: async () => undefined,
-      decide: async () => {
-        throw new Error("Archive extraction is unavailable for this content provider");
-      },
-      isCancellationRequested: () => false,
-    };
-  }
-
-  let operationId: string | null = null;
-  let localSignal: AbortSignal | null = null;
-  let awaitingDecision = false;
-  let cancellationRequested = false;
-
-  const finishServerOutcome = (outcome: ArchiveExtractionOutcome): ArchiveExtractionOutcome => {
-    awaitingDecision = outcome.status === "awaiting-decision";
-    if (!awaitingDecision && operationId) {
-      clearForegroundArchiveOperation(operationId);
-    }
-    return outcome;
-  };
-
-  const executeServerOperation = async (): Promise<ArchiveExtractionOutcome> => {
-    if (!operationId) {
-      throw new Error("Archive extraction operation is unavailable");
-    }
-    return finishServerOutcome(toExtractionOutcome(await api.executeArchiveExtraction(operationId)));
-  };
-
-  const result = (async (): Promise<ArchiveExtractionOutcome> => {
-    if (isLocalDrive(location.connectionId)) {
-      localSignal = beginForegroundLocalArchiveRequest();
-      try {
-        const localResult = await api.extractLocalArchive(location.connectionId, location.source.path, destinationPath, localSignal);
-        return { status: "completed", filesSkipped: localResult.files_skipped };
-      } catch (error) {
-        if (cancellationRequested && isLocalAbortError(error)) {
-          return { status: "cancelled" };
-        }
-        throw error;
-      } finally {
-        clearForegroundLocalArchiveRequest(localSignal);
-      }
-    }
-
-    try {
-      const operation = await api.prepareArchiveOperation({
-        kind: "extract",
-        source_connection_id: location.connectionId,
-        source_path: location.source.path,
-        destination_connection_id: location.connectionId,
-        destination_path: destinationPath,
-      });
-      operationId = operation.id;
-      storeForegroundArchiveOperation(operationId);
-      if (cancellationRequested) {
-        await api.cancelArchiveOperation(operationId);
-        clearForegroundArchiveOperation(operationId);
-        return { status: "cancelled" };
-      }
-      return await executeServerOperation();
-    } catch (error) {
-      if (operationId && !cancellationRequested) {
-        try {
-          await api.cancelArchiveOperation(operationId);
-          clearForegroundArchiveOperation(operationId);
-        } catch {
-          // Retain the marker so the page-reload recovery path can retry cancellation.
-        }
-      }
-      throw error;
-    }
-  })();
-
-  return {
-    result,
-    async cancel() {
-      cancellationRequested = true;
-      if (localSignal) {
-        abortForegroundLocalArchiveRequest();
-        return;
-      }
-      if (!operationId) {
-        return;
-      }
-      if (awaitingDecision) {
-        await api.decideArchiveExtraction(operationId, "cancel");
-        clearForegroundArchiveOperation(operationId);
-        return;
-      }
-      await api.cancelArchiveOperation(operationId);
-    },
-    async decide(action, memberPath, targetPath) {
-      if (!operationId || !awaitingDecision) {
-        throw new Error("Archive extraction is not awaiting a collision decision");
-      }
-      const operation = await api.decideArchiveExtraction(operationId, action, memberPath, targetPath);
-      if (operation.phase === "cancelled") {
-        return finishServerOutcome({ status: "cancelled" });
-      }
-      if (operation.phase !== "streaming") {
-        throw new Error("Archive extraction did not resume after the collision decision");
-      }
-      awaitingDecision = false;
-      return executeServerOperation();
-    },
-    isCancellationRequested: () => cancellationRequested,
-  };
-}
-
 const physicalContentProvider: ContentProvider = {
   id: "physical",
   async list(location, options) {
@@ -475,9 +318,6 @@ const physicalContentProvider: ContentProvider = {
     }
     return api.invalidatePdfDerivative(item.location.connectionId, item.path, screenProfile);
   },
-  startExtraction() {
-    return unsupportedArchiveExtraction();
-  },
 };
 
 const zipContentProvider: VirtualContentProvider = {
@@ -517,9 +357,6 @@ const zipContentProvider: VirtualContentProvider = {
       throw new Error("ZIP provider cannot invalidate a different virtual content type");
     }
     return api.invalidateArchiveMemberPdfDerivative(item.location.connectionId, item.location.source.path, item.path, screenProfile);
-  },
-  startExtraction(location, destinationPath) {
-    return startZipArchiveExtraction(location, destinationPath);
   },
 };
 
@@ -592,9 +429,6 @@ export function createStorageBackedContentProviderRegistry(registry: StorageBack
       const resolved = registry.resolveItem({ connectionId: item.location.connectionId, path: item.path });
       await registry.getBackend(resolved.target).invalidatePdfDerivative(resolved, screenProfile);
     },
-    startExtraction() {
-      return unsupportedArchiveExtraction();
-    },
   };
   const zip: VirtualContentProvider = {
     id: "zip",
@@ -639,9 +473,6 @@ export function createStorageBackedContentProviderRegistry(registry: StorageBack
         throw new Error("ZIP provider cannot invalidate a different virtual content type");
       const source = registry.resolveItem({ connectionId: item.location.source.connectionId, path: item.location.source.path });
       await registry.getBackend(source.target).archive?.invalidateMemberPdfDerivative(source, item.path, screenProfile);
-    },
-    startExtraction(location, destinationPath) {
-      return startZipArchiveExtraction(location, destinationPath);
     },
   };
   return createContentProviderRegistry([physical, zip]);

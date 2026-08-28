@@ -17,7 +17,7 @@ use axum::Json;
 use chrono::{DateTime, Utc};
 use log::{info, warn};
 use reqwest::{Client, Response as ReqwestResponse};
-use serde::{de::DeserializeOwned, Deserialize};
+use serde::{de::DeserializeOwned, Deserialize, Serialize};
 use tauri::{Emitter, Manager};
 use tokio::fs::File;
 use tokio::io::AsyncWriteExt;
@@ -29,11 +29,13 @@ use crate::{commands, show_pairing_success, show_pairing_window};
 
 use super::archive::{
     build_local_archive_manifest, build_local_archive_manifest_for_remote_target, create_local_archive, create_local_archive_relay_writer,
-    create_local_extraction_root, ensure_local_extraction_directory, extract_local_archive_to_new_directory, list_local_archive_directory,
-    open_local_extraction_file, stream_local_archive_member, validate_local_archive_creation_manifest, validate_local_archive_extraction,
-    validate_local_archive_member, validate_local_extraction_member_path, write_local_archive_stream, LocalArchiveError,
-    LocalArchiveReadEntry, LocalArchiveRelayChunk, ARCHIVE_COPY_BUFFER_SIZE,
+    create_local_extraction_root, ensure_local_extraction_directory, list_local_archive_directory, open_local_extraction_file,
+    reopen_partial_local_extraction_file, stream_local_archive_member, validate_local_archive_extraction, validate_local_archive_member,
+    validate_local_extraction_member_path, ArchiveCreationManifest, ArchiveCreationManifestMember, ArchiveCreationManifestState,
+    ArchiveExtractionManifest, ArchiveExtractionManifestMember, ArchiveExtractionRelayState, LocalArchiveCreationResult, LocalArchiveEntry,
+    LocalArchiveError, LocalArchiveReadEntry, LocalArchiveRelayChunk, ARCHIVE_COPY_BUFFER_SIZE,
 };
+use super::archive_sessions::{ArchiveSessionProgress, ArchiveSessionStatus};
 use super::auth;
 use super::drives;
 use super::edit_locks::EDIT_LOCK_LOST_CODE;
@@ -1141,16 +1143,584 @@ pub async fn browse_create_archive(
     }))
 }
 
-#[derive(Debug, Deserialize)]
-struct ArchiveCreationRelayManifest {
-    entries: Vec<ArchiveCreationRelayManifestEntry>,
+fn archive_creation_response(result: LocalArchiveCreationResult) -> ArchiveCreationResponse {
+    ArchiveCreationResponse {
+        files_created: result.files_created,
+        directories_created: result.directories_created,
+        source_bytes: result.source_bytes,
+    }
 }
 
-#[derive(Debug, Deserialize)]
-struct ArchiveCreationRelayManifestEntry {
-    archive_path: String,
+#[derive(Serialize)]
+struct ArchiveCreationMemberCompletion<'a> {
+    archive_path: &'a str,
+    status: &'static str,
+    source_bytes: u64,
+}
+
+#[derive(Serialize)]
+struct ArchiveRelayFailure<'a> {
+    message: &'a str,
+}
+
+struct ArchiveRelayTransport {
+    client: Client,
+    relay_url: String,
+    operation_token: String,
+}
+
+enum ArchiveRelayBinding {
+    LocalZipToSmbExtract,
+    SmbZipToLocalExtract,
+    SmbToLocalZipCreate,
+    LocalToSmbZipCreate,
+}
+
+impl ArchiveRelayBinding {
+    const fn path_segment(self) -> &'static str {
+        match self {
+            Self::LocalZipToSmbExtract => "local_zip_to_smb_extract",
+            Self::SmbZipToLocalExtract => "smb_zip_to_local_extract",
+            Self::SmbToLocalZipCreate => "smb_to_local_zip_create",
+            Self::LocalToSmbZipCreate => "local_to_smb_zip_create",
+        }
+    }
+}
+
+impl ArchiveRelayTransport {
+    fn new(client: Client, relay_url: String, operation_token: String) -> Self {
+        Self {
+            client,
+            relay_url,
+            operation_token,
+        }
+    }
+
+    fn get(&self, path: &str) -> reqwest::RequestBuilder {
+        self.client
+            .get(format!("{}/{}", self.relay_url, path))
+            .bearer_auth(&self.operation_token)
+    }
+
+    fn post(&self, path: &str) -> reqwest::RequestBuilder {
+        self.client
+            .post(format!("{}/{}", self.relay_url, path))
+            .bearer_auth(&self.operation_token)
+    }
+
+    fn put(&self, path: &str) -> reqwest::RequestBuilder {
+        self.client
+            .put(format!("{}/{}", self.relay_url, path))
+            .bearer_auth(&self.operation_token)
+    }
+
+    async fn begin<T: DeserializeOwned>(&self, request_context: &str) -> Result<T, ApiError> {
+        decode_archive_relay_json(
+            self.post("begin")
+                .send()
+                .await
+                .map_err(|error| ApiError::Internal(log_request_error(request_context, "POST", self.url(), &error)))?,
+            "start",
+        )
+        .await
+    }
+
+    async fn complete(&self, request_context: &str) -> Result<(), ApiError> {
+        relay_archive_response(
+            self.post("complete")
+                .send()
+                .await
+                .map_err(|error| ApiError::Internal(log_request_error(request_context, "POST", self.url(), &error)))?,
+            "complete",
+        )
+        .await
+    }
+
+    async fn complete_with_json<T: Serialize + ?Sized>(&self, payload: &T, request_context: &str) -> Result<(), ApiError> {
+        self.post_json_without_result("complete", payload, request_context, "complete")
+            .await
+    }
+
+    async fn post_json_without_result<T: Serialize + ?Sized>(
+        &self,
+        path: &str,
+        payload: &T,
+        request_context: &str,
+        action: &str,
+    ) -> Result<(), ApiError> {
+        relay_archive_response(
+            self.post(path)
+                .json(payload)
+                .send()
+                .await
+                .map_err(|error| ApiError::Internal(log_request_error(request_context, "POST", self.url(), &error)))?,
+            action,
+        )
+        .await
+    }
+
+    async fn post_json<T: Serialize + ?Sized, R: DeserializeOwned>(
+        &self,
+        path: &str,
+        payload: &T,
+        request_context: &str,
+        action: &str,
+    ) -> Result<R, ApiError> {
+        decode_archive_relay_json(
+            self.post(path)
+                .json(payload)
+                .send()
+                .await
+                .map_err(|error| ApiError::Internal(log_request_error(request_context, "POST", self.url(), &error)))?,
+            action,
+        )
+        .await
+    }
+
+    async fn fail(&self, message: &str, request_context: &str) -> Result<(), ApiError> {
+        self.post_json_without_result("fail", &ArchiveRelayFailure { message }, request_context, "record failure")
+            .await
+    }
+
+    fn url(&self) -> &str {
+        &self.relay_url
+    }
+}
+
+fn archive_relay_transport(
+    state: &AppState,
+    headers: &HeaderMap,
+    server_url: &str,
+    operation_id: &str,
+    operation_token: String,
+    binding: ArchiveRelayBinding,
+) -> Result<ArchiveRelayTransport, ApiError> {
+    let operation_id =
+        uuid::Uuid::parse_str(operation_id).map_err(|_| ApiError::BadRequest("Archive operation ID is invalid".to_string()))?;
+    let server_url = normalize_archive_server_url(server_url)?;
+    if url::Url::parse(&server_url)
+        .map_err(|_| ApiError::BadRequest("Archive server URL is invalid".to_string()))?
+        .origin()
+        .ascii_serialization()
+        != extract_origin(headers)?
+    {
+        return Err(ApiError::Forbidden(
+            "Archive server URL must match the paired browser origin".to_string(),
+        ));
+    }
+    let http_clients = state
+        .app
+        .try_state::<SambeeHttpClientStore>()
+        .map(|clients| clients.inner().clone())
+        .ok_or_else(|| ApiError::Internal("Companion backend HTTP client is unavailable".to_string()))?;
+    let client = http_clients
+        .client_for_server_no_redirects(&server_url)
+        .map_err(ApiError::Internal)?;
+    Ok(ArchiveRelayTransport::new(
+        client,
+        archive_relay_url(&server_url, operation_id, binding),
+        operation_token,
+    ))
+}
+
+struct ArchiveCreationRelay {
+    transport: ArchiveRelayTransport,
+}
+
+enum ArchiveCreationAdapterBinding {
+    RemoteSourceToLocalDestination {
+        manifest: ArchiveCreationManifest,
+        drive_root: PathBuf,
+        target_path: PathBuf,
+    },
+    LocalSourceToRemoteDestination {
+        entries: Vec<LocalArchiveEntry>,
+    },
+}
+
+struct ArchiveCreationCoordinator {
+    relay: ArchiveCreationRelay,
+    binding: ArchiveCreationAdapterBinding,
+}
+
+impl ArchiveCreationCoordinator {
+    async fn execute(self) -> Result<ArchiveCreationResponse, ApiError> {
+        let Self { relay, binding } = self;
+        let result = match binding {
+            ArchiveCreationAdapterBinding::RemoteSourceToLocalDestination {
+                manifest,
+                drive_root,
+                target_path,
+            } => match create_smb_archive_manifest_locally(&relay, &drive_root, &target_path, manifest).await {
+                Ok(result) => Ok(result),
+                Err(_) if target_path.exists() => Err(ApiError::internal_code(
+                    "Archive creation failed after creating incomplete output",
+                    LOCAL_ARCHIVE_CREATION_PARTIAL_CODE,
+                )),
+                Err(error) => Err(error),
+            },
+            ArchiveCreationAdapterBinding::LocalSourceToRemoteDestination { entries } => {
+                create_local_archive_for_smb_destination(&relay, entries).await
+            }
+        };
+        let result = match result {
+            Ok(result) => result,
+            Err(error) => {
+                let _ = relay.fail().await;
+                return Err(error);
+            }
+        };
+        relay.complete(&result).await?;
+        Ok(result)
+    }
+}
+
+impl ArchiveCreationRelay {
+    fn from_transport(transport: ArchiveRelayTransport) -> Self {
+        Self { transport }
+    }
+
+    async fn begin_remote_source(&self) -> Result<ArchiveCreationManifest, ApiError> {
+        let manifest: ArchiveCreationManifest = self.transport.begin("Archive creation start").await?;
+        ArchiveCreationManifest::from_entries(manifest.entries).map_err(map_local_archive_error)
+    }
+
+    async fn begin_local_source(&self, manifest: &ArchiveCreationManifest) -> Result<(), ApiError> {
+        self.transport
+            .post_json_without_result("begin", manifest, "Archive creation start", "start")
+            .await
+    }
+
+    async fn read_source_member(&self, archive_path: &str) -> Result<ReqwestResponse, ApiError> {
+        self.transport
+            .get("member")
+            .query(&[("archive_path", archive_path)])
+            .send()
+            .await
+            .map_err(|error| ApiError::Internal(log_request_error("Archive member relay", "GET", self.transport.url(), &error)))
+    }
+
+    async fn complete_source_member(&self, archive_path: &str, status: &'static str, source_bytes: u64) -> Result<(), ApiError> {
+        let payload = ArchiveCreationMemberCompletion {
+            archive_path,
+            status,
+            source_bytes,
+        };
+        self.transport
+            .post_json::<_, serde_json::Value>("member-complete", &payload, "Archive creation member completion", "complete member")
+            .await
+            .map(|_| ())
+    }
+
+    async fn stream_source_member(&self, archive_path: &str, source: reqwest::Body) -> Result<ReqwestResponse, ApiError> {
+        self.transport
+            .put("member")
+            .query(&[("archive_path", archive_path)])
+            .body(source)
+            .send()
+            .await
+            .map_err(|error| {
+                ApiError::Internal(log_request_error(
+                    "Archive creation member relay",
+                    "PUT",
+                    self.transport.url(),
+                    &error,
+                ))
+            })
+    }
+
+    async fn complete(&self, result: &ArchiveCreationResponse) -> Result<(), ApiError> {
+        self.transport.complete_with_json(result, "Archive creation completion").await
+    }
+
+    async fn fail(&self) -> Result<(), ApiError> {
+        self.transport
+            .fail("Companion local archive creation failed", "Archive creation failure")
+            .await
+    }
+}
+
+struct ArchiveExtractionRelay {
+    transport: ArchiveRelayTransport,
+}
+
+#[derive(Clone, Copy, Serialize)]
+#[serde(rename_all = "snake_case")]
+enum ArchiveRelayDestinationStatus {
+    Directory,
+    Extracted,
+    Skipped,
+    Ignored,
+}
+
+struct ArchiveRelayDestinationResult {
+    status: ArchiveRelayDestinationStatus,
+    target_path: String,
+    directories_created: u64,
+    extracted_bytes: u64,
+    replaced: bool,
+    renamed: bool,
+}
+
+impl ArchiveRelayDestinationResult {
+    fn directory(target_path: String, renamed: bool, directories_created: u64) -> Self {
+        Self {
+            status: ArchiveRelayDestinationStatus::Directory,
+            target_path,
+            directories_created,
+            extracted_bytes: 0,
+            replaced: false,
+            renamed,
+        }
+    }
+
+    fn extracted(target_path: String, renamed: bool, directories_created: u64, extracted_bytes: u64, replaced: bool) -> Self {
+        Self {
+            status: ArchiveRelayDestinationStatus::Extracted,
+            target_path,
+            directories_created,
+            extracted_bytes,
+            replaced,
+            renamed,
+        }
+    }
+
+    fn skipped(target_path: String, renamed: bool) -> Self {
+        Self {
+            status: ArchiveRelayDestinationStatus::Skipped,
+            target_path,
+            directories_created: 0,
+            extracted_bytes: 0,
+            replaced: false,
+            renamed,
+        }
+    }
+
+    fn ignored(target_path: String, renamed: bool) -> Self {
+        Self {
+            status: ArchiveRelayDestinationStatus::Ignored,
+            target_path,
+            directories_created: 0,
+            extracted_bytes: 0,
+            replaced: false,
+            renamed,
+        }
+    }
+}
+
+#[derive(Serialize)]
+struct ArchiveExtractionMemberCompletion<'a> {
+    member_path: &'a str,
+    status: ArchiveRelayDestinationStatus,
+    target_path: &'a str,
+    directories_created: u64,
+    extracted_bytes: u64,
+    replaced: bool,
+    renamed: bool,
+}
+
+#[derive(Serialize)]
+struct ArchiveExtractionCollision<'a> {
+    member_path: &'a str,
     is_directory: bool,
-    source_size: u64,
+    target_size: Option<u64>,
+    target_modified_at: Option<DateTime<Utc>>,
+}
+
+#[derive(Serialize)]
+struct ArchiveExtractionMemberError<'a> {
+    member_path: &'a str,
+    message: &'a str,
+    partial_output: bool,
+}
+
+#[derive(Serialize)]
+struct ArchiveExtractionSummary {
+    destination_root_created: bool,
+}
+
+impl ArchiveExtractionRelay {
+    fn from_transport(transport: ArchiveRelayTransport) -> Self {
+        Self { transport }
+    }
+
+    async fn begin<T: DeserializeOwned>(&self) -> Result<T, ApiError> {
+        self.transport.begin("Archive extraction start").await
+    }
+
+    async fn write_directory(&self, member_path: &str) -> Result<ArchiveRelayOperation, ApiError> {
+        let response = self
+            .transport
+            .put("member")
+            .query(&[("member_path", member_path), ("is_directory", "true")])
+            .send()
+            .await
+            .map_err(|error| ApiError::Internal(log_request_error("Archive directory relay", "PUT", self.transport.url(), &error)))?;
+        decode_archive_relay_json(response, "create directory").await
+    }
+
+    async fn write_file(&self, archive_path: &FsPath, entry: &LocalArchiveReadEntry) -> Result<ArchiveRelayOperation, ApiError> {
+        let (writer, reader) = tokio::io::duplex(ARCHIVE_COPY_BUFFER_SIZE * 2);
+        let archive_path = archive_path.to_path_buf();
+        let member_path = entry.path.clone();
+        let writer_task = tokio::task::spawn_blocking(move || -> Result<(), String> {
+            let mut output = SyncIoBridge::new(writer);
+            stream_local_archive_member(&archive_path, &member_path, &mut output).map_err(|error| error.to_string())?;
+            output.flush().map_err(|error| error.to_string())
+        });
+        let request = self.transport.put("member").query(&[("member_path", entry.path.as_str())]);
+        let request = if let Some(modified_at) = entry.modified_at {
+            request.query(&[("source_modified_at", modified_at.to_rfc3339())])
+        } else {
+            request
+        };
+        let response = request.body(reqwest::Body::wrap_stream(ReaderStream::new(reader))).send().await;
+        let writer_result = writer_task
+            .await
+            .map_err(|error| ApiError::Internal(format!("Archive member streaming task failed: {error}")))?;
+        let response =
+            response.map_err(|error| ApiError::Internal(log_request_error("Archive member relay", "PUT", self.transport.url(), &error)))?;
+        if !response.status().is_success() {
+            relay_archive_response(response, "write member").await?;
+            return Err(ApiError::Internal("Archive relay returned an unexpected success state".to_string()));
+        }
+        writer_result.map_err(|error| ApiError::Internal(format!("Archive member streaming failed: {error}")))?;
+        decode_archive_relay_json(response, "write member").await
+    }
+
+    async fn complete_source_member(
+        &self,
+        entry: &ArchiveExtractionManifestMember,
+        result: ArchiveRelayDestinationResult,
+    ) -> Result<ArchiveRelayOperation, ApiError> {
+        let payload = ArchiveExtractionMemberCompletion {
+            member_path: &entry.path,
+            status: result.status,
+            target_path: &result.target_path,
+            directories_created: result.directories_created,
+            extracted_bytes: result.extracted_bytes,
+            replaced: result.replaced,
+            renamed: result.renamed,
+        };
+        self.transport
+            .post_json("member-complete", &payload, "Archive member completion", "complete member")
+            .await
+    }
+
+    async fn pause_source_member_for_collision(
+        &self,
+        entry: &ArchiveExtractionManifestMember,
+        target_metadata: Option<std::fs::Metadata>,
+    ) -> Result<ArchiveRelayOperation, ApiError> {
+        let target_size = target_metadata
+            .as_ref()
+            .filter(|metadata| metadata.is_file())
+            .map(std::fs::Metadata::len);
+        let target_modified_at = target_metadata
+            .and_then(|metadata| metadata.modified().ok())
+            .map(DateTime::<Utc>::from);
+        let payload = ArchiveExtractionCollision {
+            member_path: &entry.path,
+            is_directory: entry.is_directory,
+            target_size,
+            target_modified_at,
+        };
+        self.transport
+            .post_json("member-collision", &payload, "Archive collision pause", "pause for collision")
+            .await
+    }
+
+    async fn pause_source_member_for_error(
+        &self,
+        member_path: &str,
+        message: String,
+        partial_output: bool,
+    ) -> Result<ArchiveRelayOperation, ApiError> {
+        let payload = ArchiveExtractionMemberError {
+            member_path,
+            message: &message,
+            partial_output,
+        };
+        self.transport
+            .post_json("member-error", &payload, "Archive member error pause", "pause for member error")
+            .await
+    }
+
+    async fn pause_source_member_with_error_result(
+        &self,
+        member_path: &str,
+        message: String,
+        partial_output: bool,
+    ) -> Result<ArchiveExtractionRelayResult, ApiError> {
+        let operation = self.pause_source_member_for_error(member_path, message, partial_output).await?;
+        Ok(ArchiveExtractionRelayResult::Paused(operation))
+    }
+
+    async fn read_source_member(&self, member_path: &str) -> Result<ReqwestResponse, String> {
+        self.transport
+            .get("member")
+            .query(&[("member_path", member_path)])
+            .send()
+            .await
+            .map_err(|error| self.source_read_error(&error))
+    }
+
+    fn source_read_error(&self, error: &reqwest::Error) -> String {
+        log_request_error("Archive member relay", "GET", self.transport.url(), error)
+    }
+
+    async fn complete_remote_destination(&self) -> Result<(), ApiError> {
+        self.transport.complete("Archive extraction completion").await
+    }
+
+    async fn complete_remote_source(&self, destination_root_created: bool) -> Result<ArchiveRelayOperation, ApiError> {
+        let payload = ArchiveExtractionSummary { destination_root_created };
+        self.transport
+            .post_json("complete", &payload, "Archive extraction completion", "complete extraction")
+            .await
+    }
+
+    async fn fail(&self) -> Result<(), ApiError> {
+        self.transport
+            .fail("Companion local archive extraction failed", "Archive extraction failure")
+            .await
+    }
+}
+
+enum ArchiveExtractionAdapterBinding {
+    LocalArchiveToRemoteDestination {
+        archive_path: PathBuf,
+        archive_entries: Vec<LocalArchiveReadEntry>,
+    },
+    RemoteSourceToLocalDestination {
+        drive_root: PathBuf,
+        destination_path: PathBuf,
+    },
+}
+
+struct ArchiveExtractionCoordinator {
+    relay: ArchiveExtractionRelay,
+    binding: ArchiveExtractionAdapterBinding,
+}
+
+impl ArchiveExtractionCoordinator {
+    async fn execute(self) -> Result<ArchiveExtractionResponse, ApiError> {
+        let Self { relay, binding } = self;
+        let result = match binding {
+            ArchiveExtractionAdapterBinding::LocalArchiveToRemoteDestination {
+                archive_path,
+                archive_entries,
+            } => extract_local_archive_to_smb_destination(&relay, archive_path, archive_entries).await,
+            ArchiveExtractionAdapterBinding::RemoteSourceToLocalDestination {
+                drive_root,
+                destination_path,
+            } => extract_smb_archive_to_local_destination(&relay, drive_root, destination_path).await,
+        };
+        if result.is_err() {
+            let _ = relay.fail().await;
+        }
+        result
+    }
 }
 
 /// `POST /api/browse/{drive}/archive/create-from-smb` — create a new local ZIP from scoped SMB sources.
@@ -1169,74 +1739,30 @@ pub async fn browse_create_archive_from_smb(
             "Archive target, server, operation, and operation token are required".to_string(),
         ));
     }
-    let operation_id =
-        uuid::Uuid::parse_str(&body.operation_id).map_err(|_| ApiError::BadRequest("Archive operation ID is invalid".to_string()))?;
-    let server_url = normalize_archive_server_url(&body.server_url)?;
-    if url::Url::parse(&server_url)
-        .map_err(|_| ApiError::BadRequest("Archive server URL is invalid".to_string()))?
-        .origin()
-        .ascii_serialization()
-        != extract_origin(&headers)?
-    {
-        return Err(ApiError::Forbidden(
-            "Archive server URL must match the paired browser origin".to_string(),
-        ));
-    }
+    let transport = archive_relay_transport(
+        &state,
+        &headers,
+        &body.server_url,
+        &body.operation_id,
+        body.operation_token,
+        ArchiveRelayBinding::SmbToLocalZipCreate,
+    )?;
     let drive_root = drives::resolve_drive_path(&drive).ok_or_else(|| ApiError::NotFound(format!("Unknown drive: {drive}")))?;
     let target_path = resolve_safe_path_for_new(&drive_root, &drive, &body.target_path)?;
     if target_path.exists() {
         return Err(ApiError::conflict_message("Archive output already exists"));
     }
-    let http_clients = state
-        .app
-        .try_state::<SambeeHttpClientStore>()
-        .map(|clients| clients.inner().clone())
-        .ok_or_else(|| ApiError::Internal("Companion backend HTTP client is unavailable".to_string()))?;
-    let client = http_clients
-        .client_for_server_no_redirects(&server_url)
-        .map_err(ApiError::Internal)?;
-    let relay_url = archive_local_creation_relay_url(&server_url, operation_id);
-    let manifest = decode_archive_relay_json(
-        client
-            .post(format!("{relay_url}/begin"))
-            .bearer_auth(&body.operation_token)
-            .send()
-            .await
-            .map_err(|error| ApiError::Internal(log_request_error("Archive creation start", "POST", &relay_url, &error)))?,
-        "start",
-    )
-    .await?;
-
-    let creation_result =
-        create_smb_archive_manifest_locally(&client, &relay_url, &body.operation_token, &drive_root, &target_path, manifest).await;
-    let result = match creation_result {
-        Ok(result) => result,
-        Err(error) => {
-            let _ = report_archive_local_creation_relay_failure(&client, &relay_url, &body.operation_token).await;
-            if target_path.exists() {
-                return Err(ApiError::internal_code(
-                    "Archive creation failed after creating incomplete output",
-                    LOCAL_ARCHIVE_CREATION_PARTIAL_CODE,
-                ));
-            }
-            return Err(error);
-        }
-    };
-
-    relay_archive_response(
-        client
-            .post(format!("{relay_url}/complete"))
-            .bearer_auth(&body.operation_token)
-            .json(&serde_json::json!({
-                "files_created": result.files_created,
-                "directories_created": result.directories_created,
-                "source_bytes": result.source_bytes,
-            }))
-            .send()
-            .await
-            .map_err(|error| ApiError::Internal(log_request_error("Archive creation completion", "POST", &relay_url, &error)))?,
-        "complete",
-    )
+    let relay = ArchiveCreationRelay::from_transport(transport);
+    let manifest = relay.begin_remote_source().await?;
+    let result = ArchiveCreationCoordinator {
+        relay,
+        binding: ArchiveCreationAdapterBinding::RemoteSourceToLocalDestination {
+            manifest,
+            drive_root,
+            target_path,
+        },
+    }
+    .execute()
     .await?;
 
     Ok(Json(result))
@@ -1259,19 +1785,14 @@ pub async fn browse_create_archive_to_smb(
             "Archive sources, target, server, operation, and operation token are required".to_string(),
         ));
     }
-    let operation_id =
-        uuid::Uuid::parse_str(&body.operation_id).map_err(|_| ApiError::BadRequest("Archive operation ID is invalid".to_string()))?;
-    let server_url = normalize_archive_server_url(&body.server_url)?;
-    if url::Url::parse(&server_url)
-        .map_err(|_| ApiError::BadRequest("Archive server URL is invalid".to_string()))?
-        .origin()
-        .ascii_serialization()
-        != extract_origin(&headers)?
-    {
-        return Err(ApiError::Forbidden(
-            "Archive server URL must match the paired browser origin".to_string(),
-        ));
-    }
+    let transport = archive_relay_transport(
+        &state,
+        &headers,
+        &body.server_url,
+        &body.operation_id,
+        body.operation_token,
+        ArchiveRelayBinding::LocalToSmbZipCreate,
+    )?;
     let drive_root = drives::resolve_drive_path(&drive).ok_or_else(|| ApiError::NotFound(format!("Unknown drive: {drive}")))?;
     let sources = body
         .source_paths
@@ -1282,100 +1803,67 @@ pub async fn browse_create_archive_to_smb(
         .await
         .map_err(|error| ApiError::Internal(format!("Local archive validation task failed: {error}")))?
         .map_err(map_local_archive_error)?;
-    let http_clients = state
-        .app
-        .try_state::<SambeeHttpClientStore>()
-        .map(|clients| clients.inner().clone())
-        .ok_or_else(|| ApiError::Internal("Companion backend HTTP client is unavailable".to_string()))?;
-    let client = http_clients
-        .client_for_server_no_redirects(&server_url)
-        .map_err(ApiError::Internal)?;
-    let relay_url = archive_smb_creation_relay_url(&server_url, operation_id);
-    let (writer, reader) = tokio::io::duplex(ARCHIVE_COPY_BUFFER_SIZE * 2);
-    let writer_task = tokio::task::spawn_blocking(move || -> Result<ArchiveCreationResponse, LocalArchiveError> {
-        let mut output = SyncIoBridge::new(writer);
-        let result = write_local_archive_stream(&mut output, &entries, || false)?;
-        output.flush()?;
-        Ok(ArchiveCreationResponse {
-            files_created: result.files_created,
-            directories_created: result.directories_created,
-            source_bytes: result.source_bytes,
-        })
-    });
-    let response = client
-        .put(format!("{relay_url}/stream"))
-        .bearer_auth(&body.operation_token)
-        .body(reqwest::Body::wrap_stream(ReaderStream::new(reader)))
-        .send()
-        .await;
-    let writer_result = match writer_task.await {
-        Ok(result) => result,
-        Err(error) => {
-            let _ = report_archive_smb_creation_relay_failure(&client, &relay_url, &body.operation_token).await;
-            return Err(ApiError::Internal(format!("Local archive streaming task failed: {error}")));
-        }
-    };
-    let response = match response {
-        Ok(response) => response,
-        Err(error) => {
-            let _ = report_archive_smb_creation_relay_failure(&client, &relay_url, &body.operation_token).await;
-            return Err(ApiError::Internal(log_request_error(
-                "Archive creation relay",
-                "PUT",
-                &relay_url,
-                &error,
-            )));
-        }
-    };
-    if !response.status().is_success() {
-        let _ = report_archive_smb_creation_relay_failure(&client, &relay_url, &body.operation_token).await;
-        return relay_archive_response(response, "write archive")
-            .await
-            .and(Err(ApiError::Internal("Archive creation relay failed".to_string())));
+    let relay = ArchiveCreationRelay::from_transport(transport);
+    let result = ArchiveCreationCoordinator {
+        relay,
+        binding: ArchiveCreationAdapterBinding::LocalSourceToRemoteDestination { entries },
     }
-    let result = match writer_result {
-        Ok(result) => result,
-        Err(error) => {
-            let _ = report_archive_smb_creation_relay_failure(&client, &relay_url, &body.operation_token).await;
-            return Err(map_local_archive_error(error));
-        }
-    };
-    relay_archive_response(response, "write archive").await?;
-    relay_archive_response(
-        client
-            .post(format!("{relay_url}/complete"))
-            .bearer_auth(&body.operation_token)
-            .json(&serde_json::json!({
-                "files_created": result.files_created,
-                "directories_created": result.directories_created,
-                "source_bytes": result.source_bytes,
-            }))
-            .send()
-            .await
-            .map_err(|error| ApiError::Internal(log_request_error("Archive creation completion", "POST", &relay_url, &error)))?,
-        "complete",
-    )
+    .execute()
     .await?;
     Ok(Json(result))
 }
 
+async fn create_local_archive_for_smb_destination(
+    relay: &ArchiveCreationRelay,
+    entries: Vec<LocalArchiveEntry>,
+) -> Result<ArchiveCreationResponse, ApiError> {
+    let mut manifest_entries = Vec::with_capacity(entries.len());
+    for entry in &entries {
+        let source_size = if entry.is_directory {
+            0
+        } else {
+            tokio::fs::metadata(&entry.source_path)
+                .await
+                .map_err(|error| map_io_error(error, &entry.source_path))?
+                .len()
+        };
+        manifest_entries.push(ArchiveCreationManifestMember {
+            archive_path: entry.archive_path.trim_end_matches('/').to_string(),
+            is_directory: entry.is_directory,
+            source_size,
+        });
+    }
+    let manifest = ArchiveCreationManifest::from_entries(manifest_entries).map_err(map_local_archive_error)?;
+    let mut creation_state = ArchiveCreationManifestState::new(manifest.clone());
+    relay.begin_local_source(&manifest).await?;
+
+    for (entry, manifest_entry) in entries.into_iter().zip(&manifest.entries) {
+        let archive_path = manifest_entry.archive_path.clone();
+        let source = if entry.is_directory {
+            reqwest::Body::default()
+        } else {
+            let source_file = File::open(&entry.source_path)
+                .await
+                .map_err(|error| map_io_error(error, &entry.source_path))?;
+            reqwest::Body::wrap_stream(ReaderStream::new(source_file))
+        };
+        let response = relay.stream_source_member(&archive_path, source).await?;
+        relay_archive_response(response, "write archive member").await?;
+        creation_state.record_expected(&archive_path).map_err(map_local_archive_error)?;
+    }
+    creation_state
+        .terminal_summary()
+        .map(archive_creation_response)
+        .map_err(map_local_archive_error)
+}
+
 async fn create_smb_archive_manifest_locally(
-    client: &Client,
-    relay_url: &str,
-    operation_token: &str,
+    relay: &ArchiveCreationRelay,
     drive_root: &FsPath,
     target_path: &FsPath,
-    manifest: ArchiveCreationRelayManifest,
+    manifest: ArchiveCreationManifest,
 ) -> Result<ArchiveCreationResponse, ApiError> {
-    if manifest.entries.is_empty() {
-        return Err(ApiError::BadRequest("Archive creation manifest is empty".to_string()));
-    }
-    let manifest_paths = manifest
-        .entries
-        .iter()
-        .map(|entry| (entry.archive_path.as_str(), entry.is_directory))
-        .collect::<Vec<_>>();
-    validate_local_archive_creation_manifest(&manifest_paths).map_err(map_local_archive_error)?;
+    let mut creation_state = ArchiveCreationManifestState::new(manifest.clone());
     let root_drive = drive_root.to_path_buf();
     let target = target_path.to_path_buf();
     let mut writer = tokio::task::spawn_blocking(move || create_local_archive_relay_writer(&root_drive, &target))
@@ -1386,10 +1874,13 @@ async fn create_smb_archive_manifest_locally(
     for entry in manifest.entries {
         if entry.is_directory {
             let archive_path = entry.archive_path;
+            let report_path = archive_path.clone();
             writer = tokio::task::spawn_blocking(move || writer.add_directory(&archive_path))
                 .await
                 .map_err(|error| ApiError::Internal(format!("Local archive directory task failed: {error}")))?
                 .map_err(map_local_archive_error)?;
+            relay.complete_source_member(&report_path, "directory", 0).await?;
+            creation_state.record_expected(&report_path).map_err(map_local_archive_error)?;
             continue;
         }
 
@@ -1397,13 +1888,7 @@ async fn create_smb_archive_manifest_locally(
         let member_path = archive_path.clone();
         let (sender, receiver) = tokio::sync::mpsc::channel(2);
         let write_task = tokio::task::spawn_blocking(move || writer.write_file(&archive_path, entry.source_size, receiver));
-        let mut response = client
-            .get(format!("{relay_url}/member"))
-            .bearer_auth(operation_token)
-            .query(&[("archive_path", member_path.as_str())])
-            .send()
-            .await
-            .map_err(|error| ApiError::Internal(log_request_error("Archive member relay", "GET", relay_url, &error)))?;
+        let mut response = relay.read_source_member(&member_path).await?;
         if !response.status().is_success() {
             let _ = sender.send(LocalArchiveRelayChunk::Failed).await;
             let _ = write_task.await;
@@ -1427,7 +1912,7 @@ async fn create_smb_archive_manifest_locally(
                     return Err(ApiError::Internal(log_request_error(
                         "Archive member relay",
                         "GET",
-                        relay_url,
+                        relay.transport.url(),
                         &error,
                     )));
                 }
@@ -1442,40 +1927,115 @@ async fn create_smb_archive_manifest_locally(
             .await
             .map_err(|error| ApiError::Internal(format!("Local archive member task failed: {error}")))?
             .map_err(map_local_archive_error)?;
+        relay.complete_source_member(&member_path, "created", entry.source_size).await?;
+        creation_state.record_expected(&member_path).map_err(map_local_archive_error)?;
     }
 
-    let result = tokio::task::spawn_blocking(move || writer.finish())
+    tokio::task::spawn_blocking(move || writer.finish())
         .await
         .map_err(|error| ApiError::Internal(format!("Local archive finalization task failed: {error}")))?
         .map_err(map_local_archive_error)?;
-    Ok(ArchiveCreationResponse {
-        files_created: result.files_created,
-        directories_created: result.directories_created,
-        source_bytes: result.source_bytes,
-    })
+    creation_state
+        .terminal_summary()
+        .map(archive_creation_response)
+        .map_err(map_local_archive_error)
 }
 
-/// `POST /api/browse/{drive}/archive/extract` — extract a ZIP into a new local directory.
-pub async fn browse_extract_archive(
+/// `POST /api/browse/{drive}/archive/executions` — start a cancellable local archive execution.
+pub async fn browse_start_archive_execution(
+    State(state): State<Arc<AppState>>,
     Path(drive): Path<String>,
-    Json(body): Json<ArchiveExtractRequest>,
-) -> Result<Json<ArchiveExtractionResponse>, ApiError> {
-    if body.archive_path.trim().is_empty() || body.destination_path.trim().is_empty() {
-        return Err(ApiError::BadRequest("Archive and destination paths are required".to_string()));
-    }
-    let base_path = drives::resolve_drive_path(&drive).ok_or_else(|| ApiError::NotFound(format!("Unknown drive: {drive}")))?;
-    let archive_path = resolve_safe_path(&base_path, &drive, &body.archive_path)?;
-    let destination_path = resolve_safe_path_for_new(&base_path, &drive, &body.destination_path)?;
-    let result = tokio::task::spawn_blocking(move || extract_local_archive_to_new_directory(&base_path, &archive_path, &destination_path))
-        .await
-        .map_err(|error| ApiError::Internal(format!("Local archive extraction task failed: {error}")))?
-        .map_err(map_local_archive_error)?;
-    Ok(Json(ArchiveExtractionResponse {
-        files_extracted: result.files_extracted,
-        directories_created: result.directories_created,
-        extracted_bytes: result.extracted_bytes,
-        files_skipped: result.files_skipped,
-    }))
+    headers: HeaderMap,
+    Json(body): Json<ArchiveExecutionStartRequest>,
+) -> Result<Json<ArchiveExecutionResponse>, ApiError> {
+    let owner_origin = extract_origin(&headers)?;
+    let execution = match body {
+        ArchiveExecutionStartRequest::Create { source_paths, target_path } => {
+            let body = ArchiveCreateRequest { source_paths, target_path };
+            let (base_path, source_paths, target_path) = resolve_local_archive_creation_request(&drive, &body)?;
+            state
+                .archive_sessions
+                .create_creation(drive.clone(), owner_origin.clone(), base_path, source_paths, target_path)
+                .await
+        }
+        ArchiveExecutionStartRequest::Extract {
+            archive_path,
+            destination_path,
+        } => {
+            let body = ArchiveExtractRequest {
+                archive_path,
+                destination_path,
+            };
+            let (base_path, archive_path, destination_path) = resolve_local_archive_extraction_request(&drive, &body)?;
+            state
+                .archive_sessions
+                .create_extraction(drive.clone(), owner_origin.clone(), base_path, archive_path, destination_path)
+                .await
+        }
+    };
+    state.archive_sessions.clone().start(&execution.execution_id).await?;
+    let execution = state.archive_sessions.get(&drive, &owner_origin, &execution.execution_id).await?;
+    Ok(Json(archive_execution_response(execution)))
+}
+
+/// `GET /api/browse/{drive}/archive/executions/{execution_id}` — retrieve lifecycle state.
+pub async fn browse_get_archive_execution(
+    State(state): State<Arc<AppState>>,
+    Path((drive, execution_id)): Path<(String, String)>,
+    headers: HeaderMap,
+) -> Result<Json<ArchiveExecutionResponse>, ApiError> {
+    let execution = state
+        .archive_sessions
+        .get(&drive, &extract_origin(&headers)?, &execution_id)
+        .await?;
+    Ok(Json(archive_execution_response(execution)))
+}
+
+/// `POST /api/browse/{drive}/archive/executions/{execution_id}/cancellation` — request cancellation at the next member boundary.
+pub async fn browse_cancel_archive_execution(
+    State(state): State<Arc<AppState>>,
+    Path((drive, execution_id)): Path<(String, String)>,
+    headers: HeaderMap,
+    Json(body): Json<ArchiveExecutionCancellationRequest>,
+) -> Result<Json<ArchiveExecutionResponse>, ApiError> {
+    let execution = state
+        .archive_sessions
+        .cancel(&drive, &extract_origin(&headers)?, &execution_id, body.expected_revision)
+        .await?;
+    Ok(Json(archive_execution_response(execution)))
+}
+
+/// `POST /api/browse/{drive}/archive/executions/{execution_id}/decision` — apply a paused local extraction decision.
+pub async fn browse_decide_archive_execution(
+    State(state): State<Arc<AppState>>,
+    Path((drive, execution_id)): Path<(String, String)>,
+    headers: HeaderMap,
+    Json(body): Json<ArchiveExecutionDecisionRequest>,
+) -> Result<Json<ArchiveExecutionResponse>, ApiError> {
+    let action = match body.action {
+        ArchiveExecutionDecisionAction::Skip => super::archive_sessions::ArchiveSessionDecisionAction::Skip,
+        ArchiveExecutionDecisionAction::SkipAll => super::archive_sessions::ArchiveSessionDecisionAction::SkipAll,
+        ArchiveExecutionDecisionAction::Replace => super::archive_sessions::ArchiveSessionDecisionAction::Replace,
+        ArchiveExecutionDecisionAction::ReplaceAll => super::archive_sessions::ArchiveSessionDecisionAction::ReplaceAll,
+        ArchiveExecutionDecisionAction::ReplaceOlder => super::archive_sessions::ArchiveSessionDecisionAction::ReplaceOlder,
+        ArchiveExecutionDecisionAction::Rename => super::archive_sessions::ArchiveSessionDecisionAction::Rename,
+        ArchiveExecutionDecisionAction::Retry => super::archive_sessions::ArchiveSessionDecisionAction::Retry,
+        ArchiveExecutionDecisionAction::Ignore => super::archive_sessions::ArchiveSessionDecisionAction::Ignore,
+    };
+    let execution = state
+        .archive_sessions
+        .clone()
+        .decide(
+            &drive,
+            &extract_origin(&headers)?,
+            &execution_id,
+            body.expected_revision,
+            body.member_path,
+            action,
+            body.target_path,
+        )
+        .await?;
+    Ok(Json(archive_execution_response(execution)))
 }
 
 /// `POST /api/browse/{drive}/archive/extract-to-smb` — relay a local ZIP into one scoped SMB extraction operation.
@@ -1494,19 +2054,14 @@ pub async fn browse_extract_archive_to_smb(
             "Archive, server, operation, and operation token are required".to_string(),
         ));
     }
-    let operation_id =
-        uuid::Uuid::parse_str(&body.operation_id).map_err(|_| ApiError::BadRequest("Archive operation ID is invalid".to_string()))?;
-    let server_url = normalize_archive_server_url(&body.server_url)?;
-    if url::Url::parse(&server_url)
-        .map_err(|_| ApiError::BadRequest("Archive server URL is invalid".to_string()))?
-        .origin()
-        .ascii_serialization()
-        != extract_origin(&headers)?
-    {
-        return Err(ApiError::Forbidden(
-            "Archive server URL must match the paired browser origin".to_string(),
-        ));
-    }
+    let transport = archive_relay_transport(
+        &state,
+        &headers,
+        &body.server_url,
+        &body.operation_id,
+        body.operation_token,
+        ArchiveRelayBinding::LocalZipToSmbExtract,
+    )?;
     let base_path = drives::resolve_drive_path(&drive).ok_or_else(|| ApiError::NotFound(format!("Unknown drive: {drive}")))?;
     let archive_path = resolve_safe_path(&base_path, &drive, &body.archive_path)?;
     let archive_entries = tokio::task::spawn_blocking({
@@ -1517,73 +2072,114 @@ pub async fn browse_extract_archive_to_smb(
     .map_err(|error| ApiError::Internal(format!("Local archive validation task failed: {error}")))?
     .map_err(map_local_archive_error)?;
 
-    let http_clients = state
-        .app
-        .try_state::<SambeeHttpClientStore>()
-        .map(|clients| clients.inner().clone())
-        .ok_or_else(|| ApiError::Internal("Companion backend HTTP client is unavailable".to_string()))?;
-    let client = http_clients
-        .client_for_server_no_redirects(&server_url)
-        .map_err(ApiError::Internal)?;
-    let relay_url = archive_relay_url(&server_url, operation_id);
-
-    relay_archive_response(
-        client
-            .post(format!("{relay_url}/begin"))
-            .bearer_auth(&body.operation_token)
-            .send()
-            .await
-            .map_err(|error| ApiError::Internal(log_request_error("Archive extraction start", "POST", &relay_url, &error)))?,
-        "start",
-    )
+    let relay = ArchiveExtractionRelay::from_transport(transport);
+    let result = ArchiveExtractionCoordinator {
+        relay,
+        binding: ArchiveExtractionAdapterBinding::LocalArchiveToRemoteDestination {
+            archive_path,
+            archive_entries,
+        },
+    }
+    .execute()
     .await?;
+    Ok(Json(result))
+}
 
-    let mut files_extracted = 0_u64;
-    let mut directories_created = 1_u64;
-    let mut extracted_bytes = 0_u64;
+async fn extract_local_archive_to_smb_destination(
+    relay: &ArchiveExtractionRelay,
+    archive_path: PathBuf,
+    archive_entries: Vec<LocalArchiveReadEntry>,
+) -> Result<ArchiveExtractionResponse, ApiError> {
+    let begin: ArchiveRelayOperation = relay.begin().await?;
+    let mut checkpoint = archive_relay_extraction_state(&begin)?;
+    let completed_members = checkpoint.completed_members().map_err(map_local_archive_error)?;
     for entry in archive_entries {
-        if entry.is_directory {
-            relay_archive_directory(&client, &relay_url, &body.operation_token, &entry.path).await?;
-            directories_created += 1;
+        if completed_members.contains(&entry.path) {
             continue;
         }
-        relay_archive_file(&client, &relay_url, &body.operation_token, &archive_path, &entry).await?;
-        files_extracted += 1;
-        extracted_bytes += entry.uncompressed_size;
+        let member_result = if entry.is_directory {
+            relay.write_directory(&entry.path).await?
+        } else {
+            relay.write_file(&archive_path, &entry).await?
+        };
+        checkpoint = match archive_extraction_member_step(member_result)? {
+            ArchiveExtractionRelayMemberStep::Continue(checkpoint) => checkpoint,
+            ArchiveExtractionRelayMemberStep::Paused(operation) => return archive_extraction_response_from_operation(operation),
+        };
     }
 
-    relay_archive_response(
-        client
-            .post(format!("{relay_url}/complete"))
-            .bearer_auth(&body.operation_token)
-            .send()
-            .await
-            .map_err(|error| ApiError::Internal(log_request_error("Archive extraction completion", "POST", &relay_url, &error)))?,
-        "complete",
-    )
-    .await?;
-
-    Ok(Json(ArchiveExtractionResponse {
-        files_extracted,
-        directories_created,
-        extracted_bytes,
-        files_skipped: 0,
-    }))
+    relay.complete_remote_destination().await?;
+    Ok(archive_extraction_response_from_checkpoint(&checkpoint))
 }
 
 #[derive(Debug, Deserialize)]
 struct ArchiveRelayManifest {
-    entries: Vec<ArchiveRelayManifestEntry>,
+    operation: ArchiveRelayOperation,
+    #[serde(flatten)]
+    manifest: ArchiveExtractionManifest,
 }
 
 #[derive(Debug, Deserialize)]
-struct ArchiveRelayManifestEntry {
-    path: String,
-    is_directory: bool,
-    uncompressed_size: u64,
+struct ArchiveRelayOperation {
+    phase: String,
+    destination_path: String,
+    checkpoint_json: String,
+    pending_decision_json: Option<String>,
 }
 
-/// `POST /api/browse/{drive}/archive/extract-from-smb` — write scoped SMB ZIP members to a new local directory.
+enum ArchiveExtractionRelayResult {
+    Completed { destination_root_created: bool },
+    Paused(ArchiveRelayOperation),
+}
+
+enum ArchiveExtractionRelayMemberStep {
+    Continue(ArchiveExtractionRelayState),
+    Paused(ArchiveRelayOperation),
+}
+
+#[cfg(test)]
+fn relay_completed_members(operation: &ArchiveRelayOperation) -> Result<HashSet<String>, ApiError> {
+    archive_relay_extraction_state(operation)?
+        .completed_members()
+        .map_err(map_local_archive_error)
+}
+
+fn archive_relay_extraction_state(operation: &ArchiveRelayOperation) -> Result<ArchiveExtractionRelayState, ApiError> {
+    ArchiveExtractionRelayState::from_checkpoint_json(&operation.checkpoint_json).map_err(map_local_archive_error)
+}
+
+fn archive_extraction_member_step(operation: ArchiveRelayOperation) -> Result<ArchiveExtractionRelayMemberStep, ApiError> {
+    if operation.phase != "streaming" {
+        return Ok(ArchiveExtractionRelayMemberStep::Paused(operation));
+    }
+    let checkpoint = archive_relay_extraction_state(&operation)?;
+    Ok(ArchiveExtractionRelayMemberStep::Continue(checkpoint))
+}
+
+fn archive_extraction_response_from_checkpoint(checkpoint: &ArchiveExtractionRelayState) -> ArchiveExtractionResponse {
+    let progress = checkpoint.progress();
+    ArchiveExtractionResponse {
+        files_extracted: progress.files_extracted,
+        directories_created: progress.directories_created,
+        extracted_bytes: progress.extracted_bytes,
+        files_skipped: progress.files_skipped,
+        phase: None,
+        checkpoint_json: None,
+        pending_decision_json: None,
+    }
+}
+
+fn archive_extraction_response_from_operation(operation: ArchiveRelayOperation) -> Result<ArchiveExtractionResponse, ApiError> {
+    let checkpoint = archive_relay_extraction_state(&operation)?;
+    Ok(ArchiveExtractionResponse {
+        phase: Some(operation.phase),
+        checkpoint_json: Some(operation.checkpoint_json),
+        pending_decision_json: operation.pending_decision_json,
+        ..archive_extraction_response_from_checkpoint(&checkpoint)
+    })
+}
+
+/// `POST /api/browse/{drive}/archive/extract-from-smb` — write scoped SMB ZIP members to a local directory.
 pub async fn browse_extract_archive_from_smb(
     State(state): State<Arc<AppState>>,
     Path(drive): Path<String>,
@@ -1599,50 +2195,41 @@ pub async fn browse_extract_archive_from_smb(
             "Destination, server, operation, and operation token are required".to_string(),
         ));
     }
-    let operation_id =
-        uuid::Uuid::parse_str(&body.operation_id).map_err(|_| ApiError::BadRequest("Archive operation ID is invalid".to_string()))?;
-    let server_url = normalize_archive_server_url(&body.server_url)?;
-    if url::Url::parse(&server_url)
-        .map_err(|_| ApiError::BadRequest("Archive server URL is invalid".to_string()))?
-        .origin()
-        .ascii_serialization()
-        != extract_origin(&headers)?
-    {
-        return Err(ApiError::Forbidden(
-            "Archive server URL must match the paired browser origin".to_string(),
-        ));
-    }
+    let transport = archive_relay_transport(
+        &state,
+        &headers,
+        &body.server_url,
+        &body.operation_id,
+        body.operation_token,
+        ArchiveRelayBinding::SmbZipToLocalExtract,
+    )?;
     let drive_root = drives::resolve_drive_path(&drive).ok_or_else(|| ApiError::NotFound(format!("Unknown drive: {drive}")))?;
     let destination_path = resolve_safe_path_for_new(&drive_root, &drive, &body.destination_path)?;
-    if destination_path.exists() {
-        return Err(ApiError::conflict_message("Archive output already exists"));
+    let relay = ArchiveExtractionRelay::from_transport(transport);
+    let result = ArchiveExtractionCoordinator {
+        relay,
+        binding: ArchiveExtractionAdapterBinding::RemoteSourceToLocalDestination {
+            drive_root,
+            destination_path,
+        },
     }
-    let http_clients = state
-        .app
-        .try_state::<SambeeHttpClientStore>()
-        .map(|clients| clients.inner().clone())
-        .ok_or_else(|| ApiError::Internal("Companion backend HTTP client is unavailable".to_string()))?;
-    let client = http_clients
-        .client_for_server_no_redirects(&server_url)
-        .map_err(ApiError::Internal)?;
-    let relay_url = archive_local_relay_url(&server_url, operation_id);
-    let manifest = decode_archive_relay_json(
-        client
-            .post(format!("{relay_url}/begin"))
-            .bearer_auth(&body.operation_token)
-            .send()
-            .await
-            .map_err(|error| ApiError::Internal(log_request_error("Archive extraction start", "POST", &relay_url, &error)))?,
-        "start",
-    )
+    .execute()
     .await?;
+    Ok(Json(result))
+}
 
-    let extraction_result =
-        extract_smb_archive_manifest_to_local(&client, &relay_url, &body.operation_token, &drive_root, &destination_path, manifest).await;
-    let (files_extracted, directories_created, extracted_bytes) = match extraction_result {
-        Ok(result) => result,
+async fn extract_smb_archive_to_local_destination(
+    relay: &ArchiveExtractionRelay,
+    drive_root: PathBuf,
+    destination_path: PathBuf,
+) -> Result<ArchiveExtractionResponse, ApiError> {
+    let mut manifest: ArchiveRelayManifest = relay.begin().await?;
+    manifest.manifest = ArchiveExtractionManifest::from_entries(manifest.manifest.entries).map_err(map_local_archive_error)?;
+    let extraction_result = extract_smb_archive_manifest_to_local(relay, &drive_root, &destination_path, manifest).await;
+    let destination_root_created = match extraction_result {
+        Ok(ArchiveExtractionRelayResult::Completed { destination_root_created }) => destination_root_created,
+        Ok(ArchiveExtractionRelayResult::Paused(operation)) => return archive_extraction_response_from_operation(operation),
         Err(error) => {
-            let _ = report_archive_local_relay_failure(&client, &relay_url, &body.operation_token).await;
             if destination_path.exists() {
                 return Err(ApiError::internal_code(
                     "Archive extraction failed after creating incomplete output",
@@ -1653,59 +2240,132 @@ pub async fn browse_extract_archive_from_smb(
         }
     };
 
-    relay_archive_response(
-        client
-            .post(format!("{relay_url}/complete"))
-            .bearer_auth(&body.operation_token)
-            .json(&serde_json::json!({
-                "files_extracted": files_extracted,
-                "directories_created": directories_created,
-                "extracted_bytes": extracted_bytes,
-            }))
-            .send()
-            .await
-            .map_err(|error| ApiError::Internal(log_request_error("Archive extraction completion", "POST", &relay_url, &error)))?,
-        "complete",
-    )
-    .await?;
-
-    Ok(Json(ArchiveExtractionResponse {
-        files_extracted,
-        directories_created,
-        extracted_bytes,
-        files_skipped: 0,
-    }))
+    let completed_operation = relay.complete_remote_source(destination_root_created).await?;
+    archive_extraction_response_from_operation(completed_operation)
 }
 
 async fn extract_smb_archive_manifest_to_local(
-    client: &Client,
-    relay_url: &str,
-    operation_token: &str,
+    relay: &ArchiveExtractionRelay,
     drive_root: &FsPath,
     destination_path: &FsPath,
     manifest: ArchiveRelayManifest,
-) -> Result<(u64, u64, u64), ApiError> {
+) -> Result<ArchiveExtractionRelayResult, ApiError> {
+    let operation = manifest.operation;
+    let mut checkpoint = archive_relay_extraction_state(&operation)?;
+    let completed_members = checkpoint.completed_members().map_err(map_local_archive_error)?;
     let root = destination_path.to_path_buf();
     let root_drive = drive_root.to_path_buf();
-    tokio::task::spawn_blocking(move || create_local_extraction_root(&root_drive, &root))
+    let root_created = tokio::task::spawn_blocking(move || create_local_extraction_root(&root_drive, &root))
         .await
         .map_err(|error| ApiError::Internal(format!("Local archive root task failed: {error}")))?
         .map_err(map_local_archive_error)?;
 
-    let mut files_extracted = 0_u64;
-    let mut directories_created = 1_u64;
-    let mut extracted_bytes = 0_u64;
-    for entry in manifest.entries {
+    for entry in manifest.manifest.entries {
         validate_local_extraction_member_path(&entry.path, entry.is_directory).map_err(map_local_archive_error)?;
-        let target_path = destination_path.join(&entry.path);
+        if completed_members.contains(&entry.path) {
+            continue;
+        }
+        let target_member_path = checkpoint.target_member_path(&entry.path);
+        validate_local_extraction_member_path(target_member_path, entry.is_directory).map_err(map_local_archive_error)?;
+        let target_path = destination_path.join(target_member_path);
+        let reported_target_path = format!("{}/{}", operation.destination_path.trim_end_matches('/'), target_member_path);
+        let renamed = target_member_path != &entry.path;
+        let retrying_partial_member = checkpoint.is_retrying(&entry.path);
+        if checkpoint.is_ignored(&entry.path) {
+            let member_result = relay
+                .complete_source_member(&entry, ArchiveRelayDestinationResult::ignored(reported_target_path, renamed))
+                .await?;
+            checkpoint = match archive_extraction_member_step(member_result)? {
+                ArchiveExtractionRelayMemberStep::Continue(checkpoint) => checkpoint,
+                ArchiveExtractionRelayMemberStep::Paused(operation) => return Ok(ArchiveExtractionRelayResult::Paused(operation)),
+            };
+            continue;
+        }
+        let target_metadata = match std::fs::symlink_metadata(&target_path) {
+            Ok(metadata) => Some(metadata),
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => None,
+            Err(error) => {
+                return relay
+                    .pause_source_member_with_error_result(&entry.path, error.to_string(), false)
+                    .await
+            }
+        };
         if entry.is_directory {
+            if let Some(metadata) = target_metadata {
+                if !metadata.is_dir() {
+                    let operation = relay.pause_source_member_for_collision(&entry, Some(metadata)).await?;
+                    return Ok(ArchiveExtractionRelayResult::Paused(operation));
+                }
+                let member_result = relay
+                    .complete_source_member(&entry, ArchiveRelayDestinationResult::directory(reported_target_path, renamed, 0))
+                    .await?;
+                checkpoint = match archive_extraction_member_step(member_result)? {
+                    ArchiveExtractionRelayMemberStep::Continue(checkpoint) => checkpoint,
+                    ArchiveExtractionRelayMemberStep::Paused(operation) => return Ok(ArchiveExtractionRelayResult::Paused(operation)),
+                };
+                continue;
+            }
             let root = destination_path.to_path_buf();
             let drive_root = drive_root.to_path_buf();
-            directories_created += tokio::task::spawn_blocking(move || ensure_local_extraction_directory(&drive_root, &root, &target_path))
-                .await
-                .map_err(|error| ApiError::Internal(format!("Local archive directory task failed: {error}")))?
-                .map_err(map_local_archive_error)?;
+            let directories_created =
+                match tokio::task::spawn_blocking(move || ensure_local_extraction_directory(&drive_root, &root, &target_path))
+                    .await
+                    .map_err(|error| ApiError::Internal(format!("Local archive directory task failed: {error}")))?
+                {
+                    Ok(created) => created,
+                    Err(error) => {
+                        return relay
+                            .pause_source_member_with_error_result(&entry.path, error.to_string(), false)
+                            .await
+                    }
+                };
+            let member_result = relay
+                .complete_source_member(
+                    &entry,
+                    ArchiveRelayDestinationResult::directory(reported_target_path, renamed, directories_created),
+                )
+                .await?;
+            checkpoint = match archive_extraction_member_step(member_result)? {
+                ArchiveExtractionRelayMemberStep::Continue(checkpoint) => checkpoint,
+                ArchiveExtractionRelayMemberStep::Paused(operation) => return Ok(ArchiveExtractionRelayResult::Paused(operation)),
+            };
             continue;
+        }
+        if let Some(metadata) = target_metadata {
+            if retrying_partial_member && metadata.is_file() {
+                // The backend recorded this member as partial before authorizing Retry.
+            } else {
+                let action = checkpoint.collision_action(&entry.path);
+                let skip = matches!(action, Some("skip") | Some("skip_all"))
+                    || (action == Some("replace_older")
+                        && !entry.modified_at.is_some_and(|source| {
+                            metadata
+                                .modified()
+                                .ok()
+                                .map(DateTime::<Utc>::from)
+                                .is_some_and(|target| source > target)
+                        }));
+                if skip {
+                    let member_result = relay
+                        .complete_source_member(&entry, ArchiveRelayDestinationResult::skipped(reported_target_path, renamed))
+                        .await?;
+                    checkpoint = match archive_extraction_member_step(member_result)? {
+                        ArchiveExtractionRelayMemberStep::Continue(checkpoint) => checkpoint,
+                        ArchiveExtractionRelayMemberStep::Paused(operation) => return Ok(ArchiveExtractionRelayResult::Paused(operation)),
+                    };
+                    continue;
+                }
+                if matches!(action, Some("replace") | Some("replace_all") | Some("replace_older")) && metadata.is_file() {
+                    if let Err(error) = std::fs::remove_file(&target_path) {
+                        return relay
+                            .pause_source_member_with_error_result(&entry.path, error.to_string(), false)
+                            .await;
+                    }
+                } else {
+                    let operation = relay.pause_source_member_for_collision(&entry, Some(metadata)).await?;
+                    return Ok(ArchiveExtractionRelayResult::Paused(operation));
+                }
+            }
         }
         let parent = target_path
             .parent()
@@ -1713,61 +2373,92 @@ async fn extract_smb_archive_manifest_to_local(
             .to_path_buf();
         let root = destination_path.to_path_buf();
         let parent_drive_root = drive_root.to_path_buf();
-        directories_created += tokio::task::spawn_blocking(move || ensure_local_extraction_directory(&parent_drive_root, &root, &parent))
-            .await
-            .map_err(|error| ApiError::Internal(format!("Local archive directory task failed: {error}")))?
-            .map_err(map_local_archive_error)?;
-        let output_drive_root = drive_root.to_path_buf();
-        let output = tokio::task::spawn_blocking(move || open_local_extraction_file(&output_drive_root, &target_path))
-            .await
-            .map_err(|error| ApiError::Internal(format!("Local archive file task failed: {error}")))?
-            .map_err(map_local_archive_error)?;
-        let mut output = File::from_std(output);
-        let mut response = client
-            .get(format!("{relay_url}/member"))
-            .bearer_auth(operation_token)
-            .query(&[("member_path", entry.path.as_str())])
-            .send()
-            .await
-            .map_err(|error| ApiError::Internal(log_request_error("Archive member relay", "GET", relay_url, &error)))?;
-        if !response.status().is_success() {
-            return relay_archive_response(response, "read member")
+        let directories_created =
+            tokio::task::spawn_blocking(move || ensure_local_extraction_directory(&parent_drive_root, &root, &parent))
                 .await
-                .and(Err(ApiError::Internal("Archive member read failed".to_string())));
+                .map_err(|error| ApiError::Internal(format!("Local archive directory task failed: {error}")))?
+                .map_err(map_local_archive_error)?;
+        let output_drive_root = drive_root.to_path_buf();
+        let output = match tokio::task::spawn_blocking(move || {
+            if retrying_partial_member {
+                reopen_partial_local_extraction_file(&output_drive_root, &target_path)
+            } else {
+                open_local_extraction_file(&output_drive_root, &target_path)
+            }
+        })
+        .await
+        .map_err(|error| ApiError::Internal(format!("Local archive file task failed: {error}")))?
+        {
+            Ok(output) => output,
+            Err(error) => {
+                return relay
+                    .pause_source_member_with_error_result(&entry.path, error.to_string(), false)
+                    .await
+            }
+        };
+        let mut output = File::from_std(output);
+        let mut response = match relay.read_source_member(&entry.path).await {
+            Ok(response) => response,
+            Err(message) => return relay.pause_source_member_with_error_result(&entry.path, message, true).await,
+        };
+        if !response.status().is_success() {
+            let message = relay_archive_response(response, "read member")
+                .await
+                .err()
+                .map_or_else(|| "Archive member read failed".to_string(), |error| error.to_string());
+            return relay.pause_source_member_with_error_result(&entry.path, message, true).await;
         }
         let mut member_bytes = 0_u64;
-        while let Some(chunk) = response
-            .chunk()
-            .await
-            .map_err(|error| ApiError::Internal(log_request_error("Archive member relay", "GET", relay_url, &error)))?
-        {
-            output.write_all(&chunk).await.map_err(ApiError::Io)?;
+        while let Some(chunk) = match response.chunk().await {
+            Ok(chunk) => chunk,
+            Err(error) => {
+                return relay
+                    .pause_source_member_with_error_result(&entry.path, relay.source_read_error(&error), true)
+                    .await;
+            }
+        } {
+            if let Err(error) = output.write_all(&chunk).await {
+                return relay
+                    .pause_source_member_with_error_result(&entry.path, error.to_string(), true)
+                    .await;
+            }
             member_bytes = member_bytes
                 .checked_add(chunk.len() as u64)
                 .ok_or_else(|| ApiError::Internal("Archive member size overflow".to_string()))?;
         }
-        output.flush().await.map_err(ApiError::Io)?;
-        if member_bytes != entry.uncompressed_size {
-            return Err(ApiError::Internal("Archive member size does not match its manifest".to_string()));
+        if let Err(error) = output.flush().await {
+            return relay
+                .pause_source_member_with_error_result(&entry.path, error.to_string(), true)
+                .await;
         }
-        files_extracted += 1;
-        extracted_bytes = extracted_bytes
-            .checked_add(member_bytes)
-            .ok_or_else(|| ApiError::Internal("Archive extraction size overflow".to_string()))?;
+        if member_bytes != entry.uncompressed_size {
+            return relay
+                .pause_source_member_with_error_result(&entry.path, "Archive member size does not match its manifest".to_string(), true)
+                .await;
+        }
+        let member_result = relay
+            .complete_source_member(
+                &entry,
+                ArchiveRelayDestinationResult::extracted(
+                    reported_target_path,
+                    renamed,
+                    directories_created,
+                    member_bytes,
+                    matches!(
+                        checkpoint.collision_action(&entry.path),
+                        Some("replace") | Some("replace_all") | Some("replace_older")
+                    ),
+                ),
+            )
+            .await?;
+        checkpoint = match archive_extraction_member_step(member_result)? {
+            ArchiveExtractionRelayMemberStep::Continue(checkpoint) => checkpoint,
+            ArchiveExtractionRelayMemberStep::Paused(operation) => return Ok(ArchiveExtractionRelayResult::Paused(operation)),
+        };
     }
-    Ok((files_extracted, directories_created, extracted_bytes))
-}
-
-fn archive_local_relay_url(server_url: &str, operation_id: uuid::Uuid) -> String {
-    format!("{server_url}/api/archive/operations/{operation_id}/companion-local-extract")
-}
-
-fn archive_local_creation_relay_url(server_url: &str, operation_id: uuid::Uuid) -> String {
-    format!("{server_url}/api/archive/operations/{operation_id}/companion-local-create")
-}
-
-fn archive_smb_creation_relay_url(server_url: &str, operation_id: uuid::Uuid) -> String {
-    format!("{server_url}/api/archive/operations/{operation_id}/companion-smb-create")
+    Ok(ArchiveExtractionRelayResult::Completed {
+        destination_root_created: root_created,
+    })
 }
 
 async fn decode_archive_relay_json<T: DeserializeOwned>(response: ReqwestResponse, action: &str) -> Result<T, ApiError> {
@@ -1779,39 +2470,6 @@ async fn decode_archive_relay_json<T: DeserializeOwned>(response: ReqwestRespons
         .json::<T>()
         .await
         .map_err(|error| ApiError::Internal(format!("Archive relay returned an invalid {action} response: {error}")))
-}
-
-async fn report_archive_local_relay_failure(client: &Client, relay_url: &str, operation_token: &str) -> Result<(), ApiError> {
-    let response = client
-        .post(format!("{relay_url}/fail"))
-        .bearer_auth(operation_token)
-        .json(&serde_json::json!({ "message": "Companion local archive extraction failed" }))
-        .send()
-        .await
-        .map_err(|error| ApiError::Internal(log_request_error("Archive extraction failure", "POST", relay_url, &error)))?;
-    relay_archive_response(response, "record failure").await
-}
-
-async fn report_archive_local_creation_relay_failure(client: &Client, relay_url: &str, operation_token: &str) -> Result<(), ApiError> {
-    let response = client
-        .post(format!("{relay_url}/fail"))
-        .bearer_auth(operation_token)
-        .json(&serde_json::json!({ "message": "Companion local archive creation failed" }))
-        .send()
-        .await
-        .map_err(|error| ApiError::Internal(log_request_error("Archive creation failure", "POST", relay_url, &error)))?;
-    relay_archive_response(response, "record failure").await
-}
-
-async fn report_archive_smb_creation_relay_failure(client: &Client, relay_url: &str, operation_token: &str) -> Result<(), ApiError> {
-    let response = client
-        .post(format!("{relay_url}/fail"))
-        .bearer_auth(operation_token)
-        .json(&serde_json::json!({ "message": "Companion local archive creation failed" }))
-        .send()
-        .await
-        .map_err(|error| ApiError::Internal(log_request_error("Archive creation failure", "POST", relay_url, &error)))?;
-    relay_archive_response(response, "record failure").await
 }
 
 fn normalize_archive_server_url(value: &str) -> Result<String, ApiError> {
@@ -1829,52 +2487,11 @@ fn normalize_archive_server_url(value: &str) -> Result<String, ApiError> {
     Ok(url.to_string().trim_end_matches('/').to_string())
 }
 
-fn archive_relay_url(server_url: &str, operation_id: uuid::Uuid) -> String {
-    format!("{server_url}/api/archive/operations/{operation_id}/companion-extract")
-}
-
-async fn relay_archive_directory(client: &Client, relay_url: &str, operation_token: &str, member_path: &str) -> Result<(), ApiError> {
-    let response = client
-        .put(format!("{relay_url}/member"))
-        .bearer_auth(operation_token)
-        .query(&[("member_path", member_path), ("is_directory", "true")])
-        .send()
-        .await
-        .map_err(|error| ApiError::Internal(log_request_error("Archive directory relay", "PUT", relay_url, &error)))?;
-    relay_archive_response(response, "create directory").await
-}
-
-async fn relay_archive_file(
-    client: &Client,
-    relay_url: &str,
-    operation_token: &str,
-    archive_path: &FsPath,
-    entry: &LocalArchiveReadEntry,
-) -> Result<(), ApiError> {
-    let (writer, reader) = tokio::io::duplex(ARCHIVE_COPY_BUFFER_SIZE * 2);
-    let archive_path = archive_path.to_path_buf();
-    let member_path = entry.path.clone();
-    let writer_task = tokio::task::spawn_blocking(move || -> Result<(), String> {
-        let mut output = SyncIoBridge::new(writer);
-        stream_local_archive_member(&archive_path, &member_path, &mut output).map_err(|error| error.to_string())?;
-        output.flush().map_err(|error| error.to_string())
-    });
-    let response = client
-        .put(format!("{relay_url}/member"))
-        .bearer_auth(operation_token)
-        .query(&[("member_path", entry.path.as_str())])
-        .body(reqwest::Body::wrap_stream(ReaderStream::new(reader)))
-        .send()
-        .await;
-    let writer_result = writer_task
-        .await
-        .map_err(|error| ApiError::Internal(format!("Archive member streaming task failed: {error}")))?;
-    let response = response.map_err(|error| ApiError::Internal(log_request_error("Archive member relay", "PUT", relay_url, &error)))?;
-    if !response.status().is_success() {
-        return relay_archive_response(response, "write member").await;
-    }
-    writer_result.map_err(|error| ApiError::Internal(format!("Archive member streaming failed: {error}")))?;
-    relay_archive_response(response, "write member").await
+fn archive_relay_url(server_url: &str, operation_id: uuid::Uuid, binding: ArchiveRelayBinding) -> String {
+    format!(
+        "{server_url}/api/archive/operations/{operation_id}/companion-relay/{}",
+        binding.path_segment()
+    )
 }
 
 async fn relay_archive_response(response: ReqwestResponse, action: &str) -> Result<(), ApiError> {
@@ -1912,6 +2529,12 @@ fn map_local_archive_error(error: LocalArchiveError) -> ApiError {
         | LocalArchiveError::UnsupportedArchiveMember
         | LocalArchiveError::TargetOutsideRoot
         | LocalArchiveError::DuplicateEntryPath
+        | LocalArchiveError::EmptyCreationManifest
+        | LocalArchiveError::InvalidDirectorySourceSize
+        | LocalArchiveError::UnknownCreationMember
+        | LocalArchiveError::InvalidCreationOutcome
+        | LocalArchiveError::ConflictingCreationOutcome
+        | LocalArchiveError::IncompleteCreationManifest
         | LocalArchiveError::UnsupportedSource => ApiError::BadRequest(error.to_string()),
         LocalArchiveError::Cancelled => ApiError::BadRequest("Archive creation was cancelled".to_string()),
         LocalArchiveError::PartialOutput(error) => {
@@ -2721,6 +3344,112 @@ fn resolve_safe_path_for_new(base: &std::path::Path, drive: &str, relative: &str
     Ok(full)
 }
 
+fn resolve_local_archive_extraction_request(drive: &str, body: &ArchiveExtractRequest) -> Result<(PathBuf, PathBuf, PathBuf), ApiError> {
+    if body.archive_path.trim().is_empty() || body.destination_path.trim().is_empty() {
+        return Err(ApiError::BadRequest("Archive and destination paths are required".to_string()));
+    }
+    let base_path = drives::resolve_drive_path(drive).ok_or_else(|| ApiError::NotFound(format!("Unknown drive: {drive}")))?;
+    let archive_path = resolve_safe_path(&base_path, drive, &body.archive_path)?;
+    let destination_path = resolve_safe_path_for_new(&base_path, drive, &body.destination_path)?;
+    Ok((base_path, archive_path, destination_path))
+}
+
+fn resolve_local_archive_creation_request(drive: &str, body: &ArchiveCreateRequest) -> Result<(PathBuf, Vec<PathBuf>, PathBuf), ApiError> {
+    if body.source_paths.is_empty() || body.target_path.trim().is_empty() {
+        return Err(ApiError::BadRequest(
+            "Archive creation requires source paths and a target path".to_string(),
+        ));
+    }
+    let base_path = drives::resolve_drive_path(drive).ok_or_else(|| ApiError::NotFound(format!("Unknown drive: {drive}")))?;
+    let source_paths = body
+        .source_paths
+        .iter()
+        .map(|source_path| resolve_safe_path(&base_path, drive, source_path))
+        .collect::<Result<Vec<_>, _>>()?;
+    let target_path = resolve_safe_path_for_new(&base_path, drive, &body.target_path)?;
+    let Some(parent) = target_path.parent() else {
+        return Err(ApiError::BadRequest("Archive target path is invalid".to_string()));
+    };
+    if !parent.is_dir() {
+        return Err(ApiError::BadRequest("Archive target parent directory does not exist".to_string()));
+    }
+    Ok((base_path, source_paths, target_path))
+}
+
+fn archive_execution_response(execution: ArchiveSessionStatus) -> ArchiveExecutionResponse {
+    let progress = execution.result.unwrap_or(execution.progress);
+    let mut response = ArchiveExecutionResponse {
+        execution_id: execution.execution_id,
+        kind: execution.kind.as_str().to_string(),
+        phase: execution.phase.as_str().to_string(),
+        revision: execution.revision,
+        progress: ArchiveExecutionProgress {
+            completed_members: 0,
+            skipped_members: 0,
+            failed_members: 0,
+            partial_members: 0,
+        },
+        cancellation_requested: execution.cancellation_requested,
+        files_extracted: None,
+        directories_created: None,
+        extracted_bytes: None,
+        files_skipped: None,
+        files_created: None,
+        source_bytes: None,
+        error: execution.error,
+        pending_decision: execution.pending_decision.map(|pending| match pending.member_error {
+            Some(error) => ArchiveExecutionPendingDecision {
+                kind: "member_error".to_string(),
+                member_path: pending.member_path,
+                target_path: Some(error.target_path),
+                is_directory: None,
+                message: Some(error.message),
+                partial_output: Some(error.partial_output),
+                allowed_actions: vec!["retry".to_string(), "ignore".to_string()],
+            },
+            None => ArchiveExecutionPendingDecision {
+                kind: "collision".to_string(),
+                member_path: pending.member_path,
+                target_path: pending.target_path,
+                is_directory: Some(pending.is_directory),
+                message: None,
+                partial_output: None,
+                allowed_actions: if pending.is_directory {
+                    vec!["rename".to_string()]
+                } else {
+                    vec![
+                        "skip".to_string(),
+                        "skip_all".to_string(),
+                        "replace".to_string(),
+                        "replace_all".to_string(),
+                        "replace_older".to_string(),
+                        "rename".to_string(),
+                    ]
+                },
+            },
+        }),
+    };
+    match progress {
+        ArchiveSessionProgress::Creation(progress) => {
+            response.files_created = Some(progress.files_created);
+            response.directories_created = Some(progress.directories_created);
+            response.source_bytes = Some(progress.source_bytes);
+            response.progress.completed_members = progress.files_created.saturating_add(progress.directories_created);
+        }
+        ArchiveSessionProgress::Extraction(progress) => {
+            response.files_extracted = Some(progress.files_extracted);
+            response.directories_created = Some(progress.directories_created);
+            response.extracted_bytes = Some(progress.extracted_bytes);
+            response.files_skipped = Some(progress.files_skipped);
+            response.progress.completed_members = progress.files_extracted.saturating_add(progress.directories_created);
+            response.progress.skipped_members = progress.files_skipped;
+            response.progress.failed_members = progress.files_failed;
+            response.progress.partial_members = progress.partial_members;
+        }
+    }
+    response
+}
+
 /// Build a `FileInfo` from an absolute path and its relative representation.
 async fn build_file_info_from_path(path: &std::path::Path, relative: &str) -> Result<FileInfo, ApiError> {
     let metadata = tokio::fs::metadata(path).await.map_err(|e| map_io_error(e, path))?;
@@ -2796,20 +3525,271 @@ async fn copy_dir_recursive(src: &std::path::Path, dst: &std::path::Path) -> Res
 #[cfg(test)]
 mod tests {
     use super::{
-        build_file_info, build_pair_status_response, classify_link_target, map_local_archive_error, normalize_drive_relative_path,
-        normalize_windows_display_path, resolve_drive_relative_source_path, resolve_link_target_metadata, resolve_pair_cancel_origin,
-        resolve_pair_confirm_origin, resolve_pair_status_origin, resolve_safe_path, source_link_kind, validate_editor_write_target,
+        archive_creation_response, archive_execution_response, build_file_info, build_pair_status_response, classify_link_target,
+        map_local_archive_error, normalize_drive_relative_path, normalize_windows_display_path, relay_completed_members,
+        resolve_drive_relative_source_path, resolve_link_target_metadata, resolve_pair_cancel_origin, resolve_pair_confirm_origin,
+        resolve_pair_status_origin, resolve_safe_path, source_link_kind, validate_editor_write_target, ArchiveCreationMemberCompletion,
+        ArchiveExtractionCollision, ArchiveExtractionMemberCompletion, ArchiveExtractionMemberError, ArchiveExtractionSummary,
+        ArchiveRelayDestinationStatus, ArchiveRelayFailure, ArchiveRelayOperation,
     };
-    use crate::server::archive::{LocalArchiveError, LocalArchiveReadError};
+    use crate::server::archive::{
+        ArchiveCreationManifest, ArchiveCreationManifestMember, LocalArchiveCreationResult, LocalArchiveError,
+        LocalArchiveExtractionMemberError, LocalArchiveExtractionResult, LocalArchiveReadError,
+    };
+    use crate::server::archive_sessions::{
+        ArchiveSessionKind, ArchiveSessionPendingDecision, ArchiveSessionPhase, ArchiveSessionProgress, ArchiveSessionStatus,
+    };
     use crate::server::errors::{LOCAL_ARCHIVE_CREATION_PARTIAL_CODE, LOCAL_ARCHIVE_EXTRACTION_PARTIAL_CODE};
     use crate::server::models::{FileType, LinkKind, LinkTargetState, LinkTargetType, PublicPairingStatus};
     use crate::server::pairing::PairingState;
     use axum::body::to_bytes;
     use axum::http::{HeaderMap, HeaderValue};
     use axum::response::IntoResponse;
+    use serde::Deserialize;
     #[cfg(unix)]
     use std::os::unix::fs::symlink;
     const NONCE_A: &str = "00112233445566778899aabbccddeeff00112233445566778899aabbccddeeff";
+
+    #[derive(Deserialize)]
+    struct ExtractionOutcomeConformanceCorpus {
+        version: u8,
+        scenarios: Vec<ExtractionOutcomeConformanceScenario>,
+    }
+
+    #[derive(Deserialize)]
+    struct ExtractionOutcomeConformanceScenario {
+        checkpoint: Option<serde_json::Value>,
+        #[serde(default)]
+        result_reports: Vec<serde_json::Value>,
+        #[serde(default)]
+        completed_members: Vec<String>,
+        #[serde(default)]
+        progress: std::collections::HashMap<String, u64>,
+        error: Option<String>,
+    }
+
+    fn relay_control_payload_example(name: &str) -> serde_json::Value {
+        let fixture: serde_json::Value =
+            serde_json::from_str(include_str!("../../../../archive-contract/v1/relay-control-payloads-v1.json"))
+                .expect("relay control payload fixture should be valid JSON");
+        assert_eq!(fixture["version"], 1);
+        fixture["payloads"]
+            .as_array()
+            .expect("relay control payload fixture should contain payloads")
+            .iter()
+            .find(|payload| payload["name"] == name)
+            .unwrap_or_else(|| panic!("relay control payload fixture should define {name}"))["example"]
+            .clone()
+    }
+
+    #[test]
+    fn serializes_v1_relay_control_payloads() {
+        let completion = ArchiveExtractionMemberCompletion {
+            member_path: "docs/readme.txt",
+            status: ArchiveRelayDestinationStatus::Extracted,
+            target_path: "output/docs/readme.txt",
+            directories_created: 1,
+            extracted_bytes: 5,
+            replaced: false,
+            renamed: false,
+        };
+        let collision = ArchiveExtractionCollision {
+            member_path: "docs/readme.txt",
+            is_directory: false,
+            target_size: Some(5),
+            target_modified_at: None,
+        };
+        let member_error = ArchiveExtractionMemberError {
+            member_path: "docs/readme.txt",
+            message: "read failed",
+            partial_output: true,
+        };
+
+        assert_eq!(
+            serde_json::to_value(completion).unwrap(),
+            relay_control_payload_example("extraction_member_completion")
+        );
+        assert_eq!(
+            serde_json::to_value(collision).unwrap(),
+            relay_control_payload_example("extraction_collision")
+        );
+        assert_eq!(
+            serde_json::to_value(member_error).unwrap(),
+            relay_control_payload_example("extraction_member_error")
+        );
+        assert_eq!(
+            serde_json::to_value(ArchiveExtractionSummary {
+                destination_root_created: true,
+            })
+            .unwrap(),
+            relay_control_payload_example("extraction_summary")
+        );
+        assert_eq!(
+            serde_json::to_value(ArchiveCreationMemberCompletion {
+                archive_path: "docs/readme.txt",
+                status: "created",
+                source_bytes: 5,
+            })
+            .unwrap(),
+            relay_control_payload_example("creation_member_completion")
+        );
+        assert_eq!(
+            serde_json::to_value(archive_creation_response(LocalArchiveCreationResult {
+                files_created: 1,
+                directories_created: 1,
+                source_bytes: 5,
+            }))
+            .unwrap(),
+            relay_control_payload_example("creation_summary")
+        );
+        assert_eq!(
+            serde_json::to_value(ArchiveRelayFailure {
+                message: "Archive relay failed",
+            })
+            .unwrap(),
+            relay_control_payload_example("failure")
+        );
+    }
+
+    #[test]
+    fn derives_creation_summary_from_manifest() {
+        let manifest = ArchiveCreationManifest::from_entries(vec![
+            ArchiveCreationManifestMember {
+                archive_path: "docs".to_string(),
+                is_directory: true,
+                source_size: 0,
+            },
+            ArchiveCreationManifestMember {
+                archive_path: "docs/readme.txt".to_string(),
+                is_directory: false,
+                source_size: 7,
+            },
+        ])
+        .expect("manifest entries should be valid");
+
+        let summary = manifest.summary().expect("manifest totals should be representable");
+
+        assert_eq!(summary.files_created, 1);
+        assert_eq!(summary.directories_created, 1);
+        assert_eq!(summary.source_bytes, 7);
+    }
+
+    #[test]
+    fn passes_v1_extraction_outcome_conformance_corpus() {
+        let corpus_path = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+            .join("../..")
+            .join("archive-contract/v1/extraction-outcome-scenarios-v1.json");
+        let corpus: ExtractionOutcomeConformanceCorpus =
+            serde_json::from_slice(&std::fs::read(corpus_path).expect("shared extraction outcome corpus should be readable"))
+                .expect("shared extraction outcome corpus should be valid JSON");
+        assert_eq!(corpus.version, 1);
+
+        for scenario in corpus.scenarios {
+            if !scenario.result_reports.is_empty() {
+                continue;
+            }
+            let checkpoint = scenario.checkpoint.expect("checkpoint replay scenario should include a checkpoint");
+            let operation = ArchiveRelayOperation {
+                phase: "streaming".to_string(),
+                destination_path: "output".to_string(),
+                checkpoint_json: checkpoint.to_string(),
+                pending_decision_json: None,
+            };
+            let completed = relay_completed_members(&operation);
+            if scenario.error.is_some() {
+                assert!(completed.is_err(), "shared extraction outcome scenario should be rejected");
+                continue;
+            }
+            let completed = completed.expect("shared extraction outcome scenario should be valid");
+            let expected: std::collections::HashSet<String> = scenario.completed_members.into_iter().collect();
+            assert_eq!(completed, expected);
+            for (key, value) in scenario.progress {
+                assert_eq!(checkpoint.get(&key).and_then(serde_json::Value::as_u64).unwrap_or(0), value);
+            }
+        }
+    }
+
+    #[test]
+    fn archive_execution_response_emits_contract_progress_counters() {
+        let progress = ArchiveSessionProgress::Extraction(LocalArchiveExtractionResult {
+            files_extracted: 2,
+            directories_created: 1,
+            extracted_bytes: 12,
+            files_skipped: 3,
+            files_replaced: 0,
+            files_failed: 0,
+            partial_members: 0,
+        });
+        let response = archive_execution_response(ArchiveSessionStatus {
+            execution_id: "execution-id".to_string(),
+            kind: ArchiveSessionKind::Extract,
+            phase: ArchiveSessionPhase::Streaming,
+            revision: 4,
+            cancellation_requested: false,
+            progress,
+            result: None,
+            error: None,
+            pending_decision: None,
+        });
+
+        let serialized = serde_json::to_value(response).expect("archive execution response should serialize");
+        assert_eq!(
+            serialized["progress"],
+            serde_json::json!({
+                "completedMembers": 3,
+                "skippedMembers": 3,
+                "failedMembers": 0,
+                "partialMembers": 0,
+            })
+        );
+    }
+
+    #[test]
+    fn archive_execution_response_serializes_a_paused_member_error() {
+        let response = archive_execution_response(ArchiveSessionStatus {
+            execution_id: "execution-id".to_string(),
+            kind: ArchiveSessionKind::Extract,
+            phase: ArchiveSessionPhase::AwaitingUserDecision,
+            revision: 4,
+            cancellation_requested: false,
+            progress: ArchiveSessionProgress::Extraction(LocalArchiveExtractionResult {
+                files_extracted: 0,
+                directories_created: 1,
+                extracted_bytes: 0,
+                files_skipped: 0,
+                files_replaced: 0,
+                files_failed: 0,
+                partial_members: 1,
+            }),
+            result: None,
+            error: None,
+            pending_decision: Some(ArchiveSessionPendingDecision {
+                member_path: "source.txt".to_string(),
+                target_path: None,
+                is_directory: false,
+                member_error: Some(LocalArchiveExtractionMemberError {
+                    member_path: "source.txt".to_string(),
+                    target_path: "output/source.txt".to_string(),
+                    message: "archive member integrity check failed".to_string(),
+                    partial_output: true,
+                }),
+            }),
+        });
+
+        let serialized = serde_json::to_value(response).expect("archive execution response should serialize");
+        assert_eq!(
+            serialized["pendingDecision"],
+            serde_json::json!({
+                "kind": "member_error",
+                "memberPath": "source.txt",
+                "targetPath": "output/source.txt",
+                "message": "archive member integrity check failed",
+                "partialOutput": true,
+                "allowedActions": ["retry", "ignore"],
+            })
+        );
+        assert_eq!(serialized["progress"]["partialMembers"], 1);
+    }
 
     #[tokio::test]
     async fn maps_partial_local_archive_output_to_a_stable_error_code() {

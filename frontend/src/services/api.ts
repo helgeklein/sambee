@@ -82,6 +82,54 @@ const API_PATH_SUFFIX = "/api";
 const LOCAL_DRIVE_EDIT_LOCKS_UNSUPPORTED_MESSAGE = "Edit locks are not supported for local drives";
 const DIRECTORY_LIST_REQUEST_TIMEOUT_MS = 40_000;
 const LOCAL_LINK_TARGET_REQUEST_TIMEOUT_MS = 15_000;
+const LOCAL_ARCHIVE_EXECUTION_POLL_INTERVAL_MS = 200;
+const LOCAL_ARCHIVE_CANCELLATION_MAX_REVISION_RETRIES = 3;
+export interface ArchiveExecutionProgress {
+  completedMembers: number;
+  skippedMembers: number;
+  failedMembers: number;
+  partialMembers: number;
+}
+
+export interface LocalArchiveExecution {
+  execution_id: string;
+  kind: "create" | "extract";
+  phase: "accepted" | "streaming" | "awaiting_user_decision" | "completed" | "cancelled" | "failed";
+  revision: number;
+  progress: ArchiveExecutionProgress;
+  cancellation_requested: boolean;
+  files_extracted?: number;
+  directories_created?: number;
+  extracted_bytes?: number;
+  files_skipped?: number;
+  files_created?: number;
+  source_bytes?: number;
+  error?: string;
+  pendingDecision?:
+    | {
+        kind: "collision";
+        memberPath: string;
+        targetPath?: string;
+        isDirectory?: boolean;
+        allowedActions: ("skip" | "skip_all" | "replace" | "replace_all" | "replace_older" | "rename")[];
+      }
+    | {
+        kind: "member_error";
+        memberPath: string;
+        message: string;
+        partialOutput: boolean;
+        allowedActions: ("retry" | "ignore")[];
+      };
+}
+
+function isLocalArchiveStaleRevisionError(error: unknown): boolean {
+  return (error as { response?: { status?: unknown } } | null)?.response?.status === 409;
+}
+
+function isLocalArchiveExecutionTerminal(execution: LocalArchiveExecution): boolean {
+  return execution.phase === "completed" || execution.phase === "cancelled" || execution.phase === "failed";
+}
+
 export const PDF_VIEWER_REQUEST_TIMEOUT_MS = 90_000;
 export const OIDC_FINALIZATION_REQUEST_TIMEOUT_MS = 15_000;
 
@@ -842,23 +890,117 @@ class ApiService {
     }
   }
 
-  async extractLocalArchive(
+  async startLocalArchiveExtraction(connectionId: string, archivePath: string, destinationPath: string): Promise<LocalArchiveExecution> {
+    return this.startLocalArchiveExecution(connectionId, {
+      kind: "extract",
+      archive_path: archivePath,
+      destination_path: destinationPath,
+    });
+  }
+
+  async startLocalArchiveCreation(connectionId: string, sourcePaths: string[], targetPath: string): Promise<LocalArchiveExecution> {
+    return this.startLocalArchiveExecution(connectionId, {
+      kind: "create",
+      source_paths: sourcePaths,
+      target_path: targetPath,
+    });
+  }
+
+  private async startLocalArchiveExecution(
     connectionId: string,
-    archivePath: string,
-    destinationPath: string,
-    signal?: AbortSignal
-  ): Promise<{ files_extracted: number; directories_created: number; extracted_bytes: number; files_skipped: number }> {
+    body:
+      | { kind: "extract"; archive_path: string; destination_path: string }
+      | { kind: "create"; source_paths: string[]; target_path: string }
+  ): Promise<LocalArchiveExecution> {
     const segment = getBrowseSegment(connectionId);
     const { client, extraConfig } = await this.getClientConfig(connectionId);
-    const response = await client.post(
-      `/browse/${segment}/archive/extract`,
-      {
-        archive_path: archivePath,
-        destination_path: destinationPath,
-      },
-      { ...extraConfig, signal }
+    const response = await client.post<LocalArchiveExecution>(`/browse/${segment}/archive/executions`, body, extraConfig);
+    return response.data;
+  }
+
+  async getLocalArchiveExtraction(connectionId: string, executionId: string): Promise<LocalArchiveExecution> {
+    return this.getLocalArchiveExecution(connectionId, executionId);
+  }
+
+  async getLocalArchiveExecution(connectionId: string, executionId: string): Promise<LocalArchiveExecution> {
+    const segment = getBrowseSegment(connectionId);
+    const { client, extraConfig } = await this.getClientConfig(connectionId);
+    const response = await client.get<LocalArchiveExecution>(
+      `/browse/${segment}/archive/executions/${encodeURIComponent(executionId)}`,
+      extraConfig
     );
     return response.data;
+  }
+
+  async cancelLocalArchiveExtraction(connectionId: string, executionId: string, expectedRevision: number): Promise<LocalArchiveExecution> {
+    return this.cancelLocalArchiveExecution(connectionId, executionId, expectedRevision);
+  }
+
+  async cancelLocalArchiveExecution(connectionId: string, executionId: string, expectedRevision: number): Promise<LocalArchiveExecution> {
+    const segment = getBrowseSegment(connectionId);
+    const { client, extraConfig } = await this.getClientConfig(connectionId);
+    const response = await client.post<LocalArchiveExecution>(
+      `/browse/${segment}/archive/executions/${encodeURIComponent(executionId)}/cancellation`,
+      { expected_revision: expectedRevision },
+      extraConfig
+    );
+    return response.data;
+  }
+
+  async decideLocalArchiveExecution(
+    connectionId: string,
+    executionId: string,
+    expectedRevision: number,
+    memberPath: string,
+    action: "skip" | "skip_all" | "replace" | "replace_all" | "replace_older" | "rename" | "retry" | "ignore",
+    targetPath?: string
+  ): Promise<LocalArchiveExecution> {
+    const segment = getBrowseSegment(connectionId);
+    const { client, extraConfig } = await this.getClientConfig(connectionId);
+    const response = await client.post<LocalArchiveExecution>(
+      `/browse/${segment}/archive/executions/${encodeURIComponent(executionId)}/decision`,
+      { expected_revision: expectedRevision, member_path: memberPath, action, target_path: targetPath },
+      extraConfig
+    );
+    return response.data;
+  }
+
+  async cancelLocalArchiveExecutionWithRevisionRetry(
+    connectionId: string,
+    executionId: string,
+    expectedRevision: number
+  ): Promise<LocalArchiveExecution> {
+    let execution = { execution_id: executionId, revision: expectedRevision };
+    for (let attempt = 0; attempt < LOCAL_ARCHIVE_CANCELLATION_MAX_REVISION_RETRIES; attempt += 1) {
+      try {
+        return await this.cancelLocalArchiveExecution(connectionId, execution.execution_id, execution.revision);
+      } catch (error) {
+        if (!isLocalArchiveStaleRevisionError(error) || attempt + 1 === LOCAL_ARCHIVE_CANCELLATION_MAX_REVISION_RETRIES) {
+          throw error;
+        }
+        const latest = await this.getLocalArchiveExecution(connectionId, execution.execution_id);
+        if (isLocalArchiveExecutionTerminal(latest)) {
+          return latest;
+        }
+        execution = latest;
+      }
+    }
+    throw new Error("Local archive execution changed too frequently to cancel");
+  }
+
+  async waitForLocalArchiveExecution(
+    connectionId: string,
+    executionId: string,
+    onUpdate?: (execution: LocalArchiveExecution) => void
+  ): Promise<LocalArchiveExecution> {
+    let execution = await this.getLocalArchiveExecution(connectionId, executionId);
+    onUpdate?.(execution);
+    while (!isLocalArchiveExecutionTerminal(execution) && execution.phase !== "awaiting_user_decision") {
+      await new Promise<void>((resolve) => window.setTimeout(resolve, LOCAL_ARCHIVE_EXECUTION_POLL_INTERVAL_MS));
+      execution = await this.getLocalArchiveExecution(connectionId, executionId);
+      onUpdate?.(execution);
+    }
+    return execution;
   }
 
   async extractLocalArchiveToSmb(
@@ -866,7 +1008,15 @@ class ApiService {
     archivePath: string,
     operationId: string,
     operationToken: string
-  ): Promise<{ files_extracted: number; directories_created: number; extracted_bytes: number; files_skipped: number }> {
+  ): Promise<{
+    files_extracted: number;
+    directories_created: number;
+    extracted_bytes: number;
+    files_skipped: number;
+    phase?: string;
+    checkpoint_json?: string;
+    pending_decision_json?: string | null;
+  }> {
     const segment = getBrowseSegment(connectionId);
     const { client, extraConfig } = await this.getClientConfig(connectionId);
     const response = await client.post(
@@ -887,7 +1037,15 @@ class ApiService {
     destinationPath: string,
     operationId: string,
     operationToken: string
-  ): Promise<{ files_extracted: number; directories_created: number; extracted_bytes: number; files_skipped: number }> {
+  ): Promise<{
+    files_extracted: number;
+    directories_created: number;
+    extracted_bytes: number;
+    files_skipped: number;
+    phase?: string;
+    checkpoint_json?: string;
+    pending_decision_json?: string | null;
+  }> {
     const segment = getBrowseSegment(destinationConnectionId);
     const { client, extraConfig } = await this.getClientConfig(destinationConnectionId);
     const response = await client.post(

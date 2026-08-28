@@ -6,18 +6,250 @@ The current implementation delivers foreground ZIP browsing, creation, and
 extraction for same-provider and SMB/local transfers. It includes:
 
 - portable Stored/Deflate creation with the 64 KiB adaptive probe in the
-  backend and Companion writers;
+  backend and Companion writers, including Companion parser validation before
+  reporting a direct-local creation as complete;
 - conditional ZIP64 records in the backend streaming writer;
 - validated Info-ZIP Unicode Path decoding in both readers and CP437 fallback
   in Companion;
 - `Alt+F5` archive creation and contextual `Alt+F9` extraction shortcuts; and
 - correlation-scoped, path-free archive lifecycle and decision audit events.
 - a shared, hash-verified v1 reader conformance corpus consumed by both the
-  backend and Companion for Stored/Deflate, data-descriptor, unsafe path, and
-  Unicode Path ZIPs.
+  backend and Companion for Stored/Deflate, ZIP64, data-descriptor, unsafe path,
+  Unicode Path, and malformed ZIPs.
+- destination-aware extraction confirmation that uses an existing sibling or
+  opposite-pane directory without merging or replacing directories;
+- a single foreground Extract dialog for confirmation, collision and member
+  failure decisions, cancellation, and terminal output counts with an
+  open-destination action;
+- same-SMB grouped collision reviews with portable metadata, directory rename
+  enforcement, decision-time NFC/casefold and subtree validation, and persisted
+  file-policy decisions; and
+- same-SMB per-member direct-output checkpoints, including retry/ignore/cancel
+  handling for partial member writes; and
+- local-ZIP-to-SMB extraction relay pause/resume for final file collisions,
+  using the scoped operation state and Companion checkpointed-member replay,
+  including timestamp-aware `replace_older` decisions at the SMB destination;
+  and
+- SMB-ZIP-to-local extraction relay pause/resume for member completion,
+  collisions, and partial-write retry/ignore decisions, including a
+  checkpoint-authorized retry that can replace only the known partial local
+  member output.
+- an `archive-contract/v1` lifecycle schema plus canonical purpose-scoped relay
+  data-plane compatibility wire schemas, and a durable compare-and-swap
+  `ArchiveOperation` state-store binding; and
+- revisioned lifecycle and checkpoint writes for all backend-backed archive
+  compatibility adapters, with optional stale-revision rejection for lifecycle
+  transitions, decisions, and cancellation; and
+- a shared backend topology resolver for same-provider and mixed archive
+  creation and extraction plans; and
+- Companion-owned, short-lived direct-local creation and extraction executions
+  with paired-origin-scoped, revisioned, type-specific member-progress status
+  and cooperative server-side cancellation between archive members, strict
+  discriminated start/cancellation payloads, and canonical aggregate progress
+  counters alongside compatibility fields; and
+- direct-local checkpointed collision and member-error decision re-entry for
+  per-file and all-existing-file skip/replace, timestamp-aware replace-older,
+  file and directory-subtree rename, and retry/ignore actions, including safe
+  regular-file partial-output retries, normalized target collision validation,
+  origin/revision guards, paused-session cancellation, and failed/partial
+  member progress counters.
 
-The locale-ranked encoding override UI, expanded ZIP64/data-descriptor/malformed
-corpus coverage, and paired browser mutation qualification remain planned work.
+The locale-ranked encoding override UI, broader malformed-corpus coverage, and
+paired browser mutation qualification remain planned work.
+The common archive execution foundation described below is in early migration:
+the backend now centralizes same-SMB creation/extraction lifecycle handling,
+relay lifecycle transitions, checkpoint validation, per-member outcome ledgers,
+formal state-store bindings for same-SMB coordinators and relay lifecycle
+helpers, and creation/extraction source/destination adapter roles. Same-SMB and
+mixed relay bindings share the durable extraction-outcome persistence path;
+the common backend extraction coordinator derives progress and terminal
+summaries from normalized destination results while SMB bounded reads and direct
+writes remain storage-adapter operations;
+the Companion checkpointed local extraction coordinator likewise records its
+directory, extracted, skipped, and ignored terminal results through one
+idempotent destination-result accumulator;
+the obsolete synchronous direct-local extraction route and frontend facade have
+been removed, so production local extraction enters only through the
+checkpointed foreground-session coordinator;
+topology selection and Companion relay authorization share one explicit relay
+purpose binding; the Companion and backend use only purpose-scoped canonical
+relay paths, while the directional V1 relay routes remain active until a
+replacement is deployed and has no production callers; its
+operation-specific creation and extraction relays share a scoped transport base
+for authenticated route construction and JSON control-plane relay mechanics.
+Both mixed Companion extraction relays
+consume that common ledger for resumption with a legacy `written_members`
+fallback. Backend and Companion consume a shared v1 extraction-outcome
+conformance corpus for ledger precedence, legacy fallback, terminal outcome
+statuses, progress snapshots, partial-output replay, and invalid-outcome
+rejection. The SMB-ZIP-to-local relay reports a typed terminal destination
+result to the backend instead of manually assembled counter tuples, and both
+mixed extraction relays derive their paused and completed API responses from
+the same authoritative relay checkpoint. Their duplicate-member gates now use
+the authoritative outcome ledger; legacy `written_members` is read only from
+unversioned historical checkpoints until first outcome persistence migrates
+them to the versioned ledger. Both mixed extraction relays select a
+source/destination binding for a
+common Companion coordinator. Its scoped transport adapter owns lifecycle and
+remote member operations, while their direction-specific member traversal and
+local/SMB filesystem adapter bindings remain compatibility implementations. A
+shared member-relay transition converts each completion acknowledgement into
+either the next authoritative checkpoint or a paused operation response; the
+coordinator does not abstract the asymmetric local/SMB byte-flow or direct
+filesystem ownership. The
+SMB-source extraction and creation member readers share one backend guard for
+capability scope, active streaming phase, and cancellation transition before
+opening bounded reads; the SMB-ZIP-to-local extraction completion and
+collision/error control messages use that same guard.
+Direct-local and mixed Companion creation relays select a source/destination
+binding for a common Companion coordinator. Its scoped transport adapter owns
+the remote source manifest/member reads or the local-source manifest/member
+uploads, while the backend owns direct SMB ZIP output when SMB is the
+destination. The coordinator owns failure reporting, ledger-derived terminal
+validation, and completion; ZIP traversal and local/SMB data-plane bindings
+remain separate compatibility implementations. Both mixed creation relays now
+use the same scoped backend creation begin/replay, completion, and failure
+lifecycle, with local-to-SMB supplying only its live ZIP-writer liveness,
+finalizer, and abort callbacks.
+The shared extraction-outcome corpus now also drives an idempotent sequence of
+terminal destination reports through both the backend recorder and Companion's
+direct-local accumulator, rather than checking only prebuilt checkpoint replay.
+It additionally drives collision-skip and cancellation workflows through the
+same-SMB extractor, the direct-local Companion checkpoint coordinator, and the
+SMB-ZIP-to-local relay. The versioned archive contract defines normalized v1
+terminal member results, aggregate progress, and partial/member-error state;
+the compact relay requests remain transport-specific acknowledgements of that
+shared model. New extraction checkpoints declare outcome-ledger version 1 and
+write only `member_outcomes`. Unversioned historical checkpoints retain a
+read-only `written_members` fallback and are migrated to the versioned ledger
+before any new member result is persisted. SMB-ZIP-to-local terminal counters
+are derived from that ledger; its completion request carries only the separate
+local destination-root-created lifecycle fact.
+The immutable SMB-ZIP-to-local extraction manifest is now a typed domain model
+in both runtimes. Its V1 corpus verifies normalized member paths, valid empty
+archives, and unsafe, case-folded duplicate, and file-descendant collision
+rejection. The backend extraction state loads that persisted manifest together
+with its decisions, resolves the approved target member, and checks exact
+terminal ledger coverage; relay endpoints no longer inspect raw manifest
+dictionaries directly. Companion likewise validates its remote transport
+manifest through the archive-domain type before opening local output.
+Companion now keeps its remote extraction checkpoint parsing, terminal replay,
+decision resolution, and progress projection in archive-domain relay state;
+handlers only convert that state to transport responses and perform direct
+filesystem work. Creation relay writers likewise record acknowledged outcomes
+through one `record_expected` state operation. The backend uses one scoped
+Companion relay context for capability resolution, begin/streaming guards,
+completion, failure, and optional creation target hooks, leaving endpoint
+adapters to invoke the context directly; the obsolete lifecycle helper wrappers
+have been removed. Backend extraction-decision state now owns per-member
+collision selection, target lookup, execution projections, and retry removal,
+while the direct-local Companion checkpoint encapsulates its distinct subtree
+rename, collision, completion, and partial-output queries. Companion manifest
+responses are serialized through dedicated backend transport-boundary helpers
+rather than repeated endpoint conversions. All four mixed relay families now
+use the scoped backend context for begin, streaming, adapter failure, and
+completion lifecycle transitions; manifest-backed extraction completion supplies
+only its typed terminal-coverage checkpoint preparation. The coordinator owns
+V1 extraction-outcome checkpoint construction, including its optional immutable
+manifest and source identity. Same-SMB extraction now supplies its direct
+adapter with one typed checkpoint execution projection for decisions and
+terminal member outcomes. The shared Companion extraction coordinator now reports
+adapter errors through the matching scoped failure route for either direction;
+its completion, collision, member-error, and terminal control payloads are typed
+transport DTOs. A V1 relay-binding fixture verifies purpose, kind, and
+local/SMB direction alignment across the backend, contract, and Companion. An inventory confirms that every canonical V1
+directional relay path is still used by the contract, backend, Companion, or
+tests, so none is eligible for retirement. The V1 corpus rejects future
+extraction checkpoint versions explicitly; `written_members` remains read-only
+compatibility for unversioned historical checkpoints until the V2 boundary.
+Direct same-SMB creation and extraction now open through one backend execution
+context that owns operation-kind/topology validation, connection authorization,
+and backend lifetime. Their shared direct start policy owns the
+prepared-to-accepted-to-streaming transition, optional checkpoint initialization,
+pre-start cancellation, and explicit resume behavior: extraction may resume a
+streaming operation, while creation remains non-resumable because its ZIP writer
+cannot safely be reconstructed.
+The direct extraction coordinator now persists member and partial-output outcomes
+itself, matching creation and leaving the API adapter free of persistence
+callbacks. Checked terminal completion now shares phase/cancellation guards,
+abort cleanup, and durable failure recording around asynchronous preparation;
+creation supplies only its ledger validation and ZIP finalizer. Companion relay
+transport similarly owns one typed JSON POST-without-result path for creation
+begin, completion, and failure acknowledgements, while directional byte streams
+remain adapter-specific.
+The SMB-ZIP-to-local relay now projects untrusted Companion completion,
+collision, and partial-output callbacks through one backend extraction-relay
+state object. That domain object validates immutable manifest membership,
+decision-derived targets, reported counters, and rename state before it mutates
+the outcome ledger or enters a decision; the API callbacks now perform only
+scoped relay lifecycle and request/response adaptation.
+The `written_members` fallback supports only checkpoints serialized before
+outcome-ledger v1 and will be removed at the v2.0 schema boundary; new code
+must neither write nor depend on it.
+
+V2 will define a new extraction checkpoint schema in `archive-contract/v2`
+with a required `extraction_outcome_checkpoint_version: 2` and required
+`member_outcomes`; it will neither accept nor serialize `written_members`.
+V2 readers must reject unversioned and V1 checkpoints rather than silently
+infer terminal outcomes. A release that introduces V2 must retain the V1
+reader only for active V1 operations and historical reporting until its stated
+operation-retention window expires; it must not migrate an interrupted V1
+operation into V2. The V2 corpus must cover rejection of legacy checkpoints
+and preservation of every terminal V1 outcome semantics after an explicit
+fresh V2 start. Canonical relay paths remain until the V2 contract, Companion
+client, backend, and integration tests prove a replacement path is live and
+the old route has no production callers; structural similarity is not evidence
+for route deletion.
+Retryable partial member outputs also persist through the same versioned ledger
+path, where they may refresh nonterminal error details but can never overwrite
+a terminal member outcome.
+The SMB-ZIP-to-local relay records that partial state before entering its shared
+retry-or-ignore decision transition, so mixed and same-SMB execution have the
+same durable nonterminal outcome semantics.
+The matching creation ledger declares version 1 before its first relay member
+report. A coordinator-owned typed manifest normalizes and validates source
+members and serializes the same immutable checkpoint shape for both mixed
+creation directions, including same-SMB direct creation. Its creation state resolves submitted member paths,
+derives their only permitted outcomes, and identifies exact committed replays
+before direct destination writes. The coordinator validates complete
+immutable-manifest coverage and derives progress after every committed member and terminal counters from that
+ledger, leaving a relay completion payload as a checked acknowledgement rather
+than a competing counter authority. Direct same-SMB creation and both mixed
+creation relays use one manifest-validated member-commit helper after each
+physical ZIP member write. All creation manifest validators reject normalized,
+case-folded file-versus-descendant path collisions before opening an output.
+The versioned archive contract likewise defines normalized V1 creation member
+results and creation progress. Backend ledger persistence and Companion direct
+and relayed ZIP writers consume a shared corpus for idempotent terminal reports
+and invalid directory source-byte rejection. The corpus also requires both
+runtimes to reject a changed replay for an already committed member, preserving
+the write-once member-outcome invariant. Its manifest and terminal-state
+scenarios additionally require path normalization, unsafe/empty manifest
+rejection, nonzero directory-size rejection, case-folded and structural path
+collision rejection, exact replay acceptance, and complete coverage before a
+terminal summary. Companion owns this behavior through the same typed immutable
+creation manifest and in-memory outcome state used by both relay directions;
+the backend streaming adapter now resolves members directly through its typed
+creation state without a redundant manifest-entry wrapper.
+For SMB-to-local ZIP creation, each directory or file is durably acknowledged
+after its local ZIP entry commits through a distinct creation-outcome ledger;
+the backend validates that each report matches the immutable source manifest,
+ignores exact replay, and requires complete ledger coverage before accepting a
+new relay's terminal summary. This records incremental durable visibility and
+audit progress only; it does not claim resumable ZIP writing after interruption.
+Local-to-SMB ZIP creation uses the same manifest-first, member-framed protocol:
+the backend owns the live exclusive SMB ZIP writer through an operation-scoped
+direct-output binding, records a terminal outcome after each committed member,
+validates complete manifest coverage at finalization, and aborts its owned
+partial target on cancellation, failure, or backend shutdown. Its live-writer
+liveness is enforced by the same scoped streaming guard that owns phase and
+cancellation checks for all Companion relay member actions. After every upload
+is acknowledged, Companion derives its checked terminal summary from the same
+immutable source manifest rather than maintaining a duplicate counter ledger;
+the SMB-to-local direction uses its remote source manifest in the same way
+after local ZIP finalization. Its local relay ZIP writer owns only member writes
+and central-directory finalization; it no longer maintains a second aggregate
+creation-progress ledger.
 
 ## Scope And Invariants
 
@@ -46,10 +278,10 @@ and creation for SMB and local drives. ZIP is the first supported format.
 - The active Create or Extract dialog is the only operation control surface.
   Do not add an archive history, activity panel, global active-operations
   affordance, or operation re-entry UI for this release.
-- On `pagehide`, request best-effort cancellation for a backend-backed
-  operation and abort a direct-local browser request. `beforeunload` warns when
-  work is active. A reload never resumes work: it retries cancellation for a
-  stored backend operation ID and reports that the previous work was
+- On `pagehide`, request best-effort cancellation for a backend-backed or
+  direct-local execution. `beforeunload` warns when work is active. A reload
+  never resumes work: it retries cancellation for a stored backend operation ID
+  and reports that the previous work was
   interrupted. The marker contains only an operation ID and timestamp; it must
   never contain paths, credentials, manifests, or capability tokens.
 
@@ -63,12 +295,14 @@ whose heartbeat is older than 120 seconds as `failed` with
 `archive_interrupted`. It does not restart, queue, or resume that operation;
 the user must prepare a new archive action.
 
-Direct local create and extract requests do not have a backend operation ID.
-Their foreground request is controlled by an in-memory `AbortController`. An
-abort ends the browser request, but the Companion's synchronous direct handler
-may already have written output. Do not claim server-side cancellation,
-rollback, cleanup, or completion for a direct-local request after its browser
-connection is interrupted.
+Direct local creation and extraction use Companion-owned, in-memory execution
+IDs with paired-origin-scoped, revisioned progress polling and cancellation.
+Their sessions end after a short terminal-state retention period and are not
+resumable; the browser’s foreground abort requests cancellation when an
+execution ID is available. Creation cancellation is cooperative during manifest
+enumeration and between archive members; extraction cancellation is cooperative
+between archive members. Creation and extraction remain non-atomic, so
+previously written output is neither rolled back nor cleaned up.
 
 ## Storage Capabilities
 
@@ -418,8 +652,146 @@ replayed phase transitions and deduplicate source-range and chunk-write requests
 with operation-scoped idempotency keys. Reject scope mismatch, phase mismatch,
 expired credentials, and reuse of a credential after a terminal state.
 
+### Common Archive Execution Foundation
+
+Archive extraction has distinct source and destination responsibilities. The
+source owns ZIP indexing, member validation, decompression, and bounded member
+reads. The destination owns output-path containment, collision inspection and
+policy application, direct output opening, member completion, timestamps, and
+partial-output handling. Archive creation reverses the data flow: the source
+owns file enumeration and reads, while the destination owns ZIP compression and
+final archive output.
+
+Implement one versioned, language-neutral archive-operation state-machine
+specification. It is the single behavioral authority for foreground phases,
+per-member lifecycle, collision decisions, counters, cancellation, progress,
+and terminal summaries. Python and Rust have bindings for that specification;
+they do not each invent equivalent extraction or creation behavior. This is one
+shared behavioral implementation, not a shared executable binary: the backend
+must not call Companion loopback endpoints, and Companion must retain local
+filesystem ownership.
+
+Each execution has exactly one coordinator driver. It alone performs member
+traversal, applies collision and retry policy, creates decision requests, and
+advances the state machine. It does not interpret SMB or local paths, parse ZIP
+bytes, or open output files; those are adapter responsibilities. For a mixed
+operation, Companion is the driver. The backend is a remote source,
+destination, or state-store adapter: it validates authorization and filesystem
+safety and returns observations or outcomes, but does not make archive workflow
+decisions. An `ArchiveStateStore` binding persists backend-backed state in
+`ArchiveOperation`; direct-local execution uses an in-memory,
+foreground-session-scoped lifecycle store with a short TTL and explicit status
+and cancellation routes. Direct-local extraction supports checkpointed per-file
+and all-existing-file skip/replace, timestamp-aware replace-older, file and
+directory-subtree rename, and member-error retry/ignore decisions. Browser
+disconnect or reload requests best-effort cancellation
+and prevents re-entry; the session expires after its TTL or a Companion restart.
+It is never durable or resumable.
+Every execution receives an execution ID. It is an `ArchiveOperation` ID for
+durable routes and an opaque ephemeral ID for direct-local routes; only durable
+IDs may appear in backend operation endpoints or reload markers.
+
+The coordinator uses three narrow adapter roles:
+
+- `ArchiveSource` enumerates validated source entries and supplies bounded,
+  decoded member chunks with source identity and metadata.
+- `ArchiveDestination` validates final output paths, inspects existing targets,
+  executes a coordinator-selected collision action, creates direct outputs, and
+  reports committed, skipped, replaced, or partial member outcomes.
+- `ArchiveStateStore` atomically reads and writes coordinator state, including
+  phases, member outcomes, pending decisions, and progress snapshots.
+
+Every state-store mutation uses compare-and-swap on `(execution_id, revision)`
+and increments `revision`. A member outcome also carries an idempotency key.
+The state store returns the current state for a duplicate outcome and rejects a
+stale revision without modifying state. This applies to progress, cancellation,
+and decisions as well as terminal transitions.
+
+Define one versioned archive-operation protocol that contains a control plane
+and a data plane. The control plane contains manifests, member metadata,
+collision reports, member outcomes, decision requests, progress, cancellation,
+and terminal summaries. The data plane carries bounded source bytes or decoded
+member chunks. Remote control messages carry a durable operation ID; messages
+that mutate or retry member output also carry a member identity, expected phase,
+and idempotency key. Data messages carry their byte offset, length, digest, and
+source identity. Direct-local bindings use the same types without serializing
+them over HTTP.
+
+The coordinator-to-adapter API is internal. It exposes source enumeration and
+bounded reads, destination inspection and output lifecycle, and state-store
+compare-and-swap operations. A remote adapter implements those internal calls
+with the scoped protocol; an in-process adapter invokes storage directly.
+
+The backend and Companion expose one contract-compatible external execution
+lifecycle API. Their authentication, storage adapters, and durable-state
+authority differ, but each implementation supports the same semantic operations:
+
+- start an execution from an immutable `ArchiveExecutionPlan`;
+- resume an existing foreground execution after a valid decision;
+- retrieve current state, progress, and terminal result;
+- apply one validated user decision; and
+- request cancellation.
+
+The lifecycle API is capability-oriented rather than route-identical. For
+example, the backend may expose an operation-scoped HTTP route while the
+Companion exposes the same operation through its loopback API. Neither exposes
+arbitrary paths, connection IDs, member I/O primitives, or destination-output
+handles through this public execution surface.
+
+Store the normative contract at `archive-contract/v1/openapi.yaml`. This single
+machine-readable source defines the external lifecycle messages, remote adapter
+messages, error codes, binary stream media types, and schema version. Keep the
+state-transition table, checkpoint schema, and conformance fixtures beside it,
+but derive their named message fields from the OpenAPI schemas. Generate shared
+boundary types where the toolchain supports it; otherwise validate hand-written
+framework bindings against the same document in CI. Additive optional fields
+require a minor contract version; a changed transition, meaning, or required
+field requires a new major version.
+
+The protocol version, state-machine transition table, checkpoint schema, and
+language-neutral conformance corpus are normative. Python and Rust adapters are
+tested against the same scenario corpus covering collisions, `replace_older`,
+rename, partial-write retry and ignore, cancellation, progress, and terminal
+summaries. A test must demonstrate equivalent member outcomes for a same-process
+adapter invocation and a cross-process relay with the same inputs and decisions.
+
+Each content provider returns an `ArchiveSourceDescriptor` or
+`ArchiveDestinationDescriptor` from its own handles and capabilities. The
+internal archive-operation facade composes those descriptors into an immutable
+`ArchiveExecutionPlan`, then selects coordinator bindings and remote adapters.
+`contentOperations.ts` remains the sole browser-facing operation API.
+`FileBrowser` consumes normalized progress, decision, and terminal outcomes
+only; it must not select a local/SMB route, inspect connection-ID prefixes, or
+call a transport API directly.
+
+Directional code may bind source, destination, and state-store adapters, but
+must not reimplement the state machine, member traversal, collision-policy
+rules, checkpoint layout, or decision semantics.
+
+### Execution Topology
+
+| Operation | Source | Destination | Coordinator driver | State store | Adapter binding |
+| --- | --- | --- | --- | --- | --- |
+| Extract | Local ZIP | Local directory | Companion | Ephemeral local session | In-process source and destination |
+| Extract | SMB ZIP | SMB directory | Backend | `ArchiveOperation` | In-process source and destination |
+| Extract | Local ZIP | SMB directory | Companion | Scoped `ArchiveOperation` adapter | Local source, remote SMB destination |
+| Extract | SMB ZIP | Local directory | Companion | Scoped `ArchiveOperation` adapter | Remote SMB source, local destination |
+| Create | Local files | Local ZIP | Companion | Ephemeral local session | In-process source and destination |
+| Create | SMB files | SMB ZIP | Backend | `ArchiveOperation` | In-process source and destination |
+| Create | Local files | SMB ZIP | Companion | Scoped `ArchiveOperation` adapter | Local source, remote SMB destination |
+| Create | SMB files | Local ZIP | Companion | Scoped `ArchiveOperation` adapter | Remote SMB source, local destination |
+
+For mixed routes, the Companion drives the foreground coordinator because it
+can reach its local adapter and can initiate authenticated backend requests.
+The backend remains authoritative for durable state, credentials, and SMB
+adapter safety checks. The coordinator pauses after a destination collision or
+member error, returns the normalized decision request to the browser, and
+continues only after the state-store binding records a valid decision.
+
 ### Scoped Transport Contract
 
+The scoped transport contract is the remote form of the versioned
+archive-operation protocol above; it does not define a separate state machine.
 Expose archive-operation routes only through the operation scope; no transport
 route accepts an arbitrary connection/path pair. The contract includes:
 
@@ -451,12 +823,23 @@ verify the member CRC and byte count when closed, and transition to
 deleting direct output. The backend and Companion expose equivalent scoped
 contracts for the directions each can serve.
 
+The canonical purpose-scoped archive relay routes are the current compatibility
+wire surface described by `archive-contract/v1`. They translate their current
+request and response shapes to the common execution operations and may not add
+new collision, retry, checkpoint, or decision behavior independently. Replace
+them only after both bindings pass equivalent normalized contract scenarios.
+
 ## Mixed SMB/Local Operations
 
-The Companion orchestrates mixed operations because its local API is loopback
-only. The backend creates the durable operation and credential; the browser
-passes the scoped job to the authenticated Companion API; the Companion initiates
-all backend calls.
+Mixed operations select the same common coordinator with an SMB or local source
+adapter and an SMB or local destination adapter. The Companion initiates the
+cross-process transport because its local API is loopback only. The backend
+creates the durable operation and credential; the browser passes the scoped job
+to the authenticated Companion API; the Companion initiates backend calls.
+Neither mixed direction may introduce a second extraction or creation state
+machine: direction-specific code is limited to binding adapters and forwarding
+the shared versioned protocol. The archive-operation facade, not the browser UI
+or an individual content provider, selects this topology.
 
 | Source | Destination | Execution |
 | --- | --- | --- |
@@ -520,13 +903,18 @@ failed cancellation request; direct-local requests abort; neither flow resumes.
 
 Implement in this order:
 
-1. Storage capability contracts and local/SMB parity.
-2. ZIP reader, metadata index, virtual navigation, and member streaming.
-3. Same-executor direct per-member extraction and direct exclusive archive
+1. `archive-contract/v1`, contract-compatible backend and Companion archive
+  execution APIs, common coordinator bindings, and a language-neutral
+  conformance corpus for member lifecycle, collision, retry, cancellation, and
+  progress behavior.
+2. Storage capability contracts and local/SMB source and destination adapters.
+3. ZIP reader, metadata index, virtual navigation, and member streaming.
+4. Same-executor direct per-member extraction and direct exclusive archive
   creation.
-4. Foreground backend-operation lifecycle, credentials, heartbeats,
+5. Foreground backend-operation lifecycle, credentials, heartbeats,
    cancellation, interruption expiry, auditing, and error status.
-5. Mixed SMB/local workflows.
-6. Encoding override and recovery UI.
-7. Separate format adapters for TAR variants, then evaluate 7z/RAR for parity,
+6. Mixed SMB/local workflows through the shared coordinator and transport
+  adapters, including direct-local parity.
+7. Encoding override and recovery UI.
+8. Separate format adapters for TAR variants, then evaluate 7z/RAR for parity,
    streaming, dependency, licensing, and encryption support.

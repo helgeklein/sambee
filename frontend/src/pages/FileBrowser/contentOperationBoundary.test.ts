@@ -6,7 +6,10 @@ import { describe, expect, it } from "vitest";
 const frontendRoot = resolve(process.cwd());
 const protectedSourceRoots = ["src/components/FileBrowser", "src/components/Viewer", "src/pages/FileBrowser"];
 const protectedSourceFiles = ["src/pages/FileBrowser.tsx", "src/hooks/useCachedImageGallery.ts"];
-const approvedRawTransportOwners = new Set(["src/pages/FileBrowser/contentProviders.ts"]);
+const approvedRawTransportOwners = new Set([
+  "src/pages/FileBrowser/archiveExtractionExecution.ts",
+  "src/pages/FileBrowser/contentProviders.ts",
+]);
 const privateListingLoaderNames = new Set([
   "loadFiles",
   "loadPhysicalDirectory",

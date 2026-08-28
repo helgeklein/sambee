@@ -5,6 +5,7 @@
 //! used by the main Python backend for SMB shares.
 
 pub mod archive;
+pub mod archive_sessions;
 pub mod auth;
 pub mod drives;
 pub mod edit_locks;
@@ -25,6 +26,7 @@ use log::{error, info};
 use tauri::AppHandle;
 use tower_http::cors::{AllowOrigin, CorsLayer};
 
+use self::archive_sessions::ArchiveSessionManager;
 use self::auth::AuthState;
 use self::edit_locks::EditLockManager;
 use self::localization::LocalizationState;
@@ -41,6 +43,7 @@ pub struct AppState {
     pub pairing: Arc<PairingState>,
     pub localization: Arc<LocalizationState>,
     pub auth: AuthState,
+    pub archive_sessions: Arc<ArchiveSessionManager>,
     pub edit_locks: Arc<EditLockManager>,
     pub watcher: DirectoryWatcher,
 }
@@ -69,6 +72,7 @@ async fn run_server(
         pairing,
         localization,
         auth: AuthState::new(),
+        archive_sessions: Arc::new(ArchiveSessionManager::new()),
         edit_locks: Arc::new(EditLockManager::new()),
         watcher: DirectoryWatcher::new(),
     });
@@ -157,8 +161,20 @@ fn build_router(state: Arc<AppState>) -> Router {
             axum::routing::post(handlers::browse_create_archive_to_smb),
         )
         .route(
-            "/api/browse/{drive}/archive/extract",
-            axum::routing::post(handlers::browse_extract_archive),
+            "/api/browse/{drive}/archive/executions",
+            axum::routing::post(handlers::browse_start_archive_execution),
+        )
+        .route(
+            "/api/browse/{drive}/archive/executions/{execution_id}",
+            axum::routing::get(handlers::browse_get_archive_execution),
+        )
+        .route(
+            "/api/browse/{drive}/archive/executions/{execution_id}/cancellation",
+            axum::routing::post(handlers::browse_cancel_archive_execution),
+        )
+        .route(
+            "/api/browse/{drive}/archive/executions/{execution_id}/decision",
+            axum::routing::post(handlers::browse_decide_archive_execution),
         )
         .route(
             "/api/browse/{drive}/archive/extract-to-smb",

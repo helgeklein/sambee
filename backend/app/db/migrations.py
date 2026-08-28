@@ -736,6 +736,17 @@ def _apply_archive_operations_migration(connection: Connection) -> None:
         connection.execute(text(f"CREATE INDEX IF NOT EXISTS ix_archive_operations_{column} ON archive_operations ({column})"))
 
 
+def _apply_archive_operation_revision_migration(connection: Connection) -> None:
+    """Add the optimistic-concurrency revision to existing archive operations."""
+
+    inspector = inspect(connection)
+    if not inspector.has_table("archive_operations"):
+        return
+    column_names = {column["name"] for column in inspector.get_columns("archive_operations")}
+    if "revision" not in column_names:
+        connection.execute(text("ALTER TABLE archive_operations ADD COLUMN revision INTEGER NOT NULL DEFAULT 0"))
+
+
 MIGRATIONS: tuple[Migration, ...] = (
     Migration(version=1, name="ensure_connection_slugs", apply=_apply_connection_slug_migration),
     Migration(version=2, name="add_user_role_and_session_fields", apply=_apply_user_role_migration),
@@ -766,6 +777,7 @@ MIGRATIONS: tuple[Migration, ...] = (
     Migration(version=27, name="add_recent_directories", apply=_apply_recent_directories_migration),
     Migration(version=28, name="add_archive_operations", apply=_apply_archive_operations_migration),
     Migration(version=29, name="enforce_unique_edit_lock_targets", apply=_apply_edit_lock_target_uniqueness_migration),
+    Migration(version=30, name="add_archive_operation_revision", apply=_apply_archive_operation_revision_migration),
 )
 
 

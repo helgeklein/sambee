@@ -4,8 +4,48 @@ import { publishRecentFilesChanged } from "../../services/recentFilesSync";
 import type { StorageArchiveOperationCoordinator } from "../../services/storageArchiveOperations";
 import type { StorageBackendRegistry } from "../../services/storageContracts";
 import { FileType, isApiError } from "../../types";
-import type { ContentItemHandle, ContentLocation, PhysicalItemHandle, PhysicalLocation } from "./contentProviders";
+import { startZipArchiveExtraction } from "./archiveExtractionExecution";
+import type {
+  ArchiveExtractionExecution,
+  ArchiveExtractionRequest,
+  ContentItemHandle,
+  ContentLocation,
+  ContentProviderRegistry,
+  PhysicalItemHandle,
+  PhysicalLocation,
+  VirtualLocation,
+} from "./contentProviders";
 import { physicalItemHandle, physicalLocation } from "./contentProviders";
+
+export interface ArchiveExtractionAvailability {
+  available: boolean;
+  reason?: "invalid-source" | "invalid-destination" | "unsupported";
+}
+
+export function getArchiveExtractionAvailability(
+  providers: ContentProviderRegistry,
+  source: VirtualLocation,
+  destination: PhysicalLocation
+): ArchiveExtractionAvailability {
+  if (!providers.getCapabilities(source).extract) {
+    return { available: false, reason: "unsupported" };
+  }
+  if (!providers.getCapabilities(destination).mutate) {
+    return { available: false, reason: "invalid-destination" };
+  }
+  return { available: true };
+}
+
+export function startArchiveExtraction(providers: ContentProviderRegistry, request: ArchiveExtractionRequest): ArchiveExtractionExecution {
+  const availability = getArchiveExtractionAvailability(providers, request.source, request.destination);
+  if (!availability.available) {
+    throw new Error("Archive extraction is unavailable for the selected source or destination");
+  }
+  if (request.source.providerId === "zip") {
+    return startZipArchiveExtraction(request);
+  }
+  throw new Error("Archive extraction is unavailable for this content provider");
+}
 
 export type ContentOperationReason =
   | "empty-selection"
@@ -361,15 +401,15 @@ export function isPartialContainerOutputError(error: unknown): boolean {
   return isApiError(error) && error.response?.data?.code === "local_archive_creation_partial";
 }
 
-export async function recoverInterruptedContainerCreation(archiveOperations: StorageArchiveOperationCoordinator): Promise<boolean> {
+export async function recoverInterruptedArchiveOperation(archiveOperations: StorageArchiveOperationCoordinator): Promise<boolean> {
   return archiveOperations.recoverInterrupted();
 }
 
-export function cancelForegroundContainerCreationOnPageHide(archiveOperations: StorageArchiveOperationCoordinator): void {
+export function cancelForegroundArchiveOperationOnPageHide(archiveOperations: StorageArchiveOperationCoordinator): void {
   archiveOperations.cancelOnPageHide();
 }
 
-export function hasForegroundContainerCreationWork(archiveOperations: StorageArchiveOperationCoordinator): boolean {
+export function hasForegroundArchiveOperationWork(archiveOperations: StorageArchiveOperationCoordinator): boolean {
   return archiveOperations.hasForegroundWork();
 }
 

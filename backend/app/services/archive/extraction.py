@@ -1,20 +1,28 @@
 """Same-executor direct ZIP extraction without archive or member staging."""
 
 import unicodedata
-from collections.abc import AsyncIterator, Awaitable, Callable, Mapping
+from collections.abc import AsyncIterator, Awaitable, Callable, Collection, Mapping
 from dataclasses import dataclass
 from datetime import datetime
-from typing import Protocol
+from typing import Literal, Protocol, cast
 
 from app.models.file import FileInfo, FileType
 from app.services.archive.zip_reader import ArchiveFormatError, ZipEntry, ZipReader
 from app.storage.base import RandomAccessReader
 
 
-class ArchiveExtractionBackend(Protocol):
+class ArchiveExtractionSource(Protocol):
+    """Supply validated archive metadata and random-access ZIP bytes."""
+
     async def get_file_info(self, path: str) -> FileInfo: ...
 
     async def open_random_access_reader(self, path: str) -> RandomAccessReader: ...
+
+
+class ArchiveExtractionDestination(Protocol):
+    """Inspect and write direct extraction output paths."""
+
+    async def get_file_info(self, path: str) -> FileInfo: ...
 
     async def create_directory(self, path: str) -> None: ...
 
@@ -26,6 +34,10 @@ class ArchiveExtractionBackend(Protocol):
         overwrite: bool = False,
         source_mtime: datetime | None = None,
     ) -> int: ...
+
+
+class ArchiveExtractionBackend(ArchiveExtractionSource, ArchiveExtractionDestination, Protocol):
+    """Compatibility protocol for a same-executor extraction binding."""
 
 
 @dataclass(frozen=True)
@@ -45,10 +57,81 @@ class ArchiveExtractionCancelled(Exception):
 
 
 @dataclass(frozen=True)
+class ArchiveExtractionMemberError(Exception):
+    """A direct output failure that can be retried or ignored for one member."""
+
+    member_path: str
+    target_path: str
+    message: str
+
+
+@dataclass(frozen=True)
+class ArchiveExtractionDestinationResult:
+    """One normalized terminal result returned by an extraction destination."""
+
+    member_path: str
+    status: Literal["directory", "extracted", "skipped", "ignored"]
+    target_path: str
+    extracted_bytes: int = 0
+    directories_created: int = 0
+    replaced: bool = False
+    renamed: bool = False
+
+
+ArchiveExtractionMemberOutcome = ArchiveExtractionDestinationResult
+
+
+@dataclass
+class ArchiveExtractionProgress:
+    """Mutable extraction counters that can be loaded from and written to a checkpoint."""
+
+    files_extracted: int = 0
+    directories_created: int = 0
+    extracted_bytes: int = 0
+    files_skipped: int = 0
+    files_replaced: int = 0
+
+    @classmethod
+    def from_checkpoint(cls, checkpoint: Mapping[str, object]) -> "ArchiveExtractionProgress":
+        values: dict[str, int] = {}
+        for key in ("files_extracted", "directories_created", "extracted_bytes", "files_skipped", "files_replaced"):
+            value = checkpoint.get(key, 0)
+            if type(value) is not int or value < 0:
+                raise ValueError("Archive extraction checkpoint counters are invalid")
+            values[key] = value
+        return cls(**values)
+
+    def record(self, result: ArchiveExtractionDestinationResult) -> None:
+        self.directories_created += result.directories_created
+        self.extracted_bytes += result.extracted_bytes
+        if result.status == "extracted":
+            self.files_extracted += 1
+            self.files_replaced += int(result.replaced)
+        elif result.status in {"skipped", "ignored"}:
+            self.files_skipped += 1
+
+    def write_to(self, checkpoint: dict[str, object], *, preserve_absent_zero: bool = False) -> None:
+        values = {
+            "files_extracted": self.files_extracted,
+            "directories_created": self.directories_created,
+            "extracted_bytes": self.extracted_bytes,
+            "files_skipped": self.files_skipped,
+            "files_replaced": self.files_replaced,
+        }
+        for key, value in values.items():
+            if not preserve_absent_zero or key in checkpoint or value:
+                checkpoint[key] = value
+
+
+@dataclass(frozen=True)
 class ArchiveExtractionConflict:
     member_path: str
     target_path: str
     is_directory: bool = False
+    source_size: int | None = None
+    source_modified_at: datetime | str | None = None
+    target_size: int | None = None
+    target_modified_at: datetime | None = None
 
 
 class ArchiveExtractionConflicts(Exception):
@@ -103,6 +186,12 @@ def _validated_rename_targets(entries: list[ZipEntry], member_rename_targets: Ma
     return targets
 
 
+def validate_archive_rename_targets(entries: list[ZipEntry], member_rename_targets: Mapping[str, str] | None) -> dict[str, str]:
+    """Validate member output remaps with the same portable rules as extraction."""
+
+    return _validated_rename_targets(entries, member_rename_targets)
+
+
 def _archive_directory_paths(entries: list[ZipEntry]) -> set[str]:
     directories = {entry.path for entry in entries if entry.is_directory}
     for entry in entries:
@@ -136,21 +225,27 @@ def _parent_path_keys(path: str, *, include_path: bool) -> set[str]:
 
 
 async def extract_archive_to_new_paths(
-    backend: ArchiveExtractionBackend,
+    source: ArchiveExtractionSource,
     *,
+    destination: ArchiveExtractionDestination | None = None,
     archive_path: str,
     destination_root: str,
     existing_file_policy: str | None = None,
     member_collision_actions: Mapping[str, str] | None = None,
     member_rename_targets: Mapping[str, str] | None = None,
+    ignored_members: Collection[str] = (),
+    completed_members: Collection[str] = (),
+    on_member_completed: Callable[[ArchiveExtractionMemberOutcome], Awaitable[None]] | None = None,
     is_cancelled: Callable[[], Awaitable[bool]] | None = None,
 ) -> ArchiveExtractionResult:
-    """Extract safe, readable ZIP members without replacing existing files."""
+    """Extract safe, readable ZIP members through independent source and destination adapters."""
 
-    archive_info = await backend.get_file_info(archive_path)
+    if destination is None:
+        destination = cast(ArchiveExtractionDestination, source)
+    archive_info = await source.get_file_info(archive_path)
     if archive_info.type != FileType.FILE or archive_info.size is None:
         raise ArchiveFormatError("Archive extraction source must be a regular file")
-    random_reader = await backend.open_random_access_reader(archive_path)
+    random_reader = await source.open_random_access_reader(archive_path)
     try:
         zip_reader = ZipReader(random_reader, archive_info.size)
         entries = await zip_reader.entries()
@@ -160,56 +255,103 @@ async def extract_archive_to_new_paths(
             raise ArchiveFormatError("Archive extraction contains a symbolic link or unsupported special member")
         rename_targets = _validated_rename_targets(entries, member_rename_targets)
         conflicts = await _preflight_file_conflicts(
-            backend, entries, destination_root, existing_file_policy, member_collision_actions, rename_targets
+            destination,
+            entries,
+            destination_root,
+            existing_file_policy,
+            member_collision_actions,
+            rename_targets,
+            ignored_members,
+            completed_members,
         )
         if conflicts:
             raise ArchiveExtractionConflicts(conflicts)
         created_directories: set[str] = set()
-        files_extracted = 0
-        extracted_bytes = 0
-        files_skipped = 0
-        files_replaced = 0
+        progress = ArchiveExtractionProgress()
         skipped_members: list[str] = []
         replaced_members: list[str] = []
         renamed_members: list[str] = []
         for entry in entries:
             if is_cancelled is not None and await is_cancelled():
                 raise ArchiveExtractionCancelled("Archive extraction was cancelled")
+            if entry.path in completed_members:
+                continue
             if entry.is_directory:
-                await _ensure_directory(backend, _target_path(destination_root, entry.path, rename_targets), created_directories)
+                target_path = _target_path(destination_root, entry.path, rename_targets)
+                directories_before = len(created_directories)
+                await _ensure_directory(destination, target_path, created_directories)
+                result = ArchiveExtractionDestinationResult(
+                    member_path=entry.path,
+                    status="directory",
+                    target_path=target_path,
+                    directories_created=len(created_directories) - directories_before,
+                )
+                _record_extraction_destination_result(progress, result, skipped_members, replaced_members, renamed_members)
+                await _notify_member_completed(on_member_completed, result)
                 continue
             if entry.encrypted or entry.compression_method not in {0, 8, 12}:
                 continue
+            if entry.path in ignored_members:
+                result = ArchiveExtractionDestinationResult(
+                    entry.path, "ignored", _target_path(destination_root, entry.path, rename_targets)
+                )
+                _record_extraction_destination_result(progress, result, skipped_members, replaced_members, renamed_members)
+                await _notify_member_completed(on_member_completed, result)
+                continue
             target_path = _target_path(destination_root, entry.path, rename_targets)
+            directories_before = len(created_directories)
             parent = target_path.rpartition("/")[0]
             if parent:
-                await _ensure_directory(backend, parent, created_directories)
-            overwrite = await _should_overwrite_existing(backend, entry, target_path, existing_file_policy, member_collision_actions)
-            if overwrite is None:
-                files_skipped += 1
-                skipped_members.append(entry.path)
-                continue
-            written = await backend.write_file_from_stream(
+                await _ensure_directory(destination, parent, created_directories)
+            overwrite = await _should_overwrite_existing(
+                destination,
+                entry,
                 target_path,
-                _cancellable_chunks(zip_reader.stream_member(entry.path), is_cancelled),
-                overwrite=overwrite,
-                source_mtime=entry.modified_at,
+                existing_file_policy,
+                member_collision_actions,
             )
-            if written != entry.uncompressed_size:
-                raise ArchiveFormatError("Archive extraction output size does not match member metadata")
-            files_extracted += 1
-            extracted_bytes += written
-            if overwrite:
-                files_replaced += 1
-                replaced_members.append(entry.path)
-            if _remapped_member_path(entry.path, rename_targets) != entry.path:
-                renamed_members.append(entry.path)
+            if overwrite is None:
+                result = ArchiveExtractionDestinationResult(
+                    entry.path,
+                    "skipped",
+                    target_path,
+                    directories_created=len(created_directories) - directories_before,
+                )
+                _record_extraction_destination_result(progress, result, skipped_members, replaced_members, renamed_members)
+                await _notify_member_completed(on_member_completed, result)
+                continue
+            try:
+                written = await destination.write_file_from_stream(
+                    target_path,
+                    _cancellable_chunks(zip_reader.stream_member(entry.path), is_cancelled),
+                    overwrite=overwrite,
+                    source_mtime=entry.modified_at,
+                )
+                if written != entry.uncompressed_size:
+                    raise ArchiveFormatError("Archive extraction output size does not match member metadata")
+            except ArchiveExtractionCancelled:
+                raise
+            except ArchiveExtractionConflicts:
+                raise
+            except Exception as exc:
+                raise ArchiveExtractionMemberError(entry.path, target_path, str(exc)) from exc
+            result = ArchiveExtractionDestinationResult(
+                entry.path,
+                "extracted",
+                target_path,
+                extracted_bytes=written,
+                directories_created=len(created_directories) - directories_before,
+                replaced=overwrite,
+                renamed=_remapped_member_path(entry.path, rename_targets) != entry.path,
+            )
+            _record_extraction_destination_result(progress, result, skipped_members, replaced_members, renamed_members)
+            await _notify_member_completed(on_member_completed, result)
         return ArchiveExtractionResult(
-            files_extracted=files_extracted,
-            directories_created=len(created_directories),
-            extracted_bytes=extracted_bytes,
-            files_skipped=files_skipped,
-            files_replaced=files_replaced,
+            files_extracted=progress.files_extracted,
+            directories_created=progress.directories_created,
+            extracted_bytes=progress.extracted_bytes,
+            files_skipped=progress.files_skipped,
+            files_replaced=progress.files_replaced,
             skipped_members=tuple(skipped_members),
             replaced_members=tuple(replaced_members),
             renamed_members=tuple(renamed_members),
@@ -219,18 +361,20 @@ async def extract_archive_to_new_paths(
 
 
 async def _preflight_file_conflicts(
-    backend: ArchiveExtractionBackend,
+    destination: ArchiveExtractionDestination,
     entries: list[ZipEntry],
     destination_root: str,
     existing_file_policy: str | None,
     member_collision_actions: Mapping[str, str] | None,
     member_rename_targets: Mapping[str, str],
+    ignored_members: Collection[str],
+    completed_members: Collection[str],
 ) -> list[ArchiveExtractionConflict]:
     conflicts: list[ArchiveExtractionConflict] = []
     for directory_path in _archive_directory_paths(entries):
         target_path = _target_path(destination_root, directory_path, member_rename_targets)
         try:
-            existing = await backend.get_file_info(target_path)
+            existing = await destination.get_file_info(target_path)
         except FileNotFoundError:
             continue
         if existing.type != FileType.DIRECTORY:
@@ -238,9 +382,11 @@ async def _preflight_file_conflicts(
     for entry in entries:
         if entry.is_directory or entry.encrypted or entry.compression_method not in {0, 8, 12}:
             continue
+        if entry.path in ignored_members or entry.path in completed_members:
+            continue
         target_path = _target_path(destination_root, entry.path, member_rename_targets)
         try:
-            existing = await backend.get_file_info(target_path)
+            existing = await destination.get_file_info(target_path)
         except FileNotFoundError:
             continue
         if existing.type != FileType.FILE:
@@ -251,19 +397,54 @@ async def _preflight_file_conflicts(
             "replace_all",
             "replace_older",
         }:
-            conflicts.append(ArchiveExtractionConflict(member_path=entry.path, target_path=target_path))
+            conflicts.append(
+                ArchiveExtractionConflict(
+                    member_path=entry.path,
+                    target_path=target_path,
+                    source_size=entry.uncompressed_size,
+                    source_modified_at=entry.modified_at,
+                    target_size=existing.size,
+                    target_modified_at=existing.modified_at,
+                )
+            )
     return conflicts
 
 
+async def _notify_member_completed(
+    callback: Callable[[ArchiveExtractionMemberOutcome], Awaitable[None]] | None,
+    outcome: ArchiveExtractionMemberOutcome,
+) -> None:
+    if callback is not None:
+        await callback(outcome)
+
+
+def _record_extraction_destination_result(
+    progress: ArchiveExtractionProgress,
+    result: ArchiveExtractionDestinationResult,
+    skipped_members: list[str],
+    replaced_members: list[str],
+    renamed_members: list[str],
+) -> None:
+    """Accumulate the common extraction summary from one destination result."""
+
+    progress.record(result)
+    if result.status in {"skipped", "ignored"}:
+        skipped_members.append(result.member_path)
+    if result.replaced:
+        replaced_members.append(result.member_path)
+    if result.renamed:
+        renamed_members.append(result.member_path)
+
+
 async def _should_overwrite_existing(
-    backend: ArchiveExtractionBackend,
+    destination: ArchiveExtractionDestination,
     entry: ZipEntry,
     target_path: str,
     existing_file_policy: str | None,
     member_collision_actions: Mapping[str, str] | None,
 ) -> bool | None:
     try:
-        existing = await backend.get_file_info(target_path)
+        existing = await destination.get_file_info(target_path)
     except FileNotFoundError:
         return False
     if existing.type != FileType.FILE:
@@ -296,7 +477,7 @@ def _is_strictly_newer(member_modified_at: object | None, destination_modified_a
 
 
 async def _ensure_directory(
-    backend: ArchiveExtractionBackend,
+    destination: ArchiveExtractionDestination,
     path: str,
     created_directories: set[str],
 ) -> None:
@@ -308,9 +489,9 @@ async def _ensure_directory(
         if current in created_directories:
             continue
         try:
-            await backend.create_directory(current)
+            await destination.create_directory(current)
         except FileExistsError:
-            info = await backend.get_file_info(current)
+            info = await destination.get_file_info(current)
             if info.type != FileType.DIRECTORY:
                 raise ArchiveFormatError("Archive extraction destination has a file/directory conflict")
         created_directories.add(current)

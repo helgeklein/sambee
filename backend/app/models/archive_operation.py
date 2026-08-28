@@ -46,6 +46,7 @@ class ArchiveOperation(SQLModel, table=True):
     destination_connection_id: str = Field(default="", index=True)
     destination_path: str = Field(default="")
     manifest_hash: str = Field(default="", index=True)
+    revision: int = Field(default=0, ge=0)
     plan_json: str = Field(default="{}")
     checkpoint_json: str = Field(default="{}")
     pending_decision_json: str | None = Field(default=None)
@@ -76,6 +77,7 @@ class ArchiveOperationRead(SQLModel):
     destination_connection_id: str
     destination_path: str
     manifest_hash: str
+    revision: int
     checkpoint_json: str
     pending_decision_json: str | None
     collision_policy: str | None
@@ -89,6 +91,7 @@ class ArchiveOperationRead(SQLModel):
 class ArchiveOperationTransition(SQLModel):
     expected_phase: ArchiveOperationPhase
     next_phase: ArchiveOperationPhase
+    expected_revision: int | None = Field(default=None, ge=0)
 
 
 class ArchiveCompanionSession(SQLModel):
@@ -105,6 +108,7 @@ class ArchiveCompanionManifestEntry(SQLModel):
     path: str
     is_directory: bool
     uncompressed_size: int
+    modified_at: datetime | None = None
 
 
 class ArchiveCompanionExtractionManifest(SQLModel):
@@ -115,11 +119,38 @@ class ArchiveCompanionExtractionManifest(SQLModel):
 
 
 class ArchiveCompanionExtractionSummary(SQLModel):
-    """Counts reported by the paired Companion after local extraction."""
+    """Execution-level local destination state reported after member outcomes commit."""
 
-    files_extracted: int = Field(ge=0)
+    destination_root_created: bool
+
+
+class ArchiveCompanionExtractionMemberCompletion(SQLModel):
+    """One local output member completed by the scoped Companion executor."""
+
+    member_path: str = Field(min_length=1)
+    status: Literal["directory", "extracted", "skipped", "ignored"]
+    target_path: str = Field(min_length=1)
     directories_created: int = Field(ge=0)
     extracted_bytes: int = Field(ge=0)
+    replaced: bool = False
+    renamed: bool = False
+
+
+class ArchiveCompanionExtractionCollision(SQLModel):
+    """An existing local output detected before Companion opens a member target."""
+
+    member_path: str = Field(min_length=1)
+    is_directory: bool
+    target_size: int | None = Field(default=None, ge=0)
+    target_modified_at: datetime | None = None
+
+
+class ArchiveCompanionExtractionMemberError(SQLModel):
+    """A local member write failure that can be retried or explicitly ignored."""
+
+    member_path: str = Field(min_length=1)
+    message: str = Field(min_length=1, max_length=500)
+    partial_output: bool
 
 
 class ArchiveCompanionFailure(SQLModel):
@@ -145,6 +176,20 @@ class ArchiveCompanionCreationManifest(SQLModel):
     entries: list[ArchiveCompanionCreationManifestEntry]
 
 
+class ArchiveCompanionCreationSourceManifestEntry(SQLModel):
+    """One validated local source member to be committed by the SMB ZIP writer."""
+
+    archive_path: str = Field(min_length=1)
+    is_directory: bool
+    source_size: int = Field(ge=0)
+
+
+class ArchiveCompanionCreationSourceManifest(SQLModel):
+    """Complete local-source manifest for a member-framed SMB ZIP relay."""
+
+    entries: list[ArchiveCompanionCreationSourceManifestEntry]
+
+
 class ArchiveCompanionCreationSummary(SQLModel):
     """Counts reported by the paired Companion after writing a local ZIP."""
 
@@ -153,7 +198,16 @@ class ArchiveCompanionCreationSummary(SQLModel):
     source_bytes: int = Field(ge=0)
 
 
+class ArchiveCompanionCreationMemberCompletion(SQLModel):
+    """One local ZIP member durably committed from the validated SMB manifest."""
+
+    archive_path: str = Field(min_length=1)
+    status: Literal["directory", "created"]
+    source_bytes: int = Field(ge=0)
+
+
 class ArchiveExtractionDecision(SQLModel):
-    action: Literal["skip", "skip_all", "replace", "replace_all", "replace_older", "rename", "cancel"]
+    action: Literal["skip", "skip_all", "replace", "replace_all", "replace_older", "rename", "retry", "ignore", "cancel"]
     member_path: str | None = None
     target_path: str | None = None
+    expected_revision: int | None = Field(default=None, ge=0)

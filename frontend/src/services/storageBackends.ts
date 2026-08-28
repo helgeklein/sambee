@@ -1,6 +1,5 @@
 import type { EditLockInfo } from "../types";
 import api from "./api";
-import companionService from "./companion";
 import type {
   ArchiveCreationOperations,
   ArchiveSourceOperations,
@@ -42,6 +41,45 @@ function archiveTargetPath(request: StorageArchiveCreateRequest): string {
 function localDriveId(target: StorageTarget): string {
   if (target.kind !== "local") throw new Error("Local storage backend requires a local target");
   return target.driveId;
+}
+
+async function createLocalArchiveExecution(
+  driveId: string,
+  sourcePaths: string[],
+  targetPath: string,
+  signal?: AbortSignal
+): Promise<StorageOperationResult> {
+  let execution = await api.startLocalArchiveCreation(`local-drive:${driveId}`, sourcePaths, targetPath);
+  let cancellation: Promise<void> | null = null;
+  const requestCancellation = (): Promise<void> => {
+    cancellation ??= (async () => {
+      execution = await api.cancelLocalArchiveExecutionWithRevisionRetry(
+        `local-drive:${driveId}`,
+        execution.execution_id,
+        execution.revision
+      );
+    })();
+    return cancellation;
+  };
+  const handleAbort = () => {
+    void requestCancellation().catch(() => undefined);
+  };
+  signal?.addEventListener("abort", handleAbort, { once: true });
+  try {
+    if (signal?.aborted) {
+      await requestCancellation();
+    }
+    execution = await api.waitForLocalArchiveExecution(`local-drive:${driveId}`, execution.execution_id);
+    if (execution.phase === "cancelled") {
+      return { status: "cancelled", effects: { source: "unknown", destination: "unknown" }, error: { code: "cancelled", detail: null } };
+    }
+    if (execution.phase === "failed") {
+      throw new Error(execution.error ?? "Local archive creation failed");
+    }
+    return COMPLETED;
+  } finally {
+    signal?.removeEventListener("abort", handleAbort);
+  }
 }
 
 function assertOwned(kind: StorageTarget["kind"], ...targets: ResolvedStorageTarget[]): void {
@@ -230,13 +268,12 @@ export class CompanionLocalBackend extends ApiStorageBackend {
   readonly archiveCreation: ArchiveCreationOperations = {
     createLocally: async (request, signal) => {
       assertOwned(this.kind, ...request.sources.map((source) => source.resolvedTarget), request.destination.resolvedTarget);
-      await companionService.createArchive(
+      return createLocalArchiveExecution(
         localDriveId(request.sources[0]!.target),
         request.sources.map((source) => source.path),
         archiveTargetPath(request),
         signal
       );
-      return COMPLETED;
     },
     createLocalSourceToSmb: async (request, preparation) => {
       assertOwned(this.kind, ...request.sources.map((source) => source.resolvedTarget));

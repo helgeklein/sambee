@@ -6,7 +6,7 @@ from pathlib import Path
 
 import pytest
 
-from app.services.archive.zip_reader import ZipReader
+from app.services.archive.zip_reader import ArchiveFormatError, ZipReader
 
 CORPUS_ROOT = Path(__file__).resolve().parents[2] / "archive_testdata"
 
@@ -31,6 +31,11 @@ async def test_v1_zip_reader_conformance_corpus() -> None:
         fixture_path = CORPUS_ROOT / fixture["name"]
         data = fixture_path.read_bytes()
         assert hashlib.sha256(data).hexdigest() == fixture["sha256"]
+        if fixture.get("expected_error") == "format_error":
+            with pytest.raises(ArchiveFormatError):
+                reader = ZipReader(FileRandomAccessReader(fixture_path), len(data))
+                await reader.entries()
+            continue
         reader = ZipReader(FileRandomAccessReader(fixture_path), len(data))
         entries = await reader.entries()
         expected_entries = fixture["entries"]

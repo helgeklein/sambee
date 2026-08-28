@@ -1,0 +1,1045 @@
+//! Short-lived lifecycle state for Companion-owned local archive executions.
+
+use std::collections::HashMap;
+use std::path::PathBuf;
+use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::Arc;
+use std::time::{Duration, Instant};
+
+use tokio::sync::{mpsc, Mutex};
+use uuid::Uuid;
+
+use super::archive::{
+    build_local_archive_manifest_with_cancellation, create_local_archive_with_cancellation_and_progress,
+    extract_local_archive_with_checkpoint_and_progress, validate_local_extraction_rename_target, LocalArchiveCreationResult,
+    LocalArchiveError, LocalArchiveExtractionCheckpoint, LocalArchiveExtractionCollision, LocalArchiveExtractionCollisionAction,
+    LocalArchiveExtractionMemberError, LocalArchiveExtractionResult, LocalArchiveExtractionRunResult,
+};
+use super::errors::ApiError;
+
+pub const ARCHIVE_SESSION_TIMEOUT: Duration = Duration::from_secs(120);
+pub const ARCHIVE_SESSION_STALE_REVISION_CODE: &str = "archive_execution_stale_revision";
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum ArchiveSessionKind {
+    Create,
+    Extract,
+}
+
+impl ArchiveSessionKind {
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Self::Create => "create",
+            Self::Extract => "extract",
+        }
+    }
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum ArchiveSessionPhase {
+    Accepted,
+    Streaming,
+    AwaitingUserDecision,
+    Completed,
+    Cancelled,
+    Failed,
+}
+
+impl ArchiveSessionPhase {
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Self::Accepted => "accepted",
+            Self::Streaming => "streaming",
+            Self::AwaitingUserDecision => "awaiting_user_decision",
+            Self::Completed => "completed",
+            Self::Cancelled => "cancelled",
+            Self::Failed => "failed",
+        }
+    }
+
+    fn is_terminal(self) -> bool {
+        matches!(self, Self::Completed | Self::Cancelled | Self::Failed)
+    }
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct ArchiveSessionPendingDecision {
+    pub member_path: String,
+    pub target_path: Option<String>,
+    pub is_directory: bool,
+    pub member_error: Option<LocalArchiveExtractionMemberError>,
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum ArchiveSessionProgress {
+    Creation(LocalArchiveCreationResult),
+    Extraction(LocalArchiveExtractionResult),
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum ArchiveSessionDecisionAction {
+    Skip,
+    SkipAll,
+    Replace,
+    ReplaceAll,
+    ReplaceOlder,
+    Rename,
+    Retry,
+    Ignore,
+}
+
+enum ArchiveSessionCompletion {
+    Completed(ArchiveSessionProgress),
+    AwaitingCollision {
+        checkpoint: LocalArchiveExtractionCheckpoint,
+        collision: LocalArchiveExtractionCollision,
+    },
+    AwaitingMemberError {
+        checkpoint: LocalArchiveExtractionCheckpoint,
+        error: LocalArchiveExtractionMemberError,
+    },
+}
+
+#[derive(Clone, Debug)]
+pub struct ArchiveSessionStatus {
+    pub execution_id: String,
+    pub kind: ArchiveSessionKind,
+    pub phase: ArchiveSessionPhase,
+    pub revision: u64,
+    pub cancellation_requested: bool,
+    pub progress: ArchiveSessionProgress,
+    pub result: Option<ArchiveSessionProgress>,
+    pub error: Option<String>,
+    pub pending_decision: Option<ArchiveSessionPendingDecision>,
+}
+
+#[derive(Clone)]
+enum ArchiveSessionWork {
+    Creation { source_paths: Vec<PathBuf>, target_path: PathBuf },
+    Extraction { archive_path: PathBuf, destination_path: PathBuf },
+}
+
+impl ArchiveSessionWork {
+    fn kind(&self) -> ArchiveSessionKind {
+        match self {
+            Self::Creation { .. } => ArchiveSessionKind::Create,
+            Self::Extraction { .. } => ArchiveSessionKind::Extract,
+        }
+    }
+
+    fn initial_progress(&self) -> ArchiveSessionProgress {
+        match self {
+            Self::Creation { .. } => ArchiveSessionProgress::Creation(LocalArchiveCreationResult {
+                files_created: 0,
+                directories_created: 0,
+                source_bytes: 0,
+            }),
+            Self::Extraction { .. } => ArchiveSessionProgress::Extraction(LocalArchiveExtractionResult {
+                files_extracted: 0,
+                directories_created: 0,
+                extracted_bytes: 0,
+                files_skipped: 0,
+                files_replaced: 0,
+                files_failed: 0,
+                partial_members: 0,
+            }),
+        }
+    }
+}
+
+struct ArchiveSession {
+    execution_id: String,
+    drive: String,
+    owner_origin: String,
+    kind: ArchiveSessionKind,
+    phase: ArchiveSessionPhase,
+    revision: u64,
+    drive_root: PathBuf,
+    work: ArchiveSessionWork,
+    extraction_checkpoint: Option<LocalArchiveExtractionCheckpoint>,
+    cancellation_requested: Arc<AtomicBool>,
+    progress: ArchiveSessionProgress,
+    result: Option<ArchiveSessionProgress>,
+    error: Option<String>,
+    pending_decision: Option<ArchiveSessionPendingDecision>,
+    expires_at: Option<Instant>,
+}
+
+impl ArchiveSession {
+    fn status(&self) -> ArchiveSessionStatus {
+        ArchiveSessionStatus {
+            execution_id: self.execution_id.clone(),
+            kind: self.kind,
+            phase: self.phase,
+            revision: self.revision,
+            cancellation_requested: self.cancellation_requested.load(Ordering::Acquire),
+            progress: self.progress,
+            result: self.result.clone(),
+            error: self.error.clone(),
+            pending_decision: self.pending_decision.clone(),
+        }
+    }
+
+    fn complete(&mut self, result: Result<ArchiveSessionCompletion, LocalArchiveError>) {
+        match result {
+            Ok(ArchiveSessionCompletion::Completed(result)) => {
+                self.progress = result;
+                self.phase = ArchiveSessionPhase::Completed;
+                self.result = Some(result);
+            }
+            Ok(ArchiveSessionCompletion::AwaitingCollision { checkpoint, collision }) => {
+                self.progress = ArchiveSessionProgress::Extraction(checkpoint.result());
+                self.extraction_checkpoint = Some(checkpoint);
+                self.pending_decision = Some(ArchiveSessionPendingDecision {
+                    member_path: collision.member_path,
+                    target_path: Some(collision.target_path),
+                    is_directory: collision.is_directory,
+                    member_error: None,
+                });
+                self.phase = ArchiveSessionPhase::AwaitingUserDecision;
+                self.revision += 1;
+                return;
+            }
+            Ok(ArchiveSessionCompletion::AwaitingMemberError { checkpoint, error }) => {
+                self.progress = ArchiveSessionProgress::Extraction(checkpoint.result());
+                self.extraction_checkpoint = Some(checkpoint);
+                self.pending_decision = Some(ArchiveSessionPendingDecision {
+                    member_path: error.member_path.clone(),
+                    target_path: None,
+                    is_directory: false,
+                    member_error: Some(error),
+                });
+                self.phase = ArchiveSessionPhase::AwaitingUserDecision;
+                self.revision += 1;
+                return;
+            }
+            Err(LocalArchiveError::Cancelled) => {
+                self.phase = ArchiveSessionPhase::Cancelled;
+            }
+            Err(error) => {
+                self.phase = ArchiveSessionPhase::Failed;
+                self.error = Some(error.to_string());
+            }
+        }
+        self.revision += 1;
+        self.expires_at = Some(Instant::now() + ARCHIVE_SESSION_TIMEOUT);
+    }
+}
+
+pub struct ArchiveSessionManager {
+    sessions: Mutex<HashMap<String, ArchiveSession>>,
+}
+
+impl ArchiveSessionManager {
+    pub fn new() -> Self {
+        Self {
+            sessions: Mutex::new(HashMap::new()),
+        }
+    }
+
+    fn remove_expired(sessions: &mut HashMap<String, ArchiveSession>) {
+        let now = Instant::now();
+        sessions.retain(|_, session| !session.phase.is_terminal() || session.expires_at.is_some_and(|expires_at| expires_at > now));
+    }
+
+    pub async fn create_extraction(
+        &self,
+        drive: String,
+        owner_origin: String,
+        drive_root: PathBuf,
+        archive_path: PathBuf,
+        destination_path: PathBuf,
+    ) -> ArchiveSessionStatus {
+        self.create(
+            drive,
+            owner_origin,
+            drive_root,
+            ArchiveSessionWork::Extraction {
+                archive_path,
+                destination_path,
+            },
+        )
+        .await
+    }
+
+    pub async fn create_creation(
+        &self,
+        drive: String,
+        owner_origin: String,
+        drive_root: PathBuf,
+        source_paths: Vec<PathBuf>,
+        target_path: PathBuf,
+    ) -> ArchiveSessionStatus {
+        self.create(
+            drive,
+            owner_origin,
+            drive_root,
+            ArchiveSessionWork::Creation { source_paths, target_path },
+        )
+        .await
+    }
+
+    async fn create(&self, drive: String, owner_origin: String, drive_root: PathBuf, work: ArchiveSessionWork) -> ArchiveSessionStatus {
+        let mut sessions = self.sessions.lock().await;
+        Self::remove_expired(&mut sessions);
+        let execution_id = Uuid::new_v4().to_string();
+        let session = ArchiveSession {
+            execution_id: execution_id.clone(),
+            drive,
+            owner_origin,
+            kind: work.kind(),
+            phase: ArchiveSessionPhase::Accepted,
+            revision: 0,
+            drive_root,
+            progress: work.initial_progress(),
+            work,
+            extraction_checkpoint: None,
+            cancellation_requested: Arc::new(AtomicBool::new(false)),
+            result: None,
+            error: None,
+            pending_decision: None,
+            expires_at: None,
+        };
+        let status = session.status();
+        sessions.insert(execution_id, session);
+        status
+    }
+
+    pub async fn get(&self, drive: &str, owner_origin: &str, execution_id: &str) -> Result<ArchiveSessionStatus, ApiError> {
+        let mut sessions = self.sessions.lock().await;
+        Self::remove_expired(&mut sessions);
+        sessions
+            .get(execution_id)
+            .filter(|session| session.drive == drive && session.owner_origin == owner_origin)
+            .map(ArchiveSession::status)
+            .ok_or_else(|| ApiError::NotFound("Archive execution not found or expired".to_string()))
+    }
+
+    pub async fn start(self: Arc<Self>, execution_id: &str) -> Result<(), ApiError> {
+        let (drive_root, work, cancellation_requested, checkpoint) = {
+            let mut sessions = self.sessions.lock().await;
+            Self::remove_expired(&mut sessions);
+            let session = sessions
+                .get_mut(execution_id)
+                .ok_or_else(|| ApiError::NotFound("Archive execution not found or expired".to_string()))?;
+            if session.phase != ArchiveSessionPhase::Accepted {
+                return Err(ApiError::conflict_message("Archive execution has already started"));
+            }
+            session.phase = ArchiveSessionPhase::Streaming;
+            session.revision += 1;
+            (
+                session.drive_root.clone(),
+                session.work.clone(),
+                session.cancellation_requested.clone(),
+                session.extraction_checkpoint.take(),
+            )
+        };
+        self.spawn_worker(execution_id.to_string(), drive_root, work, cancellation_requested, checkpoint);
+        Ok(())
+    }
+
+    fn spawn_worker(
+        self: Arc<Self>,
+        execution_id: String,
+        drive_root: PathBuf,
+        work: ArchiveSessionWork,
+        cancellation_requested: Arc<AtomicBool>,
+        checkpoint: Option<LocalArchiveExtractionCheckpoint>,
+    ) {
+        let manager = self.clone();
+        tokio::spawn(async move {
+            let (progress_sender, mut progress_receiver) = mpsc::unbounded_channel();
+            let mut archive_task = tokio::task::spawn_blocking(move || match work {
+                ArchiveSessionWork::Creation { source_paths, target_path } => {
+                    if cancellation_requested.load(Ordering::Acquire) {
+                        return Err(LocalArchiveError::Cancelled);
+                    }
+                    let entries = build_local_archive_manifest_with_cancellation(&source_paths, &target_path, || {
+                        cancellation_requested.load(Ordering::Acquire)
+                    })?;
+                    create_local_archive_with_cancellation_and_progress(
+                        &drive_root,
+                        &target_path,
+                        &entries,
+                        || cancellation_requested.load(Ordering::Acquire),
+                        |progress| {
+                            let _ = progress_sender.send(ArchiveSessionProgress::Creation(progress));
+                        },
+                    )
+                    .map(ArchiveSessionProgress::Creation)
+                    .map(ArchiveSessionCompletion::Completed)
+                }
+                ArchiveSessionWork::Extraction {
+                    archive_path,
+                    destination_path,
+                } => extract_local_archive_with_checkpoint_and_progress(
+                    &drive_root,
+                    &archive_path,
+                    &destination_path,
+                    checkpoint.unwrap_or_default(),
+                    || cancellation_requested.load(Ordering::Acquire),
+                    |progress| {
+                        let _ = progress_sender.send(ArchiveSessionProgress::Extraction(progress));
+                    },
+                )
+                .map(|result| match result {
+                    LocalArchiveExtractionRunResult::Completed(checkpoint) => {
+                        ArchiveSessionCompletion::Completed(ArchiveSessionProgress::Extraction(checkpoint.result()))
+                    }
+                    LocalArchiveExtractionRunResult::AwaitingCollision { checkpoint, collision } => {
+                        ArchiveSessionCompletion::AwaitingCollision { checkpoint, collision }
+                    }
+                    LocalArchiveExtractionRunResult::AwaitingMemberError { checkpoint, error } => {
+                        ArchiveSessionCompletion::AwaitingMemberError { checkpoint, error }
+                    }
+                }),
+            });
+            let result = loop {
+                tokio::select! {
+                    Some(progress) = progress_receiver.recv() => manager.update_progress(&execution_id, progress).await,
+                    result = &mut archive_task => {
+                        break result
+                            .map_err(|error| LocalArchiveError::Io(std::io::Error::other(format!("Archive execution task failed: {error}"))))
+                            .and_then(|result| result);
+                    }
+                }
+            };
+            manager.complete(&execution_id, result).await;
+        });
+    }
+
+    pub async fn decide(
+        self: Arc<Self>,
+        drive: &str,
+        owner_origin: &str,
+        execution_id: &str,
+        expected_revision: u64,
+        member_path: String,
+        action: ArchiveSessionDecisionAction,
+        target_path: Option<String>,
+    ) -> Result<ArchiveSessionStatus, ApiError> {
+        let (drive_root, work, cancellation_requested, checkpoint, status) = {
+            let mut sessions = self.sessions.lock().await;
+            Self::remove_expired(&mut sessions);
+            let session = sessions
+                .get_mut(execution_id)
+                .filter(|session| session.drive == drive && session.owner_origin == owner_origin)
+                .ok_or_else(|| ApiError::NotFound("Archive execution not found or expired".to_string()))?;
+            if session.revision != expected_revision {
+                return Err(ApiError::conflict_code(
+                    "Archive execution changed before the decision could be applied",
+                    ARCHIVE_SESSION_STALE_REVISION_CODE,
+                ));
+            }
+            if session.phase != ArchiveSessionPhase::AwaitingUserDecision {
+                return Err(ApiError::conflict_message("Archive execution is not awaiting a user decision"));
+            }
+            let pending_decision = session
+                .pending_decision
+                .as_ref()
+                .ok_or_else(|| ApiError::Internal("Archive extraction decision details are unavailable".to_string()))?;
+            if pending_decision.member_path != member_path {
+                return Err(ApiError::conflict_message("Archive decision does not match the pending member"));
+            }
+            let is_member_error = pending_decision.member_error.is_some();
+            let is_directory = pending_decision.is_directory;
+            if !matches!(
+                (is_member_error, action),
+                (false, ArchiveSessionDecisionAction::Skip)
+                    | (false, ArchiveSessionDecisionAction::SkipAll)
+                    | (false, ArchiveSessionDecisionAction::Replace)
+                    | (false, ArchiveSessionDecisionAction::ReplaceAll)
+                    | (false, ArchiveSessionDecisionAction::ReplaceOlder)
+                    | (false, ArchiveSessionDecisionAction::Rename)
+                    | (true, ArchiveSessionDecisionAction::Retry)
+                    | (true, ArchiveSessionDecisionAction::Ignore)
+            ) {
+                return Err(ApiError::conflict_message("Archive decision is not allowed for the pending member"));
+            }
+            if is_directory && !matches!(action, ArchiveSessionDecisionAction::Rename) {
+                return Err(ApiError::conflict_message("Directory collisions may only be resolved by renaming"));
+            }
+            let rename_target = if matches!(action, ArchiveSessionDecisionAction::Rename) {
+                Some(target_path.ok_or_else(|| ApiError::BadRequest("Archive rename decisions require a target path".to_string()))?)
+            } else {
+                if target_path.is_some() {
+                    return Err(ApiError::BadRequest(
+                        "Only archive rename decisions may include a target path".to_string(),
+                    ));
+                }
+                None
+            };
+            if let ArchiveSessionDecisionAction::Rename = action {
+                let (archive_path, extraction_checkpoint) = match (&session.work, session.extraction_checkpoint.as_ref()) {
+                    (ArchiveSessionWork::Extraction { archive_path, .. }, Some(checkpoint)) => (archive_path, checkpoint),
+                    _ => return Err(ApiError::Internal("Archive extraction checkpoint is unavailable".to_string())),
+                };
+                validate_local_extraction_rename_target(
+                    archive_path,
+                    extraction_checkpoint,
+                    &member_path,
+                    rename_target
+                        .as_deref()
+                        .ok_or_else(|| ApiError::Internal("Archive rename target is unavailable".to_string()))?,
+                    is_directory,
+                )
+                .map_err(|_| {
+                    ApiError::BadRequest("Archive rename target is invalid or conflicts with another archive member".to_string())
+                })?;
+            }
+            let checkpoint = session
+                .extraction_checkpoint
+                .take()
+                .ok_or_else(|| ApiError::Internal("Archive extraction checkpoint is unavailable".to_string()))?;
+            let mut checkpoint = checkpoint;
+            match action {
+                ArchiveSessionDecisionAction::Skip => {
+                    checkpoint.resolve_collision(member_path, LocalArchiveExtractionCollisionAction::Skip);
+                }
+                ArchiveSessionDecisionAction::SkipAll => {
+                    checkpoint.resolve_all_collisions(LocalArchiveExtractionCollisionAction::Skip);
+                }
+                ArchiveSessionDecisionAction::Replace => {
+                    checkpoint.resolve_collision(member_path, LocalArchiveExtractionCollisionAction::Replace);
+                }
+                ArchiveSessionDecisionAction::ReplaceAll => {
+                    checkpoint.resolve_all_collisions(LocalArchiveExtractionCollisionAction::Replace);
+                }
+                ArchiveSessionDecisionAction::ReplaceOlder => {
+                    checkpoint.resolve_all_collisions(LocalArchiveExtractionCollisionAction::ReplaceOlder);
+                }
+                ArchiveSessionDecisionAction::Rename => {
+                    checkpoint.rename_member(
+                        member_path,
+                        rename_target.ok_or_else(|| ApiError::Internal("Archive rename target is unavailable".to_string()))?,
+                    );
+                }
+                ArchiveSessionDecisionAction::Retry => {}
+                ArchiveSessionDecisionAction::Ignore => checkpoint.ignore_member_error(member_path),
+            }
+            session.pending_decision = None;
+            session.phase = ArchiveSessionPhase::Streaming;
+            session.revision += 1;
+            (
+                session.drive_root.clone(),
+                session.work.clone(),
+                session.cancellation_requested.clone(),
+                Some(checkpoint),
+                session.status(),
+            )
+        };
+        self.clone()
+            .spawn_worker(execution_id.to_string(), drive_root, work, cancellation_requested, checkpoint);
+        Ok(status)
+    }
+
+    pub async fn cancel(
+        &self,
+        drive: &str,
+        owner_origin: &str,
+        execution_id: &str,
+        expected_revision: u64,
+    ) -> Result<ArchiveSessionStatus, ApiError> {
+        let mut sessions = self.sessions.lock().await;
+        Self::remove_expired(&mut sessions);
+        let session = sessions
+            .get_mut(execution_id)
+            .filter(|session| session.drive == drive && session.owner_origin == owner_origin)
+            .ok_or_else(|| ApiError::NotFound("Archive execution not found or expired".to_string()))?;
+        if session.revision != expected_revision {
+            return Err(ApiError::conflict_code(
+                "Archive execution changed before cancellation could be applied",
+                ARCHIVE_SESSION_STALE_REVISION_CODE,
+            ));
+        }
+        if session.phase == ArchiveSessionPhase::AwaitingUserDecision {
+            session.cancellation_requested.store(true, Ordering::Release);
+            session.phase = ArchiveSessionPhase::Cancelled;
+            session.revision += 1;
+            session.expires_at = Some(Instant::now() + ARCHIVE_SESSION_TIMEOUT);
+        } else if !session.phase.is_terminal() {
+            session.cancellation_requested.store(true, Ordering::Release);
+            session.revision += 1;
+        }
+        Ok(session.status())
+    }
+
+    async fn complete(&self, execution_id: &str, result: Result<ArchiveSessionCompletion, LocalArchiveError>) {
+        let mut sessions = self.sessions.lock().await;
+        if let Some(session) = sessions.get_mut(execution_id) {
+            session.complete(result);
+        }
+    }
+
+    async fn update_progress(&self, execution_id: &str, progress: ArchiveSessionProgress) {
+        let mut sessions = self.sessions.lock().await;
+        if let Some(session) = sessions.get_mut(execution_id) {
+            if session.phase == ArchiveSessionPhase::Streaming
+                && std::mem::discriminant(&session.progress) == std::mem::discriminant(&progress)
+            {
+                session.progress = progress;
+                session.revision += 1;
+            }
+        }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use std::fs;
+    use std::path::PathBuf;
+    use std::sync::Arc;
+    use std::time::Duration;
+
+    use tempfile::tempdir;
+
+    use super::{ArchiveSessionDecisionAction, ArchiveSessionManager, ArchiveSessionPhase, ArchiveSessionProgress};
+    use crate::server::archive::{build_local_archive_manifest, create_local_archive};
+
+    #[tokio::test]
+    async fn cancellation_requires_current_revision_and_reaches_terminal_state() {
+        let manager = Arc::new(ArchiveSessionManager::new());
+        let session = manager
+            .create_extraction(
+                "c".to_string(),
+                "https://sambee.example".to_string(),
+                PathBuf::from("/drive"),
+                PathBuf::from("/drive/archive.zip"),
+                PathBuf::from("/drive/output"),
+            )
+            .await;
+
+        assert_eq!(session.phase, ArchiveSessionPhase::Accepted);
+        assert!(manager
+            .cancel("c", "https://sambee.example", &session.execution_id, session.revision + 1)
+            .await
+            .is_err());
+
+        assert!(manager.get("c", "https://other.example", &session.execution_id).await.is_err());
+
+        let cancelled = manager
+            .cancel("c", "https://sambee.example", &session.execution_id, session.revision)
+            .await
+            .unwrap();
+        assert_eq!(cancelled.revision, 1);
+        assert!(cancelled.cancellation_requested);
+
+        manager
+            .complete(&session.execution_id, Err(super::LocalArchiveError::Cancelled))
+            .await;
+        let terminal = manager.get("c", "https://sambee.example", &session.execution_id).await.unwrap();
+        assert_eq!(terminal.phase, ArchiveSessionPhase::Cancelled);
+        assert_eq!(terminal.revision, 2);
+    }
+
+    #[tokio::test]
+    async fn creation_progress_updates_are_visible_with_a_new_revision() {
+        let manager = Arc::new(ArchiveSessionManager::new());
+        let session = manager
+            .create_creation(
+                "c".to_string(),
+                "https://sambee.example".to_string(),
+                PathBuf::from("/drive"),
+                vec![PathBuf::from("/drive/source.txt")],
+                PathBuf::from("/drive/archive.zip"),
+            )
+            .await;
+
+        {
+            let mut sessions = manager.sessions.lock().await;
+            let state = sessions.get_mut(&session.execution_id).unwrap();
+            state.phase = ArchiveSessionPhase::Streaming;
+            state.revision = 1;
+        }
+
+        manager
+            .update_progress(
+                &session.execution_id,
+                ArchiveSessionProgress::Creation(super::LocalArchiveCreationResult {
+                    files_created: 1,
+                    directories_created: 1,
+                    source_bytes: 5,
+                }),
+            )
+            .await;
+
+        let updated = manager.get("c", "https://sambee.example", &session.execution_id).await.unwrap();
+        assert_eq!(updated.revision, 2);
+        assert!(matches!(
+            updated.progress,
+            ArchiveSessionProgress::Creation(progress) if progress.files_created == 1 && progress.source_bytes == 5
+        ));
+    }
+
+    #[tokio::test]
+    async fn starts_a_creation_session_and_reports_its_typed_terminal_result() {
+        let directory = tempdir().unwrap();
+        let source = directory.path().join("source.txt");
+        let target = directory.path().join("archive.zip");
+        fs::write(&source, b"source").unwrap();
+        let manager = Arc::new(ArchiveSessionManager::new());
+        let session = manager
+            .create_creation(
+                "c".to_string(),
+                "https://sambee.example".to_string(),
+                directory.path().to_path_buf(),
+                vec![source],
+                target.clone(),
+            )
+            .await;
+
+        manager.clone().start(&session.execution_id).await.unwrap();
+        let status = tokio::time::timeout(Duration::from_secs(1), async {
+            loop {
+                let status = manager.get("c", "https://sambee.example", &session.execution_id).await.unwrap();
+                if status.phase.is_terminal() {
+                    return status;
+                }
+                tokio::task::yield_now().await;
+            }
+        })
+        .await
+        .expect("archive creation session should terminate");
+
+        assert_eq!(status.phase, ArchiveSessionPhase::Completed);
+        assert!(matches!(
+            status.result,
+            Some(ArchiveSessionProgress::Creation(progress)) if progress.files_created == 1 && progress.source_bytes == 6
+        ));
+        assert!(target.is_file());
+    }
+
+    #[tokio::test]
+    async fn cancelled_creation_session_does_not_create_its_target() {
+        let directory = tempdir().unwrap();
+        let source = directory.path().join("source.txt");
+        let target = directory.path().join("archive.zip");
+        fs::write(&source, b"source").unwrap();
+        let manager = Arc::new(ArchiveSessionManager::new());
+        let session = manager
+            .create_creation(
+                "c".to_string(),
+                "https://sambee.example".to_string(),
+                directory.path().to_path_buf(),
+                vec![source],
+                target.clone(),
+            )
+            .await;
+
+        manager
+            .cancel("c", "https://sambee.example", &session.execution_id, session.revision)
+            .await
+            .unwrap();
+        manager.clone().start(&session.execution_id).await.unwrap();
+        let status = tokio::time::timeout(Duration::from_secs(1), async {
+            loop {
+                let status = manager.get("c", "https://sambee.example", &session.execution_id).await.unwrap();
+                if status.phase.is_terminal() {
+                    return status;
+                }
+                tokio::task::yield_now().await;
+            }
+        })
+        .await
+        .expect("cancelled archive creation session should terminate");
+
+        assert_eq!(status.phase, ArchiveSessionPhase::Cancelled);
+        assert!(!target.exists());
+    }
+
+    #[tokio::test]
+    async fn collision_decision_requires_ownership_and_current_revision_then_resumes() {
+        let directory = tempdir().unwrap();
+        let source = directory.path().join("source.txt");
+        fs::write(&source, b"archive contents").unwrap();
+        let archive_path = directory.path().join("archive.zip");
+        let entries = build_local_archive_manifest(&[source], &archive_path).unwrap();
+        create_local_archive(directory.path(), &archive_path, &entries, || false).unwrap();
+        let destination = directory.path().join("output");
+        fs::create_dir(&destination).unwrap();
+        fs::write(destination.join("source.txt"), b"existing contents").unwrap();
+        let manager = Arc::new(ArchiveSessionManager::new());
+        let session = manager
+            .create_extraction(
+                "c".to_string(),
+                "https://sambee.example".to_string(),
+                directory.path().to_path_buf(),
+                archive_path,
+                destination.clone(),
+            )
+            .await;
+
+        manager.clone().start(&session.execution_id).await.unwrap();
+        let paused = tokio::time::timeout(Duration::from_secs(1), async {
+            loop {
+                let status = manager.get("c", "https://sambee.example", &session.execution_id).await.unwrap();
+                if status.phase == ArchiveSessionPhase::AwaitingUserDecision {
+                    return status;
+                }
+                tokio::task::yield_now().await;
+            }
+        })
+        .await
+        .expect("archive extraction session should pause for a collision");
+        assert_eq!(paused.pending_decision.unwrap().member_path, "source.txt");
+        assert!(manager
+            .clone()
+            .decide(
+                "c",
+                "https://sambee.example",
+                &session.execution_id,
+                paused.revision + 1,
+                "source.txt".to_string(),
+                ArchiveSessionDecisionAction::ReplaceOlder,
+                None,
+            )
+            .await
+            .is_err());
+        assert!(manager
+            .clone()
+            .decide(
+                "c",
+                "https://other.example",
+                &session.execution_id,
+                paused.revision,
+                "source.txt".to_string(),
+                ArchiveSessionDecisionAction::Skip,
+                None,
+            )
+            .await
+            .is_err());
+
+        let resumed = manager
+            .clone()
+            .decide(
+                "c",
+                "https://sambee.example",
+                &session.execution_id,
+                paused.revision,
+                "source.txt".to_string(),
+                ArchiveSessionDecisionAction::Skip,
+                None,
+            )
+            .await
+            .unwrap();
+        assert_eq!(resumed.phase, ArchiveSessionPhase::Streaming);
+        let completed = tokio::time::timeout(Duration::from_secs(1), async {
+            loop {
+                let status = manager.get("c", "https://sambee.example", &session.execution_id).await.unwrap();
+                if status.phase.is_terminal() {
+                    return status;
+                }
+                tokio::task::yield_now().await;
+            }
+        })
+        .await
+        .expect("resumed archive extraction should terminate");
+        assert_eq!(completed.phase, ArchiveSessionPhase::Completed);
+        assert!(matches!(
+            completed.result,
+            Some(ArchiveSessionProgress::Extraction(progress)) if progress.files_skipped == 1
+        ));
+        assert_eq!(fs::read(destination.join("source.txt")).unwrap(), b"existing contents");
+    }
+
+    #[tokio::test]
+    async fn collision_rename_validates_its_target_and_extracts_without_overwriting() {
+        let directory = tempdir().unwrap();
+        let source = directory.path().join("source.txt");
+        fs::write(&source, b"archive contents").unwrap();
+        let archive_path = directory.path().join("archive.zip");
+        let entries = build_local_archive_manifest(&[source], &archive_path).unwrap();
+        create_local_archive(directory.path(), &archive_path, &entries, || false).unwrap();
+        let destination = directory.path().join("output");
+        fs::create_dir(&destination).unwrap();
+        fs::write(destination.join("source.txt"), b"existing contents").unwrap();
+        let manager = Arc::new(ArchiveSessionManager::new());
+        let session = manager
+            .create_extraction(
+                "c".to_string(),
+                "https://sambee.example".to_string(),
+                directory.path().to_path_buf(),
+                archive_path,
+                destination.clone(),
+            )
+            .await;
+
+        manager.clone().start(&session.execution_id).await.unwrap();
+        let paused = tokio::time::timeout(Duration::from_secs(1), async {
+            loop {
+                let status = manager.get("c", "https://sambee.example", &session.execution_id).await.unwrap();
+                if status.phase == ArchiveSessionPhase::AwaitingUserDecision {
+                    return status;
+                }
+                tokio::task::yield_now().await;
+            }
+        })
+        .await
+        .expect("archive extraction session should pause for a collision");
+        assert!(manager
+            .clone()
+            .decide(
+                "c",
+                "https://sambee.example",
+                &session.execution_id,
+                paused.revision,
+                "source.txt".to_string(),
+                ArchiveSessionDecisionAction::Rename,
+                Some("../outside.txt".to_string()),
+            )
+            .await
+            .is_err());
+
+        manager
+            .clone()
+            .decide(
+                "c",
+                "https://sambee.example",
+                &session.execution_id,
+                paused.revision,
+                "source.txt".to_string(),
+                ArchiveSessionDecisionAction::Rename,
+                Some("renamed.txt".to_string()),
+            )
+            .await
+            .unwrap();
+        let completed = tokio::time::timeout(Duration::from_secs(1), async {
+            loop {
+                let status = manager.get("c", "https://sambee.example", &session.execution_id).await.unwrap();
+                if status.phase.is_terminal() {
+                    return status;
+                }
+                tokio::task::yield_now().await;
+            }
+        })
+        .await
+        .expect("renamed archive extraction should terminate");
+        assert_eq!(completed.phase, ArchiveSessionPhase::Completed);
+        assert_eq!(fs::read(destination.join("source.txt")).unwrap(), b"existing contents");
+        assert_eq!(fs::read(destination.join("renamed.txt")).unwrap(), b"archive contents");
+    }
+
+    #[tokio::test]
+    async fn member_error_rejects_collision_actions_and_retries_from_its_checkpoint() {
+        let directory = tempdir().unwrap();
+        let source = directory.path().join("source.txt");
+        fs::write(&source, b"archive contents").unwrap();
+        let archive_path = directory.path().join("archive.zip");
+        let entries = build_local_archive_manifest(&[source], &archive_path).unwrap();
+        create_local_archive(directory.path(), &archive_path, &entries, || false).unwrap();
+        let original_archive = fs::read(&archive_path).unwrap();
+        let content_offset = original_archive
+            .windows(b"archive contents".len())
+            .position(|window| window == b"archive contents")
+            .expect("stored archive member should contain its source bytes");
+        let mut corrupted_archive = original_archive.clone();
+        corrupted_archive[content_offset] = b'X';
+        fs::write(&archive_path, corrupted_archive).unwrap();
+        let destination = directory.path().join("output");
+        let manager = Arc::new(ArchiveSessionManager::new());
+        let session = manager
+            .create_extraction(
+                "c".to_string(),
+                "https://sambee.example".to_string(),
+                directory.path().to_path_buf(),
+                archive_path.clone(),
+                destination.clone(),
+            )
+            .await;
+
+        manager.clone().start(&session.execution_id).await.unwrap();
+        let paused = tokio::time::timeout(Duration::from_secs(1), async {
+            loop {
+                let status = manager.get("c", "https://sambee.example", &session.execution_id).await.unwrap();
+                if status.phase == ArchiveSessionPhase::AwaitingUserDecision {
+                    return status;
+                }
+                tokio::task::yield_now().await;
+            }
+        })
+        .await
+        .expect("archive extraction session should pause for a member error");
+        assert!(
+            paused
+                .pending_decision
+                .as_ref()
+                .unwrap()
+                .member_error
+                .as_ref()
+                .unwrap()
+                .partial_output
+        );
+        assert!(manager
+            .clone()
+            .decide(
+                "c",
+                "https://sambee.example",
+                &session.execution_id,
+                paused.revision,
+                "source.txt".to_string(),
+                ArchiveSessionDecisionAction::Skip,
+                None,
+            )
+            .await
+            .is_err());
+
+        fs::write(&archive_path, original_archive).unwrap();
+        manager
+            .clone()
+            .decide(
+                "c",
+                "https://sambee.example",
+                &session.execution_id,
+                paused.revision,
+                "source.txt".to_string(),
+                ArchiveSessionDecisionAction::Retry,
+                None,
+            )
+            .await
+            .unwrap();
+        let completed = tokio::time::timeout(Duration::from_secs(1), async {
+            loop {
+                let status = manager.get("c", "https://sambee.example", &session.execution_id).await.unwrap();
+                if status.phase.is_terminal() {
+                    return status;
+                }
+                tokio::task::yield_now().await;
+            }
+        })
+        .await
+        .expect("retried archive extraction should terminate");
+        assert!(matches!(
+            completed.result,
+            Some(ArchiveSessionProgress::Extraction(progress)) if progress.files_extracted == 1 && progress.partial_members == 0
+        ));
+        assert_eq!(fs::read(destination.join("source.txt")).unwrap(), b"archive contents");
+    }
+
+    #[tokio::test]
+    async fn cancellation_transitions_a_paused_session_to_terminal() {
+        let manager = Arc::new(ArchiveSessionManager::new());
+        let session = manager
+            .create_extraction(
+                "c".to_string(),
+                "https://sambee.example".to_string(),
+                PathBuf::from("/drive"),
+                PathBuf::from("/drive/archive.zip"),
+                PathBuf::from("/drive/output"),
+            )
+            .await;
+        {
+            let mut sessions = manager.sessions.lock().await;
+            let state = sessions.get_mut(&session.execution_id).unwrap();
+            state.phase = ArchiveSessionPhase::AwaitingUserDecision;
+            state.revision = 2;
+        }
+
+        let cancelled = manager
+            .cancel("c", "https://sambee.example", &session.execution_id, 2)
+            .await
+            .unwrap();
+        assert_eq!(cancelled.phase, ArchiveSessionPhase::Cancelled);
+        assert!(cancelled.cancellation_requested);
+        assert_eq!(cancelled.revision, 3);
+    }
+}
