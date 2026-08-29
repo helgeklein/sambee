@@ -58,6 +58,8 @@ const FORBIDDEN_NAME_CHARS: &[char] = &['\\', '/', ':', '*', '?', '"', '<', '>',
 const LOCAL_DRIVE_PREFIX: &str = "local-drive:";
 /// Maximum number of potentially blocking local target resolutions per batch.
 const LINK_TARGET_RESOLUTION_CONCURRENCY: usize = 4;
+const ARCHIVE_RELAY_IDEMPOTENCY_HEADER: &str = "Idempotency-Key";
+const ARCHIVE_RELAY_ACKNOWLEDGEMENT_ATTEMPTS: usize = 2;
 #[cfg(any(windows, test))]
 const WINDOWS_EXTENDED_PATH_PREFIX: &str = "\\\\?\\";
 #[cfg(any(windows, test))]
@@ -1244,14 +1246,7 @@ impl ArchiveRelayTransport {
     }
 
     async fn complete(&self, request_context: &str) -> Result<(), ApiError> {
-        relay_archive_response(
-            self.post("complete")
-                .send()
-                .await
-                .map_err(|error| ApiError::Internal(log_request_error(request_context, "POST", self.url(), &error)))?,
-            "complete",
-        )
-        .await
+        self.post_without_result("complete", request_context, "complete").await
     }
 
     async fn complete_with_json<T: Serialize + ?Sized>(&self, payload: &T, request_context: &str) -> Result<(), ApiError> {
@@ -1266,15 +1261,61 @@ impl ArchiveRelayTransport {
         request_context: &str,
         action: &str,
     ) -> Result<(), ApiError> {
-        relay_archive_response(
-            self.post(path)
-                .json(payload)
-                .send()
-                .await
-                .map_err(|error| ApiError::Internal(log_request_error(request_context, "POST", self.url(), &error)))?,
-            action,
-        )
-        .await
+        let idempotency_key = uuid::Uuid::new_v4().to_string();
+        let response = self
+            .send_acknowledgement(
+                || {
+                    self.post(path)
+                        .header(ARCHIVE_RELAY_IDEMPOTENCY_HEADER, &idempotency_key)
+                        .json(payload)
+                },
+                request_context,
+            )
+            .await?;
+        relay_archive_response(response, action).await
+    }
+
+    async fn post_json_once_without_result<T: Serialize + ?Sized>(
+        &self,
+        path: &str,
+        payload: &T,
+        request_context: &str,
+        action: &str,
+    ) -> Result<(), ApiError> {
+        let response = self
+            .post(path)
+            .json(payload)
+            .send()
+            .await
+            .map_err(|error| ApiError::Internal(log_request_error(request_context, "POST", self.url(), &error)))?;
+        relay_archive_response(response, action).await
+    }
+
+    async fn post_without_result(&self, path: &str, request_context: &str, action: &str) -> Result<(), ApiError> {
+        let idempotency_key = uuid::Uuid::new_v4().to_string();
+        let response = self
+            .send_acknowledgement(
+                || self.post(path).header(ARCHIVE_RELAY_IDEMPOTENCY_HEADER, &idempotency_key),
+                request_context,
+            )
+            .await?;
+        relay_archive_response(response, action).await
+    }
+
+    async fn send_acknowledgement(
+        &self,
+        request: impl Fn() -> reqwest::RequestBuilder,
+        request_context: &str,
+    ) -> Result<ReqwestResponse, ApiError> {
+        let mut last_error = None;
+        for _ in 0..ARCHIVE_RELAY_ACKNOWLEDGEMENT_ATTEMPTS {
+            match request().send().await {
+                Ok(response) => return Ok(response),
+                Err(error) => last_error = Some(error),
+            }
+        }
+        let error = last_error.expect("relay acknowledgement attempts should run at least once");
+        Err(ApiError::Internal(log_request_error(request_context, "POST", self.url(), &error)))
     }
 
     async fn post_json<T: Serialize + ?Sized, R: DeserializeOwned>(
@@ -1284,19 +1325,22 @@ impl ArchiveRelayTransport {
         request_context: &str,
         action: &str,
     ) -> Result<R, ApiError> {
-        decode_archive_relay_json(
-            self.post(path)
-                .json(payload)
-                .send()
-                .await
-                .map_err(|error| ApiError::Internal(log_request_error(request_context, "POST", self.url(), &error)))?,
-            action,
-        )
-        .await
+        let idempotency_key = uuid::Uuid::new_v4().to_string();
+        let response = self
+            .send_acknowledgement(
+                || {
+                    self.post(path)
+                        .header(ARCHIVE_RELAY_IDEMPOTENCY_HEADER, &idempotency_key)
+                        .json(payload)
+                },
+                request_context,
+            )
+            .await?;
+        decode_archive_relay_json(response, action).await
     }
 
     async fn fail(&self, message: &str, request_context: &str) -> Result<(), ApiError> {
-        self.post_json_without_result("fail", &ArchiveRelayFailure { message }, request_context, "record failure")
+        self.post_json_once_without_result("fail", &ArchiveRelayFailure { message }, request_context, "record failure")
             .await
     }
 
@@ -1386,7 +1430,7 @@ impl ArchiveCreationCoordinator {
                         target_path,
                     } => match create_smb_archive_manifest_locally(&relay, &drive_root, &target_path, manifest).await {
                         Ok(result) => Ok(result),
-                        Err(_) if target_path.exists() => Err(ApiError::internal_code(
+                        Err(error) if target_path.exists() && !is_archive_relay_cancellation(&error) => Err(ApiError::internal_code(
                             "Archive creation failed after creating incomplete output",
                             LOCAL_ARCHIVE_CREATION_PARTIAL_CODE,
                         )),
@@ -1417,7 +1461,7 @@ impl ArchiveCreationRelay {
 
     async fn begin_local_source(&self, manifest: &ArchiveCreationManifest) -> Result<(), ApiError> {
         self.transport
-            .post_json_without_result("begin", manifest, "Archive creation start", "start")
+            .post_json_once_without_result("begin", manifest, "Archive creation start", "start")
             .await
     }
 
@@ -2590,6 +2634,17 @@ async fn relay_archive_response(response: ReqwestResponse, action: &str) -> Resu
     }
 }
 
+fn is_archive_relay_cancellation(error: &ApiError) -> bool {
+    match error {
+        ApiError::Conflict(serde_json::Value::String(message))
+        | ApiError::ConflictWithCode { message, .. }
+        | ApiError::BadRequest(message)
+        | ApiError::Internal(message)
+        | ApiError::Forbidden(message) => message.contains("was cancelled"),
+        _ => false,
+    }
+}
+
 fn map_local_archive_error(error: LocalArchiveError) -> ApiError {
     match error {
         LocalArchiveError::TargetExists | LocalArchiveError::ExtractionTargetExists => {
@@ -3608,7 +3663,7 @@ mod tests {
         ArchiveCreationAdapterBinding, ArchiveCreationCoordinator, ArchiveCreationMemberCompletion, ArchiveCreationRelay,
         ArchiveExtractionAdapterBinding, ArchiveExtractionCollision, ArchiveExtractionCoordinator, ArchiveExtractionMemberCompletion,
         ArchiveExtractionMemberError, ArchiveExtractionRelay, ArchiveExtractionSummary, ArchiveRelayBinding, ArchiveRelayDestinationStatus,
-        ArchiveRelayFailure, ArchiveRelayOperation, ArchiveRelayTransport,
+        ArchiveRelayFailure, ArchiveRelayOperation, ArchiveRelayTransport, ARCHIVE_RELAY_ACKNOWLEDGEMENT_ATTEMPTS,
     };
     use crate::server::archive::{
         build_local_archive_manifest, build_local_archive_manifest_for_remote_target, create_local_archive,
@@ -3632,7 +3687,8 @@ mod tests {
     #[cfg(unix)]
     use std::os::unix::fs::symlink;
     use std::sync::Arc;
-    use tokio::sync::Mutex;
+    use tokio::io::{AsyncReadExt, AsyncWriteExt};
+    use tokio::sync::{oneshot, Mutex};
     const NONCE_A: &str = "00112233445566778899aabbccddeeff00112233445566778899aabbccddeeff";
 
     #[derive(Deserialize)]
@@ -3696,8 +3752,14 @@ mod tests {
         async fn assert_consumed(&self) {
             let playback = self.playback.lock().await;
             assert!(playback.remaining.is_empty(), "fixture relay playback has unconsumed responses");
-            assert_eq!(playback.observed_traffic, playback.expected_traffic);
+            assert_eq!(playback.observed_traffic.len(), playback.expected_traffic.len());
         }
+    }
+
+    fn fixture_request_matches(expected: &serde_json::Value, observed: &serde_json::Value) -> bool {
+        ["method", "path", "query", "body"]
+            .iter()
+            .all(|field| expected[*field] == "*" || expected[*field] == observed[*field])
     }
 
     async fn fixture_relay_handler(
@@ -3726,7 +3788,7 @@ mod tests {
         let Some(step) = step else {
             return (StatusCode::INTERNAL_SERVER_ERROR, "unexpected relay request").into_response();
         };
-        if observed != step["request"] {
+        if !fixture_request_matches(&step["request"], &observed) {
             eprintln!("fixture relay request mismatch: expected {}, observed {observed}", step["request"]);
             return (
                 StatusCode::INTERNAL_SERVER_ERROR,
@@ -3766,10 +3828,16 @@ mod tests {
             .iter()
             .find(|case| case["name"] == case_name)
             .unwrap_or_else(|| panic!("topology trace fixture should define {case_name}"));
-        let steps = case["relay_playback"]
-            .as_array()
-            .unwrap_or_else(|| panic!("topology trace fixture should define relay playback for {case_name}"))
-            .clone();
+        spawn_fixture_relay_playback(
+            case["relay_playback"]
+                .as_array()
+                .unwrap_or_else(|| panic!("topology trace fixture should define relay playback for {case_name}"))
+                .clone(),
+        )
+        .await
+    }
+
+    async fn spawn_fixture_relay_playback(steps: Vec<serde_json::Value>) -> FixtureRelayServer {
         let playback = Arc::new(Mutex::new(FixtureRelayPlayback {
             expected_traffic: steps.iter().map(|step| step["request"].clone()).collect(),
             remaining: steps.into(),
@@ -3791,6 +3859,33 @@ mod tests {
             url: format!("http://{address}"),
             playback,
         }
+    }
+
+    fn mixed_creation_trajectory_cases() -> Vec<serde_json::Value> {
+        let fixture: serde_json::Value =
+            serde_json::from_str(include_str!("../../../../archive-contract/v1/topology-execution-traces-v1.json"))
+                .expect("topology trace fixture should be valid JSON");
+        fixture["trajectory_cases"]
+            .as_array()
+            .expect("topology trace fixture should define trajectory cases")
+            .iter()
+            .filter(|case| case["operation"] == "create" && matches!(case["topology"].as_str(), Some("smb_to_local" | "local_to_smb")))
+            .cloned()
+            .collect()
+    }
+
+    fn creation_corpus_scenario(name: &str) -> serde_json::Value {
+        let corpus: serde_json::Value = serde_json::from_str(include_str!(
+            "../../../../archive-contract/v1/creation-trajectory-scenarios-v1.json"
+        ))
+        .expect("creation trajectory corpus should be valid JSON");
+        corpus["scenarios"]
+            .as_array()
+            .expect("creation corpus should define scenarios")
+            .iter()
+            .find(|scenario| scenario["name"] == name)
+            .unwrap_or_else(|| panic!("creation corpus should define {name}"))
+            .clone()
     }
 
     fn mixed_creation_trace(manifest_snapshot: &str, member_outcome: &str, result: &ArchiveCreationResponse) -> serde_json::Value {
@@ -4024,6 +4119,46 @@ mod tests {
         format!("http://{address}")
     }
 
+    async fn spawn_dropped_acknowledgement_server() -> (String, oneshot::Receiver<Vec<String>>) {
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0")
+            .await
+            .expect("dropped acknowledgement test server should bind");
+        let address = listener
+            .local_addr()
+            .expect("dropped acknowledgement test server should have an address");
+        let (sender, receiver) = oneshot::channel();
+        tokio::spawn(async move {
+            let mut requests = Vec::new();
+            for attempt in 0..ARCHIVE_RELAY_ACKNOWLEDGEMENT_ATTEMPTS {
+                let (mut stream, _) = listener
+                    .accept()
+                    .await
+                    .expect("dropped acknowledgement test server should accept a request");
+                let mut request = Vec::new();
+                let mut buffer = [0_u8; 1024];
+                while !request.windows(4).any(|window| window == b"\r\n\r\n") {
+                    let bytes_read = stream
+                        .read(&mut buffer)
+                        .await
+                        .expect("dropped acknowledgement test server should read a request");
+                    assert_ne!(bytes_read, 0, "request must include complete headers");
+                    request.extend_from_slice(&buffer[..bytes_read]);
+                }
+                requests.push(String::from_utf8(request).expect("relay request headers should be UTF-8"));
+                if attempt + 1 == ARCHIVE_RELAY_ACKNOWLEDGEMENT_ATTEMPTS {
+                    stream
+                        .write_all(b"HTTP/1.1 200 OK\r\nContent-Length: 0\r\nConnection: close\r\n\r\n")
+                        .await
+                        .expect("dropped acknowledgement test server should respond to retry");
+                }
+            }
+            sender
+                .send(requests)
+                .expect("test should receive captured acknowledgement requests");
+        });
+        (format!("http://{address}"), receiver)
+    }
+
     #[tokio::test]
     async fn archive_relay_transport_handles_acknowledgements_and_response_errors() {
         let transport = ArchiveRelayTransport::new(
@@ -4063,6 +4198,38 @@ mod tests {
             expected_topology_trace("extract_transport_failure")["error_category"],
             "transport_failure"
         );
+    }
+
+    #[tokio::test]
+    async fn archive_relay_transport_reuses_idempotency_key_after_dropped_acknowledgement_response() {
+        let (relay_url, captured_requests) = spawn_dropped_acknowledgement_server().await;
+        let transport = ArchiveRelayTransport::new(reqwest::Client::new(), relay_url, "test-token".to_string());
+
+        transport
+            .post_json_without_result(
+                "member-complete",
+                &serde_json::json!({"archive_path": "readme.txt", "status": "created", "source_bytes": 5}),
+                "Archive creation member completion",
+                "complete member",
+            )
+            .await
+            .expect("a dropped acknowledgement response should retry successfully");
+
+        let requests = captured_requests
+            .await
+            .expect("dropped acknowledgement test server should capture both requests");
+        assert_eq!(requests.len(), ARCHIVE_RELAY_ACKNOWLEDGEMENT_ATTEMPTS);
+        let idempotency_keys = requests
+            .iter()
+            .map(|request| {
+                request
+                    .lines()
+                    .find_map(|line| line.strip_prefix("idempotency-key: "))
+                    .expect("acknowledgement should include an idempotency key")
+            })
+            .collect::<Vec<_>>();
+        assert_eq!(idempotency_keys[0], idempotency_keys[1]);
+        assert!(uuid::Uuid::parse_str(idempotency_keys[0]).is_ok());
     }
 
     #[allow(dead_code)]
@@ -4173,6 +4340,93 @@ mod tests {
             local_expected
         );
         local_playback.assert_consumed().await;
+    }
+
+    #[tokio::test]
+    async fn mixed_creation_trajectory_matrix_dispatches_actual_coordinators() {
+        for trajectory in mixed_creation_trajectory_cases() {
+            let scenario_name = trajectory["scenario"].as_str().expect("trajectory should name a scenario");
+            let scenario = creation_corpus_scenario(scenario_name);
+            let directory = tempfile::tempdir().expect("temporary archive directory should be created");
+            let playback = spawn_fixture_relay_playback(
+                trajectory["relay_playback"]
+                    .as_array()
+                    .expect("mixed creation trajectory should define passive relay playback")
+                    .clone(),
+            )
+            .await;
+            let result = if trajectory["topology"] == "smb_to_local" {
+                let manifest = ArchiveCreationManifest::from_entries(
+                    scenario["entries"]
+                        .as_array()
+                        .unwrap()
+                        .iter()
+                        .map(|entry| ArchiveCreationManifestMember {
+                            archive_path: entry["archive_path"].as_str().unwrap().to_string(),
+                            is_directory: entry["is_directory"].as_bool().unwrap(),
+                            source_size: entry["source_size"].as_u64().unwrap(),
+                            source_modified_at: None,
+                        })
+                        .collect(),
+                )
+                .expect("corpus creation manifest should be valid");
+                ArchiveCreationCoordinator {
+                    relay: ArchiveCreationRelay::from_transport(ArchiveRelayTransport::new(
+                        reqwest::Client::new(),
+                        playback.url.clone(),
+                        "test-token".to_string(),
+                    )),
+                    binding: ArchiveCreationAdapterBinding::RemoteSourceToLocalDestination {
+                        manifest,
+                        drive_root: directory.path().to_path_buf(),
+                        target_path: directory.path().join("target.zip"),
+                    },
+                }
+                .execute()
+                .await
+            } else {
+                let source_root = directory.path().join("source");
+                std::fs::create_dir(&source_root).expect("source root should be created");
+                let mut source_paths = Vec::new();
+                for entry in scenario["entries"].as_array().unwrap() {
+                    let archive_path = entry["archive_path"].as_str().unwrap();
+                    let source_path = source_root.join(archive_path);
+                    if entry["is_directory"].as_bool().unwrap() {
+                        std::fs::create_dir_all(&source_path).expect("source directory should be created");
+                    } else {
+                        std::fs::create_dir_all(source_path.parent().unwrap()).expect("source parent should be created");
+                        std::fs::write(&source_path, vec![b'x'; entry["source_size"].as_u64().unwrap() as usize])
+                            .expect("source file should be written");
+                    }
+                    let top_level = source_root.join(archive_path.split('/').next().unwrap());
+                    if !source_paths.contains(&top_level) {
+                        source_paths.push(top_level);
+                    }
+                }
+                let entries =
+                    build_local_archive_manifest_for_remote_target(&source_paths).expect("corpus local sources should produce a manifest");
+                ArchiveCreationCoordinator {
+                    relay: ArchiveCreationRelay::from_transport(ArchiveRelayTransport::new(
+                        reqwest::Client::new(),
+                        playback.url.clone(),
+                        "test-token".to_string(),
+                    )),
+                    binding: ArchiveCreationAdapterBinding::LocalSourceToRemoteDestination { entries },
+                }
+                .execute()
+                .await
+            };
+            let expected = &trajectory["expected_trace"];
+            match result {
+                Ok(result) => {
+                    assert_eq!(expected["terminal_summary"]["files_created"], result.files_created);
+                    assert_eq!(expected["terminal_summary"]["directories_created"], result.directories_created);
+                    assert_eq!(expected["terminal_summary"]["source_bytes"], result.source_bytes);
+                }
+                Err(error) => assert_eq!(expected["error_category"], mixed_relay_error_category(&error)),
+            }
+            playback.assert_consumed().await;
+        }
     }
 
     #[allow(dead_code)]

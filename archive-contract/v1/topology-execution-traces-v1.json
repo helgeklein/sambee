@@ -95,32 +95,362 @@
     {
       "operation": "create",
       "topology": "smb_to_local",
-      "scenario": "members_commit_and_terminal_summary_requires_coverage"
+      "scenario": "members_commit_and_terminal_summary_requires_coverage",
+      "expected_trace": {
+        "owner": "companion",
+        "manifest_snapshot": [
+          "docs",
+          "docs/readme.txt"
+        ],
+        "phase_transitions": [
+          "streaming",
+          "completed"
+        ],
+        "pending_decision": null,
+        "member_outcomes": [
+          "docs",
+          "docs/readme.txt"
+        ],
+        "terminal_summary": {
+          "files_created": 1,
+          "directories_created": 1,
+          "source_bytes": 7
+        },
+        "error_category": null
+      },
+      "relay_playback": [
+        {
+          "request": {
+            "method": "POST",
+            "path": "/member-complete",
+            "query": null,
+            "body": "json"
+          },
+          "response": {
+            "status": 204
+          }
+        },
+        {
+          "request": {
+            "method": "GET",
+            "path": "/member",
+            "query": "*",
+            "body": "empty"
+          },
+          "response": {
+            "status": 200,
+            "text": "content"
+          }
+        },
+        {
+          "request": {
+            "method": "POST",
+            "path": "/member-complete",
+            "query": null,
+            "body": "json"
+          },
+          "response": {
+            "status": 204
+          }
+        },
+        {
+          "request": {
+            "method": "POST",
+            "path": "/complete",
+            "query": null,
+            "body": "json"
+          },
+          "response": {
+            "status": 204
+          }
+        }
+      ]
     },
     {
       "operation": "create",
       "topology": "smb_to_local",
-      "scenario": "duplicate_member_report_is_idempotent"
+      "scenario": "duplicate_member_report_is_idempotent",
+      "expected_trace": {
+        "owner": "companion",
+        "manifest_snapshot": [
+          "readme.txt"
+        ],
+        "phase_transitions": [
+          "streaming",
+          "completed"
+        ],
+        "pending_decision": null,
+        "member_outcomes": [
+          "readme.txt"
+        ],
+        "terminal_summary": {
+          "files_created": 1,
+          "directories_created": 0,
+          "source_bytes": 7
+        },
+        "error_category": null
+      },
+      "relay_playback": [
+        {
+          "request": {
+            "method": "GET",
+            "path": "/member",
+            "query": "*",
+            "body": "empty"
+          },
+          "response": {
+            "status": 200,
+            "text": "content"
+          }
+        },
+        {
+          "request": {
+            "method": "POST",
+            "path": "/member-complete",
+            "query": null,
+            "body": "json"
+          },
+          "response": {
+            "status": 204
+          }
+        },
+        {
+          "request": {
+            "method": "POST",
+            "path": "/complete",
+            "query": null,
+            "body": "json"
+          },
+          "response": {
+            "status": 204
+          }
+        }
+      ]
     },
     {
       "operation": "create",
       "topology": "smb_to_local",
-      "scenario": "cancellation_stops_before_member_commit"
+      "scenario": "cancellation_stops_before_member_commit",
+      "expected_trace": {
+        "owner": "companion",
+        "manifest_snapshot": [
+          "readme.txt"
+        ],
+        "phase_transitions": [
+          "streaming",
+          "cancelled"
+        ],
+        "pending_decision": null,
+        "member_outcomes": [],
+        "terminal_summary": null,
+        "error_category": "cancelled"
+      },
+      "relay_playback": [
+        {
+          "request": {
+            "method": "GET",
+            "path": "/member",
+            "query": "*",
+            "body": "empty"
+          },
+          "response": {
+            "status": 409,
+            "json": {
+              "detail": "Archive operation was cancelled"
+            }
+          }
+        },
+        {
+          "request": {
+            "method": "POST",
+            "path": "/fail",
+            "query": null,
+            "body": "json"
+          },
+          "response": {
+            "status": 204
+          }
+        }
+      ]
     },
     {
       "operation": "create",
       "topology": "local_to_smb",
-      "scenario": "members_commit_and_terminal_summary_requires_coverage"
+      "scenario": "members_commit_and_terminal_summary_requires_coverage",
+      "expected_trace": {
+        "owner": "companion",
+        "manifest_snapshot": [
+          "docs",
+          "docs/readme.txt"
+        ],
+        "phase_transitions": [
+          "streaming",
+          "completed"
+        ],
+        "pending_decision": null,
+        "member_outcomes": [
+          "docs",
+          "docs/readme.txt"
+        ],
+        "terminal_summary": {
+          "files_created": 1,
+          "directories_created": 1,
+          "source_bytes": 7
+        },
+        "error_category": null
+      },
+      "relay_playback": [
+        {
+          "request": {
+            "method": "POST",
+            "path": "/begin",
+            "query": null,
+            "body": "json"
+          },
+          "response": {
+            "status": 204
+          }
+        },
+        {
+          "request": {
+            "method": "PUT",
+            "path": "/member",
+            "query": "*",
+            "body": "empty"
+          },
+          "response": {
+            "status": 204
+          }
+        },
+        {
+          "request": {
+            "method": "PUT",
+            "path": "/member",
+            "query": "*",
+            "body": "bytes"
+          },
+          "response": {
+            "status": 204
+          }
+        },
+        {
+          "request": {
+            "method": "POST",
+            "path": "/complete",
+            "query": null,
+            "body": "json"
+          },
+          "response": {
+            "status": 204
+          }
+        }
+      ]
     },
     {
       "operation": "create",
       "topology": "local_to_smb",
-      "scenario": "duplicate_member_report_is_idempotent"
+      "scenario": "duplicate_member_report_is_idempotent",
+      "expected_trace": {
+        "owner": "companion",
+        "manifest_snapshot": [
+          "readme.txt"
+        ],
+        "phase_transitions": [
+          "streaming",
+          "completed"
+        ],
+        "pending_decision": null,
+        "member_outcomes": [
+          "readme.txt"
+        ],
+        "terminal_summary": {
+          "files_created": 1,
+          "directories_created": 0,
+          "source_bytes": 7
+        },
+        "error_category": null
+      },
+      "relay_playback": [
+        {
+          "request": {
+            "method": "POST",
+            "path": "/begin",
+            "query": null,
+            "body": "json"
+          },
+          "response": {
+            "status": 204
+          }
+        },
+        {
+          "request": {
+            "method": "PUT",
+            "path": "/member",
+            "query": "*",
+            "body": "bytes"
+          },
+          "response": {
+            "status": 204
+          }
+        },
+        {
+          "request": {
+            "method": "POST",
+            "path": "/complete",
+            "query": null,
+            "body": "json"
+          },
+          "response": {
+            "status": 204
+          }
+        }
+      ]
     },
     {
       "operation": "create",
       "topology": "local_to_smb",
-      "scenario": "cancellation_stops_before_member_commit"
+      "scenario": "cancellation_stops_before_member_commit",
+      "expected_trace": {
+        "owner": "companion",
+        "manifest_snapshot": [
+          "readme.txt"
+        ],
+        "phase_transitions": [
+          "streaming",
+          "cancelled"
+        ],
+        "pending_decision": null,
+        "member_outcomes": [],
+        "terminal_summary": null,
+        "error_category": "cancelled"
+      },
+      "relay_playback": [
+        {
+          "request": {
+            "method": "POST",
+            "path": "/begin",
+            "query": null,
+            "body": "json"
+          },
+          "response": {
+            "status": 409,
+            "json": {
+              "detail": "Archive operation was cancelled"
+            }
+          }
+        },
+        {
+          "request": {
+            "method": "POST",
+            "path": "/fail",
+            "query": null,
+            "body": "json"
+          },
+          "response": {
+            "status": 204
+          }
+        }
+      ]
     },
     {
       "operation": "extract",
@@ -652,6 +982,138 @@
         "member_outcomes": [],
         "terminal_summary": null,
         "error_category": "invalid_input"
+      }
+    },
+    {
+      "name": "create_smb_to_smb_malformed_input",
+      "operation": "create",
+      "topology": "smb_to_smb",
+      "fault": "malformed_input",
+      "expected_trace": {
+        "owner": "backend",
+        "manifest_snapshot": [
+          "entry.txt"
+        ],
+        "phase_transitions": [
+          "prepared",
+          "accepted",
+          "streaming",
+          "failed"
+        ],
+        "pending_decision": null,
+        "member_outcomes": [],
+        "terminal_summary": null,
+        "error_category": "invalid_input"
+      }
+    },
+    {
+      "name": "create_smb_to_smb_collision",
+      "operation": "create",
+      "topology": "smb_to_smb",
+      "fault": "collision",
+      "expected_trace": {
+        "owner": "backend",
+        "manifest_snapshot": [
+          "entry.txt"
+        ],
+        "phase_transitions": [
+          "prepared",
+          "accepted",
+          "streaming",
+          "failed"
+        ],
+        "pending_decision": null,
+        "member_outcomes": [],
+        "terminal_summary": null,
+        "error_category": "collision"
+      }
+    },
+    {
+      "name": "create_smb_to_smb_partial_write",
+      "operation": "create",
+      "topology": "smb_to_smb",
+      "fault": "partial_write",
+      "expected_trace": {
+        "owner": "backend",
+        "manifest_snapshot": [
+          "entry.txt"
+        ],
+        "phase_transitions": [
+          "prepared",
+          "accepted",
+          "streaming",
+          "failed"
+        ],
+        "pending_decision": null,
+        "member_outcomes": [],
+        "terminal_summary": null,
+        "error_category": "partial_write"
+      }
+    },
+    {
+      "name": "create_smb_to_smb_cancellation",
+      "operation": "create",
+      "topology": "smb_to_smb",
+      "fault": "cancellation",
+      "expected_trace": {
+        "owner": "backend",
+        "manifest_snapshot": [
+          "entry.txt"
+        ],
+        "phase_transitions": [
+          "prepared",
+          "accepted",
+          "streaming",
+          "cancelled"
+        ],
+        "pending_decision": null,
+        "member_outcomes": [],
+        "terminal_summary": null,
+        "error_category": "cancelled"
+      }
+    },
+    {
+      "name": "create_smb_to_smb_source_changed",
+      "operation": "create",
+      "topology": "smb_to_smb",
+      "fault": "source_changed",
+      "expected_trace": {
+        "owner": "backend",
+        "manifest_snapshot": [
+          "entry.txt"
+        ],
+        "phase_transitions": [
+          "prepared",
+          "accepted",
+          "streaming",
+          "failed"
+        ],
+        "pending_decision": null,
+        "member_outcomes": [],
+        "terminal_summary": null,
+        "error_category": "source_changed"
+      }
+    },
+    {
+      "name": "create_smb_to_smb_transport_failure",
+      "operation": "create",
+      "topology": "smb_to_smb",
+      "fault": "transport_failure",
+      "expected_trace": {
+        "owner": "backend",
+        "manifest_snapshot": [
+          "entry.txt"
+        ],
+        "phase_transitions": [
+          "prepared",
+          "accepted",
+          "streaming",
+          "failed"
+        ],
+        "pending_decision": null,
+        "member_outcomes": [],
+        "terminal_summary": null,
+        "error_category": "transport_failure"
       }
     },
     {

@@ -198,6 +198,8 @@ def test_topology_trace_fixture_matches_resolved_execution_owners() -> None:
     assert success_cases == {(operation, case.name) for operation in fixture["operations"] for case in TOPOLOGY_CASES}
     assert {case["fault"] for case in fixture["cases"] if case["fault"] is not None} == set(fixture["adapter_faults"])
     assert {case.fault for case in BACKEND_FIXTURE_CASES if case.fault is not None} == set(AdapterFault)
+    assert {case.fault for case in BACKEND_FIXTURE_CASES if case.operation == "create" and case.fault is not None} == set(AdapterFault)
+    assert {case.fault for case in BACKEND_FIXTURE_CASES if case.operation == "extract" and case.fault is not None} == set(AdapterFault)
     corpus_scenarios = {
         "create": {scenario["name"] for scenario in CREATION_TRAJECTORIES},
         "extract": {scenario["name"] for scenario in EXTRACTION_TRAJECTORIES},
@@ -262,7 +264,13 @@ class FaultInjectingExtractionAdapter:
 class DeterministicCreationAdapter:
     """Test-only creation adapter that commits only manifest-backed observations."""
 
+    fault: AdapterFault | None = None
+
     async def run(self, on_member_completed, is_cancelled) -> ArchiveCreationResult:
+        if self.fault == AdapterFault.CANCELLATION:
+            raise ArchiveCreationCancelled()
+        if self.fault is not None:
+            raise RuntimeError(f"injected creation {self.fault.value}")
         assert await is_cancelled() is False
         await on_member_completed(ArchiveCreationMemberOutcome("entry.txt", "created", 5))
         return ArchiveCreationResult(files_created=1, directories_created=0, source_bytes=5)
@@ -326,9 +334,18 @@ def _backend_creation_trace(case: FixtureCase) -> dict[str, Any]:
         ArchiveCreationManifest.from_members([ArchiveCreationManifestMember("entry.txt", False, 5, "entry.txt", None)])
     )
     state_store = TraceRecordingStateStore()
-    completed = asyncio.run(
-        ArchiveCreationCoordinator(operation, state_store).run(DeterministicCreationAdapter().run, execution_plan=creation_plan)
-    )
+    try:
+        completed = asyncio.run(
+            ArchiveCreationCoordinator(operation, state_store).run(
+                DeterministicCreationAdapter(case.fault).run, execution_plan=creation_plan
+            )
+        )
+    except HTTPException:
+        assert case.fault not in {None, AdapterFault.CANCELLATION}
+        completed = operation
+        error_category = "invalid_input" if case.fault == AdapterFault.MALFORMED_INPUT else case.fault.value
+    else:
+        error_category = "cancelled" if case.fault == AdapterFault.CANCELLATION else None
     checkpoint: dict[str, Any] = json.loads(completed.checkpoint_json)
     return {
         "owner": case.topology.driver.value,
@@ -336,8 +353,12 @@ def _backend_creation_trace(case: FixtureCase) -> dict[str, Any]:
         "phase_transitions": state_store.phase_transitions,
         "pending_decision": None,
         "member_outcomes": sorted(checkpoint["creation_member_outcomes"]),
-        "terminal_summary": {key: checkpoint.get(key, 0) for key in case.expected_trace["terminal_summary"]},
-        "error_category": None,
+        "terminal_summary": (
+            {key: checkpoint.get(key, 0) for key in case.expected_trace["terminal_summary"]}
+            if case.expected_trace["terminal_summary"] is not None
+            else None
+        ),
+        "error_category": error_category,
     }
 
 

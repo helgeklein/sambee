@@ -1273,7 +1273,7 @@ def test_companion_local_source_relay_rejects_a_changed_manifest_before_resume(
         },
     ).json()
     capability = client.post(f"/api/archive/operations/{prepared['id']}/companion-session", headers=auth_headers_user).json()
-    relay_headers = {"Authorization": f"Bearer {capability['token']}"}
+    relay_headers = {"Authorization": f"Bearer {capability['token']}", "Idempotency-Key": str(uuid.uuid4())}
     backend = AsyncMock()
     backend.connect.return_value = None
     backend.disconnect.return_value = None
@@ -1728,7 +1728,12 @@ def test_companion_local_relay_pauses_for_a_scoped_collision_and_checkpoints_a_s
         )
         paused = client.post(
             f"/api/archive/operations/{prepared['id']}/companion-relay/smb_zip_to_local_extract/member-collision",
-            headers=relay_headers,
+            headers={**relay_headers, "Idempotency-Key": "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa"},
+            json={"member_path": "readme.txt", "is_directory": False, "target_size": 8},
+        )
+        repeated_pause = client.post(
+            f"/api/archive/operations/{prepared['id']}/companion-relay/smb_zip_to_local_extract/member-collision",
+            headers={**relay_headers, "Idempotency-Key": "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa"},
             json={"member_path": "readme.txt", "is_directory": False, "target_size": 8},
         )
         resumed = client.post(
@@ -1757,6 +1762,8 @@ def test_companion_local_relay_pauses_for_a_scoped_collision_and_checkpoints_a_s
 
     assert manifest.status_code == 200
     assert paused.status_code == 200
+    assert repeated_pause.status_code == 200
+    assert repeated_pause.json()["phase"] == "awaiting_user_decision"
     assert paused.json()["phase"] == "awaiting_user_decision"
     assert json.loads(paused.json()["pending_decision_json"])["conflicts"] == [
         {
@@ -2109,6 +2116,7 @@ def test_companion_local_creation_relay_streams_smb_members_and_completes(
     ).json()
     capability = client.post(f"/api/archive/operations/{prepared['id']}/companion-session", headers=auth_headers_user).json()
     relay_headers = {"Authorization": f"Bearer {capability['token']}"}
+    member_relay_headers = {**relay_headers, "Idempotency-Key": str(uuid.uuid4())}
     backend = AsyncMock()
     backend.connect.return_value = None
     backend.disconnect.return_value = None
@@ -2130,13 +2138,18 @@ def test_companion_local_creation_relay_streams_smb_members_and_completes(
         )
         member_complete = client.post(
             f"/api/archive/operations/{prepared['id']}/companion-relay/smb_to_local_zip_create/member-complete",
-            headers=relay_headers,
+            headers=member_relay_headers,
             json={"archive_path": "readme.txt", "status": "created", "source_bytes": 5},
         )
         repeated_member_complete = client.post(
             f"/api/archive/operations/{prepared['id']}/companion-relay/smb_to_local_zip_create/member-complete",
-            headers=relay_headers,
+            headers=member_relay_headers,
             json={"archive_path": "readme.txt", "status": "created", "source_bytes": 5},
+        )
+        conflicting_member_complete = client.post(
+            f"/api/archive/operations/{prepared['id']}/companion-relay/smb_to_local_zip_create/member-complete",
+            headers=member_relay_headers,
+            json={"archive_path": "readme.txt", "status": "created", "source_bytes": 4},
         )
         complete = client.post(
             f"/api/archive/operations/{prepared['id']}/companion-relay/smb_to_local_zip_create/complete",
@@ -2159,6 +2172,8 @@ def test_companion_local_creation_relay_streams_smb_members_and_completes(
     assert member.content == b"hello"
     assert member_complete.status_code == 200
     assert repeated_member_complete.status_code == 200
+    assert conflicting_member_complete.status_code == status.HTTP_409_CONFLICT
+    assert conflicting_member_complete.json()["detail"] == "Archive relay idempotency key conflicts with its command"
     assert complete.status_code == 200
     assert complete.json()["phase"] == "completed"
     checkpoint = json.loads(complete.json()["checkpoint_json"])
@@ -2172,6 +2187,34 @@ def test_companion_local_creation_relay_streams_smb_members_and_completes(
             "source_identity": {"size": 5, "modified_at": None},
         }
     ]
+
+
+def test_companion_creation_relay_rejects_invalid_idempotency_key(
+    client: TestClient,
+    auth_headers_user: dict,
+    test_connection: Connection,
+) -> None:
+    prepared = client.post(
+        "/api/archive/operations",
+        headers=auth_headers_user,
+        json={
+            "kind": "create",
+            "source_connection_id": str(test_connection.id),
+            "source_path": "",
+            "destination_connection_id": "local-drive:c",
+            "destination_path": "output.zip",
+            "plan_json": json.dumps({"source_paths": ["readme.txt"]}),
+        },
+    ).json()
+    capability = client.post(f"/api/archive/operations/{prepared['id']}/companion-session", headers=auth_headers_user).json()
+    response = client.post(
+        f"/api/archive/operations/{prepared['id']}/companion-relay/smb_to_local_zip_create/member-complete",
+        headers={"Authorization": f"Bearer {capability['token']}", "Idempotency-Key": "not-a-uuid"},
+        json={"archive_path": "readme.txt", "status": "created", "source_bytes": 5},
+    )
+
+    assert response.status_code == status.HTTP_422_UNPROCESSABLE_ENTITY
+    assert response.json()["detail"] == "Archive relay idempotency key is invalid"
 
 
 def test_companion_local_creation_relay_reuses_its_persisted_manifest(
@@ -2192,7 +2235,7 @@ def test_companion_local_creation_relay_reuses_its_persisted_manifest(
         },
     ).json()
     capability = client.post(f"/api/archive/operations/{prepared['id']}/companion-session", headers=auth_headers_user).json()
-    relay_headers = {"Authorization": f"Bearer {capability['token']}"}
+    relay_headers = {"Authorization": f"Bearer {capability['token']}", "Idempotency-Key": str(uuid.uuid4())}
     backend = AsyncMock()
     backend.connect.return_value = None
     backend.disconnect.return_value = None

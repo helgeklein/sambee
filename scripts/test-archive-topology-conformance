@@ -15,6 +15,7 @@ cd "$REPO_ROOT/backend"
 cd "$REPO_ROOT/companion/src-tauri"
 cargo test topology_trace_fixture_assigns_mixed_execution_to_companion_relay_coordinators --lib -q
 cargo test local_to_local_trajectory_matrix_dispatches_actual_coordinator --lib -q
+cargo test mixed_creation_trajectory_matrix_dispatches_actual_coordinators --lib -q
 cargo test archive_sessions::tests --lib -q
 cargo test actual_relay_creation_coordinator_executes_both_mixed_topologies --lib -q
 cargo test actual_relay_extraction_coordinator_executes_both_mixed_topologies --lib -q

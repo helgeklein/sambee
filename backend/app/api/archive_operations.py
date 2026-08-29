@@ -9,7 +9,7 @@ from dataclasses import dataclass
 from datetime import datetime, timedelta
 from typing import Any
 
-from fastapi import APIRouter, Depends, HTTPException, Query, Request, status
+from fastapi import APIRouter, Depends, Header, HTTPException, Query, Request, status
 from fastapi.responses import StreamingResponse
 from joserfc.errors import ExpiredTokenError, JoseError
 from sqlmodel import Session, col, select
@@ -128,6 +128,69 @@ async def shutdown_local_to_smb_creation_writers() -> None:
 ARCHIVE_COMPANION_TOKEN_EXPIRE_MINUTES = 15
 ARCHIVE_COMPANION_TOKEN_CLAIM = "archive_operation"
 ARCHIVE_COMPANION_TOKEN_CLASS = "archive_operation"
+ARCHIVE_RELAY_IDEMPOTENCY_HEADER = "Idempotency-Key"
+ARCHIVE_RELAY_DELIVERY_IDS_KEY = "relay_delivery_ids"
+
+
+def _validate_archive_relay_idempotency_key(value: str | None) -> None:
+    """Accept a backward-compatible Companion acknowledgement delivery ID."""
+
+    if value is None:
+        return
+    try:
+        uuid.UUID(value)
+    except ValueError as exc:
+        raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_CONTENT, detail="Archive relay idempotency key is invalid") from exc
+
+
+def _relay_delivery_replayed(
+    operation: ArchiveOperation,
+    idempotency_key: str | None,
+    *,
+    command: str,
+    payload: dict[str, object],
+) -> bool:
+    """Return whether an acknowledgement has already durably completed."""
+
+    if idempotency_key is None:
+        return False
+    checkpoint = load_archive_checkpoint(operation)
+    deliveries = checkpoint.get(ARCHIVE_RELAY_DELIVERY_IDS_KEY, {})
+    if not isinstance(deliveries, dict):
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="Archive relay delivery checkpoint is invalid")
+    fingerprint = json.dumps({"command": command, "payload": payload}, sort_keys=True, separators=(",", ":"))
+    existing = deliveries.get(idempotency_key)
+    if existing is None:
+        return False
+    if existing != fingerprint:
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="Archive relay idempotency key conflicts with its command")
+    return True
+
+
+def _record_relay_delivery(
+    session: Session,
+    operation: ArchiveOperation,
+    idempotency_key: str | None,
+    *,
+    command: str,
+    payload: dict[str, object],
+) -> ArchiveOperation:
+    """Persist a successful acknowledgement identity after its ledger mutation."""
+
+    if idempotency_key is None:
+        return operation
+    checkpoint = load_archive_checkpoint(operation)
+    deliveries = checkpoint.setdefault(ARCHIVE_RELAY_DELIVERY_IDS_KEY, {})
+    if not isinstance(deliveries, dict):
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="Archive relay delivery checkpoint is invalid")
+    fingerprint = json.dumps({"command": command, "payload": payload}, sort_keys=True, separators=(",", ":"))
+    existing = deliveries.get(idempotency_key)
+    if existing is not None:
+        if existing != fingerprint:
+            raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="Archive relay idempotency key conflicts with its command")
+        return operation
+    deliveries[idempotency_key] = fingerprint
+    return DurableArchiveExecutionStateStore(session).update_checkpoint(operation, json.dumps(checkpoint))
 
 
 def _validate_archive_companion_token(
@@ -814,16 +877,23 @@ async def write_companion_archive_member(
 @router.post("/operations/{operation_id}/companion-relay/local_zip_to_smb_extract/complete", response_model=ArchiveOperationRead)
 async def complete_companion_archive_extraction(
     operation_id: uuid.UUID,
+    idempotency_key: str | None = Header(default=None, alias=ARCHIVE_RELAY_IDEMPOTENCY_HEADER),
     operation_token: str = Depends(oauth2_scheme),
     session: Session = Depends(get_session),
 ) -> ArchiveOperation:
     """Record the terminal result after Companion has streamed all safe members."""
 
+    _validate_archive_relay_idempotency_key(idempotency_key)
     relay = ScopedCompanionRelay(operation_id, ArchiveCompanionRelayPurpose.LOCAL_ZIP_TO_SMB_EXTRACT, operation_token, session)
     _user, operation = relay.resolve()
+    payload_data: dict[str, object] = {}
+    if _relay_delivery_replayed(operation, idempotency_key, command="extraction_complete", payload=payload_data):
+        return operation
     if "archive_manifest" in load_archive_checkpoint(operation):
-        return relay.complete_extraction(destination_root_created=False)
-    return relay.complete()
+        operation = relay.complete_extraction(destination_root_created=False)
+    else:
+        operation = relay.complete()
+    return _record_relay_delivery(session, operation, idempotency_key, command="extraction_complete", payload=payload_data)
 
 
 @router.post("/operations/{operation_id}/companion-relay/local_zip_to_smb_extract/fail", response_model=ArchiveOperationRead)
@@ -968,14 +1038,20 @@ async def stream_companion_local_archive_member(
 async def complete_companion_local_archive_member(
     operation_id: uuid.UUID,
     payload: ArchiveCompanionExtractionMemberCompletion,
+    idempotency_key: str | None = Header(default=None, alias=ARCHIVE_RELAY_IDEMPOTENCY_HEADER),
     operation_token: str = Depends(oauth2_scheme),
     session: Session = Depends(get_session),
 ) -> ArchiveOperation:
     """Durably acknowledge one completed local member before the next member opens."""
 
+    _validate_archive_relay_idempotency_key(idempotency_key)
     relay = ScopedCompanionRelay(operation_id, ArchiveCompanionRelayPurpose.SMB_ZIP_TO_LOCAL_EXTRACT, operation_token, session)
+    _user, operation = relay.resolve()
+    payload_data = payload.model_dump(mode="json")
+    if _relay_delivery_replayed(operation, idempotency_key, command="extraction_member_complete", payload=payload_data):
+        return operation
     _user, operation = relay.streaming(not_streaming_detail="Archive operation is not accepting member output")
-    return ArchiveExtractionCoordinator(operation, DurableArchiveExecutionStateStore(session)).record_member_completed(
+    operation = ArchiveExtractionCoordinator(operation, DurableArchiveExecutionStateStore(session)).record_member_completed(
         ArchiveExtractionMemberOutcome(
             payload.member_path,
             payload.status,
@@ -986,24 +1062,44 @@ async def complete_companion_local_archive_member(
             renamed=payload.renamed,
         ),
     )
+    return _record_relay_delivery(
+        session,
+        operation,
+        idempotency_key,
+        command="extraction_member_complete",
+        payload=payload_data,
+    )
 
 
 @router.post("/operations/{operation_id}/companion-relay/smb_zip_to_local_extract/member-collision", response_model=ArchiveOperationRead)
 async def pause_companion_local_archive_member_for_collision(
     operation_id: uuid.UUID,
     payload: ArchiveCompanionExtractionCollision,
+    idempotency_key: str | None = Header(default=None, alias=ARCHIVE_RELAY_IDEMPOTENCY_HEADER),
     operation_token: str = Depends(oauth2_scheme),
     session: Session = Depends(get_session),
 ) -> ArchiveOperation:
     """Pause before Companion opens a verified pre-existing local output target."""
 
+    _validate_archive_relay_idempotency_key(idempotency_key)
     relay = ScopedCompanionRelay(operation_id, ArchiveCompanionRelayPurpose.SMB_ZIP_TO_LOCAL_EXTRACT, operation_token, session)
+    _user, operation = relay.resolve()
+    payload_data = payload.model_dump(mode="json")
+    if _relay_delivery_replayed(operation, idempotency_key, command="extraction_member_collision", payload=payload_data):
+        return operation
     _user, operation = relay.streaming(not_streaming_detail="Archive operation is not accepting member output")
-    return ArchiveExtractionCoordinator(operation, DurableArchiveExecutionStateStore(session)).pause_for_collision(
+    operation = ArchiveExtractionCoordinator(operation, DurableArchiveExecutionStateStore(session)).pause_for_collision(
         member_path=payload.member_path,
         is_directory=payload.is_directory,
         target_size=payload.target_size,
         target_modified_at=payload.target_modified_at,
+    )
+    return _record_relay_delivery(
+        session,
+        operation,
+        idempotency_key,
+        command="extraction_member_collision",
+        payload=payload_data,
     )
 
 
@@ -1011,17 +1107,30 @@ async def pause_companion_local_archive_member_for_collision(
 async def pause_companion_local_archive_member_for_error(
     operation_id: uuid.UUID,
     payload: ArchiveCompanionExtractionMemberError,
+    idempotency_key: str | None = Header(default=None, alias=ARCHIVE_RELAY_IDEMPOTENCY_HEADER),
     operation_token: str = Depends(oauth2_scheme),
     session: Session = Depends(get_session),
 ) -> ArchiveOperation:
     """Pause a scoped local member failure for retry or explicit ignore."""
 
+    _validate_archive_relay_idempotency_key(idempotency_key)
     relay = ScopedCompanionRelay(operation_id, ArchiveCompanionRelayPurpose.SMB_ZIP_TO_LOCAL_EXTRACT, operation_token, session)
+    _user, operation = relay.resolve()
+    payload_data = payload.model_dump(mode="json")
+    if _relay_delivery_replayed(operation, idempotency_key, command="extraction_member_error", payload=payload_data):
+        return operation
     _user, operation = relay.streaming(not_streaming_detail="Archive operation is not accepting member output")
-    return ArchiveExtractionCoordinator(operation, DurableArchiveExecutionStateStore(session)).pause_for_member_error(
+    operation = ArchiveExtractionCoordinator(operation, DurableArchiveExecutionStateStore(session)).pause_for_member_error(
         member_path=payload.member_path,
         message=payload.message,
         partial_output=payload.partial_output,
+    )
+    return _record_relay_delivery(
+        session,
+        operation,
+        idempotency_key,
+        command="extraction_member_error",
+        payload=payload_data,
     )
 
 
@@ -1029,13 +1138,20 @@ async def pause_companion_local_archive_member_for_error(
 async def complete_companion_local_archive_extraction(
     operation_id: uuid.UUID,
     payload: ArchiveCompanionExtractionSummary,
+    idempotency_key: str | None = Header(default=None, alias=ARCHIVE_RELAY_IDEMPOTENCY_HEADER),
     operation_token: str = Depends(oauth2_scheme),
     session: Session = Depends(get_session),
 ) -> ArchiveOperation:
     """Complete after every scoped member outcome commits to the durable ledger."""
 
+    _validate_archive_relay_idempotency_key(idempotency_key)
     relay = ScopedCompanionRelay(operation_id, ArchiveCompanionRelayPurpose.SMB_ZIP_TO_LOCAL_EXTRACT, operation_token, session)
-    return relay.complete_extraction(destination_root_created=payload.destination_root_created)
+    _user, operation = relay.resolve()
+    payload_data = payload.model_dump(mode="json")
+    if _relay_delivery_replayed(operation, idempotency_key, command="extraction_complete", payload=payload_data):
+        return operation
+    operation = relay.complete_extraction(destination_root_created=payload.destination_root_created)
+    return _record_relay_delivery(session, operation, idempotency_key, command="extraction_complete", payload=payload_data)
 
 
 @router.post("/operations/{operation_id}/companion-relay/smb_zip_to_local_extract/fail", response_model=ArchiveOperationRead)
@@ -1153,17 +1269,29 @@ async def stream_companion_local_archive_creation_member(
 async def complete_companion_local_archive_creation_member(
     operation_id: uuid.UUID,
     payload: ArchiveCompanionCreationMemberCompletion,
+    idempotency_key: str | None = Header(default=None, alias=ARCHIVE_RELAY_IDEMPOTENCY_HEADER),
     operation_token: str = Depends(oauth2_scheme),
     session: Session = Depends(get_session),
 ) -> ArchiveOperation:
     """Durably acknowledge one local ZIP member before writing the next member."""
 
+    _validate_archive_relay_idempotency_key(idempotency_key)
     relay = ScopedCompanionRelay(operation_id, ArchiveCompanionRelayPurpose.SMB_TO_LOCAL_ZIP_CREATE, operation_token, session)
     _user, operation = relay.streaming(not_streaming_detail="Archive operation is not accepting creation member output")
-    return commit_creation_member_outcome(
+    payload_data = payload.model_dump()
+    if _relay_delivery_replayed(operation, idempotency_key, command="creation_member_complete", payload=payload_data):
+        return operation
+    operation = commit_creation_member_outcome(
         DurableArchiveExecutionStateStore(session),
         operation,
         ArchiveCreationMemberOutcome(payload.archive_path, payload.status, payload.source_bytes),
+    )
+    return _record_relay_delivery(
+        session,
+        operation,
+        idempotency_key,
+        command="creation_member_complete",
+        payload=payload_data,
     )
 
 
@@ -1171,14 +1299,20 @@ async def complete_companion_local_archive_creation_member(
 async def complete_companion_local_archive_creation(
     operation_id: uuid.UUID,
     payload: ArchiveCompanionCreationSummary,
+    idempotency_key: str | None = Header(default=None, alias=ARCHIVE_RELAY_IDEMPOTENCY_HEADER),
     operation_token: str = Depends(oauth2_scheme),
     session: Session = Depends(get_session),
 ) -> ArchiveOperation:
     """Persist the finished local ZIP summary after all scoped SMB members were relayed."""
 
-    return await ScopedCompanionRelay(
-        operation_id, ArchiveCompanionRelayPurpose.SMB_TO_LOCAL_ZIP_CREATE, operation_token, session
-    ).complete_creation(payload)
+    _validate_archive_relay_idempotency_key(idempotency_key)
+    relay = ScopedCompanionRelay(operation_id, ArchiveCompanionRelayPurpose.SMB_TO_LOCAL_ZIP_CREATE, operation_token, session)
+    _user, operation = relay.resolve()
+    payload_data = payload.model_dump(mode="json")
+    if _relay_delivery_replayed(operation, idempotency_key, command="creation_complete", payload=payload_data):
+        return operation
+    operation = await relay.complete_creation(payload)
+    return _record_relay_delivery(session, operation, idempotency_key, command="creation_complete", payload=payload_data)
 
 
 @router.post("/operations/{operation_id}/companion-relay/smb_to_local_zip_create/fail", response_model=ArchiveOperationRead)
@@ -1258,11 +1392,13 @@ async def stream_companion_smb_archive_creation_member(
     operation_id: uuid.UUID,
     request: Request,
     archive_path: str = Query(..., min_length=1),
+    idempotency_key: str | None = Header(default=None, alias=ARCHIVE_RELAY_IDEMPOTENCY_HEADER),
     operation_token: str = Depends(oauth2_scheme),
     session: Session = Depends(get_session),
 ) -> ArchiveOperation:
     """Commit one validated local source member through the backend-owned SMB ZIP writer."""
 
+    _validate_archive_relay_idempotency_key(idempotency_key)
     execution = _local_to_smb_creation_writers.execution(operation_id)
     relay = ScopedCompanionRelay(operation_id, ArchiveCompanionRelayPurpose.LOCAL_TO_SMB_ZIP_CREATE, operation_token, session)
     _user, operation = relay.streaming(
@@ -1274,8 +1410,17 @@ async def stream_companion_smb_archive_creation_member(
     entry = creation_state.member(archive_path)
     source_size = entry.source_size
     outcome = creation_state.expected_outcome(entry.archive_path)
-    if creation_state.has_committed_outcome(outcome):
+    payload_data = {"archive_path": archive_path, "source_bytes": source_size}
+    if _relay_delivery_replayed(operation, idempotency_key, command="creation_member_upload", payload=payload_data):
         return operation
+    if creation_state.has_committed_outcome(outcome):
+        return _record_relay_delivery(
+            session,
+            operation,
+            idempotency_key,
+            command="creation_member_upload",
+            payload=payload_data,
+        )
 
     async def source_chunks() -> AsyncIterator[bytes]:
         source_bytes = 0
@@ -1296,7 +1441,14 @@ async def stream_companion_smb_archive_creation_member(
             source=source_chunks(),
             expected_uncompressed_size=source_size,
         )
-        return commit_creation_member_outcome(DurableArchiveExecutionStateStore(session), operation, outcome)
+        operation = commit_creation_member_outcome(DurableArchiveExecutionStateStore(session), operation, outcome)
+        return _record_relay_delivery(
+            session,
+            operation,
+            idempotency_key,
+            command="creation_member_upload",
+            payload=payload_data,
+        )
     except ArchiveCreationCancelled:
         await execution.abort()
         return operation
@@ -1325,20 +1477,26 @@ async def stream_companion_smb_archive_creation_member(
 async def complete_companion_smb_archive_creation(
     operation_id: uuid.UUID,
     payload: ArchiveCompanionCreationSummary,
+    idempotency_key: str | None = Header(default=None, alias=ARCHIVE_RELAY_IDEMPOTENCY_HEADER),
     operation_token: str = Depends(oauth2_scheme),
     session: Session = Depends(get_session),
 ) -> ArchiveOperation:
     """Finalize a fully reported backend-owned SMB ZIP and checked summary."""
 
+    _validate_archive_relay_idempotency_key(idempotency_key)
     execution = _local_to_smb_creation_writers.execution(operation_id)
-    return await ScopedCompanionRelay(
-        operation_id, ArchiveCompanionRelayPurpose.LOCAL_TO_SMB_ZIP_CREATE, operation_token, session
-    ).complete_creation(
+    relay = ScopedCompanionRelay(operation_id, ArchiveCompanionRelayPurpose.LOCAL_TO_SMB_ZIP_CREATE, operation_token, session)
+    _user, operation = relay.resolve()
+    payload_data = payload.model_dump(mode="json")
+    if _relay_delivery_replayed(operation, idempotency_key, command="creation_complete", payload=payload_data):
+        return operation
+    operation = await relay.complete_creation(
         payload,
         is_active=execution.is_active,
         finalize=execution.finalize,
         abort=execution.abort,
     )
+    return _record_relay_delivery(session, operation, idempotency_key, command="creation_complete", payload=payload_data)
 
 
 @router.post("/operations/{operation_id}/companion-relay/local_to_smb_zip_create/fail", response_model=ArchiveOperationRead)
