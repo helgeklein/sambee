@@ -10,10 +10,11 @@ use tokio::sync::{mpsc, Mutex};
 use uuid::Uuid;
 
 use super::archive::{
-    build_local_archive_manifest_with_cancellation, create_local_archive_with_cancellation_and_progress,
-    extract_local_archive_with_checkpoint_and_progress, validate_local_extraction_rename_target, LocalArchiveCreationResult,
-    LocalArchiveError, LocalArchiveExtractionCheckpoint, LocalArchiveExtractionCollision, LocalArchiveExtractionCollisionAction,
-    LocalArchiveExtractionMemberError, LocalArchiveExtractionResult, LocalArchiveExtractionRunResult,
+    build_local_archive_manifest_with_cancellation, create_local_archive_with_cancellation_progress_and_state,
+    extract_local_archive_with_checkpoint_and_progress, validate_local_extraction_rename_target, ArchiveCreationManifestState,
+    LocalArchiveCreationResult, LocalArchiveError, LocalArchiveExtractionCheckpoint, LocalArchiveExtractionCollision,
+    LocalArchiveExtractionCollisionAction, LocalArchiveExtractionMemberError, LocalArchiveExtractionResult,
+    LocalArchiveExtractionRunResult,
 };
 use super::errors::ApiError;
 
@@ -96,6 +97,10 @@ pub struct ArchiveSessionDecision {
 
 enum ArchiveSessionCompletion {
     Completed(ArchiveSessionProgress),
+    CreationCompleted {
+        result: LocalArchiveCreationResult,
+        state: ArchiveCreationManifestState,
+    },
     AwaitingCollision {
         checkpoint: LocalArchiveExtractionCheckpoint,
         collision: LocalArchiveExtractionCollision,
@@ -162,6 +167,7 @@ struct ArchiveSession {
     revision: u64,
     drive_root: PathBuf,
     work: ArchiveSessionWork,
+    creation_state: Option<ArchiveCreationManifestState>,
     extraction_checkpoint: Option<LocalArchiveExtractionCheckpoint>,
     cancellation_requested: Arc<AtomicBool>,
     progress: ArchiveSessionProgress,
@@ -189,6 +195,13 @@ impl ArchiveSession {
     fn complete(&mut self, result: Result<ArchiveSessionCompletion, LocalArchiveError>) {
         match result {
             Ok(ArchiveSessionCompletion::Completed(result)) => {
+                self.progress = result;
+                self.phase = ArchiveSessionPhase::Completed;
+                self.result = Some(result);
+            }
+            Ok(ArchiveSessionCompletion::CreationCompleted { result, state }) => {
+                let result = ArchiveSessionProgress::Creation(result);
+                self.creation_state = Some(state);
                 self.progress = result;
                 self.phase = ArchiveSessionPhase::Completed;
                 self.result = Some(result);
@@ -299,6 +312,7 @@ impl ArchiveSessionManager {
             drive_root,
             progress: work.initial_progress(),
             work,
+            creation_state: None,
             extraction_checkpoint: None,
             cancellation_requested: Arc::new(AtomicBool::new(false)),
             result: None,
@@ -363,7 +377,7 @@ impl ArchiveSessionManager {
                     let entries = build_local_archive_manifest_with_cancellation(&source_paths, &target_path, || {
                         cancellation_requested.load(Ordering::Acquire)
                     })?;
-                    create_local_archive_with_cancellation_and_progress(
+                    create_local_archive_with_cancellation_progress_and_state(
                         &drive_root,
                         &target_path,
                         &entries,
@@ -372,8 +386,7 @@ impl ArchiveSessionManager {
                             let _ = progress_sender.send(ArchiveSessionProgress::Creation(progress));
                         },
                     )
-                    .map(ArchiveSessionProgress::Creation)
-                    .map(ArchiveSessionCompletion::Completed)
+                    .map(|(result, state)| ArchiveSessionCompletion::CreationCompleted { result, state })
                 }
                 ArchiveSessionWork::Extraction {
                     archive_path,
@@ -714,6 +727,19 @@ mod tests {
             status.result,
             Some(ArchiveSessionProgress::Creation(progress)) if progress.files_created == 1 && progress.source_bytes == 6
         ));
+        let sessions = manager.sessions.lock().await;
+        let creation_state = sessions
+            .get(&session.execution_id)
+            .and_then(|session| session.creation_state.as_ref())
+            .expect("completed creation sessions must retain their manifest outcome ledger");
+        assert_eq!(
+            creation_state.terminal_summary().unwrap(),
+            super::LocalArchiveCreationResult {
+                files_created: 1,
+                directories_created: 0,
+                source_bytes: 6,
+            }
+        );
         assert!(target.is_file());
     }
 

@@ -207,7 +207,8 @@ impl ArchiveCreationManifest {
             .ok_or(LocalArchiveError::UnknownCreationMember)
     }
 
-    /// Return the aggregate acknowledgement implied by the immutable manifest.
+    /// Return aggregate expected totals for a fully committed manifest.
+    #[cfg(test)]
     pub fn summary(&self) -> Result<LocalArchiveCreationResult, LocalArchiveError> {
         let mut result = LocalArchiveCreationResult::default();
         for entry in &self.entries {
@@ -288,6 +289,32 @@ impl ArchiveCreationManifestState {
         self.record(self.expected_outcome(archive_path)?)
     }
 
+    /// Return aggregate progress derived solely from recorded member outcomes.
+    pub fn progress(&self) -> Result<LocalArchiveCreationResult, LocalArchiveError> {
+        let mut result = LocalArchiveCreationResult::default();
+        for outcome in self.outcomes.values() {
+            match outcome.status {
+                LocalArchiveCreationMemberStatus::Directory => {
+                    result.directories_created = result
+                        .directories_created
+                        .checked_add(1)
+                        .ok_or_else(|| LocalArchiveError::Io(std::io::Error::other("Archive directory count overflow")))?;
+                }
+                LocalArchiveCreationMemberStatus::Created => {
+                    result.files_created = result
+                        .files_created
+                        .checked_add(1)
+                        .ok_or_else(|| LocalArchiveError::Io(std::io::Error::other("Archive file count overflow")))?;
+                    result.source_bytes = result
+                        .source_bytes
+                        .checked_add(outcome.source_bytes)
+                        .ok_or_else(|| LocalArchiveError::Io(std::io::Error::other("Archive source size overflow")))?;
+                }
+            }
+        }
+        Ok(result)
+    }
+
     pub fn terminal_summary(&self) -> Result<LocalArchiveCreationResult, LocalArchiveError> {
         if self.outcomes.len() != self.manifest.entries.len()
             || self
@@ -298,7 +325,7 @@ impl ArchiveCreationManifestState {
         {
             return Err(LocalArchiveError::IncompleteCreationManifest);
         }
-        self.manifest.summary()
+        self.progress()
     }
 }
 
@@ -572,67 +599,6 @@ impl std::ops::Deref for ArchiveExtractionRelayExecutionPlan {
 pub enum LocalArchiveCreationMemberStatus {
     Directory,
     Created,
-}
-
-/// Provider-neutral committed creation result used to derive progress.
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct LocalArchiveCreationMemberResult {
-    pub archive_path: String,
-    pub status: LocalArchiveCreationMemberStatus,
-    pub source_bytes: u64,
-}
-
-#[derive(Debug, Clone, Default, PartialEq, Eq)]
-struct LocalArchiveCreationProgress {
-    result: LocalArchiveCreationResult,
-    member_results: HashMap<String, LocalArchiveCreationMemberResult>,
-}
-
-impl LocalArchiveCreationProgress {
-    fn result(&self) -> LocalArchiveCreationResult {
-        self.result
-    }
-
-    fn record(&mut self, member_result: LocalArchiveCreationMemberResult) -> Result<(), LocalArchiveError> {
-        if let Some(existing_result) = self.member_results.get(&member_result.archive_path) {
-            if existing_result == &member_result {
-                return Ok(());
-            }
-            return Err(LocalArchiveError::Io(std::io::Error::new(
-                std::io::ErrorKind::InvalidData,
-                "Archive creation member result conflicts with its prior result",
-            )));
-        }
-        match member_result.status {
-            LocalArchiveCreationMemberStatus::Directory => {
-                if member_result.source_bytes != 0 {
-                    return Err(LocalArchiveError::Io(std::io::Error::new(
-                        std::io::ErrorKind::InvalidData,
-                        "Archive directory result must not contain source bytes",
-                    )));
-                }
-                self.result.directories_created = self
-                    .result
-                    .directories_created
-                    .checked_add(1)
-                    .ok_or_else(|| LocalArchiveError::Io(std::io::Error::other("Archive directory count overflow")))?;
-            }
-            LocalArchiveCreationMemberStatus::Created => {
-                self.result.files_created = self
-                    .result
-                    .files_created
-                    .checked_add(1)
-                    .ok_or_else(|| LocalArchiveError::Io(std::io::Error::other("Archive file count overflow")))?;
-                self.result.source_bytes = self
-                    .result
-                    .source_bytes
-                    .checked_add(member_result.source_bytes)
-                    .ok_or_else(|| LocalArchiveError::Io(std::io::Error::other("Archive source size overflow")))?;
-            }
-        }
-        self.member_results.insert(member_result.archive_path.clone(), member_result);
-        Ok(())
-    }
 }
 
 /// One bounded source-stream event supplied by the asynchronous SMB relay.
@@ -2079,53 +2045,77 @@ pub fn create_local_archive_with_cancellation_and_progress(
     is_cancelled: impl Fn() -> bool,
     on_progress: impl FnMut(LocalArchiveCreationResult),
 ) -> Result<LocalArchiveCreationResult, LocalArchiveError> {
+    create_local_archive_with_cancellation_progress_and_state(drive_root, target_path, entries, is_cancelled, on_progress)
+        .map(|(result, _state)| result)
+}
+
+/// Create a local ZIP while retaining its immutable manifest and outcome ledger.
+pub fn create_local_archive_with_cancellation_progress_and_state(
+    drive_root: &Path,
+    target_path: &Path,
+    entries: &[LocalArchiveEntry],
+    is_cancelled: impl Fn() -> bool,
+    on_progress: impl FnMut(LocalArchiveCreationResult),
+) -> Result<(LocalArchiveCreationResult, ArchiveCreationManifestState), LocalArchiveError> {
     revalidate_target_parent(drive_root, target_path)?;
     let output = OpenOptions::new().write(true).create_new(true).open(target_path)?;
-    let result = write_local_archive_stream_with_cancellation_and_progress(output, entries, &is_cancelled, on_progress).map_err(
-        |error| match error {
+    let (result, state) = write_local_archive_stream_with_cancellation_progress_and_state(output, entries, &is_cancelled, on_progress)
+        .map_err(|error| match error {
             LocalArchiveError::Cancelled => LocalArchiveError::Cancelled,
             error => LocalArchiveError::PartialArchiveOutput(Box::new(error)),
-        },
-    )?;
+        })?;
     if is_cancelled() {
         return Err(LocalArchiveError::Cancelled);
     }
     read_local_archive_entries(target_path).map_err(|error| LocalArchiveError::PartialArchiveOutput(Box::new(error.into())))?;
-    Ok(result)
+    Ok((result, state))
 }
 
-/// Write a portable ZIP while publishing committed source-member progress.
-pub fn write_local_archive_stream_with_cancellation_and_progress<W: Write>(
+/// Write a portable ZIP while retaining the immutable manifest and committed outcomes.
+pub fn write_local_archive_stream_with_cancellation_progress_and_state<W: Write>(
     output: W,
     entries: &[LocalArchiveEntry],
     is_cancelled: impl Fn() -> bool,
     mut on_progress: impl FnMut(LocalArchiveCreationResult),
-) -> Result<LocalArchiveCreationResult, LocalArchiveError> {
+) -> Result<(LocalArchiveCreationResult, ArchiveCreationManifestState), LocalArchiveError> {
+    let manifest = ArchiveCreationManifest::from_entries(
+        entries
+            .iter()
+            .map(|entry| {
+                Ok(ArchiveCreationManifestMember {
+                    archive_path: entry.archive_path.clone(),
+                    is_directory: entry.is_directory,
+                    source_size: if entry.is_directory {
+                        0
+                    } else {
+                        fs::metadata(&entry.source_path)?.len()
+                    },
+                })
+            })
+            .collect::<Result<Vec<_>, std::io::Error>>()?,
+    )?;
     (|| {
         let mut writer = ZipWriter::new_stream(output);
-        let mut progress = LocalArchiveCreationProgress::default();
+        let mut state = ArchiveCreationManifestState::new(manifest);
+        let manifest_entries = state.manifest.entries.clone();
         let mut buffer = vec![0; ARCHIVE_COPY_BUFFER_SIZE];
 
-        on_progress(progress.result());
+        on_progress(state.progress()?);
 
-        for entry in entries {
+        for (entry, manifest_entry) in entries.iter().zip(&manifest_entries) {
             if is_cancelled() {
                 return Err(LocalArchiveError::Cancelled);
             }
             if entry.is_directory {
-                writer.add_directory(normalized_archive_path(&entry.archive_path, true)?, directory_options())?;
-                progress.record(LocalArchiveCreationMemberResult {
-                    archive_path: entry.archive_path.clone(),
-                    status: LocalArchiveCreationMemberStatus::Directory,
-                    source_bytes: 0,
-                })?;
-                on_progress(progress.result());
+                writer.add_directory(normalized_archive_path(&manifest_entry.archive_path, true)?, directory_options())?;
+                state.record_expected(&manifest_entry.archive_path)?;
+                on_progress(state.progress()?);
                 continue;
             }
             let mut source = FsFile::open(&entry.source_path)?;
             let probe_size = source.read(&mut buffer)?;
             writer.start_file(
-                normalized_archive_path(&entry.archive_path, false)?,
+                normalized_archive_path(&manifest_entry.archive_path, false)?,
                 regular_file_options(&buffer[..probe_size])?,
             )?;
             writer.write_all(&buffer[..probe_size])?;
@@ -2143,17 +2133,17 @@ pub fn write_local_archive_stream_with_cancellation_and_progress<W: Write>(
                     .checked_add(read as u64)
                     .ok_or_else(|| LocalArchiveError::Io(std::io::Error::other("Archive source size overflow")))?;
             }
-            progress.record(LocalArchiveCreationMemberResult {
-                archive_path: entry.archive_path.clone(),
-                status: LocalArchiveCreationMemberStatus::Created,
-                source_bytes,
-            })?;
-            on_progress(progress.result());
+            if source_bytes != manifest_entry.source_size {
+                return Err(LocalArchiveError::InvalidCreationOutcome);
+            }
+            state.record_expected(&manifest_entry.archive_path)?;
+            on_progress(state.progress()?);
         }
 
         let mut output = writer.finish()?;
         output.flush()?;
-        Ok(progress.result())
+        let result = state.terminal_summary()?;
+        Ok((result, state))
     })()
 }
 
@@ -2999,14 +2989,28 @@ mod tests {
         assert_eq!(corpus.version, 1);
 
         for scenario in corpus.scenarios {
-            let mut progress = LocalArchiveCreationProgress::default();
+            let manifest = ArchiveCreationManifest::from_entries(scenario.result_reports.iter().fold(Vec::new(), |mut entries, report| {
+                if !entries
+                    .iter()
+                    .any(|entry: &ArchiveCreationManifestMember| entry.archive_path == report.archive_path)
+                {
+                    entries.push(ArchiveCreationManifestMember {
+                        archive_path: report.archive_path.clone(),
+                        is_directory: report.status == "directory",
+                        source_size: if report.status == "directory" { 0 } else { report.source_bytes },
+                    });
+                }
+                entries
+            }))
+            .expect("creation outcome scenario must form a valid manifest");
+            let mut state = ArchiveCreationManifestState::new(manifest);
             let result = scenario.result_reports.into_iter().try_for_each(|report| {
                 let status = match report.status.as_str() {
                     "directory" => LocalArchiveCreationMemberStatus::Directory,
                     "created" => LocalArchiveCreationMemberStatus::Created,
                     status => panic!("unsupported creation result status in {}: {status}", scenario.name),
                 };
-                progress.record(LocalArchiveCreationMemberResult {
+                state.record(ArchiveCreationMemberOutcome {
                     archive_path: report.archive_path,
                     status,
                     source_bytes: report.source_bytes,
@@ -3020,10 +3024,10 @@ mod tests {
             let expected_outcomes = scenario
                 .member_outcomes
                 .expect("valid creation outcome scenario must declare outcomes");
-            assert_eq!(progress.member_results.len(), expected_outcomes.len());
+            assert_eq!(state.outcomes.len(), expected_outcomes.len());
             for (archive_path, expected_outcome) in expected_outcomes {
-                let member_result = progress
-                    .member_results
+                let member_result = state
+                    .outcomes
                     .get(&archive_path)
                     .expect("expected creation result must be recorded");
                 assert_eq!(member_result.source_bytes, expected_outcome.source_bytes);
@@ -3033,9 +3037,10 @@ mod tests {
                 );
             }
             let expected_progress = scenario.progress.expect("valid creation outcome scenario must declare progress");
-            assert_eq!(progress.result().files_created, expected_progress["files_created"]);
-            assert_eq!(progress.result().directories_created, expected_progress["directories_created"]);
-            assert_eq!(progress.result().source_bytes, expected_progress["source_bytes"]);
+            let progress = state.progress().expect("creation outcome progress must be derivable");
+            assert_eq!(progress.files_created, expected_progress["files_created"]);
+            assert_eq!(progress.directories_created, expected_progress["directories_created"]);
+            assert_eq!(progress.source_bytes, expected_progress["source_bytes"]);
         }
     }
 
