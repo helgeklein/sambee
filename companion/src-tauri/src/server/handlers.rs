@@ -3591,7 +3591,8 @@ mod tests {
         relay_completed_members, resolve_drive_relative_source_path, resolve_link_target_metadata, resolve_pair_cancel_origin,
         resolve_pair_confirm_origin, resolve_pair_status_origin, resolve_safe_path, source_link_kind, validate_editor_write_target,
         ArchiveCreationMemberCompletion, ArchiveExtractionCollision, ArchiveExtractionMemberCompletion, ArchiveExtractionMemberError,
-        ArchiveExtractionSummary, ArchiveRelayDestinationStatus, ArchiveRelayFailure, ArchiveRelayOperation, ArchiveRelayTransport,
+        ArchiveExtractionSummary, ArchiveRelayBinding, ArchiveRelayDestinationStatus, ArchiveRelayFailure, ArchiveRelayOperation,
+        ArchiveRelayTransport,
     };
     use crate::server::archive::{
         ArchiveCreationManifest, ArchiveCreationManifestMember, LocalArchiveCreationResult, LocalArchiveError,
@@ -3641,6 +3642,42 @@ mod tests {
             .find(|payload| payload["name"] == name)
             .unwrap_or_else(|| panic!("relay control payload fixture should define {name}"))["example"]
             .clone()
+    }
+
+    #[test]
+    fn v1_relay_binding_fixture_matches_companion_route_bindings() {
+        let fixture: serde_json::Value = serde_json::from_str(include_str!("../../../../archive-contract/v1/relay-bindings-v1.json"))
+            .expect("relay binding fixture should be valid JSON");
+        assert_eq!(fixture["version"], 1);
+        assert_eq!(
+            fixture["bindings"],
+            serde_json::json!([
+                {
+                    "purpose": ArchiveRelayBinding::LocalZipToSmbExtract.path_segment(),
+                    "kind": "extract",
+                    "source": "local",
+                    "destination": "smb",
+                },
+                {
+                    "purpose": ArchiveRelayBinding::SmbZipToLocalExtract.path_segment(),
+                    "kind": "extract",
+                    "source": "smb",
+                    "destination": "local",
+                },
+                {
+                    "purpose": ArchiveRelayBinding::SmbToLocalZipCreate.path_segment(),
+                    "kind": "create",
+                    "source": "smb",
+                    "destination": "local",
+                },
+                {
+                    "purpose": ArchiveRelayBinding::LocalToSmbZipCreate.path_segment(),
+                    "kind": "create",
+                    "source": "local",
+                    "destination": "smb",
+                },
+            ])
+        );
     }
 
     async fn spawn_archive_relay_transport_test_server() -> String {

@@ -32,6 +32,7 @@ TOPOLOGY_OPERATION_MATRIX_PATH = WORKSPACE_ROOT / "archive-contract" / "v1" / "t
 COMPANION_ARCHIVE_ROUTE_BINDINGS_PATH = WORKSPACE_ROOT / "archive-contract" / "v1" / "companion-archive-route-bindings-v1.json"
 COMPATIBILITY_READERS_PATH = WORKSPACE_ROOT / "archive-contract" / "v1" / "compatibility-readers-v1.json"
 COMPANION_RELAY_BINDING_PATH = WORKSPACE_ROOT / "companion" / "src-tauri" / "src" / "server" / "handlers.rs"
+COMPANION_MODELS_PATH = WORKSPACE_ROOT / "companion" / "src-tauri" / "src" / "server" / "models.rs"
 COMPANION_ROUTER_PATH = WORKSPACE_ROOT / "companion" / "src-tauri" / "src" / "server" / "mod.rs"
 ARCHIVE_API_PREFIX = "/api/archive"
 CANONICAL_RELAY_PATH_SEGMENT = "/companion-relay/"
@@ -208,6 +209,87 @@ def _v1_compatibility_readers() -> list[dict[str, str]]:
     return readers
 
 
+def _rust_struct_schema_contract(model: str) -> tuple[set[str], set[str], dict[str, set[str]], bool]:
+    source = "\n".join(
+        (
+            COMPANION_RELAY_BINDING_PATH.read_text(encoding="utf-8"),
+            COMPANION_MODELS_PATH.read_text(encoding="utf-8"),
+        )
+    )
+    struct_match = re.search(
+        rf"(?P<attributes>(?:#\[[^\]]+\]\s*)*)pub struct {re.escape(model)}\s*\{{(?P<body>.*?)\n\}}",
+        source,
+        flags=re.DOTALL,
+    )
+    assert struct_match is not None, f"Companion model {model} must remain a public struct"
+
+    properties: set[str] = set()
+    required: set[str] = set()
+    aliases: dict[str, set[str]] = {}
+    field_pattern = re.compile(
+        r"(?P<attributes>(?:\s*#\[[^\]]+\]\s*)*)\s*pub\s+(?P<field>\w+)\s*:\s*(?P<type>[^,]+),",
+        flags=re.DOTALL,
+    )
+    for field_match in field_pattern.finditer(struct_match.group("body")):
+        attributes = field_match.group("attributes")
+        field_name = field_match.group("field")
+        renamed = re.search(r'rename\s*=\s*"(?P<name>[^"]+)"', attributes)
+        wire_name = renamed.group("name") if renamed is not None else field_name
+        field_aliases = set(re.findall(r'alias\s*=\s*"([^"]+)"', attributes))
+        properties.add(wire_name)
+        properties.update(field_aliases)
+        if "Option<" not in field_match.group("type") and "default" not in attributes:
+            required.add(wire_name)
+        if field_aliases:
+            aliases[wire_name] = field_aliases
+
+    return properties, required, aliases, "deny_unknown_fields" in struct_match.group("attributes")
+
+
+def _assert_companion_struct_schema(schema: dict[str, Any], model: str, *, is_request: bool) -> None:
+    properties, required, aliases, denies_unknown_fields = _rust_struct_schema_contract(model)
+    assert set(schema["properties"]) == properties
+    if is_request:
+        assert schema.get("additionalProperties", True) is not denies_unknown_fields
+    else:
+        assert schema.get("additionalProperties") is False
+
+    alias_required = set(aliases) & required
+    assert set(schema.get("required", [])) == required - alias_required
+    if not is_request:
+        for optional_property in properties - required:
+            property_schema = schema["properties"][optional_property]
+            property_type = property_schema.get("type")
+            assert not isinstance(property_type, list) or "null" not in property_type
+    if not alias_required:
+        assert "oneOf" not in schema
+        return
+
+    assert set(schema["oneOf"][0]["required"]) == alias_required
+    assert set(schema["oneOf"][1]["required"]) == set().union(*[aliases[field] for field in alias_required])
+
+
+def _assert_companion_execution_start_schema(schema: dict[str, Any]) -> None:
+    variants = {
+        (
+            branch["properties"]["kind"]["const"],
+            frozenset(branch["properties"]),
+            frozenset(branch["required"]),
+            branch["additionalProperties"],
+        )
+        for branch in schema["oneOf"]
+    }
+    assert variants == {
+        ("create", frozenset({"kind", "source_paths", "target_path"}), frozenset({"kind", "source_paths", "target_path"}), False),
+        (
+            "extract",
+            frozenset({"kind", "archive_path", "destination_path"}),
+            frozenset({"kind", "archive_path", "destination_path"}),
+            False,
+        ),
+    }
+
+
 def test_archive_contract_covers_every_active_backend_route() -> None:
     """Keep the versioned route contract aligned with every backend archive endpoint."""
 
@@ -231,6 +313,19 @@ def test_archive_contract_covers_active_backend_inspection_routes() -> None:
         if method in HTTP_OPERATION_METHODS
     }
     assert documented_routes == _registered_backend_inspection_operations()
+
+
+def test_active_backend_v1_routes_declare_semantic_operation_and_retirement() -> None:
+    """Require retained V1 backend routes to declare their contract lifecycle."""
+
+    contract = yaml.safe_load(ARCHIVE_CONTRACT_PATH.read_text(encoding="utf-8"))
+    active_routes = _registered_backend_operations() | _registered_backend_inspection_operations()
+    for method, route_path in active_routes:
+        contract_path = route_path.replace("{operation_id}", "{operationId}").replace("{connection_id}", "{connectionId}")
+        operation = contract["paths"][contract_path][method.lower()]
+        assert operation["x-semantic-operation"] in {"inspection", "creation", "extraction", "execution"}
+        assert isinstance(operation["x-retirement-condition"], str)
+        assert operation["x-retirement-condition"]
 
 
 def test_local_to_smb_extraction_begin_request_matches_source_manifest_model() -> None:
@@ -290,6 +385,36 @@ def test_archive_contract_binds_companion_archive_routes_to_their_concrete_model
         else:
             assert request_model_match is not None
             assert request_model_match.group("model") == expected_request_model
+
+        if expected_request_model == "ArchiveExecutionStartRequest":
+            assert request_schema is not None
+            _assert_companion_execution_start_schema(schemas[request_schema])
+        elif expected_request_model is not None:
+            assert request_schema is not None
+            _assert_companion_struct_schema(schemas[request_schema], expected_request_model, is_request=True)
+
+        response_model = str(route["response_model"])
+        if response_model == "Response<Body>":
+            assert schemas[route["response_schema"]] == {"type": "string", "format": "binary"}
+        else:
+            _assert_companion_struct_schema(
+                schemas[route["response_schema"]],
+                response_model.removeprefix("Json<").removesuffix(">"),
+                is_request=False,
+            )
+
+
+def test_companion_archive_listing_response_schema_matches_nested_serialization() -> None:
+    """Keep optional Companion listing fields omitted rather than serialized as null."""
+
+    contract = yaml.safe_load(ARCHIVE_CONTRACT_PATH.read_text(encoding="utf-8"))
+    schemas = contract["components"]["schemas"]
+    for schema_name, model in {
+        "ArchiveIdentityV1": "ArchiveIdentity",
+        "ArchiveEntryInfoV1": "ArchiveEntryInfo",
+        "ArchiveDirectoryListingV1": "ArchiveDirectoryListing",
+    }.items():
+        _assert_companion_struct_schema(schemas[schema_name], model, is_request=False)
 
 
 def test_v1_relay_binding_fixture_covers_backend_contract_and_companion() -> None:

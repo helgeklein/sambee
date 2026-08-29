@@ -10,6 +10,8 @@ paths:
   /archive-executions:
     post:
       operationId: startArchiveExecution
+      x-semantic-operation: execution
+      x-retirement-condition: Remove after V2 caller migration and the historical V1 operation-retention window.
       summary: Start an archive execution from an immutable plan
       requestBody:
         required: true
@@ -31,6 +33,8 @@ paths:
       - $ref: '#/components/parameters/ExecutionId'
     get:
       operationId: getArchiveExecution
+      x-semantic-operation: execution
+      x-retirement-condition: Remove after V2 caller migration and the historical V1 operation-retention window.
       summary: Retrieve current execution state and progress
       responses:
         '200':
@@ -44,6 +48,8 @@ paths:
       - $ref: '#/components/parameters/ExecutionId'
     post:
       operationId: decideArchiveExecution
+      x-semantic-operation: execution
+      x-retirement-condition: Remove after V2 caller migration and the historical V1 operation-retention window.
       summary: Apply the current pending user decision
       requestBody:
         required: true
@@ -65,6 +71,8 @@ paths:
       - $ref: '#/components/parameters/ExecutionId'
     post:
       operationId: cancelArchiveExecution
+      x-semantic-operation: execution
+      x-retirement-condition: Remove after V2 caller migration and the historical V1 operation-retention window.
       summary: Request foreground execution cancellation
       requestBody:
         required: true
@@ -85,6 +93,8 @@ paths:
     parameters: [{$ref: '#/components/parameters/ConnectionId'}]
     get:
       operationId: listSmbArchiveDirectory
+      x-semantic-operation: inspection
+      x-retirement-condition: Remove after V2 caller migration and the historical V1 operation-retention window.
       summary: List a bounded virtual directory page from an SMB ZIP archive
       security: [{ArchiveUserToken: []}]
       parameters:
@@ -114,6 +124,8 @@ paths:
     parameters: [{$ref: '#/components/parameters/ConnectionId'}]
     get:
       operationId: readArchiveMember
+      x-semantic-operation: inspection
+      x-retirement-condition: Remove after V2 caller migration and the historical V1 operation-retention window.
       summary: Stream one parser-validated SMB archive member
       security: [{ArchiveUserToken: []}]
       parameters:
@@ -165,6 +177,8 @@ paths:
     parameters: [{$ref: '#/components/parameters/ConnectionId'}]
     delete:
       operationId: invalidateArchiveMemberPdfDerivative
+      x-semantic-operation: inspection
+      x-retirement-condition: Remove after V2 caller migration and the historical V1 operation-retention window.
       summary: Invalidate one SMB archive member PDF derivative
       security: [{ArchiveUserToken: []}]
       parameters:
@@ -188,6 +202,8 @@ paths:
   /api/archive/operations:
     post:
       operationId: prepareArchiveOperation
+      x-semantic-operation: execution
+      x-retirement-condition: Remove after V2 caller migration and the historical V1 operation-retention window.
       summary: Prepare a durable archive operation
       security: [{ArchiveUserToken: []}]
       requestBody:
@@ -199,6 +215,8 @@ paths:
         '201': {$ref: '#/components/responses/ArchiveOperation'}
     get:
       operationId: listArchiveOperations
+      x-semantic-operation: execution
+      x-retirement-condition: Remove after V2 caller migration and the historical V1 operation-retention window.
       summary: List the caller's durable archive operations
       security: [{ArchiveUserToken: []}]
       parameters:
@@ -222,6 +240,8 @@ paths:
     parameters: [{$ref: '#/components/parameters/OperationId'}]
     get:
       operationId: getArchiveOperation
+      x-semantic-operation: execution
+      x-retirement-condition: Remove after V2 caller migration and the historical V1 operation-retention window.
       summary: Retrieve one durable archive operation
       security: [{ArchiveUserToken: []}]
       responses:
@@ -230,6 +250,8 @@ paths:
     parameters: [{$ref: '#/components/parameters/OperationId'}]
     post:
       operationId: createArchiveCompanionSession
+      x-semantic-operation: execution
+      x-retirement-condition: Remove after V2 caller migration and the historical V1 operation-retention window.
       summary: Create a scoped Companion capability for a mixed archive operation
       security: [{ArchiveUserToken: []}]
       responses:
@@ -242,6 +264,8 @@ paths:
     parameters: [{$ref: '#/components/parameters/OperationId'}]
     post:
       operationId: transitionArchiveOperation
+      x-semantic-operation: execution
+      x-retirement-condition: Remove after V2 caller migration and the historical V1 operation-retention window.
       summary: Transition a durable archive operation phase
       security: [{ArchiveUserToken: []}]
       requestBody:
@@ -256,6 +280,8 @@ paths:
     parameters: [{$ref: '#/components/parameters/OperationId'}]
     post:
       operationId: executeArchiveCreation
+      x-semantic-operation: creation
+      x-retirement-condition: Remove after V2 caller migration and the historical V1 operation-retention window.
       summary: Execute a same-SMB archive creation operation
       security: [{ArchiveUserToken: []}]
       responses:
@@ -264,6 +290,8 @@ paths:
     parameters: [{$ref: '#/components/parameters/OperationId'}]
     post:
       operationId: executeArchiveExtraction
+      x-semantic-operation: extraction
+      x-retirement-condition: Remove after V2 caller migration and the historical V1 operation-retention window.
       summary: Execute a same-SMB archive extraction operation
       security: [{ArchiveUserToken: []}]
       responses:
@@ -272,6 +300,8 @@ paths:
     parameters: [{$ref: '#/components/parameters/OperationId'}]
     post:
       operationId: decideArchiveExtraction
+      x-semantic-operation: extraction
+      x-retirement-condition: Remove after V2 caller migration and the historical V1 operation-retention window.
       summary: Apply a collision, retry, ignore, or cancellation decision to an extraction operation
       security: [{ArchiveUserToken: []}]
       requestBody:
@@ -288,6 +318,8 @@ paths:
       - $ref: '#/components/parameters/ExpectedRevision'
     post:
       operationId: cancelArchiveOperation
+      x-semantic-operation: execution
+      x-retirement-condition: Remove after V2 caller migration and the historical V1 operation-retention window.
       summary: Request cancellation of a durable archive operation
       security: [{ArchiveUserToken: []}]
       responses:
@@ -296,6 +328,8 @@ paths:
   /api/archive/operations/{operationId}/companion-relay/local_zip_to_smb_extract/begin:
     post:
       operationId: beginLocalZipToSmbExtractionRelay
+      x-semantic-operation: extraction
+      x-retirement-condition: Remove after V2 caller migration and the historical V1 operation-retention window.
       summary: Begin a scoped local ZIP to SMB extraction relay
       security: [{ArchiveOperationToken: []}]
       parameters: [{$ref: '#/components/parameters/OperationId'}]
@@ -310,6 +344,8 @@ paths:
   /api/archive/operations/{operationId}/companion-relay/local_zip_to_smb_extract/member:
     put:
       operationId: writeLocalZipToSmbExtractionMember
+      x-semantic-operation: extraction
+      x-retirement-condition: Remove after V2 caller migration and the historical V1 operation-retention window.
       summary: Write one decoded local ZIP member to its scoped SMB destination
       security: [{ArchiveOperationToken: []}]
       parameters:
@@ -328,6 +364,8 @@ paths:
   /api/archive/operations/{operationId}/companion-relay/local_zip_to_smb_extract/complete:
     post:
       operationId: completeLocalZipToSmbExtractionRelay
+      x-semantic-operation: extraction
+      x-retirement-condition: Remove after V2 caller migration and the historical V1 operation-retention window.
       summary: Complete a scoped local ZIP to SMB extraction relay
       security: [{ArchiveOperationToken: []}]
       parameters: [{$ref: '#/components/parameters/OperationId'}]
@@ -337,6 +375,8 @@ paths:
   /api/archive/operations/{operationId}/companion-relay/local_zip_to_smb_extract/fail:
     post:
       operationId: failLocalZipToSmbExtractionRelay
+      x-semantic-operation: extraction
+      x-retirement-condition: Remove after V2 caller migration and the historical V1 operation-retention window.
       summary: Fail a scoped local ZIP to SMB extraction relay
       security: [{ArchiveOperationToken: []}]
       parameters: [{$ref: '#/components/parameters/OperationId'}]
@@ -350,6 +390,8 @@ paths:
   /api/archive/operations/{operationId}/companion-relay/smb_zip_to_local_extract/begin:
     post:
       operationId: beginSmbZipToLocalExtractionRelay
+      x-semantic-operation: extraction
+      x-retirement-condition: Remove after V2 caller migration and the historical V1 operation-retention window.
       summary: Begin a scoped SMB ZIP to local extraction relay
       security: [{ArchiveOperationToken: []}]
       parameters: [{$ref: '#/components/parameters/OperationId'}]
@@ -363,6 +405,8 @@ paths:
   /api/archive/operations/{operationId}/companion-relay/smb_zip_to_local_extract/member:
     get:
       operationId: readSmbZipToLocalExtractionMember
+      x-semantic-operation: extraction
+      x-retirement-condition: Remove after V2 caller migration and the historical V1 operation-retention window.
       summary: Read one decoded member from a scoped SMB ZIP source
       security: [{ArchiveOperationToken: []}]
       parameters:
@@ -378,6 +422,8 @@ paths:
   /api/archive/operations/{operationId}/companion-relay/smb_zip_to_local_extract/member-complete:
     post:
       operationId: completeSmbZipToLocalExtractionMember
+      x-semantic-operation: extraction
+      x-retirement-condition: Remove after V2 caller migration and the historical V1 operation-retention window.
       summary: Record one completed local extraction member
       security: [{ArchiveOperationToken: []}]
       parameters: [{$ref: '#/components/parameters/OperationId'}]
@@ -392,6 +438,8 @@ paths:
   /api/archive/operations/{operationId}/companion-relay/smb_zip_to_local_extract/member-collision:
     post:
       operationId: reportSmbZipToLocalExtractionCollision
+      x-semantic-operation: extraction
+      x-retirement-condition: Remove after V2 caller migration and the historical V1 operation-retention window.
       summary: Pause for a local extraction collision decision
       security: [{ArchiveOperationToken: []}]
       parameters: [{$ref: '#/components/parameters/OperationId'}]
@@ -406,6 +454,8 @@ paths:
   /api/archive/operations/{operationId}/companion-relay/smb_zip_to_local_extract/member-error:
     post:
       operationId: reportSmbZipToLocalExtractionMemberError
+      x-semantic-operation: extraction
+      x-retirement-condition: Remove after V2 caller migration and the historical V1 operation-retention window.
       summary: Pause for a local extraction member error decision
       security: [{ArchiveOperationToken: []}]
       parameters: [{$ref: '#/components/parameters/OperationId'}]
@@ -420,6 +470,8 @@ paths:
   /api/archive/operations/{operationId}/companion-relay/smb_zip_to_local_extract/complete:
     post:
       operationId: completeSmbZipToLocalExtractionRelay
+      x-semantic-operation: extraction
+      x-retirement-condition: Remove after V2 caller migration and the historical V1 operation-retention window.
       summary: Complete a scoped SMB ZIP to local extraction relay
       security: [{ArchiveOperationToken: []}]
       parameters: [{$ref: '#/components/parameters/OperationId'}]
@@ -434,6 +486,8 @@ paths:
   /api/archive/operations/{operationId}/companion-relay/smb_zip_to_local_extract/fail:
     post:
       operationId: failSmbZipToLocalExtractionRelay
+      x-semantic-operation: extraction
+      x-retirement-condition: Remove after V2 caller migration and the historical V1 operation-retention window.
       summary: Fail a scoped SMB ZIP to local extraction relay
       security: [{ArchiveOperationToken: []}]
       parameters: [{$ref: '#/components/parameters/OperationId'}]
@@ -447,6 +501,8 @@ paths:
   /api/archive/operations/{operationId}/companion-relay/smb_to_local_zip_create/begin:
     post:
       operationId: beginSmbToLocalZipCreationRelay
+      x-semantic-operation: creation
+      x-retirement-condition: Remove after V2 caller migration and the historical V1 operation-retention window.
       summary: Begin a scoped SMB to local ZIP creation relay
       security: [{ArchiveOperationToken: []}]
       parameters: [{$ref: '#/components/parameters/OperationId'}]
@@ -460,6 +516,8 @@ paths:
   /api/archive/operations/{operationId}/companion-relay/smb_to_local_zip_create/member:
     get:
       operationId: readSmbToLocalZipCreationMember
+      x-semantic-operation: creation
+      x-retirement-condition: Remove after V2 caller migration and the historical V1 operation-retention window.
       summary: Read one approved SMB file for local ZIP creation
       security: [{ArchiveOperationToken: []}]
       parameters:
@@ -475,6 +533,8 @@ paths:
   /api/archive/operations/{operationId}/companion-relay/smb_to_local_zip_create/member-complete:
     post:
       operationId: completeSmbToLocalZipCreationMember
+      x-semantic-operation: creation
+      x-retirement-condition: Remove after V2 caller migration and the historical V1 operation-retention window.
       summary: Record one committed local ZIP member
       security: [{ArchiveOperationToken: []}]
       parameters: [{$ref: '#/components/parameters/OperationId'}]
@@ -489,6 +549,8 @@ paths:
   /api/archive/operations/{operationId}/companion-relay/smb_to_local_zip_create/complete:
     post:
       operationId: completeSmbToLocalZipCreationRelay
+      x-semantic-operation: creation
+      x-retirement-condition: Remove after V2 caller migration and the historical V1 operation-retention window.
       summary: Complete a scoped SMB to local ZIP creation relay
       security: [{ArchiveOperationToken: []}]
       parameters: [{$ref: '#/components/parameters/OperationId'}]
@@ -503,6 +565,8 @@ paths:
   /api/archive/operations/{operationId}/companion-relay/smb_to_local_zip_create/fail:
     post:
       operationId: failSmbToLocalZipCreationRelay
+      x-semantic-operation: creation
+      x-retirement-condition: Remove after V2 caller migration and the historical V1 operation-retention window.
       summary: Fail a scoped SMB to local ZIP creation relay
       security: [{ArchiveOperationToken: []}]
       parameters: [{$ref: '#/components/parameters/OperationId'}]
@@ -516,6 +580,8 @@ paths:
   /api/archive/operations/{operationId}/companion-relay/local_to_smb_zip_create/begin:
     post:
       operationId: beginLocalToSmbZipCreationRelay
+      x-semantic-operation: creation
+      x-retirement-condition: Remove after V2 caller migration and the historical V1 operation-retention window.
       summary: Begin a scoped local to SMB ZIP creation relay with its local source manifest
       security: [{ArchiveOperationToken: []}]
       parameters: [{$ref: '#/components/parameters/OperationId'}]
@@ -530,6 +596,8 @@ paths:
   /api/archive/operations/{operationId}/companion-relay/local_to_smb_zip_create/member:
     put:
       operationId: writeLocalToSmbZipCreationMember
+      x-semantic-operation: creation
+      x-retirement-condition: Remove after V2 caller migration and the historical V1 operation-retention window.
       summary: Commit one approved local source member to the scoped SMB ZIP
       security: [{ArchiveOperationToken: []}]
       parameters:
@@ -546,6 +614,8 @@ paths:
   /api/archive/operations/{operationId}/companion-relay/local_to_smb_zip_create/complete:
     post:
       operationId: completeLocalToSmbZipCreationRelay
+      x-semantic-operation: creation
+      x-retirement-condition: Remove after V2 caller migration and the historical V1 operation-retention window.
       summary: Complete a scoped local to SMB ZIP creation relay
       security: [{ArchiveOperationToken: []}]
       parameters: [{$ref: '#/components/parameters/OperationId'}]
@@ -560,6 +630,8 @@ paths:
   /api/archive/operations/{operationId}/companion-relay/local_to_smb_zip_create/fail:
     post:
       operationId: failLocalToSmbZipCreationRelay
+      x-semantic-operation: creation
+      x-retirement-condition: Remove after V2 caller migration and the historical V1 operation-retention window.
       summary: Fail a scoped local to SMB ZIP creation relay
       security: [{ArchiveOperationToken: []}]
       parameters: [{$ref: '#/components/parameters/OperationId'}]
@@ -728,7 +800,7 @@ components:
     ArchiveDirectoryListingV1:
       type: object
       additionalProperties: false
-      required: [archive, path, items, total, next_cursor, page_size]
+      required: [archive, path, items, total, page_size]
       properties:
         archive: {$ref: '#/components/schemas/ArchiveIdentityV1'}
         path: {type: string}
@@ -736,29 +808,29 @@ components:
           type: array
           items: {$ref: '#/components/schemas/ArchiveEntryInfoV1'}
         total: {type: integer, minimum: 0}
-        next_cursor: {type: [string, 'null']}
+        next_cursor: {type: string}
         page_size: {type: integer, minimum: 1, maximum: 500}
     ArchiveIdentityV1:
       type: object
       additionalProperties: false
-      required: [path, size, modified_at]
+      required: [path, size]
       properties:
         path: {type: string}
         size: {type: integer, minimum: 0}
-        modified_at: {type: [string, 'null'], format: date-time}
+        modified_at: {type: string, format: date-time}
     ArchiveEntryInfoV1:
       type: object
       additionalProperties: false
-      required: [name, path, type, size, compressed_size, compression_method, crc32, modified_at, state, is_hidden]
+      required: [name, path, type, state, is_hidden]
       properties:
         name: {type: string}
         path: {type: string}
         type: {type: string, enum: [file, directory]}
-        size: {type: [integer, 'null'], minimum: 0}
-        compressed_size: {type: [integer, 'null'], minimum: 0}
-        compression_method: {type: [integer, 'null'], minimum: 0}
-        crc32: {type: [integer, 'null'], minimum: 0}
-        modified_at: {type: [string, 'null'], format: date-time}
+        size: {type: integer, minimum: 0}
+        compressed_size: {type: integer, minimum: 0}
+        compression_method: {type: integer, minimum: 0}
+        crc32: {type: integer, minimum: 0}
+        modified_at: {type: string, format: date-time}
         state: {type: string, enum: [readable, blocked, unavailable]}
         is_hidden: {type: boolean}
     ArchiveExtractionManifest:
@@ -930,7 +1002,7 @@ components:
         source_bytes: {type: integer, minimum: 0}
     ArchiveListQueryV1:
       type: object
-      additionalProperties: false
+      additionalProperties: true
       required: [archive_path]
       properties:
         archive_path: {type: string, minLength: 1}
@@ -939,7 +1011,7 @@ components:
         page_size: {type: [integer, 'null'], minimum: 1, maximum: 500}
     ArchiveMemberReadQueryV1:
       type: object
-      additionalProperties: false
+      additionalProperties: true
       required: [archive_path, member_path]
       properties:
         archive_path: {type: string, minLength: 1}
@@ -957,7 +1029,7 @@ components:
         target_path: {type: string, minLength: 1}
     ArchiveSmbToLocalCreationRequestV1:
       type: object
-      additionalProperties: false
+      additionalProperties: true
       required: [target_path, server_url, operation_id, operation_token]
       properties:
         target_path: {type: string, minLength: 1}
@@ -966,7 +1038,7 @@ components:
         operation_token: {type: string, minLength: 1}
     ArchiveLocalToSmbCreationRequestV1:
       type: object
-      additionalProperties: false
+      additionalProperties: true
       required: [source_paths, target_path, server_url, operation_id, operation_token]
       properties:
         source_paths:
@@ -979,7 +1051,7 @@ components:
         operation_token: {type: string, minLength: 1}
     ArchiveLocalToSmbExtractionRequestV1:
       type: object
-      additionalProperties: false
+      additionalProperties: true
       required: [archive_path, server_url, operation_id, operation_token]
       properties:
         archive_path: {type: string, minLength: 1}
@@ -988,7 +1060,7 @@ components:
         operation_token: {type: string, minLength: 1}
     ArchiveSmbToLocalExtractionRequestV1:
       type: object
-      additionalProperties: false
+      additionalProperties: true
       required: [destination_path, server_url, operation_id, operation_token]
       properties:
         destination_path: {type: string, minLength: 1}
@@ -1016,15 +1088,22 @@ components:
     CompanionArchiveExecutionCancellationRequestV1:
       type: object
       additionalProperties: false
-      required: [expected_revision]
+      oneOf:
+        - required: [expected_revision]
+        - required: [expectedRevision]
       properties:
         expected_revision: {type: integer, minimum: 0}
+        expectedRevision: {type: integer, minimum: 0}
     CompanionArchiveExecutionDecisionRequestV1:
       type: object
       additionalProperties: false
-      required: [expected_revision, member_path, action]
+      required: [member_path, action]
+      oneOf:
+        - required: [expected_revision]
+        - required: [expectedRevision]
       properties:
         expected_revision: {type: integer, minimum: 0}
+        expectedRevision: {type: integer, minimum: 0}
         member_path: {type: string, minLength: 1}
         action:
           type: string
