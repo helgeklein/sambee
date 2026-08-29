@@ -9,6 +9,7 @@ import pytest
 from app.services.archive.zip_reader import ArchiveFormatError, ZipReader
 
 CORPUS_ROOT = Path(__file__).resolve().parents[2] / "archive_testdata"
+INSPECTION_CORPUS_PATH = Path(__file__).resolve().parents[2] / "archive-contract" / "v1" / "inspection-scenarios-v1.json"
 
 
 class FileRandomAccessReader:
@@ -51,3 +52,29 @@ async def test_v1_zip_reader_conformance_corpus() -> None:
             if expected["safe"] and expected["member_sha256"] is not None:
                 member = b"".join([chunk async for chunk in reader.stream_member(entry.path)])
                 assert hashlib.sha256(member).hexdigest() == expected["member_sha256"]
+
+
+@pytest.mark.asyncio
+async def test_v1_inspection_scenarios() -> None:
+    corpus = json.loads(INSPECTION_CORPUS_PATH.read_text())
+    assert corpus["version"] == 1
+    for scenario in corpus["scenarios"]:
+        data = (CORPUS_ROOT / scenario["fixture"]).read_bytes()
+        if scenario.get("error") == "format_error":
+            with pytest.raises(ArchiveFormatError):
+                reader = ZipReader(FileRandomAccessReader(CORPUS_ROOT / scenario["fixture"]), len(data))
+                await reader.inspection_manifest()
+            continue
+        reader = ZipReader(FileRandomAccessReader(CORPUS_ROOT / scenario["fixture"]), len(data))
+        manifest = await reader.inspection_manifest()
+        assert [
+            {
+                "path": entry.path,
+                "is_directory": entry.is_directory,
+                "compression_method": entry.compression_method,
+                "uncompressed_size": entry.uncompressed_size,
+                "is_safe": entry.is_safe,
+                "preview_state": entry.preview_state,
+            }
+            for entry in manifest.entries
+        ] == scenario["entries"]

@@ -92,6 +92,11 @@ async def stream_archive_member(
         reader = await backend.open_random_access_reader(archive_path)
         zip_reader = ZipReader(reader, archive_info.size)
         member = await zip_reader.validate_member(member_path)
+        inspection_member = next(entry for entry in (await zip_reader.inspection_manifest()).entries if entry.path == member.path)
+        if not download and not inspection_member.is_inline_preview_eligible():
+            raise HTTPException(
+                status_code=status.HTTP_413_REQUEST_ENTITY_TOO_LARGE, detail="Archive member exceeds the inline preview size limit"
+            )
         member_name = member_path.replace("\\", "/").rsplit("/", 1)[-1]
 
         async def read_member_source() -> tuple[bytes, PDFSourceRevision]:

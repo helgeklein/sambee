@@ -30,6 +30,7 @@ _INFOZIP_UNICODE_PATH_FIELD_ID = 0x7075
 _INFOZIP_UNICODE_PATH_VERSION = 1
 _READABLE_METHODS = {0, 8, 12}
 _ARCHIVE_IO_CHUNK_BYTES = 256 * 1024
+ARCHIVE_INLINE_PREVIEW_MAX_BYTES = 5 * 1024 * 1024
 _UNIX_HOST_SYSTEM = 3
 _UNIX_FILE_TYPE_MASK = 0o170000
 _UNIX_DIRECTORY_FILE_TYPE = 0o040000
@@ -66,6 +67,44 @@ class ZipEntry:
     local_header_offset: int
     flags: int
     raw_name: bytes
+
+
+@dataclass(frozen=True)
+class ArchiveInspectionManifestMember:
+    """Normalized inspection metadata for one archive member."""
+
+    path: str
+    is_directory: bool
+    compressed_size: int
+    uncompressed_size: int
+    compression_method: int
+    crc32: int
+    modified_at: datetime | None
+    encrypted: bool
+    is_safe: bool
+    has_supported_file_type: bool
+
+    @property
+    def preview_state(self) -> Literal["readable", "blocked", "unavailable"]:
+        if self.encrypted:
+            return "blocked"
+        return "readable" if self.compression_method in _READABLE_METHODS else "unavailable"
+
+    def is_inline_preview_eligible(self) -> bool:
+        return (
+            not self.is_directory
+            and self.is_safe
+            and self.has_supported_file_type
+            and self.preview_state == "readable"
+            and self.uncompressed_size <= ARCHIVE_INLINE_PREVIEW_MAX_BYTES
+        )
+
+
+@dataclass(frozen=True)
+class ArchiveInspectionManifest:
+    """Immutable normalized archive inspection result, independent of HTTP DTOs."""
+
+    entries: tuple[ArchiveInspectionManifestMember, ...]
 
 
 def _u16(data: bytes, offset: int) -> int:
@@ -357,6 +396,27 @@ class ZipReader:
             raise ArchiveFormatError("ZIP local header filename does not match central directory")
         return entry
 
+    async def inspection_manifest(self) -> ArchiveInspectionManifest:
+        """Project parsed ZIP metadata into the shared inspection domain value."""
+
+        return ArchiveInspectionManifest(
+            entries=tuple(
+                ArchiveInspectionManifestMember(
+                    path=entry.path,
+                    is_directory=entry.is_directory,
+                    compressed_size=entry.compressed_size,
+                    uncompressed_size=entry.uncompressed_size,
+                    compression_method=entry.compression_method,
+                    crc32=entry.crc32,
+                    modified_at=entry.modified_at,
+                    encrypted=entry.encrypted,
+                    is_safe=entry.is_safe,
+                    has_supported_file_type=entry.has_supported_file_type,
+                )
+                for entry in await self.entries()
+            )
+        )
+
     async def stream_member(self, path: str, chunk_size: int = 262_144) -> AsyncIterator[bytes]:
         """Validate and stream a single permitted member without staging it."""
 
@@ -432,7 +492,7 @@ class ZipReader:
             raise ArchiveFormatError("Archive directory path is invalid")
         prefix = f"{normalized_path}/" if normalized_path else ""
         children: dict[str, ArchiveEntryInfo] = {}
-        for entry in await self.entries():
+        for entry in (await self.inspection_manifest()).entries:
             if not entry.is_safe or not entry.has_supported_file_type or not entry.path.startswith(prefix):
                 continue
             remainder = entry.path[len(prefix) :]
@@ -446,9 +506,6 @@ class ZipReader:
                     ArchiveEntryInfo(name=child_name, path=child_path, type=FileType.DIRECTORY, state="unavailable"),
                 )
                 continue
-            state: Literal["readable", "blocked", "unavailable"] = (
-                "blocked" if entry.encrypted else "readable" if entry.compression_method in _READABLE_METHODS else "unavailable"
-            )
             children[child_path] = ArchiveEntryInfo(
                 name=child_name,
                 path=child_path,
@@ -458,7 +515,7 @@ class ZipReader:
                 compression_method=None if entry.is_directory else entry.compression_method,
                 crc32=None if entry.is_directory else entry.crc32,
                 modified_at=entry.modified_at,
-                state=state,
+                state=entry.preview_state,
                 is_hidden=child_name.startswith("."),
             )
         ordered = sorted(

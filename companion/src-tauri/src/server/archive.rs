@@ -17,6 +17,7 @@ use zip::CompressionMethod;
 
 /// Bounded source-read size for direct local archive output.
 pub const ARCHIVE_COPY_BUFFER_SIZE: usize = 64 * 1024;
+pub const ARCHIVE_INLINE_PREVIEW_MAX_BYTES: u64 = 5 * 1024 * 1024;
 const STORED_SAVINGS_BYTES: usize = 1024;
 const STORED_SAVINGS_RATIO: f64 = 0.05;
 const EOCD_SIGNATURE: &[u8; 4] = b"PK\x05\x06";
@@ -56,6 +57,43 @@ pub struct LocalArchiveReadEntry {
     pub local_header_offset: u64,
     pub flags: u16,
     pub raw_name: Vec<u8>,
+}
+
+/// Normalized inspection metadata for one archive member.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ArchiveInspectionManifestMember {
+    pub path: String,
+    pub is_directory: bool,
+    pub compressed_size: u64,
+    pub uncompressed_size: u64,
+    pub compression_method: u16,
+    pub crc32: u32,
+    pub modified_at: Option<DateTime<Utc>>,
+    pub encrypted: bool,
+    pub is_safe: bool,
+    pub has_supported_file_type: bool,
+}
+
+impl ArchiveInspectionManifestMember {
+    /// Whether the member may be read for an inline preview.
+    pub fn is_preview_available(&self) -> bool {
+        !self.encrypted && matches!(self.compression_method, 0 | 8)
+    }
+
+    /// Whether this member is eligible for a bounded inline preview.
+    pub fn is_inline_preview_eligible(&self) -> bool {
+        !self.is_directory
+            && self.is_safe
+            && self.has_supported_file_type
+            && self.is_preview_available()
+            && self.uncompressed_size <= ARCHIVE_INLINE_PREVIEW_MAX_BYTES
+    }
+}
+
+/// Immutable normalized archive inspection result, independent of HTTP DTOs.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ArchiveInspectionManifest {
+    pub entries: Vec<ArchiveInspectionManifestMember>,
 }
 
 /// A single direct child returned from a virtual archive directory.
@@ -1053,6 +1091,27 @@ fn read_local_archive_entries(archive_path: &Path) -> Result<Vec<LocalArchiveRea
     Ok(entries)
 }
 
+/// Project parsed local ZIP metadata into the shared inspection domain value.
+pub fn inspect_local_archive(archive_path: &Path) -> Result<ArchiveInspectionManifest, LocalArchiveReadError> {
+    Ok(ArchiveInspectionManifest {
+        entries: read_local_archive_entries(archive_path)?
+            .into_iter()
+            .map(|entry| ArchiveInspectionManifestMember {
+                path: entry.path,
+                is_directory: entry.is_directory,
+                compressed_size: entry.compressed_size,
+                uncompressed_size: entry.uncompressed_size,
+                compression_method: entry.compression_method,
+                crc32: entry.crc32,
+                modified_at: entry.modified_at,
+                encrypted: entry.encrypted,
+                is_safe: entry.is_safe,
+                has_supported_file_type: entry.has_supported_file_type,
+            })
+            .collect(),
+    })
+}
+
 /// Return a bounded virtual-directory page without staging local archive contents.
 pub fn list_local_archive_directory(
     archive_path: &Path,
@@ -1072,7 +1131,7 @@ pub fn list_local_archive_directory(
         format!("{normalized_path}/")
     };
     let mut children = BTreeMap::new();
-    for entry in read_local_archive_entries(archive_path)? {
+    for entry in inspect_local_archive(archive_path)?.entries {
         if !entry.is_safe || !entry.has_supported_file_type || !entry.path.starts_with(&prefix) {
             continue;
         }
@@ -1109,7 +1168,7 @@ pub fn list_local_archive_directory(
                 crc32: (!entry.is_directory).then_some(entry.crc32),
                 modified_at: entry.modified_at,
                 encrypted: entry.encrypted,
-                is_available: !entry.encrypted && matches!(entry.compression_method, 0 | 8),
+                is_available: entry.is_inline_preview_eligible(),
             },
         );
     }
@@ -3698,6 +3757,40 @@ mod tests {
                 assert_eq!(entry["status"], "supported");
                 assert!(entry["driver"].is_string());
             }
+        }
+    }
+
+    #[test]
+    fn passes_v1_inspection_scenarios() {
+        let workspace_root = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../..");
+        let corpus: serde_json::Value = serde_json::from_slice(
+            &fs::read(workspace_root.join("archive-contract/v1/inspection-scenarios-v1.json")).unwrap(),
+        )
+        .unwrap();
+        assert_eq!(corpus["version"], 1);
+
+        for scenario in corpus["scenarios"].as_array().unwrap() {
+            let archive_path = workspace_root.join("archive_testdata").join(scenario["fixture"].as_str().unwrap());
+            if scenario["error"] == "format_error" {
+                assert!(inspect_local_archive(&archive_path).is_err());
+                continue;
+            }
+            let manifest = inspect_local_archive(&archive_path).unwrap();
+            let entries = manifest
+                .entries
+                .iter()
+                .map(|entry| {
+                    serde_json::json!({
+                        "path": entry.path,
+                        "is_directory": entry.is_directory,
+                        "compression_method": entry.compression_method,
+                        "uncompressed_size": entry.uncompressed_size,
+                        "is_safe": entry.is_safe,
+                        "preview_state": if entry.encrypted { "blocked" } else if entry.is_preview_available() { "readable" } else { "unavailable" },
+                    })
+                })
+                .collect::<Vec<_>>();
+            assert_eq!(entries, *scenario["entries"].as_array().unwrap());
         }
     }
 

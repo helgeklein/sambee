@@ -1,0 +1,76 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "ArchiveInspectionManifestV1",
+  "type": "object",
+  "required": [
+    "entries"
+  ],
+  "properties": {
+    "entries": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": [
+          "path",
+          "is_directory",
+          "compressed_size",
+          "uncompressed_size",
+          "compression_method",
+          "crc32",
+          "modified_at",
+          "encrypted",
+          "is_safe",
+          "has_supported_file_type",
+          "preview_state"
+        ],
+        "properties": {
+          "path": {
+            "type": "string"
+          },
+          "is_directory": {
+            "type": "boolean"
+          },
+          "compressed_size": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "uncompressed_size": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "compression_method": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "crc32": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 4294967295
+          },
+          "modified_at": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "encrypted": {
+            "type": "boolean"
+          },
+          "is_safe": {
+            "type": "boolean"
+          },
+          "has_supported_file_type": {
+            "type": "boolean"
+          },
+          "preview_state": {
+            "enum": [
+              "readable",
+              "blocked",
+              "unavailable"
+            ]
+          }
+        }
+      }
+    }
+  }
+}

@@ -81,6 +81,19 @@ async def test_lists_root_and_implicit_directory() -> None:
 
 
 @pytest.mark.asyncio
+async def test_projects_a_normalized_inspection_manifest() -> None:
+    data = _zip_bytes()
+
+    manifest = await ZipReader(MemoryRandomAccessReader(data), len(data)).inspection_manifest()
+
+    assert [(entry.path, entry.is_directory, entry.preview_state) for entry in manifest.entries] == [
+        ("root.txt", False, "readable"),
+        ("folder/nested.txt", False, "readable"),
+        ("folder/deeper/item.txt", False, "readable"),
+    ]
+
+
+@pytest.mark.asyncio
 async def test_pages_subdirectory_listing_stably() -> None:
     data = _zip_bytes()
     reader = ZipReader(MemoryRandomAccessReader(data), len(data))

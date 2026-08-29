@@ -1,0 +1,95 @@
+{
+  "version": 1,
+  "preview_max_bytes": 5242880,
+  "scenarios": [
+    {
+      "fixture": "portable-v1.zip",
+      "entries": [
+        {
+          "path": "stored.txt",
+          "is_directory": false,
+          "compression_method": 0,
+          "uncompressed_size": 6,
+          "is_safe": true,
+          "preview_state": "readable"
+        },
+        {
+          "path": "deflated.txt",
+          "is_directory": false,
+          "compression_method": 8,
+          "uncompressed_size": 1152,
+          "is_safe": true,
+          "preview_state": "readable"
+        },
+        {
+          "path": "empty",
+          "is_directory": true,
+          "compression_method": 0,
+          "uncompressed_size": 0,
+          "is_safe": true,
+          "preview_state": "readable"
+        }
+      ]
+    },
+    {
+      "fixture": "unsafe-path-v1.zip",
+      "entries": [
+        {
+          "path": "../unsafe.txt",
+          "is_directory": false,
+          "compression_method": 0,
+          "uncompressed_size": 7,
+          "is_safe": false,
+          "preview_state": "readable"
+        }
+      ]
+    },
+    {
+      "fixture": "data-descriptor-v1.zip",
+      "entries": [
+        {
+          "path": "descriptor.txt",
+          "is_directory": false,
+          "compression_method": 8,
+          "uncompressed_size": 1408,
+          "is_safe": true,
+          "preview_state": "readable"
+        }
+      ]
+    },
+    {
+      "fixture": "unicode-path-v1.zip",
+      "entries": [
+        {
+          "path": "café.txt",
+          "is_directory": false,
+          "compression_method": 0,
+          "uncompressed_size": 7,
+          "is_safe": true,
+          "preview_state": "readable"
+        }
+      ]
+    },
+    {
+      "fixture": "zip64-v1.zip",
+      "entries": [
+        {
+          "path": "zip64.txt",
+          "is_directory": false,
+          "compression_method": 8,
+          "uncompressed_size": 768,
+          "is_safe": true,
+          "preview_state": "readable"
+        }
+      ]
+    },
+    {
+      "fixture": "malformed-v1.zip",
+      "error": "format_error"
+    },
+    {
+      "fixture": "eocd-malformed-v1.zip",
+      "error": "format_error"
+    }
+  ]
+}
