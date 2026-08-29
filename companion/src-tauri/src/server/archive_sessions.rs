@@ -287,16 +287,19 @@ enum ArchiveSessionWorkerEvent {
     Progress(ArchiveSessionProgress),
 }
 
-/// Coordinate direct-local archive work while keeping lifecycle records in memory only.
-pub struct LocalArchiveOperationCoordinator {
+/// Execute direct-local archive work against the in-memory session state store.
+pub struct LocalArchiveSessionExecutor {
     state_store: Arc<ArchiveSessionManager>,
 }
 
-impl LocalArchiveOperationCoordinator {
+impl LocalArchiveSessionExecutor {
     pub fn new(state_store: Arc<ArchiveSessionManager>) -> Self {
         Self { state_store }
     }
 }
+
+#[cfg(test)]
+pub type LocalArchiveOperationCoordinator = LocalArchiveSessionExecutor;
 
 impl ArchiveSessionManager {
     pub fn new() -> Self {
@@ -469,7 +472,7 @@ impl ArchiveSessionManager {
     }
 }
 
-impl LocalArchiveOperationCoordinator {
+impl LocalArchiveSessionExecutor {
     async fn apply_decision(
         &self,
         drive: &str,
@@ -686,7 +689,7 @@ impl ArchiveSessionManager {
     }
 }
 
-impl LocalArchiveOperationCoordinator {
+impl LocalArchiveSessionExecutor {
     pub async fn start(&self, execution_id: &str) -> Result<(), ApiError> {
         let (drive_root, work, cancellation_requested, checkpoint) = self.state_store.start_state(execution_id).await?;
         self.spawn_worker(

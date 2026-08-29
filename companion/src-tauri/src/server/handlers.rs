@@ -31,13 +31,13 @@ use crate::{commands, show_pairing_success, show_pairing_window};
 use super::archive::{
     build_local_archive_manifest, build_local_archive_manifest_for_remote_target, create_local_archive, create_local_archive_relay_writer,
     create_local_extraction_root, ensure_local_extraction_directory, open_local_extraction_file, project_local_archive_creation_manifest,
-    reopen_partial_local_extraction_file, stream_local_archive_member, validate_local_archive_extraction,
-    validate_local_extraction_member_path, ArchiveCreationManifest, ArchiveCreationManifestState, ArchiveExtractionManifest,
-    ArchiveExtractionManifestMember, ArchiveExtractionRelayExecutionPlan, ArchiveExtractionRelayState, ArchiveInspectionCoordinator,
-    LocalArchiveCreationResult, LocalArchiveEntry, LocalArchiveError, LocalArchiveReadEntry, LocalArchiveRelayChunk,
-    ARCHIVE_COPY_BUFFER_SIZE,
+    reopen_partial_local_extraction_file, resolve_companion_archive_topology_plan, stream_local_archive_member,
+    validate_local_archive_extraction, validate_local_extraction_member_path, ArchiveCreationManifest, ArchiveCreationManifestState,
+    ArchiveExtractionManifest, ArchiveExtractionManifestMember, ArchiveExtractionRelayExecutionPlan, ArchiveExtractionRelayState,
+    ArchiveInspectionCoordinator, CompanionArchiveOperationKind, CompanionArchiveTopology, LocalArchiveCreationResult, LocalArchiveEntry,
+    LocalArchiveError, LocalArchiveReadEntry, LocalArchiveRelayChunk, ARCHIVE_COPY_BUFFER_SIZE,
 };
-use super::archive_sessions::{ArchiveSessionProgress, ArchiveSessionStatus, LocalArchiveOperationCoordinator};
+use super::archive_sessions::{ArchiveSessionManager, ArchiveSessionProgress, ArchiveSessionStatus, LocalArchiveSessionExecutor};
 use super::auth;
 use super::drives;
 use super::edit_locks::EDIT_LOCK_LOST_CODE;
@@ -66,6 +66,16 @@ const WINDOWS_EXTENDED_PATH_PREFIX: &str = "\\\\?\\";
 const WINDOWS_EXTENDED_UNC_PATH_PREFIX: &str = "\\\\?\\UNC\\";
 #[cfg(any(windows, test))]
 const WINDOWS_UNC_PATH_PREFIX: &str = "\\\\";
+
+fn resolve_companion_archive_topology(
+    kind: CompanionArchiveOperationKind,
+    source_is_local: bool,
+    destination_is_local: bool,
+) -> Result<CompanionArchiveTopology, ApiError> {
+    resolve_companion_archive_topology_plan(kind, source_is_local, destination_is_local)
+        .map(|plan| plan.topology)
+        .map_err(map_local_archive_error)
+}
 
 // ─── WebSocket ───────────────────────────────────────────────────────────────
 
@@ -1400,9 +1410,66 @@ enum ArchiveCreationAdapterBinding {
     },
 }
 
-struct ArchiveCreationCoordinator {
+struct ArchiveCreationRelayAdapter {
     relay: ArchiveCreationRelay,
     binding: ArchiveCreationAdapterBinding,
+}
+
+enum CompanionArchiveCreationPlan {
+    DirectLocal {
+        state_store: Arc<ArchiveSessionManager>,
+        execution_id: String,
+    },
+    Relay {
+        relay: ArchiveCreationRelay,
+        binding: ArchiveCreationAdapterBinding,
+    },
+}
+
+enum CompanionArchiveCreationResult {
+    DirectLocalStarted,
+    Relay(ArchiveCreationResponse),
+}
+
+/// Select and execute the Companion-owned creation adapter for one immutable topology plan.
+struct CompanionArchiveCreationCoordinator {
+    plan: CompanionArchiveCreationPlan,
+}
+
+impl CompanionArchiveCreationCoordinator {
+    fn direct_local(state_store: Arc<ArchiveSessionManager>, execution_id: String) -> Self {
+        Self {
+            plan: CompanionArchiveCreationPlan::DirectLocal { state_store, execution_id },
+        }
+    }
+
+    fn relay(relay: ArchiveCreationRelay, binding: ArchiveCreationAdapterBinding) -> Self {
+        Self {
+            plan: CompanionArchiveCreationPlan::Relay { relay, binding },
+        }
+    }
+
+    async fn execute(self) -> Result<CompanionArchiveCreationResult, ApiError> {
+        match self.plan {
+            CompanionArchiveCreationPlan::DirectLocal { state_store, execution_id } => {
+                LocalArchiveSessionExecutor::new(state_store).start(&execution_id).await?;
+                Ok(CompanionArchiveCreationResult::DirectLocalStarted)
+            }
+            CompanionArchiveCreationPlan::Relay { relay, binding } => ArchiveCreationRelayAdapter { relay, binding }
+                .execute_relay()
+                .await
+                .map(CompanionArchiveCreationResult::Relay),
+        }
+    }
+
+    fn relay_result(result: CompanionArchiveCreationResult) -> Result<ArchiveCreationResponse, ApiError> {
+        match result {
+            CompanionArchiveCreationResult::Relay(result) => Ok(result),
+            CompanionArchiveCreationResult::DirectLocalStarted => Err(ApiError::Internal(
+                "Archive creation topology did not produce a relay result".to_string(),
+            )),
+        }
+    }
 }
 
 async fn execute_archive_relay<T>(
@@ -1418,8 +1485,8 @@ async fn execute_archive_relay<T>(
     }
 }
 
-impl ArchiveCreationCoordinator {
-    async fn execute(self) -> Result<ArchiveCreationResponse, ApiError> {
+impl ArchiveCreationRelayAdapter {
+    async fn execute_relay(self) -> Result<ArchiveCreationResponse, ApiError> {
         let Self { relay, binding } = self;
         let result = execute_archive_relay(
             async {
@@ -1454,6 +1521,22 @@ impl ArchiveCreationCoordinator {
         .await?;
         relay.complete(&result).await?;
         Ok(result)
+    }
+}
+
+#[cfg(test)]
+struct ArchiveCreationCoordinator {
+    relay: ArchiveCreationRelay,
+    binding: ArchiveCreationAdapterBinding,
+}
+
+#[cfg(test)]
+impl ArchiveCreationCoordinator {
+    async fn execute(self) -> Result<ArchiveCreationResponse, ApiError> {
+        let result = CompanionArchiveCreationCoordinator::relay(self.relay, self.binding)
+            .execute()
+            .await?;
+        CompanionArchiveCreationCoordinator::relay_result(result)
     }
 }
 
@@ -1783,13 +1866,90 @@ enum ArchiveExtractionAdapterBinding {
     },
 }
 
-struct ArchiveExtractionCoordinator {
+struct ArchiveExtractionRelayAdapter {
     relay: ArchiveExtractionRelay,
     binding: ArchiveExtractionAdapterBinding,
 }
 
-impl ArchiveExtractionCoordinator {
-    async fn execute(self) -> Result<ArchiveExtractionResponse, ApiError> {
+enum CompanionArchiveExtractionPlan {
+    DirectLocal {
+        state_store: Arc<ArchiveSessionManager>,
+        execution_id: String,
+    },
+    Relay {
+        relay: ArchiveExtractionRelay,
+        binding: ArchiveExtractionAdapterBinding,
+    },
+}
+
+enum CompanionArchiveExtractionResult {
+    DirectLocalStarted,
+    Relay(ArchiveExtractionResponse),
+}
+
+/// Select and execute the Companion-owned extraction adapter for one immutable topology plan.
+struct CompanionArchiveExtractionCoordinator {
+    plan: CompanionArchiveExtractionPlan,
+}
+
+impl CompanionArchiveExtractionCoordinator {
+    fn direct_local(state_store: Arc<ArchiveSessionManager>, execution_id: String) -> Self {
+        Self {
+            plan: CompanionArchiveExtractionPlan::DirectLocal { state_store, execution_id },
+        }
+    }
+
+    fn relay(relay: ArchiveExtractionRelay, binding: ArchiveExtractionAdapterBinding) -> Self {
+        Self {
+            plan: CompanionArchiveExtractionPlan::Relay { relay, binding },
+        }
+    }
+
+    async fn execute(self) -> Result<CompanionArchiveExtractionResult, ApiError> {
+        match self.plan {
+            CompanionArchiveExtractionPlan::DirectLocal { state_store, execution_id } => {
+                LocalArchiveSessionExecutor::new(state_store).start(&execution_id).await?;
+                Ok(CompanionArchiveExtractionResult::DirectLocalStarted)
+            }
+            CompanionArchiveExtractionPlan::Relay { relay, binding } => ArchiveExtractionRelayAdapter { relay, binding }
+                .execute_relay()
+                .await
+                .map(CompanionArchiveExtractionResult::Relay),
+        }
+    }
+
+    async fn decide(
+        self,
+        drive: &str,
+        owner_origin: &str,
+        execution_id: &str,
+        expected_revision: u64,
+        decision: super::archive_sessions::ArchiveSessionDecision,
+    ) -> Result<ArchiveSessionStatus, ApiError> {
+        match self.plan {
+            CompanionArchiveExtractionPlan::DirectLocal { state_store, .. } => {
+                LocalArchiveSessionExecutor::new(state_store)
+                    .decide(drive, owner_origin, execution_id, expected_revision, decision)
+                    .await
+            }
+            CompanionArchiveExtractionPlan::Relay { .. } => Err(ApiError::conflict_message(
+                "Relay extraction decisions are owned by the paired archive operation".to_string(),
+            )),
+        }
+    }
+
+    fn relay_result(result: CompanionArchiveExtractionResult) -> Result<ArchiveExtractionResponse, ApiError> {
+        match result {
+            CompanionArchiveExtractionResult::Relay(result) => Ok(result),
+            CompanionArchiveExtractionResult::DirectLocalStarted => Err(ApiError::Internal(
+                "Archive extraction topology did not produce a relay result".to_string(),
+            )),
+        }
+    }
+}
+
+impl ArchiveExtractionRelayAdapter {
+    async fn execute_relay(self) -> Result<ArchiveExtractionResponse, ApiError> {
         let Self { relay, binding } = self;
         execute_archive_relay(
             async {
@@ -1845,6 +2005,22 @@ impl ArchiveExtractionCoordinator {
     }
 }
 
+#[cfg(test)]
+struct ArchiveExtractionCoordinator {
+    relay: ArchiveExtractionRelay,
+    binding: ArchiveExtractionAdapterBinding,
+}
+
+#[cfg(test)]
+impl ArchiveExtractionCoordinator {
+    async fn execute(self) -> Result<ArchiveExtractionResponse, ApiError> {
+        let result = CompanionArchiveExtractionCoordinator::relay(self.relay, self.binding)
+            .execute()
+            .await?;
+        CompanionArchiveExtractionCoordinator::relay_result(result)
+    }
+}
+
 /// `POST /api/browse/{drive}/archive/create-from-smb` — create a new local ZIP from scoped SMB sources.
 pub async fn browse_create_archive_from_smb(
     State(state): State<Arc<AppState>>,
@@ -1852,6 +2028,14 @@ pub async fn browse_create_archive_from_smb(
     headers: HeaderMap,
     Json(body): Json<ArchiveCreateFromSmbRequest>,
 ) -> Result<Json<ArchiveCreationResponse>, ApiError> {
+    match resolve_companion_archive_topology(CompanionArchiveOperationKind::Create, false, true)? {
+        CompanionArchiveTopology::SmbToLocal => {}
+        _ => {
+            return Err(ApiError::Internal(
+                "Archive topology resolution returned an invalid creation owner".to_string(),
+            ))
+        }
+    }
     if body.target_path.trim().is_empty()
         || body.server_url.trim().is_empty()
         || body.operation_id.trim().is_empty()
@@ -1876,16 +2060,17 @@ pub async fn browse_create_archive_from_smb(
     }
     let relay = ArchiveCreationRelay::from_transport(transport);
     let manifest = relay.begin_remote_source().await?;
-    let result = ArchiveCreationCoordinator {
+    let result = CompanionArchiveCreationCoordinator::relay(
         relay,
-        binding: ArchiveCreationAdapterBinding::RemoteSourceToLocalDestination {
+        ArchiveCreationAdapterBinding::RemoteSourceToLocalDestination {
             manifest,
             drive_root,
             target_path,
         },
-    }
+    )
     .execute()
     .await?;
+    let result = CompanionArchiveCreationCoordinator::relay_result(result)?;
 
     Ok(Json(result))
 }
@@ -1897,6 +2082,14 @@ pub async fn browse_create_archive_to_smb(
     headers: HeaderMap,
     Json(body): Json<ArchiveCreateToSmbRequest>,
 ) -> Result<Json<ArchiveCreationResponse>, ApiError> {
+    match resolve_companion_archive_topology(CompanionArchiveOperationKind::Create, true, false)? {
+        CompanionArchiveTopology::LocalToSmb => {}
+        _ => {
+            return Err(ApiError::Internal(
+                "Archive topology resolution returned an invalid creation owner".to_string(),
+            ))
+        }
+    }
     if body.source_paths.is_empty()
         || body.target_path.trim().is_empty()
         || body.server_url.trim().is_empty()
@@ -1926,12 +2119,11 @@ pub async fn browse_create_archive_to_smb(
         .map_err(|error| ApiError::Internal(format!("Local archive validation task failed: {error}")))?
         .map_err(map_local_archive_error)?;
     let relay = ArchiveCreationRelay::from_transport(transport);
-    let result = ArchiveCreationCoordinator {
-        relay,
-        binding: ArchiveCreationAdapterBinding::LocalSourceToRemoteDestination { entries },
-    }
-    .execute()
-    .await?;
+    let result =
+        CompanionArchiveCreationCoordinator::relay(relay, ArchiveCreationAdapterBinding::LocalSourceToRemoteDestination { entries })
+            .execute()
+            .await?;
+    let result = CompanionArchiveCreationCoordinator::relay_result(result)?;
     Ok(Json(result))
 }
 
@@ -2059,6 +2251,14 @@ pub async fn browse_start_archive_execution(
     let owner_origin = extract_origin(&headers)?;
     let execution = match body {
         ArchiveExecutionStartRequest::Create { source_paths, target_path } => {
+            match resolve_companion_archive_topology(CompanionArchiveOperationKind::Create, true, true)? {
+                CompanionArchiveTopology::LocalToLocal => {}
+                _ => {
+                    return Err(ApiError::Internal(
+                        "Archive topology resolution returned an invalid creation owner".to_string(),
+                    ))
+                }
+            }
             let body = ArchiveCreateRequest { source_paths, target_path };
             let (base_path, source_paths, target_path) = resolve_local_archive_creation_request(&drive, &body)?;
             state
@@ -2070,6 +2270,14 @@ pub async fn browse_start_archive_execution(
             archive_path,
             destination_path,
         } => {
+            match resolve_companion_archive_topology(CompanionArchiveOperationKind::Extract, true, true)? {
+                CompanionArchiveTopology::LocalToLocal => {}
+                _ => {
+                    return Err(ApiError::Internal(
+                        "Archive topology resolution returned an invalid extraction owner".to_string(),
+                    ))
+                }
+            }
             let body = ArchiveExtractRequest {
                 archive_path,
                 destination_path,
@@ -2081,9 +2289,29 @@ pub async fn browse_start_archive_execution(
                 .await
         }
     };
-    LocalArchiveOperationCoordinator::new(state.archive_sessions.clone())
-        .start(&execution.execution_id)
-        .await?;
+    match execution.kind {
+        super::archive_sessions::ArchiveSessionKind::Create => {
+            let result = CompanionArchiveCreationCoordinator::direct_local(state.archive_sessions.clone(), execution.execution_id.clone())
+                .execute()
+                .await?;
+            if !matches!(result, CompanionArchiveCreationResult::DirectLocalStarted) {
+                return Err(ApiError::Internal(
+                    "Archive creation topology did not start a direct-local session".to_string(),
+                ));
+            }
+        }
+        super::archive_sessions::ArchiveSessionKind::Extract => {
+            let result =
+                CompanionArchiveExtractionCoordinator::direct_local(state.archive_sessions.clone(), execution.execution_id.clone())
+                    .execute()
+                    .await?;
+            if !matches!(result, CompanionArchiveExtractionResult::DirectLocalStarted) {
+                return Err(ApiError::Internal(
+                    "Archive extraction topology did not start a direct-local session".to_string(),
+                ));
+            }
+        }
+    }
     let execution = state.archive_sessions.get(&drive, &owner_origin, &execution.execution_id).await?;
     Ok(Json(archive_execution_response(execution)))
 }
@@ -2132,7 +2360,7 @@ pub async fn browse_decide_archive_execution(
         ArchiveExecutionDecisionAction::Retry => super::archive_sessions::ArchiveSessionDecisionAction::Retry,
         ArchiveExecutionDecisionAction::Ignore => super::archive_sessions::ArchiveSessionDecisionAction::Ignore,
     };
-    let execution = LocalArchiveOperationCoordinator::new(state.archive_sessions.clone())
+    let execution = CompanionArchiveExtractionCoordinator::direct_local(state.archive_sessions.clone(), execution_id.clone())
         .decide(
             &drive,
             &extract_origin(&headers)?,
@@ -2155,6 +2383,14 @@ pub async fn browse_extract_archive_to_smb(
     headers: HeaderMap,
     Json(body): Json<ArchiveExtractToSmbRequest>,
 ) -> Result<Json<ArchiveExtractionResponse>, ApiError> {
+    match resolve_companion_archive_topology(CompanionArchiveOperationKind::Extract, true, false)? {
+        CompanionArchiveTopology::LocalToSmb => {}
+        _ => {
+            return Err(ApiError::Internal(
+                "Archive topology resolution returned an invalid extraction owner".to_string(),
+            ))
+        }
+    }
     if body.archive_path.trim().is_empty()
         || body.server_url.trim().is_empty()
         || body.operation_id.trim().is_empty()
@@ -2183,15 +2419,16 @@ pub async fn browse_extract_archive_to_smb(
     .map_err(map_local_archive_error)?;
 
     let relay = ArchiveExtractionRelay::from_transport(transport);
-    let result = ArchiveExtractionCoordinator {
+    let result = CompanionArchiveExtractionCoordinator::relay(
         relay,
-        binding: ArchiveExtractionAdapterBinding::LocalArchiveToRemoteDestination {
+        ArchiveExtractionAdapterBinding::LocalArchiveToRemoteDestination {
             archive_path,
             archive_entries,
         },
-    }
+    )
     .execute()
     .await?;
+    let result = CompanionArchiveExtractionCoordinator::relay_result(result)?;
     Ok(Json(result))
 }
 
@@ -2306,6 +2543,14 @@ pub async fn browse_extract_archive_from_smb(
     headers: HeaderMap,
     Json(body): Json<ArchiveExtractFromSmbRequest>,
 ) -> Result<Json<ArchiveExtractionResponse>, ApiError> {
+    match resolve_companion_archive_topology(CompanionArchiveOperationKind::Extract, false, true)? {
+        CompanionArchiveTopology::SmbToLocal => {}
+        _ => {
+            return Err(ApiError::Internal(
+                "Archive topology resolution returned an invalid extraction owner".to_string(),
+            ))
+        }
+    }
     if body.destination_path.trim().is_empty()
         || body.server_url.trim().is_empty()
         || body.operation_id.trim().is_empty()
@@ -2326,15 +2571,16 @@ pub async fn browse_extract_archive_from_smb(
     let drive_root = drives::resolve_drive_path(&drive).ok_or_else(|| ApiError::NotFound(format!("Unknown drive: {drive}")))?;
     let destination_path = resolve_safe_path_for_new(&drive_root, &drive, &body.destination_path)?;
     let relay = ArchiveExtractionRelay::from_transport(transport);
-    let result = ArchiveExtractionCoordinator {
+    let result = CompanionArchiveExtractionCoordinator::relay(
         relay,
-        binding: ArchiveExtractionAdapterBinding::RemoteSourceToLocalDestination {
+        ArchiveExtractionAdapterBinding::RemoteSourceToLocalDestination {
             drive_root,
             destination_path,
         },
-    }
+    )
     .execute()
     .await?;
+    let result = CompanionArchiveExtractionCoordinator::relay_result(result)?;
     Ok(Json(result))
 }
 
@@ -3702,18 +3948,19 @@ mod tests {
     use super::{
         archive_creation_response, archive_execution_response, build_file_info, build_pair_status_response, classify_link_target,
         execute_archive_relay, map_local_archive_error, normalize_drive_relative_path, normalize_windows_display_path,
-        relay_completed_members, resolve_drive_relative_source_path, resolve_link_target_metadata, resolve_pair_cancel_origin,
-        resolve_pair_confirm_origin, resolve_pair_status_origin, resolve_safe_path, source_link_kind, validate_editor_write_target,
-        ArchiveCreationAdapterBinding, ArchiveCreationCoordinator, ArchiveCreationMemberCompletion, ArchiveCreationRelay,
-        ArchiveExtractionAdapterBinding, ArchiveExtractionCollision, ArchiveExtractionCoordinator, ArchiveExtractionMemberCompletion,
-        ArchiveExtractionMemberError, ArchiveExtractionRelay, ArchiveExtractionSummary, ArchiveRelayBinding, ArchiveRelayDestinationStatus,
-        ArchiveRelayFailure, ArchiveRelayOperation, ArchiveRelayTransport, ARCHIVE_RELAY_ACKNOWLEDGEMENT_ATTEMPTS,
+        relay_completed_members, resolve_companion_archive_topology, resolve_drive_relative_source_path, resolve_link_target_metadata,
+        resolve_pair_cancel_origin, resolve_pair_confirm_origin, resolve_pair_status_origin, resolve_safe_path, source_link_kind,
+        validate_editor_write_target, ArchiveCreationAdapterBinding, ArchiveCreationCoordinator, ArchiveCreationMemberCompletion,
+        ArchiveCreationRelay, ArchiveExtractionAdapterBinding, ArchiveExtractionCollision, ArchiveExtractionCoordinator,
+        ArchiveExtractionMemberCompletion, ArchiveExtractionMemberError, ArchiveExtractionRelay, ArchiveExtractionSummary,
+        ArchiveRelayBinding, ArchiveRelayDestinationStatus, ArchiveRelayFailure, ArchiveRelayOperation, ArchiveRelayTransport,
+        ARCHIVE_RELAY_ACKNOWLEDGEMENT_ATTEMPTS,
     };
     use crate::server::archive::{
         build_local_archive_manifest, build_local_archive_manifest_for_remote_target, create_local_archive,
-        validate_local_archive_extraction, ArchiveCreationManifest, ArchiveCreationManifestMember, LocalArchiveCreationResult,
-        LocalArchiveEntry, LocalArchiveError, LocalArchiveExtractionMemberError, LocalArchiveExtractionResult, LocalArchiveReadEntry,
-        LocalArchiveReadError,
+        validate_local_archive_extraction, ArchiveCreationManifest, ArchiveCreationManifestMember, CompanionArchiveOperationKind,
+        CompanionArchiveTopology, LocalArchiveCreationResult, LocalArchiveEntry, LocalArchiveError, LocalArchiveExtractionMemberError,
+        LocalArchiveExtractionResult, LocalArchiveReadEntry, LocalArchiveReadError,
     };
     use crate::server::archive_sessions::{
         ArchiveSessionKind, ArchiveSessionPendingDecision, ArchiveSessionPhase, ArchiveSessionProgress, ArchiveSessionStatus,
@@ -3779,6 +4026,41 @@ mod tests {
             .find(|case| case["name"] == case_name)
             .unwrap_or_else(|| panic!("topology trace fixture should define {case_name}"))["expected_trace"]
             .clone()
+    }
+
+    #[test]
+    fn companion_topology_fixtures_resolve_through_the_production_plan() {
+        let fixture: serde_json::Value =
+            serde_json::from_str(include_str!("../../../../archive-contract/v1/topology-execution-traces-v1.json"))
+                .expect("topology trace fixture should be valid JSON");
+        for case in fixture["cases"]
+            .as_array()
+            .expect("topology trace fixture should define cases")
+            .iter()
+            .chain(
+                fixture["trajectory_cases"]
+                    .as_array()
+                    .expect("topology trace fixture should define trajectory cases"),
+            )
+        {
+            let (source_is_local, destination_is_local, expected_topology) =
+                match case["topology"].as_str().expect("fixture topology must be a string") {
+                    "local_to_local" => (true, true, CompanionArchiveTopology::LocalToLocal),
+                    "smb_to_local" => (false, true, CompanionArchiveTopology::SmbToLocal),
+                    "local_to_smb" => (true, false, CompanionArchiveTopology::LocalToSmb),
+                    "smb_to_smb" => continue,
+                    topology => panic!("unsupported fixture topology {topology}"),
+                };
+            let kind = match case["operation"].as_str().expect("fixture operation must be a string") {
+                "create" => CompanionArchiveOperationKind::Create,
+                "extract" => CompanionArchiveOperationKind::Extract,
+                operation => panic!("unsupported fixture operation {operation}"),
+            };
+            assert_eq!(
+                resolve_companion_archive_topology(kind, source_is_local, destination_is_local).unwrap(),
+                expected_topology
+            );
+        }
     }
 
     #[derive(Clone)]

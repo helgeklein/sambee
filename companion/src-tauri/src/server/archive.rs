@@ -42,6 +42,43 @@ const UNIX_FILE_TYPE_MASK: u16 = 0o170000;
 const UNIX_DIRECTORY_FILE_TYPE: u16 = 0o040000;
 const UNIX_REGULAR_FILE_TYPE: u16 = 0o100000;
 
+/// Archive operations owned by the Companion runtime.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum CompanionArchiveOperationKind {
+    Create,
+    Extract,
+}
+
+/// Source and destination placement for a Companion-owned archive operation.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum CompanionArchiveTopology {
+    LocalToLocal,
+    SmbToLocal,
+    LocalToSmb,
+}
+
+/// Immutable routing decision used before a Companion archive coordinator starts work.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub struct CompanionArchiveTopologyPlan {
+    pub kind: CompanionArchiveOperationKind,
+    pub topology: CompanionArchiveTopology,
+}
+
+/// Resolve the Companion owner and concrete adapter direction for one operation.
+pub fn resolve_companion_archive_topology_plan(
+    kind: CompanionArchiveOperationKind,
+    source_is_local: bool,
+    destination_is_local: bool,
+) -> Result<CompanionArchiveTopologyPlan, LocalArchiveError> {
+    let topology = match (source_is_local, destination_is_local) {
+        (true, true) => CompanionArchiveTopology::LocalToLocal,
+        (false, true) => CompanionArchiveTopology::SmbToLocal,
+        (true, false) => CompanionArchiveTopology::LocalToSmb,
+        (false, false) => return Err(LocalArchiveError::UnsupportedSource),
+    };
+    Ok(CompanionArchiveTopologyPlan { kind, topology })
+}
+
 /// A safe entry parsed from a local ZIP central directory.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct LocalArchiveReadEntry {

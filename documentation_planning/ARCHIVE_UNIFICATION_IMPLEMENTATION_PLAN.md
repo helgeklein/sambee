@@ -314,6 +314,43 @@ Acceptance criteria:
    fault fixture was not dispatched by its resolved owner, then run focused
    backend and Companion validation, static checks, and whitespace checks.
 
+#### Companion Coordinator Consolidation Addendum
+
+The Phase 4 conformance harness proves the current behavior, but Companion
+still has a direct-local session coordinator and separate relay coordinators.
+Complete the operation-model requirement with the following bounded refactor.
+
+1. Define one immutable Companion creation plan and one immutable Companion
+   extraction plan. Each selects a local or relay source/destination binding
+   after adapter-specific preflight. The plans retain the normalized manifest;
+   extraction plans also retain the checkpoint and resume decisions.
+2. Introduce one Companion creation coordinator and one Companion extraction
+   coordinator. They own validation, member-outcome recording, progress,
+   decisions, terminal validation, and error normalization for every Companion
+   topology. They select the local or relay binding from the immutable plan.
+3. Keep `ArchiveSessionManager` as the non-durable direct-local state store.
+   Store direct-local immutable plans after preflight, then let the shared
+   coordinators read and update its state through focused methods. Do not make
+   these sessions durable.
+4. Move the existing relay creation and extraction orchestration behind the
+   shared coordinators. Preserve the V1 relay transport, idempotency behavior,
+   request/response payloads, and local streaming helpers as adapter-level
+   details.
+5. Add a production Companion topology resolver that maps operation kind and
+   topology to a local or relay binding. V1 route handlers remain thin
+   compatibility adapters: authenticate, resolve paths, construct the plan,
+   invoke the resolver, and translate the normalized result.
+6. Migrate creation first, then extraction. After each operation migration,
+   remove the replaced direction-specific coordinator rather than preserving a
+   second lifecycle owner.
+7. Update the actual-executor harness so each Companion fixture runs through
+   the production topology resolver and the relevant shared coordinator. Keep
+   relay playback passive and retain exact trace, fixture-coverage, and V1
+   route-binding assertions.
+8. Validate each slice with focused Companion tests, then the full Companion
+   suite, the repository topology-conformance gate, backend archive tests,
+   mypy, strict Clippy, Rustfmt, and `git diff --check`.
+
 ### 5. Design And Deliver V2
 
 1. Create `archive-contract/v2` only after a recorded Phase 4 completion gate:
