@@ -31,11 +31,11 @@ use crate::{commands, show_pairing_success, show_pairing_window};
 use super::archive::{
     build_local_archive_manifest, build_local_archive_manifest_for_remote_target, create_local_archive, create_local_archive_relay_writer,
     create_local_extraction_root, ensure_local_extraction_directory, list_local_archive_directory, open_local_extraction_file,
-    reopen_partial_local_extraction_file, stream_local_archive_member, validate_local_archive_extraction, validate_local_archive_member,
-    validate_local_extraction_member_path, ArchiveCreationManifest, ArchiveCreationManifestMember, ArchiveCreationManifestState,
-    ArchiveExtractionManifest, ArchiveExtractionManifestMember, ArchiveExtractionRelayExecutionPlan, ArchiveExtractionRelayState,
-    LocalArchiveCreationResult, LocalArchiveEntry, LocalArchiveError, LocalArchiveReadEntry, LocalArchiveRelayChunk,
-    ARCHIVE_COPY_BUFFER_SIZE,
+    project_local_archive_creation_manifest, reopen_partial_local_extraction_file, stream_local_archive_member,
+    validate_local_archive_extraction, validate_local_archive_member, validate_local_extraction_member_path, ArchiveCreationManifest,
+    ArchiveCreationManifestState, ArchiveExtractionManifest, ArchiveExtractionManifestMember, ArchiveExtractionRelayExecutionPlan,
+    ArchiveExtractionRelayState, LocalArchiveCreationResult, LocalArchiveEntry, LocalArchiveError, LocalArchiveReadEntry,
+    LocalArchiveRelayChunk, ARCHIVE_COPY_BUFFER_SIZE,
 };
 use super::archive_sessions::{ArchiveSessionProgress, ArchiveSessionStatus};
 use super::auth;
@@ -1848,23 +1848,7 @@ async fn create_local_archive_for_smb_destination(
     relay: &ArchiveCreationRelay,
     entries: Vec<LocalArchiveEntry>,
 ) -> Result<ArchiveCreationResponse, ApiError> {
-    let mut manifest_entries = Vec::with_capacity(entries.len());
-    for entry in &entries {
-        let source_size = if entry.is_directory {
-            0
-        } else {
-            tokio::fs::metadata(&entry.source_path)
-                .await
-                .map_err(|error| map_io_error(error, &entry.source_path))?
-                .len()
-        };
-        manifest_entries.push(ArchiveCreationManifestMember {
-            archive_path: entry.archive_path.trim_end_matches('/').to_string(),
-            is_directory: entry.is_directory,
-            source_size,
-        });
-    }
-    let manifest = ArchiveCreationManifest::from_entries(manifest_entries).map_err(map_local_archive_error)?;
+    let manifest = project_local_archive_creation_manifest(&entries).map_err(map_local_archive_error)?;
     let mut creation_state = ArchiveCreationManifestState::new(manifest.clone());
     relay.begin_local_source(&manifest).await?;
 
@@ -1897,7 +1881,8 @@ async fn create_smb_archive_manifest_locally(
     let mut creation_state = ArchiveCreationManifestState::new(manifest.clone());
     let root_drive = drive_root.to_path_buf();
     let target = target_path.to_path_buf();
-    let mut writer = tokio::task::spawn_blocking(move || create_local_archive_relay_writer(&root_drive, &target))
+    let writer_manifest = manifest.clone();
+    let mut writer = tokio::task::spawn_blocking(move || create_local_archive_relay_writer(&root_drive, &target, writer_manifest))
         .await
         .map_err(|error| ApiError::Internal(format!("Local archive creation task failed: {error}")))?
         .map_err(map_local_archive_error)?;
@@ -1918,7 +1903,7 @@ async fn create_smb_archive_manifest_locally(
         let archive_path = entry.archive_path;
         let member_path = archive_path.clone();
         let (sender, receiver) = tokio::sync::mpsc::channel(2);
-        let write_task = tokio::task::spawn_blocking(move || writer.write_file(&archive_path, entry.source_size, receiver));
+        let write_task = tokio::task::spawn_blocking(move || writer.write_file(&archive_path, receiver));
         let mut response = relay.read_source_member(&member_path).await?;
         if !response.status().is_success() {
             let _ = sender.send(LocalArchiveRelayChunk::Failed).await;
@@ -3821,11 +3806,13 @@ mod tests {
                 archive_path: "docs".to_string(),
                 is_directory: true,
                 source_size: 0,
+                source_modified_at: None,
             },
             ArchiveCreationManifestMember {
                 archive_path: "docs/readme.txt".to_string(),
                 is_directory: false,
                 source_size: 7,
+                source_modified_at: None,
             },
         ])
         .expect("manifest entries should be valid");

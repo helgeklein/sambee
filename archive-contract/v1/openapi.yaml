@@ -992,6 +992,7 @@ components:
         archive_path: {type: string, minLength: 1}
         is_directory: {type: boolean}
         source_size: {type: integer, minimum: 0}
+        modified_at: {type: [string, 'null'], format: date-time}
     ArchiveCreationSummary:
       type: object
       additionalProperties: false

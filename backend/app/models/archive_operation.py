@@ -188,6 +188,7 @@ class ArchiveCompanionCreationSourceManifestEntry(SQLModel):
     archive_path: str = Field(min_length=1)
     is_directory: bool
     source_size: int = Field(ge=0)
+    modified_at: datetime | None = None
 
 
 class ArchiveCompanionCreationSourceManifest(SQLModel):

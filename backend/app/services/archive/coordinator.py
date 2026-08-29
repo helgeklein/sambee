@@ -4,7 +4,7 @@ import json
 import unicodedata
 from collections.abc import Awaitable, Callable, Mapping
 from dataclasses import dataclass, field
-from datetime import datetime
+from datetime import datetime, timezone
 from types import MappingProxyType
 from typing import Protocol
 
@@ -756,6 +756,7 @@ class ArchiveCreationManifest:
                 or (member.source_modified_at is not None and not isinstance(member.source_modified_at, str))
             ):
                 raise ValueError("Archive creation manifest is invalid")
+            source_modified_at = _normalize_creation_manifest_timestamp(member.source_modified_at)
             normalized_archive_path = _normalize_creation_manifest_path(member.archive_path)
             if not normalize_archive_paths and normalized_archive_path != member.archive_path:
                 raise ValueError("Archive creation manifest is invalid")
@@ -767,7 +768,7 @@ class ArchiveCreationManifest:
                     member.is_directory,
                     member.source_size,
                     member.source_path,
-                    member.source_modified_at,
+                    source_modified_at,
                 )
             )
         _validate_archive_member_hierarchy(
@@ -828,6 +829,18 @@ def _normalize_creation_manifest_path(archive_path: str) -> str:
     ):
         raise ValueError("Archive creation member is invalid or unavailable")
     return normalized
+
+
+def _normalize_creation_manifest_timestamp(source_modified_at: str | None) -> str | None:
+    if source_modified_at is None:
+        return None
+    try:
+        timestamp = datetime.fromisoformat(source_modified_at.replace("Z", "+00:00"))
+    except ValueError as exc:
+        raise ValueError("Archive creation manifest is invalid") from exc
+    if timestamp.tzinfo is None:
+        raise ValueError("Archive creation manifest is invalid")
+    return timestamp.astimezone(timezone.utc).isoformat(timespec="seconds")
 
 
 @dataclass(frozen=True)

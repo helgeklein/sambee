@@ -83,6 +83,40 @@
       ]
     },
     {
+      "name": "normalizes_source_metadata_to_utc_seconds",
+      "nodes": [
+        {
+          "path": "docs",
+          "type": "directory",
+          "modified_at": "2024-03-01T08:30:45+02:00"
+        },
+        {
+          "path": "docs/readme.txt",
+          "type": "file",
+          "size": 4,
+          "modified_at": "2024-03-01T06:30:45Z"
+        }
+      ],
+      "sources": [
+        "docs"
+      ],
+      "target": "archive.zip",
+      "manifest": [
+        {
+          "archive_path": "docs",
+          "is_directory": true,
+          "source_size": 0,
+          "modified_at": "2024-03-01T06:30:45+00:00"
+        },
+        {
+          "archive_path": "docs/readme.txt",
+          "is_directory": false,
+          "source_size": 4,
+          "modified_at": "2024-03-01T06:30:45+00:00"
+        }
+      ]
+    },
+    {
       "name": "target_inside_source",
       "nodes": [
         {

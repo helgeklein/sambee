@@ -1,8 +1,9 @@
 """Same-executor direct ZIP creation without source staging."""
 
 import unicodedata
-from collections.abc import AsyncIterator, Awaitable, Callable
+from collections.abc import AsyncIterator, Awaitable, Callable, Sequence
 from dataclasses import dataclass
+from datetime import datetime, timezone
 from typing import Literal, Protocol, cast
 
 from app.models.file import DirectoryListing, FileInfo, FileType
@@ -33,6 +34,32 @@ class ArchiveCreationBackend(ArchiveCreationSource, ArchiveCreationDestination, 
     """Compatibility protocol for a same-executor creation binding."""
 
 
+class ArchiveCreationManifestMember(Protocol):
+    """One canonical creation member supplied to a writer after preflight."""
+
+    @property
+    def archive_path(self) -> str: ...
+
+    @property
+    def is_directory(self) -> bool: ...
+
+    @property
+    def source_size(self) -> int: ...
+
+    @property
+    def source_path(self) -> str | None: ...
+
+    @property
+    def source_modified_at(self) -> str | None: ...
+
+
+class ArchiveCreationManifest(Protocol):
+    """Immutable creation manifest consumed by a direct ZIP writer."""
+
+    @property
+    def members(self) -> Sequence[ArchiveCreationManifestMember]: ...
+
+
 @dataclass(frozen=True)
 class ArchiveCreationResult:
     files_created: int
@@ -54,6 +81,7 @@ class ArchiveCreationEntry:
     source_path: str
     archive_path: str
     info: FileInfo
+    source_modified_at: str | None = None
 
 
 class ArchiveCreationCancelled(Exception):
@@ -75,6 +103,16 @@ def _is_within_directory(path: str, directory: str) -> bool:
     return normalized_path.startswith(f"{normalized_directory}/")
 
 
+def normalize_archive_creation_source_modified_at(modified_at: datetime | None) -> str | None:
+    """Project a source timestamp into the creation manifest's UTC-second format."""
+
+    if modified_at is None:
+        return None
+    if modified_at.tzinfo is None:
+        modified_at = modified_at.replace(tzinfo=timezone.utc)
+    return modified_at.astimezone(timezone.utc).isoformat(timespec="seconds")
+
+
 async def build_archive_creation_manifest(
     source: ArchiveCreationSource,
     source_paths: list[str],
@@ -91,7 +129,14 @@ async def build_archive_creation_manifest(
         if key in seen_archive_paths:
             raise ArchiveFormatError("Archive creation sources produce duplicate normalized entry names")
         seen_archive_paths.add(key)
-        manifest.append(ArchiveCreationEntry(source_path=source_path, archive_path=archive_path, info=info))
+        manifest.append(
+            ArchiveCreationEntry(
+                source_path=source_path,
+                archive_path=archive_path,
+                info=info,
+                source_modified_at=normalize_archive_creation_source_modified_at(info.modified_at),
+            )
+        )
 
     async def visit(source_path: str, archive_path: str, info: FileInfo) -> None:
         if info.type == FileType.FILE:
@@ -128,6 +173,7 @@ async def create_archive_from_files(
     is_cancelled: Callable[[], Awaitable[bool]] | None = None,
     on_member_completed: Callable[[ArchiveCreationMemberOutcome], Awaitable[None]] | None = None,
     preflight_entries: list[ArchiveCreationEntry] | None = None,
+    preflight_manifest: ArchiveCreationManifest | None = None,
 ) -> ArchiveCreationResult:
     """Create a portable ZIP through independent source and destination adapters."""
 
@@ -139,7 +185,33 @@ async def create_archive_from_files(
         pass
     else:
         raise ArchiveFormatError("Archive creation target already exists")
-    sources = preflight_entries or await build_archive_creation_manifest(source, source_paths, target_path)
+    if preflight_manifest is not None:
+        if preflight_entries is not None:
+            raise ArchiveFormatError("Archive creation preflight cannot use entries and a manifest together")
+        sources = []
+        for member in preflight_manifest.members:
+            if member.source_path is None:
+                raise ArchiveFormatError("Archive creation manifest member has no source path")
+            try:
+                modified_at = datetime.fromisoformat(member.source_modified_at) if member.source_modified_at is not None else None
+            except ValueError as exc:
+                raise ArchiveFormatError("Archive creation manifest timestamp is invalid") from exc
+            sources.append(
+                ArchiveCreationEntry(
+                    source_path=member.source_path,
+                    archive_path=member.archive_path,
+                    info=FileInfo(
+                        name=_source_entry_name(member.archive_path),
+                        path=member.source_path,
+                        type=FileType.DIRECTORY if member.is_directory else FileType.FILE,
+                        size=member.source_size,
+                        modified_at=modified_at,
+                    ),
+                    source_modified_at=member.source_modified_at,
+                )
+            )
+    else:
+        sources = preflight_entries or await build_archive_creation_manifest(source, source_paths, target_path)
 
     writer_handle = await destination.open_exclusive_writer(target_path)
     archive_writer = PortableZipWriter(writer_handle)

@@ -417,6 +417,26 @@ def test_companion_archive_listing_response_schema_matches_nested_serialization(
         _assert_companion_struct_schema(schemas[schema_name], model, is_request=False)
 
 
+def test_retained_synchronous_companion_creation_is_a_documented_compatibility_shortcut() -> None:
+    """Keep the aggregate-only V1 local create route outside the lifecycle response contract."""
+
+    routes = _v1_companion_archive_route_bindings()
+    shortcut = next(route for route in routes if route["handler"] == "browse_create_archive")
+    assert shortcut["lifecycle_model"] == "compatibility_shortcut"
+    assert shortcut["ledger_exposure"] == "not_exposed"
+    assert isinstance(shortcut["compatibility_reason"], str) and shortcut["compatibility_reason"]
+
+    handler_source = COMPANION_RELAY_BINDING_PATH.read_text(encoding="utf-8")
+    handler_match = re.search(
+        r"pub async fn browse_create_archive\(.*?\n\}",
+        handler_source,
+        flags=re.DOTALL,
+    )
+    assert handler_match is not None
+    assert "create_local_archive(" in handler_match.group()
+    assert "archive_sessions" not in handler_match.group()
+
+
 def test_v1_relay_binding_fixture_covers_backend_contract_and_companion() -> None:
     """Keep relay direction metadata synchronized without duplicating it in endpoint tests."""
 
@@ -576,6 +596,10 @@ def test_archive_contract_defines_normalized_v1_creation_outcomes() -> None:
     assert schemas["ArchiveCreationMemberCompletion"]["required"] == result["required"]
     assert schemas["ArchiveCreationSummary"]["required"] == schemas["ArchiveCreationProgressV1"]["required"]
     assert schemas["ArchiveCreationSourceManifestEntry"]["required"] == ["archive_path", "is_directory", "source_size"]
+    assert schemas["ArchiveCreationSourceManifestEntry"]["properties"]["modified_at"] == {
+        "type": ["string", "null"],
+        "format": "date-time",
+    }
     assert (
         contract["paths"]["/api/archive/operations/{operationId}/companion-relay/local_to_smb_zip_create/begin"]["post"]["requestBody"][
             "content"

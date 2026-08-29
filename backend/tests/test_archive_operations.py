@@ -2105,6 +2105,68 @@ def test_companion_local_creation_relay_reuses_its_persisted_manifest(
     backend.get_file_info.assert_not_awaited()
 
 
+def test_companion_local_creation_relay_accepts_equivalent_canonical_source_timestamps(
+    client: TestClient,
+    auth_headers_user: dict,
+    test_connection: Connection,
+) -> None:
+    prepared = client.post(
+        "/api/archive/operations",
+        headers=auth_headers_user,
+        json={
+            "kind": "create",
+            "source_connection_id": str(test_connection.id),
+            "source_path": "",
+            "destination_connection_id": "local-drive:c",
+            "destination_path": "output.zip",
+            "plan_json": json.dumps({"source_paths": ["readme.txt"]}),
+        },
+    ).json()
+    capability = client.post(f"/api/archive/operations/{prepared['id']}/companion-session", headers=auth_headers_user).json()
+    relay_headers = {"Authorization": f"Bearer {capability['token']}"}
+    backend = AsyncMock()
+    backend.connect.return_value = None
+    backend.disconnect.return_value = None
+    backend.get_file_info.side_effect = [
+        FileInfo(
+            name="readme.txt",
+            path="readme.txt",
+            type=FileType.FILE,
+            size=5,
+            modified_at=datetime(2024, 3, 1, 8, 30, 45, 987654, tzinfo=timezone(timedelta(hours=2))),
+        ),
+        FileInfo(
+            name="readme.txt",
+            path="readme.txt",
+            type=FileType.FILE,
+            size=5,
+            modified_at=datetime(2024, 3, 1, 6, 30, 45, tzinfo=timezone.utc),
+        ),
+    ]
+
+    async def source_chunks():
+        yield b"hello"
+
+    backend.read_file = lambda _path: source_chunks()
+    with patch("app.api.archive_operations.SMBBackend", return_value=backend):
+        manifest = client.post(
+            f"/api/archive/operations/{prepared['id']}/companion-relay/smb_to_local_zip_create/begin",
+            headers=relay_headers,
+        )
+        member = client.get(
+            f"/api/archive/operations/{prepared['id']}/companion-relay/smb_to_local_zip_create/member",
+            headers=relay_headers,
+            params={"archive_path": "readme.txt"},
+        )
+
+    assert manifest.status_code == 200
+    assert datetime.fromisoformat(manifest.json()["entries"][0]["modified_at"].replace("Z", "+00:00")) == datetime(
+        2024, 3, 1, 6, 30, 45, tzinfo=timezone.utc
+    )
+    assert member.status_code == 200
+    assert member.content == b"hello"
+
+
 def test_companion_local_creation_relay_rejects_a_source_changed_after_manifest_preflight(
     client: TestClient,
     auth_headers_user: dict,
@@ -2818,8 +2880,13 @@ def test_executes_same_connection_creation_from_immutable_plan(
         target_path="backup.zip",
         is_cancelled=ANY,
         on_member_completed=ANY,
-        preflight_entries=preflight_entries,
+        preflight_manifest=ANY,
     )
+    manifest = create_archive.await_args.kwargs["preflight_manifest"]
+    assert [(member.archive_path, member.source_size, member.source_modified_at) for member in manifest.members] == [
+        ("first.txt", 5, None),
+        ("second.txt", 6, None),
+    ]
 
 
 def test_executes_same_connection_extraction(

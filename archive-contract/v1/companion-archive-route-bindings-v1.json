@@ -32,6 +32,9 @@
       "request_schema": "ArchiveCreateRequestV1",
       "response_model": "Json<ArchiveCreationResponse>",
       "response_schema": "ArchiveCreationSummary",
+      "lifecycle_model": "compatibility_shortcut",
+      "ledger_exposure": "not_exposed",
+      "compatibility_reason": "This retained synchronous V1 response exposes only its historical aggregate summary; callers needing lifecycle state use the execution route.",
       "retirement_condition": "Migrate callers to the normalized lifecycle route after V2 caller migration and the V1 operation retention window."
     },
     {

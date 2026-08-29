@@ -118,8 +118,8 @@ Acceptance criteria:
 2. Cover regular files, empty directories, stable ordering, unsupported node
    types, symbolic links, duplicate normalized archive paths, target-inside-
    source rejection, and metadata normalization.
-3. Add test adapters for virtual trees in Python and Rust so both manifest
-   builders consume exactly the same scenarios.
+3. Add Python and Rust corpus runners that materialize the same virtual
+   source-tree scenarios through each runtime's native enumeration adapter.
 4. Refactor `build_archive_creation_manifest` and the Rust local manifest
    builder into:
    - topology-specific enumeration adapters; and
@@ -130,14 +130,15 @@ Acceptance criteria:
 
 Acceptance criteria:
 
-- The same virtual tree produces the same manifest and canonical ordering in
-  both runtimes.
+- The same virtual-source scenario produces the same manifest and canonical
+   ordering in both runtimes.
 - Python and Rust pass the shared creation manifest and outcome-ledger corpora,
-   while focused direct-path and relay-path behavioral tests cover the active
-   V1 adapters.
+   while focused direct-path and relay-path behavioral tests cover the
+   lifecycle-capable active V1 adapters. Retained compatibility shortcuts are
+   covered by their versioned route-binding contract test.
 - Retained synchronous V1 creation adapters either expose the lifecycle ledger
-   for their execution or are documented and tested as compatibility shortcuts
-   outside the common lifecycle model.
+   for their execution or are documented and asserted as compatibility shortcuts
+   in the versioned route-binding contract outside the common lifecycle model.
 
 ### 3. Unify Extraction State Transitions
 

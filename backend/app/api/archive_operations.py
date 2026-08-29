@@ -82,6 +82,7 @@ from app.services.archive.creation import (
     ArchiveCreationResult,
     build_archive_creation_manifest,
     create_archive_from_files,
+    normalize_archive_creation_source_modified_at,
 )
 from app.services.archive.execution import ArchiveCompanionRelayPurpose, ArchiveExecutionDriver, resolve_archive_execution_topology
 from app.services.archive.extraction import (
@@ -1042,7 +1043,7 @@ async def begin_companion_local_archive_creation(
                     entry.info.type == FileType.DIRECTORY,
                     entry.info.size or 0,
                     entry.source_path,
-                    entry.info.modified_at.isoformat() if entry.info.modified_at else None,
+                    entry.source_modified_at,
                 )
                 for entry in source_entries
             ]
@@ -1086,7 +1087,7 @@ async def stream_companion_local_archive_creation_member(
         if (
             source_info.type != FileType.FILE
             or source_info.size != entry.source_size
-            or (source_info.modified_at.isoformat() if source_info.modified_at is not None else None) != entry.source_modified_at
+            or normalize_archive_creation_source_modified_at(source_info.modified_at) != entry.source_modified_at
         ):
             relay.fail_message("Archive creation source changed after manifest validation")
             raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="Archive creation source changed after manifest validation")
@@ -1171,7 +1172,7 @@ def _local_to_smb_creation_manifest(payload: ArchiveCompanionCreationSourceManif
                 entry.is_directory,
                 entry.source_size,
                 None,
-                None,
+                entry.modified_at.isoformat() if entry.modified_at is not None else None,
             )
             for entry in payload.entries
         ]
@@ -1404,7 +1405,7 @@ async def execute_archive_creation(
                     is_directory=entry.info.type == FileType.DIRECTORY,
                     source_size=entry.info.size or 0,
                     source_path=entry.source_path,
-                    source_modified_at=entry.info.modified_at.isoformat() if entry.info.modified_at is not None else None,
+                    source_modified_at=entry.source_modified_at,
                 )
                 for entry in preflight_entries
             ]
@@ -1421,7 +1422,7 @@ async def execute_archive_creation(
                 target_path=operation.destination_path,
                 is_cancelled=is_cancelled,
                 on_member_completed=on_member_completed,
-                preflight_entries=preflight_entries,
+                preflight_manifest=manifest,
             )
 
         return await ArchiveCreationCoordinator(

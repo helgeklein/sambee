@@ -6,7 +6,7 @@ use std::io::{Read, Write};
 use std::path::{Path, PathBuf};
 
 use bzip2::read::BzDecoder;
-use chrono::{DateTime, NaiveDate, Utc};
+use chrono::{DateTime, NaiveDate, SecondsFormat, Utc};
 use flate2::{read::DeflateDecoder, write::DeflateEncoder, Compression};
 use serde::{Deserialize, Serialize};
 use thiserror::Error;
@@ -126,6 +126,8 @@ pub struct LocalArchiveEntry {
     pub source_path: PathBuf,
     pub archive_path: String,
     pub is_directory: bool,
+    pub source_size: u64,
+    pub source_modified_at: Option<String>,
 }
 
 /// Summary of a completed local archive write.
@@ -142,6 +144,8 @@ pub struct ArchiveCreationManifestMember {
     pub archive_path: String,
     pub is_directory: bool,
     pub source_size: u64,
+    #[serde(default, rename = "modified_at", alias = "source_modified_at")]
+    pub source_modified_at: Option<String>,
 }
 
 /// Typed creation manifest shared by local and relayed archive writers.
@@ -187,6 +191,7 @@ impl ArchiveCreationManifest {
                 archive_path,
                 is_directory: entry.is_directory,
                 source_size: entry.source_size,
+                source_modified_at: normalize_creation_source_modified_at(entry.source_modified_at)?,
             });
         }
         if !file_paths.is_disjoint(&directory_paths) {
@@ -611,6 +616,8 @@ pub enum LocalArchiveRelayChunk {
 /// Stateful local ZIP writer used while an asynchronous source relay streams one member at a time.
 pub struct LocalArchiveRelayWriter {
     writer: ZipWriter<StreamWriter<FsFile>>,
+    manifest: ArchiveCreationManifest,
+    next_manifest_index: usize,
 }
 
 /// Summary of a completed local archive extraction.
@@ -1955,6 +1962,24 @@ fn collision_key(path: &str) -> String {
     path.trim_end_matches('/').nfc().case_fold().collect()
 }
 
+fn normalized_source_modified_at(metadata: &fs::Metadata) -> Option<String> {
+    metadata
+        .modified()
+        .ok()
+        .map(DateTime::<Utc>::from)
+        .map(|timestamp| timestamp.to_rfc3339_opts(SecondsFormat::Secs, false))
+}
+
+fn normalize_creation_source_modified_at(source_modified_at: Option<String>) -> Result<Option<String>, LocalArchiveError> {
+    source_modified_at
+        .map(|timestamp| {
+            DateTime::parse_from_rfc3339(&timestamp)
+                .map(|timestamp| timestamp.with_timezone(&Utc).to_rfc3339_opts(SecondsFormat::Secs, false))
+                .map_err(|_| LocalArchiveError::InvalidCreationOutcome)
+        })
+        .transpose()
+}
+
 fn source_name(path: &Path) -> Result<String, LocalArchiveError> {
     path.file_name()
         .and_then(|name| name.to_str())
@@ -2022,6 +2047,8 @@ fn build_local_archive_manifest_inner<F: Fn() -> bool>(
             source_path: source_path.to_owned(),
             archive_path: archive_path.clone(),
             is_directory,
+            source_size: if is_directory { 0 } else { metadata.len() },
+            source_modified_at: normalized_source_modified_at(&metadata),
         });
         if !is_directory {
             return Ok(());
@@ -2059,6 +2086,38 @@ fn build_local_archive_manifest_inner<F: Fn() -> bool>(
     Ok(entries)
 }
 
+/// Project adapter-enumerated local entries into the immutable creation manifest before writing.
+pub fn project_local_archive_creation_manifest(entries: &[LocalArchiveEntry]) -> Result<ArchiveCreationManifest, LocalArchiveError> {
+    ArchiveCreationManifest::from_entries(
+        entries
+            .iter()
+            .map(|entry| ArchiveCreationManifestMember {
+                archive_path: entry.archive_path.clone(),
+                is_directory: entry.is_directory,
+                source_size: entry.source_size,
+                source_modified_at: entry.source_modified_at.clone(),
+            })
+            .collect(),
+    )
+}
+
+fn validate_local_archive_manifest_entries(
+    entries: &[LocalArchiveEntry],
+    manifest: &ArchiveCreationManifest,
+) -> Result<(), LocalArchiveError> {
+    if entries.len() != manifest.entries.len()
+        || entries.iter().zip(&manifest.entries).any(|(entry, member)| {
+            entry.archive_path.trim_end_matches('/') != member.archive_path
+                || entry.is_directory != member.is_directory
+                || entry.source_size != member.source_size
+                || entry.source_modified_at != member.source_modified_at
+        })
+    {
+        return Err(LocalArchiveError::InvalidCreationOutcome);
+    }
+    Ok(())
+}
+
 /// Create a ZIP directly at a previously non-existent local output path.
 pub fn create_local_archive(
     drive_root: &Path,
@@ -2090,9 +2149,10 @@ pub fn create_local_archive_with_cancellation_progress_and_state(
     on_progress: impl FnMut(LocalArchiveCreationResult),
 ) -> Result<(LocalArchiveCreationResult, ArchiveCreationManifestState), LocalArchiveError> {
     revalidate_target_parent(drive_root, target_path)?;
+    let manifest = project_local_archive_creation_manifest(entries)?;
     let output = OpenOptions::new().write(true).create_new(true).open(target_path)?;
-    let (result, state) = write_local_archive_stream_with_cancellation_progress_and_state(output, entries, &is_cancelled, on_progress)
-        .map_err(|error| match error {
+    let (result, state) =
+        write_local_archive_stream_with_manifest(output, entries, manifest, &is_cancelled, on_progress).map_err(|error| match error {
             LocalArchiveError::Cancelled => LocalArchiveError::Cancelled,
             error => LocalArchiveError::PartialArchiveOutput(Box::new(error)),
         })?;
@@ -2104,28 +2164,15 @@ pub fn create_local_archive_with_cancellation_progress_and_state(
 }
 
 /// Write a portable ZIP while retaining the immutable manifest and committed outcomes.
-pub fn write_local_archive_stream_with_cancellation_progress_and_state<W: Write>(
+/// Write a portable ZIP from a preflight manifest and its local source adapter entries.
+pub fn write_local_archive_stream_with_manifest<W: Write>(
     output: W,
     entries: &[LocalArchiveEntry],
+    manifest: ArchiveCreationManifest,
     is_cancelled: impl Fn() -> bool,
     mut on_progress: impl FnMut(LocalArchiveCreationResult),
 ) -> Result<(LocalArchiveCreationResult, ArchiveCreationManifestState), LocalArchiveError> {
-    let manifest = ArchiveCreationManifest::from_entries(
-        entries
-            .iter()
-            .map(|entry| {
-                Ok(ArchiveCreationManifestMember {
-                    archive_path: entry.archive_path.clone(),
-                    is_directory: entry.is_directory,
-                    source_size: if entry.is_directory {
-                        0
-                    } else {
-                        fs::metadata(&entry.source_path)?.len()
-                    },
-                })
-            })
-            .collect::<Result<Vec<_>, std::io::Error>>()?,
-    )?;
+    validate_local_archive_manifest_entries(entries, &manifest)?;
     (|| {
         let mut writer = ZipWriter::new_stream(output);
         let mut state = ArchiveCreationManifestState::new(manifest);
@@ -2242,7 +2289,11 @@ fn receive_compression_probe(chunks: &mut Receiver<LocalArchiveRelayChunk>) -> R
 }
 
 /// Create a new local ZIP target that receives source bytes through bounded relay channels.
-pub fn create_local_archive_relay_writer(drive_root: &Path, target_path: &Path) -> Result<LocalArchiveRelayWriter, LocalArchiveError> {
+pub fn create_local_archive_relay_writer(
+    drive_root: &Path,
+    target_path: &Path,
+    manifest: ArchiveCreationManifest,
+) -> Result<LocalArchiveRelayWriter, LocalArchiveError> {
     if target_path.exists() {
         return Err(LocalArchiveError::TargetExists);
     }
@@ -2250,31 +2301,47 @@ pub fn create_local_archive_relay_writer(drive_root: &Path, target_path: &Path) 
     let output = OpenOptions::new().write(true).create_new(true).open(target_path)?;
     Ok(LocalArchiveRelayWriter {
         writer: ZipWriter::new_stream(output),
+        manifest,
+        next_manifest_index: 0,
     })
 }
 
 impl LocalArchiveRelayWriter {
+    fn next_manifest_entry(&self, archive_path: &str, is_directory: bool) -> Result<(String, u64), LocalArchiveError> {
+        let normalized_path = normalized_archive_path(archive_path, is_directory)?
+            .trim_end_matches('/')
+            .to_string();
+        let entry = self
+            .manifest
+            .entries
+            .get(self.next_manifest_index)
+            .filter(|entry| entry.archive_path == normalized_path && entry.is_directory == is_directory)
+            .ok_or(LocalArchiveError::InvalidCreationOutcome)?;
+        Ok((entry.archive_path.clone(), entry.source_size))
+    }
+
     /// Add one explicit directory entry to the local ZIP.
     pub fn add_directory(mut self, archive_path: &str) -> Result<Self, LocalArchiveError> {
+        let (manifest_path, source_size) = self.next_manifest_entry(archive_path, true)?;
+        if source_size != 0 {
+            return Err(LocalArchiveError::InvalidCreationOutcome);
+        }
         (|| {
             self.writer
-                .add_directory(normalized_archive_path(archive_path, true)?, directory_options())?;
+                .add_directory(normalized_archive_path(&manifest_path, true)?, directory_options())?;
+            self.next_manifest_index += 1;
             Ok(self)
         })()
         .map_err(|error| LocalArchiveError::PartialArchiveOutput(Box::new(error)))
     }
 
     /// Write one regular member from a bounded asynchronous-relay channel.
-    pub fn write_file(
-        mut self,
-        archive_path: &str,
-        expected_size: u64,
-        mut chunks: Receiver<LocalArchiveRelayChunk>,
-    ) -> Result<Self, LocalArchiveError> {
+    pub fn write_file(mut self, archive_path: &str, mut chunks: Receiver<LocalArchiveRelayChunk>) -> Result<Self, LocalArchiveError> {
+        let (manifest_path, expected_size) = self.next_manifest_entry(archive_path, false)?;
         (|| {
             let (probe, pending_chunk, source_completed) = receive_compression_probe(&mut chunks)?;
             self.writer
-                .start_file(normalized_archive_path(archive_path, false)?, regular_file_options(&probe)?)?;
+                .start_file(normalized_archive_path(&manifest_path, false)?, regular_file_options(&probe)?)?;
             self.writer.write_all(&probe)?;
             let mut written = probe.len() as u64;
             if let Some(chunk) = pending_chunk {
@@ -2311,6 +2378,7 @@ impl LocalArchiveRelayWriter {
                     "Archive source size does not match its manifest",
                 )));
             }
+            self.next_manifest_index += 1;
             Ok(self)
         })()
         .map_err(|error| LocalArchiveError::PartialArchiveOutput(Box::new(error)))
@@ -2318,6 +2386,9 @@ impl LocalArchiveRelayWriter {
 
     /// Finalize the ZIP central directory after all manifest members commit.
     pub fn finish(self) -> Result<(), LocalArchiveError> {
+        if self.next_manifest_index != self.manifest.entries.len() {
+            return Err(LocalArchiveError::InvalidCreationOutcome);
+        }
         (|| {
             let mut output = self.writer.finish()?;
             output.flush()?;
@@ -2737,11 +2808,18 @@ mod tests {
     fn writes_relayed_members_to_a_readable_zip_without_staging() {
         let directory = tempdir().unwrap();
         let target = directory.path().join("archive.zip");
-        let writer = create_local_archive_relay_writer(directory.path(), &target).unwrap();
+        let manifest = ArchiveCreationManifest::from_entries(vec![ArchiveCreationManifestMember {
+            archive_path: "notes.txt".to_string(),
+            is_directory: false,
+            source_size: 5,
+            source_modified_at: None,
+        }])
+        .unwrap();
+        let writer = create_local_archive_relay_writer(directory.path(), &target, manifest).unwrap();
         let (sender, receiver) = tokio::sync::mpsc::channel(2);
         sender.try_send(LocalArchiveRelayChunk::Data(b"notes".to_vec())).unwrap();
         sender.try_send(LocalArchiveRelayChunk::Complete).unwrap();
-        writer.write_file("notes.txt", 5, receiver).unwrap().finish().unwrap();
+        writer.write_file("notes.txt", receiver).unwrap().finish().unwrap();
         let mut archive = ZipArchive::new(FsFile::open(&target).unwrap()).unwrap();
         let mut notes = String::new();
         archive.by_name("notes.txt").unwrap().read_to_string(&mut notes).unwrap();
@@ -2753,19 +2831,42 @@ mod tests {
     fn deflates_compressible_relayed_members() {
         let directory = tempdir().unwrap();
         let target = directory.path().join("archive.zip");
-        let writer = create_local_archive_relay_writer(directory.path(), &target).unwrap();
         let content = vec![b'x'; ARCHIVE_COPY_BUFFER_SIZE];
+        let manifest = ArchiveCreationManifest::from_entries(vec![ArchiveCreationManifestMember {
+            archive_path: "notes.txt".to_string(),
+            is_directory: false,
+            source_size: content.len() as u64,
+            source_modified_at: None,
+        }])
+        .unwrap();
+        let writer = create_local_archive_relay_writer(directory.path(), &target, manifest).unwrap();
         let (sender, receiver) = tokio::sync::mpsc::channel(2);
         sender.try_send(LocalArchiveRelayChunk::Data(content.clone())).unwrap();
         sender.try_send(LocalArchiveRelayChunk::Complete).unwrap();
 
-        writer
-            .write_file("notes.txt", content.len() as u64, receiver)
-            .unwrap()
-            .finish()
-            .unwrap();
+        writer.write_file("notes.txt", receiver).unwrap().finish().unwrap();
 
         assert_eq!(validate_local_archive_member(&target, "notes.txt").unwrap().compression_method, 8);
+    }
+
+    #[test]
+    fn rejects_relay_members_that_do_not_match_the_preflight_manifest() {
+        let directory = tempdir().unwrap();
+        let target = directory.path().join("archive.zip");
+        let manifest = ArchiveCreationManifest::from_entries(vec![ArchiveCreationManifestMember {
+            archive_path: "notes.txt".to_string(),
+            is_directory: false,
+            source_size: 0,
+            source_modified_at: None,
+        }])
+        .unwrap();
+        let writer = create_local_archive_relay_writer(directory.path(), &target, manifest).unwrap();
+        let (_sender, receiver) = tokio::sync::mpsc::channel(1);
+
+        assert!(matches!(
+            writer.write_file("unexpected.txt", receiver),
+            Err(LocalArchiveError::InvalidCreationOutcome)
+        ));
     }
 
     #[test]
@@ -2776,11 +2877,13 @@ mod tests {
                     archive_path: "folder".to_string(),
                     is_directory: false,
                     source_size: 1,
+                    source_modified_at: None,
                 },
                 ArchiveCreationManifestMember {
                     archive_path: "folder/child.txt".to_string(),
                     is_directory: false,
                     source_size: 1,
+                    source_modified_at: None,
                 },
             ]),
             Err(LocalArchiveError::DuplicateEntryPath)
@@ -2809,6 +2912,8 @@ mod tests {
             source_path: directory.path().join("missing.txt"),
             archive_path: "missing.txt".to_string(),
             is_directory: false,
+            source_size: 0,
+            source_modified_at: None,
         }];
 
         assert!(matches!(
@@ -2816,6 +2921,29 @@ mod tests {
             Err(LocalArchiveError::PartialArchiveOutput(_))
         ));
         assert!(target.is_file());
+    }
+
+    #[test]
+    fn rejects_local_source_entries_that_do_not_match_the_preflight_manifest() {
+        let entries = [LocalArchiveEntry {
+            source_path: PathBuf::from("source.txt"),
+            archive_path: "source.txt".to_string(),
+            is_directory: false,
+            source_size: 1,
+            source_modified_at: None,
+        }];
+        let manifest = ArchiveCreationManifest::from_entries(vec![ArchiveCreationManifestMember {
+            archive_path: "different.txt".to_string(),
+            is_directory: false,
+            source_size: 1,
+            source_modified_at: None,
+        }])
+        .unwrap();
+
+        assert!(matches!(
+            write_local_archive_stream_with_manifest(Vec::new(), &entries, manifest, || false, |_| {}),
+            Err(LocalArchiveError::InvalidCreationOutcome)
+        ));
     }
 
     #[test]
@@ -3030,6 +3158,7 @@ mod tests {
                         archive_path: report.archive_path.clone(),
                         is_directory: report.status == "directory",
                         source_size: if report.status == "directory" { 0 } else { report.source_bytes },
+                        source_modified_at: None,
                     });
                 }
                 entries
@@ -3135,6 +3264,7 @@ mod tests {
                         archive_path: entry.archive_path,
                         is_directory: entry.is_directory,
                         source_size: entry.source_size,
+                        source_modified_at: None,
                     })
                     .collect(),
             );
@@ -3183,6 +3313,7 @@ mod tests {
                         archive_path: entry.archive_path,
                         is_directory: entry.is_directory,
                         source_size: entry.source_size,
+                        source_modified_at: None,
                     })
                     .collect(),
             )
@@ -3247,6 +3378,7 @@ mod tests {
                         archive_path: entry.archive_path.clone(),
                         is_directory: entry.is_directory,
                         source_size: entry.source_size,
+                        source_modified_at: None,
                     })
                     .collect(),
             )
@@ -4369,6 +4501,17 @@ mod tests {
                     _ => unreachable!(),
                 }
             }
+            for node in scenario["nodes"].as_array().unwrap() {
+                let Some(modified_at) = node.get("modified_at").and_then(serde_json::Value::as_str) else {
+                    continue;
+                };
+                let timestamp = DateTime::parse_from_rfc3339(modified_at).unwrap().with_timezone(&Utc).into();
+                let path = root.path().join(node["path"].as_str().unwrap());
+                fs::File::open(path)
+                    .unwrap()
+                    .set_times(fs::FileTimes::new().set_modified(timestamp))
+                    .unwrap();
+            }
             let sources = scenario["sources"]
                 .as_array()
                 .unwrap()
@@ -4380,8 +4523,23 @@ mod tests {
                 assert!(result.is_err(), "{}", scenario["name"]);
                 continue;
             }
-            let entries = result.unwrap();
-            let actual = entries.iter().map(|entry| serde_json::json!({"archive_path": entry.archive_path.trim_end_matches('/'), "is_directory": entry.is_directory, "source_size": if entry.is_directory { 0 } else { fs::metadata(&entry.source_path).map_or(0, |metadata| metadata.len()) }})).collect::<Vec<_>>();
+            let manifest = project_local_archive_creation_manifest(&result.unwrap()).unwrap();
+            let actual = manifest
+                .entries
+                .iter()
+                .zip(scenario["manifest"].as_array().unwrap())
+                .map(|(entry, expected)| {
+                    let mut actual = serde_json::json!({
+                        "archive_path": entry.archive_path.trim_end_matches('/'),
+                        "is_directory": entry.is_directory,
+                        "source_size": entry.source_size,
+                    });
+                    if expected.get("modified_at").is_some() {
+                        actual["modified_at"] = serde_json::json!(entry.source_modified_at);
+                    }
+                    actual
+                })
+                .collect::<Vec<_>>();
             assert_eq!(actual, *scenario["manifest"].as_array().unwrap(), "{}", scenario["name"]);
         }
     }
