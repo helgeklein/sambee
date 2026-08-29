@@ -649,10 +649,7 @@ impl LocalArchiveExtractionCheckpoint {
     }
 
     fn collision_action(&self, member_path: &str) -> Option<LocalArchiveExtractionCollisionAction> {
-        self.collision_actions
-            .get(member_path)
-            .copied()
-            .or(self.global_collision_action)
+        self.collision_actions.get(member_path).copied().or(self.global_collision_action)
     }
 
     fn has_partial_member(&self, member_path: &str) -> bool {
@@ -1858,7 +1855,7 @@ fn build_local_archive_manifest_inner<F: Fn() -> bool>(
         }
 
         let mut children = fs::read_dir(source_path)?.collect::<Result<Vec<_>, _>>()?;
-        children.sort_by_key(|child| child.file_name());
+        children.sort_by_key(|child| collision_key(&child.file_name().to_string_lossy()));
         for child in children {
             let child_name = child.file_name().to_string_lossy().into_owned();
             visit(
@@ -3719,8 +3716,8 @@ mod tests {
 
     #[test]
     fn loads_v1_topology_operation_compatibility_matrix() {
-        let matrix_path = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
-            .join("../../archive-contract/v1/topology-operation-compatibility-matrix-v1.json");
+        let matrix_path =
+            PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../archive-contract/v1/topology-operation-compatibility-matrix-v1.json");
         let matrix: serde_json::Value = serde_json::from_slice(&fs::read(matrix_path).unwrap()).unwrap();
 
         assert_eq!(matrix["version"], 1);
@@ -3748,7 +3745,9 @@ mod tests {
             ]
         );
         for entry in operations {
-            assert!(entry["retirement_condition"].as_str().is_some_and(|condition| !condition.is_empty()));
+            assert!(entry["retirement_condition"]
+                .as_str()
+                .is_some_and(|condition| !condition.is_empty()));
             if entry["operation"] == "inspection" {
                 assert_eq!(entry["status"], "legacy_source_only");
                 assert!(entry.get("driver").is_none());
@@ -3763,10 +3762,8 @@ mod tests {
     #[test]
     fn passes_v1_inspection_scenarios() {
         let workspace_root = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../..");
-        let corpus: serde_json::Value = serde_json::from_slice(
-            &fs::read(workspace_root.join("archive-contract/v1/inspection-scenarios-v1.json")).unwrap(),
-        )
-        .unwrap();
+        let corpus: serde_json::Value =
+            serde_json::from_slice(&fs::read(workspace_root.join("archive-contract/v1/inspection-scenarios-v1.json")).unwrap()).unwrap();
         assert_eq!(corpus["version"], 1);
 
         for scenario in corpus["scenarios"].as_array().unwrap() {
@@ -3791,6 +3788,44 @@ mod tests {
                 })
                 .collect::<Vec<_>>();
             assert_eq!(entries, *scenario["entries"].as_array().unwrap());
+        }
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn passes_v1_creation_manifest_virtual_tree_corpus() {
+        use std::os::unix::fs::symlink;
+
+        let corpus_path = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../archive-contract/v1/creation-manifest-scenarios-v1.json");
+        let corpus: serde_json::Value = serde_json::from_slice(&fs::read(corpus_path).unwrap()).unwrap();
+        for scenario in corpus["scenarios"].as_array().unwrap() {
+            let root = tempdir().unwrap();
+            for node in scenario["nodes"].as_array().unwrap() {
+                let path = root.path().join(node["path"].as_str().unwrap());
+                match node["type"].as_str().unwrap() {
+                    "directory" => fs::create_dir_all(path).unwrap(),
+                    "file" => {
+                        fs::create_dir_all(path.parent().unwrap()).unwrap();
+                        fs::write(path, vec![0; node["size"].as_u64().unwrap_or(0) as usize]).unwrap();
+                    }
+                    "symlink" | "unsupported" => symlink("missing", path).unwrap(),
+                    _ => unreachable!(),
+                }
+            }
+            let sources = scenario["sources"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .map(|path| root.path().join(path.as_str().unwrap()))
+                .collect::<Vec<_>>();
+            let result = build_local_archive_manifest(&sources, &root.path().join(scenario["target"].as_str().unwrap()));
+            if scenario.get("error").is_some() {
+                assert!(result.is_err(), "{}", scenario["name"]);
+                continue;
+            }
+            let entries = result.unwrap();
+            let actual = entries.iter().map(|entry| serde_json::json!({"archive_path": entry.archive_path.trim_end_matches('/'), "is_directory": entry.is_directory, "source_size": if entry.is_directory { 0 } else { fs::metadata(&entry.source_path).map_or(0, |metadata| metadata.len()) }})).collect::<Vec<_>>();
+            assert_eq!(actual, *scenario["manifest"].as_array().unwrap(), "{}", scenario["name"]);
         }
     }
 

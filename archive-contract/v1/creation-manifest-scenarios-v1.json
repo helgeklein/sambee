@@ -1,0 +1,154 @@
+{
+  "version": 1,
+  "scenarios": [
+    {
+      "name": "canonical_tree",
+      "nodes": [
+        {
+          "path": "docs",
+          "type": "directory"
+        },
+        {
+          "path": "docs/Zebra.txt",
+          "type": "file",
+          "size": 2
+        },
+        {
+          "path": "docs/alpha.txt",
+          "type": "file",
+          "size": 1
+        },
+        {
+          "path": "docs/empty",
+          "type": "directory"
+        }
+      ],
+      "sources": [
+        "docs"
+      ],
+      "target": "archive.zip",
+      "manifest": [
+        {
+          "archive_path": "docs",
+          "is_directory": true,
+          "source_size": 0
+        },
+        {
+          "archive_path": "docs/alpha.txt",
+          "is_directory": false,
+          "source_size": 1
+        },
+        {
+          "archive_path": "docs/empty",
+          "is_directory": true,
+          "source_size": 0
+        },
+        {
+          "archive_path": "docs/Zebra.txt",
+          "is_directory": false,
+          "source_size": 2
+        }
+      ]
+    },
+    {
+      "name": "multiple_roots",
+      "nodes": [
+        {
+          "path": "first.txt",
+          "type": "file",
+          "size": 1
+        },
+        {
+          "path": "second.txt",
+          "type": "file",
+          "size": 2
+        }
+      ],
+      "sources": [
+        "first.txt",
+        "second.txt"
+      ],
+      "target": "archive.zip",
+      "manifest": [
+        {
+          "archive_path": "first.txt",
+          "is_directory": false,
+          "source_size": 1
+        },
+        {
+          "archive_path": "second.txt",
+          "is_directory": false,
+          "source_size": 2
+        }
+      ]
+    },
+    {
+      "name": "target_inside_source",
+      "nodes": [
+        {
+          "path": "source",
+          "type": "directory"
+        },
+        {
+          "path": "source/file.txt",
+          "type": "file",
+          "size": 1
+        }
+      ],
+      "sources": [
+        "source"
+      ],
+      "target": "source/archive.zip",
+      "error": "target_inside_source"
+    },
+    {
+      "name": "unsupported_node",
+      "nodes": [
+        {
+          "path": "socket",
+          "type": "unsupported"
+        }
+      ],
+      "sources": [
+        "socket"
+      ],
+      "target": "archive.zip",
+      "error": "unsupported_node_type"
+    },
+    {
+      "name": "symbolic_link",
+      "nodes": [
+        {
+          "path": "link",
+          "type": "symlink"
+        }
+      ],
+      "sources": [
+        "link"
+      ],
+      "target": "archive.zip",
+      "error": "unsupported_node_type"
+    },
+    {
+      "name": "duplicate_normalized_roots",
+      "nodes": [
+        {
+          "path": "Report.txt",
+          "type": "file",
+          "size": 1
+        },
+        {
+          "path": "report.txt",
+          "type": "file",
+          "size": 1
+        }
+      ],
+      "sources": [
+        "Report.txt",
+        "report.txt"
+      ],
+      "target": "archive.zip",
+      "error": "duplicate_normalized_entry"
+    }
+  ]
+}
