@@ -965,10 +965,7 @@ def completed_extraction_member_paths(checkpoint: dict[str, object]) -> list[str
     """Return members with terminal durable output while rejecting malformed ledgers."""
 
     if _EXTRACTION_OUTCOME_CHECKPOINT_VERSION_KEY not in checkpoint and "member_outcomes" not in checkpoint:
-        written_members = checkpoint.get("written_members", [])
-        if not isinstance(written_members, list) or not all(isinstance(member_path, str) for member_path in written_members):
-            raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="Archive operation checkpoint is invalid")
-        return written_members
+        return legacy_v1_written_member_paths(checkpoint)
     outcomes = _extraction_member_outcomes(checkpoint, migrate_legacy_members=False)
     completed: list[str] = []
     for member_path, outcome in outcomes.items():
@@ -983,15 +980,22 @@ def completed_extraction_member_paths(checkpoint: dict[str, object]) -> list[str
     return completed
 
 
+def legacy_v1_written_member_paths(checkpoint: dict[str, object]) -> list[str]:
+    """Read unversioned V1 members; retire this sole compatibility boundary with the V1 reader after V2 retention ends."""
+
+    written_members = checkpoint.get("written_members", [])
+    if not isinstance(written_members, list) or not all(isinstance(member_path, str) for member_path in written_members):
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="Archive operation checkpoint is invalid")
+    return written_members
+
+
 def _extraction_member_outcomes(checkpoint: dict[str, object], *, migrate_legacy_members: bool) -> dict[str, object]:
     checkpoint_version = checkpoint.get(_EXTRACTION_OUTCOME_CHECKPOINT_VERSION_KEY)
     if checkpoint_version is None:
         if "member_outcomes" not in checkpoint:
             if not migrate_legacy_members:
                 raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="Archive operation checkpoint is invalid")
-            written_members = checkpoint.get("written_members", [])
-            if not isinstance(written_members, list) or not all(isinstance(member_path, str) for member_path in written_members):
-                raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="Archive operation checkpoint is invalid")
+            written_members = legacy_v1_written_member_paths(checkpoint)
             checkpoint["member_outcomes"] = {member_path: {"status": "extracted"} for member_path in written_members}
         if migrate_legacy_members:
             checkpoint[_EXTRACTION_OUTCOME_CHECKPOINT_VERSION_KEY] = EXTRACTION_OUTCOME_CHECKPOINT_VERSION

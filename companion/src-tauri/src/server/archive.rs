@@ -381,7 +381,7 @@ impl ArchiveExtractionRelayState {
                     "Archive relay returned a versioned checkpoint without member outcomes",
                 )));
             }
-            return Ok(self.written_members.iter().cloned().collect());
+            return Ok(self.legacy_v1_completed_members());
         };
         outcomes
             .iter()
@@ -394,6 +394,11 @@ impl ArchiveExtractionRelayState {
                 )))),
             })
             .collect()
+    }
+
+    /// Read unversioned V1 members; retire this sole compatibility boundary with the V1 reader after V2 retention ends.
+    fn legacy_v1_completed_members(&self) -> HashSet<String> {
+        self.written_members.iter().cloned().collect()
     }
 
     /// Return the currently approved local-relative target for one manifest member.

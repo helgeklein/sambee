@@ -183,6 +183,16 @@ state object. That domain object validates immutable manifest membership,
 decision-derived targets, reported counters, and rename state before it mutates
 the outcome ledger or enters a decision; the API callbacks now perform only
 scoped relay lifecycle and request/response adaptation.
+Companion now uses one no-result JSON acknowledgement path for every typed
+creation control POST, including per-member commits. Its extraction and
+creation coordinators also share the best-effort relay failure-report envelope,
+without coupling their distinct success and completion behavior. Focused
+loopback transport tests cover successful empty acknowledgements, invalid
+begin payload decoding, and mapped acknowledgement failures. The unversioned
+V1 `written_members` reader is now isolated behind named backend and Companion
+compatibility methods; both are explicitly scheduled for removal with the V1
+reader after the V2 operation-retention window, rather than serving as general
+checkpoint access APIs.
 The `written_members` fallback supports only checkpoints serialized before
 outcome-ledger v1 and will be removed at the v2.0 schema boundary; new code
 must neither write nor depend on it.
