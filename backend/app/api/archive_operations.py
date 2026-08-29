@@ -613,6 +613,24 @@ def _validate_smb_to_local_manifest(entries: list[ZipEntry]) -> None:
         raise ArchiveFormatError("Archive extraction contains an unavailable member")
 
 
+def _companion_extraction_manifest(payload: ArchiveCompanionExtractionSourceManifest | None) -> ArchiveExtractionManifest | None:
+    """Canonicalize a local Companion source manifest for durable relay comparison."""
+
+    if payload is None:
+        return None
+    return ArchiveExtractionManifest.from_members(
+        [
+            ArchiveExtractionManifestMember(
+                entry.path,
+                entry.is_directory,
+                entry.uncompressed_size,
+                entry.modified_at.isoformat() if entry.modified_at is not None else None,
+            )
+            for entry in payload.entries
+        ]
+    )
+
+
 def _mixed_extraction_destination_connection(session: Session, user: User, operation: ArchiveOperation) -> Connection:
     try:
         connection = get_accessible_connection_or_404(session, user, uuid.UUID(operation.destination_connection_id))
@@ -636,6 +654,21 @@ async def begin_companion_archive_extraction(
     relay = ScopedCompanionRelay(operation_id, ArchiveCompanionRelayPurpose.LOCAL_ZIP_TO_SMB_EXTRACT, operation_token, session)
     user, operation = relay.begin()
     if operation.phase == ArchiveOperationPhase.STREAMING:
+        checkpoint = load_archive_checkpoint(operation)
+        if "archive_manifest" in checkpoint:
+            manifest = _companion_extraction_manifest(payload)
+            if manifest is None:
+                relay.fail_message("Archive extraction source manifest is required to resume")
+                raise HTTPException(
+                    status_code=status.HTTP_409_CONFLICT,
+                    detail="Archive extraction source manifest is required to resume",
+                )
+            if manifest != ArchiveExtractionManifest.from_checkpoint(checkpoint):
+                relay.fail_message("Archive extraction source changed after manifest validation")
+                raise HTTPException(
+                    status_code=status.HTTP_409_CONFLICT,
+                    detail="Archive extraction source changed after manifest validation",
+                )
         return operation
     connection = _mixed_extraction_destination_connection(session, user, operation)
     backend = build_smb_backend(connection, backend_factory=SMBBackend)
@@ -650,21 +683,7 @@ async def begin_companion_archive_extraction(
                     status_code=status.HTTP_409_CONFLICT,
                     detail="Archive extraction destination is not a directory",
                 )
-        manifest = (
-            ArchiveExtractionManifest.from_members(
-                [
-                    ArchiveExtractionManifestMember(
-                        entry.path,
-                        entry.is_directory,
-                        entry.uncompressed_size,
-                        entry.modified_at.isoformat() if entry.modified_at is not None else None,
-                    )
-                    for entry in payload.entries
-                ]
-            )
-            if payload is not None
-            else None
-        )
+        manifest = _companion_extraction_manifest(payload)
         return relay.commit_preflight(
             operation,
             checkpoint_json=json.dumps(new_extraction_outcome_checkpoint(directories_created=1, manifest=manifest)),

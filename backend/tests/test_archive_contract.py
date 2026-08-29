@@ -582,6 +582,19 @@ def test_archive_contract_defines_normalized_v1_extraction_outcomes() -> None:
     assert schemas["ArchiveExtractionMemberErrorV1"]["allOf"][0]["$ref"] == ("#/components/schemas/ArchiveExtractionPartialMemberV1")
 
 
+def test_inspection_contract_defines_bounded_inline_preview_eligibility() -> None:
+    """Keep the shared inspection contract explicit about the inline preview boundary."""
+
+    schema = json.loads((WORKSPACE_ROOT / "archive-contract" / "v1" / "inspection-schema-v1.json").read_text(encoding="utf-8"))
+    entry = schema["properties"]["entries"]["items"]
+
+    assert "inline_preview_eligible" in entry["required"]
+    assert entry["properties"]["inline_preview_eligible"] == {"type": "boolean"}
+    eligibility_constraints = entry["allOf"][0]["then"]["properties"]
+    assert eligibility_constraints["uncompressed_size"] == {"maximum": 5 * 1024 * 1024}
+    assert eligibility_constraints["compression_method"] == {"enum": [0, 8, 12]}
+
+
 def test_archive_contract_defines_normalized_v1_creation_outcomes() -> None:
     """Keep creation result and progress vocabulary explicit beyond relay payloads."""
 

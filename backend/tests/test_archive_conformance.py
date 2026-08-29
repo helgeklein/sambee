@@ -75,6 +75,7 @@ async def test_v1_inspection_scenarios() -> None:
                 "uncompressed_size": entry.uncompressed_size,
                 "is_safe": entry.is_safe,
                 "preview_state": entry.preview_state,
+                "inline_preview_eligible": entry.is_inline_preview_eligible(),
             }
             for entry in manifest.entries
         ] == scenario["entries"]

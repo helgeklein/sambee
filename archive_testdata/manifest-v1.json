@@ -117,6 +117,32 @@
       "sha256": "f18473b9faba3e7a80afafb9a87cb73c382c0de3b446854a84c3349d69ab4854"
     },
     {
+      "entries": [
+        {
+          "data_descriptor": false,
+          "directory": false,
+          "member_sha256": "c036cbb7553a909f8b8877d4461924307f27ecb66cff928eeeafd569c3887e29",
+          "method": 8,
+          "path": "exact-limit.txt",
+          "raw_name_hex": "65786163742d6c696d69742e747874",
+          "safe": true,
+          "uncompressed_size": 5242880
+        },
+        {
+          "data_descriptor": false,
+          "directory": false,
+          "member_sha256": "09b203d5582fff801c1990a28ad8d1ab2a1d89a78ffff0208841e59def0d64d7",
+          "method": 8,
+          "path": "over-limit.txt",
+          "raw_name_hex": "6f7665722d6c696d69742e747874",
+          "safe": true,
+          "uncompressed_size": 5242881
+        }
+      ],
+      "name": "preview-boundary-v1.zip",
+      "sha256": "30702a39d2746e595277143b56bfa4c99f1c71dc3c230fbd7d559606a19962bf"
+    },
+    {
       "entries": [],
       "expected_error": "format_error",
       "name": "malformed-v1.zip",

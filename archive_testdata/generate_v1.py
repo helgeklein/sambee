@@ -33,6 +33,9 @@ ZIP64_MEMBER_NAME = "zip64.txt"
 ZIP64_MEMBER_CONTENT = b"zip64 " * 128
 BZIP2_MEMBER_NAME = "bzip2.txt"
 BZIP2_MEMBER_CONTENT = b"bzip2 " * 128
+PREVIEW_EXACT_LIMIT_MEMBER_NAME = "exact-limit.txt"
+PREVIEW_OVER_LIMIT_MEMBER_NAME = "over-limit.txt"
+PREVIEW_MAX_BYTES = 5 * 1024 * 1024
 EOCD_MALFORMED_MEMBER_NAME = "eocd.txt"
 EOCD_MALFORMED_MEMBER_CONTENT = b"malformed " * 16
 INVALID_EOCD_COMMENT_LENGTH = 0x00FF
@@ -200,6 +203,22 @@ def _write_bzip2_fixture(path: Path) -> None:
         )
 
 
+def _write_preview_boundary_fixture(path: Path) -> None:
+    with zipfile.ZipFile(path, "w", compression=zipfile.ZIP_DEFLATED) as archive:
+        _write_entry(
+            archive,
+            PREVIEW_EXACT_LIMIT_MEMBER_NAME,
+            b"\0" * PREVIEW_MAX_BYTES,
+            zipfile.ZIP_DEFLATED,
+        )
+        _write_entry(
+            archive,
+            PREVIEW_OVER_LIMIT_MEMBER_NAME,
+            b"\0" * (PREVIEW_MAX_BYTES + 1),
+            zipfile.ZIP_DEFLATED,
+        )
+
+
 def _write_malformed_fixture(path: Path) -> None:
     path.write_bytes(b"not a zip archive\n")
 
@@ -269,6 +288,7 @@ def main() -> None:
     _write_unicode_path_fixture(ROOT / "unicode-path-v1.zip")
     _write_zip64_fixture(ROOT / "zip64-v1.zip")
     _write_bzip2_fixture(ROOT / "bzip2-v1.zip")
+    _write_preview_boundary_fixture(ROOT / "preview-boundary-v1.zip")
     _write_malformed_fixture(ROOT / "malformed-v1.zip")
     _write_eocd_malformed_fixture(ROOT / "eocd-malformed-v1.zip")
     manifest = {
@@ -318,6 +338,21 @@ def main() -> None:
             _fixture(
                 "bzip2-v1.zip",
                 [_entry(BZIP2_MEMBER_NAME, BZIP2_MEMBER_CONTENT, zipfile.ZIP_BZIP2)],
+            ),
+            _fixture(
+                "preview-boundary-v1.zip",
+                [
+                    _entry(
+                        PREVIEW_EXACT_LIMIT_MEMBER_NAME,
+                        b"\0" * PREVIEW_MAX_BYTES,
+                        zipfile.ZIP_DEFLATED,
+                    ),
+                    _entry(
+                        PREVIEW_OVER_LIMIT_MEMBER_NAME,
+                        b"\0" * (PREVIEW_MAX_BYTES + 1),
+                        zipfile.ZIP_DEFLATED,
+                    ),
+                ],
             ),
             _fixture("malformed-v1.zip", [], expected_error="format_error"),
             _fixture("eocd-malformed-v1.zip", [], expected_error="format_error"),

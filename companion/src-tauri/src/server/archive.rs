@@ -4497,6 +4497,7 @@ mod tests {
                         "uncompressed_size": entry.uncompressed_size,
                         "is_safe": entry.is_safe,
                         "preview_state": if entry.encrypted { "blocked" } else if entry.is_preview_available() { "readable" } else { "unavailable" },
+                        "inline_preview_eligible": entry.is_inline_preview_eligible(),
                     })
                 })
                 .collect::<Vec<_>>();

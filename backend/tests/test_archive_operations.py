@@ -1231,6 +1231,91 @@ def test_manifest_backed_companion_relay_requires_terminal_member_coverage(
     assert complete.json()["phase"] == "completed"
 
 
+def test_companion_local_source_relay_rejects_a_changed_manifest_before_resume(
+    client: TestClient,
+    auth_headers_user: dict,
+    test_connection: Connection,
+) -> None:
+    prepared = client.post(
+        "/api/archive/operations",
+        headers=auth_headers_user,
+        json={
+            "kind": "extract",
+            "source_connection_id": "local-drive:c",
+            "source_path": "backup.zip",
+            "destination_connection_id": str(test_connection.id),
+            "destination_path": "output",
+        },
+    ).json()
+    capability = client.post(f"/api/archive/operations/{prepared['id']}/companion-session", headers=auth_headers_user).json()
+    relay_headers = {"Authorization": f"Bearer {capability['token']}"}
+    backend = AsyncMock()
+    backend.connect.return_value = None
+    backend.disconnect.return_value = None
+    backend.create_directory.return_value = None
+    initial_manifest = {"entries": [{"path": "readme.txt", "is_directory": False, "uncompressed_size": 5, "modified_at": None}]}
+    changed_manifest = {"entries": [{"path": "readme.txt", "is_directory": False, "uncompressed_size": 6, "modified_at": None}]}
+
+    with patch("app.api.archive_operations.SMBBackend", return_value=backend):
+        initial = client.post(
+            f"/api/archive/operations/{prepared['id']}/companion-relay/local_zip_to_smb_extract/begin",
+            headers=relay_headers,
+            json=initial_manifest,
+        )
+        resumed = client.post(
+            f"/api/archive/operations/{prepared['id']}/companion-relay/local_zip_to_smb_extract/begin",
+            headers=relay_headers,
+            json=changed_manifest,
+        )
+        operation = client.get(f"/api/archive/operations/{prepared['id']}", headers=auth_headers_user)
+
+    assert initial.status_code == 200
+    assert resumed.status_code == 409
+    assert resumed.json()["detail"] == "Archive extraction source changed after manifest validation"
+    assert operation.json()["phase"] == "failed"
+    backend.connect.assert_awaited_once()
+
+
+def test_companion_local_source_relay_requires_a_manifest_before_resume(
+    client: TestClient,
+    auth_headers_user: dict,
+    test_connection: Connection,
+) -> None:
+    prepared = client.post(
+        "/api/archive/operations",
+        headers=auth_headers_user,
+        json={
+            "kind": "extract",
+            "source_connection_id": "local-drive:c",
+            "source_path": "backup.zip",
+            "destination_connection_id": str(test_connection.id),
+            "destination_path": "output",
+        },
+    ).json()
+    capability = client.post(f"/api/archive/operations/{prepared['id']}/companion-session", headers=auth_headers_user).json()
+    relay_headers = {"Authorization": f"Bearer {capability['token']}"}
+    backend = AsyncMock()
+    backend.connect.return_value = None
+    backend.disconnect.return_value = None
+    backend.create_directory.return_value = None
+    manifest = {"entries": [{"path": "readme.txt", "is_directory": False, "uncompressed_size": 5, "modified_at": None}]}
+
+    with patch("app.api.archive_operations.SMBBackend", return_value=backend):
+        initial = client.post(
+            f"/api/archive/operations/{prepared['id']}/companion-relay/local_zip_to_smb_extract/begin",
+            headers=relay_headers,
+            json=manifest,
+        )
+        resumed = client.post(
+            f"/api/archive/operations/{prepared['id']}/companion-relay/local_zip_to_smb_extract/begin",
+            headers=relay_headers,
+        )
+
+    assert initial.status_code == 200
+    assert resumed.status_code == 409
+    assert resumed.json()["detail"] == "Archive extraction source manifest is required to resume"
+
+
 @pytest.mark.parametrize(
     ("source_modified_at", "target_modified_at", "expected_overwrite", "expected_skipped"),
     [

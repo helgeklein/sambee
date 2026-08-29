@@ -11,7 +11,8 @@
           "compression_method": 0,
           "uncompressed_size": 6,
           "is_safe": true,
-          "preview_state": "readable"
+          "preview_state": "readable",
+          "inline_preview_eligible": true
         },
         {
           "path": "deflated.txt",
@@ -19,7 +20,8 @@
           "compression_method": 8,
           "uncompressed_size": 1152,
           "is_safe": true,
-          "preview_state": "readable"
+          "preview_state": "readable",
+          "inline_preview_eligible": true
         },
         {
           "path": "empty",
@@ -27,7 +29,8 @@
           "compression_method": 0,
           "uncompressed_size": 0,
           "is_safe": true,
-          "preview_state": "readable"
+          "preview_state": "readable",
+          "inline_preview_eligible": false
         }
       ]
     },
@@ -40,7 +43,8 @@
           "compression_method": 0,
           "uncompressed_size": 7,
           "is_safe": false,
-          "preview_state": "readable"
+          "preview_state": "readable",
+          "inline_preview_eligible": false
         }
       ]
     },
@@ -53,7 +57,8 @@
           "compression_method": 8,
           "uncompressed_size": 1408,
           "is_safe": true,
-          "preview_state": "readable"
+          "preview_state": "readable",
+          "inline_preview_eligible": true
         }
       ]
     },
@@ -66,7 +71,8 @@
           "compression_method": 0,
           "uncompressed_size": 7,
           "is_safe": true,
-          "preview_state": "readable"
+          "preview_state": "readable",
+          "inline_preview_eligible": true
         }
       ]
     },
@@ -79,7 +85,8 @@
           "compression_method": 8,
           "uncompressed_size": 768,
           "is_safe": true,
-          "preview_state": "readable"
+          "preview_state": "readable",
+          "inline_preview_eligible": true
         }
       ]
     },
@@ -92,7 +99,31 @@
           "compression_method": 12,
           "uncompressed_size": 768,
           "is_safe": true,
-          "preview_state": "readable"
+          "preview_state": "readable",
+          "inline_preview_eligible": true
+        }
+      ]
+    },
+    {
+      "fixture": "preview-boundary-v1.zip",
+      "entries": [
+        {
+          "path": "exact-limit.txt",
+          "is_directory": false,
+          "compression_method": 8,
+          "uncompressed_size": 5242880,
+          "is_safe": true,
+          "preview_state": "readable",
+          "inline_preview_eligible": true
+        },
+        {
+          "path": "over-limit.txt",
+          "is_directory": false,
+          "compression_method": 8,
+          "uncompressed_size": 5242881,
+          "is_safe": true,
+          "preview_state": "readable",
+          "inline_preview_eligible": false
         }
       ]
     },

@@ -1740,11 +1740,40 @@ impl ArchiveExtractionCoordinator {
                     ArchiveExtractionAdapterBinding::LocalArchiveToRemoteDestination {
                         archive_path,
                         archive_entries,
-                    } => extract_local_archive_to_smb_destination(&relay, archive_path, archive_entries).await,
+                    } => {
+                        let manifest = ArchiveExtractionManifest::from_entries(
+                            archive_entries
+                                .iter()
+                                .map(|entry| ArchiveExtractionManifestMember {
+                                    path: entry.path.clone(),
+                                    is_directory: entry.is_directory,
+                                    uncompressed_size: entry.uncompressed_size,
+                                    modified_at: entry.modified_at,
+                                })
+                                .collect(),
+                        )
+                        .map_err(map_local_archive_error)?;
+                        let operation = relay.begin_local_source(&manifest).await?;
+                        let execution_plan = archive_relay_extraction_plan(&operation, manifest)?;
+                        extract_local_archive_to_smb_destination(&relay, archive_path, archive_entries, execution_plan).await
+                    }
                     ArchiveExtractionAdapterBinding::RemoteSourceToLocalDestination {
                         drive_root,
                         destination_path,
-                    } => extract_smb_archive_to_local_destination(&relay, drive_root, destination_path).await,
+                    } => {
+                        let mut relay_manifest: ArchiveRelayManifest = relay.begin().await?;
+                        relay_manifest.manifest =
+                            ArchiveExtractionManifest::from_entries(relay_manifest.manifest.entries).map_err(map_local_archive_error)?;
+                        let execution_plan = archive_relay_extraction_plan(&relay_manifest.operation, relay_manifest.manifest)?;
+                        extract_smb_archive_to_local_destination(
+                            &relay,
+                            drive_root,
+                            destination_path,
+                            relay_manifest.operation,
+                            execution_plan,
+                        )
+                        .await
+                    }
                 }
             },
             relay.fail(),
@@ -2106,21 +2135,8 @@ async fn extract_local_archive_to_smb_destination(
     relay: &ArchiveExtractionRelay,
     archive_path: PathBuf,
     archive_entries: Vec<LocalArchiveReadEntry>,
+    mut checkpoint: ArchiveExtractionRelayExecutionPlan,
 ) -> Result<ArchiveExtractionResponse, ApiError> {
-    let manifest = ArchiveExtractionManifest::from_entries(
-        archive_entries
-            .iter()
-            .map(|entry| ArchiveExtractionManifestMember {
-                path: entry.path.clone(),
-                is_directory: entry.is_directory,
-                uncompressed_size: entry.uncompressed_size,
-                modified_at: entry.modified_at,
-            })
-            .collect(),
-    )
-    .map_err(map_local_archive_error)?;
-    let begin = relay.begin_local_source(&manifest).await?;
-    let mut checkpoint = archive_relay_extraction_plan(&begin, manifest.clone())?;
     let extraction_manifest = checkpoint.manifest().clone();
     let completed_members = checkpoint.completed_members().map_err(map_local_archive_error)?;
     for entry in archive_entries {
@@ -2262,10 +2278,10 @@ async fn extract_smb_archive_to_local_destination(
     relay: &ArchiveExtractionRelay,
     drive_root: PathBuf,
     destination_path: PathBuf,
+    operation: ArchiveRelayOperation,
+    checkpoint: ArchiveExtractionRelayExecutionPlan,
 ) -> Result<ArchiveExtractionResponse, ApiError> {
-    let mut manifest: ArchiveRelayManifest = relay.begin().await?;
-    manifest.manifest = ArchiveExtractionManifest::from_entries(manifest.manifest.entries).map_err(map_local_archive_error)?;
-    let extraction_result = extract_smb_archive_manifest_to_local(relay, &drive_root, &destination_path, manifest).await;
+    let extraction_result = extract_smb_archive_manifest_to_local(relay, &drive_root, &destination_path, operation, checkpoint).await;
     let destination_root_created = match extraction_result {
         Ok(ArchiveExtractionRelayResult::Completed { destination_root_created }) => destination_root_created,
         Ok(ArchiveExtractionRelayResult::Paused(operation)) => return archive_extraction_response_from_operation(operation),
@@ -2288,11 +2304,9 @@ async fn extract_smb_archive_manifest_to_local(
     relay: &ArchiveExtractionRelay,
     drive_root: &FsPath,
     destination_path: &FsPath,
-    manifest: ArchiveRelayManifest,
+    operation: ArchiveRelayOperation,
+    mut checkpoint: ArchiveExtractionRelayExecutionPlan,
 ) -> Result<ArchiveExtractionRelayResult, ApiError> {
-    let operation = manifest.operation;
-    let extraction_manifest = manifest.manifest.clone();
-    let mut checkpoint = archive_relay_extraction_plan(&operation, extraction_manifest.clone())?;
     let extraction_manifest = checkpoint.manifest().clone();
     let completed_members = checkpoint.completed_members().map_err(map_local_archive_error)?;
     let root = destination_path.to_path_buf();
@@ -2302,7 +2316,7 @@ async fn extract_smb_archive_manifest_to_local(
         .map_err(|error| ApiError::Internal(format!("Local archive root task failed: {error}")))?
         .map_err(map_local_archive_error)?;
 
-    for entry in manifest.manifest.entries {
+    for entry in extraction_manifest.entries.clone() {
         validate_local_extraction_member_path(&entry.path, entry.is_directory).map_err(map_local_archive_error)?;
         if completed_members.contains(&entry.path) {
             continue;
