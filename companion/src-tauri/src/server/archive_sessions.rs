@@ -6,15 +6,14 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 
-use tokio::sync::{mpsc, Mutex};
+use tokio::sync::Mutex;
 use uuid::Uuid;
 
 use super::archive::{
-    build_local_archive_manifest_with_cancellation, create_local_archive_with_cancellation_progress_and_state,
-    extract_local_archive_with_checkpoint_and_progress, validate_local_extraction_rename_target, ArchiveCreationManifestState,
-    LocalArchiveCreationResult, LocalArchiveEntry, LocalArchiveError, LocalArchiveExtractionCheckpoint, LocalArchiveExtractionCollision,
-    LocalArchiveExtractionCollisionAction, LocalArchiveExtractionMemberError, LocalArchiveExtractionResult,
-    LocalArchiveExtractionRunResult,
+    validate_local_extraction_rename_target, ArchiveCreationManifestState, LocalArchiveCreationExecutionPlan, LocalArchiveCreationResult,
+    LocalArchiveEntry, LocalArchiveError, LocalArchiveExtractionCheckpoint, LocalArchiveExtractionCollision,
+    LocalArchiveExtractionCollisionAction, LocalArchiveExtractionExecutionPlan, LocalArchiveExtractionMemberError,
+    LocalArchiveExtractionResult,
 };
 use super::errors::ApiError;
 
@@ -95,7 +94,7 @@ pub struct ArchiveSessionDecision {
     pub target_path: Option<String>,
 }
 
-enum ArchiveSessionCompletion {
+pub(crate) enum ArchiveSessionCompletion {
     ExtractionCompleted {
         result: LocalArchiveExtractionResult,
         checkpoint: LocalArchiveExtractionCheckpoint,
@@ -128,13 +127,21 @@ pub struct ArchiveSessionStatus {
 }
 
 #[derive(Clone)]
-enum ArchiveSessionWork {
+pub(crate) enum ArchiveSessionWork {
     Creation { source_paths: Vec<PathBuf>, target_path: PathBuf },
     Extraction { archive_path: PathBuf, destination_path: PathBuf },
 }
 
+pub(crate) struct PreparedLocalArchiveCreation {
+    pub source_paths: Vec<PathBuf>,
+    pub target_path: PathBuf,
+    pub entries: Vec<LocalArchiveEntry>,
+    pub execution_plan: LocalArchiveCreationExecutionPlan,
+}
+
 #[cfg(test)]
-enum CreationPreWriteAction {
+#[derive(Clone)]
+pub(crate) enum CreationPreWriteAction {
     RemoveFirstSource,
     ModifyFirstSource,
     Cancel,
@@ -142,7 +149,7 @@ enum CreationPreWriteAction {
 
 #[cfg(test)]
 impl CreationPreWriteAction {
-    fn apply(self, source_paths: &[PathBuf], cancellation_requested: &AtomicBool) -> Result<(), LocalArchiveError> {
+    pub(crate) fn apply(self, source_paths: &[PathBuf], cancellation_requested: &AtomicBool) -> Result<(), LocalArchiveError> {
         if matches!(self, Self::Cancel) {
             cancellation_requested.store(true, Ordering::Release);
             return Ok(());
@@ -193,8 +200,10 @@ struct ArchiveSession {
     revision: u64,
     drive_root: PathBuf,
     work: ArchiveSessionWork,
+    creation_plan: Option<LocalArchiveCreationExecutionPlan>,
     creation_manifest_entries: Option<Vec<LocalArchiveEntry>>,
     creation_state: Option<ArchiveCreationManifestState>,
+    extraction_plan: Option<LocalArchiveExtractionExecutionPlan>,
     extraction_checkpoint: Option<LocalArchiveExtractionCheckpoint>,
     cancellation_requested: Arc<AtomicBool>,
     progress: ArchiveSessionProgress,
@@ -282,16 +291,13 @@ pub struct ArchiveSessionManager {
     pending_decisions: Mutex<HashMap<String, String>>,
 }
 
-enum ArchiveSessionWorkerEvent {
-    CreationManifest(Vec<LocalArchiveEntry>),
-    Progress(ArchiveSessionProgress),
-}
-
-/// Execute direct-local archive work against the in-memory session state store.
+/// Test-only compatibility executor for direct-local archive session coverage.
+#[cfg(test)]
 pub struct LocalArchiveSessionExecutor {
     state_store: Arc<ArchiveSessionManager>,
 }
 
+#[cfg(test)]
 impl LocalArchiveSessionExecutor {
     pub fn new(state_store: Arc<ArchiveSessionManager>) -> Self {
         Self { state_store }
@@ -356,6 +362,7 @@ impl ArchiveSessionManager {
         sessions.retain(|_, session| !session.phase.is_terminal() || session.expires_at.is_some_and(|expires_at| expires_at > now));
     }
 
+    #[cfg(test)]
     pub async fn create_extraction(
         &self,
         drive: String,
@@ -372,10 +379,36 @@ impl ArchiveSessionManager {
                 archive_path,
                 destination_path,
             },
+            None,
+            None,
         )
         .await
     }
 
+    pub async fn create_prepared_extraction(
+        &self,
+        drive: String,
+        owner_origin: String,
+        drive_root: PathBuf,
+        archive_path: PathBuf,
+        destination_path: PathBuf,
+        execution_plan: LocalArchiveExtractionExecutionPlan,
+    ) -> ArchiveSessionStatus {
+        self.create(
+            drive,
+            owner_origin,
+            drive_root,
+            ArchiveSessionWork::Extraction {
+                archive_path,
+                destination_path,
+            },
+            None,
+            Some(execution_plan),
+        )
+        .await
+    }
+
+    #[cfg(test)]
     pub async fn create_creation(
         &self,
         drive: String,
@@ -389,11 +422,42 @@ impl ArchiveSessionManager {
             owner_origin,
             drive_root,
             ArchiveSessionWork::Creation { source_paths, target_path },
+            None,
+            None,
         )
         .await
     }
 
-    async fn create(&self, drive: String, owner_origin: String, drive_root: PathBuf, work: ArchiveSessionWork) -> ArchiveSessionStatus {
+    pub async fn create_prepared_creation(
+        &self,
+        drive: String,
+        owner_origin: String,
+        drive_root: PathBuf,
+        prepared: PreparedLocalArchiveCreation,
+    ) -> ArchiveSessionStatus {
+        self.create(
+            drive,
+            owner_origin,
+            drive_root,
+            ArchiveSessionWork::Creation {
+                source_paths: prepared.source_paths,
+                target_path: prepared.target_path,
+            },
+            Some((prepared.entries, prepared.execution_plan)),
+            None,
+        )
+        .await
+    }
+
+    async fn create(
+        &self,
+        drive: String,
+        owner_origin: String,
+        drive_root: PathBuf,
+        work: ArchiveSessionWork,
+        creation_plan: Option<(Vec<LocalArchiveEntry>, LocalArchiveCreationExecutionPlan)>,
+        extraction_plan: Option<LocalArchiveExtractionExecutionPlan>,
+    ) -> ArchiveSessionStatus {
         let mut sessions = self.sessions.lock().await;
         Self::remove_expired(&mut sessions);
         let execution_id = Uuid::new_v4().to_string();
@@ -407,8 +471,10 @@ impl ArchiveSessionManager {
             drive_root,
             progress: work.initial_progress(),
             work,
-            creation_manifest_entries: None,
+            creation_plan: creation_plan.as_ref().map(|(_, plan)| plan.clone()),
+            creation_manifest_entries: creation_plan.map(|(entries, _)| entries),
             creation_state: None,
+            extraction_plan,
             extraction_checkpoint: None,
             cancellation_requested: Arc::new(AtomicBool::new(false)),
             result: None,
@@ -436,7 +502,69 @@ impl ArchiveSessionManager {
             .ok_or_else(|| ApiError::NotFound("Archive execution not found or expired".to_string()))
     }
 
-    async fn start_state(
+    #[cfg(test)]
+    pub(crate) async fn session_kind(&self, execution_id: &str) -> Result<ArchiveSessionKind, ApiError> {
+        let mut sessions = self.sessions.lock().await;
+        Self::remove_expired(&mut sessions);
+        sessions
+            .get(execution_id)
+            .map(|session| session.kind)
+            .ok_or_else(|| ApiError::NotFound("Archive execution not found or expired".to_string()))
+    }
+
+    pub(crate) async fn direct_local_creation_plan(
+        &self,
+        execution_id: &str,
+    ) -> Result<Option<(Vec<LocalArchiveEntry>, LocalArchiveCreationExecutionPlan)>, ApiError> {
+        let mut sessions = self.sessions.lock().await;
+        Self::remove_expired(&mut sessions);
+        sessions
+            .get(execution_id)
+            .map(|session| session.creation_manifest_entries.clone().zip(session.creation_plan.clone()))
+            .ok_or_else(|| ApiError::NotFound("Archive execution not found or expired".to_string()))
+    }
+
+    pub(crate) async fn direct_local_creation_work(&self, execution_id: &str) -> Result<(PathBuf, Vec<PathBuf>, PathBuf), ApiError> {
+        let mut sessions = self.sessions.lock().await;
+        Self::remove_expired(&mut sessions);
+        let session = sessions
+            .get(execution_id)
+            .ok_or_else(|| ApiError::NotFound("Archive execution not found or expired".to_string()))?;
+        let ArchiveSessionWork::Creation { source_paths, target_path } = &session.work else {
+            return Err(ApiError::conflict_message("Archive execution is not a creation operation"));
+        };
+        Ok((session.drive_root.clone(), source_paths.clone(), target_path.clone()))
+    }
+
+    pub(crate) async fn direct_local_extraction_plan(
+        &self,
+        execution_id: &str,
+    ) -> Result<Option<LocalArchiveExtractionExecutionPlan>, ApiError> {
+        let mut sessions = self.sessions.lock().await;
+        Self::remove_expired(&mut sessions);
+        sessions
+            .get(execution_id)
+            .map(|session| session.extraction_plan.clone())
+            .ok_or_else(|| ApiError::NotFound("Archive execution not found or expired".to_string()))
+    }
+
+    pub(crate) async fn direct_local_extraction_work(&self, execution_id: &str) -> Result<(PathBuf, PathBuf, PathBuf), ApiError> {
+        let mut sessions = self.sessions.lock().await;
+        Self::remove_expired(&mut sessions);
+        let session = sessions
+            .get(execution_id)
+            .ok_or_else(|| ApiError::NotFound("Archive execution not found or expired".to_string()))?;
+        let ArchiveSessionWork::Extraction {
+            archive_path,
+            destination_path,
+        } = &session.work
+        else {
+            return Err(ApiError::conflict_message("Archive execution is not an extraction operation"));
+        };
+        Ok((session.drive_root.clone(), archive_path.clone(), destination_path.clone()))
+    }
+
+    pub(crate) async fn start_state(
         &self,
         execution_id: &str,
     ) -> Result<
@@ -472,8 +600,8 @@ impl ArchiveSessionManager {
     }
 }
 
-impl LocalArchiveSessionExecutor {
-    async fn apply_decision(
+impl ArchiveSessionManager {
+    pub(crate) async fn apply_decision(
         &self,
         drive: &str,
         owner_origin: &str,
@@ -491,7 +619,7 @@ impl LocalArchiveSessionExecutor {
         ApiError,
     > {
         let (drive_root, work, cancellation_requested, checkpoint, status) = {
-            let mut sessions = self.state_store.sessions.lock().await;
+            let mut sessions = self.sessions.lock().await;
             ArchiveSessionManager::remove_expired(&mut sessions);
             let session = sessions
                 .get_mut(execution_id)
@@ -605,9 +733,7 @@ impl LocalArchiveSessionExecutor {
             )
         };
         #[cfg(test)]
-        self.state_store
-            .record_phase_transition(execution_id, ArchiveSessionPhase::Streaming)
-            .await;
+        self.record_phase_transition(execution_id, ArchiveSessionPhase::Streaming).await;
         Ok((drive_root, work, cancellation_requested, checkpoint, status))
     }
 }
@@ -651,9 +777,23 @@ impl ArchiveSessionManager {
         Ok(status)
     }
 
-    async fn complete(&self, execution_id: &str, result: Result<ArchiveSessionCompletion, LocalArchiveError>) {
+    pub(crate) async fn complete(&self, execution_id: &str, result: Result<ArchiveSessionCompletion, LocalArchiveError>) {
         let mut sessions = self.sessions.lock().await;
         let _phase = if let Some(session) = sessions.get_mut(execution_id) {
+            if let Ok(completion) = result.as_ref() {
+                let checkpoint = match completion {
+                    ArchiveSessionCompletion::ExtractionCompleted { checkpoint, .. }
+                    | ArchiveSessionCompletion::AwaitingCollision { checkpoint, .. }
+                    | ArchiveSessionCompletion::AwaitingMemberError { checkpoint, .. } => Some(checkpoint),
+                    ArchiveSessionCompletion::CreationCompleted { .. } => None,
+                };
+                if let Some(checkpoint) = checkpoint {
+                    session.extraction_plan = match session.extraction_plan.as_ref() {
+                        Some(plan) => plan.with_checkpoint(checkpoint.clone()).ok(),
+                        None => checkpoint.execution_plan().ok(),
+                    };
+                }
+            }
             session.complete(result);
             Some((session.phase, session.pending_decision.clone()))
         } else {
@@ -669,14 +809,20 @@ impl ArchiveSessionManager {
         }
     }
 
-    async fn record_creation_manifest(&self, execution_id: &str, entries: Vec<LocalArchiveEntry>) {
+    pub(crate) async fn record_creation_plan(
+        &self,
+        execution_id: &str,
+        entries: Vec<LocalArchiveEntry>,
+        execution_plan: LocalArchiveCreationExecutionPlan,
+    ) {
         let mut sessions = self.sessions.lock().await;
         if let Some(session) = sessions.get_mut(execution_id) {
             session.creation_manifest_entries = Some(entries);
+            session.creation_plan = Some(execution_plan);
         }
     }
 
-    async fn update_progress(&self, execution_id: &str, progress: ArchiveSessionProgress) {
+    pub(crate) async fn update_progress(&self, execution_id: &str, progress: ArchiveSessionProgress) {
         let mut sessions = self.sessions.lock().await;
         if let Some(session) = sessions.get_mut(execution_id) {
             if session.phase == ArchiveSessionPhase::Streaming
@@ -689,33 +835,20 @@ impl ArchiveSessionManager {
     }
 }
 
+#[cfg(test)]
 impl LocalArchiveSessionExecutor {
     pub async fn start(&self, execution_id: &str) -> Result<(), ApiError> {
-        let (drive_root, work, cancellation_requested, checkpoint) = self.state_store.start_state(execution_id).await?;
-        self.spawn_worker(
-            execution_id.to_string(),
-            drive_root,
-            work,
-            cancellation_requested,
-            checkpoint,
-            #[cfg(test)]
-            None,
-        );
-        Ok(())
+        crate::server::handlers::start_direct_local_archive_session(self.state_store.clone(), execution_id).await
     }
 
     #[cfg(test)]
     async fn start_with_creation_pre_write_action(&self, execution_id: &str, action: CreationPreWriteAction) -> Result<(), ApiError> {
-        let (drive_root, work, cancellation_requested, checkpoint) = self.state_store.start_state(execution_id).await?;
-        self.spawn_worker(
-            execution_id.to_string(),
-            drive_root,
-            work,
-            cancellation_requested,
-            checkpoint,
-            Some(action),
-        );
-        Ok(())
+        crate::server::handlers::start_direct_local_archive_session_with_creation_pre_write_action(
+            self.state_store.clone(),
+            execution_id,
+            action,
+        )
+        .await
     }
 
     pub async fn decide(
@@ -726,108 +859,15 @@ impl LocalArchiveSessionExecutor {
         expected_revision: u64,
         decision: ArchiveSessionDecision,
     ) -> Result<ArchiveSessionStatus, ApiError> {
-        let (drive_root, work, cancellation_requested, checkpoint, status) = self
-            .apply_decision(drive, owner_origin, execution_id, expected_revision, decision)
-            .await?;
-        self.spawn_worker(
-            execution_id.to_string(),
-            drive_root,
-            work,
-            cancellation_requested,
-            checkpoint,
-            #[cfg(test)]
-            None,
-        );
-        Ok(status)
-    }
-
-    fn spawn_worker(
-        &self,
-        execution_id: String,
-        drive_root: PathBuf,
-        work: ArchiveSessionWork,
-        cancellation_requested: Arc<AtomicBool>,
-        checkpoint: Option<LocalArchiveExtractionCheckpoint>,
-        #[cfg(test)] creation_pre_write_action: Option<CreationPreWriteAction>,
-    ) {
-        let state_store = self.state_store.clone();
-        tokio::spawn(async move {
-            let (event_sender, mut event_receiver) = mpsc::unbounded_channel();
-            let mut archive_task = tokio::task::spawn_blocking(move || match work {
-                ArchiveSessionWork::Creation { source_paths, target_path } => {
-                    if cancellation_requested.load(Ordering::Acquire) {
-                        return Err(LocalArchiveError::Cancelled);
-                    }
-                    let entries = build_local_archive_manifest_with_cancellation(&source_paths, &target_path, || {
-                        cancellation_requested.load(Ordering::Acquire)
-                    })?;
-                    let _ = event_sender.send(ArchiveSessionWorkerEvent::CreationManifest(entries.clone()));
-                    #[cfg(test)]
-                    if let Some(action) = creation_pre_write_action {
-                        action.apply(&source_paths, &cancellation_requested)?;
-                    }
-                    create_local_archive_with_cancellation_progress_and_state(
-                        &drive_root,
-                        &target_path,
-                        &entries,
-                        || cancellation_requested.load(Ordering::Acquire),
-                        |progress| {
-                            let _ = event_sender.send(ArchiveSessionWorkerEvent::Progress(ArchiveSessionProgress::Creation(progress)));
-                        },
-                    )
-                    .map(|(result, state)| ArchiveSessionCompletion::CreationCompleted { result, state })
-                }
-                ArchiveSessionWork::Extraction {
-                    archive_path,
-                    destination_path,
-                } => extract_local_archive_with_checkpoint_and_progress(
-                    &drive_root,
-                    &archive_path,
-                    &destination_path,
-                    checkpoint.unwrap_or_default(),
-                    || cancellation_requested.load(Ordering::Acquire),
-                    |progress| {
-                        let _ = event_sender.send(ArchiveSessionWorkerEvent::Progress(ArchiveSessionProgress::Extraction(progress)));
-                    },
-                )
-                .map(|result| match result {
-                    LocalArchiveExtractionRunResult::Completed(checkpoint) => ArchiveSessionCompletion::ExtractionCompleted {
-                        result: checkpoint.result(),
-                        checkpoint,
-                    },
-                    LocalArchiveExtractionRunResult::AwaitingCollision { checkpoint, collision } => {
-                        ArchiveSessionCompletion::AwaitingCollision { checkpoint, collision }
-                    }
-                    LocalArchiveExtractionRunResult::AwaitingMemberError { checkpoint, error } => {
-                        ArchiveSessionCompletion::AwaitingMemberError { checkpoint, error }
-                    }
-                }),
-            });
-            let result = loop {
-                tokio::select! {
-                    Some(event) = event_receiver.recv() => match event {
-                        ArchiveSessionWorkerEvent::CreationManifest(entries) => {
-                            state_store.record_creation_manifest(&execution_id, entries).await;
-                        }
-                        ArchiveSessionWorkerEvent::Progress(progress) => state_store.update_progress(&execution_id, progress).await,
-                    },
-                    result = &mut archive_task => {
-                        while let Ok(event) = event_receiver.try_recv() {
-                            match event {
-                                ArchiveSessionWorkerEvent::CreationManifest(entries) => {
-                                    state_store.record_creation_manifest(&execution_id, entries).await;
-                                }
-                                ArchiveSessionWorkerEvent::Progress(progress) => state_store.update_progress(&execution_id, progress).await,
-                            }
-                        }
-                        break result
-                            .map_err(|error| LocalArchiveError::Io(std::io::Error::other(format!("Archive execution task failed: {error}"))))
-                            .and_then(|result| result);
-                    }
-                }
-            };
-            state_store.complete(&execution_id, result).await;
-        });
+        crate::server::handlers::decide_direct_local_archive_session(
+            self.state_store.clone(),
+            drive,
+            owner_origin,
+            execution_id,
+            expected_revision,
+            decision,
+        )
+        .await
     }
 }
 

@@ -437,6 +437,10 @@ impl LocalArchiveCreationExecutionPlan {
         Self { manifest }
     }
 
+    pub fn from_entries(entries: &[LocalArchiveEntry]) -> Result<Self, LocalArchiveError> {
+        project_local_archive_creation_manifest(entries).map(Self::from_manifest)
+    }
+
     fn into_state(self) -> ArchiveCreationManifestState {
         ArchiveCreationManifestState::new(self.manifest)
     }
@@ -942,12 +946,25 @@ impl LocalArchiveExtractionExecutionPlan {
                 .all(|entry| self.checkpoint.member_outcomes.contains_key(&entry.path))
     }
 
+    pub fn checkpoint(&self) -> LocalArchiveExtractionCheckpoint {
+        self.checkpoint.clone()
+    }
+
+    pub fn with_checkpoint(&self, checkpoint: LocalArchiveExtractionCheckpoint) -> Result<Self, LocalArchiveError> {
+        Self::from_manifest(self.manifest.clone(), checkpoint)
+    }
+
     pub fn into_checkpoint(self) -> LocalArchiveExtractionCheckpoint {
         self.checkpoint
     }
 }
 
 impl LocalArchiveExtractionCheckpoint {
+    pub fn execution_plan(&self) -> Result<LocalArchiveExtractionExecutionPlan, LocalArchiveError> {
+        let manifest = self.manifest.clone().ok_or(LocalArchiveError::IncompleteExtractionManifest)?;
+        LocalArchiveExtractionExecutionPlan::from_manifest(manifest, self.clone())
+    }
+
     #[cfg(test)]
     pub fn manifest_member_paths(&self) -> impl Iterator<Item = &str> {
         self.manifest
@@ -2296,14 +2313,32 @@ pub fn create_local_archive_with_cancellation_progress_and_state(
     is_cancelled: impl Fn() -> bool,
     on_progress: impl FnMut(LocalArchiveCreationResult),
 ) -> Result<(LocalArchiveCreationResult, ArchiveCreationManifestState), LocalArchiveError> {
+    create_local_archive_with_execution_plan_progress_and_state(
+        drive_root,
+        target_path,
+        entries,
+        LocalArchiveCreationExecutionPlan::from_entries(entries)?,
+        is_cancelled,
+        on_progress,
+    )
+}
+
+/// Create a local ZIP from one immutable preflight execution plan.
+pub fn create_local_archive_with_execution_plan_progress_and_state(
+    drive_root: &Path,
+    target_path: &Path,
+    entries: &[LocalArchiveEntry],
+    execution_plan: LocalArchiveCreationExecutionPlan,
+    is_cancelled: impl Fn() -> bool,
+    on_progress: impl FnMut(LocalArchiveCreationResult),
+) -> Result<(LocalArchiveCreationResult, ArchiveCreationManifestState), LocalArchiveError> {
     if target_path.exists() {
         return Err(LocalArchiveError::TargetExists);
     }
     revalidate_target_parent(drive_root, target_path)?;
-    let manifest = project_local_archive_creation_manifest(entries)?;
     let output = OpenOptions::new().write(true).create_new(true).open(target_path)?;
-    let (result, state) =
-        write_local_archive_stream_with_manifest(output, entries, manifest, &is_cancelled, on_progress).map_err(|error| match error {
+    let (result, state) = write_local_archive_stream_with_execution_plan(output, entries, execution_plan, &is_cancelled, on_progress)
+        .map_err(|error| match error {
             LocalArchiveError::Cancelled => LocalArchiveError::Cancelled,
             LocalArchiveError::ArchiveSourceChanged => LocalArchiveError::ArchiveSourceChanged,
             error => LocalArchiveError::PartialArchiveOutput(Box::new(error)),
@@ -2317,6 +2352,7 @@ pub fn create_local_archive_with_cancellation_progress_and_state(
 
 /// Write a portable ZIP while retaining the immutable manifest and committed outcomes.
 /// Write a portable ZIP from a preflight manifest and its local source adapter entries.
+#[cfg(test)]
 pub fn write_local_archive_stream_with_manifest<W: Write>(
     output: W,
     entries: &[LocalArchiveEntry],
