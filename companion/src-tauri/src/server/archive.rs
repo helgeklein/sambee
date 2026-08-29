@@ -2217,6 +2217,18 @@ fn validate_local_archive_manifest_entries(
     Ok(())
 }
 
+/// Confirm a local creation source still matches its immutable preflight entry.
+pub fn revalidate_local_archive_creation_source(entry: &LocalArchiveEntry) -> Result<(), LocalArchiveError> {
+    let source_metadata = fs::metadata(&entry.source_path)?;
+    if !source_metadata.is_file()
+        || source_metadata.len() != entry.source_size
+        || normalized_source_modified_at(&source_metadata) != entry.source_modified_at
+    {
+        return Err(LocalArchiveError::ArchiveSourceChanged);
+    }
+    Ok(())
+}
+
 /// Create a ZIP directly at a previously non-existent local output path.
 pub fn create_local_archive(
     drive_root: &Path,
@@ -2247,12 +2259,16 @@ pub fn create_local_archive_with_cancellation_progress_and_state(
     is_cancelled: impl Fn() -> bool,
     on_progress: impl FnMut(LocalArchiveCreationResult),
 ) -> Result<(LocalArchiveCreationResult, ArchiveCreationManifestState), LocalArchiveError> {
+    if target_path.exists() {
+        return Err(LocalArchiveError::TargetExists);
+    }
     revalidate_target_parent(drive_root, target_path)?;
     let manifest = project_local_archive_creation_manifest(entries)?;
     let output = OpenOptions::new().write(true).create_new(true).open(target_path)?;
     let (result, state) =
         write_local_archive_stream_with_manifest(output, entries, manifest, &is_cancelled, on_progress).map_err(|error| match error {
             LocalArchiveError::Cancelled => LocalArchiveError::Cancelled,
+            LocalArchiveError::ArchiveSourceChanged => LocalArchiveError::ArchiveSourceChanged,
             error => LocalArchiveError::PartialArchiveOutput(Box::new(error)),
         })?;
     if is_cancelled() {
@@ -2307,6 +2323,7 @@ pub fn write_local_archive_stream_with_execution_plan<W: Write>(
                 on_progress(state.progress()?);
                 continue;
             }
+            revalidate_local_archive_creation_source(entry)?;
             let mut source = FsFile::open(&entry.source_path)?;
             let probe_size = source.read(&mut buffer)?;
             writer.start_file(
@@ -3035,6 +3052,22 @@ mod tests {
         assert!(matches!(
             create_local_archive(directory.path(), &target, &entries, || false),
             Err(LocalArchiveError::PartialArchiveOutput(_))
+        ));
+        assert!(target.is_file());
+    }
+
+    #[test]
+    fn rejects_a_creation_source_that_changed_after_manifest_construction() {
+        let directory = tempdir().unwrap();
+        let source = directory.path().join("source.txt");
+        let target = directory.path().join("archive.zip");
+        fs::write(&source, b"source").unwrap();
+        let entries = build_local_archive_manifest(std::slice::from_ref(&source), &target).unwrap();
+        fs::write(&source, b"changed source").unwrap();
+
+        assert!(matches!(
+            create_local_archive(directory.path(), &target, &entries, || false),
+            Err(LocalArchiveError::ArchiveSourceChanged)
         ));
         assert!(target.is_file());
     }

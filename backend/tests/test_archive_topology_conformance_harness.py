@@ -215,11 +215,14 @@ def test_topology_trace_fixture_matches_resolved_execution_owners() -> None:
     success_cases = {(case["operation"], case["topology"]) for case in fixture["cases"] if case["fault"] is None}
     assert success_cases == {(operation, case.name) for operation in fixture["operations"] for case in TOPOLOGY_CASES}
     assert {case["fault"] for case in fixture["cases"] if case["fault"] is not None} == set(fixture["adapter_faults"])
-    for topology in fixture["topologies"]:
-        topology_name = topology["name"]
-        assert {case["fault"] for case in fixture["cases"] if case["topology"] == topology_name and case["fault"] is not None} == set(
-            fixture["adapter_faults"]
-        ), f"{topology_name} must declare every adapter fault"
+    for operation in fixture["operations"]:
+        for topology in fixture["topologies"]:
+            topology_name = topology["name"]
+            assert {
+                case["fault"]
+                for case in fixture["cases"]
+                if case["operation"] == operation and case["topology"] == topology_name and case["fault"] is not None
+            } == set(fixture["adapter_faults"]), f"{operation}/{topology_name} must declare every adapter fault"
     assert {case.fault for case in BACKEND_FIXTURE_CASES if case.fault is not None} == set(AdapterFault)
     assert {case.fault for case in BACKEND_FIXTURE_CASES if case.operation == "create" and case.fault is not None} == set(AdapterFault)
     assert {case.fault for case in BACKEND_FIXTURE_CASES if case.operation == "extract" and case.fault is not None} == set(AdapterFault)

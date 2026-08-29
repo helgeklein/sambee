@@ -755,7 +755,7 @@ mod tests {
         ArchiveSessionDecision, ArchiveSessionDecisionAction, ArchiveSessionManager, ArchiveSessionPhase, ArchiveSessionProgress,
         LocalArchiveOperationCoordinator,
     };
-    use crate::server::archive::{build_local_archive_manifest, create_local_archive};
+    use crate::server::archive::{build_local_archive_manifest, create_local_archive, LocalArchiveEntry, LocalArchiveError};
 
     fn expected_trace(case_name: &str) -> serde_json::Value {
         let fixture: serde_json::Value =
@@ -814,6 +814,18 @@ mod tests {
                 }
                 _ => serde_json::Value::Null,
             },
+        })
+    }
+
+    fn direct_local_creation_failure_trace(manifest_snapshot: &[&str], error_category: &str) -> serde_json::Value {
+        serde_json::json!({
+            "owner": "companion",
+            "manifest_snapshot": manifest_snapshot,
+            "phase_transitions": ["accepted", "streaming", if error_category == "cancelled" { "cancelled" } else { "failed" }],
+            "pending_decision": null,
+            "member_outcomes": [],
+            "terminal_summary": null,
+            "error_category": error_category,
         })
     }
 
@@ -1534,6 +1546,128 @@ mod tests {
         assert_eq!(
             direct_local_trace(&manager, &session.execution_id, &status, vec!["source.txt"], vec![]).await,
             expected_trace("create_cancellation")
+        );
+    }
+
+    #[test]
+    fn direct_local_creation_faults_dispatch_every_fixture_case() {
+        let fixture: serde_json::Value =
+            serde_json::from_str(include_str!("../../../../archive-contract/v1/topology-execution-traces-v1.json"))
+                .expect("topology trace fixture should be valid JSON");
+        let expected_cases = fixture["cases"]
+            .as_array()
+            .expect("topology trace fixture should define cases")
+            .iter()
+            .filter(|case| case["operation"] == "create" && case["topology"] == "local_to_local" && case["fault"].is_string())
+            .map(|case| case["name"].as_str().expect("fault case must have a name"))
+            .collect::<std::collections::HashSet<_>>();
+        let dispatched_cases = [
+            "create_local_to_local_malformed_input",
+            "create_local_to_local_collision",
+            "create_local_to_local_partial_write",
+            "create_cancellation",
+            "create_local_to_local_source_changed",
+            "create_local_to_local_transport_failure",
+        ]
+        .into_iter()
+        .collect::<std::collections::HashSet<_>>();
+        assert_eq!(
+            dispatched_cases, expected_cases,
+            "direct-local creation dispatcher must cover every declared fault"
+        );
+
+        let directory = tempdir().expect("temporary archive directory should be created");
+        let source = directory.path().join("entry.txt");
+        std::fs::write(&source, b"entry").expect("source should be written");
+
+        let malformed = [LocalArchiveEntry {
+            source_path: source.clone(),
+            archive_path: "../entry.txt".to_string(),
+            is_directory: false,
+            source_size: 5,
+            source_modified_at: None,
+        }];
+        assert!(matches!(
+            create_local_archive(directory.path(), &directory.path().join("malformed.zip"), &malformed, || false),
+            Err(LocalArchiveError::UnsafeEntryPath)
+        ));
+        assert_eq!(
+            direct_local_creation_failure_trace(&[], "invalid_input"),
+            expected_trace("create_local_to_local_malformed_input")
+        );
+
+        let collision_target = directory.path().join("collision.zip");
+        std::fs::write(&collision_target, b"existing").expect("collision target should be written");
+        let collision_entries = build_local_archive_manifest(std::slice::from_ref(&source), &directory.path().join("unused.zip"))
+            .expect("source should produce a creation manifest");
+        assert!(matches!(
+            create_local_archive(directory.path(), &collision_target, &collision_entries, || false),
+            Err(LocalArchiveError::TargetExists)
+        ));
+        assert_eq!(
+            direct_local_creation_failure_trace(&[], "collision"),
+            expected_trace("create_local_to_local_collision")
+        );
+
+        let partial = [LocalArchiveEntry {
+            source_path: directory.path().join("missing.txt"),
+            archive_path: "entry.txt".to_string(),
+            is_directory: false,
+            source_size: 5,
+            source_modified_at: None,
+        }];
+        assert!(matches!(
+            create_local_archive(directory.path(), &directory.path().join("partial.zip"), &partial, || false),
+            Err(LocalArchiveError::PartialArchiveOutput(_))
+        ));
+        assert_eq!(
+            direct_local_creation_failure_trace(&["entry.txt"], "partial_write"),
+            expected_trace("create_local_to_local_partial_write")
+        );
+
+        let cancellation_source = directory.path().join("source.txt");
+        std::fs::write(&cancellation_source, b"source").expect("cancellation source should be written");
+        let cancellation_entries = build_local_archive_manifest(&[cancellation_source], &directory.path().join("cancelled.zip"))
+            .expect("source should produce a creation manifest");
+        assert!(matches!(
+            create_local_archive(
+                directory.path(),
+                &directory.path().join("cancelled.zip"),
+                &cancellation_entries,
+                || true
+            ),
+            Err(LocalArchiveError::Cancelled)
+        ));
+        assert_eq!(
+            direct_local_creation_failure_trace(&["source.txt"], "cancelled"),
+            expected_trace("create_cancellation")
+        );
+
+        let source_changed = directory.path().join("source-changed.txt");
+        let source_changed_target = directory.path().join("source-changed.zip");
+        std::fs::write(&source_changed, b"entry").expect("source should be written");
+        let source_changed_entries = build_local_archive_manifest(std::slice::from_ref(&source_changed), &source_changed_target)
+            .expect("source should produce a creation manifest");
+        std::fs::write(&source_changed, b"changed entry").expect("source should change after manifest construction");
+        assert!(matches!(
+            create_local_archive(directory.path(), &source_changed_target, &source_changed_entries, || false),
+            Err(LocalArchiveError::ArchiveSourceChanged)
+        ));
+        assert_eq!(
+            direct_local_creation_failure_trace(&["entry.txt"], "source_changed"),
+            expected_trace("create_local_to_local_source_changed")
+        );
+
+        let transport_target = directory.path().join("missing-parent").join("transport.zip");
+        let transport_entries = build_local_archive_manifest(&[source], &directory.path().join("transport-manifest.zip"))
+            .expect("source should produce a creation manifest");
+        assert!(matches!(
+            create_local_archive(directory.path(), &transport_target, &transport_entries, || false),
+            Err(LocalArchiveError::Io(error)) if error.kind() == std::io::ErrorKind::NotFound
+        ));
+        assert_eq!(
+            direct_local_creation_failure_trace(&[], "transport_failure"),
+            expected_trace("create_local_to_local_transport_failure")
         );
     }
 

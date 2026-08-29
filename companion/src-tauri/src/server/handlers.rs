@@ -1430,10 +1430,18 @@ impl ArchiveCreationCoordinator {
                         target_path,
                     } => match create_smb_archive_manifest_locally(&relay, &drive_root, &target_path, manifest).await {
                         Ok(result) => Ok(result),
-                        Err(error) if target_path.exists() && !is_archive_relay_cancellation(&error) => Err(ApiError::internal_code(
-                            "Archive creation failed after creating incomplete output",
-                            LOCAL_ARCHIVE_CREATION_PARTIAL_CODE,
-                        )),
+                        Err(error)
+                            if target_path.exists()
+                                && !is_archive_relay_cancellation(&error)
+                                && !is_archive_relay_source_changed(&error)
+                                && !is_archive_relay_collision(&error)
+                                && !is_archive_relay_transport_failure(&error) =>
+                        {
+                            Err(ApiError::internal_code(
+                                "Archive creation failed after creating incomplete output",
+                                LOCAL_ARCHIVE_CREATION_PARTIAL_CODE,
+                            ))
+                        }
                         Err(error) => Err(error),
                     },
                     ArchiveCreationAdapterBinding::LocalSourceToRemoteDestination { entries } => {
@@ -1940,6 +1948,7 @@ async fn create_local_archive_for_smb_destination(
         let source = if entry.is_directory {
             reqwest::Body::default()
         } else {
+            super::archive::revalidate_local_archive_creation_source(&entry).map_err(map_local_archive_error)?;
             let source_file = File::open(&entry.source_path)
                 .await
                 .map_err(|error| map_io_error(error, &entry.source_path))?;
@@ -2641,6 +2650,41 @@ fn is_archive_relay_cancellation(error: &ApiError) -> bool {
         | ApiError::BadRequest(message)
         | ApiError::Internal(message)
         | ApiError::Forbidden(message) => message.contains("was cancelled"),
+        _ => false,
+    }
+}
+
+fn is_archive_relay_source_changed(error: &ApiError) -> bool {
+    match error {
+        ApiError::Conflict(serde_json::Value::String(message))
+        | ApiError::ConflictWithCode { message, .. }
+        | ApiError::BadRequest(message)
+        | ApiError::Internal(message)
+        | ApiError::Forbidden(message) => message.contains("source changed"),
+        _ => false,
+    }
+}
+
+fn is_archive_relay_collision(error: &ApiError) -> bool {
+    match error {
+        ApiError::Conflict(serde_json::Value::String(message)) | ApiError::ConflictWithCode { message, .. } => {
+            message.contains("output already exists")
+        }
+        _ => false,
+    }
+}
+
+fn is_archive_relay_transport_failure(error: &ApiError) -> bool {
+    match error {
+        ApiError::Conflict(serde_json::Value::String(message))
+        | ApiError::ConflictWithCode { message, .. }
+        | ApiError::BadRequest(message)
+        | ApiError::BadRequestWithCode { message, .. }
+        | ApiError::Internal(message)
+        | ApiError::InternalWithCode { message, .. }
+        | ApiError::Forbidden(message)
+        | ApiError::ForbiddenWithCode { message, .. } => message.contains("HTTP"),
+        ApiError::Io(_) => true,
         _ => false,
     }
 }
@@ -3668,7 +3712,8 @@ mod tests {
     use crate::server::archive::{
         build_local_archive_manifest, build_local_archive_manifest_for_remote_target, create_local_archive,
         validate_local_archive_extraction, ArchiveCreationManifest, ArchiveCreationManifestMember, LocalArchiveCreationResult,
-        LocalArchiveError, LocalArchiveExtractionMemberError, LocalArchiveExtractionResult, LocalArchiveReadEntry, LocalArchiveReadError,
+        LocalArchiveEntry, LocalArchiveError, LocalArchiveExtractionMemberError, LocalArchiveExtractionResult, LocalArchiveReadEntry,
+        LocalArchiveReadError,
     };
     use crate::server::archive_sessions::{
         ArchiveSessionKind, ArchiveSessionPendingDecision, ArchiveSessionPhase, ArchiveSessionProgress, ArchiveSessionStatus,
@@ -3973,7 +4018,7 @@ mod tests {
         serde_json::json!({
             "owner": "companion",
             "manifest_snapshot": manifest.entries.iter().map(|entry| entry.archive_path.as_str()).collect::<Vec<_>>(),
-            "phase_transitions": ["streaming", "cancelled"],
+            "phase_transitions": ["streaming", if error_category == "cancelled" { "cancelled" } else { "failed" }],
             "pending_decision": null,
             "member_outcomes": [],
             "terminal_summary": null,
@@ -4033,21 +4078,28 @@ mod tests {
 
     fn mixed_relay_error_category(error: &ApiError) -> &'static str {
         let message = match error {
-            ApiError::Conflict(serde_json::Value::String(message)) => message.as_str(),
+            ApiError::Conflict(serde_json::Value::String(message)) => message.clone(),
             ApiError::ConflictWithCode { message, .. }
             | ApiError::BadRequest(message)
+            | ApiError::BadRequestWithCode { message, .. }
             | ApiError::Internal(message)
-            | ApiError::Forbidden(message) => message.as_str(),
-            _ => "",
+            | ApiError::InternalWithCode { message, .. }
+            | ApiError::Forbidden(message)
+            | ApiError::ForbiddenWithCode { message, .. } => message.clone(),
+            _ => error.to_string(),
         };
         if message.contains("was cancelled") {
             "cancelled"
         } else if message.contains("source changed") {
             "source_changed"
+        } else if message.contains("partial") || message.contains("incomplete output") {
+            "partial_write"
+        } else if message.contains("output already exists") {
+            "collision"
         } else if message.contains("HTTP") {
             "transport_failure"
         } else {
-            panic!("unexpected relay error for topology trace: {error}");
+            "invalid_input"
         }
     }
 
@@ -4428,6 +4480,144 @@ mod tests {
         .expect("local creation manifest should be valid");
         assert_eq!(mixed_creation_trace(&local_manifest, &local_result), local_expected);
         local_playback.assert_consumed().await;
+    }
+
+    #[tokio::test]
+    async fn actual_relay_creation_coordinator_dispatches_every_mixed_fault() {
+        let fixture: serde_json::Value =
+            serde_json::from_str(include_str!("../../../../archive-contract/v1/topology-execution-traces-v1.json"))
+                .expect("topology trace fixture should be valid JSON");
+        let cases = fixture["cases"]
+            .as_array()
+            .expect("topology trace fixture should define cases")
+            .iter()
+            .filter(|case| {
+                case["operation"] == "create"
+                    && matches!(case["topology"].as_str(), Some("smb_to_local" | "local_to_smb"))
+                    && case["fault"].is_string()
+            })
+            .cloned()
+            .collect::<Vec<_>>();
+        let expected_cases = cases
+            .iter()
+            .map(|case| case["name"].as_str().expect("fault case must have a name"))
+            .collect::<std::collections::HashSet<_>>();
+        let dispatched_cases = [
+            "create_smb_to_local_malformed_input",
+            "create_smb_to_local_collision",
+            "create_smb_to_local_partial_write",
+            "create_smb_to_local_cancellation",
+            "create_smb_to_local_source_changed",
+            "create_smb_to_local_transport_failure",
+            "create_local_to_smb_malformed_input",
+            "create_local_to_smb_collision",
+            "create_local_to_smb_partial_write",
+            "create_local_to_smb_cancellation",
+            "create_local_to_smb_source_changed",
+            "create_local_to_smb_transport_failure",
+        ]
+        .into_iter()
+        .collect::<std::collections::HashSet<_>>();
+        assert_eq!(
+            dispatched_cases, expected_cases,
+            "mixed creation dispatcher must cover every declared fault"
+        );
+
+        for case in cases {
+            let case_name = case["name"].as_str().expect("fault case must have a name");
+            let fault = case["fault"].as_str().expect("fault case must name a fault");
+            let topology = case["topology"].as_str().expect("fault case must name a topology");
+            let playback = spawn_fixture_relay_playback(
+                case["relay_playback"]
+                    .as_array()
+                    .expect("mixed creation fault must define passive relay playback")
+                    .clone(),
+            )
+            .await;
+            let directory = tempfile::tempdir().expect("temporary archive directory should be created");
+            let (manifest, result) = if topology == "smb_to_local" {
+                let relay = ArchiveCreationRelay::from_transport(ArchiveRelayTransport::new(
+                    reqwest::Client::new(),
+                    playback.url.clone(),
+                    "test-token".to_string(),
+                ));
+                match relay.begin_remote_source().await {
+                    Ok(manifest) => {
+                        let target_path = directory.path().join("target.zip");
+                        if fault == "collision" {
+                            std::fs::write(&target_path, b"existing").expect("collision target should be written");
+                        }
+                        let result = ArchiveCreationCoordinator {
+                            relay,
+                            binding: ArchiveCreationAdapterBinding::RemoteSourceToLocalDestination {
+                                manifest: manifest.clone(),
+                                drive_root: directory.path().to_path_buf(),
+                                target_path,
+                            },
+                        }
+                        .execute()
+                        .await;
+                        (manifest, result)
+                    }
+                    Err(error) => (ArchiveCreationManifest { entries: Vec::new() }, Err(error)),
+                }
+            } else {
+                let source = directory.path().join("entry.txt");
+                std::fs::write(&source, b"entry").expect("local source should be written");
+                let entries = if fault == "malformed_input" {
+                    vec![LocalArchiveEntry {
+                        source_path: source.clone(),
+                        archive_path: "../entry.txt".to_string(),
+                        is_directory: false,
+                        source_size: 5,
+                        source_modified_at: None,
+                    }]
+                } else {
+                    build_local_archive_manifest_for_remote_target(std::slice::from_ref(&source))
+                        .expect("local source should produce a creation manifest")
+                };
+                if fault == "source_changed" {
+                    std::fs::write(&source, b"changed entry").expect("local source should change after manifest construction");
+                }
+                let manifest = ArchiveCreationManifest::from_entries(
+                    entries
+                        .iter()
+                        .map(|entry| ArchiveCreationManifestMember {
+                            archive_path: entry.archive_path.clone(),
+                            is_directory: entry.is_directory,
+                            source_size: entry.source_size,
+                            source_modified_at: entry.source_modified_at.clone(),
+                        })
+                        .collect(),
+                )
+                .unwrap_or(ArchiveCreationManifest { entries: Vec::new() });
+                let result = ArchiveCreationCoordinator {
+                    relay: ArchiveCreationRelay::from_transport(ArchiveRelayTransport::new(
+                        reqwest::Client::new(),
+                        playback.url.clone(),
+                        "test-token".to_string(),
+                    )),
+                    binding: ArchiveCreationAdapterBinding::LocalSourceToRemoteDestination { entries },
+                }
+                .execute()
+                .await;
+                (manifest, result)
+            };
+            let error = result.expect_err("fault fixture should fail creation");
+            let category = mixed_relay_error_category(&error);
+            assert_eq!(
+                category,
+                case["expected_trace"]["error_category"]
+                    .as_str()
+                    .expect("fault trace must name an error category")
+            );
+            assert_eq!(
+                mixed_creation_failure_trace(&manifest, category),
+                case["expected_trace"],
+                "{case_name} must match its complete fixture trace"
+            );
+            playback.assert_consumed().await;
+        }
     }
 
     #[tokio::test]

@@ -283,11 +283,13 @@ Acceptance criteria:
 
 #### Phase 4 Completion Implementation Plan
 
-1. Make `topology-execution-traces-v1.json` the complete oracle for every
-   trajectory. Each trajectory case carries its normalized expected trace. A
-   mixed extraction trajectory also contains ordered invocation segments, with
-   fixture-defined V1 relay playback and the persisted checkpoint presented to
-   the next coordinator invocation after a backend-side decision.
+1. Make the versioned topology trace fixture set, indexed by
+   `topology-execution-traces-v1.json`, the complete oracle for every
+   trajectory. The index declares every trajectory and references the complete
+   normalized expected trace; a mixed extraction trajectory also contains
+   ordered invocation segments, with fixture-defined V1 relay playback and the
+   persisted checkpoint presented to the next coordinator invocation after a
+   backend-side decision.
 2. Keep relay playback passive. It validates ordered request method, path,
    query, and payload class, records the emitted response sequence, and returns
    only fixture-defined V1 messages. It does not select decisions, mutate
