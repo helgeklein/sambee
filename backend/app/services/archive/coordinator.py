@@ -13,6 +13,7 @@ from sqlmodel import Session
 
 from app.models.archive_operation import ArchiveOperation, ArchiveOperationPhase
 from app.services.archive.creation import ArchiveCreationCancelled, ArchiveCreationMemberOutcome, ArchiveCreationResult
+from app.services.archive.execution import ArchiveInspectionTopologyPlan
 from app.services.archive.extraction import (
     ArchiveExtractionCancelled,
     ArchiveExtractionConflict,
@@ -120,6 +121,7 @@ class ArchiveInspectionPlan:
     """Immutable, non-durable source binding for one archive inspection request."""
 
     source: ArchiveInspectionSource
+    topology: ArchiveInspectionTopologyPlan | None = None
 
 
 @dataclass(frozen=True)
@@ -209,7 +211,7 @@ class DurableArchiveExecutionStateStore:
 
 @dataclass
 class InMemoryArchiveExecutionStateStore:
-    """Keep direct-local lifecycle state request-scoped without durable writes."""
+    """Provide deterministic non-durable lifecycle state for coordinator tests."""
 
     transitions: list[tuple[ArchiveOperationPhase, ArchiveOperationPhase]] = field(default_factory=list)
 
@@ -259,7 +261,7 @@ class InMemoryArchiveExecutionStateStore:
         member_path: str | None,
         target_path: str | None,
     ) -> ArchiveOperation:
-        """Apply an in-memory decision for direct-local and test execution only."""
+        """Apply an in-memory decision for deterministic coordinator execution."""
 
         if operation.phase != ArchiveOperationPhase.AWAITING_USER_DECISION:
             raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="Archive operation is not awaiting a decision")
@@ -1446,124 +1448,6 @@ def advance_relay_transfer(state_store: ArchiveExecutionStateStore, operation: A
     return True
 
 
-@dataclass(frozen=True)
-class ArchiveExtractionRelayState:
-    """Validate and persist untrusted Companion extraction relay callbacks."""
-
-    state_store: ArchiveExecutionStateStore
-    operation: ArchiveOperation
-    checkpoint: dict[str, object]
-    execution_plan: ArchiveExtractionExecutionPlan
-
-    @classmethod
-    def from_operation(
-        cls,
-        state_store: ArchiveExecutionStateStore,
-        operation: ArchiveOperation,
-    ) -> "ArchiveExtractionRelayState":
-        checkpoint = load_archive_checkpoint(operation)
-        return cls(
-            state_store,
-            operation,
-            checkpoint,
-            ArchiveExtractionExecutionPlan.from_checkpoint(checkpoint, existing_file_policy=operation.collision_policy),
-        )
-
-    def complete_member(self, reported_outcome: ArchiveExtractionDestinationResult) -> ArchiveOperation:
-        """Validate a Companion terminal report before committing it to the ledger."""
-
-        member_path = reported_outcome.member_path
-        entry = self.execution_plan.member(member_path, is_directory=reported_outcome.status == "directory")
-        target_path = archive_member_target(
-            self.operation.destination_path,
-            self.execution_plan.target_member_path(member_path),
-        )
-        if reported_outcome.target_path != target_path:
-            raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_CONTENT, detail="Archive member target path is invalid")
-        renamed = target_path != archive_member_target(self.operation.destination_path, member_path)
-        if reported_outcome.renamed != renamed:
-            raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_CONTENT, detail="Archive member rename state is invalid")
-        if member_path in completed_extraction_member_paths(self.checkpoint):
-            return self.operation
-        if reported_outcome.status == "directory":
-            if not entry.is_directory or reported_outcome.extracted_bytes or reported_outcome.replaced:
-                raise HTTPException(
-                    status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
-                    detail="Archive directory completion counts are invalid",
-                )
-        elif reported_outcome.status in {"skipped", "ignored"}:
-            if entry.is_directory or any(
-                (reported_outcome.directories_created, reported_outcome.extracted_bytes, reported_outcome.replaced)
-            ):
-                raise HTTPException(
-                    status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
-                    detail="Archive skipped member counts are invalid",
-                )
-        elif entry.is_directory or reported_outcome.extracted_bytes != entry.uncompressed_size:
-            raise HTTPException(
-                status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
-                detail="Archive member completion counts are invalid",
-            )
-        decisions = ArchiveExtractionDecisionState.from_checkpoint(self.checkpoint)
-        self.checkpoint["retry_members"] = decisions.retry_members_after_completion(member_path)
-        return persist_extraction_member_outcome(
-            self.state_store,
-            self.operation,
-            reported_outcome,
-            checkpoint=self.checkpoint,
-        )
-
-    def pause_for_collision(
-        self,
-        *,
-        member_path: str,
-        is_directory: bool,
-        target_size: int | None,
-        target_modified_at: datetime | None,
-    ) -> ArchiveOperation:
-        """Project a verified local collision into the common decision payload."""
-
-        entry = self.execution_plan.member(member_path, is_directory=is_directory)
-        target_path = archive_member_target(
-            self.operation.destination_path,
-            self.execution_plan.target_member_path(member_path),
-        )
-        return self.state_store.await_decision(
-            self.operation,
-            existing_files_decision(
-                [
-                    ArchiveExtractionConflict(
-                        member_path,
-                        target_path,
-                        is_directory=is_directory,
-                        source_size=entry.uncompressed_size if not is_directory else None,
-                        source_modified_at=entry.source_modified_at,
-                        target_size=target_size,
-                        target_modified_at=target_modified_at,
-                    )
-                ]
-            ),
-        )
-
-    def pause_for_member_error(self, *, member_path: str, message: str, partial_output: bool) -> ArchiveOperation:
-        """Persist a nonterminal output error before awaiting retry or ignore."""
-
-        self.execution_plan.member(member_path)
-        target_path = archive_member_target(
-            self.operation.destination_path,
-            self.execution_plan.target_member_path(member_path),
-        )
-        operation = persist_extraction_partial_member_outcome(
-            self.state_store,
-            self.operation,
-            ArchiveExtractionPartialMemberOutcome(member_path, target_path, message),
-        )
-        return self.state_store.await_decision(
-            operation,
-            member_error_decision(member_path, target_path, message, partial_output=partial_output),
-        )
-
-
 def start_archive_execution(
     state_store: ArchiveExecutionStateStore,
     operation: ArchiveOperation,
@@ -1594,6 +1478,37 @@ class ArchiveExtractionCoordinator:
 
     operation: ArchiveOperation
     state_store: ArchiveExecutionStateStore
+
+    def begin(self, *, checkpoint_json: str | None = None, allow_streaming: bool = True) -> ArchiveOperation:
+        """Start a direct or relay extraction after its adapter-specific preflight succeeds."""
+
+        return start_archive_execution(
+            self.state_store,
+            self.operation,
+            checkpoint_json=checkpoint_json,
+            allow_streaming=allow_streaming,
+        )
+
+    def advance(self) -> bool:
+        """Refresh an active adapter lease and transition cancellation through the common lifecycle."""
+
+        return advance_relay_transfer(self.state_store, self.operation)
+
+    def complete(self, *, destination_root_created: bool) -> ArchiveOperation:
+        """Validate terminal ledger coverage and complete a direct or relay extraction."""
+
+        return complete_relay_execution(
+            self.state_store,
+            self.operation,
+            prepare_checkpoint_json=lambda: ArchiveExtractionState.from_checkpoint(
+                load_archive_checkpoint(self.operation)
+            ).completion_checkpoint_json(destination_root_created=destination_root_created),
+        )
+
+    def fail(self, message: str) -> ArchiveOperation:
+        """Persist an adapter-detected terminal failure through the coordinator state store."""
+
+        return self.state_store.fail(self.operation, message)
 
     async def run(self, runner: ArchiveExtractionRunner) -> ArchiveOperation:
         """Advance an extraction adapter from its current lifecycle phase."""
@@ -1653,7 +1568,7 @@ class ArchiveExtractionCoordinator:
             raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail="Archive extraction failed") from exc
 
     def _start_streaming(self) -> ArchiveOperation:
-        return start_archive_execution(self.state_store, self.operation, allow_streaming=True)
+        return self.begin()
 
     def apply_decision(
         self,
@@ -1665,6 +1580,98 @@ class ArchiveExtractionCoordinator:
         """Apply one validated pause decision through the coordinator's state store."""
 
         return self.state_store.apply_extraction_decision(self.operation, action, member_path, target_path)
+
+    def record_member_completed(self, reported_outcome: ArchiveExtractionDestinationResult) -> ArchiveOperation:
+        """Validate and persist one terminal result reported by any execution adapter."""
+
+        checkpoint = load_archive_checkpoint(self.operation)
+        execution_plan = ArchiveExtractionExecutionPlan.from_checkpoint(
+            checkpoint,
+            existing_file_policy=self.operation.collision_policy,
+        )
+        member_path = reported_outcome.member_path
+        entry = execution_plan.member(member_path, is_directory=reported_outcome.status == "directory")
+        target_path = archive_member_target(self.operation.destination_path, execution_plan.target_member_path(member_path))
+        if reported_outcome.target_path != target_path:
+            raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_CONTENT, detail="Archive member target path is invalid")
+        renamed = target_path != archive_member_target(self.operation.destination_path, member_path)
+        if reported_outcome.renamed != renamed:
+            raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_CONTENT, detail="Archive member rename state is invalid")
+        if member_path in completed_extraction_member_paths(checkpoint):
+            return self.operation
+        if reported_outcome.status == "directory":
+            if not entry.is_directory or reported_outcome.extracted_bytes or reported_outcome.replaced:
+                raise HTTPException(
+                    status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
+                    detail="Archive directory completion counts are invalid",
+                )
+        elif reported_outcome.status in {"skipped", "ignored"}:
+            if entry.is_directory or any(
+                (reported_outcome.directories_created, reported_outcome.extracted_bytes, reported_outcome.replaced)
+            ):
+                raise HTTPException(
+                    status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
+                    detail="Archive skipped member counts are invalid",
+                )
+        elif entry.is_directory or reported_outcome.extracted_bytes != entry.uncompressed_size:
+            raise HTTPException(
+                status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
+                detail="Archive member completion counts are invalid",
+            )
+        checkpoint["retry_members"] = ArchiveExtractionDecisionState.from_checkpoint(checkpoint).retry_members_after_completion(member_path)
+        return persist_extraction_member_outcome(self.state_store, self.operation, reported_outcome, checkpoint=checkpoint)
+
+    def pause_for_collision(
+        self,
+        *,
+        member_path: str,
+        is_directory: bool,
+        target_size: int | None,
+        target_modified_at: datetime | None,
+    ) -> ArchiveOperation:
+        """Convert an adapter-observed collision to a normalized persisted pause."""
+
+        execution_plan = ArchiveExtractionExecutionPlan.from_checkpoint(
+            load_archive_checkpoint(self.operation),
+            existing_file_policy=self.operation.collision_policy,
+        )
+        entry = execution_plan.member(member_path, is_directory=is_directory)
+        target_path = archive_member_target(self.operation.destination_path, execution_plan.target_member_path(member_path))
+        return self.state_store.await_decision(
+            self.operation,
+            existing_files_decision(
+                [
+                    ArchiveExtractionConflict(
+                        member_path,
+                        target_path,
+                        is_directory=is_directory,
+                        source_size=entry.uncompressed_size if not is_directory else None,
+                        source_modified_at=entry.source_modified_at,
+                        target_size=target_size,
+                        target_modified_at=target_modified_at,
+                    )
+                ]
+            ),
+        )
+
+    def pause_for_member_error(self, *, member_path: str, message: str, partial_output: bool) -> ArchiveOperation:
+        """Persist an adapter-observed partial write before awaiting a coordinator decision."""
+
+        execution_plan = ArchiveExtractionExecutionPlan.from_checkpoint(
+            load_archive_checkpoint(self.operation),
+            existing_file_policy=self.operation.collision_policy,
+        )
+        execution_plan.member(member_path)
+        target_path = archive_member_target(self.operation.destination_path, execution_plan.target_member_path(member_path))
+        operation = persist_extraction_partial_member_outcome(
+            self.state_store,
+            self.operation,
+            ArchiveExtractionPartialMemberOutcome(member_path, target_path, message),
+        )
+        return self.state_store.await_decision(
+            operation,
+            member_error_decision(member_path, target_path, message, partial_output=partial_output),
+        )
 
 
 @dataclass(frozen=True)

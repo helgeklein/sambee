@@ -37,7 +37,7 @@ use super::archive::{
     LocalArchiveCreationResult, LocalArchiveEntry, LocalArchiveError, LocalArchiveReadEntry, LocalArchiveRelayChunk,
     ARCHIVE_COPY_BUFFER_SIZE,
 };
-use super::archive_sessions::{ArchiveSessionProgress, ArchiveSessionStatus};
+use super::archive_sessions::{ArchiveSessionProgress, ArchiveSessionStatus, LocalArchiveOperationCoordinator};
 use super::auth;
 use super::drives;
 use super::edit_locks::EDIT_LOCK_LOST_CODE;
@@ -2022,7 +2022,9 @@ pub async fn browse_start_archive_execution(
                 .await
         }
     };
-    state.archive_sessions.clone().start(&execution.execution_id).await?;
+    LocalArchiveOperationCoordinator::new(state.archive_sessions.clone())
+        .start(&execution.execution_id)
+        .await?;
     let execution = state.archive_sessions.get(&drive, &owner_origin, &execution.execution_id).await?;
     Ok(Json(archive_execution_response(execution)))
 }
@@ -2071,9 +2073,7 @@ pub async fn browse_decide_archive_execution(
         ArchiveExecutionDecisionAction::Retry => super::archive_sessions::ArchiveSessionDecisionAction::Retry,
         ArchiveExecutionDecisionAction::Ignore => super::archive_sessions::ArchiveSessionDecisionAction::Ignore,
     };
-    let execution = state
-        .archive_sessions
-        .clone()
+    let execution = LocalArchiveOperationCoordinator::new(state.archive_sessions.clone())
         .decide(
             &drive,
             &extract_origin(&headers)?,

@@ -62,7 +62,6 @@ from app.services.archive.coordinator import (
     ArchiveExtractionExecutionPlan,
     ArchiveExtractionManifest,
     ArchiveExtractionManifestMember,
-    ArchiveExtractionRelayState,
     ArchiveExtractionState,
     DurableArchiveExecutionStateStore,
     advance_relay_transfer,
@@ -447,12 +446,8 @@ class ScopedCompanionRelay:
         """Complete a manifest-backed extraction after typed terminal coverage validation."""
 
         _user, operation = self.resolve()
-        return complete_relay_execution(
-            DurableArchiveExecutionStateStore(self.session),
-            operation,
-            prepare_checkpoint_json=lambda: ArchiveExtractionState.from_checkpoint(
-                load_archive_checkpoint(operation)
-            ).completion_checkpoint_json(destination_root_created=destination_root_created),
+        return ArchiveExtractionCoordinator(operation, DurableArchiveExecutionStateStore(self.session)).complete(
+            destination_root_created=destination_root_created
         )
 
     def commit_preflight(
@@ -710,6 +705,7 @@ async def write_companion_archive_member(
 
     relay = ScopedCompanionRelay(operation_id, ArchiveCompanionRelayPurpose.LOCAL_ZIP_TO_SMB_EXTRACT, operation_token, session)
     user, operation = relay.streaming(not_streaming_detail="Archive operation is not accepting member output")
+    coordinator = ArchiveExtractionCoordinator(operation, DurableArchiveExecutionStateStore(session))
     checkpoint = load_archive_checkpoint(operation)
     execution_plan = (
         ArchiveExtractionExecutionPlan.from_checkpoint(checkpoint, existing_file_policy=operation.collision_policy)
@@ -731,8 +727,11 @@ async def write_companion_archive_member(
         remapped_member_path = decisions.target_member_path(member_path)
     target_path = archive_member_target(operation.destination_path, remapped_member_path)
     if not is_directory and collision_action in {"skip", "skip_all"}:
-        return _record_mixed_archive_member_completion(
-            session, operation, checkpoint, ArchiveExtractionMemberOutcome(member_path, "skipped", target_path)
+        outcome = ArchiveExtractionMemberOutcome(member_path, "skipped", target_path)
+        return (
+            coordinator.record_member_completed(outcome)
+            if execution_plan is not None
+            else _record_mixed_archive_member_completion(session, operation, checkpoint, outcome)
         )
 
     connection = _mixed_extraction_destination_connection(session, user, operation)
@@ -757,14 +756,18 @@ async def write_companion_archive_member(
                     target_info = None
                 if target_info is not None:
                     if target_info.type != FileType.FILE:
-                        return await_operation_decision(
-                            session,
-                            operation,
-                            existing_files_decision([ArchiveExtractionConflict(member_path, target_path, is_directory=True)]),
+                        return coordinator.pause_for_collision(
+                            member_path=member_path,
+                            is_directory=True,
+                            target_size=None,
+                            target_modified_at=target_info.modified_at,
                         )
                     if source_modified_at is None or target_info.modified_at is None or source_modified_at <= target_info.modified_at:
-                        return _record_mixed_archive_member_completion(
-                            session, operation, checkpoint, ArchiveExtractionMemberOutcome(member_path, "skipped", target_path)
+                        outcome = ArchiveExtractionMemberOutcome(member_path, "skipped", target_path)
+                        return (
+                            coordinator.record_member_completed(outcome)
+                            if execution_plan is not None
+                            else _record_mixed_archive_member_completion(session, operation, checkpoint, outcome)
                         )
                     replace_existing = True
             written = await backend.write_file_from_stream(
@@ -772,24 +775,31 @@ async def write_companion_archive_member(
                 request.stream(),
                 overwrite=replace_existing,
             )
-        return _record_mixed_archive_member_completion(
-            session,
-            operation,
-            checkpoint,
-            ArchiveExtractionMemberOutcome(
-                member_path,
-                "directory" if is_directory else "extracted",
-                target_path,
-                extracted_bytes=written,
-                directories_created=created_directories,
-                replaced=not is_directory and replace_existing,
-            ),
+        outcome = ArchiveExtractionMemberOutcome(
+            member_path,
+            "directory" if is_directory else "extracted",
+            target_path,
+            extracted_bytes=written,
+            directories_created=created_directories,
+            replaced=not is_directory and replace_existing,
+        )
+        return (
+            coordinator.record_member_completed(outcome)
+            if execution_plan is not None
+            else _record_mixed_archive_member_completion(session, operation, checkpoint, outcome)
         )
     except FileExistsError:
+        if execution_plan is not None:
+            return coordinator.pause_for_collision(
+                member_path=member_path,
+                is_directory=is_directory,
+                target_size=None,
+                target_modified_at=None,
+            )
         return await_operation_decision(
             session,
             operation,
-            existing_files_decision([ArchiveExtractionConflict(member_path, target_path)]),
+            existing_files_decision([ArchiveExtractionConflict(member_path, target_path, is_directory=is_directory)]),
         )
     except HTTPException:
         raise
@@ -927,7 +937,7 @@ async def stream_companion_local_archive_member(
         async def stream_member() -> AsyncIterator[bytes]:
             try:
                 async for chunk in zip_reader.stream_member(member_path):
-                    if not advance_relay_transfer(DurableArchiveExecutionStateStore(session), operation):
+                    if not ArchiveExtractionCoordinator(operation, DurableArchiveExecutionStateStore(session)).advance():
                         return
                     yield chunk
             finally:
@@ -965,7 +975,7 @@ async def complete_companion_local_archive_member(
 
     relay = ScopedCompanionRelay(operation_id, ArchiveCompanionRelayPurpose.SMB_ZIP_TO_LOCAL_EXTRACT, operation_token, session)
     _user, operation = relay.streaming(not_streaming_detail="Archive operation is not accepting member output")
-    return ArchiveExtractionRelayState.from_operation(DurableArchiveExecutionStateStore(session), operation).complete_member(
+    return ArchiveExtractionCoordinator(operation, DurableArchiveExecutionStateStore(session)).record_member_completed(
         ArchiveExtractionMemberOutcome(
             payload.member_path,
             payload.status,
@@ -989,7 +999,7 @@ async def pause_companion_local_archive_member_for_collision(
 
     relay = ScopedCompanionRelay(operation_id, ArchiveCompanionRelayPurpose.SMB_ZIP_TO_LOCAL_EXTRACT, operation_token, session)
     _user, operation = relay.streaming(not_streaming_detail="Archive operation is not accepting member output")
-    return ArchiveExtractionRelayState.from_operation(DurableArchiveExecutionStateStore(session), operation).pause_for_collision(
+    return ArchiveExtractionCoordinator(operation, DurableArchiveExecutionStateStore(session)).pause_for_collision(
         member_path=payload.member_path,
         is_directory=payload.is_directory,
         target_size=payload.target_size,
@@ -1008,7 +1018,7 @@ async def pause_companion_local_archive_member_for_error(
 
     relay = ScopedCompanionRelay(operation_id, ArchiveCompanionRelayPurpose.SMB_ZIP_TO_LOCAL_EXTRACT, operation_token, session)
     _user, operation = relay.streaming(not_streaming_detail="Archive operation is not accepting member output")
-    return ArchiveExtractionRelayState.from_operation(DurableArchiveExecutionStateStore(session), operation).pause_for_member_error(
+    return ArchiveExtractionCoordinator(operation, DurableArchiveExecutionStateStore(session)).pause_for_member_error(
         member_path=payload.member_path,
         message=payload.message,
         partial_output=payload.partial_output,

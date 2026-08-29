@@ -249,6 +249,17 @@ pub struct ArchiveSessionManager {
     sessions: Mutex<HashMap<String, ArchiveSession>>,
 }
 
+/// Coordinate direct-local archive work while keeping lifecycle records in memory only.
+pub struct LocalArchiveOperationCoordinator {
+    state_store: Arc<ArchiveSessionManager>,
+}
+
+impl LocalArchiveOperationCoordinator {
+    pub fn new(state_store: Arc<ArchiveSessionManager>) -> Self {
+        Self { state_store }
+    }
+}
+
 impl ArchiveSessionManager {
     pub fn new() -> Self {
         Self {
@@ -335,7 +346,18 @@ impl ArchiveSessionManager {
             .ok_or_else(|| ApiError::NotFound("Archive execution not found or expired".to_string()))
     }
 
-    pub async fn start(self: Arc<Self>, execution_id: &str) -> Result<(), ApiError> {
+    async fn start_state(
+        &self,
+        execution_id: &str,
+    ) -> Result<
+        (
+            PathBuf,
+            ArchiveSessionWork,
+            Arc<AtomicBool>,
+            Option<LocalArchiveExtractionCheckpoint>,
+        ),
+        ApiError,
+    > {
         let (drive_root, work, cancellation_requested, checkpoint) = {
             let mut sessions = self.sessions.lock().await;
             Self::remove_expired(&mut sessions);
@@ -354,90 +376,31 @@ impl ArchiveSessionManager {
                 session.extraction_checkpoint.take(),
             )
         };
-        self.spawn_worker(execution_id.to_string(), drive_root, work, cancellation_requested, checkpoint);
-        Ok(())
+        Ok((drive_root, work, cancellation_requested, checkpoint))
     }
+}
 
-    fn spawn_worker(
-        self: Arc<Self>,
-        execution_id: String,
-        drive_root: PathBuf,
-        work: ArchiveSessionWork,
-        cancellation_requested: Arc<AtomicBool>,
-        checkpoint: Option<LocalArchiveExtractionCheckpoint>,
-    ) {
-        let manager = self.clone();
-        tokio::spawn(async move {
-            let (progress_sender, mut progress_receiver) = mpsc::unbounded_channel();
-            let mut archive_task = tokio::task::spawn_blocking(move || match work {
-                ArchiveSessionWork::Creation { source_paths, target_path } => {
-                    if cancellation_requested.load(Ordering::Acquire) {
-                        return Err(LocalArchiveError::Cancelled);
-                    }
-                    let entries = build_local_archive_manifest_with_cancellation(&source_paths, &target_path, || {
-                        cancellation_requested.load(Ordering::Acquire)
-                    })?;
-                    create_local_archive_with_cancellation_progress_and_state(
-                        &drive_root,
-                        &target_path,
-                        &entries,
-                        || cancellation_requested.load(Ordering::Acquire),
-                        |progress| {
-                            let _ = progress_sender.send(ArchiveSessionProgress::Creation(progress));
-                        },
-                    )
-                    .map(|(result, state)| ArchiveSessionCompletion::CreationCompleted { result, state })
-                }
-                ArchiveSessionWork::Extraction {
-                    archive_path,
-                    destination_path,
-                } => extract_local_archive_with_checkpoint_and_progress(
-                    &drive_root,
-                    &archive_path,
-                    &destination_path,
-                    checkpoint.unwrap_or_default(),
-                    || cancellation_requested.load(Ordering::Acquire),
-                    |progress| {
-                        let _ = progress_sender.send(ArchiveSessionProgress::Extraction(progress));
-                    },
-                )
-                .map(|result| match result {
-                    LocalArchiveExtractionRunResult::Completed(checkpoint) => {
-                        ArchiveSessionCompletion::Completed(ArchiveSessionProgress::Extraction(checkpoint.result()))
-                    }
-                    LocalArchiveExtractionRunResult::AwaitingCollision { checkpoint, collision } => {
-                        ArchiveSessionCompletion::AwaitingCollision { checkpoint, collision }
-                    }
-                    LocalArchiveExtractionRunResult::AwaitingMemberError { checkpoint, error } => {
-                        ArchiveSessionCompletion::AwaitingMemberError { checkpoint, error }
-                    }
-                }),
-            });
-            let result = loop {
-                tokio::select! {
-                    Some(progress) = progress_receiver.recv() => manager.update_progress(&execution_id, progress).await,
-                    result = &mut archive_task => {
-                        break result
-                            .map_err(|error| LocalArchiveError::Io(std::io::Error::other(format!("Archive execution task failed: {error}"))))
-                            .and_then(|result| result);
-                    }
-                }
-            };
-            manager.complete(&execution_id, result).await;
-        });
-    }
-
-    pub async fn decide(
-        self: Arc<Self>,
+impl LocalArchiveOperationCoordinator {
+    async fn apply_decision(
+        &self,
         drive: &str,
         owner_origin: &str,
         execution_id: &str,
         expected_revision: u64,
         decision: ArchiveSessionDecision,
-    ) -> Result<ArchiveSessionStatus, ApiError> {
+    ) -> Result<
+        (
+            PathBuf,
+            ArchiveSessionWork,
+            Arc<AtomicBool>,
+            Option<LocalArchiveExtractionCheckpoint>,
+            ArchiveSessionStatus,
+        ),
+        ApiError,
+    > {
         let (drive_root, work, cancellation_requested, checkpoint, status) = {
-            let mut sessions = self.sessions.lock().await;
-            Self::remove_expired(&mut sessions);
+            let mut sessions = self.state_store.sessions.lock().await;
+            ArchiveSessionManager::remove_expired(&mut sessions);
             let session = sessions
                 .get_mut(execution_id)
                 .filter(|session| session.drive == drive && session.owner_origin == owner_origin)
@@ -549,11 +512,11 @@ impl ArchiveSessionManager {
                 session.status(),
             )
         };
-        self.clone()
-            .spawn_worker(execution_id.to_string(), drive_root, work, cancellation_requested, checkpoint);
-        Ok(status)
+        Ok((drive_root, work, cancellation_requested, checkpoint, status))
     }
+}
 
+impl ArchiveSessionManager {
     pub async fn cancel(
         &self,
         drive: &str,
@@ -605,6 +568,98 @@ impl ArchiveSessionManager {
     }
 }
 
+impl LocalArchiveOperationCoordinator {
+    pub async fn start(&self, execution_id: &str) -> Result<(), ApiError> {
+        let (drive_root, work, cancellation_requested, checkpoint) = self.state_store.start_state(execution_id).await?;
+        self.spawn_worker(execution_id.to_string(), drive_root, work, cancellation_requested, checkpoint);
+        Ok(())
+    }
+
+    pub async fn decide(
+        &self,
+        drive: &str,
+        owner_origin: &str,
+        execution_id: &str,
+        expected_revision: u64,
+        decision: ArchiveSessionDecision,
+    ) -> Result<ArchiveSessionStatus, ApiError> {
+        let (drive_root, work, cancellation_requested, checkpoint, status) = self
+            .apply_decision(drive, owner_origin, execution_id, expected_revision, decision)
+            .await?;
+        self.spawn_worker(execution_id.to_string(), drive_root, work, cancellation_requested, checkpoint);
+        Ok(status)
+    }
+
+    fn spawn_worker(
+        &self,
+        execution_id: String,
+        drive_root: PathBuf,
+        work: ArchiveSessionWork,
+        cancellation_requested: Arc<AtomicBool>,
+        checkpoint: Option<LocalArchiveExtractionCheckpoint>,
+    ) {
+        let state_store = self.state_store.clone();
+        tokio::spawn(async move {
+            let (progress_sender, mut progress_receiver) = mpsc::unbounded_channel();
+            let mut archive_task = tokio::task::spawn_blocking(move || match work {
+                ArchiveSessionWork::Creation { source_paths, target_path } => {
+                    if cancellation_requested.load(Ordering::Acquire) {
+                        return Err(LocalArchiveError::Cancelled);
+                    }
+                    let entries = build_local_archive_manifest_with_cancellation(&source_paths, &target_path, || {
+                        cancellation_requested.load(Ordering::Acquire)
+                    })?;
+                    create_local_archive_with_cancellation_progress_and_state(
+                        &drive_root,
+                        &target_path,
+                        &entries,
+                        || cancellation_requested.load(Ordering::Acquire),
+                        |progress| {
+                            let _ = progress_sender.send(ArchiveSessionProgress::Creation(progress));
+                        },
+                    )
+                    .map(|(result, state)| ArchiveSessionCompletion::CreationCompleted { result, state })
+                }
+                ArchiveSessionWork::Extraction {
+                    archive_path,
+                    destination_path,
+                } => extract_local_archive_with_checkpoint_and_progress(
+                    &drive_root,
+                    &archive_path,
+                    &destination_path,
+                    checkpoint.unwrap_or_default(),
+                    || cancellation_requested.load(Ordering::Acquire),
+                    |progress| {
+                        let _ = progress_sender.send(ArchiveSessionProgress::Extraction(progress));
+                    },
+                )
+                .map(|result| match result {
+                    LocalArchiveExtractionRunResult::Completed(checkpoint) => {
+                        ArchiveSessionCompletion::Completed(ArchiveSessionProgress::Extraction(checkpoint.result()))
+                    }
+                    LocalArchiveExtractionRunResult::AwaitingCollision { checkpoint, collision } => {
+                        ArchiveSessionCompletion::AwaitingCollision { checkpoint, collision }
+                    }
+                    LocalArchiveExtractionRunResult::AwaitingMemberError { checkpoint, error } => {
+                        ArchiveSessionCompletion::AwaitingMemberError { checkpoint, error }
+                    }
+                }),
+            });
+            let result = loop {
+                tokio::select! {
+                    Some(progress) = progress_receiver.recv() => state_store.update_progress(&execution_id, progress).await,
+                    result = &mut archive_task => {
+                        break result
+                            .map_err(|error| LocalArchiveError::Io(std::io::Error::other(format!("Archive execution task failed: {error}"))))
+                            .and_then(|result| result);
+                    }
+                }
+            };
+            state_store.complete(&execution_id, result).await;
+        });
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use std::fs;
@@ -614,7 +669,10 @@ mod tests {
 
     use tempfile::tempdir;
 
-    use super::{ArchiveSessionDecision, ArchiveSessionDecisionAction, ArchiveSessionManager, ArchiveSessionPhase, ArchiveSessionProgress};
+    use super::{
+        ArchiveSessionDecision, ArchiveSessionDecisionAction, ArchiveSessionManager, ArchiveSessionPhase, ArchiveSessionProgress,
+        LocalArchiveOperationCoordinator,
+    };
     use crate::server::archive::{build_local_archive_manifest, create_local_archive};
 
     #[tokio::test]
@@ -709,7 +767,10 @@ mod tests {
             )
             .await;
 
-        manager.clone().start(&session.execution_id).await.unwrap();
+        LocalArchiveOperationCoordinator::new(manager.clone())
+            .start(&session.execution_id)
+            .await
+            .unwrap();
         let status = tokio::time::timeout(Duration::from_secs(1), async {
             loop {
                 let status = manager.get("c", "https://sambee.example", &session.execution_id).await.unwrap();
@@ -764,7 +825,10 @@ mod tests {
             .cancel("c", "https://sambee.example", &session.execution_id, session.revision)
             .await
             .unwrap();
-        manager.clone().start(&session.execution_id).await.unwrap();
+        LocalArchiveOperationCoordinator::new(manager.clone())
+            .start(&session.execution_id)
+            .await
+            .unwrap();
         let status = tokio::time::timeout(Duration::from_secs(1), async {
             loop {
                 let status = manager.get("c", "https://sambee.example", &session.execution_id).await.unwrap();
@@ -803,7 +867,10 @@ mod tests {
             )
             .await;
 
-        manager.clone().start(&session.execution_id).await.unwrap();
+        LocalArchiveOperationCoordinator::new(manager.clone())
+            .start(&session.execution_id)
+            .await
+            .unwrap();
         let paused = tokio::time::timeout(Duration::from_secs(1), async {
             loop {
                 let status = manager.get("c", "https://sambee.example", &session.execution_id).await.unwrap();
@@ -816,8 +883,7 @@ mod tests {
         .await
         .expect("archive extraction session should pause for a collision");
         assert_eq!(paused.pending_decision.unwrap().member_path, "source.txt");
-        assert!(manager
-            .clone()
+        assert!(LocalArchiveOperationCoordinator::new(manager.clone())
             .decide(
                 "c",
                 "https://sambee.example",
@@ -831,8 +897,7 @@ mod tests {
             )
             .await
             .is_err());
-        assert!(manager
-            .clone()
+        assert!(LocalArchiveOperationCoordinator::new(manager.clone())
             .decide(
                 "c",
                 "https://other.example",
@@ -847,8 +912,7 @@ mod tests {
             .await
             .is_err());
 
-        let resumed = manager
-            .clone()
+        let resumed = LocalArchiveOperationCoordinator::new(manager.clone())
             .decide(
                 "c",
                 "https://sambee.example",
@@ -904,7 +968,10 @@ mod tests {
             )
             .await;
 
-        manager.clone().start(&session.execution_id).await.unwrap();
+        LocalArchiveOperationCoordinator::new(manager.clone())
+            .start(&session.execution_id)
+            .await
+            .unwrap();
         let paused = tokio::time::timeout(Duration::from_secs(1), async {
             loop {
                 let status = manager.get("c", "https://sambee.example", &session.execution_id).await.unwrap();
@@ -916,8 +983,7 @@ mod tests {
         })
         .await
         .expect("archive extraction session should pause for a collision");
-        assert!(manager
-            .clone()
+        assert!(LocalArchiveOperationCoordinator::new(manager.clone())
             .decide(
                 "c",
                 "https://sambee.example",
@@ -932,8 +998,7 @@ mod tests {
             .await
             .is_err());
 
-        manager
-            .clone()
+        LocalArchiveOperationCoordinator::new(manager.clone())
             .decide(
                 "c",
                 "https://sambee.example",
@@ -991,7 +1056,10 @@ mod tests {
             )
             .await;
 
-        manager.clone().start(&session.execution_id).await.unwrap();
+        LocalArchiveOperationCoordinator::new(manager.clone())
+            .start(&session.execution_id)
+            .await
+            .unwrap();
         let paused = tokio::time::timeout(Duration::from_secs(1), async {
             loop {
                 let status = manager.get("c", "https://sambee.example", &session.execution_id).await.unwrap();
@@ -1013,8 +1081,7 @@ mod tests {
                 .unwrap()
                 .partial_output
         );
-        assert!(manager
-            .clone()
+        assert!(LocalArchiveOperationCoordinator::new(manager.clone())
             .decide(
                 "c",
                 "https://sambee.example",
@@ -1030,8 +1097,7 @@ mod tests {
             .is_err());
 
         fs::write(&archive_path, original_archive).unwrap();
-        manager
-            .clone()
+        LocalArchiveOperationCoordinator::new(manager.clone())
             .decide(
                 "c",
                 "https://sambee.example",

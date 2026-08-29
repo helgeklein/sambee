@@ -62,6 +62,14 @@ class ArchiveOperationTopologyPlan:
     topology: ArchiveExecutionTopology
 
 
+@dataclass(frozen=True)
+class ArchiveInspectionTopologyPlan:
+    """Immutable executor selection for a non-durable archive inspection request."""
+
+    driver: ArchiveExecutionDriver
+    source_is_local: bool
+
+
 def resolve_archive_execution_topology(
     *,
     kind: ArchiveOperationKind,
@@ -108,4 +116,14 @@ def resolve_archive_operation_topology_plan(
             source_connection_id=source_connection_id,
             destination_connection_id=destination_connection_id,
         ),
+    )
+
+
+def resolve_archive_inspection_topology_plan(*, source_connection_id: str) -> ArchiveInspectionTopologyPlan:
+    """Select the request-scoped inspection executor from the archive source location."""
+
+    source_is_local = source_connection_id.startswith(LOCAL_DRIVE_PREFIX)
+    return ArchiveInspectionTopologyPlan(
+        driver=ArchiveExecutionDriver.COMPANION if source_is_local else ArchiveExecutionDriver.BACKEND,
+        source_is_local=source_is_local,
     )

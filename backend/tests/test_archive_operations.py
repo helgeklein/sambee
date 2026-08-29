@@ -32,9 +32,9 @@ from app.services.archive.coordinator import (
     ArchiveCreationManifest,
     ArchiveCreationManifestMember,
     ArchiveCreationState,
+    ArchiveExtractionCoordinator,
     ArchiveExtractionManifest,
     ArchiveExtractionManifestMember,
-    ArchiveExtractionRelayState,
     DurableArchiveExecutionStateStore,
     advance_relay_transfer,
     begin_relay_execution,
@@ -209,17 +209,19 @@ def test_relay_extraction_state_validates_and_persists_companion_callbacks() -> 
             checkpoint_json=json.dumps(new_extraction_outcome_checkpoint(manifest=manifest)),
         )
 
-    completion_state = ArchiveExtractionRelayState.from_operation(state_store, streaming_operation())
+    completion_state = ArchiveExtractionCoordinator(streaming_operation(), state_store)
     with pytest.raises(HTTPException, match="target path is invalid") as exc_info:
-        completion_state.complete_member(ArchiveExtractionMemberOutcome("readme.txt", "extracted", "outside.txt", extracted_bytes=5))
+        completion_state.record_member_completed(
+            ArchiveExtractionMemberOutcome("readme.txt", "extracted", "outside.txt", extracted_bytes=5)
+        )
     assert exc_info.value.status_code == status.HTTP_422_UNPROCESSABLE_CONTENT
 
-    completed = completion_state.complete_member(
+    completed = completion_state.record_member_completed(
         ArchiveExtractionMemberOutcome("readme.txt", "extracted", "output/readme.txt", extracted_bytes=5)
     )
     assert json.loads(completed.checkpoint_json)["member_outcomes"]["readme.txt"]["status"] == "extracted"
 
-    collision_state = ArchiveExtractionRelayState.from_operation(state_store, streaming_operation())
+    collision_state = ArchiveExtractionCoordinator(streaming_operation(), state_store)
     paused_for_collision = collision_state.pause_for_collision(
         member_path="readme.txt",
         is_directory=False,
@@ -230,7 +232,7 @@ def test_relay_extraction_state_validates_and_persists_companion_callbacks() -> 
     assert collision_decision["kind"] == "existing_files"
     assert collision_decision["conflicts"][0]["target_path"] == "output/readme.txt"
 
-    error_state = ArchiveExtractionRelayState.from_operation(state_store, streaming_operation())
+    error_state = ArchiveExtractionCoordinator(streaming_operation(), state_store)
     paused_for_error = error_state.pause_for_member_error(
         member_path="readme.txt",
         message="Disk full",

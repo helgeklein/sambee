@@ -24,7 +24,11 @@ from app.services.archive.coordinator import (
     new_extraction_outcome_checkpoint,
 )
 from app.services.archive.creation import ArchiveCreationCancelled, ArchiveCreationMemberOutcome, ArchiveCreationResult
-from app.services.archive.execution import ArchiveExecutionDriver, resolve_archive_operation_topology_plan
+from app.services.archive.execution import (
+    ArchiveExecutionDriver,
+    resolve_archive_inspection_topology_plan,
+    resolve_archive_operation_topology_plan,
+)
 from app.services.archive.extraction import (
     ArchiveExtractionCancelled,
     ArchiveExtractionConflict,
@@ -71,6 +75,14 @@ def _load_trajectory_scenarios(path: Path) -> tuple[dict[str, Any], ...]:
 
 EXTRACTION_TRAJECTORIES = _load_trajectory_scenarios(EXTRACTION_TRAJECTORY_CORPUS_PATH)
 CREATION_TRAJECTORIES = _load_trajectory_scenarios(CREATION_TRAJECTORY_CORPUS_PATH)
+
+
+@pytest.mark.parametrize("case", TOPOLOGY_CASES, ids=lambda case: case.name)
+def test_cross_topology_inspection_plan_selects_the_source_executor(case: TopologyCase) -> None:
+    plan = resolve_archive_inspection_topology_plan(source_connection_id=case.source_connection_id)
+
+    assert plan.source_is_local is case.source_connection_id.startswith("local-drive:")
+    assert plan.driver == (ArchiveExecutionDriver.COMPANION if plan.source_is_local else ArchiveExecutionDriver.BACKEND)
 
 
 @dataclass(frozen=True)

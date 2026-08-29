@@ -51,6 +51,7 @@ from app.models.recent_file import (
 )
 from app.models.user import User
 from app.services.archive.coordinator import ArchiveInspectionCoordinator, ArchiveInspectionPlan
+from app.services.archive.execution import ArchiveExecutionDriver, resolve_archive_inspection_topology_plan
 from app.services.archive.zip_reader import ArchiveFormatError, ZipReader
 from app.services.connection_access import get_accessible_connection_or_404, require_connection_write_access
 from app.services.cross_connection import cross_connection_copy, cross_connection_move
@@ -445,7 +446,12 @@ async def list_archive_directory(
         if archive_info.type != FileType.FILE or archive_info.size is None:
             raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_CONTENT, detail="Archive path must identify a regular file")
         reader = await backend.open_random_access_reader(archive_path)
-        page = await ArchiveInspectionCoordinator(ArchiveInspectionPlan(ZipReader(reader, archive_info.size))).list_directory(
+        topology = resolve_archive_inspection_topology_plan(source_connection_id=str(connection_id))
+        if topology.driver != ArchiveExecutionDriver.BACKEND:
+            raise HTTPException(
+                status_code=status.HTTP_422_UNPROCESSABLE_CONTENT, detail="Archive inspection requires the Companion coordinator"
+            )
+        page = await ArchiveInspectionCoordinator(ArchiveInspectionPlan(ZipReader(reader, archive_info.size), topology)).list_directory(
             virtual_path,
             cursor,
             page_size,
