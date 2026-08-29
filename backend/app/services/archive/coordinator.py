@@ -31,7 +31,7 @@ from app.services.archive.operations import (
 )
 
 ArchiveExtractionRunner = Callable[
-    [Callable[[ArchiveExtractionDestinationResult], Awaitable[None]], Callable[[], Awaitable[bool]]],
+    ["ArchiveExtractionExecutionPlan", Callable[[ArchiveExtractionDestinationResult], Awaitable[None]], Callable[[], Awaitable[bool]]],
     Awaitable[ArchiveExtractionResult],
 ]
 ArchiveCreationRunner = Callable[
@@ -1429,6 +1429,10 @@ class ArchiveExtractionCoordinator:
         """Advance an extraction adapter from its current lifecycle phase."""
 
         operation = self._start_streaming()
+        execution_plan = ArchiveExtractionExecutionPlan.from_checkpoint(
+            load_archive_checkpoint(operation),
+            existing_file_policy=operation.collision_policy,
+        )
 
         async def is_cancelled() -> bool:
             return await self.state_store.is_cancelled(operation)
@@ -1438,7 +1442,7 @@ class ArchiveExtractionCoordinator:
             operation = persist_extraction_member_outcome(self.state_store, operation, outcome)
 
         try:
-            await runner(record_member_completed, is_cancelled)
+            await runner(execution_plan, record_member_completed, is_cancelled)
             checkpoint = load_archive_checkpoint(operation)
             completed_checkpoint_json = ArchiveExtractionExecutionPlan.from_checkpoint(checkpoint).completion_checkpoint_json(
                 destination_root_created=False

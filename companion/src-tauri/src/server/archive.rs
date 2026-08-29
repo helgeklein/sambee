@@ -97,6 +97,116 @@ pub struct ArchiveInspectionManifest {
     pub entries: Vec<ArchiveInspectionManifestMember>,
 }
 
+impl ArchiveInspectionManifest {
+    /// Resolve a safe regular member that is available for reading.
+    pub fn member(&self, member_path: &str) -> Result<&ArchiveInspectionManifestMember, LocalArchiveReadError> {
+        let (normalized_path, is_directory) = normalize_virtual_path(member_path);
+        if is_directory || normalized_path.is_empty() || !is_safe_virtual_path(member_path, &normalized_path) {
+            return Err(LocalArchiveReadError::InvalidMemberPath);
+        }
+        let entry = self
+            .entries
+            .iter()
+            .find(|entry| entry.is_safe && entry.has_supported_file_type && !entry.is_directory && entry.path == normalized_path)
+            .ok_or(LocalArchiveReadError::MemberNotFound)?;
+        if !entry.is_preview_available() {
+            return Err(LocalArchiveReadError::UnavailableMember);
+        }
+        Ok(entry)
+    }
+
+    /// Return a bounded virtual directory page derived from the inspection manifest.
+    pub fn list_directory(
+        &self,
+        virtual_path: &str,
+        cursor: Option<&str>,
+        page_size: usize,
+    ) -> Result<LocalArchiveDirectoryPage, LocalArchiveReadError> {
+        let (normalized_path, is_directory) = normalize_virtual_path(virtual_path);
+        if (!virtual_path.is_empty() && (!is_directory || normalized_path.is_empty()))
+            || !is_safe_virtual_path(&format!("{normalized_path}/"), &normalized_path) && !normalized_path.is_empty()
+        {
+            return Err(LocalArchiveReadError::InvalidDirectoryPath);
+        }
+        let prefix = if normalized_path.is_empty() {
+            String::new()
+        } else {
+            format!("{normalized_path}/")
+        };
+        let mut children = BTreeMap::new();
+        for entry in &self.entries {
+            if !entry.is_safe || !entry.has_supported_file_type || !entry.path.starts_with(&prefix) {
+                continue;
+            }
+            let remainder = &entry.path[prefix.len()..];
+            if remainder.is_empty() {
+                continue;
+            }
+            let (name, descendant) = remainder.split_once('/').map_or((remainder, false), |(name, _)| (name, true));
+            let path = format!("{prefix}{name}");
+            if descendant {
+                children.entry(path.clone()).or_insert_with(|| LocalArchiveDirectoryEntry {
+                    name: name.to_string(),
+                    path,
+                    is_directory: true,
+                    compressed_size: None,
+                    uncompressed_size: None,
+                    compression_method: None,
+                    crc32: None,
+                    modified_at: None,
+                    encrypted: false,
+                    is_available: false,
+                });
+                continue;
+            }
+            children.insert(
+                path.clone(),
+                LocalArchiveDirectoryEntry {
+                    name: name.to_string(),
+                    path,
+                    is_directory: entry.is_directory,
+                    compressed_size: (!entry.is_directory).then_some(entry.compressed_size),
+                    uncompressed_size: (!entry.is_directory).then_some(entry.uncompressed_size),
+                    compression_method: (!entry.is_directory).then_some(entry.compression_method),
+                    crc32: (!entry.is_directory).then_some(entry.crc32),
+                    modified_at: entry.modified_at,
+                    encrypted: entry.encrypted,
+                    is_available: entry.is_inline_preview_eligible(),
+                },
+            );
+        }
+        let mut entries = children.into_values().collect::<Vec<_>>();
+        entries.sort_by(|left, right| {
+            left.is_directory
+                .cmp(&right.is_directory)
+                .reverse()
+                .then_with(|| {
+                    left.name
+                        .nfc()
+                        .case_fold()
+                        .collect::<String>()
+                        .cmp(&right.name.nfc().case_fold().collect::<String>())
+                })
+                .then_with(|| left.name.cmp(&right.name))
+        });
+        let start = match cursor {
+            Some(value) if !value.is_empty() => usize::from_str_radix(value, 16).map_err(|_| LocalArchiveReadError::InvalidCursor)?,
+            _ => 0,
+        };
+        if start > entries.len() {
+            return Err(LocalArchiveReadError::InvalidCursor);
+        }
+        let total = entries.len();
+        let next_offset = start.saturating_add(page_size);
+        let next_cursor = (next_offset < total).then(|| format!("{next_offset:x}"));
+        Ok(LocalArchiveDirectoryPage {
+            entries: entries.into_iter().skip(start).take(page_size).collect(),
+            total,
+            next_cursor,
+        })
+    }
+}
+
 /// A single direct child returned from a virtual archive directory.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct LocalArchiveDirectoryEntry {
@@ -1249,97 +1359,6 @@ pub fn inspect_local_archive(archive_path: &Path) -> Result<ArchiveInspectionMan
                 has_supported_file_type: entry.has_supported_file_type,
             })
             .collect(),
-    })
-}
-
-/// Return a bounded virtual-directory page without staging local archive contents.
-pub fn list_local_archive_directory(
-    archive_path: &Path,
-    virtual_path: &str,
-    cursor: Option<&str>,
-    page_size: usize,
-) -> Result<LocalArchiveDirectoryPage, LocalArchiveReadError> {
-    let (normalized_path, is_directory) = normalize_virtual_path(virtual_path);
-    if (!virtual_path.is_empty() && (!is_directory || normalized_path.is_empty()))
-        || !is_safe_virtual_path(&format!("{normalized_path}/"), &normalized_path) && !normalized_path.is_empty()
-    {
-        return Err(LocalArchiveReadError::InvalidDirectoryPath);
-    }
-    let prefix = if normalized_path.is_empty() {
-        String::new()
-    } else {
-        format!("{normalized_path}/")
-    };
-    let mut children = BTreeMap::new();
-    for entry in inspect_local_archive(archive_path)?.entries {
-        if !entry.is_safe || !entry.has_supported_file_type || !entry.path.starts_with(&prefix) {
-            continue;
-        }
-        let remainder = &entry.path[prefix.len()..];
-        if remainder.is_empty() {
-            continue;
-        }
-        let (name, descendant) = remainder.split_once('/').map_or((remainder, false), |(name, _)| (name, true));
-        let path = format!("{prefix}{name}");
-        if descendant {
-            children.entry(path.clone()).or_insert_with(|| LocalArchiveDirectoryEntry {
-                name: name.to_string(),
-                path,
-                is_directory: true,
-                compressed_size: None,
-                uncompressed_size: None,
-                compression_method: None,
-                crc32: None,
-                modified_at: None,
-                encrypted: false,
-                is_available: false,
-            });
-            continue;
-        }
-        children.insert(
-            path.clone(),
-            LocalArchiveDirectoryEntry {
-                name: name.to_string(),
-                path,
-                is_directory: entry.is_directory,
-                compressed_size: (!entry.is_directory).then_some(entry.compressed_size),
-                uncompressed_size: (!entry.is_directory).then_some(entry.uncompressed_size),
-                compression_method: (!entry.is_directory).then_some(entry.compression_method),
-                crc32: (!entry.is_directory).then_some(entry.crc32),
-                modified_at: entry.modified_at,
-                encrypted: entry.encrypted,
-                is_available: entry.is_inline_preview_eligible(),
-            },
-        );
-    }
-    let mut entries = children.into_values().collect::<Vec<_>>();
-    entries.sort_by(|left, right| {
-        left.is_directory
-            .cmp(&right.is_directory)
-            .reverse()
-            .then_with(|| {
-                left.name
-                    .nfc()
-                    .case_fold()
-                    .collect::<String>()
-                    .cmp(&right.name.nfc().case_fold().collect::<String>())
-            })
-            .then_with(|| left.name.cmp(&right.name))
-    });
-    let start = match cursor {
-        Some(value) if !value.is_empty() => usize::from_str_radix(value, 16).map_err(|_| LocalArchiveReadError::InvalidCursor)?,
-        _ => 0,
-    };
-    if start > entries.len() {
-        return Err(LocalArchiveReadError::InvalidCursor);
-    }
-    let total = entries.len();
-    let next_offset = start.saturating_add(page_size);
-    let next_cursor = (next_offset < total).then(|| format!("{next_offset:x}"));
-    Ok(LocalArchiveDirectoryPage {
-        entries: entries.into_iter().skip(start).take(page_size).collect(),
-        total,
-        next_cursor,
     })
 }
 
@@ -3013,18 +3032,21 @@ mod tests {
         let entries = build_local_archive_manifest(&[source_root], &target).unwrap();
         create_local_archive(directory.path(), &target, &entries, || false).unwrap();
 
-        let first_page = list_local_archive_directory(&target, "source/", None, 1).unwrap();
+        let first_page = inspect_local_archive(&target).unwrap().list_directory("source/", None, 1).unwrap();
         assert_eq!(first_page.total, 2);
         assert_eq!(first_page.entries[0].name, "nested");
         assert!(first_page.entries[0].is_directory);
         assert_eq!(first_page.next_cursor.as_deref(), Some("1"));
 
-        let second_page = list_local_archive_directory(&target, "source/", first_page.next_cursor.as_deref(), 1).unwrap();
+        let second_page = inspect_local_archive(&target)
+            .unwrap()
+            .list_directory("source/", first_page.next_cursor.as_deref(), 1)
+            .unwrap();
         assert_eq!(second_page.entries[0].name, "alpha.txt");
         assert_eq!(second_page.entries[0].uncompressed_size, Some(5));
         assert_eq!(second_page.next_cursor, None);
         assert!(matches!(
-            list_local_archive_directory(&target, "../unsafe/", None, 100),
+            inspect_local_archive(&target).unwrap().list_directory("../unsafe/", None, 100),
             Err(LocalArchiveReadError::InvalidDirectoryPath)
         ));
     }
@@ -4350,7 +4372,9 @@ mod tests {
         fs::write(&archive_path, archive_bytes).unwrap();
         let destination = directory.path().join("output");
 
-        assert!(list_local_archive_directory(&archive_path, "", None, 100)
+        assert!(inspect_local_archive(&archive_path)
+            .unwrap()
+            .list_directory("", None, 100)
             .unwrap()
             .entries
             .is_empty());

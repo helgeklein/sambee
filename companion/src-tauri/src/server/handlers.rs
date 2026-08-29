@@ -30,12 +30,12 @@ use crate::{commands, show_pairing_success, show_pairing_window};
 
 use super::archive::{
     build_local_archive_manifest, build_local_archive_manifest_for_remote_target, create_local_archive, create_local_archive_relay_writer,
-    create_local_extraction_root, ensure_local_extraction_directory, list_local_archive_directory, open_local_extraction_file,
+    create_local_extraction_root, ensure_local_extraction_directory, inspect_local_archive, open_local_extraction_file,
     project_local_archive_creation_manifest, reopen_partial_local_extraction_file, stream_local_archive_member,
-    validate_local_archive_extraction, validate_local_archive_member, validate_local_extraction_member_path, ArchiveCreationManifest,
-    ArchiveCreationManifestState, ArchiveExtractionManifest, ArchiveExtractionManifestMember, ArchiveExtractionRelayExecutionPlan,
-    ArchiveExtractionRelayState, LocalArchiveCreationResult, LocalArchiveEntry, LocalArchiveError, LocalArchiveReadEntry,
-    LocalArchiveRelayChunk, ARCHIVE_COPY_BUFFER_SIZE,
+    validate_local_archive_extraction, validate_local_extraction_member_path, ArchiveCreationManifest, ArchiveCreationManifestState,
+    ArchiveExtractionManifest, ArchiveExtractionManifestMember, ArchiveExtractionRelayExecutionPlan, ArchiveExtractionRelayState,
+    LocalArchiveCreationResult, LocalArchiveEntry, LocalArchiveError, LocalArchiveReadEntry, LocalArchiveRelayChunk,
+    ARCHIVE_COPY_BUFFER_SIZE,
 };
 use super::archive_sessions::{ArchiveSessionProgress, ArchiveSessionStatus};
 use super::auth;
@@ -54,9 +54,6 @@ use super::AppState;
 
 /// Characters forbidden in file/directory names (matches backend validation).
 const FORBIDDEN_NAME_CHARS: &[char] = &['\\', '/', ':', '*', '?', '"', '<', '>', '|'];
-/// Largest archive member returned inline for a browser preview.
-const MAX_ARCHIVE_MEMBER_PREVIEW_BYTES: u64 = 5 * 1024 * 1024;
-
 /// Prefix used by the frontend for synthetic local-drive connection IDs.
 const LOCAL_DRIVE_PREFIX: &str = "local-drive:";
 /// Maximum number of potentially blocking local target resolutions per batch.
@@ -467,7 +464,7 @@ pub async fn browse_list_archive(
     let requested_virtual_path = virtual_path.clone();
     let cursor = query.cursor;
     let page = tokio::task::spawn_blocking(move || {
-        list_local_archive_directory(&archive_path, &requested_virtual_path, cursor.as_deref(), page_size)
+        inspect_local_archive(&archive_path)?.list_directory(&requested_virtual_path, cursor.as_deref(), page_size)
     })
     .await
     .map_err(|error| ApiError::Internal(format!("Local archive listing task failed: {error}")))?
@@ -748,13 +745,15 @@ pub async fn viewer_archive_member(Path(drive): Path<String>, Query(query): Quer
     }
 
     let member_path = query.member_path.replace('\\', "/");
-    let validation_path = archive_path.clone();
-    let validation_member_path = member_path.clone();
-    let member = tokio::task::spawn_blocking(move || validate_local_archive_member(&validation_path, &validation_member_path))
-        .await
-        .map_err(|error| ApiError::Internal(format!("Local archive validation task failed: {error}")))?
-        .map_err(map_local_archive_read_error)?;
-    if !query.download && member.uncompressed_size > MAX_ARCHIVE_MEMBER_PREVIEW_BYTES {
+    let inspection_path = archive_path.clone();
+    let inspection_member_path = member_path.clone();
+    let member = tokio::task::spawn_blocking(move || {
+        inspect_local_archive(&inspection_path).and_then(|manifest| manifest.member(&inspection_member_path).cloned())
+    })
+    .await
+    .map_err(|error| ApiError::Internal(format!("Local archive validation task failed: {error}")))?
+    .map_err(map_local_archive_read_error)?;
+    if !query.download && !member.is_inline_preview_eligible() {
         return Err(ApiError::PayloadTooLarge(
             "Archive member exceeds the inline preview size limit".to_string(),
         ));

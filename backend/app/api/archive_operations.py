@@ -1490,23 +1490,16 @@ async def execute_archive_extraction(
                 )
 
         async def run_extraction(
+            execution_plan: ArchiveExtractionExecutionPlan,
             record_member_completed: Callable[[ArchiveExtractionDestinationResult], Awaitable[None]],
             is_cancelled: Callable[[], Awaitable[bool]],
         ) -> ArchiveExtractionResult:
-            execution_plan = ArchiveExtractionExecutionPlan.from_checkpoint(
-                load_archive_checkpoint(operation),
-                existing_file_policy=operation.collision_policy,
-            )
             return await extract_archive_to_new_paths(
                 backend,
                 destination=backend,
                 archive_path=operation.source_path,
                 destination_root=operation.destination_path,
-                existing_file_policy=execution_plan.existing_file_policy,
-                member_collision_actions=execution_plan.collision_actions(),
-                member_rename_targets=execution_plan.rename_targets(),
-                ignored_members=execution_plan.ignored_member_paths(),
-                completed_members=list(execution_plan.completed_member_paths()),
+                execution_plan=execution_plan,
                 on_member_completed=record_member_completed,
                 is_cancelled=is_cancelled,
             )

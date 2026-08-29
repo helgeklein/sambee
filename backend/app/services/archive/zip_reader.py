@@ -10,8 +10,6 @@ from dataclasses import dataclass
 from datetime import datetime
 from typing import Literal
 
-from app.models.archive import ArchiveEntryInfo
-from app.models.file import FileType
 from app.storage.base import RandomAccessReader
 
 _EOCD_SIGNATURE = b"PK\x05\x06"
@@ -101,10 +99,95 @@ class ArchiveInspectionManifestMember:
 
 
 @dataclass(frozen=True)
+class ArchiveInspectionDirectoryEntry:
+    """Presentation-neutral direct child derived from an inspection manifest."""
+
+    name: str
+    path: str
+    is_directory: bool
+    compressed_size: int | None = None
+    uncompressed_size: int | None = None
+    compression_method: int | None = None
+    crc32: int | None = None
+    modified_at: datetime | None = None
+    preview_state: Literal["readable", "blocked", "unavailable"] = "unavailable"
+
+
+@dataclass(frozen=True)
+class ArchiveInspectionDirectoryPage:
+    """A stable bounded directory page derived from an inspection manifest."""
+
+    entries: tuple[ArchiveInspectionDirectoryEntry, ...]
+    total: int
+    next_cursor: str | None
+
+
+@dataclass(frozen=True)
 class ArchiveInspectionManifest:
     """Immutable normalized archive inspection result, independent of HTTP DTOs."""
 
     entries: tuple[ArchiveInspectionManifestMember, ...]
+
+    def member(self, path: str) -> ArchiveInspectionManifestMember:
+        """Resolve a safe regular member that is available for reading."""
+
+        normalized_path, is_directory = _normalize_path(path)
+        if is_directory or not normalized_path:
+            raise ArchiveFormatError("Archive member path must identify a regular file")
+        entry = next(
+            (
+                candidate
+                for candidate in self.entries
+                if candidate.is_safe and candidate.has_supported_file_type and candidate.path == normalized_path
+            ),
+            None,
+        )
+        if entry is None:
+            raise ArchiveFormatError("Archive member was not found")
+        if entry.encrypted or entry.compression_method not in _READABLE_METHODS:
+            raise ArchiveFormatError("Archive member uses an unavailable codec or blocked feature")
+        return entry
+
+    def list_directory(self, path: str, cursor: str | None, page_size: int) -> ArchiveInspectionDirectoryPage:
+        """Return a stable virtual directory page without using HTTP response types."""
+
+        normalized_path, _ = _normalize_path(path)
+        if path and not normalized_path:
+            raise ArchiveFormatError("Archive directory path is invalid")
+        prefix = f"{normalized_path}/" if normalized_path else ""
+        children: dict[str, ArchiveInspectionDirectoryEntry] = {}
+        for entry in self.entries:
+            if not entry.is_safe or not entry.has_supported_file_type or not entry.path.startswith(prefix):
+                continue
+            remainder = entry.path[len(prefix) :]
+            if not remainder:
+                continue
+            child_name, separator, _ = remainder.partition("/")
+            child_path = f"{prefix}{child_name}"
+            if separator:
+                children.setdefault(child_path, ArchiveInspectionDirectoryEntry(child_name, child_path, True))
+                continue
+            children[child_path] = ArchiveInspectionDirectoryEntry(
+                name=child_name,
+                path=child_path,
+                is_directory=entry.is_directory,
+                compressed_size=None if entry.is_directory else entry.compressed_size,
+                uncompressed_size=None if entry.is_directory else entry.uncompressed_size,
+                compression_method=None if entry.is_directory else entry.compression_method,
+                crc32=None if entry.is_directory else entry.crc32,
+                modified_at=entry.modified_at,
+                preview_state=entry.preview_state,
+            )
+        ordered = sorted(
+            children.values(),
+            key=lambda item: (not item.is_directory, unicodedata.normalize("NFC", item.name).casefold(), item.name),
+        )
+        start = decode_cursor(cursor)
+        if start > len(ordered):
+            raise ArchiveFormatError("Archive listing cursor is out of range")
+        page = ordered[start : start + page_size]
+        next_cursor = _cursor(start + page_size) if start + page_size < len(ordered) else None
+        return ArchiveInspectionDirectoryPage(tuple(page), len(ordered), next_cursor)
 
 
 def _u16(data: bytes, offset: int) -> int:
@@ -365,21 +448,13 @@ class ZipReader:
 
     async def validate_member(self, path: str) -> ZipEntry:
         """Resolve and validate a member before a response commits headers."""
-        normalized_path, is_directory = _normalize_path(path)
-        if is_directory or not normalized_path:
-            raise ArchiveFormatError("Archive member path must identify a regular file")
+        inspection_member = (await self.inspection_manifest()).member(path)
         entry = next(
-            (
-                candidate
-                for candidate in await self.entries()
-                if candidate.is_safe and candidate.has_supported_file_type and candidate.path == normalized_path
-            ),
+            (candidate for candidate in await self.entries() if candidate.path == inspection_member.path),
             None,
         )
         if entry is None:
             raise ArchiveFormatError("Archive member was not found")
-        if entry.encrypted or entry.compression_method not in _READABLE_METHODS:
-            raise ArchiveFormatError("Archive member uses an unavailable codec or blocked feature")
 
         local_header = await self._read_exact(entry.local_header_offset, 30)
         if local_header[:4] != _LOCAL_FILE_SIGNATURE:
@@ -485,46 +560,3 @@ class ZipReader:
             raise ArchiveFormatError("Archive member codec is unavailable")
         if total != entry.uncompressed_size or crc & 0xFFFFFFFF != entry.crc32:
             raise ArchiveFormatError("ZIP member integrity check failed")
-
-    async def list_directory(self, path: str, cursor: str | None, page_size: int) -> tuple[list[ArchiveEntryInfo], int, str | None]:
-        normalized_path, _ = _normalize_path(path)
-        if path and not normalized_path:
-            raise ArchiveFormatError("Archive directory path is invalid")
-        prefix = f"{normalized_path}/" if normalized_path else ""
-        children: dict[str, ArchiveEntryInfo] = {}
-        for entry in (await self.inspection_manifest()).entries:
-            if not entry.is_safe or not entry.has_supported_file_type or not entry.path.startswith(prefix):
-                continue
-            remainder = entry.path[len(prefix) :]
-            if not remainder:
-                continue
-            child_name, separator, _ = remainder.partition("/")
-            child_path = f"{prefix}{child_name}"
-            if separator:
-                children.setdefault(
-                    child_path,
-                    ArchiveEntryInfo(name=child_name, path=child_path, type=FileType.DIRECTORY, state="unavailable"),
-                )
-                continue
-            children[child_path] = ArchiveEntryInfo(
-                name=child_name,
-                path=child_path,
-                type=FileType.DIRECTORY if entry.is_directory else FileType.FILE,
-                size=None if entry.is_directory else entry.uncompressed_size,
-                compressed_size=None if entry.is_directory else entry.compressed_size,
-                compression_method=None if entry.is_directory else entry.compression_method,
-                crc32=None if entry.is_directory else entry.crc32,
-                modified_at=entry.modified_at,
-                state=entry.preview_state,
-                is_hidden=child_name.startswith("."),
-            )
-        ordered = sorted(
-            children.values(),
-            key=lambda item: (item.type != FileType.DIRECTORY, unicodedata.normalize("NFC", item.name).casefold(), item.name),
-        )
-        start = decode_cursor(cursor)
-        if start > len(ordered):
-            raise ArchiveFormatError("Archive listing cursor is out of range")
-        page = ordered[start : start + page_size]
-        next_cursor = _cursor(start + page_size) if start + page_size < len(ordered) else None
-        return page, len(ordered), next_cursor

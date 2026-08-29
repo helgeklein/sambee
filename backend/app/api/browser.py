@@ -21,7 +21,7 @@ from app.api.companion import (
 from app.core.logging import get_logger, set_user
 from app.core.security import decrypt_password, get_current_user_for_token, get_current_user_with_auth_check, oauth2_scheme_optional
 from app.db.database import get_session
-from app.models.archive import ArchiveDirectoryListing, ArchiveIdentity
+from app.models.archive import ArchiveDirectoryListing, ArchiveEntryInfo, ArchiveIdentity
 from app.models.connection import Connection
 from app.models.edit_lock import HEARTBEAT_TIMEOUT_SECONDS, EditLock
 from app.models.file import (
@@ -444,13 +444,27 @@ async def list_archive_directory(
         if archive_info.type != FileType.FILE or archive_info.size is None:
             raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_CONTENT, detail="Archive path must identify a regular file")
         reader = await backend.open_random_access_reader(archive_path)
-        items, total, next_cursor = await ZipReader(reader, archive_info.size).list_directory(virtual_path, cursor, page_size)
+        page = (await ZipReader(reader, archive_info.size).inspection_manifest()).list_directory(virtual_path, cursor, page_size)
         return ArchiveDirectoryListing(
             archive=ArchiveIdentity(path=archive_path, size=archive_info.size, modified_at=archive_info.modified_at),
             path=virtual_path.rstrip("/"),
-            items=items,
-            total=total,
-            next_cursor=next_cursor,
+            items=[
+                ArchiveEntryInfo(
+                    name=entry.name,
+                    path=entry.path,
+                    type=FileType.DIRECTORY if entry.is_directory else FileType.FILE,
+                    size=entry.uncompressed_size,
+                    compressed_size=entry.compressed_size,
+                    compression_method=entry.compression_method,
+                    crc32=entry.crc32,
+                    modified_at=entry.modified_at,
+                    state=entry.preview_state,
+                    is_hidden=entry.name.startswith("."),
+                )
+                for entry in page.entries
+            ],
+            total=page.total,
+            next_cursor=page.next_cursor,
             page_size=page_size,
         )
     except ArchiveFormatError as exc:

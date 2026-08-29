@@ -2958,14 +2958,16 @@ def test_executes_same_connection_extraction(
         destination=backend,
         archive_path="input.zip",
         destination_root="output",
-        existing_file_policy=None,
-        member_collision_actions={},
-        member_rename_targets={},
-        ignored_members=[],
-        completed_members=[],
+        execution_plan=ANY,
         on_member_completed=ANY,
         is_cancelled=ANY,
     )
+    execution_plan = extract_archive.await_args.kwargs["execution_plan"]
+    assert execution_plan.existing_file_policy is None
+    assert execution_plan.collision_actions() == {}
+    assert execution_plan.rename_targets() == {}
+    assert execution_plan.ignored_member_paths() == []
+    assert execution_plan.completed_member_paths() == frozenset()
 
 
 def test_extraction_conflicts_become_pending_user_decisions(
@@ -3111,7 +3113,7 @@ def test_individual_extraction_decision_is_limited_to_pending_member(
     assert resumed.status_code == 200
     assert resumed.json()["phase"] == "completed"
     assert json.loads(resumed.json()["checkpoint_json"])["skipped_members"] == ["root.txt"]
-    assert extract_archive.await_args.kwargs["member_collision_actions"] == {"root.txt": "skip"}
+    assert extract_archive.await_args.kwargs["execution_plan"].collision_actions() == {"root.txt": "skip"}
 
 
 def test_direct_smb_extraction_rejects_a_source_changed_after_pause(
@@ -3240,7 +3242,7 @@ def test_individual_rename_decision_persists_a_safe_member_remap(
 
     assert resumed.status_code == 200
     assert json.loads(resumed.json()["checkpoint_json"])["renamed_members"] == ["root.txt"]
-    assert extract_archive.await_args.kwargs["member_rename_targets"] == {"root.txt": "renamed/root-copy.txt"}
+    assert extract_archive.await_args.kwargs["execution_plan"].rename_targets() == {"root.txt": "renamed/root-copy.txt"}
 
 
 def test_member_write_failure_pauses_for_retry_or_ignore(
@@ -3334,7 +3336,7 @@ def test_member_write_failure_pauses_for_retry_or_ignore(
     assert resumed.json()["phase"] == "completed"
     assert ignore_scenario["terminal_phase"] == "completed"
     assert ignore_scenario["progress"]["files_skipped"] == 1
-    assert extract_archive.await_args.kwargs["ignored_members"] == ["root.txt"]
+    assert extract_archive.await_args.kwargs["execution_plan"].ignored_member_paths() == ["root.txt"]
 
 
 def test_rejects_malformed_persisted_extraction_decision(

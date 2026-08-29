@@ -40,6 +40,21 @@ class ArchiveExtractionBackend(ArchiveExtractionSource, ArchiveExtractionDestina
     """Compatibility protocol for a same-executor extraction binding."""
 
 
+class ArchiveExtractionExecutionPlan(Protocol):
+    """Immutable persisted extraction decisions consumed by a direct executor."""
+
+    @property
+    def existing_file_policy(self) -> str | None: ...
+
+    def collision_actions(self) -> Mapping[str, str]: ...
+
+    def rename_targets(self) -> Mapping[str, str]: ...
+
+    def ignored_member_paths(self) -> Collection[str]: ...
+
+    def completed_member_paths(self) -> Collection[str]: ...
+
+
 @dataclass(frozen=True)
 class ArchiveExtractionResult:
     files_extracted: int
@@ -230,6 +245,7 @@ async def extract_archive_to_new_paths(
     destination: ArchiveExtractionDestination | None = None,
     archive_path: str,
     destination_root: str,
+    execution_plan: ArchiveExtractionExecutionPlan | None = None,
     existing_file_policy: str | None = None,
     member_collision_actions: Mapping[str, str] | None = None,
     member_rename_targets: Mapping[str, str] | None = None,
@@ -240,6 +256,20 @@ async def extract_archive_to_new_paths(
 ) -> ArchiveExtractionResult:
     """Extract safe, readable ZIP members through independent source and destination adapters."""
 
+    if execution_plan is not None:
+        if (
+            existing_file_policy is not None
+            or member_collision_actions is not None
+            or member_rename_targets is not None
+            or ignored_members
+            or completed_members
+        ):
+            raise ValueError("Execution plan cannot be combined with individual extraction decisions")
+        existing_file_policy = execution_plan.existing_file_policy
+        member_collision_actions = execution_plan.collision_actions()
+        member_rename_targets = execution_plan.rename_targets()
+        ignored_members = execution_plan.ignored_member_paths()
+        completed_members = execution_plan.completed_member_paths()
     if destination is None:
         destination = cast(ArchiveExtractionDestination, source)
     archive_info = await source.get_file_info(archive_path)

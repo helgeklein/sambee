@@ -7,7 +7,6 @@ import zlib
 
 import pytest
 
-from app.models.file import FileType
 from app.services.archive.zip_reader import ArchiveFormatError, ZipReader
 
 
@@ -71,13 +70,12 @@ def _zip_with_unicode_path_extra(*, valid_crc: bool) -> bytes:
 @pytest.mark.asyncio
 async def test_lists_root_and_implicit_directory() -> None:
     data = _zip_bytes()
-    reader = ZipReader(MemoryRandomAccessReader(data), len(data))
+    manifest = await ZipReader(MemoryRandomAccessReader(data), len(data)).inspection_manifest()
+    page = manifest.list_directory("", None, 10)
 
-    items, total, next_cursor = await reader.list_directory("", None, 10)
-
-    assert total == 2
-    assert next_cursor is None
-    assert [(item.name, item.type) for item in items] == [("folder", FileType.DIRECTORY), ("root.txt", FileType.FILE)]
+    assert page.total == 2
+    assert page.next_cursor is None
+    assert [(item.name, item.is_directory) for item in page.entries] == [("folder", True), ("root.txt", False)]
 
 
 @pytest.mark.asyncio
@@ -96,27 +94,25 @@ async def test_projects_a_normalized_inspection_manifest() -> None:
 @pytest.mark.asyncio
 async def test_pages_subdirectory_listing_stably() -> None:
     data = _zip_bytes()
-    reader = ZipReader(MemoryRandomAccessReader(data), len(data))
+    manifest = await ZipReader(MemoryRandomAccessReader(data), len(data)).inspection_manifest()
+    first_page = manifest.list_directory("folder/", None, 1)
+    second_page = manifest.list_directory("folder/", first_page.next_cursor, 1)
 
-    first_page, total, cursor = await reader.list_directory("folder/", None, 1)
-    second_page, _, final_cursor = await reader.list_directory("folder/", cursor, 1)
-
-    assert total == 2
-    assert [item.name for item in first_page] == ["deeper"]
-    assert [item.name for item in second_page] == ["nested.txt"]
-    assert final_cursor is None
+    assert first_page.total == 2
+    assert [item.name for item in first_page.entries] == ["deeper"]
+    assert [item.name for item in second_page.entries] == ["nested.txt"]
+    assert second_page.next_cursor is None
 
 
 @pytest.mark.asyncio
 async def test_lists_subdirectory_with_canonical_path() -> None:
     data = _zip_bytes()
-    reader = ZipReader(MemoryRandomAccessReader(data), len(data))
+    manifest = await ZipReader(MemoryRandomAccessReader(data), len(data)).inspection_manifest()
+    page = manifest.list_directory("folder", None, 10)
 
-    items, total, next_cursor = await reader.list_directory("folder", None, 10)
-
-    assert total == 2
-    assert next_cursor is None
-    assert [item.name for item in items] == ["deeper", "nested.txt"]
+    assert page.total == 2
+    assert page.next_cursor is None
+    assert [item.name for item in page.entries] == ["deeper", "nested.txt"]
 
 
 @pytest.mark.asyncio
@@ -153,11 +149,11 @@ async def test_normalizes_backslash_member_names() -> None:
         archive.writestr("folder\\entry.txt", "entry")
     data = buffer.getvalue()
 
-    items, total, _ = await ZipReader(MemoryRandomAccessReader(data), len(data)).list_directory("", None, 10)
+    page = (await ZipReader(MemoryRandomAccessReader(data), len(data)).inspection_manifest()).list_directory("", None, 10)
 
-    assert total == 1
-    assert items[0].name == "folder"
-    assert items[0].type == FileType.DIRECTORY
+    assert page.total == 1
+    assert page.entries[0].name == "folder"
+    assert page.entries[0].is_directory
 
 
 @pytest.mark.asyncio
@@ -182,11 +178,11 @@ async def test_ignores_infozip_unicode_path_when_its_crc_does_not_match() -> Non
 async def test_hides_symbolic_link_members_from_virtual_listings() -> None:
     data = _symbolic_link_zip_bytes()
 
-    items, total, next_cursor = await ZipReader(MemoryRandomAccessReader(data), len(data)).list_directory("", None, 10)
+    page = (await ZipReader(MemoryRandomAccessReader(data), len(data)).inspection_manifest()).list_directory("", None, 10)
 
-    assert items == []
-    assert total == 0
-    assert next_cursor is None
+    assert page.entries == ()
+    assert page.total == 0
+    assert page.next_cursor is None
 
 
 @pytest.mark.asyncio
