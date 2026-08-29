@@ -1,5 +1,11 @@
 {
   "version": 1,
+  "topologies": [
+    "smb_to_smb",
+    "local_to_local",
+    "smb_to_local",
+    "local_to_smb"
+  ],
   "scenarios": [
     {
       "name": "collision_decisions_resume_to_terminal_summary",

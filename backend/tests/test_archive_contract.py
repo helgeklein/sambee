@@ -28,6 +28,7 @@ RELAY_BINDINGS_PATH = WORKSPACE_ROOT / "archive-contract" / "v1" / "relay-bindin
 RELAY_CONTROL_PAYLOADS_PATH = WORKSPACE_ROOT / "archive-contract" / "v1" / "relay-control-payloads-v1.json"
 TOPOLOGY_OPERATION_MATRIX_PATH = WORKSPACE_ROOT / "archive-contract" / "v1" / "topology-operation-compatibility-matrix-v1.json"
 COMPANION_RELAY_BINDING_PATH = WORKSPACE_ROOT / "companion" / "src-tauri" / "src" / "server" / "handlers.rs"
+COMPANION_ROUTER_PATH = WORKSPACE_ROOT / "companion" / "src-tauri" / "src" / "server" / "mod.rs"
 ARCHIVE_API_PREFIX = "/api/archive"
 CANONICAL_RELAY_PATH_SEGMENT = "/companion-relay/"
 HTTP_OPERATION_METHODS = frozenset({"get", "post", "put"})
@@ -150,6 +151,25 @@ def test_archive_contract_covers_backend_and_companion_relay_purposes() -> None:
     documented_purposes = _documented_relay_purposes(contract)
     assert documented_purposes == {purpose.value for purpose in ArchiveCompanionRelayPurpose}
     assert documented_purposes == _companion_relay_purposes()
+
+
+def test_archive_contract_binds_normalized_local_execution_routes_to_companion_router() -> None:
+    """Keep the V1 local execution lifecycle contract aligned with Companion's drive-scoped adapter routes."""
+
+    contract = yaml.safe_load(ARCHIVE_CONTRACT_PATH.read_text(encoding="utf-8"))
+    normalized_paths = {
+        "/archive-executions": "browse_start_archive_execution",
+        "/archive-executions/{executionId}": "browse_get_archive_execution",
+        "/archive-executions/{executionId}/cancellation": "browse_cancel_archive_execution",
+        "/archive-executions/{executionId}/decisions": "browse_decide_archive_execution",
+    }
+    assert set(normalized_paths).issubset(contract["paths"])
+    router = COMPANION_ROUTER_PATH.read_text(encoding="utf-8")
+    for normalized_path, handler in normalized_paths.items():
+        assert normalized_path.startswith("/archive-executions")
+        assert handler in router
+    assert "/api/browse/{drive}/archive/executions" in router
+    assert "/api/browse/{drive}/archive/executions/{execution_id}" in router
 
 
 def test_v1_relay_binding_fixture_covers_backend_contract_and_companion() -> None:

@@ -33,8 +33,9 @@ use super::archive::{
     create_local_extraction_root, ensure_local_extraction_directory, list_local_archive_directory, open_local_extraction_file,
     reopen_partial_local_extraction_file, stream_local_archive_member, validate_local_archive_extraction, validate_local_archive_member,
     validate_local_extraction_member_path, ArchiveCreationManifest, ArchiveCreationManifestMember, ArchiveCreationManifestState,
-    ArchiveExtractionManifest, ArchiveExtractionManifestMember, ArchiveExtractionRelayState, LocalArchiveCreationResult, LocalArchiveEntry,
-    LocalArchiveError, LocalArchiveReadEntry, LocalArchiveRelayChunk, ARCHIVE_COPY_BUFFER_SIZE,
+    ArchiveExtractionManifest, ArchiveExtractionManifestMember, ArchiveExtractionRelayExecutionPlan, ArchiveExtractionRelayState,
+    LocalArchiveCreationResult, LocalArchiveEntry, LocalArchiveError, LocalArchiveReadEntry, LocalArchiveRelayChunk,
+    ARCHIVE_COPY_BUFFER_SIZE,
 };
 use super::archive_sessions::{ArchiveSessionProgress, ArchiveSessionStatus};
 use super::auth;
@@ -2135,8 +2136,8 @@ async fn extract_local_archive_to_smb_destination(
     )
     .map_err(map_local_archive_error)?;
     let begin = relay.begin_local_source(&manifest).await?;
-    let mut checkpoint = archive_relay_extraction_state(&begin)?;
-    checkpoint.validate_manifest(&manifest).map_err(map_local_archive_error)?;
+    let mut checkpoint = archive_relay_extraction_plan(&begin, manifest.clone())?;
+    let extraction_manifest = checkpoint.manifest().clone();
     let completed_members = checkpoint.completed_members().map_err(map_local_archive_error)?;
     for entry in archive_entries {
         if completed_members.contains(&entry.path) {
@@ -2147,8 +2148,8 @@ async fn extract_local_archive_to_smb_destination(
         } else {
             relay.write_file(&archive_path, &entry).await?
         };
-        checkpoint = match archive_extraction_member_step(member_result)? {
-            ArchiveExtractionRelayMemberStep::Continue(checkpoint) => checkpoint,
+        checkpoint = match archive_extraction_member_step(member_result, &extraction_manifest)? {
+            ArchiveExtractionRelayMemberStep::Continue(checkpoint) => *checkpoint,
             ArchiveExtractionRelayMemberStep::Paused(operation) => return archive_extraction_response_from_operation(operation),
         };
     }
@@ -2178,7 +2179,7 @@ enum ArchiveExtractionRelayResult {
 }
 
 enum ArchiveExtractionRelayMemberStep {
-    Continue(ArchiveExtractionRelayState),
+    Continue(Box<ArchiveExtractionRelayExecutionPlan>),
     Paused(ArchiveRelayOperation),
 }
 
@@ -2193,12 +2194,22 @@ fn archive_relay_extraction_state(operation: &ArchiveRelayOperation) -> Result<A
     ArchiveExtractionRelayState::from_checkpoint_json(&operation.checkpoint_json).map_err(map_local_archive_error)
 }
 
-fn archive_extraction_member_step(operation: ArchiveRelayOperation) -> Result<ArchiveExtractionRelayMemberStep, ApiError> {
+fn archive_relay_extraction_plan(
+    operation: &ArchiveRelayOperation,
+    manifest: ArchiveExtractionManifest,
+) -> Result<ArchiveExtractionRelayExecutionPlan, ApiError> {
+    ArchiveExtractionRelayExecutionPlan::from_checkpoint_json(manifest, &operation.checkpoint_json).map_err(map_local_archive_error)
+}
+
+fn archive_extraction_member_step(
+    operation: ArchiveRelayOperation,
+    manifest: &ArchiveExtractionManifest,
+) -> Result<ArchiveExtractionRelayMemberStep, ApiError> {
     if operation.phase != "streaming" {
         return Ok(ArchiveExtractionRelayMemberStep::Paused(operation));
     }
-    let checkpoint = archive_relay_extraction_state(&operation)?;
-    Ok(ArchiveExtractionRelayMemberStep::Continue(checkpoint))
+    let checkpoint = archive_relay_extraction_plan(&operation, manifest.clone())?;
+    Ok(ArchiveExtractionRelayMemberStep::Continue(Box::new(checkpoint)))
 }
 
 fn archive_extraction_response_from_checkpoint(checkpoint: &ArchiveExtractionRelayState) -> ArchiveExtractionResponse {
@@ -2296,8 +2307,9 @@ async fn extract_smb_archive_manifest_to_local(
     manifest: ArchiveRelayManifest,
 ) -> Result<ArchiveExtractionRelayResult, ApiError> {
     let operation = manifest.operation;
-    let mut checkpoint = archive_relay_extraction_state(&operation)?;
-    checkpoint.validate_manifest(&manifest.manifest).map_err(map_local_archive_error)?;
+    let extraction_manifest = manifest.manifest.clone();
+    let mut checkpoint = archive_relay_extraction_plan(&operation, extraction_manifest.clone())?;
+    let extraction_manifest = checkpoint.manifest().clone();
     let completed_members = checkpoint.completed_members().map_err(map_local_archive_error)?;
     let root = destination_path.to_path_buf();
     let root_drive = drive_root.to_path_buf();
@@ -2321,8 +2333,8 @@ async fn extract_smb_archive_manifest_to_local(
             let member_result = relay
                 .complete_source_member(&entry, ArchiveRelayDestinationResult::ignored(reported_target_path, renamed))
                 .await?;
-            checkpoint = match archive_extraction_member_step(member_result)? {
-                ArchiveExtractionRelayMemberStep::Continue(checkpoint) => checkpoint,
+            checkpoint = match archive_extraction_member_step(member_result, &extraction_manifest)? {
+                ArchiveExtractionRelayMemberStep::Continue(checkpoint) => *checkpoint,
                 ArchiveExtractionRelayMemberStep::Paused(operation) => return Ok(ArchiveExtractionRelayResult::Paused(operation)),
             };
             continue;
@@ -2345,8 +2357,8 @@ async fn extract_smb_archive_manifest_to_local(
                 let member_result = relay
                     .complete_source_member(&entry, ArchiveRelayDestinationResult::directory(reported_target_path, renamed, 0))
                     .await?;
-                checkpoint = match archive_extraction_member_step(member_result)? {
-                    ArchiveExtractionRelayMemberStep::Continue(checkpoint) => checkpoint,
+                checkpoint = match archive_extraction_member_step(member_result, &extraction_manifest)? {
+                    ArchiveExtractionRelayMemberStep::Continue(checkpoint) => *checkpoint,
                     ArchiveExtractionRelayMemberStep::Paused(operation) => return Ok(ArchiveExtractionRelayResult::Paused(operation)),
                 };
                 continue;
@@ -2371,8 +2383,8 @@ async fn extract_smb_archive_manifest_to_local(
                     ArchiveRelayDestinationResult::directory(reported_target_path, renamed, directories_created),
                 )
                 .await?;
-            checkpoint = match archive_extraction_member_step(member_result)? {
-                ArchiveExtractionRelayMemberStep::Continue(checkpoint) => checkpoint,
+            checkpoint = match archive_extraction_member_step(member_result, &extraction_manifest)? {
+                ArchiveExtractionRelayMemberStep::Continue(checkpoint) => *checkpoint,
                 ArchiveExtractionRelayMemberStep::Paused(operation) => return Ok(ArchiveExtractionRelayResult::Paused(operation)),
             };
             continue;
@@ -2395,8 +2407,8 @@ async fn extract_smb_archive_manifest_to_local(
                     let member_result = relay
                         .complete_source_member(&entry, ArchiveRelayDestinationResult::skipped(reported_target_path, renamed))
                         .await?;
-                    checkpoint = match archive_extraction_member_step(member_result)? {
-                        ArchiveExtractionRelayMemberStep::Continue(checkpoint) => checkpoint,
+                    checkpoint = match archive_extraction_member_step(member_result, &extraction_manifest)? {
+                        ArchiveExtractionRelayMemberStep::Continue(checkpoint) => *checkpoint,
                         ArchiveExtractionRelayMemberStep::Paused(operation) => return Ok(ArchiveExtractionRelayResult::Paused(operation)),
                     };
                     continue;
@@ -2497,8 +2509,8 @@ async fn extract_smb_archive_manifest_to_local(
                 ),
             )
             .await?;
-        checkpoint = match archive_extraction_member_step(member_result)? {
-            ArchiveExtractionRelayMemberStep::Continue(checkpoint) => checkpoint,
+        checkpoint = match archive_extraction_member_step(member_result, &extraction_manifest)? {
+            ArchiveExtractionRelayMemberStep::Continue(checkpoint) => *checkpoint,
             ArchiveExtractionRelayMemberStep::Paused(operation) => return Ok(ArchiveExtractionRelayResult::Paused(operation)),
         };
     }

@@ -30,6 +30,7 @@ WORKSPACE_ROOT = Path(__file__).resolve().parents[2]
 EXTRACTION_OUTCOME_CORPUS_PATH = WORKSPACE_ROOT / "archive-contract" / "v1" / "extraction-outcome-scenarios-v1.json"
 EXTRACTION_TRAJECTORY_CORPUS_PATH = WORKSPACE_ROOT / "archive-contract" / "v1" / "extraction-trajectory-scenarios-v1.json"
 CREATION_OUTCOME_CORPUS_PATH = WORKSPACE_ROOT / "archive-contract" / "v1" / "creation-outcome-scenarios-v1.json"
+CREATION_TRAJECTORY_CORPUS_PATH = WORKSPACE_ROOT / "archive-contract" / "v1" / "creation-trajectory-scenarios-v1.json"
 
 
 def test_v1_extraction_outcome_conformance_corpus() -> None:
@@ -151,6 +152,7 @@ def test_v1_extraction_trajectory_conformance_corpus() -> None:
 
     corpus: dict[str, Any] = json.loads(EXTRACTION_TRAJECTORY_CORPUS_PATH.read_text(encoding="utf-8"))
     assert corpus["version"] == 1
+    assert set(corpus["topologies"]) == {"smb_to_smb", "local_to_local", "smb_to_local", "local_to_smb"}
     for scenario in corpus["scenarios"]:
         manifest = ArchiveExtractionManifest.from_members(
             [ArchiveExtractionManifestMember(member_path, False, 0, None) for member_path in scenario["members"]]
@@ -278,3 +280,32 @@ def test_v1_creation_terminal_conformance_corpus() -> None:
             outcome = state.validate_report(ArchiveCreationMemberOutcome(report["archive_path"], report["status"], report["source_bytes"]))
             record_creation_member_outcome(checkpoint, outcome)
         assert state.terminal_summary().to_checkpoint() == scenario["progress"]
+
+
+def test_v1_creation_trajectory_conformance_corpus() -> None:
+    """Replay V1 creation trajectories through the immutable manifest and outcome ledger."""
+
+    corpus: dict[str, Any] = json.loads(CREATION_TRAJECTORY_CORPUS_PATH.read_text(encoding="utf-8"))
+    assert corpus["version"] == 1
+    assert set(corpus["topologies"]) == {"smb_to_smb", "local_to_local", "smb_to_local", "local_to_smb"}
+    for scenario in corpus["scenarios"]:
+        manifest = ArchiveCreationManifest.from_members(
+            [
+                ArchiveCreationManifestMember(entry["archive_path"], entry["is_directory"], entry["source_size"], None, None)
+                for entry in scenario["entries"]
+            ]
+        )
+        checkpoint = manifest.empty_checkpoint()
+        state = ArchiveCreationState.from_checkpoint(checkpoint)
+        cancelled = False
+        for step in scenario["steps"]:
+            if step["event"] == "cancel":
+                cancelled = True
+            elif step["event"] == "report":
+                outcome = state.validate_report(ArchiveCreationMemberOutcome(step["archive_path"], step["status"], step["source_bytes"]))
+                record_creation_member_outcome(checkpoint, outcome)
+        assert set(checkpoint["creation_member_outcomes"]) == set(scenario["completed_members"])
+        if cancelled:
+            assert scenario["terminal_phase"] == "cancelled"
+        else:
+            assert state.terminal_summary().to_checkpoint() == scenario["progress"]

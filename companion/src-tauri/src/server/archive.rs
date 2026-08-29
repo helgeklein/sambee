@@ -536,6 +536,37 @@ impl ArchiveExtractionRelayState {
     }
 }
 
+/// Immutable relay manifest and validated durable state consumed by mixed extraction coordinators.
+#[derive(Debug, Clone)]
+pub struct ArchiveExtractionRelayExecutionPlan {
+    manifest: ArchiveExtractionManifest,
+    state: ArchiveExtractionRelayState,
+}
+
+impl ArchiveExtractionRelayExecutionPlan {
+    pub fn from_checkpoint_json(manifest: ArchiveExtractionManifest, checkpoint_json: &str) -> Result<Self, LocalArchiveError> {
+        let state = ArchiveExtractionRelayState::from_checkpoint_json(checkpoint_json)?;
+        Self::from_state(manifest, state)
+    }
+
+    pub fn from_state(manifest: ArchiveExtractionManifest, state: ArchiveExtractionRelayState) -> Result<Self, LocalArchiveError> {
+        state.validate_manifest(&manifest)?;
+        Ok(Self { manifest, state })
+    }
+
+    pub fn manifest(&self) -> &ArchiveExtractionManifest {
+        &self.manifest
+    }
+}
+
+impl std::ops::Deref for ArchiveExtractionRelayExecutionPlan {
+    type Target = ArchiveExtractionRelayState;
+
+    fn deref(&self) -> &Self::Target {
+        &self.state
+    }
+}
+
 /// Terminal state reported after one local ZIP entry commits successfully.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum LocalArchiveCreationMemberStatus {
@@ -2336,6 +2367,7 @@ mod tests {
     #[derive(Deserialize)]
     struct ExtractionTrajectoryConformanceCorpus {
         version: u8,
+        topologies: Vec<String>,
         scenarios: Vec<ExtractionTrajectoryConformanceScenario>,
     }
 
@@ -2434,6 +2466,32 @@ mod tests {
     #[derive(Debug, Clone, Deserialize, PartialEq, Eq)]
     struct CreationOutcomeExpected {
         status: String,
+        source_bytes: u64,
+    }
+
+    #[derive(Deserialize)]
+    struct CreationTrajectoryConformanceCorpus {
+        version: u8,
+        topologies: Vec<String>,
+        scenarios: Vec<CreationTrajectoryConformanceScenario>,
+    }
+
+    #[derive(Deserialize)]
+    struct CreationTrajectoryConformanceScenario {
+        name: String,
+        entries: Vec<CreationManifestConformanceEntry>,
+        steps: Vec<CreationTrajectoryStep>,
+        terminal_phase: String,
+        completed_members: Vec<String>,
+        progress: std::collections::HashMap<String, u64>,
+    }
+
+    #[derive(Deserialize)]
+    struct CreationTrajectoryStep {
+        event: String,
+        archive_path: Option<String>,
+        status: Option<String>,
+        #[serde(default)]
         source_bytes: u64,
     }
 
@@ -3125,6 +3183,84 @@ mod tests {
     }
 
     #[test]
+    fn passes_v1_creation_trajectory_conformance_scenarios() {
+        let corpus_path = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+            .join("../..")
+            .join("archive-contract/v1/creation-trajectory-scenarios-v1.json");
+        let corpus: CreationTrajectoryConformanceCorpus =
+            serde_json::from_slice(&fs::read(corpus_path).expect("shared creation trajectory corpus should be readable"))
+                .expect("shared creation trajectory corpus should be valid JSON");
+        assert_eq!(corpus.version, 1);
+        assert_eq!(
+            corpus.topologies.into_iter().collect::<std::collections::HashSet<_>>(),
+            std::collections::HashSet::from([
+                "smb_to_smb".to_string(),
+                "local_to_local".to_string(),
+                "smb_to_local".to_string(),
+                "local_to_smb".to_string(),
+            ])
+        );
+
+        for scenario in corpus.scenarios {
+            let manifest = ArchiveCreationManifest::from_entries(
+                scenario
+                    .entries
+                    .iter()
+                    .map(|entry| ArchiveCreationManifestMember {
+                        archive_path: entry.archive_path.clone(),
+                        is_directory: entry.is_directory,
+                        source_size: entry.source_size,
+                    })
+                    .collect(),
+            )
+            .expect("trajectory members must form a valid immutable manifest");
+            let mut state = ArchiveCreationManifestState::new(manifest);
+            let mut cancelled = false;
+            for step in scenario.steps {
+                match step.event.as_str() {
+                    "initialize" | "resume" | "terminal_summary" => {}
+                    "cancel" => cancelled = true,
+                    "report" => {
+                        let status = match step.status.as_deref() {
+                            Some("directory") => LocalArchiveCreationMemberStatus::Directory,
+                            Some("created") => LocalArchiveCreationMemberStatus::Created,
+                            status => panic!("unsupported creation result status in {}: {status:?}", scenario.name),
+                        };
+                        state
+                            .record(ArchiveCreationMemberOutcome {
+                                archive_path: step.archive_path.expect("creation reports must identify their archive member"),
+                                status,
+                                source_bytes: step.source_bytes,
+                            })
+                            .expect("valid creation trajectory outcome must be accepted");
+                    }
+                    event => panic!("unsupported creation trajectory event in {}: {event}", scenario.name),
+                }
+            }
+            assert_eq!(
+                state.outcomes.keys().cloned().collect::<std::collections::HashSet<_>>(),
+                scenario.completed_members.into_iter().collect(),
+                "{}",
+                scenario.name
+            );
+            if cancelled {
+                assert_eq!(scenario.terminal_phase, "cancelled", "{}", scenario.name);
+            } else {
+                let summary = state
+                    .terminal_summary()
+                    .expect("complete trajectory must produce a terminal summary");
+                assert_eq!(summary.files_created, scenario.progress["files_created"], "{}", scenario.name);
+                assert_eq!(
+                    summary.directories_created, scenario.progress["directories_created"],
+                    "{}",
+                    scenario.name
+                );
+                assert_eq!(summary.source_bytes, scenario.progress["source_bytes"], "{}", scenario.name);
+            }
+        }
+    }
+
+    #[test]
     fn passes_v1_terminal_result_conformance_scenarios() {
         let corpus_path = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
             .join("../..")
@@ -3206,6 +3342,15 @@ mod tests {
             serde_json::from_slice(&fs::read(corpus_path).expect("shared extraction trajectory corpus should be readable"))
                 .expect("shared extraction trajectory corpus should be valid JSON");
         assert_eq!(corpus.version, 1);
+        assert_eq!(
+            corpus.topologies.into_iter().collect::<std::collections::HashSet<_>>(),
+            std::collections::HashSet::from([
+                "smb_to_smb".to_string(),
+                "local_to_local".to_string(),
+                "smb_to_local".to_string(),
+                "local_to_smb".to_string(),
+            ])
+        );
 
         for scenario in corpus.scenarios {
             let mut checkpoint = LocalArchiveExtractionCheckpoint::default();
