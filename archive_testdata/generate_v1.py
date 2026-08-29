@@ -31,6 +31,8 @@ EOCD_DIRECTORY_OFFSET = 16
 EOCD_COMMENT_LENGTH_OFFSET = 20
 ZIP64_MEMBER_NAME = "zip64.txt"
 ZIP64_MEMBER_CONTENT = b"zip64 " * 128
+BZIP2_MEMBER_NAME = "bzip2.txt"
+BZIP2_MEMBER_CONTENT = b"bzip2 " * 128
 EOCD_MALFORMED_MEMBER_NAME = "eocd.txt"
 EOCD_MALFORMED_MEMBER_CONTENT = b"malformed " * 16
 INVALID_EOCD_COMMENT_LENGTH = 0x00FF
@@ -191,6 +193,13 @@ def _write_zip64_fixture(path: Path) -> None:
     path.write_bytes(data)
 
 
+def _write_bzip2_fixture(path: Path) -> None:
+    with zipfile.ZipFile(path, "w", compression=zipfile.ZIP_BZIP2) as archive:
+        _write_entry(
+            archive, BZIP2_MEMBER_NAME, BZIP2_MEMBER_CONTENT, zipfile.ZIP_BZIP2
+        )
+
+
 def _write_malformed_fixture(path: Path) -> None:
     path.write_bytes(b"not a zip archive\n")
 
@@ -259,6 +268,7 @@ def main() -> None:
     _write_data_descriptor_fixture(ROOT / "data-descriptor-v1.zip")
     _write_unicode_path_fixture(ROOT / "unicode-path-v1.zip")
     _write_zip64_fixture(ROOT / "zip64-v1.zip")
+    _write_bzip2_fixture(ROOT / "bzip2-v1.zip")
     _write_malformed_fixture(ROOT / "malformed-v1.zip")
     _write_eocd_malformed_fixture(ROOT / "eocd-malformed-v1.zip")
     manifest = {
@@ -304,6 +314,10 @@ def main() -> None:
             _fixture(
                 "zip64-v1.zip",
                 [_entry(ZIP64_MEMBER_NAME, ZIP64_MEMBER_CONTENT, zipfile.ZIP_DEFLATED)],
+            ),
+            _fixture(
+                "bzip2-v1.zip",
+                [_entry(BZIP2_MEMBER_NAME, BZIP2_MEMBER_CONTENT, zipfile.ZIP_BZIP2)],
             ),
             _fixture("malformed-v1.zip", [], expected_error="format_error"),
             _fixture("eocd-malformed-v1.zip", [], expected_error="format_error"),

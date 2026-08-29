@@ -15,6 +15,7 @@ from app.models.archive_operation import (
     ArchiveCompanionExtractionCollision,
     ArchiveCompanionExtractionMemberCompletion,
     ArchiveCompanionExtractionMemberError,
+    ArchiveCompanionExtractionSourceManifest,
     ArchiveCompanionExtractionSummary,
     ArchiveCompanionFailure,
     ArchiveOperationKind,
@@ -121,6 +122,22 @@ def test_archive_contract_covers_canonical_relay_routes() -> None:
     assert isinstance(contract, dict)
     assert contract["openapi"] == "3.1.0"
     assert _documented_relay_operations(contract) == _registered_relay_operations()
+
+
+def test_local_to_smb_extraction_begin_request_matches_source_manifest_model() -> None:
+    """Keep the optional local ZIP source manifest documented and model-backed."""
+
+    contract = yaml.safe_load(ARCHIVE_CONTRACT_PATH.read_text(encoding="utf-8"))
+    operation = contract["paths"]["/api/archive/operations/{operationId}/companion-relay/local_zip_to_smb_extract/begin"]["post"]
+    schema_ref = operation["requestBody"]["content"]["application/json"]["schema"]["$ref"]
+    assert operation["requestBody"]["required"] is False
+    assert schema_ref == "#/components/schemas/ArchiveExtractionSourceManifest"
+
+    schema = contract["components"]["schemas"]["ArchiveExtractionSourceManifest"]
+    assert schema["required"] == ["entries"]
+    assert schema["properties"]["entries"]["items"]["$ref"] == "#/components/schemas/ArchiveExtractionManifestEntry"
+    payload = {"entries": [{"path": "notes.txt", "is_directory": False, "uncompressed_size": 5, "modified_at": None}]}
+    assert ArchiveCompanionExtractionSourceManifest.model_validate(payload).model_dump(mode="json") == payload
 
 
 def test_archive_contract_covers_backend_and_companion_relay_purposes() -> None:

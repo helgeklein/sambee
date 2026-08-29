@@ -88,6 +88,12 @@ pub enum ArchiveSessionDecisionAction {
     Ignore,
 }
 
+pub struct ArchiveSessionDecision {
+    pub member_path: String,
+    pub action: ArchiveSessionDecisionAction,
+    pub target_path: Option<String>,
+}
+
 enum ArchiveSessionCompletion {
     Completed(ArchiveSessionProgress),
     AwaitingCollision {
@@ -174,7 +180,7 @@ impl ArchiveSession {
             revision: self.revision,
             cancellation_requested: self.cancellation_requested.load(Ordering::Acquire),
             progress: self.progress,
-            result: self.result.clone(),
+            result: self.result,
             error: self.error.clone(),
             pending_decision: self.pending_decision.clone(),
         }
@@ -414,9 +420,7 @@ impl ArchiveSessionManager {
         owner_origin: &str,
         execution_id: &str,
         expected_revision: u64,
-        member_path: String,
-        action: ArchiveSessionDecisionAction,
-        target_path: Option<String>,
+        decision: ArchiveSessionDecision,
     ) -> Result<ArchiveSessionStatus, ApiError> {
         let (drive_root, work, cancellation_requested, checkpoint, status) = {
             let mut sessions = self.sessions.lock().await;
@@ -438,13 +442,13 @@ impl ArchiveSessionManager {
                 .pending_decision
                 .as_ref()
                 .ok_or_else(|| ApiError::Internal("Archive extraction decision details are unavailable".to_string()))?;
-            if pending_decision.member_path != member_path {
+            if pending_decision.member_path != decision.member_path {
                 return Err(ApiError::conflict_message("Archive decision does not match the pending member"));
             }
             let is_member_error = pending_decision.member_error.is_some();
             let is_directory = pending_decision.is_directory;
             if !matches!(
-                (is_member_error, action),
+                (is_member_error, decision.action),
                 (false, ArchiveSessionDecisionAction::Skip)
                     | (false, ArchiveSessionDecisionAction::SkipAll)
                     | (false, ArchiveSessionDecisionAction::Replace)
@@ -456,20 +460,24 @@ impl ArchiveSessionManager {
             ) {
                 return Err(ApiError::conflict_message("Archive decision is not allowed for the pending member"));
             }
-            if is_directory && !matches!(action, ArchiveSessionDecisionAction::Rename) {
+            if is_directory && !matches!(decision.action, ArchiveSessionDecisionAction::Rename) {
                 return Err(ApiError::conflict_message("Directory collisions may only be resolved by renaming"));
             }
-            let rename_target = if matches!(action, ArchiveSessionDecisionAction::Rename) {
-                Some(target_path.ok_or_else(|| ApiError::BadRequest("Archive rename decisions require a target path".to_string()))?)
+            let rename_target = if matches!(decision.action, ArchiveSessionDecisionAction::Rename) {
+                Some(
+                    decision
+                        .target_path
+                        .ok_or_else(|| ApiError::BadRequest("Archive rename decisions require a target path".to_string()))?,
+                )
             } else {
-                if target_path.is_some() {
+                if decision.target_path.is_some() {
                     return Err(ApiError::BadRequest(
                         "Only archive rename decisions may include a target path".to_string(),
                     ));
                 }
                 None
             };
-            if let ArchiveSessionDecisionAction::Rename = action {
+            if let ArchiveSessionDecisionAction::Rename = decision.action {
                 let (archive_path, extraction_checkpoint) = match (&session.work, session.extraction_checkpoint.as_ref()) {
                     (ArchiveSessionWork::Extraction { archive_path, .. }, Some(checkpoint)) => (archive_path, checkpoint),
                     _ => return Err(ApiError::Internal("Archive extraction checkpoint is unavailable".to_string())),
@@ -477,7 +485,7 @@ impl ArchiveSessionManager {
                 validate_local_extraction_rename_target(
                     archive_path,
                     extraction_checkpoint,
-                    &member_path,
+                    &decision.member_path,
                     rename_target
                         .as_deref()
                         .ok_or_else(|| ApiError::Internal("Archive rename target is unavailable".to_string()))?,
@@ -492,15 +500,15 @@ impl ArchiveSessionManager {
                 .take()
                 .ok_or_else(|| ApiError::Internal("Archive extraction checkpoint is unavailable".to_string()))?;
             let mut checkpoint = checkpoint;
-            match action {
+            match decision.action {
                 ArchiveSessionDecisionAction::Skip => {
-                    checkpoint.resolve_collision(member_path, LocalArchiveExtractionCollisionAction::Skip);
+                    checkpoint.resolve_collision(decision.member_path, LocalArchiveExtractionCollisionAction::Skip);
                 }
                 ArchiveSessionDecisionAction::SkipAll => {
                     checkpoint.resolve_all_collisions(LocalArchiveExtractionCollisionAction::Skip);
                 }
                 ArchiveSessionDecisionAction::Replace => {
-                    checkpoint.resolve_collision(member_path, LocalArchiveExtractionCollisionAction::Replace);
+                    checkpoint.resolve_collision(decision.member_path, LocalArchiveExtractionCollisionAction::Replace);
                 }
                 ArchiveSessionDecisionAction::ReplaceAll => {
                     checkpoint.resolve_all_collisions(LocalArchiveExtractionCollisionAction::Replace);
@@ -510,12 +518,12 @@ impl ArchiveSessionManager {
                 }
                 ArchiveSessionDecisionAction::Rename => {
                     checkpoint.rename_member(
-                        member_path,
+                        decision.member_path,
                         rename_target.ok_or_else(|| ApiError::Internal("Archive rename target is unavailable".to_string()))?,
                     );
                 }
                 ArchiveSessionDecisionAction::Retry => {}
-                ArchiveSessionDecisionAction::Ignore => checkpoint.ignore_member_error(member_path),
+                ArchiveSessionDecisionAction::Ignore => checkpoint.ignore_member_error(decision.member_path),
             }
             session.pending_decision = None;
             session.phase = ArchiveSessionPhase::Streaming;
@@ -593,7 +601,7 @@ mod tests {
 
     use tempfile::tempdir;
 
-    use super::{ArchiveSessionDecisionAction, ArchiveSessionManager, ArchiveSessionPhase, ArchiveSessionProgress};
+    use super::{ArchiveSessionDecision, ArchiveSessionDecisionAction, ArchiveSessionManager, ArchiveSessionPhase, ArchiveSessionProgress};
     use crate::server::archive::{build_local_archive_manifest, create_local_archive};
 
     #[tokio::test]
@@ -789,9 +797,11 @@ mod tests {
                 "https://sambee.example",
                 &session.execution_id,
                 paused.revision + 1,
-                "source.txt".to_string(),
-                ArchiveSessionDecisionAction::ReplaceOlder,
-                None,
+                ArchiveSessionDecision {
+                    member_path: "source.txt".to_string(),
+                    action: ArchiveSessionDecisionAction::ReplaceOlder,
+                    target_path: None
+                },
             )
             .await
             .is_err());
@@ -802,9 +812,11 @@ mod tests {
                 "https://other.example",
                 &session.execution_id,
                 paused.revision,
-                "source.txt".to_string(),
-                ArchiveSessionDecisionAction::Skip,
-                None,
+                ArchiveSessionDecision {
+                    member_path: "source.txt".to_string(),
+                    action: ArchiveSessionDecisionAction::Skip,
+                    target_path: None
+                },
             )
             .await
             .is_err());
@@ -816,9 +828,11 @@ mod tests {
                 "https://sambee.example",
                 &session.execution_id,
                 paused.revision,
-                "source.txt".to_string(),
-                ArchiveSessionDecisionAction::Skip,
-                None,
+                ArchiveSessionDecision {
+                    member_path: "source.txt".to_string(),
+                    action: ArchiveSessionDecisionAction::Skip,
+                    target_path: None,
+                },
             )
             .await
             .unwrap();
@@ -883,9 +897,11 @@ mod tests {
                 "https://sambee.example",
                 &session.execution_id,
                 paused.revision,
-                "source.txt".to_string(),
-                ArchiveSessionDecisionAction::Rename,
-                Some("../outside.txt".to_string()),
+                ArchiveSessionDecision {
+                    member_path: "source.txt".to_string(),
+                    action: ArchiveSessionDecisionAction::Rename,
+                    target_path: Some("../outside.txt".to_string())
+                },
             )
             .await
             .is_err());
@@ -897,9 +913,11 @@ mod tests {
                 "https://sambee.example",
                 &session.execution_id,
                 paused.revision,
-                "source.txt".to_string(),
-                ArchiveSessionDecisionAction::Rename,
-                Some("renamed.txt".to_string()),
+                ArchiveSessionDecision {
+                    member_path: "source.txt".to_string(),
+                    action: ArchiveSessionDecisionAction::Rename,
+                    target_path: Some("renamed.txt".to_string()),
+                },
             )
             .await
             .unwrap();
@@ -976,9 +994,11 @@ mod tests {
                 "https://sambee.example",
                 &session.execution_id,
                 paused.revision,
-                "source.txt".to_string(),
-                ArchiveSessionDecisionAction::Skip,
-                None,
+                ArchiveSessionDecision {
+                    member_path: "source.txt".to_string(),
+                    action: ArchiveSessionDecisionAction::Skip,
+                    target_path: None
+                },
             )
             .await
             .is_err());
@@ -991,9 +1011,11 @@ mod tests {
                 "https://sambee.example",
                 &session.execution_id,
                 paused.revision,
-                "source.txt".to_string(),
-                ArchiveSessionDecisionAction::Retry,
-                None,
+                ArchiveSessionDecision {
+                    member_path: "source.txt".to_string(),
+                    action: ArchiveSessionDecisionAction::Retry,
+                    target_path: None,
+                },
             )
             .await
             .unwrap();

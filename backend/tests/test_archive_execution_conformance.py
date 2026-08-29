@@ -11,20 +11,24 @@ from app.services.archive.coordinator import (
     ArchiveCreationManifest,
     ArchiveCreationManifestMember,
     ArchiveCreationState,
+    ArchiveExtractionExecutionPlan,
     ArchiveExtractionManifest,
     ArchiveExtractionManifestMember,
+    ArchiveExtractionPartialMemberOutcome,
     ArchiveExtractionState,
     completed_extraction_member_paths,
     creation_outcome_summary,
     new_extraction_outcome_checkpoint,
     record_creation_member_outcome,
     record_extraction_member_outcome,
+    record_extraction_partial_member_outcome,
 )
 from app.services.archive.creation import ArchiveCreationMemberOutcome
 from app.services.archive.extraction import ArchiveExtractionDestinationResult
 
 WORKSPACE_ROOT = Path(__file__).resolve().parents[2]
 EXTRACTION_OUTCOME_CORPUS_PATH = WORKSPACE_ROOT / "archive-contract" / "v1" / "extraction-outcome-scenarios-v1.json"
+EXTRACTION_TRAJECTORY_CORPUS_PATH = WORKSPACE_ROOT / "archive-contract" / "v1" / "extraction-trajectory-scenarios-v1.json"
 CREATION_OUTCOME_CORPUS_PATH = WORKSPACE_ROOT / "archive-contract" / "v1" / "creation-outcome-scenarios-v1.json"
 
 
@@ -140,6 +144,60 @@ def test_extraction_checkpoint_factory_initializes_the_versioned_outcome_ledger(
         "source_identity": {"size": 7, "modified_at": None},
         "archive_manifest": [{"path": "docs/readme.txt", "is_directory": False, "uncompressed_size": 7, "modified_at": None}],
     }
+
+
+def test_v1_extraction_trajectory_conformance_corpus() -> None:
+    """Replay durable extraction decisions and reports from the shared trajectory corpus."""
+
+    corpus: dict[str, Any] = json.loads(EXTRACTION_TRAJECTORY_CORPUS_PATH.read_text(encoding="utf-8"))
+    assert corpus["version"] == 1
+    for scenario in corpus["scenarios"]:
+        manifest = ArchiveExtractionManifest.from_members(
+            [ArchiveExtractionManifestMember(member_path, False, 0, None) for member_path in scenario["members"]]
+        )
+        checkpoint = new_extraction_outcome_checkpoint(manifest=manifest)
+        for step in scenario["steps"]:
+            event = step["event"]
+            if event == "decision":
+                action = step["action"]
+                member_path = step["member_path"]
+                if action in {"skip", "replace"}:
+                    checkpoint.setdefault("member_collision_actions", {})[member_path] = action
+                elif action == "rename":
+                    checkpoint.setdefault("member_rename_targets", {})[member_path] = step["target_path"]
+                elif action == "retry":
+                    checkpoint["retry_members"] = [member_path]
+                elif action == "ignore":
+                    checkpoint["ignored_members"] = [member_path]
+                elif action == "replace_older":
+                    assert scenario.get("existing_file_policy") == "replace_older"
+            elif event == "partial_write":
+                record_extraction_partial_member_outcome(
+                    checkpoint,
+                    ArchiveExtractionPartialMemberOutcome(step["member_path"], step["target_path"], "partial write"),
+                )
+            elif event == "report":
+                record_extraction_member_outcome(
+                    checkpoint,
+                    ArchiveExtractionDestinationResult(
+                        step["member_path"],
+                        step["status"],
+                        step["target_path"],
+                        extracted_bytes=step.get("extracted_bytes", 0),
+                        replaced=step.get("replaced", False),
+                        renamed=step.get("renamed", False),
+                    ),
+                    preserve_absent_zero=True,
+                )
+        plan = ArchiveExtractionExecutionPlan.from_checkpoint(
+            checkpoint,
+            existing_file_policy=scenario.get("existing_file_policy"),
+        )
+        assert plan.completed_member_paths() == frozenset(scenario["completed_members"])
+        if scenario["terminal_phase"] == "completed":
+            assert plan.completion_checkpoint_json(destination_root_created=False)
+        for key, value in scenario["progress"].items():
+            assert checkpoint.get(key, 0) == value
 
 
 def test_v1_creation_outcome_conformance_corpus() -> None:

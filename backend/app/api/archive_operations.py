@@ -35,6 +35,7 @@ from app.models.archive_operation import (
     ArchiveCompanionExtractionManifest,
     ArchiveCompanionExtractionMemberCompletion,
     ArchiveCompanionExtractionMemberError,
+    ArchiveCompanionExtractionSourceManifest,
     ArchiveCompanionExtractionSummary,
     ArchiveCompanionFailure,
     ArchiveCompanionManifestEntry,
@@ -57,7 +58,7 @@ from app.services.archive.coordinator import (
     ArchiveCreationState,
     ArchiveExtractionCoordinator,
     ArchiveExtractionDecisionState,
-    ArchiveExtractionExecutionState,
+    ArchiveExtractionExecutionPlan,
     ArchiveExtractionManifest,
     ArchiveExtractionManifestMember,
     ArchiveExtractionRelayState,
@@ -625,6 +626,7 @@ def _mixed_extraction_destination_connection(session: Session, user: User, opera
 @router.post("/operations/{operation_id}/companion-relay/local_zip_to_smb_extract/begin", response_model=ArchiveOperationRead)
 async def begin_companion_archive_extraction(
     operation_id: uuid.UUID,
+    payload: ArchiveCompanionExtractionSourceManifest | None = None,
     operation_token: str = Depends(oauth2_scheme),
     session: Session = Depends(get_session),
 ) -> ArchiveOperation:
@@ -647,9 +649,24 @@ async def begin_companion_archive_extraction(
                     status_code=status.HTTP_409_CONFLICT,
                     detail="Archive extraction destination is not a directory",
                 )
+        manifest = (
+            ArchiveExtractionManifest.from_members(
+                [
+                    ArchiveExtractionManifestMember(
+                        entry.path,
+                        entry.is_directory,
+                        entry.uncompressed_size,
+                        entry.modified_at.isoformat() if entry.modified_at is not None else None,
+                    )
+                    for entry in payload.entries
+                ]
+            )
+            if payload is not None
+            else None
+        )
         return relay.commit_preflight(
             operation,
-            checkpoint_json=json.dumps(new_extraction_outcome_checkpoint(directories_created=1)),
+            checkpoint_json=json.dumps(new_extraction_outcome_checkpoint(directories_created=1, manifest=manifest)),
         )
     finally:
         await disconnect_backend_safely(backend, logger=logger, context=f"mixed archive begin operation {operation.id}")
@@ -670,11 +687,24 @@ async def write_companion_archive_member(
     relay = ScopedCompanionRelay(operation_id, ArchiveCompanionRelayPurpose.LOCAL_ZIP_TO_SMB_EXTRACT, operation_token, session)
     user, operation = relay.streaming(not_streaming_detail="Archive operation is not accepting member output")
     checkpoint = load_archive_checkpoint(operation)
-    if member_path in completed_extraction_member_paths(checkpoint):
+    execution_plan = (
+        ArchiveExtractionExecutionPlan.from_checkpoint(checkpoint, existing_file_policy=operation.collision_policy)
+        if "archive_manifest" in checkpoint
+        else None
+    )
+    completed_members = (
+        execution_plan.completed_member_paths() if execution_plan is not None else completed_extraction_member_paths(checkpoint)
+    )
+    if member_path in completed_members:
         raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="Archive member has already been written")
-    decisions = ArchiveExtractionDecisionState.from_checkpoint(checkpoint)
-    collision_action = decisions.collision_action(member_path, operation.collision_policy)
-    remapped_member_path = decisions.target_member_path(member_path)
+    if execution_plan is not None:
+        execution_plan.member(member_path, is_directory=is_directory)
+        collision_action = execution_plan.collision_action(member_path)
+        remapped_member_path = execution_plan.target_member_path(member_path)
+    else:
+        decisions = ArchiveExtractionDecisionState.from_checkpoint(checkpoint)
+        collision_action = decisions.collision_action(member_path, operation.collision_policy)
+        remapped_member_path = decisions.target_member_path(member_path)
     target_path = archive_member_target(operation.destination_path, remapped_member_path)
     if not is_directory and collision_action in {"skip", "skip_all"}:
         return _record_mixed_archive_member_completion(
@@ -755,7 +785,11 @@ async def complete_companion_archive_extraction(
 ) -> ArchiveOperation:
     """Record the terminal result after Companion has streamed all safe members."""
 
-    return ScopedCompanionRelay(operation_id, ArchiveCompanionRelayPurpose.LOCAL_ZIP_TO_SMB_EXTRACT, operation_token, session).complete()
+    relay = ScopedCompanionRelay(operation_id, ArchiveCompanionRelayPurpose.LOCAL_ZIP_TO_SMB_EXTRACT, operation_token, session)
+    _user, operation = relay.resolve()
+    if "archive_manifest" in load_archive_checkpoint(operation):
+        return relay.complete_extraction(destination_root_created=False)
+    return relay.complete()
 
 
 @router.post("/operations/{operation_id}/companion-relay/local_zip_to_smb_extract/fail", response_model=ArchiveOperationRead)
@@ -1412,22 +1446,54 @@ async def execute_archive_extraction(
         kind_name="extraction",
         write_action="extract archive",
     ) as (operation, backend):
+        checkpoint = load_archive_checkpoint(operation)
+        if "archive_manifest" not in checkpoint:
+            if operation.phase != ArchiveOperationPhase.PREPARED:
+                raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="Archive operation checkpoint is invalid")
+            archive_info = await backend.get_file_info(operation.source_path)
+            if archive_info.type != FileType.FILE or archive_info.size is None:
+                raise HTTPException(
+                    status_code=status.HTTP_422_UNPROCESSABLE_CONTENT, detail="Archive extraction source must be a regular file"
+                )
+            random_reader = await backend.open_random_access_reader(operation.source_path)
+            try:
+                entries = await ZipReader(random_reader, archive_info.size).entries()
+            finally:
+                await random_reader.close()
+            manifest = ArchiveExtractionManifest.from_members(
+                [
+                    ArchiveExtractionManifestMember(
+                        entry.path,
+                        entry.is_directory,
+                        entry.uncompressed_size,
+                        entry.modified_at.isoformat() if entry.modified_at is not None else None,
+                    )
+                    for entry in entries
+                ]
+            )
+            operation = DurableArchiveExecutionStateStore(session).update_checkpoint(
+                operation,
+                json.dumps(new_extraction_outcome_checkpoint(manifest=manifest, source_identity=_archive_source_identity(archive_info))),
+            )
 
         async def run_extraction(
             record_member_completed: Callable[[ArchiveExtractionDestinationResult], Awaitable[None]],
             is_cancelled: Callable[[], Awaitable[bool]],
         ) -> ArchiveExtractionResult:
-            execution_state = ArchiveExtractionExecutionState.from_checkpoint(load_archive_checkpoint(operation))
+            execution_plan = ArchiveExtractionExecutionPlan.from_checkpoint(
+                load_archive_checkpoint(operation),
+                existing_file_policy=operation.collision_policy,
+            )
             return await extract_archive_to_new_paths(
                 backend,
                 destination=backend,
                 archive_path=operation.source_path,
                 destination_root=operation.destination_path,
-                existing_file_policy=operation.collision_policy,
-                member_collision_actions=execution_state.decisions.collision_actions_for_execution(),
-                member_rename_targets=execution_state.decisions.rename_targets(),
-                ignored_members=execution_state.decisions.ignored_member_paths(),
-                completed_members=list(execution_state.completed_member_paths()),
+                existing_file_policy=execution_plan.existing_file_policy,
+                member_collision_actions=execution_plan.collision_actions(),
+                member_rename_targets=execution_plan.rename_targets(),
+                ignored_members=execution_plan.ignored_member_paths(),
+                completed_members=list(execution_plan.completed_member_paths()),
                 on_member_completed=record_member_completed,
                 is_cancelled=is_cancelled,
             )

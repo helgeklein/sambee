@@ -101,6 +101,22 @@
       "sha256": "7822b427f1ea13acfa5c5cd29e29446f39c17ce5a03ade5197d8162a2a928358"
     },
     {
+      "entries": [
+        {
+          "data_descriptor": false,
+          "directory": false,
+          "member_sha256": "d79adcb03d89eca3e38a87c1cb611fc360d889e6e29507d4755b3536422027a2",
+          "method": 12,
+          "path": "bzip2.txt",
+          "raw_name_hex": "627a6970322e747874",
+          "safe": true,
+          "uncompressed_size": 768
+        }
+      ],
+      "name": "bzip2-v1.zip",
+      "sha256": "f18473b9faba3e7a80afafb9a87cb73c382c0de3b446854a84c3349d69ab4854"
+    },
+    {
       "entries": [],
       "expected_error": "format_error",
       "name": "malformed-v1.zip",

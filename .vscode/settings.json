@@ -164,9 +164,9 @@
     "pytest": true,
     // Virtualenv Python
     "/^((\\.\\/|\\/workspace\\/)?backend\\/|\\.\\/)?\\.venv\\/bin\\/python\\s+-c\\s+\\'import\\s+/": true,
-    "/^((\\.\\/|\\/workspace\\/)?backend\\/|\\.\\/)?\\.venv\\/bin\\/python\\s+-m\\s+(compileall|mypy|py_compile|pytest|ruff)\\b/": true,
+    "/^((\\.\\/|\\/workspace\\/)?backend\\/|\\.\\/)?\\.venv\\/bin\\/python\\s+-m\\s+(compileall|json.tool|mypy|py_compile|pytest|ruff)\\b/": true,
     "ruff": true,
-    "/^python3 -m (unittest|json.tool)\\b/": true,
+    "/^python3 -m (unittest)\\b/": true,
     // Frontend tests and static analysis
     "npm test": true,
     "npx vitest": true,

@@ -87,6 +87,11 @@ paths:
       summary: Begin a scoped local ZIP to SMB extraction relay
       security: [{ArchiveOperationToken: []}]
       parameters: [{$ref: '#/components/parameters/OperationId'}]
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema: {$ref: '#/components/schemas/ArchiveExtractionSourceManifest'}
       responses:
         '200': {$ref: '#/components/responses/ArchiveOperation'}
         '409': {$ref: '#/components/responses/RelayConflict'}
@@ -465,6 +470,14 @@ components:
         is_directory: {type: boolean}
         uncompressed_size: {type: integer, minimum: 0}
         modified_at: {type: [string, 'null'], format: date-time}
+    ArchiveExtractionSourceManifest:
+      type: object
+      additionalProperties: false
+      required: [entries]
+      properties:
+        entries:
+          type: array
+          items: {$ref: '#/components/schemas/ArchiveExtractionManifestEntry'}
     ArchiveExtractionMemberCompletion:
       type: object
       additionalProperties: false

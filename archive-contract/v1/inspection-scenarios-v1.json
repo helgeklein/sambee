@@ -84,6 +84,19 @@
       ]
     },
     {
+      "fixture": "bzip2-v1.zip",
+      "entries": [
+        {
+          "path": "bzip2.txt",
+          "is_directory": false,
+          "compression_method": 12,
+          "uncompressed_size": 768,
+          "is_safe": true,
+          "preview_state": "readable"
+        }
+      ]
+    },
+    {
       "fixture": "malformed-v1.zip",
       "error": "format_error"
     },

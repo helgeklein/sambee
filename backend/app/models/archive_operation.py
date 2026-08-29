@@ -118,6 +118,12 @@ class ArchiveCompanionExtractionManifest(SQLModel):
     entries: list[ArchiveCompanionManifestEntry]
 
 
+class ArchiveCompanionExtractionSourceManifest(SQLModel):
+    """Safe, complete local ZIP manifest supplied before a scoped SMB extraction begins."""
+
+    entries: list[ArchiveCompanionManifestEntry]
+
+
 class ArchiveCompanionExtractionSummary(SQLModel):
     """Execution-level local destination state reported after member outcomes commit."""
 

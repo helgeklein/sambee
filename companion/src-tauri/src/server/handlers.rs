@@ -1226,6 +1226,18 @@ impl ArchiveRelayTransport {
         .await
     }
 
+    async fn begin_with_json<T: Serialize + ?Sized, R: DeserializeOwned>(&self, payload: &T, request_context: &str) -> Result<R, ApiError> {
+        decode_archive_relay_json(
+            self.post("begin")
+                .json(payload)
+                .send()
+                .await
+                .map_err(|error| ApiError::Internal(log_request_error(request_context, "POST", self.url(), &error)))?,
+            "start",
+        )
+        .await
+    }
+
     async fn complete(&self, request_context: &str) -> Result<(), ApiError> {
         relay_archive_response(
             self.post("complete")
@@ -1558,6 +1570,10 @@ impl ArchiveExtractionRelay {
 
     async fn begin<T: DeserializeOwned>(&self) -> Result<T, ApiError> {
         self.transport.begin("Archive extraction start").await
+    }
+
+    async fn begin_local_source(&self, manifest: &ArchiveExtractionManifest) -> Result<ArchiveRelayOperation, ApiError> {
+        self.transport.begin_with_json(manifest, "Archive extraction start").await
     }
 
     async fn write_directory(&self, member_path: &str) -> Result<ArchiveRelayOperation, ApiError> {
@@ -2044,9 +2060,11 @@ pub async fn browse_decide_archive_execution(
             &extract_origin(&headers)?,
             &execution_id,
             body.expected_revision,
-            body.member_path,
-            action,
-            body.target_path,
+            super::archive_sessions::ArchiveSessionDecision {
+                member_path: body.member_path,
+                action,
+                target_path: body.target_path,
+            },
         )
         .await?;
     Ok(Json(archive_execution_response(execution)))
@@ -2104,8 +2122,21 @@ async fn extract_local_archive_to_smb_destination(
     archive_path: PathBuf,
     archive_entries: Vec<LocalArchiveReadEntry>,
 ) -> Result<ArchiveExtractionResponse, ApiError> {
-    let begin: ArchiveRelayOperation = relay.begin().await?;
+    let manifest = ArchiveExtractionManifest::from_entries(
+        archive_entries
+            .iter()
+            .map(|entry| ArchiveExtractionManifestMember {
+                path: entry.path.clone(),
+                is_directory: entry.is_directory,
+                uncompressed_size: entry.uncompressed_size,
+                modified_at: entry.modified_at,
+            })
+            .collect(),
+    )
+    .map_err(map_local_archive_error)?;
+    let begin = relay.begin_local_source(&manifest).await?;
     let mut checkpoint = archive_relay_extraction_state(&begin)?;
+    checkpoint.validate_manifest(&manifest).map_err(map_local_archive_error)?;
     let completed_members = checkpoint.completed_members().map_err(map_local_archive_error)?;
     for entry in archive_entries {
         if completed_members.contains(&entry.path) {
@@ -2266,6 +2297,7 @@ async fn extract_smb_archive_manifest_to_local(
 ) -> Result<ArchiveExtractionRelayResult, ApiError> {
     let operation = manifest.operation;
     let mut checkpoint = archive_relay_extraction_state(&operation)?;
+    checkpoint.validate_manifest(&manifest.manifest).map_err(map_local_archive_error)?;
     let completed_members = checkpoint.completed_members().map_err(map_local_archive_error)?;
     let root = destination_path.to_path_buf();
     let root_drive = drive_root.to_path_buf();
@@ -2283,7 +2315,7 @@ async fn extract_smb_archive_manifest_to_local(
         validate_local_extraction_member_path(target_member_path, entry.is_directory).map_err(map_local_archive_error)?;
         let target_path = destination_path.join(target_member_path);
         let reported_target_path = format!("{}/{}", operation.destination_path.trim_end_matches('/'), target_member_path);
-        let renamed = target_member_path != &entry.path;
+        let renamed = target_member_path != entry.path;
         let retrying_partial_member = checkpoint.is_retrying(&entry.path);
         if checkpoint.is_ignored(&entry.path) {
             let member_result = relay
@@ -2549,6 +2581,8 @@ fn map_local_archive_error(error: LocalArchiveError) -> ApiError {
         | LocalArchiveError::InvalidCreationOutcome
         | LocalArchiveError::ConflictingCreationOutcome
         | LocalArchiveError::IncompleteCreationManifest
+        | LocalArchiveError::CheckpointMemberUnavailable
+        | LocalArchiveError::IncompleteExtractionManifest
         | LocalArchiveError::UnsupportedSource => ApiError::BadRequest(error.to_string()),
         LocalArchiveError::Cancelled => ApiError::BadRequest("Archive creation was cancelled".to_string()),
         LocalArchiveError::PartialOutput(error) => {
