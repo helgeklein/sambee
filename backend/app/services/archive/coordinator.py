@@ -3,7 +3,7 @@
 import json
 import mimetypes
 import unicodedata
-from collections.abc import Awaitable, Callable, Mapping
+from collections.abc import AsyncIterator, Awaitable, Callable, Mapping
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from types import MappingProxyType
@@ -16,7 +16,12 @@ from app.models.archive import ArchiveDirectoryListing, ArchiveEntryInfo, Archiv
 from app.models.archive_operation import ArchiveOperation, ArchiveOperationPhase
 from app.models.file import FileType
 from app.services.archive.creation import ArchiveCreationCancelled, ArchiveCreationMemberOutcome, ArchiveCreationResult
-from app.services.archive.execution import ArchiveExecutionDriver, ArchiveInspectionTopologyPlan
+from app.services.archive.execution import (
+    ArchiveExecutionDriver,
+    ArchiveInspectionBinding,
+    ArchiveInspectionOperationKind,
+    ArchiveInspectionTopologyPlan,
+)
 from app.services.archive.extraction import (
     ArchiveExtractionCancelled,
     ArchiveExtractionConflict,
@@ -36,6 +41,8 @@ from app.services.archive.operations import (
 from app.services.archive.zip_reader import (
     ArchiveInspectionManifest,
     ArchiveInspectionManifestMember,
+    ZipEntry,
+    ZipReader,
 )
 from app.utils.content_disposition import build_content_disposition
 
@@ -116,7 +123,30 @@ class ArchiveExecutionStateStore(Protocol):
 class ArchiveInspectionSource(Protocol):
     """Provide a normalized manifest for one request-scoped archive inspection."""
 
+    @property
+    def binding(self) -> ArchiveInspectionBinding: ...
+
     async def inspection_manifest(self) -> ArchiveInspectionManifest: ...
+
+
+@dataclass(frozen=True)
+class SmbArchiveInspectionSource:
+    """Bind the existing SMB-backed ZIP reader to one inspection request."""
+
+    zip_reader: ZipReader
+
+    @property
+    def binding(self) -> ArchiveInspectionBinding:
+        return ArchiveInspectionBinding.BACKEND_SMB
+
+    async def inspection_manifest(self) -> ArchiveInspectionManifest:
+        return await self.zip_reader.inspection_manifest()
+
+    async def validate_member(self, path: str) -> ZipEntry:
+        return await self.zip_reader.validate_member(path)
+
+    def stream_member(self, path: str) -> AsyncIterator[bytes]:
+        return self.zip_reader.stream_member(path)
 
 
 class ArchiveInspectionPresentation:
@@ -224,7 +254,13 @@ class ArchiveInspectionCoordinator:
 def resolve_archive_inspection_coordinator(plan: ArchiveInspectionPlan) -> ArchiveInspectionCoordinator:
     """Construct the backend coordinator only for an SMB-owned inspection plan."""
 
-    if plan.topology.driver != ArchiveExecutionDriver.BACKEND or plan.topology.source_is_local:
+    if (
+        plan.topology.kind != ArchiveInspectionOperationKind.INSPECT
+        or plan.topology.driver != ArchiveExecutionDriver.BACKEND
+        or plan.topology.source_is_local
+        or plan.topology.binding != ArchiveInspectionBinding.BACKEND_SMB
+        or plan.source.binding != plan.topology.binding
+    ):
         raise ValueError("Archive inspection topology did not resolve to a compatible backend binding")
     return ArchiveInspectionCoordinator(plan)
 

@@ -30,6 +30,8 @@ from app.services.archive.coordinator import (
 from app.services.archive.creation import ArchiveCreationCancelled, ArchiveCreationMemberOutcome, ArchiveCreationResult
 from app.services.archive.execution import (
     ArchiveExecutionDriver,
+    ArchiveInspectionBinding,
+    ArchiveInspectionOperationKind,
     resolve_archive_inspection_topology_plan,
     resolve_archive_operation_topology_plan,
 )
@@ -78,8 +80,11 @@ class TrajectoryCase:
     expected_trace: dict[str, Any] | None
 
 
+@dataclass(frozen=True)
 class FixtureInspectionSource:
     """Deterministic source adapter used only to validate inspection plan routing."""
+
+    binding: ArchiveInspectionBinding
 
     async def inspection_manifest(self) -> ArchiveInspectionManifest:
         return ArchiveInspectionManifest(())
@@ -268,12 +273,14 @@ def test_topology_trace_fixture_matches_resolved_execution_owners() -> None:
 def test_cross_topology_inspection_plan_selects_the_source_executor(case: TopologyCase) -> None:
     plan = resolve_archive_inspection_topology_plan(source_connection_id=case.source_connection_id)
 
+    assert plan.kind == ArchiveInspectionOperationKind.INSPECT
     assert plan.source_is_local is case.source_connection_id.startswith("local-drive:")
     assert plan.driver == (ArchiveExecutionDriver.COMPANION if plan.source_is_local else ArchiveExecutionDriver.BACKEND)
+    assert plan.binding == (ArchiveInspectionBinding.COMPANION_LOCAL if plan.source_is_local else ArchiveInspectionBinding.BACKEND_SMB)
 
 
 def test_backend_inspection_resolver_rejects_non_backend_bindings_and_mismatched_presentations() -> None:
-    source = FixtureInspectionSource()
+    source = FixtureInspectionSource(ArchiveInspectionBinding.BACKEND_SMB)
     backend_plan = ArchiveInspectionPlan(
         source,
         resolve_archive_inspection_topology_plan(source_connection_id="connection-1"),
@@ -292,6 +299,14 @@ def test_backend_inspection_resolver_rejects_non_backend_bindings_and_mismatched
     )
     with pytest.raises(ValueError, match="compatible backend binding"):
         resolve_archive_inspection_coordinator(local_plan)
+
+    incompatible_source_plan = ArchiveInspectionPlan(
+        FixtureInspectionSource(ArchiveInspectionBinding.COMPANION_LOCAL),
+        resolve_archive_inspection_topology_plan(source_connection_id="connection-1"),
+        ArchiveMemberReadPresentation("entry.txt", False),
+    )
+    with pytest.raises(ValueError, match="compatible backend binding"):
+        resolve_archive_inspection_coordinator(incompatible_source_plan)
 
 
 @dataclass(frozen=True)

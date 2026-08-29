@@ -74,6 +74,8 @@ const ARCHIVE_RELAY_IDEMPOTENCY_HEADER: &str = "Idempotency-Key";
 const ARCHIVE_RELAY_ACKNOWLEDGEMENT_ATTEMPTS: usize = 2;
 #[cfg(test)]
 static INSPECTION_RESOLVER_CALL_COUNT: AtomicUsize = AtomicUsize::new(0);
+#[cfg(test)]
+static INSPECTION_RESOLVER_TEST_LOCK: std::sync::Mutex<()> = std::sync::Mutex::new(());
 #[cfg(any(windows, test))]
 const WINDOWS_EXTENDED_PATH_PREFIX: &str = "\\\\?\\";
 #[cfg(any(windows, test))]
@@ -112,6 +114,11 @@ fn resolve_companion_inspection_coordinator(
 #[cfg(test)]
 fn inspection_resolver_call_count() -> usize {
     INSPECTION_RESOLVER_CALL_COUNT.load(Ordering::Relaxed)
+}
+
+#[cfg(test)]
+fn reset_inspection_resolver_call_count() {
+    INSPECTION_RESOLVER_CALL_COUNT.store(0, Ordering::Relaxed);
 }
 
 fn resolve_local_archive_inspection_coordinator(
@@ -4833,15 +4840,15 @@ mod tests {
     use super::{
         archive_creation_response, archive_execution_response, browse_list_archive, build_file_info, build_pair_status_response,
         classify_link_target, execute_archive_relay, inspection_resolver_call_count, map_local_archive_error,
-        normalize_drive_relative_path, normalize_windows_display_path, relay_completed_members, resolve_companion_archive_topology,
-        resolve_companion_inspection_coordinator, resolve_drive_relative_source_path, resolve_link_target_metadata,
-        resolve_local_archive_inspection_coordinator, resolve_pair_cancel_origin, resolve_pair_confirm_origin, resolve_pair_status_origin,
-        resolve_safe_path, source_link_kind, validate_editor_write_target, viewer_archive_member, ArchiveCreationAdapterBinding,
-        ArchiveCreationMemberCompletion, ArchiveCreationRelay, ArchiveExtractionAdapterBinding, ArchiveExtractionCollision,
-        ArchiveExtractionMemberCompletion, ArchiveExtractionMemberError, ArchiveExtractionRelay, ArchiveExtractionSummary,
-        ArchiveListQuery, ArchiveMemberQuery, ArchiveRelayBinding, ArchiveRelayDestinationStatus, ArchiveRelayFailure,
-        ArchiveRelayOperation, ArchiveRelayTransport, FixtureArchiveCreationInvocation, FixtureArchiveExtractionInvocation,
-        ARCHIVE_RELAY_ACKNOWLEDGEMENT_ATTEMPTS,
+        normalize_drive_relative_path, normalize_windows_display_path, relay_completed_members, reset_inspection_resolver_call_count,
+        resolve_companion_archive_topology, resolve_companion_inspection_coordinator, resolve_drive_relative_source_path,
+        resolve_link_target_metadata, resolve_local_archive_inspection_coordinator, resolve_pair_cancel_origin,
+        resolve_pair_confirm_origin, resolve_pair_status_origin, resolve_safe_path, source_link_kind, validate_editor_write_target,
+        viewer_archive_member, ArchiveCreationAdapterBinding, ArchiveCreationMemberCompletion, ArchiveCreationRelay,
+        ArchiveExtractionAdapterBinding, ArchiveExtractionCollision, ArchiveExtractionMemberCompletion, ArchiveExtractionMemberError,
+        ArchiveExtractionRelay, ArchiveExtractionSummary, ArchiveListQuery, ArchiveMemberQuery, ArchiveRelayBinding,
+        ArchiveRelayDestinationStatus, ArchiveRelayFailure, ArchiveRelayOperation, ArchiveRelayTransport, FixtureArchiveCreationInvocation,
+        FixtureArchiveExtractionInvocation, ARCHIVE_RELAY_ACKNOWLEDGEMENT_ATTEMPTS, INSPECTION_RESOLVER_TEST_LOCK,
     };
     use crate::server::archive::{
         build_local_archive_manifest, build_local_archive_manifest_for_remote_target, create_local_archive,
@@ -4954,6 +4961,9 @@ mod tests {
 
     #[test]
     fn companion_inspection_resolver_accepts_only_a_local_inspection_plan() {
+        let _resolver_test_guard = INSPECTION_RESOLVER_TEST_LOCK
+            .lock()
+            .expect("inspection resolver test lock should not be poisoned");
         let directory = tempfile::tempdir().expect("temporary archive directory should be created");
         let source = directory.path().join("source.txt");
         let target = directory.path().join("archive.zip");
@@ -4993,8 +5003,13 @@ mod tests {
         assert!(resolve_companion_archive_inspection_topology_plan(false).is_err());
     }
 
+    #[allow(clippy::await_holding_lock)]
     #[tokio::test]
     async fn companion_archive_inspection_routes_invoke_the_production_resolver() {
+        let _resolver_test_guard = INSPECTION_RESOLVER_TEST_LOCK
+            .lock()
+            .expect("inspection resolver test lock should not be poisoned");
+        reset_inspection_resolver_call_count();
         let directory = tempfile::tempdir().expect("temporary archive directory should be created");
         let source = directory.path().join("source.txt");
         let target = directory.path().join("archive.zip");
@@ -5004,7 +5019,6 @@ mod tests {
         let drive_id = format!("test-drive-{}", uuid::Uuid::new_v4());
         crate::server::drives::register_test_drive_path(drive_id.clone(), directory.path().to_path_buf());
         let archive_path = "archive.zip".to_string();
-        let resolver_calls_before = inspection_resolver_call_count();
 
         let listing = browse_list_archive(
             Path(drive_id.clone()),
@@ -5018,6 +5032,7 @@ mod tests {
         .await
         .expect("archive listing route should succeed");
         assert_eq!(listing.0.items[0].name, "source.txt");
+        assert_eq!(inspection_resolver_call_count(), 1);
 
         let member_response = viewer_archive_member(
             Path(drive_id),
@@ -5031,7 +5046,7 @@ mod tests {
         .expect("archive member route should succeed");
         assert_eq!(member_response.headers()["content-type"], "text/plain");
         assert_eq!(to_bytes(member_response.into_body(), usize::MAX).await.unwrap(), "source");
-        assert!(inspection_resolver_call_count() >= resolver_calls_before + 2);
+        assert_eq!(inspection_resolver_call_count(), 2);
     }
 
     #[derive(Clone)]

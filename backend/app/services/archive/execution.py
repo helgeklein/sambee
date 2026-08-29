@@ -12,6 +12,19 @@ class ArchiveExecutionDriver(StrEnum):
     COMPANION = "companion"
 
 
+class ArchiveInspectionOperationKind(StrEnum):
+    """Request-scoped archive operation kinds that never create durable records."""
+
+    INSPECT = "inspect"
+
+
+class ArchiveInspectionBinding(StrEnum):
+    """Concrete source binding selected for one inspection topology."""
+
+    BACKEND_SMB = "backend_smb"
+    COMPANION_LOCAL = "companion_local"
+
+
 class ArchiveCompanionRelayPurpose(StrEnum):
     """Mixed-topology role authorized for one Companion relay capability."""
 
@@ -64,10 +77,12 @@ class ArchiveOperationTopologyPlan:
 
 @dataclass(frozen=True)
 class ArchiveInspectionTopologyPlan:
-    """Immutable executor selection for a non-durable archive inspection request."""
+    """Immutable executor and source-binding selection for a non-durable inspection request."""
 
+    kind: ArchiveInspectionOperationKind
     driver: ArchiveExecutionDriver
     source_is_local: bool
+    binding: ArchiveInspectionBinding
 
 
 def resolve_archive_execution_topology(
@@ -124,6 +139,8 @@ def resolve_archive_inspection_topology_plan(*, source_connection_id: str) -> Ar
 
     source_is_local = source_connection_id.startswith(LOCAL_DRIVE_PREFIX)
     return ArchiveInspectionTopologyPlan(
+        kind=ArchiveInspectionOperationKind.INSPECT,
         driver=ArchiveExecutionDriver.COMPANION if source_is_local else ArchiveExecutionDriver.BACKEND,
         source_is_local=source_is_local,
+        binding=ArchiveInspectionBinding.COMPANION_LOCAL if source_is_local else ArchiveInspectionBinding.BACKEND_SMB,
     )

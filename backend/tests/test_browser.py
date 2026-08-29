@@ -319,6 +319,45 @@ class TestStreamArchiveMember:
         assert response.headers["content-disposition"].startswith("inline;")
         assert archive_reader.closed is True
 
+    def test_invalidates_archive_pdf_derivative_through_inspection_resolver(
+        self,
+        client: TestClient,
+        auth_headers_user: dict,
+        test_connection: Connection,
+    ):
+        data = _archive_bytes({"docs/inside.pdf": b"%PDF-1.7"})
+        archive_reader = _MemoryRandomAccessReader(data)
+        backend = AsyncMock()
+        backend.connect.return_value = None
+        backend.disconnect.return_value = None
+        backend.get_file_info.return_value = FileInfo(
+            name="backup.zip",
+            path="backup.zip",
+            type=FileType.FILE,
+            size=len(data),
+        )
+        backend.open_random_access_reader = AsyncMock(return_value=archive_reader)
+
+        with (
+            patch("app.api.viewer.SMBBackend", return_value=backend),
+            patch(
+                "app.api.viewer.resolve_archive_inspection_coordinator",
+                wraps=resolve_archive_inspection_coordinator,
+            ) as resolve_inspection,
+            patch("app.api.viewer.invalidate_pdf_derivative_for_revision", new_callable=AsyncMock) as invalidate_derivative,
+        ):
+            response = client.delete(
+                f"/api/viewer/{test_connection.id}/archive/member/pdf-derivative",
+                headers=auth_headers_user,
+                params={"archive_path": "backup.zip", "member_path": "docs/inside.pdf"},
+            )
+
+        assert response.status_code == 204
+        resolve_inspection.assert_called_once()
+        assert isinstance(resolve_inspection.call_args.args[0].presentation, ArchiveMemberReadPresentation)
+        invalidate_derivative.assert_awaited_once()
+        assert archive_reader.closed is True
+
     def test_streams_large_raw_archive_members_like_physical_files(
         self,
         client: TestClient,

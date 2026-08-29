@@ -25,7 +25,12 @@ from app.models.connection import Connection
 from app.models.edit_lock import HEARTBEAT_TIMEOUT_SECONDS, EditLock
 from app.models.file import FileInfo, FileType
 from app.models.user import User
-from app.services.archive.coordinator import ArchiveInspectionPlan, ArchiveMemberReadPresentation, resolve_archive_inspection_coordinator
+from app.services.archive.coordinator import (
+    ArchiveInspectionPlan,
+    ArchiveMemberReadPresentation,
+    SmbArchiveInspectionSource,
+    resolve_archive_inspection_coordinator,
+)
 from app.services.archive.execution import ArchiveExecutionDriver, resolve_archive_inspection_topology_plan
 from app.services.archive.zip_reader import ArchiveFormatError, ZipEntry, ZipReader
 from app.services.connection_access import get_accessible_connection_or_404
@@ -91,18 +96,18 @@ async def stream_archive_member(
         if archive_info.type != FileType.FILE or archive_info.size is None:
             raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_CONTENT, detail="Archive path must identify a regular file")
         reader = await backend.open_random_access_reader(archive_path)
-        zip_reader = ZipReader(reader, archive_info.size)
+        source = SmbArchiveInspectionSource(ZipReader(reader, archive_info.size))
         topology = resolve_archive_inspection_topology_plan(source_connection_id=str(connection_id))
         if topology.driver != ArchiveExecutionDriver.BACKEND:
             raise HTTPException(
                 status_code=status.HTTP_422_UNPROCESSABLE_CONTENT, detail="Archive inspection requires the Companion coordinator"
             )
         inspection = resolve_archive_inspection_coordinator(
-            ArchiveInspectionPlan(zip_reader, topology, ArchiveMemberReadPresentation(member_path=member_path, download=download))
+            ArchiveInspectionPlan(source, topology, ArchiveMemberReadPresentation(member_path=member_path, download=download))
         )
         inspection_projection = await inspection.member_read()
         inspection_member = inspection_projection.member
-        member = await zip_reader.validate_member(inspection_member.path)
+        member = await source.validate_member(inspection_member.path)
         if not download and view_kind != "raw" and not inspection_member.is_inline_preview_eligible():
             raise HTTPException(
                 status_code=status.HTTP_413_REQUEST_ENTITY_TOO_LARGE, detail="Archive member exceeds the inline preview size limit"
@@ -111,7 +116,7 @@ async def stream_archive_member(
 
         async def read_member_source() -> tuple[bytes, PDFSourceRevision]:
             chunks: list[bytes] = []
-            async for chunk in zip_reader.stream_member(member_path):
+            async for chunk in source.stream_member(member_path):
                 chunks.append(chunk)
             refreshed_archive = await backend.get_file_info(archive_path)
             if (
@@ -167,7 +172,7 @@ async def stream_archive_member(
 
         async def stream_member() -> AsyncIterator[bytes]:
             try:
-                async for chunk in zip_reader.stream_member(member_path):
+                async for chunk in source.stream_member(member_path):
                     yield chunk
             finally:
                 await reader.close()
@@ -216,7 +221,13 @@ async def invalidate_archive_member_pdf_derivative(
         if archive_info.type != FileType.FILE or archive_info.size is None:
             raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_CONTENT, detail="Archive path must identify a regular file")
         reader = await backend.open_random_access_reader(archive_path)
-        member = await ZipReader(reader, archive_info.size).validate_member(member_path)
+        topology = resolve_archive_inspection_topology_plan(source_connection_id=str(connection_id))
+        source = SmbArchiveInspectionSource(ZipReader(reader, archive_info.size))
+        inspection = resolve_archive_inspection_coordinator(
+            ArchiveInspectionPlan(source, topology, ArchiveMemberReadPresentation(member_path=member_path, download=False))
+        )
+        inspection_member = (await inspection.member_read()).member
+        member = await source.validate_member(inspection_member.path)
         member_name = member_path.replace("\\", "/").rsplit("/", 1)[-1]
         if not needs_pdf_normalization(member_name):
             raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="PDF derivative invalidation requires a PDF file")

@@ -53,6 +53,7 @@ from app.models.user import User
 from app.services.archive.coordinator import (
     ArchiveDirectoryListingPresentation,
     ArchiveInspectionPlan,
+    SmbArchiveInspectionSource,
     resolve_archive_inspection_coordinator,
 )
 from app.services.archive.execution import ArchiveExecutionDriver, resolve_archive_inspection_topology_plan
@@ -455,9 +456,10 @@ async def list_archive_directory(
             raise HTTPException(
                 status_code=status.HTTP_422_UNPROCESSABLE_CONTENT, detail="Archive inspection requires the Companion coordinator"
             )
+        source = SmbArchiveInspectionSource(ZipReader(reader, archive_info.size))
         inspection = resolve_archive_inspection_coordinator(
             ArchiveInspectionPlan(
-                ZipReader(reader, archive_info.size),
+                source,
                 topology,
                 ArchiveDirectoryListingPresentation(
                     archive_path=archive_path,
