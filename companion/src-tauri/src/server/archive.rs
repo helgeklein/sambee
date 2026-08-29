@@ -45,6 +45,7 @@ const UNIX_REGULAR_FILE_TYPE: u16 = 0o100000;
 /// Archive operations owned by the Companion runtime.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum CompanionArchiveOperationKind {
+    Inspect,
     Create,
     Extract,
 }
@@ -52,6 +53,7 @@ pub enum CompanionArchiveOperationKind {
 /// Source and destination placement for a Companion-owned archive operation.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum CompanionArchiveTopology {
+    LocalInspection,
     LocalToLocal,
     SmbToLocal,
     LocalToSmb,
@@ -77,6 +79,19 @@ pub fn resolve_companion_archive_topology_plan(
         (false, false) => return Err(LocalArchiveError::UnsupportedSource),
     };
     Ok(CompanionArchiveTopologyPlan { kind, topology })
+}
+
+/// Resolve the Companion-owned binding for a request-scoped archive inspection.
+pub fn resolve_companion_archive_inspection_topology_plan(
+    source_is_local: bool,
+) -> Result<CompanionArchiveTopologyPlan, LocalArchiveError> {
+    if !source_is_local {
+        return Err(LocalArchiveError::UnsupportedSource);
+    }
+    Ok(CompanionArchiveTopologyPlan {
+        kind: CompanionArchiveOperationKind::Inspect,
+        topology: CompanionArchiveTopology::LocalInspection,
+    })
 }
 
 /// A safe entry parsed from a local ZIP central directory.
@@ -244,18 +259,54 @@ impl ArchiveInspectionManifest {
     }
 }
 
-/// Immutable, request-scoped local source binding for archive inspection.
+/// Local archive source adapter bound before request-scoped inspection begins.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct LocalArchiveInspectionSource {
+    archive_path: PathBuf,
+}
+
+impl LocalArchiveInspectionSource {
+    /// Bind one validated local archive source without exposing parser details to callers.
+    pub fn from_archive_path(archive_path: PathBuf) -> Self {
+        Self { archive_path }
+    }
+
+    fn inspection_manifest(&self) -> Result<ArchiveInspectionManifest, LocalArchiveReadError> {
+        inspect_local_archive(&self.archive_path)
+    }
+}
+
+/// Existing V1 inspection response projection selected by a request route.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ArchiveInspectionPresentation {
+    DirectoryListing,
+    MemberRead,
+}
+
+/// Immutable, request-scoped local inspection source and presentation binding.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ArchiveInspectionPlan {
+    source: LocalArchiveInspectionSource,
+    presentation: ArchiveInspectionPresentation,
     manifest: ArchiveInspectionManifest,
 }
 
 impl ArchiveInspectionPlan {
-    /// Read the local source once and bind its normalized manifest to this request.
-    pub fn from_archive_path(archive_path: &Path) -> Result<Self, LocalArchiveReadError> {
+    /// Read the local source once and bind its normalized manifest and V1 presentation to this request.
+    pub fn from_local_source(
+        source: LocalArchiveInspectionSource,
+        presentation: ArchiveInspectionPresentation,
+    ) -> Result<Self, LocalArchiveReadError> {
         Ok(Self {
-            manifest: inspect_local_archive(archive_path)?,
+            manifest: source.inspection_manifest()?,
+            source,
+            presentation,
         })
+    }
+
+    /// Return the existing V1 response projection selected for this request.
+    pub fn presentation(&self) -> ArchiveInspectionPresentation {
+        self.presentation
     }
 }
 
@@ -266,10 +317,8 @@ pub struct ArchiveInspectionCoordinator {
 }
 
 impl ArchiveInspectionCoordinator {
-    pub fn from_archive_path(archive_path: &Path) -> Result<Self, LocalArchiveReadError> {
-        Ok(Self {
-            plan: ArchiveInspectionPlan::from_archive_path(archive_path)?,
-        })
+    pub fn from_plan(plan: ArchiveInspectionPlan) -> Self {
+        Self { plan }
     }
 
     pub fn list_directory(
@@ -278,10 +327,16 @@ impl ArchiveInspectionCoordinator {
         cursor: Option<&str>,
         page_size: usize,
     ) -> Result<LocalArchiveDirectoryPage, LocalArchiveReadError> {
+        if self.plan.presentation() != ArchiveInspectionPresentation::DirectoryListing {
+            return Err(LocalArchiveReadError::PresentationMismatch);
+        }
         self.plan.manifest.list_directory(virtual_path, cursor, page_size)
     }
 
     pub fn member(&self, member_path: &str) -> Result<&ArchiveInspectionManifestMember, LocalArchiveReadError> {
+        if self.plan.presentation() != ArchiveInspectionPresentation::MemberRead {
+            return Err(LocalArchiveReadError::PresentationMismatch);
+        }
         self.plan.manifest.member(member_path)
     }
 }
@@ -1197,6 +1252,8 @@ pub enum LocalArchiveReadError {
     MemberOutOfBounds,
     #[error("archive member integrity check failed")]
     MemberIntegrityFailure,
+    #[error("archive inspection plan does not support this response projection")]
+    PresentationMismatch,
     #[error(transparent)]
     Io(#[from] std::io::Error),
 }
@@ -3235,7 +3292,13 @@ mod tests {
         let entries = build_local_archive_manifest(&[source_root], &target).unwrap();
         create_local_archive(directory.path(), &target, &entries, || false).unwrap();
 
-        let inspection = ArchiveInspectionCoordinator::from_archive_path(&target).unwrap();
+        let inspection = ArchiveInspectionCoordinator::from_plan(
+            ArchiveInspectionPlan::from_local_source(
+                LocalArchiveInspectionSource::from_archive_path(target),
+                ArchiveInspectionPresentation::DirectoryListing,
+            )
+            .unwrap(),
+        );
         let first_page = inspection.list_directory("source/", None, 1).unwrap();
         assert_eq!(first_page.total, 2);
         assert_eq!(first_page.entries[0].name, "nested");

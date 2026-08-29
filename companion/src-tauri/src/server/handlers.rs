@@ -35,13 +35,14 @@ use super::archive::{
     create_local_archive, create_local_archive_relay_writer, create_local_archive_with_execution_plan_progress_and_state,
     create_local_extraction_root, ensure_local_extraction_directory, extract_local_archive_with_checkpoint_and_progress,
     open_local_extraction_file, project_local_archive_creation_manifest, reopen_partial_local_extraction_file,
-    resolve_companion_archive_topology_plan, stream_local_archive_member, validate_local_archive_extraction,
-    validate_local_extraction_member_path, validate_local_extraction_rename_target, ArchiveCreationManifest, ArchiveCreationManifestState,
-    ArchiveExtractionManifest, ArchiveExtractionManifestMember, ArchiveExtractionRelayExecutionPlan, ArchiveExtractionRelayState,
-    ArchiveInspectionCoordinator, CompanionArchiveOperationKind, CompanionArchiveTopology, CompanionArchiveTopologyPlan,
+    resolve_companion_archive_inspection_topology_plan, resolve_companion_archive_topology_plan, stream_local_archive_member,
+    validate_local_archive_extraction, validate_local_extraction_member_path, validate_local_extraction_rename_target,
+    ArchiveCreationManifest, ArchiveCreationManifestState, ArchiveExtractionManifest, ArchiveExtractionManifestMember,
+    ArchiveExtractionRelayExecutionPlan, ArchiveExtractionRelayState, ArchiveInspectionCoordinator, ArchiveInspectionPlan,
+    ArchiveInspectionPresentation, CompanionArchiveOperationKind, CompanionArchiveTopology, CompanionArchiveTopologyPlan,
     LocalArchiveCreationExecutionPlan, LocalArchiveCreationResult, LocalArchiveEntry, LocalArchiveError,
-    LocalArchiveExtractionCollisionAction, LocalArchiveExtractionExecutionPlan, LocalArchiveExtractionRunResult, LocalArchiveReadEntry,
-    LocalArchiveRelayChunk, ARCHIVE_COPY_BUFFER_SIZE,
+    LocalArchiveExtractionCollisionAction, LocalArchiveExtractionExecutionPlan, LocalArchiveExtractionRunResult,
+    LocalArchiveInspectionSource, LocalArchiveReadEntry, LocalArchiveRelayChunk, ARCHIVE_COPY_BUFFER_SIZE,
 };
 use super::archive_sessions::{
     ArchiveSessionCompletion, ArchiveSessionManager, ArchiveSessionProgress, ArchiveSessionStatus, ArchiveSessionWork,
@@ -84,6 +85,32 @@ fn resolve_companion_archive_topology(
     resolve_companion_archive_topology_plan(kind, source_is_local, destination_is_local)
         .map(|plan| plan.topology)
         .map_err(map_local_archive_error)
+}
+
+fn resolve_companion_inspection_coordinator(
+    topology_plan: CompanionArchiveTopologyPlan,
+    plan: ArchiveInspectionPlan,
+) -> Result<ArchiveInspectionCoordinator, ApiError> {
+    if matches!(
+        (topology_plan.kind, topology_plan.topology),
+        (CompanionArchiveOperationKind::Inspect, CompanionArchiveTopology::LocalInspection)
+    ) {
+        Ok(ArchiveInspectionCoordinator::from_plan(plan))
+    } else {
+        Err(ApiError::Internal(
+            "Archive inspection topology did not resolve to a compatible Companion binding".to_string(),
+        ))
+    }
+}
+
+fn resolve_local_archive_inspection_coordinator(
+    archive_path: PathBuf,
+    presentation: ArchiveInspectionPresentation,
+) -> Result<ArchiveInspectionCoordinator, ApiError> {
+    let topology_plan = resolve_companion_archive_inspection_topology_plan(true).map_err(map_local_archive_error)?;
+    let plan = ArchiveInspectionPlan::from_local_source(LocalArchiveInspectionSource::from_archive_path(archive_path), presentation)
+        .map_err(map_local_archive_read_error)?;
+    resolve_companion_inspection_coordinator(topology_plan, plan)
 }
 
 // ─── WebSocket ───────────────────────────────────────────────────────────────
@@ -485,15 +512,12 @@ pub async fn browse_list_archive(
     let requested_virtual_path = virtual_path.clone();
     let cursor = query.cursor;
     let page = tokio::task::spawn_blocking(move || {
-        ArchiveInspectionCoordinator::from_archive_path(&archive_path)?.list_directory(
-            &requested_virtual_path,
-            cursor.as_deref(),
-            page_size,
-        )
+        resolve_local_archive_inspection_coordinator(archive_path, ArchiveInspectionPresentation::DirectoryListing)?
+            .list_directory(&requested_virtual_path, cursor.as_deref(), page_size)
+            .map_err(map_local_archive_read_error)
     })
     .await
-    .map_err(|error| ApiError::Internal(format!("Local archive listing task failed: {error}")))?
-    .map_err(map_local_archive_read_error)?;
+    .map_err(|error| ApiError::Internal(format!("Local archive listing task failed: {error}")))??;
 
     let items = page
         .entries
@@ -773,12 +797,13 @@ pub async fn viewer_archive_member(Path(drive): Path<String>, Query(query): Quer
     let inspection_path = archive_path.clone();
     let inspection_member_path = member_path.clone();
     let member = tokio::task::spawn_blocking(move || {
-        ArchiveInspectionCoordinator::from_archive_path(&inspection_path)
-            .and_then(|coordinator| coordinator.member(&inspection_member_path).cloned())
+        resolve_local_archive_inspection_coordinator(inspection_path, ArchiveInspectionPresentation::MemberRead)?
+            .member(&inspection_member_path)
+            .cloned()
+            .map_err(map_local_archive_read_error)
     })
     .await
-    .map_err(|error| ApiError::Internal(format!("Local archive validation task failed: {error}")))?
-    .map_err(map_local_archive_read_error)?;
+    .map_err(|error| ApiError::Internal(format!("Local archive validation task failed: {error}")))??;
     if !query.download && !member.is_inline_preview_eligible() {
         return Err(ApiError::PayloadTooLarge(
             "Archive member exceeds the inline preview size limit".to_string(),
@@ -4836,7 +4861,8 @@ mod tests {
     use super::{
         archive_creation_response, archive_execution_response, build_file_info, build_pair_status_response, classify_link_target,
         execute_archive_relay, map_local_archive_error, normalize_drive_relative_path, normalize_windows_display_path,
-        relay_completed_members, resolve_companion_archive_topology, resolve_drive_relative_source_path, resolve_link_target_metadata,
+        relay_completed_members, resolve_companion_archive_topology, resolve_companion_inspection_coordinator,
+        resolve_drive_relative_source_path, resolve_link_target_metadata, resolve_local_archive_inspection_coordinator,
         resolve_pair_cancel_origin, resolve_pair_confirm_origin, resolve_pair_status_origin, resolve_safe_path, source_link_kind,
         validate_editor_write_target, ArchiveCreationAdapterBinding, ArchiveCreationMemberCompletion, ArchiveCreationRelay,
         ArchiveExtractionAdapterBinding, ArchiveExtractionCollision, ArchiveExtractionMemberCompletion, ArchiveExtractionMemberError,
@@ -4846,9 +4872,11 @@ mod tests {
     };
     use crate::server::archive::{
         build_local_archive_manifest, build_local_archive_manifest_for_remote_target, create_local_archive,
-        validate_local_archive_extraction, ArchiveCreationManifest, ArchiveCreationManifestMember, CompanionArchiveOperationKind,
-        CompanionArchiveTopology, LocalArchiveCreationResult, LocalArchiveEntry, LocalArchiveError, LocalArchiveExtractionMemberError,
-        LocalArchiveExtractionResult, LocalArchiveReadEntry, LocalArchiveReadError,
+        resolve_companion_archive_inspection_topology_plan, resolve_companion_archive_topology_plan, validate_local_archive_extraction,
+        ArchiveCreationManifest, ArchiveCreationManifestMember, ArchiveInspectionPlan, ArchiveInspectionPresentation,
+        CompanionArchiveOperationKind, CompanionArchiveTopology, LocalArchiveCreationResult, LocalArchiveEntry, LocalArchiveError,
+        LocalArchiveExtractionMemberError, LocalArchiveExtractionResult, LocalArchiveInspectionSource, LocalArchiveReadEntry,
+        LocalArchiveReadError,
     };
     use crate::server::archive_sessions::{
         ArchiveSessionKind, ArchiveSessionPendingDecision, ArchiveSessionPhase, ArchiveSessionProgress, ArchiveSessionStatus,
@@ -4949,6 +4977,36 @@ mod tests {
                 expected_topology
             );
         }
+    }
+
+    #[test]
+    fn companion_inspection_resolver_accepts_only_a_local_inspection_plan() {
+        let directory = tempfile::tempdir().expect("temporary archive directory should be created");
+        let source = directory.path().join("source.txt");
+        let target = directory.path().join("archive.zip");
+        std::fs::write(&source, b"source").expect("source file should be written");
+        let entries = build_local_archive_manifest(&[source], &target).expect("archive manifest should be built");
+        create_local_archive(directory.path(), &target, &entries, || false).expect("archive should be created");
+
+        let coordinator = resolve_local_archive_inspection_coordinator(target.clone(), ArchiveInspectionPresentation::DirectoryListing)
+            .expect("local inspection route binding should resolve");
+        assert_eq!(
+            coordinator
+                .list_directory("", None, 10)
+                .expect("directory listing should succeed")
+                .total,
+            1
+        );
+
+        let plan = ArchiveInspectionPlan::from_local_source(
+            LocalArchiveInspectionSource::from_archive_path(target),
+            ArchiveInspectionPresentation::DirectoryListing,
+        )
+        .expect("inspection plan should be built");
+        let create_topology = resolve_companion_archive_topology_plan(CompanionArchiveOperationKind::Create, true, true)
+            .expect("creation topology should resolve");
+        assert!(resolve_companion_inspection_coordinator(create_topology, plan).is_err());
+        assert!(resolve_companion_archive_inspection_topology_plan(false).is_err());
     }
 
     #[derive(Clone)]

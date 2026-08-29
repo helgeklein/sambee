@@ -20,8 +20,11 @@ from app.services.archive.coordinator import (
     ArchiveExtractionCoordinator,
     ArchiveExtractionManifest,
     ArchiveExtractionManifestMember,
+    ArchiveInspectionPlan,
+    ArchiveInspectionPresentation,
     InMemoryArchiveExecutionStateStore,
     new_extraction_outcome_checkpoint,
+    resolve_archive_inspection_coordinator,
 )
 from app.services.archive.creation import ArchiveCreationCancelled, ArchiveCreationMemberOutcome, ArchiveCreationResult
 from app.services.archive.execution import (
@@ -37,6 +40,7 @@ from app.services.archive.extraction import (
     ArchiveExtractionMemberError,
     ArchiveExtractionResult,
 )
+from app.services.archive.zip_reader import ArchiveInspectionManifest
 
 
 class AdapterFault(StrEnum):
@@ -71,6 +75,13 @@ class TrajectoryCase:
     topology: TopologyCase
     scenario_name: str
     expected_trace: dict[str, Any] | None
+
+
+class FixtureInspectionSource:
+    """Deterministic source adapter used only to validate inspection plan routing."""
+
+    async def inspection_manifest(self) -> ArchiveInspectionManifest:
+        return ArchiveInspectionManifest(())
 
 
 TOPOLOGY_CASES = (
@@ -258,6 +269,28 @@ def test_cross_topology_inspection_plan_selects_the_source_executor(case: Topolo
 
     assert plan.source_is_local is case.source_connection_id.startswith("local-drive:")
     assert plan.driver == (ArchiveExecutionDriver.COMPANION if plan.source_is_local else ArchiveExecutionDriver.BACKEND)
+
+
+def test_backend_inspection_resolver_rejects_non_backend_bindings_and_mismatched_presentations() -> None:
+    source = FixtureInspectionSource()
+    backend_plan = ArchiveInspectionPlan(
+        source,
+        resolve_archive_inspection_topology_plan(source_connection_id="connection-1"),
+        ArchiveInspectionPresentation.DIRECTORY_LISTING,
+    )
+    coordinator = resolve_archive_inspection_coordinator(backend_plan)
+
+    assert coordinator.plan is backend_plan
+    with pytest.raises(ValueError, match="member-read response"):
+        asyncio.run(coordinator.member("entry.txt"))
+
+    local_plan = ArchiveInspectionPlan(
+        source,
+        resolve_archive_inspection_topology_plan(source_connection_id="local-drive:c"),
+        ArchiveInspectionPresentation.DIRECTORY_LISTING,
+    )
+    with pytest.raises(ValueError, match="compatible backend binding"):
+        resolve_archive_inspection_coordinator(local_plan)
 
 
 @dataclass(frozen=True)

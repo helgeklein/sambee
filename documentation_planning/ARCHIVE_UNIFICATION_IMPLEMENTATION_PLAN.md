@@ -351,6 +351,71 @@ Complete the operation-model requirement with the following bounded refactor.
    suite, the repository topology-conformance gate, backend archive tests,
    mypy, strict Clippy, Rustfmt, and `git diff --check`.
 
+#### Phase 4 Inspection Plan Resolution Addendum
+
+The creation and extraction operation plans now resolve through their runtime
+topology resolvers, but inspection needs the same explicit request-scoped
+routing. Complete the remaining Phase 4 inspection requirement without adding
+durable inspection records, changing V1 request/response schemas, or creating
+a generic filesystem abstraction.
+
+1. Define a single immutable inspection topology plan in each runtime. It must
+   represent the operation kind, selected executor, source placement, and the
+   applicable local or SMB inspection binding. Extend the Companion operation
+   topology vocabulary to represent inspection, and provide a source-only
+   resolver that uses the same local-versus-SMB selection rules as archive
+   execution. A Companion inspection resolver must reject any binding it does
+   not own instead of allowing a route to bypass topology selection.
+2. Define an immutable request-scoped inspection operation plan in each
+   runtime. Bind the validated source adapter and the selected presentation
+   adapter before invoking the inspection coordinator. The source adapter owns
+   opening or random-access reading of the archive; the presentation adapter
+   owns conversion of a normalized manifest/member result to the existing V1
+   directory-listing, member-read, or preview response shape. Do not put HTTP
+   response construction, path authorization, or transport concerns in the
+   coordinator.
+3. Refactor the Companion local archive directory and member routes to:
+   authenticate and resolve the drive/path; construct the immutable inspection
+   plan; invoke the production inspection topology resolver and coordinator;
+   then stream or serialize through the bound presentation adapter. Retain the
+   existing local ZIP parser and bounded streaming helper as adapter details.
+   Do not add a Companion relay inspection workflow in V1; SMB inspection
+   remains backend-owned and its resolver must select the backend path.
+4. Refactor the backend inspection callers to construct their source and
+   presentation bindings through the same request-scoped inspection-plan
+   boundary. Preserve the current backend `ZipReader`, bounded preview checks,
+   and V1 API projections. The resolver remains responsible only for executor
+   selection and binding compatibility; it must not parse ZIP data or derive
+   member results.
+5. Add focused Python and Rust tests that prove: local and SMB source
+   placement resolve to the expected runtime owner; each owner rejects an
+   incompatible binding; Companion local directory/member routes invoke the
+   production resolver; backend SMB directory/member routes invoke its
+   resolver; and invalid member, cursor, unavailable, encrypted, and
+   oversized-preview behavior is unchanged. Keep inspection outside the
+   durable creation/extraction trajectory harness, but add resolved-plan
+   assertions beside the existing inspection corpus and V1 route-binding
+   tests.
+6. Run the inspection corpus and focused route tests first, then the complete
+   backend and Companion suites, the repository topology-conformance gate,
+   mypy, strict Clippy, Rustfmt, and `git diff --check`. Record the Phase 4
+   completion gate only after the inspection resolver tests prove that no
+   production inspection route constructs a coordinator directly from a raw
+   archive path.
+
+Acceptance criteria:
+
+- Every production inspection request constructs an immutable plan and reaches
+  its owning coordinator through a topology resolver.
+- Inspection plans bind both a source adapter and a presentation adapter while
+  remaining request-scoped and non-durable.
+- Local inspection remains Companion-owned, SMB inspection remains
+  backend-owned, and neither runtime gains a generic local/SMB filesystem API
+  or a V1 relay inspection workflow.
+- Existing V1 inspection schemas, authorization, parser behavior, bounded
+  previews, and member-read errors remain unchanged and are route-binding
+  tested.
+
 ### 5. Design And Deliver V2
 
 1. Create `archive-contract/v2` only after a recorded Phase 4 completion gate:

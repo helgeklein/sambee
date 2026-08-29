@@ -26,7 +26,7 @@ from app.models.connection import Connection
 from app.models.edit_lock import HEARTBEAT_TIMEOUT_SECONDS, EditLock
 from app.models.file import FileInfo, FileType
 from app.models.user import User
-from app.services.archive.coordinator import ArchiveInspectionCoordinator, ArchiveInspectionPlan
+from app.services.archive.coordinator import ArchiveInspectionPlan, ArchiveInspectionPresentation, resolve_archive_inspection_coordinator
 from app.services.archive.execution import ArchiveExecutionDriver, resolve_archive_inspection_topology_plan
 from app.services.archive.zip_reader import ArchiveFormatError, ZipEntry, ZipReader
 from app.services.connection_access import get_accessible_connection_or_404
@@ -98,7 +98,10 @@ async def stream_archive_member(
             raise HTTPException(
                 status_code=status.HTTP_422_UNPROCESSABLE_CONTENT, detail="Archive inspection requires the Companion coordinator"
             )
-        inspection_member = await ArchiveInspectionCoordinator(ArchiveInspectionPlan(zip_reader, topology)).member(member_path)
+        inspection = resolve_archive_inspection_coordinator(
+            ArchiveInspectionPlan(zip_reader, topology, ArchiveInspectionPresentation.MEMBER_READ)
+        )
+        inspection_member = await inspection.member(member_path)
         member = await zip_reader.validate_member(inspection_member.path)
         if not download and view_kind != "raw" and not inspection_member.is_inline_preview_eligible():
             raise HTTPException(

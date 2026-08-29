@@ -5,6 +5,7 @@ import unicodedata
 from collections.abc import Awaitable, Callable, Mapping
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
+from enum import StrEnum
 from types import MappingProxyType
 from typing import Protocol
 
@@ -13,7 +14,7 @@ from sqlmodel import Session
 
 from app.models.archive_operation import ArchiveOperation, ArchiveOperationPhase
 from app.services.archive.creation import ArchiveCreationCancelled, ArchiveCreationMemberOutcome, ArchiveCreationResult
-from app.services.archive.execution import ArchiveInspectionTopologyPlan
+from app.services.archive.execution import ArchiveExecutionDriver, ArchiveInspectionTopologyPlan
 from app.services.archive.extraction import (
     ArchiveExtractionCancelled,
     ArchiveExtractionConflict,
@@ -116,12 +117,20 @@ class ArchiveInspectionSource(Protocol):
     async def inspection_manifest(self) -> ArchiveInspectionManifest: ...
 
 
+class ArchiveInspectionPresentation(StrEnum):
+    """Existing V1 response projection selected for one inspection request."""
+
+    DIRECTORY_LISTING = "directory_listing"
+    MEMBER_READ = "member_read"
+
+
 @dataclass(frozen=True)
 class ArchiveInspectionPlan:
     """Immutable, non-durable source binding for one archive inspection request."""
 
     source: ArchiveInspectionSource
-    topology: ArchiveInspectionTopologyPlan | None = None
+    topology: ArchiveInspectionTopologyPlan
+    presentation: ArchiveInspectionPresentation
 
 
 @dataclass(frozen=True)
@@ -143,12 +152,24 @@ class ArchiveInspectionCoordinator:
     ) -> ArchiveInspectionDirectoryPage:
         """List one bounded archive directory page from the normalized manifest."""
 
+        if self.plan.presentation != ArchiveInspectionPresentation.DIRECTORY_LISTING:
+            raise ValueError("Archive inspection plan does not support a directory-listing response")
         return (await self.manifest()).list_directory(path, cursor, page_size)
 
     async def member(self, path: str) -> ArchiveInspectionManifestMember:
         """Resolve one read-eligible archive member from the normalized manifest."""
 
+        if self.plan.presentation != ArchiveInspectionPresentation.MEMBER_READ:
+            raise ValueError("Archive inspection plan does not support a member-read response")
         return (await self.manifest()).member(path)
+
+
+def resolve_archive_inspection_coordinator(plan: ArchiveInspectionPlan) -> ArchiveInspectionCoordinator:
+    """Construct the backend coordinator only for an SMB-owned inspection plan."""
+
+    if plan.topology.driver != ArchiveExecutionDriver.BACKEND or plan.topology.source_is_local:
+        raise ValueError("Archive inspection topology did not resolve to a compatible backend binding")
+    return ArchiveInspectionCoordinator(plan)
 
 
 @dataclass(frozen=True)

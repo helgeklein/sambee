@@ -50,7 +50,7 @@ from app.models.recent_file import (
     RecentFileValidationError,
 )
 from app.models.user import User
-from app.services.archive.coordinator import ArchiveInspectionCoordinator, ArchiveInspectionPlan
+from app.services.archive.coordinator import ArchiveInspectionPlan, ArchiveInspectionPresentation, resolve_archive_inspection_coordinator
 from app.services.archive.execution import ArchiveExecutionDriver, resolve_archive_inspection_topology_plan
 from app.services.archive.zip_reader import ArchiveFormatError, ZipReader
 from app.services.connection_access import get_accessible_connection_or_404, require_connection_write_access
@@ -451,7 +451,14 @@ async def list_archive_directory(
             raise HTTPException(
                 status_code=status.HTTP_422_UNPROCESSABLE_CONTENT, detail="Archive inspection requires the Companion coordinator"
             )
-        page = await ArchiveInspectionCoordinator(ArchiveInspectionPlan(ZipReader(reader, archive_info.size), topology)).list_directory(
+        inspection = resolve_archive_inspection_coordinator(
+            ArchiveInspectionPlan(
+                ZipReader(reader, archive_info.size),
+                topology,
+                ArchiveInspectionPresentation.DIRECTORY_LISTING,
+            )
+        )
+        page = await inspection.list_directory(
             virtual_path,
             cursor,
             page_size,
