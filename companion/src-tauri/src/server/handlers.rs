@@ -3610,11 +3610,15 @@ mod tests {
     use crate::server::models::{FileType, LinkKind, LinkTargetState, LinkTargetType, PublicPairingStatus};
     use crate::server::pairing::PairingState;
     use axum::body::to_bytes;
-    use axum::http::{HeaderMap, HeaderValue, StatusCode};
+    use axum::extract::State;
+    use axum::http::{HeaderMap, HeaderValue, Method, StatusCode, Uri};
     use axum::response::IntoResponse;
     use serde::Deserialize;
+    use std::collections::VecDeque;
     #[cfg(unix)]
     use std::os::unix::fs::symlink;
+    use std::sync::Arc;
+    use tokio::sync::Mutex;
     const NONCE_A: &str = "00112233445566778899aabbccddeeff00112233445566778899aabbccddeeff";
 
     #[derive(Deserialize)]
@@ -3660,6 +3664,119 @@ mod tests {
             .find(|case| case["name"] == case_name)
             .unwrap_or_else(|| panic!("topology trace fixture should define {case_name}"))["expected_trace"]
             .clone()
+    }
+
+    #[derive(Clone)]
+    struct FixtureRelayServer {
+        url: String,
+        playback: Arc<Mutex<FixtureRelayPlayback>>,
+    }
+
+    struct FixtureRelayPlayback {
+        remaining: VecDeque<serde_json::Value>,
+        expected_traffic: Vec<serde_json::Value>,
+        observed_traffic: Vec<serde_json::Value>,
+    }
+
+    impl FixtureRelayServer {
+        async fn assert_consumed(&self) {
+            let playback = self.playback.lock().await;
+            assert!(playback.remaining.is_empty(), "fixture relay playback has unconsumed responses");
+            assert_eq!(playback.observed_traffic, playback.expected_traffic);
+        }
+    }
+
+    async fn fixture_relay_handler(
+        State(playback): State<Arc<Mutex<FixtureRelayPlayback>>>,
+        method: Method,
+        uri: Uri,
+        body: axum::body::Bytes,
+    ) -> axum::response::Response {
+        let observed = serde_json::json!({
+            "method": method.as_str(),
+            "path": uri.path(),
+            "query": uri.query(),
+            "body": if body.is_empty() {
+                "empty"
+            } else if matches!(serde_json::from_slice::<serde_json::Value>(&body), Ok(serde_json::Value::Object(_))) {
+                "json"
+            } else {
+                "bytes"
+            },
+        });
+        let step = {
+            let mut playback = playback.lock().await;
+            playback.observed_traffic.push(observed.clone());
+            playback.remaining.pop_front()
+        };
+        let Some(step) = step else {
+            return (StatusCode::INTERNAL_SERVER_ERROR, "unexpected relay request").into_response();
+        };
+        if observed != step["request"] {
+            eprintln!("fixture relay request mismatch: expected {}, observed {observed}", step["request"]);
+            return (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                format!(
+                    "relay request does not match fixture: expected {}, observed {observed}",
+                    step["request"]
+                ),
+            )
+                .into_response();
+        }
+        let response = &step["response"];
+        let status = response["status"]
+            .as_u64()
+            .and_then(|value| StatusCode::from_u16(value as u16).ok())
+            .expect("fixture response status should be valid");
+        let body = response
+            .get("json")
+            .map(serde_json::Value::to_string)
+            .or_else(|| response.get("text").and_then(serde_json::Value::as_str).map(str::to_string))
+            .unwrap_or_default();
+        let mut response = (status, body).into_response();
+        if step["response"].get("json").is_some() {
+            response
+                .headers_mut()
+                .insert(axum::http::header::CONTENT_TYPE, HeaderValue::from_static("application/json"));
+        }
+        response
+    }
+
+    async fn spawn_fixture_relay_server(case_name: &str) -> FixtureRelayServer {
+        let fixture: serde_json::Value =
+            serde_json::from_str(include_str!("../../../../archive-contract/v1/topology-execution-traces-v1.json"))
+                .expect("topology trace fixture should be valid JSON");
+        let case = fixture["cases"]
+            .as_array()
+            .expect("topology trace fixture should define cases")
+            .iter()
+            .find(|case| case["name"] == case_name)
+            .unwrap_or_else(|| panic!("topology trace fixture should define {case_name}"));
+        let steps = case["relay_playback"]
+            .as_array()
+            .unwrap_or_else(|| panic!("topology trace fixture should define relay playback for {case_name}"))
+            .clone();
+        let playback = Arc::new(Mutex::new(FixtureRelayPlayback {
+            expected_traffic: steps.iter().map(|step| step["request"].clone()).collect(),
+            remaining: steps.into(),
+            observed_traffic: Vec::new(),
+        }));
+        let app = axum::Router::new()
+            .fallback(axum::routing::any(fixture_relay_handler))
+            .with_state(playback.clone());
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0")
+            .await
+            .expect("fixture relay server should bind");
+        let address = listener.local_addr().expect("fixture relay server should have an address");
+        tokio::spawn(async move {
+            axum::serve(listener, app)
+                .await
+                .expect("fixture relay server should remain available");
+        });
+        FixtureRelayServer {
+            url: format!("http://{address}"),
+            playback,
+        }
     }
 
     #[test]
@@ -3804,6 +3921,7 @@ mod tests {
         );
     }
 
+    #[allow(dead_code)]
     async fn spawn_remote_creation_source_server() -> String {
         let app = axum::Router::new()
             .route(
@@ -3835,6 +3953,7 @@ mod tests {
         format!("http://{address}")
     }
 
+    #[allow(dead_code)]
     async fn spawn_remote_creation_destination_server() -> String {
         let app = axum::Router::new()
             .route("/begin", axum::routing::post(|| async { StatusCode::NO_CONTENT }))
@@ -3860,6 +3979,7 @@ mod tests {
     async fn actual_relay_creation_coordinator_executes_both_mixed_topologies() {
         let directory = tempfile::tempdir().expect("temporary archive directory should be created");
         let remote_target = directory.path().join("from-smb.zip");
+        let remote_playback = spawn_fixture_relay_server("create_smb_to_local_success").await;
         let remote_manifest = ArchiveCreationManifest::from_entries(vec![ArchiveCreationManifestMember {
             archive_path: "source.txt".to_string(),
             is_directory: false,
@@ -3870,7 +3990,7 @@ mod tests {
         let remote_result = ArchiveCreationCoordinator {
             relay: ArchiveCreationRelay::from_transport(ArchiveRelayTransport::new(
                 reqwest::Client::new(),
-                spawn_remote_creation_source_server().await,
+                remote_playback.url.clone(),
                 "test-token".to_string(),
             )),
             binding: ArchiveCreationAdapterBinding::RemoteSourceToLocalDestination {
@@ -3886,15 +4006,17 @@ mod tests {
         assert_eq!(remote_result.files_created, remote_expected["terminal_summary"]["files_created"]);
         assert_eq!(remote_result.source_bytes, remote_expected["terminal_summary"]["source_bytes"]);
         assert!(remote_target.is_file());
+        remote_playback.assert_consumed().await;
 
         let local_source = directory.path().join("local-source.txt");
         std::fs::write(&local_source, b"local source").expect("local source should be written");
         let local_entries =
             build_local_archive_manifest_for_remote_target(&[local_source]).expect("local source should produce a valid creation manifest");
+        let local_playback = spawn_fixture_relay_server("create_local_to_smb_success").await;
         let local_result = ArchiveCreationCoordinator {
             relay: ArchiveCreationRelay::from_transport(ArchiveRelayTransport::new(
                 reqwest::Client::new(),
-                spawn_remote_creation_destination_server().await,
+                local_playback.url.clone(),
                 "test-token".to_string(),
             )),
             binding: ArchiveCreationAdapterBinding::LocalSourceToRemoteDestination { entries: local_entries },
@@ -3905,8 +4027,10 @@ mod tests {
         let local_expected = expected_topology_trace("create_local_to_smb_success");
         assert_eq!(local_result.files_created, local_expected["terminal_summary"]["files_created"]);
         assert_eq!(local_result.source_bytes, local_expected["terminal_summary"]["source_bytes"]);
+        local_playback.assert_consumed().await;
     }
 
+    #[allow(dead_code)]
     fn streaming_relay_operation(checkpoint_json: serde_json::Value) -> serde_json::Value {
         serde_json::json!({
             "phase": "streaming",
@@ -3916,6 +4040,7 @@ mod tests {
         })
     }
 
+    #[allow(dead_code)]
     async fn spawn_remote_extraction_source_server() -> String {
         let completed = streaming_relay_operation(serde_json::json!({
             "extraction_outcome_checkpoint_version": 1,
@@ -3980,6 +4105,7 @@ mod tests {
         format!("http://{address}")
     }
 
+    #[allow(dead_code)]
     async fn spawn_remote_extraction_destination_server() -> String {
         let app = axum::Router::new()
             .route(
@@ -4020,10 +4146,11 @@ mod tests {
     async fn actual_relay_extraction_coordinator_executes_both_mixed_topologies() {
         let directory = tempfile::tempdir().expect("temporary archive directory should be created");
         let local_destination = directory.path().join("from-smb");
+        let remote_playback = spawn_fixture_relay_server("extract_smb_to_local_success").await;
         let remote_result = ArchiveExtractionCoordinator {
             relay: ArchiveExtractionRelay::from_transport(ArchiveRelayTransport::new(
                 reqwest::Client::new(),
-                spawn_remote_extraction_source_server().await,
+                remote_playback.url.clone(),
                 "test-token".to_string(),
             )),
             binding: ArchiveExtractionAdapterBinding::RemoteSourceToLocalDestination {
@@ -4047,6 +4174,7 @@ mod tests {
             std::fs::read(local_destination.join("entry.txt")).expect("relayed member should be written"),
             b"entry"
         );
+        remote_playback.assert_consumed().await;
 
         let local_source = directory.path().join("local.zip");
         let local_member = directory.path().join("source.txt");
@@ -4054,10 +4182,11 @@ mod tests {
         let entries = build_local_archive_manifest(&[local_member], &local_source).expect("local archive manifest should be valid");
         create_local_archive(directory.path(), &local_source, &entries, || false).expect("local archive should be created");
         let archive_entries = validate_local_archive_extraction(&local_source).expect("local archive entries should be valid");
+        let local_playback = spawn_fixture_relay_server("extract_local_to_smb_success").await;
         let local_result = ArchiveExtractionCoordinator {
             relay: ArchiveExtractionRelay::from_transport(ArchiveRelayTransport::new(
                 reqwest::Client::new(),
-                spawn_remote_extraction_destination_server().await,
+                local_playback.url.clone(),
                 "test-token".to_string(),
             )),
             binding: ArchiveExtractionAdapterBinding::LocalArchiveToRemoteDestination {
@@ -4071,6 +4200,7 @@ mod tests {
         let local_expected = expected_topology_trace("extract_local_to_smb_success");
         assert_eq!(local_result.files_extracted, local_expected["terminal_summary"]["files_extracted"]);
         assert_eq!(local_result.extracted_bytes, local_expected["terminal_summary"]["extracted_bytes"]);
+        local_playback.assert_consumed().await;
     }
 
     #[tokio::test]

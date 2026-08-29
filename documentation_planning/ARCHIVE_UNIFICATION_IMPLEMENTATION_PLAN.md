@@ -242,10 +242,14 @@ the runtimes.
    Companion topology. Existing Python coordinator tests remain unit coverage,
    not this cross-topology gate.
 4. Make the relay double model only the existing archive relay messages and
-   bytes at the transport boundary. It must not decide collisions, update a
-   ledger, calculate progress, or emulate filesystem behavior. SMB and local
-   test doubles likewise report observations only; their coordinators apply
-   every decision and state transition.
+   bytes at the transport boundary. For mixed topologies, it may passively
+   replay a fixture-defined sequence of existing V1 responses, including
+   checkpoint and pending-decision payloads, while validating the Companion's
+   request ordering and payload shape and recording observed traffic. It must
+   not derive lifecycle state, decide collisions, update a ledger, calculate
+   progress, inspect the local filesystem, or emulate filesystem behavior. SMB
+   and local test doubles likewise report observations only; their
+   coordinators apply every decision and state transition.
 5. Start with the current creation and extraction trajectory corpus, then add
    one fault case per boundary: malformed manifest or member input, collision,
    partial write, cancellation, source identity change, and transport failure.
@@ -256,7 +260,10 @@ the runtimes.
    harness and the Companion actual-executor harness. It is green only when
    every fixture dispatches to the resolved owner and both suites compare the
    resulting trace to the shared expected-trace fixture. Existing focused
-   route-binding and corpus tests remain separate regression coverage.
+   route-binding and corpus tests remain separate regression coverage. The
+   mixed-topology portion must also verify its observed V1 relay request and
+   response sequence against the fixture-defined playback; a real backend
+   process is optional integration coverage, not a Phase 4 gate.
 
 Acceptance criteria:
 

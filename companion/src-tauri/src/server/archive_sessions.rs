@@ -247,6 +247,10 @@ impl ArchiveSession {
 
 pub struct ArchiveSessionManager {
     sessions: Mutex<HashMap<String, ArchiveSession>>,
+    #[cfg(test)]
+    phase_transitions: Mutex<HashMap<String, Vec<ArchiveSessionPhase>>>,
+    #[cfg(test)]
+    pending_decisions: Mutex<HashMap<String, String>>,
 }
 
 /// Coordinate direct-local archive work while keeping lifecycle records in memory only.
@@ -264,7 +268,50 @@ impl ArchiveSessionManager {
     pub fn new() -> Self {
         Self {
             sessions: Mutex::new(HashMap::new()),
+            #[cfg(test)]
+            phase_transitions: Mutex::new(HashMap::new()),
+            #[cfg(test)]
+            pending_decisions: Mutex::new(HashMap::new()),
         }
+    }
+
+    #[cfg(test)]
+    async fn recorded_phase_transitions(&self, execution_id: &str) -> Vec<String> {
+        self.phase_transitions
+            .lock()
+            .await
+            .get(execution_id)
+            .cloned()
+            .unwrap_or_default()
+            .into_iter()
+            .map(ArchiveSessionPhase::as_str)
+            .map(str::to_string)
+            .collect()
+    }
+
+    #[cfg(test)]
+    async fn record_phase_transition(&self, execution_id: &str, phase: ArchiveSessionPhase) {
+        if let Some(transitions) = self.phase_transitions.lock().await.get_mut(execution_id) {
+            transitions.push(phase);
+        }
+    }
+
+    #[cfg(test)]
+    async fn recorded_pending_decision(&self, execution_id: &str) -> Option<String> {
+        self.pending_decisions.lock().await.get(execution_id).cloned()
+    }
+
+    #[cfg(test)]
+    async fn record_pending_decision(&self, execution_id: &str, decision: &ArchiveSessionPendingDecision) {
+        let category = if decision.member_error.is_some() {
+            "member_error"
+        } else {
+            "collision"
+        };
+        self.pending_decisions
+            .lock()
+            .await
+            .insert(execution_id.to_string(), category.to_string());
     }
 
     fn remove_expired(sessions: &mut HashMap<String, ArchiveSession>) {
@@ -333,6 +380,11 @@ impl ArchiveSessionManager {
         };
         let status = session.status();
         sessions.insert(execution_id, session);
+        #[cfg(test)]
+        self.phase_transitions
+            .lock()
+            .await
+            .insert(status.execution_id.clone(), vec![ArchiveSessionPhase::Accepted]);
         status
     }
 
@@ -376,6 +428,8 @@ impl ArchiveSessionManager {
                 session.extraction_checkpoint.take(),
             )
         };
+        #[cfg(test)]
+        self.record_phase_transition(execution_id, ArchiveSessionPhase::Streaming).await;
         Ok((drive_root, work, cancellation_requested, checkpoint))
     }
 }
@@ -512,6 +566,10 @@ impl LocalArchiveOperationCoordinator {
                 session.status(),
             )
         };
+        #[cfg(test)]
+        self.state_store
+            .record_phase_transition(execution_id, ArchiveSessionPhase::Streaming)
+            .await;
         Ok((drive_root, work, cancellation_requested, checkpoint, status))
     }
 }
@@ -545,13 +603,31 @@ impl ArchiveSessionManager {
             session.cancellation_requested.store(true, Ordering::Release);
             session.revision += 1;
         }
-        Ok(session.status())
+        let status = session.status();
+        let _terminal_phase = status.phase.is_terminal().then_some(status.phase);
+        drop(sessions);
+        #[cfg(test)]
+        if let Some(phase) = _terminal_phase {
+            self.record_phase_transition(execution_id, phase).await;
+        }
+        Ok(status)
     }
 
     async fn complete(&self, execution_id: &str, result: Result<ArchiveSessionCompletion, LocalArchiveError>) {
         let mut sessions = self.sessions.lock().await;
-        if let Some(session) = sessions.get_mut(execution_id) {
+        let _phase = if let Some(session) = sessions.get_mut(execution_id) {
             session.complete(result);
+            Some((session.phase, session.pending_decision.clone()))
+        } else {
+            None
+        };
+        drop(sessions);
+        #[cfg(test)]
+        if let Some((phase, pending_decision)) = _phase {
+            self.record_phase_transition(execution_id, phase).await;
+            if let Some(pending_decision) = pending_decision {
+                self.record_pending_decision(execution_id, &pending_decision).await;
+            }
         }
     }
 
@@ -688,6 +764,44 @@ mod tests {
             .clone()
     }
 
+    async fn direct_local_trace(
+        manager: &ArchiveSessionManager,
+        execution_id: &str,
+        status: &super::ArchiveSessionStatus,
+        manifest_snapshot: Vec<&str>,
+        member_outcomes: Vec<&str>,
+    ) -> serde_json::Value {
+        let terminal_summary = match status.result {
+            Some(ArchiveSessionProgress::Creation(result)) => serde_json::json!({
+                "files_created": result.files_created,
+                "directories_created": result.directories_created,
+                "source_bytes": result.source_bytes,
+            }),
+            Some(ArchiveSessionProgress::Extraction(result)) => serde_json::json!({
+                "files_extracted": result.files_extracted,
+                "files_skipped": result.files_skipped,
+                "extracted_bytes": result.extracted_bytes,
+            }),
+            None => serde_json::Value::Null,
+        };
+        serde_json::json!({
+            "owner": "companion",
+            "manifest_snapshot": manifest_snapshot,
+            "phase_transitions": manager.recorded_phase_transitions(execution_id).await,
+            "pending_decision": manager.recorded_pending_decision(execution_id).await,
+            "member_outcomes": member_outcomes,
+            "terminal_summary": terminal_summary,
+            "error_category": match status.phase {
+                ArchiveSessionPhase::Cancelled => serde_json::Value::String("cancelled".to_string()),
+                ArchiveSessionPhase::Failed => serde_json::Value::String("source_changed".to_string()),
+                ArchiveSessionPhase::AwaitingUserDecision if status.pending_decision.as_ref().is_some_and(|decision| decision.member_error.is_some()) => {
+                    serde_json::Value::String("partial_write".to_string())
+                }
+                _ => serde_json::Value::Null,
+            },
+        })
+    }
+
     #[tokio::test]
     async fn cancellation_requires_current_revision_and_reaches_terminal_state() {
         let manager = Arc::new(ArchiveSessionManager::new());
@@ -816,8 +930,10 @@ mod tests {
         );
         assert!(target.is_file());
         let expected = expected_trace("create_local_to_local_success");
-        assert_eq!(expected["terminal_summary"]["files_created"], 1);
-        assert_eq!(expected["terminal_summary"]["source_bytes"], 6);
+        assert_eq!(
+            direct_local_trace(&manager, &session.execution_id, &status, vec!["source.txt"], vec!["source.txt"]).await,
+            expected
+        );
     }
 
     #[tokio::test]
@@ -857,7 +973,6 @@ mod tests {
         .expect("direct local archive extraction should terminate");
 
         let expected = expected_trace("extract_local_to_local_success");
-        assert_eq!(completed.phase.as_str(), expected["phase_transitions"][2]);
         assert!(matches!(
             completed.result,
             Some(ArchiveSessionProgress::Extraction(progress))
@@ -865,6 +980,10 @@ mod tests {
                     && progress.extracted_bytes == expected["terminal_summary"]["extracted_bytes"]
         ));
         assert_eq!(fs::read(destination.join("source.txt")).unwrap(), b"source");
+        assert_eq!(
+            direct_local_trace(&manager, &session.execution_id, &completed, vec!["source.txt"], vec!["source.txt"]).await,
+            expected
+        );
     }
 
     #[tokio::test]
@@ -906,7 +1025,10 @@ mod tests {
 
         assert_eq!(status.phase, ArchiveSessionPhase::Cancelled);
         assert!(!target.exists());
-        assert_eq!(expected_trace("create_cancellation")["error_category"], "cancelled");
+        assert_eq!(
+            direct_local_trace(&manager, &session.execution_id, &status, vec!["source.txt"], vec![]).await,
+            expected_trace("create_cancellation")
+        );
     }
 
     #[tokio::test]
@@ -1008,8 +1130,11 @@ mod tests {
             Some(ArchiveSessionProgress::Extraction(progress)) if progress.files_skipped == 1
         ));
         let expected = expected_trace("extract_collision");
-        assert_eq!(expected["terminal_summary"]["files_skipped"], 1);
         assert_eq!(fs::read(destination.join("source.txt")).unwrap(), b"existing contents");
+        assert_eq!(
+            direct_local_trace(&manager, &session.execution_id, &completed, vec!["source.txt"], vec!["source.txt"]).await,
+            expected
+        );
     }
 
     #[tokio::test]
@@ -1147,6 +1272,10 @@ mod tests {
                 .unwrap()
                 .partial_output
         );
+        assert_eq!(
+            direct_local_trace(&manager, &session.execution_id, &paused, vec!["source.txt"], vec![]).await,
+            expected_trace("extract_partial_write")
+        );
         assert!(LocalArchiveOperationCoordinator::new(manager.clone())
             .decide(
                 "c",
@@ -1190,7 +1319,10 @@ mod tests {
         .expect("retried archive extraction should terminate");
         assert_eq!(completed.phase, ArchiveSessionPhase::Failed);
         assert_eq!(completed.error.as_deref(), Some("archive source changed since extraction began"));
-        assert_eq!(expected_trace("extract_source_changed")["error_category"], "source_changed");
+        assert_eq!(
+            direct_local_trace(&manager, &session.execution_id, &completed, vec!["source.txt"], vec![]).await,
+            expected_trace("extract_source_changed")
+        );
     }
 
     #[tokio::test]

@@ -40,6 +40,7 @@ from app.services.archive.extraction import (
 
 
 class AdapterFault(StrEnum):
+    MALFORMED_INPUT = "malformed_input"
     COLLISION = "collision"
     PARTIAL_WRITE = "partial_write"
     CANCELLATION = "cancellation"
@@ -53,6 +54,15 @@ class TopologyCase:
     source_connection_id: str
     destination_connection_id: str
     driver: ArchiveExecutionDriver
+
+
+@dataclass(frozen=True)
+class FixtureCase:
+    name: str
+    operation: str
+    topology: TopologyCase
+    fault: AdapterFault | None
+    expected_trace: dict[str, Any]
 
 
 TOPOLOGY_CASES = (
@@ -79,12 +89,66 @@ EXTRACTION_TRAJECTORIES = _load_trajectory_scenarios(EXTRACTION_TRAJECTORY_CORPU
 CREATION_TRAJECTORIES = _load_trajectory_scenarios(CREATION_TRAJECTORY_CORPUS_PATH)
 
 
+class TraceRecordingStateStore(InMemoryArchiveExecutionStateStore):
+    """Record coordinator-owned lifecycle transitions without changing test execution."""
+
+    def __init__(self) -> None:
+        super().__init__()
+        self.phase_transitions = [ArchiveOperationPhase.PREPARED.value]
+
+    def transition(self, operation, *, expected_phase, next_phase, additional_changes=None):
+        result = super().transition(
+            operation,
+            expected_phase=expected_phase,
+            next_phase=next_phase,
+            additional_changes=additional_changes,
+        )
+        self.phase_transitions.append(next_phase.value)
+        return result
+
+    def await_decision(self, operation, decision):
+        result = super().await_decision(operation, decision)
+        self.phase_transitions.append(ArchiveOperationPhase.AWAITING_USER_DECISION.value)
+        return result
+
+    def fail(self, operation, message):
+        result = super().fail(operation, message)
+        self.phase_transitions.append(ArchiveOperationPhase.FAILED.value)
+        return result
+
+    def apply_extraction_decision(self, operation, action, member_path, target_path):
+        result = super().apply_extraction_decision(operation, action, member_path, target_path)
+        self.phase_transitions.append(ArchiveOperationPhase.STREAMING.value)
+        return result
+
+
 def _expected_trace(case_name: str) -> dict[str, Any]:
     fixture: dict[str, Any] = json.loads(TOPOLOGY_TRACE_FIXTURE_PATH.read_text(encoding="utf-8"))
     for case in fixture["cases"]:
         if case["name"] == case_name:
             return case["expected_trace"]
     raise AssertionError(f"Topology trace fixture does not define {case_name}")
+
+
+def _fixture_cases() -> tuple[FixtureCase, ...]:
+    fixture: dict[str, Any] = json.loads(TOPOLOGY_TRACE_FIXTURE_PATH.read_text(encoding="utf-8"))
+    topologies = {case.name: case for case in TOPOLOGY_CASES}
+    cases = []
+    for raw_case in fixture["cases"]:
+        fault = raw_case["fault"]
+        cases.append(
+            FixtureCase(
+                name=raw_case["name"],
+                operation=raw_case["operation"],
+                topology=topologies[raw_case["topology"]],
+                fault=AdapterFault(fault) if fault is not None else None,
+                expected_trace=raw_case["expected_trace"],
+            )
+        )
+    return tuple(cases)
+
+
+BACKEND_FIXTURE_CASES = tuple(case for case in _fixture_cases() if case.topology.driver == ArchiveExecutionDriver.BACKEND)
 
 
 def test_topology_trace_fixture_matches_resolved_execution_owners() -> None:
@@ -153,6 +217,8 @@ class FaultInjectingExtractionAdapter:
             raise RuntimeError("injected source changed")
         if self.fault == AdapterFault.TRANSPORT_FAILURE:
             raise RuntimeError("injected relay transport failure")
+        if self.fault == AdapterFault.MALFORMED_INPUT:
+            execution_plan.member("../invalid-member")
         assert await is_cancelled() is False
         await on_member_completed(ArchiveExtractionDestinationResult("entry.txt", "extracted", "output/entry.txt", extracted_bytes=5))
         return ArchiveExtractionResult(files_extracted=1, directories_created=0, extracted_bytes=5)
@@ -179,6 +245,83 @@ def _extraction_operation(case: TopologyCase) -> ArchiveOperation:
     )
 
 
+def _backend_extraction_trace(case: FixtureCase) -> dict[str, Any]:
+    operation = _extraction_operation(case.topology)
+    state_store = TraceRecordingStateStore()
+    try:
+        completed = asyncio.run(ArchiveExtractionCoordinator(operation, state_store).run(FaultInjectingExtractionAdapter(case.fault).run))
+    except HTTPException as error:
+        assert case.fault == AdapterFault.MALFORMED_INPUT
+        assert error.status_code == 422
+        completed = operation
+        error_category: str | None = "invalid_input"
+    else:
+        error_category = None
+    checkpoint: dict[str, Any] = json.loads(completed.checkpoint_json)
+    return {
+        "owner": case.topology.driver.value,
+        "manifest_snapshot": [member["path"] for member in checkpoint["archive_manifest"]],
+        "phase_transitions": state_store.phase_transitions,
+        "pending_decision": None,
+        "member_outcomes": sorted(checkpoint["member_outcomes"]),
+        "terminal_summary": (
+            {key: checkpoint.get(key, 0) for key in case.expected_trace["terminal_summary"]}
+            if case.expected_trace["terminal_summary"] is not None
+            else None
+        ),
+        "error_category": error_category,
+    }
+
+
+def _backend_creation_trace(case: FixtureCase) -> dict[str, Any]:
+    operation = ArchiveOperation(
+        user_id=uuid.uuid4(),
+        kind=ArchiveOperationKind.CREATE,
+        source_connection_id=case.topology.source_connection_id,
+        destination_connection_id=case.topology.destination_connection_id,
+    )
+    creation_plan = ArchiveCreationExecutionPlan(
+        ArchiveCreationManifest.from_members([ArchiveCreationManifestMember("entry.txt", False, 5, "entry.txt", None)])
+    )
+    state_store = TraceRecordingStateStore()
+    completed = asyncio.run(
+        ArchiveCreationCoordinator(operation, state_store).run(DeterministicCreationAdapter().run, execution_plan=creation_plan)
+    )
+    checkpoint: dict[str, Any] = json.loads(completed.checkpoint_json)
+    return {
+        "owner": case.topology.driver.value,
+        "manifest_snapshot": [member.archive_path for member in creation_plan.manifest.members],
+        "phase_transitions": state_store.phase_transitions,
+        "pending_decision": None,
+        "member_outcomes": sorted(checkpoint["creation_member_outcomes"]),
+        "terminal_summary": {key: checkpoint.get(key, 0) for key in case.expected_trace["terminal_summary"]},
+        "error_category": None,
+    }
+
+
+@pytest.mark.parametrize("case", BACKEND_FIXTURE_CASES, ids=lambda case: case.name)
+def test_backend_fixture_dispatcher_runs_every_backend_owned_case(case: FixtureCase) -> None:
+    resolved = resolve_archive_operation_topology_plan(
+        kind=ArchiveOperationKind(case.operation),
+        source_connection_id=case.topology.source_connection_id,
+        destination_connection_id=case.topology.destination_connection_id,
+    )
+    assert resolved.topology.driver == ArchiveExecutionDriver.BACKEND
+    trace = _backend_creation_trace(case) if case.operation == "create" else _backend_extraction_trace(case)
+    assert trace == case.expected_trace
+
+
+def test_trace_recording_state_store_observes_full_backend_lifecycle() -> None:
+    case = BACKEND_TOPOLOGY_CASES[0]
+    operation = _extraction_operation(case)
+    state_store = TraceRecordingStateStore()
+
+    completed = asyncio.run(ArchiveExtractionCoordinator(operation, state_store).run(FaultInjectingExtractionAdapter().run))
+
+    assert completed.phase == ArchiveOperationPhase.COMPLETED
+    assert state_store.phase_transitions == ["prepared", "accepted", "streaming", "verifying", "completed"]
+
+
 @pytest.mark.parametrize("case", BACKEND_TOPOLOGY_CASES, ids=lambda case: case.name)
 def test_cross_topology_extraction_harness_runs_resolved_coordinator(case: TopologyCase) -> None:
     plan = resolve_archive_operation_topology_plan(
@@ -189,15 +332,20 @@ def test_cross_topology_extraction_harness_runs_resolved_coordinator(case: Topol
     assert plan.topology.driver == case.driver
     operation = _extraction_operation(case)
 
-    completed = asyncio.run(
-        ArchiveExtractionCoordinator(operation, InMemoryArchiveExecutionStateStore()).run(FaultInjectingExtractionAdapter().run)
-    )
+    state_store = TraceRecordingStateStore()
+    completed = asyncio.run(ArchiveExtractionCoordinator(operation, state_store).run(FaultInjectingExtractionAdapter().run))
 
     expected = _expected_trace(f"extract_{case.name}_success")
-    assert completed.phase.value == expected["phase_transitions"][-1]
     checkpoint: dict[str, Any] = json.loads(completed.checkpoint_json)
-    assert sorted(checkpoint["member_outcomes"]) == expected["member_outcomes"]
-    assert {key: checkpoint.get(key, 0) for key in expected["terminal_summary"]} == expected["terminal_summary"]
+    assert {
+        "owner": case.driver.value,
+        "manifest_snapshot": [member["path"] for member in checkpoint["archive_manifest"]],
+        "phase_transitions": state_store.phase_transitions,
+        "pending_decision": None,
+        "member_outcomes": sorted(checkpoint["member_outcomes"]),
+        "terminal_summary": {key: checkpoint.get(key, 0) for key in expected["terminal_summary"]},
+        "error_category": None,
+    } == expected
 
 
 @pytest.mark.parametrize("case", BACKEND_TOPOLOGY_CASES, ids=lambda case: case.name)
@@ -218,18 +366,22 @@ def test_cross_topology_creation_harness_runs_resolved_coordinator(case: Topolog
         ArchiveCreationManifest.from_members([ArchiveCreationManifestMember("entry.txt", False, 5, "entry.txt", None)])
     )
 
+    state_store = TraceRecordingStateStore()
     completed = asyncio.run(
-        ArchiveCreationCoordinator(operation, InMemoryArchiveExecutionStateStore()).run(
-            DeterministicCreationAdapter().run,
-            execution_plan=creation_plan,
-        )
+        ArchiveCreationCoordinator(operation, state_store).run(DeterministicCreationAdapter().run, execution_plan=creation_plan)
     )
 
     expected = _expected_trace(f"create_{case.name}_success")
-    assert completed.phase.value == expected["phase_transitions"][-1]
     checkpoint: dict[str, Any] = json.loads(completed.checkpoint_json)
-    assert sorted(checkpoint["creation_member_outcomes"]) == expected["member_outcomes"]
-    assert {key: checkpoint.get(key, 0) for key in expected["terminal_summary"]} == expected["terminal_summary"]
+    assert {
+        "owner": case.driver.value,
+        "manifest_snapshot": [member.archive_path for member in creation_plan.manifest.members],
+        "phase_transitions": state_store.phase_transitions,
+        "pending_decision": None,
+        "member_outcomes": sorted(checkpoint["creation_member_outcomes"]),
+        "terminal_summary": {key: checkpoint.get(key, 0) for key in expected["terminal_summary"]},
+        "error_category": None,
+    } == expected
 
 
 @pytest.mark.parametrize("case", BACKEND_TOPOLOGY_CASES, ids=lambda case: case.name)
@@ -358,6 +510,12 @@ def test_fault_injecting_extraction_adapter_leaves_lifecycle_to_coordinator(
 ) -> None:
     operation = _extraction_operation(case)
     coordinator = ArchiveExtractionCoordinator(operation, InMemoryArchiveExecutionStateStore())
+
+    if fault == AdapterFault.MALFORMED_INPUT:
+        with pytest.raises(HTTPException, match="Archive member is invalid or unavailable"):
+            asyncio.run(coordinator.run(FaultInjectingExtractionAdapter(fault).run))
+        assert operation.phase == ArchiveOperationPhase.STREAMING
+        return
 
     if fault in {AdapterFault.SOURCE_CHANGED, AdapterFault.TRANSPORT_FAILURE}:
         with pytest.raises(HTTPException, match="Archive extraction failed"):

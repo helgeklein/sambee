@@ -74,7 +74,9 @@
         ],
         "phase_transitions": [
           "prepared",
+          "accepted",
           "streaming",
+          "verifying",
           "completed"
         ],
         "pending_decision": null,
@@ -101,7 +103,9 @@
         ],
         "phase_transitions": [
           "prepared",
+          "accepted",
           "streaming",
+          "verifying",
           "completed"
         ],
         "pending_decision": null,
@@ -194,7 +198,43 @@
           "source_bytes": 6
         },
         "error_category": null
-      }
+      },
+      "relay_playback": [
+        {
+          "request": {
+            "method": "GET",
+            "path": "/member",
+            "query": "archive_path=source.txt",
+            "body": "empty"
+          },
+          "response": {
+            "status": 200,
+            "text": "source"
+          }
+        },
+        {
+          "request": {
+            "method": "POST",
+            "path": "/member-complete",
+            "query": null,
+            "body": "json"
+          },
+          "response": {
+            "status": 204
+          }
+        },
+        {
+          "request": {
+            "method": "POST",
+            "path": "/complete",
+            "query": null,
+            "body": "json"
+          },
+          "response": {
+            "status": 204
+          }
+        }
+      ]
     },
     {
       "name": "extract_smb_to_local_success",
@@ -220,7 +260,82 @@
           "extracted_bytes": 5
         },
         "error_category": null
-      }
+      },
+      "relay_playback": [
+        {
+          "request": {
+            "method": "POST",
+            "path": "/begin",
+            "query": null,
+            "body": "empty"
+          },
+          "response": {
+            "status": 200,
+            "json": {
+              "operation": {
+                "phase": "streaming",
+                "destination_path": "output",
+                "checkpoint_json": "{\"extraction_outcome_checkpoint_version\":1,\"member_outcomes\":{}}",
+                "pending_decision_json": null
+              },
+              "entries": [
+                {
+                  "path": "entry.txt",
+                  "is_directory": false,
+                  "uncompressed_size": 5,
+                  "modified_at": null
+                }
+              ]
+            }
+          }
+        },
+        {
+          "request": {
+            "method": "GET",
+            "path": "/member",
+            "query": "member_path=entry.txt",
+            "body": "empty"
+          },
+          "response": {
+            "status": 200,
+            "text": "entry"
+          }
+        },
+        {
+          "request": {
+            "method": "POST",
+            "path": "/member-complete",
+            "query": null,
+            "body": "json"
+          },
+          "response": {
+            "status": 200,
+            "json": {
+              "phase": "streaming",
+              "destination_path": "output",
+              "checkpoint_json": "{\"extraction_outcome_checkpoint_version\":1,\"member_outcomes\":{}}",
+              "pending_decision_json": null
+            }
+          }
+        },
+        {
+          "request": {
+            "method": "POST",
+            "path": "/complete",
+            "query": null,
+            "body": "json"
+          },
+          "response": {
+            "status": 200,
+            "json": {
+              "phase": "streaming",
+              "destination_path": "output",
+              "checkpoint_json": "{\"extraction_outcome_checkpoint_version\":1,\"member_outcomes\":{\"entry.txt\":{\"status\":\"extracted\",\"target_path\":\"output/entry.txt\",\"extracted_bytes\":5,\"directories_created\":0,\"replaced\":false,\"renamed\":false}}}",
+              "pending_decision_json": null
+            }
+          }
+        }
+      ]
     },
     {
       "name": "create_local_to_smb_success",
@@ -246,7 +361,42 @@
           "source_bytes": 12
         },
         "error_category": null
-      }
+      },
+      "relay_playback": [
+        {
+          "request": {
+            "method": "POST",
+            "path": "/begin",
+            "query": null,
+            "body": "json"
+          },
+          "response": {
+            "status": 204
+          }
+        },
+        {
+          "request": {
+            "method": "PUT",
+            "path": "/member",
+            "query": "archive_path=local-source.txt",
+            "body": "bytes"
+          },
+          "response": {
+            "status": 204
+          }
+        },
+        {
+          "request": {
+            "method": "POST",
+            "path": "/complete",
+            "query": null,
+            "body": "json"
+          },
+          "response": {
+            "status": 204
+          }
+        }
+      ]
     },
     {
       "name": "extract_local_to_smb_success",
@@ -272,7 +422,54 @@
           "extracted_bytes": 0
         },
         "error_category": null
-      }
+      },
+      "relay_playback": [
+        {
+          "request": {
+            "method": "POST",
+            "path": "/begin",
+            "query": null,
+            "body": "json"
+          },
+          "response": {
+            "status": 200,
+            "json": {
+              "phase": "streaming",
+              "destination_path": "output",
+              "checkpoint_json": "{\"extraction_outcome_checkpoint_version\":1,\"member_outcomes\":{}}",
+              "pending_decision_json": null
+            }
+          }
+        },
+        {
+          "request": {
+            "method": "PUT",
+            "path": "/member",
+            "query": "member_path=source.txt&source_modified_at=1980-01-01T00%3A00%3A00%2B00%3A00",
+            "body": "bytes"
+          },
+          "response": {
+            "status": 200,
+            "json": {
+              "phase": "streaming",
+              "destination_path": "output",
+              "checkpoint_json": "{\"extraction_outcome_checkpoint_version\":1,\"member_outcomes\":{}}",
+              "pending_decision_json": null
+            }
+          }
+        },
+        {
+          "request": {
+            "method": "POST",
+            "path": "/complete",
+            "query": null,
+            "body": "empty"
+          },
+          "response": {
+            "status": 204
+          }
+        }
+      ]
     },
     {
       "name": "extract_malformed_input",
@@ -281,10 +478,13 @@
       "fault": "malformed_input",
       "expected_trace": {
         "owner": "backend",
-        "manifest_snapshot": [],
+        "manifest_snapshot": [
+          "entry.txt"
+        ],
         "phase_transitions": [
           "prepared",
-          "failed"
+          "accepted",
+          "streaming"
         ],
         "pending_decision": null,
         "member_outcomes": [],
@@ -354,6 +554,7 @@
         ],
         "phase_transitions": [
           "accepted",
+          "streaming",
           "cancelled"
         ],
         "pending_decision": null,
