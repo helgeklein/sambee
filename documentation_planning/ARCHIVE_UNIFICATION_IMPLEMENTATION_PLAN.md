@@ -172,24 +172,42 @@ Acceptance criteria:
 ### 4. Introduce A Shared Operation Model Per Runtime
 
 1. Define common operation-level interfaces in each runtime:
-   - inspection source and presentation adapter;
-   - creation source enumerator, bounded reader, and archive destination;
-   - extraction archive source and output destination;
-   - operation state store and cancellation source.
+   - an immutable, request-scoped inspection plan with source and presentation
+     adapters; V1 inspection routes remain compatibility adapters and do not
+     gain durable operation records;
+   - creation source enumerator, bounded reader, archive destination, immutable
+     creation manifest, and execution plan;
+   - extraction archive source, output destination, immutable manifest, and
+     execution plan containing the durable outcome ledger and resume decisions;
+   - operation state store and cancellation source, with an explicit durable
+     backend implementation and an explicit in-memory direct-local
+     implementation. Do not make direct-local sessions durable as part of this
+     phase.
 2. Implement topology adapters:
    - backend SMB source/destination;
    - Companion local source/destination;
    - scoped relay source/destination bridges.
-3. Move all lifecycle, manifest validation, outcome persistence, and terminal
-   validation into operation coordinators.
-4. Keep adapters free of durable policy: they may inspect, list, open, stream,
-   write, and report observed collisions/errors only.
-5. Require every new archive feature to extend the operation contract and one
+3. Migrate in behavior-preserving stages: introduce the common interfaces and
+   plans, migrate direct execution, migrate relay callback handling, then remove
+   duplicated lifecycle and decision handling only after V1 route-binding and
+   topology tests remain green.
+4. Move lifecycle, manifest validation, outcome persistence, decision
+   application, and terminal validation into operation coordinators. Every
+   coordinator receives an immutable execution plan and emits normalized
+   destination results only.
+5. Keep adapters free of durable policy: they may inspect, list, open, stream,
+   write, and report observed collisions/errors only. They must not mutate
+   checkpoints, select collision/retry outcomes, or derive progress counters.
+6. Require every new archive feature to extend the operation contract and one
    coordinator before adding a topology adapter.
-6. Build one cross-topology conformance harness that drives every shared
+7. Build one cross-topology conformance harness that drives every shared
    creation and extraction trajectory through the resolved topology's actual
    coordinator or executor, including pause, decision, resume, cancellation,
-   and terminal transitions. A topology-labelled state replay does not qualify.
+   and terminal transitions. Use deterministic test-only source/destination
+   adapters and fault injection for SMB and local I/O; this harness must not
+   introduce a production generic filesystem abstraction. Assert equivalent
+   canonical manifests, outcome-ledger transitions, decisions, and terminal
+   summaries. A topology-labelled state replay does not qualify.
 
 Acceptance criteria:
 
@@ -197,51 +215,100 @@ Acceptance criteria:
   archive workflow.
 - Each runtime has one coordinator family per operation, rather than one per
   direction.
+- Inspection resolves an immutable inspection plan through the same topology
+   selection rules while retaining its request-scoped lifecycle.
 - Every supported creation and extraction topology executes the shared
    trajectory corpora through its actual coordinator or executor and persists
    equivalent outcome-ledger trajectories.
+- The harness injects malformed input, collision, partial-write, cancellation,
+   source-change, and transport-failure cases at adapter boundaries for each
+   supported topology.
 - No generic local/SMB filesystem abstraction is introduced.
 
 ### 5. Design And Deliver V2
 
-1. Create `archive-contract/v2` only after Phases 1-4 are green.
-2. Require versioned, ledger-only extraction checkpoints; V2 must reject
-   unversioned/V1 checkpoints and never silently migrate interrupted V1 work.
-3. Define normalized V2 operation routes for inspection, member reads,
+1. Create `archive-contract/v2` only after a recorded Phase 4 completion gate:
+   the actual-executor conformance harness passes for every supported creation
+   and extraction topology, the V1 route-binding tests remain green, and both
+   runtimes enforce coordinator-owned lifecycle and decision state.
+2. Add an immutable operation `contract_version` at creation, persist it with
+   each durable operation, return it in operation reads, and bind it into every
+   Companion capability. Version-specific routes must reject an operation or
+   capability for another version before parsing its checkpoint. Include the
+   database migration, default/version assignment for retained V1 rows, and
+   version-isolation tests in this step.
+3. Require strict, versioned V2 extraction checkpoint envelopes. “Ledger-only”
+   means no `written_members`, legacy migration fields, or independently
+   maintained aggregate counters. The envelope contains the immutable manifest
+   and source snapshot, normalized member-outcome ledger, and the persisted
+   collision/rename/retry/ignore decisions needed for safe resume; terminal
+   aggregates are derived only from member outcomes. Define canonical path and
+   timestamp encodings, unknown-field rejection, idempotency behavior, and the
+   location/shape of any pending decision. V2 must reject unversioned/V1
+   checkpoints and never silently migrate interrupted V1 work.
+4. Before implementing handlers, publish a V1-to-V2 route-binding fixture and
+   typed V2 schemas for every operation, response, capability, and control
+   event. Define normalized V2 operation routes for inspection, member reads,
    extraction control events, and creation acknowledgements. Route dispatch may
    use the operation topology internally, but the payload schemas must be
    operation-based rather than direction-based.
-4. Implement V2 backend endpoints, Companion client bindings, and frontend
-   callers behind an explicit feature/version selection.
-5. Run V1 and V2 side by side, with corpus assertions that fresh V2 operations
+5. Implement V2 backend endpoints, Companion client bindings, and frontend
+   callers behind explicit version selection and capability negotiation. A
+   caller that selects V2 must fail deterministically when its paired Companion
+   cannot support V2; it must not silently downgrade to V1.
+6. Run V1 and V2 side by side, with corpus assertions that fresh V2 operations
    preserve all V1 outcome semantics where the behavior is intentionally the
-   same.
+   same. Verify that V1 operations remain on V1-only routes and capabilities,
+   V2 operations never read V1 checkpoint shapes, and a rollout rollback does
+   not reinterpret persisted V2 work as V1.
 
 Acceptance criteria:
 
 - New callers use V2 only.
 - V2 route and checkpoint schemas cover all four topologies and three archive
   operations.
+- Each durable operation, route, and Companion capability is version-isolated;
+   cross-version operation IDs, control events, and checkpoints are rejected.
+- V2 resume tests prove durable decisions survive pause/retry/ignore while
+   aggregate counters are derived solely from terminal member outcomes.
 - V1 operations remain recoverable only through the documented retention
   window.
 
 ### 6. Retire V1 Compatibility And Duplicate Routes
 
-1. Inventory production callers, backend routes, Companion bindings, frontend
-   clients, integration tests, and retained operations.
-2. Prove that no active client creates a V1 operation and that the retention
-   window for historical V1 operations has expired.
-3. Remove V1 directional member/control routes one operation family at a time.
-4. Remove the backend and Companion `written_members` compatibility readers.
-5. Remove V1-only fixtures and migration branches after their final migration
+1. Define and document the V1 historical-operation retention policy separately
+   from the foreground heartbeat timeout. Add a configured retention duration,
+   an immutable version-aware operation inventory, and a deployment audit that
+   can identify every in-retention V1 operation and active V1 caller.
+2. Inventory production callers, backend routes, Companion bindings, frontend
+   clients, integration tests, retained operations, and supported Companion
+   versions. Record the V1-to-V2 route mapping and the version-specific
+   capability each caller uses.
+3. Before disabling V1 creation, prove through the inventory and a defined
+   observation window that no supported deployed client can create a V1
+   operation. Keep V1 routes and compatibility readers available, version-gated,
+   for in-retention V1 operations; publish deterministic recovery/expiry errors
+   after the retention cutoff.
+4. After the last in-retention V1 operation has expired and the deployment
+   audit is signed off, remove V1 directional member/control routes one
+   operation family at a time. Retain rollback support for already-created V2
+   work without allowing it to fall through to V1 handlers.
+5. Remove the backend and Companion `written_members` compatibility readers
+   only after an inventory confirms no in-retention V1 checkpoint requires
+   them.
+6. Remove V1-only fixtures and migration branches after their final migration
    tests are deleted or moved to historical compatibility coverage.
-6. Simplify the topology resolver so it selects V2 adapters without relay
+7. Simplify the topology resolver so it selects V2 adapters without relay
    purpose-specific business semantics.
 
 Acceptance criteria:
 
 - No active archive path depends on a directional V1 route.
 - No code references `written_members`.
+- The configured V1 retention period, operation inventory, deployment audit,
+   and final cutoff evidence are retained with the release record.
+- V1 creation is disabled only after its caller gate passes; in-retention V1
+   recovery remains version-gated until the configured cutoff.
 - All archive tests run through the normalized V2 contract and coordinator
   family.
 
