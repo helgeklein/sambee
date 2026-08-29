@@ -3745,7 +3745,9 @@ mod tests {
     struct FixtureRelayPlayback {
         remaining: VecDeque<serde_json::Value>,
         expected_traffic: Vec<serde_json::Value>,
+        expected_responses: Vec<serde_json::Value>,
         observed_traffic: Vec<serde_json::Value>,
+        observed_responses: Vec<serde_json::Value>,
     }
 
     impl FixtureRelayServer {
@@ -3753,6 +3755,15 @@ mod tests {
             let playback = self.playback.lock().await;
             assert!(playback.remaining.is_empty(), "fixture relay playback has unconsumed responses");
             assert_eq!(playback.observed_traffic.len(), playback.expected_traffic.len());
+            assert!(
+                playback
+                    .expected_traffic
+                    .iter()
+                    .zip(&playback.observed_traffic)
+                    .all(|(expected, observed)| fixture_request_matches(expected, observed)),
+                "fixture relay traffic must match every static request definition"
+            );
+            assert_eq!(playback.observed_responses, playback.expected_responses);
         }
     }
 
@@ -3768,17 +3779,21 @@ mod tests {
         uri: Uri,
         body: axum::body::Bytes,
     ) -> axum::response::Response {
+        let json_body = serde_json::from_slice::<serde_json::Value>(&body)
+            .ok()
+            .filter(serde_json::Value::is_object);
         let observed = serde_json::json!({
             "method": method.as_str(),
             "path": uri.path(),
             "query": uri.query(),
             "body": if body.is_empty() {
                 "empty"
-            } else if matches!(serde_json::from_slice::<serde_json::Value>(&body), Ok(serde_json::Value::Object(_))) {
+            } else if json_body.is_some() {
                 "json"
             } else {
                 "bytes"
             },
+            "json": json_body,
         });
         let step = {
             let mut playback = playback.lock().await;
@@ -3800,6 +3815,10 @@ mod tests {
                 .into_response();
         }
         let response = &step["response"];
+        {
+            let mut playback = playback.lock().await;
+            playback.observed_responses.push(response.clone());
+        }
         let status = response["status"]
             .as_u64()
             .and_then(|value| StatusCode::from_u16(value as u16).ok())
@@ -3840,8 +3859,10 @@ mod tests {
     async fn spawn_fixture_relay_playback(steps: Vec<serde_json::Value>) -> FixtureRelayServer {
         let playback = Arc::new(Mutex::new(FixtureRelayPlayback {
             expected_traffic: steps.iter().map(|step| step["request"].clone()).collect(),
+            expected_responses: steps.iter().map(|step| step["response"].clone()).collect(),
             remaining: steps.into(),
             observed_traffic: Vec::new(),
+            observed_responses: Vec::new(),
         }));
         let app = axum::Router::new()
             .fallback(axum::routing::any(fixture_relay_handler))
@@ -3874,6 +3895,50 @@ mod tests {
             .collect()
     }
 
+    fn segmented_mixed_extraction_trajectory_cases() -> Vec<serde_json::Value> {
+        let topology_fixture: serde_json::Value =
+            serde_json::from_str(include_str!("../../../../archive-contract/v1/topology-execution-traces-v1.json"))
+                .expect("topology trace fixture should be valid JSON");
+        assert_eq!(
+            topology_fixture["segmented_mixed_extraction_trajectory_fixture"],
+            "segmented-mixed-extraction-trajectories-v1.json"
+        );
+        let fixture: serde_json::Value = serde_json::from_str(include_str!(
+            "../../../../archive-contract/v1/segmented-mixed-extraction-trajectories-v1.json"
+        ))
+        .expect("segmented mixed extraction fixture should be valid JSON");
+        assert_eq!(fixture["version"], 1);
+        fixture["cases"]
+            .as_array()
+            .expect("segmented mixed extraction fixture should define cases")
+            .clone()
+    }
+
+    fn segmented_mixed_extraction_trace(
+        trajectory: &serde_json::Value,
+        phase_transitions: Vec<String>,
+        result: Option<&ArchiveExtractionResponse>,
+        error_category: Option<&str>,
+    ) -> serde_json::Value {
+        serde_json::json!({
+            "owner": "companion",
+            "manifest_snapshot": trajectory["expected_trace"]["manifest_snapshot"].clone(),
+            "phase_transitions": phase_transitions,
+            "pending_decision": null,
+            "member_outcomes": if error_category.is_some() {
+                serde_json::json!([])
+            } else {
+                trajectory["expected_trace"]["member_outcomes"].clone()
+            },
+            "terminal_summary": result.map(|result| serde_json::json!({
+                "files_extracted": result.files_extracted,
+                "files_skipped": result.files_skipped,
+                "extracted_bytes": result.extracted_bytes,
+            })),
+            "error_category": error_category,
+        })
+    }
+
     fn creation_corpus_scenario(name: &str) -> serde_json::Value {
         let corpus: serde_json::Value = serde_json::from_str(include_str!(
             "../../../../archive-contract/v1/creation-trajectory-scenarios-v1.json"
@@ -3888,19 +3953,31 @@ mod tests {
             .clone()
     }
 
-    fn mixed_creation_trace(manifest_snapshot: &str, member_outcome: &str, result: &ArchiveCreationResponse) -> serde_json::Value {
+    fn mixed_creation_trace(manifest: &ArchiveCreationManifest, result: &ArchiveCreationResponse) -> serde_json::Value {
         serde_json::json!({
             "owner": "companion",
-            "manifest_snapshot": [manifest_snapshot],
+            "manifest_snapshot": manifest.entries.iter().map(|entry| entry.archive_path.as_str()).collect::<Vec<_>>(),
             "phase_transitions": ["streaming", "completed"],
             "pending_decision": null,
-            "member_outcomes": [member_outcome],
+            "member_outcomes": manifest.entries.iter().map(|entry| entry.archive_path.as_str()).collect::<Vec<_>>(),
             "terminal_summary": {
                 "files_created": result.files_created,
                 "directories_created": result.directories_created,
                 "source_bytes": result.source_bytes,
             },
             "error_category": null,
+        })
+    }
+
+    fn mixed_creation_failure_trace(manifest: &ArchiveCreationManifest, error_category: &str) -> serde_json::Value {
+        serde_json::json!({
+            "owner": "companion",
+            "manifest_snapshot": manifest.entries.iter().map(|entry| entry.archive_path.as_str()).collect::<Vec<_>>(),
+            "phase_transitions": ["streaming", "cancelled"],
+            "pending_decision": null,
+            "member_outcomes": [],
+            "terminal_summary": null,
+            "error_category": error_category,
         })
     }
 
@@ -4195,7 +4272,7 @@ mod tests {
             "invalid_input"
         );
         assert_eq!(
-            expected_topology_trace("extract_transport_failure")["error_category"],
+            expected_topology_trace("extract_smb_to_local_transport_failure")["error_category"],
             "transport_failure"
         );
     }
@@ -4305,7 +4382,7 @@ mod tests {
                 "test-token".to_string(),
             )),
             binding: ArchiveCreationAdapterBinding::RemoteSourceToLocalDestination {
-                manifest: remote_manifest,
+                manifest: remote_manifest.clone(),
                 drive_root: directory.path().to_path_buf(),
                 target_path: remote_target.clone(),
             },
@@ -4314,7 +4391,7 @@ mod tests {
         .await
         .expect("SMB-to-local creation coordinator should complete");
         let remote_expected = expected_topology_trace("create_smb_to_local_success");
-        assert_eq!(mixed_creation_trace("source.txt", "source.txt", &remote_result), remote_expected);
+        assert_eq!(mixed_creation_trace(&remote_manifest, &remote_result), remote_expected);
         assert!(remote_target.is_file());
         remote_playback.assert_consumed().await;
 
@@ -4329,22 +4406,63 @@ mod tests {
                 local_playback.url.clone(),
                 "test-token".to_string(),
             )),
-            binding: ArchiveCreationAdapterBinding::LocalSourceToRemoteDestination { entries: local_entries },
+            binding: ArchiveCreationAdapterBinding::LocalSourceToRemoteDestination {
+                entries: local_entries.clone(),
+            },
         }
         .execute()
         .await
         .expect("local-to-SMB creation coordinator should complete");
         let local_expected = expected_topology_trace("create_local_to_smb_success");
-        assert_eq!(
-            mixed_creation_trace("local-source.txt", "local-source.txt", &local_result),
-            local_expected
-        );
+        let local_manifest = ArchiveCreationManifest::from_entries(
+            local_entries
+                .iter()
+                .map(|entry| ArchiveCreationManifestMember {
+                    archive_path: entry.archive_path.clone(),
+                    is_directory: entry.is_directory,
+                    source_size: entry.source_size,
+                    source_modified_at: entry.source_modified_at.clone(),
+                })
+                .collect(),
+        )
+        .expect("local creation manifest should be valid");
+        assert_eq!(mixed_creation_trace(&local_manifest, &local_result), local_expected);
         local_playback.assert_consumed().await;
     }
 
     #[tokio::test]
     async fn mixed_creation_trajectory_matrix_dispatches_actual_coordinators() {
-        for trajectory in mixed_creation_trajectory_cases() {
+        let trajectories = mixed_creation_trajectory_cases();
+        let topology_fixture: serde_json::Value =
+            serde_json::from_str(include_str!("../../../../archive-contract/v1/topology-execution-traces-v1.json"))
+                .expect("topology trace fixture should be valid JSON");
+        let expected_cases = topology_fixture["trajectory_cases"]
+            .as_array()
+            .expect("topology trace fixture should define trajectory cases")
+            .iter()
+            .filter(|case| case["operation"] == "create" && matches!(case["topology"].as_str(), Some("smb_to_local" | "local_to_smb")))
+            .map(|case| {
+                (
+                    case["topology"].as_str().expect("trajectory topology must be a string"),
+                    case["scenario"].as_str().expect("trajectory scenario must be a string"),
+                )
+            })
+            .collect::<std::collections::HashSet<_>>();
+        let dispatched_cases = trajectories
+            .iter()
+            .map(|case| {
+                (
+                    case["topology"].as_str().expect("mixed topology must be a string"),
+                    case["scenario"].as_str().expect("mixed scenario must be a string"),
+                )
+            })
+            .collect::<std::collections::HashSet<_>>();
+        assert_eq!(
+            dispatched_cases, expected_cases,
+            "mixed fixture must cover every creation trajectory"
+        );
+
+        for trajectory in trajectories {
             let scenario_name = trajectory["scenario"].as_str().expect("trajectory should name a scenario");
             let scenario = creation_corpus_scenario(scenario_name);
             let directory = tempfile::tempdir().expect("temporary archive directory should be created");
@@ -4355,7 +4473,7 @@ mod tests {
                     .clone(),
             )
             .await;
-            let result = if trajectory["topology"] == "smb_to_local" {
+            let (manifest, result) = if trajectory["topology"] == "smb_to_local" {
                 let manifest = ArchiveCreationManifest::from_entries(
                     scenario["entries"]
                         .as_array()
@@ -4370,20 +4488,21 @@ mod tests {
                         .collect(),
                 )
                 .expect("corpus creation manifest should be valid");
-                ArchiveCreationCoordinator {
+                let result = ArchiveCreationCoordinator {
                     relay: ArchiveCreationRelay::from_transport(ArchiveRelayTransport::new(
                         reqwest::Client::new(),
                         playback.url.clone(),
                         "test-token".to_string(),
                     )),
                     binding: ArchiveCreationAdapterBinding::RemoteSourceToLocalDestination {
-                        manifest,
+                        manifest: manifest.clone(),
                         drive_root: directory.path().to_path_buf(),
                         target_path: directory.path().join("target.zip"),
                     },
                 }
                 .execute()
-                .await
+                .await;
+                (manifest, result)
             } else {
                 let source_root = directory.path().join("source");
                 std::fs::create_dir(&source_root).expect("source root should be created");
@@ -4405,7 +4524,19 @@ mod tests {
                 }
                 let entries =
                     build_local_archive_manifest_for_remote_target(&source_paths).expect("corpus local sources should produce a manifest");
-                ArchiveCreationCoordinator {
+                let manifest = ArchiveCreationManifest::from_entries(
+                    entries
+                        .iter()
+                        .map(|entry| ArchiveCreationManifestMember {
+                            archive_path: entry.archive_path.clone(),
+                            is_directory: entry.is_directory,
+                            source_size: entry.source_size,
+                            source_modified_at: entry.source_modified_at.clone(),
+                        })
+                        .collect(),
+                )
+                .expect("corpus local creation manifest should be valid");
+                let result = ArchiveCreationCoordinator {
                     relay: ArchiveCreationRelay::from_transport(ArchiveRelayTransport::new(
                         reqwest::Client::new(),
                         playback.url.clone(),
@@ -4414,17 +4545,18 @@ mod tests {
                     binding: ArchiveCreationAdapterBinding::LocalSourceToRemoteDestination { entries },
                 }
                 .execute()
-                .await
+                .await;
+                (manifest, result)
             };
             let expected = &trajectory["expected_trace"];
-            match result {
-                Ok(result) => {
-                    assert_eq!(expected["terminal_summary"]["files_created"], result.files_created);
-                    assert_eq!(expected["terminal_summary"]["directories_created"], result.directories_created);
-                    assert_eq!(expected["terminal_summary"]["source_bytes"], result.source_bytes);
-                }
-                Err(error) => assert_eq!(expected["error_category"], mixed_relay_error_category(&error)),
-            }
+            let trace = match result {
+                Ok(result) => mixed_creation_trace(&manifest, &result),
+                Err(error) => mixed_creation_failure_trace(&manifest, mixed_relay_error_category(&error)),
+            };
+            assert_eq!(
+                trace, *expected,
+                "creation trajectory {scenario_name} must match its complete fixture trace"
+            );
             playback.assert_consumed().await;
         }
     }
@@ -4595,7 +4727,183 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn segmented_mixed_extraction_trajectories_dispatch_actual_coordinators() {
+        let cases = segmented_mixed_extraction_trajectory_cases();
+        let topology_fixture: serde_json::Value =
+            serde_json::from_str(include_str!("../../../../archive-contract/v1/topology-execution-traces-v1.json"))
+                .expect("topology trace fixture should be valid JSON");
+        let expected_cases = topology_fixture["trajectory_cases"]
+            .as_array()
+            .expect("topology trace fixture should define trajectory cases")
+            .iter()
+            .filter(|case| case["operation"] == "extract" && matches!(case["topology"].as_str(), Some("smb_to_local" | "local_to_smb")))
+            .map(|case| {
+                (
+                    case["topology"].as_str().expect("trajectory topology must be a string"),
+                    case["scenario"].as_str().expect("trajectory scenario must be a string"),
+                )
+            })
+            .collect::<std::collections::HashSet<_>>();
+        let dispatched_cases = cases
+            .iter()
+            .map(|case| {
+                (
+                    case["topology"].as_str().expect("segmented topology must be a string"),
+                    case["scenario"].as_str().expect("segmented scenario must be a string"),
+                )
+            })
+            .collect::<std::collections::HashSet<_>>();
+        assert_eq!(
+            dispatched_cases, expected_cases,
+            "segmented fixture must cover every mixed extraction trajectory"
+        );
+
+        for trajectory in cases {
+            let scenario = trajectory["scenario"].as_str().expect("trajectory must name a scenario");
+            let topology = trajectory["topology"].as_str().expect("trajectory must name a topology");
+            let member_paths = trajectory["expected_trace"]["manifest_snapshot"]
+                .as_array()
+                .expect("trajectory must define a manifest snapshot")
+                .iter()
+                .map(|path| path.as_str().expect("manifest paths must be strings").to_string())
+                .collect::<Vec<_>>();
+            let relay_steps = trajectory["segments"]
+                .as_array()
+                .expect("trajectory must define explicit relay segments")
+                .iter()
+                .flat_map(|segment| {
+                    segment["relay_playback"]
+                        .as_array()
+                        .expect("relay segment must define static playback")
+                        .iter()
+                        .cloned()
+                })
+                .collect::<Vec<_>>();
+            let playback = spawn_fixture_relay_playback(relay_steps).await;
+            let directory = tempfile::tempdir().expect("temporary extraction directory should be created");
+            let destination_path = directory.path().join("destination");
+            let mut archive_path = None;
+            let mut archive_entries = None;
+
+            if topology == "smb_to_local" && scenario == "collision_decisions_resume_to_terminal_summary" {
+                std::fs::create_dir(&destination_path).expect("collision destination should be created");
+                for member_path in &member_paths {
+                    std::fs::write(destination_path.join(member_path), b"existing").expect("collision member should be written");
+                }
+            }
+
+            if topology == "local_to_smb" {
+                let source_root = directory.path().join("source");
+                std::fs::create_dir(&source_root).expect("local source root should be created");
+                let mut source_paths = Vec::new();
+                for member_path in &member_paths {
+                    let content = trajectory["member_contents"][member_path]
+                        .as_str()
+                        .expect("local fixture member must provide content");
+                    let source_path = source_root.join(member_path);
+                    std::fs::create_dir_all(source_path.parent().expect("member path must have a parent"))
+                        .expect("local fixture member parent should be created");
+                    std::fs::write(&source_path, content).expect("local fixture member should be written");
+                    source_paths.push(source_path);
+                }
+                let path = directory.path().join("source.zip");
+                let manifest = build_local_archive_manifest(&source_paths, &path).expect("local fixture archive manifest should be valid");
+                create_local_archive(directory.path(), &path, &manifest, || false).expect("local fixture archive should be created");
+                archive_entries = Some(validate_local_archive_extraction(&path).expect("local fixture archive should be valid"));
+                archive_path = Some(path);
+            }
+
+            let mut phase_transitions = vec!["streaming".to_string()];
+            let mut terminal_result = None;
+            let mut error_category = None;
+            let segments = trajectory["segments"].as_array().expect("trajectory must define relay segments");
+            for (segment_index, _) in segments.iter().enumerate() {
+                if segment_index > 0 {
+                    phase_transitions.push("streaming".to_string());
+                }
+                let binding = if topology == "smb_to_local" {
+                    ArchiveExtractionAdapterBinding::RemoteSourceToLocalDestination {
+                        drive_root: directory.path().to_path_buf(),
+                        destination_path: destination_path.clone(),
+                    }
+                } else {
+                    ArchiveExtractionAdapterBinding::LocalArchiveToRemoteDestination {
+                        archive_path: archive_path.clone().expect("local fixture archive must exist"),
+                        archive_entries: archive_entries.clone().expect("local fixture entries must exist"),
+                    }
+                };
+                match (ArchiveExtractionCoordinator {
+                    relay: ArchiveExtractionRelay::from_transport(ArchiveRelayTransport::new(
+                        reqwest::Client::new(),
+                        playback.url.clone(),
+                        "test-token".to_string(),
+                    )),
+                    binding,
+                })
+                .execute()
+                .await
+                {
+                    Ok(result) if result.phase.as_deref() == Some("awaiting_user_decision") => {
+                        phase_transitions.push("awaiting_user_decision".to_string());
+                    }
+                    Ok(result) => {
+                        phase_transitions.push("completed".to_string());
+                        terminal_result = Some(result);
+                    }
+                    Err(error) => {
+                        let category = mixed_relay_error_category(&error);
+                        phase_transitions.push(category.to_string());
+                        error_category = Some(category);
+                    }
+                }
+            }
+
+            let trace = segmented_mixed_extraction_trace(&trajectory, phase_transitions, terminal_result.as_ref(), error_category);
+            assert_eq!(
+                trace, trajectory["expected_trace"],
+                "{topology} {scenario} must match its complete fixture trace"
+            );
+            playback.assert_consumed().await;
+        }
+    }
+
+    #[tokio::test]
     async fn actual_relay_extraction_coordinator_matches_mixed_fault_traces() {
+        let fixture: serde_json::Value =
+            serde_json::from_str(include_str!("../../../../archive-contract/v1/topology-execution-traces-v1.json"))
+                .expect("topology trace fixture should be valid JSON");
+        let expected_cases = fixture["cases"]
+            .as_array()
+            .expect("topology trace fixture should define cases")
+            .iter()
+            .filter(|case| {
+                case["operation"] == "extract"
+                    && matches!(case["topology"].as_str(), Some("smb_to_local" | "local_to_smb"))
+                    && case["fault"].is_string()
+            })
+            .map(|case| case["name"].as_str().expect("fault case name must be a string"))
+            .collect::<std::collections::HashSet<_>>();
+        let dispatched_cases = [
+            "extract_smb_to_local_malformed_input",
+            "extract_smb_to_local_collision",
+            "extract_smb_to_local_partial_write",
+            "extract_smb_to_local_transport_failure",
+            "extract_smb_to_local_cancellation",
+            "extract_smb_to_local_source_changed",
+            "extract_local_to_smb_malformed_input",
+            "extract_local_to_smb_collision",
+            "extract_local_to_smb_partial_write",
+            "extract_local_to_smb_transport_failure",
+            "extract_local_to_smb_cancellation",
+            "extract_local_to_smb_source_changed",
+        ]
+        .into_iter()
+        .collect::<std::collections::HashSet<_>>();
+        assert_eq!(
+            dispatched_cases, expected_cases,
+            "relay fault dispatcher must cover every declared mixed extraction fault"
+        );
+
         let directory = tempfile::tempdir().expect("temporary archive directory should be created");
 
         let remote_malformed_playback = spawn_fixture_relay_server("extract_smb_to_local_malformed_input").await;

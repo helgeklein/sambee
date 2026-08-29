@@ -802,6 +802,8 @@ mod tests {
                 ArchiveSessionPhase::Failed => serde_json::Value::String(
                     if status.error.as_deref().is_some_and(|error| error.contains("source changed")) {
                         "source_changed"
+                    } else if status.error.as_deref().is_some_and(|error| error.contains("No such file or directory")) {
+                        "transport_failure"
                     } else {
                         "invalid_input"
                     }
@@ -816,10 +818,15 @@ mod tests {
     }
 
     fn local_trajectory_scenario_names(operation: &str) -> Vec<String> {
-        let fixture: serde_json::Value =
+        let topology_fixture: serde_json::Value =
             serde_json::from_str(include_str!("../../../../archive-contract/v1/topology-execution-traces-v1.json"))
                 .expect("topology trace fixture should be valid JSON");
-        fixture["trajectory_cases"]
+        let trace_fixture: serde_json::Value =
+            serde_json::from_str(include_str!("../../../../archive-contract/v1/topology-trajectory-traces-v1.json"))
+                .expect("trajectory trace fixture should be valid JSON");
+        assert_eq!(trace_fixture["version"], 1);
+        assert_eq!(trace_fixture["trace_fields"], topology_fixture["trace_fields"]);
+        let declared = topology_fixture["trajectory_cases"]
             .as_array()
             .expect("topology trace fixture should define trajectory cases")
             .iter()
@@ -830,7 +837,40 @@ mod tests {
                     .expect("trajectory case should name a scenario")
                     .to_string()
             })
-            .collect()
+            .collect::<std::collections::HashSet<_>>();
+        let dispatched = trace_fixture["cases"]
+            .as_array()
+            .expect("trajectory trace fixture should define cases")
+            .iter()
+            .filter(|case| case["operation"] == operation && case["topology"] == "local_to_local")
+            .map(|case| {
+                case["scenario"]
+                    .as_str()
+                    .expect("trajectory trace case should name a scenario")
+                    .to_string()
+            })
+            .collect::<std::collections::HashSet<_>>();
+        assert_eq!(
+            dispatched, declared,
+            "local trajectory fixture coverage must match the dispatcher corpus"
+        );
+        let mut scenarios = dispatched.into_iter().collect::<Vec<_>>();
+        scenarios.sort();
+        scenarios
+    }
+
+    fn expected_local_trajectory_trace(operation: &str, scenario_name: &str) -> serde_json::Value {
+        let fixture: serde_json::Value =
+            serde_json::from_str(include_str!("../../../../archive-contract/v1/topology-trajectory-traces-v1.json"))
+                .expect("trajectory trace fixture should be valid JSON");
+        fixture["cases"]
+            .as_array()
+            .expect("trajectory trace fixture should define cases")
+            .iter()
+            .find(|case| case["operation"] == operation && case["topology"] == "local_to_local" && case["scenario"] == scenario_name)
+            .unwrap_or_else(|| panic!("trajectory trace fixture should define {operation}/local_to_local/{scenario_name}"))
+            ["expected_trace"]
+            .clone()
     }
 
     async fn wait_for_terminal_session(manager: &ArchiveSessionManager, execution_id: &str) -> super::ArchiveSessionStatus {
@@ -888,6 +928,7 @@ mod tests {
         ))
         .expect("creation trajectory corpus should be valid JSON");
         for scenario_name in local_trajectory_scenario_names("create") {
+            let expected_trace = expected_local_trajectory_trace("create", &scenario_name);
             let scenario = creation_corpus["scenarios"]
                 .as_array()
                 .expect("creation corpus should define scenarios")
@@ -958,9 +999,35 @@ mod tests {
             let completed_members = sessions
                 .get(&session.execution_id)
                 .and_then(|session| session.creation_state.as_ref())
-                .map(|state| state.completed_member_paths().collect::<std::collections::HashSet<_>>())
+                .map(|state| {
+                    let mut manifest_snapshot = state.manifest_member_paths().map(str::to_string).collect::<Vec<_>>();
+                    let mut member_outcomes = state.completed_member_paths().map(str::to_string).collect::<Vec<_>>();
+                    manifest_snapshot.sort();
+                    member_outcomes.sort();
+                    (manifest_snapshot, member_outcomes)
+                })
                 .unwrap_or_default();
-            assert_eq!(completed_members, expected_members);
+            assert_eq!(
+                completed_members
+                    .1
+                    .iter()
+                    .map(String::as_str)
+                    .collect::<std::collections::HashSet<_>>(),
+                expected_members
+            );
+            drop(sessions);
+            assert_eq!(
+                direct_local_trace(
+                    &manager,
+                    &session.execution_id,
+                    &status,
+                    completed_members.0.iter().map(String::as_str).collect(),
+                    completed_members.1.iter().map(String::as_str).collect(),
+                )
+                .await,
+                expected_trace,
+                "creation trajectory {scenario_name}"
+            );
             assert_eq!(target.exists(), status.phase == ArchiveSessionPhase::Completed);
         }
 
@@ -969,6 +1036,7 @@ mod tests {
         ))
         .expect("extraction trajectory corpus should be valid JSON");
         for scenario_name in local_trajectory_scenario_names("extract") {
+            let expected_trace = expected_local_trajectory_trace("extract", &scenario_name);
             let scenario = extraction_corpus["scenarios"]
                 .as_array()
                 .expect("extraction corpus should define scenarios")
@@ -1105,13 +1173,30 @@ mod tests {
                 .get(&session.execution_id)
                 .and_then(|session| session.extraction_checkpoint.as_ref())
                 .map(|checkpoint| {
-                    checkpoint
-                        .completed_member_paths()
-                        .map(str::to_string)
-                        .collect::<std::collections::HashSet<_>>()
+                    let mut manifest_snapshot = checkpoint.manifest_member_paths().map(str::to_string).collect::<Vec<_>>();
+                    let mut member_outcomes = checkpoint.completed_member_paths().map(str::to_string).collect::<Vec<_>>();
+                    manifest_snapshot.sort();
+                    member_outcomes.sort();
+                    (manifest_snapshot, member_outcomes)
                 })
                 .unwrap_or_default();
-            assert_eq!(completed_members, expected_members);
+            assert_eq!(
+                completed_members.1.iter().cloned().collect::<std::collections::HashSet<_>>(),
+                expected_members
+            );
+            drop(sessions);
+            assert_eq!(
+                direct_local_trace(
+                    &manager,
+                    &session.execution_id,
+                    &status,
+                    completed_members.0.iter().map(String::as_str).collect(),
+                    completed_members.1.iter().map(String::as_str).collect(),
+                )
+                .await,
+                expected_trace,
+                "extraction trajectory {scenario_name}"
+            );
         }
     }
 
@@ -1334,6 +1419,32 @@ mod tests {
         assert_eq!(
             direct_local_trace(&manager, &session.execution_id, &failed, vec![], vec![]).await,
             expected_trace("extract_local_to_local_malformed_input")
+        );
+    }
+
+    #[tokio::test]
+    async fn direct_local_missing_archive_source_matches_transport_failure_trace() {
+        let directory = tempdir().unwrap();
+        let manager = Arc::new(ArchiveSessionManager::new());
+        let session = manager
+            .create_extraction(
+                "c".to_string(),
+                "https://sambee.example".to_string(),
+                directory.path().to_path_buf(),
+                directory.path().join("unavailable.zip"),
+                directory.path().join("output"),
+            )
+            .await;
+        LocalArchiveOperationCoordinator::new(manager.clone())
+            .start(&session.execution_id)
+            .await
+            .unwrap();
+        let failed = wait_for_terminal_session(&manager, &session.execution_id).await;
+
+        assert_eq!(failed.phase, ArchiveSessionPhase::Failed);
+        assert_eq!(
+            direct_local_trace(&manager, &session.execution_id, &failed, vec![], vec![]).await,
+            expected_trace("extract_local_to_local_transport_failure")
         );
     }
 

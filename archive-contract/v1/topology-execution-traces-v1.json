@@ -61,6 +61,8 @@
     "terminal_summary",
     "error_category"
   ],
+  "segmented_mixed_extraction_trajectory_fixture": "segmented-mixed-extraction-trajectories-v1.json",
+  "trajectory_trace_fixture": "topology-trajectory-traces-v1.json",
   "trajectory_cases": [
     {
       "operation": "create",
@@ -1363,24 +1365,6 @@
       }
     },
     {
-      "name": "extract_transport_failure",
-      "operation": "extract",
-      "topology": "smb_to_local",
-      "fault": "transport_failure",
-      "expected_trace": {
-        "owner": "companion",
-        "manifest_snapshot": [],
-        "phase_transitions": [
-          "streaming",
-          "failed"
-        ],
-        "pending_decision": null,
-        "member_outcomes": [],
-        "terminal_summary": null,
-        "error_category": "transport_failure"
-      }
-    },
-    {
       "name": "extract_smb_to_local_malformed_input",
       "operation": "extract",
       "topology": "smb_to_local",
@@ -1953,6 +1937,25 @@
           }
         }
       ]
+    },
+    {
+      "name": "extract_local_to_local_transport_failure",
+      "operation": "extract",
+      "topology": "local_to_local",
+      "fault": "transport_failure",
+      "expected_trace": {
+        "owner": "companion",
+        "manifest_snapshot": [],
+        "phase_transitions": [
+          "accepted",
+          "streaming",
+          "failed"
+        ],
+        "pending_decision": null,
+        "member_outcomes": [],
+        "terminal_summary": null,
+        "error_category": "transport_failure"
+      }
     },
     {
       "name": "extract_local_to_smb_source_changed",

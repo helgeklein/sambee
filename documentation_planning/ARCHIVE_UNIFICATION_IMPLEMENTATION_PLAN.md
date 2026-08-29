@@ -281,6 +281,37 @@ Acceptance criteria:
    supported topology.
 - No generic local/SMB filesystem abstraction is introduced.
 
+#### Phase 4 Completion Implementation Plan
+
+1. Make `topology-execution-traces-v1.json` the complete oracle for every
+   trajectory. Each trajectory case carries its normalized expected trace. A
+   mixed extraction trajectory also contains ordered invocation segments, with
+   fixture-defined V1 relay playback and the persisted checkpoint presented to
+   the next coordinator invocation after a backend-side decision.
+2. Keep relay playback passive. It validates ordered request method, path,
+   query, and payload class, records the emitted response sequence, and returns
+   only fixture-defined V1 messages. It does not select decisions, mutate
+   checkpoints, calculate progress, or inspect local files.
+3. Add a data-driven mixed extraction dispatcher for both relay topologies. It
+   materializes deterministic local source/destination state, invokes the
+   actual Companion coordinator once per fixture segment, retains that local
+   state across resumes, and compares the aggregate normalized trace with the
+   shared oracle.
+4. Compare complete traces in every owner dispatcher: manifest snapshot, phase
+   transitions, pending decision, terminal member outcomes, aggregate summary,
+   and normalized error category. Do not derive expected state in test code.
+5. Complete the adapter-boundary fault matrix for both operations and every
+   topology. For direct-local execution, an unavailable filesystem source or
+   output is the transport-failure analogue. A fixture coverage test rejects an
+   undeclared or undispatched applicable matrix cell.
+6. Keep at-least-once acknowledgement delivery as production coverage: retry
+   tests verify a stable idempotency key after a dropped response, while backend
+   route tests verify exact replay and conflicting reuse. The passive relay
+   fixture never invents duplicate lifecycle transitions.
+7. Make the repository gate data-driven. It must fail if a declared corpus or
+   fault fixture was not dispatched by its resolved owner, then run focused
+   backend and Companion validation, static checks, and whitespace checks.
+
 ### 5. Design And Deliver V2
 
 1. Create `archive-contract/v2` only after a recorded Phase 4 completion gate:

@@ -1,0 +1,456 @@
+{
+  "version": 1,
+  "trace_fields": [
+    "owner",
+    "manifest_snapshot",
+    "phase_transitions",
+    "pending_decision",
+    "member_outcomes",
+    "terminal_summary",
+    "error_category"
+  ],
+  "cases": [
+    {
+      "operation": "create",
+      "topology": "smb_to_smb",
+      "scenario": "members_commit_and_terminal_summary_requires_coverage",
+      "expected_trace": {
+        "owner": "backend",
+        "manifest_snapshot": [
+          "docs",
+          "docs/readme.txt"
+        ],
+        "phase_transitions": [
+          "prepared",
+          "accepted",
+          "streaming",
+          "verifying",
+          "completed"
+        ],
+        "pending_decision": null,
+        "member_outcomes": [
+          "docs",
+          "docs/readme.txt"
+        ],
+        "terminal_summary": {
+          "files_created": 1,
+          "directories_created": 1,
+          "source_bytes": 7
+        },
+        "error_category": null
+      }
+    },
+    {
+      "operation": "create",
+      "topology": "smb_to_smb",
+      "scenario": "duplicate_member_report_is_idempotent",
+      "expected_trace": {
+        "owner": "backend",
+        "manifest_snapshot": [
+          "readme.txt"
+        ],
+        "phase_transitions": [
+          "prepared",
+          "accepted",
+          "streaming",
+          "verifying",
+          "completed"
+        ],
+        "pending_decision": null,
+        "member_outcomes": [
+          "readme.txt"
+        ],
+        "terminal_summary": {
+          "files_created": 1,
+          "directories_created": 0,
+          "source_bytes": 7
+        },
+        "error_category": null
+      }
+    },
+    {
+      "operation": "create",
+      "topology": "smb_to_smb",
+      "scenario": "cancellation_stops_before_member_commit",
+      "expected_trace": {
+        "owner": "backend",
+        "manifest_snapshot": [
+          "readme.txt"
+        ],
+        "phase_transitions": [
+          "prepared",
+          "accepted",
+          "streaming",
+          "cancelled"
+        ],
+        "pending_decision": null,
+        "member_outcomes": [],
+        "terminal_summary": null,
+        "error_category": "cancelled"
+      }
+    },
+    {
+      "operation": "create",
+      "topology": "local_to_local",
+      "scenario": "members_commit_and_terminal_summary_requires_coverage",
+      "expected_trace": {
+        "owner": "companion",
+        "manifest_snapshot": [
+          "docs",
+          "docs/readme.txt"
+        ],
+        "phase_transitions": [
+          "accepted",
+          "streaming",
+          "completed"
+        ],
+        "pending_decision": null,
+        "member_outcomes": [
+          "docs",
+          "docs/readme.txt"
+        ],
+        "terminal_summary": {
+          "files_created": 1,
+          "directories_created": 1,
+          "source_bytes": 7
+        },
+        "error_category": null
+      }
+    },
+    {
+      "operation": "create",
+      "topology": "local_to_local",
+      "scenario": "duplicate_member_report_is_idempotent",
+      "expected_trace": {
+        "owner": "companion",
+        "manifest_snapshot": [
+          "readme.txt"
+        ],
+        "phase_transitions": [
+          "accepted",
+          "streaming",
+          "completed"
+        ],
+        "pending_decision": null,
+        "member_outcomes": [
+          "readme.txt"
+        ],
+        "terminal_summary": {
+          "files_created": 1,
+          "directories_created": 0,
+          "source_bytes": 7
+        },
+        "error_category": null
+      }
+    },
+    {
+      "operation": "create",
+      "topology": "local_to_local",
+      "scenario": "cancellation_stops_before_member_commit",
+      "expected_trace": {
+        "owner": "companion",
+        "manifest_snapshot": [],
+        "phase_transitions": [
+          "accepted",
+          "streaming",
+          "cancelled"
+        ],
+        "pending_decision": null,
+        "member_outcomes": [],
+        "terminal_summary": null,
+        "error_category": "cancelled"
+      }
+    },
+    {
+      "operation": "extract",
+      "topology": "smb_to_smb",
+      "scenario": "collision_decisions_resume_to_terminal_summary",
+      "expected_trace": {
+        "owner": "backend",
+        "manifest_snapshot": [
+          "newer.txt",
+          "renamed.txt",
+          "replaced.txt",
+          "skipped.txt"
+        ],
+        "phase_transitions": [
+          "prepared",
+          "accepted",
+          "streaming",
+          "awaiting_user_decision",
+          "streaming",
+          "awaiting_user_decision",
+          "streaming",
+          "awaiting_user_decision",
+          "streaming",
+          "awaiting_user_decision",
+          "streaming",
+          "verifying",
+          "completed"
+        ],
+        "pending_decision": "collision",
+        "member_outcomes": [
+          "newer.txt",
+          "renamed.txt",
+          "replaced.txt",
+          "skipped.txt"
+        ],
+        "terminal_summary": {
+          "files_extracted": 2,
+          "files_skipped": 2,
+          "extracted_bytes": 9
+        },
+        "error_category": null
+      }
+    },
+    {
+      "operation": "extract",
+      "topology": "smb_to_smb",
+      "scenario": "partial_write_retry_resumes_to_completion",
+      "expected_trace": {
+        "owner": "backend",
+        "manifest_snapshot": [
+          "source.txt"
+        ],
+        "phase_transitions": [
+          "prepared",
+          "accepted",
+          "streaming",
+          "awaiting_user_decision",
+          "streaming",
+          "verifying",
+          "completed"
+        ],
+        "pending_decision": "member_error",
+        "member_outcomes": [
+          "source.txt"
+        ],
+        "terminal_summary": {
+          "files_extracted": 1,
+          "files_skipped": 0,
+          "extracted_bytes": 5
+        },
+        "error_category": null
+      }
+    },
+    {
+      "operation": "extract",
+      "topology": "smb_to_smb",
+      "scenario": "partial_write_ignore_is_terminal",
+      "expected_trace": {
+        "owner": "backend",
+        "manifest_snapshot": [
+          "source.txt"
+        ],
+        "phase_transitions": [
+          "prepared",
+          "accepted",
+          "streaming",
+          "awaiting_user_decision",
+          "streaming",
+          "verifying",
+          "completed"
+        ],
+        "pending_decision": "member_error",
+        "member_outcomes": [
+          "source.txt"
+        ],
+        "terminal_summary": {
+          "files_extracted": 0,
+          "files_skipped": 1,
+          "extracted_bytes": 0
+        },
+        "error_category": null
+      }
+    },
+    {
+      "operation": "extract",
+      "topology": "smb_to_smb",
+      "scenario": "cancellation_stops_before_member_report",
+      "expected_trace": {
+        "owner": "backend",
+        "manifest_snapshot": [
+          "source.txt"
+        ],
+        "phase_transitions": [
+          "prepared",
+          "accepted",
+          "streaming",
+          "cancelled"
+        ],
+        "pending_decision": null,
+        "member_outcomes": [],
+        "terminal_summary": null,
+        "error_category": "cancelled"
+      }
+    },
+    {
+      "operation": "extract",
+      "topology": "smb_to_smb",
+      "scenario": "duplicate_terminal_report_is_idempotent",
+      "expected_trace": {
+        "owner": "backend",
+        "manifest_snapshot": [
+          "source.txt"
+        ],
+        "phase_transitions": [
+          "prepared",
+          "accepted",
+          "streaming",
+          "verifying",
+          "completed"
+        ],
+        "pending_decision": null,
+        "member_outcomes": [
+          "source.txt"
+        ],
+        "terminal_summary": {
+          "files_extracted": 1,
+          "files_skipped": 0,
+          "extracted_bytes": 5
+        },
+        "error_category": null
+      }
+    },
+    {
+      "operation": "extract",
+      "topology": "local_to_local",
+      "scenario": "collision_decisions_resume_to_terminal_summary",
+      "expected_trace": {
+        "owner": "companion",
+        "manifest_snapshot": [
+          "newer.txt",
+          "renamed.txt",
+          "replaced.txt",
+          "skipped.txt"
+        ],
+        "phase_transitions": [
+          "accepted",
+          "streaming",
+          "awaiting_user_decision",
+          "streaming",
+          "awaiting_user_decision",
+          "streaming",
+          "awaiting_user_decision",
+          "streaming",
+          "awaiting_user_decision",
+          "streaming",
+          "completed"
+        ],
+        "pending_decision": "collision",
+        "member_outcomes": [
+          "newer.txt",
+          "renamed.txt",
+          "replaced.txt",
+          "skipped.txt"
+        ],
+        "terminal_summary": {
+          "files_extracted": 2,
+          "files_skipped": 2,
+          "extracted_bytes": 9
+        },
+        "error_category": null
+      }
+    },
+    {
+      "operation": "extract",
+      "topology": "local_to_local",
+      "scenario": "partial_write_retry_resumes_to_completion",
+      "expected_trace": {
+        "owner": "companion",
+        "manifest_snapshot": [
+          "source.txt"
+        ],
+        "phase_transitions": [
+          "accepted",
+          "streaming",
+          "awaiting_user_decision",
+          "streaming",
+          "completed"
+        ],
+        "pending_decision": "member_error",
+        "member_outcomes": [
+          "source.txt"
+        ],
+        "terminal_summary": {
+          "files_extracted": 1,
+          "files_skipped": 0,
+          "extracted_bytes": 5
+        },
+        "error_category": null
+      }
+    },
+    {
+      "operation": "extract",
+      "topology": "local_to_local",
+      "scenario": "partial_write_ignore_is_terminal",
+      "expected_trace": {
+        "owner": "companion",
+        "manifest_snapshot": [
+          "source.txt"
+        ],
+        "phase_transitions": [
+          "accepted",
+          "streaming",
+          "awaiting_user_decision",
+          "streaming",
+          "completed"
+        ],
+        "pending_decision": "member_error",
+        "member_outcomes": [
+          "source.txt"
+        ],
+        "terminal_summary": {
+          "files_extracted": 0,
+          "files_skipped": 1,
+          "extracted_bytes": 0
+        },
+        "error_category": null
+      }
+    },
+    {
+      "operation": "extract",
+      "topology": "local_to_local",
+      "scenario": "cancellation_stops_before_member_report",
+      "expected_trace": {
+        "owner": "companion",
+        "manifest_snapshot": [],
+        "phase_transitions": [
+          "accepted",
+          "streaming",
+          "cancelled"
+        ],
+        "pending_decision": null,
+        "member_outcomes": [],
+        "terminal_summary": null,
+        "error_category": "cancelled"
+      }
+    },
+    {
+      "operation": "extract",
+      "topology": "local_to_local",
+      "scenario": "duplicate_terminal_report_is_idempotent",
+      "expected_trace": {
+        "owner": "companion",
+        "manifest_snapshot": [
+          "source.txt"
+        ],
+        "phase_transitions": [
+          "accepted",
+          "streaming",
+          "completed"
+        ],
+        "pending_decision": null,
+        "member_outcomes": [
+          "source.txt"
+        ],
+        "terminal_summary": {
+          "files_extracted": 1,
+          "files_skipped": 0,
+          "extracted_bytes": 5
+        },
+        "error_category": null
+      }
+    }
+  ]
+}

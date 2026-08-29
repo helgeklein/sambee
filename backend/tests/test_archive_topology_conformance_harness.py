@@ -70,6 +70,7 @@ class TrajectoryCase:
     operation: str
     topology: TopologyCase
     scenario_name: str
+    expected_trace: dict[str, Any] | None
 
 
 TOPOLOGY_CASES = (
@@ -83,6 +84,7 @@ WORKSPACE_ROOT = Path(__file__).resolve().parents[2]
 EXTRACTION_TRAJECTORY_CORPUS_PATH = WORKSPACE_ROOT / "archive-contract" / "v1" / "extraction-trajectory-scenarios-v1.json"
 CREATION_TRAJECTORY_CORPUS_PATH = WORKSPACE_ROOT / "archive-contract" / "v1" / "creation-trajectory-scenarios-v1.json"
 TOPOLOGY_TRACE_FIXTURE_PATH = WORKSPACE_ROOT / "archive-contract" / "v1" / "topology-execution-traces-v1.json"
+TRAJECTORY_TRACE_FIXTURE_PATH = WORKSPACE_ROOT / "archive-contract" / "v1" / "topology-trajectory-traces-v1.json"
 
 
 def _load_trajectory_scenarios(path: Path) -> tuple[dict[str, Any], ...]:
@@ -102,6 +104,7 @@ class TraceRecordingStateStore(InMemoryArchiveExecutionStateStore):
     def __init__(self) -> None:
         super().__init__()
         self.phase_transitions = [ArchiveOperationPhase.PREPARED.value]
+        self.pending_decision: str | None = None
 
     def transition(self, operation, *, expected_phase, next_phase, additional_changes=None):
         result = super().transition(
@@ -116,6 +119,7 @@ class TraceRecordingStateStore(InMemoryArchiveExecutionStateStore):
     def await_decision(self, operation, decision):
         result = super().await_decision(operation, decision)
         self.phase_transitions.append(ArchiveOperationPhase.AWAITING_USER_DECISION.value)
+        self.pending_decision = "member_error" if decision.get("kind") == "member_error" else "collision"
         return result
 
     def fail(self, operation, message):
@@ -157,15 +161,28 @@ def _fixture_cases() -> tuple[FixtureCase, ...]:
 
 def _trajectory_cases() -> tuple[TrajectoryCase, ...]:
     fixture: dict[str, Any] = json.loads(TOPOLOGY_TRACE_FIXTURE_PATH.read_text(encoding="utf-8"))
+    trace_fixture: dict[str, Any] = json.loads(TRAJECTORY_TRACE_FIXTURE_PATH.read_text(encoding="utf-8"))
+    assert trace_fixture["version"] == 1
+    assert set(trace_fixture["trace_fields"]) == set(fixture["trace_fields"])
+    expected_traces = {(case["operation"], case["topology"], case["scenario"]): case["expected_trace"] for case in trace_fixture["cases"]}
     topologies = {case.name: case for case in TOPOLOGY_CASES}
-    return tuple(
+    trajectory_cases = tuple(
         TrajectoryCase(
             operation=raw_case["operation"],
             topology=topologies[raw_case["topology"]],
             scenario_name=raw_case["scenario"],
+            expected_trace=expected_traces.get(
+                (raw_case["operation"], raw_case["topology"], raw_case["scenario"]), raw_case.get("expected_trace")
+            ),
         )
         for raw_case in fixture["trajectory_cases"]
     )
+    assert {
+        (case.operation, case.topology.name, case.scenario_name)
+        for case in trajectory_cases
+        if case.topology.driver == ArchiveExecutionDriver.BACKEND
+    } == {(case["operation"], case["topology"], case["scenario"]) for case in trace_fixture["cases"] if case["topology"] == "smb_to_smb"}
+    return trajectory_cases
 
 
 BACKEND_FIXTURE_CASES = tuple(case for case in _fixture_cases() if case.topology.driver == ArchiveExecutionDriver.BACKEND)
@@ -193,10 +210,16 @@ def test_topology_trace_fixture_matches_resolved_execution_owners() -> None:
         "terminal_summary",
         "error_category",
     }
+    assert fixture["trajectory_trace_fixture"] == TRAJECTORY_TRACE_FIXTURE_PATH.name
     assert {case["name"] for case in fixture["topologies"]} == {case.name for case in TOPOLOGY_CASES}
     success_cases = {(case["operation"], case["topology"]) for case in fixture["cases"] if case["fault"] is None}
     assert success_cases == {(operation, case.name) for operation in fixture["operations"] for case in TOPOLOGY_CASES}
     assert {case["fault"] for case in fixture["cases"] if case["fault"] is not None} == set(fixture["adapter_faults"])
+    for topology in fixture["topologies"]:
+        topology_name = topology["name"]
+        assert {case["fault"] for case in fixture["cases"] if case["topology"] == topology_name and case["fault"] is not None} == set(
+            fixture["adapter_faults"]
+        ), f"{topology_name} must declare every adapter fault"
     assert {case.fault for case in BACKEND_FIXTURE_CASES if case.fault is not None} == set(AdapterFault)
     assert {case.fault for case in BACKEND_FIXTURE_CASES if case.operation == "create" and case.fault is not None} == set(AdapterFault)
     assert {case.fault for case in BACKEND_FIXTURE_CASES if case.operation == "extract" and case.fault is not None} == set(AdapterFault)
@@ -308,7 +331,7 @@ def _backend_extraction_trace(case: FixtureCase) -> dict[str, Any]:
     checkpoint: dict[str, Any] = json.loads(completed.checkpoint_json)
     return {
         "owner": case.topology.driver.value,
-        "manifest_snapshot": [member["path"] for member in checkpoint["archive_manifest"]],
+        "manifest_snapshot": sorted(member["path"] for member in checkpoint["archive_manifest"]),
         "phase_transitions": state_store.phase_transitions,
         "pending_decision": (
             "collision" if case.fault == AdapterFault.COLLISION else "member_error" if case.fault == AdapterFault.PARTIAL_WRITE else None
@@ -456,6 +479,7 @@ def test_cross_topology_extraction_harness_replays_shared_trajectory(
     trajectory: TrajectoryCase,
 ) -> None:
     case = trajectory.topology
+    assert trajectory.expected_trace is not None
     scenario = next(scenario for scenario in EXTRACTION_TRAJECTORIES if scenario["name"] == trajectory.scenario_name)
     resolved = resolve_archive_operation_topology_plan(
         kind=ArchiveOperationKind.EXTRACT,
@@ -474,7 +498,7 @@ def test_cross_topology_extraction_harness_replays_shared_trajectory(
         collision_policy=scenario.get("existing_file_policy"),
         checkpoint_json=json.dumps(new_extraction_outcome_checkpoint(manifest=manifest)),
     )
-    state_store = InMemoryArchiveExecutionStateStore()
+    state_store = TraceRecordingStateStore()
     steps = scenario["steps"]
     assert steps[0]["event"] == "initialize"
     step_index = 1
@@ -532,9 +556,19 @@ def test_cross_topology_extraction_harness_replays_shared_trajectory(
 
     assert operation.phase.value == scenario["terminal_phase"]
     checkpoint: dict[str, Any] = json.loads(operation.checkpoint_json)
-    assert set(checkpoint["member_outcomes"]) == set(scenario["completed_members"])
-    for key, value in scenario["progress"].items():
-        assert checkpoint.get(key, 0) == value
+    assert {
+        "owner": case.driver.value,
+        "manifest_snapshot": sorted(member["path"] for member in checkpoint["archive_manifest"]),
+        "phase_transitions": state_store.phase_transitions,
+        "pending_decision": state_store.pending_decision,
+        "member_outcomes": sorted(checkpoint["member_outcomes"]),
+        "terminal_summary": (
+            {key: checkpoint.get(key, 0) for key in trajectory.expected_trace["terminal_summary"]}
+            if trajectory.expected_trace["terminal_summary"] is not None
+            else None
+        ),
+        "error_category": "cancelled" if operation.phase == ArchiveOperationPhase.CANCELLED else None,
+    } == trajectory.expected_trace
 
 
 @pytest.mark.parametrize(
@@ -546,6 +580,7 @@ def test_cross_topology_creation_harness_replays_shared_trajectory(
     trajectory: TrajectoryCase,
 ) -> None:
     case = trajectory.topology
+    assert trajectory.expected_trace is not None
     scenario = next(scenario for scenario in CREATION_TRAJECTORIES if scenario["name"] == trajectory.scenario_name)
     resolved = resolve_archive_operation_topology_plan(
         kind=ArchiveOperationKind.CREATE,
@@ -578,11 +613,23 @@ def test_cross_topology_creation_harness_replays_shared_trajectory(
         assert await is_cancelled() is False
         return ArchiveCreationResult(**scenario["progress"])
 
-    completed = asyncio.run(
-        ArchiveCreationCoordinator(operation, InMemoryArchiveExecutionStateStore()).run(run, execution_plan=creation_plan)
-    )
+    state_store = TraceRecordingStateStore()
+    completed = asyncio.run(ArchiveCreationCoordinator(operation, state_store).run(run, execution_plan=creation_plan))
 
-    assert completed.phase.value == scenario["terminal_phase"]
+    checkpoint: dict[str, Any] = json.loads(completed.checkpoint_json)
+    assert {
+        "owner": case.driver.value,
+        "manifest_snapshot": [member.archive_path for member in creation_plan.manifest.members],
+        "phase_transitions": state_store.phase_transitions,
+        "pending_decision": state_store.pending_decision,
+        "member_outcomes": sorted(checkpoint["creation_member_outcomes"]),
+        "terminal_summary": (
+            {key: checkpoint.get(key, 0) for key in trajectory.expected_trace["terminal_summary"]}
+            if trajectory.expected_trace["terminal_summary"] is not None
+            else None
+        ),
+        "error_category": "cancelled" if completed.phase == ArchiveOperationPhase.CANCELLED else None,
+    } == trajectory.expected_trace
 
 
 @pytest.mark.parametrize("case", BACKEND_TOPOLOGY_CASES, ids=lambda case: case.name)
