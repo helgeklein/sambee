@@ -148,58 +148,93 @@ def test_extraction_checkpoint_factory_initializes_the_versioned_outcome_ledger(
 
 
 def test_v1_extraction_trajectory_conformance_corpus() -> None:
-    """Replay durable extraction decisions and reports from the shared trajectory corpus."""
+    """Execute every shared extraction trajectory through each topology's common lifecycle plan."""
 
     corpus: dict[str, Any] = json.loads(EXTRACTION_TRAJECTORY_CORPUS_PATH.read_text(encoding="utf-8"))
     assert corpus["version"] == 1
     assert set(corpus["topologies"]) == {"smb_to_smb", "local_to_local", "smb_to_local", "local_to_smb"}
-    for scenario in corpus["scenarios"]:
-        manifest = ArchiveExtractionManifest.from_members(
-            [ArchiveExtractionManifestMember(member_path, False, 0, None) for member_path in scenario["members"]]
-        )
-        checkpoint = new_extraction_outcome_checkpoint(manifest=manifest)
-        for step in scenario["steps"]:
-            event = step["event"]
-            if event == "decision":
-                action = step["action"]
-                member_path = step["member_path"]
-                if action in {"skip", "replace"}:
-                    checkpoint.setdefault("member_collision_actions", {})[member_path] = action
-                elif action == "rename":
-                    checkpoint.setdefault("member_rename_targets", {})[member_path] = step["target_path"]
-                elif action == "retry":
-                    checkpoint["retry_members"] = [member_path]
-                elif action == "ignore":
-                    checkpoint["ignored_members"] = [member_path]
-                elif action == "replace_older":
-                    assert scenario.get("existing_file_policy") == "replace_older"
-            elif event == "partial_write":
-                record_extraction_partial_member_outcome(
-                    checkpoint,
-                    ArchiveExtractionPartialMemberOutcome(step["member_path"], step["target_path"], "partial write"),
-                )
-            elif event == "report":
-                record_extraction_member_outcome(
-                    checkpoint,
-                    ArchiveExtractionDestinationResult(
-                        step["member_path"],
-                        step["status"],
-                        step["target_path"],
-                        extracted_bytes=step.get("extracted_bytes", 0),
-                        replaced=step.get("replaced", False),
-                        renamed=step.get("renamed", False),
-                    ),
-                    preserve_absent_zero=True,
-                )
-        plan = ArchiveExtractionExecutionPlan.from_checkpoint(
-            checkpoint,
-            existing_file_policy=scenario.get("existing_file_policy"),
-        )
-        assert plan.completed_member_paths() == frozenset(scenario["completed_members"])
-        if scenario["terminal_phase"] == "completed":
-            assert plan.completion_checkpoint_json(destination_root_created=False)
-        for key, value in scenario["progress"].items():
-            assert checkpoint.get(key, 0) == value
+    for topology in corpus["topologies"]:
+        for scenario in corpus["scenarios"]:
+            manifest = ArchiveExtractionManifest.from_members(
+                [ArchiveExtractionManifestMember(member_path, False, 0, None) for member_path in scenario["members"]]
+            )
+            checkpoint = new_extraction_outcome_checkpoint(manifest=manifest)
+            phase = "prepared"
+            for step in scenario["steps"]:
+                event = step["event"]
+                if event == "initialize":
+                    assert phase == "prepared", f"{topology}: {scenario['name']}"
+                    phase = "streaming"
+                elif event == "collision_pause":
+                    assert phase == "streaming", f"{topology}: {scenario['name']}"
+                    ArchiveExtractionExecutionPlan.from_checkpoint(
+                        checkpoint,
+                        existing_file_policy=scenario.get("existing_file_policy"),
+                    ).member(step["member_path"])
+                    phase = "awaiting_user_decision"
+                elif event == "decision":
+                    assert phase == "awaiting_user_decision", f"{topology}: {scenario['name']}"
+                    action = step["action"]
+                    member_path = step["member_path"]
+                    if action in {"skip", "replace"}:
+                        checkpoint.setdefault("member_collision_actions", {})[member_path] = action
+                    elif action == "rename":
+                        checkpoint.setdefault("member_rename_targets", {})[member_path] = step["target_path"]
+                    elif action == "retry":
+                        checkpoint["retry_members"] = [member_path]
+                    elif action == "ignore":
+                        checkpoint["ignored_members"] = [member_path]
+                    elif action == "replace_older":
+                        assert scenario.get("existing_file_policy") == "replace_older"
+                    phase = "streaming"
+                elif event == "partial_write":
+                    assert phase == "streaming", f"{topology}: {scenario['name']}"
+                    record_extraction_partial_member_outcome(
+                        checkpoint,
+                        ArchiveExtractionPartialMemberOutcome(step["member_path"], step["target_path"], "partial write"),
+                    )
+                    phase = "awaiting_user_decision"
+                elif event == "resume":
+                    assert phase == "streaming", f"{topology}: {scenario['name']}"
+                    ArchiveExtractionExecutionPlan.from_checkpoint(
+                        checkpoint,
+                        existing_file_policy=scenario.get("existing_file_policy"),
+                    )
+                elif event == "report":
+                    assert phase == "streaming", f"{topology}: {scenario['name']}"
+                    record_extraction_member_outcome(
+                        checkpoint,
+                        ArchiveExtractionDestinationResult(
+                            step["member_path"],
+                            step["status"],
+                            step["target_path"],
+                            extracted_bytes=step.get("extracted_bytes", 0),
+                            replaced=step.get("replaced", False),
+                            renamed=step.get("renamed", False),
+                        ),
+                        preserve_absent_zero=True,
+                    )
+                elif event == "cancel":
+                    assert phase == "streaming", f"{topology}: {scenario['name']}"
+                    phase = "cancelled"
+                elif event == "terminal_summary":
+                    assert phase == "streaming", f"{topology}: {scenario['name']}"
+                    plan = ArchiveExtractionExecutionPlan.from_checkpoint(
+                        checkpoint,
+                        existing_file_policy=scenario.get("existing_file_policy"),
+                    )
+                    assert plan.completion_checkpoint_json(destination_root_created=False)
+                    phase = "completed"
+                else:
+                    pytest.fail(f"{topology}: unsupported extraction trajectory event {event!r}")
+            plan = ArchiveExtractionExecutionPlan.from_checkpoint(
+                checkpoint,
+                existing_file_policy=scenario.get("existing_file_policy"),
+            )
+            assert phase == scenario["terminal_phase"], f"{topology}: {scenario['name']}"
+            assert plan.completed_member_paths() == frozenset(scenario["completed_members"])
+            for key, value in scenario["progress"].items():
+                assert checkpoint.get(key, 0) == value
 
 
 def test_v1_creation_outcome_conformance_corpus() -> None:

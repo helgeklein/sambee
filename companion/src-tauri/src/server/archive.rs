@@ -2361,7 +2361,7 @@ mod tests {
         scenarios: Vec<ExtractionTrajectoryConformanceScenario>,
     }
 
-    #[derive(Deserialize)]
+    #[derive(Clone, Deserialize)]
     struct ExtractionTrajectoryConformanceScenario {
         name: String,
         members: Vec<String>,
@@ -2372,7 +2372,7 @@ mod tests {
         progress: std::collections::HashMap<String, u64>,
     }
 
-    #[derive(Deserialize)]
+    #[derive(Clone, Deserialize)]
     struct ExtractionTrajectoryStep {
         event: String,
         member_path: Option<String>,
@@ -3348,7 +3348,7 @@ mod tests {
                 .expect("shared extraction trajectory corpus should be valid JSON");
         assert_eq!(corpus.version, 1);
         assert_eq!(
-            corpus.topologies.into_iter().collect::<std::collections::HashSet<_>>(),
+            corpus.topologies.iter().cloned().collect::<std::collections::HashSet<_>>(),
             std::collections::HashSet::from([
                 "smb_to_smb".to_string(),
                 "local_to_local".to_string(),
@@ -3357,66 +3357,9 @@ mod tests {
             ])
         );
 
-        for scenario in corpus.scenarios {
-            let mut checkpoint = LocalArchiveExtractionCheckpoint::default();
-            for step in scenario.steps {
-                match step.event.as_str() {
-                    "initialize" | "collision_pause" | "resume" | "terminal_summary" | "cancel" => {}
-                    "partial_write" => {
-                        checkpoint.record_partial_member(step.member_path.expect("partial writes must identify their archive member"), 0)
-                    }
-                    "decision" => match step.action.as_deref() {
-                        Some("skip") => checkpoint.resolve_collision(
-                            step.member_path.expect("skip decisions must identify their archive member"),
-                            LocalArchiveExtractionCollisionAction::Skip,
-                        ),
-                        Some("replace") => checkpoint.resolve_collision(
-                            step.member_path.expect("replace decisions must identify their archive member"),
-                            LocalArchiveExtractionCollisionAction::Replace,
-                        ),
-                        Some("replace_older") => {
-                            assert_eq!(scenario.existing_file_policy.as_deref(), Some("replace_older"), "{}", scenario.name);
-                            checkpoint.resolve_all_collisions(LocalArchiveExtractionCollisionAction::ReplaceOlder);
-                        }
-                        Some("rename") => checkpoint.rename_member(
-                            step.member_path.expect("rename decisions must identify their archive member"),
-                            step.target_path.expect("rename decisions must identify their target"),
-                        ),
-                        Some("retry") => {}
-                        Some("ignore") => {
-                            checkpoint.ignore_member_error(step.member_path.expect("ignore decisions must identify their archive member"))
-                        }
-                        action => panic!("unsupported extraction decision in {}: {action:?}", scenario.name),
-                    },
-                    "report" => {
-                        let member_path = step.member_path.expect("reports must identify their archive member");
-                        if checkpoint.is_completed(&member_path) {
-                            continue;
-                        }
-                        let status = match step.status.as_deref() {
-                            Some("directory") => LocalArchiveExtractionDestinationStatus::Directory,
-                            Some("extracted") => LocalArchiveExtractionDestinationStatus::Extracted,
-                            Some("skipped") => LocalArchiveExtractionDestinationStatus::Skipped,
-                            Some("ignored") => LocalArchiveExtractionDestinationStatus::Ignored,
-                            status => panic!("unsupported terminal result status in {}: {status:?}", scenario.name),
-                        };
-                        checkpoint
-                            .record_destination_result(LocalArchiveExtractionDestinationResult {
-                                member_path,
-                                status,
-                                target_path: step.target_path.expect("reports must identify their target"),
-                                extracted_bytes: step.extracted_bytes,
-                                directories_created: 0,
-                                replaced: step.replaced,
-                                renamed: step.renamed,
-                            })
-                            .expect("valid trajectory outcome must be accepted");
-                    }
-                    event => panic!("unsupported extraction trajectory event in {}: {event}", scenario.name),
-                }
-            }
-            let plan = LocalArchiveExtractionExecutionPlan::from_manifest(
-                ArchiveExtractionManifest::from_entries(
+        for topology in corpus.topologies {
+            for scenario in corpus.scenarios.clone() {
+                let manifest = ArchiveExtractionManifest::from_entries(
                     scenario
                         .members
                         .iter()
@@ -3428,27 +3371,137 @@ mod tests {
                         })
                         .collect(),
                 )
-                .expect("trajectory members must form a valid immutable manifest"),
-                checkpoint.clone(),
-            )
-            .expect("trajectory checkpoint members must belong to its immutable manifest");
-            assert_eq!(
-                plan.completed_member_paths(),
-                scenario.completed_members.iter().map(String::as_str).collect(),
-                "{}",
-                scenario.name
-            );
-            assert_eq!(
-                plan.has_complete_terminal_coverage(),
-                scenario.terminal_phase == "completed",
-                "{}",
-                scenario.name
-            );
-            let result = checkpoint.result();
-            assert_eq!(result.files_extracted, scenario.progress["files_extracted"], "{}", scenario.name);
-            assert_eq!(result.files_skipped, scenario.progress["files_skipped"], "{}", scenario.name);
-            assert_eq!(result.files_replaced, scenario.progress["files_replaced"], "{}", scenario.name);
-            assert_eq!(result.extracted_bytes, scenario.progress["extracted_bytes"], "{}", scenario.name);
+                .expect("trajectory members must form a valid immutable manifest");
+                let mut checkpoint = LocalArchiveExtractionCheckpoint::default();
+                let mut phase = "prepared";
+                for step in scenario.steps {
+                    match step.event.as_str() {
+                        "initialize" => {
+                            assert_eq!(phase, "prepared", "{topology}: {}", scenario.name);
+                            phase = "streaming";
+                        }
+                        "collision_pause" => {
+                            assert_eq!(phase, "streaming", "{topology}: {}", scenario.name);
+                            phase = "awaiting_user_decision";
+                        }
+                        "partial_write" => {
+                            assert_eq!(phase, "streaming", "{topology}: {}", scenario.name);
+                            checkpoint
+                                .record_partial_member(step.member_path.expect("partial writes must identify their archive member"), 0);
+                            phase = "awaiting_user_decision";
+                        }
+                        "decision" => {
+                            assert_eq!(phase, "awaiting_user_decision", "{topology}: {}", scenario.name);
+                            match step.action.as_deref() {
+                                Some("skip") => checkpoint.resolve_collision(
+                                    step.member_path.expect("skip decisions must identify their archive member"),
+                                    LocalArchiveExtractionCollisionAction::Skip,
+                                ),
+                                Some("replace") => checkpoint.resolve_collision(
+                                    step.member_path.expect("replace decisions must identify their archive member"),
+                                    LocalArchiveExtractionCollisionAction::Replace,
+                                ),
+                                Some("replace_older") => {
+                                    assert_eq!(
+                                        scenario.existing_file_policy.as_deref(),
+                                        Some("replace_older"),
+                                        "{topology}: {}",
+                                        scenario.name
+                                    );
+                                    checkpoint.resolve_all_collisions(LocalArchiveExtractionCollisionAction::ReplaceOlder);
+                                }
+                                Some("rename") => checkpoint.rename_member(
+                                    step.member_path.expect("rename decisions must identify their archive member"),
+                                    step.target_path.expect("rename decisions must identify their target"),
+                                ),
+                                Some("retry") => {}
+                                Some("ignore") => checkpoint
+                                    .ignore_member_error(step.member_path.expect("ignore decisions must identify their archive member")),
+                                action => panic!("unsupported extraction decision in {}: {action:?}", scenario.name),
+                            }
+                            phase = "streaming";
+                        }
+                        "resume" => {
+                            assert_eq!(phase, "streaming", "{topology}: {}", scenario.name);
+                            LocalArchiveExtractionExecutionPlan::from_manifest(manifest.clone(), checkpoint.clone())
+                                .expect("resume checkpoint members must belong to the immutable manifest");
+                        }
+                        "report" => {
+                            assert_eq!(phase, "streaming", "{topology}: {}", scenario.name);
+                            let member_path = step.member_path.expect("reports must identify their archive member");
+                            if checkpoint.is_completed(&member_path) {
+                                continue;
+                            }
+                            let status = match step.status.as_deref() {
+                                Some("directory") => LocalArchiveExtractionDestinationStatus::Directory,
+                                Some("extracted") => LocalArchiveExtractionDestinationStatus::Extracted,
+                                Some("skipped") => LocalArchiveExtractionDestinationStatus::Skipped,
+                                Some("ignored") => LocalArchiveExtractionDestinationStatus::Ignored,
+                                status => panic!("unsupported terminal result status in {}: {status:?}", scenario.name),
+                            };
+                            checkpoint
+                                .record_destination_result(LocalArchiveExtractionDestinationResult {
+                                    member_path,
+                                    status,
+                                    target_path: step.target_path.expect("reports must identify their target"),
+                                    extracted_bytes: step.extracted_bytes,
+                                    directories_created: 0,
+                                    replaced: step.replaced,
+                                    renamed: step.renamed,
+                                })
+                                .expect("valid trajectory outcome must be accepted");
+                        }
+                        "cancel" => {
+                            assert_eq!(phase, "streaming", "{topology}: {}", scenario.name);
+                            phase = "cancelled";
+                        }
+                        "terminal_summary" => {
+                            assert_eq!(phase, "streaming", "{topology}: {}", scenario.name);
+                            let terminal_plan = LocalArchiveExtractionExecutionPlan::from_manifest(manifest.clone(), checkpoint.clone())
+                                .expect("terminal checkpoint members must belong to the immutable manifest");
+                            assert!(terminal_plan.has_complete_terminal_coverage(), "{topology}: {}", scenario.name);
+                            phase = "completed";
+                        }
+                        event => panic!("unsupported extraction trajectory event in {}: {event}", scenario.name),
+                    }
+                }
+                let plan = LocalArchiveExtractionExecutionPlan::from_manifest(manifest, checkpoint.clone())
+                    .expect("trajectory checkpoint members must belong to its immutable manifest");
+                assert_eq!(phase, scenario.terminal_phase.as_str(), "{topology}: {}", scenario.name);
+                assert_eq!(
+                    plan.completed_member_paths(),
+                    scenario.completed_members.iter().map(String::as_str).collect(),
+                    "{topology}: {}",
+                    scenario.name
+                );
+                assert_eq!(
+                    plan.has_complete_terminal_coverage(),
+                    scenario.terminal_phase == "completed",
+                    "{topology}: {}",
+                    scenario.name
+                );
+                let result = checkpoint.result();
+                assert_eq!(
+                    result.files_extracted, scenario.progress["files_extracted"],
+                    "{topology}: {}",
+                    scenario.name
+                );
+                assert_eq!(
+                    result.files_skipped, scenario.progress["files_skipped"],
+                    "{topology}: {}",
+                    scenario.name
+                );
+                assert_eq!(
+                    result.files_replaced, scenario.progress["files_replaced"],
+                    "{topology}: {}",
+                    scenario.name
+                );
+                assert_eq!(
+                    result.extracted_bytes, scenario.progress["extracted_bytes"],
+                    "{topology}: {}",
+                    scenario.name
+                );
+            }
         }
     }
 
