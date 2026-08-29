@@ -1,0 +1,19 @@
+{
+  "version": 1,
+  "readers": [
+    {
+      "field": "written_members",
+      "runtime": "backend",
+      "source": "backend/app/services/archive/coordinator.py",
+      "symbol": "legacy_v1_written_member_paths",
+      "retirement_condition": "Remove after V2 caller migration and the historical V1 operation-retention window."
+    },
+    {
+      "field": "written_members",
+      "runtime": "companion",
+      "source": "companion/src-tauri/src/server/archive.rs",
+      "symbol": "ArchiveExtractionRelayState::legacy_v1_completed_members",
+      "retirement_condition": "Remove after V2 caller migration and the historical V1 operation-retention window."
+    }
+  ]
+}

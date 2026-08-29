@@ -9,6 +9,7 @@ import yaml
 from fastapi.routing import APIRoute
 
 from app.api.archive_operations import router
+from app.api.browser import router as browser_router
 from app.models.archive_operation import (
     ArchiveCompanionCreationMemberCompletion,
     ArchiveCompanionCreationSummary,
@@ -27,6 +28,8 @@ ARCHIVE_CONTRACT_PATH = WORKSPACE_ROOT / "archive-contract" / "v1" / "openapi.ya
 RELAY_BINDINGS_PATH = WORKSPACE_ROOT / "archive-contract" / "v1" / "relay-bindings-v1.json"
 RELAY_CONTROL_PAYLOADS_PATH = WORKSPACE_ROOT / "archive-contract" / "v1" / "relay-control-payloads-v1.json"
 TOPOLOGY_OPERATION_MATRIX_PATH = WORKSPACE_ROOT / "archive-contract" / "v1" / "topology-operation-compatibility-matrix-v1.json"
+COMPANION_ARCHIVE_ROUTE_BINDINGS_PATH = WORKSPACE_ROOT / "archive-contract" / "v1" / "companion-archive-route-bindings-v1.json"
+COMPATIBILITY_READERS_PATH = WORKSPACE_ROOT / "archive-contract" / "v1" / "compatibility-readers-v1.json"
 COMPANION_RELAY_BINDING_PATH = WORKSPACE_ROOT / "companion" / "src-tauri" / "src" / "server" / "handlers.rs"
 COMPANION_ROUTER_PATH = WORKSPACE_ROOT / "companion" / "src-tauri" / "src" / "server" / "mod.rs"
 ARCHIVE_API_PREFIX = "/api/archive"
@@ -51,6 +54,38 @@ def _registered_relay_operations() -> set[tuple[str, str]]:
         (method, f"{ARCHIVE_API_PREFIX}{route.path}")
         for route in router.routes
         if isinstance(route, APIRoute) and CANONICAL_RELAY_PATH_SEGMENT in route.path
+        for method in route.methods or set()
+        if method.lower() in HTTP_OPERATION_METHODS
+    }
+
+
+def _documented_backend_operations(contract: dict[str, Any]) -> set[tuple[str, str]]:
+    paths = contract["paths"]
+    assert isinstance(paths, dict)
+    return {
+        (method.upper(), path.replace("{operationId}", "{operation_id}"))
+        for path, path_item in paths.items()
+        if isinstance(path, str) and path.startswith(ARCHIVE_API_PREFIX) and isinstance(path_item, dict)
+        for method in path_item
+        if method in HTTP_OPERATION_METHODS
+    }
+
+
+def _registered_backend_operations() -> set[tuple[str, str]]:
+    return {
+        (method, f"{ARCHIVE_API_PREFIX}{route.path}")
+        for route in router.routes
+        if isinstance(route, APIRoute)
+        for method in route.methods or set()
+        if method.lower() in HTTP_OPERATION_METHODS
+    }
+
+
+def _registered_backend_inspection_operations() -> set[tuple[str, str]]:
+    return {
+        (method, f"/api/browse{route.path}")
+        for route in browser_router.routes
+        if isinstance(route, APIRoute) and "/archive/" in route.path
         for method in route.methods or set()
         if method.lower() in HTTP_OPERATION_METHODS
     }
@@ -114,15 +149,75 @@ def _v1_relay_control_payloads() -> list[dict[str, Any]]:
     return payloads
 
 
-def test_archive_contract_covers_canonical_relay_routes() -> None:
-    """Keep the versioned relay contract aligned with the effective backend API."""
+def _v1_companion_archive_route_bindings() -> set[tuple[str, str, str, str]]:
+    fixture = json.loads(COMPANION_ARCHIVE_ROUTE_BINDINGS_PATH.read_text(encoding="utf-8"))
+    assert fixture["version"] == 1
+    routes = fixture["routes"]
+    assert isinstance(routes, list)
+    assert all(
+        isinstance(route, dict)
+        and route.get("method") in {"GET", "POST", "PUT", "DELETE"}
+        and isinstance(route.get("path"), str)
+        and isinstance(route.get("handler"), str)
+        and isinstance(route.get("operation_id"), str)
+        and isinstance(route.get("retirement_condition"), str)
+        and route["retirement_condition"]
+        for route in routes
+    )
+    return {(route["method"], route["path"], route["handler"], route["operation_id"]) for route in routes}
+
+
+def _registered_companion_archive_routes() -> set[tuple[str, str, str]]:
+    router_source = COMPANION_ROUTER_PATH.read_text(encoding="utf-8")
+    route_pattern = re.compile(
+        r'\.route\(\s*"(?P<path>/api/browse/\{drive\}/archive[^\"]*)",\s*'
+        r"axum::routing::(?P<method>get|post|put|delete)\(handlers::(?P<handler>\w+)\)\s*,?\s*\)",
+        flags=re.DOTALL,
+    )
+    return {(match.group("method").upper(), match.group("path"), match.group("handler")) for match in route_pattern.finditer(router_source)}
+
+
+def _v1_compatibility_readers() -> list[dict[str, str]]:
+    fixture = json.loads(COMPATIBILITY_READERS_PATH.read_text(encoding="utf-8"))
+    assert fixture["version"] == 1
+    readers = fixture["readers"]
+    assert isinstance(readers, list)
+    assert all(
+        isinstance(reader, dict)
+        and reader.get("field") == "written_members"
+        and reader.get("runtime") in {"backend", "companion"}
+        and isinstance(reader.get("source"), str)
+        and isinstance(reader.get("symbol"), str)
+        and isinstance(reader.get("retirement_condition"), str)
+        and reader["retirement_condition"]
+        for reader in readers
+    )
+    return readers
+
+
+def test_archive_contract_covers_every_active_backend_route() -> None:
+    """Keep the versioned route contract aligned with every backend archive endpoint."""
 
     with ARCHIVE_CONTRACT_PATH.open(encoding="utf-8") as contract_file:
         contract = yaml.safe_load(contract_file)
 
     assert isinstance(contract, dict)
     assert contract["openapi"] == "3.1.0"
-    assert _documented_relay_operations(contract) == _registered_relay_operations()
+    assert _documented_backend_operations(contract) == _registered_backend_operations()
+
+
+def test_archive_contract_covers_active_backend_inspection_routes() -> None:
+    """Keep active SMB inspection route bindings explicit during V1 retention."""
+
+    contract = yaml.safe_load(ARCHIVE_CONTRACT_PATH.read_text(encoding="utf-8"))
+    documented_routes = {
+        (method.upper(), path.replace("{connectionId}", "{connection_id}"))
+        for path, path_item in contract["paths"].items()
+        if isinstance(path, str) and path.startswith("/api/browse/") and isinstance(path_item, dict)
+        for method in path_item
+        if method in HTTP_OPERATION_METHODS
+    }
+    assert documented_routes == _registered_backend_inspection_operations()
 
 
 def test_local_to_smb_extraction_begin_request_matches_source_manifest_model() -> None:
@@ -154,22 +249,21 @@ def test_archive_contract_covers_backend_and_companion_relay_purposes() -> None:
 
 
 def test_archive_contract_binds_normalized_local_execution_routes_to_companion_router() -> None:
-    """Keep the V1 local execution lifecycle contract aligned with Companion's drive-scoped adapter routes."""
+    """Keep every V1 Companion archive adapter route bound to a contract operation."""
 
     contract = yaml.safe_load(ARCHIVE_CONTRACT_PATH.read_text(encoding="utf-8"))
-    normalized_paths = {
-        "/archive-executions": "browse_start_archive_execution",
-        "/archive-executions/{executionId}": "browse_get_archive_execution",
-        "/archive-executions/{executionId}/cancellation": "browse_cancel_archive_execution",
-        "/archive-executions/{executionId}/decisions": "browse_decide_archive_execution",
+    bindings = _v1_companion_archive_route_bindings()
+    assert {(method, path, handler) for method, path, handler, _operation_id in bindings} == _registered_companion_archive_routes()
+    documented_operation_ids = {
+        operation["operationId"]
+        for path_item in contract["paths"].values()
+        if isinstance(path_item, dict)
+        for operation in path_item.values()
+        if isinstance(operation, dict) and isinstance(operation.get("operationId"), str)
     }
-    assert set(normalized_paths).issubset(contract["paths"])
-    router = COMPANION_ROUTER_PATH.read_text(encoding="utf-8")
-    for normalized_path, handler in normalized_paths.items():
-        assert normalized_path.startswith("/archive-executions")
-        assert handler in router
-    assert "/api/browse/{drive}/archive/executions" in router
-    assert "/api/browse/{drive}/archive/executions/{execution_id}" in router
+    assert {operation_id for _method, _path, _handler, operation_id in bindings if operation_id != "inspection"}.issubset(
+        documented_operation_ids
+    )
 
 
 def test_v1_relay_binding_fixture_covers_backend_contract_and_companion() -> None:
@@ -224,6 +318,33 @@ def test_v1_topology_operation_matrix_tracks_current_operation_support() -> None
         assert entry["status"] == "supported"
         assert entry["driver"] == topology.driver.value
         assert entry.get("relay_purpose") == (topology.companion_purpose.value if topology.companion_purpose is not None else None)
+
+
+def test_v1_written_members_readers_are_named_compatibility_boundaries() -> None:
+    """Prevent new production uses of the V1 checkpoint member list."""
+
+    readers = _v1_compatibility_readers()
+    expected_sources = {reader["source"] for reader in readers}
+    production_sources = {
+        source.relative_to(WORKSPACE_ROOT).as_posix()
+        for root in (WORKSPACE_ROOT / "backend" / "app", WORKSPACE_ROOT / "companion" / "src-tauri" / "src")
+        for source in root.rglob("*.py")
+        if source.suffix == ".py"
+    } | {
+        source.relative_to(WORKSPACE_ROOT).as_posix()
+        for root in (WORKSPACE_ROOT / "backend" / "app", WORKSPACE_ROOT / "companion" / "src-tauri" / "src")
+        for source in root.rglob("*.rs")
+        if source.suffix == ".rs"
+    }
+    written_member_sources = {
+        source for source in production_sources if "written_members" in (WORKSPACE_ROOT / source).read_text(encoding="utf-8")
+    }
+    assert written_member_sources == expected_sources
+
+    python_reader = WORKSPACE_ROOT / "backend" / "app" / "services" / "archive" / "coordinator.py"
+    rust_reader = WORKSPACE_ROOT / "companion" / "src-tauri" / "src" / "server" / "archive.rs"
+    assert "def legacy_v1_written_member_paths" in python_reader.read_text(encoding="utf-8")
+    assert "fn legacy_v1_completed_members" in rust_reader.read_text(encoding="utf-8")
 
 
 def test_v1_relay_control_payload_fixture_matches_contract_and_backend_models() -> None:

@@ -81,6 +81,143 @@ paths:
                 $ref: '#/components/schemas/ArchiveExecution'
         '409':
           $ref: '#/components/responses/StaleRevision'
+  /api/browse/{connectionId}/archive/list:
+    parameters: [{$ref: '#/components/parameters/ConnectionId'}]
+    get:
+      operationId: listSmbArchiveDirectory
+      summary: List a bounded virtual directory page from an SMB ZIP archive
+      security: [{ArchiveUserToken: []}]
+      parameters:
+        - name: archive_path
+          in: query
+          required: true
+          schema: {type: string, minLength: 1}
+        - name: virtual_path
+          in: query
+          required: false
+          schema: {type: string, default: ''}
+        - name: cursor
+          in: query
+          required: false
+          schema: {type: [string, 'null']}
+        - name: page_size
+          in: query
+          required: false
+          schema: {type: integer, minimum: 1, maximum: 500, default: 100}
+      responses:
+        '200':
+          description: Stable archive virtual-directory page
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/ArchiveDirectoryListingV1'}
+  /api/archive/operations:
+    post:
+      operationId: prepareArchiveOperation
+      summary: Prepare a durable archive operation
+      security: [{ArchiveUserToken: []}]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: {$ref: '#/components/schemas/ArchiveOperationPrepare'}
+      responses:
+        '201': {$ref: '#/components/responses/ArchiveOperation'}
+    get:
+      operationId: listArchiveOperations
+      summary: List the caller's durable archive operations
+      security: [{ArchiveUserToken: []}]
+      parameters:
+        - name: active_only
+          in: query
+          required: false
+          schema: {type: boolean, default: false}
+        - name: limit
+          in: query
+          required: false
+          schema: {type: integer, minimum: 1, maximum: 100, default: 25}
+      responses:
+        '200':
+          description: Recent durable archive operations
+          content:
+            application/json:
+              schema:
+                type: array
+                items: {$ref: '#/components/schemas/ArchiveOperationRead'}
+  /api/archive/operations/{operationId}:
+    parameters: [{$ref: '#/components/parameters/OperationId'}]
+    get:
+      operationId: getArchiveOperation
+      summary: Retrieve one durable archive operation
+      security: [{ArchiveUserToken: []}]
+      responses:
+        '200': {$ref: '#/components/responses/ArchiveOperation'}
+  /api/archive/operations/{operationId}/companion-session:
+    parameters: [{$ref: '#/components/parameters/OperationId'}]
+    post:
+      operationId: createArchiveCompanionSession
+      summary: Create a scoped Companion capability for a mixed archive operation
+      security: [{ArchiveUserToken: []}]
+      responses:
+        '200':
+          description: Scoped Companion capability
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/ArchiveCompanionSession'}
+  /api/archive/operations/{operationId}/phase:
+    parameters: [{$ref: '#/components/parameters/OperationId'}]
+    post:
+      operationId: transitionArchiveOperation
+      summary: Transition a durable archive operation phase
+      security: [{ArchiveUserToken: []}]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: {$ref: '#/components/schemas/ArchiveOperationTransition'}
+      responses:
+        '200': {$ref: '#/components/responses/ArchiveOperation'}
+        '409': {$ref: '#/components/responses/StaleRevision'}
+  /api/archive/operations/{operationId}/execute-create:
+    parameters: [{$ref: '#/components/parameters/OperationId'}]
+    post:
+      operationId: executeArchiveCreation
+      summary: Execute a same-SMB archive creation operation
+      security: [{ArchiveUserToken: []}]
+      responses:
+        '200': {$ref: '#/components/responses/ArchiveOperation'}
+  /api/archive/operations/{operationId}/execute-extract:
+    parameters: [{$ref: '#/components/parameters/OperationId'}]
+    post:
+      operationId: executeArchiveExtraction
+      summary: Execute a same-SMB archive extraction operation
+      security: [{ArchiveUserToken: []}]
+      responses:
+        '200': {$ref: '#/components/responses/ArchiveOperation'}
+  /api/archive/operations/{operationId}/decide-extraction:
+    parameters: [{$ref: '#/components/parameters/OperationId'}]
+    post:
+      operationId: decideArchiveExtraction
+      summary: Apply a collision, retry, ignore, or cancellation decision to an extraction operation
+      security: [{ArchiveUserToken: []}]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: {$ref: '#/components/schemas/ArchiveExtractionDecision'}
+      responses:
+        '200': {$ref: '#/components/responses/ArchiveOperation'}
+        '409': {$ref: '#/components/responses/StaleRevision'}
+  /api/archive/operations/{operationId}/cancel:
+    parameters:
+      - $ref: '#/components/parameters/OperationId'
+      - $ref: '#/components/parameters/ExpectedRevision'
+    post:
+      operationId: cancelArchiveOperation
+      summary: Request cancellation of a durable archive operation
+      security: [{ArchiveUserToken: []}]
+      responses:
+        '200': {$ref: '#/components/responses/ArchiveOperation'}
+        '409': {$ref: '#/components/responses/StaleRevision'}
   /api/archive/operations/{operationId}/companion-relay/local_zip_to_smb_extract/begin:
     post:
       operationId: beginLocalZipToSmbExtractionRelay
@@ -374,6 +511,13 @@ components:
       schema:
         type: string
         format: uuid
+    ConnectionId:
+      name: connectionId
+      in: path
+      required: true
+      schema:
+        type: string
+        format: uuid
     MemberPath:
       name: member_path
       in: query
@@ -402,7 +546,18 @@ components:
       schema:
         type: string
         format: date-time
+    ExpectedRevision:
+      name: expected_revision
+      in: query
+      required: false
+      schema:
+        type: integer
+        minimum: 0
   securitySchemes:
+    ArchiveUserToken:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
     ArchiveOperationToken:
       type: http
       scheme: bearer
@@ -433,7 +588,7 @@ components:
     ArchiveOperationRead:
       type: object
       additionalProperties: false
-      required: [id, kind, phase, source_connection_id, source_path, destination_connection_id, destination_path, manifest_hash, revision, checkpoint_json, cancellation_requested, created_at, updated_at, heartbeat_at]
+      required: [id, kind, phase, source_connection_id, source_path, destination_connection_id, destination_path, manifest_hash, revision, checkpoint_json, pending_decision_json, collision_policy, cancellation_requested, last_error_json, created_at, updated_at, heartbeat_at]
       properties:
         id: {type: string, format: uuid}
         kind: {type: string, enum: [create, extract]}
@@ -452,6 +607,85 @@ components:
         created_at: {type: string, format: date-time}
         updated_at: {type: string, format: date-time}
         heartbeat_at: {type: string, format: date-time}
+    ArchiveOperationPrepare:
+      type: object
+      additionalProperties: false
+      required: [kind, source_connection_id, source_path, destination_connection_id, destination_path]
+      properties:
+        kind: {type: string, enum: [create, extract]}
+        source_connection_id: {type: string}
+        source_path: {type: string}
+        destination_connection_id: {type: string}
+        destination_path: {type: string}
+        manifest_hash: {type: string, default: ''}
+        plan_json: {type: string, default: '{}'}
+    ArchiveOperationTransition:
+      type: object
+      additionalProperties: false
+      required: [expected_phase, next_phase]
+      properties:
+        expected_phase:
+          type: string
+          enum: [prepared, accepted, streaming, awaiting_user_decision, verifying, completed, cancelled, failed]
+        next_phase:
+          type: string
+          enum: [prepared, accepted, streaming, awaiting_user_decision, verifying, completed, cancelled, failed]
+        expected_revision: {type: [integer, 'null'], minimum: 0}
+    ArchiveExtractionDecision:
+      type: object
+      additionalProperties: false
+      required: [action]
+      properties:
+        action:
+          type: string
+          enum: [skip, skip_all, replace, replace_all, replace_older, rename, retry, ignore, cancel]
+        member_path: {type: [string, 'null']}
+        target_path: {type: [string, 'null']}
+        expected_revision: {type: [integer, 'null'], minimum: 0}
+    ArchiveCompanionSession:
+      type: object
+      additionalProperties: false
+      required: [token, expires_in, operation]
+      properties:
+        token: {type: string}
+        expires_in: {type: integer}
+        operation: {$ref: '#/components/schemas/ArchiveOperationRead'}
+    ArchiveDirectoryListingV1:
+      type: object
+      additionalProperties: false
+      required: [archive, path, items, total, next_cursor, page_size]
+      properties:
+        archive: {$ref: '#/components/schemas/ArchiveIdentityV1'}
+        path: {type: string}
+        items:
+          type: array
+          items: {$ref: '#/components/schemas/ArchiveEntryInfoV1'}
+        total: {type: integer, minimum: 0}
+        next_cursor: {type: [string, 'null']}
+        page_size: {type: integer, minimum: 1, maximum: 500}
+    ArchiveIdentityV1:
+      type: object
+      additionalProperties: false
+      required: [path, size, modified_at]
+      properties:
+        path: {type: string}
+        size: {type: integer, minimum: 0}
+        modified_at: {type: [string, 'null'], format: date-time}
+    ArchiveEntryInfoV1:
+      type: object
+      additionalProperties: false
+      required: [name, path, type, size, compressed_size, compression_method, crc32, modified_at, state, is_hidden]
+      properties:
+        name: {type: string}
+        path: {type: string}
+        type: {type: string, enum: [file, directory]}
+        size: {type: [integer, 'null'], minimum: 0}
+        compressed_size: {type: [integer, 'null'], minimum: 0}
+        compression_method: {type: [integer, 'null'], minimum: 0}
+        crc32: {type: [integer, 'null'], minimum: 0}
+        modified_at: {type: [string, 'null'], format: date-time}
+        state: {type: string, enum: [readable, blocked, unavailable]}
+        is_hidden: {type: boolean}
     ArchiveExtractionManifest:
       type: object
       additionalProperties: false

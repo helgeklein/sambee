@@ -1,0 +1,75 @@
+{
+  "version": 1,
+  "routes": [
+    {
+      "method": "GET",
+      "path": "/api/browse/{drive}/archive/list",
+      "handler": "browse_list_archive",
+      "operation_id": "inspection",
+      "retirement_condition": "Replace with a V2 inspection operation after V2 caller migration."
+    },
+    {
+      "method": "POST",
+      "path": "/api/browse/{drive}/archive",
+      "handler": "browse_create_archive",
+      "operation_id": "startArchiveExecution",
+      "retirement_condition": "Migrate callers to the normalized lifecycle route after V2 caller migration and the V1 operation retention window."
+    },
+    {
+      "method": "POST",
+      "path": "/api/browse/{drive}/archive/create-from-smb",
+      "handler": "browse_create_archive_from_smb",
+      "operation_id": "beginSmbToLocalZipCreationRelay",
+      "retirement_condition": "Migrate callers to V2 after V2 caller migration and the V1 operation retention window."
+    },
+    {
+      "method": "POST",
+      "path": "/api/browse/{drive}/archive/create-to-smb",
+      "handler": "browse_create_archive_to_smb",
+      "operation_id": "beginLocalToSmbZipCreationRelay",
+      "retirement_condition": "Migrate callers to V2 after V2 caller migration and the V1 operation retention window."
+    },
+    {
+      "method": "POST",
+      "path": "/api/browse/{drive}/archive/executions",
+      "handler": "browse_start_archive_execution",
+      "operation_id": "startArchiveExecution",
+      "retirement_condition": "Migrate callers to V2 after V2 caller migration and the V1 operation retention window."
+    },
+    {
+      "method": "GET",
+      "path": "/api/browse/{drive}/archive/executions/{execution_id}",
+      "handler": "browse_get_archive_execution",
+      "operation_id": "getArchiveExecution",
+      "retirement_condition": "Migrate callers to V2 after V2 caller migration and the V1 operation retention window."
+    },
+    {
+      "method": "POST",
+      "path": "/api/browse/{drive}/archive/executions/{execution_id}/cancellation",
+      "handler": "browse_cancel_archive_execution",
+      "operation_id": "cancelArchiveExecution",
+      "retirement_condition": "Migrate callers to V2 after V2 caller migration and the V1 operation retention window."
+    },
+    {
+      "method": "POST",
+      "path": "/api/browse/{drive}/archive/executions/{execution_id}/decision",
+      "handler": "browse_decide_archive_execution",
+      "operation_id": "decideArchiveExecution",
+      "retirement_condition": "Migrate callers to V2 after V2 caller migration and the V1 operation retention window."
+    },
+    {
+      "method": "POST",
+      "path": "/api/browse/{drive}/archive/extract-to-smb",
+      "handler": "browse_extract_archive_to_smb",
+      "operation_id": "beginLocalZipToSmbExtractionRelay",
+      "retirement_condition": "Migrate callers to V2 after V2 caller migration and the V1 operation retention window."
+    },
+    {
+      "method": "POST",
+      "path": "/api/browse/{drive}/archive/extract-from-smb",
+      "handler": "browse_extract_archive_from_smb",
+      "operation_id": "beginSmbZipToLocalExtractionRelay",
+      "retirement_condition": "Migrate callers to V2 after V2 caller migration and the V1 operation retention window."
+    }
+  ]
+}
