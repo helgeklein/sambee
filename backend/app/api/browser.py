@@ -50,6 +50,7 @@ from app.models.recent_file import (
     RecentFileValidationError,
 )
 from app.models.user import User
+from app.services.archive.coordinator import ArchiveInspectionCoordinator, ArchiveInspectionPlan
 from app.services.archive.zip_reader import ArchiveFormatError, ZipReader
 from app.services.connection_access import get_accessible_connection_or_404, require_connection_write_access
 from app.services.cross_connection import cross_connection_copy, cross_connection_move
@@ -444,7 +445,11 @@ async def list_archive_directory(
         if archive_info.type != FileType.FILE or archive_info.size is None:
             raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_CONTENT, detail="Archive path must identify a regular file")
         reader = await backend.open_random_access_reader(archive_path)
-        page = (await ZipReader(reader, archive_info.size).inspection_manifest()).list_directory(virtual_path, cursor, page_size)
+        page = await ArchiveInspectionCoordinator(ArchiveInspectionPlan(ZipReader(reader, archive_info.size))).list_directory(
+            virtual_path,
+            cursor,
+            page_size,
+        )
         return ArchiveDirectoryListing(
             archive=ArchiveIdentity(path=archive_path, size=archive_info.size, modified_at=archive_info.modified_at),
             path=virtual_path.rstrip("/"),

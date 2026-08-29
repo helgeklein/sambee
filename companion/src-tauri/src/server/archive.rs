@@ -207,6 +207,48 @@ impl ArchiveInspectionManifest {
     }
 }
 
+/// Immutable, request-scoped local source binding for archive inspection.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ArchiveInspectionPlan {
+    manifest: ArchiveInspectionManifest,
+}
+
+impl ArchiveInspectionPlan {
+    /// Read the local source once and bind its normalized manifest to this request.
+    pub fn from_archive_path(archive_path: &Path) -> Result<Self, LocalArchiveReadError> {
+        Ok(Self {
+            manifest: inspect_local_archive(archive_path)?,
+        })
+    }
+}
+
+/// Resolve a request-scoped inspection plan without owning transport or HTTP projection.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ArchiveInspectionCoordinator {
+    plan: ArchiveInspectionPlan,
+}
+
+impl ArchiveInspectionCoordinator {
+    pub fn from_archive_path(archive_path: &Path) -> Result<Self, LocalArchiveReadError> {
+        Ok(Self {
+            plan: ArchiveInspectionPlan::from_archive_path(archive_path)?,
+        })
+    }
+
+    pub fn list_directory(
+        &self,
+        virtual_path: &str,
+        cursor: Option<&str>,
+        page_size: usize,
+    ) -> Result<LocalArchiveDirectoryPage, LocalArchiveReadError> {
+        self.plan.manifest.list_directory(virtual_path, cursor, page_size)
+    }
+
+    pub fn member(&self, member_path: &str) -> Result<&ArchiveInspectionManifestMember, LocalArchiveReadError> {
+        self.plan.manifest.member(member_path)
+    }
+}
+
 /// A single direct child returned from a virtual archive directory.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct LocalArchiveDirectoryEntry {
@@ -344,6 +386,22 @@ impl ArchiveCreationManifest {
             }
         }
         Ok(result)
+    }
+}
+
+/// Immutable creation manifest binding consumed by a local creation execution.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct LocalArchiveCreationExecutionPlan {
+    manifest: ArchiveCreationManifest,
+}
+
+impl LocalArchiveCreationExecutionPlan {
+    pub fn from_manifest(manifest: ArchiveCreationManifest) -> Self {
+        Self { manifest }
+    }
+
+    fn into_state(self) -> ArchiveCreationManifestState {
+        ArchiveCreationManifestState::new(self.manifest)
     }
 }
 
@@ -2189,12 +2247,29 @@ pub fn write_local_archive_stream_with_manifest<W: Write>(
     entries: &[LocalArchiveEntry],
     manifest: ArchiveCreationManifest,
     is_cancelled: impl Fn() -> bool,
+    on_progress: impl FnMut(LocalArchiveCreationResult),
+) -> Result<(LocalArchiveCreationResult, ArchiveCreationManifestState), LocalArchiveError> {
+    write_local_archive_stream_with_execution_plan(
+        output,
+        entries,
+        LocalArchiveCreationExecutionPlan::from_manifest(manifest),
+        is_cancelled,
+        on_progress,
+    )
+}
+
+/// Write a portable ZIP from an immutable execution plan and local source adapter entries.
+pub fn write_local_archive_stream_with_execution_plan<W: Write>(
+    output: W,
+    entries: &[LocalArchiveEntry],
+    execution_plan: LocalArchiveCreationExecutionPlan,
+    is_cancelled: impl Fn() -> bool,
     mut on_progress: impl FnMut(LocalArchiveCreationResult),
 ) -> Result<(LocalArchiveCreationResult, ArchiveCreationManifestState), LocalArchiveError> {
-    validate_local_archive_manifest_entries(entries, &manifest)?;
+    validate_local_archive_manifest_entries(entries, &execution_plan.manifest)?;
     (|| {
         let mut writer = ZipWriter::new_stream(output);
-        let mut state = ArchiveCreationManifestState::new(manifest);
+        let mut state = execution_plan.into_state();
         let manifest_entries = state.manifest.entries.clone();
         let mut buffer = vec![0; ARCHIVE_COPY_BUFFER_SIZE];
 
@@ -3032,21 +3107,19 @@ mod tests {
         let entries = build_local_archive_manifest(&[source_root], &target).unwrap();
         create_local_archive(directory.path(), &target, &entries, || false).unwrap();
 
-        let first_page = inspect_local_archive(&target).unwrap().list_directory("source/", None, 1).unwrap();
+        let inspection = ArchiveInspectionCoordinator::from_archive_path(&target).unwrap();
+        let first_page = inspection.list_directory("source/", None, 1).unwrap();
         assert_eq!(first_page.total, 2);
         assert_eq!(first_page.entries[0].name, "nested");
         assert!(first_page.entries[0].is_directory);
         assert_eq!(first_page.next_cursor.as_deref(), Some("1"));
 
-        let second_page = inspect_local_archive(&target)
-            .unwrap()
-            .list_directory("source/", first_page.next_cursor.as_deref(), 1)
-            .unwrap();
+        let second_page = inspection.list_directory("source/", first_page.next_cursor.as_deref(), 1).unwrap();
         assert_eq!(second_page.entries[0].name, "alpha.txt");
         assert_eq!(second_page.entries[0].uncompressed_size, Some(5));
         assert_eq!(second_page.next_cursor, None);
         assert!(matches!(
-            inspect_local_archive(&target).unwrap().list_directory("../unsafe/", None, 100),
+            inspection.list_directory("../unsafe/", None, 100),
             Err(LocalArchiveReadError::InvalidDirectoryPath)
         ));
     }

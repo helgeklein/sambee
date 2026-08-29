@@ -26,6 +26,7 @@ from app.models.connection import Connection
 from app.models.edit_lock import HEARTBEAT_TIMEOUT_SECONDS, EditLock
 from app.models.file import FileInfo, FileType
 from app.models.user import User
+from app.services.archive.coordinator import ArchiveInspectionCoordinator, ArchiveInspectionPlan
 from app.services.archive.zip_reader import ArchiveFormatError, ZipEntry, ZipReader
 from app.services.connection_access import get_accessible_connection_or_404
 from app.services.image_converter import convert_image_for_viewer
@@ -91,7 +92,7 @@ async def stream_archive_member(
             raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_CONTENT, detail="Archive path must identify a regular file")
         reader = await backend.open_random_access_reader(archive_path)
         zip_reader = ZipReader(reader, archive_info.size)
-        inspection_member = (await zip_reader.inspection_manifest()).member(member_path)
+        inspection_member = await ArchiveInspectionCoordinator(ArchiveInspectionPlan(zip_reader)).member(member_path)
         member = await zip_reader.validate_member(inspection_member.path)
         if not download and view_kind != "raw" and not inspection_member.is_inline_preview_eligible():
             raise HTTPException(

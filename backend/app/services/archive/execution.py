@@ -54,6 +54,14 @@ class ArchiveExecutionTopology:
     companion_purpose: ArchiveCompanionRelayPurpose | None
 
 
+@dataclass(frozen=True)
+class ArchiveOperationTopologyPlan:
+    """Immutable topology selection consumed before an operation coordinator starts."""
+
+    kind: ArchiveOperationKind
+    topology: ArchiveExecutionTopology
+
+
 def resolve_archive_execution_topology(
     *,
     kind: ArchiveOperationKind,
@@ -82,4 +90,22 @@ def resolve_archive_execution_topology(
         source_is_local=source_is_local,
         destination_is_local=destination_is_local,
         companion_purpose=purpose,
+    )
+
+
+def resolve_archive_operation_topology_plan(
+    *,
+    kind: ArchiveOperationKind,
+    source_connection_id: str,
+    destination_connection_id: str,
+) -> ArchiveOperationTopologyPlan:
+    """Build the single immutable topology decision for an archive operation."""
+
+    return ArchiveOperationTopologyPlan(
+        kind=kind,
+        topology=resolve_archive_execution_topology(
+            kind=kind,
+            source_connection_id=source_connection_id,
+            destination_connection_id=destination_connection_id,
+        ),
     )

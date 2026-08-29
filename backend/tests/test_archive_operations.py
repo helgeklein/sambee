@@ -28,6 +28,7 @@ from app.services.archive.coordinator import (
     CREATION_OUTCOME_CHECKPOINT_VERSION,
     EXTRACTION_OUTCOME_CHECKPOINT_VERSION,
     ArchiveCreationCoordinator,
+    ArchiveCreationExecutionPlan,
     ArchiveCreationManifest,
     ArchiveCreationManifestMember,
     ArchiveCreationState,
@@ -51,7 +52,12 @@ from app.services.archive.coordinator import (
     start_archive_execution,
 )
 from app.services.archive.creation import ArchiveCreationEntry, ArchiveCreationMemberOutcome, ArchiveCreationResult
-from app.services.archive.execution import ArchiveCompanionRelayPurpose, ArchiveExecutionDriver, resolve_archive_execution_topology
+from app.services.archive.execution import (
+    ArchiveCompanionRelayPurpose,
+    ArchiveExecutionDriver,
+    resolve_archive_execution_topology,
+    resolve_archive_operation_topology_plan,
+)
 from app.services.archive.extraction import (
     ArchiveExtractionConflict,
     ArchiveExtractionConflicts,
@@ -398,11 +404,13 @@ async def test_creation_coordinator_uses_injected_state_store() -> None:
         state_store=state_store,
     ).run(
         run_creation,
-        manifest=ArchiveCreationManifest.from_members(
-            [
-                ArchiveCreationManifestMember("docs", True, 0, "docs", None),
-                ArchiveCreationManifestMember("docs/readme.txt", False, 11, "docs/readme.txt", None),
-            ]
+        execution_plan=ArchiveCreationExecutionPlan(
+            ArchiveCreationManifest.from_members(
+                [
+                    ArchiveCreationManifestMember("docs", True, 0, "docs", None),
+                    ArchiveCreationManifestMember("docs/readme.txt", False, 11, "docs/readme.txt", None),
+                ]
+            )
         ),
     )
 
@@ -455,7 +463,10 @@ async def test_creation_coordinator_rejects_incomplete_preflight_manifest() -> N
         return ArchiveCreationResult(files_created=1, source_bytes=5)
 
     with pytest.raises(HTTPException, match="preflight manifest") as exc_info:
-        await ArchiveCreationCoordinator(operation=operation, state_store=state_store).run(run_creation, manifest=manifest)
+        await ArchiveCreationCoordinator(operation=operation, state_store=state_store).run(
+            run_creation,
+            execution_plan=ArchiveCreationExecutionPlan(manifest),
+        )
 
     assert exc_info.value.status_code == status.HTTP_409_CONFLICT
     assert operation.phase == ArchiveOperationPhase.FAILED
@@ -810,6 +821,18 @@ def test_resolves_archive_execution_topology(
         assert purpose.kind == kind
         assert purpose.source_is_local == source_connection_id.startswith("local-drive:")
         assert purpose.destination_is_local == destination_connection_id.startswith("local-drive:")
+
+
+def test_operation_topology_plan_is_immutable_resolved_execution_selection() -> None:
+    plan = resolve_archive_operation_topology_plan(
+        kind=ArchiveOperationKind.EXTRACT,
+        source_connection_id="connection-1",
+        destination_connection_id="local-drive:c",
+    )
+
+    assert plan.kind == ArchiveOperationKind.EXTRACT
+    assert plan.topology.driver == ArchiveExecutionDriver.COMPANION
+    assert plan.topology.companion_purpose == ArchiveCompanionRelayPurpose.SMB_ZIP_TO_LOCAL_EXTRACT
 
 
 def test_mixed_archive_parent_creation_rejects_target_outside_destination_root() -> None:

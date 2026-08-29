@@ -53,6 +53,7 @@ from app.models.file import FileInfo, FileType
 from app.models.user import User
 from app.services.archive.coordinator import (
     ArchiveCreationCoordinator,
+    ArchiveCreationExecutionPlan,
     ArchiveCreationManifest,
     ArchiveCreationManifestMember,
     ArchiveCreationState,
@@ -84,7 +85,11 @@ from app.services.archive.creation import (
     create_archive_from_files,
     normalize_archive_creation_source_modified_at,
 )
-from app.services.archive.execution import ArchiveCompanionRelayPurpose, ArchiveExecutionDriver, resolve_archive_execution_topology
+from app.services.archive.execution import (
+    ArchiveCompanionRelayPurpose,
+    ArchiveExecutionDriver,
+    resolve_archive_operation_topology_plan,
+)
 from app.services.archive.extraction import (
     ArchiveExtractionConflict,
     ArchiveExtractionDestinationResult,
@@ -99,7 +104,6 @@ from app.services.archive.live_creation import (
     LiveArchiveCreationWriterManager,
 )
 from app.services.archive.operations import (
-    apply_existing_file_decision,
     await_operation_decision,
     fail_operation,
     request_operation_cancellation,
@@ -236,14 +240,14 @@ def _require_backend_archive_execution(operation: ArchiveOperation) -> None:
     """Reject plans whose coordinator must run in Companion rather than the backend."""
 
     try:
-        topology = resolve_archive_execution_topology(
+        topology_plan = resolve_archive_operation_topology_plan(
             kind=operation.kind,
             source_connection_id=operation.source_connection_id,
             destination_connection_id=operation.destination_connection_id,
         )
     except ValueError as exc:
         raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_CONTENT, detail=str(exc)) from exc
-    if topology.driver != ArchiveExecutionDriver.BACKEND:
+    if topology_plan.topology.driver != ArchiveExecutionDriver.BACKEND:
         raise HTTPException(
             status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
             detail="Archive execution requires the Companion coordinator",
@@ -320,14 +324,14 @@ async def create_archive_companion_session(
 
     operation = _get_owned_operation_or_404(session, current_user, operation_id)
     try:
-        topology = resolve_archive_execution_topology(
+        topology_plan = resolve_archive_operation_topology_plan(
             kind=operation.kind,
             source_connection_id=operation.source_connection_id,
             destination_connection_id=operation.destination_connection_id,
         )
     except ValueError as exc:
         raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_CONTENT, detail=str(exc)) from exc
-    if topology.driver != ArchiveExecutionDriver.COMPANION or topology.companion_purpose is None:
+    if topology_plan.topology.driver != ArchiveExecutionDriver.COMPANION or topology_plan.topology.companion_purpose is None:
         raise HTTPException(
             status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
             detail="Archive Companion execution is not available for this archive direction",
@@ -348,7 +352,7 @@ async def create_archive_companion_session(
             "jti": uuid.uuid4().hex,
             ARCHIVE_COMPANION_TOKEN_CLAIM: True,
             "token_class": ARCHIVE_COMPANION_TOKEN_CLASS,
-            "purpose": topology.companion_purpose,
+            "purpose": topology_plan.topology.companion_purpose,
             "archive_operation_id": str(operation.id),
             "source_connection_id": operation.source_connection_id,
             "source_path": operation.source_path,
@@ -1447,7 +1451,7 @@ async def execute_archive_creation(
         return await ArchiveCreationCoordinator(
             operation=operation,
             state_store=DurableArchiveExecutionStateStore(session),
-        ).run(run_creation, manifest=manifest)
+        ).run(run_creation, execution_plan=ArchiveCreationExecutionPlan(manifest))
 
 
 @router.post("/operations/{operation_id}/execute-extract", response_model=ArchiveOperationRead)
@@ -1550,7 +1554,10 @@ async def decide_archive_extraction(
         )
     if payload.action == "rename" and not operation.source_connection_id.startswith(LOCAL_DRIVE_PREFIX):
         await _validate_archive_extraction_rename(session, current_user, operation, payload)
-    return apply_existing_file_decision(session, operation, payload.action, payload.member_path, payload.target_path)
+    return ArchiveExtractionCoordinator(
+        operation=operation,
+        state_store=DurableArchiveExecutionStateStore(session),
+    ).apply_decision(payload.action, member_path=payload.member_path, target_path=payload.target_path)
 
 
 async def _validate_archive_extraction_rename(

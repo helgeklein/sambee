@@ -29,6 +29,11 @@ from app.services.archive.operations import (
     update_operation_checkpoint,
     update_operation_phase,
 )
+from app.services.archive.zip_reader import (
+    ArchiveInspectionDirectoryPage,
+    ArchiveInspectionManifest,
+    ArchiveInspectionManifestMember,
+)
 
 ArchiveExtractionRunner = Callable[
     ["ArchiveExtractionExecutionPlan", Callable[[ArchiveExtractionDestinationResult], Awaitable[None]], Callable[[], Awaitable[bool]]],
@@ -93,7 +98,55 @@ class ArchiveExecutionStateStore(Protocol):
 
     def heartbeat(self, operation: ArchiveOperation) -> None: ...
 
+    def apply_extraction_decision(
+        self,
+        operation: ArchiveOperation,
+        action: str,
+        member_path: str | None,
+        target_path: str | None,
+    ) -> ArchiveOperation: ...
+
     async def is_cancelled(self, operation: ArchiveOperation) -> bool: ...
+
+
+class ArchiveInspectionSource(Protocol):
+    """Provide a normalized manifest for one request-scoped archive inspection."""
+
+    async def inspection_manifest(self) -> ArchiveInspectionManifest: ...
+
+
+@dataclass(frozen=True)
+class ArchiveInspectionPlan:
+    """Immutable, non-durable source binding for one archive inspection request."""
+
+    source: ArchiveInspectionSource
+
+
+@dataclass(frozen=True)
+class ArchiveInspectionCoordinator:
+    """Resolve a request-scoped inspection plan without owning transport or HTTP projection."""
+
+    plan: ArchiveInspectionPlan
+
+    async def manifest(self) -> ArchiveInspectionManifest:
+        """Load the normalized inspection manifest through the bound source adapter."""
+
+        return await self.plan.source.inspection_manifest()
+
+    async def list_directory(
+        self,
+        path: str,
+        cursor: str | None,
+        page_size: int,
+    ) -> ArchiveInspectionDirectoryPage:
+        """List one bounded archive directory page from the normalized manifest."""
+
+        return (await self.manifest()).list_directory(path, cursor, page_size)
+
+    async def member(self, path: str) -> ArchiveInspectionManifestMember:
+        """Resolve one read-eligible archive member from the normalized manifest."""
+
+        return (await self.manifest()).member(path)
 
 
 @dataclass(frozen=True)
@@ -134,11 +187,121 @@ class DurableArchiveExecutionStateStore:
     def heartbeat(self, operation: ArchiveOperation) -> None:
         heartbeat_operation(self.session, operation)
 
+    def apply_extraction_decision(
+        self,
+        operation: ArchiveOperation,
+        action: str,
+        member_path: str | None,
+        target_path: str | None,
+    ) -> ArchiveOperation:
+        """Apply a durable decision through the existing atomic audited mutation."""
+
+        from app.services.archive.operations import apply_existing_file_decision
+
+        return apply_existing_file_decision(self.session, operation, action, member_path, target_path)
+
     async def is_cancelled(self, operation: ArchiveOperation) -> bool:
         if self.cancellation_requested(operation):
             return True
         self.heartbeat(operation)
         return False
+
+
+@dataclass
+class InMemoryArchiveExecutionStateStore:
+    """Keep direct-local lifecycle state request-scoped without durable writes."""
+
+    transitions: list[tuple[ArchiveOperationPhase, ArchiveOperationPhase]] = field(default_factory=list)
+
+    def transition(
+        self,
+        operation: ArchiveOperation,
+        *,
+        expected_phase: ArchiveOperationPhase,
+        next_phase: ArchiveOperationPhase,
+        additional_changes: dict[str, object] | None = None,
+    ) -> ArchiveOperation:
+        if operation.phase != expected_phase:
+            raise HTTPException(
+                status_code=status.HTTP_409_CONFLICT, detail="Archive operation phase does not match the requested transition"
+            )
+        self.transitions.append((expected_phase, next_phase))
+        operation.phase = next_phase
+        if additional_changes is not None:
+            for name, value in additional_changes.items():
+                setattr(operation, name, value)
+        return operation
+
+    def update_checkpoint(self, operation: ArchiveOperation, checkpoint_json: str) -> ArchiveOperation:
+        operation.checkpoint_json = checkpoint_json
+        return operation
+
+    def await_decision(self, operation: ArchiveOperation, decision: dict[str, object]) -> ArchiveOperation:
+        operation.phase = ArchiveOperationPhase.AWAITING_USER_DECISION
+        operation.pending_decision_json = json.dumps(decision)
+        return operation
+
+    def fail(self, operation: ArchiveOperation, message: str) -> ArchiveOperation:
+        operation.phase = ArchiveOperationPhase.FAILED
+        operation.last_error_json = json.dumps({"message": message})
+        return operation
+
+    def cancellation_requested(self, operation: ArchiveOperation) -> bool:
+        return operation.cancellation_requested
+
+    def heartbeat(self, operation: ArchiveOperation) -> None:
+        return None
+
+    def apply_extraction_decision(
+        self,
+        operation: ArchiveOperation,
+        action: str,
+        member_path: str | None,
+        target_path: str | None,
+    ) -> ArchiveOperation:
+        """Apply an in-memory decision for direct-local and test execution only."""
+
+        if operation.phase != ArchiveOperationPhase.AWAITING_USER_DECISION:
+            raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="Archive operation is not awaiting a decision")
+        checkpoint = load_archive_checkpoint(operation)
+        if action in {"skip", "replace"}:
+            if not isinstance(member_path, str):
+                raise HTTPException(
+                    status_code=status.HTTP_422_UNPROCESSABLE_CONTENT, detail="Archive member decision requires a pending member"
+                )
+            member_collision_actions = checkpoint.setdefault("member_collision_actions", {})
+            if not isinstance(member_collision_actions, dict):
+                raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="Archive operation checkpoint is invalid")
+            member_collision_actions[member_path] = action
+        elif action == "rename":
+            if not isinstance(member_path, str) or not isinstance(target_path, str):
+                raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_CONTENT, detail="Archive rename target path is invalid")
+            member_rename_targets = checkpoint.setdefault("member_rename_targets", {})
+            if not isinstance(member_rename_targets, dict):
+                raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="Archive operation checkpoint is invalid")
+            member_rename_targets[member_path] = target_path
+        elif action == "retry":
+            if not isinstance(member_path, str):
+                raise HTTPException(
+                    status_code=status.HTTP_422_UNPROCESSABLE_CONTENT, detail="Archive member error decision is not allowed"
+                )
+            checkpoint["retry_members"] = [member_path]
+        elif action == "ignore":
+            if not isinstance(member_path, str):
+                raise HTTPException(
+                    status_code=status.HTTP_422_UNPROCESSABLE_CONTENT, detail="Archive member error decision is not allowed"
+                )
+            checkpoint["ignored_members"] = [member_path]
+        elif action not in {"skip_all", "replace_all", "replace_older"}:
+            raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_CONTENT, detail="Archive operation decision is not allowed")
+        operation.checkpoint_json = json.dumps(checkpoint)
+        operation.collision_policy = action if action in {"skip_all", "replace_all", "replace_older"} else operation.collision_policy
+        operation.pending_decision_json = None
+        operation.phase = ArchiveOperationPhase.STREAMING
+        return operation
+
+    async def is_cancelled(self, operation: ArchiveOperation) -> bool:
+        return operation.cancellation_requested
 
 
 def load_archive_checkpoint(operation: ArchiveOperation) -> dict[str, object]:
@@ -818,6 +981,13 @@ class ArchiveCreationManifest:
         }
 
 
+@dataclass(frozen=True)
+class ArchiveCreationExecutionPlan:
+    """Immutable creation manifest consumed by every creation coordinator."""
+
+    manifest: ArchiveCreationManifest
+
+
 def _normalize_creation_manifest_path(archive_path: str) -> str:
     normalized = archive_path.replace("\\", "/").rstrip("/")
     parts = normalized.split("/")
@@ -1485,6 +1655,17 @@ class ArchiveExtractionCoordinator:
     def _start_streaming(self) -> ArchiveOperation:
         return start_archive_execution(self.state_store, self.operation, allow_streaming=True)
 
+    def apply_decision(
+        self,
+        action: str,
+        *,
+        member_path: str | None = None,
+        target_path: str | None = None,
+    ) -> ArchiveOperation:
+        """Apply one validated pause decision through the coordinator's state store."""
+
+        return self.state_store.apply_extraction_decision(self.operation, action, member_path, target_path)
+
 
 @dataclass(frozen=True)
 class ArchiveCreationCoordinator:
@@ -1493,10 +1674,10 @@ class ArchiveCreationCoordinator:
     operation: ArchiveOperation
     state_store: ArchiveExecutionStateStore
 
-    async def run(self, runner: ArchiveCreationRunner, *, manifest: ArchiveCreationManifest) -> ArchiveOperation:
+    async def run(self, runner: ArchiveCreationRunner, *, execution_plan: ArchiveCreationExecutionPlan) -> ArchiveOperation:
         """Advance a creation adapter through its shared lifecycle."""
 
-        operation = self._start_streaming(manifest)
+        operation = self._start_streaming(execution_plan)
         try:
 
             async def record_member_completed(outcome: ArchiveCreationMemberOutcome) -> None:
@@ -1517,10 +1698,10 @@ class ArchiveCreationCoordinator:
             self.state_store.fail(operation, str(exc))
             raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail="Archive creation failed") from exc
 
-    def _start_streaming(self, manifest: ArchiveCreationManifest) -> ArchiveOperation:
+    def _start_streaming(self, execution_plan: ArchiveCreationExecutionPlan) -> ArchiveOperation:
         return start_archive_execution(
             self.state_store,
             self.operation,
-            checkpoint_json=json.dumps(manifest.empty_checkpoint()),
+            checkpoint_json=json.dumps(execution_plan.manifest.empty_checkpoint()),
             allow_streaming=False,
         )

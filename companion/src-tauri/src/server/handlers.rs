@@ -30,10 +30,10 @@ use crate::{commands, show_pairing_success, show_pairing_window};
 
 use super::archive::{
     build_local_archive_manifest, build_local_archive_manifest_for_remote_target, create_local_archive, create_local_archive_relay_writer,
-    create_local_extraction_root, ensure_local_extraction_directory, inspect_local_archive, open_local_extraction_file,
-    project_local_archive_creation_manifest, reopen_partial_local_extraction_file, stream_local_archive_member,
-    validate_local_archive_extraction, validate_local_extraction_member_path, ArchiveCreationManifest, ArchiveCreationManifestState,
-    ArchiveExtractionManifest, ArchiveExtractionManifestMember, ArchiveExtractionRelayExecutionPlan, ArchiveExtractionRelayState,
+    create_local_extraction_root, ensure_local_extraction_directory, open_local_extraction_file, project_local_archive_creation_manifest,
+    reopen_partial_local_extraction_file, stream_local_archive_member, validate_local_archive_extraction,
+    validate_local_extraction_member_path, ArchiveCreationManifest, ArchiveCreationManifestState, ArchiveExtractionManifest,
+    ArchiveExtractionManifestMember, ArchiveExtractionRelayExecutionPlan, ArchiveExtractionRelayState, ArchiveInspectionCoordinator,
     LocalArchiveCreationResult, LocalArchiveEntry, LocalArchiveError, LocalArchiveReadEntry, LocalArchiveRelayChunk,
     ARCHIVE_COPY_BUFFER_SIZE,
 };
@@ -464,7 +464,11 @@ pub async fn browse_list_archive(
     let requested_virtual_path = virtual_path.clone();
     let cursor = query.cursor;
     let page = tokio::task::spawn_blocking(move || {
-        inspect_local_archive(&archive_path)?.list_directory(&requested_virtual_path, cursor.as_deref(), page_size)
+        ArchiveInspectionCoordinator::from_archive_path(&archive_path)?.list_directory(
+            &requested_virtual_path,
+            cursor.as_deref(),
+            page_size,
+        )
     })
     .await
     .map_err(|error| ApiError::Internal(format!("Local archive listing task failed: {error}")))?
@@ -748,7 +752,8 @@ pub async fn viewer_archive_member(Path(drive): Path<String>, Query(query): Quer
     let inspection_path = archive_path.clone();
     let inspection_member_path = member_path.clone();
     let member = tokio::task::spawn_blocking(move || {
-        inspect_local_archive(&inspection_path).and_then(|manifest| manifest.member(&inspection_member_path).cloned())
+        ArchiveInspectionCoordinator::from_archive_path(&inspection_path)
+            .and_then(|coordinator| coordinator.member(&inspection_member_path).cloned())
     })
     .await
     .map_err(|error| ApiError::Internal(format!("Local archive validation task failed: {error}")))?
