@@ -181,6 +181,7 @@
     "/^cargo\\s+(?:test|check|clippy|fmt|metadata|tree|doc)\\b/": true,
     // Known repository validation scripts
     "/^(?:\\.\\/)?scripts\\/(?:lint|test|format)(?:\\s|$)/": true,
+    "/^(?:\\.\\/)?scripts\\/(?:test-archive-topology-conformance)(?:\\s|$)/": true,
     "/^python3\\s+scripts\\/(?:generate-managed-redirects|update-docs-derived-artifacts)\\.py(?:\\s|$)/": true,
     "/^python3\\s+(?:website\\/)?scripts\\/(?:docs-report|docs-editor|validate-docs-content)\\.py(?:\\s|$)/": true,
     // Always require approval for destructive or privileged tools

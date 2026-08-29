@@ -61,9 +61,11 @@ TOPOLOGY_CASES = (
     TopologyCase("smb_to_local", "connection-1", "local-drive:c", ArchiveExecutionDriver.COMPANION),
     TopologyCase("local_to_smb", "local-drive:c", "connection-1", ArchiveExecutionDriver.COMPANION),
 )
+BACKEND_TOPOLOGY_CASES = tuple(case for case in TOPOLOGY_CASES if case.driver == ArchiveExecutionDriver.BACKEND)
 WORKSPACE_ROOT = Path(__file__).resolve().parents[2]
 EXTRACTION_TRAJECTORY_CORPUS_PATH = WORKSPACE_ROOT / "archive-contract" / "v1" / "extraction-trajectory-scenarios-v1.json"
 CREATION_TRAJECTORY_CORPUS_PATH = WORKSPACE_ROOT / "archive-contract" / "v1" / "creation-trajectory-scenarios-v1.json"
+TOPOLOGY_TRACE_FIXTURE_PATH = WORKSPACE_ROOT / "archive-contract" / "v1" / "topology-execution-traces-v1.json"
 
 
 def _load_trajectory_scenarios(path: Path) -> tuple[dict[str, Any], ...]:
@@ -75,6 +77,53 @@ def _load_trajectory_scenarios(path: Path) -> tuple[dict[str, Any], ...]:
 
 EXTRACTION_TRAJECTORIES = _load_trajectory_scenarios(EXTRACTION_TRAJECTORY_CORPUS_PATH)
 CREATION_TRAJECTORIES = _load_trajectory_scenarios(CREATION_TRAJECTORY_CORPUS_PATH)
+
+
+def _expected_trace(case_name: str) -> dict[str, Any]:
+    fixture: dict[str, Any] = json.loads(TOPOLOGY_TRACE_FIXTURE_PATH.read_text(encoding="utf-8"))
+    for case in fixture["cases"]:
+        if case["name"] == case_name:
+            return case["expected_trace"]
+    raise AssertionError(f"Topology trace fixture does not define {case_name}")
+
+
+def test_topology_trace_fixture_matches_resolved_execution_owners() -> None:
+    fixture: dict[str, Any] = json.loads(TOPOLOGY_TRACE_FIXTURE_PATH.read_text(encoding="utf-8"))
+
+    assert fixture["version"] == 1
+    assert set(fixture["adapter_faults"]) == {
+        "malformed_input",
+        "collision",
+        "partial_write",
+        "cancellation",
+        "source_changed",
+        "transport_failure",
+    }
+    assert set(fixture["trace_fields"]) == {
+        "owner",
+        "manifest_snapshot",
+        "phase_transitions",
+        "pending_decision",
+        "member_outcomes",
+        "terminal_summary",
+        "error_category",
+    }
+    assert {case["name"] for case in fixture["topologies"]} == {case.name for case in TOPOLOGY_CASES}
+    success_cases = {(case["operation"], case["topology"]) for case in fixture["cases"] if case["fault"] is None}
+    assert success_cases == {(operation, case.name) for operation in fixture["operations"] for case in TOPOLOGY_CASES}
+    assert {case["fault"] for case in fixture["cases"] if case["fault"] is not None} == set(fixture["adapter_faults"])
+    topology_owners = {case["name"]: case["owner"] for case in fixture["topologies"]}
+    for trace_case in fixture["cases"]:
+        trace = trace_case["expected_trace"]
+        assert set(trace) == set(fixture["trace_fields"])
+        assert trace["owner"] == topology_owners[trace_case["topology"]]
+    for case in fixture["topologies"]:
+        resolved = resolve_archive_operation_topology_plan(
+            kind=ArchiveOperationKind.EXTRACT,
+            source_connection_id=case["source_connection_id"],
+            destination_connection_id=case["destination_connection_id"],
+        )
+        assert resolved.topology.driver.value == case["owner"]
 
 
 @pytest.mark.parametrize("case", TOPOLOGY_CASES, ids=lambda case: case.name)
@@ -130,7 +179,7 @@ def _extraction_operation(case: TopologyCase) -> ArchiveOperation:
     )
 
 
-@pytest.mark.parametrize("case", TOPOLOGY_CASES, ids=lambda case: case.name)
+@pytest.mark.parametrize("case", BACKEND_TOPOLOGY_CASES, ids=lambda case: case.name)
 def test_cross_topology_extraction_harness_runs_resolved_coordinator(case: TopologyCase) -> None:
     plan = resolve_archive_operation_topology_plan(
         kind=ArchiveOperationKind.EXTRACT,
@@ -144,10 +193,14 @@ def test_cross_topology_extraction_harness_runs_resolved_coordinator(case: Topol
         ArchiveExtractionCoordinator(operation, InMemoryArchiveExecutionStateStore()).run(FaultInjectingExtractionAdapter().run)
     )
 
-    assert completed.phase == ArchiveOperationPhase.COMPLETED
+    expected = _expected_trace(f"extract_{case.name}_success")
+    assert completed.phase.value == expected["phase_transitions"][-1]
+    checkpoint: dict[str, Any] = json.loads(completed.checkpoint_json)
+    assert sorted(checkpoint["member_outcomes"]) == expected["member_outcomes"]
+    assert {key: checkpoint.get(key, 0) for key in expected["terminal_summary"]} == expected["terminal_summary"]
 
 
-@pytest.mark.parametrize("case", TOPOLOGY_CASES, ids=lambda case: case.name)
+@pytest.mark.parametrize("case", BACKEND_TOPOLOGY_CASES, ids=lambda case: case.name)
 def test_cross_topology_creation_harness_runs_resolved_coordinator(case: TopologyCase) -> None:
     plan = resolve_archive_operation_topology_plan(
         kind=ArchiveOperationKind.CREATE,
@@ -172,10 +225,14 @@ def test_cross_topology_creation_harness_runs_resolved_coordinator(case: Topolog
         )
     )
 
-    assert completed.phase == ArchiveOperationPhase.COMPLETED
+    expected = _expected_trace(f"create_{case.name}_success")
+    assert completed.phase.value == expected["phase_transitions"][-1]
+    checkpoint: dict[str, Any] = json.loads(completed.checkpoint_json)
+    assert sorted(checkpoint["creation_member_outcomes"]) == expected["member_outcomes"]
+    assert {key: checkpoint.get(key, 0) for key in expected["terminal_summary"]} == expected["terminal_summary"]
 
 
-@pytest.mark.parametrize("case", TOPOLOGY_CASES, ids=lambda case: case.name)
+@pytest.mark.parametrize("case", BACKEND_TOPOLOGY_CASES, ids=lambda case: case.name)
 @pytest.mark.parametrize("scenario", EXTRACTION_TRAJECTORIES, ids=lambda scenario: scenario["name"])
 def test_cross_topology_extraction_harness_replays_shared_trajectory(
     case: TopologyCase,
@@ -255,7 +312,7 @@ def test_cross_topology_extraction_harness_replays_shared_trajectory(
         assert checkpoint.get(key, 0) == value
 
 
-@pytest.mark.parametrize("case", TOPOLOGY_CASES, ids=lambda case: case.name)
+@pytest.mark.parametrize("case", BACKEND_TOPOLOGY_CASES, ids=lambda case: case.name)
 @pytest.mark.parametrize("scenario", CREATION_TRAJECTORIES, ids=lambda scenario: scenario["name"])
 def test_cross_topology_creation_harness_replays_shared_trajectory(
     case: TopologyCase,
@@ -293,7 +350,7 @@ def test_cross_topology_creation_harness_replays_shared_trajectory(
     assert completed.phase.value == scenario["terminal_phase"]
 
 
-@pytest.mark.parametrize("case", TOPOLOGY_CASES, ids=lambda case: case.name)
+@pytest.mark.parametrize("case", BACKEND_TOPOLOGY_CASES, ids=lambda case: case.name)
 @pytest.mark.parametrize("fault", list(AdapterFault))
 def test_fault_injecting_extraction_adapter_leaves_lifecycle_to_coordinator(
     case: TopologyCase,

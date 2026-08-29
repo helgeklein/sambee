@@ -675,6 +675,19 @@ mod tests {
     };
     use crate::server::archive::{build_local_archive_manifest, create_local_archive};
 
+    fn expected_trace(case_name: &str) -> serde_json::Value {
+        let fixture: serde_json::Value =
+            serde_json::from_str(include_str!("../../../../archive-contract/v1/topology-execution-traces-v1.json"))
+                .expect("topology trace fixture should be valid JSON");
+        fixture["cases"]
+            .as_array()
+            .expect("topology trace fixture should define cases")
+            .iter()
+            .find(|case| case["name"] == case_name)
+            .unwrap_or_else(|| panic!("topology trace fixture should define {case_name}"))["expected_trace"]
+            .clone()
+    }
+
     #[tokio::test]
     async fn cancellation_requires_current_revision_and_reaches_terminal_state() {
         let manager = Arc::new(ArchiveSessionManager::new());
@@ -802,6 +815,56 @@ mod tests {
             }
         );
         assert!(target.is_file());
+        let expected = expected_trace("create_local_to_local_success");
+        assert_eq!(expected["terminal_summary"]["files_created"], 1);
+        assert_eq!(expected["terminal_summary"]["source_bytes"], 6);
+    }
+
+    #[tokio::test]
+    async fn direct_local_extraction_coordinator_matches_shared_success_trace() {
+        let directory = tempdir().unwrap();
+        let source = directory.path().join("source.txt");
+        let archive_path = directory.path().join("archive.zip");
+        let destination = directory.path().join("output");
+        fs::write(&source, b"source").unwrap();
+        let entries = build_local_archive_manifest(&[source], &archive_path).unwrap();
+        create_local_archive(directory.path(), &archive_path, &entries, || false).unwrap();
+        let manager = Arc::new(ArchiveSessionManager::new());
+        let session = manager
+            .create_extraction(
+                "c".to_string(),
+                "https://sambee.example".to_string(),
+                directory.path().to_path_buf(),
+                archive_path,
+                destination.clone(),
+            )
+            .await;
+
+        LocalArchiveOperationCoordinator::new(manager.clone())
+            .start(&session.execution_id)
+            .await
+            .unwrap();
+        let completed = tokio::time::timeout(Duration::from_secs(1), async {
+            loop {
+                let status = manager.get("c", "https://sambee.example", &session.execution_id).await.unwrap();
+                if status.phase.is_terminal() {
+                    return status;
+                }
+                tokio::task::yield_now().await;
+            }
+        })
+        .await
+        .expect("direct local archive extraction should terminate");
+
+        let expected = expected_trace("extract_local_to_local_success");
+        assert_eq!(completed.phase.as_str(), expected["phase_transitions"][2]);
+        assert!(matches!(
+            completed.result,
+            Some(ArchiveSessionProgress::Extraction(progress))
+                if progress.files_extracted == expected["terminal_summary"]["files_extracted"]
+                    && progress.extracted_bytes == expected["terminal_summary"]["extracted_bytes"]
+        ));
+        assert_eq!(fs::read(destination.join("source.txt")).unwrap(), b"source");
     }
 
     #[tokio::test]
@@ -843,6 +906,7 @@ mod tests {
 
         assert_eq!(status.phase, ArchiveSessionPhase::Cancelled);
         assert!(!target.exists());
+        assert_eq!(expected_trace("create_cancellation")["error_category"], "cancelled");
     }
 
     #[tokio::test]
@@ -943,6 +1007,8 @@ mod tests {
             completed.result,
             Some(ArchiveSessionProgress::Extraction(progress)) if progress.files_skipped == 1
         ));
+        let expected = expected_trace("extract_collision");
+        assert_eq!(expected["terminal_summary"]["files_skipped"], 1);
         assert_eq!(fs::read(destination.join("source.txt")).unwrap(), b"existing contents");
     }
 
@@ -1124,6 +1190,7 @@ mod tests {
         .expect("retried archive extraction should terminate");
         assert_eq!(completed.phase, ArchiveSessionPhase::Failed);
         assert_eq!(completed.error.as_deref(), Some("archive source changed since extraction began"));
+        assert_eq!(expected_trace("extract_source_changed")["error_category"], "source_changed");
     }
 
     #[tokio::test]

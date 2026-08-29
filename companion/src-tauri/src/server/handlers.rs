@@ -3593,13 +3593,15 @@ mod tests {
         execute_archive_relay, map_local_archive_error, normalize_drive_relative_path, normalize_windows_display_path,
         relay_completed_members, resolve_drive_relative_source_path, resolve_link_target_metadata, resolve_pair_cancel_origin,
         resolve_pair_confirm_origin, resolve_pair_status_origin, resolve_safe_path, source_link_kind, validate_editor_write_target,
-        ArchiveCreationMemberCompletion, ArchiveExtractionCollision, ArchiveExtractionMemberCompletion, ArchiveExtractionMemberError,
-        ArchiveExtractionSummary, ArchiveRelayBinding, ArchiveRelayDestinationStatus, ArchiveRelayFailure, ArchiveRelayOperation,
-        ArchiveRelayTransport,
+        ArchiveCreationAdapterBinding, ArchiveCreationCoordinator, ArchiveCreationMemberCompletion, ArchiveCreationRelay,
+        ArchiveExtractionAdapterBinding, ArchiveExtractionCollision, ArchiveExtractionCoordinator, ArchiveExtractionMemberCompletion,
+        ArchiveExtractionMemberError, ArchiveExtractionRelay, ArchiveExtractionSummary, ArchiveRelayBinding, ArchiveRelayDestinationStatus,
+        ArchiveRelayFailure, ArchiveRelayOperation, ArchiveRelayTransport,
     };
     use crate::server::archive::{
-        ArchiveCreationManifest, ArchiveCreationManifestMember, LocalArchiveCreationResult, LocalArchiveError,
-        LocalArchiveExtractionMemberError, LocalArchiveExtractionResult, LocalArchiveReadError,
+        build_local_archive_manifest, build_local_archive_manifest_for_remote_target, create_local_archive,
+        validate_local_archive_extraction, ArchiveCreationManifest, ArchiveCreationManifestMember, LocalArchiveCreationResult,
+        LocalArchiveError, LocalArchiveExtractionMemberError, LocalArchiveExtractionResult, LocalArchiveReadError,
     };
     use crate::server::archive_sessions::{
         ArchiveSessionKind, ArchiveSessionPendingDecision, ArchiveSessionPhase, ArchiveSessionProgress, ArchiveSessionStatus,
@@ -3645,6 +3647,64 @@ mod tests {
             .find(|payload| payload["name"] == name)
             .unwrap_or_else(|| panic!("relay control payload fixture should define {name}"))["example"]
             .clone()
+    }
+
+    fn expected_topology_trace(case_name: &str) -> serde_json::Value {
+        let fixture: serde_json::Value =
+            serde_json::from_str(include_str!("../../../../archive-contract/v1/topology-execution-traces-v1.json"))
+                .expect("topology trace fixture should be valid JSON");
+        fixture["cases"]
+            .as_array()
+            .expect("topology trace fixture should define cases")
+            .iter()
+            .find(|case| case["name"] == case_name)
+            .unwrap_or_else(|| panic!("topology trace fixture should define {case_name}"))["expected_trace"]
+            .clone()
+    }
+
+    #[test]
+    fn topology_trace_fixture_assigns_mixed_execution_to_companion_relay_coordinators() {
+        let fixture: serde_json::Value =
+            serde_json::from_str(include_str!("../../../../archive-contract/v1/topology-execution-traces-v1.json"))
+                .expect("topology trace fixture should be valid JSON");
+        assert_eq!(fixture["version"], 1);
+        assert_eq!(
+            fixture["adapter_faults"],
+            serde_json::json!([
+                "malformed_input",
+                "collision",
+                "partial_write",
+                "cancellation",
+                "source_changed",
+                "transport_failure"
+            ])
+        );
+        let companion_topologies = fixture["topologies"]
+            .as_array()
+            .expect("topology trace fixture should define topologies")
+            .iter()
+            .filter(|topology| topology["owner"] == "companion")
+            .map(|topology| topology["name"].as_str().expect("topology name should be a string"))
+            .collect::<std::collections::HashSet<_>>();
+        assert_eq!(
+            companion_topologies,
+            std::collections::HashSet::from(["local_to_local", "smb_to_local", "local_to_smb"])
+        );
+        for topology in fixture["topologies"]
+            .as_array()
+            .expect("topology trace fixture should define topologies")
+            .iter()
+            .filter(|topology| topology["name"] == "smb_to_local" || topology["name"] == "local_to_smb")
+        {
+            assert!(topology["exercises"]
+                .as_array()
+                .expect("mixed topology must declare execution seams")
+                .contains(&serde_json::json!("companion_relay_coordinator")));
+            assert!(topology["exercises"]
+                .as_array()
+                .expect("mixed topology must declare execution seams")
+                .contains(&serde_json::json!("relay_transport")));
+        }
     }
 
     #[test]
@@ -3734,6 +3794,283 @@ mod tests {
         assert!(
             matches!(failure_error, ApiError::Conflict(message) if message.as_str().is_some_and(|value| value.contains("record failure")))
         );
+        assert_eq!(
+            expected_topology_trace("extract_malformed_input")["error_category"],
+            "invalid_input"
+        );
+        assert_eq!(
+            expected_topology_trace("extract_transport_failure")["error_category"],
+            "transport_failure"
+        );
+    }
+
+    async fn spawn_remote_creation_source_server() -> String {
+        let app = axum::Router::new()
+            .route(
+                "/begin",
+                axum::routing::post(|| async {
+                    axum::Json(serde_json::json!({
+                        "entries": [{
+                            "archive_path": "source.txt",
+                            "is_directory": false,
+                            "source_size": 6,
+                            "source_modified_at": null
+                        }]
+                    }))
+                }),
+            )
+            .route("/member", axum::routing::get(|| async { (StatusCode::OK, "source") }))
+            .route("/member-complete", axum::routing::post(|| async { StatusCode::NO_CONTENT }))
+            .route("/complete", axum::routing::post(|| async { StatusCode::NO_CONTENT }))
+            .route("/fail", axum::routing::post(|| async { StatusCode::NO_CONTENT }));
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0")
+            .await
+            .expect("relay source test server should bind");
+        let address = listener.local_addr().expect("relay source test server should have an address");
+        tokio::spawn(async move {
+            axum::serve(listener, app)
+                .await
+                .expect("relay source test server should remain available");
+        });
+        format!("http://{address}")
+    }
+
+    async fn spawn_remote_creation_destination_server() -> String {
+        let app = axum::Router::new()
+            .route("/begin", axum::routing::post(|| async { StatusCode::NO_CONTENT }))
+            .route(
+                "/member",
+                axum::routing::put(|_: axum::body::Bytes| async { StatusCode::NO_CONTENT }),
+            )
+            .route("/complete", axum::routing::post(|| async { StatusCode::NO_CONTENT }))
+            .route("/fail", axum::routing::post(|| async { StatusCode::NO_CONTENT }));
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0")
+            .await
+            .expect("relay destination test server should bind");
+        let address = listener.local_addr().expect("relay destination test server should have an address");
+        tokio::spawn(async move {
+            axum::serve(listener, app)
+                .await
+                .expect("relay destination test server should remain available");
+        });
+        format!("http://{address}")
+    }
+
+    #[tokio::test]
+    async fn actual_relay_creation_coordinator_executes_both_mixed_topologies() {
+        let directory = tempfile::tempdir().expect("temporary archive directory should be created");
+        let remote_target = directory.path().join("from-smb.zip");
+        let remote_manifest = ArchiveCreationManifest::from_entries(vec![ArchiveCreationManifestMember {
+            archive_path: "source.txt".to_string(),
+            is_directory: false,
+            source_size: 6,
+            source_modified_at: None,
+        }])
+        .expect("test manifest should be valid");
+        let remote_result = ArchiveCreationCoordinator {
+            relay: ArchiveCreationRelay::from_transport(ArchiveRelayTransport::new(
+                reqwest::Client::new(),
+                spawn_remote_creation_source_server().await,
+                "test-token".to_string(),
+            )),
+            binding: ArchiveCreationAdapterBinding::RemoteSourceToLocalDestination {
+                manifest: remote_manifest,
+                drive_root: directory.path().to_path_buf(),
+                target_path: remote_target.clone(),
+            },
+        }
+        .execute()
+        .await
+        .expect("SMB-to-local creation coordinator should complete");
+        let remote_expected = expected_topology_trace("create_smb_to_local_success");
+        assert_eq!(remote_result.files_created, remote_expected["terminal_summary"]["files_created"]);
+        assert_eq!(remote_result.source_bytes, remote_expected["terminal_summary"]["source_bytes"]);
+        assert!(remote_target.is_file());
+
+        let local_source = directory.path().join("local-source.txt");
+        std::fs::write(&local_source, b"local source").expect("local source should be written");
+        let local_entries =
+            build_local_archive_manifest_for_remote_target(&[local_source]).expect("local source should produce a valid creation manifest");
+        let local_result = ArchiveCreationCoordinator {
+            relay: ArchiveCreationRelay::from_transport(ArchiveRelayTransport::new(
+                reqwest::Client::new(),
+                spawn_remote_creation_destination_server().await,
+                "test-token".to_string(),
+            )),
+            binding: ArchiveCreationAdapterBinding::LocalSourceToRemoteDestination { entries: local_entries },
+        }
+        .execute()
+        .await
+        .expect("local-to-SMB creation coordinator should complete");
+        let local_expected = expected_topology_trace("create_local_to_smb_success");
+        assert_eq!(local_result.files_created, local_expected["terminal_summary"]["files_created"]);
+        assert_eq!(local_result.source_bytes, local_expected["terminal_summary"]["source_bytes"]);
+    }
+
+    fn streaming_relay_operation(checkpoint_json: serde_json::Value) -> serde_json::Value {
+        serde_json::json!({
+            "phase": "streaming",
+            "destination_path": "output",
+            "checkpoint_json": checkpoint_json.to_string(),
+            "pending_decision_json": null
+        })
+    }
+
+    async fn spawn_remote_extraction_source_server() -> String {
+        let completed = streaming_relay_operation(serde_json::json!({
+            "extraction_outcome_checkpoint_version": 1,
+            "member_outcomes": {
+                "entry.txt": {
+                    "status": "extracted",
+                    "target_path": "output/entry.txt",
+                    "extracted_bytes": 5,
+                    "directories_created": 0,
+                    "replaced": false,
+                    "renamed": false
+                }
+            }
+        }));
+        let app = axum::Router::new()
+            .route(
+                "/begin",
+                axum::routing::post(|| async {
+                    axum::Json(serde_json::json!({
+                        "operation": streaming_relay_operation(serde_json::json!({
+                            "extraction_outcome_checkpoint_version": 1,
+                            "member_outcomes": {}
+                        })),
+                        "entries": [{
+                            "path": "entry.txt",
+                            "is_directory": false,
+                            "uncompressed_size": 5,
+                            "modified_at": null
+                        }]
+                    }))
+                }),
+            )
+            .route("/member", axum::routing::get(|| async { (StatusCode::OK, "entry") }))
+            .route(
+                "/member-complete",
+                axum::routing::post(|| async {
+                    axum::Json(streaming_relay_operation(serde_json::json!({
+                        "extraction_outcome_checkpoint_version": 1,
+                        "member_outcomes": {}
+                    })))
+                }),
+            )
+            .route(
+                "/complete",
+                axum::routing::post(move || {
+                    let completed = completed.clone();
+                    async move { axum::Json(completed) }
+                }),
+            )
+            .route("/fail", axum::routing::post(|| async { StatusCode::NO_CONTENT }));
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0")
+            .await
+            .expect("remote extraction source test server should bind");
+        let address = listener
+            .local_addr()
+            .expect("remote extraction source test server should have an address");
+        tokio::spawn(async move {
+            axum::serve(listener, app)
+                .await
+                .expect("remote extraction source test server should remain available");
+        });
+        format!("http://{address}")
+    }
+
+    async fn spawn_remote_extraction_destination_server() -> String {
+        let app = axum::Router::new()
+            .route(
+                "/begin",
+                axum::routing::post(|| async {
+                    axum::Json(streaming_relay_operation(serde_json::json!({
+                        "extraction_outcome_checkpoint_version": 1,
+                        "member_outcomes": {}
+                    })))
+                }),
+            )
+            .route(
+                "/member",
+                axum::routing::put(|| async {
+                    axum::Json(streaming_relay_operation(serde_json::json!({
+                        "extraction_outcome_checkpoint_version": 1,
+                        "member_outcomes": {}
+                    })))
+                }),
+            )
+            .route("/complete", axum::routing::post(|| async { StatusCode::NO_CONTENT }))
+            .route("/fail", axum::routing::post(|| async { StatusCode::NO_CONTENT }));
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0")
+            .await
+            .expect("remote extraction destination test server should bind");
+        let address = listener
+            .local_addr()
+            .expect("remote extraction destination test server should have an address");
+        tokio::spawn(async move {
+            axum::serve(listener, app)
+                .await
+                .expect("remote extraction destination test server should remain available");
+        });
+        format!("http://{address}")
+    }
+
+    #[tokio::test]
+    async fn actual_relay_extraction_coordinator_executes_both_mixed_topologies() {
+        let directory = tempfile::tempdir().expect("temporary archive directory should be created");
+        let local_destination = directory.path().join("from-smb");
+        let remote_result = ArchiveExtractionCoordinator {
+            relay: ArchiveExtractionRelay::from_transport(ArchiveRelayTransport::new(
+                reqwest::Client::new(),
+                spawn_remote_extraction_source_server().await,
+                "test-token".to_string(),
+            )),
+            binding: ArchiveExtractionAdapterBinding::RemoteSourceToLocalDestination {
+                drive_root: directory.path().to_path_buf(),
+                destination_path: local_destination.clone(),
+            },
+        }
+        .execute()
+        .await
+        .expect("SMB-to-local extraction coordinator should complete");
+        let remote_expected = expected_topology_trace("extract_smb_to_local_success");
+        assert_eq!(
+            remote_result.files_extracted,
+            remote_expected["terminal_summary"]["files_extracted"]
+        );
+        assert_eq!(
+            remote_result.extracted_bytes,
+            remote_expected["terminal_summary"]["extracted_bytes"]
+        );
+        assert_eq!(
+            std::fs::read(local_destination.join("entry.txt")).expect("relayed member should be written"),
+            b"entry"
+        );
+
+        let local_source = directory.path().join("local.zip");
+        let local_member = directory.path().join("source.txt");
+        std::fs::write(&local_member, b"entry").expect("local source should be written");
+        let entries = build_local_archive_manifest(&[local_member], &local_source).expect("local archive manifest should be valid");
+        create_local_archive(directory.path(), &local_source, &entries, || false).expect("local archive should be created");
+        let archive_entries = validate_local_archive_extraction(&local_source).expect("local archive entries should be valid");
+        let local_result = ArchiveExtractionCoordinator {
+            relay: ArchiveExtractionRelay::from_transport(ArchiveRelayTransport::new(
+                reqwest::Client::new(),
+                spawn_remote_extraction_destination_server().await,
+                "test-token".to_string(),
+            )),
+            binding: ArchiveExtractionAdapterBinding::LocalArchiveToRemoteDestination {
+                archive_path: local_source,
+                archive_entries,
+            },
+        }
+        .execute()
+        .await
+        .expect("local-to-SMB extraction coordinator should complete");
+        let local_expected = expected_topology_trace("extract_local_to_smb_success");
+        assert_eq!(local_result.files_extracted, local_expected["terminal_summary"]["files_extracted"]);
+        assert_eq!(local_result.extracted_bytes, local_expected["terminal_summary"]["extracted_bytes"]);
     }
 
     #[tokio::test]

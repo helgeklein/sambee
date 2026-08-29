@@ -1,0 +1,407 @@
+{
+  "version": 1,
+  "operations": [
+    "create",
+    "extract"
+  ],
+  "topologies": [
+    {
+      "name": "smb_to_smb",
+      "source_connection_id": "connection-1",
+      "destination_connection_id": "connection-1",
+      "owner": "backend",
+      "exercises": [
+        "backend_coordinator"
+      ]
+    },
+    {
+      "name": "local_to_local",
+      "source_connection_id": "local-drive:c",
+      "destination_connection_id": "local-drive:c",
+      "owner": "companion",
+      "exercises": [
+        "local_operation_coordinator"
+      ]
+    },
+    {
+      "name": "smb_to_local",
+      "source_connection_id": "connection-1",
+      "destination_connection_id": "local-drive:c",
+      "owner": "companion",
+      "exercises": [
+        "companion_relay_coordinator",
+        "relay_transport"
+      ]
+    },
+    {
+      "name": "local_to_smb",
+      "source_connection_id": "local-drive:c",
+      "destination_connection_id": "connection-1",
+      "owner": "companion",
+      "exercises": [
+        "companion_relay_coordinator",
+        "relay_transport"
+      ]
+    }
+  ],
+  "adapter_faults": [
+    "malformed_input",
+    "collision",
+    "partial_write",
+    "cancellation",
+    "source_changed",
+    "transport_failure"
+  ],
+  "trace_fields": [
+    "owner",
+    "manifest_snapshot",
+    "phase_transitions",
+    "pending_decision",
+    "member_outcomes",
+    "terminal_summary",
+    "error_category"
+  ],
+  "cases": [
+    {
+      "name": "create_smb_to_smb_success",
+      "operation": "create",
+      "topology": "smb_to_smb",
+      "fault": null,
+      "expected_trace": {
+        "owner": "backend",
+        "manifest_snapshot": [
+          "entry.txt"
+        ],
+        "phase_transitions": [
+          "prepared",
+          "streaming",
+          "completed"
+        ],
+        "pending_decision": null,
+        "member_outcomes": [
+          "entry.txt"
+        ],
+        "terminal_summary": {
+          "files_created": 1,
+          "directories_created": 0,
+          "source_bytes": 5
+        },
+        "error_category": null
+      }
+    },
+    {
+      "name": "extract_smb_to_smb_success",
+      "operation": "extract",
+      "topology": "smb_to_smb",
+      "fault": null,
+      "expected_trace": {
+        "owner": "backend",
+        "manifest_snapshot": [
+          "entry.txt"
+        ],
+        "phase_transitions": [
+          "prepared",
+          "streaming",
+          "completed"
+        ],
+        "pending_decision": null,
+        "member_outcomes": [
+          "entry.txt"
+        ],
+        "terminal_summary": {
+          "files_extracted": 1,
+          "files_skipped": 0,
+          "extracted_bytes": 5
+        },
+        "error_category": null
+      }
+    },
+    {
+      "name": "create_local_to_local_success",
+      "operation": "create",
+      "topology": "local_to_local",
+      "fault": null,
+      "expected_trace": {
+        "owner": "companion",
+        "manifest_snapshot": [
+          "source.txt"
+        ],
+        "phase_transitions": [
+          "accepted",
+          "streaming",
+          "completed"
+        ],
+        "pending_decision": null,
+        "member_outcomes": [
+          "source.txt"
+        ],
+        "terminal_summary": {
+          "files_created": 1,
+          "directories_created": 0,
+          "source_bytes": 6
+        },
+        "error_category": null
+      }
+    },
+    {
+      "name": "extract_local_to_local_success",
+      "operation": "extract",
+      "topology": "local_to_local",
+      "fault": null,
+      "expected_trace": {
+        "owner": "companion",
+        "manifest_snapshot": [
+          "source.txt"
+        ],
+        "phase_transitions": [
+          "accepted",
+          "streaming",
+          "completed"
+        ],
+        "pending_decision": null,
+        "member_outcomes": [
+          "source.txt"
+        ],
+        "terminal_summary": {
+          "files_extracted": 1,
+          "files_skipped": 0,
+          "extracted_bytes": 6
+        },
+        "error_category": null
+      }
+    },
+    {
+      "name": "create_smb_to_local_success",
+      "operation": "create",
+      "topology": "smb_to_local",
+      "fault": null,
+      "expected_trace": {
+        "owner": "companion",
+        "manifest_snapshot": [
+          "source.txt"
+        ],
+        "phase_transitions": [
+          "streaming",
+          "completed"
+        ],
+        "pending_decision": null,
+        "member_outcomes": [
+          "source.txt"
+        ],
+        "terminal_summary": {
+          "files_created": 1,
+          "directories_created": 0,
+          "source_bytes": 6
+        },
+        "error_category": null
+      }
+    },
+    {
+      "name": "extract_smb_to_local_success",
+      "operation": "extract",
+      "topology": "smb_to_local",
+      "fault": null,
+      "expected_trace": {
+        "owner": "companion",
+        "manifest_snapshot": [
+          "entry.txt"
+        ],
+        "phase_transitions": [
+          "streaming",
+          "completed"
+        ],
+        "pending_decision": null,
+        "member_outcomes": [
+          "entry.txt"
+        ],
+        "terminal_summary": {
+          "files_extracted": 1,
+          "files_skipped": 0,
+          "extracted_bytes": 5
+        },
+        "error_category": null
+      }
+    },
+    {
+      "name": "create_local_to_smb_success",
+      "operation": "create",
+      "topology": "local_to_smb",
+      "fault": null,
+      "expected_trace": {
+        "owner": "companion",
+        "manifest_snapshot": [
+          "local-source.txt"
+        ],
+        "phase_transitions": [
+          "streaming",
+          "completed"
+        ],
+        "pending_decision": null,
+        "member_outcomes": [
+          "local-source.txt"
+        ],
+        "terminal_summary": {
+          "files_created": 1,
+          "directories_created": 0,
+          "source_bytes": 12
+        },
+        "error_category": null
+      }
+    },
+    {
+      "name": "extract_local_to_smb_success",
+      "operation": "extract",
+      "topology": "local_to_smb",
+      "fault": null,
+      "expected_trace": {
+        "owner": "companion",
+        "manifest_snapshot": [
+          "source.txt"
+        ],
+        "phase_transitions": [
+          "streaming",
+          "completed"
+        ],
+        "pending_decision": null,
+        "member_outcomes": [
+          "source.txt"
+        ],
+        "terminal_summary": {
+          "files_extracted": 0,
+          "files_skipped": 0,
+          "extracted_bytes": 0
+        },
+        "error_category": null
+      }
+    },
+    {
+      "name": "extract_malformed_input",
+      "operation": "extract",
+      "topology": "smb_to_smb",
+      "fault": "malformed_input",
+      "expected_trace": {
+        "owner": "backend",
+        "manifest_snapshot": [],
+        "phase_transitions": [
+          "prepared",
+          "failed"
+        ],
+        "pending_decision": null,
+        "member_outcomes": [],
+        "terminal_summary": null,
+        "error_category": "invalid_input"
+      }
+    },
+    {
+      "name": "extract_collision",
+      "operation": "extract",
+      "topology": "local_to_local",
+      "fault": "collision",
+      "expected_trace": {
+        "owner": "companion",
+        "manifest_snapshot": [
+          "source.txt"
+        ],
+        "phase_transitions": [
+          "accepted",
+          "streaming",
+          "awaiting_user_decision",
+          "streaming",
+          "completed"
+        ],
+        "pending_decision": "collision",
+        "member_outcomes": [
+          "source.txt"
+        ],
+        "terminal_summary": {
+          "files_extracted": 0,
+          "files_skipped": 1,
+          "extracted_bytes": 0
+        },
+        "error_category": null
+      }
+    },
+    {
+      "name": "extract_partial_write",
+      "operation": "extract",
+      "topology": "local_to_local",
+      "fault": "partial_write",
+      "expected_trace": {
+        "owner": "companion",
+        "manifest_snapshot": [
+          "source.txt"
+        ],
+        "phase_transitions": [
+          "accepted",
+          "streaming",
+          "awaiting_user_decision"
+        ],
+        "pending_decision": "member_error",
+        "member_outcomes": [],
+        "terminal_summary": null,
+        "error_category": "partial_write"
+      }
+    },
+    {
+      "name": "create_cancellation",
+      "operation": "create",
+      "topology": "local_to_local",
+      "fault": "cancellation",
+      "expected_trace": {
+        "owner": "companion",
+        "manifest_snapshot": [
+          "source.txt"
+        ],
+        "phase_transitions": [
+          "accepted",
+          "cancelled"
+        ],
+        "pending_decision": null,
+        "member_outcomes": [],
+        "terminal_summary": null,
+        "error_category": "cancelled"
+      }
+    },
+    {
+      "name": "extract_source_changed",
+      "operation": "extract",
+      "topology": "local_to_local",
+      "fault": "source_changed",
+      "expected_trace": {
+        "owner": "companion",
+        "manifest_snapshot": [
+          "source.txt"
+        ],
+        "phase_transitions": [
+          "accepted",
+          "streaming",
+          "awaiting_user_decision",
+          "streaming",
+          "failed"
+        ],
+        "pending_decision": "member_error",
+        "member_outcomes": [],
+        "terminal_summary": null,
+        "error_category": "source_changed"
+      }
+    },
+    {
+      "name": "extract_transport_failure",
+      "operation": "extract",
+      "topology": "smb_to_local",
+      "fault": "transport_failure",
+      "expected_trace": {
+        "owner": "companion",
+        "manifest_snapshot": [],
+        "phase_transitions": [
+          "streaming",
+          "failed"
+        ],
+        "pending_decision": null,
+        "member_outcomes": [],
+        "terminal_summary": null,
+        "error_category": "transport_failure"
+      }
+    }
+  ]
+}

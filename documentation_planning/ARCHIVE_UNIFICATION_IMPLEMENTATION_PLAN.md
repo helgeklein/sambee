@@ -209,6 +209,55 @@ Acceptance criteria:
    canonical manifests, outcome-ledger transitions, decisions, and terminal
    summaries. A topology-labelled state replay does not qualify.
 
+#### Proportionate Topology-Harness Delivery
+
+The harness is a Phase 4 completion gate, but it must remain test-only and
+bounded to operation seams. It does not start production servers, require a
+live SMB share, introduce cross-language RPC, or share a filesystem API between
+the runtimes.
+
+1. Define a small test-only invocation boundary for each existing operation
+   coordinator or executor. It accepts an immutable plan plus deterministic
+   operation-specific source, destination, or relay-transport doubles and
+   returns a normalized trace. Do not add a production trait solely for the
+   harness; expose an existing narrow adapter boundary only where tests cannot
+   otherwise invoke the actual executor.
+2. Add one versioned, language-neutral expected-trace fixture beside the
+   existing trajectory corpora. Each case names the operation, source and
+   destination topology, requested fault, and expected manifest snapshot,
+   phase transitions, pending decision, terminal member outcomes, aggregate
+   summary, and normalized error category. The fixture is an oracle, not a
+   new state-machine implementation.
+3. Dispatch each fixture through the topology resolver and the actual runtime
+   owner:
+   - SMB -> SMB: backend creation or extraction coordinator with deterministic
+     SMB source and destination adapters;
+   - local -> local: Companion direct-local coordinator with a temporary local
+     source/destination fixture and its in-memory session state store;
+   - SMB -> local: Companion relay coordinator with a deterministic backend
+     relay source and local destination;
+   - local -> SMB: Companion relay coordinator with a local source and
+     deterministic backend relay destination.
+   The Python test suite must not label a Python coordinator invocation as a
+   Companion topology. Existing Python coordinator tests remain unit coverage,
+   not this cross-topology gate.
+4. Make the relay double model only the existing archive relay messages and
+   bytes at the transport boundary. It must not decide collisions, update a
+   ledger, calculate progress, or emulate filesystem behavior. SMB and local
+   test doubles likewise report observations only; their coordinators apply
+   every decision and state transition.
+5. Start with the current creation and extraction trajectory corpus, then add
+   one fault case per boundary: malformed manifest or member input, collision,
+   partial write, cancellation, source identity change, and transport failure.
+   Assert the same normalized trace in the owning runtime for every supported
+   topology. Inspection remains covered by resolved request-scoped plan tests;
+   it does not enter the durable trajectory harness.
+6. Provide one repository test command that runs the backend coordinator
+   harness and the Companion actual-executor harness. It is green only when
+   every fixture dispatches to the resolved owner and both suites compare the
+   resulting trace to the shared expected-trace fixture. Existing focused
+   route-binding and corpus tests remain separate regression coverage.
+
 Acceptance criteria:
 
 - Adding a future provider requires adapters and conformance cases, not a new
