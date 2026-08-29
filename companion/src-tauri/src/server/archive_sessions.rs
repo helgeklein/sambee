@@ -10,10 +10,9 @@ use tokio::sync::Mutex;
 use uuid::Uuid;
 
 use super::archive::{
-    validate_local_extraction_rename_target, ArchiveCreationManifestState, LocalArchiveCreationExecutionPlan, LocalArchiveCreationResult,
-    LocalArchiveEntry, LocalArchiveError, LocalArchiveExtractionCheckpoint, LocalArchiveExtractionCollision,
-    LocalArchiveExtractionCollisionAction, LocalArchiveExtractionExecutionPlan, LocalArchiveExtractionMemberError,
-    LocalArchiveExtractionResult,
+    ArchiveCreationManifestState, LocalArchiveCreationExecutionPlan, LocalArchiveCreationResult, LocalArchiveEntry, LocalArchiveError,
+    LocalArchiveExtractionCheckpoint, LocalArchiveExtractionCollision, LocalArchiveExtractionExecutionPlan,
+    LocalArchiveExtractionMemberError, LocalArchiveExtractionResult,
 };
 use super::errors::ApiError;
 
@@ -92,6 +91,14 @@ pub struct ArchiveSessionDecision {
     pub member_path: String,
     pub action: ArchiveSessionDecisionAction,
     pub target_path: Option<String>,
+}
+
+pub(crate) struct ArchiveSessionDecisionState {
+    pub phase: ArchiveSessionPhase,
+    pub revision: u64,
+    pub pending_decision: Option<ArchiveSessionPendingDecision>,
+    pub archive_path: Option<PathBuf>,
+    pub checkpoint: Option<LocalArchiveExtractionCheckpoint>,
 }
 
 pub(crate) enum ArchiveSessionCompletion {
@@ -293,19 +300,16 @@ pub struct ArchiveSessionManager {
 
 /// Test-only compatibility executor for direct-local archive session coverage.
 #[cfg(test)]
-pub struct LocalArchiveSessionExecutor {
+pub struct FixtureDirectLocalInvocation {
     state_store: Arc<ArchiveSessionManager>,
 }
 
 #[cfg(test)]
-impl LocalArchiveSessionExecutor {
+impl FixtureDirectLocalInvocation {
     pub fn new(state_store: Arc<ArchiveSessionManager>) -> Self {
         Self { state_store }
     }
 }
-
-#[cfg(test)]
-pub type LocalArchiveOperationCoordinator = LocalArchiveSessionExecutor;
 
 impl ArchiveSessionManager {
     pub fn new() -> Self {
@@ -601,24 +605,39 @@ impl ArchiveSessionManager {
 }
 
 impl ArchiveSessionManager {
-    pub(crate) async fn apply_decision(
+    pub(crate) async fn decision_state(
+        &self,
+        drive: &str,
+        owner_origin: &str,
+        execution_id: &str,
+    ) -> Result<ArchiveSessionDecisionState, ApiError> {
+        let mut sessions = self.sessions.lock().await;
+        ArchiveSessionManager::remove_expired(&mut sessions);
+        let session = sessions
+            .get(execution_id)
+            .filter(|session| session.drive == drive && session.owner_origin == owner_origin)
+            .ok_or_else(|| ApiError::NotFound("Archive execution not found or expired".to_string()))?;
+        let archive_path = match &session.work {
+            ArchiveSessionWork::Extraction { archive_path, .. } => Some(archive_path.clone()),
+            ArchiveSessionWork::Creation { .. } => None,
+        };
+        Ok(ArchiveSessionDecisionState {
+            phase: session.phase,
+            revision: session.revision,
+            pending_decision: session.pending_decision.clone(),
+            archive_path,
+            checkpoint: session.extraction_checkpoint.clone(),
+        })
+    }
+
+    pub(crate) async fn resume_extraction(
         &self,
         drive: &str,
         owner_origin: &str,
         execution_id: &str,
         expected_revision: u64,
-        decision: ArchiveSessionDecision,
-    ) -> Result<
-        (
-            PathBuf,
-            ArchiveSessionWork,
-            Arc<AtomicBool>,
-            Option<LocalArchiveExtractionCheckpoint>,
-            ArchiveSessionStatus,
-        ),
-        ApiError,
-    > {
-        let (drive_root, work, cancellation_requested, checkpoint, status) = {
+    ) -> Result<(PathBuf, ArchiveSessionWork, Arc<AtomicBool>, ArchiveSessionStatus), ApiError> {
+        let (drive_root, work, cancellation_requested, status) = {
             let mut sessions = self.sessions.lock().await;
             ArchiveSessionManager::remove_expired(&mut sessions);
             let session = sessions
@@ -634,107 +653,20 @@ impl ArchiveSessionManager {
             if session.phase != ArchiveSessionPhase::AwaitingUserDecision {
                 return Err(ApiError::conflict_message("Archive execution is not awaiting a user decision"));
             }
-            let pending_decision = session
-                .pending_decision
-                .as_ref()
-                .ok_or_else(|| ApiError::Internal("Archive extraction decision details are unavailable".to_string()))?;
-            if pending_decision.member_path != decision.member_path {
-                return Err(ApiError::conflict_message("Archive decision does not match the pending member"));
-            }
-            let is_member_error = pending_decision.member_error.is_some();
-            let is_directory = pending_decision.is_directory;
-            if !matches!(
-                (is_member_error, decision.action),
-                (false, ArchiveSessionDecisionAction::Skip)
-                    | (false, ArchiveSessionDecisionAction::SkipAll)
-                    | (false, ArchiveSessionDecisionAction::Replace)
-                    | (false, ArchiveSessionDecisionAction::ReplaceAll)
-                    | (false, ArchiveSessionDecisionAction::ReplaceOlder)
-                    | (false, ArchiveSessionDecisionAction::Rename)
-                    | (true, ArchiveSessionDecisionAction::Retry)
-                    | (true, ArchiveSessionDecisionAction::Ignore)
-            ) {
-                return Err(ApiError::conflict_message("Archive decision is not allowed for the pending member"));
-            }
-            if is_directory && !matches!(decision.action, ArchiveSessionDecisionAction::Rename) {
-                return Err(ApiError::conflict_message("Directory collisions may only be resolved by renaming"));
-            }
-            let rename_target = if matches!(decision.action, ArchiveSessionDecisionAction::Rename) {
-                Some(
-                    decision
-                        .target_path
-                        .ok_or_else(|| ApiError::BadRequest("Archive rename decisions require a target path".to_string()))?,
-                )
-            } else {
-                if decision.target_path.is_some() {
-                    return Err(ApiError::BadRequest(
-                        "Only archive rename decisions may include a target path".to_string(),
-                    ));
-                }
-                None
-            };
-            if let ArchiveSessionDecisionAction::Rename = decision.action {
-                let (archive_path, extraction_checkpoint) = match (&session.work, session.extraction_checkpoint.as_ref()) {
-                    (ArchiveSessionWork::Extraction { archive_path, .. }, Some(checkpoint)) => (archive_path, checkpoint),
-                    _ => return Err(ApiError::Internal("Archive extraction checkpoint is unavailable".to_string())),
-                };
-                validate_local_extraction_rename_target(
-                    archive_path,
-                    extraction_checkpoint,
-                    &decision.member_path,
-                    rename_target
-                        .as_deref()
-                        .ok_or_else(|| ApiError::Internal("Archive rename target is unavailable".to_string()))?,
-                    is_directory,
-                )
-                .map_err(|_| {
-                    ApiError::BadRequest("Archive rename target is invalid or conflicts with another archive member".to_string())
-                })?;
-            }
-            let checkpoint = session
-                .extraction_checkpoint
-                .take()
-                .ok_or_else(|| ApiError::Internal("Archive extraction checkpoint is unavailable".to_string()))?;
-            let mut checkpoint = checkpoint;
-            match decision.action {
-                ArchiveSessionDecisionAction::Skip => {
-                    checkpoint.resolve_collision(decision.member_path, LocalArchiveExtractionCollisionAction::Skip);
-                }
-                ArchiveSessionDecisionAction::SkipAll => {
-                    checkpoint.resolve_all_collisions(LocalArchiveExtractionCollisionAction::Skip);
-                }
-                ArchiveSessionDecisionAction::Replace => {
-                    checkpoint.resolve_collision(decision.member_path, LocalArchiveExtractionCollisionAction::Replace);
-                }
-                ArchiveSessionDecisionAction::ReplaceAll => {
-                    checkpoint.resolve_all_collisions(LocalArchiveExtractionCollisionAction::Replace);
-                }
-                ArchiveSessionDecisionAction::ReplaceOlder => {
-                    checkpoint.resolve_all_collisions(LocalArchiveExtractionCollisionAction::ReplaceOlder);
-                }
-                ArchiveSessionDecisionAction::Rename => {
-                    checkpoint.rename_member(
-                        decision.member_path,
-                        rename_target.ok_or_else(|| ApiError::Internal("Archive rename target is unavailable".to_string()))?,
-                    );
-                }
-                ArchiveSessionDecisionAction::Retry => {}
-                ArchiveSessionDecisionAction::Ignore => checkpoint.ignore_member_error(decision.member_path),
-            }
             session.pending_decision = None;
+            session.extraction_checkpoint = None;
             session.phase = ArchiveSessionPhase::Streaming;
             session.revision += 1;
             (
                 session.drive_root.clone(),
                 session.work.clone(),
                 session.cancellation_requested.clone(),
-                Some(checkpoint),
                 session.status(),
             )
         };
         #[cfg(test)]
         self.record_phase_transition(execution_id, ArchiveSessionPhase::Streaming).await;
-        Ok((drive_root, work, cancellation_requested, checkpoint, status))
+        Ok((drive_root, work, cancellation_requested, status))
     }
 }
 
@@ -836,7 +768,7 @@ impl ArchiveSessionManager {
 }
 
 #[cfg(test)]
-impl LocalArchiveSessionExecutor {
+impl FixtureDirectLocalInvocation {
     pub async fn start(&self, execution_id: &str) -> Result<(), ApiError> {
         crate::server::handlers::start_direct_local_archive_session(self.state_store.clone(), execution_id).await
     }
@@ -882,7 +814,7 @@ mod tests {
 
     use super::{
         ArchiveSessionDecision, ArchiveSessionDecisionAction, ArchiveSessionManager, ArchiveSessionPhase, ArchiveSessionProgress,
-        LocalArchiveOperationCoordinator,
+        FixtureDirectLocalInvocation,
     };
     use crate::server::archive::{build_local_archive_manifest, create_local_archive};
 
@@ -1138,7 +1070,7 @@ mod tests {
                     .await
                     .unwrap();
             }
-            LocalArchiveOperationCoordinator::new(manager.clone())
+            FixtureDirectLocalInvocation::new(manager.clone())
                 .start(&session.execution_id)
                 .await
                 .unwrap();
@@ -1268,7 +1200,7 @@ mod tests {
                     .await
                     .unwrap();
             }
-            let coordinator = LocalArchiveOperationCoordinator::new(manager.clone());
+            let coordinator = FixtureDirectLocalInvocation::new(manager.clone());
             coordinator.start(&session.execution_id).await.unwrap();
             for step in scenario["steps"]
                 .as_array()
@@ -1459,7 +1391,7 @@ mod tests {
             )
             .await;
 
-        LocalArchiveOperationCoordinator::new(manager.clone())
+        FixtureDirectLocalInvocation::new(manager.clone())
             .start(&session.execution_id)
             .await
             .unwrap();
@@ -1521,7 +1453,7 @@ mod tests {
             )
             .await;
 
-        LocalArchiveOperationCoordinator::new(manager.clone())
+        FixtureDirectLocalInvocation::new(manager.clone())
             .start(&session.execution_id)
             .await
             .unwrap();
@@ -1566,7 +1498,7 @@ mod tests {
                 directory.path().join("output"),
             )
             .await;
-        LocalArchiveOperationCoordinator::new(manager.clone())
+        FixtureDirectLocalInvocation::new(manager.clone())
             .start(&session.execution_id)
             .await
             .unwrap();
@@ -1602,7 +1534,7 @@ mod tests {
                 directory.path().join("output"),
             )
             .await;
-        LocalArchiveOperationCoordinator::new(manager.clone())
+        FixtureDirectLocalInvocation::new(manager.clone())
             .start(&session.execution_id)
             .await
             .unwrap();
@@ -1637,7 +1569,7 @@ mod tests {
             .cancel("c", "https://sambee.example", &session.execution_id, session.revision)
             .await
             .unwrap();
-        LocalArchiveOperationCoordinator::new(manager.clone())
+        FixtureDirectLocalInvocation::new(manager.clone())
             .start(&session.execution_id)
             .await
             .unwrap();
@@ -1680,7 +1612,7 @@ mod tests {
             .cancel("c", "https://sambee.example", &session.execution_id, session.revision)
             .await
             .unwrap();
-        LocalArchiveOperationCoordinator::new(manager.clone())
+        FixtureDirectLocalInvocation::new(manager.clone())
             .start(&session.execution_id)
             .await
             .unwrap();
@@ -1764,7 +1696,7 @@ mod tests {
                     target,
                 )
                 .await;
-            let coordinator = LocalArchiveOperationCoordinator::new(manager.clone());
+            let coordinator = FixtureDirectLocalInvocation::new(manager.clone());
             match action {
                 Some(action) => coordinator
                     .start_with_creation_pre_write_action(&session.execution_id, action)
@@ -1806,7 +1738,7 @@ mod tests {
             )
             .await;
 
-        LocalArchiveOperationCoordinator::new(manager.clone())
+        FixtureDirectLocalInvocation::new(manager.clone())
             .start(&session.execution_id)
             .await
             .unwrap();
@@ -1822,7 +1754,7 @@ mod tests {
         .await
         .expect("archive extraction session should pause for a collision");
         assert_eq!(paused.pending_decision.unwrap().member_path, "source.txt");
-        assert!(LocalArchiveOperationCoordinator::new(manager.clone())
+        assert!(FixtureDirectLocalInvocation::new(manager.clone())
             .decide(
                 "c",
                 "https://sambee.example",
@@ -1836,7 +1768,7 @@ mod tests {
             )
             .await
             .is_err());
-        assert!(LocalArchiveOperationCoordinator::new(manager.clone())
+        assert!(FixtureDirectLocalInvocation::new(manager.clone())
             .decide(
                 "c",
                 "https://other.example",
@@ -1851,7 +1783,7 @@ mod tests {
             .await
             .is_err());
 
-        let resumed = LocalArchiveOperationCoordinator::new(manager.clone())
+        let resumed = FixtureDirectLocalInvocation::new(manager.clone())
             .decide(
                 "c",
                 "https://sambee.example",
@@ -1912,7 +1844,7 @@ mod tests {
             )
             .await;
 
-        LocalArchiveOperationCoordinator::new(manager.clone())
+        FixtureDirectLocalInvocation::new(manager.clone())
             .start(&session.execution_id)
             .await
             .unwrap();
@@ -1927,7 +1859,7 @@ mod tests {
         })
         .await
         .expect("archive extraction session should pause for a collision");
-        assert!(LocalArchiveOperationCoordinator::new(manager.clone())
+        assert!(FixtureDirectLocalInvocation::new(manager.clone())
             .decide(
                 "c",
                 "https://sambee.example",
@@ -1942,7 +1874,7 @@ mod tests {
             .await
             .is_err());
 
-        LocalArchiveOperationCoordinator::new(manager.clone())
+        FixtureDirectLocalInvocation::new(manager.clone())
             .decide(
                 "c",
                 "https://sambee.example",
@@ -2000,7 +1932,7 @@ mod tests {
             )
             .await;
 
-        LocalArchiveOperationCoordinator::new(manager.clone())
+        FixtureDirectLocalInvocation::new(manager.clone())
             .start(&session.execution_id)
             .await
             .unwrap();
@@ -2029,7 +1961,7 @@ mod tests {
             direct_local_trace(&manager, &session.execution_id, &paused, vec!["source.txt"], vec![]).await,
             expected_trace("extract_partial_write")
         );
-        assert!(LocalArchiveOperationCoordinator::new(manager.clone())
+        assert!(FixtureDirectLocalInvocation::new(manager.clone())
             .decide(
                 "c",
                 "https://sambee.example",
@@ -2045,7 +1977,7 @@ mod tests {
             .is_err());
 
         fs::write(&archive_path, original_archive).unwrap();
-        LocalArchiveOperationCoordinator::new(manager.clone())
+        FixtureDirectLocalInvocation::new(manager.clone())
             .decide(
                 "c",
                 "https://sambee.example",
