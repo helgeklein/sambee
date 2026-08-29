@@ -1,6 +1,5 @@
 import asyncio
 import hashlib
-import mimetypes
 import uuid
 from collections.abc import AsyncIterator, Awaitable, Callable
 from datetime import datetime, timedelta, timezone
@@ -26,7 +25,7 @@ from app.models.connection import Connection
 from app.models.edit_lock import HEARTBEAT_TIMEOUT_SECONDS, EditLock
 from app.models.file import FileInfo, FileType
 from app.models.user import User
-from app.services.archive.coordinator import ArchiveInspectionPlan, ArchiveInspectionPresentation, resolve_archive_inspection_coordinator
+from app.services.archive.coordinator import ArchiveInspectionPlan, ArchiveMemberReadPresentation, resolve_archive_inspection_coordinator
 from app.services.archive.execution import ArchiveExecutionDriver, resolve_archive_inspection_topology_plan
 from app.services.archive.zip_reader import ArchiveFormatError, ZipEntry, ZipReader
 from app.services.connection_access import get_accessible_connection_or_404
@@ -99,15 +98,16 @@ async def stream_archive_member(
                 status_code=status.HTTP_422_UNPROCESSABLE_CONTENT, detail="Archive inspection requires the Companion coordinator"
             )
         inspection = resolve_archive_inspection_coordinator(
-            ArchiveInspectionPlan(zip_reader, topology, ArchiveInspectionPresentation.MEMBER_READ)
+            ArchiveInspectionPlan(zip_reader, topology, ArchiveMemberReadPresentation(member_path=member_path, download=download))
         )
-        inspection_member = await inspection.member(member_path)
+        inspection_projection = await inspection.member_read()
+        inspection_member = inspection_projection.member
         member = await zip_reader.validate_member(inspection_member.path)
         if not download and view_kind != "raw" and not inspection_member.is_inline_preview_eligible():
             raise HTTPException(
                 status_code=status.HTTP_413_REQUEST_ENTITY_TOO_LARGE, detail="Archive member exceeds the inline preview size limit"
             )
-        member_name = member_path.replace("\\", "/").rsplit("/", 1)[-1]
+        member_name = inspection_member.path.rsplit("/", 1)[-1]
 
         async def read_member_source() -> tuple[bytes, PDFSourceRevision]:
             chunks: list[bytes] = []
@@ -177,11 +177,10 @@ async def stream_archive_member(
                     context=f"archive member stream: connection_id={connection_id}, archive_path={archive_path!r}",
                 )
 
-        disposition: Literal["attachment", "inline"] = "attachment" if download else "inline"
         return StreamingResponse(
             stream_member(),
-            media_type=mimetypes.guess_type(member_name)[0] or "application/octet-stream",
-            headers={"Content-Disposition": build_content_disposition(disposition, member_name)},
+            media_type=inspection_projection.content_type,
+            headers={"Content-Disposition": inspection_projection.content_disposition},
         )
     except ArchiveFormatError as exc:
         if reader is not None:

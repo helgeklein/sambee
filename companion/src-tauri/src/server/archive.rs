@@ -16,6 +16,8 @@ use unicode_normalization::UnicodeNormalization;
 use zip::write::{SimpleFileOptions, StreamWriter, ZipWriter};
 use zip::CompressionMethod;
 
+use super::models::{ArchiveDirectoryListing, ArchiveEntryInfo, ArchiveEntryState, ArchiveIdentity, FileType};
+
 /// Bounded source-read size for direct local archive output.
 pub const ARCHIVE_COPY_BUFFER_SIZE: usize = 64 * 1024;
 pub const ARCHIVE_INLINE_PREVIEW_MAX_BYTES: u64 = 5 * 1024 * 1024;
@@ -276,11 +278,117 @@ impl LocalArchiveInspectionSource {
     }
 }
 
-/// Existing V1 inspection response projection selected by a request route.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+/// Immutable V1 archive-directory presenter bound before inspection starts.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ArchiveDirectoryListingPresentation {
+    archive_path: String,
+    archive_size: u64,
+    archive_modified_at: Option<DateTime<Utc>>,
+    requested_virtual_path: String,
+    response_virtual_path: String,
+    cursor: Option<String>,
+    page_size: usize,
+}
+
+impl ArchiveDirectoryListingPresentation {
+    pub fn new(
+        archive_path: String,
+        archive_size: u64,
+        archive_modified_at: Option<DateTime<Utc>>,
+        virtual_path: String,
+        cursor: Option<String>,
+        page_size: usize,
+    ) -> Self {
+        Self {
+            archive_path,
+            archive_size,
+            archive_modified_at,
+            response_virtual_path: virtual_path.trim_end_matches('/').to_string(),
+            requested_virtual_path: virtual_path,
+            cursor,
+            page_size,
+        }
+    }
+
+    fn present(&self, manifest: &ArchiveInspectionManifest) -> Result<ArchiveDirectoryListing, LocalArchiveReadError> {
+        let page = manifest.list_directory(&self.requested_virtual_path, self.cursor.as_deref(), self.page_size)?;
+        Ok(ArchiveDirectoryListing {
+            archive: ArchiveIdentity {
+                path: self.archive_path.clone(),
+                size: self.archive_size,
+                modified_at: self.archive_modified_at,
+            },
+            path: self.response_virtual_path.clone(),
+            items: page
+                .entries
+                .into_iter()
+                .map(|entry| ArchiveEntryInfo {
+                    name: entry.name.clone(),
+                    path: entry.path,
+                    file_type: if entry.is_directory { FileType::Directory } else { FileType::File },
+                    size: entry.uncompressed_size,
+                    compressed_size: entry.compressed_size,
+                    compression_method: entry.compression_method,
+                    crc32: entry.crc32,
+                    modified_at: entry.modified_at,
+                    state: if entry.encrypted {
+                        ArchiveEntryState::Blocked
+                    } else if entry.is_available {
+                        ArchiveEntryState::Readable
+                    } else {
+                        ArchiveEntryState::Unavailable
+                    },
+                    is_hidden: entry.name.starts_with('.'),
+                })
+                .collect(),
+            total: page.total,
+            next_cursor: page.next_cursor,
+            page_size: self.page_size,
+        })
+    }
+}
+
+/// Immutable V1 archive-member presenter bound before inspection starts.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ArchiveMemberReadPresentation {
+    member_path: String,
+    download: bool,
+}
+
+impl ArchiveMemberReadPresentation {
+    pub fn new(member_path: String, download: bool) -> Self {
+        Self { member_path, download }
+    }
+
+    fn present(&self, manifest: &ArchiveInspectionManifest) -> Result<ArchiveMemberReadProjection, LocalArchiveReadError> {
+        let member = manifest.member(&self.member_path)?;
+        let member_name = self.member_path.rsplit('/').next().unwrap_or("download");
+        Ok(ArchiveMemberReadProjection {
+            member_path: self.member_path.clone(),
+            inline_preview_eligible: member.is_inline_preview_eligible(),
+            content_type: mime_guess::from_path(member_name).first_or_octet_stream().to_string(),
+            content_disposition: format!(
+                "{}; filename=\"{member_name}\"",
+                if self.download { "attachment" } else { "inline" }
+            ),
+        })
+    }
+}
+
+/// V1 member response details projected by a request-scoped presentation adapter.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ArchiveMemberReadProjection {
+    pub member_path: String,
+    pub inline_preview_eligible: bool,
+    pub content_type: String,
+    pub content_disposition: String,
+}
+
+/// Existing V1 response presenter selected by a request route.
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub enum ArchiveInspectionPresentation {
-    DirectoryListing,
-    MemberRead,
+    DirectoryListing(ArchiveDirectoryListingPresentation),
+    MemberRead(ArchiveMemberReadPresentation),
 }
 
 /// Immutable, request-scoped local inspection source and presentation binding.
@@ -306,7 +414,7 @@ impl ArchiveInspectionPlan {
 
     /// Return the existing V1 response projection selected for this request.
     pub fn presentation(&self) -> ArchiveInspectionPresentation {
-        self.presentation
+        self.presentation.clone()
     }
 }
 
@@ -321,23 +429,18 @@ impl ArchiveInspectionCoordinator {
         Self { plan }
     }
 
-    pub fn list_directory(
-        &self,
-        virtual_path: &str,
-        cursor: Option<&str>,
-        page_size: usize,
-    ) -> Result<LocalArchiveDirectoryPage, LocalArchiveReadError> {
-        if self.plan.presentation() != ArchiveInspectionPresentation::DirectoryListing {
-            return Err(LocalArchiveReadError::PresentationMismatch);
+    pub fn directory_listing(&self) -> Result<ArchiveDirectoryListing, LocalArchiveReadError> {
+        match self.plan.presentation() {
+            ArchiveInspectionPresentation::DirectoryListing(presentation) => presentation.present(&self.plan.manifest),
+            ArchiveInspectionPresentation::MemberRead(_) => Err(LocalArchiveReadError::PresentationMismatch),
         }
-        self.plan.manifest.list_directory(virtual_path, cursor, page_size)
     }
 
-    pub fn member(&self, member_path: &str) -> Result<&ArchiveInspectionManifestMember, LocalArchiveReadError> {
-        if self.plan.presentation() != ArchiveInspectionPresentation::MemberRead {
-            return Err(LocalArchiveReadError::PresentationMismatch);
+    pub fn member_read(&self) -> Result<ArchiveMemberReadProjection, LocalArchiveReadError> {
+        match self.plan.presentation() {
+            ArchiveInspectionPresentation::DirectoryListing(_) => Err(LocalArchiveReadError::PresentationMismatch),
+            ArchiveInspectionPresentation::MemberRead(presentation) => presentation.present(&self.plan.manifest),
         }
-        self.plan.manifest.member(member_path)
     }
 }
 
@@ -3294,23 +3397,59 @@ mod tests {
 
         let inspection = ArchiveInspectionCoordinator::from_plan(
             ArchiveInspectionPlan::from_local_source(
-                LocalArchiveInspectionSource::from_archive_path(target),
-                ArchiveInspectionPresentation::DirectoryListing,
+                LocalArchiveInspectionSource::from_archive_path(target.clone()),
+                ArchiveInspectionPresentation::DirectoryListing(ArchiveDirectoryListingPresentation::new(
+                    "archive.zip".to_string(),
+                    0,
+                    None,
+                    "source/".to_string(),
+                    None,
+                    1,
+                )),
             )
             .unwrap(),
         );
-        let first_page = inspection.list_directory("source/", None, 1).unwrap();
+        let first_page = inspection.directory_listing().unwrap();
         assert_eq!(first_page.total, 2);
-        assert_eq!(first_page.entries[0].name, "nested");
-        assert!(first_page.entries[0].is_directory);
+        assert_eq!(first_page.items[0].name, "nested");
+        assert_eq!(first_page.items[0].file_type, FileType::Directory);
         assert_eq!(first_page.next_cursor.as_deref(), Some("1"));
 
-        let second_page = inspection.list_directory("source/", first_page.next_cursor.as_deref(), 1).unwrap();
-        assert_eq!(second_page.entries[0].name, "alpha.txt");
-        assert_eq!(second_page.entries[0].uncompressed_size, Some(5));
+        let second_page = ArchiveInspectionCoordinator::from_plan(
+            ArchiveInspectionPlan::from_local_source(
+                LocalArchiveInspectionSource::from_archive_path(target.clone()),
+                ArchiveInspectionPresentation::DirectoryListing(ArchiveDirectoryListingPresentation::new(
+                    "archive.zip".to_string(),
+                    0,
+                    None,
+                    "source/".to_string(),
+                    first_page.next_cursor,
+                    1,
+                )),
+            )
+            .unwrap(),
+        )
+        .directory_listing()
+        .unwrap();
+        assert_eq!(second_page.items[0].name, "alpha.txt");
+        assert_eq!(second_page.items[0].size, Some(5));
         assert_eq!(second_page.next_cursor, None);
         assert!(matches!(
-            inspection.list_directory("../unsafe/", None, 100),
+            ArchiveInspectionCoordinator::from_plan(
+                ArchiveInspectionPlan::from_local_source(
+                    LocalArchiveInspectionSource::from_archive_path(target),
+                    ArchiveInspectionPresentation::DirectoryListing(ArchiveDirectoryListingPresentation::new(
+                        "archive.zip".to_string(),
+                        0,
+                        None,
+                        "../unsafe/".to_string(),
+                        None,
+                        100,
+                    )),
+                )
+                .unwrap(),
+            )
+            .directory_listing(),
             Err(LocalArchiveReadError::InvalidDirectoryPath)
         ));
     }

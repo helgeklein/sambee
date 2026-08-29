@@ -21,7 +21,7 @@ from app.api.companion import (
 from app.core.logging import get_logger, set_user
 from app.core.security import decrypt_password, get_current_user_for_token, get_current_user_with_auth_check, oauth2_scheme_optional
 from app.db.database import get_session
-from app.models.archive import ArchiveDirectoryListing, ArchiveEntryInfo, ArchiveIdentity
+from app.models.archive import ArchiveDirectoryListing
 from app.models.connection import Connection
 from app.models.edit_lock import HEARTBEAT_TIMEOUT_SECONDS, EditLock
 from app.models.file import (
@@ -50,7 +50,11 @@ from app.models.recent_file import (
     RecentFileValidationError,
 )
 from app.models.user import User
-from app.services.archive.coordinator import ArchiveInspectionPlan, ArchiveInspectionPresentation, resolve_archive_inspection_coordinator
+from app.services.archive.coordinator import (
+    ArchiveDirectoryListingPresentation,
+    ArchiveInspectionPlan,
+    resolve_archive_inspection_coordinator,
+)
 from app.services.archive.execution import ArchiveExecutionDriver, resolve_archive_inspection_topology_plan
 from app.services.archive.zip_reader import ArchiveFormatError, ZipReader
 from app.services.connection_access import get_accessible_connection_or_404, require_connection_write_access
@@ -455,36 +459,17 @@ async def list_archive_directory(
             ArchiveInspectionPlan(
                 ZipReader(reader, archive_info.size),
                 topology,
-                ArchiveInspectionPresentation.DIRECTORY_LISTING,
+                ArchiveDirectoryListingPresentation(
+                    archive_path=archive_path,
+                    archive_size=archive_info.size,
+                    archive_modified_at=archive_info.modified_at,
+                    virtual_path=virtual_path,
+                    cursor=cursor,
+                    page_size=page_size,
+                ),
             )
         )
-        page = await inspection.list_directory(
-            virtual_path,
-            cursor,
-            page_size,
-        )
-        return ArchiveDirectoryListing(
-            archive=ArchiveIdentity(path=archive_path, size=archive_info.size, modified_at=archive_info.modified_at),
-            path=virtual_path.rstrip("/"),
-            items=[
-                ArchiveEntryInfo(
-                    name=entry.name,
-                    path=entry.path,
-                    type=FileType.DIRECTORY if entry.is_directory else FileType.FILE,
-                    size=entry.uncompressed_size,
-                    compressed_size=entry.compressed_size,
-                    compression_method=entry.compression_method,
-                    crc32=entry.crc32,
-                    modified_at=entry.modified_at,
-                    state=entry.preview_state,
-                    is_hidden=entry.name.startswith("."),
-                )
-                for entry in page.entries
-            ],
-            total=page.total,
-            next_cursor=page.next_cursor,
-            page_size=page_size,
-        )
+        return await inspection.directory_listing()
     except ArchiveFormatError as exc:
         raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_CONTENT, detail={"code": "invalid_zip", "message": str(exc)}) from exc
     except FileNotFoundError as exc:

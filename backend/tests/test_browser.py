@@ -19,6 +19,11 @@ from app.core.security import create_access_token
 from app.models.connection import Connection, ConnectionScope
 from app.models.edit_lock import EditLock
 from app.models.file import DirectoryListing, FileInfo, FileType
+from app.services.archive.coordinator import (
+    ArchiveDirectoryListingPresentation,
+    ArchiveMemberReadPresentation,
+    resolve_archive_inspection_coordinator,
+)
 
 
 class _MemoryRandomAccessReader:
@@ -221,13 +226,19 @@ class TestListArchiveDirectory:
         )
         backend.open_random_access_reader = AsyncMock(return_value=archive_reader)
 
-        response = client.get(
-            f"/api/browse/{test_connection.id}/archive/list",
-            headers=auth_headers_user,
-            params={"archive_path": "backup.zip", "page_size": 1},
-        )
+        with patch(
+            "app.api.browser.resolve_archive_inspection_coordinator",
+            wraps=resolve_archive_inspection_coordinator,
+        ) as resolve_inspection:
+            response = client.get(
+                f"/api/browse/{test_connection.id}/archive/list",
+                headers=auth_headers_user,
+                params={"archive_path": "backup.zip", "page_size": 1},
+            )
 
         assert response.status_code == 200
+        resolve_inspection.assert_called_once()
+        assert isinstance(resolve_inspection.call_args.args[0].presentation, ArchiveDirectoryListingPresentation)
         result = response.json()
         assert result["total"] == 2
         assert result["items"][0]["name"] == "docs"
@@ -287,7 +298,13 @@ class TestStreamArchiveMember:
         )
         backend.open_random_access_reader = AsyncMock(return_value=archive_reader)
 
-        with patch("app.api.viewer.SMBBackend", return_value=backend):
+        with (
+            patch("app.api.viewer.SMBBackend", return_value=backend),
+            patch(
+                "app.api.viewer.resolve_archive_inspection_coordinator",
+                wraps=resolve_archive_inspection_coordinator,
+            ) as resolve_inspection,
+        ):
             response = client.get(
                 f"/api/viewer/{test_connection.id}/archive/member",
                 headers=auth_headers_user,
@@ -295,6 +312,8 @@ class TestStreamArchiveMember:
             )
 
         assert response.status_code == 200
+        resolve_inspection.assert_called_once()
+        assert isinstance(resolve_inspection.call_args.args[0].presentation, ArchiveMemberReadPresentation)
         assert response.content == b"hello"
         assert response.headers["content-type"].startswith("text/plain")
         assert response.headers["content-disposition"].startswith("inline;")

@@ -7,6 +7,8 @@ use std::collections::HashSet;
 use std::future::Future;
 use std::io::Write;
 use std::path::{Path as FsPath, PathBuf};
+#[cfg(test)]
+use std::sync::atomic::AtomicUsize;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
 
@@ -37,12 +39,12 @@ use super::archive::{
     open_local_extraction_file, project_local_archive_creation_manifest, reopen_partial_local_extraction_file,
     resolve_companion_archive_inspection_topology_plan, resolve_companion_archive_topology_plan, stream_local_archive_member,
     validate_local_archive_extraction, validate_local_extraction_member_path, validate_local_extraction_rename_target,
-    ArchiveCreationManifest, ArchiveCreationManifestState, ArchiveExtractionManifest, ArchiveExtractionManifestMember,
-    ArchiveExtractionRelayExecutionPlan, ArchiveExtractionRelayState, ArchiveInspectionCoordinator, ArchiveInspectionPlan,
-    ArchiveInspectionPresentation, CompanionArchiveOperationKind, CompanionArchiveTopology, CompanionArchiveTopologyPlan,
-    LocalArchiveCreationExecutionPlan, LocalArchiveCreationResult, LocalArchiveEntry, LocalArchiveError,
-    LocalArchiveExtractionCollisionAction, LocalArchiveExtractionExecutionPlan, LocalArchiveExtractionRunResult,
-    LocalArchiveInspectionSource, LocalArchiveReadEntry, LocalArchiveRelayChunk, ARCHIVE_COPY_BUFFER_SIZE,
+    ArchiveCreationManifest, ArchiveCreationManifestState, ArchiveDirectoryListingPresentation, ArchiveExtractionManifest,
+    ArchiveExtractionManifestMember, ArchiveExtractionRelayExecutionPlan, ArchiveExtractionRelayState, ArchiveInspectionCoordinator,
+    ArchiveInspectionPlan, ArchiveInspectionPresentation, ArchiveMemberReadPresentation, CompanionArchiveOperationKind,
+    CompanionArchiveTopology, CompanionArchiveTopologyPlan, LocalArchiveCreationExecutionPlan, LocalArchiveCreationResult,
+    LocalArchiveEntry, LocalArchiveError, LocalArchiveExtractionCollisionAction, LocalArchiveExtractionExecutionPlan,
+    LocalArchiveExtractionRunResult, LocalArchiveInspectionSource, LocalArchiveReadEntry, LocalArchiveRelayChunk, ARCHIVE_COPY_BUFFER_SIZE,
 };
 use super::archive_sessions::{
     ArchiveSessionCompletion, ArchiveSessionManager, ArchiveSessionProgress, ArchiveSessionStatus, ArchiveSessionWork,
@@ -70,6 +72,8 @@ const LOCAL_DRIVE_PREFIX: &str = "local-drive:";
 const LINK_TARGET_RESOLUTION_CONCURRENCY: usize = 4;
 const ARCHIVE_RELAY_IDEMPOTENCY_HEADER: &str = "Idempotency-Key";
 const ARCHIVE_RELAY_ACKNOWLEDGEMENT_ATTEMPTS: usize = 2;
+#[cfg(test)]
+static INSPECTION_RESOLVER_CALL_COUNT: AtomicUsize = AtomicUsize::new(0);
 #[cfg(any(windows, test))]
 const WINDOWS_EXTENDED_PATH_PREFIX: &str = "\\\\?\\";
 #[cfg(any(windows, test))]
@@ -91,6 +95,8 @@ fn resolve_companion_inspection_coordinator(
     topology_plan: CompanionArchiveTopologyPlan,
     plan: ArchiveInspectionPlan,
 ) -> Result<ArchiveInspectionCoordinator, ApiError> {
+    #[cfg(test)]
+    INSPECTION_RESOLVER_CALL_COUNT.fetch_add(1, Ordering::Relaxed);
     if matches!(
         (topology_plan.kind, topology_plan.topology),
         (CompanionArchiveOperationKind::Inspect, CompanionArchiveTopology::LocalInspection)
@@ -101,6 +107,11 @@ fn resolve_companion_inspection_coordinator(
             "Archive inspection topology did not resolve to a compatible Companion binding".to_string(),
         ))
     }
+}
+
+#[cfg(test)]
+fn inspection_resolver_call_count() -> usize {
+    INSPECTION_RESOLVER_CALL_COUNT.load(Ordering::Relaxed)
 }
 
 fn resolve_local_archive_inspection_coordinator(
@@ -506,53 +517,23 @@ pub async fn browse_list_archive(
     if !metadata.is_file() {
         return Err(ApiError::BadRequest("Archive path must identify a regular file".to_string()));
     }
-    let archive_size = metadata.len();
-    let archive_modified_at = metadata.modified().ok().map(DateTime::<Utc>::from);
     let virtual_path = query.virtual_path.unwrap_or_default();
-    let requested_virtual_path = virtual_path.clone();
-    let cursor = query.cursor;
-    let page = tokio::task::spawn_blocking(move || {
-        resolve_local_archive_inspection_coordinator(archive_path, ArchiveInspectionPresentation::DirectoryListing)?
-            .list_directory(&requested_virtual_path, cursor.as_deref(), page_size)
+    let presentation = ArchiveDirectoryListingPresentation::new(
+        query.archive_path,
+        metadata.len(),
+        metadata.modified().ok().map(DateTime::<Utc>::from),
+        virtual_path,
+        query.cursor,
+        page_size,
+    );
+    let listing = tokio::task::spawn_blocking(move || {
+        resolve_local_archive_inspection_coordinator(archive_path, ArchiveInspectionPresentation::DirectoryListing(presentation))?
+            .directory_listing()
             .map_err(map_local_archive_read_error)
     })
     .await
     .map_err(|error| ApiError::Internal(format!("Local archive listing task failed: {error}")))??;
-
-    let items = page
-        .entries
-        .into_iter()
-        .map(|entry| ArchiveEntryInfo {
-            name: entry.name.clone(),
-            path: entry.path,
-            file_type: if entry.is_directory { FileType::Directory } else { FileType::File },
-            size: entry.uncompressed_size,
-            compressed_size: entry.compressed_size,
-            compression_method: entry.compression_method,
-            crc32: entry.crc32,
-            modified_at: entry.modified_at,
-            state: if entry.encrypted {
-                ArchiveEntryState::Blocked
-            } else if entry.is_available {
-                ArchiveEntryState::Readable
-            } else {
-                ArchiveEntryState::Unavailable
-            },
-            is_hidden: entry.name.starts_with('.'),
-        })
-        .collect();
-    Ok(Json(ArchiveDirectoryListing {
-        archive: ArchiveIdentity {
-            path: query.archive_path,
-            size: archive_size,
-            modified_at: archive_modified_at,
-        },
-        path: virtual_path.trim_end_matches('/').to_string(),
-        items,
-        total: page.total,
-        next_cursor: page.next_cursor,
-        page_size,
-    }))
+    Ok(Json(listing))
 }
 
 /// `GET /api/browse/{drive}/link-targets` — resolve display-safe target metadata for links in one directory.
@@ -795,16 +776,14 @@ pub async fn viewer_archive_member(Path(drive): Path<String>, Query(query): Quer
 
     let member_path = query.member_path.replace('\\', "/");
     let inspection_path = archive_path.clone();
-    let inspection_member_path = member_path.clone();
+    let presentation = ArchiveMemberReadPresentation::new(member_path, query.download);
     let member = tokio::task::spawn_blocking(move || {
-        resolve_local_archive_inspection_coordinator(inspection_path, ArchiveInspectionPresentation::MemberRead)?
-            .member(&inspection_member_path)
-            .cloned()
-            .map_err(map_local_archive_read_error)
+        resolve_local_archive_inspection_coordinator(inspection_path, ArchiveInspectionPresentation::MemberRead(presentation))
+            .and_then(|coordinator| coordinator.member_read().map_err(map_local_archive_read_error))
     })
     .await
     .map_err(|error| ApiError::Internal(format!("Local archive validation task failed: {error}")))??;
-    if !query.download && !member.is_inline_preview_eligible() {
+    if !query.download && !member.inline_preview_eligible {
         return Err(ApiError::PayloadTooLarge(
             "Archive member exceeds the inline preview size limit".to_string(),
         ));
@@ -813,24 +792,17 @@ pub async fn viewer_archive_member(Path(drive): Path<String>, Query(query): Quer
     let (writer, reader) = tokio::io::duplex(ARCHIVE_COPY_BUFFER_SIZE);
     tokio::task::spawn_blocking(move || {
         let mut output = SyncIoBridge::new(writer);
-        if let Err(error) = stream_local_archive_member(&archive_path, &member_path, &mut output) {
+        if let Err(error) = stream_local_archive_member(&archive_path, &member.member_path, &mut output) {
             warn!("Local archive member stream failed: {error}");
         }
     });
 
-    let normalized_member_path = query.member_path.replace('\\', "/");
-    let member_name = normalized_member_path.rsplit('/').next().unwrap_or("download");
-    let mime_type = mime_guess::from_path(member_name).first_or_octet_stream().to_string();
-    let disposition = format!(
-        "{}; filename=\"{member_name}\"",
-        if query.download { "attachment" } else { "inline" }
-    );
     Response::builder()
         .status(StatusCode::OK)
-        .header("Content-Type", mime_type)
+        .header("Content-Type", member.content_type)
         .header(
             "Content-Disposition",
-            HeaderValue::from_str(&disposition).unwrap_or_else(|_| HeaderValue::from_static("attachment")),
+            HeaderValue::from_str(&member.content_disposition).unwrap_or_else(|_| HeaderValue::from_static("attachment")),
         )
         .body(Body::from_stream(ReaderStream::new(reader)))
         .map_err(|error| ApiError::Internal(format!("Failed to build archive member response: {error}")))
@@ -4859,24 +4831,25 @@ async fn copy_dir_recursive(src: &std::path::Path, dst: &std::path::Path) -> Res
 #[cfg(test)]
 mod tests {
     use super::{
-        archive_creation_response, archive_execution_response, build_file_info, build_pair_status_response, classify_link_target,
-        execute_archive_relay, map_local_archive_error, normalize_drive_relative_path, normalize_windows_display_path,
-        relay_completed_members, resolve_companion_archive_topology, resolve_companion_inspection_coordinator,
-        resolve_drive_relative_source_path, resolve_link_target_metadata, resolve_local_archive_inspection_coordinator,
-        resolve_pair_cancel_origin, resolve_pair_confirm_origin, resolve_pair_status_origin, resolve_safe_path, source_link_kind,
-        validate_editor_write_target, ArchiveCreationAdapterBinding, ArchiveCreationMemberCompletion, ArchiveCreationRelay,
-        ArchiveExtractionAdapterBinding, ArchiveExtractionCollision, ArchiveExtractionMemberCompletion, ArchiveExtractionMemberError,
-        ArchiveExtractionRelay, ArchiveExtractionSummary, ArchiveRelayBinding, ArchiveRelayDestinationStatus, ArchiveRelayFailure,
+        archive_creation_response, archive_execution_response, browse_list_archive, build_file_info, build_pair_status_response,
+        classify_link_target, execute_archive_relay, inspection_resolver_call_count, map_local_archive_error,
+        normalize_drive_relative_path, normalize_windows_display_path, relay_completed_members, resolve_companion_archive_topology,
+        resolve_companion_inspection_coordinator, resolve_drive_relative_source_path, resolve_link_target_metadata,
+        resolve_local_archive_inspection_coordinator, resolve_pair_cancel_origin, resolve_pair_confirm_origin, resolve_pair_status_origin,
+        resolve_safe_path, source_link_kind, validate_editor_write_target, viewer_archive_member, ArchiveCreationAdapterBinding,
+        ArchiveCreationMemberCompletion, ArchiveCreationRelay, ArchiveExtractionAdapterBinding, ArchiveExtractionCollision,
+        ArchiveExtractionMemberCompletion, ArchiveExtractionMemberError, ArchiveExtractionRelay, ArchiveExtractionSummary,
+        ArchiveListQuery, ArchiveMemberQuery, ArchiveRelayBinding, ArchiveRelayDestinationStatus, ArchiveRelayFailure,
         ArchiveRelayOperation, ArchiveRelayTransport, FixtureArchiveCreationInvocation, FixtureArchiveExtractionInvocation,
         ARCHIVE_RELAY_ACKNOWLEDGEMENT_ATTEMPTS,
     };
     use crate::server::archive::{
         build_local_archive_manifest, build_local_archive_manifest_for_remote_target, create_local_archive,
         resolve_companion_archive_inspection_topology_plan, resolve_companion_archive_topology_plan, validate_local_archive_extraction,
-        ArchiveCreationManifest, ArchiveCreationManifestMember, ArchiveInspectionPlan, ArchiveInspectionPresentation,
-        CompanionArchiveOperationKind, CompanionArchiveTopology, LocalArchiveCreationResult, LocalArchiveEntry, LocalArchiveError,
-        LocalArchiveExtractionMemberError, LocalArchiveExtractionResult, LocalArchiveInspectionSource, LocalArchiveReadEntry,
-        LocalArchiveReadError,
+        ArchiveCreationManifest, ArchiveCreationManifestMember, ArchiveDirectoryListingPresentation, ArchiveInspectionPlan,
+        ArchiveInspectionPresentation, CompanionArchiveOperationKind, CompanionArchiveTopology, LocalArchiveCreationResult,
+        LocalArchiveEntry, LocalArchiveError, LocalArchiveExtractionMemberError, LocalArchiveExtractionResult,
+        LocalArchiveInspectionSource, LocalArchiveReadEntry, LocalArchiveReadError,
     };
     use crate::server::archive_sessions::{
         ArchiveSessionKind, ArchiveSessionPendingDecision, ArchiveSessionPhase, ArchiveSessionProgress, ArchiveSessionStatus,
@@ -4887,7 +4860,7 @@ mod tests {
     };
     use crate::server::pairing::PairingState;
     use axum::body::to_bytes;
-    use axum::extract::State;
+    use axum::extract::{Path, Query, State};
     use axum::http::{HeaderMap, HeaderValue, Method, StatusCode, Uri};
     use axum::response::IntoResponse;
     use serde::Deserialize;
@@ -4988,25 +4961,77 @@ mod tests {
         let entries = build_local_archive_manifest(&[source], &target).expect("archive manifest should be built");
         create_local_archive(directory.path(), &target, &entries, || false).expect("archive should be created");
 
-        let coordinator = resolve_local_archive_inspection_coordinator(target.clone(), ArchiveInspectionPresentation::DirectoryListing)
-            .expect("local inspection route binding should resolve");
-        assert_eq!(
-            coordinator
-                .list_directory("", None, 10)
-                .expect("directory listing should succeed")
-                .total,
-            1
-        );
+        let coordinator = resolve_local_archive_inspection_coordinator(
+            target.clone(),
+            ArchiveInspectionPresentation::DirectoryListing(ArchiveDirectoryListingPresentation::new(
+                "archive.zip".to_string(),
+                0,
+                None,
+                String::new(),
+                None,
+                10,
+            )),
+        )
+        .expect("local inspection route binding should resolve");
+        assert_eq!(coordinator.directory_listing().expect("directory listing should succeed").total, 1);
 
         let plan = ArchiveInspectionPlan::from_local_source(
             LocalArchiveInspectionSource::from_archive_path(target),
-            ArchiveInspectionPresentation::DirectoryListing,
+            ArchiveInspectionPresentation::DirectoryListing(ArchiveDirectoryListingPresentation::new(
+                "archive.zip".to_string(),
+                0,
+                None,
+                String::new(),
+                None,
+                10,
+            )),
         )
         .expect("inspection plan should be built");
         let create_topology = resolve_companion_archive_topology_plan(CompanionArchiveOperationKind::Create, true, true)
             .expect("creation topology should resolve");
         assert!(resolve_companion_inspection_coordinator(create_topology, plan).is_err());
         assert!(resolve_companion_archive_inspection_topology_plan(false).is_err());
+    }
+
+    #[tokio::test]
+    async fn companion_archive_inspection_routes_invoke_the_production_resolver() {
+        let directory = tempfile::tempdir().expect("temporary archive directory should be created");
+        let source = directory.path().join("source.txt");
+        let target = directory.path().join("archive.zip");
+        std::fs::write(&source, b"source").expect("source file should be written");
+        let entries = build_local_archive_manifest(&[source], &target).expect("archive manifest should be built");
+        create_local_archive(directory.path(), &target, &entries, || false).expect("archive should be created");
+        let drive_id = format!("test-drive-{}", uuid::Uuid::new_v4());
+        crate::server::drives::register_test_drive_path(drive_id.clone(), directory.path().to_path_buf());
+        let archive_path = "archive.zip".to_string();
+        let resolver_calls_before = inspection_resolver_call_count();
+
+        let listing = browse_list_archive(
+            Path(drive_id.clone()),
+            Query(ArchiveListQuery {
+                archive_path: archive_path.clone(),
+                virtual_path: None,
+                cursor: None,
+                page_size: Some(10),
+            }),
+        )
+        .await
+        .expect("archive listing route should succeed");
+        assert_eq!(listing.0.items[0].name, "source.txt");
+
+        let member_response = viewer_archive_member(
+            Path(drive_id),
+            Query(ArchiveMemberQuery {
+                archive_path,
+                member_path: "source.txt".to_string(),
+                download: false,
+            }),
+        )
+        .await
+        .expect("archive member route should succeed");
+        assert_eq!(member_response.headers()["content-type"], "text/plain");
+        assert_eq!(to_bytes(member_response.into_body(), usize::MAX).await.unwrap(), "source");
+        assert!(inspection_resolver_call_count() >= resolver_calls_before + 2);
     }
 
     #[derive(Clone)]

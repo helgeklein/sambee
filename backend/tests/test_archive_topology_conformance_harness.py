@@ -17,11 +17,12 @@ from app.services.archive.coordinator import (
     ArchiveCreationExecutionPlan,
     ArchiveCreationManifest,
     ArchiveCreationManifestMember,
+    ArchiveDirectoryListingPresentation,
     ArchiveExtractionCoordinator,
     ArchiveExtractionManifest,
     ArchiveExtractionManifestMember,
     ArchiveInspectionPlan,
-    ArchiveInspectionPresentation,
+    ArchiveMemberReadPresentation,
     InMemoryArchiveExecutionStateStore,
     new_extraction_outcome_checkpoint,
     resolve_archive_inspection_coordinator,
@@ -276,18 +277,18 @@ def test_backend_inspection_resolver_rejects_non_backend_bindings_and_mismatched
     backend_plan = ArchiveInspectionPlan(
         source,
         resolve_archive_inspection_topology_plan(source_connection_id="connection-1"),
-        ArchiveInspectionPresentation.DIRECTORY_LISTING,
+        ArchiveDirectoryListingPresentation("archive.zip", 0, None, "", None, 10),
     )
     coordinator = resolve_archive_inspection_coordinator(backend_plan)
 
     assert coordinator.plan is backend_plan
     with pytest.raises(ValueError, match="member-read response"):
-        asyncio.run(coordinator.member("entry.txt"))
+        asyncio.run(coordinator.member_read())
 
     local_plan = ArchiveInspectionPlan(
         source,
         resolve_archive_inspection_topology_plan(source_connection_id="local-drive:c"),
-        ArchiveInspectionPresentation.DIRECTORY_LISTING,
+        ArchiveMemberReadPresentation("entry.txt", False),
     )
     with pytest.raises(ValueError, match="compatible backend binding"):
         resolve_archive_inspection_coordinator(local_plan)

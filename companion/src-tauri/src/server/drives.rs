@@ -4,7 +4,11 @@
 //! physical drives, removable media, network mounts, and virtual drives
 //! (Google Drive, OneDrive, Dropbox, etc.).
 
+#[cfg(test)]
+use std::collections::HashMap;
 use std::path::{Path, PathBuf};
+#[cfg(test)]
+use std::sync::{Mutex, OnceLock};
 
 use log::warn;
 
@@ -40,6 +44,17 @@ const EXCLUDED_FS_TYPES: &[&str] = &[
 
 /// Mount points to exclude (always system paths).
 const EXCLUDED_MOUNT_POINTS: &[&str] = &["/proc", "/sys", "/dev", "/run", "/snap", "/boot/efi"];
+#[cfg(test)]
+static TEST_DRIVE_PATHS: OnceLock<Mutex<HashMap<String, PathBuf>>> = OnceLock::new();
+
+#[cfg(test)]
+pub fn register_test_drive_path(drive_id: String, path: PathBuf) {
+    let paths = TEST_DRIVE_PATHS.get_or_init(|| Mutex::new(HashMap::new()));
+    paths
+        .lock()
+        .expect("test drive registry lock should not be poisoned")
+        .insert(drive_id, path);
+}
 
 /// Enumerate all accessible drives/volumes on the current platform.
 pub fn enumerate_drives() -> Vec<DriveInfo> {
@@ -54,6 +69,15 @@ pub fn enumerate_drives() -> Vec<DriveInfo> {
 ///
 /// Returns `None` if the drive ID is unknown.
 pub fn resolve_drive_path(drive_id: &str) -> Option<PathBuf> {
+    #[cfg(test)]
+    if let Some(path) = TEST_DRIVE_PATHS
+        .get_or_init(|| Mutex::new(HashMap::new()))
+        .lock()
+        .expect("test drive registry lock should not be poisoned")
+        .get(drive_id)
+    {
+        return Some(path.clone());
+    }
     let drives = enumerate_platform_drives();
     // The drive ID encodes the mount point — decode it back
     drives.iter().find(|_d| _d.id == drive_id).map(|_| drive_id_to_path(drive_id))
