@@ -2580,6 +2580,7 @@ fn map_local_archive_error(error: LocalArchiveError) -> ApiError {
         LocalArchiveError::TargetExists | LocalArchiveError::ExtractionTargetExists => {
             ApiError::conflict_message("Archive output already exists")
         }
+        LocalArchiveError::ArchiveSourceChanged => ApiError::conflict_message("Archive source changed since extraction began"),
         LocalArchiveError::TargetInsideSource => {
             ApiError::BadRequest("Archive output cannot be inside a selected source directory".to_string())
         }

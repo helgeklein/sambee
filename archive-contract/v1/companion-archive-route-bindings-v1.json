@@ -3,6 +3,13 @@
   "routes": [
     {
       "method": "GET",
+      "path": "/api/viewer/{drive}/archive/member",
+      "handler": "viewer_archive_member",
+      "operation_id": "readArchiveMember",
+      "retirement_condition": "Replace with a V2 archive member-read operation after V2 caller migration."
+    },
+    {
+      "method": "GET",
       "path": "/api/browse/{drive}/archive/list",
       "handler": "browse_list_archive",
       "operation_id": "inspection",

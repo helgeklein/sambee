@@ -657,12 +657,28 @@ pub enum LocalArchiveExtractionCollisionAction {
 /// Durable-in-session state required to restart local extraction after a pause.
 #[derive(Debug, Clone, Default)]
 pub struct LocalArchiveExtractionCheckpoint {
+    manifest: Option<ArchiveExtractionManifest>,
+    source_identity: Option<LocalArchiveSourceIdentity>,
     member_outcomes: HashMap<String, LocalArchiveExtractionDestinationResult>,
     collision_actions: HashMap<String, LocalArchiveExtractionCollisionAction>,
     member_rename_targets: HashMap<String, String>,
     global_collision_action: Option<LocalArchiveExtractionCollisionAction>,
     partial_members: HashMap<String, u64>,
     destination_root_created: bool,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+struct LocalArchiveSourceIdentity {
+    size: u64,
+    modified_at: Option<std::time::SystemTime>,
+}
+
+fn local_archive_source_identity(archive_path: &Path) -> Result<LocalArchiveSourceIdentity, LocalArchiveError> {
+    let metadata = fs::metadata(archive_path)?;
+    Ok(LocalArchiveSourceIdentity {
+        size: metadata.len(),
+        modified_at: metadata.modified().ok(),
+    })
 }
 
 /// Immutable archive members and persisted checkpoint state consumed by one extraction pass.
@@ -879,6 +895,8 @@ pub enum LocalArchiveError {
     ConflictingCreationOutcome,
     #[error("archive creation member outcomes did not match the preflight manifest")]
     IncompleteCreationManifest,
+    #[error("archive source changed since extraction began")]
+    ArchiveSourceChanged,
     #[error("archive source is not a regular file or directory")]
     UnsupportedSource,
     #[error("archive operation was cancelled")]
@@ -1485,12 +1503,18 @@ pub fn extract_local_archive_with_checkpoint_and_progress(
     drive_root: &Path,
     archive_path: &Path,
     destination_path: &Path,
-    checkpoint: LocalArchiveExtractionCheckpoint,
+    mut checkpoint: LocalArchiveExtractionCheckpoint,
     is_cancelled: impl Fn() -> bool,
     mut on_progress: impl FnMut(LocalArchiveExtractionResult),
 ) -> Result<LocalArchiveExtractionRunResult, LocalArchiveError> {
     if is_cancelled() {
         return Err(LocalArchiveError::Cancelled);
+    }
+    let source_identity = local_archive_source_identity(archive_path)?;
+    match checkpoint.source_identity.as_ref() {
+        Some(identity) if identity != &source_identity => return Err(LocalArchiveError::ArchiveSourceChanged),
+        Some(_) => {}
+        None => checkpoint.source_identity = Some(source_identity),
     }
     let entries = read_local_archive_entries(archive_path)?;
     if entries.iter().any(|entry| !entry.is_safe) {
@@ -1501,7 +1525,7 @@ pub fn extract_local_archive_with_checkpoint_and_progress(
     }
     validate_extraction_output_paths(&entries)?;
     validate_checkpointed_extraction_output_paths(&entries, &checkpoint)?;
-    let manifest = ArchiveExtractionManifest::from_entries(
+    let discovered_manifest = ArchiveExtractionManifest::from_entries(
         entries
             .iter()
             .map(|entry| ArchiveExtractionManifestMember {
@@ -1512,6 +1536,14 @@ pub fn extract_local_archive_with_checkpoint_and_progress(
             })
             .collect(),
     )?;
+    let manifest = match checkpoint.manifest.as_ref() {
+        Some(manifest) if manifest != &discovered_manifest => return Err(LocalArchiveError::ArchiveSourceChanged),
+        Some(manifest) => manifest.clone(),
+        None => {
+            checkpoint.manifest = Some(discovered_manifest.clone());
+            discovered_manifest
+        }
+    };
     let execution_plan = LocalArchiveExtractionExecutionPlan::from_manifest(manifest, checkpoint)?;
     let manifest = execution_plan.manifest.clone();
     let mut checkpoint = execution_plan.into_checkpoint();
@@ -3511,7 +3543,7 @@ mod tests {
         let source = directory.path().join("source.txt");
         fs::write(&source, b"source").unwrap();
         let archive_path = directory.path().join("archive.zip");
-        let entries = build_local_archive_manifest(&[source], &archive_path).unwrap();
+        let entries = build_local_archive_manifest(std::slice::from_ref(&source), &archive_path).unwrap();
         create_local_archive(directory.path(), &archive_path, &entries, || false).unwrap();
 
         let preflight_destination = directory.path().join("preflight-output");
@@ -3575,7 +3607,7 @@ mod tests {
         let source = directory.path().join("source.txt");
         fs::write(&source, b"archive contents").unwrap();
         let archive_path = directory.path().join("archive.zip");
-        let entries = build_local_archive_manifest(&[source], &archive_path).unwrap();
+        let entries = build_local_archive_manifest(std::slice::from_ref(&source), &archive_path).unwrap();
         create_local_archive(directory.path(), &archive_path, &entries, || false).unwrap();
 
         let skip_destination = directory.path().join("skip-output");
@@ -3642,6 +3674,45 @@ mod tests {
         };
         assert_eq!(replace_checkpoint.result().files_extracted, 1);
         assert_eq!(fs::read(replace_destination.join("source.txt")).unwrap(), b"archive contents");
+    }
+
+    #[test]
+    fn rejects_archive_changes_before_resuming_a_paused_extraction() {
+        let directory = tempdir().unwrap();
+        let source = directory.path().join("source.txt");
+        fs::write(&source, b"archive contents").unwrap();
+        let archive_path = directory.path().join("archive.zip");
+        let entries = build_local_archive_manifest(std::slice::from_ref(&source), &archive_path).unwrap();
+        create_local_archive(directory.path(), &archive_path, &entries, || false).unwrap();
+
+        let destination = directory.path().join("output");
+        fs::create_dir(&destination).unwrap();
+        fs::write(destination.join("source.txt"), b"existing contents").unwrap();
+        let (mut checkpoint, collision) = match extract_local_archive_with_checkpoint_and_progress(
+            directory.path(),
+            &archive_path,
+            &destination,
+            LocalArchiveExtractionCheckpoint::default(),
+            || false,
+            |_| {},
+        )
+        .unwrap()
+        {
+            LocalArchiveExtractionRunResult::AwaitingCollision { checkpoint, collision } => (checkpoint, collision),
+            _ => panic!("expected a collision pause"),
+        };
+        checkpoint.resolve_collision(collision.member_path, LocalArchiveExtractionCollisionAction::Replace);
+
+        fs::remove_file(&archive_path).unwrap();
+        fs::write(&source, b"changed contents").unwrap();
+        let changed_entries = build_local_archive_manifest(&[source], &archive_path).unwrap();
+        create_local_archive(directory.path(), &archive_path, &changed_entries, || false).unwrap();
+
+        assert!(matches!(
+            extract_local_archive_with_checkpoint_and_progress(directory.path(), &archive_path, &destination, checkpoint, || false, |_| {},),
+            Err(LocalArchiveError::ArchiveSourceChanged)
+        ));
+        assert_eq!(fs::read(destination.join("source.txt")).unwrap(), b"existing contents");
     }
 
     #[test]
@@ -3855,7 +3926,7 @@ mod tests {
     }
 
     #[test]
-    fn pauses_for_member_errors_and_retries_known_partial_output() {
+    fn rejects_source_changes_before_retrying_a_known_partial_output() {
         let corpus_path = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
             .join("../..")
             .join("archive-contract/v1/extraction-outcome-scenarios-v1.json");
@@ -3944,16 +4015,11 @@ mod tests {
         assert_eq!(ignored_checkpoint.result().partial_members, 0);
 
         fs::write(&archive_path, original_archive).unwrap();
-        let LocalArchiveExtractionRunResult::Completed(checkpoint) =
-            extract_local_archive_with_checkpoint_and_progress(directory.path(), &archive_path, &destination, checkpoint, || false, |_| {})
-                .unwrap()
-        else {
-            panic!("retry must complete extraction");
-        };
+        assert!(matches!(
+            extract_local_archive_with_checkpoint_and_progress(directory.path(), &archive_path, &destination, checkpoint, || false, |_| {},),
+            Err(LocalArchiveError::ArchiveSourceChanged)
+        ));
         assert_eq!(retry_scenario.member_error_action.as_deref(), Some("retry"));
-        assert_eq!(retry_scenario.terminal_phase, "completed");
-        assert_eq!(checkpoint.result().files_extracted, retry_scenario.progress["files_extracted"]);
-        assert_eq!(fs::read(destination.join("source.txt")).unwrap(), b"archive contents");
     }
 
     #[test]

@@ -1475,6 +1475,18 @@ async def execute_archive_extraction(
                 operation,
                 json.dumps(new_extraction_outcome_checkpoint(manifest=manifest, source_identity=_archive_source_identity(archive_info))),
             )
+        else:
+            archive_info = await backend.get_file_info(operation.source_path)
+            if (
+                archive_info.type != FileType.FILE
+                or archive_info.size is None
+                or checkpoint.get("source_identity") != _archive_source_identity(archive_info)
+            ):
+                DurableArchiveExecutionStateStore(session).fail(operation, "Archive extraction source changed after manifest validation")
+                raise HTTPException(
+                    status_code=status.HTTP_409_CONFLICT,
+                    detail="Archive extraction source changed after manifest validation",
+                )
 
         async def run_extraction(
             record_member_completed: Callable[[ArchiveExtractionDestinationResult], Awaitable[None]],

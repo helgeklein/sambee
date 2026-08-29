@@ -3027,21 +3027,81 @@ def test_individual_extraction_decision_is_limited_to_pending_member(
     assert response.json()["collision_policy"] is None
     assert json.loads(response.json()["checkpoint_json"])["member_collision_actions"] == {"root.txt": "skip"}
 
-    with patch(
-        "app.api.archive_operations.extract_archive_to_new_paths",
-        new=AsyncMock(
-            side_effect=completed_extraction_runner(
-                ArchiveExtractionResult(1, 1, 6, files_skipped=1, skipped_members=("root.txt",)),
-                [ArchiveExtractionDestinationResult("root.txt", "skipped", "output/root.txt")],
-            )
-        ),
-    ) as extract_archive:
+    with (
+        patch("app.api.archive_operations.SMBBackend", return_value=backend),
+        patch(
+            "app.api.archive_operations.extract_archive_to_new_paths",
+            new=AsyncMock(
+                side_effect=completed_extraction_runner(
+                    ArchiveExtractionResult(1, 1, 6, files_skipped=1, skipped_members=("root.txt",)),
+                    [ArchiveExtractionDestinationResult("root.txt", "skipped", "output/root.txt")],
+                )
+            ),
+        ) as extract_archive,
+    ):
         resumed = client.post(f"/api/archive/operations/{prepared['id']}/execute-extract", headers=auth_headers_user)
 
     assert resumed.status_code == 200
     assert resumed.json()["phase"] == "completed"
     assert json.loads(resumed.json()["checkpoint_json"])["skipped_members"] == ["root.txt"]
     assert extract_archive.await_args.kwargs["member_collision_actions"] == {"root.txt": "skip"}
+
+
+def test_direct_smb_extraction_rejects_a_source_changed_after_pause(
+    client: TestClient,
+    auth_headers_user: dict,
+    test_connection: Connection,
+) -> None:
+    prepared = client.post(
+        "/api/archive/operations",
+        headers=auth_headers_user,
+        json={
+            "kind": "extract",
+            "source_connection_id": str(test_connection.id),
+            "source_path": "input.zip",
+            "destination_connection_id": str(test_connection.id),
+            "destination_path": "output",
+        },
+    ).json()
+    backend = AsyncMock()
+    backend.connect.return_value = None
+    backend.disconnect.return_value = None
+    configure_direct_extraction_archive(backend, {"root.txt": b"contents"})
+
+    with (
+        patch("app.api.archive_operations.SMBBackend", return_value=backend),
+        patch(
+            "app.api.archive_operations.extract_archive_to_new_paths",
+            new=AsyncMock(side_effect=ArchiveExtractionConflicts([ArchiveExtractionConflict("root.txt", "output/root.txt")])),
+        ),
+    ):
+        paused = client.post(f"/api/archive/operations/{prepared['id']}/execute-extract", headers=auth_headers_user)
+    assert paused.status_code == 200
+
+    decision = client.post(
+        f"/api/archive/operations/{prepared['id']}/decide-extraction",
+        headers=auth_headers_user,
+        json={"action": "skip", "member_path": "root.txt"},
+    )
+    assert decision.status_code == 200
+
+    backend.get_file_info.return_value = FileInfo(
+        name="input.zip",
+        path="input.zip",
+        type=FileType.FILE,
+        size=999,
+    )
+    with (
+        patch("app.api.archive_operations.SMBBackend", return_value=backend),
+        patch("app.api.archive_operations.extract_archive_to_new_paths", new=AsyncMock()) as extract_archive,
+    ):
+        resumed = client.post(f"/api/archive/operations/{prepared['id']}/execute-extract", headers=auth_headers_user)
+
+    assert resumed.status_code == 409
+    assert resumed.json()["detail"] == "Archive extraction source changed after manifest validation"
+    extract_archive.assert_not_awaited()
+    operation = client.get(f"/api/archive/operations/{prepared['id']}", headers=auth_headers_user)
+    assert operation.json()["phase"] == "failed"
 
 
 def test_individual_rename_decision_persists_a_safe_member_remap(
@@ -3093,19 +3153,22 @@ def test_individual_rename_decision_persists_a_safe_member_remap(
     assert response.status_code == 200
     assert json.loads(response.json()["checkpoint_json"])["member_rename_targets"] == {"root.txt": "renamed/root-copy.txt"}
 
-    with patch(
-        "app.api.archive_operations.extract_archive_to_new_paths",
-        new=AsyncMock(
-            side_effect=completed_extraction_runner(
-                ArchiveExtractionResult(1, 1, 4, renamed_members=("root.txt",)),
-                [
-                    ArchiveExtractionDestinationResult(
-                        "root.txt", "extracted", "output/renamed/root-copy.txt", extracted_bytes=4, renamed=True
-                    )
-                ],
-            )
-        ),
-    ) as extract_archive:
+    with (
+        patch("app.api.archive_operations.SMBBackend", return_value=backend),
+        patch(
+            "app.api.archive_operations.extract_archive_to_new_paths",
+            new=AsyncMock(
+                side_effect=completed_extraction_runner(
+                    ArchiveExtractionResult(1, 1, 4, renamed_members=("root.txt",)),
+                    [
+                        ArchiveExtractionDestinationResult(
+                            "root.txt", "extracted", "output/renamed/root-copy.txt", extracted_bytes=4, renamed=True
+                        )
+                    ],
+                )
+            ),
+        ) as extract_archive,
+    ):
         resumed = client.post(f"/api/archive/operations/{prepared['id']}/execute-extract", headers=auth_headers_user)
 
     assert resumed.status_code == 200
@@ -3165,9 +3228,12 @@ def test_member_write_failure_pauses_for_retry_or_ignore(
     assert retry.status_code == 200
     assert json.loads(retry.json()["checkpoint_json"])["retry_members"] == ["root.txt"]
 
-    with patch(
-        "app.api.archive_operations.extract_archive_to_new_paths",
-        new=AsyncMock(side_effect=ArchiveExtractionMemberError("root.txt", "output/root.txt", "Disk full")),
+    with (
+        patch("app.api.archive_operations.SMBBackend", return_value=backend),
+        patch(
+            "app.api.archive_operations.extract_archive_to_new_paths",
+            new=AsyncMock(side_effect=ArchiveExtractionMemberError("root.txt", "output/root.txt", "Disk full")),
+        ),
     ):
         response = client.post(f"/api/archive/operations/{prepared['id']}/execute-extract", headers=auth_headers_user)
 
@@ -3183,15 +3249,18 @@ def test_member_write_failure_pauses_for_retry_or_ignore(
     assert decision.json()["phase"] == "streaming"
     assert json.loads(decision.json()["checkpoint_json"])["ignored_members"] == ["root.txt"]
 
-    with patch(
-        "app.api.archive_operations.extract_archive_to_new_paths",
-        new=AsyncMock(
-            side_effect=completed_extraction_runner(
-                ArchiveExtractionResult(1, 1, 4, files_skipped=1, skipped_members=("root.txt",)),
-                [ArchiveExtractionDestinationResult("root.txt", "ignored", "output/root.txt")],
-            )
-        ),
-    ) as extract_archive:
+    with (
+        patch("app.api.archive_operations.SMBBackend", return_value=backend),
+        patch(
+            "app.api.archive_operations.extract_archive_to_new_paths",
+            new=AsyncMock(
+                side_effect=completed_extraction_runner(
+                    ArchiveExtractionResult(1, 1, 4, files_skipped=1, skipped_members=("root.txt",)),
+                    [ArchiveExtractionDestinationResult("root.txt", "ignored", "output/root.txt")],
+                )
+            ),
+        ) as extract_archive,
+    ):
         resumed = client.post(f"/api/archive/operations/{prepared['id']}/execute-extract", headers=auth_headers_user)
 
     assert resumed.status_code == 200

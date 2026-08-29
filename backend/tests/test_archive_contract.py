@@ -10,6 +10,7 @@ from fastapi.routing import APIRoute
 
 from app.api.archive_operations import router
 from app.api.browser import router as browser_router
+from app.api.viewer import router as viewer_router
 from app.models.archive_operation import (
     ArchiveCompanionCreationMemberCompletion,
     ArchiveCompanionCreationSummary,
@@ -34,7 +35,7 @@ COMPANION_RELAY_BINDING_PATH = WORKSPACE_ROOT / "companion" / "src-tauri" / "src
 COMPANION_ROUTER_PATH = WORKSPACE_ROOT / "companion" / "src-tauri" / "src" / "server" / "mod.rs"
 ARCHIVE_API_PREFIX = "/api/archive"
 CANONICAL_RELAY_PATH_SEGMENT = "/companion-relay/"
-HTTP_OPERATION_METHODS = frozenset({"get", "post", "put"})
+HTTP_OPERATION_METHODS = frozenset({"get", "post", "put", "delete"})
 
 
 def _documented_relay_operations(contract: dict[str, Any]) -> set[tuple[str, str]]:
@@ -82,13 +83,21 @@ def _registered_backend_operations() -> set[tuple[str, str]]:
 
 
 def _registered_backend_inspection_operations() -> set[tuple[str, str]]:
-    return {
+    browser_routes = {
         (method, f"/api/browse{route.path}")
         for route in browser_router.routes
         if isinstance(route, APIRoute) and "/archive/" in route.path
         for method in route.methods or set()
         if method.lower() in HTTP_OPERATION_METHODS
     }
+    viewer_routes = {
+        (method, f"/api/viewer{route.path}")
+        for route in viewer_router.routes
+        if isinstance(route, APIRoute) and "/archive/" in route.path
+        for method in route.methods or set()
+        if method.lower() in HTTP_OPERATION_METHODS
+    }
+    return browser_routes | viewer_routes
 
 
 def _documented_relay_purposes(contract: dict[str, Any]) -> set[str]:
@@ -170,7 +179,7 @@ def _v1_companion_archive_route_bindings() -> set[tuple[str, str, str, str]]:
 def _registered_companion_archive_routes() -> set[tuple[str, str, str]]:
     router_source = COMPANION_ROUTER_PATH.read_text(encoding="utf-8")
     route_pattern = re.compile(
-        r'\.route\(\s*"(?P<path>/api/browse/\{drive\}/archive[^\"]*)",\s*'
+        r'\.route\(\s*"(?P<path>/api/(?:browse|viewer)/\{drive\}/archive[^\"]*)",\s*'
         r"axum::routing::(?P<method>get|post|put|delete)\(handlers::(?P<handler>\w+)\)\s*,?\s*\)",
         flags=re.DOTALL,
     )
@@ -213,7 +222,7 @@ def test_archive_contract_covers_active_backend_inspection_routes() -> None:
     documented_routes = {
         (method.upper(), path.replace("{connectionId}", "{connection_id}"))
         for path, path_item in contract["paths"].items()
-        if isinstance(path, str) and path.startswith("/api/browse/") and isinstance(path_item, dict)
+        if isinstance(path, str) and path.startswith(("/api/browse/", "/api/viewer/")) and isinstance(path_item, dict)
         for method in path_item
         if method in HTTP_OPERATION_METHODS
     }

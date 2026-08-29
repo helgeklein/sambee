@@ -110,6 +110,81 @@ paths:
           content:
             application/json:
               schema: {$ref: '#/components/schemas/ArchiveDirectoryListingV1'}
+  /api/viewer/{connectionId}/archive/member:
+    parameters: [{$ref: '#/components/parameters/ConnectionId'}]
+    get:
+      operationId: readArchiveMember
+      summary: Stream one parser-validated SMB archive member
+      security: [{ArchiveUserToken: []}]
+      parameters:
+        - $ref: '#/components/parameters/ArchivePath'
+        - $ref: '#/components/parameters/MemberPath'
+        - name: download
+          in: query
+          required: false
+          schema: {type: boolean, default: false}
+        - name: view_kind
+          in: query
+          required: false
+          schema: {type: string, enum: [raw, text, image, pdf], default: raw}
+        - name: pdf_variant
+          in: query
+          required: false
+          schema: {type: string, enum: [original, normalized], default: original}
+        - name: viewport_width
+          in: query
+          required: false
+          schema: {type: integer, minimum: 1}
+        - name: viewport_height
+          in: query
+          required: false
+          schema: {type: integer, minimum: 1}
+        - name: no_resizing
+          in: query
+          required: false
+          schema: {type: boolean, default: false}
+        - name: screen_width
+          in: query
+          required: false
+          schema: {type: integer, minimum: 320, maximum: 16384}
+        - name: screen_height
+          in: query
+          required: false
+          schema: {type: integer, minimum: 320, maximum: 16384}
+        - name: screen_zoom_percent
+          in: query
+          required: false
+          schema: {type: integer, minimum: 100, maximum: 400, default: 200}
+      responses:
+        '200':
+          description: Decoded archive member bytes
+          content:
+            application/octet-stream:
+              schema: {$ref: '#/components/schemas/ArchiveBinaryStream'}
+  /api/viewer/{connectionId}/archive/member/pdf-derivative:
+    parameters: [{$ref: '#/components/parameters/ConnectionId'}]
+    delete:
+      operationId: invalidateArchiveMemberPdfDerivative
+      summary: Invalidate one SMB archive member PDF derivative
+      security: [{ArchiveUserToken: []}]
+      parameters:
+        - $ref: '#/components/parameters/ArchivePath'
+        - $ref: '#/components/parameters/MemberPath'
+        - name: screen_width
+          in: query
+          required: false
+          schema: {type: integer, minimum: 320, maximum: 16384}
+        - name: screen_height
+          in: query
+          required: false
+          schema: {type: integer, minimum: 320, maximum: 16384}
+        - name: screen_zoom_percent
+          in: query
+          required: false
+          schema: {type: integer, minimum: 100, maximum: 400, default: 200}
+      responses:
+        '204':
+          description: PDF derivative invalidated
   /api/archive/operations:
     post:
       operationId: prepareArchiveOperation

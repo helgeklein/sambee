@@ -1056,11 +1056,8 @@ mod tests {
         })
         .await
         .expect("retried archive extraction should terminate");
-        assert!(matches!(
-            completed.result,
-            Some(ArchiveSessionProgress::Extraction(progress)) if progress.files_extracted == 1 && progress.partial_members == 0
-        ));
-        assert_eq!(fs::read(destination.join("source.txt")).unwrap(), b"archive contents");
+        assert_eq!(completed.phase, ArchiveSessionPhase::Failed);
+        assert_eq!(completed.error.as_deref(), Some("archive source changed since extraction began"));
     }
 
     #[tokio::test]

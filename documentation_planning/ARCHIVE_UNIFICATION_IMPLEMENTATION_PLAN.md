@@ -70,14 +70,21 @@ Still separate:
 4. Document all V1 compatibility readers and routes with their retirement
    condition: V2 caller migration plus the historical operation-retention
    window.
+5. Bind every retained V1 archive route, including inspection member-read and
+   derivative routes, to its semantic operation and exact request/response
+   schema. A route inventory alone is not a binding.
 
 Acceptance criteria:
 
 - Existing V1 behavior remains stable.
 - No new code reads or writes `written_members` outside the named compatibility
   boundaries.
-- Every active route has a contract, backend registration, Companion binding,
-  and test coverage.
+- Every active archive route, including inspection member-read and derivative
+   routes, has a contract, backend registration, Companion binding where
+   applicable, and test coverage.
+- Retained V1 adapters declare their concrete request/response schemas and
+   semantic operation; a normalized operation identifier must not stand in for
+   an incompatible adapter payload.
 
 ### 1. Specify And Test Archive Inspection
 
@@ -125,7 +132,13 @@ Acceptance criteria:
 
 - The same virtual tree produces the same manifest and canonical ordering in
   both runtimes.
-- All four creation topologies persist equivalent outcome-ledger trajectories.
+- All four creation topologies execute the shared trajectory corpus through
+   their selected coordinator or executor and persist equivalent outcome-ledger
+   trajectories. Replaying a generic ledger once, or labelling a generic replay
+   with a topology, does not satisfy this criterion.
+- Retained synchronous V1 creation adapters either expose the lifecycle ledger
+   for their execution or are documented and tested as compatibility shortcuts
+   outside the common lifecycle model.
 
 ### 3. Unify Extraction State Transitions
 
@@ -147,10 +160,17 @@ Acceptance criteria:
 Acceptance criteria:
 
 - The trajectory corpus passes for direct SMB, direct local, SMB -> local, and
-  local -> SMB extraction.
+   local -> SMB extraction by invoking each topology's coordinator or executor
+   through its actual pause, decision, resume, cancellation, and terminal
+   transitions. A topology-labelled state replay does not satisfy this
+   criterion.
 - No coordinator maintains independent counters or decision state.
 - Direct SMB execution can resume a persisted paused operation without relying
   on in-process exception state.
+- A resumed extraction verifies that the archive source still matches the
+   manifest snapshot before any further output is written. Direct-local sessions
+   remain non-durable, but retain this manifest snapshot for their in-memory
+   decision/resume lifetime.
 
 ### 4. Introduce A Shared Operation Model Per Runtime
 
