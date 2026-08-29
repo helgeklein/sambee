@@ -61,6 +61,168 @@
     "terminal_summary",
     "error_category"
   ],
+  "trajectory_cases": [
+    {
+      "operation": "create",
+      "topology": "smb_to_smb",
+      "scenario": "members_commit_and_terminal_summary_requires_coverage"
+    },
+    {
+      "operation": "create",
+      "topology": "smb_to_smb",
+      "scenario": "duplicate_member_report_is_idempotent"
+    },
+    {
+      "operation": "create",
+      "topology": "smb_to_smb",
+      "scenario": "cancellation_stops_before_member_commit"
+    },
+    {
+      "operation": "create",
+      "topology": "local_to_local",
+      "scenario": "members_commit_and_terminal_summary_requires_coverage"
+    },
+    {
+      "operation": "create",
+      "topology": "local_to_local",
+      "scenario": "duplicate_member_report_is_idempotent"
+    },
+    {
+      "operation": "create",
+      "topology": "local_to_local",
+      "scenario": "cancellation_stops_before_member_commit"
+    },
+    {
+      "operation": "create",
+      "topology": "smb_to_local",
+      "scenario": "members_commit_and_terminal_summary_requires_coverage"
+    },
+    {
+      "operation": "create",
+      "topology": "smb_to_local",
+      "scenario": "duplicate_member_report_is_idempotent"
+    },
+    {
+      "operation": "create",
+      "topology": "smb_to_local",
+      "scenario": "cancellation_stops_before_member_commit"
+    },
+    {
+      "operation": "create",
+      "topology": "local_to_smb",
+      "scenario": "members_commit_and_terminal_summary_requires_coverage"
+    },
+    {
+      "operation": "create",
+      "topology": "local_to_smb",
+      "scenario": "duplicate_member_report_is_idempotent"
+    },
+    {
+      "operation": "create",
+      "topology": "local_to_smb",
+      "scenario": "cancellation_stops_before_member_commit"
+    },
+    {
+      "operation": "extract",
+      "topology": "smb_to_smb",
+      "scenario": "collision_decisions_resume_to_terminal_summary"
+    },
+    {
+      "operation": "extract",
+      "topology": "smb_to_smb",
+      "scenario": "partial_write_retry_resumes_to_completion"
+    },
+    {
+      "operation": "extract",
+      "topology": "smb_to_smb",
+      "scenario": "partial_write_ignore_is_terminal"
+    },
+    {
+      "operation": "extract",
+      "topology": "smb_to_smb",
+      "scenario": "cancellation_stops_before_member_report"
+    },
+    {
+      "operation": "extract",
+      "topology": "smb_to_smb",
+      "scenario": "duplicate_terminal_report_is_idempotent"
+    },
+    {
+      "operation": "extract",
+      "topology": "local_to_local",
+      "scenario": "collision_decisions_resume_to_terminal_summary"
+    },
+    {
+      "operation": "extract",
+      "topology": "local_to_local",
+      "scenario": "partial_write_retry_resumes_to_completion"
+    },
+    {
+      "operation": "extract",
+      "topology": "local_to_local",
+      "scenario": "partial_write_ignore_is_terminal"
+    },
+    {
+      "operation": "extract",
+      "topology": "local_to_local",
+      "scenario": "cancellation_stops_before_member_report"
+    },
+    {
+      "operation": "extract",
+      "topology": "local_to_local",
+      "scenario": "duplicate_terminal_report_is_idempotent"
+    },
+    {
+      "operation": "extract",
+      "topology": "smb_to_local",
+      "scenario": "collision_decisions_resume_to_terminal_summary"
+    },
+    {
+      "operation": "extract",
+      "topology": "smb_to_local",
+      "scenario": "partial_write_retry_resumes_to_completion"
+    },
+    {
+      "operation": "extract",
+      "topology": "smb_to_local",
+      "scenario": "partial_write_ignore_is_terminal"
+    },
+    {
+      "operation": "extract",
+      "topology": "smb_to_local",
+      "scenario": "cancellation_stops_before_member_report"
+    },
+    {
+      "operation": "extract",
+      "topology": "smb_to_local",
+      "scenario": "duplicate_terminal_report_is_idempotent"
+    },
+    {
+      "operation": "extract",
+      "topology": "local_to_smb",
+      "scenario": "collision_decisions_resume_to_terminal_summary"
+    },
+    {
+      "operation": "extract",
+      "topology": "local_to_smb",
+      "scenario": "partial_write_retry_resumes_to_completion"
+    },
+    {
+      "operation": "extract",
+      "topology": "local_to_smb",
+      "scenario": "partial_write_ignore_is_terminal"
+    },
+    {
+      "operation": "extract",
+      "topology": "local_to_smb",
+      "scenario": "cancellation_stops_before_member_report"
+    },
+    {
+      "operation": "extract",
+      "topology": "local_to_smb",
+      "scenario": "duplicate_terminal_report_is_idempotent"
+    }
+  ],
   "cases": [
     {
       "name": "create_smb_to_smb_success",
@@ -522,6 +684,158 @@
       }
     },
     {
+      "name": "extract_local_to_local_malformed_input",
+      "operation": "extract",
+      "topology": "local_to_local",
+      "fault": "malformed_input",
+      "expected_trace": {
+        "owner": "companion",
+        "manifest_snapshot": [],
+        "phase_transitions": [
+          "accepted",
+          "streaming",
+          "failed"
+        ],
+        "pending_decision": null,
+        "member_outcomes": [],
+        "terminal_summary": null,
+        "error_category": "invalid_input"
+      }
+    },
+    {
+      "name": "extract_local_to_local_cancellation",
+      "operation": "extract",
+      "topology": "local_to_local",
+      "fault": "cancellation",
+      "expected_trace": {
+        "owner": "companion",
+        "manifest_snapshot": [
+          "source.txt"
+        ],
+        "phase_transitions": [
+          "accepted",
+          "streaming",
+          "cancelled"
+        ],
+        "pending_decision": null,
+        "member_outcomes": [],
+        "terminal_summary": null,
+        "error_category": "cancelled"
+      }
+    },
+    {
+      "name": "extract_smb_to_smb_collision",
+      "operation": "extract",
+      "topology": "smb_to_smb",
+      "fault": "collision",
+      "expected_trace": {
+        "owner": "backend",
+        "manifest_snapshot": [
+          "entry.txt"
+        ],
+        "phase_transitions": [
+          "prepared",
+          "accepted",
+          "streaming",
+          "awaiting_user_decision"
+        ],
+        "pending_decision": "collision",
+        "member_outcomes": [],
+        "terminal_summary": null,
+        "error_category": null
+      }
+    },
+    {
+      "name": "extract_smb_to_smb_partial_write",
+      "operation": "extract",
+      "topology": "smb_to_smb",
+      "fault": "partial_write",
+      "expected_trace": {
+        "owner": "backend",
+        "manifest_snapshot": [
+          "entry.txt"
+        ],
+        "phase_transitions": [
+          "prepared",
+          "accepted",
+          "streaming",
+          "awaiting_user_decision"
+        ],
+        "pending_decision": "member_error",
+        "member_outcomes": [
+          "entry.txt"
+        ],
+        "terminal_summary": null,
+        "error_category": "partial_write"
+      }
+    },
+    {
+      "name": "extract_smb_to_smb_cancellation",
+      "operation": "extract",
+      "topology": "smb_to_smb",
+      "fault": "cancellation",
+      "expected_trace": {
+        "owner": "backend",
+        "manifest_snapshot": [
+          "entry.txt"
+        ],
+        "phase_transitions": [
+          "prepared",
+          "accepted",
+          "streaming",
+          "cancelled"
+        ],
+        "pending_decision": null,
+        "member_outcomes": [],
+        "terminal_summary": null,
+        "error_category": "cancelled"
+      }
+    },
+    {
+      "name": "extract_smb_to_smb_source_changed",
+      "operation": "extract",
+      "topology": "smb_to_smb",
+      "fault": "source_changed",
+      "expected_trace": {
+        "owner": "backend",
+        "manifest_snapshot": [
+          "entry.txt"
+        ],
+        "phase_transitions": [
+          "prepared",
+          "accepted",
+          "streaming",
+          "failed"
+        ],
+        "pending_decision": null,
+        "member_outcomes": [],
+        "terminal_summary": null,
+        "error_category": "source_changed"
+      }
+    },
+    {
+      "name": "extract_smb_to_smb_transport_failure",
+      "operation": "extract",
+      "topology": "smb_to_smb",
+      "fault": "transport_failure",
+      "expected_trace": {
+        "owner": "backend",
+        "manifest_snapshot": [
+          "entry.txt"
+        ],
+        "phase_transitions": [
+          "prepared",
+          "accepted",
+          "streaming",
+          "failed"
+        ],
+        "pending_decision": null,
+        "member_outcomes": [],
+        "terminal_summary": null,
+        "error_category": "transport_failure"
+      }
+    },
+    {
       "name": "extract_partial_write",
       "operation": "extract",
       "topology": "local_to_local",
@@ -603,6 +917,627 @@
         "terminal_summary": null,
         "error_category": "transport_failure"
       }
+    },
+    {
+      "name": "extract_smb_to_local_malformed_input",
+      "operation": "extract",
+      "topology": "smb_to_local",
+      "fault": "malformed_input",
+      "expected_trace": {
+        "owner": "companion",
+        "manifest_snapshot": [],
+        "phase_transitions": [
+          "streaming",
+          "failed"
+        ],
+        "pending_decision": null,
+        "member_outcomes": [],
+        "terminal_summary": null,
+        "error_category": "invalid_input"
+      },
+      "relay_playback": [
+        {
+          "request": {
+            "method": "POST",
+            "path": "/begin",
+            "query": null,
+            "body": "empty"
+          },
+          "response": {
+            "status": 200,
+            "json": {
+              "operation": {
+                "phase": "streaming",
+                "destination_path": "output",
+                "checkpoint_json": "{\"extraction_outcome_checkpoint_version\":1,\"member_outcomes\":{}}",
+                "pending_decision_json": null
+              },
+              "entries": [
+                {
+                  "path": "entry.txt",
+                  "is_directory": false,
+                  "uncompressed_size": 5,
+                  "modified_at": null
+                },
+                {
+                  "path": "entry.txt",
+                  "is_directory": false,
+                  "uncompressed_size": 5,
+                  "modified_at": null
+                }
+              ]
+            }
+          }
+        },
+        {
+          "request": {
+            "method": "POST",
+            "path": "/fail",
+            "query": null,
+            "body": "json"
+          },
+          "response": {
+            "status": 204
+          }
+        }
+      ]
+    },
+    {
+      "name": "extract_smb_to_local_collision",
+      "operation": "extract",
+      "topology": "smb_to_local",
+      "fault": "collision",
+      "expected_trace": {
+        "owner": "companion",
+        "manifest_snapshot": [
+          "entry.txt"
+        ],
+        "phase_transitions": [
+          "streaming",
+          "awaiting_user_decision"
+        ],
+        "pending_decision": "collision",
+        "member_outcomes": [],
+        "terminal_summary": null,
+        "error_category": null
+      },
+      "relay_playback": [
+        {
+          "request": {
+            "method": "POST",
+            "path": "/begin",
+            "query": null,
+            "body": "empty"
+          },
+          "response": {
+            "status": 200,
+            "json": {
+              "operation": {
+                "phase": "streaming",
+                "destination_path": "output",
+                "checkpoint_json": "{\"extraction_outcome_checkpoint_version\":1,\"member_outcomes\":{}}",
+                "pending_decision_json": null
+              },
+              "entries": [
+                {
+                  "path": "entry.txt",
+                  "is_directory": false,
+                  "uncompressed_size": 5,
+                  "modified_at": null
+                }
+              ]
+            }
+          }
+        },
+        {
+          "request": {
+            "method": "POST",
+            "path": "/member-collision",
+            "query": null,
+            "body": "json"
+          },
+          "response": {
+            "status": 200,
+            "json": {
+              "phase": "awaiting_user_decision",
+              "destination_path": "output",
+              "checkpoint_json": "{\"extraction_outcome_checkpoint_version\":1,\"member_outcomes\":{}}",
+              "pending_decision_json": "{\"kind\":\"collision\"}"
+            }
+          }
+        }
+      ]
+    },
+    {
+      "name": "extract_smb_to_local_partial_write",
+      "operation": "extract",
+      "topology": "smb_to_local",
+      "fault": "partial_write",
+      "expected_trace": {
+        "owner": "companion",
+        "manifest_snapshot": [
+          "entry.txt"
+        ],
+        "phase_transitions": [
+          "streaming",
+          "awaiting_user_decision"
+        ],
+        "pending_decision": "member_error",
+        "member_outcomes": [],
+        "terminal_summary": null,
+        "error_category": "partial_write"
+      },
+      "relay_playback": [
+        {
+          "request": {
+            "method": "POST",
+            "path": "/begin",
+            "query": null,
+            "body": "empty"
+          },
+          "response": {
+            "status": 200,
+            "json": {
+              "operation": {
+                "phase": "streaming",
+                "destination_path": "output",
+                "checkpoint_json": "{\"extraction_outcome_checkpoint_version\":1,\"member_outcomes\":{}}",
+                "pending_decision_json": null
+              },
+              "entries": [
+                {
+                  "path": "entry.txt",
+                  "is_directory": false,
+                  "uncompressed_size": 5,
+                  "modified_at": null
+                }
+              ]
+            }
+          }
+        },
+        {
+          "request": {
+            "method": "GET",
+            "path": "/member",
+            "query": "member_path=entry.txt",
+            "body": "empty"
+          },
+          "response": {
+            "status": 200,
+            "text": "bad"
+          }
+        },
+        {
+          "request": {
+            "method": "POST",
+            "path": "/member-error",
+            "query": null,
+            "body": "json"
+          },
+          "response": {
+            "status": 200,
+            "json": {
+              "phase": "awaiting_user_decision",
+              "destination_path": "output",
+              "checkpoint_json": "{\"extraction_outcome_checkpoint_version\":1,\"member_outcomes\":{}}",
+              "pending_decision_json": "{\"kind\":\"member_error\"}"
+            }
+          }
+        }
+      ]
+    },
+    {
+      "name": "extract_smb_to_local_transport_failure",
+      "operation": "extract",
+      "topology": "smb_to_local",
+      "fault": "transport_failure",
+      "expected_trace": {
+        "owner": "companion",
+        "manifest_snapshot": [],
+        "phase_transitions": [
+          "streaming",
+          "failed"
+        ],
+        "pending_decision": null,
+        "member_outcomes": [],
+        "terminal_summary": null,
+        "error_category": "transport_failure"
+      },
+      "relay_playback": [
+        {
+          "request": {
+            "method": "POST",
+            "path": "/begin",
+            "query": null,
+            "body": "empty"
+          },
+          "response": {
+            "status": 503
+          }
+        },
+        {
+          "request": {
+            "method": "POST",
+            "path": "/fail",
+            "query": null,
+            "body": "json"
+          },
+          "response": {
+            "status": 204
+          }
+        }
+      ]
+    },
+    {
+      "name": "extract_local_to_smb_malformed_input",
+      "operation": "extract",
+      "topology": "local_to_smb",
+      "fault": "malformed_input",
+      "expected_trace": {
+        "owner": "companion",
+        "manifest_snapshot": [],
+        "phase_transitions": [
+          "streaming",
+          "failed"
+        ],
+        "pending_decision": null,
+        "member_outcomes": [],
+        "terminal_summary": null,
+        "error_category": "invalid_input"
+      },
+      "relay_playback": [
+        {
+          "request": {
+            "method": "POST",
+            "path": "/fail",
+            "query": null,
+            "body": "json"
+          },
+          "response": {
+            "status": 204
+          }
+        }
+      ]
+    },
+    {
+      "name": "extract_local_to_smb_collision",
+      "operation": "extract",
+      "topology": "local_to_smb",
+      "fault": "collision",
+      "expected_trace": {
+        "owner": "companion",
+        "manifest_snapshot": [
+          "source.txt"
+        ],
+        "phase_transitions": [
+          "streaming",
+          "awaiting_user_decision"
+        ],
+        "pending_decision": "collision",
+        "member_outcomes": [],
+        "terminal_summary": null,
+        "error_category": null
+      },
+      "relay_playback": [
+        {
+          "request": {
+            "method": "POST",
+            "path": "/begin",
+            "query": null,
+            "body": "json"
+          },
+          "response": {
+            "status": 200,
+            "json": {
+              "phase": "streaming",
+              "destination_path": "output",
+              "checkpoint_json": "{\"extraction_outcome_checkpoint_version\":1,\"member_outcomes\":{}}",
+              "pending_decision_json": null
+            }
+          }
+        },
+        {
+          "request": {
+            "method": "PUT",
+            "path": "/member",
+            "query": "member_path=source.txt&source_modified_at=1980-01-01T00%3A00%3A00%2B00%3A00",
+            "body": "bytes"
+          },
+          "response": {
+            "status": 200,
+            "json": {
+              "phase": "awaiting_user_decision",
+              "destination_path": "output",
+              "checkpoint_json": "{\"extraction_outcome_checkpoint_version\":1,\"member_outcomes\":{}}",
+              "pending_decision_json": "{\"kind\":\"collision\"}"
+            }
+          }
+        }
+      ]
+    },
+    {
+      "name": "extract_local_to_smb_partial_write",
+      "operation": "extract",
+      "topology": "local_to_smb",
+      "fault": "partial_write",
+      "expected_trace": {
+        "owner": "companion",
+        "manifest_snapshot": [
+          "source.txt"
+        ],
+        "phase_transitions": [
+          "streaming",
+          "awaiting_user_decision"
+        ],
+        "pending_decision": "member_error",
+        "member_outcomes": [],
+        "terminal_summary": null,
+        "error_category": "partial_write"
+      },
+      "relay_playback": [
+        {
+          "request": {
+            "method": "POST",
+            "path": "/begin",
+            "query": null,
+            "body": "json"
+          },
+          "response": {
+            "status": 200,
+            "json": {
+              "phase": "streaming",
+              "destination_path": "output",
+              "checkpoint_json": "{\"extraction_outcome_checkpoint_version\":1,\"member_outcomes\":{}}",
+              "pending_decision_json": null
+            }
+          }
+        },
+        {
+          "request": {
+            "method": "PUT",
+            "path": "/member",
+            "query": "member_path=source.txt&source_modified_at=1980-01-01T00%3A00%3A00%2B00%3A00",
+            "body": "bytes"
+          },
+          "response": {
+            "status": 200,
+            "json": {
+              "phase": "awaiting_user_decision",
+              "destination_path": "output",
+              "checkpoint_json": "{\"extraction_outcome_checkpoint_version\":1,\"member_outcomes\":{}}",
+              "pending_decision_json": "{\"kind\":\"member_error\"}"
+            }
+          }
+        }
+      ]
+    },
+    {
+      "name": "extract_local_to_smb_transport_failure",
+      "operation": "extract",
+      "topology": "local_to_smb",
+      "fault": "transport_failure",
+      "expected_trace": {
+        "owner": "companion",
+        "manifest_snapshot": [
+          "source.txt"
+        ],
+        "phase_transitions": [
+          "streaming",
+          "failed"
+        ],
+        "pending_decision": null,
+        "member_outcomes": [],
+        "terminal_summary": null,
+        "error_category": "transport_failure"
+      },
+      "relay_playback": [
+        {
+          "request": {
+            "method": "POST",
+            "path": "/begin",
+            "query": null,
+            "body": "json"
+          },
+          "response": {
+            "status": 503
+          }
+        },
+        {
+          "request": {
+            "method": "POST",
+            "path": "/fail",
+            "query": null,
+            "body": "json"
+          },
+          "response": {
+            "status": 204
+          }
+        }
+      ]
+    },
+    {
+      "name": "extract_smb_to_local_cancellation",
+      "operation": "extract",
+      "topology": "smb_to_local",
+      "fault": "cancellation",
+      "expected_trace": {
+        "owner": "companion",
+        "manifest_snapshot": [],
+        "phase_transitions": [
+          "streaming",
+          "failed"
+        ],
+        "pending_decision": null,
+        "member_outcomes": [],
+        "terminal_summary": null,
+        "error_category": "cancelled"
+      },
+      "relay_playback": [
+        {
+          "request": {
+            "method": "POST",
+            "path": "/begin",
+            "query": null,
+            "body": "empty"
+          },
+          "response": {
+            "status": 409,
+            "json": {
+              "detail": "Archive operation was cancelled"
+            }
+          }
+        },
+        {
+          "request": {
+            "method": "POST",
+            "path": "/fail",
+            "query": null,
+            "body": "json"
+          },
+          "response": {
+            "status": 204
+          }
+        }
+      ]
+    },
+    {
+      "name": "extract_smb_to_local_source_changed",
+      "operation": "extract",
+      "topology": "smb_to_local",
+      "fault": "source_changed",
+      "expected_trace": {
+        "owner": "companion",
+        "manifest_snapshot": [],
+        "phase_transitions": [
+          "streaming",
+          "failed"
+        ],
+        "pending_decision": null,
+        "member_outcomes": [],
+        "terminal_summary": null,
+        "error_category": "source_changed"
+      },
+      "relay_playback": [
+        {
+          "request": {
+            "method": "POST",
+            "path": "/begin",
+            "query": null,
+            "body": "empty"
+          },
+          "response": {
+            "status": 409,
+            "json": {
+              "detail": "Archive extraction source changed after manifest validation"
+            }
+          }
+        },
+        {
+          "request": {
+            "method": "POST",
+            "path": "/fail",
+            "query": null,
+            "body": "json"
+          },
+          "response": {
+            "status": 204
+          }
+        }
+      ]
+    },
+    {
+      "name": "extract_local_to_smb_cancellation",
+      "operation": "extract",
+      "topology": "local_to_smb",
+      "fault": "cancellation",
+      "expected_trace": {
+        "owner": "companion",
+        "manifest_snapshot": [
+          "source.txt"
+        ],
+        "phase_transitions": [
+          "streaming",
+          "failed"
+        ],
+        "pending_decision": null,
+        "member_outcomes": [],
+        "terminal_summary": null,
+        "error_category": "cancelled"
+      },
+      "relay_playback": [
+        {
+          "request": {
+            "method": "POST",
+            "path": "/begin",
+            "query": null,
+            "body": "json"
+          },
+          "response": {
+            "status": 409,
+            "json": {
+              "detail": "Archive operation was cancelled"
+            }
+          }
+        },
+        {
+          "request": {
+            "method": "POST",
+            "path": "/fail",
+            "query": null,
+            "body": "json"
+          },
+          "response": {
+            "status": 204
+          }
+        }
+      ]
+    },
+    {
+      "name": "extract_local_to_smb_source_changed",
+      "operation": "extract",
+      "topology": "local_to_smb",
+      "fault": "source_changed",
+      "expected_trace": {
+        "owner": "companion",
+        "manifest_snapshot": [
+          "source.txt"
+        ],
+        "phase_transitions": [
+          "streaming",
+          "failed"
+        ],
+        "pending_decision": null,
+        "member_outcomes": [],
+        "terminal_summary": null,
+        "error_category": "source_changed"
+      },
+      "relay_playback": [
+        {
+          "request": {
+            "method": "POST",
+            "path": "/begin",
+            "query": null,
+            "body": "json"
+          },
+          "response": {
+            "status": 409,
+            "json": {
+              "detail": "Archive extraction source changed after manifest validation"
+            }
+          }
+        },
+        {
+          "request": {
+            "method": "POST",
+            "path": "/fail",
+            "query": null,
+            "body": "json"
+          },
+          "response": {
+            "status": 204
+          }
+        }
+      ]
     }
   ]
 }

@@ -65,6 +65,13 @@ class FixtureCase:
     expected_trace: dict[str, Any]
 
 
+@dataclass(frozen=True)
+class TrajectoryCase:
+    operation: str
+    topology: TopologyCase
+    scenario_name: str
+
+
 TOPOLOGY_CASES = (
     TopologyCase("smb_to_smb", "connection-1", "connection-1", ArchiveExecutionDriver.BACKEND),
     TopologyCase("local_to_local", "local-drive:c", "local-drive:c", ArchiveExecutionDriver.COMPANION),
@@ -148,7 +155,21 @@ def _fixture_cases() -> tuple[FixtureCase, ...]:
     return tuple(cases)
 
 
+def _trajectory_cases() -> tuple[TrajectoryCase, ...]:
+    fixture: dict[str, Any] = json.loads(TOPOLOGY_TRACE_FIXTURE_PATH.read_text(encoding="utf-8"))
+    topologies = {case.name: case for case in TOPOLOGY_CASES}
+    return tuple(
+        TrajectoryCase(
+            operation=raw_case["operation"],
+            topology=topologies[raw_case["topology"]],
+            scenario_name=raw_case["scenario"],
+        )
+        for raw_case in fixture["trajectory_cases"]
+    )
+
+
 BACKEND_FIXTURE_CASES = tuple(case for case in _fixture_cases() if case.topology.driver == ArchiveExecutionDriver.BACKEND)
+BACKEND_TRAJECTORY_CASES = tuple(case for case in _trajectory_cases() if case.topology.driver == ArchiveExecutionDriver.BACKEND)
 
 
 def test_topology_trace_fixture_matches_resolved_execution_owners() -> None:
@@ -176,6 +197,19 @@ def test_topology_trace_fixture_matches_resolved_execution_owners() -> None:
     success_cases = {(case["operation"], case["topology"]) for case in fixture["cases"] if case["fault"] is None}
     assert success_cases == {(operation, case.name) for operation in fixture["operations"] for case in TOPOLOGY_CASES}
     assert {case["fault"] for case in fixture["cases"] if case["fault"] is not None} == set(fixture["adapter_faults"])
+    assert {case.fault for case in BACKEND_FIXTURE_CASES if case.fault is not None} == set(AdapterFault)
+    corpus_scenarios = {
+        "create": {scenario["name"] for scenario in CREATION_TRAJECTORIES},
+        "extract": {scenario["name"] for scenario in EXTRACTION_TRAJECTORIES},
+    }
+    for operation, scenarios in corpus_scenarios.items():
+        for topology in TOPOLOGY_CASES:
+            represented = {
+                case["scenario"]
+                for case in fixture["trajectory_cases"]
+                if case["operation"] == operation and case["topology"] == topology.name
+            }
+            assert represented == scenarios
     topology_owners = {case["name"]: case["owner"] for case in fixture["topologies"]}
     for trace_case in fixture["cases"]:
         trace = trace_case["expected_trace"]
@@ -250,19 +284,27 @@ def _backend_extraction_trace(case: FixtureCase) -> dict[str, Any]:
     state_store = TraceRecordingStateStore()
     try:
         completed = asyncio.run(ArchiveExtractionCoordinator(operation, state_store).run(FaultInjectingExtractionAdapter(case.fault).run))
-    except HTTPException as error:
-        assert case.fault == AdapterFault.MALFORMED_INPUT
-        assert error.status_code == 422
+    except HTTPException:
+        assert case.fault in {AdapterFault.MALFORMED_INPUT, AdapterFault.SOURCE_CHANGED, AdapterFault.TRANSPORT_FAILURE}
         completed = operation
-        error_category: str | None = "invalid_input"
+        error_category: str | None = {
+            AdapterFault.MALFORMED_INPUT: "invalid_input",
+            AdapterFault.SOURCE_CHANGED: "source_changed",
+            AdapterFault.TRANSPORT_FAILURE: "transport_failure",
+        }[case.fault]
     else:
-        error_category = None
+        error_category = {
+            AdapterFault.PARTIAL_WRITE: "partial_write",
+            AdapterFault.CANCELLATION: "cancelled",
+        }.get(case.fault)
     checkpoint: dict[str, Any] = json.loads(completed.checkpoint_json)
     return {
         "owner": case.topology.driver.value,
         "manifest_snapshot": [member["path"] for member in checkpoint["archive_manifest"]],
         "phase_transitions": state_store.phase_transitions,
-        "pending_decision": None,
+        "pending_decision": (
+            "collision" if case.fault == AdapterFault.COLLISION else "member_error" if case.fault == AdapterFault.PARTIAL_WRITE else None
+        ),
         "member_outcomes": sorted(checkpoint["member_outcomes"]),
         "terminal_summary": (
             {key: checkpoint.get(key, 0) for key in case.expected_trace["terminal_summary"]}
@@ -384,12 +426,22 @@ def test_cross_topology_creation_harness_runs_resolved_coordinator(case: Topolog
     } == expected
 
 
-@pytest.mark.parametrize("case", BACKEND_TOPOLOGY_CASES, ids=lambda case: case.name)
-@pytest.mark.parametrize("scenario", EXTRACTION_TRAJECTORIES, ids=lambda scenario: scenario["name"])
+@pytest.mark.parametrize(
+    "trajectory",
+    (case for case in BACKEND_TRAJECTORY_CASES if case.operation == "extract"),
+    ids=lambda case: f"{case.topology.name}-{case.scenario_name}",
+)
 def test_cross_topology_extraction_harness_replays_shared_trajectory(
-    case: TopologyCase,
-    scenario: dict[str, Any],
+    trajectory: TrajectoryCase,
 ) -> None:
+    case = trajectory.topology
+    scenario = next(scenario for scenario in EXTRACTION_TRAJECTORIES if scenario["name"] == trajectory.scenario_name)
+    resolved = resolve_archive_operation_topology_plan(
+        kind=ArchiveOperationKind.EXTRACT,
+        source_connection_id=case.source_connection_id,
+        destination_connection_id=case.destination_connection_id,
+    )
+    assert resolved.topology.driver == ArchiveExecutionDriver.BACKEND
     manifest = ArchiveExtractionManifest.from_members(
         [ArchiveExtractionManifestMember(member_path, False, 0, None) for member_path in scenario["members"]]
     )
@@ -464,12 +516,22 @@ def test_cross_topology_extraction_harness_replays_shared_trajectory(
         assert checkpoint.get(key, 0) == value
 
 
-@pytest.mark.parametrize("case", BACKEND_TOPOLOGY_CASES, ids=lambda case: case.name)
-@pytest.mark.parametrize("scenario", CREATION_TRAJECTORIES, ids=lambda scenario: scenario["name"])
+@pytest.mark.parametrize(
+    "trajectory",
+    (case for case in BACKEND_TRAJECTORY_CASES if case.operation == "create"),
+    ids=lambda case: f"{case.topology.name}-{case.scenario_name}",
+)
 def test_cross_topology_creation_harness_replays_shared_trajectory(
-    case: TopologyCase,
-    scenario: dict[str, Any],
+    trajectory: TrajectoryCase,
 ) -> None:
+    case = trajectory.topology
+    scenario = next(scenario for scenario in CREATION_TRAJECTORIES if scenario["name"] == trajectory.scenario_name)
+    resolved = resolve_archive_operation_topology_plan(
+        kind=ArchiveOperationKind.CREATE,
+        source_connection_id=case.source_connection_id,
+        destination_connection_id=case.destination_connection_id,
+    )
+    assert resolved.topology.driver == ArchiveExecutionDriver.BACKEND
     operation = ArchiveOperation(
         user_id=uuid.uuid4(),
         kind=ArchiveOperationKind.CREATE,

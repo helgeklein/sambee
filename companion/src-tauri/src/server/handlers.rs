@@ -1759,6 +1759,9 @@ impl ArchiveExtractionCoordinator {
                         )
                         .map_err(map_local_archive_error)?;
                         let operation = relay.begin_local_source(&manifest).await?;
+                        if operation.phase != "streaming" {
+                            return archive_extraction_response_from_operation(operation);
+                        }
                         let execution_plan = archive_relay_extraction_plan(&operation, manifest)?;
                         extract_local_archive_to_smb_destination(&relay, archive_path, archive_entries, execution_plan).await
                     }
@@ -1769,6 +1772,9 @@ impl ArchiveExtractionCoordinator {
                         let mut relay_manifest: ArchiveRelayManifest = relay.begin().await?;
                         relay_manifest.manifest =
                             ArchiveExtractionManifest::from_entries(relay_manifest.manifest.entries).map_err(map_local_archive_error)?;
+                        if relay_manifest.operation.phase != "streaming" {
+                            return archive_extraction_response_from_operation(relay_manifest.operation);
+                        }
                         let execution_plan = archive_relay_extraction_plan(&relay_manifest.operation, relay_manifest.manifest)?;
                         extract_smb_archive_to_local_destination(
                             &relay,
@@ -2569,7 +2575,13 @@ async fn relay_archive_response(response: ReqwestResponse, action: &str) -> Resu
     if let Some(message) = classify_proxy_auth_intercept("Archive relay", Some(status), content_type.as_deref(), &body) {
         return Err(ApiError::Forbidden(message));
     }
-    let message = format!("Archive relay could not {action}: backend returned HTTP {status}");
+    let detail = serde_json::from_str::<serde_json::Value>(&body)
+        .ok()
+        .and_then(|value| value.get("detail").and_then(serde_json::Value::as_str).map(str::to_owned));
+    let message = match detail {
+        Some(detail) => format!("Archive relay could not {action}: backend returned HTTP {status}: {detail}"),
+        None => format!("Archive relay could not {action}: backend returned HTTP {status}"),
+    };
     match status {
         reqwest::StatusCode::CONFLICT => Err(ApiError::conflict_message(message)),
         reqwest::StatusCode::UNAUTHORIZED | reqwest::StatusCode::FORBIDDEN => Err(ApiError::Forbidden(message)),
@@ -3601,13 +3613,15 @@ mod tests {
     use crate::server::archive::{
         build_local_archive_manifest, build_local_archive_manifest_for_remote_target, create_local_archive,
         validate_local_archive_extraction, ArchiveCreationManifest, ArchiveCreationManifestMember, LocalArchiveCreationResult,
-        LocalArchiveError, LocalArchiveExtractionMemberError, LocalArchiveExtractionResult, LocalArchiveReadError,
+        LocalArchiveError, LocalArchiveExtractionMemberError, LocalArchiveExtractionResult, LocalArchiveReadEntry, LocalArchiveReadError,
     };
     use crate::server::archive_sessions::{
         ArchiveSessionKind, ArchiveSessionPendingDecision, ArchiveSessionPhase, ArchiveSessionProgress, ArchiveSessionStatus,
     };
     use crate::server::errors::{ApiError, LOCAL_ARCHIVE_CREATION_PARTIAL_CODE, LOCAL_ARCHIVE_EXTRACTION_PARTIAL_CODE};
-    use crate::server::models::{FileType, LinkKind, LinkTargetState, LinkTargetType, PublicPairingStatus};
+    use crate::server::models::{
+        ArchiveCreationResponse, ArchiveExtractionResponse, FileType, LinkKind, LinkTargetState, LinkTargetType, PublicPairingStatus,
+    };
     use crate::server::pairing::PairingState;
     use axum::body::to_bytes;
     use axum::extract::State;
@@ -3779,6 +3793,92 @@ mod tests {
         }
     }
 
+    fn mixed_creation_trace(manifest_snapshot: &str, member_outcome: &str, result: &ArchiveCreationResponse) -> serde_json::Value {
+        serde_json::json!({
+            "owner": "companion",
+            "manifest_snapshot": [manifest_snapshot],
+            "phase_transitions": ["streaming", "completed"],
+            "pending_decision": null,
+            "member_outcomes": [member_outcome],
+            "terminal_summary": {
+                "files_created": result.files_created,
+                "directories_created": result.directories_created,
+                "source_bytes": result.source_bytes,
+            },
+            "error_category": null,
+        })
+    }
+
+    fn mixed_extraction_trace(manifest_snapshot: &str, member_outcome: &str, result: &ArchiveExtractionResponse) -> serde_json::Value {
+        serde_json::json!({
+            "owner": "companion",
+            "manifest_snapshot": [manifest_snapshot],
+            "phase_transitions": ["streaming", "completed"],
+            "pending_decision": null,
+            "member_outcomes": [member_outcome],
+            "terminal_summary": {
+                "files_extracted": result.files_extracted,
+                "files_skipped": result.files_skipped,
+                "extracted_bytes": result.extracted_bytes,
+            },
+            "error_category": null,
+        })
+    }
+
+    fn mixed_extraction_paused_trace(
+        manifest_snapshot: &str,
+        result: &ArchiveExtractionResponse,
+        error_category: Option<&str>,
+    ) -> serde_json::Value {
+        let pending_decision = result
+            .pending_decision_json
+            .as_deref()
+            .and_then(|decision| serde_json::from_str::<serde_json::Value>(decision).ok())
+            .and_then(|decision| decision["kind"].as_str().map(str::to_string))
+            .expect("paused extraction result should include a pending decision kind");
+        serde_json::json!({
+            "owner": "companion",
+            "manifest_snapshot": [manifest_snapshot],
+            "phase_transitions": ["streaming", result.phase],
+            "pending_decision": pending_decision,
+            "member_outcomes": [],
+            "terminal_summary": null,
+            "error_category": error_category,
+        })
+    }
+
+    fn mixed_extraction_failure_trace(manifest_snapshot: &[&str], error_category: &str) -> serde_json::Value {
+        serde_json::json!({
+            "owner": "companion",
+            "manifest_snapshot": manifest_snapshot,
+            "phase_transitions": ["streaming", "failed"],
+            "pending_decision": null,
+            "member_outcomes": [],
+            "terminal_summary": null,
+            "error_category": error_category,
+        })
+    }
+
+    fn mixed_relay_error_category(error: &ApiError) -> &'static str {
+        let message = match error {
+            ApiError::Conflict(serde_json::Value::String(message)) => message.as_str(),
+            ApiError::ConflictWithCode { message, .. }
+            | ApiError::BadRequest(message)
+            | ApiError::Internal(message)
+            | ApiError::Forbidden(message) => message.as_str(),
+            _ => "",
+        };
+        if message.contains("was cancelled") {
+            "cancelled"
+        } else if message.contains("source changed") {
+            "source_changed"
+        } else if message.contains("HTTP") {
+            "transport_failure"
+        } else {
+            panic!("unexpected relay error for topology trace: {error}");
+        }
+    }
+
     #[test]
     fn topology_trace_fixture_assigns_mixed_execution_to_companion_relay_coordinators() {
         let fixture: serde_json::Value =
@@ -3821,6 +3921,50 @@ mod tests {
                 .as_array()
                 .expect("mixed topology must declare execution seams")
                 .contains(&serde_json::json!("relay_transport")));
+        }
+        let fixture_cases = fixture["cases"].as_array().expect("topology trace fixture should define cases");
+        let required_mixed_extraction_faults = [
+            "malformed_input",
+            "collision",
+            "partial_write",
+            "cancellation",
+            "source_changed",
+            "transport_failure",
+        ];
+        for topology in ["smb_to_local", "local_to_smb"] {
+            let declared_faults = fixture_cases
+                .iter()
+                .filter(|case| case["operation"] == "extract" && case["topology"] == topology)
+                .filter_map(|case| case["fault"].as_str())
+                .collect::<std::collections::HashSet<_>>();
+            assert!(required_mixed_extraction_faults.iter().all(|fault| declared_faults.contains(fault)));
+        }
+        let creation_corpus: serde_json::Value = serde_json::from_str(include_str!(
+            "../../../../archive-contract/v1/creation-trajectory-scenarios-v1.json"
+        ))
+        .expect("creation trajectory corpus should be valid JSON");
+        let extraction_corpus: serde_json::Value = serde_json::from_str(include_str!(
+            "../../../../archive-contract/v1/extraction-trajectory-scenarios-v1.json"
+        ))
+        .expect("extraction trajectory corpus should be valid JSON");
+        let corpus_scenarios = [("create", &creation_corpus), ("extract", &extraction_corpus)];
+        for (operation, corpus) in corpus_scenarios {
+            let expected_scenarios = corpus["scenarios"]
+                .as_array()
+                .expect("trajectory corpus should define scenarios")
+                .iter()
+                .filter_map(|scenario| scenario["name"].as_str())
+                .collect::<std::collections::HashSet<_>>();
+            for topology in ["local_to_local", "smb_to_local", "local_to_smb"] {
+                let declared_scenarios = fixture["trajectory_cases"]
+                    .as_array()
+                    .expect("topology trace fixture should define trajectory cases")
+                    .iter()
+                    .filter(|case| case["operation"] == operation && case["topology"] == topology)
+                    .filter_map(|case| case["scenario"].as_str())
+                    .collect::<std::collections::HashSet<_>>();
+                assert_eq!(declared_scenarios, expected_scenarios);
+            }
         }
     }
 
@@ -4003,8 +4147,7 @@ mod tests {
         .await
         .expect("SMB-to-local creation coordinator should complete");
         let remote_expected = expected_topology_trace("create_smb_to_local_success");
-        assert_eq!(remote_result.files_created, remote_expected["terminal_summary"]["files_created"]);
-        assert_eq!(remote_result.source_bytes, remote_expected["terminal_summary"]["source_bytes"]);
+        assert_eq!(mixed_creation_trace("source.txt", "source.txt", &remote_result), remote_expected);
         assert!(remote_target.is_file());
         remote_playback.assert_consumed().await;
 
@@ -4025,8 +4168,10 @@ mod tests {
         .await
         .expect("local-to-SMB creation coordinator should complete");
         let local_expected = expected_topology_trace("create_local_to_smb_success");
-        assert_eq!(local_result.files_created, local_expected["terminal_summary"]["files_created"]);
-        assert_eq!(local_result.source_bytes, local_expected["terminal_summary"]["source_bytes"]);
+        assert_eq!(
+            mixed_creation_trace("local-source.txt", "local-source.txt", &local_result),
+            local_expected
+        );
         local_playback.assert_consumed().await;
     }
 
@@ -4162,14 +4307,7 @@ mod tests {
         .await
         .expect("SMB-to-local extraction coordinator should complete");
         let remote_expected = expected_topology_trace("extract_smb_to_local_success");
-        assert_eq!(
-            remote_result.files_extracted,
-            remote_expected["terminal_summary"]["files_extracted"]
-        );
-        assert_eq!(
-            remote_result.extracted_bytes,
-            remote_expected["terminal_summary"]["extracted_bytes"]
-        );
+        assert_eq!(mixed_extraction_trace("entry.txt", "entry.txt", &remote_result), remote_expected);
         assert_eq!(
             std::fs::read(local_destination.join("entry.txt")).expect("relayed member should be written"),
             b"entry"
@@ -4198,9 +4336,253 @@ mod tests {
         .await
         .expect("local-to-SMB extraction coordinator should complete");
         let local_expected = expected_topology_trace("extract_local_to_smb_success");
-        assert_eq!(local_result.files_extracted, local_expected["terminal_summary"]["files_extracted"]);
-        assert_eq!(local_result.extracted_bytes, local_expected["terminal_summary"]["extracted_bytes"]);
+        assert_eq!(mixed_extraction_trace("source.txt", "source.txt", &local_result), local_expected);
         local_playback.assert_consumed().await;
+    }
+
+    #[tokio::test]
+    async fn actual_relay_extraction_coordinator_matches_mixed_fault_traces() {
+        let directory = tempfile::tempdir().expect("temporary archive directory should be created");
+
+        let remote_malformed_playback = spawn_fixture_relay_server("extract_smb_to_local_malformed_input").await;
+        let remote_malformed_error = ArchiveExtractionCoordinator {
+            relay: ArchiveExtractionRelay::from_transport(ArchiveRelayTransport::new(
+                reqwest::Client::new(),
+                remote_malformed_playback.url.clone(),
+                "test-token".to_string(),
+            )),
+            binding: ArchiveExtractionAdapterBinding::RemoteSourceToLocalDestination {
+                drive_root: directory.path().to_path_buf(),
+                destination_path: directory.path().join("from-smb-malformed"),
+            },
+        }
+        .execute()
+        .await
+        .expect_err("duplicate SMB manifest entries should be rejected");
+        assert!(matches!(remote_malformed_error, ApiError::BadRequest(_)));
+        assert_eq!(
+            mixed_extraction_failure_trace(&[], "invalid_input"),
+            expected_topology_trace("extract_smb_to_local_malformed_input")
+        );
+        remote_malformed_playback.assert_consumed().await;
+
+        let remote_collision_destination = directory.path().join("from-smb-collision");
+        std::fs::create_dir(&remote_collision_destination).expect("collision destination should be created");
+        std::fs::write(remote_collision_destination.join("entry.txt"), b"existing").expect("collision target should be written");
+        let remote_collision_playback = spawn_fixture_relay_server("extract_smb_to_local_collision").await;
+        let remote_collision_result = ArchiveExtractionCoordinator {
+            relay: ArchiveExtractionRelay::from_transport(ArchiveRelayTransport::new(
+                reqwest::Client::new(),
+                remote_collision_playback.url.clone(),
+                "test-token".to_string(),
+            )),
+            binding: ArchiveExtractionAdapterBinding::RemoteSourceToLocalDestination {
+                drive_root: directory.path().to_path_buf(),
+                destination_path: remote_collision_destination,
+            },
+        }
+        .execute()
+        .await
+        .expect("SMB collision should pause extraction");
+        assert_eq!(
+            mixed_extraction_paused_trace("entry.txt", &remote_collision_result, None),
+            expected_topology_trace("extract_smb_to_local_collision")
+        );
+        remote_collision_playback.assert_consumed().await;
+
+        let remote_partial_playback = spawn_fixture_relay_server("extract_smb_to_local_partial_write").await;
+        let remote_partial_destination = directory.path().join("from-smb-partial");
+        let remote_partial_result = ArchiveExtractionCoordinator {
+            relay: ArchiveExtractionRelay::from_transport(ArchiveRelayTransport::new(
+                reqwest::Client::new(),
+                remote_partial_playback.url.clone(),
+                "test-token".to_string(),
+            )),
+            binding: ArchiveExtractionAdapterBinding::RemoteSourceToLocalDestination {
+                drive_root: directory.path().to_path_buf(),
+                destination_path: remote_partial_destination.clone(),
+            },
+        }
+        .execute()
+        .await
+        .expect("short SMB member should pause extraction");
+        assert_eq!(
+            mixed_extraction_paused_trace("entry.txt", &remote_partial_result, Some("partial_write")),
+            expected_topology_trace("extract_smb_to_local_partial_write")
+        );
+        assert_eq!(std::fs::read(remote_partial_destination.join("entry.txt")).unwrap(), b"bad");
+        remote_partial_playback.assert_consumed().await;
+
+        let remote_transport_playback = spawn_fixture_relay_server("extract_smb_to_local_transport_failure").await;
+        let remote_transport_error = ArchiveExtractionCoordinator {
+            relay: ArchiveExtractionRelay::from_transport(ArchiveRelayTransport::new(
+                reqwest::Client::new(),
+                remote_transport_playback.url.clone(),
+                "test-token".to_string(),
+            )),
+            binding: ArchiveExtractionAdapterBinding::RemoteSourceToLocalDestination {
+                drive_root: directory.path().to_path_buf(),
+                destination_path: directory.path().join("from-smb-transport"),
+            },
+        }
+        .execute()
+        .await
+        .expect_err("SMB relay start failure should fail extraction");
+        assert!(matches!(remote_transport_error, ApiError::Internal(_)));
+        assert_eq!(
+            mixed_extraction_failure_trace(&[], "transport_failure"),
+            expected_topology_trace("extract_smb_to_local_transport_failure")
+        );
+        remote_transport_playback.assert_consumed().await;
+
+        for (case_name, expected_category) in [
+            ("extract_smb_to_local_cancellation", "cancelled"),
+            ("extract_smb_to_local_source_changed", "source_changed"),
+        ] {
+            let playback = spawn_fixture_relay_server(case_name).await;
+            let error = ArchiveExtractionCoordinator {
+                relay: ArchiveExtractionRelay::from_transport(ArchiveRelayTransport::new(
+                    reqwest::Client::new(),
+                    playback.url.clone(),
+                    "test-token".to_string(),
+                )),
+                binding: ArchiveExtractionAdapterBinding::RemoteSourceToLocalDestination {
+                    drive_root: directory.path().to_path_buf(),
+                    destination_path: directory.path().join(case_name),
+                },
+            }
+            .execute()
+            .await
+            .expect_err("terminal backend extraction state should stop local execution");
+            assert_eq!(mixed_relay_error_category(&error), expected_category);
+            assert_eq!(
+                mixed_extraction_failure_trace(&[], mixed_relay_error_category(&error)),
+                expected_topology_trace(case_name)
+            );
+            playback.assert_consumed().await;
+        }
+
+        let local_member = directory.path().join("source.txt");
+        let local_archive = directory.path().join("local.zip");
+        std::fs::write(&local_member, b"entry").expect("local source should be written");
+        let manifest = build_local_archive_manifest(&[local_member], &local_archive).expect("local archive manifest should be valid");
+        create_local_archive(directory.path(), &local_archive, &manifest, || false).expect("local archive should be created");
+        let archive_entries = validate_local_archive_extraction(&local_archive).expect("local archive entries should be valid");
+
+        let local_malformed_playback = spawn_fixture_relay_server("extract_local_to_smb_malformed_input").await;
+        let mut malformed_entries: Vec<LocalArchiveReadEntry> = archive_entries.clone();
+        malformed_entries[0].path = "../source.txt".to_string();
+        let local_malformed_error = ArchiveExtractionCoordinator {
+            relay: ArchiveExtractionRelay::from_transport(ArchiveRelayTransport::new(
+                reqwest::Client::new(),
+                local_malformed_playback.url.clone(),
+                "test-token".to_string(),
+            )),
+            binding: ArchiveExtractionAdapterBinding::LocalArchiveToRemoteDestination {
+                archive_path: local_archive.clone(),
+                archive_entries: malformed_entries,
+            },
+        }
+        .execute()
+        .await
+        .expect_err("unsafe local archive member should be rejected");
+        assert!(matches!(local_malformed_error, ApiError::BadRequest(_)));
+        assert_eq!(
+            mixed_extraction_failure_trace(&[], "invalid_input"),
+            expected_topology_trace("extract_local_to_smb_malformed_input")
+        );
+        local_malformed_playback.assert_consumed().await;
+
+        let local_collision_playback = spawn_fixture_relay_server("extract_local_to_smb_collision").await;
+        let local_collision_result = ArchiveExtractionCoordinator {
+            relay: ArchiveExtractionRelay::from_transport(ArchiveRelayTransport::new(
+                reqwest::Client::new(),
+                local_collision_playback.url.clone(),
+                "test-token".to_string(),
+            )),
+            binding: ArchiveExtractionAdapterBinding::LocalArchiveToRemoteDestination {
+                archive_path: local_archive.clone(),
+                archive_entries: archive_entries.clone(),
+            },
+        }
+        .execute()
+        .await
+        .expect("SMB destination collision should pause extraction");
+        assert_eq!(
+            mixed_extraction_paused_trace("source.txt", &local_collision_result, None),
+            expected_topology_trace("extract_local_to_smb_collision")
+        );
+        local_collision_playback.assert_consumed().await;
+
+        let local_partial_playback = spawn_fixture_relay_server("extract_local_to_smb_partial_write").await;
+        let local_partial_result = ArchiveExtractionCoordinator {
+            relay: ArchiveExtractionRelay::from_transport(ArchiveRelayTransport::new(
+                reqwest::Client::new(),
+                local_partial_playback.url.clone(),
+                "test-token".to_string(),
+            )),
+            binding: ArchiveExtractionAdapterBinding::LocalArchiveToRemoteDestination {
+                archive_path: local_archive.clone(),
+                archive_entries: archive_entries.clone(),
+            },
+        }
+        .execute()
+        .await
+        .expect("SMB destination partial write should pause extraction");
+        assert_eq!(
+            mixed_extraction_paused_trace("source.txt", &local_partial_result, Some("partial_write")),
+            expected_topology_trace("extract_local_to_smb_partial_write")
+        );
+        local_partial_playback.assert_consumed().await;
+
+        let local_transport_playback = spawn_fixture_relay_server("extract_local_to_smb_transport_failure").await;
+        let local_transport_error = ArchiveExtractionCoordinator {
+            relay: ArchiveExtractionRelay::from_transport(ArchiveRelayTransport::new(
+                reqwest::Client::new(),
+                local_transport_playback.url.clone(),
+                "test-token".to_string(),
+            )),
+            binding: ArchiveExtractionAdapterBinding::LocalArchiveToRemoteDestination {
+                archive_path: local_archive,
+                archive_entries: archive_entries.clone(),
+            },
+        }
+        .execute()
+        .await
+        .expect_err("SMB relay start failure should fail extraction");
+        assert!(matches!(local_transport_error, ApiError::Internal(_)));
+        assert_eq!(
+            mixed_extraction_failure_trace(&["source.txt"], "transport_failure"),
+            expected_topology_trace("extract_local_to_smb_transport_failure")
+        );
+        local_transport_playback.assert_consumed().await;
+
+        for (case_name, expected_category) in [
+            ("extract_local_to_smb_cancellation", "cancelled"),
+            ("extract_local_to_smb_source_changed", "source_changed"),
+        ] {
+            let playback = spawn_fixture_relay_server(case_name).await;
+            let error = ArchiveExtractionCoordinator {
+                relay: ArchiveExtractionRelay::from_transport(ArchiveRelayTransport::new(
+                    reqwest::Client::new(),
+                    playback.url.clone(),
+                    "test-token".to_string(),
+                )),
+                binding: ArchiveExtractionAdapterBinding::LocalArchiveToRemoteDestination {
+                    archive_path: directory.path().join("local.zip"),
+                    archive_entries: archive_entries.clone(),
+                },
+            }
+            .execute()
+            .await
+            .expect_err("terminal backend extraction state should stop local execution");
+            assert_eq!(mixed_relay_error_category(&error), expected_category);
+            assert_eq!(
+                mixed_extraction_failure_trace(&["source.txt"], mixed_relay_error_category(&error)),
+                expected_topology_trace(case_name)
+            );
+            playback.assert_consumed().await;
+        }
     }
 
     #[tokio::test]

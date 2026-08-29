@@ -462,6 +462,11 @@ impl ArchiveCreationManifestState {
         self.record(self.expected_outcome(archive_path)?)
     }
 
+    #[cfg(test)]
+    pub fn completed_member_paths(&self) -> impl Iterator<Item = &str> {
+        self.outcomes.keys().map(String::as_str)
+    }
+
     /// Return aggregate progress derived solely from recorded member outcomes.
     pub fn progress(&self) -> Result<LocalArchiveCreationResult, LocalArchiveError> {
         let mut result = LocalArchiveCreationResult::default();
@@ -901,6 +906,11 @@ impl LocalArchiveExtractionExecutionPlan {
 }
 
 impl LocalArchiveExtractionCheckpoint {
+    #[cfg(test)]
+    pub fn completed_member_paths(&self) -> impl Iterator<Item = &str> {
+        self.member_outcomes.keys().map(String::as_str)
+    }
+
     pub fn result(&self) -> LocalArchiveExtractionResult {
         let mut result = LocalArchiveExtractionResult {
             directories_created: u64::from(self.destination_root_created),

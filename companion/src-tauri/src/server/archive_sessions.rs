@@ -96,7 +96,10 @@ pub struct ArchiveSessionDecision {
 }
 
 enum ArchiveSessionCompletion {
-    Completed(ArchiveSessionProgress),
+    ExtractionCompleted {
+        result: LocalArchiveExtractionResult,
+        checkpoint: LocalArchiveExtractionCheckpoint,
+    },
     CreationCompleted {
         result: LocalArchiveCreationResult,
         state: ArchiveCreationManifestState,
@@ -194,7 +197,9 @@ impl ArchiveSession {
 
     fn complete(&mut self, result: Result<ArchiveSessionCompletion, LocalArchiveError>) {
         match result {
-            Ok(ArchiveSessionCompletion::Completed(result)) => {
+            Ok(ArchiveSessionCompletion::ExtractionCompleted { result, checkpoint }) => {
+                let result = ArchiveSessionProgress::Extraction(result);
+                self.extraction_checkpoint = Some(checkpoint);
                 self.progress = result;
                 self.phase = ArchiveSessionPhase::Completed;
                 self.result = Some(result);
@@ -710,9 +715,10 @@ impl LocalArchiveOperationCoordinator {
                     },
                 )
                 .map(|result| match result {
-                    LocalArchiveExtractionRunResult::Completed(checkpoint) => {
-                        ArchiveSessionCompletion::Completed(ArchiveSessionProgress::Extraction(checkpoint.result()))
-                    }
+                    LocalArchiveExtractionRunResult::Completed(checkpoint) => ArchiveSessionCompletion::ExtractionCompleted {
+                        result: checkpoint.result(),
+                        checkpoint,
+                    },
                     LocalArchiveExtractionRunResult::AwaitingCollision { checkpoint, collision } => {
                         ArchiveSessionCompletion::AwaitingCollision { checkpoint, collision }
                     }
@@ -793,13 +799,320 @@ mod tests {
             "terminal_summary": terminal_summary,
             "error_category": match status.phase {
                 ArchiveSessionPhase::Cancelled => serde_json::Value::String("cancelled".to_string()),
-                ArchiveSessionPhase::Failed => serde_json::Value::String("source_changed".to_string()),
+                ArchiveSessionPhase::Failed => serde_json::Value::String(
+                    if status.error.as_deref().is_some_and(|error| error.contains("source changed")) {
+                        "source_changed"
+                    } else {
+                        "invalid_input"
+                    }
+                    .to_string(),
+                ),
                 ArchiveSessionPhase::AwaitingUserDecision if status.pending_decision.as_ref().is_some_and(|decision| decision.member_error.is_some()) => {
                     serde_json::Value::String("partial_write".to_string())
                 }
                 _ => serde_json::Value::Null,
             },
         })
+    }
+
+    fn local_trajectory_scenario_names(operation: &str) -> Vec<String> {
+        let fixture: serde_json::Value =
+            serde_json::from_str(include_str!("../../../../archive-contract/v1/topology-execution-traces-v1.json"))
+                .expect("topology trace fixture should be valid JSON");
+        fixture["trajectory_cases"]
+            .as_array()
+            .expect("topology trace fixture should define trajectory cases")
+            .iter()
+            .filter(|case| case["operation"] == operation && case["topology"] == "local_to_local")
+            .map(|case| {
+                case["scenario"]
+                    .as_str()
+                    .expect("trajectory case should name a scenario")
+                    .to_string()
+            })
+            .collect()
+    }
+
+    async fn wait_for_terminal_session(manager: &ArchiveSessionManager, execution_id: &str) -> super::ArchiveSessionStatus {
+        tokio::time::timeout(Duration::from_secs(1), async {
+            loop {
+                let status = manager.get("c", "https://sambee.example", execution_id).await.unwrap();
+                if status.phase.is_terminal() {
+                    return status;
+                }
+                tokio::task::yield_now().await;
+            }
+        })
+        .await
+        .expect("local archive session should terminate")
+    }
+
+    async fn wait_for_pending_decision(manager: &ArchiveSessionManager, execution_id: &str) -> super::ArchiveSessionStatus {
+        tokio::time::timeout(Duration::from_secs(1), async {
+            loop {
+                let status = manager.get("c", "https://sambee.example", execution_id).await.unwrap();
+                if status.phase == ArchiveSessionPhase::AwaitingUserDecision {
+                    return status;
+                }
+                tokio::task::yield_now().await;
+            }
+        })
+        .await
+        .expect("local archive session should pause for a decision")
+    }
+
+    fn terminal_phase(name: &str) -> ArchiveSessionPhase {
+        match name {
+            "completed" => ArchiveSessionPhase::Completed,
+            "cancelled" => ArchiveSessionPhase::Cancelled,
+            _ => panic!("unsupported corpus terminal phase {name}"),
+        }
+    }
+
+    fn decision_action(name: &str) -> ArchiveSessionDecisionAction {
+        match name {
+            "rename" => ArchiveSessionDecisionAction::Rename,
+            "skip" => ArchiveSessionDecisionAction::Skip,
+            "replace" => ArchiveSessionDecisionAction::Replace,
+            "replace_older" => ArchiveSessionDecisionAction::ReplaceOlder,
+            "retry" => ArchiveSessionDecisionAction::Retry,
+            "ignore" => ArchiveSessionDecisionAction::Ignore,
+            _ => panic!("unsupported corpus decision action {name}"),
+        }
+    }
+
+    #[tokio::test]
+    async fn local_to_local_trajectory_matrix_dispatches_actual_coordinator() {
+        let creation_corpus: serde_json::Value = serde_json::from_str(include_str!(
+            "../../../../archive-contract/v1/creation-trajectory-scenarios-v1.json"
+        ))
+        .expect("creation trajectory corpus should be valid JSON");
+        for scenario_name in local_trajectory_scenario_names("create") {
+            let scenario = creation_corpus["scenarios"]
+                .as_array()
+                .expect("creation corpus should define scenarios")
+                .iter()
+                .find(|scenario| scenario["name"] == scenario_name)
+                .unwrap_or_else(|| panic!("creation corpus should define {scenario_name}"));
+            let directory = tempdir().unwrap();
+            let source_root = directory.path().join("source");
+            fs::create_dir(&source_root).unwrap();
+            let mut source_paths = Vec::new();
+            for entry in scenario["entries"].as_array().unwrap() {
+                let archive_path = entry["archive_path"].as_str().unwrap();
+                let path = source_root.join(archive_path);
+                if entry["is_directory"].as_bool().unwrap() {
+                    fs::create_dir_all(&path).unwrap();
+                } else {
+                    fs::create_dir_all(path.parent().unwrap()).unwrap();
+                    fs::write(&path, vec![b'x'; entry["source_size"].as_u64().unwrap() as usize]).unwrap();
+                }
+                let top_level = archive_path.split('/').next().unwrap();
+                let top_level_path = source_root.join(top_level);
+                if !source_paths.contains(&top_level_path) {
+                    source_paths.push(top_level_path);
+                }
+            }
+            let target = source_root.join("archive.zip");
+            let manager = Arc::new(ArchiveSessionManager::new());
+            let session = manager
+                .create_creation(
+                    "c".to_string(),
+                    "https://sambee.example".to_string(),
+                    source_root,
+                    source_paths,
+                    target.clone(),
+                )
+                .await;
+            if scenario["steps"].as_array().unwrap().iter().any(|step| step["event"] == "cancel") {
+                manager
+                    .cancel("c", "https://sambee.example", &session.execution_id, session.revision)
+                    .await
+                    .unwrap();
+            }
+            LocalArchiveOperationCoordinator::new(manager.clone())
+                .start(&session.execution_id)
+                .await
+                .unwrap();
+            let status = wait_for_terminal_session(&manager, &session.execution_id).await;
+            assert_eq!(status.phase, terminal_phase(scenario["terminal_phase"].as_str().unwrap()));
+            let progress = scenario["progress"].as_object().unwrap();
+            if status.phase == ArchiveSessionPhase::Completed {
+                assert!(matches!(
+                    status.result,
+                    Some(ArchiveSessionProgress::Creation(result))
+                        if result.files_created == progress["files_created"].as_u64().unwrap()
+                            && result.directories_created == progress["directories_created"].as_u64().unwrap()
+                            && result.source_bytes == progress["source_bytes"].as_u64().unwrap()
+                ));
+            } else {
+                assert!(status.result.is_none());
+            }
+            let sessions = manager.sessions.lock().await;
+            let expected_members = scenario["completed_members"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .map(|member| member.as_str().unwrap())
+                .collect::<std::collections::HashSet<_>>();
+            let completed_members = sessions
+                .get(&session.execution_id)
+                .and_then(|session| session.creation_state.as_ref())
+                .map(|state| state.completed_member_paths().collect::<std::collections::HashSet<_>>())
+                .unwrap_or_default();
+            assert_eq!(completed_members, expected_members);
+            assert_eq!(target.exists(), status.phase == ArchiveSessionPhase::Completed);
+        }
+
+        let extraction_corpus: serde_json::Value = serde_json::from_str(include_str!(
+            "../../../../archive-contract/v1/extraction-trajectory-scenarios-v1.json"
+        ))
+        .expect("extraction trajectory corpus should be valid JSON");
+        for scenario_name in local_trajectory_scenario_names("extract") {
+            let scenario = extraction_corpus["scenarios"]
+                .as_array()
+                .expect("extraction corpus should define scenarios")
+                .iter()
+                .find(|scenario| scenario["name"] == scenario_name)
+                .unwrap_or_else(|| panic!("extraction corpus should define {scenario_name}"));
+            let directory = tempdir().unwrap();
+            let source_root = directory.path().join("source");
+            fs::create_dir(&source_root).unwrap();
+            let mut source_paths = Vec::new();
+            for member in scenario["members"].as_array().unwrap() {
+                let member_path = member.as_str().unwrap();
+                let path = source_root.join(member_path);
+                fs::create_dir_all(path.parent().unwrap()).unwrap();
+                let bytes = match member_path {
+                    "renamed.txt" => vec![b'r'; 4],
+                    "replaced.txt" => vec![b'p'; 5],
+                    _ => vec![b's'; 5],
+                };
+                fs::write(&path, bytes).unwrap();
+                let top_level = member_path.split('/').next().unwrap();
+                let top_level_path = source_root.join(top_level);
+                if !source_paths.contains(&top_level_path) {
+                    source_paths.push(top_level_path);
+                }
+            }
+            let archive_path = source_root.join("archive.zip");
+            let entries = build_local_archive_manifest(&source_paths, &archive_path).unwrap();
+            create_local_archive(&source_root, &archive_path, &entries, || false).unwrap();
+            let destination = directory.path().join("output");
+            if scenario_name == "collision_decisions_resume_to_terminal_summary" {
+                for member in scenario["members"].as_array().unwrap() {
+                    let path = destination.join(member.as_str().unwrap());
+                    fs::create_dir_all(path.parent().unwrap()).unwrap();
+                    fs::write(path, b"existing").unwrap();
+                }
+            }
+            let original_archive = fs::read(&archive_path).unwrap();
+            if scenario_name.starts_with("partial_write") {
+                let offset = original_archive
+                    .windows(5)
+                    .position(|window| window == b"sssss")
+                    .expect("stored archive member should contain its source bytes");
+                let mut corrupted_archive = original_archive.clone();
+                corrupted_archive[offset] = b'X';
+                fs::write(&archive_path, corrupted_archive).unwrap();
+            }
+            let session_source_modified_at = fs::metadata(&archive_path).unwrap().modified().unwrap();
+            let manager = Arc::new(ArchiveSessionManager::new());
+            let session = manager
+                .create_extraction(
+                    "c".to_string(),
+                    "https://sambee.example".to_string(),
+                    directory.path().to_path_buf(),
+                    archive_path.clone(),
+                    destination,
+                )
+                .await;
+            if scenario["steps"].as_array().unwrap().iter().any(|step| step["event"] == "cancel") {
+                manager
+                    .cancel("c", "https://sambee.example", &session.execution_id, session.revision)
+                    .await
+                    .unwrap();
+            }
+            let coordinator = LocalArchiveOperationCoordinator::new(manager.clone());
+            coordinator.start(&session.execution_id).await.unwrap();
+            for step in scenario["steps"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .filter(|step| step["event"] == "decision")
+            {
+                let paused = wait_for_pending_decision(&manager, &session.execution_id).await;
+                if step["action"] == "retry" {
+                    fs::write(&archive_path, &original_archive).unwrap();
+                    fs::File::open(&archive_path)
+                        .unwrap()
+                        .set_times(std::fs::FileTimes::new().set_modified(session_source_modified_at))
+                        .unwrap();
+                }
+                coordinator
+                    .decide(
+                        "c",
+                        "https://sambee.example",
+                        &session.execution_id,
+                        paused.revision,
+                        ArchiveSessionDecision {
+                            member_path: step["member_path"].as_str().unwrap().to_string(),
+                            action: decision_action(step["action"].as_str().unwrap()),
+                            target_path: step["target_path"].as_str().map(str::to_string),
+                        },
+                    )
+                    .await
+                    .unwrap();
+            }
+            let status = wait_for_terminal_session(&manager, &session.execution_id).await;
+            assert_eq!(
+                status.phase,
+                terminal_phase(scenario["terminal_phase"].as_str().unwrap()),
+                "scenario {scenario_name} failed with {:?}",
+                status.error
+            );
+            let progress = scenario["progress"].as_object().unwrap();
+            if status.phase == ArchiveSessionPhase::Completed {
+                let ArchiveSessionProgress::Extraction(result) = status.result.expect("extraction corpus case should have a result") else {
+                    panic!("extraction corpus case should retain an extraction result");
+                };
+                assert_eq!(
+                    (
+                        result.files_extracted,
+                        result.files_skipped,
+                        result.files_replaced,
+                        result.extracted_bytes,
+                    ),
+                    (
+                        progress["files_extracted"].as_u64().unwrap(),
+                        progress["files_skipped"].as_u64().unwrap(),
+                        progress["files_replaced"].as_u64().unwrap(),
+                        progress["extracted_bytes"].as_u64().unwrap(),
+                    ),
+                    "scenario {scenario_name} returned {result:?}"
+                );
+            } else {
+                assert!(status.result.is_none());
+            }
+            let expected_members = scenario["completed_members"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .map(|member| member.as_str().unwrap().to_string())
+                .collect::<std::collections::HashSet<_>>();
+            let sessions = manager.sessions.lock().await;
+            let completed_members = sessions
+                .get(&session.execution_id)
+                .and_then(|session| session.extraction_checkpoint.as_ref())
+                .map(|checkpoint| {
+                    checkpoint
+                        .completed_member_paths()
+                        .map(str::to_string)
+                        .collect::<std::collections::HashSet<_>>()
+                })
+                .unwrap_or_default();
+            assert_eq!(completed_members, expected_members);
+        }
     }
 
     #[tokio::test]
@@ -983,6 +1296,88 @@ mod tests {
         assert_eq!(
             direct_local_trace(&manager, &session.execution_id, &completed, vec!["source.txt"], vec!["source.txt"]).await,
             expected
+        );
+    }
+
+    #[tokio::test]
+    async fn direct_local_malformed_archive_matches_shared_trace() {
+        let directory = tempdir().unwrap();
+        let archive_path = directory.path().join("not-an-archive.bin");
+        fs::write(&archive_path, b"not a ZIP archive").unwrap();
+        let manager = Arc::new(ArchiveSessionManager::new());
+        let session = manager
+            .create_extraction(
+                "c".to_string(),
+                "https://sambee.example".to_string(),
+                directory.path().to_path_buf(),
+                archive_path,
+                directory.path().join("output"),
+            )
+            .await;
+        LocalArchiveOperationCoordinator::new(manager.clone())
+            .start(&session.execution_id)
+            .await
+            .unwrap();
+        let failed = tokio::time::timeout(Duration::from_secs(1), async {
+            loop {
+                let status = manager.get("c", "https://sambee.example", &session.execution_id).await.unwrap();
+                if status.phase.is_terminal() {
+                    return status;
+                }
+                tokio::task::yield_now().await;
+            }
+        })
+        .await
+        .expect("malformed local archive should terminate");
+
+        assert_eq!(failed.phase, ArchiveSessionPhase::Failed);
+        assert_eq!(
+            direct_local_trace(&manager, &session.execution_id, &failed, vec![], vec![]).await,
+            expected_trace("extract_local_to_local_malformed_input")
+        );
+    }
+
+    #[tokio::test]
+    async fn direct_local_extraction_cancellation_matches_shared_trace() {
+        let directory = tempdir().unwrap();
+        let source = directory.path().join("source.txt");
+        let archive_path = directory.path().join("archive.zip");
+        fs::write(&source, b"source").unwrap();
+        let entries = build_local_archive_manifest(&[source], &archive_path).unwrap();
+        create_local_archive(directory.path(), &archive_path, &entries, || false).unwrap();
+        let manager = Arc::new(ArchiveSessionManager::new());
+        let session = manager
+            .create_extraction(
+                "c".to_string(),
+                "https://sambee.example".to_string(),
+                directory.path().to_path_buf(),
+                archive_path,
+                directory.path().join("output"),
+            )
+            .await;
+        manager
+            .cancel("c", "https://sambee.example", &session.execution_id, session.revision)
+            .await
+            .unwrap();
+        LocalArchiveOperationCoordinator::new(manager.clone())
+            .start(&session.execution_id)
+            .await
+            .unwrap();
+        let cancelled = tokio::time::timeout(Duration::from_secs(1), async {
+            loop {
+                let status = manager.get("c", "https://sambee.example", &session.execution_id).await.unwrap();
+                if status.phase.is_terminal() {
+                    return status;
+                }
+                tokio::task::yield_now().await;
+            }
+        })
+        .await
+        .expect("cancelled local archive extraction should terminate");
+
+        assert_eq!(
+            direct_local_trace(&manager, &session.execution_id, &cancelled, vec!["source.txt"], vec![]).await,
+            expected_trace("extract_local_to_local_cancellation")
         );
     }
 
