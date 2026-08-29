@@ -283,9 +283,7 @@ def test_archive_contract_binds_companion_archive_routes_to_their_concrete_model
         )
         assert handler_match is not None
         assert handler_match.group("response").replace(" ", "") == route["response_model"]
-        request_model_match = re.search(
-            r"(?:Json|Query)\(\w+\):\s*(?:Json|Query)<(?P<model>\w+)>", handler_match.group("parameters")
-        )
+        request_model_match = re.search(r"(?:Json|Query)\(\w+\):\s*(?:Json|Query)<(?P<model>\w+)>", handler_match.group("parameters"))
         expected_request_model = route["request_model"]
         if expected_request_model is None:
             assert request_model_match is None
