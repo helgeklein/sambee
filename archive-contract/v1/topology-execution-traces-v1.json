@@ -2091,7 +2091,9 @@
       "fault": "transport_failure",
       "expected_trace": {
         "owner": "companion",
-        "manifest_snapshot": [],
+        "manifest_snapshot": [
+          "entry.txt"
+        ],
         "phase_transitions": [
           "accepted",
           "streaming",

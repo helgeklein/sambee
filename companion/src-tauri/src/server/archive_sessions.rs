@@ -12,7 +12,7 @@ use uuid::Uuid;
 use super::archive::{
     build_local_archive_manifest_with_cancellation, create_local_archive_with_cancellation_progress_and_state,
     extract_local_archive_with_checkpoint_and_progress, validate_local_extraction_rename_target, ArchiveCreationManifestState,
-    LocalArchiveCreationResult, LocalArchiveError, LocalArchiveExtractionCheckpoint, LocalArchiveExtractionCollision,
+    LocalArchiveCreationResult, LocalArchiveEntry, LocalArchiveError, LocalArchiveExtractionCheckpoint, LocalArchiveExtractionCollision,
     LocalArchiveExtractionCollisionAction, LocalArchiveExtractionMemberError, LocalArchiveExtractionResult,
     LocalArchiveExtractionRunResult,
 };
@@ -133,6 +133,29 @@ enum ArchiveSessionWork {
     Extraction { archive_path: PathBuf, destination_path: PathBuf },
 }
 
+#[cfg(test)]
+enum CreationPreWriteAction {
+    RemoveFirstSource,
+    ModifyFirstSource,
+    Cancel,
+}
+
+#[cfg(test)]
+impl CreationPreWriteAction {
+    fn apply(self, source_paths: &[PathBuf], cancellation_requested: &AtomicBool) -> Result<(), LocalArchiveError> {
+        if matches!(self, Self::Cancel) {
+            cancellation_requested.store(true, Ordering::Release);
+            return Ok(());
+        }
+        let source_path = source_paths.first().ok_or(LocalArchiveError::UnsupportedSource)?;
+        match self {
+            Self::RemoveFirstSource => std::fs::remove_file(source_path).map_err(LocalArchiveError::Io),
+            Self::ModifyFirstSource => std::fs::write(source_path, b"changed source").map_err(LocalArchiveError::Io),
+            Self::Cancel => unreachable!("cancellation action returns above"),
+        }
+    }
+}
+
 impl ArchiveSessionWork {
     fn kind(&self) -> ArchiveSessionKind {
         match self {
@@ -170,6 +193,7 @@ struct ArchiveSession {
     revision: u64,
     drive_root: PathBuf,
     work: ArchiveSessionWork,
+    creation_manifest_entries: Option<Vec<LocalArchiveEntry>>,
     creation_state: Option<ArchiveCreationManifestState>,
     extraction_checkpoint: Option<LocalArchiveExtractionCheckpoint>,
     cancellation_requested: Arc<AtomicBool>,
@@ -256,6 +280,11 @@ pub struct ArchiveSessionManager {
     phase_transitions: Mutex<HashMap<String, Vec<ArchiveSessionPhase>>>,
     #[cfg(test)]
     pending_decisions: Mutex<HashMap<String, String>>,
+}
+
+enum ArchiveSessionWorkerEvent {
+    CreationManifest(Vec<LocalArchiveEntry>),
+    Progress(ArchiveSessionProgress),
 }
 
 /// Coordinate direct-local archive work while keeping lifecycle records in memory only.
@@ -375,6 +404,7 @@ impl ArchiveSessionManager {
             drive_root,
             progress: work.initial_progress(),
             work,
+            creation_manifest_entries: None,
             creation_state: None,
             extraction_checkpoint: None,
             cancellation_requested: Arc::new(AtomicBool::new(false)),
@@ -636,6 +666,13 @@ impl ArchiveSessionManager {
         }
     }
 
+    async fn record_creation_manifest(&self, execution_id: &str, entries: Vec<LocalArchiveEntry>) {
+        let mut sessions = self.sessions.lock().await;
+        if let Some(session) = sessions.get_mut(execution_id) {
+            session.creation_manifest_entries = Some(entries);
+        }
+    }
+
     async fn update_progress(&self, execution_id: &str, progress: ArchiveSessionProgress) {
         let mut sessions = self.sessions.lock().await;
         if let Some(session) = sessions.get_mut(execution_id) {
@@ -652,7 +689,29 @@ impl ArchiveSessionManager {
 impl LocalArchiveOperationCoordinator {
     pub async fn start(&self, execution_id: &str) -> Result<(), ApiError> {
         let (drive_root, work, cancellation_requested, checkpoint) = self.state_store.start_state(execution_id).await?;
-        self.spawn_worker(execution_id.to_string(), drive_root, work, cancellation_requested, checkpoint);
+        self.spawn_worker(
+            execution_id.to_string(),
+            drive_root,
+            work,
+            cancellation_requested,
+            checkpoint,
+            #[cfg(test)]
+            None,
+        );
+        Ok(())
+    }
+
+    #[cfg(test)]
+    async fn start_with_creation_pre_write_action(&self, execution_id: &str, action: CreationPreWriteAction) -> Result<(), ApiError> {
+        let (drive_root, work, cancellation_requested, checkpoint) = self.state_store.start_state(execution_id).await?;
+        self.spawn_worker(
+            execution_id.to_string(),
+            drive_root,
+            work,
+            cancellation_requested,
+            checkpoint,
+            Some(action),
+        );
         Ok(())
     }
 
@@ -667,7 +726,15 @@ impl LocalArchiveOperationCoordinator {
         let (drive_root, work, cancellation_requested, checkpoint, status) = self
             .apply_decision(drive, owner_origin, execution_id, expected_revision, decision)
             .await?;
-        self.spawn_worker(execution_id.to_string(), drive_root, work, cancellation_requested, checkpoint);
+        self.spawn_worker(
+            execution_id.to_string(),
+            drive_root,
+            work,
+            cancellation_requested,
+            checkpoint,
+            #[cfg(test)]
+            None,
+        );
         Ok(status)
     }
 
@@ -678,10 +745,11 @@ impl LocalArchiveOperationCoordinator {
         work: ArchiveSessionWork,
         cancellation_requested: Arc<AtomicBool>,
         checkpoint: Option<LocalArchiveExtractionCheckpoint>,
+        #[cfg(test)] creation_pre_write_action: Option<CreationPreWriteAction>,
     ) {
         let state_store = self.state_store.clone();
         tokio::spawn(async move {
-            let (progress_sender, mut progress_receiver) = mpsc::unbounded_channel();
+            let (event_sender, mut event_receiver) = mpsc::unbounded_channel();
             let mut archive_task = tokio::task::spawn_blocking(move || match work {
                 ArchiveSessionWork::Creation { source_paths, target_path } => {
                     if cancellation_requested.load(Ordering::Acquire) {
@@ -690,13 +758,18 @@ impl LocalArchiveOperationCoordinator {
                     let entries = build_local_archive_manifest_with_cancellation(&source_paths, &target_path, || {
                         cancellation_requested.load(Ordering::Acquire)
                     })?;
+                    let _ = event_sender.send(ArchiveSessionWorkerEvent::CreationManifest(entries.clone()));
+                    #[cfg(test)]
+                    if let Some(action) = creation_pre_write_action {
+                        action.apply(&source_paths, &cancellation_requested)?;
+                    }
                     create_local_archive_with_cancellation_progress_and_state(
                         &drive_root,
                         &target_path,
                         &entries,
                         || cancellation_requested.load(Ordering::Acquire),
                         |progress| {
-                            let _ = progress_sender.send(ArchiveSessionProgress::Creation(progress));
+                            let _ = event_sender.send(ArchiveSessionWorkerEvent::Progress(ArchiveSessionProgress::Creation(progress)));
                         },
                     )
                     .map(|(result, state)| ArchiveSessionCompletion::CreationCompleted { result, state })
@@ -711,7 +784,7 @@ impl LocalArchiveOperationCoordinator {
                     checkpoint.unwrap_or_default(),
                     || cancellation_requested.load(Ordering::Acquire),
                     |progress| {
-                        let _ = progress_sender.send(ArchiveSessionProgress::Extraction(progress));
+                        let _ = event_sender.send(ArchiveSessionWorkerEvent::Progress(ArchiveSessionProgress::Extraction(progress)));
                     },
                 )
                 .map(|result| match result {
@@ -729,8 +802,21 @@ impl LocalArchiveOperationCoordinator {
             });
             let result = loop {
                 tokio::select! {
-                    Some(progress) = progress_receiver.recv() => state_store.update_progress(&execution_id, progress).await,
+                    Some(event) = event_receiver.recv() => match event {
+                        ArchiveSessionWorkerEvent::CreationManifest(entries) => {
+                            state_store.record_creation_manifest(&execution_id, entries).await;
+                        }
+                        ArchiveSessionWorkerEvent::Progress(progress) => state_store.update_progress(&execution_id, progress).await,
+                    },
                     result = &mut archive_task => {
+                        while let Ok(event) = event_receiver.try_recv() {
+                            match event {
+                                ArchiveSessionWorkerEvent::CreationManifest(entries) => {
+                                    state_store.record_creation_manifest(&execution_id, entries).await;
+                                }
+                                ArchiveSessionWorkerEvent::Progress(progress) => state_store.update_progress(&execution_id, progress).await,
+                            }
+                        }
                         break result
                             .map_err(|error| LocalArchiveError::Io(std::io::Error::other(format!("Archive execution task failed: {error}"))))
                             .and_then(|result| result);
@@ -755,7 +841,7 @@ mod tests {
         ArchiveSessionDecision, ArchiveSessionDecisionAction, ArchiveSessionManager, ArchiveSessionPhase, ArchiveSessionProgress,
         LocalArchiveOperationCoordinator,
     };
-    use crate::server::archive::{build_local_archive_manifest, create_local_archive, LocalArchiveEntry, LocalArchiveError};
+    use crate::server::archive::{build_local_archive_manifest, create_local_archive};
 
     fn expected_trace(case_name: &str) -> serde_json::Value {
         let fixture: serde_json::Value =
@@ -802,6 +888,10 @@ mod tests {
                 ArchiveSessionPhase::Failed => serde_json::Value::String(
                     if status.error.as_deref().is_some_and(|error| error.contains("source changed")) {
                         "source_changed"
+                    } else if status.error.as_deref().is_some_and(|error| error.contains("partial output")) {
+                        "partial_write"
+                    } else if status.error.as_deref().is_some_and(|error| error.contains("output already exists")) {
+                        "collision"
                     } else if status.error.as_deref().is_some_and(|error| error.contains("No such file or directory")) {
                         "transport_failure"
                     } else {
@@ -817,16 +907,38 @@ mod tests {
         })
     }
 
-    fn direct_local_creation_failure_trace(manifest_snapshot: &[&str], error_category: &str) -> serde_json::Value {
-        serde_json::json!({
-            "owner": "companion",
-            "manifest_snapshot": manifest_snapshot,
-            "phase_transitions": ["accepted", "streaming", if error_category == "cancelled" { "cancelled" } else { "failed" }],
-            "pending_decision": null,
-            "member_outcomes": [],
-            "terminal_summary": null,
-            "error_category": error_category,
-        })
+    async fn direct_local_creation_trace(
+        manager: &ArchiveSessionManager,
+        execution_id: &str,
+        status: &super::ArchiveSessionStatus,
+    ) -> serde_json::Value {
+        let (manifest_snapshot, member_outcomes) = {
+            let sessions = manager.sessions.lock().await;
+            let session = sessions
+                .get(execution_id)
+                .expect("creation session should remain available while its trace is read");
+            let mut manifest_snapshot = session
+                .creation_manifest_entries
+                .as_ref()
+                .map(|entries| entries.iter().map(|entry| entry.archive_path.clone()).collect::<Vec<_>>())
+                .unwrap_or_default();
+            let mut member_outcomes = session
+                .creation_state
+                .as_ref()
+                .map(|state| state.completed_member_paths().map(str::to_owned).collect::<Vec<_>>())
+                .unwrap_or_default();
+            manifest_snapshot.sort();
+            member_outcomes.sort();
+            (manifest_snapshot, member_outcomes)
+        };
+        direct_local_trace(
+            manager,
+            execution_id,
+            status,
+            manifest_snapshot.iter().map(String::as_str).collect(),
+            member_outcomes.iter().map(String::as_str).collect(),
+        )
+        .await
     }
 
     fn local_trajectory_scenario_names(operation: &str) -> Vec<String> {
@@ -1549,8 +1661,8 @@ mod tests {
         );
     }
 
-    #[test]
-    fn direct_local_creation_faults_dispatch_every_fixture_case() {
+    #[tokio::test]
+    async fn direct_local_creation_faults_dispatch_every_fixture_case() {
         let fixture: serde_json::Value =
             serde_json::from_str(include_str!("../../../../archive-contract/v1/topology-execution-traces-v1.json"))
                 .expect("topology trace fixture should be valid JSON");
@@ -1576,99 +1688,57 @@ mod tests {
             "direct-local creation dispatcher must cover every declared fault"
         );
 
-        let directory = tempdir().expect("temporary archive directory should be created");
-        let source = directory.path().join("entry.txt");
-        std::fs::write(&source, b"entry").expect("source should be written");
-
-        let malformed = [LocalArchiveEntry {
-            source_path: source.clone(),
-            archive_path: "../entry.txt".to_string(),
-            is_directory: false,
-            source_size: 5,
-            source_modified_at: None,
-        }];
-        assert!(matches!(
-            create_local_archive(directory.path(), &directory.path().join("malformed.zip"), &malformed, || false),
-            Err(LocalArchiveError::UnsafeEntryPath)
-        ));
-        assert_eq!(
-            direct_local_creation_failure_trace(&[], "invalid_input"),
-            expected_trace("create_local_to_local_malformed_input")
-        );
-
-        let collision_target = directory.path().join("collision.zip");
-        std::fs::write(&collision_target, b"existing").expect("collision target should be written");
-        let collision_entries = build_local_archive_manifest(std::slice::from_ref(&source), &directory.path().join("unused.zip"))
-            .expect("source should produce a creation manifest");
-        assert!(matches!(
-            create_local_archive(directory.path(), &collision_target, &collision_entries, || false),
-            Err(LocalArchiveError::TargetExists)
-        ));
-        assert_eq!(
-            direct_local_creation_failure_trace(&[], "collision"),
-            expected_trace("create_local_to_local_collision")
-        );
-
-        let partial = [LocalArchiveEntry {
-            source_path: directory.path().join("missing.txt"),
-            archive_path: "entry.txt".to_string(),
-            is_directory: false,
-            source_size: 5,
-            source_modified_at: None,
-        }];
-        assert!(matches!(
-            create_local_archive(directory.path(), &directory.path().join("partial.zip"), &partial, || false),
-            Err(LocalArchiveError::PartialArchiveOutput(_))
-        ));
-        assert_eq!(
-            direct_local_creation_failure_trace(&["entry.txt"], "partial_write"),
-            expected_trace("create_local_to_local_partial_write")
-        );
-
-        let cancellation_source = directory.path().join("source.txt");
-        std::fs::write(&cancellation_source, b"source").expect("cancellation source should be written");
-        let cancellation_entries = build_local_archive_manifest(&[cancellation_source], &directory.path().join("cancelled.zip"))
-            .expect("source should produce a creation manifest");
-        assert!(matches!(
-            create_local_archive(
-                directory.path(),
-                &directory.path().join("cancelled.zip"),
-                &cancellation_entries,
-                || true
-            ),
-            Err(LocalArchiveError::Cancelled)
-        ));
-        assert_eq!(
-            direct_local_creation_failure_trace(&["source.txt"], "cancelled"),
-            expected_trace("create_cancellation")
-        );
-
-        let source_changed = directory.path().join("source-changed.txt");
-        let source_changed_target = directory.path().join("source-changed.zip");
-        std::fs::write(&source_changed, b"entry").expect("source should be written");
-        let source_changed_entries = build_local_archive_manifest(std::slice::from_ref(&source_changed), &source_changed_target)
-            .expect("source should produce a creation manifest");
-        std::fs::write(&source_changed, b"changed entry").expect("source should change after manifest construction");
-        assert!(matches!(
-            create_local_archive(directory.path(), &source_changed_target, &source_changed_entries, || false),
-            Err(LocalArchiveError::ArchiveSourceChanged)
-        ));
-        assert_eq!(
-            direct_local_creation_failure_trace(&["entry.txt"], "source_changed"),
-            expected_trace("create_local_to_local_source_changed")
-        );
-
-        let transport_target = directory.path().join("missing-parent").join("transport.zip");
-        let transport_entries = build_local_archive_manifest(&[source], &directory.path().join("transport-manifest.zip"))
-            .expect("source should produce a creation manifest");
-        assert!(matches!(
-            create_local_archive(directory.path(), &transport_target, &transport_entries, || false),
-            Err(LocalArchiveError::Io(error)) if error.kind() == std::io::ErrorKind::NotFound
-        ));
-        assert_eq!(
-            direct_local_creation_failure_trace(&[], "transport_failure"),
-            expected_trace("create_local_to_local_transport_failure")
-        );
+        for case_name in dispatched_cases {
+            let directory = tempdir().expect("temporary archive directory should be created");
+            let source = directory.path().join("entry.txt");
+            std::fs::write(&source, b"entry").expect("source should be written");
+            let target = directory.path().join("archive.zip");
+            let manager = Arc::new(ArchiveSessionManager::new());
+            let (source_paths, target, action) = match case_name {
+                "create_local_to_local_malformed_input" => (vec![PathBuf::new()], target, None),
+                "create_local_to_local_collision" => {
+                    std::fs::write(&target, b"existing").expect("collision target should be written");
+                    (vec![source], target, None)
+                }
+                "create_local_to_local_partial_write" => (vec![source], target, Some(super::CreationPreWriteAction::RemoveFirstSource)),
+                "create_cancellation" => {
+                    let source = directory.path().join("source.txt");
+                    std::fs::write(&source, b"source").expect("cancellation source should be written");
+                    (vec![source], target, Some(super::CreationPreWriteAction::Cancel))
+                }
+                "create_local_to_local_source_changed" => (vec![source], target, Some(super::CreationPreWriteAction::ModifyFirstSource)),
+                "create_local_to_local_transport_failure" => {
+                    (vec![source], directory.path().join("missing-parent").join("archive.zip"), None)
+                }
+                _ => unreachable!("fixture set was asserted above"),
+            };
+            let session = manager
+                .create_creation(
+                    "c".to_string(),
+                    "https://sambee.example".to_string(),
+                    directory.path().to_path_buf(),
+                    source_paths,
+                    target,
+                )
+                .await;
+            let coordinator = LocalArchiveOperationCoordinator::new(manager.clone());
+            match action {
+                Some(action) => coordinator
+                    .start_with_creation_pre_write_action(&session.execution_id, action)
+                    .await
+                    .expect("creation session should start"),
+                None => coordinator
+                    .start(&session.execution_id)
+                    .await
+                    .expect("creation session should start"),
+            }
+            let status = wait_for_terminal_session(&manager, &session.execution_id).await;
+            assert_eq!(
+                direct_local_creation_trace(&manager, &session.execution_id, &status).await,
+                expected_trace(case_name),
+                "{case_name} must be traced by the direct-local session coordinator"
+            );
+        }
     }
 
     #[tokio::test]
