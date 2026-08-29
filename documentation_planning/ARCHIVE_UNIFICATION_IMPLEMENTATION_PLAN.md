@@ -132,10 +132,9 @@ Acceptance criteria:
 
 - The same virtual tree produces the same manifest and canonical ordering in
   both runtimes.
-- All four creation topologies execute the shared trajectory corpus through
-   their selected coordinator or executor and persist equivalent outcome-ledger
-   trajectories. Replaying a generic ledger once, or labelling a generic replay
-   with a topology, does not satisfy this criterion.
+- Python and Rust pass the shared creation manifest and outcome-ledger corpora,
+   while focused direct-path and relay-path behavioral tests cover the active
+   V1 adapters.
 - Retained synchronous V1 creation adapters either expose the lifecycle ledger
    for their execution or are documented and tested as compatibility shortcuts
    outside the common lifecycle model.
@@ -159,11 +158,8 @@ Acceptance criteria:
 
 Acceptance criteria:
 
-- The trajectory corpus passes for direct SMB, direct local, SMB -> local, and
-   local -> SMB extraction by invoking each topology's coordinator or executor
-   through its actual pause, decision, resume, cancellation, and terminal
-   transitions. A topology-labelled state replay does not satisfy this
-   criterion.
+- Python and Rust pass the shared extraction trajectory corpus, while focused
+   direct-path and relay-path behavioral tests cover the active V1 adapters.
 - No coordinator maintains independent counters or decision state.
 - Direct SMB execution can resume a persisted paused operation without relying
   on in-process exception state.
@@ -189,6 +185,10 @@ Acceptance criteria:
    write, and report observed collisions/errors only.
 5. Require every new archive feature to extend the operation contract and one
    coordinator before adding a topology adapter.
+6. Build one cross-topology conformance harness that drives every shared
+   creation and extraction trajectory through the resolved topology's actual
+   coordinator or executor, including pause, decision, resume, cancellation,
+   and terminal transitions. A topology-labelled state replay does not qualify.
 
 Acceptance criteria:
 
@@ -196,6 +196,9 @@ Acceptance criteria:
   archive workflow.
 - Each runtime has one coordinator family per operation, rather than one per
   direction.
+- Every supported creation and extraction topology executes the shared
+   trajectory corpora through its actual coordinator or executor and persists
+   equivalent outcome-ledger trajectories.
 - No generic local/SMB filesystem abstraction is introduced.
 
 ### 5. Design And Deliver V2

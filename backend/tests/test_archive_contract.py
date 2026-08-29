@@ -158,7 +158,7 @@ def _v1_relay_control_payloads() -> list[dict[str, Any]]:
     return payloads
 
 
-def _v1_companion_archive_route_bindings() -> set[tuple[str, str, str, str]]:
+def _v1_companion_archive_route_bindings() -> list[dict[str, str | None]]:
     fixture = json.loads(COMPANION_ARCHIVE_ROUTE_BINDINGS_PATH.read_text(encoding="utf-8"))
     assert fixture["version"] == 1
     routes = fixture["routes"]
@@ -168,12 +168,16 @@ def _v1_companion_archive_route_bindings() -> set[tuple[str, str, str, str]]:
         and route.get("method") in {"GET", "POST", "PUT", "DELETE"}
         and isinstance(route.get("path"), str)
         and isinstance(route.get("handler"), str)
-        and isinstance(route.get("operation_id"), str)
+        and route.get("semantic_operation") in {"inspection", "creation", "extraction", "execution"}
+        and (route.get("request_model") is None or isinstance(route.get("request_model"), str))
+        and (route.get("request_schema") is None or isinstance(route.get("request_schema"), str))
+        and isinstance(route.get("response_model"), str)
+        and isinstance(route.get("response_schema"), str)
         and isinstance(route.get("retirement_condition"), str)
         and route["retirement_condition"]
         for route in routes
     )
-    return {(route["method"], route["path"], route["handler"], route["operation_id"]) for route in routes}
+    return routes
 
 
 def _registered_companion_archive_routes() -> set[tuple[str, str, str]]:
@@ -257,22 +261,37 @@ def test_archive_contract_covers_backend_and_companion_relay_purposes() -> None:
     assert documented_purposes == _companion_relay_purposes()
 
 
-def test_archive_contract_binds_normalized_local_execution_routes_to_companion_router() -> None:
-    """Keep every V1 Companion archive adapter route bound to a contract operation."""
+def test_archive_contract_binds_companion_archive_routes_to_their_concrete_models() -> None:
+    """Keep retained V1 Companion routes bound to their concrete schema and handler models."""
 
     contract = yaml.safe_load(ARCHIVE_CONTRACT_PATH.read_text(encoding="utf-8"))
     bindings = _v1_companion_archive_route_bindings()
-    assert {(method, path, handler) for method, path, handler, _operation_id in bindings} == _registered_companion_archive_routes()
-    documented_operation_ids = {
-        operation["operationId"]
-        for path_item in contract["paths"].values()
-        if isinstance(path_item, dict)
-        for operation in path_item.values()
-        if isinstance(operation, dict) and isinstance(operation.get("operationId"), str)
-    }
-    assert {operation_id for _method, _path, _handler, operation_id in bindings if operation_id != "inspection"}.issubset(
-        documented_operation_ids
-    )
+    assert {(route["method"], route["path"], route["handler"]) for route in bindings} == _registered_companion_archive_routes()
+
+    schemas = contract["components"]["schemas"]
+    handler_source = COMPANION_RELAY_BINDING_PATH.read_text(encoding="utf-8")
+    for route in bindings:
+        request_schema = route["request_schema"]
+        if request_schema is not None:
+            assert request_schema in schemas
+        assert route["response_schema"] in schemas
+
+        handler_match = re.search(
+            rf"pub async fn {re.escape(str(route['handler']))}\((?P<parameters>.*?)\)\s*->\s*Result<(?P<response>[^,]+), ApiError>",
+            handler_source,
+            flags=re.DOTALL,
+        )
+        assert handler_match is not None
+        assert handler_match.group("response").replace(" ", "") == route["response_model"]
+        request_model_match = re.search(
+            r"(?:Json|Query)\(\w+\):\s*(?:Json|Query)<(?P<model>\w+)>", handler_match.group("parameters")
+        )
+        expected_request_model = route["request_model"]
+        if expected_request_model is None:
+            assert request_model_match is None
+        else:
+            assert request_model_match is not None
+            assert request_model_match.group("model") == expected_request_model
 
 
 def test_v1_relay_binding_fixture_covers_backend_contract_and_companion() -> None:

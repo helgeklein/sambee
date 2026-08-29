@@ -928,6 +928,161 @@ components:
         files_created: {type: integer, minimum: 0}
         directories_created: {type: integer, minimum: 0}
         source_bytes: {type: integer, minimum: 0}
+    ArchiveListQueryV1:
+      type: object
+      additionalProperties: false
+      required: [archive_path]
+      properties:
+        archive_path: {type: string, minLength: 1}
+        virtual_path: {type: [string, 'null']}
+        cursor: {type: [string, 'null']}
+        page_size: {type: [integer, 'null'], minimum: 1, maximum: 500}
+    ArchiveMemberReadQueryV1:
+      type: object
+      additionalProperties: false
+      required: [archive_path, member_path]
+      properties:
+        archive_path: {type: string, minLength: 1}
+        member_path: {type: string, minLength: 1}
+        download: {type: boolean, default: false}
+    ArchiveCreateRequestV1:
+      type: object
+      additionalProperties: false
+      required: [source_paths, target_path]
+      properties:
+        source_paths:
+          type: array
+          minItems: 1
+          items: {type: string, minLength: 1}
+        target_path: {type: string, minLength: 1}
+    ArchiveSmbToLocalCreationRequestV1:
+      type: object
+      additionalProperties: false
+      required: [target_path, server_url, operation_id, operation_token]
+      properties:
+        target_path: {type: string, minLength: 1}
+        server_url: {type: string, minLength: 1}
+        operation_id: {type: string, minLength: 1}
+        operation_token: {type: string, minLength: 1}
+    ArchiveLocalToSmbCreationRequestV1:
+      type: object
+      additionalProperties: false
+      required: [source_paths, target_path, server_url, operation_id, operation_token]
+      properties:
+        source_paths:
+          type: array
+          minItems: 1
+          items: {type: string, minLength: 1}
+        target_path: {type: string, minLength: 1}
+        server_url: {type: string, minLength: 1}
+        operation_id: {type: string, minLength: 1}
+        operation_token: {type: string, minLength: 1}
+    ArchiveLocalToSmbExtractionRequestV1:
+      type: object
+      additionalProperties: false
+      required: [archive_path, server_url, operation_id, operation_token]
+      properties:
+        archive_path: {type: string, minLength: 1}
+        server_url: {type: string, minLength: 1}
+        operation_id: {type: string, minLength: 1}
+        operation_token: {type: string, minLength: 1}
+    ArchiveSmbToLocalExtractionRequestV1:
+      type: object
+      additionalProperties: false
+      required: [destination_path, server_url, operation_id, operation_token]
+      properties:
+        destination_path: {type: string, minLength: 1}
+        server_url: {type: string, minLength: 1}
+        operation_id: {type: string, minLength: 1}
+        operation_token: {type: string, minLength: 1}
+    CompanionArchiveExecutionStartRequestV1:
+      oneOf:
+        - type: object
+          additionalProperties: false
+          required: [kind, source_paths, target_path]
+          properties:
+            kind: {type: string, const: create}
+            source_paths:
+              type: array
+              items: {type: string, minLength: 1}
+            target_path: {type: string, minLength: 1}
+        - type: object
+          additionalProperties: false
+          required: [kind, archive_path, destination_path]
+          properties:
+            kind: {type: string, const: extract}
+            archive_path: {type: string, minLength: 1}
+            destination_path: {type: string, minLength: 1}
+    CompanionArchiveExecutionCancellationRequestV1:
+      type: object
+      additionalProperties: false
+      required: [expected_revision]
+      properties:
+        expected_revision: {type: integer, minimum: 0}
+    CompanionArchiveExecutionDecisionRequestV1:
+      type: object
+      additionalProperties: false
+      required: [expected_revision, member_path, action]
+      properties:
+        expected_revision: {type: integer, minimum: 0}
+        member_path: {type: string, minLength: 1}
+        action:
+          type: string
+          enum: [skip, skip_all, replace, replace_all, replace_older, rename, retry, ignore]
+        target_path: {type: [string, 'null'], minLength: 1}
+    CompanionArchiveExtractionResponseV1:
+      type: object
+      additionalProperties: false
+      required: [files_extracted, directories_created, extracted_bytes, files_skipped]
+      properties:
+        files_extracted: {type: integer, minimum: 0}
+        directories_created: {type: integer, minimum: 0}
+        extracted_bytes: {type: integer, minimum: 0}
+        files_skipped: {type: integer, minimum: 0}
+        phase: {type: string}
+        checkpoint_json: {type: string}
+        pending_decision_json: {type: string}
+    CompanionArchiveExecutionResponseV1:
+      type: object
+      additionalProperties: false
+      required: [execution_id, kind, phase, revision, progress, cancellation_requested]
+      properties:
+        execution_id: {type: string, minLength: 1}
+        kind: {type: string, enum: [create, extract]}
+        phase: {type: string, enum: [accepted, streaming, awaiting_user_decision, completed, cancelled, failed]}
+        revision: {type: integer, minimum: 0}
+        progress:
+          type: object
+          additionalProperties: false
+          required: [completedMembers, skippedMembers, failedMembers, partialMembers]
+          properties:
+            completedMembers: {type: integer, minimum: 0}
+            skippedMembers: {type: integer, minimum: 0}
+            failedMembers: {type: integer, minimum: 0}
+            partialMembers: {type: integer, minimum: 0}
+        cancellation_requested: {type: boolean}
+        files_extracted: {type: integer, minimum: 0}
+        directories_created: {type: integer, minimum: 0}
+        extracted_bytes: {type: integer, minimum: 0}
+        files_skipped: {type: integer, minimum: 0}
+        files_created: {type: integer, minimum: 0}
+        source_bytes: {type: integer, minimum: 0}
+        error: {type: string}
+        pendingDecision:
+          type: object
+          additionalProperties: false
+          required: [kind, memberPath, allowedActions]
+          properties:
+            kind: {type: string, enum: [collision, member_error]}
+            memberPath: {type: string, minLength: 1}
+            targetPath: {type: string}
+            isDirectory: {type: boolean}
+            message: {type: string}
+            partialOutput: {type: boolean}
+            allowedActions:
+              type: array
+              minItems: 1
+              items: {type: string}
     ArchiveCreationMemberCompletion:
       type: object
       additionalProperties: false
