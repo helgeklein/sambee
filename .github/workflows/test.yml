@@ -125,9 +125,10 @@ jobs:
         else:
             raise SystemExit(f"Unsupported event for change detection: {event_name}")
 
-        backend = any(name.startswith("backend/") or name in backend_extras for name in filenames)
+        archive_contract = any(name.startswith("archive-contract/") for name in filenames)
+        backend = archive_contract or any(name.startswith("backend/") or name in backend_extras for name in filenames)
         frontend = any(name.startswith("frontend/") or name in frontend_extras for name in filenames)
-        companion = any(name.startswith("companion/") or name in companion_extras for name in filenames)
+        companion = archive_contract or any(name.startswith("companion/") or name in companion_extras for name in filenames)
         website = any(
           name.startswith("website/")
           or name.startswith("website-meta/")

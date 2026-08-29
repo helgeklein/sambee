@@ -3658,6 +3658,49 @@ mod tests {
         ));
     }
 
+    #[test]
+    fn loads_v1_topology_operation_compatibility_matrix() {
+        let matrix_path = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+            .join("../../archive-contract/v1/topology-operation-compatibility-matrix-v1.json");
+        let matrix: serde_json::Value = serde_json::from_slice(&fs::read(matrix_path).unwrap()).unwrap();
+
+        assert_eq!(matrix["version"], 1);
+        let operations = matrix["operations"].as_array().unwrap();
+        let mut cells = operations
+            .iter()
+            .map(|entry| format!("{}:{}", entry["topology"].as_str().unwrap(), entry["operation"].as_str().unwrap()))
+            .collect::<Vec<_>>();
+        cells.sort();
+        assert_eq!(
+            cells,
+            vec![
+                "local_to_local:creation",
+                "local_to_local:extraction",
+                "local_to_local:inspection",
+                "local_to_smb:creation",
+                "local_to_smb:extraction",
+                "local_to_smb:inspection",
+                "smb_to_local:creation",
+                "smb_to_local:extraction",
+                "smb_to_local:inspection",
+                "smb_to_smb:creation",
+                "smb_to_smb:extraction",
+                "smb_to_smb:inspection",
+            ]
+        );
+        for entry in operations {
+            assert!(entry["retirement_condition"].as_str().is_some_and(|condition| !condition.is_empty()));
+            if entry["operation"] == "inspection" {
+                assert_eq!(entry["status"], "legacy_source_only");
+                assert!(entry.get("driver").is_none());
+                assert!(entry.get("relay_purpose").is_none());
+            } else {
+                assert_eq!(entry["status"], "supported");
+                assert!(entry["driver"].is_string());
+            }
+        }
+    }
+
     #[cfg(unix)]
     #[test]
     fn rejects_target_parent_symlinked_outside_drive_root() {

@@ -17,13 +17,15 @@ from app.models.archive_operation import (
     ArchiveCompanionExtractionMemberError,
     ArchiveCompanionExtractionSummary,
     ArchiveCompanionFailure,
+    ArchiveOperationKind,
 )
-from app.services.archive.execution import ArchiveCompanionRelayPurpose
+from app.services.archive.execution import ArchiveCompanionRelayPurpose, resolve_archive_execution_topology
 
 WORKSPACE_ROOT = Path(__file__).resolve().parents[2]
 ARCHIVE_CONTRACT_PATH = WORKSPACE_ROOT / "archive-contract" / "v1" / "openapi.yaml"
 RELAY_BINDINGS_PATH = WORKSPACE_ROOT / "archive-contract" / "v1" / "relay-bindings-v1.json"
 RELAY_CONTROL_PAYLOADS_PATH = WORKSPACE_ROOT / "archive-contract" / "v1" / "relay-control-payloads-v1.json"
+TOPOLOGY_OPERATION_MATRIX_PATH = WORKSPACE_ROOT / "archive-contract" / "v1" / "topology-operation-compatibility-matrix-v1.json"
 COMPANION_RELAY_BINDING_PATH = WORKSPACE_ROOT / "companion" / "src-tauri" / "src" / "server" / "handlers.rs"
 ARCHIVE_API_PREFIX = "/api/archive"
 CANONICAL_RELAY_PATH_SEGMENT = "/companion-relay/"
@@ -150,6 +152,41 @@ def test_v1_relay_binding_fixture_covers_backend_contract_and_companion() -> Non
         yaml.safe_load(ARCHIVE_CONTRACT_PATH.read_text(encoding="utf-8"))
     )
     assert {purpose for purpose, _kind, _source, _destination in bindings} == _companion_relay_purposes()
+
+
+def test_v1_topology_operation_matrix_tracks_current_operation_support() -> None:
+    """Keep the V1 inventory complete without implying a unified inspection operation."""
+
+    matrix = json.loads(TOPOLOGY_OPERATION_MATRIX_PATH.read_text(encoding="utf-8"))
+    assert matrix["version"] == 1
+    operations = matrix["operations"]
+    assert isinstance(operations, list)
+    expected_cells = {
+        (topology, operation)
+        for topology in {"smb_to_smb", "local_to_local", "smb_to_local", "local_to_smb"}
+        for operation in {"inspection", "creation", "extraction"}
+    }
+    assert {(entry["topology"], entry["operation"]) for entry in operations} == expected_cells
+
+    for entry in operations:
+        assert isinstance(entry["retirement_condition"], str) and entry["retirement_condition"]
+        if entry["operation"] == "inspection":
+            assert entry["status"] == "legacy_source_only"
+            assert "driver" not in entry
+            assert "relay_purpose" not in entry
+            continue
+
+        source_connection_id = "local-drive:c" if entry["topology"].startswith("local_") else "connection-1"
+        destination_connection_id = "local-drive:c" if entry["topology"].endswith("_local") else "connection-1"
+        kind = ArchiveOperationKind.CREATE if entry["operation"] == "creation" else ArchiveOperationKind.EXTRACT
+        topology = resolve_archive_execution_topology(
+            kind=kind,
+            source_connection_id=source_connection_id,
+            destination_connection_id=destination_connection_id,
+        )
+        assert entry["status"] == "supported"
+        assert entry["driver"] == topology.driver.value
+        assert entry.get("relay_purpose") == (topology.companion_purpose.value if topology.companion_purpose is not None else None)
 
 
 def test_v1_relay_control_payload_fixture_matches_contract_and_backend_models() -> None:
