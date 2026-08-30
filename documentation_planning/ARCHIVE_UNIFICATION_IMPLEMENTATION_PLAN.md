@@ -44,18 +44,17 @@ Already centralized:
 - durable operation lifecycle and state-store bindings;
 - normalized extraction and creation member outcomes and progress ledgers;
 - typed extraction and creation manifests;
-- manifest hierarchy validation and V1 relay control-payload fixtures;
+- manifest hierarchy validation and V2 relay control-payload fixtures;
 - relay callback validation, failure reporting, and no-result control POSTs;
-- named, read-only V1 `written_members` compatibility boundaries.
+- strict V2 checkpoint validation with derived aggregate progress;
+- normalized V2 route bindings and V2-only conformance fixtures.
 
 Still separate:
 
-- archive inspection APIs and parser projections;
 - Python and Rust directory traversal/manifest construction;
 - Python and Rust ZIP parser/writer implementations;
-- direct SMB extraction's exception-driven decision loop and checkpoint-driven
-  local/relay pause-resume execution;
-- purpose-specific V1 member transport routes.
+- SMB and local I/O adapters, including bounded reads, direct writes, and
+   platform error mapping.
 
 ## Ordered Delivery Plan
 
