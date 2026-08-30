@@ -75,6 +75,11 @@ Shortcuts (`.lnk` files), symlinks, and junctions on local drives now show the t
 - Keyboard navigation: removed delay after entering a new directory
 - Typeahead buffer: cleared when <kbd>Esc</kbd> is pressed
 
+## Miscellaneous
+
+- Bugfix: Concurrent OIDC token refreshes would cause SQLite database lock errors.
+
+
 ## Under the Hood
 
 - Frontend: improved recovery after network unavailability (e.g., after suspend/resume)
