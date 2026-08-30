@@ -54,10 +54,10 @@ use super::auth;
 use super::drives;
 use super::edit_locks::EDIT_LOCK_LOST_CODE;
 use super::errors::{
-    ApiError, LOCAL_ARCHIVE_CREATION_PARTIAL_CODE, LOCAL_ARCHIVE_EXTRACTION_PARTIAL_CODE, LOCAL_LINK_TARGET_ACCESS_DENIED_CODE,
-    LOCAL_LINK_TARGET_MISSING_CODE, LOCAL_LINK_TARGET_UNMAPPED_DRIVE_CODE, LOCAL_LINK_TARGET_UNRESOLVABLE_CODE,
-    LOCAL_LINK_TARGET_UNSUPPORTED_TYPE_CODE, PAIR_CONFIRMATION_PENDING_CODE, RECENT_FILE_NATIVE_LAUNCH_FAILED_CODE,
-    RECENT_FILE_TARGET_MISSING_CODE, RECENT_FILE_TARGET_NOT_FILE_CODE,
+    ApiError, ArchiveV2Error, ArchiveV2Json, ArchiveV2Query, LOCAL_ARCHIVE_CREATION_PARTIAL_CODE, LOCAL_ARCHIVE_EXTRACTION_PARTIAL_CODE,
+    LOCAL_LINK_TARGET_ACCESS_DENIED_CODE, LOCAL_LINK_TARGET_MISSING_CODE, LOCAL_LINK_TARGET_UNMAPPED_DRIVE_CODE,
+    LOCAL_LINK_TARGET_UNRESOLVABLE_CODE, LOCAL_LINK_TARGET_UNSUPPORTED_TYPE_CODE, PAIR_CONFIRMATION_PENDING_CODE,
+    RECENT_FILE_NATIVE_LAUNCH_FAILED_CODE, RECENT_FILE_TARGET_MISSING_CODE, RECENT_FILE_TARGET_NOT_FILE_CODE,
 };
 use super::links::{resolve_activation_target, LinkResolutionError};
 use super::models::*;
@@ -570,8 +570,8 @@ pub async fn browse_list_archive(
 /// `GET /api/browse/{drive}/archive/v2/list` — list a V2 local archive directory.
 pub async fn browse_list_v2_archive(
     Path(drive): Path<String>,
-    Query(query): Query<ArchiveV2ListQuery>,
-) -> Result<Json<ArchiveDirectoryListing>, ApiError> {
+    ArchiveV2Query(query): ArchiveV2Query<ArchiveV2ListQuery>,
+) -> Result<Json<ArchiveDirectoryListing>, ArchiveV2Error> {
     let _contract_version = query.contract_version;
     browse_list_archive(
         Path(drive),
@@ -583,6 +583,7 @@ pub async fn browse_list_v2_archive(
         }),
     )
     .await
+    .map_err(ArchiveV2Error::from)
 }
 
 /// `GET /api/browse/{drive}/link-targets` — resolve display-safe target metadata for links in one directory.
@@ -870,8 +871,8 @@ pub async fn viewer_archive_member(Path(drive): Path<String>, Query(query): Quer
 /// `GET /api/viewer/{drive}/archive/v2/member` — stream a V2 local archive member.
 pub async fn viewer_v2_archive_member(
     Path(drive): Path<String>,
-    Query(query): Query<ArchiveV2MemberQuery>,
-) -> Result<Response<Body>, ApiError> {
+    ArchiveV2Query(query): ArchiveV2Query<ArchiveV2MemberQuery>,
+) -> Result<Response<Body>, ArchiveV2Error> {
     let _contract_version = query.contract_version;
     viewer_archive_member(
         Path(drive),
@@ -882,6 +883,7 @@ pub async fn viewer_v2_archive_member(
         }),
     )
     .await
+    .map_err(ArchiveV2Error::from)
 }
 
 /// Resolve drive + query path for viewer endpoints, returning the full path and MIME type.
@@ -3020,14 +3022,18 @@ pub async fn browse_relay_v2_archive_creation(
     State(state): State<Arc<AppState>>,
     Path(drive): Path<String>,
     headers: HeaderMap,
-    Json(body): Json<ArchiveV2RelayCreationRequest>,
-) -> Result<Json<ArchiveCreationResponse>, ApiError> {
+    ArchiveV2Json(body): ArchiveV2Json<ArchiveV2RelayCreationRequest>,
+) -> Result<Json<ArchiveCreationResponse>, ArchiveV2Error> {
     match body {
         ArchiveV2RelayCreationRequest::LocalDestination(body) => {
-            execute_relay_creation_to_local_destination(State(state), Path(drive), headers, body).await
+            execute_relay_creation_to_local_destination(State(state), Path(drive), headers, body)
+                .await
+                .map_err(ArchiveV2Error::from)
         }
         ArchiveV2RelayCreationRequest::LocalSource(body) => {
-            execute_relay_creation_from_local_source(State(state), Path(drive), headers, body).await
+            execute_relay_creation_from_local_source(State(state), Path(drive), headers, body)
+                .await
+                .map_err(ArchiveV2Error::from)
         }
     }
 }
@@ -3288,8 +3294,8 @@ pub async fn browse_start_v2_archive_execution(
     State(state): State<Arc<AppState>>,
     Path(drive): Path<String>,
     headers: HeaderMap,
-    Json(body): Json<ArchiveV2ExecutionStartRequest>,
-) -> Result<Json<ArchiveExecutionResponse>, ApiError> {
+    ArchiveV2Json(body): ArchiveV2Json<ArchiveV2ExecutionStartRequest>,
+) -> Result<Json<ArchiveExecutionResponse>, ArchiveV2Error> {
     let request = match body {
         ArchiveV2ExecutionStartRequest::Create {
             contract_version: _contract_version,
@@ -3305,8 +3311,7 @@ pub async fn browse_start_v2_archive_execution(
             destination_path,
         },
     };
-    let Json(mut response) = browse_start_archive_execution(State(state), Path(drive), headers, Json(request)).await?;
-    response.contract_version = Some(ArchiveContractVersion::V2);
+    let Json(response) = browse_start_archive_execution(State(state), Path(drive), headers, Json(request)).await?;
     Ok(Json(response))
 }
 
@@ -3315,13 +3320,12 @@ pub async fn browse_get_v2_archive_execution(
     State(state): State<Arc<AppState>>,
     Path((drive, execution_id)): Path<(String, String)>,
     headers: HeaderMap,
-) -> Result<Json<ArchiveExecutionResponse>, ApiError> {
+) -> Result<Json<ArchiveExecutionResponse>, ArchiveV2Error> {
     let execution = state
         .archive_sessions
         .get_v2(&drive, &extract_origin(&headers)?, &execution_id)
         .await?;
-    let mut response = archive_execution_response(execution);
-    response.contract_version = Some(ArchiveContractVersion::V2);
+    let response = archive_execution_response(execution);
     Ok(Json(response))
 }
 
@@ -3344,10 +3348,10 @@ pub async fn browse_cancel_v2_archive_execution(
     State(state): State<Arc<AppState>>,
     Path((drive, execution_id)): Path<(String, String)>,
     headers: HeaderMap,
-    Json(body): Json<ArchiveV2ExecutionCancellationRequest>,
-) -> Result<Json<ArchiveExecutionResponse>, ApiError> {
+    ArchiveV2Json(body): ArchiveV2Json<ArchiveV2ExecutionCancellationRequest>,
+) -> Result<Json<ArchiveExecutionResponse>, ArchiveV2Error> {
     let _contract_version = body.contract_version;
-    let Json(mut response) = browse_cancel_archive_execution(
+    let Json(response) = browse_cancel_archive_execution(
         State(state),
         Path((drive, execution_id)),
         headers,
@@ -3356,7 +3360,6 @@ pub async fn browse_cancel_v2_archive_execution(
         }),
     )
     .await?;
-    response.contract_version = Some(ArchiveContractVersion::V2);
     Ok(Json(response))
 }
 
@@ -3403,10 +3406,10 @@ pub async fn browse_decide_v2_archive_execution(
     State(state): State<Arc<AppState>>,
     Path((drive, execution_id)): Path<(String, String)>,
     headers: HeaderMap,
-    Json(body): Json<ArchiveV2ExecutionDecisionRequest>,
-) -> Result<Json<ArchiveExecutionResponse>, ApiError> {
+    ArchiveV2Json(body): ArchiveV2Json<ArchiveV2ExecutionDecisionRequest>,
+) -> Result<Json<ArchiveExecutionResponse>, ArchiveV2Error> {
     let _contract_version = body.contract_version;
-    let Json(mut response) = browse_decide_archive_execution(
+    let Json(response) = browse_decide_archive_execution(
         State(state),
         Path((drive, execution_id)),
         headers,
@@ -3418,7 +3421,6 @@ pub async fn browse_decide_v2_archive_execution(
         }),
     )
     .await?;
-    response.contract_version = Some(ArchiveContractVersion::V2);
     Ok(Json(response))
 }
 
@@ -3689,14 +3691,18 @@ pub async fn browse_relay_v2_archive_extraction(
     State(state): State<Arc<AppState>>,
     Path(drive): Path<String>,
     headers: HeaderMap,
-    Json(body): Json<ArchiveV2RelayExtractionRequest>,
-) -> Result<Json<ArchiveExtractionResponse>, ApiError> {
+    ArchiveV2Json(body): ArchiveV2Json<ArchiveV2RelayExtractionRequest>,
+) -> Result<Json<ArchiveExtractionResponse>, ArchiveV2Error> {
     match body {
         ArchiveV2RelayExtractionRequest::LocalSource(body) => {
-            execute_relay_extraction_from_local_source(State(state), Path(drive), headers, body).await
+            execute_relay_extraction_from_local_source(State(state), Path(drive), headers, body)
+                .await
+                .map_err(ArchiveV2Error::from)
         }
         ArchiveV2RelayExtractionRequest::LocalDestination(body) => {
-            execute_relay_extraction_to_local_destination(State(state), Path(drive), headers, body).await
+            execute_relay_extraction_to_local_destination(State(state), Path(drive), headers, body)
+                .await
+                .map_err(ArchiveV2Error::from)
         }
     }
 }
@@ -4924,7 +4930,7 @@ fn resolve_local_archive_creation_request(drive: &str, body: &ArchiveCreateReque
 fn archive_execution_response(execution: ArchiveSessionStatus) -> ArchiveExecutionResponse {
     let progress = execution.result.unwrap_or(execution.progress);
     let mut response = ArchiveExecutionResponse {
-        contract_version: Some(execution.contract_version),
+        contract_version: execution.contract_version,
         execution_id: execution.execution_id,
         kind: execution.kind.as_str().to_string(),
         phase: execution.phase.as_str().to_string(),
@@ -4944,22 +4950,21 @@ fn archive_execution_response(execution: ArchiveSessionStatus) -> ArchiveExecuti
         source_bytes: None,
         error: execution.error,
         pending_decision: execution.pending_decision.map(|pending| match pending.member_error {
-            Some(error) => ArchiveExecutionPendingDecision {
-                kind: "member_error".to_string(),
+            Some(error) => ArchiveExecutionPendingDecision::MemberError {
+                kind: "member_error",
                 member_path: pending.member_path,
-                target_path: Some(error.target_path),
-                is_directory: None,
-                message: Some(error.message),
-                partial_output: Some(error.partial_output),
+                target_path: error.target_path,
+                message: error.message,
+                partial_output: error.partial_output,
                 allowed_actions: vec!["retry".to_string(), "ignore".to_string()],
             },
-            None => ArchiveExecutionPendingDecision {
-                kind: "collision".to_string(),
-                member_path: pending.member_path,
-                target_path: pending.target_path,
-                is_directory: Some(pending.is_directory),
-                message: None,
-                partial_output: None,
+            None => ArchiveExecutionPendingDecision::ExistingFiles {
+                kind: "existing_files",
+                conflicts: vec![super::models::ArchiveExecutionConflict {
+                    member_path: pending.member_path.clone(),
+                    target_path: pending.target_path.unwrap_or(pending.member_path),
+                    is_directory: pending.is_directory,
+                }],
                 allowed_actions: if pending.is_directory {
                     vec!["rename".to_string()]
                 } else {
@@ -7154,6 +7159,7 @@ mod tests {
         });
 
         let serialized = serde_json::to_value(response).expect("archive execution response should serialize");
+        assert_eq!(serialized["contract_version"], "v2");
         assert_eq!(
             serialized["progress"],
             serde_json::json!({
@@ -7203,14 +7209,49 @@ mod tests {
             serialized["pendingDecision"],
             serde_json::json!({
                 "kind": "member_error",
-                "memberPath": "source.txt",
-                "targetPath": "output/source.txt",
+                "member_path": "source.txt",
+                "target_path": "output/source.txt",
                 "message": "archive member integrity check failed",
-                "partialOutput": true,
-                "allowedActions": ["retry", "ignore"],
+                "partial_output": true,
+                "allowed_actions": ["retry", "ignore"],
             })
         );
         assert_eq!(serialized["progress"]["partialMembers"], 1);
+    }
+
+    #[test]
+    fn archive_execution_response_serializes_a_pending_existing_files_decision() {
+        let response = archive_execution_response(ArchiveSessionStatus {
+            execution_id: "execution-id".to_string(),
+            contract_version: ArchiveContractVersion::V2,
+            kind: ArchiveSessionKind::Extract,
+            phase: ArchiveSessionPhase::AwaitingUserDecision,
+            revision: 4,
+            cancellation_requested: false,
+            progress: ArchiveSessionProgress::Extraction(LocalArchiveExtractionResult::default()),
+            result: None,
+            error: None,
+            pending_decision: Some(ArchiveSessionPendingDecision {
+                member_path: "source.txt".to_string(),
+                target_path: Some("renamed.txt".to_string()),
+                is_directory: false,
+                member_error: None,
+            }),
+        });
+
+        let serialized = serde_json::to_value(response).expect("archive execution response should serialize");
+        assert_eq!(
+            serialized["pendingDecision"],
+            serde_json::json!({
+                "kind": "existing_files",
+                "allowed_actions": ["skip", "skip_all", "replace", "replace_all", "replace_older", "rename"],
+                "conflicts": [{
+                    "member_path": "source.txt",
+                    "target_path": "renamed.txt",
+                    "is_directory": false,
+                }],
+            })
+        );
     }
 
     #[tokio::test]

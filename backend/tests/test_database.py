@@ -18,6 +18,7 @@ from sqlalchemy import inspect, text
 from sqlalchemy.exc import IntegrityError
 from sqlmodel import Session, SQLModel, create_engine, select
 
+from app.db.archive_cutover_preflight import preflight_result
 from app.db.migrations import (
     MIGRATION_TABLE_NAME,
     MIGRATIONS,
@@ -106,6 +107,49 @@ class TestArchiveOperationContractVersionMigration:
                 connection.execute(text("INSERT INTO archive_operations (id) VALUES ('legacy-operation')"))
                 with pytest.raises(RuntimeError, match="requires an empty archive_operations table"):
                     _apply_archive_operation_contract_version_migration(connection)
+        finally:
+            test_engine.dispose()
+
+    def test_preflight_lists_legacy_operations_and_blocks_cutover(self, tmp_path: Path):
+        test_engine = create_engine(f"sqlite:///{tmp_path / 'archive-v2-preflight.db'}")
+        try:
+            with test_engine.begin() as connection:
+                connection.execute(text("CREATE TABLE archive_operations (id CHAR(32) PRIMARY KEY, kind VARCHAR(16), phase VARCHAR(32))"))
+                connection.execute(
+                    text("INSERT INTO archive_operations (id, kind, phase) VALUES ('legacy-operation', 'extract', 'streaming')")
+                )
+
+            result = preflight_result(test_engine)
+
+            assert result == {
+                "archive_contract_version": "v2",
+                "ready": False,
+                "legacy_operations": [
+                    {
+                        "id": "legacy-operation",
+                        "user_id": None,
+                        "kind": "extract",
+                        "phase": "streaming",
+                        "created_at": None,
+                        "updated_at": None,
+                    }
+                ],
+            }
+        finally:
+            test_engine.dispose()
+
+    def test_preflight_accepts_only_v2_archive_operations(self, tmp_path: Path):
+        test_engine = create_engine(f"sqlite:///{tmp_path / 'archive-v2-ready.db'}")
+        try:
+            with test_engine.begin() as connection:
+                connection.execute(text("CREATE TABLE archive_operations (id CHAR(32) PRIMARY KEY, contract_version VARCHAR(8) NOT NULL)"))
+                connection.execute(text("INSERT INTO archive_operations (id, contract_version) VALUES ('v2-operation', 'V2')"))
+
+            assert preflight_result(test_engine) == {
+                "archive_contract_version": "v2",
+                "ready": True,
+                "legacy_operations": [],
+            }
         finally:
             test_engine.dispose()
 

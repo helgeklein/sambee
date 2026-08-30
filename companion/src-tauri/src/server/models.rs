@@ -242,22 +242,31 @@ pub enum ArchiveExecutionDecisionAction {
     Ignore,
 }
 
-/// The archive member currently awaiting a local collision decision.
+/// A conflict in a V2 extraction pending decision.
 #[derive(Debug, Serialize)]
-pub struct ArchiveExecutionPendingDecision {
-    pub kind: String,
-    #[serde(rename = "memberPath")]
+pub struct ArchiveExecutionConflict {
     pub member_path: String,
-    #[serde(skip_serializing_if = "Option::is_none", rename = "targetPath")]
-    pub target_path: Option<String>,
-    #[serde(skip_serializing_if = "Option::is_none", rename = "isDirectory")]
-    pub is_directory: Option<bool>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub message: Option<String>,
-    #[serde(skip_serializing_if = "Option::is_none", rename = "partialOutput")]
-    pub partial_output: Option<bool>,
-    #[serde(rename = "allowedActions")]
-    pub allowed_actions: Vec<String>,
+    pub target_path: String,
+    pub is_directory: bool,
+}
+
+/// The complete V2 decision state currently awaiting local user input.
+#[derive(Debug, Serialize)]
+#[serde(untagged)]
+pub enum ArchiveExecutionPendingDecision {
+    ExistingFiles {
+        kind: &'static str,
+        allowed_actions: Vec<String>,
+        conflicts: Vec<ArchiveExecutionConflict>,
+    },
+    MemberError {
+        kind: &'static str,
+        member_path: String,
+        target_path: String,
+        message: String,
+        partial_output: bool,
+        allowed_actions: Vec<String>,
+    },
 }
 
 /// V2 relay extraction request when the local drive provides the ZIP source.
@@ -308,8 +317,7 @@ pub struct ArchiveExtractionResponse {
 /// Current lifecycle state for a short-lived Companion archive execution.
 #[derive(Debug, Serialize)]
 pub struct ArchiveExecutionResponse {
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub contract_version: Option<ArchiveContractVersion>,
+    pub contract_version: ArchiveContractVersion,
     pub execution_id: String,
     pub kind: String,
     pub phase: String,

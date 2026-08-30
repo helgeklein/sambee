@@ -107,14 +107,13 @@ from app.services.archive.operations import (
     request_operation_cancellation,
     update_operation_phase,
 )
-from app.services.archive.v2_checkpoint import new_v2_extraction_checkpoint
+from app.services.archive.v2_checkpoint import canonical_v2_timestamp, new_v2_extraction_checkpoint
 from app.services.archive.zip_reader import ArchiveFormatError, ZipEntry, ZipReader
 from app.services.audit import AuditDetails, AuditEventName, AuditResult, write_audit_event
 from app.services.connection_access import get_accessible_connection_or_404, require_connection_write_access
 from app.services.history_common import LOCAL_DRIVE_PREFIX
 from app.storage.smb import SMBBackend
 
-v2_router = APIRouter(prefix="/v2")
 logger = get_logger(__name__)
 _local_to_smb_creation_writers = LiveArchiveCreationWriterManager(logger)
 
@@ -130,6 +129,48 @@ ARCHIVE_COMPANION_TOKEN_CLAIM = "archive_operation"
 ARCHIVE_COMPANION_TOKEN_CLASS = "archive_operation"
 ARCHIVE_RELAY_IDEMPOTENCY_HEADER = "Idempotency-Key"
 ARCHIVE_RELAY_DELIVERY_IDS_KEY = "delivery_ids"
+V2_ROUTE_QUERY_PARAMETERS: dict[str, frozenset[str]] = {
+    "/v2/operations": frozenset({"active_only", "limit"}),
+    "/v2/operations/{operation_id}/cancel": frozenset({"expected_revision"}),
+    "/v2/inspection/directory": frozenset({"connection_id", "archive_path", "virtual_path", "cursor", "page_size", "contract_version"}),
+    "/v2/inspection/member": frozenset(
+        {
+            "connection_id",
+            "archive_path",
+            "member_path",
+            "download",
+            "view_kind",
+            "pdf_variant",
+            "viewport_width",
+            "viewport_height",
+            "no_resizing",
+            "screen_width",
+            "screen_height",
+            "screen_zoom_percent",
+            "contract_version",
+        }
+    ),
+    "/v2/operations/{operation_id}/relay/extraction/member": frozenset({"member_path", "is_directory", "source_modified_at"}),
+    "/v2/operations/{operation_id}/relay/creation/member": frozenset({"archive_path"}),
+}
+
+
+def _reject_unknown_v2_query_parameters(request: Request) -> None:
+    """Enforce the contract's closed-object rule for V2 query strings."""
+
+    route = request.scope.get("route")
+    route_path = getattr(route, "path", None)
+    if not isinstance(route_path, str):
+        raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_CONTENT, detail="Archive V2 query route is invalid")
+    unknown = set(request.query_params) - V2_ROUTE_QUERY_PARAMETERS.get(route_path, frozenset())
+    if unknown:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
+            detail="Archive V2 query parameters are invalid",
+        )
+
+
+v2_router = APIRouter(prefix="/v2", dependencies=[Depends(_reject_unknown_v2_query_parameters)])
 
 
 def _validate_archive_relay_idempotency_key(value: str | None) -> None:
@@ -244,7 +285,7 @@ def _archive_source_identity(info: FileInfo) -> dict[str, object]:
 
     return {
         "size": info.size,
-        "modified_at": info.modified_at.isoformat() if info.modified_at is not None else None,
+        "modified_at": canonical_v2_timestamp(info.modified_at),
     }
 
 
@@ -710,7 +751,7 @@ def _companion_extraction_manifest(payload: ArchiveCompanionExtractionSourceMani
                 entry.path,
                 entry.is_directory,
                 entry.uncompressed_size,
-                entry.modified_at.isoformat() if entry.modified_at is not None else None,
+                canonical_v2_timestamp(entry.modified_at),
             )
             for entry in payload.entries
         ]
@@ -947,7 +988,7 @@ async def begin_companion_local_archive_extraction(
                         entry.path,
                         entry.is_directory,
                         entry.uncompressed_size,
-                        entry.modified_at.isoformat() if entry.modified_at is not None else None,
+                        canonical_v2_timestamp(entry.modified_at),
                     )
                     for entry in zip_entries
                 ]
@@ -1335,7 +1376,7 @@ def _local_to_smb_creation_manifest(payload: ArchiveCompanionCreationSourceManif
                 entry.is_directory,
                 entry.source_size,
                 None,
-                entry.modified_at.isoformat() if entry.modified_at is not None else None,
+                canonical_v2_timestamp(entry.modified_at),
             )
             for entry in payload.entries
         ]
@@ -1912,7 +1953,7 @@ async def execute_archive_extraction(
                         entry.path,
                         entry.is_directory,
                         entry.uncompressed_size,
-                        entry.modified_at.isoformat() if entry.modified_at is not None else None,
+                        canonical_v2_timestamp(entry.modified_at),
                     )
                     for entry in entries
                 ]

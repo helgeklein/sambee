@@ -90,11 +90,14 @@ fails with `idempotency_conflict`.
 
 ## Error Vocabulary
 
-V2 validation and control failures use these stable semantic codes:
+Every V2 failure uses the `{ "code": string, "message": string }` error
+envelope. Validation and control failures use these stable semantic codes:
 `invalid_manifest`, `invalid_checkpoint`, `invalid_contract_version`,
 `invalid_member_path`, `collision`, `partial_output`, `source_changed`,
 `transport_failure`, `cancelled`, `idempotency_conflict`, `capability_invalid`,
-and `capability_version_mismatch`. The error schema defines their bounded
+`capability_version_mismatch`, `invalid_request`, `authentication_invalid`,
+`authorization_denied`, `not_found`, `invalid_operation_state`, and
+`operation_unavailable`. The error schema defines their bounded
 machine-readable representation; transport status distinguishes malformed input
 (`422`), unauthenticated or invalid capability (`401`), capability scope denial
 (`403`), stale state or idempotency conflict (`409`), unavailable operation

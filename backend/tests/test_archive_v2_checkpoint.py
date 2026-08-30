@@ -1,14 +1,21 @@
 """Strict V2 archive checkpoint contract tests."""
 
+from datetime import datetime, timezone
+
 import pytest
 from fastapi import HTTPException
 
 from app.services.archive.v2_checkpoint import (
+    canonical_v2_timestamp,
     new_v2_creation_checkpoint,
     new_v2_extraction_checkpoint,
     validate_v2_creation_checkpoint,
     validate_v2_extraction_checkpoint,
 )
+
+
+def test_canonical_v2_timestamp_uses_utc_z_suffix() -> None:
+    assert canonical_v2_timestamp(datetime(2026, 8, 30, 12, 34, 56, tzinfo=timezone.utc)) == "2026-08-30T12:34:56Z"
 
 
 def valid_checkpoint() -> dict[str, object]:
@@ -42,6 +49,25 @@ def test_v2_checkpoint_rejects_noncanonical_member_paths() -> None:
         validate_v2_extraction_checkpoint(checkpoint)
 
 
+@pytest.mark.parametrize(
+    "mutate",
+    [
+        lambda checkpoint: checkpoint["source_snapshot"].__setitem__("modified_at", "not-a-timestamp"),  # type: ignore[index,union-attr]
+        lambda checkpoint: checkpoint.__setitem__("pending_decision", {}),
+        lambda checkpoint: checkpoint.__setitem__(
+            "pending_decision",
+            {"kind": "existing_files", "allowed_actions": ["skip"], "conflicts": []},
+        ),
+    ],
+)
+def test_v2_checkpoint_rejects_invalid_canonical_nested_values(mutate) -> None:
+    checkpoint = valid_checkpoint()
+    mutate(checkpoint)
+
+    with pytest.raises(HTTPException, match="Archive V2 checkpoint"):
+        validate_v2_extraction_checkpoint(checkpoint)
+
+
 def test_v2_checkpoint_returns_a_defensive_validated_copy() -> None:
     checkpoint = valid_checkpoint()
     validated = validate_v2_extraction_checkpoint(checkpoint)
@@ -71,4 +97,22 @@ def test_v2_creation_checkpoint_rejects_aggregate_counters() -> None:
 
     checkpoint["files_created"] = 1
     with pytest.raises(HTTPException, match="fields are invalid"):
+        validate_v2_creation_checkpoint(checkpoint)
+
+
+def test_v2_creation_checkpoint_rejects_malformed_member_outcomes() -> None:
+    checkpoint = new_v2_creation_checkpoint(
+        manifest=[
+            {
+                "archive_path": "report.txt",
+                "is_directory": False,
+                "source_size": 4,
+                "source_path": "report.txt",
+                "modified_at": None,
+            }
+        ]
+    )
+    checkpoint["member_outcomes"] = {"report.txt": {}}
+
+    with pytest.raises(HTTPException, match="member outcomes are invalid"):
         validate_v2_creation_checkpoint(checkpoint)

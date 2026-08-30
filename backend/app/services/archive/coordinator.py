@@ -5,7 +5,7 @@ import mimetypes
 import unicodedata
 from collections.abc import AsyncIterator, Awaitable, Callable, Mapping
 from dataclasses import dataclass, field
-from datetime import datetime, timezone
+from datetime import datetime
 from types import MappingProxyType
 from typing import Literal, Protocol
 
@@ -39,6 +39,7 @@ from app.services.archive.operations import (
     update_operation_phase,
 )
 from app.services.archive.v2_checkpoint import (
+    canonical_v2_timestamp,
     new_v2_creation_checkpoint,
     validate_v2_creation_checkpoint,
     validate_v2_extraction_checkpoint,
@@ -704,7 +705,7 @@ class ArchiveExtractionManifest:
                 "path": member.member_path,
                 "is_directory": member.is_directory,
                 "uncompressed_size": member.uncompressed_size,
-                "modified_at": member.source_modified_at,
+                "modified_at": canonical_v2_timestamp(member.source_modified_at),
             }
             for member in self.members
         ]
@@ -1169,7 +1170,7 @@ def _normalize_creation_manifest_timestamp(source_modified_at: str | None) -> st
         raise ValueError("Archive creation manifest is invalid") from exc
     if timestamp.tzinfo is None:
         raise ValueError("Archive creation manifest is invalid")
-    return timestamp.astimezone(timezone.utc).isoformat(timespec="seconds")
+    return canonical_v2_timestamp(timestamp.replace(microsecond=0))
 
 
 @dataclass(frozen=True)
@@ -1440,7 +1441,7 @@ def existing_files_decision(conflicts: list[ArchiveExtractionConflict]) -> dict[
                 **({"source_size": conflict.source_size} if conflict.source_size is not None else {}),
                 **(
                     {
-                        "source_modified_at": conflict.source_modified_at.isoformat()
+                        "source_modified_at": canonical_v2_timestamp(conflict.source_modified_at)
                         if isinstance(conflict.source_modified_at, datetime)
                         else conflict.source_modified_at
                     }
@@ -1448,7 +1449,11 @@ def existing_files_decision(conflicts: list[ArchiveExtractionConflict]) -> dict[
                     else {}
                 ),
                 **({"target_size": conflict.target_size} if conflict.target_size is not None else {}),
-                **({"target_modified_at": conflict.target_modified_at.isoformat()} if conflict.target_modified_at is not None else {}),
+                **(
+                    {"target_modified_at": canonical_v2_timestamp(conflict.target_modified_at)}
+                    if conflict.target_modified_at is not None
+                    else {}
+                ),
             }
             for conflict in conflicts
         ],

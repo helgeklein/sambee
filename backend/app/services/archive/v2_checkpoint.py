@@ -2,8 +2,10 @@
 
 from __future__ import annotations
 
+import re
 from collections.abc import Mapping
 from copy import deepcopy
+from datetime import datetime, timezone
 from uuid import UUID
 
 from fastapi import HTTPException, status
@@ -22,6 +24,7 @@ V2_CHECKPOINT_FIELDS = frozenset(
 )
 V2_DECISION_FIELDS = frozenset({"collision_actions", "rename_targets", "ignored_members", "retry_members"})
 V2_CREATION_CHECKPOINT_FIELDS = frozenset({"version", "manifest", "member_outcomes", "decisions", "pending_decision", "delivery_ids"})
+V2_TIMESTAMP_PATTERN = re.compile(r"^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d+)?Z$")
 LEGACY_WRITTEN_MEMBERS_FIELD = "written_members"
 V1_CHECKPOINT_FIELDS = frozenset(
     {
@@ -70,6 +73,29 @@ def _validate_member_paths(values: object) -> list[str]:
     return [_canonical_member_path(value) for value in values]
 
 
+def _validate_timestamp(value: object, *, detail: str) -> None:
+    if value is None:
+        return
+    if not isinstance(value, str) or not V2_TIMESTAMP_PATTERN.fullmatch(value):
+        raise _invalid_checkpoint(detail)
+    try:
+        datetime.fromisoformat(f"{value[:-1]}+00:00")
+    except ValueError as exc:
+        raise _invalid_checkpoint(detail) from exc
+
+
+def canonical_v2_timestamp(value: datetime | str | None) -> str | None:
+    """Serialize metadata timestamps in the one V2 wire representation."""
+
+    if value is None:
+        return None
+    if isinstance(value, str):
+        value = datetime.fromisoformat(f"{value[:-1]}+00:00" if value.endswith("Z") else value)
+    if value.tzinfo is None:
+        value = value.replace(tzinfo=timezone.utc)
+    return value.astimezone(timezone.utc).isoformat().replace("+00:00", "Z")
+
+
 def _validate_member_outcome(value: object) -> None:
     if not isinstance(value, dict):
         raise _invalid_checkpoint("Archive V2 checkpoint member outcomes are invalid")
@@ -92,6 +118,66 @@ def _validate_member_outcome(value: object) -> None:
     else:
         raise _invalid_checkpoint("Archive V2 checkpoint member outcomes are invalid")
     _canonical_member_path(value.get("target_path"))
+
+
+def _validate_pending_decision(value: object, manifest_paths: set[str]) -> None:
+    if value is None:
+        return
+    if not isinstance(value, dict):
+        raise _invalid_checkpoint("Archive V2 checkpoint pending decision is invalid")
+    if value.get("kind") == "existing_files":
+        if frozenset(value) != {"kind", "allowed_actions", "conflicts"}:
+            raise _invalid_checkpoint("Archive V2 checkpoint pending decision is invalid")
+        allowed_actions = value["allowed_actions"]
+        conflicts = value["conflicts"]
+        valid_actions = {"skip", "skip_all", "replace", "replace_all", "replace_older", "rename", "retry", "ignore", "cancel"}
+        if (
+            not isinstance(allowed_actions, list)
+            or not allowed_actions
+            or len(set(allowed_actions)) != len(allowed_actions)
+            or any(action not in valid_actions for action in allowed_actions)
+            or not isinstance(conflicts, list)
+            or not conflicts
+        ):
+            raise _invalid_checkpoint("Archive V2 checkpoint pending decision is invalid")
+        for conflict in conflicts:
+            if not isinstance(conflict, dict) or not {"member_path", "target_path", "is_directory"}.issubset(conflict):
+                raise _invalid_checkpoint("Archive V2 checkpoint pending decision is invalid")
+            if frozenset(conflict) - {
+                "member_path",
+                "target_path",
+                "is_directory",
+                "source_size",
+                "source_modified_at",
+                "target_size",
+                "target_modified_at",
+            }:
+                raise _invalid_checkpoint("Archive V2 checkpoint pending decision is invalid")
+            _canonical_member_path(conflict["member_path"])
+            if type(conflict["is_directory"]) is not bool:
+                raise _invalid_checkpoint("Archive V2 checkpoint pending decision is invalid")
+            _canonical_member_path(conflict["target_path"])
+            for size_field in ("source_size", "target_size"):
+                if size_field in conflict and (type(conflict[size_field]) is not int or conflict[size_field] < 0):
+                    raise _invalid_checkpoint("Archive V2 checkpoint pending decision is invalid")
+            for timestamp_field in ("source_modified_at", "target_modified_at"):
+                if timestamp_field in conflict:
+                    _validate_timestamp(conflict[timestamp_field], detail="Archive V2 checkpoint pending decision is invalid")
+        return
+    if value.get("kind") == "member_error":
+        if frozenset(value) != {"kind", "member_path", "target_path", "message", "partial_output", "allowed_actions"}:
+            raise _invalid_checkpoint("Archive V2 checkpoint pending decision is invalid")
+        if (
+            _canonical_member_path(value["member_path"]) not in manifest_paths
+            or not isinstance(value["message"], str)
+            or not 1 <= len(value["message"]) <= 500
+            or type(value["partial_output"]) is not bool
+            or value["allowed_actions"] != ["retry", "ignore"]
+        ):
+            raise _invalid_checkpoint("Archive V2 checkpoint pending decision is invalid")
+        _canonical_member_path(value["target_path"])
+        return
+    raise _invalid_checkpoint("Archive V2 checkpoint pending decision is invalid")
 
 
 def _validate_delivery_ids(value: object) -> None:
@@ -127,8 +213,7 @@ def validate_v2_extraction_checkpoint(checkpoint: object) -> dict[str, object]:
         raise _invalid_checkpoint("Archive V2 checkpoint envelope is invalid")
     if frozenset(source_snapshot) != {"size", "modified_at"} or type(source_snapshot["size"]) is not int or source_snapshot["size"] < 0:
         raise _invalid_checkpoint("Archive V2 checkpoint source snapshot is invalid")
-    if source_snapshot["modified_at"] is not None and not isinstance(source_snapshot["modified_at"], str):
-        raise _invalid_checkpoint("Archive V2 checkpoint source snapshot is invalid")
+    _validate_timestamp(source_snapshot["modified_at"], detail="Archive V2 checkpoint source snapshot is invalid")
     manifest_paths: set[str] = set()
     for member in manifest:
         if not isinstance(member, dict) or frozenset(member) != {"path", "is_directory", "uncompressed_size", "modified_at"}:
@@ -141,8 +226,7 @@ def validate_v2_extraction_checkpoint(checkpoint: object) -> dict[str, object]:
             or member["uncompressed_size"] < 0
         ):
             raise _invalid_checkpoint("Archive V2 checkpoint manifest is invalid")
-        if member["modified_at"] is not None and not isinstance(member["modified_at"], str):
-            raise _invalid_checkpoint("Archive V2 checkpoint manifest is invalid")
+        _validate_timestamp(member["modified_at"], detail="Archive V2 checkpoint manifest is invalid")
         manifest_paths.add(member_path)
     for member_path, outcome in outcomes.items():
         if _canonical_member_path(member_path) not in manifest_paths:
@@ -164,8 +248,7 @@ def validate_v2_extraction_checkpoint(checkpoint: object) -> dict[str, object]:
     for paths in (decisions["ignored_members"], decisions["retry_members"]):
         if any(member_path not in manifest_paths for member_path in _validate_member_paths(paths)):
             raise _invalid_checkpoint("Archive V2 checkpoint decisions are invalid")
-    if pending_decision is not None and not isinstance(pending_decision, dict):
-        raise _invalid_checkpoint("Archive V2 checkpoint pending decision is invalid")
+    _validate_pending_decision(pending_decision, manifest_paths)
     _validate_delivery_ids(checkpoint.get("delivery_ids"))
     return deepcopy(checkpoint)
 
@@ -217,11 +300,18 @@ def validate_v2_creation_checkpoint(checkpoint: object) -> dict[str, object]:
             raise _invalid_checkpoint("Archive V2 creation checkpoint manifest is invalid")
         if member["source_path"] is not None and not isinstance(member["source_path"], str):
             raise _invalid_checkpoint("Archive V2 creation checkpoint manifest is invalid")
-        if member["modified_at"] is not None and not isinstance(member["modified_at"], str):
-            raise _invalid_checkpoint("Archive V2 creation checkpoint manifest is invalid")
+        _validate_timestamp(member["modified_at"], detail="Archive V2 creation checkpoint manifest is invalid")
         paths.add(path)
-    if any(_canonical_member_path(path) not in paths or not isinstance(outcome, dict) for path, outcome in outcomes.items()):
-        raise _invalid_checkpoint("Archive V2 creation checkpoint member outcomes are invalid")
+    for path, outcome in outcomes.items():
+        if _canonical_member_path(path) not in paths or not isinstance(outcome, dict):
+            raise _invalid_checkpoint("Archive V2 creation checkpoint member outcomes are invalid")
+        if (
+            frozenset(outcome) != {"status", "source_bytes"}
+            or outcome["status"] not in {"directory", "created"}
+            or type(outcome["source_bytes"]) is not int
+            or outcome["source_bytes"] < 0
+        ):
+            raise _invalid_checkpoint("Archive V2 creation checkpoint member outcomes are invalid")
     if checkpoint.get("decisions") != {} or checkpoint.get("pending_decision") is not None:
         raise _invalid_checkpoint("Archive V2 creation checkpoint decisions are invalid")
     _validate_delivery_ids(checkpoint.get("delivery_ids"))

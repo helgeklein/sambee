@@ -255,32 +255,29 @@ export function startZipArchiveExtraction(request: ArchiveExtractionRequest): Ar
     }
     if (status.phase === "awaiting_user_decision") {
       const pendingDecision = status.pendingDecision;
-      const memberPath = pendingDecision?.memberPath;
-      if (!memberPath) {
-        throw new Error("Local archive extraction is missing its pending collision member");
-      }
       awaitingDecision = true;
+      if (!pendingDecision) {
+        throw new Error("Local archive extraction is missing its pending decision");
+      }
       if (pendingDecision.kind === "member_error") {
         return {
           status: "awaiting-member-error",
           error: {
-            memberPath,
-            targetPath: [destinationPath, memberPath].filter(Boolean).join("/"),
+            memberPath: pendingDecision.member_path,
+            targetPath: pendingDecision.target_path,
             message: pendingDecision.message,
-            partialOutput: pendingDecision.partialOutput,
+            partialOutput: pendingDecision.partial_output,
           },
         };
       }
       return {
         status: "awaiting-decision",
-        conflicts: [
-          {
-            memberPath,
-            targetPath: [destinationPath, pendingDecision.targetPath ?? memberPath].filter(Boolean).join("/"),
-            isDirectory: pendingDecision.isDirectory,
-          },
-        ],
-        allowedActions: pendingDecision.allowedActions,
+        conflicts: pendingDecision.conflicts.map((conflict) => ({
+          memberPath: conflict.member_path,
+          targetPath: [destinationPath, conflict.target_path].filter(Boolean).join("/"),
+          isDirectory: conflict.is_directory,
+        })),
+        allowedActions: pendingDecision.allowed_actions,
       };
     }
     throw new Error(status.error ?? "Local archive extraction failed");

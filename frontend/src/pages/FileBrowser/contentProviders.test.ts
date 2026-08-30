@@ -243,11 +243,9 @@ describe("content providers", () => {
         progress: localArchiveProgress(),
         cancellation_requested: false,
         pendingDecision: {
-          kind: "collision",
-          memberPath: "source.txt",
-          targetPath: "renamed.txt",
-          isDirectory: false,
-          allowedActions: ["skip", "skip_all", "replace", "replace_all", "replace_older", "rename"],
+          kind: "existing_files",
+          conflicts: [{ member_path: "source.txt", target_path: "renamed.txt", is_directory: false }],
+          allowed_actions: ["skip", "skip_all", "replace", "replace_all", "replace_older", "rename"],
         },
       })
       .mockResolvedValueOnce({
@@ -311,10 +309,11 @@ describe("content providers", () => {
         cancellation_requested: false,
         pendingDecision: {
           kind: "member_error",
-          memberPath: "source.txt",
+          member_path: "source.txt",
+          target_path: "archives/one/source.txt",
           message: "archive member integrity check failed",
-          partialOutput: true,
-          allowedActions: ["retry", "ignore"],
+          partial_output: true,
+          allowed_actions: ["retry", "ignore"],
         },
       })
       .mockResolvedValueOnce({

@@ -7,6 +7,7 @@ from datetime import datetime, timezone
 from typing import Literal, Protocol, cast
 
 from app.models.file import DirectoryListing, FileInfo, FileType
+from app.services.archive.v2_checkpoint import canonical_v2_timestamp
 from app.services.archive.zip_reader import ArchiveFormatError
 from app.services.archive.zip_writer import PortableZipWriter
 from app.storage.base import ExclusiveWriter
@@ -110,7 +111,7 @@ def normalize_archive_creation_source_modified_at(modified_at: datetime | None) 
         return None
     if modified_at.tzinfo is None:
         modified_at = modified_at.replace(tzinfo=timezone.utc)
-    return modified_at.astimezone(timezone.utc).isoformat(timespec="seconds")
+    return canonical_v2_timestamp(modified_at.replace(microsecond=0))
 
 
 async def build_archive_creation_manifest(

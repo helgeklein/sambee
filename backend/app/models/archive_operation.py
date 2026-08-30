@@ -5,6 +5,7 @@ from datetime import datetime, timezone
 from enum import StrEnum
 from typing import Literal
 
+from pydantic import field_serializer
 from sqlalchemy import CheckConstraint
 from sqlmodel import Field, SQLModel
 from sqlmodel._compat import SQLModelConfig
@@ -104,6 +105,11 @@ class ArchiveOperationRead(SQLModel):
     created_at: datetime
     updated_at: datetime
     heartbeat_at: datetime
+
+    @field_serializer("created_at", "updated_at", "heartbeat_at", when_used="json")
+    def serialize_v2_timestamp(self, value: datetime) -> str:
+        timestamp = value.replace(tzinfo=timezone.utc) if value.tzinfo is None else value.astimezone(timezone.utc)
+        return timestamp.isoformat().replace("+00:00", "Z")
 
 
 class ArchiveOperationTransition(ArchiveV2Payload):

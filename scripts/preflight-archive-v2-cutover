@@ -1,0 +1,8 @@
+#!/bin/bash
+set -euo pipefail
+
+REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+readonly REPO_ROOT
+
+cd "$REPO_ROOT/backend"
+exec .venv/bin/python -m app.db.archive_cutover_preflight

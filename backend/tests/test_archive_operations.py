@@ -870,7 +870,7 @@ def test_prepare_archive_operation_rejects_unsupported_topology_before_persisten
     )
 
     assert response.status_code == status.HTTP_422_UNPROCESSABLE_CONTENT
-    assert response.json()["detail"] == "Archive execution across distinct same-provider connections is unavailable"
+    assert response.json()["message"] == "Archive execution across distinct same-provider connections is unavailable"
     assert session.exec(select(ArchiveOperation)).all() == []
 
 
@@ -985,6 +985,10 @@ def test_v2_operation_routes_pin_contract_version_and_reject_legacy_input(
     legacy_payload = {**payload, "contract_version": "v1"}
     rejected = client.post("/api/archive/v2/operations", headers=auth_headers_user, json=legacy_payload)
     assert rejected.status_code == status.HTTP_422_UNPROCESSABLE_CONTENT
+    assert rejected.json() == {
+        "code": "invalid_request",
+        "message": "Archive V2 request validation failed",
+    }
 
     unknown_field = client.post(
         "/api/archive/v2/operations",
@@ -992,6 +996,21 @@ def test_v2_operation_routes_pin_contract_version_and_reject_legacy_input(
         json={**payload, "unexpected": True},
     )
     assert unknown_field.status_code == status.HTTP_422_UNPROCESSABLE_CONTENT
+    assert unknown_field.json() == {
+        "code": "invalid_request",
+        "message": "Archive V2 request validation failed",
+    }
+
+    unknown_query = client.get(
+        "/api/archive/v2/operations",
+        headers=auth_headers_user,
+        params={"unexpected": "true"},
+    )
+    assert unknown_query.status_code == status.HTTP_422_UNPROCESSABLE_CONTENT
+    assert unknown_query.json() == {
+        "code": "invalid_request",
+        "message": "Archive V2 query parameters are invalid",
+    }
 
 
 def test_v2_inspection_is_request_scoped_and_rejects_legacy_contract(
@@ -1350,7 +1369,7 @@ def test_manifest_backed_companion_relay_requires_terminal_member_coverage(
 
     assert begin.status_code == 200
     assert incomplete.status_code == 409
-    assert incomplete.json()["detail"] == "Archive operation has unfinished members"
+    assert incomplete.json()["message"] == "Archive operation has unfinished members"
     assert write.status_code == 200
     assert complete.status_code == 200
     assert complete.json()["phase"] == "completed"
@@ -1396,7 +1415,7 @@ def test_companion_local_source_relay_rejects_a_changed_manifest_before_resume(
 
     assert initial.status_code == 200
     assert resumed.status_code == 409
-    assert resumed.json()["detail"] == "Archive extraction source changed after manifest validation"
+    assert resumed.json()["message"] == "Archive extraction source changed after manifest validation"
     assert operation.json()["phase"] == "failed"
     backend.connect.assert_awaited_once()
 
@@ -1438,7 +1457,7 @@ def test_companion_local_source_relay_requires_a_manifest_before_resume(
 
     assert initial.status_code == 200
     assert resumed.status_code == 409
-    assert resumed.json()["detail"] == "Archive extraction source manifest is required to resume"
+    assert resumed.json()["message"] == "Archive extraction source manifest is required to resume"
 
 
 @pytest.mark.parametrize(
@@ -1747,7 +1766,7 @@ def test_companion_local_relay_fails_preflight_for_a_normalized_path_collision(
         operation = client.get(f"/api/archive/v2/operations/{prepared['id']}", headers=auth_headers_user)
 
     assert response.status_code == 422
-    assert response.json()["detail"] == "Archive extraction source is invalid"
+    assert response.json()["message"] == "Archive extraction source is invalid"
     assert operation.json()["phase"] == "failed"
 
 
@@ -2113,7 +2132,7 @@ def test_companion_local_relay_cancels_before_accepting_late_member_completion(
     assert cancellation.status_code == 200
     assert cancellation.json()["cancellation_requested"] is True
     assert completion.status_code == 409
-    assert completion.json()["detail"] == "Archive operation was cancelled"
+    assert completion.json()["message"] == "Archive operation was cancelled"
     assert operation.json()["phase"] == scenario["terminal_phase"]
 
 
@@ -2284,7 +2303,7 @@ def test_companion_local_creation_relay_streams_smb_members_and_completes(
     assert member_complete.status_code == 200
     assert repeated_member_complete.status_code == 200
     assert conflicting_member_complete.status_code == status.HTTP_409_CONFLICT
-    assert conflicting_member_complete.json()["detail"] == "Archive relay idempotency key conflicts with its command"
+    assert conflicting_member_complete.json()["message"] == "Archive relay idempotency key conflicts with its command"
     assert complete.status_code == 200
     assert complete.json()["phase"] == "completed"
     checkpoint = json.loads(complete.json()["checkpoint_json"])
@@ -2325,7 +2344,7 @@ def test_companion_creation_relay_rejects_invalid_idempotency_key(
     )
 
     assert response.status_code == status.HTTP_422_UNPROCESSABLE_CONTENT
-    assert response.json()["detail"] == "Archive relay idempotency key is invalid"
+    assert response.json()["message"] == "Archive relay idempotency key is invalid"
 
 
 def test_companion_local_creation_relay_reuses_its_persisted_manifest(
@@ -2973,7 +2992,7 @@ def test_local_to_smb_creation_rejects_changed_member_size(
 
     assert begin.status_code == 200
     assert member.status_code == 409
-    assert member.json()["detail"] == "Archive creation source changed after manifest validation"
+    assert member.json()["message"] == "Archive creation source changed after manifest validation"
     writer.abort_and_delete_if_owned.assert_awaited_once()
 
 
@@ -3020,7 +3039,7 @@ def test_local_to_smb_creation_rejects_members_after_live_writer_interruption(
 
     assert begin.status_code == 200
     assert member.status_code == 409
-    assert member.json()["detail"] == "Archive creation session was interrupted"
+    assert member.json()["message"] == "Archive creation session was interrupted"
     execution.write_member.assert_not_awaited()
 
 
@@ -3480,7 +3499,7 @@ def test_direct_smb_extraction_rejects_a_source_changed_after_pause(
         resumed = client.post(f"/api/archive/v2/operations/{prepared['id']}/extraction/begin", headers=auth_headers_user)
 
     assert resumed.status_code == 409
-    assert resumed.json()["detail"] == "Archive extraction source changed after manifest validation"
+    assert resumed.json()["message"] == "Archive extraction source changed after manifest validation"
     extract_archive.assert_not_awaited()
     operation = client.get(f"/api/archive/v2/operations/{prepared['id']}", headers=auth_headers_user)
     assert operation.json()["phase"] == "failed"
@@ -3676,4 +3695,4 @@ def test_rejects_malformed_persisted_extraction_decision(
     )
 
     assert response.status_code == 409
-    assert response.json()["detail"] == "Archive operation decision state is invalid"
+    assert response.json()["message"] == "Archive operation decision state is invalid"

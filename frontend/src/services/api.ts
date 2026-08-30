@@ -92,7 +92,7 @@ export interface ArchiveExecutionProgress {
 }
 
 export interface LocalArchiveExecution {
-  contract_version?: "v2";
+  contract_version: "v2";
   execution_id: string;
   kind: "create" | "extract";
   phase: "accepted" | "streaming" | "awaiting_user_decision" | "completed" | "cancelled" | "failed";
@@ -108,18 +108,21 @@ export interface LocalArchiveExecution {
   error?: string;
   pendingDecision?:
     | {
-        kind: "collision";
-        memberPath: string;
-        targetPath?: string;
-        isDirectory?: boolean;
-        allowedActions: ("skip" | "skip_all" | "replace" | "replace_all" | "replace_older" | "rename")[];
+        kind: "existing_files";
+        conflicts: Array<{
+          member_path: string;
+          target_path: string;
+          is_directory: boolean;
+        }>;
+        allowed_actions: ("skip" | "skip_all" | "replace" | "replace_all" | "replace_older" | "rename")[];
       }
     | {
         kind: "member_error";
-        memberPath: string;
+        member_path: string;
+        target_path: string;
         message: string;
-        partialOutput: boolean;
-        allowedActions: ("retry" | "ignore")[];
+        partial_output: boolean;
+        allowed_actions: ("retry" | "ignore")[];
       };
 }
 

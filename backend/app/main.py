@@ -9,7 +9,8 @@ from os import stat_result as os_stat_result
 from pathlib import Path
 from typing import AsyncIterator
 
-from fastapi import FastAPI, Request, Response
+from fastapi import FastAPI, HTTPException, Request, Response
+from fastapi.exceptions import RequestValidationError
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
@@ -18,6 +19,7 @@ from starlette.types import Scope
 
 from app import __version__
 from app.api import admin, admin_auth, archive_operations, auth, browser, companion, connections, logs, system_settings, viewer, websocket
+from app.api.archive_v2_errors import archive_v2_http_exception_handler, archive_v2_request_validation_exception_handler
 from app.core.config import consume_unsupported_config_settings, settings
 from app.core.environment import DEV_CORS_ORIGINS, IS_DEVELOPMENT, IS_PRODUCTION
 from app.core.exceptions import ConfigurationError, SambeeError
@@ -382,6 +384,8 @@ app = FastAPI(
     openapi_url=None,
 )
 app.add_middleware(PasswordFormBodyLimitMiddleware)
+app.add_exception_handler(HTTPException, archive_v2_http_exception_handler)
+app.add_exception_handler(RequestValidationError, archive_v2_request_validation_exception_handler)
 
 
 #

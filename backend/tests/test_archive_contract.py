@@ -6,8 +6,11 @@ from pathlib import Path
 from typing import Any
 
 from fastapi.routing import APIRoute
+from fastapi.testclient import TestClient
+from jsonschema import Draft202012Validator, FormatChecker
 
 from app.api.archive_operations import v2_router
+from app.models.connection import Connection
 
 WORKSPACE_ROOT = Path(__file__).resolve().parents[2]
 ROUTE_BINDINGS_PATH = WORKSPACE_ROOT / "archive-contract" / "v2" / "route-bindings.json"
@@ -15,6 +18,16 @@ SCHEMA_PATH = WORKSPACE_ROOT / "archive-contract" / "v2" / "schema.json"
 COMPANION_ROUTER_PATH = WORKSPACE_ROOT / "companion" / "src-tauri" / "src" / "server" / "mod.rs"
 HTTP_METHODS = frozenset({"GET", "POST", "PUT", "DELETE"})
 BACKEND_PREFIX = "/api/archive"
+
+
+def _validate_contract_instance(schema_name: str, instance: object) -> None:
+    schema: dict[str, Any] = json.loads(SCHEMA_PATH.read_text(encoding="utf-8"))
+    validator = Draft202012Validator(
+        {"$ref": f"#/$defs/{schema_name}", "$defs": schema["$defs"]},
+        format_checker=FormatChecker(),
+    )
+    errors = sorted(validator.iter_errors(instance), key=lambda error: list(error.absolute_path))
+    assert not errors, "\n".join(error.message for error in errors)
 
 
 def _documented_routes(owner: str) -> set[tuple[str, str]]:
@@ -76,6 +89,66 @@ def test_v2_route_bindings_reference_defined_schemas() -> None:
         for schema_name in (route["request_schema"], route["response_schema"]):
             if schema_name is not None:
                 assert schema_name in definitions, f"{route['method']} {route['path']} references undefined schema {schema_name}"
+
+
+def test_v2_runtime_backend_payloads_conform_to_the_shared_schema(
+    client: TestClient,
+    auth_headers_user: dict[str, str],
+    test_connection: Connection,
+) -> None:
+    response = client.post(
+        "/api/archive/v2/operations",
+        headers=auth_headers_user,
+        json={
+            "contract_version": "v2",
+            "kind": "extract",
+            "source_connection_id": str(test_connection.id),
+            "source_path": "backup.zip",
+            "destination_connection_id": str(test_connection.id),
+            "destination_path": "backup",
+        },
+    )
+    assert response.status_code == 201
+    _validate_contract_instance("operationRead", response.json())
+
+    invalid_response = client.get(
+        "/api/archive/v2/operations",
+        headers=auth_headers_user,
+        params={"unexpected": "true"},
+    )
+    assert invalid_response.status_code == 422
+    _validate_contract_instance("error", invalid_response.json())
+
+
+def test_v2_direct_local_execution_specimen_conforms_to_the_shared_schema() -> None:
+    _validate_contract_instance(
+        "directLocalExecution",
+        {
+            "contract_version": "v2",
+            "execution_id": "2de1fe1d-8f71-4fd0-9774-250001597a78",
+            "kind": "extract",
+            "phase": "awaiting_user_decision",
+            "revision": 3,
+            "progress": {
+                "completedMembers": 1,
+                "skippedMembers": 0,
+                "failedMembers": 0,
+                "partialMembers": 0,
+            },
+            "cancellation_requested": False,
+            "pendingDecision": {
+                "kind": "existing_files",
+                "allowed_actions": ["skip", "replace", "rename", "cancel"],
+                "conflicts": [
+                    {
+                        "member_path": "notes.txt",
+                        "target_path": "output/notes.txt",
+                        "is_directory": False,
+                    }
+                ],
+            },
+        },
+    )
 
 
 def test_v2_relay_routes_are_normalized_and_capability_bound() -> None:

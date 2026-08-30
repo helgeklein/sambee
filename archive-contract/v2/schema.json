@@ -1632,7 +1632,13 @@
             "cancelled",
             "idempotency_conflict",
             "capability_invalid",
-            "capability_version_mismatch"
+            "capability_version_mismatch",
+            "invalid_request",
+            "authentication_invalid",
+            "authorization_denied",
+            "not_found",
+            "invalid_operation_state",
+            "operation_unavailable"
           ]
         },
         "message": {

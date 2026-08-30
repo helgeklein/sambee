@@ -3,9 +3,10 @@
 //! Error responses use `{"detail": "..."}` to match FastAPI's default
 //! `HTTPException` format, which the Sambee frontend expects.
 
-use axum::http::StatusCode;
+use axum::extract::{FromRequest, FromRequestParts, Json, Query, Request};
+use axum::http::{request::Parts, StatusCode};
 use axum::response::{IntoResponse, Response};
-use serde::Serialize;
+use serde::{de::DeserializeOwned, Serialize};
 use serde_json::Value;
 
 /// Stable error code used while browser pairing is still awaiting companion approval.
@@ -30,6 +31,110 @@ pub const LOCAL_LINK_TARGET_UNSUPPORTED_TYPE_CODE: &str = "local_link_target_uns
 pub const LOCAL_ARCHIVE_EXTRACTION_PARTIAL_CODE: &str = "local_archive_extraction_partial";
 /// Stable error code when direct archive creation leaves a partial ZIP output.
 pub const LOCAL_ARCHIVE_CREATION_PARTIAL_CODE: &str = "local_archive_creation_partial";
+
+/// V2-only failure that always serializes to the language-neutral archive contract envelope.
+#[derive(Debug)]
+pub struct ArchiveV2Error {
+    status: StatusCode,
+    code: &'static str,
+    message: String,
+}
+
+impl ArchiveV2Error {
+    pub fn invalid_request() -> Self {
+        Self {
+            status: StatusCode::UNPROCESSABLE_ENTITY,
+            code: "invalid_request",
+            message: "Archive V2 request validation failed".to_string(),
+        }
+    }
+}
+
+impl From<ApiError> for ArchiveV2Error {
+    fn from(error: ApiError) -> Self {
+        let (status, code, message) = match error {
+            ApiError::NotFound(message) | ApiError::NotFoundWithCode { message, .. } => (StatusCode::NOT_FOUND, "not_found", message),
+            ApiError::BadRequest(message) | ApiError::BadRequestWithCode { message, .. } => {
+                (StatusCode::BAD_REQUEST, "invalid_request", message)
+            }
+            ApiError::Forbidden(message) | ApiError::ForbiddenWithCode { message, .. } => {
+                (StatusCode::FORBIDDEN, "authorization_denied", message)
+            }
+            ApiError::TooManyRequests(message) => (StatusCode::TOO_MANY_REQUESTS, "transport_failure", message),
+            ApiError::PayloadTooLarge(message) => (StatusCode::PAYLOAD_TOO_LARGE, "invalid_request", message),
+            ApiError::Conflict(detail) => {
+                let message = match detail {
+                    Value::String(message) => message,
+                    detail => detail.to_string(),
+                };
+                let code = if message.contains("idempotency") {
+                    "idempotency_conflict"
+                } else if message.contains("cancel") {
+                    "cancelled"
+                } else {
+                    "invalid_operation_state"
+                };
+                (StatusCode::CONFLICT, code, message)
+            }
+            ApiError::ConflictWithCode { message, code } => (StatusCode::CONFLICT, code, message),
+            ApiError::Io(error) => (StatusCode::INTERNAL_SERVER_ERROR, "transport_failure", error.to_string()),
+            ApiError::Internal(message) | ApiError::InternalWithCode { message, .. } => {
+                (StatusCode::INTERNAL_SERVER_ERROR, "transport_failure", message)
+            }
+        };
+        Self {
+            status,
+            code,
+            message: message.chars().take(500).collect(),
+        }
+    }
+}
+
+impl IntoResponse for ArchiveV2Error {
+    fn into_response(self) -> Response {
+        (
+            self.status,
+            axum::Json(serde_json::json!({ "code": self.code, "message": self.message })),
+        )
+            .into_response()
+    }
+}
+
+/// V2 JSON extractor that returns the archive contract envelope on parse failures.
+pub struct ArchiveV2Json<T>(pub T);
+
+impl<S, T> FromRequest<S> for ArchiveV2Json<T>
+where
+    S: Send + Sync,
+    T: DeserializeOwned,
+{
+    type Rejection = ArchiveV2Error;
+
+    async fn from_request(request: Request, state: &S) -> Result<Self, Self::Rejection> {
+        Json::<T>::from_request(request, state)
+            .await
+            .map(|Json(value)| Self(value))
+            .map_err(|_| ArchiveV2Error::invalid_request())
+    }
+}
+
+/// V2 query extractor that returns the archive contract envelope on parse failures.
+pub struct ArchiveV2Query<T>(pub T);
+
+impl<S, T> FromRequestParts<S> for ArchiveV2Query<T>
+where
+    S: Send + Sync,
+    T: DeserializeOwned,
+{
+    type Rejection = ArchiveV2Error;
+
+    async fn from_request_parts(parts: &mut Parts, state: &S) -> Result<Self, Self::Rejection> {
+        Query::<T>::from_request_parts(parts, state)
+            .await
+            .map(|Query(value)| Self(value))
+            .map_err(|_| ArchiveV2Error::invalid_request())
+    }
+}
 
 /// API error type that converts into appropriate HTTP responses.
 #[derive(Debug, thiserror::Error)]
@@ -149,7 +254,7 @@ impl IntoResponse for ApiError {
 mod tests {
     use axum::{body::to_bytes, response::IntoResponse};
 
-    use super::{ApiError, RECENT_FILE_TARGET_NOT_FILE_CODE};
+    use super::{ApiError, ArchiveV2Error, RECENT_FILE_TARGET_NOT_FILE_CODE};
 
     #[tokio::test]
     async fn coded_bad_request_includes_the_permanent_target_code() {
@@ -162,6 +267,26 @@ mod tests {
         assert_eq!(
             serde_json::from_slice::<serde_json::Value>(&body).expect("response body should be JSON"),
             serde_json::json!({ "detail": "Not a file", "code": RECENT_FILE_TARGET_NOT_FILE_CODE })
+        );
+    }
+
+    #[tokio::test]
+    async fn archive_v2_error_uses_the_contract_envelope() {
+        let response = ArchiveV2Error::from(ApiError::conflict_message(
+            "Archive relay idempotency key conflicts with its command",
+        ))
+        .into_response();
+
+        assert_eq!(response.status(), axum::http::StatusCode::CONFLICT);
+        let body = to_bytes(response.into_body(), usize::MAX)
+            .await
+            .expect("response body should be readable");
+        assert_eq!(
+            serde_json::from_slice::<serde_json::Value>(&body).expect("response body should be JSON"),
+            serde_json::json!({
+                "code": "idempotency_conflict",
+                "message": "Archive relay idempotency key conflicts with its command",
+            })
         );
     }
 }
