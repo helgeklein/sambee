@@ -5100,7 +5100,7 @@ mod tests {
     use axum::extract::{Path, Query, State};
     use axum::http::{HeaderMap, HeaderValue, Method, StatusCode, Uri};
     use axum::response::IntoResponse;
-    use std::collections::VecDeque;
+    use std::collections::{HashSet, VecDeque};
     #[cfg(unix)]
     use std::os::unix::fs::symlink;
     use std::sync::Arc;
@@ -5841,35 +5841,57 @@ mod tests {
             serde_json::from_str(include_str!("../../../../archive-contract/v2/fixtures/relay-bindings-v2.json"))
                 .expect("relay binding fixture should be valid JSON");
         assert_eq!(fixture["version"], 2);
+        let fixture_bindings = fixture["bindings"]
+            .as_array()
+            .expect("relay binding fixture should define bindings")
+            .iter()
+            .map(|binding| {
+                (
+                    binding["purpose"].as_str().expect("relay purpose should be a string"),
+                    binding["kind"].as_str().expect("relay kind should be a string"),
+                    binding["source"].as_str().expect("relay source should be a string"),
+                    binding["destination"].as_str().expect("relay destination should be a string"),
+                )
+            })
+            .collect::<HashSet<_>>();
+        assert_eq!(fixture_bindings.len(), fixture["bindings"].as_array().unwrap().len());
         assert_eq!(
-            fixture["bindings"],
-            serde_json::json!([
-                {
-                    "purpose": ArchiveRelayBinding::LocalZipToSmbExtract.capability_purpose(),
-                    "kind": "extract",
-                    "source": "local",
-                    "destination": "smb",
-                },
-                {
-                    "purpose": ArchiveRelayBinding::SmbZipToLocalExtract.capability_purpose(),
-                    "kind": "extract",
-                    "source": "smb",
-                    "destination": "local",
-                },
-                {
-                    "purpose": ArchiveRelayBinding::SmbToLocalZipCreate.capability_purpose(),
-                    "kind": "create",
-                    "source": "smb",
-                    "destination": "local",
-                },
-                {
-                    "purpose": ArchiveRelayBinding::LocalToSmbZipCreate.capability_purpose(),
-                    "kind": "create",
-                    "source": "local",
-                    "destination": "smb",
-                },
+            fixture_bindings.iter().map(|(purpose, _, _, _)| *purpose).collect::<HashSet<_>>(),
+            HashSet::from([
+                ArchiveRelayBinding::LocalZipToSmbExtract.capability_purpose(),
+                ArchiveRelayBinding::SmbZipToLocalExtract.capability_purpose(),
+                ArchiveRelayBinding::SmbToLocalZipCreate.capability_purpose(),
+                ArchiveRelayBinding::LocalToSmbZipCreate.capability_purpose(),
             ])
         );
+
+        let resolved_bindings = [CompanionArchiveOperationKind::Create, CompanionArchiveOperationKind::Extract]
+            .into_iter()
+            .flat_map(|kind| {
+                [(true, false), (false, true)]
+                    .into_iter()
+                    .map(move |(source_is_local, destination_is_local)| {
+                        let purpose = ArchiveRelayBinding::resolve(kind, source_is_local, destination_is_local)
+                            .expect("mixed topology should have a relay binding");
+                        (
+                            purpose.capability_purpose(),
+                            match kind {
+                                CompanionArchiveOperationKind::Create => "create",
+                                CompanionArchiveOperationKind::Extract => "extract",
+                                CompanionArchiveOperationKind::Inspect => unreachable!("inspection is not a relay operation"),
+                            },
+                            if source_is_local { "local" } else { "smb" },
+                            if destination_is_local { "local" } else { "smb" },
+                        )
+                    })
+            })
+            .collect::<HashSet<_>>();
+        assert_eq!(resolved_bindings, fixture_bindings);
+
+        for kind in [CompanionArchiveOperationKind::Create, CompanionArchiveOperationKind::Extract] {
+            assert!(ArchiveRelayBinding::resolve(kind, true, true).is_err());
+            assert!(ArchiveRelayBinding::resolve(kind, false, false).is_err());
+        }
     }
 
     #[tokio::test]
@@ -5905,9 +5927,27 @@ mod tests {
                     )
                     .await
                     .expect("extraction completion should succeed"),
+                "creation_member_complete" => {
+                    transport
+                        .post_json_without_result(
+                            "member-complete",
+                            &serde_json::json!({"archive_path": "report.txt", "status": "created", "source_bytes": 3}),
+                            "FastAPI relay interoperability",
+                            "member completion",
+                        )
+                        .await
+                        .expect("creation member acknowledgement should succeed");
+                    transport
+                        .complete_with_json(
+                            &serde_json::json!({"files_created": 1, "directories_created": 0, "source_bytes": 3}),
+                            "FastAPI relay interoperability",
+                        )
+                        .await
+                        .expect("creation completion should succeed");
+                }
                 "creation_complete" => transport
                     .complete_with_json(
-                        &serde_json::json!({"files_created": 0, "directories_created": 0, "source_bytes": 0}),
+                        &serde_json::json!({"files_created": 1, "directories_created": 0, "source_bytes": 3}),
                         "FastAPI relay interoperability",
                     )
                     .await

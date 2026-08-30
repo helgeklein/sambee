@@ -535,17 +535,18 @@ It preserves the bounded SMB/local adapters and does not introduce a generic
 filesystem abstraction.
 
 1. Make durable checkpoint validity contract-driven. `prepared` and the
-   relay-preflight `accepted` phase are the only durable phases allowed to have
-   no checkpoint. Represent that state explicitly as a null checkpoint rather
-   than `{}`. For every later V2 creation or extraction phase, select the
-   strict checkpoint validator solely from the operation kind, before
-   coordinator processing or persistence. Reject an absent, malformed, partial,
-   wrong-kind, or V1-shaped checkpoint before I/O.
+   relay-preflight `accepted` phase, plus an operation cancelled or failed
+   before execution begins, are the only durable states allowed to have no
+   checkpoint. Represent that state explicitly as a null checkpoint rather than
+   `{}`. For every execution-bearing V2 creation or extraction phase, select the
+   strict checkpoint validator solely from the operation kind before coordinator
+   processing or persistence. Reject an absent, malformed, partial, wrong-kind,
+   or V1-shaped checkpoint before I/O.
 2. Replace inferred relay-purpose selection with one explicit, exhaustive
-    topology-binding registry in Python and one matching exhaustive resolver in
-    Rust. The versioned relay-bindings fixture remains the language-neutral test
-    oracle. Both runtimes must assert exact fixture parity, uniqueness, complete
-    coverage of mixed topologies, and controlled rejection of unsupported keys.
+   topology-binding registry in Python and one matching exhaustive resolver in
+   Rust. The versioned relay-bindings fixture remains the language-neutral test
+   oracle. Both runtimes must assert exact fixture parity, uniqueness, complete
+   coverage of mixed topologies, and controlled rejection of unsupported keys.
 3. Resolve relay authorization once per backend request. A typed scoped relay
     context must validate the capability, owned V2 operation, topology binding,
     contract version, kind, manifest hash, and source/destination scope once,
@@ -562,8 +563,9 @@ filesystem abstraction.
     and add compact cross-runtime relay interoperability coverage. The integration
     suite must run Companion's real relay transport against an ephemeral seeded
     FastAPI backend using real V2 capabilities and operation state. It covers
-    creation and extraction in both mixed directions, successful traffic, stable
-    V2 errors, and idempotency replay without Docker or a live SMB share.
+   creation and extraction in both mixed directions, successful terminal state
+   and ledger persistence, stable V2 errors, and idempotency replay without
+   Docker or a live SMB share.
 6. Consolidate duplicated archive-member path normalization behind one V2
     canonical-path helper while retaining operation-specific error messages. Do
     not collapse creation and extraction manifest types: their metadata differs
@@ -572,16 +574,17 @@ filesystem abstraction.
 
 Acceptance criteria:
 
-- A V2 operation has either an explicit uninitialized preflight checkpoint or a
-   complete validated checkpoint matching its kind; no shape probe selects a
-   validation path.
+- A V2 operation has an explicit null checkpoint only before execution begins,
+   including pre-execution cancellation or failure, or a complete validated
+   checkpoint matching its kind; no shape probe selects a validation path.
 - Python and Rust topology selection agree exactly with the V2 binding fixture.
 - Every relay route performs one authoritative scoped-resolution step before
    action dispatch.
 - The frontend coordinator contains no direction-specific execution method
    selection.
 - A CI-capable loopback integration suite proves real backend/Companion relay
-   serialization, capability, idempotency, and error-envelope interoperability.
+   serialization, minted capability, idempotency, error-envelope
+   interoperability, and final durable checkpoint/ledger state.
 
 ## Validation Order For Every Phase
 

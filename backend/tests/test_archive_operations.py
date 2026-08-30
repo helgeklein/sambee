@@ -621,6 +621,7 @@ def test_relay_transfer_guard_transitions_a_cancelled_stream(session, regular_us
         kind=ArchiveOperationKind.EXTRACT,
         phase=ArchiveOperationPhase.STREAMING,
         cancellation_requested=True,
+        checkpoint_json=json.dumps(new_v2_test_extraction_checkpoint(ArchiveExtractionManifest.from_members([]))),
     )
     session.add(operation)
     session.commit()
@@ -854,20 +855,39 @@ def test_v2_relay_binding_fixture_matches_backend_topology_resolution() -> None:
     fixture = json.loads((Path(__file__).parents[2] / "archive-contract/v2/fixtures/relay-bindings-v2.json").read_text(encoding="utf-8"))
 
     assert fixture["version"] == 2
-    resolved_bindings = [
-        {
-            "purpose": resolve_archive_execution_topology(
-                kind=ArchiveOperationKind(binding["kind"]),
-                source_connection_id="local-drive:c" if binding["source"] == "local" else "connection-1",
-                destination_connection_id="local-drive:c" if binding["destination"] == "local" else "connection-1",
-            ).companion_purpose.value,
-            "kind": binding["kind"],
-            "source": binding["source"],
-            "destination": binding["destination"],
-        }
-        for binding in fixture["bindings"]
-    ]
-    assert resolved_bindings == fixture["bindings"]
+    fixture_bindings = {(binding["purpose"], binding["kind"], binding["source"], binding["destination"]) for binding in fixture["bindings"]}
+    assert len(fixture_bindings) == len(fixture["bindings"])
+    assert {binding[0] for binding in fixture_bindings} == {purpose.value for purpose in ArchiveCompanionRelayPurpose}
+
+    resolver_bindings = set()
+    for kind in ArchiveOperationKind:
+        for source_is_local, destination_is_local in ((True, False), (False, True)):
+            topology = resolve_archive_execution_topology(
+                kind=kind,
+                source_connection_id="local-drive:c" if source_is_local else "connection-1",
+                destination_connection_id="local-drive:d" if destination_is_local else "connection-2",
+            )
+            assert topology.companion_purpose is not None
+            resolver_bindings.add(
+                (
+                    topology.companion_purpose.value,
+                    kind.value,
+                    "local" if source_is_local else "smb",
+                    "local" if destination_is_local else "smb",
+                )
+            )
+    assert resolver_bindings == fixture_bindings
+
+    for kind in ArchiveOperationKind:
+        for connection_id in ("local-drive:c", "connection-1"):
+            assert (
+                resolve_archive_execution_topology(
+                    kind=kind,
+                    source_connection_id=connection_id,
+                    destination_connection_id=connection_id,
+                ).companion_purpose
+                is None
+            )
 
 
 def test_prepare_archive_operation_rejects_unsupported_topology_before_persistence(
@@ -980,6 +1000,40 @@ def test_prepare_read_and_cancel_archive_operation(
     }
     assert len(events) == 3
     assert all("backup.zip" not in event.safe_details_json and "backup" not in event.safe_details_json for event in events)
+
+
+def test_v2_phase_route_rejects_execution_without_an_initialized_checkpoint(
+    client: TestClient,
+    auth_headers_user: dict,
+    test_connection: Connection,
+) -> None:
+    operation = client.post(
+        "/api/archive/v2/operations",
+        headers=auth_headers_user,
+        json={
+            "contract_version": "v2",
+            "kind": "extract",
+            "source_connection_id": str(test_connection.id),
+            "source_path": "backup.zip",
+            "destination_connection_id": str(test_connection.id),
+            "destination_path": "backup",
+        },
+    ).json()
+    accepted = client.post(
+        f"/api/archive/v2/operations/{operation['id']}/phase",
+        headers=auth_headers_user,
+        json={"expected_phase": "prepared", "next_phase": "accepted"},
+    )
+    assert accepted.status_code == status.HTTP_200_OK
+
+    streaming = client.post(
+        f"/api/archive/v2/operations/{operation['id']}/phase",
+        headers=auth_headers_user,
+        json={"expected_phase": "accepted", "next_phase": "streaming", "expected_revision": accepted.json()["revision"]},
+    )
+
+    assert streaming.status_code == status.HTTP_409_CONFLICT
+    assert streaming.json() == {"code": "invalid_checkpoint", "message": "Archive operation checkpoint is invalid"}
 
 
 def test_v2_operation_routes_pin_contract_version_and_reject_legacy_input(

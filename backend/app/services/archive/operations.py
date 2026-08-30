@@ -38,6 +38,14 @@ _ALLOWED_TRANSITIONS: dict[ArchiveOperationPhase, frozenset[ArchiveOperationPhas
 }
 
 _state_store: ArchiveStateStore = ArchiveOperationStateStore()
+_CHECKPOINTED_ARCHIVE_OPERATION_PHASES = frozenset(
+    {
+        ArchiveOperationPhase.STREAMING,
+        ArchiveOperationPhase.AWAITING_USER_DECISION,
+        ArchiveOperationPhase.VERIFYING,
+        ArchiveOperationPhase.COMPLETED,
+    }
+)
 
 
 def _checkpoint_json_after_decision_mutation(operation: ArchiveOperation, checkpoint: dict[str, object]) -> str:
@@ -69,6 +77,24 @@ def _validated_current_extraction_checkpoint_json(operation: ArchiveOperation) -
     if not isinstance(checkpoint, dict):
         raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="Archive operation checkpoint is invalid")
     return _checkpoint_json_after_decision_mutation(operation, checkpoint)
+
+
+def _validated_checkpoint_for_execution_transition(
+    operation: ArchiveOperation,
+    additional_changes: dict[str, object] | None,
+) -> str:
+    """Return the strict checkpoint required before an operation enters or leaves execution."""
+
+    checkpoint_json = (
+        additional_changes.get("checkpoint_json", operation.checkpoint_json) if additional_changes else operation.checkpoint_json
+    )
+    if not isinstance(checkpoint_json, str) or operation.contract_version != ArchiveContractVersion.V2:
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="Archive operation checkpoint is invalid")
+    try:
+        checkpoint = json.loads(checkpoint_json)
+        return json.dumps(validate_v2_operation_checkpoint(operation.kind, checkpoint))
+    except (json.JSONDecodeError, HTTPException) as exc:
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="Archive operation checkpoint is invalid") from exc
 
 
 def _write_archive_lifecycle_audit(
@@ -116,6 +142,8 @@ def update_operation_phase(
     changes: dict[str, object] = {"phase": next_phase, "updated_at": now, "heartbeat_at": now}
     if additional_changes is not None:
         changes.update(additional_changes)
+    if operation.phase in _CHECKPOINTED_ARCHIVE_OPERATION_PHASES or next_phase in _CHECKPOINTED_ARCHIVE_OPERATION_PHASES:
+        changes["checkpoint_json"] = _validated_checkpoint_for_execution_transition(operation, additional_changes)
     _state_store.compare_and_swap(
         session,
         operation,
