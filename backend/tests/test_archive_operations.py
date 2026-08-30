@@ -1,3 +1,5 @@
+from app.services.archive.operations import fail_operation
+
 """Integration tests for persisted archive-operation lifecycle state."""
 
 import asyncio
@@ -1034,6 +1036,25 @@ def test_v2_phase_route_rejects_execution_without_an_initialized_checkpoint(
 
     assert streaming.status_code == status.HTTP_409_CONFLICT
     assert streaming.json() == {"code": "invalid_checkpoint", "message": "Archive operation checkpoint is invalid"}
+
+
+def test_failing_execution_rejects_an_uninitialized_v2_checkpoint(session, regular_user) -> None:
+    operation = ArchiveOperation(
+        user_id=regular_user.id,
+        kind=ArchiveOperationKind.EXTRACT,
+        phase=ArchiveOperationPhase.STREAMING,
+        checkpoint_json=None,
+    )
+    session.add(operation)
+    session.commit()
+
+    with pytest.raises(HTTPException, match="Archive operation checkpoint is invalid") as exc_info:
+        fail_operation(session, operation, "relay failed")
+
+    assert exc_info.value.status_code == status.HTTP_409_CONFLICT
+    session.refresh(operation)
+    assert operation.phase == ArchiveOperationPhase.STREAMING
+    assert operation.revision == 0
 
 
 def test_v2_operation_routes_pin_contract_version_and_reject_legacy_input(

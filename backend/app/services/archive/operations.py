@@ -209,16 +209,25 @@ def fail_operation(session: Session, operation: ArchiveOperation, message: str) 
 
     if operation.phase in TERMINAL_ARCHIVE_OPERATION_PHASES:
         return operation
+    changes: dict[str, object] = {
+        "phase": ArchiveOperationPhase.FAILED,
+        "last_error_json": json.dumps(
+            {
+                "code": "archive_extraction_failed" if operation.kind == ArchiveOperationKind.EXTRACT else "archive_creation_failed",
+                "message": message,
+            }
+        ),
+    }
+    if operation.phase in _CHECKPOINTED_ARCHIVE_OPERATION_PHASES:
+        changes["checkpoint_json"] = _validated_checkpoint_for_execution_transition(operation, None)
     now = datetime.now(timezone.utc)
     previous_phase = operation.phase
-    error_code = "archive_extraction_failed" if operation.kind.value == "extract" else "archive_creation_failed"
     _state_store.compare_and_swap(
         session,
         operation,
         expected_revision=operation.revision,
         changes={
-            "phase": ArchiveOperationPhase.FAILED,
-            "last_error_json": json.dumps({"code": error_code, "message": message}),
+            **changes,
             "updated_at": now,
             "heartbeat_at": now,
         },

@@ -5064,7 +5064,7 @@ async fn copy_dir_recursive(src: &std::path::Path, dst: &std::path::Path) -> Res
 mod tests {
     use super::{
         archive_creation_response, archive_execution_response, browse_list_archive, build_file_info, build_pair_status_response,
-        classify_link_target, execute_archive_relay, inspection_resolver_call_count, map_local_archive_error,
+        classify_link_target, decode_archive_relay_json, execute_archive_relay, inspection_resolver_call_count, map_local_archive_error,
         normalize_drive_relative_path, normalize_windows_display_path, relay_completed_members, reset_inspection_resolver_call_count,
         resolve_companion_archive_topology, resolve_companion_creation_coordinator, resolve_companion_extraction_coordinator,
         resolve_companion_inspection_coordinator, resolve_drive_relative_source_path, resolve_link_target_metadata,
@@ -5075,7 +5075,7 @@ mod tests {
         ArchiveListQuery, ArchiveMemberQuery, ArchiveRelayBinding, ArchiveRelayDestinationStatus, ArchiveRelayFailure,
         ArchiveRelayOperation, ArchiveRelayTransport, CompanionArchiveCreationPlan, CompanionArchiveExtractionPlan,
         FixtureArchiveCreationInvocation, FixtureArchiveExtractionInvocation, ARCHIVE_RELAY_ACKNOWLEDGEMENT_ATTEMPTS,
-        INSPECTION_RESOLVER_TEST_LOCK,
+        ARCHIVE_RELAY_IDEMPOTENCY_HEADER, INSPECTION_RESOLVER_TEST_LOCK,
     };
     use crate::server::archive::{
         build_local_archive_manifest, build_local_archive_manifest_for_remote_target, create_local_archive,
@@ -5909,7 +5909,25 @@ mod tests {
             let action = case["action"].as_str().expect("interop case must define an action");
             let transport = ArchiveRelayTransport::new(reqwest::Client::new(), relay_url.to_string(), token.to_string());
             match action {
-                "complete_replay" => {
+                "local_extraction" => {
+                    transport
+                        .begin_with_json::<_, serde_json::Value>(
+                            &serde_json::json!({"entries": [{"path": "report.txt", "is_directory": false, "uncompressed_size": 3, "modified_at": null}]}),
+                            "FastAPI relay interoperability",
+                        )
+                        .await
+                        .expect("local extraction begin should succeed");
+                    let response = transport
+                        .put("member")
+                        .query(&[("member_path", "report.txt")])
+                        .header(ARCHIVE_RELAY_IDEMPOTENCY_HEADER, "b0442ce1-ed19-4b78-82ba-88d4a5d24a70")
+                        .body("abc")
+                        .send()
+                        .await
+                        .expect("local extraction member write should succeed");
+                    decode_archive_relay_json::<serde_json::Value>(response, "write member")
+                        .await
+                        .expect("local extraction member response should succeed");
                     let idempotency_key = "f265e81c-c6ce-4f4d-9a4a-293b28a6ec95";
                     transport
                         .post_without_result_with_idempotency_key("complete", idempotency_key, "FastAPI relay interoperability", "complete")
@@ -5920,14 +5938,47 @@ mod tests {
                         .await
                         .expect("idempotent relay completion replay should succeed");
                 }
-                "extraction_complete" => transport
-                    .complete_with_json(
-                        &serde_json::json!({"destination_root_created": false}),
-                        "FastAPI relay interoperability",
-                    )
-                    .await
-                    .expect("extraction completion should succeed"),
-                "creation_member_complete" => {
+                "remote_extraction" => {
+                    transport
+                        .begin::<serde_json::Value>("FastAPI relay interoperability")
+                        .await
+                        .expect("remote extraction begin should succeed");
+                    let response = transport
+                        .get("member")
+                        .query(&[("member_path", "report.txt")])
+                        .send()
+                        .await
+                        .expect("remote extraction member read should succeed");
+                    assert_eq!(response.bytes().await.expect("member bytes should be readable"), "abc");
+                    transport
+                        .post_json_without_result(
+                            "member-complete",
+                            &serde_json::json!({"member_path": "report.txt", "status": "extracted", "target_path": "archive-output.zip/report.txt", "directories_created": 0, "extracted_bytes": 3, "replaced": false, "renamed": false}),
+                            "FastAPI relay interoperability",
+                            "member completion",
+                        )
+                        .await
+                        .expect("extraction member acknowledgement should succeed");
+                    transport
+                        .complete_with_json(
+                            &serde_json::json!({"destination_root_created": false}),
+                            "FastAPI relay interoperability",
+                        )
+                        .await
+                        .expect("extraction completion should succeed");
+                }
+                "remote_creation" => {
+                    transport
+                        .begin::<serde_json::Value>("FastAPI relay interoperability")
+                        .await
+                        .expect("remote creation begin should succeed");
+                    let response = transport
+                        .get("member")
+                        .query(&[("archive_path", "report.txt")])
+                        .send()
+                        .await
+                        .expect("remote creation member read should succeed");
+                    assert_eq!(response.bytes().await.expect("member bytes should be readable"), "abc");
                     transport
                         .post_json_without_result(
                             "member-complete",
@@ -5945,13 +5996,33 @@ mod tests {
                         .await
                         .expect("creation completion should succeed");
                 }
-                "creation_complete" => transport
-                    .complete_with_json(
-                        &serde_json::json!({"files_created": 1, "directories_created": 0, "source_bytes": 3}),
-                        "FastAPI relay interoperability",
-                    )
-                    .await
-                    .expect("creation completion should succeed"),
+                "local_creation" => {
+                    transport
+                        .begin_with_json::<_, serde_json::Value>(
+                            &serde_json::json!({"entries": [{"archive_path": "report.txt", "is_directory": false, "source_size": 3, "modified_at": null}]}),
+                            "FastAPI relay interoperability",
+                        )
+                        .await
+                        .expect("local creation begin should succeed");
+                    let response = transport
+                        .put("member")
+                        .query(&[("archive_path", "report.txt")])
+                        .header(ARCHIVE_RELAY_IDEMPOTENCY_HEADER, "01eff426-4ea2-4cec-b866-5831419c6c44")
+                        .body("abc")
+                        .send()
+                        .await
+                        .expect("local creation member upload should succeed");
+                    decode_archive_relay_json::<serde_json::Value>(response, "upload member")
+                        .await
+                        .expect("local creation member response should succeed");
+                    transport
+                        .complete_with_json(
+                            &serde_json::json!({"files_created": 1, "directories_created": 0, "source_bytes": 3}),
+                            "FastAPI relay interoperability",
+                        )
+                        .await
+                        .expect("local creation completion should succeed");
+                }
                 "fail" => transport
                     .fail("loopback relay failure", "FastAPI relay interoperability")
                     .await
@@ -5968,7 +6039,20 @@ mod tests {
                 .to_string(),
             "invalid-capability".to_string(),
         );
-        assert!(rejected_transport.complete("FastAPI relay interoperability").await.is_err());
+        let rejected_response = rejected_transport
+            .post("complete")
+            .header(ARCHIVE_RELAY_IDEMPOTENCY_HEADER, "e4bb5e85-76f0-476d-b5ec-228bd8ec5b17")
+            .send()
+            .await
+            .expect("invalid capability response should be returned");
+        assert_eq!(rejected_response.status(), StatusCode::UNAUTHORIZED);
+        assert_eq!(
+            rejected_response
+                .json::<serde_json::Value>()
+                .await
+                .expect("invalid capability response should be JSON"),
+            serde_json::json!({"code": "capability_invalid", "message": "Archive Companion session is invalid or expired"})
+        );
     }
 
     async fn spawn_archive_relay_transport_test_server() -> String {
