@@ -31,6 +31,32 @@ pub const LOCAL_LINK_TARGET_UNSUPPORTED_TYPE_CODE: &str = "local_link_target_uns
 pub const LOCAL_ARCHIVE_EXTRACTION_PARTIAL_CODE: &str = "local_archive_extraction_partial";
 /// Stable error code when direct archive creation leaves a partial ZIP output.
 pub const LOCAL_ARCHIVE_CREATION_PARTIAL_CODE: &str = "local_archive_creation_partial";
+/// Stable V2 archive error code when a source identity no longer matches its preflight manifest.
+pub const ARCHIVE_SOURCE_CHANGED_CODE: &str = "source_changed";
+
+fn archive_v2_contract_code(code: &'static str, fallback: &'static str) -> &'static str {
+    match code {
+        "invalid_manifest"
+        | "invalid_checkpoint"
+        | "invalid_contract_version"
+        | "invalid_member_path"
+        | "collision"
+        | "partial_output"
+        | "source_changed"
+        | "transport_failure"
+        | "cancelled"
+        | "idempotency_conflict"
+        | "capability_invalid"
+        | "capability_version_mismatch"
+        | "invalid_request"
+        | "authentication_invalid"
+        | "authorization_denied"
+        | "not_found"
+        | "invalid_operation_state"
+        | "operation_unavailable" => code,
+        _ => fallback,
+    }
+}
 
 /// V2-only failure that always serializes to the language-neutral archive contract envelope.
 #[derive(Debug)]
@@ -53,13 +79,18 @@ impl ArchiveV2Error {
 impl From<ApiError> for ArchiveV2Error {
     fn from(error: ApiError) -> Self {
         let (status, code, message) = match error {
-            ApiError::NotFound(message) | ApiError::NotFoundWithCode { message, .. } => (StatusCode::NOT_FOUND, "not_found", message),
-            ApiError::BadRequest(message) | ApiError::BadRequestWithCode { message, .. } => {
-                (StatusCode::BAD_REQUEST, "invalid_request", message)
+            ApiError::NotFound(message) => (StatusCode::NOT_FOUND, "not_found", message),
+            ApiError::NotFoundWithCode { message, code } => (StatusCode::NOT_FOUND, archive_v2_contract_code(code, "not_found"), message),
+            ApiError::BadRequest(message) => (StatusCode::BAD_REQUEST, "invalid_request", message),
+            ApiError::BadRequestWithCode { message, code } => {
+                (StatusCode::BAD_REQUEST, archive_v2_contract_code(code, "invalid_request"), message)
             }
-            ApiError::Forbidden(message) | ApiError::ForbiddenWithCode { message, .. } => {
-                (StatusCode::FORBIDDEN, "authorization_denied", message)
-            }
+            ApiError::Forbidden(message) => (StatusCode::FORBIDDEN, "authorization_denied", message),
+            ApiError::ForbiddenWithCode { message, code } => (
+                StatusCode::FORBIDDEN,
+                archive_v2_contract_code(code, "authorization_denied"),
+                message,
+            ),
             ApiError::TooManyRequests(message) => (StatusCode::TOO_MANY_REQUESTS, "transport_failure", message),
             ApiError::PayloadTooLarge(message) => (StatusCode::PAYLOAD_TOO_LARGE, "invalid_request", message),
             ApiError::Conflict(detail) => {
@@ -76,11 +107,18 @@ impl From<ApiError> for ArchiveV2Error {
                 };
                 (StatusCode::CONFLICT, code, message)
             }
-            ApiError::ConflictWithCode { message, .. } => (StatusCode::CONFLICT, "invalid_operation_state", message),
+            ApiError::ConflictWithCode { message, code } => (
+                StatusCode::CONFLICT,
+                archive_v2_contract_code(code, "invalid_operation_state"),
+                message,
+            ),
             ApiError::Io(error) => (StatusCode::INTERNAL_SERVER_ERROR, "transport_failure", error.to_string()),
-            ApiError::Internal(message) | ApiError::InternalWithCode { message, .. } => {
-                (StatusCode::INTERNAL_SERVER_ERROR, "transport_failure", message)
-            }
+            ApiError::Internal(message) => (StatusCode::INTERNAL_SERVER_ERROR, "transport_failure", message),
+            ApiError::InternalWithCode { message, code } => (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                archive_v2_contract_code(code, "transport_failure"),
+                message,
+            ),
         };
         Self {
             status,
@@ -331,6 +369,22 @@ mod tests {
             serde_json::json!({
                 "code": "invalid_operation_state",
                 "message": "Archive execution changed before cancellation could be applied",
+            })
+        );
+    }
+
+    #[tokio::test]
+    async fn archive_v2_error_preserves_contract_conflict_codes() {
+        let response = ArchiveV2Error::from(ApiError::conflict_code("Archive source changed", "source_changed")).into_response();
+
+        let body = to_bytes(response.into_body(), usize::MAX)
+            .await
+            .expect("response body should be readable");
+        assert_eq!(
+            serde_json::from_slice::<serde_json::Value>(&body).expect("response body should be JSON"),
+            serde_json::json!({
+                "code": "source_changed",
+                "message": "Archive source changed",
             })
         );
     }

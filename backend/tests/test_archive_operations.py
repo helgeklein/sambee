@@ -22,6 +22,8 @@ from app.models.archive import ArchiveDirectoryListing, ArchiveIdentity
 from app.models.archive_operation import (
     ARCHIVE_OPERATION_HEARTBEAT_TIMEOUT_SECONDS,
     ArchiveOperation,
+    ArchiveOperationError,
+    ArchiveOperationErrorCode,
     ArchiveOperationKind,
     ArchiveOperationPhase,
 )
@@ -38,6 +40,7 @@ from app.services.archive.coordinator import (
     ArchiveExtractionManifest,
     ArchiveExtractionManifestMember,
     DurableArchiveExecutionStateStore,
+    InMemoryArchiveExecutionStateStore,
     advance_relay_transfer,
     begin_relay_execution,
     commit_creation_member_outcome,
@@ -155,9 +158,18 @@ class MemoryArchiveExecutionStateStore:
         operation.pending_decision_json = json.dumps(decision)
         return operation
 
-    def fail(self, operation: ArchiveOperation, message: str) -> ArchiveOperation:
+    def fail(
+        self,
+        operation: ArchiveOperation,
+        message: str,
+        *,
+        error_code: ArchiveOperationErrorCode | None = None,
+    ) -> ArchiveOperation:
         operation.phase = ArchiveOperationPhase.FAILED
-        operation.last_error_json = json.dumps({"message": message})
+        operation.last_error_json = ArchiveOperationError(
+            code=error_code or ArchiveOperationErrorCode.TRANSPORT_FAILURE,
+            message=message,
+        ).model_dump_json()
         return operation
 
     def cancellation_requested(self, operation: ArchiveOperation) -> bool:
@@ -614,7 +626,25 @@ async def test_checked_relay_completion_aborts_on_cancellation_or_validation_fai
     assert exc_info.value.status_code == status.HTTP_409_CONFLICT
     assert failed_abort_calls == 1
     assert failed_operation.phase == ArchiveOperationPhase.FAILED
-    assert json.loads(failed_operation.last_error_json) == {"message": "invalid completion"}
+    assert json.loads(failed_operation.last_error_json) == {
+        "code": "invalid_operation_state",
+        "message": "invalid completion",
+    }
+
+
+def test_in_memory_execution_store_serializes_typed_terminal_errors() -> None:
+    operation = ArchiveOperation(user_id=uuid.uuid4(), kind=ArchiveOperationKind.CREATE)
+
+    InMemoryArchiveExecutionStateStore().fail(
+        operation,
+        "Archive source changed after manifest validation",
+        error_code=ArchiveOperationErrorCode.SOURCE_CHANGED,
+    )
+
+    assert json.loads(operation.last_error_json) == {
+        "code": "source_changed",
+        "message": "Archive source changed after manifest validation",
+    }
 
 
 def test_relay_transfer_guard_transitions_a_cancelled_stream(session, regular_user) -> None:
@@ -2389,6 +2419,7 @@ def test_companion_local_relay_rejects_an_archive_changed_after_manifest_preflig
     assert manifest.status_code == 200
     assert member.status_code == 409
     assert operation.json()["phase"] == "failed"
+    assert operation.json()["last_error"]["code"] == "source_changed"
 
 
 def test_companion_local_relay_rejects_a_member_outside_its_preflight_manifest(
@@ -3218,6 +3249,8 @@ def test_local_to_smb_creation_rejects_changed_member_size(
     assert member.status_code == 409
     assert member.json()["message"] == "Archive creation source changed after manifest validation"
     writer.abort_and_delete_if_owned.assert_awaited_once()
+    operation = client.get(f"/api/archive/v2/operations/{prepared['id']}", headers=auth_headers_user)
+    assert operation.json()["last_error"]["code"] == "source_changed"
 
 
 def test_local_to_smb_creation_rejects_members_after_live_writer_interruption(
@@ -3734,6 +3767,7 @@ def test_direct_smb_extraction_rejects_a_source_changed_after_pause(
     extract_archive.assert_not_awaited()
     operation = client.get(f"/api/archive/v2/operations/{prepared['id']}", headers=auth_headers_user)
     assert operation.json()["phase"] == "failed"
+    assert operation.json()["last_error"]["code"] == "source_changed"
 
 
 def test_individual_rename_decision_persists_a_safe_member_remap(

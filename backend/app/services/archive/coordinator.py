@@ -13,7 +13,14 @@ from fastapi import HTTPException, status
 from sqlmodel import Session
 
 from app.models.archive import ArchiveDirectoryListing, ArchiveEntryInfo, ArchiveIdentity
-from app.models.archive_operation import ArchiveContractVersion, ArchiveOperation, ArchiveOperationKind, ArchiveOperationPhase
+from app.models.archive_operation import (
+    ArchiveContractVersion,
+    ArchiveOperation,
+    ArchiveOperationError,
+    ArchiveOperationErrorCode,
+    ArchiveOperationKind,
+    ArchiveOperationPhase,
+)
 from app.models.file import FileType
 from app.services.archive.creation import ArchiveCreationCancelled, ArchiveCreationMemberOutcome, ArchiveCreationResult
 from app.services.archive.execution import (
@@ -105,7 +112,13 @@ class ArchiveExecutionStateStore(Protocol):
 
     def await_decision(self, operation: ArchiveOperation, decision: dict[str, object]) -> ArchiveOperation: ...
 
-    def fail(self, operation: ArchiveOperation, message: str) -> ArchiveOperation: ...
+    def fail(
+        self,
+        operation: ArchiveOperation,
+        message: str,
+        *,
+        error_code: ArchiveOperationErrorCode | None = None,
+    ) -> ArchiveOperation: ...
 
     def cancellation_requested(self, operation: ArchiveOperation) -> bool: ...
 
@@ -331,8 +344,14 @@ class DurableArchiveExecutionStateStore:
     def await_decision(self, operation: ArchiveOperation, decision: dict[str, object]) -> ArchiveOperation:
         return await_operation_decision(self.session, operation, decision)
 
-    def fail(self, operation: ArchiveOperation, message: str) -> ArchiveOperation:
-        return fail_operation(self.session, operation, message)
+    def fail(
+        self,
+        operation: ArchiveOperation,
+        message: str,
+        *,
+        error_code: ArchiveOperationErrorCode | None = None,
+    ) -> ArchiveOperation:
+        return fail_operation(self.session, operation, message, error_code=error_code)
 
     def cancellation_requested(self, operation: ArchiveOperation) -> bool:
         self.session.refresh(operation)
@@ -395,9 +414,18 @@ class InMemoryArchiveExecutionStateStore:
         operation.pending_decision_json = json.dumps(decision)
         return operation
 
-    def fail(self, operation: ArchiveOperation, message: str) -> ArchiveOperation:
+    def fail(
+        self,
+        operation: ArchiveOperation,
+        message: str,
+        *,
+        error_code: ArchiveOperationErrorCode | None = None,
+    ) -> ArchiveOperation:
         operation.phase = ArchiveOperationPhase.FAILED
-        operation.last_error_json = json.dumps({"message": message})
+        operation.last_error_json = ArchiveOperationError(
+            code=error_code or ArchiveOperationErrorCode.TRANSPORT_FAILURE,
+            message=message[:500] or "Archive operation failed",
+        ).model_dump_json()
         return operation
 
     def cancellation_requested(self, operation: ArchiveOperation) -> bool:
@@ -1275,7 +1303,11 @@ async def complete_checked_relay_execution(
     except HTTPException:
         if abort is not None:
             await abort()
-        state_store.fail(operation, validation_failure_message)
+        state_store.fail(
+            operation,
+            validation_failure_message,
+            error_code=ArchiveOperationErrorCode.INVALID_OPERATION_STATE,
+        )
         raise
     except Exception as exc:
         if abort is not None:
@@ -1573,10 +1605,15 @@ class ArchiveExtractionCoordinator:
             ).completion_checkpoint_json(destination_root_created=destination_root_created),
         )
 
-    def fail(self, message: str) -> ArchiveOperation:
+    def fail(
+        self,
+        message: str,
+        *,
+        error_code: ArchiveOperationErrorCode | None = None,
+    ) -> ArchiveOperation:
         """Persist an adapter-detected terminal failure through the coordinator state store."""
 
-        return self.state_store.fail(self.operation, message)
+        return self.state_store.fail(self.operation, message, error_code=error_code)
 
     async def run(self, runner: ArchiveExtractionRunner) -> ArchiveOperation:
         """Advance an extraction adapter from its current lifecycle phase."""

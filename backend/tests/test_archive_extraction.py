@@ -6,6 +6,7 @@ import zipfile
 from collections.abc import AsyncIterator
 from datetime import datetime, timezone
 from pathlib import Path
+from unittest.mock import patch
 
 import pytest
 
@@ -162,6 +163,23 @@ async def test_extracts_safe_members_to_new_paths() -> None:
     assert backend.directories == {"output", "output/docs"}
     assert backend.files == {"output/docs/readme.txt": b"readme", "output/root.txt": b"root"}
     assert backend.reader.closed is True
+
+
+@pytest.mark.asyncio
+async def test_direct_extraction_parses_the_central_directory_once() -> None:
+    backend = MemoryExtractionBackend(_archive_bytes())
+    original_directory = ZipReader._directory
+    directory_calls = 0
+
+    async def count_directory(reader: ZipReader):
+        nonlocal directory_calls
+        directory_calls += 1
+        return await original_directory(reader)
+
+    with patch.object(ZipReader, "_directory", count_directory):
+        await extract_archive_to_new_paths(backend, archive_path="input.zip", destination_root="output")
+
+    assert directory_calls == 1
 
 
 @pytest.mark.asyncio

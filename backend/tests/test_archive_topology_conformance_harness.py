@@ -141,8 +141,8 @@ class TraceRecordingStateStore(InMemoryArchiveExecutionStateStore):
         self.pending_decision = "member_error" if decision.get("kind") == "member_error" else "collision"
         return result
 
-    def fail(self, operation, message):
-        result = super().fail(operation, message)
+    def fail(self, operation, message, *, error_code=None):
+        result = super().fail(operation, message, error_code=error_code)
         self.phase_transitions.append(ArchiveOperationPhase.FAILED.value)
         return result
 

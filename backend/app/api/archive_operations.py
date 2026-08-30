@@ -46,6 +46,7 @@ from app.models.archive_operation import (
     ArchiveContractVersion,
     ArchiveExtractionDecision,
     ArchiveOperation,
+    ArchiveOperationErrorCode,
     ArchiveOperationKind,
     ArchiveOperationPhase,
     ArchiveOperationPrepare,
@@ -635,11 +636,16 @@ class ScopedCompanionRelay:
 
         return self.fail_message(payload.message)
 
-    def fail_message(self, message: str) -> ArchiveOperation:
+    def fail_message(
+        self,
+        message: str,
+        *,
+        error_code: ArchiveOperationErrorCode | None = None,
+    ) -> ArchiveOperation:
         """Persist one adapter-detected terminal relay failure."""
 
         _user, operation = self.resolve()
-        return fail_operation(self.session, operation, message)
+        return fail_operation(self.session, operation, message, error_code=error_code)
 
     def complete(self, *, checkpoint_json: str | None = None) -> ArchiveOperation:
         """Complete the relay through the shared durable lifecycle transition."""
@@ -881,7 +887,10 @@ async def begin_companion_archive_extraction(
                 detail="Archive extraction source manifest is required to resume",
             )
         if manifest != ArchiveExtractionManifest.from_checkpoint(checkpoint):
-            relay.fail_message("Archive extraction source changed after manifest validation")
+            relay.fail_message(
+                "Archive extraction source changed after manifest validation",
+                error_code=ArchiveOperationErrorCode.SOURCE_CHANGED,
+            )
             raise HTTPException(
                 status_code=status.HTTP_409_CONFLICT,
                 detail="Archive extraction source changed after manifest validation",
@@ -1123,13 +1132,19 @@ async def stream_companion_local_archive_member(
         if archive_info.type != FileType.FILE or archive_info.size is None:
             raise ArchiveFormatError("Archive extraction source must be a regular file")
         if checkpoint.get("source_snapshot") != _archive_source_identity(archive_info):
-            relay.fail_message("Archive extraction source changed after manifest validation")
+            relay.fail_message(
+                "Archive extraction source changed after manifest validation",
+                error_code=ArchiveOperationErrorCode.SOURCE_CHANGED,
+            )
             raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="Archive extraction source changed after manifest validation")
         reader = await backend.open_random_access_reader(operation.source_path)
         zip_reader = ZipReader(reader, archive_info.size)
         member = await zip_reader.validate_member(member_path)
         if member.uncompressed_size != expected_member.uncompressed_size:
-            relay.fail_message("Archive extraction manifest changed after validation")
+            relay.fail_message(
+                "Archive extraction manifest changed after validation",
+                error_code=ArchiveOperationErrorCode.SOURCE_CHANGED,
+            )
             raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="Archive extraction manifest changed after validation")
 
         async def stream_member() -> AsyncIterator[bytes]:
@@ -1359,7 +1374,10 @@ async def stream_companion_local_archive_creation_member(
             or source_info.size != entry.source_size
             or normalize_archive_creation_source_modified_at(source_info.modified_at) != entry.source_modified_at
         ):
-            relay.fail_message("Archive creation source changed after manifest validation")
+            relay.fail_message(
+                "Archive creation source changed after manifest validation",
+                error_code=ArchiveOperationErrorCode.SOURCE_CHANGED,
+            )
             raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="Archive creation source changed after manifest validation")
 
         async def stream_member() -> AsyncIterator[bytes]:
@@ -1582,7 +1600,7 @@ async def stream_companion_smb_archive_creation_member(
         raise
     except ArchiveFormatError as exc:
         await execution.abort()
-        relay.fail_message(str(exc))
+        relay.fail_message(str(exc), error_code=ArchiveOperationErrorCode.SOURCE_CHANGED)
         raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=str(exc)) from exc
     except Exception as exc:
         await execution.abort()
@@ -2029,7 +2047,11 @@ async def execute_archive_extraction(
                 or archive_info.size is None
                 or checkpoint.get("source_snapshot") != _archive_source_identity(archive_info)
             ):
-                DurableArchiveExecutionStateStore(session).fail(operation, "Archive extraction source changed after manifest validation")
+                DurableArchiveExecutionStateStore(session).fail(
+                    operation,
+                    "Archive extraction source changed after manifest validation",
+                    error_code=ArchiveOperationErrorCode.SOURCE_CHANGED,
+                )
                 raise HTTPException(
                     status_code=status.HTTP_409_CONFLICT,
                     detail="Archive extraction source changed after manifest validation",

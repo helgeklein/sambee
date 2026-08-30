@@ -55,11 +55,11 @@ use super::auth;
 use super::drives;
 use super::edit_locks::EDIT_LOCK_LOST_CODE;
 use super::errors::{
-    ApiError, ArchiveV2Error, ArchiveV2Json, ArchiveV2NoQuery, ArchiveV2Query, LOCAL_ARCHIVE_CREATION_PARTIAL_CODE,
-    LOCAL_ARCHIVE_EXTRACTION_PARTIAL_CODE, LOCAL_LINK_TARGET_ACCESS_DENIED_CODE, LOCAL_LINK_TARGET_MISSING_CODE,
-    LOCAL_LINK_TARGET_UNMAPPED_DRIVE_CODE, LOCAL_LINK_TARGET_UNRESOLVABLE_CODE, LOCAL_LINK_TARGET_UNSUPPORTED_TYPE_CODE,
-    PAIR_CONFIRMATION_PENDING_CODE, RECENT_FILE_NATIVE_LAUNCH_FAILED_CODE, RECENT_FILE_TARGET_MISSING_CODE,
-    RECENT_FILE_TARGET_NOT_FILE_CODE,
+    ApiError, ArchiveV2Error, ArchiveV2Json, ArchiveV2NoQuery, ArchiveV2Query, ARCHIVE_SOURCE_CHANGED_CODE,
+    LOCAL_ARCHIVE_CREATION_PARTIAL_CODE, LOCAL_ARCHIVE_EXTRACTION_PARTIAL_CODE, LOCAL_LINK_TARGET_ACCESS_DENIED_CODE,
+    LOCAL_LINK_TARGET_MISSING_CODE, LOCAL_LINK_TARGET_UNMAPPED_DRIVE_CODE, LOCAL_LINK_TARGET_UNRESOLVABLE_CODE,
+    LOCAL_LINK_TARGET_UNSUPPORTED_TYPE_CODE, PAIR_CONFIRMATION_PENDING_CODE, RECENT_FILE_NATIVE_LAUNCH_FAILED_CODE,
+    RECENT_FILE_TARGET_MISSING_CODE, RECENT_FILE_TARGET_NOT_FILE_CODE,
 };
 use super::links::{resolve_activation_target, LinkResolutionError};
 use super::models::*;
@@ -4059,7 +4059,9 @@ fn map_local_archive_error(error: LocalArchiveError) -> ApiError {
         LocalArchiveError::TargetExists | LocalArchiveError::ExtractionTargetExists => {
             ApiError::conflict_message("Archive output already exists")
         }
-        LocalArchiveError::ArchiveSourceChanged => ApiError::conflict_message("Archive source changed since extraction began"),
+        LocalArchiveError::ArchiveSourceChanged => {
+            ApiError::conflict_code("Archive source changed since extraction began", ARCHIVE_SOURCE_CHANGED_CODE)
+        }
         LocalArchiveError::TargetInsideSource => {
             ApiError::BadRequest("Archive output cannot be inside a selected source directory".to_string())
         }
