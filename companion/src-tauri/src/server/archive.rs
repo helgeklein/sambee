@@ -2361,14 +2361,14 @@ fn normalized_source_modified_at(metadata: &fs::Metadata) -> Option<String> {
         .modified()
         .ok()
         .map(DateTime::<Utc>::from)
-        .map(|timestamp| timestamp.to_rfc3339_opts(SecondsFormat::Secs, false))
+        .map(|timestamp| timestamp.to_rfc3339_opts(SecondsFormat::Secs, true))
 }
 
 fn normalize_creation_source_modified_at(source_modified_at: Option<String>) -> Result<Option<String>, LocalArchiveError> {
     source_modified_at
         .map(|timestamp| {
             DateTime::parse_from_rfc3339(&timestamp)
-                .map(|timestamp| timestamp.with_timezone(&Utc).to_rfc3339_opts(SecondsFormat::Secs, false))
+                .map(|timestamp| timestamp.with_timezone(&Utc).to_rfc3339_opts(SecondsFormat::Secs, true))
                 .map_err(|_| LocalArchiveError::InvalidCreationOutcome)
         })
         .transpose()
@@ -3175,10 +3175,10 @@ mod tests {
     }
 
     #[test]
-    fn passes_v1_zip_reader_conformance_corpus() {
+    fn passes_v2_zip_reader_conformance_corpus() {
         let corpus_root = conformance_corpus_root();
-        let manifest: ConformanceManifest = serde_json::from_slice(&fs::read(corpus_root.join("manifest-v1.json")).unwrap()).unwrap();
-        assert_eq!(manifest.version, 1);
+        let manifest: ConformanceManifest = serde_json::from_slice(&fs::read(corpus_root.join("manifest-v2.json")).unwrap()).unwrap();
+        assert_eq!(manifest.version, 2);
 
         for fixture in manifest.fixtures {
             let fixture_path = corpus_root.join(&fixture.name);

@@ -106,13 +106,13 @@
           "archive_path": "docs",
           "is_directory": true,
           "source_size": 0,
-          "modified_at": "2024-03-01T06:30:45+00:00"
+          "modified_at": "2024-03-01T06:30:45Z"
         },
         {
           "archive_path": "docs/readme.txt",
           "is_directory": false,
           "source_size": 4,
-          "modified_at": "2024-03-01T06:30:45+00:00"
+          "modified_at": "2024-03-01T06:30:45Z"
         }
       ]
     },

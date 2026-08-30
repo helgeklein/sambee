@@ -15,6 +15,7 @@ from app.models.connection import Connection
 WORKSPACE_ROOT = Path(__file__).resolve().parents[2]
 ROUTE_BINDINGS_PATH = WORKSPACE_ROOT / "archive-contract" / "v2" / "route-bindings.json"
 SCHEMA_PATH = WORKSPACE_ROOT / "archive-contract" / "v2" / "schema.json"
+CUTOVER_REJECTIONS_PATH = WORKSPACE_ROOT / "archive-contract" / "v2" / "fixtures" / "cutover-rejections-v2.json"
 COMPANION_ROUTER_PATH = WORKSPACE_ROOT / "companion" / "src-tauri" / "src" / "server" / "mod.rs"
 HTTP_METHODS = frozenset({"GET", "POST", "PUT", "DELETE"})
 BACKEND_PREFIX = "/api/archive"
@@ -192,9 +193,18 @@ def test_v2_relay_routes_are_normalized_and_capability_bound() -> None:
     assert all("_to_" not in route["path"] and "_from_" not in route["path"] for route in relay_routes)
 
 
-def test_v1_archive_routes_are_not_registered() -> None:
+def test_retired_archive_routes_are_not_registered() -> None:
     backend_paths = {path for _method, path in _registered_backend_routes()}
     companion_paths = {path for _method, path in _registered_companion_routes()}
+    fixture: dict[str, Any] = json.loads(CUTOVER_REJECTIONS_PATH.read_text(encoding="utf-8"))
 
-    assert all("/companion-relay/" not in path for path in backend_paths)
-    assert all("/archive/v1" not in path for path in backend_paths | companion_paths)
+    assert fixture["version"] == 2
+    assert all(fragment not in path for fragment in fixture["retired_route_fragments"] for path in backend_paths | companion_paths)
+
+
+def test_retired_backend_routes_return_not_found(client: TestClient) -> None:
+    fixture: dict[str, Any] = json.loads(CUTOVER_REJECTIONS_PATH.read_text(encoding="utf-8"))
+
+    for request in fixture["retired_backend_requests"]:
+        response = client.request(request["method"], request["path"])
+        assert response.status_code == request["status"]

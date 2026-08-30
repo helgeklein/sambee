@@ -25,10 +25,8 @@ V2_CHECKPOINT_FIELDS = frozenset(
 V2_DECISION_FIELDS = frozenset({"collision_actions", "rename_targets", "ignored_members", "retry_members"})
 V2_CREATION_CHECKPOINT_FIELDS = frozenset({"version", "manifest", "member_outcomes", "decisions", "pending_decision", "delivery_ids"})
 V2_TIMESTAMP_PATTERN = re.compile(r"^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d+)?Z$")
-LEGACY_WRITTEN_MEMBERS_FIELD = "written_members"
-V1_CHECKPOINT_FIELDS = frozenset(
+DISALLOWED_CHECKPOINT_FIELDS = frozenset(
     {
-        LEGACY_WRITTEN_MEMBERS_FIELD,
         "extraction_outcome_checkpoint_version",
         "archive_manifest",
         "source_identity",
@@ -198,8 +196,8 @@ def validate_v2_extraction_checkpoint(checkpoint: object) -> dict[str, object]:
     if not isinstance(checkpoint, dict):
         raise _invalid_checkpoint("Archive V2 checkpoint must be an object")
     fields = frozenset(checkpoint)
-    if fields & V1_CHECKPOINT_FIELDS:
-        raise _invalid_checkpoint("Archive V2 checkpoint contains legacy fields")
+    if fields & DISALLOWED_CHECKPOINT_FIELDS:
+        raise _invalid_checkpoint("Archive V2 checkpoint contains disallowed fields")
     if fields != V2_CHECKPOINT_FIELDS:
         raise _invalid_checkpoint("Archive V2 checkpoint fields are invalid")
     if checkpoint.get("version") != V2_CHECKPOINT_VERSION:

@@ -354,7 +354,7 @@ does not require stable file IDs.
 
 Define a language-neutral archive-reader conformance format: versioned ZIP
 fixtures plus canonical JSON results for normalized entries, metadata, member
-bytes/CRC outcomes, and structured errors. `archive_testdata/manifest-v1.json`
+bytes/CRC outcomes, and structured errors. `archive_testdata/manifest-v2.json`
 lists every fixture filename and SHA-256. Each expected result contains raw
 filename hex, decoded name, normalized path, kind, method, sizes, CRC, state,
 and either no error or one stable error code. Start with Stored, Deflate, ZIP64,

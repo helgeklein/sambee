@@ -3,29 +3,35 @@ set -euo pipefail
 
 REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 readonly REPO_ROOT
+readonly GUARD_SCRIPT_NAME="$(basename "$0")"
+readonly -a PRODUCTION_ARCHIVE_PATHS=(
+    "$REPO_ROOT/backend/app"
+    "$REPO_ROOT/frontend/src"
+    "$REPO_ROOT/companion/src-tauri/src"
+    "$REPO_ROOT/scripts"
+)
 
 fail_if_found() {
     local description="$1"
     local pattern="$2"
     shift 2
-    if grep -RInE --exclude-dir=.git --exclude='*.pyc' "$pattern" "$@"; then
+    if grep -RInE --exclude-dir=.git --exclude='*.pyc' --exclude="$GUARD_SCRIPT_NAME" "$pattern" "$@"; then
         echo "Archive V2 cutover guard failed: ${description}" >&2
         exit 1
     fi
 }
 
-fail_if_found "directional backend relay path" '/companion-relay/' \
-    "$REPO_ROOT/backend/app" "$REPO_ROOT/frontend/src" "$REPO_ROOT/companion/src-tauri/src"
+fail_if_found "retired V1 archive implementation reference" \
+    'archive-contract/v1|manifest-v1|generate_v1|/archive/v1|/companion-relay/|ArchiveContractVersion::V1|V1_CHECKPOINT_FIELDS' \
+    "${PRODUCTION_ARCHIVE_PATHS[@]}"
 fail_if_found "direction-named Companion relay route" 'archive/v2/(create|extract)-(from|to)-smb' \
     "$REPO_ROOT/frontend/src" "$REPO_ROOT/companion/src-tauri/src"
-fail_if_found "V1 archive contract fixture consumer" 'archive-contract/v1' \
-    "$REPO_ROOT/backend/tests" "$REPO_ROOT/companion/src-tauri/src"
-fail_if_found "V1 archive public route" '/archive/v1' \
-    "$REPO_ROOT/backend/app" "$REPO_ROOT/frontend/src" "$REPO_ROOT/companion/src-tauri/src"
+fail_if_found "archive V1 compatibility or fallback" \
+    '(archive|checkpoint).*(compatibility|fallback).*(v1|V1)|(v1|V1).*(compatibility|fallback).*(archive|checkpoint)' \
+    "${PRODUCTION_ARCHIVE_PATHS[@]}"
 
-if grep -RInE --exclude-dir=.git --exclude='v2_checkpoint.py' --exclude='*.pyc' 'written_members' \
-    "$REPO_ROOT/backend/app" "$REPO_ROOT/frontend/src" "$REPO_ROOT/companion/src-tauri/src"; then
-    echo "Archive V2 cutover guard failed: legacy written_members compatibility outside strict rejection validation" >&2
+if grep -RInE --exclude-dir=.git --exclude='*.pyc' --exclude="$GUARD_SCRIPT_NAME" 'written_members' "${PRODUCTION_ARCHIVE_PATHS[@]}"; then
+    echo "Archive V2 cutover guard failed: retired archive checkpoint field in production code" >&2
     exit 1
 fi
 

@@ -3,7 +3,7 @@
   "preview_max_bytes": 5242880,
   "scenarios": [
     {
-      "fixture": "portable-v1.zip",
+      "fixture": "portable-v2.zip",
       "entries": [
         {
           "path": "stored.txt",
@@ -35,7 +35,7 @@
       ]
     },
     {
-      "fixture": "unsafe-path-v1.zip",
+      "fixture": "unsafe-path-v2.zip",
       "entries": [
         {
           "path": "../unsafe.txt",
@@ -49,7 +49,7 @@
       ]
     },
     {
-      "fixture": "data-descriptor-v1.zip",
+      "fixture": "data-descriptor-v2.zip",
       "entries": [
         {
           "path": "descriptor.txt",
@@ -63,7 +63,7 @@
       ]
     },
     {
-      "fixture": "unicode-path-v1.zip",
+      "fixture": "unicode-path-v2.zip",
       "entries": [
         {
           "path": "café.txt",
@@ -77,7 +77,7 @@
       ]
     },
     {
-      "fixture": "zip64-v1.zip",
+      "fixture": "zip64-v2.zip",
       "entries": [
         {
           "path": "zip64.txt",
@@ -91,7 +91,7 @@
       ]
     },
     {
-      "fixture": "bzip2-v1.zip",
+      "fixture": "bzip2-v2.zip",
       "entries": [
         {
           "path": "bzip2.txt",
@@ -105,7 +105,7 @@
       ]
     },
     {
-      "fixture": "preview-boundary-v1.zip",
+      "fixture": "preview-boundary-v2.zip",
       "entries": [
         {
           "path": "exact-limit.txt",
@@ -128,11 +128,11 @@
       ]
     },
     {
-      "fixture": "malformed-v1.zip",
+      "fixture": "malformed-v2.zip",
       "error": "format_error"
     },
     {
-      "fixture": "eocd-malformed-v1.zip",
+      "fixture": "eocd-malformed-v2.zip",
       "error": "format_error"
     }
   ]

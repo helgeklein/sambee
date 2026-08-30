@@ -15,6 +15,7 @@ from fastapi.testclient import TestClient
 from sqlmodel import select
 
 from app.api.archive_operations import _ensure_mixed_archive_parent_directories
+from app.core.security import create_access_token, decode_access_token
 from app.models.archive import ArchiveDirectoryListing, ArchiveIdentity
 from app.models.archive_operation import (
     ARCHIVE_OPERATION_HEARTBEAT_TIMEOUT_SECONDS,
@@ -750,9 +751,9 @@ def test_completed_extraction_member_paths_prefers_outcomes_and_excludes_partial
     assert completed_extraction_member_paths(checkpoint) == ["complete.txt"]
 
 
-def test_completed_extraction_member_paths_rejects_legacy_members() -> None:
+def test_completed_extraction_member_paths_rejects_non_v2_checkpoints() -> None:
     with pytest.raises(HTTPException, match="checkpoint is invalid"):
-        completed_extraction_member_paths({"written_members": ["legacy.txt"]})
+        completed_extraction_member_paths({"version": 1})
 
 
 def test_versioned_extraction_checkpoint_requires_an_outcome_ledger() -> None:
@@ -965,6 +966,7 @@ def test_v2_operation_routes_pin_contract_version_and_reject_legacy_input(
     client: TestClient,
     auth_headers_user: dict,
     test_connection: Connection,
+    session,
 ) -> None:
     payload = {
         "contract_version": "v2",
@@ -992,6 +994,7 @@ def test_v2_operation_routes_pin_contract_version_and_reject_legacy_input(
         "message": "Archive V2 request validation failed",
     }
 
+    operation_count_before_missing_version = len(session.exec(select(ArchiveOperation)).all())
     missing_version = client.post(
         "/api/archive/v2/operations",
         headers=auth_headers_user,
@@ -1002,6 +1005,7 @@ def test_v2_operation_routes_pin_contract_version_and_reject_legacy_input(
         "code": "invalid_request",
         "message": "Archive V2 request validation failed",
     }
+    assert len(session.exec(select(ArchiveOperation)).all()) == operation_count_before_missing_version
 
     unknown_field = client.post(
         "/api/archive/v2/operations",
@@ -1192,32 +1196,66 @@ def test_mints_companion_session_only_for_mixed_archive_extraction(
     assert rejected.status_code == 422
 
 
+def test_v2_relay_capability_rejects_version_confusion_and_signature_tampering(
+    client: TestClient,
+    auth_headers_user: dict,
+    test_connection: Connection,
+) -> None:
+    prepared = client.post(
+        "/api/archive/v2/operations",
+        headers=auth_headers_user,
+        json={
+            "contract_version": "v2",
+            "kind": "extract",
+            "source_connection_id": str(test_connection.id),
+            "source_path": "backup.zip",
+            "destination_connection_id": "local-drive:c",
+            "destination_path": "backup",
+        },
+    ).json()
+    capability = client.post(f"/api/archive/v2/operations/{prepared['id']}/companion-session", headers=auth_headers_user).json()
+    confused_claims = decode_access_token(capability["token"])
+    confused_claims["contract_version"] = "v1"
+    version_confused_token = create_access_token(confused_claims)
+    signature_tampered_token = f"{capability['token']}x"
+
+    for token, expected_status in (
+        (version_confused_token, status.HTTP_403_FORBIDDEN),
+        (signature_tampered_token, status.HTTP_401_UNAUTHORIZED),
+    ):
+        response = client.post(
+            f"/api/archive/v2/operations/{prepared['id']}/relay/extraction/begin",
+            headers={"Authorization": f"Bearer {token}"},
+        )
+        assert response.status_code == expected_status
+        assert response.json()["code"] == "capability_invalid"
+
+    operation = client.get(f"/api/archive/v2/operations/{prepared['id']}", headers=auth_headers_user)
+    assert operation.json()["phase"] == "accepted"
+
+
 @pytest.mark.parametrize(
-    ("kind", "source_is_local", "relay_path", "wrong_relay_path"),
+    ("kind", "source_is_local", "wrong_relay_kind"),
     [
         (
             "extract",
             True,
-            "local_zip_to_smb_extract",
-            "smb_to_local_zip_create",
+            "creation",
         ),
         (
             "extract",
             False,
-            "smb_zip_to_local_extract",
-            "smb_to_local_zip_create",
+            "creation",
         ),
         (
             "create",
             False,
-            "smb_to_local_zip_create",
-            "local_to_smb_zip_create",
+            "extraction",
         ),
         (
             "create",
             True,
-            "local_to_smb_zip_create",
-            "smb_zip_to_local_extract",
+            "extraction",
         ),
     ],
 )
@@ -1227,8 +1265,7 @@ def test_companion_relay_failure_requires_its_scoped_purpose(
     test_connection: Connection,
     kind: str,
     source_is_local: bool,
-    relay_path: str,
-    wrong_relay_path: str,
+    wrong_relay_kind: str,
 ) -> None:
     source_connection_id = "local-drive:c" if source_is_local else str(test_connection.id)
     destination_connection_id = str(test_connection.id) if source_is_local else "local-drive:c"
@@ -1246,8 +1283,8 @@ def test_companion_relay_failure_requires_its_scoped_purpose(
     capability = client.post(f"/api/archive/v2/operations/{prepared['id']}/companion-session", headers=auth_headers_user).json()
     relay_headers = {"Authorization": f"Bearer {capability['token']}"}
 
-    retired = client.post(
-        f"/api/archive/v2/operations/{prepared['id']}/companion-relay/{wrong_relay_path}/fail",
+    rejected = client.post(
+        f"/api/archive/v2/operations/{prepared['id']}/relay/{wrong_relay_kind}/fail",
         headers=relay_headers,
         json={"message": "relay failed"},
     )
@@ -1257,7 +1294,7 @@ def test_companion_relay_failure_requires_its_scoped_purpose(
         json={"message": "relay failed"},
     )
 
-    assert retired.status_code == status.HTTP_404_NOT_FOUND
+    assert rejected.status_code == status.HTTP_409_CONFLICT
     assert failed.status_code == 200
     assert failed.json()["phase"] == "failed"
     assert json.loads(failed.json()["last_error_json"])["message"] == "relay failed"
@@ -1852,7 +1889,7 @@ def test_companion_local_relay_pauses_for_a_scoped_collision_and_checkpoints_a_s
     auth_headers_user: dict,
     test_connection: Connection,
 ) -> None:
-    corpus_path = Path(__file__).resolve().parents[2] / "archive-contract" / "v1" / "extraction-outcome-scenarios-v1.json"
+    corpus_path = Path(__file__).resolve().parents[2] / "archive-contract" / "v2" / "fixtures" / "extraction-outcome-scenarios-v2.json"
     corpus = json.loads(corpus_path.read_text(encoding="utf-8"))
     scenario = next(scenario for scenario in corpus["behavioral_scenarios"] if scenario["name"] == "collision_skip_is_terminal")
     archive_buffer = BytesIO()
@@ -2028,7 +2065,7 @@ def test_companion_local_relay_persists_partial_outcome_before_retry_or_ignore(
     test_connection: Connection,
     scenario_name: str,
 ) -> None:
-    corpus_path = Path(__file__).resolve().parents[2] / "archive-contract" / "v1" / "extraction-outcome-scenarios-v1.json"
+    corpus_path = Path(__file__).resolve().parents[2] / "archive-contract" / "v2" / "fixtures" / "extraction-outcome-scenarios-v2.json"
     corpus = json.loads(corpus_path.read_text(encoding="utf-8"))
     scenario = next(scenario for scenario in corpus["behavioral_scenarios"] if scenario["name"] == scenario_name)
     archive_buffer = BytesIO()
@@ -2113,7 +2150,7 @@ def test_companion_local_relay_cancels_before_accepting_late_member_completion(
     auth_headers_user: dict,
     test_connection: Connection,
 ) -> None:
-    corpus_path = Path(__file__).resolve().parents[2] / "archive-contract" / "v1" / "extraction-outcome-scenarios-v1.json"
+    corpus_path = Path(__file__).resolve().parents[2] / "archive-contract" / "v2" / "fixtures" / "extraction-outcome-scenarios-v2.json"
     corpus = json.loads(corpus_path.read_text(encoding="utf-8"))
     scenario = next(
         scenario for scenario in corpus["behavioral_scenarios"] if scenario["name"] == "cancellation_stops_before_member_completion"

@@ -1,6 +1,8 @@
 """Strict V2 archive checkpoint contract tests."""
 
+import json
 from datetime import datetime, timezone
+from pathlib import Path
 
 import pytest
 from fastapi import HTTPException
@@ -12,6 +14,8 @@ from app.services.archive.v2_checkpoint import (
     validate_v2_creation_checkpoint,
     validate_v2_extraction_checkpoint,
 )
+
+INVALID_CHECKPOINTS_PATH = Path(__file__).resolve().parents[2] / "archive-contract" / "v2" / "fixtures" / "invalid-checkpoints-v2.json"
 
 
 def test_canonical_v2_timestamp_uses_utc_z_suffix() -> None:
@@ -29,7 +33,6 @@ def valid_checkpoint() -> dict[str, object]:
     "mutate",
     [
         lambda checkpoint: checkpoint.pop("version"),
-        lambda checkpoint: checkpoint.__setitem__("written_members", []),
         lambda checkpoint: checkpoint.__setitem__("files_extracted", 0),
         lambda checkpoint: checkpoint.__setitem__("unexpected", True),
         lambda checkpoint: checkpoint.__setitem__("version", 1),
@@ -40,6 +43,15 @@ def test_v2_checkpoint_rejects_legacy_unknown_and_unversioned_shapes(mutate) -> 
     mutate(checkpoint)
     with pytest.raises(HTTPException, match="Archive V2 checkpoint"):
         validate_v2_extraction_checkpoint(checkpoint)
+
+
+def test_v2_checkpoint_rejects_all_invalid_fixture_cases() -> None:
+    fixture = json.loads(INVALID_CHECKPOINTS_PATH.read_text(encoding="utf-8"))
+    assert fixture["version"] == 2
+
+    for case in fixture["cases"]:
+        with pytest.raises(HTTPException, match="Archive V2 checkpoint"):
+            validate_v2_extraction_checkpoint(case["checkpoint"])
 
 
 def test_v2_checkpoint_rejects_noncanonical_member_paths() -> None:
@@ -75,10 +87,10 @@ def test_v2_checkpoint_returns_a_defensive_validated_copy() -> None:
     assert validated is not checkpoint
 
 
-def test_v2_checkpoint_rejects_legacy_executor_fields() -> None:
+def test_v2_checkpoint_rejects_disallowed_executor_fields() -> None:
     checkpoint = valid_checkpoint()
     checkpoint["files_extracted"] = 1
-    with pytest.raises(HTTPException, match="legacy fields"):
+    with pytest.raises(HTTPException, match="disallowed fields"):
         validate_v2_extraction_checkpoint(checkpoint)
 
 

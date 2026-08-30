@@ -10,9 +10,10 @@ import pytest
 from app.models.file import DirectoryListing, FileInfo, FileType
 from app.services.archive.coordinator import ArchiveCreationManifest, ArchiveCreationManifestMember
 from app.services.archive.creation import build_archive_creation_manifest
+from app.services.archive.v2_checkpoint import canonical_v2_timestamp
 from app.services.archive.zip_reader import ArchiveFormatError
 
-CORPUS_PATH = Path(__file__).resolve().parents[2] / "archive-contract" / "v1" / "creation-manifest-scenarios-v1.json"
+CORPUS_PATH = Path(__file__).resolve().parents[2] / "archive-contract" / "v2" / "fixtures" / "creation-manifest-scenarios-v2.json"
 
 
 @dataclass(frozen=True)
@@ -52,9 +53,9 @@ class VirtualCreationSource:
 
 
 @pytest.mark.asyncio
-async def test_v1_creation_manifest_virtual_tree_corpus() -> None:
+async def test_v2_creation_manifest_virtual_tree_corpus() -> None:
     corpus = json.loads(CORPUS_PATH.read_text(encoding="utf-8"))
-    assert corpus["version"] == 1
+    assert corpus["version"] == 2
     for scenario in corpus["scenarios"]:
         source = VirtualCreationSource(scenario["nodes"])
         if "error" in scenario:
@@ -82,6 +83,6 @@ async def test_v1_creation_manifest_virtual_tree_corpus() -> None:
                 "source_size": entry.source_size,
             }
             if "modified_at" in expected:
-                actual["modified_at"] = entry.source_modified_at
+                actual["modified_at"] = canonical_v2_timestamp(entry.source_modified_at)
             actual_manifest.append(actual)
         assert actual_manifest == scenario["manifest"]

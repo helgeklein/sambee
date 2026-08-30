@@ -58,6 +58,26 @@ describe("foreground archive operation tracking", () => {
     expect(sessionStorage.getItem("sambee:foreground-archive-operation")).toBeNull();
   });
 
+  it("removes persisted archive recovery handles that are not V2", () => {
+    sessionStorage.setItem(
+      "sambee:foreground-archive-operation",
+      JSON.stringify({
+        operationId: "operation-a",
+        startedAt: Date.now(),
+        recovery: {
+          schemaVersion: 1,
+          contractVersion: "v1",
+          backendKind: "smb",
+          opaqueOperationId: "operation-a",
+          expiresAt: Date.now() + 60_000,
+        },
+      })
+    );
+
+    expect(loadForegroundArchiveOperation()).toBeNull();
+    expect(sessionStorage.getItem("sambee:foreground-archive-operation")).toBeNull();
+  });
+
   it("aborts and clears direct local archive requests", () => {
     const signal = beginForegroundLocalArchiveRequest();
 

@@ -33,7 +33,7 @@
           "uncompressed_size": 0
         }
       ],
-      "name": "portable-v1.zip",
+      "name": "portable-v2.zip",
       "sha256": "744499b989ac581ac6f807fe961c8cd56ed0e8e1f217eaf881a99a77352bd5ea"
     },
     {
@@ -49,7 +49,7 @@
           "uncompressed_size": 7
         }
       ],
-      "name": "unsafe-path-v1.zip",
+      "name": "unsafe-path-v2.zip",
       "sha256": "d3332ed8f813d8d17ddae677f82b6c7fcd004d00f78ad6250590eb6b86ba9b7e"
     },
     {
@@ -65,7 +65,7 @@
           "uncompressed_size": 1408
         }
       ],
-      "name": "data-descriptor-v1.zip",
+      "name": "data-descriptor-v2.zip",
       "sha256": "de7457cda6d512e406c6879549d14d44d80354e742630d116dfcdc0187aea14d"
     },
     {
@@ -81,7 +81,7 @@
           "uncompressed_size": 7
         }
       ],
-      "name": "unicode-path-v1.zip",
+      "name": "unicode-path-v2.zip",
       "sha256": "94d55b52a434b026c64c19a7851f7f86fdb023794080e8355f9816763b9a7466"
     },
     {
@@ -97,7 +97,7 @@
           "uncompressed_size": 768
         }
       ],
-      "name": "zip64-v1.zip",
+      "name": "zip64-v2.zip",
       "sha256": "7822b427f1ea13acfa5c5cd29e29446f39c17ce5a03ade5197d8162a2a928358"
     },
     {
@@ -113,7 +113,7 @@
           "uncompressed_size": 768
         }
       ],
-      "name": "bzip2-v1.zip",
+      "name": "bzip2-v2.zip",
       "sha256": "f18473b9faba3e7a80afafb9a87cb73c382c0de3b446854a84c3349d69ab4854"
     },
     {
@@ -139,21 +139,21 @@
           "uncompressed_size": 5242881
         }
       ],
-      "name": "preview-boundary-v1.zip",
+      "name": "preview-boundary-v2.zip",
       "sha256": "30702a39d2746e595277143b56bfa4c99f1c71dc3c230fbd7d559606a19962bf"
     },
     {
       "entries": [],
       "expected_error": "format_error",
-      "name": "malformed-v1.zip",
+      "name": "malformed-v2.zip",
       "sha256": "bf1500171d6d150fcb14ba9a385e2759aa803fb5ec70e3c39e1f482a15fd194c"
     },
     {
       "entries": [],
       "expected_error": "format_error",
-      "name": "eocd-malformed-v1.zip",
+      "name": "eocd-malformed-v2.zip",
       "sha256": "13c9be8b08cbc19795cc2d15fd0ece082689c7be8d76a4bf9df7c55ec58fd251"
     }
   ],
-  "version": 1
+  "version": 2
 }

@@ -23,7 +23,7 @@ from app.services.archive.extraction import (
 from app.services.archive.zip_reader import ArchiveFormatError, ZipReader
 
 WORKSPACE_ROOT = Path(__file__).resolve().parents[2]
-EXTRACTION_OUTCOME_CORPUS_PATH = WORKSPACE_ROOT / "archive-contract" / "v1" / "extraction-outcome-scenarios-v1.json"
+EXTRACTION_OUTCOME_CORPUS_PATH = WORKSPACE_ROOT / "archive-contract" / "v2" / "fixtures" / "extraction-outcome-scenarios-v2.json"
 
 
 class MemoryRandomReader:

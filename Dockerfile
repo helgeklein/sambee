@@ -157,6 +157,7 @@ RUN printf '%s\n' "$BUILD_CREATED_AT" > /BUILD_TIME
 
 # Copy backend code and built frontend (change often)
 COPY backend/ ./
+COPY scripts/preflight-archive-v2-cutover scripts/reset-archive-v2-cutover-state ./scripts/
 COPY --from=frontend-builder /app/dist ./static
 
 # Recreate the writable runtime data directory after copying the backend.

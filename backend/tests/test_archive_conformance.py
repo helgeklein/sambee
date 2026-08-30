@@ -1,4 +1,4 @@
-"""Shared v1 ZIP reader conformance fixture checks for the backend parser."""
+"""Shared V2 ZIP reader conformance fixture checks for the backend parser."""
 
 import hashlib
 import json
@@ -9,7 +9,7 @@ import pytest
 from app.services.archive.zip_reader import ArchiveFormatError, ZipReader
 
 CORPUS_ROOT = Path(__file__).resolve().parents[2] / "archive_testdata"
-INSPECTION_CORPUS_PATH = Path(__file__).resolve().parents[2] / "archive-contract" / "v1" / "inspection-scenarios-v1.json"
+INSPECTION_CORPUS_PATH = Path(__file__).resolve().parents[2] / "archive-contract" / "v2" / "fixtures" / "inspection-scenarios-v2.json"
 
 
 class FileRandomAccessReader:
@@ -24,9 +24,9 @@ class FileRandomAccessReader:
 
 
 @pytest.mark.asyncio
-async def test_v1_zip_reader_conformance_corpus() -> None:
-    manifest = json.loads((CORPUS_ROOT / "manifest-v1.json").read_text())
-    assert manifest["version"] == 1
+async def test_v2_zip_reader_conformance_corpus() -> None:
+    manifest = json.loads((CORPUS_ROOT / "manifest-v2.json").read_text())
+    assert manifest["version"] == 2
 
     for fixture in manifest["fixtures"]:
         fixture_path = CORPUS_ROOT / fixture["name"]
@@ -55,9 +55,9 @@ async def test_v1_zip_reader_conformance_corpus() -> None:
 
 
 @pytest.mark.asyncio
-async def test_v1_inspection_scenarios() -> None:
+async def test_v2_inspection_scenarios() -> None:
     corpus = json.loads(INSPECTION_CORPUS_PATH.read_text())
-    assert corpus["version"] == 1
+    assert corpus["version"] == 2
     for scenario in corpus["scenarios"]:
         data = (CORPUS_ROOT / scenario["fixture"]).read_bytes()
         if scenario.get("error") == "format_error":
