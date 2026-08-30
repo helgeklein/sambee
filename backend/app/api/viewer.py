@@ -103,12 +103,27 @@ async def stream_archive_member(
                 status_code=status.HTTP_422_UNPROCESSABLE_CONTENT, detail="Archive inspection requires the Companion coordinator"
             )
         inspection = resolve_archive_inspection_coordinator(
-            ArchiveInspectionPlan(source, topology, ArchiveMemberReadPresentation(member_path=member_path, download=download))
+            ArchiveInspectionPlan(
+                source,
+                topology,
+                ArchiveMemberReadPresentation(
+                    member_path=member_path,
+                    download=download,
+                    view_kind=view_kind,
+                    pdf_variant=pdf_variant,
+                    viewport_width=viewport_width,
+                    viewport_height=viewport_height,
+                    no_resizing=no_resizing,
+                    screen_width=screen_width,
+                    screen_height=screen_height,
+                    screen_zoom_percent=screen_zoom_percent,
+                ),
+            )
         )
         inspection_projection = await inspection.member_read()
         inspection_member = inspection_projection.member
         member = await source.validate_member(inspection_member.path)
-        if not download and view_kind != "raw" and not inspection_member.is_inline_preview_eligible():
+        if inspection_projection.delivery == "preview_unavailable":
             raise HTTPException(
                 status_code=status.HTTP_413_REQUEST_ENTITY_TOO_LARGE, detail="Archive member exceeds the inline preview size limit"
             )
@@ -136,22 +151,22 @@ async def stream_archive_member(
 
         metadata_revision = archive_member_pdf_revision(archive_path, member_path, archive_info, member)
 
-        if not download and view_kind == "image" and needs_processing(member_name, member.uncompressed_size):
+        if inspection_projection.delivery == "image":
             try:
                 image_bytes, _ = await read_member_source()
                 return await create_converted_image_response(
                     image_bytes=image_bytes,
                     filename=member_name,
-                    max_width=viewport_width,
-                    max_height=viewport_height,
-                    no_resizing=no_resizing,
+                    max_width=inspection_projection.viewport_width,
+                    max_height=inspection_projection.viewport_height,
+                    no_resizing=inspection_projection.no_resizing,
                 )
             finally:
                 await reader.close()
                 reader = None
                 await disconnect_backend_safely(backend, logger=logger, context=f"archive image view: {archive_path!r}")
 
-        if not download and view_kind == "pdf" and pdf_variant == "normalized":
+        if inspection_projection.delivery == "normalized_pdf":
             try:
                 return await create_normalized_pdf_response_for_source(
                     filename=member_name,
@@ -159,8 +174,12 @@ async def stream_archive_member(
                     connection_id=connection_id,
                     user_id=current_user.id,
                     screen_profile=(
-                        PDFScreenProfile(screen_width, screen_height, screen_zoom_percent)
-                        if screen_width is not None and screen_height is not None
+                        PDFScreenProfile(
+                            inspection_projection.screen_width,
+                            inspection_projection.screen_height,
+                            inspection_projection.screen_zoom_percent,
+                        )
+                        if inspection_projection.screen_width is not None and inspection_projection.screen_height is not None
                         else None
                     ),
                     read_source=read_member_source,

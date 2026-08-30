@@ -38,9 +38,13 @@ class _MemoryRandomAccessReader:
         self.closed = True
 
 
-def _archive_bytes(extra_members: dict[str, bytes] | None = None) -> bytes:
+def _archive_bytes(
+    extra_members: dict[str, bytes] | None = None,
+    *,
+    compression: int = zipfile.ZIP_DEFLATED,
+) -> bytes:
     output = io.BytesIO()
-    with zipfile.ZipFile(output, "w", compression=zipfile.ZIP_DEFLATED) as archive:
+    with zipfile.ZipFile(output, "w", compression=compression) as archive:
         archive.writestr("docs/readme.txt", "hello")
         archive.writestr("root.txt", "root")
         for path, content in (extra_members or {}).items():
@@ -276,6 +280,35 @@ class TestListArchiveDirectory:
         assert [(item["name"], item["type"]) for item in result["items"]] == [("readme.txt", "file")]
         assert archive_reader.closed is True
 
+    def test_rejects_invalid_archive_listing_cursor_through_inspection_resolver(
+        self,
+        client: TestClient,
+        auth_headers_user: dict,
+        test_connection: Connection,
+        mock_smb_backend,
+    ):
+        _, backend = mock_smb_backend
+        data = _archive_bytes()
+        archive_reader = _MemoryRandomAccessReader(data)
+        backend.get_file_info.return_value = FileInfo(name="backup.zip", path="backup.zip", type=FileType.FILE, size=len(data))
+        backend.open_random_access_reader = AsyncMock(return_value=archive_reader)
+
+        with patch(
+            "app.api.browser.resolve_archive_inspection_coordinator",
+            wraps=resolve_archive_inspection_coordinator,
+        ) as resolve_inspection:
+            response = client.get(
+                f"/api/browse/{test_connection.id}/archive/list",
+                headers=auth_headers_user,
+                params={"archive_path": "backup.zip", "cursor": "not-a-cursor"},
+            )
+
+        assert response.status_code == 422
+        assert response.json()["detail"]["code"] == "invalid_zip"
+        assert "cursor is invalid" in response.json()["detail"]["message"]
+        resolve_inspection.assert_called_once()
+        assert archive_reader.closed is True
+
 
 @pytest.mark.integration
 class TestStreamArchiveMember:
@@ -317,6 +350,78 @@ class TestStreamArchiveMember:
         assert response.content == b"hello"
         assert response.headers["content-type"].startswith("text/plain")
         assert response.headers["content-disposition"].startswith("inline;")
+        assert archive_reader.closed is True
+
+    @pytest.mark.parametrize(
+        ("member_path", "archive_data"),
+        [
+            ("missing.txt", _archive_bytes()),
+            ("docs/readme.txt", _archive_bytes(compression=zipfile.ZIP_LZMA)),
+        ],
+    )
+    def test_rejects_invalid_or_unavailable_archive_members_through_inspection_resolver(
+        self,
+        client: TestClient,
+        auth_headers_user: dict,
+        test_connection: Connection,
+        member_path: str,
+        archive_data: bytes,
+    ):
+        archive_reader = _MemoryRandomAccessReader(archive_data)
+        backend = AsyncMock()
+        backend.connect.return_value = None
+        backend.disconnect.return_value = None
+        backend.get_file_info.return_value = FileInfo(name="backup.zip", path="backup.zip", type=FileType.FILE, size=len(archive_data))
+        backend.open_random_access_reader = AsyncMock(return_value=archive_reader)
+
+        with (
+            patch("app.api.viewer.SMBBackend", return_value=backend),
+            patch(
+                "app.api.viewer.resolve_archive_inspection_coordinator",
+                wraps=resolve_archive_inspection_coordinator,
+            ) as resolve_inspection,
+        ):
+            response = client.get(
+                f"/api/viewer/{test_connection.id}/archive/member",
+                headers=auth_headers_user,
+                params={"archive_path": "backup.zip", "member_path": member_path},
+            )
+
+        assert response.status_code == 422
+        assert response.json()["detail"]["code"] == "invalid_zip"
+        resolve_inspection.assert_called_once()
+        assert archive_reader.closed is True
+
+    def test_rejects_oversized_archive_preview_through_inspection_resolver(
+        self,
+        client: TestClient,
+        auth_headers_user: dict,
+        test_connection: Connection,
+    ):
+        archive_data = _archive_bytes({"large.txt": b"x" * (5 * 1024 * 1024 + 1)})
+        archive_reader = _MemoryRandomAccessReader(archive_data)
+        backend = AsyncMock()
+        backend.connect.return_value = None
+        backend.disconnect.return_value = None
+        backend.get_file_info.return_value = FileInfo(name="backup.zip", path="backup.zip", type=FileType.FILE, size=len(archive_data))
+        backend.open_random_access_reader = AsyncMock(return_value=archive_reader)
+
+        with (
+            patch("app.api.viewer.SMBBackend", return_value=backend),
+            patch(
+                "app.api.viewer.resolve_archive_inspection_coordinator",
+                wraps=resolve_archive_inspection_coordinator,
+            ) as resolve_inspection,
+        ):
+            response = client.get(
+                f"/api/viewer/{test_connection.id}/archive/member",
+                headers=auth_headers_user,
+                params={"archive_path": "backup.zip", "member_path": "large.txt", "view_kind": "text"},
+            )
+
+        assert response.status_code == 413
+        assert response.json()["detail"] == "Archive member exceeds the inline preview size limit"
+        resolve_inspection.assert_called_once()
         assert archive_reader.closed is True
 
     def test_invalidates_archive_pdf_derivative_through_inspection_resolver(

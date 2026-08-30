@@ -4854,9 +4854,10 @@ mod tests {
         build_local_archive_manifest, build_local_archive_manifest_for_remote_target, create_local_archive,
         resolve_companion_archive_inspection_topology_plan, resolve_companion_archive_topology_plan, validate_local_archive_extraction,
         ArchiveCreationManifest, ArchiveCreationManifestMember, ArchiveDirectoryListingPresentation, ArchiveInspectionPlan,
-        ArchiveInspectionPresentation, CompanionArchiveOperationKind, CompanionArchiveTopology, LocalArchiveCreationResult,
-        LocalArchiveEntry, LocalArchiveError, LocalArchiveExtractionMemberError, LocalArchiveExtractionResult,
-        LocalArchiveInspectionSource, LocalArchiveReadEntry, LocalArchiveReadError,
+        ArchiveInspectionPresentation, CompanionArchiveBinding, CompanionArchiveExecutionDriver, CompanionArchiveOperationKind,
+        CompanionArchiveTopology, LocalArchiveCreationResult, LocalArchiveEntry, LocalArchiveError, LocalArchiveExtractionMemberError,
+        LocalArchiveExtractionResult, LocalArchiveInspectionSource, LocalArchiveReadEntry, LocalArchiveReadError,
+        ARCHIVE_INLINE_PREVIEW_MAX_BYTES,
     };
     use crate::server::archive_sessions::{
         ArchiveSessionKind, ArchiveSessionPendingDecision, ArchiveSessionPhase, ArchiveSessionProgress, ArchiveSessionStatus,
@@ -4997,6 +4998,14 @@ mod tests {
             )),
         )
         .expect("inspection plan should be built");
+        let inspection_topology =
+            resolve_companion_archive_inspection_topology_plan(true).expect("local inspection topology should resolve");
+        assert_eq!(inspection_topology.kind, CompanionArchiveOperationKind::Inspect);
+        assert_eq!(inspection_topology.driver, CompanionArchiveExecutionDriver::Companion);
+        assert_eq!(inspection_topology.topology, CompanionArchiveTopology::LocalInspection);
+        assert!(inspection_topology.source_is_local);
+        assert_eq!(inspection_topology.destination_is_local, None);
+        assert_eq!(inspection_topology.binding, CompanionArchiveBinding::LocalInspection);
         let create_topology = resolve_companion_archive_topology_plan(CompanionArchiveOperationKind::Create, true, true)
             .expect("creation topology should resolve");
         assert!(resolve_companion_inspection_coordinator(create_topology, plan).is_err());
@@ -5035,9 +5044,9 @@ mod tests {
         assert_eq!(inspection_resolver_call_count(), 1);
 
         let member_response = viewer_archive_member(
-            Path(drive_id),
+            Path(drive_id.clone()),
             Query(ArchiveMemberQuery {
-                archive_path,
+                archive_path: archive_path.clone(),
                 member_path: "source.txt".to_string(),
                 download: false,
             }),
@@ -5047,6 +5056,88 @@ mod tests {
         assert_eq!(member_response.headers()["content-type"], "text/plain");
         assert_eq!(to_bytes(member_response.into_body(), usize::MAX).await.unwrap(), "source");
         assert_eq!(inspection_resolver_call_count(), 2);
+
+        let invalid_cursor = browse_list_archive(
+            Path(drive_id.clone()),
+            Query(ArchiveListQuery {
+                archive_path: archive_path.clone(),
+                virtual_path: None,
+                cursor: Some("not-a-cursor".to_string()),
+                page_size: Some(10),
+            }),
+        )
+        .await
+        .expect_err("invalid archive cursor should be rejected");
+        assert!(matches!(invalid_cursor, ApiError::BadRequest(message) if message.contains("cursor is invalid")));
+        assert_eq!(inspection_resolver_call_count(), 3);
+
+        let missing_member = viewer_archive_member(
+            Path(drive_id.clone()),
+            Query(ArchiveMemberQuery {
+                archive_path: archive_path.clone(),
+                member_path: "missing.txt".to_string(),
+                download: false,
+            }),
+        )
+        .await
+        .expect_err("unknown archive member should be rejected");
+        assert!(matches!(missing_member, ApiError::BadRequest(message) if message.contains("member was not found")));
+        assert_eq!(inspection_resolver_call_count(), 4);
+
+        let unavailable_target = directory.path().join("unavailable.zip");
+        std::fs::copy(&target, &unavailable_target).expect("archive should be copied for codec mutation");
+        mark_zip_member_codec_unavailable(&unavailable_target);
+        let unavailable_member = viewer_archive_member(
+            Path(drive_id.clone()),
+            Query(ArchiveMemberQuery {
+                archive_path: "unavailable.zip".to_string(),
+                member_path: "source.txt".to_string(),
+                download: false,
+            }),
+        )
+        .await
+        .expect_err("unavailable archive member should be rejected");
+        assert!(matches!(unavailable_member, ApiError::BadRequest(message) if message.contains("unavailable codec")));
+        assert_eq!(inspection_resolver_call_count(), 5);
+
+        let large_source = directory.path().join("large.txt");
+        let large_target = directory.path().join("large.zip");
+        std::fs::write(&large_source, vec![b'x'; (ARCHIVE_INLINE_PREVIEW_MAX_BYTES + 1) as usize])
+            .expect("large source file should be written");
+        let large_entries = build_local_archive_manifest(&[large_source], &large_target).expect("large archive manifest should be built");
+        create_local_archive(directory.path(), &large_target, &large_entries, || false).expect("large archive should be created");
+        let oversized_preview = viewer_archive_member(
+            Path(drive_id),
+            Query(ArchiveMemberQuery {
+                archive_path: "large.zip".to_string(),
+                member_path: "large.txt".to_string(),
+                download: false,
+            }),
+        )
+        .await
+        .expect_err("oversized archive preview should be rejected");
+        assert!(matches!(oversized_preview, ApiError::PayloadTooLarge(message) if message.contains("inline preview size limit")));
+        assert_eq!(inspection_resolver_call_count(), 6);
+    }
+
+    fn mark_zip_member_codec_unavailable(archive_path: &std::path::Path) {
+        const LOCAL_HEADER: &[u8; 4] = b"PK\x03\x04";
+        const CENTRAL_DIRECTORY_HEADER: &[u8; 4] = b"PK\x01\x02";
+        const UNAVAILABLE_CODEC: u16 = 99;
+
+        let mut archive = std::fs::read(archive_path).expect("archive should be readable for codec mutation");
+        for offset in 0..=archive.len().saturating_sub(4) {
+            let signature = &archive[offset..offset + 4];
+            let method_offset = if signature == LOCAL_HEADER {
+                offset + 8
+            } else if signature == CENTRAL_DIRECTORY_HEADER {
+                offset + 10
+            } else {
+                continue;
+            };
+            archive[method_offset..method_offset + 2].copy_from_slice(&UNAVAILABLE_CODEC.to_le_bytes());
+        }
+        std::fs::write(archive_path, archive).expect("mutated archive should be written");
     }
 
     #[derive(Clone)]

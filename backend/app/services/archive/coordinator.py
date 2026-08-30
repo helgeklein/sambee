@@ -7,7 +7,7 @@ from collections.abc import AsyncIterator, Awaitable, Callable, Mapping
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from types import MappingProxyType
-from typing import Protocol
+from typing import Literal, Protocol
 
 from fastapi import HTTPException, status
 from sqlmodel import Session
@@ -45,6 +45,7 @@ from app.services.archive.zip_reader import (
     ZipReader,
 )
 from app.utils.content_disposition import build_content_disposition
+from app.utils.file_type_registry import needs_processing
 
 ArchiveExtractionRunner = Callable[
     ["ArchiveExtractionExecutionPlan", Callable[[ArchiveExtractionDestinationResult], Awaitable[None]], Callable[[], Awaitable[bool]]],
@@ -192,11 +193,18 @@ class ArchiveDirectoryListingPresentation(ArchiveInspectionPresentation):
 
 @dataclass(frozen=True)
 class ArchiveMemberReadProjection:
-    """V1 member response metadata projected independently of HTTP transport."""
+    """V1 member response shape projected independently of HTTP transport."""
 
     member: ArchiveInspectionManifestMember
     content_type: str
     content_disposition: str
+    delivery: Literal["raw", "image", "normalized_pdf", "preview_unavailable"]
+    viewport_width: int | None
+    viewport_height: int | None
+    no_resizing: bool
+    screen_width: int | None
+    screen_height: int | None
+    screen_zoom_percent: int
 
 
 @dataclass(frozen=True)
@@ -205,14 +213,38 @@ class ArchiveMemberReadPresentation(ArchiveInspectionPresentation):
 
     member_path: str
     download: bool
+    view_kind: Literal["raw", "text", "image", "pdf"] = "raw"
+    pdf_variant: Literal["original", "normalized"] = "original"
+    viewport_width: int | None = None
+    viewport_height: int | None = None
+    no_resizing: bool = False
+    screen_width: int | None = None
+    screen_height: int | None = None
+    screen_zoom_percent: int = 200
 
     def project(self, manifest: ArchiveInspectionManifest) -> ArchiveMemberReadProjection:
         member = manifest.member(self.member_path)
         member_name = member.path.rsplit("/", 1)[-1]
+        preview_requested = not self.download and self.view_kind != "raw"
+        if preview_requested and not member.is_inline_preview_eligible():
+            delivery: Literal["raw", "image", "normalized_pdf", "preview_unavailable"] = "preview_unavailable"
+        elif not self.download and self.view_kind == "image" and needs_processing(member_name, member.uncompressed_size):
+            delivery = "image"
+        elif not self.download and self.view_kind == "pdf" and self.pdf_variant == "normalized":
+            delivery = "normalized_pdf"
+        else:
+            delivery = "raw"
         return ArchiveMemberReadProjection(
             member=member,
             content_type=mimetypes.guess_type(member_name)[0] or "application/octet-stream",
             content_disposition=build_content_disposition("attachment" if self.download else "inline", member_name),
+            delivery=delivery,
+            viewport_width=self.viewport_width,
+            viewport_height=self.viewport_height,
+            no_resizing=self.no_resizing,
+            screen_width=self.screen_width,
+            screen_height=self.screen_height,
+            screen_zoom_percent=self.screen_zoom_percent,
         )
 
 

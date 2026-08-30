@@ -61,11 +61,30 @@ pub enum CompanionArchiveTopology {
     LocalToSmb,
 }
 
+/// Concrete adapter binding selected by a Companion topology plan.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum CompanionArchiveBinding {
+    LocalInspection,
+    LocalToLocal,
+    SmbToLocalRelay,
+    LocalToSmbRelay,
+}
+
+/// Runtime selected to execute a Companion-owned archive topology plan.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum CompanionArchiveExecutionDriver {
+    Companion,
+}
+
 /// Immutable routing decision used before a Companion archive coordinator starts work.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub struct CompanionArchiveTopologyPlan {
     pub kind: CompanionArchiveOperationKind,
+    pub driver: CompanionArchiveExecutionDriver,
     pub topology: CompanionArchiveTopology,
+    pub source_is_local: bool,
+    pub destination_is_local: Option<bool>,
+    pub binding: CompanionArchiveBinding,
 }
 
 /// Resolve the Companion owner and concrete adapter direction for one operation.
@@ -80,7 +99,20 @@ pub fn resolve_companion_archive_topology_plan(
         (true, false) => CompanionArchiveTopology::LocalToSmb,
         (false, false) => return Err(LocalArchiveError::UnsupportedSource),
     };
-    Ok(CompanionArchiveTopologyPlan { kind, topology })
+    let binding = match topology {
+        CompanionArchiveTopology::LocalInspection => CompanionArchiveBinding::LocalInspection,
+        CompanionArchiveTopology::LocalToLocal => CompanionArchiveBinding::LocalToLocal,
+        CompanionArchiveTopology::SmbToLocal => CompanionArchiveBinding::SmbToLocalRelay,
+        CompanionArchiveTopology::LocalToSmb => CompanionArchiveBinding::LocalToSmbRelay,
+    };
+    Ok(CompanionArchiveTopologyPlan {
+        kind,
+        driver: CompanionArchiveExecutionDriver::Companion,
+        topology,
+        source_is_local,
+        destination_is_local: Some(destination_is_local),
+        binding,
+    })
 }
 
 /// Resolve the Companion-owned binding for a request-scoped archive inspection.
@@ -92,7 +124,11 @@ pub fn resolve_companion_archive_inspection_topology_plan(
     }
     Ok(CompanionArchiveTopologyPlan {
         kind: CompanionArchiveOperationKind::Inspect,
+        driver: CompanionArchiveExecutionDriver::Companion,
         topology: CompanionArchiveTopology::LocalInspection,
+        source_is_local,
+        destination_is_local: None,
+        binding: CompanionArchiveBinding::LocalInspection,
     })
 }
 
