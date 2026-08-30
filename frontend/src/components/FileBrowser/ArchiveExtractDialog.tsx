@@ -1,11 +1,11 @@
-import { Alert, Box, Button, CircularProgress, TextField } from "@mui/material";
+import { Alert, Box, Button, TextField } from "@mui/material";
 import { useEffect, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 import type { ArchiveExtractionSummary } from "../../pages/FileBrowser/contentProviders";
-import { DialogReadOnlyField } from "../Admin/DialogReadOnlyField";
 import { ResponsiveFormDialog } from "../Admin/ResponsiveFormDialog";
 import { SettingsFormGroup, SettingsFormRow, SettingsFormSurface, settingsFormOutlinedControlSx } from "../Settings/SettingsFormLayout";
 import { ArchiveExtractionConflictDialog, type ArchiveExtractionConflictDialogProps } from "./ArchiveExtractionConflictDialog";
+import { ArchiveOperationProgress } from "./ArchiveOperationProgress";
 
 interface ArchiveExtractDialogProps {
   archiveName: string;
@@ -17,7 +17,6 @@ interface ArchiveExtractDialogProps {
   isCancelling?: boolean;
   error: string | null;
   memberError?: { memberPath: string; targetPath: string; message: string; partialOutput: boolean } | null;
-  completionSummary?: ArchiveExtractionSummary | null;
   progressSummary?: ArchiveExtractionSummary | null;
   conflicts?: ArchiveExtractionConflictDialogProps["conflicts"] | null;
   allowedConflictActions?: ArchiveExtractionConflictDialogProps["allowedActions"];
@@ -26,7 +25,6 @@ interface ArchiveExtractDialogProps {
   onConfirm: (destinationPath: string) => void;
   onCancelExtraction?: () => void;
   onMemberErrorDecision?: (action: "retry" | "ignore") => void;
-  onOpenDestination?: () => void;
   onConflictDecision?: ArchiveExtractionConflictDialogProps["onDecision"];
 }
 
@@ -49,7 +47,6 @@ export function ArchiveExtractDialog({
   isCancelling = false,
   error,
   memberError = null,
-  completionSummary = null,
   progressSummary = null,
   conflicts = null,
   allowedConflictActions = [],
@@ -58,7 +55,6 @@ export function ArchiveExtractDialog({
   onConfirm,
   onCancelExtraction,
   onMemberErrorDecision,
-  onOpenDestination,
   onConflictDecision,
 }: ArchiveExtractDialogProps) {
   const { t } = useTranslation();
@@ -93,7 +89,6 @@ export function ArchiveExtractDialog({
       : validationError === "unsafe"
         ? t("fileBrowser.archive.validationDestinationUnsafe")
         : " ";
-  const completed = completionSummary !== null;
   const awaitingConflictDecision = conflicts !== null && onConflictDecision !== undefined;
 
   return (
@@ -104,28 +99,14 @@ export function ArchiveExtractDialog({
       title={t("fileBrowser.archive.extractTitle")}
       description={t("fileBrowser.archive.extractPrompt", { archive: archiveName })}
       maxWidth="sm"
-      contentSx={{ p: 2 }}
       actions={
-        completed ? (
+        isExtracting ? (
           <>
-            <Button onClick={onClose}>{t("common.actions.close")}</Button>
-            {onOpenDestination ? (
-              <Button variant="contained" onClick={onOpenDestination}>
-                {t("fileBrowser.archive.buttonOpenDestination")}
-              </Button>
-            ) : null}
-          </>
-        ) : (
-          <>
-            {isExtracting && onCancelExtraction ? (
+            {onCancelExtraction ? (
               <Button onClick={onCancelExtraction} disabled={isCancelling}>
                 {t("fileBrowser.archive.buttonCancelExtraction")}
               </Button>
-            ) : (
-              <Button onClick={onClose} disabled={isExtracting}>
-                {t("common.actions.cancel")}
-              </Button>
-            )}
+            ) : null}
             {memberError && onMemberErrorDecision ? (
               <>
                 <Button onClick={() => onMemberErrorDecision("ignore")} disabled={isCancelling}>
@@ -135,75 +116,29 @@ export function ArchiveExtractDialog({
                   {t("fileBrowser.archive.buttonRetryMemberError")}
                 </Button>
               </>
-            ) : (
-              <Button
-                variant="contained"
-                onClick={handleConfirm}
-                disabled={isExtracting}
-                startIcon={isExtracting ? <CircularProgress size={16} /> : undefined}
-              >
-                {isExtracting ? t("fileBrowser.archive.buttonExtracting") : t("fileBrowser.archive.buttonExtract")}
-              </Button>
-            )}
+            ) : null}
+          </>
+        ) : (
+          <>
+            <Button onClick={onClose}>{t("common.actions.cancel")}</Button>
+            <Button variant="contained" onClick={handleConfirm}>
+              {t("fileBrowser.archive.buttonExtract")}
+            </Button>
           </>
         )
       }
     >
       <Box sx={{ display: "flex", flexDirection: "column", gap: 2 }}>
-        {completionSummary ? (
-          <Box role="status" aria-live="polite" sx={{ display: "flex", flexDirection: "column", gap: 2 }}>
-            <Alert severity={completionSummary.filesSkipped > 0 || completionSummary.partialMembers > 0 ? "warning" : "success"}>
-              {t("fileBrowser.archive.extractSuccess")}
-            </Alert>
-            <SettingsFormSurface>
-              <SettingsFormGroup>
-                <DialogReadOnlyField
-                  label={t("fileBrowser.archive.summaryFilesExtracted")}
-                  value={completionSummary.filesExtracted.toLocaleString()}
-                />
-                <DialogReadOnlyField
-                  label={t("fileBrowser.archive.summaryDirectoriesCreated")}
-                  value={completionSummary.directoriesCreated.toLocaleString()}
-                />
-                <DialogReadOnlyField
-                  label={t("fileBrowser.archive.summaryBytesWritten")}
-                  value={completionSummary.extractedBytes.toLocaleString()}
-                />
-                <DialogReadOnlyField
-                  label={t("fileBrowser.archive.summaryFilesSkipped")}
-                  value={completionSummary.filesSkipped.toLocaleString()}
-                />
-                <DialogReadOnlyField
-                  label={t("fileBrowser.archive.summaryFilesReplaced")}
-                  value={completionSummary.filesReplaced.toLocaleString()}
-                />
-                <DialogReadOnlyField
-                  label={t("fileBrowser.archive.summaryPartialMembers")}
-                  value={completionSummary.partialMembers.toLocaleString()}
-                />
-              </SettingsFormGroup>
-            </SettingsFormSurface>
-          </Box>
+        {isExtracting && !awaitingConflictDecision && !memberError ? (
+          <ArchiveOperationProgress
+            currentItem={archiveName}
+            completedMembers={progressSummary ? progressSummary.filesExtracted + progressSummary.directoriesCreated : undefined}
+            totalMembers={progressSummary?.totalMembers}
+            processedBytes={progressSummary?.extractedBytes}
+            totalBytes={progressSummary?.totalBytes}
+          />
         ) : null}
-        {isExtracting && progressSummary ? (
-          <SettingsFormSurface role="status" aria-live="polite">
-            <SettingsFormGroup>
-              <DialogReadOnlyField
-                label={t("fileBrowser.archive.summaryFilesExtracted")}
-                value={progressSummary.filesExtracted.toLocaleString()}
-              />
-              <DialogReadOnlyField
-                label={t("fileBrowser.archive.summaryDirectoriesCreated")}
-                value={progressSummary.directoriesCreated.toLocaleString()}
-              />
-              <DialogReadOnlyField
-                label={t("fileBrowser.archive.summaryBytesWritten")}
-                value={progressSummary.extractedBytes.toLocaleString()}
-              />
-            </SettingsFormGroup>
-          </SettingsFormSurface>
-        ) : null}
-        {!completed && error && !awaitingConflictDecision ? <Alert severity="error">{error}</Alert> : null}
+        {error && !awaitingConflictDecision ? <Alert severity="error">{error}</Alert> : null}
         {awaitingConflictDecision ? (
           <ArchiveExtractionConflictDialog
             inline
@@ -215,15 +150,12 @@ export function ArchiveExtractDialog({
             onDecision={onConflictDecision}
           />
         ) : null}
-        {!completed && memberError ? (
+        {memberError ? (
           <Alert severity={memberError.partialOutput ? "warning" : "error"}>
             {memberError.message} ({memberError.memberPath} to {memberError.targetPath})
           </Alert>
         ) : null}
-        {!completed && !awaitingConflictDecision ? (
-          <Alert severity="warning">{t("fileBrowser.archive.nonAtomicOutputWarning")}</Alert>
-        ) : null}
-        {!completed && !awaitingConflictDecision && requiresDestinationName ? (
+        {!isExtracting && !awaitingConflictDecision && requiresDestinationName ? (
           <SettingsFormSurface>
             <SettingsFormGroup>
               <SettingsFormRow sx={{ display: { md: "block" } }}>
@@ -237,12 +169,11 @@ export function ArchiveExtractDialog({
                     setValidationError(null);
                   }}
                   onKeyDown={(event) => {
-                    if (event.key === "Enter" && !isExtracting) {
+                    if (event.key === "Enter") {
                       event.preventDefault();
                       handleConfirm();
                     }
                   }}
-                  disabled={isExtracting}
                   error={validationError !== null}
                   helperText={validationMessage}
                   sx={settingsFormOutlinedControlSx}
@@ -250,8 +181,8 @@ export function ArchiveExtractDialog({
               </SettingsFormRow>
             </SettingsFormGroup>
           </SettingsFormSurface>
-        ) : !completed && !awaitingConflictDecision ? (
-          <DialogReadOnlyField label={t("fileBrowser.archive.destinationLabel")} value={destinationLabel ?? ""} />
+        ) : !isExtracting && !awaitingConflictDecision ? (
+          <Box sx={{ color: "text.secondary", typography: "body2" }}>{destinationLabel ?? ""}</Box>
         ) : null}
       </Box>
     </ResponsiveFormDialog>

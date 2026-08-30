@@ -301,12 +301,18 @@ pub struct ArchiveExecutionResponse {
 pub struct ArchiveExecutionProgress {
     #[serde(rename = "completedMembers")]
     pub completed_members: u64,
+    #[serde(skip_serializing_if = "Option::is_none", rename = "totalMembers")]
+    pub total_members: Option<u64>,
     #[serde(rename = "skippedMembers")]
     pub skipped_members: u64,
     #[serde(rename = "failedMembers")]
     pub failed_members: u64,
     #[serde(rename = "partialMembers")]
     pub partial_members: u64,
+    #[serde(rename = "processedBytes")]
+    pub processed_bytes: u64,
+    #[serde(skip_serializing_if = "Option::is_none", rename = "totalBytes")]
+    pub total_bytes: Option<u64>,
 }
 
 #[cfg(test)]

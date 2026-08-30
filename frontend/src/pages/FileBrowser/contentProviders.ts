@@ -111,6 +111,8 @@ export interface ArchiveExtractionSummary {
   filesExtracted: number;
   directoriesCreated: number;
   extractedBytes: number;
+  totalMembers?: number;
+  totalBytes?: number;
   filesSkipped: number;
   filesReplaced: number;
   partialMembers: number;

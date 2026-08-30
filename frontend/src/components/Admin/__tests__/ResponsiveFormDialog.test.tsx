@@ -54,6 +54,9 @@ describe("ResponsiveFormDialog", () => {
     expect(screen.getByRole("heading", { name: /edit user/i })).toBeInTheDocument();
     expect(screen.getByText("Update the account details below.")).toBeInTheDocument();
     expect(screen.getByText("Dialog Body")).toBeInTheDocument();
+    expect(window.getComputedStyle(screen.getByText("Dialog Body").closest(".MuiDialogContent-root") as HTMLElement).paddingLeft).toBe(
+      "24px"
+    );
     expect(window.getComputedStyle(screen.getByTestId("responsive-form-dialog-desktop-actions")).borderTopWidth).toBe("1px");
   });
 

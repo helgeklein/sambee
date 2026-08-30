@@ -130,6 +130,8 @@ pub struct ArchiveSessionStatus {
     pub revision: u64,
     pub cancellation_requested: bool,
     pub progress: ArchiveSessionProgress,
+    pub total_members: Option<u64>,
+    pub total_bytes: Option<u64>,
     pub result: Option<ArchiveSessionProgress>,
     pub error: Option<String>,
     pub pending_decision: Option<ArchiveSessionPendingDecision>,
@@ -224,7 +226,20 @@ struct ArchiveSession {
 }
 
 impl ArchiveSession {
+    fn totals(&self) -> Option<(u64, u64)> {
+        match self.kind {
+            ArchiveSessionKind::Create => self.creation_manifest_entries.as_ref().map(|entries| {
+                (
+                    entries.len() as u64,
+                    entries.iter().fold(0_u64, |total, entry| total.saturating_add(entry.source_size)),
+                )
+            }),
+            ArchiveSessionKind::Extract => self.extraction_plan.as_ref().map(LocalArchiveExtractionExecutionPlan::totals),
+        }
+    }
+
     fn status(&self) -> ArchiveSessionStatus {
+        let (total_members, total_bytes) = self.totals().map_or((None, None), |(members, bytes)| (Some(members), Some(bytes)));
         ArchiveSessionStatus {
             execution_id: self.execution_id.clone(),
             contract_version: self.contract_version,
@@ -233,6 +248,8 @@ impl ArchiveSession {
             revision: self.revision,
             cancellation_requested: self.cancellation_requested.load(Ordering::Acquire),
             progress: self.progress,
+            total_members,
+            total_bytes,
             result: self.result,
             error: self.error.clone(),
             pending_decision: self.pending_decision.clone(),

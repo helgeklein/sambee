@@ -279,6 +279,9 @@ describe("Browser Component - Interactions", () => {
       expect(directory).toHaveTextContent("Test Server 1:/");
       expect(directory.tagName).toBe("CODE");
       expect(directory.parentElement).toHaveTextContent("Create a ZIP archive in Test Server 1:/ from 1 selected item.");
+
+      fireEvent.keyDown(document, { key: "Tab" });
+      expect(localStorage.getItem("active-pane")).toBe("right");
     });
 
     it("reuses the current left-pane directory contents when opening dual-pane on the same target", async () => {
@@ -808,20 +811,22 @@ describe("Browser Component - Interactions", () => {
         total: 2,
       });
 
-      renderBrowser("/browse/smb/test-server-1");
+      renderBrowser("/browse/smb/test-server-1?p2=smb/test-server-2");
 
-      const listContainer = await screen.findByTestId("file-list-container");
+      const [listContainer] = await screen.findAllByTestId("file-list-container");
       listContainer.focus();
       fireEvent.keyDown(document, { key: "F9", altKey: true });
       expect(screen.queryByRole("dialog", { name: "Extract ZIP Archive" })).not.toBeInTheDocument();
 
       fireEvent.keyDown(document, { key: "ArrowDown" });
-      await waitFor(() => expect(screen.getByRole("button", { name: /file: temp\.zip/i })).toHaveAttribute("data-selected", "true"));
+      await waitFor(() => expect(screen.getAllByRole("button", { name: /file: temp\.zip/i })[0]).toHaveAttribute("data-selected", "true"));
       fireEvent.keyDown(document, { key: "F9", altKey: true });
 
       const extractDialog = await screen.findByRole("dialog", { name: "Extract ZIP Archive" });
-      expect(within(extractDialog).getByLabelText("Destination directory")).toHaveValue("temp");
-      expect(screen.getByTestId("router-location")).toHaveTextContent("/browse/smb/test-server-1");
+      expect(within(extractDialog).getByText("Test Server 2:/")).toBeInTheDocument();
+      const locationBeforeTab = screen.getByTestId("router-location").textContent;
+      fireEvent.keyDown(document, { key: "Tab" });
+      expect(screen.getByTestId("router-location")).toHaveTextContent(locationBeforeTab ?? "");
     });
 
     it("blocks copy, move, and archive creation when the opposite pane is a ZIP archive", async () => {

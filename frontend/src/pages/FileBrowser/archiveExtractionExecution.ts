@@ -51,12 +51,14 @@ function responseExtractionSummary(result: {
   directories_created?: number;
   extracted_bytes?: number;
   files_skipped?: number;
-  progress?: { partialMembers?: number };
+  progress?: { partialMembers?: number; totalMembers?: number; totalBytes?: number };
 }): ArchiveExtractionSummary {
   return {
     filesExtracted: nonNegativeCounter(result.files_extracted),
     directoriesCreated: nonNegativeCounter(result.directories_created),
     extractedBytes: nonNegativeCounter(result.extracted_bytes),
+    totalMembers: nonNegativeCounter(result.progress?.totalMembers) || undefined,
+    totalBytes: nonNegativeCounter(result.progress?.totalBytes) || undefined,
     filesSkipped: nonNegativeCounter(result.files_skipped),
     filesReplaced: 0,
     partialMembers: nonNegativeCounter(result.progress?.partialMembers),

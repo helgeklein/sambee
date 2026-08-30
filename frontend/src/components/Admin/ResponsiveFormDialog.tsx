@@ -55,6 +55,11 @@ interface ResponsiveFormDialogProps {
 
 import { useTranslation } from "react-i18next";
 
+export const responsiveFormDialogContentPaddingSx: SxProps<Theme> = {
+  px: { xs: 2, sm: 3 },
+  py: 2,
+};
+
 export function ResponsiveFormDialog({
   open,
   onClose,
@@ -227,9 +232,9 @@ export function ResponsiveFormDialog({
 
           <Box
             sx={[
+              responsiveFormDialogContentPaddingSx,
               {
                 ...mobileScrollableContentSx,
-                p: 2,
                 pb: `calc(16px + ${SAFE_AREA_INSET.BOTTOM})`,
               },
               ...(Array.isArray(contentSx) ? contentSx : contentSx ? [contentSx] : []),
@@ -312,6 +317,7 @@ export function ResponsiveFormDialog({
             // first line of dialog content is never visually clipped.
             ".MuiDialogTitle-root + &&": { pt: 2 },
           },
+          responsiveFormDialogContentPaddingSx,
           ...(Array.isArray(contentSx) ? contentSx : contentSx ? [contentSx] : []),
         ]}
       >

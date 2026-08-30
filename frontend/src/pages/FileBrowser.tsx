@@ -24,6 +24,7 @@ import React, { useCallback, useEffect, useLayoutEffect, useMemo, useState, useS
 import { Trans, useTranslation } from "react-i18next";
 import { useLocation, useNavigate, useParams, useSearchParams } from "react-router-dom";
 import { ArchiveExtractDialog } from "../components/FileBrowser/ArchiveExtractDialog";
+import { ArchiveOperationProgress } from "../components/FileBrowser/ArchiveOperationProgress";
 import CopyMoveDialog, { type CopyMoveMode, type OverwriteStrategy } from "../components/FileBrowser/CopyMoveDialog";
 import { DesktopToolbar } from "../components/FileBrowser/DesktopToolbar";
 import { DynamicViewer } from "../components/FileBrowser/DynamicViewer";
@@ -471,18 +472,14 @@ const Browser: React.FC = () => {
     message: string;
     partialOutput: boolean;
   } | null>(null);
-  const [archiveExtractionCompletion, setArchiveExtractionCompletion] = useState<{
-    summary: ArchiveExtractionSummary;
-    destination: PhysicalLocation;
-  } | null>(null);
   const [archiveExtractionProgress, setArchiveExtractionProgress] = useState<ArchiveExtractionSummary | null>(null);
   const [archiveExtractionAllowedActions, setArchiveExtractionAllowedActions] = useState<
     Array<"skip" | "skip_all" | "replace" | "replace_all" | "replace_older" | "rename">
   >([]);
   const [isSubmittingArchiveExtractionDecision, setIsSubmittingArchiveExtractionDecision] = useState(false);
   const archiveExtractionExecutionRef = React.useRef<ArchiveExtractionExecution | null>(null);
-  const [archiveExtractionNotice, setArchiveExtractionNotice] = useState<string | null>(null);
   const [archiveInterruptionNoticeOpen, setArchiveInterruptionNoticeOpen] = useState(false);
+  const archiveWorkflowDialogOpen = archiveCreateContext !== null || archiveExtractionContext !== null;
 
   useEffect(() => {
     void recoverInterruptedArchiveOperation(browserContentServices.archiveOperations).then((interrupted) => {
@@ -2052,13 +2049,15 @@ const Browser: React.FC = () => {
         (archiveCreateContext.destinationPaneId === "right" ? rightPane : leftPane).handleRefresh();
       } catch (error: unknown) {
         const hasPartialArchiveOutput = isPartialContainerOutputError(error);
-        const detail = execution.isCancellationRequested()
-          ? t("fileBrowser.archive.createCancelled")
-          : hasPartialArchiveOutput
-            ? t("fileBrowser.archive.createPartialOutputError")
-            : isApiError(error) && typeof error.response?.data?.detail === "string"
-              ? error.response.data.detail
-              : t("fileBrowser.archive.errorGeneric");
+        if (execution.isCancellationRequested()) {
+          setArchiveCreateContext(null);
+          return;
+        }
+        const detail = hasPartialArchiveOutput
+          ? t("fileBrowser.archive.createPartialOutputError")
+          : isApiError(error) && typeof error.response?.data?.detail === "string"
+            ? error.response.data.detail
+            : t("fileBrowser.archive.errorGeneric");
         setArchiveCreateError(detail);
         if (hasPartialArchiveOutput) {
           (archiveCreateContext.destinationPaneId === "right" ? rightPane : leftPane).handleRefresh();
@@ -2120,11 +2119,7 @@ const Browser: React.FC = () => {
   }, [allConnections, archiveExtractionSource, effectiveActivePaneId, isDualMode, leftPane, rightPane]);
 
   const completeArchiveExtraction = useCallback(
-    (
-      outcome: ArchiveExtractionOutcome,
-      context: NonNullable<typeof archiveExtractionContext>,
-      destination: PhysicalLocation = context.destination ?? context.destinationParent
-    ) => {
+    (outcome: ArchiveExtractionOutcome, context: NonNullable<typeof archiveExtractionContext>) => {
       if (outcome.status === "awaiting-decision") {
         setArchiveExtractionConflicts(
           outcome.conflicts.map((conflict) => ({
@@ -2157,22 +2152,9 @@ const Browser: React.FC = () => {
         connectionId: context.destinationParent.connectionId,
         path: context.destinationParent.path,
       });
-      if (outcome.status === "cancelled") {
-        setArchiveExtractionContext(null);
-        setArchiveExtractionNotice(t("fileBrowser.archive.extractCancelled"));
-      } else if (outcome.status === "interrupted") {
-        setArchiveExtractionContext(null);
-        setArchiveExtractionNotice(t("fileBrowser.archive.extractInterrupted"));
-      } else {
-        setArchiveExtractionCompletion({ summary: outcome.summary, destination });
-        setArchiveExtractionNotice(
-          outcome.filesSkipped > 0
-            ? t("fileBrowser.archive.extractPartialSuccess", { count: outcome.filesSkipped })
-            : t("fileBrowser.archive.extractSuccess")
-        );
-      }
+      setArchiveExtractionContext(null);
     },
-    [leftPane, rightPane, t]
+    [leftPane, rightPane]
   );
 
   const handleArchiveExtractionConfirm = useCallback(
@@ -2185,7 +2167,6 @@ const Browser: React.FC = () => {
       setArchiveExtractionConflicts(null);
       setArchiveExtractionAllowedActions([]);
       setArchiveExtractionMemberError(null);
-      setArchiveExtractionCompletion(null);
       setArchiveExtractionProgress(null);
       const destination = archiveExtractionContext.usesSiblingDirectory
         ? physicalLocation(
@@ -2202,7 +2183,7 @@ const Browser: React.FC = () => {
       archiveExtractionExecutionRef.current = execution;
       const unsubscribeProgress = execution.onProgress(setArchiveExtractionProgress);
       try {
-        completeArchiveExtraction(await execution.result, executionContext, destination);
+        completeArchiveExtraction(await execution.result, executionContext);
       } catch (error: unknown) {
         const detail =
           isApiError(error) && error.response?.status === 409
@@ -2244,11 +2225,7 @@ const Browser: React.FC = () => {
       setIsSubmittingArchiveExtractionDecision(true);
       setArchiveExtractionError(null);
       try {
-        completeArchiveExtraction(
-          await execution.decide(action, memberPath, targetPath),
-          archiveExtractionContext,
-          archiveExtractionContext.destination ?? undefined
-        );
+        completeArchiveExtraction(await execution.decide(action, memberPath, targetPath), archiveExtractionContext);
       } catch (error) {
         setArchiveExtractionError(t("fileBrowser.archive.extractError"));
         logger.error("Archive extraction collision decision failed", { error, action, memberPath }, "file-browser");
@@ -2267,11 +2244,7 @@ const Browser: React.FC = () => {
       setArchiveExtractionError(null);
       try {
         setArchiveExtractionMemberError(null);
-        completeArchiveExtraction(
-          await execution.decide(action, archiveExtractionMemberError.memberPath),
-          archiveExtractionContext,
-          archiveExtractionContext.destination ?? undefined
-        );
+        completeArchiveExtraction(await execution.decide(action, archiveExtractionMemberError.memberPath), archiveExtractionContext);
       } catch (error) {
         setArchiveExtractionError(t("fileBrowser.archive.extractError"));
         logger.error("Archive extraction member error decision failed", { error }, "file-browser");
@@ -2714,7 +2687,7 @@ const Browser: React.FC = () => {
   ]);
 
   useKeyboardShortcuts({
-    active: !showHelp && !viewerOverlayOpen,
+    active: !showHelp && !viewerOverlayOpen && !archiveWorkflowDialogOpen,
     shortcuts: browserShortcuts,
   });
 
@@ -3141,6 +3114,7 @@ const Browser: React.FC = () => {
         apiError={archiveCreateError}
         extraValidate={(name) => (name.toLowerCase().endsWith(".zip") ? null : t("fileBrowser.archive.validationExtension"))}
         autoSelectRange={[0, "archive".length]}
+        submittingContent={<ArchiveOperationProgress currentItem={archiveCreateContext?.sources[0]?.path ?? ""} />}
       />
       <ArchiveExtractDialog
         archiveName={archiveExtractionContext?.archiveName ?? ""}
@@ -3152,7 +3126,6 @@ const Browser: React.FC = () => {
         isCancelling={isCancellingArchiveExtraction}
         error={archiveExtractionError}
         memberError={archiveExtractionMemberError}
-        completionSummary={archiveExtractionCompletion?.summary}
         progressSummary={archiveExtractionProgress}
         conflicts={archiveExtractionConflicts}
         allowedConflictActions={archiveExtractionAllowedActions}
@@ -3161,31 +3134,12 @@ const Browser: React.FC = () => {
           if (!isExtractingArchive) {
             setArchiveExtractionContext(null);
             setArchiveExtractionError(null);
-            setArchiveExtractionCompletion(null);
           }
         }}
         onConfirm={(destinationName) => void handleArchiveExtractionConfirm(destinationName)}
         onCancelExtraction={() => void cancelArchiveExtraction()}
         onMemberErrorDecision={(action) => void handleArchiveExtractionMemberErrorDecision(action)}
         onConflictDecision={(action, memberPath, targetPath) => void handleArchiveExtractionDecision(action, memberPath, targetPath)}
-        onOpenDestination={() => {
-          const completion = archiveExtractionCompletion;
-          if (!completion || !archiveExtractionContext) return;
-          if (archiveExtractionContext.destinationPaneId === "left") {
-            navigateLeftPane(completion.destination.connectionId, completion.destination.path, { activePaneId: "left" });
-          } else {
-            navigateRightPane(completion.destination.connectionId, completion.destination.path, { activePaneId: "right" });
-          }
-          setArchiveExtractionContext(null);
-          setArchiveExtractionCompletion(null);
-        }}
-      />
-      <Snackbar
-        open={archiveExtractionNotice !== null}
-        autoHideDuration={6000}
-        onClose={() => setArchiveExtractionNotice(null)}
-        anchorOrigin={{ vertical: "bottom", horizontal: "center" }}
-        message={archiveExtractionNotice}
       />
       {/* Companion app guidance hint */}
       <Snackbar

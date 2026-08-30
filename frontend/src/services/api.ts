@@ -86,9 +86,12 @@ const LOCAL_ARCHIVE_EXECUTION_POLL_INTERVAL_MS = 200;
 const LOCAL_ARCHIVE_CANCELLATION_MAX_REVISION_RETRIES = 3;
 export interface ArchiveExecutionProgress {
   completedMembers: number;
+  totalMembers?: number;
   skippedMembers: number;
   failedMembers: number;
   partialMembers: number;
+  processedBytes?: number;
+  totalBytes?: number;
 }
 
 export interface LocalArchiveExecution {

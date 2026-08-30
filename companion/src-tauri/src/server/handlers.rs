@@ -4935,9 +4935,12 @@ fn archive_execution_response(execution: ArchiveSessionStatus) -> ArchiveExecuti
         revision: execution.revision,
         progress: ArchiveExecutionProgress {
             completed_members: 0,
+            total_members: execution.total_members,
             skipped_members: 0,
             failed_members: 0,
             partial_members: 0,
+            processed_bytes: 0,
+            total_bytes: execution.total_bytes,
         },
         cancellation_requested: execution.cancellation_requested,
         files_extracted: None,
@@ -4984,6 +4987,7 @@ fn archive_execution_response(execution: ArchiveSessionStatus) -> ArchiveExecuti
             response.directories_created = Some(progress.directories_created);
             response.source_bytes = Some(progress.source_bytes);
             response.progress.completed_members = progress.files_created.saturating_add(progress.directories_created);
+            response.progress.processed_bytes = progress.source_bytes;
         }
         ArchiveSessionProgress::Extraction(progress) => {
             response.files_extracted = Some(progress.files_extracted);
@@ -4994,6 +4998,7 @@ fn archive_execution_response(execution: ArchiveSessionStatus) -> ArchiveExecuti
             response.progress.skipped_members = progress.files_skipped;
             response.progress.failed_members = progress.files_failed;
             response.progress.partial_members = progress.partial_members;
+            response.progress.processed_bytes = progress.extracted_bytes;
         }
     }
     response
@@ -7334,6 +7339,8 @@ mod tests {
             revision: 4,
             cancellation_requested: false,
             progress,
+            total_members: Some(6),
+            total_bytes: Some(24),
             result: None,
             error: None,
             pending_decision: None,
@@ -7345,9 +7352,12 @@ mod tests {
             serialized["progress"],
             serde_json::json!({
                 "completedMembers": 3,
+                "totalMembers": 6,
                 "skippedMembers": 3,
                 "failedMembers": 0,
                 "partialMembers": 0,
+                "processedBytes": 12,
+                "totalBytes": 24,
             })
         );
     }
@@ -7370,6 +7380,8 @@ mod tests {
                 files_failed: 0,
                 partial_members: 1,
             }),
+            total_members: None,
+            total_bytes: None,
             result: None,
             error: None,
             pending_decision: Some(ArchiveSessionPendingDecision {
@@ -7410,6 +7422,8 @@ mod tests {
             revision: 4,
             cancellation_requested: false,
             progress: ArchiveSessionProgress::Extraction(LocalArchiveExtractionResult::default()),
+            total_members: None,
+            total_bytes: None,
             result: None,
             error: None,
             pending_decision: Some(ArchiveSessionPendingDecision {

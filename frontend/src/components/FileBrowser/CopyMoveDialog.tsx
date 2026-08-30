@@ -321,7 +321,6 @@ const CopyMoveDialog: React.FC<CopyMoveDialogProps> = ({
       description={description}
       actions={actions}
       maxWidth="sm"
-      contentSx={{ px: { xs: 2, sm: 3 }, py: 2 }}
     >
       {formContent}
     </ResponsiveFormDialog>

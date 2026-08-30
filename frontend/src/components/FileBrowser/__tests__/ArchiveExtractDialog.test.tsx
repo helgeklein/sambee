@@ -51,14 +51,16 @@ describe("ArchiveExtractDialog", () => {
     expect(onConfirm).toHaveBeenCalledWith("output/release");
   });
 
-  it("disables the form while extraction is pending", () => {
-    render(<ArchiveExtractDialog {...defaultProps} isExtracting={true} />);
+  it("replaces the form with an active progress view while extraction is pending", () => {
+    const onCancelExtraction = vi.fn();
+    render(<ArchiveExtractDialog {...defaultProps} isExtracting={true} onCancelExtraction={onCancelExtraction} />);
 
-    expect(screen.getByLabelText("fileBrowser.archive.destinationLabel")).toBeDisabled();
-    expect(screen.getByRole("button", { name: "fileBrowser.archive.buttonExtracting" })).toBeDisabled();
+    expect(screen.queryByLabelText("fileBrowser.archive.destinationLabel")).not.toBeInTheDocument();
+    expect(screen.getByRole("progressbar")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "fileBrowser.archive.buttonCancelExtraction" })).toBeEnabled();
   });
 
-  it("shows live extraction counters while a direct-local extraction is pending", () => {
+  it("shows determinate direct-local extraction progress", () => {
     render(
       <ArchiveExtractDialog
         {...defaultProps}
@@ -67,6 +69,8 @@ describe("ArchiveExtractDialog", () => {
           filesExtracted: 2,
           directoriesCreated: 1,
           extractedBytes: 12,
+          totalMembers: 6,
+          totalBytes: 24,
           filesSkipped: 0,
           filesReplaced: 0,
           partialMembers: 0,
@@ -74,9 +78,8 @@ describe("ArchiveExtractDialog", () => {
       />
     );
 
-    expect(screen.getByLabelText("fileBrowser.archive.summaryFilesExtracted")).toHaveValue("2");
-    expect(screen.getByLabelText("fileBrowser.archive.summaryDirectoriesCreated")).toHaveValue("1");
-    expect(screen.getByLabelText("fileBrowser.archive.summaryBytesWritten")).toHaveValue("12");
+    expect(screen.getByRole("progressbar")).toHaveAttribute("aria-valuenow", "50");
+    expect(screen.getByText("fileBrowser.archive.progressCurrentItem: project.zip")).toBeInTheDocument();
   });
 
   it("offers retry and ignore for a failed member while keeping cancellation available", async () => {
@@ -106,31 +109,6 @@ describe("ArchiveExtractDialog", () => {
     expect(onMemberErrorDecision).toHaveBeenNthCalledWith(1, "retry");
     expect(onMemberErrorDecision).toHaveBeenNthCalledWith(2, "ignore");
     expect(onCancelExtraction).toHaveBeenCalledOnce();
-  });
-
-  it("shows terminal counts and opens the destination from the same dialog", async () => {
-    const user = userEvent.setup();
-    const onOpenDestination = vi.fn();
-    render(
-      <ArchiveExtractDialog
-        {...defaultProps}
-        completionSummary={{
-          filesExtracted: 2,
-          directoriesCreated: 1,
-          extractedBytes: 12,
-          filesSkipped: 1,
-          filesReplaced: 0,
-          partialMembers: 0,
-        }}
-        onOpenDestination={onOpenDestination}
-      />
-    );
-
-    expect(screen.getByLabelText("fileBrowser.archive.summaryFilesExtracted")).toHaveValue("2");
-    expect(screen.queryByLabelText("fileBrowser.archive.destinationLabel")).not.toBeInTheDocument();
-    await user.click(screen.getByRole("button", { name: "fileBrowser.archive.buttonOpenDestination" }));
-
-    expect(onOpenDestination).toHaveBeenCalledOnce();
   });
 
   it("keeps collision decisions inside the active extraction dialog", async () => {

@@ -1240,6 +1240,16 @@ impl LocalArchiveExtractionExecutionPlan {
         self.checkpoint.clone()
     }
 
+    pub fn totals(&self) -> (u64, u64) {
+        (
+            self.manifest.entries.len() as u64,
+            self.manifest
+                .entries
+                .iter()
+                .fold(0_u64, |total, entry| total.saturating_add(entry.uncompressed_size)),
+        )
+    }
+
     pub fn with_checkpoint(&self, checkpoint: LocalArchiveExtractionCheckpoint) -> Result<Self, LocalArchiveError> {
         Self::from_manifest(self.manifest.clone(), checkpoint)
     }

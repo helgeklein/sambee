@@ -47,8 +47,8 @@ vi.mock("../../services/api", () => ({
   },
 }));
 
-function localArchiveProgress(completedMembers = 0, skippedMembers = 0) {
-  return { completedMembers, skippedMembers, failedMembers: 0, partialMembers: 0 };
+function localArchiveProgress(completedMembers = 0, skippedMembers = 0, totalMembers?: number, totalBytes?: number) {
+  return { completedMembers, skippedMembers, failedMembers: 0, partialMembers: 0, totalMembers, totalBytes };
 }
 
 describe("content providers", () => {
@@ -154,7 +154,7 @@ describe("content providers", () => {
         execution_id: "local-extract-1",
         phase: "streaming",
         revision: 1,
-        progress: localArchiveProgress(2),
+        progress: localArchiveProgress(2, 0, 3, 10),
         cancellation_requested: false,
         files_extracted: 1,
         directories_created: 1,
@@ -165,7 +165,7 @@ describe("content providers", () => {
         execution_id: "local-extract-1",
         phase: "completed" as const,
         revision: 2,
-        progress: localArchiveProgress(3, 1),
+        progress: localArchiveProgress(3, 1, 3, 10),
         cancellation_requested: false,
         files_extracted: 2,
         directories_created: 1,
@@ -190,6 +190,8 @@ describe("content providers", () => {
         filesExtracted: 2,
         directoriesCreated: 1,
         extractedBytes: 10,
+        totalMembers: 3,
+        totalBytes: 10,
         filesSkipped: 1,
         filesReplaced: 0,
         partialMembers: 0,
@@ -202,6 +204,8 @@ describe("content providers", () => {
       filesExtracted: 1,
       directoriesCreated: 1,
       extractedBytes: 5,
+      totalMembers: 3,
+      totalBytes: 10,
       filesSkipped: 0,
       filesReplaced: 0,
       partialMembers: 0,

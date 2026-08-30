@@ -191,7 +191,6 @@ export function ArchiveExtractionConflictDialog({
       title={t("fileBrowser.archive.collisionTitle")}
       description={t("fileBrowser.archive.collisionPrompt")}
       maxWidth="sm"
-      contentSx={{ p: 2 }}
       actions={actionButtons}
     >
       {review}
