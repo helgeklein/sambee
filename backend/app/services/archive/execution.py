@@ -35,26 +35,26 @@ class ArchiveCompanionRelayPurpose(StrEnum):
 
     @property
     def kind(self) -> ArchiveOperationKind:
-        return (
-            ArchiveOperationKind.EXTRACT
-            if self
-            in {
-                self.LOCAL_ZIP_TO_SMB_EXTRACT,
-                self.SMB_ZIP_TO_LOCAL_EXTRACT,
-            }
-            else ArchiveOperationKind.CREATE
-        )
+        return _ARCHIVE_COMPANION_RELAY_PURPOSE_TOPOLOGY[self][0]
 
     @property
     def source_is_local(self) -> bool:
-        return self in {
-            self.LOCAL_ZIP_TO_SMB_EXTRACT,
-            self.LOCAL_TO_SMB_ZIP_CREATE,
-        }
+        return _ARCHIVE_COMPANION_RELAY_PURPOSE_TOPOLOGY[self][1]
 
     @property
     def destination_is_local(self) -> bool:
-        return not self.source_is_local
+        return _ARCHIVE_COMPANION_RELAY_PURPOSE_TOPOLOGY[self][2]
+
+
+_ARCHIVE_COMPANION_RELAY_TOPOLOGY_TO_PURPOSE: dict[tuple[ArchiveOperationKind, bool, bool], ArchiveCompanionRelayPurpose] = {
+    (ArchiveOperationKind.EXTRACT, True, False): ArchiveCompanionRelayPurpose.LOCAL_ZIP_TO_SMB_EXTRACT,
+    (ArchiveOperationKind.EXTRACT, False, True): ArchiveCompanionRelayPurpose.SMB_ZIP_TO_LOCAL_EXTRACT,
+    (ArchiveOperationKind.CREATE, False, True): ArchiveCompanionRelayPurpose.SMB_TO_LOCAL_ZIP_CREATE,
+    (ArchiveOperationKind.CREATE, True, False): ArchiveCompanionRelayPurpose.LOCAL_TO_SMB_ZIP_CREATE,
+}
+_ARCHIVE_COMPANION_RELAY_PURPOSE_TOPOLOGY: dict[ArchiveCompanionRelayPurpose, tuple[ArchiveOperationKind, bool, bool]] = {
+    purpose: topology for topology, purpose in _ARCHIVE_COMPANION_RELAY_TOPOLOGY_TO_PURPOSE.items()
+}
 
 
 @dataclass(frozen=True)
@@ -105,9 +105,9 @@ def resolve_archive_execution_topology(
             companion_purpose=None,
         )
 
-    purpose = next(
-        purpose for purpose in ArchiveCompanionRelayPurpose if purpose.kind == kind and purpose.source_is_local == source_is_local
-    )
+    purpose = _ARCHIVE_COMPANION_RELAY_TOPOLOGY_TO_PURPOSE.get((kind, source_is_local, destination_is_local))
+    if purpose is None:
+        raise ValueError("Archive execution topology has no supported Companion relay binding")
     return ArchiveExecutionTopology(
         driver=ArchiveExecutionDriver.COMPANION,
         source_is_local=source_is_local,

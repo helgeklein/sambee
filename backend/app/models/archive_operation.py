@@ -59,7 +59,7 @@ class ArchiveOperation(SQLModel, table=True):
     manifest_hash: str = Field(default="", index=True)
     revision: int = Field(default=0, ge=0)
     plan_json: str = Field(default="{}")
-    checkpoint_json: str = Field(default="{}")
+    checkpoint_json: str | None = Field(default=None)
     pending_decision_json: str | None = Field(default=None)
     collision_policy: str | None = Field(default=None)
     cancellation_requested: bool = Field(default=False, index=True)
@@ -97,7 +97,7 @@ class ArchiveOperationRead(SQLModel):
     destination_path: str
     manifest_hash: str
     revision: int
-    checkpoint_json: str
+    checkpoint_json: str | None
     pending_decision_json: str | None
     collision_policy: str | None
     cancellation_requested: bool

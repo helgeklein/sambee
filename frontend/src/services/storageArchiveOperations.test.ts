@@ -62,47 +62,47 @@ describe("StorageArchiveOperationCoordinator", () => {
 
   it("prepares, persists recovery, and executes SMB archive creation", async () => {
     const prepareCreate = vi.fn().mockResolvedValue({ recovery });
-    const executePreparedCreate = vi.fn().mockResolvedValue(completed);
-    const coordinator = new StorageArchiveOperationCoordinator(registry({ prepareCreate, executePreparedCreate }, {}));
+    const execute = vi.fn().mockResolvedValue(completed);
+    const coordinator = new StorageArchiveOperationCoordinator(registry({ prepareCreate, execute }, {}));
 
     const execution = coordinator.start(request("smb", "smb"));
 
     await expect(execution.recoveryReady).resolves.toEqual(recovery);
     await expect(execution.result).resolves.toEqual(completed);
     expect(prepareCreate).toHaveBeenCalledOnce();
-    expect(executePreparedCreate).toHaveBeenCalledWith({ recovery });
+    expect(execute).toHaveBeenCalledWith(expect.anything(), { mode: "durable", preparation: { recovery } });
     expect(loadForegroundArchiveOperation()).toBeNull();
   });
 
   it("bridges local sources to an SMB destination using the prepared server operation", async () => {
     const prepareCreate = vi.fn().mockResolvedValue({ recovery });
-    const createLocalSourceToSmb = vi.fn().mockResolvedValue(completed);
-    const coordinator = new StorageArchiveOperationCoordinator(registry({ prepareCreate }, { createLocalSourceToSmb }));
+    const execute = vi.fn().mockResolvedValue(completed);
+    const coordinator = new StorageArchiveOperationCoordinator(registry({ prepareCreate }, { execute }));
 
     await expect(coordinator.start(request("local", "smb")).result).resolves.toEqual(completed);
 
-    expect(createLocalSourceToSmb).toHaveBeenCalledWith(expect.objectContaining({ name: "backup.zip" }), { recovery });
+    expect(execute).toHaveBeenCalledWith(expect.objectContaining({ name: "backup.zip" }), { mode: "durable", preparation: { recovery } });
   });
 
   it("bridges SMB sources to a local destination using the prepared server operation", async () => {
     const prepareCreate = vi.fn().mockResolvedValue({ recovery });
-    const createSmbSourceToLocal = vi.fn().mockResolvedValue(completed);
-    const coordinator = new StorageArchiveOperationCoordinator(registry({ prepareCreate }, { createSmbSourceToLocal }));
+    const execute = vi.fn().mockResolvedValue(completed);
+    const coordinator = new StorageArchiveOperationCoordinator(registry({ prepareCreate }, { execute }));
 
     await expect(coordinator.start(request("smb", "local")).result).resolves.toEqual(completed);
 
-    expect(createSmbSourceToLocal).toHaveBeenCalledWith(expect.objectContaining({ name: "backup.zip" }), { recovery });
+    expect(execute).toHaveBeenCalledWith(expect.objectContaining({ name: "backup.zip" }), { mode: "durable", preparation: { recovery } });
   });
 
   it("creates local-only archives without persisting a server recovery operation", async () => {
-    const createLocally = vi.fn().mockResolvedValue(completed);
-    const coordinator = new StorageArchiveOperationCoordinator(registry({}, { createLocally }));
+    const execute = vi.fn().mockResolvedValue(completed);
+    const coordinator = new StorageArchiveOperationCoordinator(registry({}, { execute }));
 
     const execution = coordinator.start(request("local", "local"));
 
     await expect(execution.recoveryReady).resolves.toBeNull();
     await expect(execution.result).resolves.toEqual(completed);
-    expect(createLocally).toHaveBeenCalledOnce();
+    expect(execute).toHaveBeenCalledOnce();
     expect(loadForegroundArchiveOperation()).toBeNull();
   });
 
@@ -146,11 +146,11 @@ describe("StorageArchiveOperationCoordinator", () => {
   it("aborts in-flight local archive creation on page hide", async () => {
     const localCreation = deferred<typeof completed>();
     let signal: AbortSignal | undefined;
-    const createLocally = vi.fn((_request: StorageArchiveCreateRequest, requestSignal?: AbortSignal) => {
+    const execute = vi.fn((_request: StorageArchiveCreateRequest, _context: unknown, requestSignal?: AbortSignal) => {
       signal = requestSignal;
       return localCreation.promise;
     });
-    const coordinator = new StorageArchiveOperationCoordinator(registry({}, { createLocally }));
+    const coordinator = new StorageArchiveOperationCoordinator(registry({}, { execute }));
 
     const execution = coordinator.start(request("local", "local"));
     await expect(execution.recoveryReady).resolves.toBeNull();

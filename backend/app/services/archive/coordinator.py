@@ -13,7 +13,7 @@ from fastapi import HTTPException, status
 from sqlmodel import Session
 
 from app.models.archive import ArchiveDirectoryListing, ArchiveEntryInfo, ArchiveIdentity
-from app.models.archive_operation import ArchiveContractVersion, ArchiveOperation, ArchiveOperationKind, ArchiveOperationPhase
+from app.models.archive_operation import ArchiveContractVersion, ArchiveOperation, ArchiveOperationPhase
 from app.models.file import FileType
 from app.services.archive.creation import ArchiveCreationCancelled, ArchiveCreationMemberOutcome, ArchiveCreationResult
 from app.services.archive.execution import (
@@ -41,8 +41,7 @@ from app.services.archive.operations import (
 from app.services.archive.v2_checkpoint import (
     canonical_v2_timestamp,
     new_v2_creation_checkpoint,
-    validate_v2_creation_checkpoint,
-    validate_v2_extraction_checkpoint,
+    validate_v2_operation_checkpoint,
 )
 from app.services.archive.zip_reader import (
     ArchiveInspectionManifest,
@@ -313,6 +312,11 @@ class DurableArchiveExecutionStateStore:
         next_phase: ArchiveOperationPhase,
         additional_changes: dict[str, object] | None = None,
     ) -> ArchiveOperation:
+        if additional_changes is not None and "checkpoint_json" in additional_changes:
+            checkpoint_json = additional_changes["checkpoint_json"]
+            if not isinstance(checkpoint_json, str):
+                raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="Archive operation checkpoint is invalid")
+            additional_changes = {**additional_changes, "checkpoint_json": _validated_checkpoint_json(operation, checkpoint_json)}
         return update_operation_phase(
             self.session,
             operation,
@@ -322,27 +326,7 @@ class DurableArchiveExecutionStateStore:
         )
 
     def update_checkpoint(self, operation: ArchiveOperation, checkpoint_json: str) -> ArchiveOperation:
-        if (
-            operation.contract_version == ArchiveContractVersion.V2
-            and operation.kind == ArchiveOperationKind.EXTRACT
-            and _has_v2_checkpoint(operation)
-        ):
-            try:
-                checkpoint = json.loads(checkpoint_json)
-            except json.JSONDecodeError as exc:
-                raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="Archive operation checkpoint is invalid") from exc
-            checkpoint_json = json.dumps(validate_v2_extraction_checkpoint(checkpoint))
-        if (
-            operation.contract_version == ArchiveContractVersion.V2
-            and operation.kind == ArchiveOperationKind.CREATE
-            and _has_v2_creation_checkpoint(operation)
-        ):
-            try:
-                checkpoint = json.loads(checkpoint_json)
-            except json.JSONDecodeError as exc:
-                raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="Archive operation checkpoint is invalid") from exc
-            checkpoint_json = json.dumps(validate_v2_creation_checkpoint(checkpoint))
-        return update_operation_checkpoint(self.session, operation, checkpoint_json)
+        return update_operation_checkpoint(self.session, operation, _validated_checkpoint_json(operation, checkpoint_json))
 
     def await_decision(self, operation: ArchiveOperation, decision: dict[str, object]) -> ArchiveOperation:
         return await_operation_decision(self.session, operation, decision)
@@ -480,52 +464,34 @@ class InMemoryArchiveExecutionStateStore:
 def load_archive_checkpoint(operation: ArchiveOperation) -> dict[str, object]:
     """Load one durable archive checkpoint without accepting malformed state."""
 
+    if operation.checkpoint_json is None:
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="Archive operation checkpoint is not initialized")
     try:
-        checkpoint = json.loads(operation.checkpoint_json or "{}")
+        checkpoint = json.loads(operation.checkpoint_json)
     except json.JSONDecodeError as exc:
         raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="Archive operation checkpoint is invalid") from exc
-    if not isinstance(checkpoint, dict):
-        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="Archive operation checkpoint is invalid")
-    if (
-        operation.contract_version == ArchiveContractVersion.V2
-        and operation.kind == ArchiveOperationKind.EXTRACT
-        and _has_v2_checkpoint(operation)
-    ):
-        try:
-            return validate_v2_extraction_checkpoint(checkpoint)
-        except HTTPException as exc:
-            raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="Archive operation checkpoint is invalid") from exc
-    if (
-        operation.contract_version == ArchiveContractVersion.V2
-        and operation.kind == ArchiveOperationKind.CREATE
-        and _has_v2_creation_checkpoint(operation)
-    ):
-        try:
-            return validate_v2_creation_checkpoint(checkpoint)
-        except HTTPException as exc:
-            raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="Archive operation checkpoint is invalid") from exc
-    return checkpoint
+    return _validate_operation_checkpoint(operation, checkpoint)
 
 
-def _has_v2_checkpoint(operation: ArchiveOperation) -> bool:
-    """Return whether this operation was initialized through the strict V2 boundary."""
+def _validated_checkpoint_json(operation: ArchiveOperation, checkpoint_json: str) -> str:
+    """Normalize one checkpoint before it crosses a durable state-store boundary."""
 
     try:
-        checkpoint = json.loads(operation.checkpoint_json or "{}")
-    except json.JSONDecodeError:
-        return False
-    return isinstance(checkpoint, dict) and checkpoint.get("version") == 2
+        checkpoint = json.loads(checkpoint_json)
+    except json.JSONDecodeError as exc:
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="Archive operation checkpoint is invalid") from exc
+    return json.dumps(_validate_operation_checkpoint(operation, checkpoint))
 
 
-def _has_v2_creation_checkpoint(operation: ArchiveOperation) -> bool:
-    """Return whether a creation operation has the strict V2 creation envelope."""
+def _validate_operation_checkpoint(operation: ArchiveOperation, checkpoint: object) -> dict[str, object]:
+    """Validate an initialized checkpoint from the operation's authoritative V2 metadata."""
 
+    if operation.contract_version != ArchiveContractVersion.V2:
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="Archive operation contract version is incompatible with V2")
     try:
-        checkpoint = json.loads(operation.checkpoint_json or "{}")
-    except json.JSONDecodeError:
-        return False
-    manifest = checkpoint.get("manifest") if isinstance(checkpoint, dict) else None
-    return isinstance(manifest, list) and any(isinstance(member, dict) and "archive_path" in member for member in manifest)
+        return validate_v2_operation_checkpoint(operation.kind, checkpoint)
+    except HTTPException as exc:
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="Archive operation checkpoint is invalid") from exc
 
 
 @dataclass(frozen=True)
@@ -711,7 +677,9 @@ class ArchiveExtractionManifest:
         ]
 
 
-def _normalize_extraction_manifest_path(member_path: str) -> str:
+def _normalize_v2_archive_member_path(member_path: str, *, error_message: str) -> str:
+    """Return one canonical safe V2 archive member path for any operation manifest."""
+
     normalized = member_path.replace("\\", "/").rstrip("/")
     parts = normalized.split("/")
     if (
@@ -720,8 +688,12 @@ def _normalize_extraction_manifest_path(member_path: str) -> str:
         or "\x00" in normalized
         or any(not part or part in {".", ".."} or ":" in part for part in parts)
     ):
-        raise ValueError
+        raise ValueError(error_message)
     return normalized
+
+
+def _normalize_extraction_manifest_path(member_path: str) -> str:
+    return _normalize_v2_archive_member_path(member_path, error_message="Archive extraction member is invalid or unavailable")
 
 
 @dataclass(frozen=True)
@@ -1149,16 +1121,7 @@ class ArchiveCreationExecutionPlan:
 
 
 def _normalize_creation_manifest_path(archive_path: str) -> str:
-    normalized = archive_path.replace("\\", "/").rstrip("/")
-    parts = normalized.split("/")
-    if (
-        not normalized
-        or normalized.startswith("/")
-        or "\x00" in normalized
-        or any(not part or part in {".", ".."} or ":" in part for part in parts)
-    ):
-        raise ValueError("Archive creation member is invalid or unavailable")
-    return normalized
+    return _normalize_v2_archive_member_path(archive_path, error_message="Archive creation member is invalid or unavailable")
 
 
 def _normalize_creation_manifest_timestamp(source_modified_at: str | None) -> str | None:

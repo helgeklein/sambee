@@ -1,0 +1,5 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+cd "$(dirname "$0")/.."
+backend/.venv/bin/python -m pytest -q -o addopts='' backend/tests/test_archive_relay_companion_interop.py

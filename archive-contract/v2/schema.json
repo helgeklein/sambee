@@ -536,7 +536,10 @@
           "minimum": 0
         },
         "checkpoint_json": {
-          "type": "string",
+          "type": [
+            "string",
+            "null"
+          ],
           "maxLength": 1048576
         },
         "pending_decision_json": {
@@ -948,7 +951,10 @@
           "type": "string"
         },
         "checkpoint_json": {
-          "type": "string",
+          "type": [
+            "string",
+            "null"
+          ],
           "maxLength": 1048576
         },
         "pending_decision_json": {

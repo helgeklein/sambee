@@ -11,6 +11,7 @@ import {
 import type {
   ArchiveCreationOperations,
   StorageArchiveCreateRequest,
+  StorageArchiveExecutionContext,
   StorageBackendRegistry,
   StorageOperationExecution,
   StorageOperationResult,
@@ -40,15 +41,33 @@ function targetForRecovery(handle: StorageRecoveryHandle): StorageTarget {
   return handle.backendKind === "smb" ? { kind: "smb", connectionId: "" } : { kind: "local", driveId: "" };
 }
 
+interface ArchiveCreationExecutionPlan {
+  executorTarget: StorageTarget;
+  preparationTarget: StorageTarget | null;
+  mode: StorageArchiveExecutionContext["mode"];
+}
+
+function resolveArchiveCreationExecutionPlan(request: StorageArchiveCreateRequest): ArchiveCreationExecutionPlan {
+  const sourceTarget = request.sources[0]!.target;
+  const destinationTarget = request.destination.target;
+  if (sourceTarget.kind === "local" && destinationTarget.kind === "local") {
+    return { executorTarget: sourceTarget, preparationTarget: null, mode: "direct-local" };
+  }
+  const backendTarget = sourceTarget.kind === "smb" ? sourceTarget : destinationTarget;
+  const executorTarget =
+    sourceTarget.kind === "local" || destinationTarget.kind === "local"
+      ? sourceTarget.kind === "local"
+        ? sourceTarget
+        : destinationTarget
+      : backendTarget;
+  return { executorTarget, preparationTarget: backendTarget, mode: "durable" };
+}
+
 export class StorageArchiveOperationCoordinator {
   constructor(private readonly registry: StorageBackendRegistry) {}
 
   start(request: StorageArchiveCreateRequest): StorageOperationExecution {
-    const sourceTarget = request.sources[0]!.target;
-    const destinationTarget = request.destination.target;
-    const isLocalOnly = sourceTarget.kind === "local" && destinationTarget.kind === "local";
-    const serverTarget = sourceTarget.kind === "smb" ? sourceTarget : destinationTarget;
-    const localTarget = sourceTarget.kind === "local" ? sourceTarget : destinationTarget;
+    const executionPlan = resolveArchiveCreationExecutionPlan(request);
     let preparation: Awaited<ReturnType<NonNullable<ArchiveCreationOperations["prepareCreate"]>>> | null = null;
     let localSignal: AbortSignal | null = null;
     let cancellationRequested = false;
@@ -63,7 +82,7 @@ export class StorageArchiveOperationCoordinator {
       if (!preparation || backendCancellationSucceeded) {
         return cancelledResult();
       }
-      const serverOperations = archiveCreationOperations(this.registry, serverTarget);
+      const serverOperations = archiveCreationOperations(this.registry, executionPlan.preparationTarget!);
       if (!serverOperations.cancel) {
         throw new Error("Archive cancellation is unavailable for this storage target");
       }
@@ -74,21 +93,18 @@ export class StorageArchiveOperationCoordinator {
 
     const result = (async (): Promise<StorageOperationResult> => {
       try {
-        if (isLocalOnly) {
-          const localOperations = archiveCreationOperations(this.registry, localTarget);
-          if (!localOperations.createLocally) {
-            throw new Error("Local archive creation is unavailable");
-          }
+        const executor = archiveCreationOperations(this.registry, executionPlan.executorTarget);
+        if (executionPlan.mode === "direct-local") {
           resolveRecovery(null);
           localSignal = beginForegroundLocalArchiveRequest();
           if (cancellationRequested) {
             abortForegroundLocalArchiveRequest();
             return cancelledResult();
           }
-          return await localOperations.createLocally(request, localSignal);
+          return await executor.execute(request, { mode: "direct-local", preparation: null }, localSignal);
         }
 
-        const serverOperations = archiveCreationOperations(this.registry, serverTarget);
+        const serverOperations = archiveCreationOperations(this.registry, executionPlan.preparationTarget!);
         if (!serverOperations.prepareCreate) {
           throw new Error("Server archive preparation is unavailable");
         }
@@ -100,24 +116,7 @@ export class StorageArchiveOperationCoordinator {
           return cancelledResult();
         }
 
-        if (sourceTarget.kind === "local") {
-          const localOperations = archiveCreationOperations(this.registry, localTarget);
-          if (!localOperations.createLocalSourceToSmb) {
-            throw new Error("Local-to-SMB archive creation is unavailable");
-          }
-          return await localOperations.createLocalSourceToSmb(request, preparation);
-        }
-        if (destinationTarget.kind === "local") {
-          const localOperations = archiveCreationOperations(this.registry, localTarget);
-          if (!localOperations.createSmbSourceToLocal) {
-            throw new Error("SMB-to-local archive creation is unavailable");
-          }
-          return await localOperations.createSmbSourceToLocal(request, preparation);
-        }
-        if (!serverOperations.executePreparedCreate) {
-          throw new Error("Server archive execution is unavailable");
-        }
-        return await serverOperations.executePreparedCreate(preparation);
+        return await executor.execute(request, { mode: "durable", preparation });
       } catch (error) {
         if (preparation && !backendCancellationSucceeded) {
           try {

@@ -44,6 +44,7 @@ if [[ "$COMPONENT" == "all" || "$COMPONENT" == "companion" ]]; then
 fi
 
 if [[ "$COMPONENT" == "all" ]]; then
+    "$REPO_ROOT/scripts/test-archive-relay-integration"
     cd "$REPO_ROOT"
     git diff --check
 fi

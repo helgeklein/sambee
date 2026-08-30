@@ -359,15 +359,15 @@ def test_creation_outcome_summary_requires_complete_manifest_ledger() -> None:
         creation_outcome_summary(checkpoint)
 
 
-@pytest.mark.parametrize("checkpoint_json", ["invalid-json", "[]"])
-def test_common_archive_checkpoint_loader_rejects_invalid_state(checkpoint_json: str) -> None:
+@pytest.mark.parametrize("checkpoint_json", [None, "invalid-json", "[]", "{}", json.dumps({"version": 1})])
+def test_common_archive_checkpoint_loader_rejects_invalid_state(checkpoint_json: str | None) -> None:
     operation = ArchiveOperation(
         user_id=uuid.uuid4(),
         kind=ArchiveOperationKind.EXTRACT,
         checkpoint_json=checkpoint_json,
     )
 
-    with pytest.raises(HTTPException, match="Archive operation checkpoint is invalid") as exc_info:
+    with pytest.raises(HTTPException, match="Archive operation checkpoint is") as exc_info:
         load_archive_checkpoint(operation)
     assert exc_info.value.status_code == status.HTTP_409_CONFLICT
 
@@ -848,6 +848,26 @@ def test_operation_topology_plan_is_immutable_resolved_execution_selection() -> 
     assert plan.kind == ArchiveOperationKind.EXTRACT
     assert plan.topology.driver == ArchiveExecutionDriver.COMPANION
     assert plan.topology.companion_purpose == ArchiveCompanionRelayPurpose.SMB_ZIP_TO_LOCAL_EXTRACT
+
+
+def test_v2_relay_binding_fixture_matches_backend_topology_resolution() -> None:
+    fixture = json.loads((Path(__file__).parents[2] / "archive-contract/v2/fixtures/relay-bindings-v2.json").read_text(encoding="utf-8"))
+
+    assert fixture["version"] == 2
+    resolved_bindings = [
+        {
+            "purpose": resolve_archive_execution_topology(
+                kind=ArchiveOperationKind(binding["kind"]),
+                source_connection_id="local-drive:c" if binding["source"] == "local" else "connection-1",
+                destination_connection_id="local-drive:c" if binding["destination"] == "local" else "connection-1",
+            ).companion_purpose.value,
+            "kind": binding["kind"],
+            "source": binding["source"],
+            "destination": binding["destination"],
+        }
+        for binding in fixture["bindings"]
+    ]
+    assert resolved_bindings == fixture["bindings"]
 
 
 def test_prepare_archive_operation_rejects_unsupported_topology_before_persistence(

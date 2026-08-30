@@ -10,6 +10,8 @@ from uuid import UUID
 
 from fastapi import HTTPException, status
 
+from app.models.archive_operation import ArchiveOperationKind
+
 V2_CHECKPOINT_VERSION = 2
 V2_CHECKPOINT_FIELDS = frozenset(
     {
@@ -329,3 +331,13 @@ def new_v2_creation_checkpoint(*, manifest: list[dict[str, object]]) -> dict[str
             "delivery_ids": {},
         }
     )
+
+
+def validate_v2_operation_checkpoint(kind: ArchiveOperationKind, checkpoint: object) -> dict[str, object]:
+    """Select the only valid V2 checkpoint envelope from the persisted operation kind."""
+
+    if kind == ArchiveOperationKind.EXTRACT:
+        return validate_v2_extraction_checkpoint(checkpoint)
+    if kind == ArchiveOperationKind.CREATE:
+        return validate_v2_creation_checkpoint(checkpoint)
+    raise _invalid_checkpoint("Archive V2 operation kind is invalid")

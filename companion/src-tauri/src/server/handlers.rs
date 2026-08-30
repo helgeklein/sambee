@@ -42,9 +42,10 @@ use super::archive::{
     ArchiveExtractionManifest, ArchiveExtractionManifestMember, ArchiveExtractionRelayExecutionPlan, ArchiveExtractionRelayState,
     ArchiveInspectionCoordinator, ArchiveInspectionPlan, ArchiveInspectionPresentation, ArchiveMemberReadDelivery,
     ArchiveMemberReadPresentation, CompanionArchiveBinding, CompanionArchiveExecutionDriver, CompanionArchiveOperationKind,
-    CompanionArchiveTopology, CompanionArchiveTopologyPlan, LocalArchiveCreationExecutionPlan, LocalArchiveCreationResult,
-    LocalArchiveEntry, LocalArchiveError, LocalArchiveExtractionCollisionAction, LocalArchiveExtractionExecutionPlan,
-    LocalArchiveExtractionRunResult, LocalArchiveInspectionSource, LocalArchiveReadEntry, LocalArchiveRelayChunk, ARCHIVE_COPY_BUFFER_SIZE,
+    CompanionArchiveRelayPurpose, CompanionArchiveTopology, CompanionArchiveTopologyPlan, LocalArchiveCreationExecutionPlan,
+    LocalArchiveCreationResult, LocalArchiveEntry, LocalArchiveError, LocalArchiveExtractionCollisionAction,
+    LocalArchiveExtractionExecutionPlan, LocalArchiveExtractionRunResult, LocalArchiveInspectionSource, LocalArchiveReadEntry,
+    LocalArchiveRelayChunk, ARCHIVE_COPY_BUFFER_SIZE,
 };
 use super::archive_sessions::{
     ArchiveSessionCompletion, ArchiveSessionManager, ArchiveSessionProgress, ArchiveSessionStatus, ArchiveSessionWork,
@@ -1236,31 +1237,7 @@ struct ArchiveRelayTransport {
     operation_token: String,
 }
 
-enum ArchiveRelayBinding {
-    LocalZipToSmbExtract,
-    SmbZipToLocalExtract,
-    SmbToLocalZipCreate,
-    LocalToSmbZipCreate,
-}
-
-impl ArchiveRelayBinding {
-    const fn operation_segment(self) -> &'static str {
-        match self {
-            Self::LocalZipToSmbExtract | Self::SmbZipToLocalExtract => "extraction",
-            Self::SmbToLocalZipCreate | Self::LocalToSmbZipCreate => "creation",
-        }
-    }
-
-    #[cfg(test)]
-    const fn capability_purpose(self) -> &'static str {
-        match self {
-            Self::LocalZipToSmbExtract => "local_zip_to_smb_extract",
-            Self::SmbZipToLocalExtract => "smb_zip_to_local_extract",
-            Self::SmbToLocalZipCreate => "smb_to_local_zip_create",
-            Self::LocalToSmbZipCreate => "local_to_smb_zip_create",
-        }
-    }
-}
+type ArchiveRelayBinding = CompanionArchiveRelayPurpose;
 
 impl ArchiveRelayTransport {
     fn new(client: Client, relay_url: String, operation_token: String) -> Self {
@@ -1360,9 +1337,20 @@ impl ArchiveRelayTransport {
 
     async fn post_without_result(&self, path: &str, request_context: &str, action: &str) -> Result<(), ApiError> {
         let idempotency_key = uuid::Uuid::new_v4().to_string();
+        self.post_without_result_with_idempotency_key(path, &idempotency_key, request_context, action)
+            .await
+    }
+
+    async fn post_without_result_with_idempotency_key(
+        &self,
+        path: &str,
+        idempotency_key: &str,
+        request_context: &str,
+        action: &str,
+    ) -> Result<(), ApiError> {
         let response = self
             .send_acknowledgement(
-                || self.post(path).header(ARCHIVE_RELAY_IDEMPOTENCY_HEADER, &idempotency_key),
+                || self.post(path).header(ARCHIVE_RELAY_IDEMPOTENCY_HEADER, idempotency_key),
                 request_context,
             )
             .await?;
@@ -5882,6 +5870,65 @@ mod tests {
                 },
             ])
         );
+    }
+
+    #[tokio::test]
+    async fn archive_relay_transport_interoperates_with_fastapi_when_configured() {
+        let serialized_cases = match std::env::var("SAMBEE_ARCHIVE_RELAY_INTEROP_CASES") {
+            Ok(value) => value,
+            Err(_) => return,
+        };
+        let cases: Vec<serde_json::Value> = serde_json::from_str(&serialized_cases).expect("interop cases should be valid JSON");
+        assert_eq!(cases.len(), 4, "interop fixture must cover every mixed V2 relay binding");
+
+        for case in &cases {
+            let relay_url = case["relay_url"].as_str().expect("interop case must define a relay URL");
+            let token = case["token"].as_str().expect("interop case must define a capability token");
+            let action = case["action"].as_str().expect("interop case must define an action");
+            let transport = ArchiveRelayTransport::new(reqwest::Client::new(), relay_url.to_string(), token.to_string());
+            match action {
+                "complete_replay" => {
+                    let idempotency_key = "f265e81c-c6ce-4f4d-9a4a-293b28a6ec95";
+                    transport
+                        .post_without_result_with_idempotency_key("complete", idempotency_key, "FastAPI relay interoperability", "complete")
+                        .await
+                        .expect("initial relay completion should succeed");
+                    transport
+                        .post_without_result_with_idempotency_key("complete", idempotency_key, "FastAPI relay interoperability", "complete")
+                        .await
+                        .expect("idempotent relay completion replay should succeed");
+                }
+                "extraction_complete" => transport
+                    .complete_with_json(
+                        &serde_json::json!({"destination_root_created": false}),
+                        "FastAPI relay interoperability",
+                    )
+                    .await
+                    .expect("extraction completion should succeed"),
+                "creation_complete" => transport
+                    .complete_with_json(
+                        &serde_json::json!({"files_created": 0, "directories_created": 0, "source_bytes": 0}),
+                        "FastAPI relay interoperability",
+                    )
+                    .await
+                    .expect("creation completion should succeed"),
+                "fail" => transport
+                    .fail("loopback relay failure", "FastAPI relay interoperability")
+                    .await
+                    .expect("relay failure report should succeed"),
+                _ => panic!("interop case action is invalid"),
+            }
+        }
+
+        let rejected_transport = ArchiveRelayTransport::new(
+            reqwest::Client::new(),
+            cases[0]["relay_url"]
+                .as_str()
+                .expect("interop case must define a relay URL")
+                .to_string(),
+            "invalid-capability".to_string(),
+        );
+        assert!(rejected_transport.complete("FastAPI relay interoperability").await.is_err());
     }
 
     async fn spawn_archive_relay_transport_test_server() -> String {

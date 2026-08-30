@@ -713,7 +713,7 @@ def _apply_archive_operations_migration(connection: Connection) -> None:
                 destination_path VARCHAR(4096) NOT NULL,
                 manifest_hash VARCHAR(128) NOT NULL,
                 plan_json TEXT NOT NULL,
-                checkpoint_json TEXT NOT NULL,
+                checkpoint_json TEXT,
                 pending_decision_json TEXT,
                 collision_policy VARCHAR(64),
                 cancellation_requested BOOLEAN NOT NULL DEFAULT 0,
@@ -770,6 +770,80 @@ def _apply_archive_operation_contract_version_migration(connection: Connection) 
     connection.execute(text("CREATE INDEX IF NOT EXISTS ix_archive_operations_contract_version ON archive_operations (contract_version)"))
 
 
+def _apply_nullable_archive_operation_checkpoint_migration(connection: Connection) -> None:
+    """Represent a not-yet-started V2 operation with an explicit null checkpoint."""
+
+    inspector = inspect(connection)
+    if not inspector.has_table("archive_operations"):
+        return
+    checkpoint_column = next(column for column in inspector.get_columns("archive_operations") if column["name"] == "checkpoint_json")
+    if checkpoint_column["nullable"]:
+        return
+    connection.execute(text("DROP TABLE IF EXISTS archive_operations__nullable_checkpoint"))
+    connection.execute(
+        text(
+            """
+            CREATE TABLE archive_operations__nullable_checkpoint (
+                id CHAR(32) NOT NULL PRIMARY KEY,
+                user_id CHAR(32) NOT NULL,
+                contract_version VARCHAR(8) NOT NULL DEFAULT 'V2'
+                    CONSTRAINT ck_archive_operations_contract_version_v2 CHECK (contract_version = 'V2'),
+                kind VARCHAR(32) NOT NULL,
+                phase VARCHAR(64) NOT NULL,
+                source_connection_id VARCHAR(256) NOT NULL,
+                source_path VARCHAR(4096) NOT NULL,
+                destination_connection_id VARCHAR(256) NOT NULL,
+                destination_path VARCHAR(4096) NOT NULL,
+                manifest_hash VARCHAR(128) NOT NULL,
+                revision INTEGER NOT NULL DEFAULT 0,
+                plan_json TEXT NOT NULL,
+                checkpoint_json TEXT,
+                pending_decision_json TEXT,
+                collision_policy VARCHAR(64),
+                cancellation_requested BOOLEAN NOT NULL DEFAULT 0,
+                last_error_json TEXT,
+                created_at DATETIME NOT NULL,
+                updated_at DATETIME NOT NULL,
+                heartbeat_at DATETIME NOT NULL,
+                FOREIGN KEY(user_id) REFERENCES user (id)
+            )
+            """
+        )
+    )
+    connection.execute(
+        text(
+            """
+            INSERT INTO archive_operations__nullable_checkpoint (
+                id, user_id, contract_version, kind, phase, source_connection_id, source_path,
+                destination_connection_id, destination_path, manifest_hash, revision, plan_json,
+                checkpoint_json, pending_decision_json, collision_policy, cancellation_requested,
+                last_error_json, created_at, updated_at, heartbeat_at
+            )
+            SELECT
+                id, user_id, contract_version, kind, phase, source_connection_id, source_path,
+                destination_connection_id, destination_path, manifest_hash, revision, plan_json,
+                CASE WHEN phase = 'PREPARED' THEN NULL ELSE checkpoint_json END,
+                pending_decision_json, collision_policy, cancellation_requested, last_error_json,
+                created_at, updated_at, heartbeat_at
+            FROM archive_operations
+            """
+        )
+    )
+    connection.execute(text("DROP TABLE archive_operations"))
+    connection.execute(text("ALTER TABLE archive_operations__nullable_checkpoint RENAME TO archive_operations"))
+    for column in (
+        "user_id",
+        "contract_version",
+        "kind",
+        "phase",
+        "source_connection_id",
+        "destination_connection_id",
+        "manifest_hash",
+        "cancellation_requested",
+    ):
+        connection.execute(text(f"CREATE INDEX IF NOT EXISTS ix_archive_operations_{column} ON archive_operations ({column})"))
+
+
 MIGRATIONS: tuple[Migration, ...] = (
     Migration(version=1, name="ensure_connection_slugs", apply=_apply_connection_slug_migration),
     Migration(version=2, name="add_user_role_and_session_fields", apply=_apply_user_role_migration),
@@ -802,6 +876,9 @@ MIGRATIONS: tuple[Migration, ...] = (
     Migration(version=29, name="enforce_unique_edit_lock_targets", apply=_apply_edit_lock_target_uniqueness_migration),
     Migration(version=30, name="add_archive_operation_revision", apply=_apply_archive_operation_revision_migration),
     Migration(version=31, name="add_archive_operation_contract_version", apply=_apply_archive_operation_contract_version_migration),
+    Migration(
+        version=32, name="allow_uninitialized_archive_operation_checkpoints", apply=_apply_nullable_archive_operation_checkpoint_migration
+    ),
 )
 
 
@@ -815,7 +892,7 @@ def run_migrations(engine: Engine) -> None:
                 continue
 
             logger.info(f"Applying schema migration {migration.version}: {migration.name}")
-            rebuilds_referenced_table = migration.version in {12, 15} and connection.dialect.name == "sqlite"
+            rebuilds_referenced_table = migration.version in {12, 15, 32} and connection.dialect.name == "sqlite"
             if rebuilds_referenced_table:
                 connection.exec_driver_sql("PRAGMA foreign_keys=OFF")
                 connection.commit()

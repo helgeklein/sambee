@@ -249,8 +249,9 @@ export class SambeeSmbBackend extends ApiStorageBackend {
         },
       };
     },
-    executePreparedCreate: async (preparation) => {
-      await api.executeArchiveCreation(preparation.recovery.opaqueOperationId);
+    execute: async (_request, context) => {
+      if (context.mode !== "durable") throw new Error("SMB archive creation requires a durable operation");
+      await api.executeArchiveCreation(context.preparation.recovery.opaqueOperationId);
       return COMPLETED;
     },
     cancel: async (recovery) => {
@@ -268,36 +269,35 @@ export class SambeeSmbBackend extends ApiStorageBackend {
 export class CompanionLocalBackend extends ApiStorageBackend {
   readonly kind = "local" as const;
   readonly archiveCreation: ArchiveCreationOperations = {
-    createLocally: async (request, signal) => {
-      assertOwned(this.kind, ...request.sources.map((source) => source.resolvedTarget), request.destination.resolvedTarget);
-      return createLocalArchiveExecution(
-        localDriveId(request.sources[0]!.target),
-        request.sources.map((source) => source.path),
-        archiveTargetPath(request),
-        signal
-      );
-    },
-    createLocalSourceToSmb: async (request, preparation) => {
-      assertOwned(this.kind, ...request.sources.map((source) => source.resolvedTarget));
-      const session = await api.getArchiveCompanionSession(preparation.recovery.opaqueOperationId);
-      await api.createLocalArchiveToSmb(
-        connectionId(request.sources[0]!.target),
-        request.sources.map((source) => source.path),
-        archiveTargetPath(request),
-        preparation.recovery.opaqueOperationId,
-        session.token
-      );
-      return COMPLETED;
-    },
-    createSmbSourceToLocal: async (request, preparation) => {
-      assertOwned(this.kind, request.destination.resolvedTarget);
-      const session = await api.getArchiveCompanionSession(preparation.recovery.opaqueOperationId);
-      await api.createSmbArchiveToLocal(
-        connectionId(request.destination.target),
-        archiveTargetPath(request),
-        preparation.recovery.opaqueOperationId,
-        session.token
-      );
+    execute: async (request, context, signal) => {
+      if (context.mode === "direct-local") {
+        assertOwned(this.kind, ...request.sources.map((source) => source.resolvedTarget), request.destination.resolvedTarget);
+        return createLocalArchiveExecution(
+          localDriveId(request.sources[0]!.target),
+          request.sources.map((source) => source.path),
+          archiveTargetPath(request),
+          signal
+        );
+      }
+      const session = await api.getArchiveCompanionSession(context.preparation.recovery.opaqueOperationId);
+      if (request.sources[0]!.target.kind === "local") {
+        assertOwned(this.kind, ...request.sources.map((source) => source.resolvedTarget));
+        await api.createLocalArchiveToSmb(
+          connectionId(request.sources[0]!.target),
+          request.sources.map((source) => source.path),
+          archiveTargetPath(request),
+          context.preparation.recovery.opaqueOperationId,
+          session.token
+        );
+      } else {
+        assertOwned(this.kind, request.destination.resolvedTarget);
+        await api.createSmbArchiveToLocal(
+          connectionId(request.destination.target),
+          archiveTargetPath(request),
+          context.preparation.recovery.opaqueOperationId,
+          session.token
+        );
+      }
       return COMPLETED;
     },
   };

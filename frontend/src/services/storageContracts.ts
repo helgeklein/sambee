@@ -167,12 +167,17 @@ export interface StorageArchivePreparation {
   recovery: StorageRecoveryHandle;
 }
 
+export type StorageArchiveExecutionContext =
+  | { mode: "direct-local"; preparation: null }
+  | { mode: "durable"; preparation: StorageArchivePreparation };
+
 export interface ArchiveCreationOperations {
   prepareCreate?(request: StorageArchiveCreateRequest): Promise<StorageArchivePreparation>;
-  executePreparedCreate?(preparation: StorageArchivePreparation): Promise<StorageOperationResult>;
-  createLocally?(request: StorageArchiveCreateRequest, signal?: AbortSignal): Promise<StorageOperationResult>;
-  createLocalSourceToSmb?(request: StorageArchiveCreateRequest, preparation: StorageArchivePreparation): Promise<StorageOperationResult>;
-  createSmbSourceToLocal?(request: StorageArchiveCreateRequest, preparation: StorageArchivePreparation): Promise<StorageOperationResult>;
+  execute(
+    request: StorageArchiveCreateRequest,
+    context: StorageArchiveExecutionContext,
+    signal?: AbortSignal
+  ): Promise<StorageOperationResult>;
   cancel?(recovery: StorageRecoveryHandle): Promise<StorageOperationResult>;
 }
 

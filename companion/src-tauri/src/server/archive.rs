@@ -70,6 +70,55 @@ pub enum CompanionArchiveBinding {
     LocalToSmbRelay,
 }
 
+/// Signed V2 capability purpose for one mixed Companion relay topology.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum CompanionArchiveRelayPurpose {
+    LocalZipToSmbExtract,
+    SmbZipToLocalExtract,
+    SmbToLocalZipCreate,
+    LocalToSmbZipCreate,
+}
+
+impl CompanionArchiveRelayPurpose {
+    pub const fn resolve(
+        kind: CompanionArchiveOperationKind,
+        source_is_local: bool,
+        destination_is_local: bool,
+    ) -> Result<Self, LocalArchiveError> {
+        match (kind, source_is_local, destination_is_local) {
+            (CompanionArchiveOperationKind::Extract, true, false) => Ok(Self::LocalZipToSmbExtract),
+            (CompanionArchiveOperationKind::Extract, false, true) => Ok(Self::SmbZipToLocalExtract),
+            (CompanionArchiveOperationKind::Create, false, true) => Ok(Self::SmbToLocalZipCreate),
+            (CompanionArchiveOperationKind::Create, true, false) => Ok(Self::LocalToSmbZipCreate),
+            _ => Err(LocalArchiveError::UnsupportedSource),
+        }
+    }
+
+    pub const fn binding(self) -> CompanionArchiveBinding {
+        match self {
+            Self::LocalZipToSmbExtract | Self::LocalToSmbZipCreate => CompanionArchiveBinding::LocalToSmbRelay,
+            Self::SmbZipToLocalExtract | Self::SmbToLocalZipCreate => CompanionArchiveBinding::SmbToLocalRelay,
+        }
+    }
+
+    pub const fn operation_segment(self) -> &'static str {
+        match self {
+            Self::LocalZipToSmbExtract | Self::SmbZipToLocalExtract => "extraction",
+            Self::SmbToLocalZipCreate | Self::LocalToSmbZipCreate => "creation",
+        }
+    }
+
+    #[cfg(test)]
+    pub const fn capability_purpose(self) -> &'static str {
+        match self {
+            Self::LocalZipToSmbExtract => "local_zip_to_smb_extract",
+            Self::SmbZipToLocalExtract => "smb_zip_to_local_extract",
+            Self::SmbToLocalZipCreate => "smb_to_local_zip_create",
+            Self::LocalToSmbZipCreate => "local_to_smb_zip_create",
+        }
+    }
+}
+
 /// Runtime selected to execute a Companion-owned archive topology plan.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum CompanionArchiveExecutionDriver {
@@ -93,17 +142,19 @@ pub fn resolve_companion_archive_topology_plan(
     source_is_local: bool,
     destination_is_local: bool,
 ) -> Result<CompanionArchiveTopologyPlan, LocalArchiveError> {
-    let topology = match (source_is_local, destination_is_local) {
-        (true, true) => CompanionArchiveTopology::LocalToLocal,
-        (false, true) => CompanionArchiveTopology::SmbToLocal,
-        (true, false) => CompanionArchiveTopology::LocalToSmb,
-        (false, false) => return Err(LocalArchiveError::UnsupportedSource),
-    };
-    let binding = match topology {
-        CompanionArchiveTopology::LocalInspection => CompanionArchiveBinding::LocalInspection,
-        CompanionArchiveTopology::LocalToLocal => CompanionArchiveBinding::LocalToLocal,
-        CompanionArchiveTopology::SmbToLocal => CompanionArchiveBinding::SmbToLocalRelay,
-        CompanionArchiveTopology::LocalToSmb => CompanionArchiveBinding::LocalToSmbRelay,
+    let (topology, binding) = match (source_is_local, destination_is_local) {
+        (true, true) if matches!(kind, CompanionArchiveOperationKind::Create | CompanionArchiveOperationKind::Extract) => {
+            (CompanionArchiveTopology::LocalToLocal, CompanionArchiveBinding::LocalToLocal)
+        }
+        (false, true) => (
+            CompanionArchiveTopology::SmbToLocal,
+            CompanionArchiveRelayPurpose::resolve(kind, source_is_local, destination_is_local)?.binding(),
+        ),
+        (true, false) => (
+            CompanionArchiveTopology::LocalToSmb,
+            CompanionArchiveRelayPurpose::resolve(kind, source_is_local, destination_is_local)?.binding(),
+        ),
+        _ => return Err(LocalArchiveError::UnsupportedSource),
     };
     Ok(CompanionArchiveTopologyPlan {
         kind,
