@@ -780,6 +780,50 @@ describe("Browser Component - Interactions", () => {
       expect(within(helpDialog).getByText("Alt+F9")).toBeInTheDocument();
     });
 
+    it("opens archive extraction with Alt+F9 for a focused ZIP file", async () => {
+      vi.mocked(api.listDirectory).mockResolvedValue({
+        path: "",
+        items: [
+          {
+            name: "notes.txt",
+            path: "notes.txt",
+            type: FileType.FILE,
+            size: 1024,
+            modified_at: "2024-01-01T00:00:00Z",
+            mime_type: "text/plain",
+            is_readable: true,
+            is_hidden: false,
+          },
+          {
+            name: "temp.zip",
+            path: "temp.zip",
+            type: FileType.FILE,
+            size: 102400,
+            modified_at: "2024-01-01T00:00:00Z",
+            mime_type: "application/zip",
+            is_readable: true,
+            is_hidden: false,
+          },
+        ],
+        total: 2,
+      });
+
+      renderBrowser("/browse/smb/test-server-1");
+
+      const listContainer = await screen.findByTestId("file-list-container");
+      listContainer.focus();
+      fireEvent.keyDown(document, { key: "F9", altKey: true });
+      expect(screen.queryByRole("dialog", { name: "Extract ZIP Archive" })).not.toBeInTheDocument();
+
+      fireEvent.keyDown(document, { key: "ArrowDown" });
+      await waitFor(() => expect(screen.getByRole("button", { name: /file: temp\.zip/i })).toHaveAttribute("data-selected", "true"));
+      fireEvent.keyDown(document, { key: "F9", altKey: true });
+
+      const extractDialog = await screen.findByRole("dialog", { name: "Extract ZIP Archive" });
+      expect(within(extractDialog).getByLabelText("Destination directory")).toHaveValue("temp");
+      expect(screen.getByTestId("router-location")).toHaveTextContent("/browse/smb/test-server-1");
+    });
+
     it("blocks copy, move, and archive creation when the opposite pane is a ZIP archive", async () => {
       const user = userEvent.setup();
       renderBrowser("/browse/smb/test-server-1/archive.zip?p2=smb/test-server-2");

@@ -101,7 +101,7 @@ import type {
   PhysicalLocation,
   VirtualLocation,
 } from "./FileBrowser/contentProviders";
-import { physicalLocation } from "./FileBrowser/contentProviders";
+import { physicalLocation, virtualLocation } from "./FileBrowser/contentProviders";
 import { FileBrowserPane } from "./FileBrowser/FileBrowserPane";
 import {
   readFileBrowserPaneModePreference,
@@ -665,6 +665,26 @@ const Browser: React.FC = () => {
   const activePaneFocusedFile = activePane.focusedIndex >= 0 ? activePane.filesRef.current[activePane.focusedIndex] : undefined;
   const quickBarFocusedFile = quickBarPane.focusedIndex >= 0 ? quickBarPane.filesRef.current[quickBarPane.focusedIndex] : undefined;
   const activePaneIsArchive = activePane.archiveLocation !== null;
+  const archiveExtractionSource = useMemo((): VirtualLocation | null => {
+    const location = activePane.currentLocation;
+    if (location.kind === "virtual") {
+      return activePane.contentCapabilities.extract ? location : null;
+    }
+    if (activePaneFocusedFile?.type !== "file") {
+      return null;
+    }
+    const providerId = browserContentServices.providers.getVirtualProviderIdForFilename(activePaneFocusedFile.name);
+    if (!providerId) {
+      return null;
+    }
+    const source = virtualLocation(
+      providerId,
+      location.connectionId,
+      physicalLocation(location.connectionId, activePaneFocusedFile.path),
+      ""
+    );
+    return browserContentServices.providers.getCapabilities(source).extract ? source : null;
+  }, [activePane.contentCapabilities.extract, activePane.currentLocation, activePaneFocusedFile, browserContentServices.providers]);
   const contentOperationEnvironment = useMemo(
     () => ({
       isCompanionPaired: companion.status === "paired",
@@ -2068,8 +2088,8 @@ const Browser: React.FC = () => {
   }, [t]);
 
   const handleArchiveExtractionRequest = useCallback(() => {
-    const location = activePane.currentLocation;
-    if (location.kind !== "virtual" || !activePane.contentCapabilities.extract) {
+    const location = archiveExtractionSource;
+    if (!location) {
       return;
     }
     const destinationPaneId: PaneId = isDualMode ? (effectiveActivePaneId === "left" ? "right" : "left") : effectiveActivePaneId;
@@ -2097,15 +2117,7 @@ const Browser: React.FC = () => {
       archiveName,
       initialDestinationName: archiveName.replace(/\.zip$/i, "") || archiveName,
     });
-  }, [
-    activePane.contentCapabilities.extract,
-    activePane.currentLocation,
-    allConnections,
-    effectiveActivePaneId,
-    isDualMode,
-    leftPane,
-    rightPane,
-  ]);
+  }, [allConnections, archiveExtractionSource, effectiveActivePaneId, isDualMode, leftPane, rightPane]);
 
   const completeArchiveExtraction = useCallback(
     (
@@ -2283,7 +2295,7 @@ const Browser: React.FC = () => {
       connectionSelected: quickBarPane.connectionId !== "",
       connectionWritable: quickBarPaneWritable,
       canCreateArchive: activePaneCanCreateArchive,
-      canExtractArchive: activePaneIsArchive && activePane.contentCapabilities.extract && archiveExtractionContext === null,
+      canExtractArchive: archiveExtractionSource !== null && archiveExtractionContext === null,
       canOpenFocusedFileInApp: quickBarCanOpenInApp,
       canCopyToOtherPane: quickBarCanCopyToOtherPane,
       canMoveToOtherPane: quickBarCanMoveToOtherPane,
@@ -2320,6 +2332,7 @@ const Browser: React.FC = () => {
       handleCopyToOtherPane,
       handleCreateArchiveRequest,
       handleArchiveExtractionRequest,
+      archiveExtractionSource,
       handleFocusLeftPane,
       handleFocusRightPane,
       handleMoveToOtherPane,
@@ -2332,8 +2345,6 @@ const Browser: React.FC = () => {
       openQuickBarMode,
       quickBarCanCopyToOtherPane,
       activePaneCanCreateArchive,
-      activePaneIsArchive,
-      activePane.contentCapabilities.extract,
       archiveExtractionContext,
       quickBarCanMoveToOtherPane,
       quickBarCanOpenInApp,
@@ -2623,8 +2634,7 @@ const Browser: React.FC = () => {
       {
         ...BROWSER_SHORTCUTS.EXTRACT_ARCHIVE,
         handler: handleArchiveExtractionRequest,
-        enabled:
-          browsing && noDialogOpen && activePaneIsArchive && activePane.contentCapabilities.extract && archiveExtractionContext === null,
+        enabled: browsing && noDialogOpen && archiveExtractionSource !== null && archiveExtractionContext === null,
       },
       // ── Selection Shortcuts (Norton Commander multi-select) ──────────────
       // Toggle selection on focused file, then move focus down (Insert / Space)
@@ -2699,6 +2709,7 @@ const Browser: React.FC = () => {
     activePaneCanCreateArchive,
     handleArchiveExtractionRequest,
     archiveExtractionContext,
+    archiveExtractionSource,
     t,
   ]);
 
