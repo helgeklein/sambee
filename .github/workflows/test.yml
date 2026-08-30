@@ -24,7 +24,6 @@ jobs:
       frontend: ${{ steps.filter.outputs.frontend }}
       companion: ${{ steps.filter.outputs.companion }}
       website: ${{ steps.filter.outputs.website }}
-      archive_topology: ${{ steps.filter.outputs.archive_topology }}
     steps:
     - name: Detect changed paths
       id: filter
@@ -68,7 +67,6 @@ jobs:
             for component in ("backend", "frontend", "companion"):
                 write_output(component, True)
             write_output("website", True)
-          write_output("archive_topology", True)
             sys.exit(0)
 
         with open(os.environ["GITHUB_EVENT_PATH"], encoding="utf-8") as handle:
@@ -113,7 +111,6 @@ jobs:
                 for component in ("backend", "frontend", "companion"):
                     write_output(component, True)
                 write_output("website", True)
-                write_output("archive_topology", True)
                 print("Push event is missing a valid 'before' SHA; running all components")
                 sys.exit(0)
 
@@ -129,21 +126,27 @@ jobs:
             raise SystemExit(f"Unsupported event for change detection: {event_name}")
 
         archive_contract = any(name.startswith("archive-contract/") for name in filenames)
-        backend = archive_contract or any(name.startswith("backend/") or name in backend_extras for name in filenames)
-        frontend = any(name.startswith("frontend/") or name in frontend_extras for name in filenames)
-        companion = archive_contract or any(name.startswith("companion/") or name in companion_extras for name in filenames)
         archive_topology = archive_contract or any(
-          name.startswith("backend/")
-          or name.startswith("companion/")
+          name.startswith("backend/app/services/archive/")
           or name in {
+            "backend/app/api/archive_operations.py",
+            "backend/app/api/browser.py",
+            "backend/app/api/viewer.py",
+            "backend/tests/test_archive_conformance.py",
+            "backend/tests/test_archive_operations.py",
+            "backend/tests/test_archive_topology_conformance_harness.py",
+            "companion/src-tauri/src/server/archive.rs",
+            "companion/src-tauri/src/server/archive_sessions.rs",
+            "companion/src-tauri/src/server/handlers.rs",
+            "scripts/test",
             "scripts/test-archive-topology-conformance",
-            "scripts/setup-backend-venv",
-            "scripts/install-system-deps",
-            ".github/actions/setup-runtime-python/action.yml",
             ".github/workflows/test.yml",
           }
           for name in filenames
         )
+        backend = archive_topology or any(name.startswith("backend/") or name in backend_extras for name in filenames)
+        frontend = any(name.startswith("frontend/") or name in frontend_extras for name in filenames)
+        companion = archive_topology or any(name.startswith("companion/") or name in companion_extras for name in filenames)
         website = any(
           name.startswith("website/")
           or name.startswith("website-meta/")
@@ -152,13 +155,12 @@ jobs:
         )
 
         print(f"Detected {len(filenames)} changed files")
-        print(f"backend={backend} frontend={frontend} companion={companion} website={website} archive_topology={archive_topology}")
+        print(f"backend={backend} frontend={frontend} companion={companion} website={website}")
 
         write_output("backend", backend)
         write_output("frontend", frontend)
         write_output("companion", companion)
         write_output("website", website)
-        write_output("archive_topology", archive_topology)
         PY
 
   # ──────────────────────────────────────────────
@@ -347,89 +349,16 @@ jobs:
       run: scripts/test-archive-topology-conformance companion
 
   # ──────────────────────────────────────────────
-  # Archive topology: unified cross-runtime contract gate
-  # ──────────────────────────────────────────────
-  archive-topology-conformance:
-    needs: changes
-    if: needs.changes.outputs.archive_topology == 'true' || github.event_name == 'workflow_dispatch'
-    runs-on: ubuntu-latest
-    steps:
-    - name: Checkout code
-      uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-
-    - name: Verify shared Python runtime image
-      run: python3 scripts/verify-python-runtime-image.py
-
-    - name: Set up Docker Buildx
-      uses: docker/setup-buildx-action@37fe631027851001ddb9b187196cc803df7f5f0e # v4.3.0
-
-    - name: Build archive topology test image
-      uses: docker/build-push-action@53b7df96c91f9c12dcc8a07bcb9ccacbed38856a # v7.3.0
-      with:
-        context: .
-        file: ./Dockerfile
-        target: backend-test
-        load: true
-        tags: sambee:archive-topology-test
-        build-args: |
-          APT_REFRESH_KEY=${{ github.run_id }}-${{ github.run_attempt }}
-        cache-from: type=gha,scope=backend-test
-        cache-to: type=gha,mode=max,scope=backend-test
-
-    - name: Run unified archive topology conformance gate
-      env:
-        SECRET_KEY: test-secret-key-for-ci-only-not-for-production-use
-        ENCRYPTION_KEY: YYFPojCh_1WUExv5xXVEyFe0ITw_5dgZZ-fC-iZk3nU=
-      run: |
-        docker create \
-          --name sambee-archive-topology \
-          -e SECRET_KEY \
-          -e ENCRYPTION_KEY \
-          sambee:archive-topology-test
-        docker cp archive-contract sambee-archive-topology:/workspace/archive-contract
-        docker cp companion sambee-archive-topology:/workspace/companion
-        docker cp .git sambee-archive-topology:/workspace/.git
-        docker start sambee-archive-topology
-        docker exec sambee-archive-topology bash -c '
-          set -euo pipefail
-          apt-get update
-          apt-get install -y --no-install-recommends \
-            build-essential \
-            ca-certificates \
-            curl \
-            git \
-            libayatana-appindicator3-dev \
-            libgtk-3-dev \
-            libjavascriptcoregtk-4.1-dev \
-            librsvg2-dev \
-            libsoup-3.0-dev \
-            libssl-dev \
-            libwebkit2gtk-4.1-dev \
-            libxdo-dev \
-            pkg-config
-          curl --proto "=https" --tlsv1.2 -fsSL https://sh.rustup.rs -o /tmp/rustup-init.sh
-          sh /tmp/rustup-init.sh -y --profile minimal --default-toolchain stable
-          export PATH="/root/.cargo/bin:$PATH"
-          rustup component add rustfmt clippy
-          QUIET=1 scripts/setup-test-images
-          scripts/test-archive-topology-conformance
-        '
-
-    - name: Clean up archive topology test container
-      if: always()
-      run: docker rm -f sambee-archive-topology || true
-
-  # ──────────────────────────────────────────────
   # Gate: single required check for branch protection
   # ──────────────────────────────────────────────
   test-gate:
     if: always()
-    needs: [backend, frontend, companion, website-docs, archive-topology-conformance]
+    needs: [backend, frontend, companion, website-docs]
     runs-on: ubuntu-latest
     steps:
     - name: Check results
       run: |
-        results="${{ needs.backend.result }} ${{ needs.frontend.result }} ${{ needs.companion.result }} ${{ needs.website-docs.result }} ${{ needs.archive-topology-conformance.result }}"
+        results="${{ needs.backend.result }} ${{ needs.frontend.result }} ${{ needs.companion.result }} ${{ needs.website-docs.result }}"
         for r in $results; do
           if [[ "$r" != "success" && "$r" != "skipped" ]]; then
             echo "Job failed or was cancelled: $r"
