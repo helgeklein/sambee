@@ -25,143 +25,27 @@ jobs:
       companion: ${{ steps.filter.outputs.companion }}
       website: ${{ steps.filter.outputs.website }}
     steps:
+    - name: Checkout code
+      uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
     - name: Detect changed paths
       id: filter
       env:
         GITHUB_TOKEN: ${{ github.token }}
+      run: python3 scripts/ci_change_detector.py
+
+    - name: Check changed whitespace
+      env:
+        DIFF_BASE: ${{ steps.filter.outputs.diff_base }}
       run: |
-        python3 <<'PY'
-        import json
-        import os
-        import sys
-        import urllib.request
-
-        output_path = os.environ["GITHUB_OUTPUT"]
-        backend_extras = {
-          ".dockerignore",
-          "Dockerfile",
-            "scripts/install-system-deps",
-            "scripts/setup-test-images",
-          "scripts/verify-python-runtime-image.py",
-            ".github/actions/setup-runtime-python/action.yml",
-        }
-        frontend_extras = {
-          "VERSION",
-          "scripts/sync-version",
-        }
-        companion_extras = {
-          "VERSION",
-          "scripts/sync-version",
-        }
-        website_extras = {
-          "VERSION",
-        }
-
-        def write_output(name: str, value: bool) -> None:
-            with open(output_path, "a", encoding="utf-8") as handle:
-                handle.write(f"{name}={'true' if value else 'false'}\n")
-
-        event_name = os.environ["GITHUB_EVENT_NAME"]
-
-        if event_name == "workflow_dispatch":
-            for component in ("backend", "frontend", "companion"):
-                write_output(component, True)
-            write_output("website", True)
-            sys.exit(0)
-
-        with open(os.environ["GITHUB_EVENT_PATH"], encoding="utf-8") as handle:
-            event = json.load(handle)
-
-        headers = {
-            "Accept": "application/vnd.github+json",
-            "Authorization": f"Bearer {os.environ['GITHUB_TOKEN']}",
-            "User-Agent": "sambee-ci-change-detector",
-            "X-GitHub-Api-Version": "2022-11-28",
-        }
-        api_url = os.environ.get("GITHUB_API_URL", "https://api.github.com")
-        repo = os.environ["GITHUB_REPOSITORY"]
-
-        filenames: list[str] = []
-
-        if event_name == "pull_request":
-            pull_request = event.get("pull_request")
-            if not pull_request:
-                raise SystemExit("pull_request event payload is missing pull_request data")
-
-            page = 1
-            while True:
-                request = urllib.request.Request(
-                    f"{api_url}/repos/{repo}/pulls/{pull_request['number']}/files?per_page=100&page={page}",
-                    headers=headers,
-                )
-                with urllib.request.urlopen(request) as response:
-                    files = json.load(response)
-
-                if not files:
-                    break
-
-                filenames.extend(file["filename"] for file in files)
-                if len(files) < 100:
-                    break
-                page += 1
-        elif event_name == "push":
-            before = event.get("before")
-            after = os.environ["GITHUB_SHA"]
-            if not before or set(before) == {"0"}:
-                for component in ("backend", "frontend", "companion"):
-                    write_output(component, True)
-                write_output("website", True)
-                print("Push event is missing a valid 'before' SHA; running all components")
-                sys.exit(0)
-
-            request = urllib.request.Request(
-                f"{api_url}/repos/{repo}/compare/{before}...{after}",
-                headers=headers,
-            )
-            with urllib.request.urlopen(request) as response:
-                compare = json.load(response)
-
-            filenames.extend(file["filename"] for file in compare.get("files", []))
-        else:
-            raise SystemExit(f"Unsupported event for change detection: {event_name}")
-
-        archive_contract = any(name.startswith("archive-contract/") for name in filenames)
-        archive_topology = archive_contract or any(
-          name.startswith("backend/app/services/archive/")
-          or name in {
-            "backend/app/api/archive_operations.py",
-            "backend/app/api/browser.py",
-            "backend/app/api/viewer.py",
-            "backend/tests/test_archive_conformance.py",
-            "backend/tests/test_archive_operations.py",
-            "backend/tests/test_archive_topology_conformance_harness.py",
-            "companion/src-tauri/src/server/archive.rs",
-            "companion/src-tauri/src/server/archive_sessions.rs",
-            "companion/src-tauri/src/server/handlers.rs",
-            "scripts/test",
-            "scripts/test-archive-topology-conformance",
-            ".github/workflows/test.yml",
-          }
-          for name in filenames
-        )
-        backend = archive_topology or any(name.startswith("backend/") or name in backend_extras for name in filenames)
-        frontend = any(name.startswith("frontend/") or name in frontend_extras for name in filenames)
-        companion = archive_topology or any(name.startswith("companion/") or name in companion_extras for name in filenames)
-        website = any(
-          name.startswith("website/")
-          or name.startswith("website-meta/")
-          or name in website_extras
-          for name in filenames
-        )
-
-        print(f"Detected {len(filenames)} changed files")
-        print(f"backend={backend} frontend={frontend} companion={companion} website={website}")
-
-        write_output("backend", backend)
-        write_output("frontend", frontend)
-        write_output("companion", companion)
-        write_output("website", website)
-        PY
+        set -euo pipefail
+        if [[ "$DIFF_BASE" == "__empty_tree__" ]]; then
+          empty_tree="$(git hash-object -t tree /dev/null)"
+          git diff --check "$empty_tree" "$GITHUB_SHA"
+          exit 0
+        fi
+        git fetch --no-tags --depth=1 origin "$DIFF_BASE"
+        git diff --check "$DIFF_BASE" "$GITHUB_SHA"
 
   # ──────────────────────────────────────────────
   # Website docs: validator + standalone tests
@@ -192,7 +76,7 @@ jobs:
   backend:
     needs: changes
     if: needs.changes.outputs.backend == 'true' || github.event_name == 'workflow_dispatch'
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     steps:
     - name: Checkout code
       uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -200,61 +84,40 @@ jobs:
     - name: Verify shared Python runtime image
       run: python3 scripts/verify-python-runtime-image.py
 
-    - name: Set up Docker Buildx
-      uses: docker/setup-buildx-action@37fe631027851001ddb9b187196cc803df7f5f0e # v4.3.0
-
-    - name: Build backend test image
-      uses: docker/build-push-action@53b7df96c91f9c12dcc8a07bcb9ccacbed38856a # v7.3.0
+    - name: Set up Python
+      uses: ./.github/actions/setup-runtime-python
       with:
-        context: .
-        file: ./Dockerfile
-        target: backend-test
-        load: true
-        tags: sambee:backend-test
-        build-args: |
-            APT_REFRESH_KEY=${{ github.run_id }}-${{ github.run_attempt }}
-        cache-from: type=gha,scope=backend-test
-        cache-to: type=gha,mode=max,scope=backend-test
+        cache: pip
+        cache-dependency-path: backend/requirements-dev.lock.txt
+
+    - name: Install backend system dependencies
+      run: |
+        sudo apt-get update
+        sudo env SKIP_APT_UPDATE=1 bash scripts/install-system-deps
+
+    - name: Set up backend virtual environment
+      run: scripts/setup-backend-venv
 
     - name: Run backend checks
       env:
         SECRET_KEY: test-secret-key-for-ci-only-not-for-production-use
         ENCRYPTION_KEY: YYFPojCh_1WUExv5xXVEyFe0ITw_5dgZZ-fC-iZk3nU=
       run: |
-        docker run \
-          --name sambee-backend-test \
-          -e SECRET_KEY \
-          -e ENCRYPTION_KEY \
-          sambee:backend-test \
-          sh -c '
-            QUIET=1 scripts/setup-test-images &&
-            cd backend &&
-            cd /workspace &&
-            scripts/test-archive-topology-conformance backend &&
-            cd backend &&
-            .venv/bin/python -m pytest -n auto -m "not performance" --cov=app --cov-report=term-missing --cov-report=xml &&
-            .venv/bin/python -m pytest -m performance --cov=app --cov-append --cov-report=term-missing --cov-report=xml
-          '
-
-    - name: Export coverage report
-      if: always()
-      run: |
-        mkdir -p "${{ runner.temp }}/coverage"
-        docker cp sambee-backend-test:/workspace/backend/coverage.xml "${{ runner.temp }}/coverage/coverage.xml" || true
+        QUIET=1 scripts/setup-test-images
+        cd backend
+        .venv/bin/python -m mypy app
+        .venv/bin/python -m pytest -n auto -m "not performance" --cov=app --cov-report=term-missing --cov-report=xml
+        .venv/bin/python -m pytest -m performance --cov=app --cov-append --cov-report=term-missing --cov-report=xml
 
     - name: Upload coverage reports
       if: always()
       uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
       with:
         name: coverage-reports
-        path: ${{ runner.temp }}/coverage/coverage.xml
+        path: backend/coverage.xml
         retention-days: 7
         compression-level: 6
         if-no-files-found: warn
-
-    - name: Clean up backend test container
-      if: always()
-      run: docker rm -f sambee-backend-test || true
 
   # ──────────────────────────────────────────────
   # Frontend: Node.js + tsc + vitest
@@ -353,11 +216,15 @@ jobs:
   # ──────────────────────────────────────────────
   test-gate:
     if: always()
-    needs: [backend, frontend, companion, website-docs]
+    needs: [changes, backend, frontend, companion, website-docs]
     runs-on: ubuntu-latest
     steps:
     - name: Check results
       run: |
+        if [[ "${{ needs.changes.result }}" != "success" ]]; then
+          echo "Change detection failed or was cancelled: ${{ needs.changes.result }}"
+          exit 1
+        fi
         results="${{ needs.backend.result }} ${{ needs.frontend.result }} ${{ needs.companion.result }} ${{ needs.website-docs.result }}"
         for r in $results; do
           if [[ "$r" != "success" && "$r" != "skipped" ]]; then

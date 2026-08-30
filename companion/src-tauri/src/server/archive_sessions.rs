@@ -1592,6 +1592,153 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn direct_local_extraction_faults_dispatch_every_fixture_case() {
+        let fixture: serde_json::Value =
+            serde_json::from_str(include_str!("../../../../archive-contract/v1/topology-execution-traces-v1.json"))
+                .expect("topology trace fixture should be valid JSON");
+        let declared_cases = fixture["cases"]
+            .as_array()
+            .expect("topology trace fixture should define cases")
+            .iter()
+            .filter(|case| case["operation"] == "extract" && case["topology"] == "local_to_local" && case["fault"].is_string())
+            .map(|case| case["name"].as_str().expect("fault case must have a name"))
+            .collect::<std::collections::HashSet<_>>();
+        let dispatched_cases = [
+            "extract_collision",
+            "extract_local_to_local_malformed_input",
+            "extract_local_to_local_cancellation",
+            "extract_partial_write",
+            "extract_source_changed",
+            "extract_local_to_local_transport_failure",
+        ]
+        .into_iter()
+        .collect::<std::collections::HashSet<_>>();
+        assert_eq!(
+            dispatched_cases, declared_cases,
+            "direct-local extraction dispatcher must cover every declared fault"
+        );
+
+        for case_name in dispatched_cases {
+            let directory = tempdir().expect("temporary archive directory should be created");
+            let source = directory.path().join("source.txt");
+            let archive_path = directory.path().join("archive.zip");
+            let destination = directory.path().join("output");
+            let requires_valid_archive = !matches!(
+                case_name,
+                "extract_local_to_local_malformed_input" | "extract_local_to_local_transport_failure"
+            );
+            let mut original_archive = None;
+            if case_name == "extract_local_to_local_malformed_input" {
+                fs::write(&archive_path, b"not a ZIP archive").expect("malformed archive fixture should be written");
+            } else if requires_valid_archive {
+                fs::write(&source, b"archive contents").expect("source fixture should be written");
+                let entries =
+                    build_local_archive_manifest(std::slice::from_ref(&source), &archive_path).expect("archive manifest should build");
+                create_local_archive(directory.path(), &archive_path, &entries, || false).expect("archive fixture should be created");
+                if matches!(case_name, "extract_partial_write" | "extract_source_changed") {
+                    let original = fs::read(&archive_path).expect("archive fixture should be readable");
+                    let offset = original
+                        .windows(b"archive contents".len())
+                        .position(|window| window == b"archive contents")
+                        .expect("stored archive member should contain its source bytes");
+                    let mut corrupted = original.clone();
+                    corrupted[offset] = b'X';
+                    fs::write(&archive_path, corrupted).expect("partial-write fixture should corrupt the archive member");
+                    original_archive = Some(original);
+                }
+                if case_name == "extract_collision" {
+                    fs::create_dir(&destination).expect("collision destination should be created");
+                    fs::write(destination.join("source.txt"), b"existing contents")
+                        .expect("collision destination member should be written");
+                }
+            }
+
+            let manager = Arc::new(ArchiveSessionManager::new());
+            let session = manager
+                .create_extraction(
+                    "c".to_string(),
+                    "https://sambee.example".to_string(),
+                    directory.path().to_path_buf(),
+                    if case_name == "extract_local_to_local_transport_failure" {
+                        directory.path().join("unavailable.zip")
+                    } else {
+                        archive_path.clone()
+                    },
+                    destination,
+                )
+                .await;
+            if case_name == "extract_local_to_local_cancellation" {
+                manager
+                    .cancel("c", "https://sambee.example", &session.execution_id, session.revision)
+                    .await
+                    .expect("cancellation fixture should request cancellation");
+            }
+            let coordinator = FixtureDirectLocalInvocation::new(manager.clone());
+            coordinator
+                .start(&session.execution_id)
+                .await
+                .expect("extraction fixture should start");
+            let status = match case_name {
+                "extract_collision" => {
+                    let paused = wait_for_pending_decision(&manager, &session.execution_id).await;
+                    coordinator
+                        .decide(
+                            "c",
+                            "https://sambee.example",
+                            &session.execution_id,
+                            paused.revision,
+                            ArchiveSessionDecision {
+                                member_path: "source.txt".to_string(),
+                                action: ArchiveSessionDecisionAction::Skip,
+                                target_path: None,
+                            },
+                        )
+                        .await
+                        .expect("collision fixture should accept its skip decision");
+                    wait_for_terminal_session(&manager, &session.execution_id).await
+                }
+                "extract_partial_write" => wait_for_pending_decision(&manager, &session.execution_id).await,
+                "extract_source_changed" => {
+                    let paused = wait_for_pending_decision(&manager, &session.execution_id).await;
+                    fs::write(
+                        &archive_path,
+                        original_archive
+                            .as_ref()
+                            .expect("source-change fixture should retain the original archive"),
+                    )
+                    .expect("source-change fixture should restore the archive");
+                    coordinator
+                        .decide(
+                            "c",
+                            "https://sambee.example",
+                            &session.execution_id,
+                            paused.revision,
+                            ArchiveSessionDecision {
+                                member_path: "source.txt".to_string(),
+                                action: ArchiveSessionDecisionAction::Retry,
+                                target_path: None,
+                            },
+                        )
+                        .await
+                        .expect("source-change fixture should accept its retry decision");
+                    wait_for_terminal_session(&manager, &session.execution_id).await
+                }
+                _ => wait_for_terminal_session(&manager, &session.execution_id).await,
+            };
+            let manifest_snapshot = requires_valid_archive.then_some("source.txt").into_iter().collect::<Vec<_>>();
+            let member_outcomes = (case_name == "extract_collision")
+                .then_some("source.txt")
+                .into_iter()
+                .collect::<Vec<_>>();
+            assert_eq!(
+                direct_local_trace(&manager, &session.execution_id, &status, manifest_snapshot, member_outcomes).await,
+                expected_trace(case_name),
+                "{case_name} must be traced by the direct-local extraction coordinator"
+            );
+        }
+    }
+
+    #[tokio::test]
     async fn cancelled_creation_session_does_not_create_its_target() {
         let directory = tempdir().unwrap();
         let source = directory.path().join("source.txt");

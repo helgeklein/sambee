@@ -1,5 +1,9 @@
 # TODO
 
+## Bugs
+
+- Image viewer: while swiping through images in a directory (not an archive), rendering the last image (in either direction) times out.
+
 ## Settings
 
 ### Styling
