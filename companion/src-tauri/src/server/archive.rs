@@ -4946,16 +4946,11 @@ mod tests {
             ]
         );
         for entry in operations {
-            assert!(entry["retirement_condition"]
-                .as_str()
-                .is_some_and(|condition| !condition.is_empty()));
+            assert_eq!(entry["status"], "supported");
+            assert!(entry["driver"].is_string());
+            assert!(entry.get("retirement_condition").is_none());
             if entry["operation"] == "inspection" {
-                assert_eq!(entry["status"], "legacy_source_only");
-                assert!(entry.get("driver").is_none());
                 assert!(entry.get("relay_purpose").is_none());
-            } else {
-                assert_eq!(entry["status"], "supported");
-                assert!(entry["driver"].is_string());
             }
         }
     }

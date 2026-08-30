@@ -94,6 +94,13 @@ fn resolve_companion_archive_topology(
         .map_err(map_local_archive_error)
 }
 
+fn require_archive_v2_contract_version(contract_version: ArchiveContractVersion) -> Result<(), ApiError> {
+    if contract_version != ArchiveContractVersion::V2 {
+        return Err(ApiError::BadRequest("Unsupported archive contract version".to_string()));
+    }
+    Ok(())
+}
+
 fn resolve_companion_inspection_coordinator(
     topology_plan: CompanionArchiveTopologyPlan,
     plan: ArchiveInspectionPlan,
@@ -3153,16 +3160,21 @@ async fn create_smb_archive_manifest_locally(
         .map_err(map_local_archive_error)
 }
 
-/// Shared implementation for starting a cancellable local archive execution.
-pub async fn browse_start_archive_execution(
-    State(state): State<Arc<AppState>>,
-    Path(drive): Path<String>,
+/// Start a V2-pinned cancellable local archive execution.
+async fn start_v2_local_archive_execution(
+    state: Arc<AppState>,
+    drive: String,
     headers: HeaderMap,
-    Json(body): Json<ArchiveExecutionStartRequest>,
-) -> Result<Json<ArchiveExecutionResponse>, ApiError> {
+    body: ArchiveV2ExecutionStartRequest,
+) -> Result<ArchiveExecutionResponse, ApiError> {
     let owner_origin = extract_origin(&headers)?;
     let execution = match body {
-        ArchiveExecutionStartRequest::Create { source_paths, target_path } => {
+        ArchiveV2ExecutionStartRequest::Create {
+            contract_version,
+            source_paths,
+            target_path,
+        } => {
+            require_archive_v2_contract_version(contract_version)?;
             match resolve_companion_archive_topology(CompanionArchiveOperationKind::Create, true, true)? {
                 CompanionArchiveTopology::LocalToLocal => {}
                 _ => {
@@ -3171,8 +3183,7 @@ pub async fn browse_start_archive_execution(
                     ))
                 }
             }
-            let body = ArchiveCreateRequest { source_paths, target_path };
-            let (base_path, source_paths, target_path) = resolve_local_archive_creation_request(&drive, &body)?;
+            let (base_path, source_paths, target_path) = resolve_local_archive_creation_request(&drive, &source_paths, &target_path)?;
             let preflight_sources = source_paths.clone();
             let preflight_target = target_path.clone();
             let entries = tokio::task::spawn_blocking(move || {
@@ -3197,10 +3208,12 @@ pub async fn browse_start_archive_execution(
                 )
                 .await
         }
-        ArchiveExecutionStartRequest::Extract {
+        ArchiveV2ExecutionStartRequest::Extract {
+            contract_version,
             archive_path,
             destination_path,
         } => {
+            require_archive_v2_contract_version(contract_version)?;
             match resolve_companion_archive_topology(CompanionArchiveOperationKind::Extract, true, true)? {
                 CompanionArchiveTopology::LocalToLocal => {}
                 _ => {
@@ -3209,11 +3222,8 @@ pub async fn browse_start_archive_execution(
                     ))
                 }
             }
-            let body = ArchiveExtractRequest {
-                archive_path,
-                destination_path,
-            };
-            let (base_path, archive_path, destination_path) = resolve_local_archive_extraction_request(&drive, &body)?;
+            let (base_path, archive_path, destination_path) =
+                resolve_local_archive_extraction_request(&drive, &archive_path, &destination_path)?;
             let preflight_archive_path = archive_path.clone();
             let entries = tokio::task::spawn_blocking(move || validate_local_archive_extraction(&preflight_archive_path))
                 .await
@@ -3287,7 +3297,7 @@ pub async fn browse_start_archive_execution(
         }
     }
     let execution = state.archive_sessions.get(&drive, &owner_origin, &execution.execution_id).await?;
-    Ok(Json(archive_execution_response(execution)))
+    Ok(archive_execution_response(execution))
 }
 
 /// `POST /api/browse/{drive}/archive/v2/executions` — start a V2 direct-local execution.
@@ -3297,23 +3307,7 @@ pub async fn browse_start_v2_archive_execution(
     headers: HeaderMap,
     ArchiveV2Json(body): ArchiveV2Json<ArchiveV2ExecutionStartRequest>,
 ) -> Result<Json<ArchiveExecutionResponse>, ArchiveV2Error> {
-    let request = match body {
-        ArchiveV2ExecutionStartRequest::Create {
-            contract_version: _contract_version,
-            source_paths,
-            target_path,
-        } => ArchiveExecutionStartRequest::Create { source_paths, target_path },
-        ArchiveV2ExecutionStartRequest::Extract {
-            contract_version: _contract_version,
-            archive_path,
-            destination_path,
-        } => ArchiveExecutionStartRequest::Extract {
-            archive_path,
-            destination_path,
-        },
-    };
-    let Json(response) = browse_start_archive_execution(State(state), Path(drive), headers, Json(request)).await?;
-    Ok(Json(response))
+    Ok(Json(start_v2_local_archive_execution(state, drive, headers, body).await?))
 }
 
 /// `GET /api/browse/{drive}/archive/v2/executions/{execution_id}` — retrieve V2 local lifecycle state.
@@ -3331,18 +3325,19 @@ pub async fn browse_get_v2_archive_execution(
     Ok(Json(response))
 }
 
-/// Shared implementation for requesting cancellation at the next member boundary.
-pub async fn browse_cancel_archive_execution(
-    State(state): State<Arc<AppState>>,
-    Path((drive, execution_id)): Path<(String, String)>,
+/// Request cancellation at the next V2 local archive member boundary.
+async fn cancel_v2_local_archive_execution(
+    state: Arc<AppState>,
+    drive: String,
+    execution_id: String,
     headers: HeaderMap,
-    Json(body): Json<ArchiveExecutionCancellationRequest>,
-) -> Result<Json<ArchiveExecutionResponse>, ApiError> {
+    expected_revision: u64,
+) -> Result<ArchiveExecutionResponse, ApiError> {
     let execution = state
         .archive_sessions
-        .cancel(&drive, &extract_origin(&headers)?, &execution_id, body.expected_revision)
+        .cancel(&drive, &extract_origin(&headers)?, &execution_id, expected_revision)
         .await?;
-    Ok(Json(archive_execution_response(execution)))
+    Ok(archive_execution_response(execution))
 }
 
 /// `POST /api/browse/{drive}/archive/v2/executions/{execution_id}/cancellation` — cancel a V2 local execution.
@@ -3352,27 +3347,33 @@ pub async fn browse_cancel_v2_archive_execution(
     headers: HeaderMap,
     ArchiveV2Json(body): ArchiveV2Json<ArchiveV2ExecutionCancellationRequest>,
 ) -> Result<Json<ArchiveExecutionResponse>, ArchiveV2Error> {
-    let _contract_version = body.contract_version;
-    let Json(response) = browse_cancel_archive_execution(
-        State(state),
-        Path((drive, execution_id)),
-        headers,
-        Json(ArchiveExecutionCancellationRequest {
-            expected_revision: body.expected_revision,
-        }),
-    )
-    .await?;
-    Ok(Json(response))
+    let ArchiveV2ExecutionCancellationRequest {
+        contract_version,
+        expected_revision,
+    } = body;
+    require_archive_v2_contract_version(contract_version)?;
+    Ok(Json(
+        cancel_v2_local_archive_execution(state, drive, execution_id, headers, expected_revision).await?,
+    ))
 }
 
-/// Shared implementation for applying a paused local extraction decision.
-pub async fn browse_decide_archive_execution(
-    State(state): State<Arc<AppState>>,
-    Path((drive, execution_id)): Path<(String, String)>,
+/// Apply a V2 decision to a paused local extraction execution.
+async fn decide_v2_local_archive_execution(
+    state: Arc<AppState>,
+    drive: String,
+    execution_id: String,
     headers: HeaderMap,
-    Json(body): Json<ArchiveExecutionDecisionRequest>,
-) -> Result<Json<ArchiveExecutionResponse>, ApiError> {
-    let action = match body.action {
+    body: ArchiveV2ExecutionDecisionRequest,
+) -> Result<ArchiveExecutionResponse, ApiError> {
+    let ArchiveV2ExecutionDecisionRequest {
+        contract_version,
+        expected_revision,
+        member_path,
+        action,
+        target_path,
+    } = body;
+    require_archive_v2_contract_version(contract_version)?;
+    let action = match action {
         ArchiveExecutionDecisionAction::Skip => super::archive_sessions::ArchiveSessionDecisionAction::Skip,
         ArchiveExecutionDecisionAction::SkipAll => super::archive_sessions::ArchiveSessionDecisionAction::SkipAll,
         ArchiveExecutionDecisionAction::Replace => super::archive_sessions::ArchiveSessionDecisionAction::Replace,
@@ -3392,15 +3393,15 @@ pub async fn browse_decide_archive_execution(
         &drive,
         &extract_origin(&headers)?,
         &execution_id,
-        body.expected_revision,
+        expected_revision,
         super::archive_sessions::ArchiveSessionDecision {
-            member_path: body.member_path,
+            member_path,
             action,
-            target_path: body.target_path,
+            target_path,
         },
     )
     .await?;
-    Ok(Json(archive_execution_response(execution)))
+    Ok(archive_execution_response(execution))
 }
 
 /// `POST /api/browse/{drive}/archive/v2/executions/{execution_id}/decision` — decide a V2 local extraction pause.
@@ -3410,20 +3411,9 @@ pub async fn browse_decide_v2_archive_execution(
     headers: HeaderMap,
     ArchiveV2Json(body): ArchiveV2Json<ArchiveV2ExecutionDecisionRequest>,
 ) -> Result<Json<ArchiveExecutionResponse>, ArchiveV2Error> {
-    let _contract_version = body.contract_version;
-    let Json(response) = browse_decide_archive_execution(
-        State(state),
-        Path((drive, execution_id)),
-        headers,
-        Json(ArchiveExecutionDecisionRequest {
-            expected_revision: body.expected_revision,
-            member_path: body.member_path,
-            action: body.action,
-            target_path: body.target_path,
-        }),
-    )
-    .await?;
-    Ok(Json(response))
+    Ok(Json(
+        decide_v2_local_archive_execution(state, drive, execution_id, headers, body).await?,
+    ))
 }
 
 async fn execute_relay_extraction_from_local_source(
@@ -4897,29 +4887,36 @@ fn resolve_safe_path_for_new(base: &std::path::Path, drive: &str, relative: &str
     Ok(full)
 }
 
-fn resolve_local_archive_extraction_request(drive: &str, body: &ArchiveExtractRequest) -> Result<(PathBuf, PathBuf, PathBuf), ApiError> {
-    if body.archive_path.trim().is_empty() || body.destination_path.trim().is_empty() {
+fn resolve_local_archive_extraction_request(
+    drive: &str,
+    archive_path: &str,
+    destination_path: &str,
+) -> Result<(PathBuf, PathBuf, PathBuf), ApiError> {
+    if archive_path.trim().is_empty() || destination_path.trim().is_empty() {
         return Err(ApiError::BadRequest("Archive and destination paths are required".to_string()));
     }
     let base_path = drives::resolve_drive_path(drive).ok_or_else(|| ApiError::NotFound(format!("Unknown drive: {drive}")))?;
-    let archive_path = resolve_safe_path(&base_path, drive, &body.archive_path)?;
-    let destination_path = resolve_safe_path_for_new(&base_path, drive, &body.destination_path)?;
+    let archive_path = resolve_safe_path(&base_path, drive, archive_path)?;
+    let destination_path = resolve_safe_path_for_new(&base_path, drive, destination_path)?;
     Ok((base_path, archive_path, destination_path))
 }
 
-fn resolve_local_archive_creation_request(drive: &str, body: &ArchiveCreateRequest) -> Result<(PathBuf, Vec<PathBuf>, PathBuf), ApiError> {
-    if body.source_paths.is_empty() || body.target_path.trim().is_empty() {
+fn resolve_local_archive_creation_request(
+    drive: &str,
+    source_paths: &[String],
+    target_path: &str,
+) -> Result<(PathBuf, Vec<PathBuf>, PathBuf), ApiError> {
+    if source_paths.is_empty() || target_path.trim().is_empty() {
         return Err(ApiError::BadRequest(
             "Archive creation requires source paths and a target path".to_string(),
         ));
     }
     let base_path = drives::resolve_drive_path(drive).ok_or_else(|| ApiError::NotFound(format!("Unknown drive: {drive}")))?;
-    let source_paths = body
-        .source_paths
+    let source_paths = source_paths
         .iter()
         .map(|source_path| resolve_safe_path(&base_path, drive, source_path))
         .collect::<Result<Vec<_>, _>>()?;
-    let target_path = resolve_safe_path_for_new(&base_path, drive, &body.target_path)?;
+    let target_path = resolve_safe_path_for_new(&base_path, drive, target_path)?;
     let Some(parent) = target_path.parent() else {
         return Err(ApiError::BadRequest("Archive target path is invalid".to_string()));
     };

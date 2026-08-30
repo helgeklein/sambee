@@ -100,22 +100,6 @@ pub struct DirectoryListing {
     pub total: usize,
 }
 
-/// Request to create a local archive from selected paths on one drive.
-#[derive(Debug, Deserialize, Serialize)]
-#[serde(deny_unknown_fields)]
-pub struct ArchiveCreateRequest {
-    pub source_paths: Vec<String>,
-    pub target_path: String,
-}
-
-/// Start either a direct local archive creation or extraction lifecycle execution.
-#[derive(Debug, Deserialize)]
-#[serde(tag = "kind", rename_all = "snake_case", deny_unknown_fields)]
-pub enum ArchiveExecutionStartRequest {
-    Create { source_paths: Vec<String>, target_path: String },
-    Extract { archive_path: String, destination_path: String },
-}
-
 /// Start a V2-pinned direct-local archive lifecycle execution.
 #[derive(Debug, Deserialize)]
 #[serde(tag = "kind", rename_all = "snake_case", deny_unknown_fields)]
@@ -178,40 +162,12 @@ pub struct ArchiveCreationResponse {
     pub source_bytes: u64,
 }
 
-/// Request to extract a local archive into a new relative destination directory.
-#[derive(Debug, Deserialize)]
-#[serde(deny_unknown_fields)]
-pub struct ArchiveExtractRequest {
-    pub archive_path: String,
-    pub destination_path: String,
-}
-
-/// Request to cancel a Companion-owned archive extraction execution.
-#[derive(Debug, Deserialize)]
-#[serde(deny_unknown_fields)]
-pub struct ArchiveExecutionCancellationRequest {
-    #[serde(alias = "expectedRevision")]
-    pub expected_revision: u64,
-}
-
 /// V2-pinned cancellation request for a direct-local archive execution.
 #[derive(Debug, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct ArchiveV2ExecutionCancellationRequest {
     pub contract_version: ArchiveContractVersion,
     pub expected_revision: u64,
-}
-
-/// Request to apply an explicit collision decision to a paused local extraction.
-#[derive(Debug, Deserialize)]
-#[serde(deny_unknown_fields)]
-pub struct ArchiveExecutionDecisionRequest {
-    #[serde(alias = "expectedRevision")]
-    pub expected_revision: u64,
-    pub member_path: String,
-    pub action: ArchiveExecutionDecisionAction,
-    #[serde(default)]
-    pub target_path: Option<String>,
 }
 
 /// V2-pinned decision request for a direct-local archive execution.
@@ -356,73 +312,24 @@ pub struct ArchiveExecutionProgress {
 #[cfg(test)]
 mod tests {
     use super::{
-        ArchiveExecutionCancellationRequest, ArchiveExecutionDecisionAction, ArchiveExecutionDecisionRequest, ArchiveExecutionStartRequest,
-        ArchiveV2ExecutionCancellationRequest, ArchiveV2ExecutionDecisionRequest, ArchiveV2RelayCreationRequest,
-        ArchiveV2RelayExtractionRequest,
+        ArchiveV2ExecutionCancellationRequest, ArchiveV2ExecutionDecisionRequest, ArchiveV2ExecutionStartRequest,
+        ArchiveV2RelayCreationRequest, ArchiveV2RelayExtractionRequest,
     };
 
     #[test]
-    fn accepts_kind_tagged_creation_and_extraction_payloads() {
+    fn accepts_only_strict_v2_direct_local_execution_requests() {
         assert!(matches!(
-            serde_json::from_str::<ArchiveExecutionStartRequest>(
-                r#"{"kind":"create","source_paths":["source.txt"],"target_path":"archive.zip"}"#
+            serde_json::from_str::<ArchiveV2ExecutionStartRequest>(
+                r#"{"kind":"create","contract_version":"v2","source_paths":["source.txt"],"target_path":"archive.zip"}"#
             ),
-            Ok(ArchiveExecutionStartRequest::Create { .. })
+            Ok(ArchiveV2ExecutionStartRequest::Create { .. })
         ));
-        assert!(matches!(
-            serde_json::from_str::<ArchiveExecutionStartRequest>(
-                r#"{"kind":"extract","archive_path":"archive.zip","destination_path":"output"}"#
-            ),
-            Ok(ArchiveExecutionStartRequest::Extract { .. })
-        ));
-    }
-
-    #[test]
-    fn rejects_lifecycle_start_payloads_that_mix_creation_and_extraction_fields() {
-        let payload = r#"{
-            "kind": "create",
-            "source_paths": ["source.txt"],
-            "target_path": "archive.zip",
-            "archive_path": "archive.zip",
-            "destination_path": "output"
-        }"#;
-
-        assert!(serde_json::from_str::<ArchiveExecutionStartRequest>(payload).is_err());
-    }
-
-    #[test]
-    fn accepts_cancellation_revision_alias_but_rejects_unknown_fields() {
-        let request = serde_json::from_str::<ArchiveExecutionCancellationRequest>(r#"{"expectedRevision":2}"#)
-            .expect("camel-case revision should be accepted");
-        assert_eq!(request.expected_revision, 2);
-        assert!(serde_json::from_str::<ArchiveExecutionCancellationRequest>(r#"{"expected_revision":2,"kind":"extract"}"#).is_err());
-    }
-
-    #[test]
-    fn accepts_strict_local_archive_decisions() {
-        let request = serde_json::from_str::<ArchiveExecutionDecisionRequest>(
-            r#"{"expectedRevision":2,"member_path":"source.txt","action":"replace"}"#,
+        assert!(serde_json::from_str::<ArchiveV2ExecutionStartRequest>(
+            r#"{"kind":"extract","contract_version":"v1","archive_path":"archive.zip","destination_path":"output"}"#
         )
-        .expect("camel-case revision decision should be accepted");
-        assert_eq!(request.expected_revision, 2);
-        assert_eq!(request.member_path, "source.txt");
-        assert!(matches!(request.action, ArchiveExecutionDecisionAction::Replace));
-        assert!(matches!(
-            serde_json::from_str::<ArchiveExecutionDecisionRequest>(
-                r#"{"expected_revision":2,"member_path":"source.txt","action":"retry"}"#
-            )
-            .expect("retry should be accepted")
-            .action,
-            ArchiveExecutionDecisionAction::Retry
-        ));
-        let renamed = serde_json::from_str::<ArchiveExecutionDecisionRequest>(
-            r#"{"expected_revision":2,"member_path":"source.txt","action":"rename","target_path":"renamed.txt"}"#,
-        )
-        .expect("rename target should be accepted");
-        assert!(matches!(renamed.action, ArchiveExecutionDecisionAction::Rename));
-        assert_eq!(renamed.target_path.as_deref(), Some("renamed.txt"));
-        assert!(serde_json::from_str::<ArchiveExecutionDecisionRequest>(
-            r#"{"expected_revision":2,"member_path":"source.txt","action":"skip","target_path":"elsewhere","unknown":true}"#
+        .is_err());
+        assert!(serde_json::from_str::<ArchiveV2ExecutionStartRequest>(
+            r#"{"kind":"create","contract_version":"v2","source_paths":["source.txt"],"target_path":"archive.zip","archive_path":"archive.zip"}"#
         )
         .is_err());
     }
