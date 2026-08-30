@@ -4,12 +4,9 @@ import pytest
 from fastapi import HTTPException
 
 from app.services.archive.v2_checkpoint import (
-    legacy_creation_execution_checkpoint_from_v2,
-    legacy_execution_checkpoint_from_v2,
     new_v2_creation_checkpoint,
     new_v2_extraction_checkpoint,
-    v2_checkpoint_from_legacy_execution,
-    v2_creation_checkpoint_from_legacy_execution,
+    validate_v2_creation_checkpoint,
     validate_v2_extraction_checkpoint,
 )
 
@@ -52,19 +49,14 @@ def test_v2_checkpoint_returns_a_defensive_validated_copy() -> None:
     assert validated is not checkpoint
 
 
-def test_v2_checkpoint_adapter_discards_executor_only_fields_before_persistence() -> None:
+def test_v2_checkpoint_rejects_legacy_executor_fields() -> None:
     checkpoint = valid_checkpoint()
-
-    internal = legacy_execution_checkpoint_from_v2(checkpoint)
-    internal["files_extracted"] = 1
-    persisted = v2_checkpoint_from_legacy_execution(internal)
-
-    assert persisted["version"] == 2
-    assert "files_extracted" not in persisted
-    assert persisted["manifest"] == checkpoint["manifest"]
+    checkpoint["files_extracted"] = 1
+    with pytest.raises(HTTPException, match="legacy fields"):
+        validate_v2_extraction_checkpoint(checkpoint)
 
 
-def test_v2_creation_checkpoint_adapter_discards_aggregate_counters() -> None:
+def test_v2_creation_checkpoint_rejects_aggregate_counters() -> None:
     checkpoint = new_v2_creation_checkpoint(
         manifest=[
             {
@@ -77,9 +69,6 @@ def test_v2_creation_checkpoint_adapter_discards_aggregate_counters() -> None:
         ]
     )
 
-    internal = legacy_creation_execution_checkpoint_from_v2(checkpoint)
-    internal["files_created"] = 1
-    persisted = v2_creation_checkpoint_from_legacy_execution(internal)
-
-    assert set(persisted) == {"version", "manifest", "member_outcomes", "decisions", "pending_decision"}
-    assert "files_created" not in persisted
+    checkpoint["files_created"] = 1
+    with pytest.raises(HTTPException, match="fields are invalid"):
+        validate_v2_creation_checkpoint(checkpoint)

@@ -7,7 +7,13 @@ import {
 import { StorageArchiveOperationCoordinator } from "./storageArchiveOperations";
 import type { StorageArchiveCreateRequest, StorageBackendRegistry } from "./storageContracts";
 
-const recovery = { schemaVersion: 1, backendKind: "smb", opaqueOperationId: "operation-1", expiresAt: Date.now() + 60_000 } as const;
+const recovery = {
+  schemaVersion: 2,
+  contractVersion: "v2",
+  backendKind: "smb",
+  opaqueOperationId: "operation-1",
+  expiresAt: Date.now() + 60_000,
+} as const;
 const completed = { status: "completed", effects: { source: "unchanged", destination: "mutated" } } as const;
 
 function request(sourceKind: "smb" | "local", destinationKind: "smb" | "local"): StorageArchiveCreateRequest {

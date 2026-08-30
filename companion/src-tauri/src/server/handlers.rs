@@ -486,6 +486,7 @@ pub struct ArchiveListQuery {
 }
 
 #[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct ArchiveV2ListQuery {
     pub contract_version: ArchiveContractVersion,
     pub archive_path: String,
@@ -525,7 +526,7 @@ pub async fn browse_list(Path(drive): Path<String>, Query(query): Query<BrowseQu
     }))
 }
 
-/// `GET /api/browse/{drive}/archive/list` — list a bounded virtual ZIP directory page.
+/// Shared implementation for a bounded virtual ZIP directory page.
 pub async fn browse_list_archive(
     Path(drive): Path<String>,
     Query(query): Query<ArchiveListQuery>,
@@ -752,6 +753,7 @@ pub struct ArchiveMemberQuery {
 }
 
 #[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct ArchiveV2MemberQuery {
     pub contract_version: ArchiveContractVersion,
     pub archive_path: String,
@@ -817,7 +819,7 @@ pub async fn viewer_download(Path(drive): Path<String>, Query(query): Query<View
         .map_err(|e| ApiError::Internal(format!("Failed to build response: {e}")))
 }
 
-/// `GET /api/viewer/{drive}/archive/member` — stream a parser-validated archive member.
+/// Shared implementation for a parser-validated archive member stream.
 pub async fn viewer_archive_member(Path(drive): Path<String>, Query(query): Query<ArchiveMemberQuery>) -> Result<Response<Body>, ApiError> {
     if query.archive_path.trim().is_empty() || query.member_path.trim().is_empty() {
         return Err(ApiError::BadRequest("Archive and member paths are required".to_string()));
@@ -1232,7 +1234,15 @@ enum ArchiveRelayBinding {
 }
 
 impl ArchiveRelayBinding {
-    const fn path_segment(self) -> &'static str {
+    const fn operation_segment(self) -> &'static str {
+        match self {
+            Self::LocalZipToSmbExtract | Self::SmbZipToLocalExtract => "extraction",
+            Self::SmbToLocalZipCreate | Self::LocalToSmbZipCreate => "creation",
+        }
+    }
+
+    #[cfg(test)]
+    const fn capability_purpose(self) -> &'static str {
         match self {
             Self::LocalZipToSmbExtract => "local_zip_to_smb_extract",
             Self::SmbZipToLocalExtract => "smb_zip_to_local_extract",
@@ -2886,12 +2896,11 @@ impl FixtureArchiveExtractionInvocation {
     }
 }
 
-/// `POST /api/browse/{drive}/archive/create-from-smb` — create a new local ZIP from scoped SMB sources.
-pub async fn browse_create_archive_from_smb(
+async fn execute_relay_creation_to_local_destination(
     State(state): State<Arc<AppState>>,
     Path(drive): Path<String>,
     headers: HeaderMap,
-    Json(body): Json<ArchiveCreateFromSmbRequest>,
+    body: ArchiveV2RelayCreationLocalDestinationRequest,
 ) -> Result<Json<ArchiveCreationResponse>, ApiError> {
     let _contract_version = body.contract_version;
     match resolve_companion_archive_topology(CompanionArchiveOperationKind::Create, false, true)? {
@@ -2945,12 +2954,11 @@ pub async fn browse_create_archive_from_smb(
     Ok(Json(result))
 }
 
-/// `POST /api/browse/{drive}/archive/create-to-smb` — stream a local ZIP into its scoped SMB target.
-pub async fn browse_create_archive_to_smb(
+async fn execute_relay_creation_from_local_source(
     State(state): State<Arc<AppState>>,
     Path(drive): Path<String>,
     headers: HeaderMap,
-    Json(body): Json<ArchiveCreateToSmbRequest>,
+    body: ArchiveV2RelayCreationLocalSourceRequest,
 ) -> Result<Json<ArchiveCreationResponse>, ApiError> {
     let _contract_version = body.contract_version;
     match resolve_companion_archive_topology(CompanionArchiveOperationKind::Create, true, false)? {
@@ -3005,6 +3013,23 @@ pub async fn browse_create_archive_to_smb(
     .await?;
     let result = CompanionArchiveCreationCoordinator::relay_result(result)?;
     Ok(Json(result))
+}
+
+/// `POST /api/browse/{drive}/archive/v2/relay/creation` — run one scoped mixed creation operation.
+pub async fn browse_relay_v2_archive_creation(
+    State(state): State<Arc<AppState>>,
+    Path(drive): Path<String>,
+    headers: HeaderMap,
+    Json(body): Json<ArchiveV2RelayCreationRequest>,
+) -> Result<Json<ArchiveCreationResponse>, ApiError> {
+    match body {
+        ArchiveV2RelayCreationRequest::LocalDestination(body) => {
+            execute_relay_creation_to_local_destination(State(state), Path(drive), headers, body).await
+        }
+        ArchiveV2RelayCreationRequest::LocalSource(body) => {
+            execute_relay_creation_from_local_source(State(state), Path(drive), headers, body).await
+        }
+    }
 }
 
 async fn create_local_archive_for_smb_destination(
@@ -3121,7 +3146,7 @@ async fn create_smb_archive_manifest_locally(
         .map_err(map_local_archive_error)
 }
 
-/// `POST /api/browse/{drive}/archive/executions` — start a cancellable local archive execution.
+/// Shared implementation for starting a cancellable local archive execution.
 pub async fn browse_start_archive_execution(
     State(state): State<Arc<AppState>>,
     Path(drive): Path<String>,
@@ -3300,7 +3325,7 @@ pub async fn browse_get_v2_archive_execution(
     Ok(Json(response))
 }
 
-/// `POST /api/browse/{drive}/archive/executions/{execution_id}/cancellation` — request cancellation at the next member boundary.
+/// Shared implementation for requesting cancellation at the next member boundary.
 pub async fn browse_cancel_archive_execution(
     State(state): State<Arc<AppState>>,
     Path((drive, execution_id)): Path<(String, String)>,
@@ -3335,7 +3360,7 @@ pub async fn browse_cancel_v2_archive_execution(
     Ok(Json(response))
 }
 
-/// `POST /api/browse/{drive}/archive/executions/{execution_id}/decision` — apply a paused local extraction decision.
+/// Shared implementation for applying a paused local extraction decision.
 pub async fn browse_decide_archive_execution(
     State(state): State<Arc<AppState>>,
     Path((drive, execution_id)): Path<(String, String)>,
@@ -3397,12 +3422,11 @@ pub async fn browse_decide_v2_archive_execution(
     Ok(Json(response))
 }
 
-/// `POST /api/browse/{drive}/archive/extract-to-smb` — relay a local ZIP into one scoped SMB extraction operation.
-pub async fn browse_extract_archive_to_smb(
+async fn execute_relay_extraction_from_local_source(
     State(state): State<Arc<AppState>>,
     Path(drive): Path<String>,
     headers: HeaderMap,
-    Json(body): Json<ArchiveExtractToSmbRequest>,
+    body: ArchiveV2RelayExtractionLocalSourceRequest,
 ) -> Result<Json<ArchiveExtractionResponse>, ApiError> {
     let _contract_version = body.contract_version;
     match resolve_companion_archive_topology(CompanionArchiveOperationKind::Extract, true, false)? {
@@ -3611,12 +3635,11 @@ fn archive_extraction_response_from_operation(operation: ArchiveRelayOperation) 
     })
 }
 
-/// `POST /api/browse/{drive}/archive/extract-from-smb` — write scoped SMB ZIP members to a local directory.
-pub async fn browse_extract_archive_from_smb(
+async fn execute_relay_extraction_to_local_destination(
     State(state): State<Arc<AppState>>,
     Path(drive): Path<String>,
     headers: HeaderMap,
-    Json(body): Json<ArchiveExtractFromSmbRequest>,
+    body: ArchiveV2RelayExtractionLocalDestinationRequest,
 ) -> Result<Json<ArchiveExtractionResponse>, ApiError> {
     let _contract_version = body.contract_version;
     match resolve_companion_archive_topology(CompanionArchiveOperationKind::Extract, false, true)? {
@@ -3659,6 +3682,23 @@ pub async fn browse_extract_archive_from_smb(
     .await?;
     let result = CompanionArchiveExtractionCoordinator::relay_result(result)?;
     Ok(Json(result))
+}
+
+/// `POST /api/browse/{drive}/archive/v2/relay/extraction` — run one scoped mixed extraction operation.
+pub async fn browse_relay_v2_archive_extraction(
+    State(state): State<Arc<AppState>>,
+    Path(drive): Path<String>,
+    headers: HeaderMap,
+    Json(body): Json<ArchiveV2RelayExtractionRequest>,
+) -> Result<Json<ArchiveExtractionResponse>, ApiError> {
+    match body {
+        ArchiveV2RelayExtractionRequest::LocalSource(body) => {
+            execute_relay_extraction_from_local_source(State(state), Path(drive), headers, body).await
+        }
+        ArchiveV2RelayExtractionRequest::LocalDestination(body) => {
+            execute_relay_extraction_to_local_destination(State(state), Path(drive), headers, body).await
+        }
+    }
 }
 
 async fn extract_smb_archive_to_local_destination(
@@ -3939,8 +3979,8 @@ fn normalize_archive_server_url(value: &str) -> Result<String, ApiError> {
 
 fn archive_relay_url(server_url: &str, operation_id: uuid::Uuid, binding: ArchiveRelayBinding) -> String {
     format!(
-        "{server_url}/api/archive/v2/operations/{operation_id}/companion-relay/{}",
-        binding.path_segment()
+        "{server_url}/api/archive/v2/operations/{operation_id}/relay/{}",
+        binding.operation_segment()
     )
 }
 
@@ -5077,10 +5117,11 @@ mod tests {
     const NONCE_A: &str = "00112233445566778899aabbccddeeff00112233445566778899aabbccddeeff";
 
     fn relay_control_payload_example(name: &str) -> serde_json::Value {
-        let fixture: serde_json::Value =
-            serde_json::from_str(include_str!("../../../../archive-contract/v1/relay-control-payloads-v1.json"))
-                .expect("relay control payload fixture should be valid JSON");
-        assert_eq!(fixture["version"], 1);
+        let fixture: serde_json::Value = serde_json::from_str(include_str!(
+            "../../../../archive-contract/v2/fixtures/relay-control-payloads-v2.json"
+        ))
+        .expect("relay control payload fixture should be valid JSON");
+        assert_eq!(fixture["version"], 2);
         fixture["payloads"]
             .as_array()
             .expect("relay control payload fixture should contain payloads")
@@ -5091,9 +5132,10 @@ mod tests {
     }
 
     fn expected_topology_trace(case_name: &str) -> serde_json::Value {
-        let fixture: serde_json::Value =
-            serde_json::from_str(include_str!("../../../../archive-contract/v1/topology-execution-traces-v1.json"))
-                .expect("topology trace fixture should be valid JSON");
+        let fixture: serde_json::Value = serde_json::from_str(include_str!(
+            "../../../../archive-contract/v2/fixtures/topology-execution-traces-v2.json"
+        ))
+        .expect("topology trace fixture should be valid JSON");
         fixture["cases"]
             .as_array()
             .expect("topology trace fixture should define cases")
@@ -5105,9 +5147,10 @@ mod tests {
 
     #[test]
     fn companion_topology_fixtures_resolve_through_the_production_plan() {
-        let fixture: serde_json::Value =
-            serde_json::from_str(include_str!("../../../../archive-contract/v1/topology-execution-traces-v1.json"))
-                .expect("topology trace fixture should be valid JSON");
+        let fixture: serde_json::Value = serde_json::from_str(include_str!(
+            "../../../../archive-contract/v2/fixtures/topology-execution-traces-v2.json"
+        ))
+        .expect("topology trace fixture should be valid JSON");
         for case in fixture["cases"]
             .as_array()
             .expect("topology trace fixture should define cases")
@@ -5487,102 +5530,23 @@ mod tests {
     }
 
     async fn spawn_fixture_relay_server(case_name: &str) -> FixtureRelayServer {
-        let fixture: serde_json::Value =
-            serde_json::from_str(include_str!("../../../../archive-contract/v1/topology-execution-traces-v1.json"))
-                .expect("topology trace fixture should be valid JSON");
+        let fixture: serde_json::Value = serde_json::from_str(include_str!(
+            "../../../../archive-contract/v2/fixtures/topology-execution-traces-v2.json"
+        ))
+        .expect("topology trace fixture should be valid JSON");
         let case = fixture["cases"]
             .as_array()
             .expect("topology trace fixture should define cases")
             .iter()
             .find(|case| case["name"] == case_name)
             .unwrap_or_else(|| panic!("topology trace fixture should define {case_name}"));
-        spawn_fixture_relay_playback(upgrade_extraction_fixture_playback(
+        spawn_fixture_relay_playback(
             case["relay_playback"]
                 .as_array()
                 .unwrap_or_else(|| panic!("topology trace fixture should define relay playback for {case_name}"))
                 .clone(),
-            &case["expected_trace"]["manifest_snapshot"],
-        ))
+        )
         .await
-    }
-
-    fn upgrade_extraction_fixture_playback(mut steps: Vec<serde_json::Value>, member_paths: &serde_json::Value) -> Vec<serde_json::Value> {
-        let manifest = steps
-            .iter()
-            .find_map(|step| step["response"]["json"]["entries"].as_array().cloned())
-            .unwrap_or_else(|| {
-                member_paths
-                    .as_array()
-                    .expect("fixture manifest snapshot must be an array")
-                    .iter()
-                    .map(|path| {
-                        serde_json::json!({
-                            "path": path.as_str().expect("fixture manifest path must be a string"),
-                            "is_directory": false,
-                            "uncompressed_size": 0,
-                            "modified_at": null,
-                        })
-                    })
-                    .collect()
-            });
-        for step in &mut steps {
-            if let Some(response_json) = step.get_mut("response").and_then(|response| response.get_mut("json")) {
-                upgrade_fixture_checkpoint_json(response_json, &manifest);
-            }
-        }
-        steps
-    }
-
-    fn upgrade_fixture_checkpoint_json(payload: &mut serde_json::Value, manifest: &[serde_json::Value]) {
-        let Some(object) = payload.as_object_mut() else {
-            return;
-        };
-        if let Some(operation) = object.get_mut("operation") {
-            upgrade_fixture_checkpoint_json(operation, manifest);
-        }
-        let Some(checkpoint_value) = object.get("checkpoint_json") else {
-            return;
-        };
-        let checkpoint = checkpoint_value
-            .as_str()
-            .and_then(|value| serde_json::from_str::<serde_json::Value>(value).ok())
-            .expect("fixture checkpoint must be valid JSON");
-        if let Some(collision_policy) = checkpoint.get("collision_policy") {
-            object.insert("collision_policy".to_string(), collision_policy.clone());
-        }
-        let decisions = serde_json::json!({
-            "collision_actions": checkpoint
-                .get("member_collision_actions")
-                .and_then(serde_json::Value::as_object)
-                .map(|actions| {
-                    actions
-                        .iter()
-                        .filter_map(|(path, action)| match action.as_str() {
-                            Some("skip") | Some("replace") => Some((path.clone(), action.clone())),
-                            Some("replace_older") => Some((path.clone(), serde_json::Value::String("skip".to_string()))),
-                            _ => None,
-                        })
-                        .collect::<serde_json::Map<_, _>>()
-                })
-                .unwrap_or_default(),
-            "rename_targets": checkpoint.get("member_rename_targets").cloned().unwrap_or_else(|| serde_json::json!({})),
-            "ignored_members": checkpoint.get("ignored_members").cloned().unwrap_or_else(|| serde_json::json!([])),
-            "retry_members": checkpoint.get("retry_members").cloned().unwrap_or_else(|| serde_json::json!([])),
-        });
-        object.insert(
-            "checkpoint_json".to_string(),
-            serde_json::Value::String(
-                serde_json::json!({
-                    "version": 2,
-                    "manifest": manifest,
-                    "source_snapshot": { "size": 0, "modified_at": null },
-                    "member_outcomes": checkpoint.get("member_outcomes").cloned().unwrap_or_else(|| serde_json::json!({})),
-                    "decisions": decisions,
-                    "pending_decision": null,
-                })
-                .to_string(),
-            ),
-        );
     }
 
     async fn spawn_fixture_relay_playback(steps: Vec<serde_json::Value>) -> FixtureRelayServer {
@@ -5612,9 +5576,10 @@ mod tests {
     }
 
     fn mixed_creation_trajectory_cases() -> Vec<serde_json::Value> {
-        let fixture: serde_json::Value =
-            serde_json::from_str(include_str!("../../../../archive-contract/v1/topology-execution-traces-v1.json"))
-                .expect("topology trace fixture should be valid JSON");
+        let fixture: serde_json::Value = serde_json::from_str(include_str!(
+            "../../../../archive-contract/v2/fixtures/topology-execution-traces-v2.json"
+        ))
+        .expect("topology trace fixture should be valid JSON");
         fixture["trajectory_cases"]
             .as_array()
             .expect("topology trace fixture should define trajectory cases")
@@ -5625,18 +5590,19 @@ mod tests {
     }
 
     fn segmented_mixed_extraction_trajectory_cases() -> Vec<serde_json::Value> {
-        let topology_fixture: serde_json::Value =
-            serde_json::from_str(include_str!("../../../../archive-contract/v1/topology-execution-traces-v1.json"))
-                .expect("topology trace fixture should be valid JSON");
+        let topology_fixture: serde_json::Value = serde_json::from_str(include_str!(
+            "../../../../archive-contract/v2/fixtures/topology-execution-traces-v2.json"
+        ))
+        .expect("topology trace fixture should be valid JSON");
         assert_eq!(
             topology_fixture["segmented_mixed_extraction_trajectory_fixture"],
-            "segmented-mixed-extraction-trajectories-v1.json"
+            "segmented-mixed-extraction-trajectories-v2.json"
         );
         let fixture: serde_json::Value = serde_json::from_str(include_str!(
-            "../../../../archive-contract/v1/segmented-mixed-extraction-trajectories-v1.json"
+            "../../../../archive-contract/v2/fixtures/segmented-mixed-extraction-trajectories-v2.json"
         ))
         .expect("segmented mixed extraction fixture should be valid JSON");
-        assert_eq!(fixture["version"], 1);
+        assert_eq!(fixture["version"], 2);
         fixture["cases"]
             .as_array()
             .expect("segmented mixed extraction fixture should define cases")
@@ -5670,7 +5636,7 @@ mod tests {
 
     fn creation_corpus_scenario(name: &str) -> serde_json::Value {
         let corpus: serde_json::Value = serde_json::from_str(include_str!(
-            "../../../../archive-contract/v1/creation-trajectory-scenarios-v1.json"
+            "../../../../archive-contract/v2/fixtures/creation-trajectory-scenarios-v2.json"
         ))
         .expect("creation trajectory corpus should be valid JSON");
         corpus["scenarios"]
@@ -5789,10 +5755,11 @@ mod tests {
 
     #[test]
     fn topology_trace_fixture_assigns_mixed_execution_to_companion_relay_coordinators() {
-        let fixture: serde_json::Value =
-            serde_json::from_str(include_str!("../../../../archive-contract/v1/topology-execution-traces-v1.json"))
-                .expect("topology trace fixture should be valid JSON");
-        assert_eq!(fixture["version"], 1);
+        let fixture: serde_json::Value = serde_json::from_str(include_str!(
+            "../../../../archive-contract/v2/fixtures/topology-execution-traces-v2.json"
+        ))
+        .expect("topology trace fixture should be valid JSON");
+        assert_eq!(fixture["version"], 2);
         assert_eq!(
             fixture["adapter_faults"],
             serde_json::json!([
@@ -5848,11 +5815,11 @@ mod tests {
             assert!(required_mixed_extraction_faults.iter().all(|fault| declared_faults.contains(fault)));
         }
         let creation_corpus: serde_json::Value = serde_json::from_str(include_str!(
-            "../../../../archive-contract/v1/creation-trajectory-scenarios-v1.json"
+            "../../../../archive-contract/v2/fixtures/creation-trajectory-scenarios-v2.json"
         ))
         .expect("creation trajectory corpus should be valid JSON");
         let extraction_corpus: serde_json::Value = serde_json::from_str(include_str!(
-            "../../../../archive-contract/v1/extraction-trajectory-scenarios-v1.json"
+            "../../../../archive-contract/v2/fixtures/extraction-trajectory-scenarios-v2.json"
         ))
         .expect("extraction trajectory corpus should be valid JSON");
         let corpus_scenarios = [("create", &creation_corpus), ("extract", &extraction_corpus)];
@@ -5877,33 +5844,34 @@ mod tests {
     }
 
     #[test]
-    fn v1_relay_binding_fixture_matches_companion_route_bindings() {
-        let fixture: serde_json::Value = serde_json::from_str(include_str!("../../../../archive-contract/v1/relay-bindings-v1.json"))
-            .expect("relay binding fixture should be valid JSON");
-        assert_eq!(fixture["version"], 1);
+    fn v2_relay_binding_fixture_matches_companion_route_bindings() {
+        let fixture: serde_json::Value =
+            serde_json::from_str(include_str!("../../../../archive-contract/v2/fixtures/relay-bindings-v2.json"))
+                .expect("relay binding fixture should be valid JSON");
+        assert_eq!(fixture["version"], 2);
         assert_eq!(
             fixture["bindings"],
             serde_json::json!([
                 {
-                    "purpose": ArchiveRelayBinding::LocalZipToSmbExtract.path_segment(),
+                    "purpose": ArchiveRelayBinding::LocalZipToSmbExtract.capability_purpose(),
                     "kind": "extract",
                     "source": "local",
                     "destination": "smb",
                 },
                 {
-                    "purpose": ArchiveRelayBinding::SmbZipToLocalExtract.path_segment(),
+                    "purpose": ArchiveRelayBinding::SmbZipToLocalExtract.capability_purpose(),
                     "kind": "extract",
                     "source": "smb",
                     "destination": "local",
                 },
                 {
-                    "purpose": ArchiveRelayBinding::SmbToLocalZipCreate.path_segment(),
+                    "purpose": ArchiveRelayBinding::SmbToLocalZipCreate.capability_purpose(),
                     "kind": "create",
                     "source": "smb",
                     "destination": "local",
                 },
                 {
-                    "purpose": ArchiveRelayBinding::LocalToSmbZipCreate.path_segment(),
+                    "purpose": ArchiveRelayBinding::LocalToSmbZipCreate.capability_purpose(),
                     "kind": "create",
                     "source": "local",
                     "destination": "smb",
@@ -6168,9 +6136,10 @@ mod tests {
 
     #[tokio::test]
     async fn actual_relay_creation_coordinator_dispatches_every_mixed_fault() {
-        let fixture: serde_json::Value =
-            serde_json::from_str(include_str!("../../../../archive-contract/v1/topology-execution-traces-v1.json"))
-                .expect("topology trace fixture should be valid JSON");
+        let fixture: serde_json::Value = serde_json::from_str(include_str!(
+            "../../../../archive-contract/v2/fixtures/topology-execution-traces-v2.json"
+        ))
+        .expect("topology trace fixture should be valid JSON");
         let cases = fixture["cases"]
             .as_array()
             .expect("topology trace fixture should define cases")
@@ -6307,9 +6276,10 @@ mod tests {
     #[tokio::test]
     async fn mixed_creation_trajectory_matrix_dispatches_actual_coordinators() {
         let trajectories = mixed_creation_trajectory_cases();
-        let topology_fixture: serde_json::Value =
-            serde_json::from_str(include_str!("../../../../archive-contract/v1/topology-execution-traces-v1.json"))
-                .expect("topology trace fixture should be valid JSON");
+        let topology_fixture: serde_json::Value = serde_json::from_str(include_str!(
+            "../../../../archive-contract/v2/fixtures/topology-execution-traces-v2.json"
+        ))
+        .expect("topology trace fixture should be valid JSON");
         let expected_cases = topology_fixture["trajectory_cases"]
             .as_array()
             .expect("topology trace fixture should define trajectory cases")
@@ -6603,9 +6573,10 @@ mod tests {
     #[tokio::test]
     async fn segmented_mixed_extraction_trajectories_dispatch_actual_coordinators() {
         let cases = segmented_mixed_extraction_trajectory_cases();
-        let topology_fixture: serde_json::Value =
-            serde_json::from_str(include_str!("../../../../archive-contract/v1/topology-execution-traces-v1.json"))
-                .expect("topology trace fixture should be valid JSON");
+        let topology_fixture: serde_json::Value = serde_json::from_str(include_str!(
+            "../../../../archive-contract/v2/fixtures/topology-execution-traces-v2.json"
+        ))
+        .expect("topology trace fixture should be valid JSON");
         let expected_cases = topology_fixture["trajectory_cases"]
             .as_array()
             .expect("topology trace fixture should define trajectory cases")
@@ -6653,11 +6624,7 @@ mod tests {
                         .cloned()
                 })
                 .collect::<Vec<_>>();
-            let playback = spawn_fixture_relay_playback(upgrade_extraction_fixture_playback(
-                relay_steps,
-                &trajectory["expected_trace"]["manifest_snapshot"],
-            ))
-            .await;
+            let playback = spawn_fixture_relay_playback(relay_steps).await;
             let directory = tempfile::tempdir().expect("temporary extraction directory should be created");
             let destination_path = directory.path().join("destination");
             let mut archive_path = None;
@@ -6747,9 +6714,10 @@ mod tests {
 
     #[tokio::test]
     async fn actual_relay_extraction_coordinator_matches_mixed_fault_traces() {
-        let fixture: serde_json::Value =
-            serde_json::from_str(include_str!("../../../../archive-contract/v1/topology-execution-traces-v1.json"))
-                .expect("topology trace fixture should be valid JSON");
+        let fixture: serde_json::Value = serde_json::from_str(include_str!(
+            "../../../../archive-contract/v2/fixtures/topology-execution-traces-v2.json"
+        ))
+        .expect("topology trace fixture should be valid JSON");
         let expected_cases = fixture["cases"]
             .as_array()
             .expect("topology trace fixture should define cases")
@@ -7038,7 +7006,7 @@ mod tests {
     }
 
     #[test]
-    fn serializes_v1_relay_control_payloads() {
+    fn serializes_v2_relay_control_payloads() {
         let completion = ArchiveExtractionMemberCompletion {
             member_path: "docs/readme.txt",
             status: ArchiveRelayDestinationStatus::Extracted,
@@ -7143,6 +7111,7 @@ mod tests {
                 "member_outcomes": {"entry.txt": {"status": "extracted", "target_path": "output/entry.txt", "extracted_bytes": 5, "directories_created": 0, "replaced": false, "renamed": false}},
                 "decisions": {"collision_actions": {}, "rename_targets": {}, "ignored_members": [], "retry_members": []},
                 "pending_decision": null,
+                "delivery_ids": {},
             })
             .to_string(),
             pending_decision_json: None,

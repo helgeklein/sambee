@@ -13,6 +13,10 @@ case "$COMPONENT" in
         ;;
 esac
 
+if [[ "$COMPONENT" == "all" ]]; then
+    "$REPO_ROOT/scripts/check-archive-v2-cutover"
+fi
+
 if [[ "$COMPONENT" == "all" || "$COMPONENT" == "backend" ]]; then
     if [[ ! -x "$BACKEND_PYTHON" ]]; then
         echo "Backend virtual environment is required at backend/.venv" >&2

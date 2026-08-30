@@ -1,0 +1,32 @@
+#!/bin/bash
+set -euo pipefail
+
+REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+readonly REPO_ROOT
+
+fail_if_found() {
+    local description="$1"
+    local pattern="$2"
+    shift 2
+    if grep -RInE --exclude-dir=.git --exclude='*.pyc' "$pattern" "$@"; then
+        echo "Archive V2 cutover guard failed: ${description}" >&2
+        exit 1
+    fi
+}
+
+fail_if_found "directional backend relay path" '/companion-relay/' \
+    "$REPO_ROOT/backend/app" "$REPO_ROOT/frontend/src" "$REPO_ROOT/companion/src-tauri/src"
+fail_if_found "direction-named Companion relay route" 'archive/v2/(create|extract)-(from|to)-smb' \
+    "$REPO_ROOT/frontend/src" "$REPO_ROOT/companion/src-tauri/src"
+fail_if_found "V1 archive contract fixture consumer" 'archive-contract/v1' \
+    "$REPO_ROOT/backend/tests" "$REPO_ROOT/companion/src-tauri/src"
+fail_if_found "V1 archive public route" '/archive/v1' \
+    "$REPO_ROOT/backend/app" "$REPO_ROOT/frontend/src" "$REPO_ROOT/companion/src-tauri/src"
+
+if grep -RInE --exclude-dir=.git --exclude='v2_checkpoint.py' --exclude='*.pyc' 'written_members' \
+    "$REPO_ROOT/backend/app" "$REPO_ROOT/frontend/src" "$REPO_ROOT/companion/src-tauri/src"; then
+    echo "Archive V2 cutover guard failed: legacy written_members compatibility outside strict rejection validation" >&2
+    exit 1
+fi
+
+echo "Archive V2 cutover guard passed"

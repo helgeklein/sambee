@@ -18,59 +18,104 @@ from app.services.archive.coordinator import (
     ArchiveExtractionState,
     completed_extraction_member_paths,
     creation_outcome_summary,
-    new_extraction_outcome_checkpoint,
+    extraction_outcome_summary,
     record_creation_member_outcome,
     record_extraction_member_outcome,
     record_extraction_partial_member_outcome,
 )
 from app.services.archive.creation import ArchiveCreationMemberOutcome
 from app.services.archive.extraction import ArchiveExtractionDestinationResult
+from app.services.archive.v2_checkpoint import new_v2_extraction_checkpoint, validate_v2_extraction_checkpoint
 
 WORKSPACE_ROOT = Path(__file__).resolve().parents[2]
-EXTRACTION_OUTCOME_CORPUS_PATH = WORKSPACE_ROOT / "archive-contract" / "v1" / "extraction-outcome-scenarios-v1.json"
-EXTRACTION_TRAJECTORY_CORPUS_PATH = WORKSPACE_ROOT / "archive-contract" / "v1" / "extraction-trajectory-scenarios-v1.json"
-CREATION_OUTCOME_CORPUS_PATH = WORKSPACE_ROOT / "archive-contract" / "v1" / "creation-outcome-scenarios-v1.json"
-CREATION_TRAJECTORY_CORPUS_PATH = WORKSPACE_ROOT / "archive-contract" / "v1" / "creation-trajectory-scenarios-v1.json"
+EXTRACTION_OUTCOME_CORPUS_PATH = WORKSPACE_ROOT / "archive-contract" / "v2" / "fixtures" / "extraction-outcome-scenarios-v2.json"
+INVALID_CHECKPOINT_CORPUS_PATH = WORKSPACE_ROOT / "archive-contract" / "v2" / "fixtures" / "invalid-checkpoints-v2.json"
+EXTRACTION_TRAJECTORY_CORPUS_PATH = WORKSPACE_ROOT / "archive-contract" / "v2" / "fixtures" / "extraction-trajectory-scenarios-v2.json"
+CREATION_OUTCOME_CORPUS_PATH = WORKSPACE_ROOT / "archive-contract" / "v2" / "fixtures" / "creation-outcome-scenarios-v2.json"
+CREATION_TRAJECTORY_CORPUS_PATH = WORKSPACE_ROOT / "archive-contract" / "v2" / "fixtures" / "creation-trajectory-scenarios-v2.json"
 
 
-def test_v1_extraction_outcome_conformance_corpus() -> None:
+def new_v2_test_extraction_checkpoint(manifest: ArchiveExtractionManifest) -> dict[str, object]:
+    return new_v2_extraction_checkpoint(
+        manifest=manifest.checkpoint_entries(),
+        source_snapshot={"size": sum(member.uncompressed_size for member in manifest.members), "modified_at": None},
+    )
+
+
+def extraction_manifest_for_reports(reports: list[dict[str, Any]]) -> ArchiveExtractionManifest:
+    members: dict[str, ArchiveExtractionManifestMember] = {}
+    for report in reports:
+        member_path = report["member_path"]
+        if member_path not in members:
+            members[member_path] = ArchiveExtractionManifestMember(
+                member_path,
+                report["status"] == "directory",
+                report.get("extracted_bytes", 0),
+                None,
+            )
+    return ArchiveExtractionManifest.from_members(list(members.values()))
+
+
+def creation_manifest_for_reports(reports: list[dict[str, Any]]) -> ArchiveCreationManifest:
+    members: dict[str, ArchiveCreationManifestMember] = {}
+    for report in reports:
+        archive_path = report["archive_path"]
+        if archive_path not in members:
+            members[archive_path] = ArchiveCreationManifestMember(
+                archive_path,
+                report["status"] == "directory",
+                0 if report["status"] == "directory" else report["source_bytes"],
+                None,
+                None,
+            )
+    return ArchiveCreationManifest.from_members(list(members.values()))
+
+
+def test_v2_extraction_outcome_conformance_corpus() -> None:
     """Keep checkpoint replay semantics aligned across backend and Companion."""
 
     corpus: dict[str, Any] = json.loads(EXTRACTION_OUTCOME_CORPUS_PATH.read_text(encoding="utf-8"))
-    assert corpus["version"] == 1
+    assert corpus["version"] == 2
     for scenario in corpus["scenarios"]:
-        if "error" in scenario:
-            with pytest.raises(HTTPException):
-                completed_extraction_member_paths(scenario["checkpoint"])
-            continue
-        checkpoint = scenario.get("checkpoint", {})
-        if "result_reports" in scenario:
-            checkpoint = {}
-            for report in scenario["result_reports"]:
-                record_extraction_member_outcome(
-                    checkpoint,
-                    ArchiveExtractionDestinationResult(
-                        member_path=report["member_path"],
-                        status=report["status"],
-                        target_path=report["target_path"],
-                        extracted_bytes=report.get("extracted_bytes", 0),
-                        directories_created=report.get("directories_created", 0),
-                        replaced=report.get("replaced", False),
-                        renamed=report.get("renamed", False),
-                    ),
-                    preserve_absent_zero=True,
-                )
-            assert checkpoint["member_outcomes"] == scenario["member_outcomes"]
+        reports = scenario["result_reports"]
+        manifest = extraction_manifest_for_reports(reports)
+        checkpoint = new_v2_test_extraction_checkpoint(manifest)
+        for report in reports:
+            record_extraction_member_outcome(
+                checkpoint,
+                ArchiveExtractionDestinationResult(
+                    member_path=report["member_path"],
+                    status=report["status"],
+                    target_path=report["target_path"],
+                    extracted_bytes=report.get("extracted_bytes", 0),
+                    directories_created=report.get("directories_created", 0),
+                    replaced=report.get("replaced", False),
+                    renamed=report.get("renamed", False),
+                ),
+                preserve_absent_zero=True,
+            )
+        assert checkpoint["member_outcomes"] == scenario["member_outcomes"]
         assert completed_extraction_member_paths(checkpoint) == scenario["completed_members"]
+        summary = extraction_outcome_summary(checkpoint, 0)
         for key, value in scenario.get("progress", {}).items():
-            assert checkpoint.get(key, 0) == value
+            assert getattr(summary, key) == value
 
 
-def test_v1_extraction_manifest_conformance_corpus() -> None:
+def test_v2_invalid_checkpoint_corpus_is_rejected() -> None:
+    """Keep legacy and malformed checkpoints isolated as explicit V2 negatives."""
+
+    corpus: dict[str, Any] = json.loads(INVALID_CHECKPOINT_CORPUS_PATH.read_text(encoding="utf-8"))
+    assert corpus["version"] == 2
+    for case in corpus["cases"]:
+        with pytest.raises(HTTPException):
+            validate_v2_extraction_checkpoint(case["checkpoint"])
+
+
+def test_v2_extraction_manifest_conformance_corpus() -> None:
     """Keep immutable extraction manifest validation aligned across executors."""
 
     corpus: dict[str, Any] = json.loads(EXTRACTION_OUTCOME_CORPUS_PATH.read_text(encoding="utf-8"))
-    assert corpus["version"] == 1
+    assert corpus["version"] == 2
     for scenario in corpus["manifest_scenarios"]:
         entries = [
             ArchiveExtractionManifestMember(entry["path"], entry["is_directory"], entry["uncompressed_size"], None)
@@ -90,13 +135,16 @@ def test_v1_extraction_manifest_conformance_corpus() -> None:
 def test_extraction_state_resolves_decided_target_and_terminal_coverage() -> None:
     """Keep persisted extraction manifest lookups and completion coverage typed."""
 
-    checkpoint: dict[str, object] = {
-        "archive_manifest": [
-            {"path": "docs", "is_directory": True, "uncompressed_size": 0, "modified_at": None},
-            {"path": "docs/readme.txt", "is_directory": False, "uncompressed_size": 7, "modified_at": None},
-        ],
-        "member_rename_targets": {"docs/readme.txt": "renamed/readme.txt"},
-        "member_collision_actions": {},
+    manifest = ArchiveExtractionManifest.from_members(
+        [
+            ArchiveExtractionManifestMember("docs", True, 0, None),
+            ArchiveExtractionManifestMember("docs/readme.txt", False, 7, None),
+        ]
+    )
+    checkpoint = new_v2_test_extraction_checkpoint(manifest)
+    checkpoint["decisions"] = {
+        "collision_actions": {},
+        "rename_targets": {"docs/readme.txt": "renamed/readme.txt"},
         "ignored_members": [],
         "retry_members": [],
     }
@@ -124,41 +172,44 @@ def test_extraction_state_resolves_decided_target_and_terminal_coverage() -> Non
 
     assert state.has_complete_terminal_coverage()
     completed_checkpoint = json.loads(state.completion_checkpoint_json(destination_root_created=True))
-    assert completed_checkpoint["directories_created"] == 2
+    assert "directories_created" not in completed_checkpoint
+    assert extraction_outcome_summary(completed_checkpoint, 1).directories_created == 2
 
 
-def test_extraction_checkpoint_factory_initializes_the_versioned_outcome_ledger() -> None:
+def test_extraction_checkpoint_factory_initializes_the_v2_outcome_ledger() -> None:
     """Keep relay checkpoint initialization independent of individual transport routes."""
 
     manifest = ArchiveExtractionManifest.from_members([ArchiveExtractionManifestMember("docs/readme.txt", False, 7, None)])
 
-    assert new_extraction_outcome_checkpoint(
-        directories_created=1,
-        manifest=manifest,
-        source_identity={"size": 7, "modified_at": None},
-    ) == {
-        "files_extracted": 0,
-        "directories_created": 1,
-        "extracted_bytes": 0,
-        "extraction_outcome_checkpoint_version": 1,
+    assert new_v2_test_extraction_checkpoint(manifest) == {
+        "version": 2,
+        "manifest": [{"path": "docs/readme.txt", "is_directory": False, "uncompressed_size": 7, "modified_at": None}],
+        "source_snapshot": {"size": 7, "modified_at": None},
         "member_outcomes": {},
-        "source_identity": {"size": 7, "modified_at": None},
-        "archive_manifest": [{"path": "docs/readme.txt", "is_directory": False, "uncompressed_size": 7, "modified_at": None}],
+        "decisions": {"collision_actions": {}, "rename_targets": {}, "ignored_members": [], "retry_members": []},
+        "pending_decision": None,
+        "delivery_ids": {},
     }
 
 
-def test_v1_extraction_trajectory_conformance_corpus() -> None:
+def test_v2_extraction_trajectory_conformance_corpus() -> None:
     """Execute every shared extraction trajectory through each topology's common lifecycle plan."""
 
     corpus: dict[str, Any] = json.loads(EXTRACTION_TRAJECTORY_CORPUS_PATH.read_text(encoding="utf-8"))
-    assert corpus["version"] == 1
+    assert corpus["version"] == 2
     assert set(corpus["topologies"]) == {"smb_to_smb", "local_to_local", "smb_to_local", "local_to_smb"}
     for topology in corpus["topologies"]:
         for scenario in corpus["scenarios"]:
             manifest = ArchiveExtractionManifest.from_members(
                 [ArchiveExtractionManifestMember(member_path, False, 0, None) for member_path in scenario["members"]]
             )
-            checkpoint = new_extraction_outcome_checkpoint(manifest=manifest)
+            checkpoint = new_v2_test_extraction_checkpoint(manifest)
+            decisions = checkpoint["decisions"]
+            assert isinstance(decisions, dict)
+            collision_actions = decisions["collision_actions"]
+            rename_targets = decisions["rename_targets"]
+            assert isinstance(collision_actions, dict)
+            assert isinstance(rename_targets, dict)
             phase = "prepared"
             for step in scenario["steps"]:
                 event = step["event"]
@@ -177,13 +228,13 @@ def test_v1_extraction_trajectory_conformance_corpus() -> None:
                     action = step["action"]
                     member_path = step["member_path"]
                     if action in {"skip", "replace"}:
-                        checkpoint.setdefault("member_collision_actions", {})[member_path] = action
+                        collision_actions[member_path] = action
                     elif action == "rename":
-                        checkpoint.setdefault("member_rename_targets", {})[member_path] = step["target_path"]
+                        rename_targets[member_path] = step["target_path"]
                     elif action == "retry":
-                        checkpoint["retry_members"] = [member_path]
+                        decisions["retry_members"] = [member_path]
                     elif action == "ignore":
-                        checkpoint["ignored_members"] = [member_path]
+                        decisions["ignored_members"] = [member_path]
                     elif action == "replace_older":
                         assert scenario.get("existing_file_policy") == "replace_older"
                     phase = "streaming"
@@ -233,40 +284,44 @@ def test_v1_extraction_trajectory_conformance_corpus() -> None:
             )
             assert phase == scenario["terminal_phase"], f"{topology}: {scenario['name']}"
             assert plan.completed_member_paths() == frozenset(scenario["completed_members"])
+            summary = extraction_outcome_summary(checkpoint, 0)
             for key, value in scenario["progress"].items():
-                assert checkpoint.get(key, 0) == value
+                assert getattr(summary, key) == value
 
 
-def test_v1_creation_outcome_conformance_corpus() -> None:
+def test_v2_creation_outcome_conformance_corpus() -> None:
     """Keep normalized creation outcome persistence aligned across executors."""
 
     corpus: dict[str, Any] = json.loads(CREATION_OUTCOME_CORPUS_PATH.read_text(encoding="utf-8"))
-    assert corpus["version"] == 1
+    assert corpus["version"] == 2
     for scenario in corpus["scenarios"]:
-        checkpoint: dict[str, object] = {}
+        reports = scenario["result_reports"]
+        manifest = creation_manifest_for_reports(reports)
+        checkpoint = manifest.empty_checkpoint()
         if "error" in scenario:
             with pytest.raises(HTTPException):
-                for report in scenario["result_reports"]:
+                for report in reports:
                     record_creation_member_outcome(
                         checkpoint,
                         ArchiveCreationMemberOutcome(report["archive_path"], report["status"], report["source_bytes"]),
                     )
             continue
-        for report in scenario["result_reports"]:
+        for report in reports:
             record_creation_member_outcome(
                 checkpoint,
                 ArchiveCreationMemberOutcome(report["archive_path"], report["status"], report["source_bytes"]),
             )
-        assert checkpoint["creation_member_outcomes"] == scenario["member_outcomes"]
+        assert checkpoint["member_outcomes"] == scenario["member_outcomes"]
+        summary = creation_outcome_summary(checkpoint)
         for key, value in scenario["progress"].items():
-            assert checkpoint[key] == value
+            assert getattr(summary, key) == value
 
 
-def test_v1_creation_manifest_conformance_corpus() -> None:
+def test_v2_creation_manifest_conformance_corpus() -> None:
     """Keep immutable creation manifest validation aligned across executors."""
 
     corpus: dict[str, Any] = json.loads(CREATION_OUTCOME_CORPUS_PATH.read_text(encoding="utf-8"))
-    assert corpus["version"] == 1
+    assert corpus["version"] == 2
     for scenario in corpus["manifest_scenarios"]:
         entries = [
             ArchiveCreationManifestMember(entry["archive_path"], entry["is_directory"], entry["source_size"], None, None)
@@ -288,11 +343,11 @@ def test_v1_creation_manifest_conformance_corpus() -> None:
         assert creation_outcome_summary(checkpoint).to_checkpoint() == scenario["progress"]
 
 
-def test_v1_creation_terminal_conformance_corpus() -> None:
+def test_v2_creation_terminal_conformance_corpus() -> None:
     """Keep manifest-backed replay and exact terminal coverage aligned across executors."""
 
     corpus: dict[str, Any] = json.loads(CREATION_OUTCOME_CORPUS_PATH.read_text(encoding="utf-8"))
-    assert corpus["version"] == 1
+    assert corpus["version"] == 2
     for scenario in corpus["terminal_scenarios"]:
         manifest = ArchiveCreationManifest.from_members(
             [
@@ -317,11 +372,11 @@ def test_v1_creation_terminal_conformance_corpus() -> None:
         assert state.terminal_summary().to_checkpoint() == scenario["progress"]
 
 
-def test_v1_creation_trajectory_conformance_corpus() -> None:
-    """Replay V1 creation trajectories through the immutable manifest and outcome ledger."""
+def test_v2_creation_trajectory_conformance_corpus() -> None:
+    """Replay V2 creation trajectories through the immutable manifest and outcome ledger."""
 
     corpus: dict[str, Any] = json.loads(CREATION_TRAJECTORY_CORPUS_PATH.read_text(encoding="utf-8"))
-    assert corpus["version"] == 1
+    assert corpus["version"] == 2
     assert set(corpus["topologies"]) == {"smb_to_smb", "local_to_local", "smb_to_local", "local_to_smb"}
     for scenario in corpus["scenarios"]:
         manifest = ArchiveCreationManifest.from_members(
@@ -339,7 +394,9 @@ def test_v1_creation_trajectory_conformance_corpus() -> None:
             elif step["event"] == "report":
                 outcome = state.validate_report(ArchiveCreationMemberOutcome(step["archive_path"], step["status"], step["source_bytes"]))
                 record_creation_member_outcome(checkpoint, outcome)
-        assert set(checkpoint["creation_member_outcomes"]) == set(scenario["completed_members"])
+        member_outcomes = checkpoint["member_outcomes"]
+        assert isinstance(member_outcomes, dict)
+        assert set(member_outcomes) == set(scenario["completed_members"])
         if cancelled:
             assert scenario["terminal_phase"] == "cancelled"
         else:

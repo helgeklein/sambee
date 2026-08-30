@@ -314,7 +314,7 @@ impl LocalArchiveInspectionSource {
     }
 }
 
-/// Immutable V1 archive-directory presenter bound before inspection starts.
+/// Immutable V2 archive-directory presenter bound before inspection starts.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ArchiveDirectoryListingPresentation {
     archive_path: String,
@@ -384,7 +384,7 @@ impl ArchiveDirectoryListingPresentation {
     }
 }
 
-/// Immutable V1 archive-member presenter bound before inspection starts.
+/// Immutable V2 archive-member presenter bound before inspection starts.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ArchiveMemberReadPresentation {
     member_path: String,
@@ -416,14 +416,14 @@ impl ArchiveMemberReadPresentation {
     }
 }
 
-/// Transport-neutral V1 member delivery selected by the presentation adapter.
+/// Transport-neutral V2 member delivery selected by the presentation adapter.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum ArchiveMemberReadDelivery {
     Stream,
     PreviewUnavailable,
 }
 
-/// V1 member response details projected by a request-scoped presentation adapter.
+/// V2 member response details projected by a request-scoped presentation adapter.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ArchiveMemberReadProjection {
     pub member_path: String,
@@ -433,7 +433,7 @@ pub struct ArchiveMemberReadProjection {
     pub content_disposition: String,
 }
 
-/// Existing V1 response presenter selected by a request route.
+/// Existing V2 response presenter selected by a request route.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum ArchiveInspectionPresentation {
     DirectoryListing(ArchiveDirectoryListingPresentation),
@@ -449,7 +449,7 @@ pub struct ArchiveInspectionPlan {
 }
 
 impl ArchiveInspectionPlan {
-    /// Read the local source once and bind its normalized manifest and V1 presentation to this request.
+    /// Read the local source once and bind its normalized manifest and V2 presentation to this request.
     pub fn from_local_source(
         source: LocalArchiveInspectionSource,
         presentation: ArchiveInspectionPresentation,
@@ -461,7 +461,7 @@ impl ArchiveInspectionPlan {
         })
     }
 
-    /// Return the existing V1 response projection selected for this request.
+    /// Return the existing V2 response projection selected for this request.
     pub fn presentation(&self) -> ArchiveInspectionPresentation {
         self.presentation.clone()
     }
@@ -871,6 +871,7 @@ pub struct ArchiveExtractionRelayState {
     member_outcomes: HashMap<String, ArchiveExtractionRelayMemberOutcome>,
     decisions: ArchiveExtractionRelayDecisions,
     pending_decision: Option<serde_json::Value>,
+    delivery_ids: HashMap<uuid::Uuid, String>,
 }
 
 impl ArchiveExtractionRelayState {
@@ -890,6 +891,17 @@ impl ArchiveExtractionRelayState {
             return Err(LocalArchiveError::Io(std::io::Error::new(
                 std::io::ErrorKind::InvalidData,
                 "Archive relay returned an unsupported extraction checkpoint version",
+            )));
+        }
+        if self.delivery_ids.len() > 1024
+            || self
+                .delivery_ids
+                .values()
+                .any(|fingerprint| fingerprint.is_empty() || fingerprint.len() > 4096)
+        {
+            return Err(LocalArchiveError::Io(std::io::Error::new(
+                std::io::ErrorKind::InvalidData,
+                "Archive relay returned an invalid delivery replay ledger",
             )));
         }
         self.member_outcomes
@@ -3637,14 +3649,14 @@ mod tests {
     }
 
     #[test]
-    fn passes_v1_creation_result_conformance_scenarios() {
+    fn passes_v2_creation_result_conformance_scenarios() {
         let corpus_path = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
             .join("../..")
-            .join("archive-contract/v1/creation-outcome-scenarios-v1.json");
+            .join("archive-contract/v2/fixtures/creation-outcome-scenarios-v2.json");
         let corpus: CreationOutcomeConformanceCorpus =
             serde_json::from_slice(&fs::read(corpus_path).expect("shared creation outcome corpus should be readable"))
                 .expect("shared creation outcome corpus should be valid JSON");
-        assert_eq!(corpus.version, 1);
+        assert_eq!(corpus.version, 2);
 
         for scenario in corpus.scenarios {
             let manifest = ArchiveCreationManifest::from_entries(scenario.result_reports.iter().fold(Vec::new(), |mut entries, report| {
@@ -3704,14 +3716,14 @@ mod tests {
     }
 
     #[test]
-    fn passes_v1_extraction_manifest_conformance_scenarios() {
+    fn passes_v2_extraction_manifest_conformance_scenarios() {
         let corpus_path = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
             .join("../..")
-            .join("archive-contract/v1/extraction-outcome-scenarios-v1.json");
+            .join("archive-contract/v2/fixtures/extraction-outcome-scenarios-v2.json");
         let corpus: ExtractionOutcomeConformanceCorpus =
             serde_json::from_slice(&fs::read(corpus_path).expect("shared extraction outcome corpus should be readable"))
                 .expect("shared extraction outcome corpus should be valid JSON");
-        assert_eq!(corpus.version, 1);
+        assert_eq!(corpus.version, 2);
 
         for scenario in corpus.manifest_scenarios {
             let manifest = ArchiveExtractionManifest::from_entries(
@@ -3744,14 +3756,14 @@ mod tests {
     }
 
     #[test]
-    fn passes_v1_creation_manifest_conformance_scenarios() {
+    fn passes_v2_creation_manifest_conformance_scenarios() {
         let corpus_path = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
             .join("../..")
-            .join("archive-contract/v1/creation-outcome-scenarios-v1.json");
+            .join("archive-contract/v2/fixtures/creation-outcome-scenarios-v2.json");
         let corpus: CreationOutcomeConformanceCorpus =
             serde_json::from_slice(&fs::read(corpus_path).expect("shared creation outcome corpus should be readable"))
                 .expect("shared creation outcome corpus should be valid JSON");
-        assert_eq!(corpus.version, 1);
+        assert_eq!(corpus.version, 2);
 
         for scenario in corpus.manifest_scenarios {
             let manifest = ArchiveCreationManifest::from_entries(
@@ -3793,14 +3805,14 @@ mod tests {
     }
 
     #[test]
-    fn passes_v1_creation_terminal_conformance_scenarios() {
+    fn passes_v2_creation_terminal_conformance_scenarios() {
         let corpus_path = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
             .join("../..")
-            .join("archive-contract/v1/creation-outcome-scenarios-v1.json");
+            .join("archive-contract/v2/fixtures/creation-outcome-scenarios-v2.json");
         let corpus: CreationOutcomeConformanceCorpus =
             serde_json::from_slice(&fs::read(corpus_path).expect("shared creation outcome corpus should be readable"))
                 .expect("shared creation outcome corpus should be valid JSON");
-        assert_eq!(corpus.version, 1);
+        assert_eq!(corpus.version, 2);
 
         for scenario in corpus.terminal_scenarios {
             let manifest = ArchiveCreationManifest::from_entries(
@@ -3849,14 +3861,14 @@ mod tests {
     }
 
     #[test]
-    fn passes_v1_creation_trajectory_conformance_scenarios() {
+    fn passes_v2_creation_trajectory_conformance_scenarios() {
         let corpus_path = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
             .join("../..")
-            .join("archive-contract/v1/creation-trajectory-scenarios-v1.json");
+            .join("archive-contract/v2/fixtures/creation-trajectory-scenarios-v2.json");
         let corpus: CreationTrajectoryConformanceCorpus =
             serde_json::from_slice(&fs::read(corpus_path).expect("shared creation trajectory corpus should be readable"))
                 .expect("shared creation trajectory corpus should be valid JSON");
-        assert_eq!(corpus.version, 1);
+        assert_eq!(corpus.version, 2);
         assert_eq!(
             corpus.topologies.into_iter().collect::<std::collections::HashSet<_>>(),
             std::collections::HashSet::from([
@@ -3928,14 +3940,14 @@ mod tests {
     }
 
     #[test]
-    fn passes_v1_terminal_result_conformance_scenarios() {
+    fn passes_v2_terminal_result_conformance_scenarios() {
         let corpus_path = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
             .join("../..")
-            .join("archive-contract/v1/extraction-outcome-scenarios-v1.json");
+            .join("archive-contract/v2/fixtures/extraction-outcome-scenarios-v2.json");
         let corpus: ExtractionOutcomeConformanceCorpus =
             serde_json::from_slice(&fs::read(corpus_path).expect("shared extraction outcome corpus should be readable"))
                 .expect("shared extraction outcome corpus should be valid JSON");
-        assert_eq!(corpus.version, 1);
+        assert_eq!(corpus.version, 2);
 
         for scenario in corpus.scenarios.into_iter().filter(|scenario| !scenario.result_reports.is_empty()) {
             let mut checkpoint = LocalArchiveExtractionCheckpoint::default();
@@ -4001,14 +4013,14 @@ mod tests {
     }
 
     #[test]
-    fn passes_v1_extraction_trajectory_conformance_scenarios() {
+    fn passes_v2_extraction_trajectory_conformance_scenarios() {
         let corpus_path = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
             .join("../..")
-            .join("archive-contract/v1/extraction-trajectory-scenarios-v1.json");
+            .join("archive-contract/v2/fixtures/extraction-trajectory-scenarios-v2.json");
         let corpus: ExtractionTrajectoryConformanceCorpus =
             serde_json::from_slice(&fs::read(corpus_path).expect("shared extraction trajectory corpus should be readable"))
                 .expect("shared extraction trajectory corpus should be valid JSON");
-        assert_eq!(corpus.version, 1);
+        assert_eq!(corpus.version, 2);
         assert_eq!(
             corpus.topologies.iter().cloned().collect::<std::collections::HashSet<_>>(),
             std::collections::HashSet::from([
@@ -4346,10 +4358,10 @@ mod tests {
     }
 
     #[test]
-    fn executes_v1_collision_skip_behavioral_scenario() {
+    fn executes_v2_collision_skip_behavioral_scenario() {
         let corpus_path = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
             .join("../..")
-            .join("archive-contract/v1/extraction-outcome-scenarios-v1.json");
+            .join("archive-contract/v2/fixtures/extraction-outcome-scenarios-v2.json");
         let corpus: ExtractionOutcomeConformanceCorpus =
             serde_json::from_slice(&fs::read(corpus_path).expect("shared extraction outcome corpus should be readable"))
                 .expect("shared extraction outcome corpus should be valid JSON");
@@ -4401,10 +4413,10 @@ mod tests {
     }
 
     #[test]
-    fn executes_v1_cancellation_behavioral_scenario() {
+    fn executes_v2_cancellation_behavioral_scenario() {
         let corpus_path = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
             .join("../..")
-            .join("archive-contract/v1/extraction-outcome-scenarios-v1.json");
+            .join("archive-contract/v2/fixtures/extraction-outcome-scenarios-v2.json");
         let corpus: ExtractionOutcomeConformanceCorpus =
             serde_json::from_slice(&fs::read(corpus_path).expect("shared extraction outcome corpus should be readable"))
                 .expect("shared extraction outcome corpus should be valid JSON");
@@ -4438,10 +4450,10 @@ mod tests {
     }
 
     #[test]
-    fn executes_v1_rename_behavioral_scenario() {
+    fn executes_v2_rename_behavioral_scenario() {
         let corpus_path = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
             .join("../..")
-            .join("archive-contract/v1/extraction-outcome-scenarios-v1.json");
+            .join("archive-contract/v2/fixtures/extraction-outcome-scenarios-v2.json");
         let corpus: ExtractionOutcomeConformanceCorpus =
             serde_json::from_slice(&fs::read(corpus_path).expect("shared extraction outcome corpus should be readable"))
                 .expect("shared extraction outcome corpus should be valid JSON");
@@ -4559,7 +4571,7 @@ mod tests {
     fn rejects_source_changes_before_retrying_a_known_partial_output() {
         let corpus_path = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
             .join("../..")
-            .join("archive-contract/v1/extraction-outcome-scenarios-v1.json");
+            .join("archive-contract/v2/fixtures/extraction-outcome-scenarios-v2.json");
         let corpus: ExtractionOutcomeConformanceCorpus =
             serde_json::from_slice(&fs::read(corpus_path).expect("shared extraction outcome corpus should be readable"))
                 .expect("shared extraction outcome corpus should be valid JSON");
@@ -4904,12 +4916,12 @@ mod tests {
     }
 
     #[test]
-    fn loads_v1_topology_operation_compatibility_matrix() {
-        let matrix_path =
-            PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../archive-contract/v1/topology-operation-compatibility-matrix-v1.json");
+    fn loads_v2_topology_operation_compatibility_matrix() {
+        let matrix_path = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+            .join("../../archive-contract/v2/fixtures/topology-operation-compatibility-matrix-v2.json");
         let matrix: serde_json::Value = serde_json::from_slice(&fs::read(matrix_path).unwrap()).unwrap();
 
-        assert_eq!(matrix["version"], 1);
+        assert_eq!(matrix["version"], 2);
         let operations = matrix["operations"].as_array().unwrap();
         let mut cells = operations
             .iter()
@@ -4949,11 +4961,12 @@ mod tests {
     }
 
     #[test]
-    fn passes_v1_inspection_scenarios() {
+    fn passes_v2_inspection_scenarios() {
         let workspace_root = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../..");
         let corpus: serde_json::Value =
-            serde_json::from_slice(&fs::read(workspace_root.join("archive-contract/v1/inspection-scenarios-v1.json")).unwrap()).unwrap();
-        assert_eq!(corpus["version"], 1);
+            serde_json::from_slice(&fs::read(workspace_root.join("archive-contract/v2/fixtures/inspection-scenarios-v2.json")).unwrap())
+                .unwrap();
+        assert_eq!(corpus["version"], 2);
 
         for scenario in corpus["scenarios"].as_array().unwrap() {
             let archive_path = workspace_root.join("archive_testdata").join(scenario["fixture"].as_str().unwrap());
@@ -4983,10 +4996,11 @@ mod tests {
 
     #[cfg(unix)]
     #[test]
-    fn passes_v1_creation_manifest_virtual_tree_corpus() {
+    fn passes_v2_creation_manifest_virtual_tree_corpus() {
         use std::os::unix::fs::symlink;
 
-        let corpus_path = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../archive-contract/v1/creation-manifest-scenarios-v1.json");
+        let corpus_path =
+            PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../archive-contract/v2/fixtures/creation-manifest-scenarios-v2.json");
         let corpus: serde_json::Value = serde_json::from_slice(&fs::read(corpus_path).unwrap()).unwrap();
         for scenario in corpus["scenarios"].as_array().unwrap() {
             let root = tempdir().unwrap();

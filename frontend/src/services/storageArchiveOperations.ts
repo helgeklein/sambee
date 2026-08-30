@@ -161,7 +161,7 @@ export class StorageArchiveOperationCoordinator {
       return false;
     }
     const recovery: StorageRecoveryHandle = interruptedOperation.recovery ?? {
-      schemaVersion: 1,
+      schemaVersion: 2,
       contractVersion: "v2",
       backendKind: "smb",
       opaqueOperationId: interruptedOperation.operationId,

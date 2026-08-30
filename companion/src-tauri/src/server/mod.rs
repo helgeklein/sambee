@@ -152,12 +152,8 @@ fn build_router(state: Arc<AppState>) -> Router {
         )
         .route("/api/browse/{drive}/upload", axum::routing::post(handlers::browse_upload))
         .route(
-            "/api/browse/{drive}/archive/v2/create-from-smb",
-            axum::routing::post(handlers::browse_create_archive_from_smb),
-        )
-        .route(
-            "/api/browse/{drive}/archive/v2/create-to-smb",
-            axum::routing::post(handlers::browse_create_archive_to_smb),
+            "/api/browse/{drive}/archive/v2/relay/creation",
+            axum::routing::post(handlers::browse_relay_v2_archive_creation),
         )
         .route(
             "/api/browse/{drive}/archive/v2/executions",
@@ -176,12 +172,8 @@ fn build_router(state: Arc<AppState>) -> Router {
             axum::routing::post(handlers::browse_decide_v2_archive_execution),
         )
         .route(
-            "/api/browse/{drive}/archive/v2/extract-to-smb",
-            axum::routing::post(handlers::browse_extract_archive_to_smb),
-        )
-        .route(
-            "/api/browse/{drive}/archive/v2/extract-from-smb",
-            axum::routing::post(handlers::browse_extract_archive_from_smb),
+            "/api/browse/{drive}/archive/v2/relay/extraction",
+            axum::routing::post(handlers::browse_relay_v2_archive_extraction),
         )
         .layer(axum::middleware::from_fn_with_state(state.clone(), auth::require_auth));
 

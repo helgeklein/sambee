@@ -7,6 +7,7 @@ from typing import Literal
 
 from sqlalchemy import CheckConstraint
 from sqlmodel import Field, SQLModel
+from sqlmodel._compat import SQLModelConfig
 
 
 class ArchiveContractVersion(StrEnum):
@@ -67,7 +68,13 @@ class ArchiveOperation(SQLModel, table=True):
     heartbeat_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc), index=True)
 
 
-class ArchiveOperationPrepare(SQLModel):
+class ArchiveV2Payload(SQLModel):
+    """Strict V2 request model base; V2 never discards unknown wire fields."""
+
+    model_config = SQLModelConfig(extra="forbid")
+
+
+class ArchiveOperationPrepare(ArchiveV2Payload):
     contract_version: ArchiveContractVersion = ArchiveContractVersion.V2
     kind: ArchiveOperationKind
     source_connection_id: str
@@ -99,7 +106,7 @@ class ArchiveOperationRead(SQLModel):
     heartbeat_at: datetime
 
 
-class ArchiveOperationTransition(SQLModel):
+class ArchiveOperationTransition(ArchiveV2Payload):
     expected_phase: ArchiveOperationPhase
     next_phase: ArchiveOperationPhase
     expected_revision: int | None = Field(default=None, ge=0)
@@ -113,7 +120,7 @@ class ArchiveCompanionSession(SQLModel):
     operation: ArchiveOperationRead
 
 
-class ArchiveCompanionManifestEntry(SQLModel):
+class ArchiveCompanionManifestEntry(ArchiveV2Payload):
     """One validated ZIP member that Companion may write to its local destination."""
 
     path: str
@@ -129,19 +136,19 @@ class ArchiveCompanionExtractionManifest(SQLModel):
     entries: list[ArchiveCompanionManifestEntry]
 
 
-class ArchiveCompanionExtractionSourceManifest(SQLModel):
+class ArchiveCompanionExtractionSourceManifest(ArchiveV2Payload):
     """Safe, complete local ZIP manifest supplied before a scoped SMB extraction begins."""
 
     entries: list[ArchiveCompanionManifestEntry]
 
 
-class ArchiveCompanionExtractionSummary(SQLModel):
+class ArchiveCompanionExtractionSummary(ArchiveV2Payload):
     """Execution-level local destination state reported after member outcomes commit."""
 
     destination_root_created: bool
 
 
-class ArchiveCompanionExtractionMemberCompletion(SQLModel):
+class ArchiveCompanionExtractionMemberCompletion(ArchiveV2Payload):
     """One local output member completed by the scoped Companion executor."""
 
     member_path: str = Field(min_length=1)
@@ -153,7 +160,7 @@ class ArchiveCompanionExtractionMemberCompletion(SQLModel):
     renamed: bool = False
 
 
-class ArchiveCompanionExtractionCollision(SQLModel):
+class ArchiveCompanionExtractionCollision(ArchiveV2Payload):
     """An existing local output detected before Companion opens a member target."""
 
     member_path: str = Field(min_length=1)
@@ -162,7 +169,7 @@ class ArchiveCompanionExtractionCollision(SQLModel):
     target_modified_at: datetime | None = None
 
 
-class ArchiveCompanionExtractionMemberError(SQLModel):
+class ArchiveCompanionExtractionMemberError(ArchiveV2Payload):
     """A local member write failure that can be retried or explicitly ignored."""
 
     member_path: str = Field(min_length=1)
@@ -170,13 +177,13 @@ class ArchiveCompanionExtractionMemberError(SQLModel):
     partial_output: bool
 
 
-class ArchiveCompanionFailure(SQLModel):
+class ArchiveCompanionFailure(ArchiveV2Payload):
     """A bounded executor failure description safe to persist on an operation."""
 
     message: str = Field(min_length=1, max_length=500)
 
 
-class ArchiveCompanionCreationManifestEntry(SQLModel):
+class ArchiveCompanionCreationManifestEntry(ArchiveV2Payload):
     """One validated SMB source item that Companion may add to a local ZIP."""
 
     source_path: str
@@ -193,7 +200,7 @@ class ArchiveCompanionCreationManifest(SQLModel):
     entries: list[ArchiveCompanionCreationManifestEntry]
 
 
-class ArchiveCompanionCreationSourceManifestEntry(SQLModel):
+class ArchiveCompanionCreationSourceManifestEntry(ArchiveV2Payload):
     """One validated local source member to be committed by the SMB ZIP writer."""
 
     archive_path: str = Field(min_length=1)
@@ -202,13 +209,13 @@ class ArchiveCompanionCreationSourceManifestEntry(SQLModel):
     modified_at: datetime | None = None
 
 
-class ArchiveCompanionCreationSourceManifest(SQLModel):
+class ArchiveCompanionCreationSourceManifest(ArchiveV2Payload):
     """Complete local-source manifest for a member-framed SMB ZIP relay."""
 
     entries: list[ArchiveCompanionCreationSourceManifestEntry]
 
 
-class ArchiveCompanionCreationSummary(SQLModel):
+class ArchiveCompanionCreationSummary(ArchiveV2Payload):
     """Counts reported by the paired Companion after writing a local ZIP."""
 
     files_created: int = Field(ge=0)
@@ -216,7 +223,7 @@ class ArchiveCompanionCreationSummary(SQLModel):
     source_bytes: int = Field(ge=0)
 
 
-class ArchiveCompanionCreationMemberCompletion(SQLModel):
+class ArchiveCompanionCreationMemberCompletion(ArchiveV2Payload):
     """One local ZIP member durably committed from the validated SMB manifest."""
 
     archive_path: str = Field(min_length=1)
@@ -224,7 +231,7 @@ class ArchiveCompanionCreationMemberCompletion(SQLModel):
     source_bytes: int = Field(ge=0)
 
 
-class ArchiveExtractionDecision(SQLModel):
+class ArchiveExtractionDecision(ArchiveV2Payload):
     action: Literal["skip", "skip_all", "replace", "replace_all", "replace_older", "rename", "retry", "ignore", "cancel"]
     member_path: str | None = None
     target_path: str | None = None

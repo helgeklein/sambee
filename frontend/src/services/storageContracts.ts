@@ -143,7 +143,7 @@ export type StorageOperationResult =
   | { status: "cancelled"; effects: StorageMutationEffects; error: { code: "cancelled"; detail: string | null } };
 
 export interface StorageRecoveryHandle {
-  schemaVersion: 1;
+  schemaVersion: 2;
   contractVersion: "v2";
   backendKind: StorageTarget["kind"];
   opaqueOperationId: string;

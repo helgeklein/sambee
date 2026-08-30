@@ -16,7 +16,7 @@ from ci_change_detector import ARCHIVE_TOPOLOGY_PATHS, FULL_TREE_DIFF_BASE, clas
 @pytest.mark.parametrize(
     "path",
     [
-        "archive-contract/v1/topology-execution-traces-v1.json",
+        "archive-contract/v2/fixtures/topology-execution-traces-v2.json",
         "backend/app/services/archive/coordinator.py",
         "backend/tests/test_archive_future.py",
         "companion/src-tauri/src/server/archive_new_adapter.rs",
@@ -92,7 +92,7 @@ def test_push_uses_comparison_paths_and_before_sha(monkeypatch: pytest.MonkeyPat
         tmp_path,
         event_name="push",
         event={"before": "base-sha"},
-        api_responses=[{"files": [{"filename": "archive-contract/v1/topology-execution-traces-v1.json"}]}],
+        api_responses=[{"files": [{"filename": "archive-contract/v2/fixtures/topology-execution-traces-v2.json"}]}],
     )
 
     assert outputs == {

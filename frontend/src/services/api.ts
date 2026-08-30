@@ -1029,7 +1029,7 @@ class ApiService {
     const segment = getBrowseSegment(connectionId);
     const { client, extraConfig } = await this.getClientConfig(connectionId);
     const response = await client.post(
-      `/browse/${segment}/archive/v2/extract-to-smb`,
+      `/browse/${segment}/archive/v2/relay/extraction`,
       {
         contract_version: "v2",
         archive_path: archivePath,
@@ -1059,7 +1059,7 @@ class ApiService {
     const segment = getBrowseSegment(destinationConnectionId);
     const { client, extraConfig } = await this.getClientConfig(destinationConnectionId);
     const response = await client.post(
-      `/browse/${segment}/archive/v2/extract-from-smb`,
+      `/browse/${segment}/archive/v2/relay/extraction`,
       {
         contract_version: "v2",
         destination_path: destinationPath,
@@ -1081,7 +1081,7 @@ class ApiService {
     const segment = getBrowseSegment(destinationConnectionId);
     const { client, extraConfig } = await this.getClientConfig(destinationConnectionId);
     const response = await client.post(
-      `/browse/${segment}/archive/v2/create-from-smb`,
+      `/browse/${segment}/archive/v2/relay/creation`,
       {
         contract_version: "v2",
         target_path: targetPath,
@@ -1104,7 +1104,7 @@ class ApiService {
     const segment = getBrowseSegment(sourceConnectionId);
     const { client, extraConfig } = await this.getClientConfig(sourceConnectionId);
     const response = await client.post(
-      `/browse/${segment}/archive/v2/create-to-smb`,
+      `/browse/${segment}/archive/v2/relay/creation`,
       {
         contract_version: "v2",
         source_paths: sourcePaths,

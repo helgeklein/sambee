@@ -28,7 +28,7 @@ describe("foreground archive operation tracking", () => {
 
   it("persists an opaque recovery handle for adapter-owned archive work", () => {
     const recovery = {
-      schemaVersion: 1,
+      schemaVersion: 2,
       contractVersion: "v2" as const,
       backendKind: "smb" as const,
       opaqueOperationId: "operation-a",

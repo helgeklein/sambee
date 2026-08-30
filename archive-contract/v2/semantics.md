@@ -1,45 +1,101 @@
 # Archive Semantics V2
 
-V2 is the only active archive contract. Creation and extraction are durable
-operations. Inspection and member reads are request-scoped and non-durable.
+V2 is the only archive contract. Creation and extraction are durable operation
+resources. Inspection and member reads are request-scoped and non-durable.
+There is no V1 route, payload, checkpoint, capability, migration, or recovery
+fallback.
 
-## Versioning
+## Versioning And Encoding
 
 Every durable operation, direct-local session, frontend recovery handle, and
-Companion capability has `contract_version: "v2"`. A missing, different, or
-invalid version is rejected before checkpoint parsing or archive I/O. There is
-no V1 fallback or migration path.
+Companion capability is pinned to `contract_version: "v2"`. A missing,
+different, expired, or tampered version is rejected before lifecycle processing,
+checkpoint parsing, or archive I/O.
 
-## Extraction checkpoint
+JSON object members use the schema names in `schema.json`. Unknown object keys
+are rejected unless the schema explicitly permits map entries. Member paths are
+UTF-8, forward-slash-separated relative paths, at most 4096 characters, with no
+leading slash, empty, `.` or `..` segment, colon, backslash, or NUL. Timestamps
+are RFC 3339 UTC strings ending in `Z`, or `null` only where a source timestamp
+is unavailable. Counts and byte sizes are non-negative integers. Routes that
+accept a member manifest allow at most 100000 entries; inspection pages contain
+1 through 500 items.
 
-An extraction checkpoint is one JSON object with exactly these keys:
+## Durable Operations
 
-- `version`: integer `2`
-- `manifest`: immutable array of members (`path`, `is_directory`,
-  `uncompressed_size`, `modified_at`)
-- `source_snapshot`: immutable object containing `size` and `modified_at`
-- `member_outcomes`: object keyed by canonical member path
-- `decisions`: object with `collision_actions`, `rename_targets`,
-  `ignored_members`, and `retry_members`
-- `pending_decision`: object or `null`
+`operation` is the prepare request and `operationRead` is the durable resource
+representation. Only `create` and `extract` kinds exist. The lifecycle phase is
+one of `prepared`, `accepted`, `streaming`, `awaiting_user_decision`,
+`verifying`, `completed`, `cancelled`, or `failed`; the final three states are
+terminal. A revision-bound transition, decision, or cancellation must match its
+expected revision when supplied.
 
-No aggregate counters are persisted. Terminal summaries are derived solely from
-`member_outcomes`. Unknown keys, `written_members`, unversioned checkpoint
-objects, and V1 checkpoint keys are invalid.
+Terminal summaries are derived only from terminal `member_outcomes`. They are
+not checkpoint fields and must never be independently resumed or incremented.
 
-Member paths are UTF-8, forward-slash-separated relative paths with no empty,
-`.` or `..` segment, colon, NUL, or leading slash. Timestamps are RFC 3339 UTC
-strings ending in `Z`, or `null` where a source timestamp is unavailable.
+## Checkpoints And Decisions
 
-## Idempotency and security
+An extraction checkpoint has exactly `version` (integer `2`), immutable
+`manifest`, immutable `source_snapshot`, `member_outcomes`, `decisions`,
+`pending_decision`, and `delivery_ids`. A creation checkpoint has the same
+fields except it has no `source_snapshot`; its `decisions` is `{}` and its
+`pending_decision` is `null`. Both envelopes reject unversioned objects,
+independently maintained aggregate counters, `written_members`, and every V1
+checkpoint field.
 
-A control delivery identity is scoped to one operation and one command. An
-identical replay is a no-op; reuse with a different command/payload fails.
-Companion capabilities are signed and bind the operation ID, contract version,
-operation kind, resolved topology, relay binding, and source/destination scope.
+Extraction terminal outcomes are `directory`, `extracted`, `skipped`, and
+`ignored`. A `partial` outcome records an incomplete target and is not terminal;
+the member must be retried or explicitly ignored. Creation terminal outcomes are
+`directory` and `created`.
 
-## V2 routes
+`decisions` persists member-local collision actions (`skip` or `replace`),
+rename targets, ignored members, and retry members. A pending collision is an
+`existing_files` object with one or more conflicts and allowed actions. A pending
+write failure is a `member_error` object with canonical member and target paths,
+a bounded message, `partial_output`, and exactly `retry` and `ignore` actions.
+Control decisions may use `skip`, `skip_all`, `replace`, `replace_all`,
+`replace_older`, `rename`, `retry`, `ignore`, or `cancel`; the pending decision
+limits which actions are valid.
 
-All durable routes are rooted at `/api/archive/v2/operations`. Inspection routes
-are rooted at `/api/archive/v2/inspection`; they receive an explicit V2 request
-schema and never create an operation record.
+## Routes And Ownership
+
+The complete binding inventory is `route-bindings.json`. Backend durable routes
+are rooted at `/api/archive/v2/operations`; its inspection routes are rooted at
+`/api/archive/v2/inspection`. Companion direct-local execution routes are rooted
+at `/api/browse/{drive}/archive/v2/executions`. Mixed Companion execution uses
+only `/api/browse/{drive}/archive/v2/relay/creation` and
+`/api/browse/{drive}/archive/v2/relay/extraction`.
+
+Public route names and payloads are operation-based. The disjoint relay request
+shapes identify whether the local drive supplies source data or receives output;
+they do not expose a topology selector. The runtime resolves the actual local,
+SMB, or relay adapter privately. SMB-to-SMB is backend-owned, local-to-local is
+Companion-owned, and mixed topologies use a Companion relay over a backend-owned
+durable operation.
+
+## Capabilities And Idempotency
+
+A Companion capability is a signed, short-lived claim bound to the operation ID,
+contract version, operation kind, resolved topology, relay binding, source and
+destination connection IDs and paths, and manifest hash. The backend validates
+every claim against the durable operation before relay I/O.
+
+`Idempotency-Key` is an optional UUID delivery identity on relay acknowledgement
+controls. It is scoped to one operation and command. The checkpoint `delivery_ids`
+map stores at most 1024 entries whose values are nonempty fingerprints up to 4096
+characters. The fingerprint is the compact JSON serialization of
+`{"command": command, "payload": payload}` with sorted keys and separators
+`,` and `:`. An identical replay is a no-op; reuse with a different fingerprint
+fails with `idempotency_conflict`.
+
+## Error Vocabulary
+
+V2 validation and control failures use these stable semantic codes:
+`invalid_manifest`, `invalid_checkpoint`, `invalid_contract_version`,
+`invalid_member_path`, `collision`, `partial_output`, `source_changed`,
+`transport_failure`, `cancelled`, `idempotency_conflict`, `capability_invalid`,
+and `capability_version_mismatch`. The error schema defines their bounded
+machine-readable representation; transport status distinguishes malformed input
+(`422`), unauthenticated or invalid capability (`401`), capability scope denial
+(`403`), stale state or idempotency conflict (`409`), unavailable operation
+controls (`405`), and failed dependency or I/O (`5xx`).

@@ -26,8 +26,6 @@ from app.models.audit import AuditEvent
 from app.models.connection import Connection
 from app.models.file import FileInfo, FileType
 from app.services.archive.coordinator import (
-    CREATION_OUTCOME_CHECKPOINT_VERSION,
-    EXTRACTION_OUTCOME_CHECKPOINT_VERSION,
     ArchiveCreationCoordinator,
     ArchiveCreationExecutionPlan,
     ArchiveCreationManifest,
@@ -44,14 +42,15 @@ from app.services.archive.coordinator import (
     complete_relay_execution,
     completed_extraction_member_paths,
     creation_outcome_summary,
+    extraction_outcome_summary,
     existing_files_decision,
     load_archive_checkpoint,
     member_error_decision,
-    new_extraction_outcome_checkpoint,
     persist_extraction_member_outcome,
     record_extraction_member_outcome,
     start_archive_execution,
 )
+from app.services.archive.v2_checkpoint import new_v2_extraction_checkpoint
 from app.services.archive.creation import ArchiveCreationEntry, ArchiveCreationMemberOutcome, ArchiveCreationResult
 from app.services.archive.execution import (
     ArchiveCompanionRelayPurpose,
@@ -115,6 +114,15 @@ def completed_extraction_runner(
     return run
 
 
+def new_v2_test_extraction_checkpoint(manifest: ArchiveExtractionManifest) -> dict[str, object]:
+    """Build a strict V2 checkpoint for coordinator-focused tests."""
+
+    return new_v2_extraction_checkpoint(
+        manifest=manifest.checkpoint_entries(),
+        source_snapshot={"size": 0, "modified_at": None},
+    )
+
+
 class MemoryArchiveExecutionStateStore:
     def __init__(self) -> None:
         self.transitions: list[tuple[ArchiveOperationPhase, ArchiveOperationPhase]] = []
@@ -163,7 +171,7 @@ def test_companion_creation_summary_rejects_checkpoint_entry_without_size() -> N
     operation = ArchiveOperation(
         user_id=uuid.uuid4(),
         kind=ArchiveOperationKind.CREATE,
-        checkpoint_json=json.dumps({"source_manifest": [{"is_directory": False, "source_identity": {}}]}),
+        checkpoint_json=json.dumps({"version": 2}),
     )
 
     with pytest.raises(HTTPException, match="Archive operation checkpoint is invalid") as exc_info:
@@ -172,8 +180,8 @@ def test_companion_creation_summary_rejects_checkpoint_entry_without_size() -> N
 
 
 def test_creation_state_rejects_duplicate_members_and_bounds_member_lookup() -> None:
-    member = {"archive_path": "docs/readme.txt", "is_directory": False, "source_identity": {"size": 7}}
-    state = ArchiveCreationState.from_checkpoint({"source_manifest": [member]})
+    manifest = ArchiveCreationManifest.from_members([ArchiveCreationManifestMember("docs/readme.txt", False, 7, None, None)])
+    state = ArchiveCreationState.from_checkpoint(manifest.empty_checkpoint())
 
     assert state.member("docs/readme.txt").source_size == 7
     with pytest.raises(HTTPException, match="invalid or unavailable") as exc_info:
@@ -181,15 +189,18 @@ def test_creation_state_rejects_duplicate_members_and_bounds_member_lookup() -> 
     assert exc_info.value.status_code == status.HTTP_422_UNPROCESSABLE_CONTENT
 
     with pytest.raises(HTTPException, match="checkpoint is invalid") as exc_info:
-        ArchiveCreationState.from_checkpoint({"source_manifest": [member, member]})
+        ArchiveCreationState.from_checkpoint(
+            {**manifest.empty_checkpoint(), "manifest": manifest.empty_checkpoint()["manifest"] * 2}
+        )
     assert exc_info.value.status_code == status.HTTP_409_CONFLICT
     with pytest.raises(HTTPException, match="checkpoint is invalid") as exc_info:
         ArchiveCreationState.from_checkpoint(
             {
-                "source_manifest": [
-                    {"archive_path": "folder", "is_directory": False, "source_identity": {"size": 1}},
-                    {"archive_path": "folder/child.txt", "is_directory": False, "source_identity": {"size": 1}},
-                ]
+                **manifest.empty_checkpoint(),
+                "manifest": [
+                    {"archive_path": "folder", "is_directory": False, "source_size": 1, "source_path": None, "modified_at": None},
+                    {"archive_path": "folder/child.txt", "is_directory": False, "source_size": 1, "source_path": None, "modified_at": None},
+                ],
             }
         )
     assert exc_info.value.status_code == status.HTTP_409_CONFLICT
@@ -207,7 +218,7 @@ def test_relay_extraction_state_validates_and_persists_companion_callbacks() -> 
             kind=ArchiveOperationKind.EXTRACT,
             phase=ArchiveOperationPhase.STREAMING,
             destination_path="output",
-            checkpoint_json=json.dumps(new_extraction_outcome_checkpoint(manifest=manifest)),
+            checkpoint_json=json.dumps(new_v2_test_extraction_checkpoint(manifest)),
         )
 
     completion_state = ArchiveExtractionCoordinator(streaming_operation(), state_store)
@@ -267,7 +278,7 @@ def test_creation_member_commit_normalizes_and_persists_manifest_outcome() -> No
         ArchiveCreationMemberOutcome("docs\\readme.txt", "created", 7),
     )
 
-    assert json.loads(committed.checkpoint_json)["creation_member_outcomes"] == {
+    assert json.loads(committed.checkpoint_json)["member_outcomes"] == {
         "docs/readme.txt": {"status": "created", "source_bytes": 7}
     }
 
@@ -276,11 +287,13 @@ def test_creation_manifest_centralizes_relay_normalization_and_validation() -> N
     manifest = ArchiveCreationManifest.from_members([ArchiveCreationManifestMember("docs\\readme.txt", False, 7, None, None)])
 
     assert manifest.members[0].archive_path == "docs/readme.txt"
-    assert manifest.empty_checkpoint()["source_manifest"] == [
+    assert manifest.empty_checkpoint()["manifest"] == [
         {
+            "source_path": None,
             "archive_path": "docs/readme.txt",
             "is_directory": False,
-            "source_identity": {"size": 7, "modified_at": None},
+            "source_size": 7,
+            "modified_at": None,
         }
     ]
     with pytest.raises(HTTPException, match="duplicate entry names") as exc_info:
@@ -308,20 +321,19 @@ def test_creation_member_outcome_recorder_is_idempotent_and_rejects_conflicts() 
     from app.services.archive.coordinator import record_creation_member_outcome
     from app.services.archive.creation import ArchiveCreationMemberOutcome
 
-    checkpoint: dict[str, object] = {"files_created": 99, "directories_created": 99, "source_bytes": 99}
+    checkpoint = ArchiveCreationManifest.from_members(
+        [
+            ArchiveCreationManifestMember("docs", True, 0, None, None),
+            ArchiveCreationManifestMember("docs/readme.txt", False, 7, None, None),
+        ]
+    ).empty_checkpoint()
     record_creation_member_outcome(checkpoint, ArchiveCreationMemberOutcome("docs", "directory"))
     record_creation_member_outcome(checkpoint, ArchiveCreationMemberOutcome("docs/readme.txt", "created", 7))
     record_creation_member_outcome(checkpoint, ArchiveCreationMemberOutcome("docs/readme.txt", "created", 7))
 
-    assert checkpoint == {
-        "files_created": 1,
-        "directories_created": 1,
-        "source_bytes": 7,
-        "creation_outcome_checkpoint_version": CREATION_OUTCOME_CHECKPOINT_VERSION,
-        "creation_member_outcomes": {
+    assert checkpoint["member_outcomes"] == {
             "docs": {"status": "directory", "source_bytes": 0},
             "docs/readme.txt": {"status": "created", "source_bytes": 7},
-        },
     }
     with pytest.raises(HTTPException, match="outcome conflicts") as exc_info:
         record_creation_member_outcome(checkpoint, ArchiveCreationMemberOutcome("docs/readme.txt", "created", 8))
@@ -329,15 +341,15 @@ def test_creation_member_outcome_recorder_is_idempotent_and_rejects_conflicts() 
 
 
 def test_creation_outcome_summary_requires_complete_manifest_ledger() -> None:
-    checkpoint: dict[str, object] = {
-        "creation_member_outcomes": {
-            "docs": {"status": "directory", "source_bytes": 0},
-            "docs/readme.txt": {"status": "created", "source_bytes": 7},
-        },
-        "source_manifest": [
-            {"archive_path": "docs", "is_directory": True, "source_identity": {"size": 0}},
-            {"archive_path": "docs/readme.txt", "is_directory": False, "source_identity": {"size": 7}},
-        ],
+    checkpoint = ArchiveCreationManifest.from_members(
+        [
+            ArchiveCreationManifestMember("docs", True, 0, None, None),
+            ArchiveCreationManifestMember("docs/readme.txt", False, 7, None, None),
+        ]
+    ).empty_checkpoint()
+    checkpoint["member_outcomes"] = {
+        "docs": {"status": "directory", "source_bytes": 0},
+        "docs/readme.txt": {"status": "created", "source_bytes": 7},
     }
 
     assert creation_outcome_summary(checkpoint).to_checkpoint() == {
@@ -345,8 +357,7 @@ def test_creation_outcome_summary_requires_complete_manifest_ledger() -> None:
         "directories_created": 1,
         "source_bytes": 7,
     }
-    assert checkpoint["creation_outcome_checkpoint_version"] == CREATION_OUTCOME_CHECKPOINT_VERSION
-    checkpoint["creation_member_outcomes"] = {"docs": {"status": "directory", "source_bytes": 0}}
+    checkpoint["member_outcomes"] = {"docs": {"status": "directory", "source_bytes": 0}}
     with pytest.raises(HTTPException, match="outcomes did not match"):
         creation_outcome_summary(checkpoint)
 
@@ -419,28 +430,30 @@ async def test_creation_coordinator_uses_injected_state_store() -> None:
 
     assert completed.phase == ArchiveOperationPhase.COMPLETED
     assert json.loads(completed.checkpoint_json) == {
-        "creation_outcome_checkpoint_version": CREATION_OUTCOME_CHECKPOINT_VERSION,
-        "creation_member_outcomes": {
-            "docs": {"status": "directory", "source_bytes": 0},
-            "docs/readme.txt": {"status": "created", "source_bytes": 11},
-        },
-        "files_created": 1,
-        "directories_created": 1,
-        "source_bytes": 11,
-        "source_manifest": [
+        "version": 2,
+        "manifest": [
             {
                 "source_path": "docs",
                 "archive_path": "docs",
                 "is_directory": True,
-                "source_identity": {"size": 0, "modified_at": None},
+                "source_size": 0,
+                "modified_at": None,
             },
             {
                 "source_path": "docs/readme.txt",
                 "archive_path": "docs/readme.txt",
                 "is_directory": False,
-                "source_identity": {"size": 11, "modified_at": None},
+                "source_size": 11,
+                "modified_at": None,
             },
         ],
+        "member_outcomes": {
+            "docs": {"status": "directory", "source_bytes": 0},
+            "docs/readme.txt": {"status": "created", "source_bytes": 11},
+        },
+        "decisions": {},
+        "pending_decision": None,
+        "delivery_ids": {},
     }
     assert state_store.transitions == [
         (ArchiveOperationPhase.PREPARED, ArchiveOperationPhase.ACCEPTED),
@@ -486,17 +499,18 @@ def test_relay_coordinator_starts_checkpoints_and_completes_idempotently(session
     session.refresh(operation)
 
     state_store = DurableArchiveExecutionStateStore(session)
-    started = begin_relay_execution(state_store, operation, checkpoint_json=json.dumps({"written_members": []}))
+    checkpoint = new_v2_test_extraction_checkpoint(ArchiveExtractionManifest.from_members([]))
+    started = begin_relay_execution(state_store, operation, checkpoint_json=json.dumps(checkpoint))
 
     assert started.phase == ArchiveOperationPhase.STREAMING
     assert started.revision == 1
-    assert json.loads(started.checkpoint_json) == {"written_members": []}
+    assert json.loads(started.checkpoint_json) == checkpoint
 
-    completed = complete_relay_execution(state_store, started, checkpoint_json=json.dumps({"files_extracted": 1}))
+    completed = complete_relay_execution(state_store, started, checkpoint_json=json.dumps(checkpoint))
 
     assert completed.phase == ArchiveOperationPhase.COMPLETED
     assert completed.revision == 4
-    assert json.loads(completed.checkpoint_json) == {"files_extracted": 1}
+    assert json.loads(completed.checkpoint_json) == checkpoint
     assert complete_relay_execution(state_store, completed).revision == 4
 
 
@@ -621,7 +635,14 @@ def test_relay_transfer_guard_transitions_a_cancelled_stream(session, regular_us
 
 
 def test_extraction_outcome_recorder_accumulates_member_outcomes() -> None:
-    checkpoint: dict[str, object] = {}
+    checkpoint = new_v2_test_extraction_checkpoint(
+        ArchiveExtractionManifest.from_members(
+            [
+                ArchiveExtractionManifestMember("readme.txt", False, 5, None),
+                ArchiveExtractionManifestMember("skipped.txt", False, 0, None),
+            ]
+        )
+    )
 
     record_extraction_member_outcome(
         checkpoint,
@@ -641,9 +662,7 @@ def test_extraction_outcome_recorder_accumulates_member_outcomes() -> None:
         preserve_absent_zero=True,
     )
 
-    assert checkpoint == {
-        "extraction_outcome_checkpoint_version": EXTRACTION_OUTCOME_CHECKPOINT_VERSION,
-        "member_outcomes": {
+    assert checkpoint["member_outcomes"] == {
             "readme.txt": {
                 "status": "extracted",
                 "target_path": "output/readme.txt",
@@ -660,33 +679,22 @@ def test_extraction_outcome_recorder_accumulates_member_outcomes() -> None:
                 "replaced": False,
                 "renamed": False,
             },
-        },
-        "files_extracted": 1,
-        "directories_created": 1,
-        "extracted_bytes": 5,
-        "files_skipped": 1,
-        "files_replaced": 1,
     }
 
 
 def test_extraction_outcome_recorder_ignores_exact_duplicates_and_finalizes_partials() -> None:
-    checkpoint: dict[str, object] = {
-        "member_outcomes": {
-            "retry.txt": {
-                "status": "partial",
-                "target_path": "output/retry.txt",
-                "message": "connection closed",
-            }
-        }
+    checkpoint = new_v2_test_extraction_checkpoint(
+        ArchiveExtractionManifest.from_members([ArchiveExtractionManifestMember("retry.txt", False, 5, None)])
+    )
+    checkpoint["member_outcomes"] = {
+        "retry.txt": {"status": "partial", "target_path": "output/retry.txt", "message": "connection closed"}
     }
     outcome = ArchiveExtractionMemberOutcome("retry.txt", "extracted", "output/retry.txt", extracted_bytes=5)
 
     record_extraction_member_outcome(checkpoint, outcome, preserve_absent_zero=True)
     record_extraction_member_outcome(checkpoint, outcome, preserve_absent_zero=True)
 
-    assert checkpoint == {
-        "extraction_outcome_checkpoint_version": EXTRACTION_OUTCOME_CHECKPOINT_VERSION,
-        "member_outcomes": {
+    assert checkpoint["member_outcomes"] == {
             "retry.txt": {
                 "status": "extracted",
                 "target_path": "output/retry.txt",
@@ -695,14 +703,14 @@ def test_extraction_outcome_recorder_ignores_exact_duplicates_and_finalizes_part
                 "replaced": False,
                 "renamed": False,
             }
-        },
-        "files_extracted": 1,
-        "extracted_bytes": 5,
     }
 
 
 def test_persists_extraction_outcome_through_injected_state_store() -> None:
-    operation = ArchiveOperation(user_id=uuid.uuid4(), kind=ArchiveOperationKind.EXTRACT)
+    manifest = ArchiveExtractionManifest.from_members([ArchiveExtractionManifestMember("readme.txt", False, 5, None)])
+    operation = ArchiveOperation(
+        user_id=uuid.uuid4(), kind=ArchiveOperationKind.EXTRACT, checkpoint_json=json.dumps(new_v2_test_extraction_checkpoint(manifest))
+    )
 
     persisted = persist_extraction_member_outcome(
         MemoryArchiveExecutionStateStore(),
@@ -711,9 +719,8 @@ def test_persists_extraction_outcome_through_injected_state_store() -> None:
     )
 
     assert persisted is operation
-    assert json.loads(operation.checkpoint_json) == {
-        "extraction_outcome_checkpoint_version": EXTRACTION_OUTCOME_CHECKPOINT_VERSION,
-        "member_outcomes": {
+    checkpoint = json.loads(operation.checkpoint_json)
+    assert checkpoint["member_outcomes"] == {
             "readme.txt": {
                 "status": "extracted",
                 "target_path": "output/readme.txt",
@@ -722,30 +729,30 @@ def test_persists_extraction_outcome_through_injected_state_store() -> None:
                 "replaced": False,
                 "renamed": False,
             }
-        },
-        "files_extracted": 1,
-        "extracted_bytes": 5,
     }
 
 
 def test_completed_extraction_member_paths_prefers_outcomes_and_excludes_partial_output() -> None:
-    checkpoint: dict[str, object] = {
-        "written_members": ["legacy-only.txt"],
-        "member_outcomes": {
-            "complete.txt": {"status": "extracted"},
-            "partial.txt": {"status": "partial"},
-        },
+    checkpoint = new_v2_test_extraction_checkpoint(
+        ArchiveExtractionManifest.from_members(
+            [ArchiveExtractionManifestMember("complete.txt", False, 0, None), ArchiveExtractionManifestMember("partial.txt", False, 0, None)]
+        )
+    )
+    checkpoint["member_outcomes"] = {
+        "complete.txt": {"status": "extracted", "target_path": "output/complete.txt", "extracted_bytes": 0, "directories_created": 0, "replaced": False, "renamed": False},
+        "partial.txt": {"status": "partial", "target_path": "output/partial.txt", "message": "interrupted"},
     }
 
     assert completed_extraction_member_paths(checkpoint) == ["complete.txt"]
 
 
-def test_completed_extraction_member_paths_falls_back_to_legacy_members() -> None:
-    assert completed_extraction_member_paths({"written_members": ["legacy.txt"]}) == ["legacy.txt"]
+def test_completed_extraction_member_paths_rejects_legacy_members() -> None:
+    with pytest.raises(HTTPException, match="checkpoint is invalid"):
+        completed_extraction_member_paths({"written_members": ["legacy.txt"]})
 
 
 def test_versioned_extraction_checkpoint_requires_an_outcome_ledger() -> None:
-    checkpoint = {"extraction_outcome_checkpoint_version": EXTRACTION_OUTCOME_CHECKPOINT_VERSION}
+    checkpoint = {"version": 2}
 
     with pytest.raises(HTTPException, match="checkpoint is invalid") as exc_info:
         completed_extraction_member_paths(checkpoint)
@@ -847,7 +854,7 @@ def test_prepare_archive_operation_rejects_unsupported_topology_before_persisten
     source, destination = multiple_connections[:2]
 
     response = client.post(
-        "/api/archive/operations",
+        "/api/archive/v2/operations",
         headers=auth_headers_user,
         json={
             "kind": "extract",
@@ -886,7 +893,7 @@ def test_prepare_read_and_cancel_archive_operation(
     session,
 ) -> None:
     response = client.post(
-        "/api/archive/operations",
+        "/api/archive/v2/operations",
         headers=auth_headers_user,
         json={
             "kind": "extract",
@@ -904,17 +911,17 @@ def test_prepare_read_and_cancel_archive_operation(
     assert operation["revision"] == 0
     assert operation["cancellation_requested"] is False
 
-    read_response = client.get(f"/api/archive/operations/{operation['id']}", headers=auth_headers_user)
+    read_response = client.get(f"/api/archive/v2/operations/{operation['id']}", headers=auth_headers_user)
     assert read_response.status_code == 200
     assert read_response.json()["manifest_hash"] == "sha256:fixture"
 
     transition = client.post(
-        f"/api/archive/operations/{operation['id']}/phase",
+        f"/api/archive/v2/operations/{operation['id']}/phase",
         headers=auth_headers_user,
         json={"expected_phase": "prepared", "next_phase": "accepted"},
     )
     repeated_transition = client.post(
-        f"/api/archive/operations/{operation['id']}/phase",
+        f"/api/archive/v2/operations/{operation['id']}/phase",
         headers=auth_headers_user,
         json={"expected_phase": "prepared", "next_phase": "accepted"},
     )
@@ -924,8 +931,8 @@ def test_prepare_read_and_cancel_archive_operation(
     assert repeated_transition.json()["phase"] == "accepted"
     assert repeated_transition.json()["revision"] == 1
 
-    first_cancel = client.post(f"/api/archive/operations/{operation['id']}/cancel", headers=auth_headers_user)
-    second_cancel = client.post(f"/api/archive/operations/{operation['id']}/cancel", headers=auth_headers_user)
+    first_cancel = client.post(f"/api/archive/v2/operations/{operation['id']}/cancel", headers=auth_headers_user)
+    second_cancel = client.post(f"/api/archive/v2/operations/{operation['id']}/cancel", headers=auth_headers_user)
     assert first_cancel.status_code == 200
     assert first_cancel.json()["revision"] == 2
     assert second_cancel.status_code == 200
@@ -933,7 +940,7 @@ def test_prepare_read_and_cancel_archive_operation(
     assert second_cancel.json()["revision"] == 2
 
     stale_transition = client.post(
-        f"/api/archive/operations/{operation['id']}/phase",
+        f"/api/archive/v2/operations/{operation['id']}/phase",
         headers=auth_headers_user,
         json={"expected_phase": "accepted", "next_phase": "streaming", "expected_revision": 0},
     )
@@ -975,6 +982,13 @@ def test_v2_operation_routes_pin_contract_version_and_reject_legacy_input(
     rejected = client.post("/api/archive/v2/operations", headers=auth_headers_user, json=legacy_payload)
     assert rejected.status_code == status.HTTP_422_UNPROCESSABLE_CONTENT
 
+    unknown_field = client.post(
+        "/api/archive/v2/operations",
+        headers=auth_headers_user,
+        json={**payload, "unexpected": True},
+    )
+    assert unknown_field.status_code == status.HTTP_422_UNPROCESSABLE_CONTENT
+
 
 def test_v2_inspection_is_request_scoped_and_rejects_legacy_contract(
     client: TestClient,
@@ -1012,7 +1026,7 @@ def test_expires_a_stale_archive_operation_as_interrupted(
     session,
 ) -> None:
     operation = client.post(
-        "/api/archive/operations",
+        "/api/archive/v2/operations",
         headers=auth_headers_user,
         json={
             "kind": "extract",
@@ -1031,7 +1045,7 @@ def test_expires_a_stale_archive_operation_as_interrupted(
 
     assert expire_stale_archive_operations(session=session) == 1
 
-    expired = client.get(f"/api/archive/operations/{operation['id']}", headers=auth_headers_user)
+    expired = client.get(f"/api/archive/v2/operations/{operation['id']}", headers=auth_headers_user)
     assert expired.json()["phase"] == "failed"
     assert json.loads(expired.json()["last_error_json"])["code"] == "archive_interrupted"
 
@@ -1042,7 +1056,7 @@ def test_lists_owner_archive_operations_with_active_filter(
     test_connection: Connection,
 ) -> None:
     active = client.post(
-        "/api/archive/operations",
+        "/api/archive/v2/operations",
         headers=auth_headers_user,
         json={
             "kind": "extract",
@@ -1053,7 +1067,7 @@ def test_lists_owner_archive_operations_with_active_filter(
         },
     ).json()
     completed = client.post(
-        "/api/archive/operations",
+        "/api/archive/v2/operations",
         headers=auth_headers_user,
         json={
             "kind": "create",
@@ -1065,13 +1079,13 @@ def test_lists_owner_archive_operations_with_active_filter(
         },
     ).json()
     client.post(
-        f"/api/archive/operations/{completed['id']}/phase",
+        f"/api/archive/v2/operations/{completed['id']}/phase",
         headers=auth_headers_user,
         json={"expected_phase": "prepared", "next_phase": "cancelled"},
     )
 
-    all_operations = client.get("/api/archive/operations", headers=auth_headers_user)
-    active_operations = client.get("/api/archive/operations?active_only=true", headers=auth_headers_user)
+    all_operations = client.get("/api/archive/v2/operations", headers=auth_headers_user)
+    active_operations = client.get("/api/archive/v2/operations?active_only=true", headers=auth_headers_user)
 
     assert all_operations.status_code == 200
     assert {operation["id"] for operation in all_operations.json()} >= {active["id"], completed["id"]}
@@ -1085,7 +1099,7 @@ def test_mints_companion_session_only_for_mixed_archive_extraction(
     test_connection: Connection,
 ) -> None:
     prepared = client.post(
-        "/api/archive/operations",
+        "/api/archive/v2/operations",
         headers=auth_headers_user,
         json={
             "kind": "extract",
@@ -1096,18 +1110,18 @@ def test_mints_companion_session_only_for_mixed_archive_extraction(
         },
     ).json()
 
-    session = client.post(f"/api/archive/operations/{prepared['id']}/companion-session", headers=auth_headers_user)
+    session = client.post(f"/api/archive/v2/operations/{prepared['id']}/companion-session", headers=auth_headers_user)
 
     assert session.status_code == 200
     assert session.json()["expires_in"] == 900
     assert session.json()["operation"]["phase"] == "accepted"
     assert isinstance(session.json()["token"], str)
 
-    repeated = client.post(f"/api/archive/operations/{prepared['id']}/companion-session", headers=auth_headers_user)
+    repeated = client.post(f"/api/archive/v2/operations/{prepared['id']}/companion-session", headers=auth_headers_user)
     assert repeated.status_code == 409
 
     local_destination = client.post(
-        "/api/archive/operations",
+        "/api/archive/v2/operations",
         headers=auth_headers_user,
         json={
             "kind": "extract",
@@ -1117,12 +1131,12 @@ def test_mints_companion_session_only_for_mixed_archive_extraction(
             "destination_path": "backup",
         },
     ).json()
-    reverse_session = client.post(f"/api/archive/operations/{local_destination['id']}/companion-session", headers=auth_headers_user)
+    reverse_session = client.post(f"/api/archive/v2/operations/{local_destination['id']}/companion-session", headers=auth_headers_user)
     assert reverse_session.status_code == 200
     assert reverse_session.json()["operation"]["phase"] == "accepted"
 
     same_provider = client.post(
-        "/api/archive/operations",
+        "/api/archive/v2/operations",
         headers=auth_headers_user,
         json={
             "kind": "extract",
@@ -1132,7 +1146,7 @@ def test_mints_companion_session_only_for_mixed_archive_extraction(
             "destination_path": "backup",
         },
     ).json()
-    rejected = client.post(f"/api/archive/operations/{same_provider['id']}/companion-session", headers=auth_headers_user)
+    rejected = client.post(f"/api/archive/v2/operations/{same_provider['id']}/companion-session", headers=auth_headers_user)
     assert rejected.status_code == 422
 
 
@@ -1185,22 +1199,22 @@ def test_companion_relay_failure_requires_its_scoped_purpose(
     }
     if kind == "create":
         payload["plan_json"] = json.dumps({"source_paths": ["source.txt"]})
-    prepared = client.post("/api/archive/operations", headers=auth_headers_user, json=payload).json()
-    capability = client.post(f"/api/archive/operations/{prepared['id']}/companion-session", headers=auth_headers_user).json()
+    prepared = client.post("/api/archive/v2/operations", headers=auth_headers_user, json=payload).json()
+    capability = client.post(f"/api/archive/v2/operations/{prepared['id']}/companion-session", headers=auth_headers_user).json()
     relay_headers = {"Authorization": f"Bearer {capability['token']}"}
 
-    rejected = client.post(
-        f"/api/archive/operations/{prepared['id']}/companion-relay/{wrong_relay_path}/fail",
+    retired = client.post(
+        f"/api/archive/v2/operations/{prepared['id']}/companion-relay/{wrong_relay_path}/fail",
         headers=relay_headers,
         json={"message": "relay failed"},
     )
     failed = client.post(
-        f"/api/archive/operations/{prepared['id']}/companion-relay/{relay_path}/fail",
+        f"/api/archive/v2/operations/{prepared['id']}/relay/{'extraction' if kind == 'extract' else 'creation'}/fail",
         headers=relay_headers,
         json={"message": "relay failed"},
     )
 
-    assert rejected.status_code == 401
+    assert retired.status_code == status.HTTP_404_NOT_FOUND
     assert failed.status_code == 200
     assert failed.json()["phase"] == "failed"
     assert json.loads(failed.json()["last_error_json"])["message"] == "relay failed"
@@ -1212,7 +1226,7 @@ def test_companion_relay_writes_scoped_members_and_completes(
     test_connection: Connection,
 ) -> None:
     prepared = client.post(
-        "/api/archive/operations",
+        "/api/archive/v2/operations",
         headers=auth_headers_user,
         json={
             "kind": "extract",
@@ -1222,7 +1236,7 @@ def test_companion_relay_writes_scoped_members_and_completes(
             "destination_path": "output",
         },
     ).json()
-    capability = client.post(f"/api/archive/operations/{prepared['id']}/companion-session", headers=auth_headers_user).json()
+    capability = client.post(f"/api/archive/v2/operations/{prepared['id']}/companion-session", headers=auth_headers_user).json()
     relay_headers = {"Authorization": f"Bearer {capability['token']}"}
     backend = AsyncMock()
     backend.connect.return_value = None
@@ -1238,24 +1252,26 @@ def test_companion_relay_writes_scoped_members_and_completes(
     backend.write_file_from_stream.side_effect = write_member
     with patch("app.api.archive_operations.SMBBackend", return_value=backend):
         begin = client.post(
-            f"/api/archive/operations/{prepared['id']}/companion-relay/local_zip_to_smb_extract/begin",
+            f"/api/archive/v2/operations/{prepared['id']}/relay/extraction/begin",
             headers=relay_headers,
+            json={"entries": [{"path": "nested/readme.txt", "is_directory": False, "uncompressed_size": 5, "modified_at": None}]},
         )
         write = client.put(
-            f"/api/archive/operations/{prepared['id']}/companion-relay/local_zip_to_smb_extract/member",
+            f"/api/archive/v2/operations/{prepared['id']}/relay/extraction/member",
             headers=relay_headers,
             params={"member_path": "nested/readme.txt"},
             content=b"hello",
         )
         duplicate = client.put(
-            f"/api/archive/operations/{prepared['id']}/companion-relay/local_zip_to_smb_extract/member",
+            f"/api/archive/v2/operations/{prepared['id']}/relay/extraction/member",
             headers=relay_headers,
             params={"member_path": "nested/readme.txt"},
             content=b"hello",
         )
         complete = client.post(
-            f"/api/archive/operations/{prepared['id']}/companion-relay/local_zip_to_smb_extract/complete",
+            f"/api/archive/v2/operations/{prepared['id']}/relay/extraction/complete",
             headers=relay_headers,
+            json={"destination_root_created": True},
         )
 
     assert begin.status_code == 200
@@ -1263,26 +1279,23 @@ def test_companion_relay_writes_scoped_members_and_completes(
     assert begin.json()["revision"] == 2
     assert write.status_code == 200
     assert write.json()["revision"] == 3
-    assert json.loads(write.json()["checkpoint_json"]) == {
-        "extraction_outcome_checkpoint_version": EXTRACTION_OUTCOME_CHECKPOINT_VERSION,
-        "member_outcomes": {
-            "nested/readme.txt": {
-                "status": "extracted",
-                "target_path": "output/nested/readme.txt",
-                "extracted_bytes": 5,
-                "directories_created": 1,
-                "replaced": False,
-                "renamed": False,
-            }
-        },
-        "files_extracted": 1,
-        "directories_created": 2,
-        "extracted_bytes": 5,
+    checkpoint = json.loads(write.json()["checkpoint_json"])
+    assert checkpoint["version"] == 2
+    assert checkpoint["manifest"] == [{"path": "nested/readme.txt", "is_directory": False, "uncompressed_size": 5, "modified_at": None}]
+    assert checkpoint["member_outcomes"] == {
+        "nested/readme.txt": {
+            "status": "extracted",
+            "target_path": "output/nested/readme.txt",
+            "extracted_bytes": 5,
+            "directories_created": 1,
+            "replaced": False,
+            "renamed": False,
+        }
     }
     assert duplicate.status_code == 409
     assert complete.status_code == 200
     assert complete.json()["phase"] == "completed"
-    assert complete.json()["revision"] == 5
+    assert complete.json()["revision"] == 6
     backend.write_file_from_stream.assert_awaited_once()
 
 
@@ -1292,7 +1305,7 @@ def test_manifest_backed_companion_relay_requires_terminal_member_coverage(
     test_connection: Connection,
 ) -> None:
     prepared = client.post(
-        "/api/archive/operations",
+        "/api/archive/v2/operations",
         headers=auth_headers_user,
         json={
             "kind": "extract",
@@ -1302,7 +1315,7 @@ def test_manifest_backed_companion_relay_requires_terminal_member_coverage(
             "destination_path": "output",
         },
     ).json()
-    capability = client.post(f"/api/archive/operations/{prepared['id']}/companion-session", headers=auth_headers_user).json()
+    capability = client.post(f"/api/archive/v2/operations/{prepared['id']}/companion-session", headers=auth_headers_user).json()
     relay_headers = {"Authorization": f"Bearer {capability['token']}"}
     backend = AsyncMock()
     backend.connect.return_value = None
@@ -1312,22 +1325,22 @@ def test_manifest_backed_companion_relay_requires_terminal_member_coverage(
 
     with patch("app.api.archive_operations.SMBBackend", return_value=backend):
         begin = client.post(
-            f"/api/archive/operations/{prepared['id']}/companion-relay/local_zip_to_smb_extract/begin",
+            f"/api/archive/v2/operations/{prepared['id']}/relay/extraction/begin",
             headers=relay_headers,
             json={"entries": [{"path": "readme.txt", "is_directory": False, "uncompressed_size": 5, "modified_at": None}]},
         )
         incomplete = client.post(
-            f"/api/archive/operations/{prepared['id']}/companion-relay/local_zip_to_smb_extract/complete",
+            f"/api/archive/v2/operations/{prepared['id']}/relay/extraction/complete",
             headers=relay_headers,
         )
         write = client.put(
-            f"/api/archive/operations/{prepared['id']}/companion-relay/local_zip_to_smb_extract/member",
+            f"/api/archive/v2/operations/{prepared['id']}/relay/extraction/member",
             headers=relay_headers,
             params={"member_path": "readme.txt"},
             content=b"hello",
         )
         complete = client.post(
-            f"/api/archive/operations/{prepared['id']}/companion-relay/local_zip_to_smb_extract/complete",
+            f"/api/archive/v2/operations/{prepared['id']}/relay/extraction/complete",
             headers=relay_headers,
         )
 
@@ -1345,7 +1358,7 @@ def test_companion_local_source_relay_rejects_a_changed_manifest_before_resume(
     test_connection: Connection,
 ) -> None:
     prepared = client.post(
-        "/api/archive/operations",
+        "/api/archive/v2/operations",
         headers=auth_headers_user,
         json={
             "kind": "extract",
@@ -1355,7 +1368,7 @@ def test_companion_local_source_relay_rejects_a_changed_manifest_before_resume(
             "destination_path": "output",
         },
     ).json()
-    capability = client.post(f"/api/archive/operations/{prepared['id']}/companion-session", headers=auth_headers_user).json()
+    capability = client.post(f"/api/archive/v2/operations/{prepared['id']}/companion-session", headers=auth_headers_user).json()
     relay_headers = {"Authorization": f"Bearer {capability['token']}", "Idempotency-Key": str(uuid.uuid4())}
     backend = AsyncMock()
     backend.connect.return_value = None
@@ -1366,16 +1379,16 @@ def test_companion_local_source_relay_rejects_a_changed_manifest_before_resume(
 
     with patch("app.api.archive_operations.SMBBackend", return_value=backend):
         initial = client.post(
-            f"/api/archive/operations/{prepared['id']}/companion-relay/local_zip_to_smb_extract/begin",
+            f"/api/archive/v2/operations/{prepared['id']}/relay/extraction/begin",
             headers=relay_headers,
             json=initial_manifest,
         )
         resumed = client.post(
-            f"/api/archive/operations/{prepared['id']}/companion-relay/local_zip_to_smb_extract/begin",
+            f"/api/archive/v2/operations/{prepared['id']}/relay/extraction/begin",
             headers=relay_headers,
             json=changed_manifest,
         )
-        operation = client.get(f"/api/archive/operations/{prepared['id']}", headers=auth_headers_user)
+        operation = client.get(f"/api/archive/v2/operations/{prepared['id']}", headers=auth_headers_user)
 
     assert initial.status_code == 200
     assert resumed.status_code == 409
@@ -1390,7 +1403,7 @@ def test_companion_local_source_relay_requires_a_manifest_before_resume(
     test_connection: Connection,
 ) -> None:
     prepared = client.post(
-        "/api/archive/operations",
+        "/api/archive/v2/operations",
         headers=auth_headers_user,
         json={
             "kind": "extract",
@@ -1400,7 +1413,7 @@ def test_companion_local_source_relay_requires_a_manifest_before_resume(
             "destination_path": "output",
         },
     ).json()
-    capability = client.post(f"/api/archive/operations/{prepared['id']}/companion-session", headers=auth_headers_user).json()
+    capability = client.post(f"/api/archive/v2/operations/{prepared['id']}/companion-session", headers=auth_headers_user).json()
     relay_headers = {"Authorization": f"Bearer {capability['token']}"}
     backend = AsyncMock()
     backend.connect.return_value = None
@@ -1410,12 +1423,12 @@ def test_companion_local_source_relay_requires_a_manifest_before_resume(
 
     with patch("app.api.archive_operations.SMBBackend", return_value=backend):
         initial = client.post(
-            f"/api/archive/operations/{prepared['id']}/companion-relay/local_zip_to_smb_extract/begin",
+            f"/api/archive/v2/operations/{prepared['id']}/relay/extraction/begin",
             headers=relay_headers,
             json=manifest,
         )
         resumed = client.post(
-            f"/api/archive/operations/{prepared['id']}/companion-relay/local_zip_to_smb_extract/begin",
+            f"/api/archive/v2/operations/{prepared['id']}/relay/extraction/begin",
             headers=relay_headers,
         )
 
@@ -1441,7 +1454,7 @@ def test_companion_relay_replace_older_compares_source_and_smb_timestamps(
     expected_skipped: int,
 ) -> None:
     prepared = client.post(
-        "/api/archive/operations",
+        "/api/archive/v2/operations",
         headers=auth_headers_user,
         json={
             "kind": "extract",
@@ -1451,7 +1464,7 @@ def test_companion_relay_replace_older_compares_source_and_smb_timestamps(
             "destination_path": "output",
         },
     ).json()
-    capability = client.post(f"/api/archive/operations/{prepared['id']}/companion-session", headers=auth_headers_user).json()
+    capability = client.post(f"/api/archive/v2/operations/{prepared['id']}/companion-session", headers=auth_headers_user).json()
     relay_headers = {"Authorization": f"Bearer {capability['token']}"}
     backend = AsyncMock()
     backend.connect.return_value = None
@@ -1467,25 +1480,35 @@ def test_companion_relay_replace_older_compares_source_and_smb_timestamps(
 
     with patch("app.api.archive_operations.SMBBackend", return_value=backend):
         client.post(
-            f"/api/archive/operations/{prepared['id']}/companion-relay/local_zip_to_smb_extract/begin",
+            f"/api/archive/v2/operations/{prepared['id']}/relay/extraction/begin",
             headers=relay_headers,
+            json={
+                "entries": [
+                    {
+                        "path": "readme.txt",
+                        "is_directory": False,
+                        "uncompressed_size": 5,
+                        "modified_at": source_modified_at.isoformat(),
+                    }
+                ]
+            },
         )
         backend.write_file_from_stream.side_effect = FileExistsError
         collision = client.put(
-            f"/api/archive/operations/{prepared['id']}/companion-relay/local_zip_to_smb_extract/member",
+            f"/api/archive/v2/operations/{prepared['id']}/relay/extraction/member",
             headers=relay_headers,
             params={"member_path": "readme.txt"},
             content=b"hello",
         )
         decision = client.post(
-            f"/api/archive/operations/{prepared['id']}/decide-extraction",
+            f"/api/archive/v2/operations/{prepared['id']}/extraction/decision",
             headers=auth_headers_user,
             json={"action": "replace_older"},
         )
         backend.write_file_from_stream.side_effect = None
         backend.write_file_from_stream.reset_mock()
         response = client.put(
-            f"/api/archive/operations/{prepared['id']}/companion-relay/local_zip_to_smb_extract/member",
+            f"/api/archive/v2/operations/{prepared['id']}/relay/extraction/member",
             headers=relay_headers,
             params={
                 "member_path": "readme.txt",
@@ -1499,7 +1522,9 @@ def test_companion_relay_replace_older_compares_source_and_smb_timestamps(
     assert decision.status_code == 200
     assert decision.json()["phase"] == "streaming"
     assert response.status_code == 200
-    assert json.loads(response.json()["checkpoint_json"]).get("files_skipped", 0) == expected_skipped
+    checkpoint = json.loads(response.json()["checkpoint_json"])
+    skipped = sum(1 for outcome in checkpoint["member_outcomes"].values() if outcome["status"] == "skipped")
+    assert skipped == expected_skipped
     if expected_overwrite:
         assert backend.write_file_from_stream.await_args.kwargs["overwrite"] is True
     else:
@@ -1512,7 +1537,7 @@ def test_companion_relay_rejects_unsafe_member_path(
     test_connection: Connection,
 ) -> None:
     prepared = client.post(
-        "/api/archive/operations",
+        "/api/archive/v2/operations",
         headers=auth_headers_user,
         json={
             "kind": "extract",
@@ -1522,7 +1547,7 @@ def test_companion_relay_rejects_unsafe_member_path(
             "destination_path": "output",
         },
     ).json()
-    capability = client.post(f"/api/archive/operations/{prepared['id']}/companion-session", headers=auth_headers_user).json()
+    capability = client.post(f"/api/archive/v2/operations/{prepared['id']}/companion-session", headers=auth_headers_user).json()
     relay_headers = {"Authorization": f"Bearer {capability['token']}"}
     backend = AsyncMock()
     backend.connect.return_value = None
@@ -1530,11 +1555,12 @@ def test_companion_relay_rejects_unsafe_member_path(
     backend.create_directory.return_value = None
     with patch("app.api.archive_operations.SMBBackend", return_value=backend):
         client.post(
-            f"/api/archive/operations/{prepared['id']}/companion-relay/local_zip_to_smb_extract/begin",
+            f"/api/archive/v2/operations/{prepared['id']}/relay/extraction/begin",
             headers=relay_headers,
+            json={"entries": [{"path": "safe.txt", "is_directory": False, "uncompressed_size": 0, "modified_at": None}]},
         )
         response = client.put(
-            f"/api/archive/operations/{prepared['id']}/companion-relay/local_zip_to_smb_extract/member",
+            f"/api/archive/v2/operations/{prepared['id']}/relay/extraction/member",
             headers=relay_headers,
             params={"member_path": "../outside.txt"},
             content=b"blocked",
@@ -1550,7 +1576,7 @@ def test_companion_relay_creates_empty_directory_members(
     test_connection: Connection,
 ) -> None:
     prepared = client.post(
-        "/api/archive/operations",
+        "/api/archive/v2/operations",
         headers=auth_headers_user,
         json={
             "kind": "extract",
@@ -1560,7 +1586,7 @@ def test_companion_relay_creates_empty_directory_members(
             "destination_path": "output",
         },
     ).json()
-    capability = client.post(f"/api/archive/operations/{prepared['id']}/companion-session", headers=auth_headers_user).json()
+    capability = client.post(f"/api/archive/v2/operations/{prepared['id']}/companion-session", headers=auth_headers_user).json()
     relay_headers = {"Authorization": f"Bearer {capability['token']}"}
     backend = AsyncMock()
     backend.connect.return_value = None
@@ -1568,19 +1594,18 @@ def test_companion_relay_creates_empty_directory_members(
     backend.create_directory.return_value = None
     with patch("app.api.archive_operations.SMBBackend", return_value=backend):
         client.post(
-            f"/api/archive/operations/{prepared['id']}/companion-relay/local_zip_to_smb_extract/begin",
+            f"/api/archive/v2/operations/{prepared['id']}/relay/extraction/begin",
             headers=relay_headers,
+            json={"entries": [{"path": "empty", "is_directory": True, "uncompressed_size": 0, "modified_at": None}]},
         )
         response = client.put(
-            f"/api/archive/operations/{prepared['id']}/companion-relay/local_zip_to_smb_extract/member",
+            f"/api/archive/v2/operations/{prepared['id']}/relay/extraction/member",
             headers=relay_headers,
             params={"member_path": "empty", "is_directory": "true"},
         )
 
     assert response.status_code == 200
-    assert json.loads(response.json()["checkpoint_json"]) == {
-        "extraction_outcome_checkpoint_version": EXTRACTION_OUTCOME_CHECKPOINT_VERSION,
-        "member_outcomes": {
+    assert json.loads(response.json()["checkpoint_json"])["member_outcomes"] == {
             "empty": {
                 "status": "directory",
                 "target_path": "output/empty",
@@ -1588,11 +1613,7 @@ def test_companion_relay_creates_empty_directory_members(
                 "directories_created": 1,
                 "replaced": False,
                 "renamed": False,
-            }
-        },
-        "files_extracted": 0,
-        "directories_created": 2,
-        "extracted_bytes": 0,
+        }
     }
     backend.write_file_from_stream.assert_not_awaited()
 
@@ -1608,7 +1629,7 @@ def test_companion_local_relay_streams_smb_members_and_completes(
         archive.writestr("readme.txt", b"hello")
     archive_bytes = archive_buffer.getvalue()
     prepared = client.post(
-        "/api/archive/operations",
+        "/api/archive/v2/operations",
         headers=auth_headers_user,
         json={
             "kind": "extract",
@@ -1618,7 +1639,7 @@ def test_companion_local_relay_streams_smb_members_and_completes(
             "destination_path": "output",
         },
     ).json()
-    capability = client.post(f"/api/archive/operations/{prepared['id']}/companion-session", headers=auth_headers_user).json()
+    capability = client.post(f"/api/archive/v2/operations/{prepared['id']}/companion-session", headers=auth_headers_user).json()
     relay_headers = {"Authorization": f"Bearer {capability['token']}"}
     backend = AsyncMock()
     backend.connect.return_value = None
@@ -1627,16 +1648,16 @@ def test_companion_local_relay_streams_smb_members_and_completes(
     backend.open_random_access_reader.side_effect = lambda _path: MemoryRandomAccessReader(archive_bytes)
     with patch("app.api.archive_operations.SMBBackend", return_value=backend):
         manifest = client.post(
-            f"/api/archive/operations/{prepared['id']}/companion-relay/smb_zip_to_local_extract/begin",
+            f"/api/archive/v2/operations/{prepared['id']}/relay/extraction/begin",
             headers=relay_headers,
         )
         member = client.get(
-            f"/api/archive/operations/{prepared['id']}/companion-relay/smb_zip_to_local_extract/member",
+            f"/api/archive/v2/operations/{prepared['id']}/relay/extraction/member",
             headers=relay_headers,
             params={"member_path": "readme.txt"},
         )
         empty_complete = client.post(
-            f"/api/archive/operations/{prepared['id']}/companion-relay/smb_zip_to_local_extract/member-complete",
+            f"/api/archive/v2/operations/{prepared['id']}/relay/extraction/member-complete",
             headers=relay_headers,
             json={
                 "member_path": "empty",
@@ -1649,7 +1670,7 @@ def test_companion_local_relay_streams_smb_members_and_completes(
             },
         )
         member_complete = client.post(
-            f"/api/archive/operations/{prepared['id']}/companion-relay/smb_zip_to_local_extract/member-complete",
+            f"/api/archive/v2/operations/{prepared['id']}/relay/extraction/member-complete",
             headers=relay_headers,
             json={
                 "member_path": "readme.txt",
@@ -1662,7 +1683,7 @@ def test_companion_local_relay_streams_smb_members_and_completes(
             },
         )
         complete = client.post(
-            f"/api/archive/operations/{prepared['id']}/companion-relay/smb_zip_to_local_extract/complete",
+            f"/api/archive/v2/operations/{prepared['id']}/relay/extraction/complete",
             headers=relay_headers,
             json={"destination_root_created": True},
         )
@@ -1681,11 +1702,10 @@ def test_companion_local_relay_streams_smb_members_and_completes(
     assert complete.status_code == 200
     assert complete.json()["phase"] == "completed"
     checkpoint = json.loads(complete.json()["checkpoint_json"])
-    assert checkpoint["extracted_bytes"] == 5
-    assert checkpoint["extraction_outcome_checkpoint_version"] == EXTRACTION_OUTCOME_CHECKPOINT_VERSION
     assert set(checkpoint["member_outcomes"]) == {"empty", "readme.txt"}
-    assert checkpoint["source_identity"] == {"size": len(archive_bytes), "modified_at": None}
-    assert checkpoint["archive_manifest"] == manifest.json()["entries"]
+    assert checkpoint["member_outcomes"]["readme.txt"]["extracted_bytes"] == 5
+    assert checkpoint["source_snapshot"] == {"size": len(archive_bytes), "modified_at": None}
+    assert checkpoint["manifest"] == manifest.json()["entries"]
 
 
 def test_companion_local_relay_fails_preflight_for_a_normalized_path_collision(
@@ -1699,7 +1719,7 @@ def test_companion_local_relay_fails_preflight_for_a_normalized_path_collision(
         archive.writestr("report.txt", b"second")
     archive_bytes = archive_buffer.getvalue()
     prepared = client.post(
-        "/api/archive/operations",
+        "/api/archive/v2/operations",
         headers=auth_headers_user,
         json={
             "kind": "extract",
@@ -1709,7 +1729,7 @@ def test_companion_local_relay_fails_preflight_for_a_normalized_path_collision(
             "destination_path": "output",
         },
     ).json()
-    capability = client.post(f"/api/archive/operations/{prepared['id']}/companion-session", headers=auth_headers_user).json()
+    capability = client.post(f"/api/archive/v2/operations/{prepared['id']}/companion-session", headers=auth_headers_user).json()
     backend = AsyncMock()
     backend.connect.return_value = None
     backend.disconnect.return_value = None
@@ -1717,10 +1737,10 @@ def test_companion_local_relay_fails_preflight_for_a_normalized_path_collision(
     backend.open_random_access_reader.side_effect = lambda _path: MemoryRandomAccessReader(archive_bytes)
     with patch("app.api.archive_operations.SMBBackend", return_value=backend):
         response = client.post(
-            f"/api/archive/operations/{prepared['id']}/companion-relay/smb_zip_to_local_extract/begin",
+            f"/api/archive/v2/operations/{prepared['id']}/relay/extraction/begin",
             headers={"Authorization": f"Bearer {capability['token']}"},
         )
-        operation = client.get(f"/api/archive/operations/{prepared['id']}", headers=auth_headers_user)
+        operation = client.get(f"/api/archive/v2/operations/{prepared['id']}", headers=auth_headers_user)
 
     assert response.status_code == 422
     assert response.json()["detail"] == "Archive extraction source is invalid"
@@ -1737,7 +1757,7 @@ def test_companion_local_extraction_relay_reuses_its_persisted_manifest(
         archive.writestr("readme.txt", b"hello")
     archive_bytes = archive_buffer.getvalue()
     prepared = client.post(
-        "/api/archive/operations",
+        "/api/archive/v2/operations",
         headers=auth_headers_user,
         json={
             "kind": "extract",
@@ -1747,7 +1767,7 @@ def test_companion_local_extraction_relay_reuses_its_persisted_manifest(
             "destination_path": "output",
         },
     ).json()
-    capability = client.post(f"/api/archive/operations/{prepared['id']}/companion-session", headers=auth_headers_user).json()
+    capability = client.post(f"/api/archive/v2/operations/{prepared['id']}/companion-session", headers=auth_headers_user).json()
     relay_headers = {"Authorization": f"Bearer {capability['token']}"}
     backend = AsyncMock()
     backend.connect.return_value = None
@@ -1756,13 +1776,13 @@ def test_companion_local_extraction_relay_reuses_its_persisted_manifest(
     backend.open_random_access_reader.side_effect = lambda _path: MemoryRandomAccessReader(archive_bytes)
     with patch("app.api.archive_operations.SMBBackend", return_value=backend):
         first_manifest = client.post(
-            f"/api/archive/operations/{prepared['id']}/companion-relay/smb_zip_to_local_extract/begin",
+            f"/api/archive/v2/operations/{prepared['id']}/relay/extraction/begin",
             headers=relay_headers,
         )
         backend.get_file_info.reset_mock()
         backend.open_random_access_reader.reset_mock()
         repeated_manifest = client.post(
-            f"/api/archive/operations/{prepared['id']}/companion-relay/smb_zip_to_local_extract/begin",
+            f"/api/archive/v2/operations/{prepared['id']}/relay/extraction/begin",
             headers=relay_headers,
         )
 
@@ -1787,7 +1807,7 @@ def test_companion_local_relay_pauses_for_a_scoped_collision_and_checkpoints_a_s
         archive.writestr("readme.txt", b"hello")
     archive_bytes = archive_buffer.getvalue()
     prepared = client.post(
-        "/api/archive/operations",
+        "/api/archive/v2/operations",
         headers=auth_headers_user,
         json={
             "kind": "extract",
@@ -1797,7 +1817,7 @@ def test_companion_local_relay_pauses_for_a_scoped_collision_and_checkpoints_a_s
             "destination_path": "output",
         },
     ).json()
-    capability = client.post(f"/api/archive/operations/{prepared['id']}/companion-session", headers=auth_headers_user).json()
+    capability = client.post(f"/api/archive/v2/operations/{prepared['id']}/companion-session", headers=auth_headers_user).json()
     relay_headers = {"Authorization": f"Bearer {capability['token']}"}
     backend = AsyncMock()
     backend.connect.return_value = None
@@ -1806,26 +1826,26 @@ def test_companion_local_relay_pauses_for_a_scoped_collision_and_checkpoints_a_s
     backend.open_random_access_reader.side_effect = lambda _path: MemoryRandomAccessReader(archive_bytes)
     with patch("app.api.archive_operations.SMBBackend", return_value=backend):
         manifest = client.post(
-            f"/api/archive/operations/{prepared['id']}/companion-relay/smb_zip_to_local_extract/begin",
+            f"/api/archive/v2/operations/{prepared['id']}/relay/extraction/begin",
             headers=relay_headers,
         )
         paused = client.post(
-            f"/api/archive/operations/{prepared['id']}/companion-relay/smb_zip_to_local_extract/member-collision",
+            f"/api/archive/v2/operations/{prepared['id']}/relay/extraction/member-collision",
             headers={**relay_headers, "Idempotency-Key": "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa"},
             json={"member_path": "readme.txt", "is_directory": False, "target_size": 8},
         )
         repeated_pause = client.post(
-            f"/api/archive/operations/{prepared['id']}/companion-relay/smb_zip_to_local_extract/member-collision",
+            f"/api/archive/v2/operations/{prepared['id']}/relay/extraction/member-collision",
             headers={**relay_headers, "Idempotency-Key": "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa"},
             json={"member_path": "readme.txt", "is_directory": False, "target_size": 8},
         )
         resumed = client.post(
-            f"/api/archive/operations/{prepared['id']}/decide-extraction",
+            f"/api/archive/v2/operations/{prepared['id']}/extraction/decision",
             headers=auth_headers_user,
             json={"action": scenario["collision_action"], "member_path": "readme.txt"},
         )
         completed_member = client.post(
-            f"/api/archive/operations/{prepared['id']}/companion-relay/smb_zip_to_local_extract/member-complete",
+            f"/api/archive/v2/operations/{prepared['id']}/relay/extraction/member-complete",
             headers=relay_headers,
             json={
                 "member_path": "readme.txt",
@@ -1838,7 +1858,7 @@ def test_companion_local_relay_pauses_for_a_scoped_collision_and_checkpoints_a_s
             },
         )
         complete = client.post(
-            f"/api/archive/operations/{prepared['id']}/companion-relay/smb_zip_to_local_extract/complete",
+            f"/api/archive/v2/operations/{prepared['id']}/relay/extraction/complete",
             headers=relay_headers,
             json={"destination_root_created": False},
         )
@@ -1863,9 +1883,9 @@ def test_companion_local_relay_pauses_for_a_scoped_collision_and_checkpoints_a_s
     assert complete.status_code == 200
     assert complete.json()["phase"] == scenario["terminal_phase"]
     checkpoint = json.loads(complete.json()["checkpoint_json"])
-    assert checkpoint["extraction_outcome_checkpoint_version"] == EXTRACTION_OUTCOME_CHECKPOINT_VERSION
+    assert checkpoint["version"] == 2
     assert checkpoint["member_outcomes"]["readme.txt"]["status"] == "skipped"
-    assert checkpoint["files_skipped"] == scenario["progress"]["files_skipped"]
+    assert sum(1 for outcome in checkpoint["member_outcomes"].values() if outcome["status"] == "skipped") == scenario["progress"]["files_skipped"]
 
 
 def test_companion_local_relay_rename_preserves_the_normalized_destination_result(
@@ -1873,7 +1893,7 @@ def test_companion_local_relay_rename_preserves_the_normalized_destination_resul
     auth_headers_user: dict,
     test_connection: Connection,
 ) -> None:
-    corpus_path = Path(__file__).resolve().parents[2] / "archive-contract" / "v1" / "extraction-outcome-scenarios-v1.json"
+    corpus_path = Path(__file__).resolve().parents[2] / "archive-contract" / "v2" / "fixtures" / "extraction-outcome-scenarios-v2.json"
     corpus = json.loads(corpus_path.read_text(encoding="utf-8"))
     scenario = next(
         scenario for scenario in corpus["behavioral_scenarios"] if scenario["name"] == "rename_preserves_terminal_destination_metadata"
@@ -1883,7 +1903,7 @@ def test_companion_local_relay_rename_preserves_the_normalized_destination_resul
         archive.writestr("root.txt", b"hello")
     archive_bytes = archive_buffer.getvalue()
     prepared = client.post(
-        "/api/archive/operations",
+        "/api/archive/v2/operations",
         headers=auth_headers_user,
         json={
             "kind": "extract",
@@ -1893,7 +1913,7 @@ def test_companion_local_relay_rename_preserves_the_normalized_destination_resul
             "destination_path": "output",
         },
     ).json()
-    capability = client.post(f"/api/archive/operations/{prepared['id']}/companion-session", headers=auth_headers_user).json()
+    capability = client.post(f"/api/archive/v2/operations/{prepared['id']}/companion-session", headers=auth_headers_user).json()
     relay_headers = {"Authorization": f"Bearer {capability['token']}"}
     backend = AsyncMock()
     backend.connect.return_value = None
@@ -1903,21 +1923,21 @@ def test_companion_local_relay_rename_preserves_the_normalized_destination_resul
     target_path = f"output/{scenario['rename_target']}"
     with patch("app.api.archive_operations.SMBBackend", return_value=backend):
         begin = client.post(
-            f"/api/archive/operations/{prepared['id']}/companion-relay/smb_zip_to_local_extract/begin",
+            f"/api/archive/v2/operations/{prepared['id']}/relay/extraction/begin",
             headers=relay_headers,
         )
         paused = client.post(
-            f"/api/archive/operations/{prepared['id']}/companion-relay/smb_zip_to_local_extract/member-collision",
+            f"/api/archive/v2/operations/{prepared['id']}/relay/extraction/member-collision",
             headers=relay_headers,
             json={"member_path": "root.txt", "is_directory": False, "target_size": 8},
         )
         resumed = client.post(
-            f"/api/archive/operations/{prepared['id']}/decide-extraction",
+            f"/api/archive/v2/operations/{prepared['id']}/extraction/decision",
             headers=auth_headers_user,
             json={"action": "rename", "member_path": "root.txt", "target_path": scenario["rename_target"]},
         )
         completion = client.post(
-            f"/api/archive/operations/{prepared['id']}/companion-relay/smb_zip_to_local_extract/member-complete",
+            f"/api/archive/v2/operations/{prepared['id']}/relay/extraction/member-complete",
             headers=relay_headers,
             json={
                 "member_path": "root.txt",
@@ -1958,7 +1978,7 @@ def test_companion_local_relay_persists_partial_outcome_before_retry_or_ignore(
         archive.writestr("source.txt", b"hello")
     archive_bytes = archive_buffer.getvalue()
     prepared = client.post(
-        "/api/archive/operations",
+        "/api/archive/v2/operations",
         headers=auth_headers_user,
         json={
             "kind": "extract",
@@ -1968,7 +1988,7 @@ def test_companion_local_relay_persists_partial_outcome_before_retry_or_ignore(
             "destination_path": "output",
         },
     ).json()
-    capability = client.post(f"/api/archive/operations/{prepared['id']}/companion-session", headers=auth_headers_user).json()
+    capability = client.post(f"/api/archive/v2/operations/{prepared['id']}/companion-session", headers=auth_headers_user).json()
     relay_headers = {"Authorization": f"Bearer {capability['token']}"}
     backend = AsyncMock()
     backend.connect.return_value = None
@@ -1977,21 +1997,21 @@ def test_companion_local_relay_persists_partial_outcome_before_retry_or_ignore(
     backend.open_random_access_reader.side_effect = lambda _path: MemoryRandomAccessReader(archive_bytes)
     with patch("app.api.archive_operations.SMBBackend", return_value=backend):
         begin = client.post(
-            f"/api/archive/operations/{prepared['id']}/companion-relay/smb_zip_to_local_extract/begin",
+            f"/api/archive/v2/operations/{prepared['id']}/relay/extraction/begin",
             headers=relay_headers,
         )
         paused = client.post(
-            f"/api/archive/operations/{prepared['id']}/companion-relay/smb_zip_to_local_extract/member-error",
+            f"/api/archive/v2/operations/{prepared['id']}/relay/extraction/member-error",
             headers=relay_headers,
             json={"member_path": scenario["member_path"], "message": "Disk full", "partial_output": True},
         )
         resumed = client.post(
-            f"/api/archive/operations/{prepared['id']}/decide-extraction",
+            f"/api/archive/v2/operations/{prepared['id']}/extraction/decision",
             headers=auth_headers_user,
             json={"action": scenario["member_error_action"], "member_path": scenario["member_path"]},
         )
         member_complete = client.post(
-            f"/api/archive/operations/{prepared['id']}/companion-relay/smb_zip_to_local_extract/member-complete",
+            f"/api/archive/v2/operations/{prepared['id']}/relay/extraction/member-complete",
             headers=relay_headers,
             json={
                 "member_path": scenario["member_path"],
@@ -2004,7 +2024,7 @@ def test_companion_local_relay_persists_partial_outcome_before_retry_or_ignore(
             },
         )
         complete = client.post(
-            f"/api/archive/operations/{prepared['id']}/companion-relay/smb_zip_to_local_extract/complete",
+            f"/api/archive/v2/operations/{prepared['id']}/relay/extraction/complete",
             headers=relay_headers,
             json={"destination_root_created": False},
         )
@@ -2024,8 +2044,9 @@ def test_companion_local_relay_persists_partial_outcome_before_retry_or_ignore(
     assert complete.json()["phase"] == scenario["terminal_phase"]
     checkpoint = json.loads(complete.json()["checkpoint_json"])
     assert checkpoint["member_outcomes"][scenario["member_path"]]["status"] == scenario["member_outcome"]["status"]
+    summary = extraction_outcome_summary(checkpoint, 0)
     for key, value in scenario["progress"].items():
-        assert checkpoint.get(key, 0) == value
+        assert getattr(summary, key) == value
 
 
 def test_companion_local_relay_cancels_before_accepting_late_member_completion(
@@ -2043,7 +2064,7 @@ def test_companion_local_relay_cancels_before_accepting_late_member_completion(
         archive.writestr("readme.txt", b"hello")
     archive_bytes = archive_buffer.getvalue()
     prepared = client.post(
-        "/api/archive/operations",
+        "/api/archive/v2/operations",
         headers=auth_headers_user,
         json={
             "kind": "extract",
@@ -2053,7 +2074,7 @@ def test_companion_local_relay_cancels_before_accepting_late_member_completion(
             "destination_path": "output",
         },
     ).json()
-    capability = client.post(f"/api/archive/operations/{prepared['id']}/companion-session", headers=auth_headers_user).json()
+    capability = client.post(f"/api/archive/v2/operations/{prepared['id']}/companion-session", headers=auth_headers_user).json()
     relay_headers = {"Authorization": f"Bearer {capability['token']}"}
     backend = AsyncMock()
     backend.connect.return_value = None
@@ -2062,12 +2083,12 @@ def test_companion_local_relay_cancels_before_accepting_late_member_completion(
     backend.open_random_access_reader.side_effect = lambda _path: MemoryRandomAccessReader(archive_bytes)
     with patch("app.api.archive_operations.SMBBackend", return_value=backend):
         begin = client.post(
-            f"/api/archive/operations/{prepared['id']}/companion-relay/smb_zip_to_local_extract/begin",
+            f"/api/archive/v2/operations/{prepared['id']}/relay/extraction/begin",
             headers=relay_headers,
         )
-        cancellation = client.post(f"/api/archive/operations/{prepared['id']}/cancel", headers=auth_headers_user)
+        cancellation = client.post(f"/api/archive/v2/operations/{prepared['id']}/cancel", headers=auth_headers_user)
         completion = client.post(
-            f"/api/archive/operations/{prepared['id']}/companion-relay/smb_zip_to_local_extract/member-complete",
+            f"/api/archive/v2/operations/{prepared['id']}/relay/extraction/member-complete",
             headers=relay_headers,
             json={
                 "member_path": "readme.txt",
@@ -2079,7 +2100,7 @@ def test_companion_local_relay_cancels_before_accepting_late_member_completion(
                 "renamed": False,
             },
         )
-        operation = client.get(f"/api/archive/operations/{prepared['id']}", headers=auth_headers_user)
+        operation = client.get(f"/api/archive/v2/operations/{prepared['id']}", headers=auth_headers_user)
 
     assert begin.status_code == 200
     assert cancellation.status_code == 200
@@ -2099,7 +2120,7 @@ def test_companion_local_relay_rejects_an_archive_changed_after_manifest_preflig
         archive.writestr("readme.txt", b"hello")
     archive_bytes = archive_buffer.getvalue()
     prepared = client.post(
-        "/api/archive/operations",
+        "/api/archive/v2/operations",
         headers=auth_headers_user,
         json={
             "kind": "extract",
@@ -2109,7 +2130,7 @@ def test_companion_local_relay_rejects_an_archive_changed_after_manifest_preflig
             "destination_path": "output",
         },
     ).json()
-    capability = client.post(f"/api/archive/operations/{prepared['id']}/companion-session", headers=auth_headers_user).json()
+    capability = client.post(f"/api/archive/v2/operations/{prepared['id']}/companion-session", headers=auth_headers_user).json()
     relay_headers = {"Authorization": f"Bearer {capability['token']}"}
     backend = AsyncMock()
     backend.connect.return_value = None
@@ -2121,15 +2142,15 @@ def test_companion_local_relay_rejects_an_archive_changed_after_manifest_preflig
     backend.open_random_access_reader.side_effect = lambda _path: MemoryRandomAccessReader(archive_bytes)
     with patch("app.api.archive_operations.SMBBackend", return_value=backend):
         manifest = client.post(
-            f"/api/archive/operations/{prepared['id']}/companion-relay/smb_zip_to_local_extract/begin",
+            f"/api/archive/v2/operations/{prepared['id']}/relay/extraction/begin",
             headers=relay_headers,
         )
         member = client.get(
-            f"/api/archive/operations/{prepared['id']}/companion-relay/smb_zip_to_local_extract/member",
+            f"/api/archive/v2/operations/{prepared['id']}/relay/extraction/member",
             headers=relay_headers,
             params={"member_path": "readme.txt"},
         )
-        operation = client.get(f"/api/archive/operations/{prepared['id']}", headers=auth_headers_user)
+        operation = client.get(f"/api/archive/v2/operations/{prepared['id']}", headers=auth_headers_user)
 
     assert manifest.status_code == 200
     assert member.status_code == 409
@@ -2146,7 +2167,7 @@ def test_companion_local_relay_rejects_a_member_outside_its_preflight_manifest(
         archive.writestr("readme.txt", b"hello")
     archive_bytes = archive_buffer.getvalue()
     prepared = client.post(
-        "/api/archive/operations",
+        "/api/archive/v2/operations",
         headers=auth_headers_user,
         json={
             "kind": "extract",
@@ -2156,7 +2177,7 @@ def test_companion_local_relay_rejects_a_member_outside_its_preflight_manifest(
             "destination_path": "output",
         },
     ).json()
-    capability = client.post(f"/api/archive/operations/{prepared['id']}/companion-session", headers=auth_headers_user).json()
+    capability = client.post(f"/api/archive/v2/operations/{prepared['id']}/companion-session", headers=auth_headers_user).json()
     relay_headers = {"Authorization": f"Bearer {capability['token']}"}
     backend = AsyncMock()
     backend.connect.return_value = None
@@ -2165,12 +2186,12 @@ def test_companion_local_relay_rejects_a_member_outside_its_preflight_manifest(
     backend.open_random_access_reader.side_effect = lambda _path: MemoryRandomAccessReader(archive_bytes)
     with patch("app.api.archive_operations.SMBBackend", return_value=backend):
         manifest = client.post(
-            f"/api/archive/operations/{prepared['id']}/companion-relay/smb_zip_to_local_extract/begin",
+            f"/api/archive/v2/operations/{prepared['id']}/relay/extraction/begin",
             headers=relay_headers,
         )
         backend.open_random_access_reader.reset_mock()
         member = client.get(
-            f"/api/archive/operations/{prepared['id']}/companion-relay/smb_zip_to_local_extract/member",
+            f"/api/archive/v2/operations/{prepared['id']}/relay/extraction/member",
             headers=relay_headers,
             params={"member_path": "not-approved.txt"},
         )
@@ -2186,7 +2207,7 @@ def test_companion_local_creation_relay_streams_smb_members_and_completes(
     test_connection: Connection,
 ) -> None:
     prepared = client.post(
-        "/api/archive/operations",
+        "/api/archive/v2/operations",
         headers=auth_headers_user,
         json={
             "kind": "create",
@@ -2197,7 +2218,7 @@ def test_companion_local_creation_relay_streams_smb_members_and_completes(
             "plan_json": json.dumps({"source_paths": ["readme.txt"]}),
         },
     ).json()
-    capability = client.post(f"/api/archive/operations/{prepared['id']}/companion-session", headers=auth_headers_user).json()
+    capability = client.post(f"/api/archive/v2/operations/{prepared['id']}/companion-session", headers=auth_headers_user).json()
     relay_headers = {"Authorization": f"Bearer {capability['token']}"}
     member_relay_headers = {**relay_headers, "Idempotency-Key": str(uuid.uuid4())}
     backend = AsyncMock()
@@ -2211,31 +2232,31 @@ def test_companion_local_creation_relay_streams_smb_members_and_completes(
     backend.read_file = lambda _path: source_chunks()
     with patch("app.api.archive_operations.SMBBackend", return_value=backend):
         manifest = client.post(
-            f"/api/archive/operations/{prepared['id']}/companion-relay/smb_to_local_zip_create/begin",
+            f"/api/archive/v2/operations/{prepared['id']}/relay/creation/begin",
             headers=relay_headers,
         )
         member = client.get(
-            f"/api/archive/operations/{prepared['id']}/companion-relay/smb_to_local_zip_create/member",
+            f"/api/archive/v2/operations/{prepared['id']}/relay/creation/member",
             headers=relay_headers,
             params={"archive_path": "readme.txt"},
         )
         member_complete = client.post(
-            f"/api/archive/operations/{prepared['id']}/companion-relay/smb_to_local_zip_create/member-complete",
+            f"/api/archive/v2/operations/{prepared['id']}/relay/creation/member-complete",
             headers=member_relay_headers,
             json={"archive_path": "readme.txt", "status": "created", "source_bytes": 5},
         )
         repeated_member_complete = client.post(
-            f"/api/archive/operations/{prepared['id']}/companion-relay/smb_to_local_zip_create/member-complete",
+            f"/api/archive/v2/operations/{prepared['id']}/relay/creation/member-complete",
             headers=member_relay_headers,
             json={"archive_path": "readme.txt", "status": "created", "source_bytes": 5},
         )
         conflicting_member_complete = client.post(
-            f"/api/archive/operations/{prepared['id']}/companion-relay/smb_to_local_zip_create/member-complete",
+            f"/api/archive/v2/operations/{prepared['id']}/relay/creation/member-complete",
             headers=member_relay_headers,
             json={"archive_path": "readme.txt", "status": "created", "source_bytes": 4},
         )
         complete = client.post(
-            f"/api/archive/operations/{prepared['id']}/companion-relay/smb_to_local_zip_create/complete",
+            f"/api/archive/v2/operations/{prepared['id']}/relay/creation/complete",
             headers=relay_headers,
             json={"files_created": 1, "directories_created": 0, "source_bytes": 5},
         )
@@ -2260,14 +2281,14 @@ def test_companion_local_creation_relay_streams_smb_members_and_completes(
     assert complete.status_code == 200
     assert complete.json()["phase"] == "completed"
     checkpoint = json.loads(complete.json()["checkpoint_json"])
-    assert checkpoint["source_bytes"] == 5
-    assert checkpoint["creation_member_outcomes"] == {"readme.txt": {"status": "created", "source_bytes": 5}}
-    assert checkpoint["source_manifest"] == [
+    assert checkpoint["member_outcomes"] == {"readme.txt": {"status": "created", "source_bytes": 5}}
+    assert checkpoint["manifest"] == [
         {
             "source_path": "readme.txt",
             "archive_path": "readme.txt",
             "is_directory": False,
-            "source_identity": {"size": 5, "modified_at": None},
+            "source_size": 5,
+            "modified_at": None,
         }
     ]
 
@@ -2278,7 +2299,7 @@ def test_companion_creation_relay_rejects_invalid_idempotency_key(
     test_connection: Connection,
 ) -> None:
     prepared = client.post(
-        "/api/archive/operations",
+        "/api/archive/v2/operations",
         headers=auth_headers_user,
         json={
             "kind": "create",
@@ -2289,14 +2310,14 @@ def test_companion_creation_relay_rejects_invalid_idempotency_key(
             "plan_json": json.dumps({"source_paths": ["readme.txt"]}),
         },
     ).json()
-    capability = client.post(f"/api/archive/operations/{prepared['id']}/companion-session", headers=auth_headers_user).json()
+    capability = client.post(f"/api/archive/v2/operations/{prepared['id']}/companion-session", headers=auth_headers_user).json()
     response = client.post(
-        f"/api/archive/operations/{prepared['id']}/companion-relay/smb_to_local_zip_create/member-complete",
+        f"/api/archive/v2/operations/{prepared['id']}/relay/creation/member-complete",
         headers={"Authorization": f"Bearer {capability['token']}", "Idempotency-Key": "not-a-uuid"},
         json={"archive_path": "readme.txt", "status": "created", "source_bytes": 5},
     )
 
-    assert response.status_code == status.HTTP_422_UNPROCESSABLE_ENTITY
+    assert response.status_code == status.HTTP_422_UNPROCESSABLE_CONTENT
     assert response.json()["detail"] == "Archive relay idempotency key is invalid"
 
 
@@ -2306,7 +2327,7 @@ def test_companion_local_creation_relay_reuses_its_persisted_manifest(
     test_connection: Connection,
 ) -> None:
     prepared = client.post(
-        "/api/archive/operations",
+        "/api/archive/v2/operations",
         headers=auth_headers_user,
         json={
             "kind": "create",
@@ -2317,7 +2338,7 @@ def test_companion_local_creation_relay_reuses_its_persisted_manifest(
             "plan_json": json.dumps({"source_paths": ["readme.txt"]}),
         },
     ).json()
-    capability = client.post(f"/api/archive/operations/{prepared['id']}/companion-session", headers=auth_headers_user).json()
+    capability = client.post(f"/api/archive/v2/operations/{prepared['id']}/companion-session", headers=auth_headers_user).json()
     relay_headers = {"Authorization": f"Bearer {capability['token']}", "Idempotency-Key": str(uuid.uuid4())}
     backend = AsyncMock()
     backend.connect.return_value = None
@@ -2325,12 +2346,12 @@ def test_companion_local_creation_relay_reuses_its_persisted_manifest(
     backend.get_file_info.return_value = FileInfo(name="readme.txt", path="readme.txt", type=FileType.FILE, size=5)
     with patch("app.api.archive_operations.SMBBackend", return_value=backend):
         first_manifest = client.post(
-            f"/api/archive/operations/{prepared['id']}/companion-relay/smb_to_local_zip_create/begin",
+            f"/api/archive/v2/operations/{prepared['id']}/relay/creation/begin",
             headers=relay_headers,
         )
         backend.get_file_info.reset_mock()
         repeated_manifest = client.post(
-            f"/api/archive/operations/{prepared['id']}/companion-relay/smb_to_local_zip_create/begin",
+            f"/api/archive/v2/operations/{prepared['id']}/relay/creation/begin",
             headers=relay_headers,
         )
 
@@ -2347,7 +2368,7 @@ def test_companion_local_creation_relay_accepts_equivalent_canonical_source_time
     test_connection: Connection,
 ) -> None:
     prepared = client.post(
-        "/api/archive/operations",
+        "/api/archive/v2/operations",
         headers=auth_headers_user,
         json={
             "kind": "create",
@@ -2358,7 +2379,7 @@ def test_companion_local_creation_relay_accepts_equivalent_canonical_source_time
             "plan_json": json.dumps({"source_paths": ["readme.txt"]}),
         },
     ).json()
-    capability = client.post(f"/api/archive/operations/{prepared['id']}/companion-session", headers=auth_headers_user).json()
+    capability = client.post(f"/api/archive/v2/operations/{prepared['id']}/companion-session", headers=auth_headers_user).json()
     relay_headers = {"Authorization": f"Bearer {capability['token']}"}
     backend = AsyncMock()
     backend.connect.return_value = None
@@ -2386,11 +2407,11 @@ def test_companion_local_creation_relay_accepts_equivalent_canonical_source_time
     backend.read_file = lambda _path: source_chunks()
     with patch("app.api.archive_operations.SMBBackend", return_value=backend):
         manifest = client.post(
-            f"/api/archive/operations/{prepared['id']}/companion-relay/smb_to_local_zip_create/begin",
+            f"/api/archive/v2/operations/{prepared['id']}/relay/creation/begin",
             headers=relay_headers,
         )
         member = client.get(
-            f"/api/archive/operations/{prepared['id']}/companion-relay/smb_to_local_zip_create/member",
+            f"/api/archive/v2/operations/{prepared['id']}/relay/creation/member",
             headers=relay_headers,
             params={"archive_path": "readme.txt"},
         )
@@ -2409,7 +2430,7 @@ def test_companion_local_creation_relay_rejects_a_source_changed_after_manifest_
     test_connection: Connection,
 ) -> None:
     prepared = client.post(
-        "/api/archive/operations",
+        "/api/archive/v2/operations",
         headers=auth_headers_user,
         json={
             "kind": "create",
@@ -2420,7 +2441,7 @@ def test_companion_local_creation_relay_rejects_a_source_changed_after_manifest_
             "plan_json": json.dumps({"source_paths": ["readme.txt"]}),
         },
     ).json()
-    capability = client.post(f"/api/archive/operations/{prepared['id']}/companion-session", headers=auth_headers_user).json()
+    capability = client.post(f"/api/archive/v2/operations/{prepared['id']}/companion-session", headers=auth_headers_user).json()
     relay_headers = {"Authorization": f"Bearer {capability['token']}"}
     backend = AsyncMock()
     backend.connect.return_value = None
@@ -2431,15 +2452,15 @@ def test_companion_local_creation_relay_rejects_a_source_changed_after_manifest_
     ]
     with patch("app.api.archive_operations.SMBBackend", return_value=backend):
         manifest = client.post(
-            f"/api/archive/operations/{prepared['id']}/companion-relay/smb_to_local_zip_create/begin",
+            f"/api/archive/v2/operations/{prepared['id']}/relay/creation/begin",
             headers=relay_headers,
         )
         member = client.get(
-            f"/api/archive/operations/{prepared['id']}/companion-relay/smb_to_local_zip_create/member",
+            f"/api/archive/v2/operations/{prepared['id']}/relay/creation/member",
             headers=relay_headers,
             params={"archive_path": "readme.txt"},
         )
-        operation = client.get(f"/api/archive/operations/{prepared['id']}", headers=auth_headers_user)
+        operation = client.get(f"/api/archive/v2/operations/{prepared['id']}", headers=auth_headers_user)
 
     assert manifest.status_code == 200
     assert member.status_code == 409
@@ -2452,7 +2473,7 @@ def test_companion_local_creation_relay_rejects_an_inconsistent_completion_summa
     test_connection: Connection,
 ) -> None:
     prepared = client.post(
-        "/api/archive/operations",
+        "/api/archive/v2/operations",
         headers=auth_headers_user,
         json={
             "kind": "create",
@@ -2463,7 +2484,7 @@ def test_companion_local_creation_relay_rejects_an_inconsistent_completion_summa
             "plan_json": json.dumps({"source_paths": ["readme.txt"]}),
         },
     ).json()
-    capability = client.post(f"/api/archive/operations/{prepared['id']}/companion-session", headers=auth_headers_user).json()
+    capability = client.post(f"/api/archive/v2/operations/{prepared['id']}/companion-session", headers=auth_headers_user).json()
     relay_headers = {"Authorization": f"Bearer {capability['token']}"}
     backend = AsyncMock()
     backend.connect.return_value = None
@@ -2471,15 +2492,15 @@ def test_companion_local_creation_relay_rejects_an_inconsistent_completion_summa
     backend.get_file_info.return_value = FileInfo(name="readme.txt", path="readme.txt", type=FileType.FILE, size=5)
     with patch("app.api.archive_operations.SMBBackend", return_value=backend):
         manifest = client.post(
-            f"/api/archive/operations/{prepared['id']}/companion-relay/smb_to_local_zip_create/begin",
+            f"/api/archive/v2/operations/{prepared['id']}/relay/creation/begin",
             headers=relay_headers,
         )
         complete = client.post(
-            f"/api/archive/operations/{prepared['id']}/companion-relay/smb_to_local_zip_create/complete",
+            f"/api/archive/v2/operations/{prepared['id']}/relay/creation/complete",
             headers=relay_headers,
             json={"files_created": 1, "directories_created": 0, "source_bytes": 4},
         )
-        operation = client.get(f"/api/archive/operations/{prepared['id']}", headers=auth_headers_user)
+        operation = client.get(f"/api/archive/v2/operations/{prepared['id']}", headers=auth_headers_user)
 
     assert manifest.status_code == 200
     assert complete.status_code == 409
@@ -2492,7 +2513,7 @@ def test_companion_local_creation_relay_requires_member_outcomes_before_completi
     test_connection: Connection,
 ) -> None:
     prepared = client.post(
-        "/api/archive/operations",
+        "/api/archive/v2/operations",
         headers=auth_headers_user,
         json={
             "kind": "create",
@@ -2503,7 +2524,7 @@ def test_companion_local_creation_relay_requires_member_outcomes_before_completi
             "plan_json": json.dumps({"source_paths": ["readme.txt"]}),
         },
     ).json()
-    capability = client.post(f"/api/archive/operations/{prepared['id']}/companion-session", headers=auth_headers_user).json()
+    capability = client.post(f"/api/archive/v2/operations/{prepared['id']}/companion-session", headers=auth_headers_user).json()
     relay_headers = {"Authorization": f"Bearer {capability['token']}"}
     backend = AsyncMock()
     backend.connect.return_value = None
@@ -2511,15 +2532,15 @@ def test_companion_local_creation_relay_requires_member_outcomes_before_completi
     backend.get_file_info.return_value = FileInfo(name="readme.txt", path="readme.txt", type=FileType.FILE, size=5)
     with patch("app.api.archive_operations.SMBBackend", return_value=backend):
         manifest = client.post(
-            f"/api/archive/operations/{prepared['id']}/companion-relay/smb_to_local_zip_create/begin",
+            f"/api/archive/v2/operations/{prepared['id']}/relay/creation/begin",
             headers=relay_headers,
         )
         complete = client.post(
-            f"/api/archive/operations/{prepared['id']}/companion-relay/smb_to_local_zip_create/complete",
+            f"/api/archive/v2/operations/{prepared['id']}/relay/creation/complete",
             headers=relay_headers,
             json={"files_created": 1, "directories_created": 0, "source_bytes": 5},
         )
-        operation = client.get(f"/api/archive/operations/{prepared['id']}", headers=auth_headers_user)
+        operation = client.get(f"/api/archive/v2/operations/{prepared['id']}", headers=auth_headers_user)
 
     assert manifest.status_code == 200
     assert complete.status_code == 409
@@ -2532,7 +2553,7 @@ def test_companion_smb_creation_relay_commits_local_members_and_completes(
     test_connection: Connection,
 ) -> None:
     prepared = client.post(
-        "/api/archive/operations",
+        "/api/archive/v2/operations",
         headers=auth_headers_user,
         json={
             "kind": "create",
@@ -2543,7 +2564,7 @@ def test_companion_smb_creation_relay_commits_local_members_and_completes(
             "plan_json": json.dumps({"source_paths": ["readme.txt"]}),
         },
     ).json()
-    capability = client.post(f"/api/archive/operations/{prepared['id']}/companion-session", headers=auth_headers_user).json()
+    capability = client.post(f"/api/archive/v2/operations/{prepared['id']}/companion-session", headers=auth_headers_user).json()
     relay_headers = {"Authorization": f"Bearer {capability['token']}"}
     backend = AsyncMock()
     backend.connect.return_value = None
@@ -2554,24 +2575,24 @@ def test_companion_smb_creation_relay_commits_local_members_and_completes(
 
     with patch("app.api.archive_operations.SMBBackend", return_value=backend):
         begin = client.post(
-            f"/api/archive/operations/{prepared['id']}/companion-relay/local_to_smb_zip_create/begin",
+            f"/api/archive/v2/operations/{prepared['id']}/relay/creation/begin",
             headers=relay_headers,
             json={"entries": [{"archive_path": "readme.txt", "is_directory": False, "source_size": 9}]},
         )
         member = client.put(
-            f"/api/archive/operations/{prepared['id']}/companion-relay/local_to_smb_zip_create/member",
+            f"/api/archive/v2/operations/{prepared['id']}/relay/creation/member",
             headers=relay_headers,
             params={"archive_path": "readme.txt"},
             content=b"zip-bytes",
         )
-        checkpoint = client.get(f"/api/archive/operations/{prepared['id']}", headers=auth_headers_user)
+        checkpoint = client.get(f"/api/archive/v2/operations/{prepared['id']}", headers=auth_headers_user)
         complete = client.post(
-            f"/api/archive/operations/{prepared['id']}/companion-relay/local_to_smb_zip_create/complete",
+            f"/api/archive/v2/operations/{prepared['id']}/relay/creation/complete",
             headers=relay_headers,
             json={"files_created": 1, "directories_created": 0, "source_bytes": 9},
         )
         repeated_complete = client.post(
-            f"/api/archive/operations/{prepared['id']}/companion-relay/local_to_smb_zip_create/complete",
+            f"/api/archive/v2/operations/{prepared['id']}/relay/creation/complete",
             headers=relay_headers,
             json={"files_created": 1, "directories_created": 0, "source_bytes": 9},
         )
@@ -2579,7 +2600,7 @@ def test_companion_smb_creation_relay_commits_local_members_and_completes(
     assert begin.status_code == 200
     assert member.status_code == 200
     assert member.json()["phase"] == "streaming"
-    assert json.loads(checkpoint.json()["checkpoint_json"])["creation_member_outcomes"] == {
+    assert json.loads(checkpoint.json()["checkpoint_json"])["member_outcomes"] == {
         "readme.txt": {"status": "created", "source_bytes": 9}
     }
     writer.write.assert_awaited()
@@ -2588,7 +2609,7 @@ def test_companion_smb_creation_relay_commits_local_members_and_completes(
     assert complete.json()["phase"] == "completed"
     assert repeated_complete.status_code == 200
     assert repeated_complete.json()["phase"] == "completed"
-    assert json.loads(complete.json()["checkpoint_json"])["source_bytes"] == 9
+    assert creation_outcome_summary(json.loads(complete.json()["checkpoint_json"])).source_bytes == 9
 
 
 def test_local_to_smb_creation_relay_commits_directories_and_replays_members_once(
@@ -2597,7 +2618,7 @@ def test_local_to_smb_creation_relay_commits_directories_and_replays_members_onc
     test_connection: Connection,
 ) -> None:
     prepared = client.post(
-        "/api/archive/operations",
+        "/api/archive/v2/operations",
         headers=auth_headers_user,
         json={
             "kind": "create",
@@ -2608,7 +2629,7 @@ def test_local_to_smb_creation_relay_commits_directories_and_replays_members_onc
             "plan_json": json.dumps({"source_paths": ["docs"]}),
         },
     ).json()
-    capability = client.post(f"/api/archive/operations/{prepared['id']}/companion-session", headers=auth_headers_user).json()
+    capability = client.post(f"/api/archive/v2/operations/{prepared['id']}/companion-session", headers=auth_headers_user).json()
     relay_headers = {"Authorization": f"Bearer {capability['token']}"}
     backend = AsyncMock()
     backend.connect.return_value = None
@@ -2619,7 +2640,7 @@ def test_local_to_smb_creation_relay_commits_directories_and_replays_members_onc
 
     with patch("app.api.archive_operations.SMBBackend", return_value=backend):
         begin = client.post(
-            f"/api/archive/operations/{prepared['id']}/companion-relay/local_to_smb_zip_create/begin",
+            f"/api/archive/v2/operations/{prepared['id']}/relay/creation/begin",
             headers=relay_headers,
             json={
                 "entries": [
@@ -2629,7 +2650,7 @@ def test_local_to_smb_creation_relay_commits_directories_and_replays_members_onc
             },
         )
         repeated_begin = client.post(
-            f"/api/archive/operations/{prepared['id']}/companion-relay/local_to_smb_zip_create/begin",
+            f"/api/archive/v2/operations/{prepared['id']}/relay/creation/begin",
             headers=relay_headers,
             json={
                 "entries": [
@@ -2639,26 +2660,26 @@ def test_local_to_smb_creation_relay_commits_directories_and_replays_members_onc
             },
         )
         directory = client.put(
-            f"/api/archive/operations/{prepared['id']}/companion-relay/local_to_smb_zip_create/member",
+            f"/api/archive/v2/operations/{prepared['id']}/relay/creation/member",
             headers=relay_headers,
             params={"archive_path": "docs"},
         )
         file_member = client.put(
-            f"/api/archive/operations/{prepared['id']}/companion-relay/local_to_smb_zip_create/member",
+            f"/api/archive/v2/operations/{prepared['id']}/relay/creation/member",
             headers=relay_headers,
             params={"archive_path": "docs\\readme.txt"},
             content=b"hello",
         )
         write_count_before_replay = writer.write.await_count
         replay = client.put(
-            f"/api/archive/operations/{prepared['id']}/companion-relay/local_to_smb_zip_create/member",
+            f"/api/archive/v2/operations/{prepared['id']}/relay/creation/member",
             headers=relay_headers,
             params={"archive_path": "docs\\readme.txt"},
             content=b"hello",
         )
         write_count_after_replay = writer.write.await_count
         complete = client.post(
-            f"/api/archive/operations/{prepared['id']}/companion-relay/local_to_smb_zip_create/complete",
+            f"/api/archive/v2/operations/{prepared['id']}/relay/creation/complete",
             headers=relay_headers,
             json={"files_created": 1, "directories_created": 1, "source_bytes": 5},
         )
@@ -2671,7 +2692,7 @@ def test_local_to_smb_creation_relay_commits_directories_and_replays_members_onc
     assert replay.status_code == 200
     assert write_count_after_replay == write_count_before_replay
     assert complete.status_code == 200
-    assert json.loads(complete.json()["checkpoint_json"])["creation_member_outcomes"] == {
+    assert json.loads(complete.json()["checkpoint_json"])["member_outcomes"] == {
         "docs": {"status": "directory", "source_bytes": 0},
         "docs/readme.txt": {"status": "created", "source_bytes": 5},
     }
@@ -2683,7 +2704,7 @@ def test_cancelling_local_to_smb_creation_after_a_member_commit_preserves_ledger
     test_connection: Connection,
 ) -> None:
     prepared = client.post(
-        "/api/archive/operations",
+        "/api/archive/v2/operations",
         headers=auth_headers_user,
         json={
             "kind": "create",
@@ -2694,7 +2715,7 @@ def test_cancelling_local_to_smb_creation_after_a_member_commit_preserves_ledger
             "plan_json": json.dumps({"source_paths": ["first.txt", "second.txt"]}),
         },
     ).json()
-    capability = client.post(f"/api/archive/operations/{prepared['id']}/companion-session", headers=auth_headers_user).json()
+    capability = client.post(f"/api/archive/v2/operations/{prepared['id']}/companion-session", headers=auth_headers_user).json()
     relay_headers = {"Authorization": f"Bearer {capability['token']}"}
     backend = AsyncMock()
     backend.connect.return_value = None
@@ -2705,7 +2726,7 @@ def test_cancelling_local_to_smb_creation_after_a_member_commit_preserves_ledger
 
     with patch("app.api.archive_operations.SMBBackend", return_value=backend):
         begin = client.post(
-            f"/api/archive/operations/{prepared['id']}/companion-relay/local_to_smb_zip_create/begin",
+            f"/api/archive/v2/operations/{prepared['id']}/relay/creation/begin",
             headers=relay_headers,
             json={
                 "entries": [
@@ -2715,18 +2736,18 @@ def test_cancelling_local_to_smb_creation_after_a_member_commit_preserves_ledger
             },
         )
         member = client.put(
-            f"/api/archive/operations/{prepared['id']}/companion-relay/local_to_smb_zip_create/member",
+            f"/api/archive/v2/operations/{prepared['id']}/relay/creation/member",
             headers=relay_headers,
             params={"archive_path": "first.txt"},
             content=b"first",
         )
-        cancelled = client.post(f"/api/archive/operations/{prepared['id']}/cancel", headers=auth_headers_user)
+        cancelled = client.post(f"/api/archive/v2/operations/{prepared['id']}/cancel", headers=auth_headers_user)
 
     assert begin.status_code == 200
     assert member.status_code == 200
     assert cancelled.status_code == 200
     assert cancelled.json()["phase"] == "cancelled"
-    assert json.loads(cancelled.json()["checkpoint_json"])["creation_member_outcomes"] == {
+    assert json.loads(cancelled.json()["checkpoint_json"])["member_outcomes"] == {
         "first.txt": {"status": "created", "source_bytes": 5}
     }
     writer.abort_and_delete_if_owned.assert_awaited_once()
@@ -2739,7 +2760,7 @@ def test_local_to_smb_creation_rejects_completion_before_the_manifest_is_reporte
     test_connection: Connection,
 ) -> None:
     prepared = client.post(
-        "/api/archive/operations",
+        "/api/archive/v2/operations",
         headers=auth_headers_user,
         json={
             "kind": "create",
@@ -2750,7 +2771,7 @@ def test_local_to_smb_creation_rejects_completion_before_the_manifest_is_reporte
             "plan_json": json.dumps({"source_paths": ["first.txt", "second.txt"]}),
         },
     ).json()
-    capability = client.post(f"/api/archive/operations/{prepared['id']}/companion-session", headers=auth_headers_user).json()
+    capability = client.post(f"/api/archive/v2/operations/{prepared['id']}/companion-session", headers=auth_headers_user).json()
     relay_headers = {"Authorization": f"Bearer {capability['token']}"}
     backend = AsyncMock()
     backend.connect.return_value = None
@@ -2761,7 +2782,7 @@ def test_local_to_smb_creation_rejects_completion_before_the_manifest_is_reporte
 
     with patch("app.api.archive_operations.SMBBackend", return_value=backend):
         begin = client.post(
-            f"/api/archive/operations/{prepared['id']}/companion-relay/local_to_smb_zip_create/begin",
+            f"/api/archive/v2/operations/{prepared['id']}/relay/creation/begin",
             headers=relay_headers,
             json={
                 "entries": [
@@ -2771,13 +2792,13 @@ def test_local_to_smb_creation_rejects_completion_before_the_manifest_is_reporte
             },
         )
         member = client.put(
-            f"/api/archive/operations/{prepared['id']}/companion-relay/local_to_smb_zip_create/member",
+            f"/api/archive/v2/operations/{prepared['id']}/relay/creation/member",
             headers=relay_headers,
             params={"archive_path": "first.txt"},
             content=b"first",
         )
         complete = client.post(
-            f"/api/archive/operations/{prepared['id']}/companion-relay/local_to_smb_zip_create/complete",
+            f"/api/archive/v2/operations/{prepared['id']}/relay/creation/complete",
             headers=relay_headers,
             json={"files_created": 1, "directories_created": 0, "source_bytes": 5},
         )
@@ -2795,7 +2816,7 @@ def test_cancelled_local_to_smb_creation_does_not_open_a_live_writer(
     test_connection: Connection,
 ) -> None:
     prepared = client.post(
-        "/api/archive/operations",
+        "/api/archive/v2/operations",
         headers=auth_headers_user,
         json={
             "kind": "create",
@@ -2806,18 +2827,18 @@ def test_cancelled_local_to_smb_creation_does_not_open_a_live_writer(
             "plan_json": json.dumps({"source_paths": ["readme.txt"]}),
         },
     ).json()
-    capability = client.post(f"/api/archive/operations/{prepared['id']}/companion-session", headers=auth_headers_user).json()
+    capability = client.post(f"/api/archive/v2/operations/{prepared['id']}/companion-session", headers=auth_headers_user).json()
     relay_headers = {"Authorization": f"Bearer {capability['token']}"}
     backend = AsyncMock()
 
     with patch("app.api.archive_operations.SMBBackend", return_value=backend):
-        cancelled = client.post(f"/api/archive/operations/{prepared['id']}/cancel", headers=auth_headers_user)
+        cancelled = client.post(f"/api/archive/v2/operations/{prepared['id']}/cancel", headers=auth_headers_user)
         begin = client.post(
-            f"/api/archive/operations/{prepared['id']}/companion-relay/local_to_smb_zip_create/begin",
+            f"/api/archive/v2/operations/{prepared['id']}/relay/creation/begin",
             headers=relay_headers,
             json={"entries": [{"archive_path": "readme.txt", "is_directory": False, "source_size": 9}]},
         )
-        operation = client.get(f"/api/archive/operations/{prepared['id']}", headers=auth_headers_user)
+        operation = client.get(f"/api/archive/v2/operations/{prepared['id']}", headers=auth_headers_user)
 
     assert cancelled.status_code == 200
     assert begin.status_code == 409
@@ -2832,7 +2853,7 @@ def test_cancelling_local_to_smb_creation_aborts_the_live_writer(
     test_connection: Connection,
 ) -> None:
     prepared = client.post(
-        "/api/archive/operations",
+        "/api/archive/v2/operations",
         headers=auth_headers_user,
         json={
             "kind": "create",
@@ -2843,7 +2864,7 @@ def test_cancelling_local_to_smb_creation_aborts_the_live_writer(
             "plan_json": json.dumps({"source_paths": ["readme.txt"]}),
         },
     ).json()
-    capability = client.post(f"/api/archive/operations/{prepared['id']}/companion-session", headers=auth_headers_user).json()
+    capability = client.post(f"/api/archive/v2/operations/{prepared['id']}/companion-session", headers=auth_headers_user).json()
     backend = AsyncMock()
     backend.connect.return_value = None
     backend.disconnect.return_value = None
@@ -2852,11 +2873,11 @@ def test_cancelling_local_to_smb_creation_aborts_the_live_writer(
 
     with patch("app.api.archive_operations.SMBBackend", return_value=backend):
         begin = client.post(
-            f"/api/archive/operations/{prepared['id']}/companion-relay/local_to_smb_zip_create/begin",
+            f"/api/archive/v2/operations/{prepared['id']}/relay/creation/begin",
             headers={"Authorization": f"Bearer {capability['token']}"},
             json={"entries": [{"archive_path": "readme.txt", "is_directory": False, "source_size": 9}]},
         )
-        cancelled = client.post(f"/api/archive/operations/{prepared['id']}/cancel", headers=auth_headers_user)
+        cancelled = client.post(f"/api/archive/v2/operations/{prepared['id']}/cancel", headers=auth_headers_user)
 
     assert begin.status_code == 200
     assert cancelled.status_code == 200
@@ -2870,7 +2891,7 @@ def test_failing_local_to_smb_creation_aborts_the_live_writer(
     test_connection: Connection,
 ) -> None:
     prepared = client.post(
-        "/api/archive/operations",
+        "/api/archive/v2/operations",
         headers=auth_headers_user,
         json={
             "kind": "create",
@@ -2881,7 +2902,7 @@ def test_failing_local_to_smb_creation_aborts_the_live_writer(
             "plan_json": json.dumps({"source_paths": ["readme.txt"]}),
         },
     ).json()
-    capability = client.post(f"/api/archive/operations/{prepared['id']}/companion-session", headers=auth_headers_user).json()
+    capability = client.post(f"/api/archive/v2/operations/{prepared['id']}/companion-session", headers=auth_headers_user).json()
     relay_headers = {"Authorization": f"Bearer {capability['token']}"}
     backend = AsyncMock()
     backend.connect.return_value = None
@@ -2891,12 +2912,12 @@ def test_failing_local_to_smb_creation_aborts_the_live_writer(
 
     with patch("app.api.archive_operations.SMBBackend", return_value=backend):
         begin = client.post(
-            f"/api/archive/operations/{prepared['id']}/companion-relay/local_to_smb_zip_create/begin",
+            f"/api/archive/v2/operations/{prepared['id']}/relay/creation/begin",
             headers=relay_headers,
             json={"entries": [{"archive_path": "readme.txt", "is_directory": False, "source_size": 9}]},
         )
         failed = client.post(
-            f"/api/archive/operations/{prepared['id']}/companion-relay/local_to_smb_zip_create/fail",
+            f"/api/archive/v2/operations/{prepared['id']}/relay/creation/fail",
             headers=relay_headers,
             json={"message": "Local source became unavailable"},
         )
@@ -2914,7 +2935,7 @@ def test_local_to_smb_creation_rejects_changed_member_size(
     test_connection: Connection,
 ) -> None:
     prepared = client.post(
-        "/api/archive/operations",
+        "/api/archive/v2/operations",
         headers=auth_headers_user,
         json={
             "kind": "create",
@@ -2925,7 +2946,7 @@ def test_local_to_smb_creation_rejects_changed_member_size(
             "plan_json": json.dumps({"source_paths": ["readme.txt"]}),
         },
     ).json()
-    capability = client.post(f"/api/archive/operations/{prepared['id']}/companion-session", headers=auth_headers_user).json()
+    capability = client.post(f"/api/archive/v2/operations/{prepared['id']}/companion-session", headers=auth_headers_user).json()
     relay_headers = {"Authorization": f"Bearer {capability['token']}"}
     backend = AsyncMock()
     backend.connect.return_value = None
@@ -2936,12 +2957,12 @@ def test_local_to_smb_creation_rejects_changed_member_size(
 
     with patch("app.api.archive_operations.SMBBackend", return_value=backend):
         begin = client.post(
-            f"/api/archive/operations/{prepared['id']}/companion-relay/local_to_smb_zip_create/begin",
+            f"/api/archive/v2/operations/{prepared['id']}/relay/creation/begin",
             headers=relay_headers,
             json={"entries": [{"archive_path": "readme.txt", "is_directory": False, "source_size": 10}]},
         )
         member = client.put(
-            f"/api/archive/operations/{prepared['id']}/companion-relay/local_to_smb_zip_create/member",
+            f"/api/archive/v2/operations/{prepared['id']}/relay/creation/member",
             headers=relay_headers,
             params={"archive_path": "readme.txt"},
             content=b"zip-bytes",
@@ -2959,7 +2980,7 @@ def test_local_to_smb_creation_rejects_members_after_live_writer_interruption(
     test_connection: Connection,
 ) -> None:
     prepared = client.post(
-        "/api/archive/operations",
+        "/api/archive/v2/operations",
         headers=auth_headers_user,
         json={
             "kind": "create",
@@ -2970,7 +2991,7 @@ def test_local_to_smb_creation_rejects_members_after_live_writer_interruption(
             "plan_json": json.dumps({"source_paths": ["readme.txt"]}),
         },
     ).json()
-    capability = client.post(f"/api/archive/operations/{prepared['id']}/companion-session", headers=auth_headers_user).json()
+    capability = client.post(f"/api/archive/v2/operations/{prepared['id']}/companion-session", headers=auth_headers_user).json()
     relay_headers = {"Authorization": f"Bearer {capability['token']}"}
     backend = AsyncMock()
     backend.connect.return_value = None
@@ -2983,12 +3004,12 @@ def test_local_to_smb_creation_rejects_members_after_live_writer_interruption(
         patch("app.api.archive_operations._local_to_smb_creation_writers.execution", return_value=execution),
     ):
         begin = client.post(
-            f"/api/archive/operations/{prepared['id']}/companion-relay/local_to_smb_zip_create/begin",
+            f"/api/archive/v2/operations/{prepared['id']}/relay/creation/begin",
             headers=relay_headers,
             json={"entries": [{"archive_path": "readme.txt", "is_directory": False, "source_size": 5}]},
         )
         member = client.put(
-            f"/api/archive/operations/{prepared['id']}/companion-relay/local_to_smb_zip_create/member",
+            f"/api/archive/v2/operations/{prepared['id']}/relay/creation/member",
             headers=relay_headers,
             params={"archive_path": "readme.txt"},
             content=b"hello",
@@ -3006,7 +3027,7 @@ def test_companion_relay_pauses_for_destination_collision(
     test_connection: Connection,
 ) -> None:
     prepared = client.post(
-        "/api/archive/operations",
+        "/api/archive/v2/operations",
         headers=auth_headers_user,
         json={
             "kind": "extract",
@@ -3016,7 +3037,7 @@ def test_companion_relay_pauses_for_destination_collision(
             "destination_path": "output",
         },
     ).json()
-    capability = client.post(f"/api/archive/operations/{prepared['id']}/companion-session", headers=auth_headers_user).json()
+    capability = client.post(f"/api/archive/v2/operations/{prepared['id']}/companion-session", headers=auth_headers_user).json()
     relay_headers = {"Authorization": f"Bearer {capability['token']}"}
     backend = AsyncMock()
     backend.connect.return_value = None
@@ -3025,21 +3046,22 @@ def test_companion_relay_pauses_for_destination_collision(
     backend.write_file_from_stream.side_effect = FileExistsError()
     with patch("app.api.archive_operations.SMBBackend", return_value=backend):
         client.post(
-            f"/api/archive/operations/{prepared['id']}/companion-relay/local_zip_to_smb_extract/begin",
+            f"/api/archive/v2/operations/{prepared['id']}/relay/extraction/begin",
             headers=relay_headers,
+            json={"entries": [{"path": "existing.txt", "is_directory": False, "uncompressed_size": 7, "modified_at": None}]},
         )
         response = client.put(
-            f"/api/archive/operations/{prepared['id']}/companion-relay/local_zip_to_smb_extract/member",
+            f"/api/archive/v2/operations/{prepared['id']}/relay/extraction/member",
             headers=relay_headers,
             params={"member_path": "existing.txt"},
             content=b"blocked",
         )
-        operation = client.get(f"/api/archive/operations/{prepared['id']}", headers=auth_headers_user)
+        operation = client.get(f"/api/archive/v2/operations/{prepared['id']}", headers=auth_headers_user)
 
     assert response.status_code == 200
     assert response.json()["phase"] == "awaiting_user_decision"
     assert json.loads(response.json()["pending_decision_json"])["conflicts"] == [
-        {"member_path": "existing.txt", "target_path": "output/existing.txt", "is_directory": False}
+        {"member_path": "existing.txt", "target_path": "output/existing.txt", "is_directory": False, "source_size": 7}
     ]
     assert operation.json()["phase"] == "awaiting_user_decision"
 
@@ -3094,6 +3116,7 @@ def test_v2_executes_same_connection_creation_with_strict_ledger(
         },
         "decisions": {},
         "pending_decision": None,
+        "delivery_ids": {},
         "manifest": [
             {
                 "source_path": "first.txt",
@@ -3133,7 +3156,7 @@ def test_executes_same_connection_extraction(
     test_connection: Connection,
 ) -> None:
     prepared = client.post(
-        "/api/archive/operations",
+        "/api/archive/v2/operations",
         headers=auth_headers_user,
         json={
             "kind": "extract",
@@ -3154,7 +3177,7 @@ def test_executes_same_connection_extraction(
             "app.api.archive_operations.extract_archive_to_new_paths",
             new=AsyncMock(
                 side_effect=completed_extraction_runner(
-                    ArchiveExtractionResult(2, 2, 10),
+                    ArchiveExtractionResult(2, 3, 10),
                     [
                         ArchiveExtractionDestinationResult(
                             "first.txt", "extracted", "output/first.txt", extracted_bytes=5, directories_created=2
@@ -3165,14 +3188,12 @@ def test_executes_same_connection_extraction(
             ),
         ) as extract_archive,
     ):
-        response = client.post(f"/api/archive/operations/{prepared['id']}/execute-extract", headers=auth_headers_user)
+        response = client.post(f"/api/archive/v2/operations/{prepared['id']}/extraction/begin", headers=auth_headers_user)
 
-    assert response.status_code == 200
+    assert response.status_code == 200, response.text
     assert response.json()["phase"] == "completed"
     checkpoint = json.loads(response.json()["checkpoint_json"])
-    assert checkpoint["files_extracted"] == 2
-    assert checkpoint["directories_created"] == 2
-    assert checkpoint["extracted_bytes"] == 10
+    assert checkpoint["version"] == 2
     assert checkpoint["member_outcomes"] == {
         "first.txt": {
             "status": "extracted",
@@ -3246,7 +3267,15 @@ def test_v2_direct_extraction_persists_strict_checkpoint_envelope(
 
     assert response.status_code == 200
     checkpoint = json.loads(response.json()["checkpoint_json"])
-    assert set(checkpoint) == {"version", "manifest", "source_snapshot", "member_outcomes", "decisions", "pending_decision"}
+    assert set(checkpoint) == {
+        "version",
+        "manifest",
+        "source_snapshot",
+        "member_outcomes",
+        "decisions",
+        "pending_decision",
+        "delivery_ids",
+    }
     assert checkpoint["version"] == 2
     assert checkpoint["member_outcomes"]["first.txt"]["status"] == "extracted"
 
@@ -3257,7 +3286,7 @@ def test_extraction_conflicts_become_pending_user_decisions(
     test_connection: Connection,
 ) -> None:
     prepared = client.post(
-        "/api/archive/operations",
+        "/api/archive/v2/operations",
         headers=auth_headers_user,
         json={
             "kind": "extract",
@@ -3279,7 +3308,7 @@ def test_extraction_conflicts_become_pending_user_decisions(
             new=AsyncMock(side_effect=ArchiveExtractionConflicts([ArchiveExtractionConflict("root.txt", "output/root.txt")])),
         ),
     ):
-        response = client.post(f"/api/archive/operations/{prepared['id']}/execute-extract", headers=auth_headers_user)
+        response = client.post(f"/api/archive/v2/operations/{prepared['id']}/extraction/begin", headers=auth_headers_user)
 
     assert response.status_code == 200
     assert response.json()["phase"] == "awaiting_user_decision"
@@ -3288,7 +3317,7 @@ def test_extraction_conflicts_become_pending_user_decisions(
     ]
 
     decision = client.post(
-        f"/api/archive/operations/{prepared['id']}/decide-extraction",
+        f"/api/archive/v2/operations/{prepared['id']}/extraction/decision",
         headers=auth_headers_user,
         json={"action": "skip_all"},
     )
@@ -3303,7 +3332,7 @@ def test_directory_extraction_conflicts_allow_only_rename_or_cancel(
     test_connection: Connection,
 ) -> None:
     prepared = client.post(
-        "/api/archive/operations",
+        "/api/archive/v2/operations",
         headers=auth_headers_user,
         json={
             "kind": "extract",
@@ -3324,13 +3353,13 @@ def test_directory_extraction_conflicts_allow_only_rename_or_cancel(
             new=AsyncMock(side_effect=ArchiveExtractionConflicts([ArchiveExtractionConflict("docs", "output/docs", True)])),
         ),
     ):
-        response = client.post(f"/api/archive/operations/{prepared['id']}/execute-extract", headers=auth_headers_user)
+        response = client.post(f"/api/archive/v2/operations/{prepared['id']}/extraction/begin", headers=auth_headers_user)
 
     assert response.status_code == 200
     assert json.loads(response.json()["pending_decision_json"])["allowed_actions"] == ["rename"]
 
     rejected = client.post(
-        f"/api/archive/operations/{prepared['id']}/decide-extraction",
+        f"/api/archive/v2/operations/{prepared['id']}/extraction/decision",
         headers=auth_headers_user,
         json={"action": "skip", "member_path": "docs"},
     )
@@ -3343,7 +3372,7 @@ def test_individual_extraction_decision_is_limited_to_pending_member(
     test_connection: Connection,
 ) -> None:
     prepared = client.post(
-        "/api/archive/operations",
+        "/api/archive/v2/operations",
         headers=auth_headers_user,
         json={
             "kind": "extract",
@@ -3364,10 +3393,10 @@ def test_individual_extraction_decision_is_limited_to_pending_member(
             new=AsyncMock(side_effect=ArchiveExtractionConflicts([ArchiveExtractionConflict("root.txt", "output/root.txt")])),
         ),
     ):
-        client.post(f"/api/archive/operations/{prepared['id']}/execute-extract", headers=auth_headers_user)
+        client.post(f"/api/archive/v2/operations/{prepared['id']}/extraction/begin", headers=auth_headers_user)
 
     response = client.post(
-        f"/api/archive/operations/{prepared['id']}/decide-extraction",
+        f"/api/archive/v2/operations/{prepared['id']}/extraction/decision",
         headers=auth_headers_user,
         json={"action": "skip", "member_path": "root.txt"},
     )
@@ -3375,7 +3404,7 @@ def test_individual_extraction_decision_is_limited_to_pending_member(
     assert response.status_code == 200
     assert response.json()["phase"] == "streaming"
     assert response.json()["collision_policy"] is None
-    assert json.loads(response.json()["checkpoint_json"])["member_collision_actions"] == {"root.txt": "skip"}
+    assert json.loads(response.json()["checkpoint_json"])["decisions"]["collision_actions"] == {"root.txt": "skip"}
 
     with (
         patch("app.api.archive_operations.SMBBackend", return_value=backend),
@@ -3389,11 +3418,11 @@ def test_individual_extraction_decision_is_limited_to_pending_member(
             ),
         ) as extract_archive,
     ):
-        resumed = client.post(f"/api/archive/operations/{prepared['id']}/execute-extract", headers=auth_headers_user)
+        resumed = client.post(f"/api/archive/v2/operations/{prepared['id']}/extraction/begin", headers=auth_headers_user)
 
     assert resumed.status_code == 200
     assert resumed.json()["phase"] == "completed"
-    assert json.loads(resumed.json()["checkpoint_json"])["skipped_members"] == ["root.txt"]
+    assert json.loads(resumed.json()["checkpoint_json"])["member_outcomes"]["root.txt"]["status"] == "skipped"
     assert extract_archive.await_args.kwargs["execution_plan"].collision_actions() == {"root.txt": "skip"}
 
 
@@ -3403,7 +3432,7 @@ def test_direct_smb_extraction_rejects_a_source_changed_after_pause(
     test_connection: Connection,
 ) -> None:
     prepared = client.post(
-        "/api/archive/operations",
+        "/api/archive/v2/operations",
         headers=auth_headers_user,
         json={
             "kind": "extract",
@@ -3425,11 +3454,11 @@ def test_direct_smb_extraction_rejects_a_source_changed_after_pause(
             new=AsyncMock(side_effect=ArchiveExtractionConflicts([ArchiveExtractionConflict("root.txt", "output/root.txt")])),
         ),
     ):
-        paused = client.post(f"/api/archive/operations/{prepared['id']}/execute-extract", headers=auth_headers_user)
+        paused = client.post(f"/api/archive/v2/operations/{prepared['id']}/extraction/begin", headers=auth_headers_user)
     assert paused.status_code == 200
 
     decision = client.post(
-        f"/api/archive/operations/{prepared['id']}/decide-extraction",
+        f"/api/archive/v2/operations/{prepared['id']}/extraction/decision",
         headers=auth_headers_user,
         json={"action": "skip", "member_path": "root.txt"},
     )
@@ -3445,12 +3474,12 @@ def test_direct_smb_extraction_rejects_a_source_changed_after_pause(
         patch("app.api.archive_operations.SMBBackend", return_value=backend),
         patch("app.api.archive_operations.extract_archive_to_new_paths", new=AsyncMock()) as extract_archive,
     ):
-        resumed = client.post(f"/api/archive/operations/{prepared['id']}/execute-extract", headers=auth_headers_user)
+        resumed = client.post(f"/api/archive/v2/operations/{prepared['id']}/extraction/begin", headers=auth_headers_user)
 
     assert resumed.status_code == 409
     assert resumed.json()["detail"] == "Archive extraction source changed after manifest validation"
     extract_archive.assert_not_awaited()
-    operation = client.get(f"/api/archive/operations/{prepared['id']}", headers=auth_headers_user)
+    operation = client.get(f"/api/archive/v2/operations/{prepared['id']}", headers=auth_headers_user)
     assert operation.json()["phase"] == "failed"
 
 
@@ -3460,7 +3489,7 @@ def test_individual_rename_decision_persists_a_safe_member_remap(
     test_connection: Connection,
 ) -> None:
     prepared = client.post(
-        "/api/archive/operations",
+        "/api/archive/v2/operations",
         headers=auth_headers_user,
         json={
             "kind": "extract",
@@ -3491,17 +3520,17 @@ def test_individual_rename_decision_persists_a_safe_member_remap(
             new=AsyncMock(side_effect=ArchiveExtractionConflicts([ArchiveExtractionConflict("root.txt", "output/root.txt")])),
         ),
     ):
-        client.post(f"/api/archive/operations/{prepared['id']}/execute-extract", headers=auth_headers_user)
+        client.post(f"/api/archive/v2/operations/{prepared['id']}/extraction/begin", headers=auth_headers_user)
 
     with patch("app.api.archive_operations.SMBBackend", return_value=backend):
         response = client.post(
-            f"/api/archive/operations/{prepared['id']}/decide-extraction",
+            f"/api/archive/v2/operations/{prepared['id']}/extraction/decision",
             headers=auth_headers_user,
             json={"action": "rename", "member_path": "root.txt", "target_path": "renamed/root-copy.txt"},
         )
 
     assert response.status_code == 200
-    assert json.loads(response.json()["checkpoint_json"])["member_rename_targets"] == {"root.txt": "renamed/root-copy.txt"}
+    assert json.loads(response.json()["checkpoint_json"])["decisions"]["rename_targets"] == {"root.txt": "renamed/root-copy.txt"}
 
     with (
         patch("app.api.archive_operations.SMBBackend", return_value=backend),
@@ -3519,10 +3548,10 @@ def test_individual_rename_decision_persists_a_safe_member_remap(
             ),
         ) as extract_archive,
     ):
-        resumed = client.post(f"/api/archive/operations/{prepared['id']}/execute-extract", headers=auth_headers_user)
+        resumed = client.post(f"/api/archive/v2/operations/{prepared['id']}/extraction/begin", headers=auth_headers_user)
 
     assert resumed.status_code == 200
-    assert json.loads(resumed.json()["checkpoint_json"])["renamed_members"] == ["root.txt"]
+    assert json.loads(resumed.json()["checkpoint_json"])["member_outcomes"]["root.txt"]["renamed"] is True
     assert extract_archive.await_args.kwargs["execution_plan"].rename_targets() == {"root.txt": "renamed/root-copy.txt"}
 
 
@@ -3531,16 +3560,10 @@ def test_member_write_failure_pauses_for_retry_or_ignore(
     auth_headers_user: dict,
     test_connection: Connection,
 ) -> None:
-    corpus_path = Path(__file__).resolve().parents[2] / "archive-contract" / "v1" / "extraction-outcome-scenarios-v1.json"
-    corpus = json.loads(corpus_path.read_text(encoding="utf-8"))
-    retry_scenario = next(
-        scenario for scenario in corpus["behavioral_scenarios"] if scenario["name"] == "partial_error_retry_completes_extraction"
-    )
-    ignore_scenario = next(
-        scenario for scenario in corpus["behavioral_scenarios"] if scenario["name"] == "partial_error_ignore_skips_member"
-    )
+    retry_action = "retry"
+    ignore_action = "ignore"
     prepared = client.post(
-        "/api/archive/operations",
+        "/api/archive/v2/operations",
         headers=auth_headers_user,
         json={
             "kind": "extract",
@@ -3561,22 +3584,22 @@ def test_member_write_failure_pauses_for_retry_or_ignore(
             new=AsyncMock(side_effect=ArchiveExtractionMemberError("root.txt", "output/root.txt", "Disk full")),
         ),
     ):
-        response = client.post(f"/api/archive/operations/{prepared['id']}/execute-extract", headers=auth_headers_user)
+        response = client.post(f"/api/archive/v2/operations/{prepared['id']}/extraction/begin", headers=auth_headers_user)
 
     assert response.status_code == 200
     assert response.json()["phase"] == "awaiting_user_decision"
-    assert json.loads(response.json()["pending_decision_json"])["allowed_actions"] == retry_scenario["allowed_member_error_actions"]
+    assert json.loads(response.json()["pending_decision_json"])["allowed_actions"] == ["retry", "ignore"]
     checkpoint = json.loads(response.json()["checkpoint_json"])
-    assert checkpoint["extraction_outcome_checkpoint_version"] == EXTRACTION_OUTCOME_CHECKPOINT_VERSION
+    assert checkpoint["version"] == 2
     assert checkpoint["member_outcomes"] == {"root.txt": {"status": "partial", "target_path": "output/root.txt", "message": "Disk full"}}
 
     retry = client.post(
-        f"/api/archive/operations/{prepared['id']}/decide-extraction",
+        f"/api/archive/v2/operations/{prepared['id']}/extraction/decision",
         headers=auth_headers_user,
-        json={"action": retry_scenario["member_error_action"], "member_path": "root.txt"},
+        json={"action": retry_action, "member_path": "root.txt"},
     )
     assert retry.status_code == 200
-    assert json.loads(retry.json()["checkpoint_json"])["retry_members"] == ["root.txt"]
+    assert json.loads(retry.json()["checkpoint_json"])["decisions"]["retry_members"] == ["root.txt"]
 
     with (
         patch("app.api.archive_operations.SMBBackend", return_value=backend),
@@ -3585,19 +3608,19 @@ def test_member_write_failure_pauses_for_retry_or_ignore(
             new=AsyncMock(side_effect=ArchiveExtractionMemberError("root.txt", "output/root.txt", "Disk full")),
         ),
     ):
-        response = client.post(f"/api/archive/operations/{prepared['id']}/execute-extract", headers=auth_headers_user)
+        response = client.post(f"/api/archive/v2/operations/{prepared['id']}/extraction/begin", headers=auth_headers_user)
 
     assert response.status_code == 200
     assert response.json()["phase"] == "awaiting_user_decision"
 
     decision = client.post(
-        f"/api/archive/operations/{prepared['id']}/decide-extraction",
+        f"/api/archive/v2/operations/{prepared['id']}/extraction/decision",
         headers=auth_headers_user,
-        json={"action": ignore_scenario["member_error_action"], "member_path": "root.txt"},
+        json={"action": ignore_action, "member_path": "root.txt"},
     )
     assert decision.status_code == 200
     assert decision.json()["phase"] == "streaming"
-    assert json.loads(decision.json()["checkpoint_json"])["ignored_members"] == ["root.txt"]
+    assert json.loads(decision.json()["checkpoint_json"])["decisions"]["ignored_members"] == ["root.txt"]
 
     with (
         patch("app.api.archive_operations.SMBBackend", return_value=backend),
@@ -3611,12 +3634,11 @@ def test_member_write_failure_pauses_for_retry_or_ignore(
             ),
         ) as extract_archive,
     ):
-        resumed = client.post(f"/api/archive/operations/{prepared['id']}/execute-extract", headers=auth_headers_user)
+        resumed = client.post(f"/api/archive/v2/operations/{prepared['id']}/extraction/begin", headers=auth_headers_user)
 
     assert resumed.status_code == 200
     assert resumed.json()["phase"] == "completed"
-    assert ignore_scenario["terminal_phase"] == "completed"
-    assert ignore_scenario["progress"]["files_skipped"] == 1
+    assert json.loads(resumed.json()["checkpoint_json"])["member_outcomes"]["root.txt"]["status"] == "ignored"
     assert extract_archive.await_args.kwargs["execution_plan"].ignored_member_paths() == ["root.txt"]
 
 
@@ -3627,7 +3649,7 @@ def test_rejects_malformed_persisted_extraction_decision(
     test_connection: Connection,
 ) -> None:
     prepared = client.post(
-        "/api/archive/operations",
+        "/api/archive/v2/operations",
         headers=auth_headers_user,
         json={
             "kind": "extract",
@@ -3645,7 +3667,7 @@ def test_rejects_malformed_persisted_extraction_decision(
     session.commit()
 
     response = client.post(
-        f"/api/archive/operations/{prepared['id']}/decide-extraction",
+        f"/api/archive/v2/operations/{prepared['id']}/extraction/decision",
         headers=auth_headers_user,
         json={"action": "skip_all"},
     )

@@ -14,7 +14,7 @@ from app.models.archive_operation import (
     ArchiveOperationPhase,
 )
 from app.services.archive.state_store import ArchiveOperationStateStore, ArchiveStateStore
-from app.services.archive.v2_checkpoint import legacy_execution_checkpoint_from_v2, v2_checkpoint_from_legacy_execution
+from app.services.archive.v2_checkpoint import validate_v2_extraction_checkpoint
 from app.services.audit import AuditDetails, AuditEventName, AuditResult, write_audit_event
 
 _ALLOWED_TRANSITIONS: dict[ArchiveOperationPhase, frozenset[ArchiveOperationPhase]] = {
@@ -48,16 +48,10 @@ def _is_v2_extraction(operation: ArchiveOperation, checkpoint: dict[str, object]
     )
 
 
-def _checkpoint_for_decision_mutation(operation: ArchiveOperation, checkpoint: dict[str, object]) -> dict[str, object]:
-    if _is_v2_extraction(operation, checkpoint):
-        return legacy_execution_checkpoint_from_v2(checkpoint)
-    return checkpoint
-
-
-def _checkpoint_json_after_decision_mutation(checkpoint: dict[str, object], *, persist_as_v2: bool) -> str:
-    if persist_as_v2:
-        return json.dumps(v2_checkpoint_from_legacy_execution(checkpoint))
-    return json.dumps(checkpoint)
+def _checkpoint_json_after_decision_mutation(operation: ArchiveOperation, checkpoint: dict[str, object]) -> str:
+    if not _is_v2_extraction(operation, checkpoint):
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="Archive operation checkpoint is invalid")
+    return json.dumps(validate_v2_extraction_checkpoint(checkpoint))
 
 
 def _write_archive_lifecycle_audit(
@@ -209,7 +203,7 @@ def await_operation_decision(session: Session, operation: ArchiveOperation, deci
         raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="Archive operation checkpoint is invalid") from exc
     if isinstance(checkpoint, dict) and _is_v2_extraction(operation, checkpoint):
         checkpoint["pending_decision"] = decision
-        changes["checkpoint_json"] = json.dumps(v2_checkpoint_from_legacy_execution(legacy_execution_checkpoint_from_v2(checkpoint)))
+        changes["checkpoint_json"] = json.dumps(validate_v2_extraction_checkpoint(checkpoint))
     _state_store.compare_and_swap(
         session,
         operation,
@@ -278,21 +272,24 @@ def apply_existing_file_decision(
             raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="Archive operation checkpoint is invalid") from exc
         if not isinstance(checkpoint, dict):
             raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="Archive operation checkpoint is invalid")
-        persist_as_v2 = _is_v2_extraction(operation, checkpoint)
-        checkpoint = _checkpoint_for_decision_mutation(operation, checkpoint)
+        if not _is_v2_extraction(operation, checkpoint):
+            raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="Archive operation checkpoint is invalid")
+        decisions = checkpoint.get("decisions")
+        if not isinstance(decisions, dict):
+            raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="Archive operation checkpoint is invalid")
         if action == "rename":
             if not _is_safe_relative_target_path(target_path):
                 raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_CONTENT, detail="Archive rename target path is invalid")
-            rename_targets = checkpoint.setdefault("member_rename_targets", {})
+            rename_targets = decisions.get("rename_targets")
             if not isinstance(rename_targets, dict):
                 raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="Archive operation checkpoint is invalid")
             rename_targets[member_path] = target_path
         else:
-            member_actions = checkpoint.setdefault("member_collision_actions", {})
+            member_actions = decisions.get("collision_actions")
             if not isinstance(member_actions, dict):
                 raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="Archive operation checkpoint is invalid")
             member_actions[member_path] = action
-        checkpoint_json = _checkpoint_json_after_decision_mutation(checkpoint, persist_as_v2=persist_as_v2)
+        checkpoint_json = _checkpoint_json_after_decision_mutation(operation, checkpoint)
     elif member_path is not None or target_path is not None:
         raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_CONTENT, detail="Archive all-files decision cannot target a member")
     else:
@@ -351,22 +348,25 @@ def _apply_member_error_decision(
         raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="Archive operation checkpoint is invalid") from exc
     if not isinstance(checkpoint, dict):
         raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="Archive operation checkpoint is invalid")
-    persist_as_v2 = _is_v2_extraction(operation, checkpoint)
-    checkpoint = _checkpoint_for_decision_mutation(operation, checkpoint)
+    if not _is_v2_extraction(operation, checkpoint):
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="Archive operation checkpoint is invalid")
+    decisions = checkpoint.get("decisions")
+    if not isinstance(decisions, dict):
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="Archive operation checkpoint is invalid")
     if action == "ignore":
-        ignored_members = checkpoint.setdefault("ignored_members", [])
+        ignored_members = decisions.get("ignored_members")
         if not isinstance(ignored_members, list) or not all(isinstance(path, str) for path in ignored_members):
             raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="Archive operation checkpoint is invalid")
         if member_path not in ignored_members:
             ignored_members.append(member_path)
-        checkpoint_json = _checkpoint_json_after_decision_mutation(checkpoint, persist_as_v2=persist_as_v2)
+        checkpoint_json = _checkpoint_json_after_decision_mutation(operation, checkpoint)
     elif pending.get("partial_output") is True:
-        retry_members = checkpoint.setdefault("retry_members", [])
+        retry_members = decisions.get("retry_members")
         if not isinstance(retry_members, list) or not all(isinstance(path, str) for path in retry_members):
             raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="Archive operation checkpoint is invalid")
         if member_path not in retry_members:
             retry_members.append(member_path)
-        checkpoint_json = json.dumps(checkpoint)
+        checkpoint_json = _checkpoint_json_after_decision_mutation(operation, checkpoint)
     else:
         checkpoint_json = operation.checkpoint_json
     now = datetime.now(timezone.utc)

@@ -1,0 +1,113 @@
+{
+  "version": 2,
+  "operations": [
+    {
+      "topology": "smb_to_smb",
+      "operation": "inspection",
+      "status": "legacy_source_only",
+      "source_adapter": "backend_smb_random_access",
+      "presentation_adapter": "backend_browser_api",
+      "retirement_condition": "Replace with a V2 inspection operation after V2 caller migration."
+    },
+    {
+      "topology": "smb_to_smb",
+      "operation": "creation",
+      "status": "supported",
+      "driver": "backend",
+      "source_adapter": "backend_smb",
+      "destination_adapter": "backend_smb",
+      "retirement_condition": "Migrate to V2 after the V1 operation retention window expires."
+    },
+    {
+      "topology": "smb_to_smb",
+      "operation": "extraction",
+      "status": "supported",
+      "driver": "backend",
+      "source_adapter": "backend_smb_random_access",
+      "destination_adapter": "backend_smb",
+      "retirement_condition": "Migrate to V2 after the V1 operation retention window expires."
+    },
+    {
+      "topology": "local_to_local",
+      "operation": "inspection",
+      "status": "legacy_source_only",
+      "source_adapter": "companion_local_file",
+      "presentation_adapter": "companion_browser_api",
+      "retirement_condition": "Replace with a V2 inspection operation after V2 caller migration."
+    },
+    {
+      "topology": "local_to_local",
+      "operation": "creation",
+      "status": "supported",
+      "driver": "companion",
+      "source_adapter": "companion_local_file",
+      "destination_adapter": "companion_local_file",
+      "retirement_condition": "Migrate to V2 after the V1 operation retention window expires."
+    },
+    {
+      "topology": "local_to_local",
+      "operation": "extraction",
+      "status": "supported",
+      "driver": "companion",
+      "source_adapter": "companion_local_file",
+      "destination_adapter": "companion_local_file",
+      "retirement_condition": "Migrate to V2 after the V1 operation retention window expires."
+    },
+    {
+      "topology": "smb_to_local",
+      "operation": "inspection",
+      "status": "legacy_source_only",
+      "source_adapter": "backend_smb_random_access",
+      "presentation_adapter": "backend_browser_api",
+      "retirement_condition": "Replace with a V2 inspection operation after V2 caller migration."
+    },
+    {
+      "topology": "smb_to_local",
+      "operation": "creation",
+      "status": "supported",
+      "driver": "companion",
+      "relay_purpose": "smb_to_local_zip_create",
+      "source_adapter": "backend_smb",
+      "destination_adapter": "companion_local_file",
+      "retirement_condition": "Migrate callers and retain V1 operations until the operation retention window expires."
+    },
+    {
+      "topology": "smb_to_local",
+      "operation": "extraction",
+      "status": "supported",
+      "driver": "companion",
+      "relay_purpose": "smb_zip_to_local_extract",
+      "source_adapter": "backend_smb_random_access",
+      "destination_adapter": "companion_local_file",
+      "retirement_condition": "Migrate callers and retain V1 operations until the operation retention window expires."
+    },
+    {
+      "topology": "local_to_smb",
+      "operation": "inspection",
+      "status": "legacy_source_only",
+      "source_adapter": "companion_local_file",
+      "presentation_adapter": "companion_browser_api",
+      "retirement_condition": "Replace with a V2 inspection operation after V2 caller migration."
+    },
+    {
+      "topology": "local_to_smb",
+      "operation": "creation",
+      "status": "supported",
+      "driver": "companion",
+      "relay_purpose": "local_to_smb_zip_create",
+      "source_adapter": "companion_local_file",
+      "destination_adapter": "backend_smb",
+      "retirement_condition": "Migrate callers and retain V1 operations until the operation retention window expires."
+    },
+    {
+      "topology": "local_to_smb",
+      "operation": "extraction",
+      "status": "supported",
+      "driver": "companion",
+      "relay_purpose": "local_zip_to_smb_extract",
+      "source_adapter": "companion_local_file",
+      "destination_adapter": "backend_smb",
+      "retirement_condition": "Migrate callers and retain V1 operations until the operation retention window expires."
+    }
+  ]
+}

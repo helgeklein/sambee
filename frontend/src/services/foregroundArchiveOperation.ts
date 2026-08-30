@@ -19,7 +19,7 @@ function isStorageRecoveryHandle(value: unknown): value is StorageRecoveryHandle
   }
   const handle = value as Partial<StorageRecoveryHandle>;
   return (
-    handle.schemaVersion === 1 &&
+    handle.schemaVersion === 2 &&
     handle.contractVersion === "v2" &&
     (handle.backendKind === "smb" || handle.backendKind === "local") &&
     typeof handle.opaqueOperationId === "string" &&

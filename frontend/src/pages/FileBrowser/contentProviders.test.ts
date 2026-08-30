@@ -454,10 +454,18 @@ describe("content providers", () => {
         extracted_bytes: 0,
         files_skipped: 0,
         phase: "awaiting_user_decision",
-        checkpoint_json: JSON.stringify({ written_members: [] }),
+        checkpoint_json: JSON.stringify({
+          version: 2,
+          manifest: [],
+          source_snapshot: { size: 0, modified_at: null },
+          member_outcomes: {},
+          decisions: { collision_actions: {}, rename_targets: {}, ignored_members: [], retry_members: [] },
+          pending_decision: null,
+          delivery_ids: {},
+        }),
         pending_decision_json: JSON.stringify({
           allowed_actions: ["skip", "skip_all", "replace", "replace_all", "replace_older", "rename"],
-          conflicts: [{ member_path: "readme.txt", target_path: "output/readme.txt" }],
+          conflicts: [{ member_path: "readme.txt", target_path: "output/readme.txt", is_directory: false }],
         }),
       } as never)
       .mockResolvedValueOnce({ files_extracted: 1, directories_created: 1, extracted_bytes: 5, files_skipped: 0 } as never);
@@ -505,10 +513,18 @@ describe("content providers", () => {
         extracted_bytes: 0,
         files_skipped: 0,
         phase: "awaiting_user_decision",
-        checkpoint_json: JSON.stringify({ written_members: [] }),
+        checkpoint_json: JSON.stringify({
+          version: 2,
+          manifest: [],
+          source_snapshot: { size: 0, modified_at: null },
+          member_outcomes: {},
+          decisions: { collision_actions: {}, rename_targets: {}, ignored_members: [], retry_members: [] },
+          pending_decision: null,
+          delivery_ids: {},
+        }),
         pending_decision_json: JSON.stringify({
           allowed_actions: ["skip", "skip_all", "replace", "replace_all", "replace_older", "rename"],
-          conflicts: [{ member_path: "readme.txt", target_path: "output/readme.txt" }],
+          conflicts: [{ member_path: "readme.txt", target_path: "output/readme.txt", is_directory: false }],
         }),
       } as never)
       .mockResolvedValueOnce({ files_extracted: 1, directories_created: 1, extracted_bytes: 5, files_skipped: 0 } as never);

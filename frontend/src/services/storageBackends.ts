@@ -241,7 +241,7 @@ export class SambeeSmbBackend extends ApiStorageBackend {
       });
       return {
         recovery: {
-          schemaVersion: 1,
+          schemaVersion: 2,
           contractVersion: "v2",
           backendKind: "smb",
           opaqueOperationId: operation.id,

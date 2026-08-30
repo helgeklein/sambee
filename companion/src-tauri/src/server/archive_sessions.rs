@@ -837,9 +837,10 @@ mod tests {
     use crate::server::archive::{build_local_archive_manifest, create_local_archive};
 
     fn expected_trace(case_name: &str) -> serde_json::Value {
-        let fixture: serde_json::Value =
-            serde_json::from_str(include_str!("../../../../archive-contract/v1/topology-execution-traces-v1.json"))
-                .expect("topology trace fixture should be valid JSON");
+        let fixture: serde_json::Value = serde_json::from_str(include_str!(
+            "../../../../archive-contract/v2/fixtures/topology-execution-traces-v2.json"
+        ))
+        .expect("topology trace fixture should be valid JSON");
         fixture["cases"]
             .as_array()
             .expect("topology trace fixture should define cases")
@@ -935,13 +936,15 @@ mod tests {
     }
 
     fn local_trajectory_scenario_names(operation: &str) -> Vec<String> {
-        let topology_fixture: serde_json::Value =
-            serde_json::from_str(include_str!("../../../../archive-contract/v1/topology-execution-traces-v1.json"))
-                .expect("topology trace fixture should be valid JSON");
-        let trace_fixture: serde_json::Value =
-            serde_json::from_str(include_str!("../../../../archive-contract/v1/topology-trajectory-traces-v1.json"))
-                .expect("trajectory trace fixture should be valid JSON");
-        assert_eq!(trace_fixture["version"], 1);
+        let topology_fixture: serde_json::Value = serde_json::from_str(include_str!(
+            "../../../../archive-contract/v2/fixtures/topology-execution-traces-v2.json"
+        ))
+        .expect("topology trace fixture should be valid JSON");
+        let trace_fixture: serde_json::Value = serde_json::from_str(include_str!(
+            "../../../../archive-contract/v2/fixtures/topology-trajectory-traces-v2.json"
+        ))
+        .expect("trajectory trace fixture should be valid JSON");
+        assert_eq!(trace_fixture["version"], 2);
         assert_eq!(trace_fixture["trace_fields"], topology_fixture["trace_fields"]);
         let declared = topology_fixture["trajectory_cases"]
             .as_array()
@@ -977,9 +980,10 @@ mod tests {
     }
 
     fn expected_local_trajectory_trace(operation: &str, scenario_name: &str) -> serde_json::Value {
-        let fixture: serde_json::Value =
-            serde_json::from_str(include_str!("../../../../archive-contract/v1/topology-trajectory-traces-v1.json"))
-                .expect("trajectory trace fixture should be valid JSON");
+        let fixture: serde_json::Value = serde_json::from_str(include_str!(
+            "../../../../archive-contract/v2/fixtures/topology-trajectory-traces-v2.json"
+        ))
+        .expect("trajectory trace fixture should be valid JSON");
         fixture["cases"]
             .as_array()
             .expect("trajectory trace fixture should define cases")
@@ -1041,7 +1045,7 @@ mod tests {
     #[tokio::test]
     async fn local_to_local_trajectory_matrix_dispatches_actual_coordinator() {
         let creation_corpus: serde_json::Value = serde_json::from_str(include_str!(
-            "../../../../archive-contract/v1/creation-trajectory-scenarios-v1.json"
+            "../../../../archive-contract/v2/fixtures/creation-trajectory-scenarios-v2.json"
         ))
         .expect("creation trajectory corpus should be valid JSON");
         for scenario_name in local_trajectory_scenario_names("create") {
@@ -1149,7 +1153,7 @@ mod tests {
         }
 
         let extraction_corpus: serde_json::Value = serde_json::from_str(include_str!(
-            "../../../../archive-contract/v1/extraction-trajectory-scenarios-v1.json"
+            "../../../../archive-contract/v2/fixtures/extraction-trajectory-scenarios-v2.json"
         ))
         .expect("extraction trajectory corpus should be valid JSON");
         for scenario_name in local_trajectory_scenario_names("extract") {
@@ -1611,9 +1615,10 @@ mod tests {
 
     #[tokio::test]
     async fn direct_local_extraction_faults_dispatch_every_fixture_case() {
-        let fixture: serde_json::Value =
-            serde_json::from_str(include_str!("../../../../archive-contract/v1/topology-execution-traces-v1.json"))
-                .expect("topology trace fixture should be valid JSON");
+        let fixture: serde_json::Value = serde_json::from_str(include_str!(
+            "../../../../archive-contract/v2/fixtures/topology-execution-traces-v2.json"
+        ))
+        .expect("topology trace fixture should be valid JSON");
         let declared_cases = fixture["cases"]
             .as_array()
             .expect("topology trace fixture should define cases")
@@ -1803,9 +1808,10 @@ mod tests {
 
     #[tokio::test]
     async fn direct_local_creation_faults_dispatch_every_fixture_case() {
-        let fixture: serde_json::Value =
-            serde_json::from_str(include_str!("../../../../archive-contract/v1/topology-execution-traces-v1.json"))
-                .expect("topology trace fixture should be valid JSON");
+        let fixture: serde_json::Value = serde_json::from_str(include_str!(
+            "../../../../archive-contract/v2/fixtures/topology-execution-traces-v2.json"
+        ))
+        .expect("topology trace fixture should be valid JSON");
         let expected_cases = fixture["cases"]
             .as_array()
             .expect("topology trace fixture should define cases")

@@ -139,9 +139,10 @@ pub enum ArchiveContractVersion {
     V2,
 }
 
-/// Request to create a local ZIP from scoped SMB source members.
+/// V2 relay creation request when the local drive is the destination.
 #[derive(Debug, Deserialize)]
-pub struct ArchiveCreateFromSmbRequest {
+#[serde(deny_unknown_fields)]
+pub struct ArchiveV2RelayCreationLocalDestinationRequest {
     pub contract_version: ArchiveContractVersion,
     pub target_path: String,
     pub server_url: String,
@@ -149,15 +150,24 @@ pub struct ArchiveCreateFromSmbRequest {
     pub operation_token: String,
 }
 
-/// Request to create a scoped SMB ZIP from local source paths.
+/// V2 relay creation request when the local drive provides source paths.
 #[derive(Debug, Deserialize)]
-pub struct ArchiveCreateToSmbRequest {
+#[serde(deny_unknown_fields)]
+pub struct ArchiveV2RelayCreationLocalSourceRequest {
     pub contract_version: ArchiveContractVersion,
     pub source_paths: Vec<String>,
     pub target_path: String,
     pub server_url: String,
     pub operation_id: String,
     pub operation_token: String,
+}
+
+/// An operation-based V2 relay creation request.
+#[derive(Debug, Deserialize)]
+#[serde(untagged)]
+pub enum ArchiveV2RelayCreationRequest {
+    LocalDestination(ArchiveV2RelayCreationLocalDestinationRequest),
+    LocalSource(ArchiveV2RelayCreationLocalSourceRequest),
 }
 
 /// Summary returned after a local archive has been written directly.
@@ -250,9 +260,10 @@ pub struct ArchiveExecutionPendingDecision {
     pub allowed_actions: Vec<String>,
 }
 
-/// Request to relay a local ZIP extraction to a scoped SMB archive operation.
+/// V2 relay extraction request when the local drive provides the ZIP source.
 #[derive(Debug, Deserialize)]
-pub struct ArchiveExtractToSmbRequest {
+#[serde(deny_unknown_fields)]
+pub struct ArchiveV2RelayExtractionLocalSourceRequest {
     pub contract_version: ArchiveContractVersion,
     pub archive_path: String,
     pub server_url: String,
@@ -260,14 +271,23 @@ pub struct ArchiveExtractToSmbRequest {
     pub operation_token: String,
 }
 
-/// Request to extract a scoped SMB ZIP into a new local destination directory.
+/// V2 relay extraction request when the local drive receives output.
 #[derive(Debug, Deserialize)]
-pub struct ArchiveExtractFromSmbRequest {
+#[serde(deny_unknown_fields)]
+pub struct ArchiveV2RelayExtractionLocalDestinationRequest {
     pub contract_version: ArchiveContractVersion,
     pub destination_path: String,
     pub server_url: String,
     pub operation_id: String,
     pub operation_token: String,
+}
+
+/// An operation-based V2 relay extraction request.
+#[derive(Debug, Deserialize)]
+#[serde(untagged)]
+pub enum ArchiveV2RelayExtractionRequest {
+    LocalSource(ArchiveV2RelayExtractionLocalSourceRequest),
+    LocalDestination(ArchiveV2RelayExtractionLocalDestinationRequest),
 }
 
 /// Summary returned after a local archive extraction completes.
@@ -331,6 +351,7 @@ pub struct ArchiveExecutionProgress {
 mod tests {
     use super::{
         ArchiveExecutionCancellationRequest, ArchiveExecutionDecisionAction, ArchiveExecutionDecisionRequest, ArchiveExecutionStartRequest,
+        ArchiveV2RelayCreationRequest, ArchiveV2RelayExtractionRequest,
     };
 
     #[test]
@@ -395,6 +416,30 @@ mod tests {
         assert_eq!(renamed.target_path.as_deref(), Some("renamed.txt"));
         assert!(serde_json::from_str::<ArchiveExecutionDecisionRequest>(
             r#"{"expected_revision":2,"member_path":"source.txt","action":"skip","target_path":"elsewhere","unknown":true}"#
+        )
+        .is_err());
+    }
+
+    #[test]
+    fn accepts_strict_normalized_v2_relay_requests() {
+        assert!(matches!(
+            serde_json::from_str::<ArchiveV2RelayCreationRequest>(
+                r#"{"contract_version":"v2","source_paths":["source.txt"],"target_path":"archive.zip","server_url":"http://localhost:3000","operation_id":"a8ddf5e8-4d57-46ca-ae79-80bc85610d23","operation_token":"token"}"#
+            ),
+            Ok(ArchiveV2RelayCreationRequest::LocalSource(_))
+        ));
+        assert!(matches!(
+            serde_json::from_str::<ArchiveV2RelayExtractionRequest>(
+                r#"{"contract_version":"v2","destination_path":"output","server_url":"http://localhost:3000","operation_id":"a8ddf5e8-4d57-46ca-ae79-80bc85610d23","operation_token":"token"}"#
+            ),
+            Ok(ArchiveV2RelayExtractionRequest::LocalDestination(_))
+        ));
+        assert!(serde_json::from_str::<ArchiveV2RelayExtractionRequest>(
+            r#"{"contract_version":"v2","archive_path":"archive.zip","destination_path":"output","server_url":"http://localhost:3000","operation_id":"a8ddf5e8-4d57-46ca-ae79-80bc85610d23","operation_token":"token"}"#
+        )
+        .is_err());
+        assert!(serde_json::from_str::<ArchiveV2RelayCreationRequest>(
+            r#"{"contract_version":"v1","target_path":"archive.zip","server_url":"http://localhost:3000","operation_id":"a8ddf5e8-4d57-46ca-ae79-80bc85610d23","operation_token":"token"}"#
         )
         .is_err());
     }
