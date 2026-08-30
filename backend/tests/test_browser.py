@@ -370,9 +370,19 @@ class TestStreamArchiveMember:
     @pytest.mark.parametrize(
         ("member_path", "archive_data", "error_message"),
         [
-            ("missing.txt", _archive_bytes(), "was not found"),
-            ("docs/readme.txt", _archive_bytes(compression=zipfile.ZIP_LZMA), "unavailable codec"),
-            ("docs/readme.txt", _archive_bytes_with_encrypted_members(), "blocked feature"),
+            pytest.param("missing.txt", _archive_bytes(), "was not found", id="missing-member"),
+            pytest.param(
+                "docs/readme.txt",
+                _archive_bytes(compression=zipfile.ZIP_LZMA),
+                "unavailable codec",
+                id="unavailable-codec",
+            ),
+            pytest.param(
+                "docs/readme.txt",
+                _archive_bytes_with_encrypted_members(),
+                "blocked feature",
+                id="encrypted-member",
+            ),
         ],
     )
     def test_rejects_invalid_or_unavailable_archive_members_through_inspection_resolver(

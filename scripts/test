@@ -63,6 +63,17 @@ else
 fi
 
 # ============================================
+# ARCHIVE TOPOLOGY CONFORMANCE
+# ============================================
+echo -e "${YELLOW}=== Archive: Topology Conformance ===${NC}"
+if "$SCRIPT_DIR/test-archive-topology-conformance"; then
+    echo -e "${GREEN}✓ Archive topology conformance passed${NC}\n"
+else
+    echo -e "${RED}✗ Archive topology conformance failed${NC}\n"
+    OVERALL_STATUS=1
+fi
+
+# ============================================
 # BACKEND TESTS
 # ============================================
 echo -e "${YELLOW}=== Backend: Static Analysis ===${NC}"
