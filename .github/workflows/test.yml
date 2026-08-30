@@ -211,7 +211,9 @@ jobs:
           sh -c '
             QUIET=1 scripts/setup-test-images &&
             cd backend &&
-            .venv/bin/python -m mypy app &&
+            cd /workspace &&
+            scripts/test-archive-topology-conformance backend &&
+            cd backend &&
             .venv/bin/python -m pytest -n auto -m "not performance" --cov=app --cov-report=term-missing --cov-report=xml &&
             .venv/bin/python -m pytest -m performance --cov=app --cov-append --cov-report=term-missing --cov-report=xml
           '
@@ -311,6 +313,8 @@ jobs:
 
     - name: Set up Rust toolchain
       uses: dtolnay/rust-toolchain@29eef336d9b2848a0b548edc03f92a220660cdb8 # stable
+      with:
+        components: rustfmt, clippy
 
     - name: Cache Rust build artifacts
       uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6
@@ -323,8 +327,8 @@ jobs:
     - name: TypeScript type check
       run: cd companion && npx tsc --noEmit
 
-    - name: Run Rust tests
-      run: cd companion/src-tauri && cargo test
+    - name: Run archive topology conformance checks
+      run: scripts/test-archive-topology-conformance companion
 
   # ──────────────────────────────────────────────
   # Gate: single required check for branch protection

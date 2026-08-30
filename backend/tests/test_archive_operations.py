@@ -837,6 +837,31 @@ def test_operation_topology_plan_is_immutable_resolved_execution_selection() -> 
     assert plan.topology.companion_purpose == ArchiveCompanionRelayPurpose.SMB_ZIP_TO_LOCAL_EXTRACT
 
 
+def test_prepare_archive_operation_rejects_unsupported_topology_before_persistence(
+    client: TestClient,
+    auth_headers_user: dict,
+    multiple_connections: list[Connection],
+    session,
+) -> None:
+    source, destination = multiple_connections[:2]
+
+    response = client.post(
+        "/api/archive/operations",
+        headers=auth_headers_user,
+        json={
+            "kind": "extract",
+            "source_connection_id": str(source.id),
+            "source_path": "backup.zip",
+            "destination_connection_id": str(destination.id),
+            "destination_path": "backup",
+        },
+    )
+
+    assert response.status_code == status.HTTP_422_UNPROCESSABLE_CONTENT
+    assert response.json()["detail"] == "Archive execution across distinct same-provider connections is unavailable"
+    assert session.exec(select(ArchiveOperation)).all() == []
+
+
 def test_mixed_archive_parent_creation_rejects_target_outside_destination_root() -> None:
     backend = AsyncMock()
 

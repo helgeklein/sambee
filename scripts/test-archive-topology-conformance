@@ -3,20 +3,39 @@ set -euo pipefail
 
 REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 BACKEND_PYTHON="$REPO_ROOT/backend/.venv/bin/python"
+COMPONENT="${1:-all}"
 
-if [[ ! -x "$BACKEND_PYTHON" ]]; then
-    echo "Backend virtual environment is required at backend/.venv" >&2
-    exit 1
+case "$COMPONENT" in
+    all|backend|companion) ;;
+    *)
+        echo "Usage: $0 [all|backend|companion]" >&2
+        exit 2
+        ;;
+esac
+
+if [[ "$COMPONENT" == "all" || "$COMPONENT" == "backend" ]]; then
+    if [[ ! -x "$BACKEND_PYTHON" ]]; then
+        echo "Backend virtual environment is required at backend/.venv" >&2
+        exit 1
+    fi
+
+    cd "$REPO_ROOT/backend"
+    "$BACKEND_PYTHON" -m pytest -q \
+        tests/test_archive_topology_conformance_harness.py \
+        tests/test_archive_conformance.py \
+        tests/test_browser.py \
+        tests/test_archive_operations.py
+    "$BACKEND_PYTHON" -m mypy app
 fi
 
-cd "$REPO_ROOT/backend"
-"$BACKEND_PYTHON" -m pytest -q tests/test_archive_topology_conformance_harness.py
-"$BACKEND_PYTHON" -m mypy app
+if [[ "$COMPONENT" == "all" || "$COMPONENT" == "companion" ]]; then
+    cd "$REPO_ROOT/companion/src-tauri"
+    cargo test --lib -q
+    cargo fmt --check
+    cargo clippy --lib --tests -- -D warnings
+fi
 
-cd "$REPO_ROOT/companion/src-tauri"
-cargo test --lib -q
-cargo fmt --check
-cargo clippy --lib --tests -- -D warnings
-
-cd "$REPO_ROOT"
-git diff --check
+if [[ "$COMPONENT" == "all" ]]; then
+    cd "$REPO_ROOT"
+    git diff --check
+fi

@@ -1767,36 +1767,76 @@ fn resolve_companion_creation_coordinator(
     plan: CompanionArchiveCreationPlan,
 ) -> Result<CompanionArchiveCreationCoordinator, ApiError> {
     let binding_matches_topology = matches!(
-        (topology_plan.kind, topology_plan.topology, &plan),
+        (
+            topology_plan.kind,
+            topology_plan.driver,
+            topology_plan.topology,
+            topology_plan.source_is_local,
+            topology_plan.destination_is_local,
+            topology_plan.binding,
+            &plan,
+        ),
         (
             CompanionArchiveOperationKind::Create,
+            CompanionArchiveExecutionDriver::Companion,
             CompanionArchiveTopology::LocalToLocal,
+            true,
+            Some(true),
+            CompanionArchiveBinding::LocalToLocal,
             CompanionArchiveCreationPlan::DirectLocal { .. }
         ) | (
             CompanionArchiveOperationKind::Create,
+            CompanionArchiveExecutionDriver::Companion,
             CompanionArchiveTopology::SmbToLocal,
+            false,
+            Some(true),
+            CompanionArchiveBinding::SmbToLocalRelay,
             CompanionArchiveCreationPlan::Relay { .. }
         ) | (
             CompanionArchiveOperationKind::Create,
+            CompanionArchiveExecutionDriver::Companion,
             CompanionArchiveTopology::LocalToSmb,
+            true,
+            Some(false),
+            CompanionArchiveBinding::LocalToSmbRelay,
             CompanionArchiveCreationPlan::Relay { .. }
         ) | (
             CompanionArchiveOperationKind::Create,
+            CompanionArchiveExecutionDriver::Companion,
             CompanionArchiveTopology::SmbToLocal,
+            false,
+            Some(true),
+            CompanionArchiveBinding::SmbToLocalRelay,
             CompanionArchiveCreationPlan::RelayPreflightFailure { .. }
         ) | (
             CompanionArchiveOperationKind::Create,
+            CompanionArchiveExecutionDriver::Companion,
             CompanionArchiveTopology::LocalToSmb,
+            true,
+            Some(false),
+            CompanionArchiveBinding::LocalToSmbRelay,
             CompanionArchiveCreationPlan::RelayPreflightFailure { .. }
         )
     );
     #[cfg(test)]
     let binding_matches_topology = binding_matches_topology
         || matches!(
-            (topology_plan.kind, topology_plan.topology, &plan),
+            (
+                topology_plan.kind,
+                topology_plan.driver,
+                topology_plan.topology,
+                topology_plan.source_is_local,
+                topology_plan.destination_is_local,
+                topology_plan.binding,
+                &plan,
+            ),
             (
                 CompanionArchiveOperationKind::Create,
+                CompanionArchiveExecutionDriver::Companion,
                 CompanionArchiveTopology::LocalToLocal,
+                true,
+                Some(true),
+                CompanionArchiveBinding::LocalToLocal,
                 CompanionArchiveCreationPlan::DirectLocalDeferred { .. }
             )
         );
@@ -2580,36 +2620,76 @@ fn resolve_companion_extraction_coordinator(
     plan: CompanionArchiveExtractionPlan,
 ) -> Result<CompanionArchiveExtractionCoordinator, ApiError> {
     let binding_matches_topology = matches!(
-        (topology_plan.kind, topology_plan.topology, &plan),
+        (
+            topology_plan.kind,
+            topology_plan.driver,
+            topology_plan.topology,
+            topology_plan.source_is_local,
+            topology_plan.destination_is_local,
+            topology_plan.binding,
+            &plan,
+        ),
         (
             CompanionArchiveOperationKind::Extract,
+            CompanionArchiveExecutionDriver::Companion,
             CompanionArchiveTopology::LocalToLocal,
+            true,
+            Some(true),
+            CompanionArchiveBinding::LocalToLocal,
             CompanionArchiveExtractionPlan::DirectLocal { .. }
         ) | (
             CompanionArchiveOperationKind::Extract,
+            CompanionArchiveExecutionDriver::Companion,
             CompanionArchiveTopology::SmbToLocal,
+            false,
+            Some(true),
+            CompanionArchiveBinding::SmbToLocalRelay,
             CompanionArchiveExtractionPlan::Relay { .. }
         ) | (
             CompanionArchiveOperationKind::Extract,
+            CompanionArchiveExecutionDriver::Companion,
             CompanionArchiveTopology::LocalToSmb,
+            true,
+            Some(false),
+            CompanionArchiveBinding::LocalToSmbRelay,
             CompanionArchiveExtractionPlan::Relay { .. }
         ) | (
             CompanionArchiveOperationKind::Extract,
+            CompanionArchiveExecutionDriver::Companion,
             CompanionArchiveTopology::SmbToLocal,
+            false,
+            Some(true),
+            CompanionArchiveBinding::SmbToLocalRelay,
             CompanionArchiveExtractionPlan::RelayPreflightFailure { .. }
         ) | (
             CompanionArchiveOperationKind::Extract,
+            CompanionArchiveExecutionDriver::Companion,
             CompanionArchiveTopology::LocalToSmb,
+            true,
+            Some(false),
+            CompanionArchiveBinding::LocalToSmbRelay,
             CompanionArchiveExtractionPlan::RelayPreflightFailure { .. }
         )
     );
     #[cfg(test)]
     let binding_matches_topology = binding_matches_topology
         || matches!(
-            (topology_plan.kind, topology_plan.topology, &plan),
+            (
+                topology_plan.kind,
+                topology_plan.driver,
+                topology_plan.topology,
+                topology_plan.source_is_local,
+                topology_plan.destination_is_local,
+                topology_plan.binding,
+                &plan,
+            ),
             (
                 CompanionArchiveOperationKind::Extract,
+                CompanionArchiveExecutionDriver::Companion,
                 CompanionArchiveTopology::LocalToLocal,
+                true,
+                Some(true),
+                CompanionArchiveBinding::LocalToLocal,
                 CompanionArchiveExtractionPlan::DirectLocalDeferred { .. }
             )
         );
@@ -4856,14 +4936,16 @@ mod tests {
         archive_creation_response, archive_execution_response, browse_list_archive, build_file_info, build_pair_status_response,
         classify_link_target, execute_archive_relay, inspection_resolver_call_count, map_local_archive_error,
         normalize_drive_relative_path, normalize_windows_display_path, relay_completed_members, reset_inspection_resolver_call_count,
-        resolve_companion_archive_topology, resolve_companion_inspection_coordinator, resolve_drive_relative_source_path,
-        resolve_link_target_metadata, resolve_local_archive_inspection_coordinator, resolve_pair_cancel_origin,
-        resolve_pair_confirm_origin, resolve_pair_status_origin, resolve_safe_path, source_link_kind, validate_editor_write_target,
-        viewer_archive_member, ArchiveCreationAdapterBinding, ArchiveCreationMemberCompletion, ArchiveCreationRelay,
-        ArchiveExtractionAdapterBinding, ArchiveExtractionCollision, ArchiveExtractionMemberCompletion, ArchiveExtractionMemberError,
-        ArchiveExtractionRelay, ArchiveExtractionSummary, ArchiveListQuery, ArchiveMemberQuery, ArchiveRelayBinding,
-        ArchiveRelayDestinationStatus, ArchiveRelayFailure, ArchiveRelayOperation, ArchiveRelayTransport, FixtureArchiveCreationInvocation,
-        FixtureArchiveExtractionInvocation, ARCHIVE_RELAY_ACKNOWLEDGEMENT_ATTEMPTS, INSPECTION_RESOLVER_TEST_LOCK,
+        resolve_companion_archive_topology, resolve_companion_creation_coordinator, resolve_companion_extraction_coordinator,
+        resolve_companion_inspection_coordinator, resolve_drive_relative_source_path, resolve_link_target_metadata,
+        resolve_local_archive_inspection_coordinator, resolve_pair_cancel_origin, resolve_pair_confirm_origin, resolve_pair_status_origin,
+        resolve_safe_path, source_link_kind, validate_editor_write_target, viewer_archive_member, ArchiveCreationAdapterBinding,
+        ArchiveCreationMemberCompletion, ArchiveCreationRelay, ArchiveExtractionAdapterBinding, ArchiveExtractionCollision,
+        ArchiveExtractionMemberCompletion, ArchiveExtractionMemberError, ArchiveExtractionRelay, ArchiveExtractionSummary,
+        ArchiveListQuery, ArchiveMemberQuery, ArchiveRelayBinding, ArchiveRelayDestinationStatus, ArchiveRelayFailure,
+        ArchiveRelayOperation, ArchiveRelayTransport, CompanionArchiveCreationPlan, CompanionArchiveExtractionPlan,
+        FixtureArchiveCreationInvocation, FixtureArchiveExtractionInvocation, ARCHIVE_RELAY_ACKNOWLEDGEMENT_ATTEMPTS,
+        INSPECTION_RESOLVER_TEST_LOCK,
     };
     use crate::server::archive::{
         build_local_archive_manifest, build_local_archive_manifest_for_remote_target, create_local_archive,
@@ -4875,7 +4957,8 @@ mod tests {
         LocalArchiveReadError, ARCHIVE_INLINE_PREVIEW_MAX_BYTES,
     };
     use crate::server::archive_sessions::{
-        ArchiveSessionKind, ArchiveSessionPendingDecision, ArchiveSessionPhase, ArchiveSessionProgress, ArchiveSessionStatus,
+        ArchiveSessionKind, ArchiveSessionManager, ArchiveSessionPendingDecision, ArchiveSessionPhase, ArchiveSessionProgress,
+        ArchiveSessionStatus,
     };
     use crate::server::errors::{ApiError, LOCAL_ARCHIVE_CREATION_PARTIAL_CODE, LOCAL_ARCHIVE_EXTRACTION_PARTIAL_CODE};
     use crate::server::models::{
@@ -5030,6 +5113,40 @@ mod tests {
             .expect("creation topology should resolve");
         assert!(resolve_companion_inspection_coordinator(create_topology, plan).is_err());
         assert!(resolve_companion_archive_inspection_topology_plan(false).is_err());
+    }
+
+    #[test]
+    fn companion_operation_resolvers_reject_incomplete_topology_contracts() {
+        let state_store = Arc::new(ArchiveSessionManager::new());
+        let creation_plan = CompanionArchiveCreationPlan::DirectLocalDeferred {
+            state_store: state_store.clone(),
+            execution_id: "creation".to_string(),
+        };
+        let extraction_plan = CompanionArchiveExtractionPlan::DirectLocalDeferred {
+            state_store,
+            execution_id: "extraction".to_string(),
+        };
+        let creation_topology = resolve_companion_archive_topology_plan(CompanionArchiveOperationKind::Create, true, true)
+            .expect("creation topology should resolve");
+        let extraction_topology = resolve_companion_archive_topology_plan(CompanionArchiveOperationKind::Extract, true, true)
+            .expect("extraction topology should resolve");
+
+        assert!(resolve_companion_creation_coordinator(
+            CompanionArchiveTopologyPlan {
+                binding: CompanionArchiveBinding::LocalToSmbRelay,
+                ..creation_topology
+            },
+            creation_plan,
+        )
+        .is_err());
+        assert!(resolve_companion_extraction_coordinator(
+            CompanionArchiveTopologyPlan {
+                source_is_local: false,
+                ..extraction_topology
+            },
+            extraction_plan,
+        )
+        .is_err());
     }
 
     #[allow(clippy::await_holding_lock)]

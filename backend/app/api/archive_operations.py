@@ -334,6 +334,14 @@ async def prepare_archive_operation(
     set_user(current_user.username)
     _verify_operation_connection_scope(session, current_user, connection_id=payload.source_connection_id, requires_write_access=False)
     _verify_operation_connection_scope(session, current_user, connection_id=payload.destination_connection_id, requires_write_access=True)
+    try:
+        resolve_archive_operation_topology_plan(
+            kind=payload.kind,
+            source_connection_id=payload.source_connection_id,
+            destination_connection_id=payload.destination_connection_id,
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_CONTENT, detail=str(exc)) from exc
     operation = ArchiveOperation(user_id=current_user.id, **payload.model_dump())
     session.add(operation)
     write_audit_event(
