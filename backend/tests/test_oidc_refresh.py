@@ -127,6 +127,42 @@ def test_refresh_rotates_the_provider_token_and_advances_the_generation(
     assert get_active_oidc_session_cipher(session).cipher.decrypt(browser_session.encrypted_refresh_token) == "rotated-refresh-token"
 
 
+def test_refresh_releases_the_database_transaction_before_provider_io(
+    client: TestClient,
+    session: Session,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    user, browser_session, cookie_value = _create_browser_session(session)
+
+    async def provider_metadata(*_args: object, **_kwargs: object) -> tuple[object, dict[str, object]]:
+        assert not session.in_transaction()
+        return object(), {}
+
+    async def refreshed_token(*_args: object, **_kwargs: object) -> ValidatedOidcTokenSet:
+        return ValidatedOidcTokenSet(
+            claims=NormalizedOidcClaims(
+                issuer=browser_session.issuer,
+                subject=browser_session.subject,
+                username=user.username,
+                groups=(),
+                name=None,
+                email=None,
+            ),
+            authenticated_at=int(datetime.now(timezone.utc).timestamp()),
+            provider_access_token=None,
+            refresh_token=None,
+        )
+
+    monkeypatch.setattr(auth_module, "load_provider_metadata", provider_metadata)
+    monkeypatch.setattr(auth_module, "exchange_and_validate_refresh_token", refreshed_token)
+    monkeypatch.setattr(auth_module, "resolve_or_provision_oidc_user", lambda _session, **_kwargs: user)
+    client.cookies.set(OIDC_BROWSER_SESSION_COOKIE_NAME, cookie_value)
+
+    response = client.post("/api/auth/oidc/refresh", headers={"Origin": "http://testserver"})
+
+    assert response.status_code == 200
+
+
 def test_invalidated_oidc_browser_session_returns_machine_readable_reauthentication(
     client: TestClient,
     session: Session,

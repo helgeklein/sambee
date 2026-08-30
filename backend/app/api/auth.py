@@ -793,14 +793,20 @@ async def oidc_refresh(request: Request, session: Session = Depends(get_session)
         session_cipher = get_oidc_session_cipher_for_key(session, browser_session.cipher_key_id)
         active_session_cipher = get_active_oidc_session_cipher(session)
         refresh_token = session_cipher.decrypt(browser_session.encrypted_refresh_token)
+        provider_issuer_url = configuration.issuer_url
+        provider_client_id = configuration.client_id
+        provider_client_secret = cipher.decrypt(configuration.encrypted_client_secret)
+        expected_issuer = browser_session.issuer
+        expected_subject = browser_session.subject
         claim_mapping = OidcClaimMapping(
             username=configuration.username_claim,
             groups=configuration.groups_claim,
             name=configuration.name_claim,
             email=configuration.email_claim,
         )
+        session.commit()
         async with ValidatedOidcHttpClient() as http_client:
-            metadata, jwks = await load_provider_metadata(http_client, configuration.issuer_url)
+            metadata, jwks = await load_provider_metadata(http_client, provider_issuer_url)
 
             async def refresh_jwks() -> dict[str, Any]:
                 return await refresh_provider_jwks(http_client, metadata)
@@ -809,11 +815,11 @@ async def oidc_refresh(request: Request, session: Session = Depends(get_session)
                 http_client,
                 metadata,
                 jwks,
-                client_id=configuration.client_id,
-                client_secret=cipher.decrypt(configuration.encrypted_client_secret),
+                client_id=provider_client_id,
+                client_secret=provider_client_secret,
                 refresh_token=refresh_token,
-                expected_issuer=browser_session.issuer,
-                expected_subject=browser_session.subject,
+                expected_issuer=expected_issuer,
+                expected_subject=expected_subject,
                 mapping=claim_mapping,
                 refresh_jwks=refresh_jwks,
             )
