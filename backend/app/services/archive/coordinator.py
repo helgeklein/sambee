@@ -13,7 +13,7 @@ from fastapi import HTTPException, status
 from sqlmodel import Session
 
 from app.models.archive import ArchiveDirectoryListing, ArchiveEntryInfo, ArchiveIdentity
-from app.models.archive_operation import ArchiveContractVersion, ArchiveOperation, ArchiveOperationPhase
+from app.models.archive_operation import ArchiveContractVersion, ArchiveOperation, ArchiveOperationKind, ArchiveOperationPhase
 from app.models.file import FileType
 from app.services.archive.creation import ArchiveCreationCancelled, ArchiveCreationMemberOutcome, ArchiveCreationResult
 from app.services.archive.execution import (
@@ -514,7 +514,10 @@ class ArchiveExtractionDecisionState:
         retry_members = decisions.get("retry_members")
         if (
             not isinstance(member_collision_actions, dict)
-            or not all(isinstance(member_path, str) and isinstance(action, str) for member_path, action in member_collision_actions.items())
+            or not all(
+                isinstance(member_path, str) and member_path and action in {"skip", "replace"}
+                for member_path, action in member_collision_actions.items()
+            )
             or not isinstance(member_rename_targets, dict)
             or not all(
                 isinstance(member_path, str) and isinstance(target_path, str) for member_path, target_path in member_rename_targets.items()
@@ -530,8 +533,6 @@ class ArchiveExtractionDecisionState:
     def collision_actions_for_execution(self) -> dict[str, str]:
         """Return valid per-member collision choices for a direct extractor."""
 
-        if not all(member_path and action in {"skip", "replace"} for member_path, action in self._member_collision_actions.items()):
-            raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="Archive operation checkpoint is invalid")
         return dict(self._member_collision_actions)
 
     def collision_action(self, member_path: str, default_action: str | None) -> str | None:
@@ -697,56 +698,31 @@ def _normalize_extraction_manifest_path(member_path: str) -> str:
 
 
 @dataclass(frozen=True)
-class ArchiveExtractionExecutionState:
-    """Validated outcome and decision projection for one extraction checkpoint."""
+class ArchiveExtractionState:
+    """One strictly validated immutable projection of an extraction checkpoint."""
 
     checkpoint: dict[str, object]
-    decisions: ArchiveExtractionDecisionState
-
-    @classmethod
-    def from_checkpoint(cls, checkpoint: dict[str, object]) -> "ArchiveExtractionExecutionState":
-        """Load one extraction checkpoint for a coordinator or direct execution binding."""
-
-        return cls(checkpoint, ArchiveExtractionDecisionState.from_checkpoint(checkpoint))
-
-    def completed_member_paths(self) -> frozenset[str]:
-        """Return terminal member paths from this validated checkpoint projection."""
-
-        return frozenset(completed_extraction_member_paths(self.checkpoint))
-
-    def has_complete_terminal_coverage(self, expected_member_paths: set[str]) -> bool:
-        """Return whether every expected member has a terminal durable outcome."""
-
-        return self.completed_member_paths() == expected_member_paths
-
-
-@dataclass(frozen=True)
-class ArchiveExtractionState:
-    """Validated immutable manifest and common execution projection for one checkpoint."""
-
-    execution: ArchiveExtractionExecutionState
     manifest: ArchiveExtractionManifest
-
-    @property
-    def checkpoint(self) -> dict[str, object]:
-        """Return the durable checkpoint used to build this projection."""
-
-        return self.execution.checkpoint
-
-    @property
-    def decisions(self) -> ArchiveExtractionDecisionState:
-        """Return validated persisted extraction decisions."""
-
-        return self.execution.decisions
+    decisions: ArchiveExtractionDecisionState
 
     @classmethod
     def from_checkpoint(cls, checkpoint: dict[str, object]) -> "ArchiveExtractionState":
         """Load immutable manifest and shared execution state from one checkpoint."""
 
+        try:
+            validated_checkpoint = validate_v2_operation_checkpoint(ArchiveOperationKind.EXTRACT, checkpoint)
+        except HTTPException as exc:
+            raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="Archive operation checkpoint is invalid") from exc
         return cls(
-            ArchiveExtractionExecutionState.from_checkpoint(checkpoint),
-            ArchiveExtractionManifest.from_checkpoint(checkpoint),
+            validated_checkpoint,
+            ArchiveExtractionManifest.from_checkpoint(validated_checkpoint),
+            ArchiveExtractionDecisionState.from_checkpoint(validated_checkpoint),
         )
+
+    def completed_member_paths(self) -> frozenset[str]:
+        """Return terminal member paths from this validated checkpoint projection."""
+
+        return frozenset(completed_extraction_member_paths(self.checkpoint))
 
     def member(self, member_path: str, *, is_directory: bool | None = None) -> ArchiveExtractionManifestMember:
         """Return one approved immutable extraction member."""
@@ -766,7 +742,7 @@ class ArchiveExtractionState:
     def has_complete_terminal_coverage(self) -> bool:
         """Return whether every immutable member has one terminal durable outcome."""
 
-        return self.execution.has_complete_terminal_coverage({member.member_path for member in self.manifest.members})
+        return self.completed_member_paths() == {member.member_path for member in self.manifest.members}
 
     def completion_checkpoint_json(self, *, destination_root_created: bool) -> str:
         """Validate terminal coverage and serialize the final extraction checkpoint."""
@@ -782,8 +758,7 @@ class ArchiveExtractionState:
 class ArchiveExtractionExecutionPlan:
     """Immutable manifest plus persisted decisions consumed by every extraction executor."""
 
-    manifest: ArchiveExtractionManifest
-    execution: ArchiveExtractionExecutionState
+    state: ArchiveExtractionState
     existing_file_policy: str | None
 
     @classmethod
@@ -796,33 +771,35 @@ class ArchiveExtractionExecutionPlan:
         if existing_file_policy not in {None, "skip_all", "replace_all", "replace_older"}:
             raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="Archive operation collision policy is invalid")
         state = ArchiveExtractionState.from_checkpoint(checkpoint)
-        return cls(state.manifest, state.execution, existing_file_policy)
+        return cls(state, existing_file_policy)
+
+    @property
+    def manifest(self) -> ArchiveExtractionManifest:
+        return self.state.manifest
 
     def completed_member_paths(self) -> frozenset[str]:
-        return self.execution.completed_member_paths()
+        return self.state.completed_member_paths()
 
     def collision_actions(self) -> dict[str, str]:
-        return self.execution.decisions.collision_actions_for_execution()
+        return self.state.decisions.collision_actions_for_execution()
 
     def rename_targets(self) -> dict[str, str]:
-        return self.execution.decisions.rename_targets()
+        return self.state.decisions.rename_targets()
 
     def ignored_member_paths(self) -> list[str]:
-        return self.execution.decisions.ignored_member_paths()
+        return self.state.decisions.ignored_member_paths()
 
     def member(self, member_path: str, *, is_directory: bool | None = None) -> ArchiveExtractionManifestMember:
         return self.manifest.member(member_path, is_directory=is_directory)
 
     def target_member_path(self, member_path: str) -> str:
-        return ArchiveExtractionState(self.execution, self.manifest).target_member_path(member_path)
+        return self.state.target_member_path(member_path)
 
     def collision_action(self, member_path: str) -> str | None:
-        return self.execution.decisions.collision_action(member_path, self.existing_file_policy)
+        return self.state.decisions.collision_action(member_path, self.existing_file_policy)
 
     def completion_checkpoint_json(self, *, destination_root_created: bool) -> str:
-        return ArchiveExtractionState(self.execution, self.manifest).completion_checkpoint_json(
-            destination_root_created=destination_root_created
-        )
+        return self.state.completion_checkpoint_json(destination_root_created=destination_root_created)
 
 
 @dataclass(frozen=True)

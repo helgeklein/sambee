@@ -156,7 +156,7 @@ def test_extraction_state_resolves_decided_target_and_terminal_coverage() -> Non
     assert state.decisions.rename_targets() == {"docs/readme.txt": "renamed/readme.txt"}
     assert state.decisions.ignored_member_paths() == []
     assert state.decisions.retry_members_after_completion("docs/readme.txt") == []
-    assert state.execution.completed_member_paths() == frozenset()
+    assert state.completed_member_paths() == frozenset()
     assert not state.has_complete_terminal_coverage()
 
     record_extraction_member_outcome(
@@ -170,6 +170,7 @@ def test_extraction_state_resolves_decided_target_and_terminal_coverage() -> Non
         preserve_absent_zero=True,
     )
 
+    state = ArchiveExtractionState.from_checkpoint(checkpoint)
     assert state.has_complete_terminal_coverage()
     completed_checkpoint = json.loads(state.completion_checkpoint_json(destination_root_created=True))
     assert "directories_created" not in completed_checkpoint

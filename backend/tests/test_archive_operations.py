@@ -1183,6 +1183,7 @@ def test_expires_a_stale_archive_operation_as_interrupted(
 
     expired = client.get(f"/api/archive/v2/operations/{operation['id']}", headers=auth_headers_user)
     assert expired.json()["phase"] == "failed"
+    assert expired.json()["revision"] == 1
     assert json.loads(expired.json()["last_error_json"])["code"] == "archive_interrupted"
 
 

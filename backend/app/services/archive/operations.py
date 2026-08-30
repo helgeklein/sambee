@@ -204,7 +204,13 @@ def update_operation_checkpoint(session: Session, operation: ArchiveOperation, c
     return operation
 
 
-def fail_operation(session: Session, operation: ArchiveOperation, message: str) -> ArchiveOperation:
+def fail_operation(
+    session: Session,
+    operation: ArchiveOperation,
+    message: str,
+    *,
+    error_code: str | None = None,
+) -> ArchiveOperation:
     """Record an executor failure without masking the original request error."""
 
     if operation.phase in TERMINAL_ARCHIVE_OPERATION_PHASES:
@@ -213,7 +219,8 @@ def fail_operation(session: Session, operation: ArchiveOperation, message: str) 
         "phase": ArchiveOperationPhase.FAILED,
         "last_error_json": json.dumps(
             {
-                "code": "archive_extraction_failed" if operation.kind == ArchiveOperationKind.EXTRACT else "archive_creation_failed",
+                "code": error_code
+                or ("archive_extraction_failed" if operation.kind == ArchiveOperationKind.EXTRACT else "archive_creation_failed"),
                 "message": message,
             }
         ),

@@ -3,6 +3,7 @@
 import asyncio
 from datetime import datetime, timedelta, timezone
 
+from fastapi import HTTPException, status
 from sqlmodel import Session, select
 
 from app.core.logging import get_logger
@@ -12,8 +13,8 @@ from app.models.archive_operation import (
     ARCHIVE_OPERATION_ORPHAN_CHECK_INTERVAL_SECONDS,
     TERMINAL_ARCHIVE_OPERATION_PHASES,
     ArchiveOperation,
-    ArchiveOperationPhase,
 )
+from app.services.archive.operations import fail_operation
 
 logger = get_logger(__name__)
 
@@ -66,12 +67,19 @@ def expire_stale_archive_operations(now: datetime | None = None, session: Sessio
 def _expire_stale_archive_operations(session: Session, *, cutoff: datetime, current_time: datetime) -> int:
     candidates = session.exec(select(ArchiveOperation).where(ArchiveOperation.heartbeat_at < cutoff)).all()
     expired = [operation for operation in candidates if operation.phase not in TERMINAL_ARCHIVE_OPERATION_PHASES]
+    expired_count = 0
     for operation in expired:
-        operation.phase = ArchiveOperationPhase.FAILED
-        operation.last_error_json = '{"code":"archive_interrupted","message":"Archive work was interrupted before completion"}'
-        operation.updated_at = current_time
-        operation.heartbeat_at = current_time
-        session.add(operation)
-    if expired:
-        session.commit()
-    return len(expired)
+        try:
+            fail_operation(
+                session,
+                operation,
+                "Archive work was interrupted before completion",
+                error_code="archive_interrupted",
+            )
+        except HTTPException as exc:
+            if exc.status_code == status.HTTP_409_CONFLICT and exc.detail == "Archive operation revision is stale":
+                continue
+            logger.warning("Skipped stale archive operation expiry: operation_id=%s, detail=%s", operation.id, exc.detail)
+        else:
+            expired_count += 1
+    return expired_count
