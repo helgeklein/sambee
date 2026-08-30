@@ -1901,6 +1901,20 @@ async def create_v2_archive_companion_session(
     return await create_archive_companion_session(operation_id, current_user, session)
 
 
+@v2_router.post("/operations/{operation_id}/phase", response_model=ArchiveOperationRead)
+async def transition_v2_archive_operation_phase(
+    operation_id: uuid.UUID,
+    payload: ArchiveOperationTransition,
+    current_user: User = Depends(get_current_user_with_auth_check),
+    session: Session = Depends(get_session),
+) -> ArchiveOperation:
+    """Advance a V2 operation through an allowed lifecycle transition."""
+
+    operation = _get_owned_v2_operation_or_404(session, current_user, operation_id)
+    _require_expected_archive_operation_revision(operation, payload.expected_revision)
+    return update_operation_phase(session, operation, expected_phase=payload.expected_phase, next_phase=payload.next_phase)
+
+
 @v2_router.post("/operations/{operation_id}/creation/begin", response_model=ArchiveOperationRead)
 async def begin_v2_archive_creation(
     operation_id: uuid.UUID,

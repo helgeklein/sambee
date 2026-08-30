@@ -19,6 +19,7 @@ V2_CHECKPOINT_FIELDS = frozenset(
     }
 )
 V2_DECISION_FIELDS = frozenset({"collision_actions", "rename_targets", "ignored_members", "retry_members"})
+V2_CREATION_CHECKPOINT_FIELDS = frozenset({"version", "manifest", "member_outcomes", "decisions", "pending_decision"})
 LEGACY_WRITTEN_MEMBERS_FIELD = "written_members"
 V1_CHECKPOINT_FIELDS = frozenset(
     {
@@ -190,4 +191,86 @@ def v2_checkpoint_from_legacy_execution(checkpoint: object) -> dict[str, object]
             },
             "pending_decision": checkpoint.get("pending_decision"),
         }
+    )
+
+
+def validate_v2_creation_checkpoint(checkpoint: object) -> dict[str, object]:
+    """Validate the closed V2 creation ledger without accepting V1 state."""
+
+    if not isinstance(checkpoint, dict) or frozenset(checkpoint) != V2_CREATION_CHECKPOINT_FIELDS:
+        raise _invalid_checkpoint("Archive V2 creation checkpoint fields are invalid")
+    if checkpoint.get("version") != V2_CHECKPOINT_VERSION:
+        raise _invalid_checkpoint("Archive V2 creation checkpoint version is invalid")
+    manifest = checkpoint.get("manifest")
+    outcomes = checkpoint.get("member_outcomes")
+    if not isinstance(manifest, list) or not isinstance(outcomes, dict):
+        raise _invalid_checkpoint("Archive V2 creation checkpoint envelope is invalid")
+    paths: set[str] = set()
+    for member in manifest:
+        if not isinstance(member, dict) or frozenset(member) != {"archive_path", "is_directory", "source_size", "source_path", "modified_at"}:
+            raise _invalid_checkpoint("Archive V2 creation checkpoint manifest is invalid")
+        path = _canonical_member_path(member["archive_path"])
+        if path in paths or type(member["is_directory"]) is not bool or type(member["source_size"]) is not int or member["source_size"] < 0:
+            raise _invalid_checkpoint("Archive V2 creation checkpoint manifest is invalid")
+        if member["source_path"] is not None and not isinstance(member["source_path"], str):
+            raise _invalid_checkpoint("Archive V2 creation checkpoint manifest is invalid")
+        if member["modified_at"] is not None and not isinstance(member["modified_at"], str):
+            raise _invalid_checkpoint("Archive V2 creation checkpoint manifest is invalid")
+        paths.add(path)
+    if any(_canonical_member_path(path) not in paths or not isinstance(outcome, dict) for path, outcome in outcomes.items()):
+        raise _invalid_checkpoint("Archive V2 creation checkpoint member outcomes are invalid")
+    if checkpoint.get("decisions") != {} or checkpoint.get("pending_decision") is not None:
+        raise _invalid_checkpoint("Archive V2 creation checkpoint decisions are invalid")
+    return deepcopy(checkpoint)
+
+
+def new_v2_creation_checkpoint(*, manifest: list[dict[str, object]]) -> dict[str, object]:
+    """Create the empty strict V2 creation ledger before output begins."""
+
+    return validate_v2_creation_checkpoint(
+        {"version": V2_CHECKPOINT_VERSION, "manifest": manifest, "member_outcomes": {}, "decisions": {}, "pending_decision": None}
+    )
+
+
+def legacy_creation_execution_checkpoint_from_v2(checkpoint: object) -> dict[str, object]:
+    """Project a V2 creation ledger only for the established executor."""
+
+    validated = validate_v2_creation_checkpoint(checkpoint)
+    manifest = validated["manifest"]
+    if not isinstance(manifest, list):
+        raise _invalid_checkpoint("Archive V2 creation checkpoint manifest is invalid")
+    return {
+        "creation_outcome_checkpoint_version": 1,
+        "source_manifest": [
+            {
+                **({"source_path": member["source_path"]} if member["source_path"] is not None else {}),
+                "archive_path": member["archive_path"],
+                "is_directory": member["is_directory"],
+                "source_identity": {"size": member["source_size"], "modified_at": member["modified_at"]},
+            }
+            for member in manifest
+            if isinstance(member, dict)
+        ],
+        "creation_member_outcomes": validated["member_outcomes"],
+    }
+
+
+def v2_creation_checkpoint_from_legacy_execution(checkpoint: object) -> dict[str, object]:
+    """Remove executor counters and V1 names before persisting V2 creation state."""
+
+    if not isinstance(checkpoint, dict) or not isinstance(checkpoint.get("source_manifest"), list):
+        raise _invalid_checkpoint("Archive V2 creation checkpoint is invalid")
+    manifest = [
+        {
+            "archive_path": entry.get("archive_path"),
+            "is_directory": entry.get("is_directory"),
+            "source_size": entry.get("source_identity", {}).get("size") if isinstance(entry.get("source_identity"), dict) else None,
+            "source_path": entry.get("source_path"),
+            "modified_at": entry.get("source_identity", {}).get("modified_at") if isinstance(entry.get("source_identity"), dict) else None,
+        }
+        for entry in checkpoint["source_manifest"]
+        if isinstance(entry, dict)
+    ]
+    return validate_v2_creation_checkpoint(
+        {"version": V2_CHECKPOINT_VERSION, "manifest": manifest, "member_outcomes": checkpoint.get("creation_member_outcomes", {}), "decisions": {}, "pending_decision": None}
     )

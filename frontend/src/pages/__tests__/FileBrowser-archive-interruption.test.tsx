@@ -59,7 +59,7 @@ describe("FileBrowser archive interruption recovery", () => {
     fireEvent(window, beforeUnload);
 
     expect(fetchSpy).toHaveBeenCalledWith(
-      "http://localhost:3000/api/archive/operations/operation-id/cancel",
+      "http://localhost:3000/api/archive/v2/operations/operation-id/cancel",
       expect.objectContaining({ credentials: "include", keepalive: true, method: "POST" })
     );
     expect(beforeUnload.defaultPrevented).toBe(true);

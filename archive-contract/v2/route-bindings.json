@@ -27,6 +27,12 @@
     },
     {
       "method": "POST",
+      "path": "/api/archive/v2/operations/{operation_id}/phase",
+      "operation": "phase",
+      "durable": true
+    },
+    {
+      "method": "POST",
       "path": "/api/archive/v2/operations/{operation_id}/creation/begin",
       "operation": "creation",
       "durable": true

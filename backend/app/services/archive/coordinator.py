@@ -38,7 +38,13 @@ from app.services.archive.operations import (
     update_operation_checkpoint,
     update_operation_phase,
 )
-from app.services.archive.v2_checkpoint import legacy_execution_checkpoint_from_v2, v2_checkpoint_from_legacy_execution
+from app.services.archive.v2_checkpoint import (
+    legacy_creation_execution_checkpoint_from_v2,
+    legacy_execution_checkpoint_from_v2,
+    new_v2_creation_checkpoint,
+    v2_checkpoint_from_legacy_execution,
+    v2_creation_checkpoint_from_legacy_execution,
+)
 from app.services.archive.zip_reader import (
     ArchiveInspectionManifest,
     ArchiveInspectionManifestMember,
@@ -331,6 +337,16 @@ class DurableArchiveExecutionStateStore:
             except json.JSONDecodeError as exc:
                 raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="Archive operation checkpoint is invalid") from exc
             checkpoint_json = json.dumps(v2_checkpoint_from_legacy_execution(checkpoint))
+        if (
+            operation.contract_version == ArchiveContractVersion.V2
+            and operation.kind == ArchiveOperationKind.CREATE
+            and _has_v2_creation_checkpoint(operation)
+        ):
+            try:
+                checkpoint = json.loads(checkpoint_json)
+            except json.JSONDecodeError as exc:
+                raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="Archive operation checkpoint is invalid") from exc
+            checkpoint_json = json.dumps(v2_creation_checkpoint_from_legacy_execution(checkpoint))
         return update_operation_checkpoint(self.session, operation, checkpoint_json)
 
     def await_decision(self, operation: ArchiveOperation, decision: dict[str, object]) -> ArchiveOperation:
@@ -481,6 +497,15 @@ def load_archive_checkpoint(operation: ArchiveOperation) -> dict[str, object]:
             return legacy_execution_checkpoint_from_v2(checkpoint)
         except HTTPException as exc:
             raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="Archive operation checkpoint is invalid") from exc
+    if (
+        operation.contract_version == ArchiveContractVersion.V2
+        and operation.kind == ArchiveOperationKind.CREATE
+        and _has_v2_creation_checkpoint(operation)
+    ):
+        try:
+            return legacy_creation_execution_checkpoint_from_v2(checkpoint)
+        except HTTPException as exc:
+            raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="Archive operation checkpoint is invalid") from exc
     return checkpoint
 
 
@@ -492,6 +517,17 @@ def _has_v2_checkpoint(operation: ArchiveOperation) -> bool:
     except json.JSONDecodeError:
         return False
     return isinstance(checkpoint, dict) and checkpoint.get("version") == 2
+
+
+def _has_v2_creation_checkpoint(operation: ArchiveOperation) -> bool:
+    """Return whether a creation operation has the strict V2 creation envelope."""
+
+    try:
+        checkpoint = json.loads(operation.checkpoint_json or "{}")
+    except json.JSONDecodeError:
+        return False
+    manifest = checkpoint.get("manifest") if isinstance(checkpoint, dict) else None
+    return isinstance(manifest, list) and any(isinstance(member, dict) and "archive_path" in member for member in manifest)
 
 
 @dataclass(frozen=True)
@@ -1882,9 +1918,25 @@ class ArchiveCreationCoordinator:
             raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail="Archive creation failed") from exc
 
     def _start_streaming(self, execution_plan: ArchiveCreationExecutionPlan) -> ArchiveOperation:
+        checkpoint = (
+            new_v2_creation_checkpoint(
+                manifest=[
+                    {
+                        "archive_path": member.archive_path,
+                        "is_directory": member.is_directory,
+                        "source_size": member.source_size,
+                        "source_path": member.source_path,
+                        "modified_at": member.source_modified_at,
+                    }
+                    for member in execution_plan.manifest.members
+                ]
+            )
+            if self.operation.contract_version == ArchiveContractVersion.V2
+            else execution_plan.manifest.empty_checkpoint()
+        )
         return start_archive_execution(
             self.state_store,
             self.operation,
-            checkpoint_json=json.dumps(execution_plan.manifest.empty_checkpoint()),
+            checkpoint_json=json.dumps(checkpoint),
             allow_streaming=False,
         )

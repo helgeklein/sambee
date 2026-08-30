@@ -3014,15 +3014,16 @@ def test_companion_relay_pauses_for_destination_collision(
     assert operation.json()["phase"] == "awaiting_user_decision"
 
 
-def test_executes_same_connection_creation_from_immutable_plan(
+def test_v2_executes_same_connection_creation_with_strict_ledger(
     client: TestClient,
     auth_headers_user: dict,
     test_connection: Connection,
 ) -> None:
     prepared = client.post(
-        "/api/archive/operations",
+        "/api/archive/v2/operations",
         headers=auth_headers_user,
         json={
+            "contract_version": "v2",
             "kind": "create",
             "source_connection_id": str(test_connection.id),
             "source_path": "",
@@ -3051,31 +3052,32 @@ def test_executes_same_connection_creation_from_immutable_plan(
             "app.api.archive_operations.create_archive_from_files", new=AsyncMock(side_effect=create_archive_with_member_outcomes)
         ) as create_archive,
     ):
-        response = client.post(f"/api/archive/operations/{prepared['id']}/execute-create", headers=auth_headers_user)
+        response = client.post(f"/api/archive/v2/operations/{prepared['id']}/creation/begin", headers=auth_headers_user)
 
     assert response.status_code == 200
     assert response.json()["phase"] == "completed"
     assert json.loads(response.json()["checkpoint_json"]) == {
-        "creation_outcome_checkpoint_version": CREATION_OUTCOME_CHECKPOINT_VERSION,
-        "creation_member_outcomes": {
+        "version": 2,
+        "member_outcomes": {
             "first.txt": {"status": "created", "source_bytes": 5},
             "second.txt": {"status": "created", "source_bytes": 6},
         },
-        "files_created": 2,
-        "directories_created": 0,
-        "source_bytes": 11,
-        "source_manifest": [
+        "decisions": {},
+        "pending_decision": None,
+        "manifest": [
             {
                 "source_path": "first.txt",
                 "archive_path": "first.txt",
                 "is_directory": False,
-                "source_identity": {"size": 5, "modified_at": None},
+                "source_size": 5,
+                "modified_at": None,
             },
             {
                 "source_path": "second.txt",
                 "archive_path": "second.txt",
                 "is_directory": False,
-                "source_identity": {"size": 6, "modified_at": None},
+                "source_size": 6,
+                "modified_at": None,
             },
         ],
     }
