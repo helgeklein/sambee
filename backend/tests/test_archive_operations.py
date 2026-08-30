@@ -68,7 +68,7 @@ from app.services.archive.extraction import (
     ArchiveExtractionMemberOutcome,
     ArchiveExtractionResult,
 )
-from app.services.archive.operation_monitor import expire_stale_archive_operations
+from app.services.archive.operation_monitor import expire_stale_archive_operations, expire_stale_archive_operations_and_cleanup
 from app.services.archive.state_store import ArchiveOperationStateStore
 from app.services.archive.v2_checkpoint import new_v2_extraction_checkpoint
 
@@ -1184,7 +1184,47 @@ def test_expires_a_stale_archive_operation_as_interrupted(
     expired = client.get(f"/api/archive/v2/operations/{operation['id']}", headers=auth_headers_user)
     assert expired.json()["phase"] == "failed"
     assert expired.json()["revision"] == 1
-    assert json.loads(expired.json()["last_error_json"])["code"] == "archive_interrupted"
+    assert json.loads(expired.json()["last_error_json"])["code"] == "transport_failure"
+    assert expired.json()["last_error"] == {
+        "code": "transport_failure",
+        "message": "Archive work was interrupted before completion",
+    }
+
+
+@pytest.mark.asyncio
+async def test_expiring_orphaned_operation_cleans_up_its_live_writer(
+    client: TestClient,
+    auth_headers_user: dict,
+    test_connection: Connection,
+    session,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    operation = client.post(
+        "/api/archive/v2/operations",
+        headers=auth_headers_user,
+        json={
+            "contract_version": "v2",
+            "kind": "create",
+            "source_connection_id": str(test_connection.id),
+            "source_path": "source",
+            "destination_connection_id": str(test_connection.id),
+            "destination_path": "backup.zip",
+        },
+    ).json()
+    stored = session.get(ArchiveOperation, uuid.UUID(operation["id"]))
+    assert stored is not None
+    stored.heartbeat_at = datetime.now(timezone.utc) - timedelta(seconds=ARCHIVE_OPERATION_HEARTBEAT_TIMEOUT_SECONDS + 1)
+    session.add(stored)
+    session.commit()
+
+    cleanup = AsyncMock()
+    monkeypatch.setattr(
+        "app.services.archive.operation_monitor.archive_operation_cleanup_registry.cleanup",
+        cleanup,
+    )
+
+    assert await expire_stale_archive_operations_and_cleanup(session=session) == 1
+    cleanup.assert_awaited_once_with(stored.id)
 
 
 def test_lists_owner_archive_operations_with_active_filter(

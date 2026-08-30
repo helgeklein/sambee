@@ -3886,6 +3886,15 @@ async fn extract_smb_archive_manifest_to_local(
                     .await;
             }
         } {
+            if chunk.len() as u64 > entry.uncompressed_size.saturating_sub(member_bytes) {
+                return relay
+                    .pause_source_member_with_error_result(
+                        &entry.path,
+                        "Archive member exceeds its declared manifest size".to_string(),
+                        true,
+                    )
+                    .await;
+            }
             if let Err(error) = output.write_all(&chunk).await {
                 return relay
                     .pause_source_member_with_error_result(&entry.path, error.to_string(), true)

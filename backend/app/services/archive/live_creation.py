@@ -6,12 +6,17 @@ import uuid
 from collections.abc import AsyncIterator
 from dataclasses import dataclass, field
 
+from app.services.archive.lifecycle_cleanup import archive_operation_cleanup_registry
 from app.services.archive.zip_writer import PortableZipWriter
 from app.storage.base import ExclusiveWriter, StorageBackend
 
 
 class ArchiveCreationWriterSessionNotFound(RuntimeError):
     """Raised when a foreground creation writer is unavailable."""
+
+
+class ArchiveCreationWriterAlreadyActive(RuntimeError):
+    """Raised when another request is already opening or owns an operation writer."""
 
 
 class ArchiveCreationWriterMemberDataError(ValueError):
@@ -34,6 +39,8 @@ class LiveArchiveCreationWriterManager:
     def __init__(self, logger: logging.Logger | logging.LoggerAdapter[logging.Logger]) -> None:
         self._logger = logger
         self._sessions: dict[uuid.UUID, _ArchiveCreationWriterSession] = {}
+        self._opening_operation_ids: set[uuid.UUID] = set()
+        self._cancelled_opening_operation_ids: set[uuid.UUID] = set()
 
     def has_session(self, operation_id: uuid.UUID) -> bool:
         """Return whether the foreground operation still owns a live writer."""
@@ -48,18 +55,34 @@ class LiveArchiveCreationWriterManager:
     async def open(self, operation_id: uuid.UUID, backend: StorageBackend, target_path: str) -> None:
         """Open and retain one exclusive destination target for a foreground operation."""
 
-        if operation_id in self._sessions:
-            raise ValueError("Archive creation writer is already active")
+        if operation_id in self._sessions or operation_id in self._opening_operation_ids:
+            raise ArchiveCreationWriterAlreadyActive("Archive creation writer is already active")
+        self._opening_operation_ids.add(operation_id)
+        archive_operation_cleanup_registry.register(operation_id, lambda: self.abort(operation_id))
+        writer: ExclusiveWriter | None = None
         try:
             writer = await backend.open_exclusive_writer(target_path)
-        except Exception:
+            if operation_id in self._cancelled_opening_operation_ids:
+                await writer.abort_and_delete_if_owned()
+                writer = None
+                raise ArchiveCreationWriterSessionNotFound("Archive creation writer session was interrupted")
+            self._sessions[operation_id] = _ArchiveCreationWriterSession(
+                backend=backend,
+                writer=writer,
+                archive_writer=PortableZipWriter(writer),
+            )
+        except BaseException:
+            if writer is not None and operation_id not in self._sessions:
+                try:
+                    await writer.abort_and_delete_if_owned()
+                except Exception:
+                    self._logger.exception("Failed to clean up incomplete archive creation target: operation_id=%s", operation_id)
+            archive_operation_cleanup_registry.unregister(operation_id)
             await self._disconnect(backend, operation_id)
             raise
-        self._sessions[operation_id] = _ArchiveCreationWriterSession(
-            backend=backend,
-            writer=writer,
-            archive_writer=PortableZipWriter(writer),
-        )
+        finally:
+            self._opening_operation_ids.discard(operation_id)
+            self._cancelled_opening_operation_ids.discard(operation_id)
 
     async def add_directory(self, operation_id: uuid.UUID, archive_path: str) -> None:
         """Commit one explicit directory entry to the operation's ZIP target."""
@@ -96,6 +119,7 @@ class LiveArchiveCreationWriterManager:
             self._ensure_current_session(operation_id, session)
             await session.archive_writer.close()
             self._sessions.pop(operation_id)
+            archive_operation_cleanup_registry.unregister(operation_id)
         await self._disconnect(session.backend, operation_id)
 
     async def abort(self, operation_id: uuid.UUID) -> bool:
@@ -103,11 +127,15 @@ class LiveArchiveCreationWriterManager:
 
         session = self._sessions.get(operation_id)
         if session is None:
+            if operation_id in self._opening_operation_ids:
+                self._cancelled_opening_operation_ids.add(operation_id)
+                return True
             return False
         async with session.lock:
             if self._sessions.get(operation_id) is not session:
                 return False
             self._sessions.pop(operation_id)
+            archive_operation_cleanup_registry.unregister(operation_id)
             try:
                 await session.writer.abort_and_delete_if_owned()
             except Exception:
@@ -120,6 +148,7 @@ class LiveArchiveCreationWriterManager:
 
         for operation_id in list(self._sessions):
             await self.abort(operation_id)
+        self._cancelled_opening_operation_ids.update(self._opening_operation_ids)
 
     def _session(self, operation_id: uuid.UUID) -> _ArchiveCreationWriterSession:
         session = self._sessions.get(operation_id)

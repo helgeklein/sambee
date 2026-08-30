@@ -353,7 +353,7 @@ async def extract_archive_to_new_paths(
             try:
                 written = await destination.write_file_from_stream(
                     target_path,
-                    _cancellable_chunks(zip_reader.stream_member(entry.path), is_cancelled),
+                    _cancellable_chunks(zip_reader.stream_entry(entry), is_cancelled),
                     overwrite=overwrite,
                     source_mtime=entry.modified_at,
                 )

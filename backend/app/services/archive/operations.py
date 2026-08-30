@@ -10,6 +10,8 @@ from app.models.archive_operation import (
     TERMINAL_ARCHIVE_OPERATION_PHASES,
     ArchiveContractVersion,
     ArchiveOperation,
+    ArchiveOperationError,
+    ArchiveOperationErrorCode,
     ArchiveOperationKind,
     ArchiveOperationPhase,
 )
@@ -209,7 +211,7 @@ def fail_operation(
     operation: ArchiveOperation,
     message: str,
     *,
-    error_code: str | None = None,
+    error_code: ArchiveOperationErrorCode | None = None,
 ) -> ArchiveOperation:
     """Record an executor failure without masking the original request error."""
 
@@ -217,13 +219,10 @@ def fail_operation(
         return operation
     changes: dict[str, object] = {
         "phase": ArchiveOperationPhase.FAILED,
-        "last_error_json": json.dumps(
-            {
-                "code": error_code
-                or ("archive_extraction_failed" if operation.kind == ArchiveOperationKind.EXTRACT else "archive_creation_failed"),
-                "message": message,
-            }
-        ),
+        "last_error_json": ArchiveOperationError(
+            code=error_code or ArchiveOperationErrorCode.TRANSPORT_FAILURE,
+            message=message[:500] or "Archive operation failed",
+        ).model_dump_json(),
     }
     if operation.phase in _CHECKPOINTED_ARCHIVE_OPERATION_PHASES:
         changes["checkpoint_json"] = _validated_checkpoint_for_execution_transition(operation, None)

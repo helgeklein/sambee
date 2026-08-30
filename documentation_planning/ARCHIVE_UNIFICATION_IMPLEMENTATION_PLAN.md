@@ -586,6 +586,60 @@ Acceptance criteria:
    serialization, minted capability, idempotency, error-envelope
    interoperability, and final durable checkpoint/ledger state.
 
+### 8. Remove Arbitrary Archive Member Caps And Harden Streaming Ownership
+
+Complete the following hardening work without introducing a fixed archive-member
+count limit. Archive size and storage capacity remain practical operational
+constraints, but the V2 contract must not reject a valid archive solely because
+it contains more than an arbitrary number of members.
+
+1. Remove the V2 `100000` member-array limit from source-manifest, returned
+   manifest, and direct-local source-path schemas, and remove the matching
+   normative wording. Retain pagination limits for operation lists and archive
+   directory pages. Parsers continue to reject malformed ZIP structure, unsafe
+   paths, invalid record lengths, integer overflow, and archive records outside
+   the source bounds.
+2. Make local-to-SMB creation writer ownership atomic. The live writer manager
+   must reserve one operation before opening its exclusive target, distinguish
+   opening, active, and closed ownership, and ensure that a losing concurrent
+   begin cannot abort or disconnect the winning writer. A caller may clean up
+   only the lease it acquired.
+3. Tie successful durable orphan expiry to best-effort release of the matching
+   process-local writer lease. Keep the expiry monitor independent of API
+   globals: a service-level operation cleanup registry must invoke a registered
+   operation cleanup callback only after the monitor wins the durable revision
+   transition. Cleanup failure is logged with the operation ID and must not
+   revert the terminal durable failure.
+4. Enforce declared member size before an over-limit chunk reaches an archive
+   target or extraction output. Apply this at Python and Rust decompression
+   boundaries and at Python and Rust archive-writer boundaries. A malformed
+   stream must fail through the existing partial-output or exclusive-target
+   cleanup semantics, while correct streams still verify final length and CRC.
+5. Parse each ZIP central directory once per archive execution and carry an
+   opaque validated entry into member streaming. Do not reparse the directory
+   for every direct-extraction member. Request-scoped single-member reads may
+   parse once per request; they must not share mutable cache state across source
+   identities.
+6. Define one stable, typed terminal archive error vocabulary. Persist and emit
+   only contract-defined `{code, message}` errors, mapping executor interruption
+   and unexpected transport failures to `transport_failure`, source identity
+   changes to `source_changed`, and invalid lifecycle state to
+   `invalid_operation_state`. The API must expose a typed terminal error while
+   database storage may retain a serialized implementation detail.
+
+Acceptance criteria:
+
+- No V2 schema, plan, or runtime validation imposes a fixed archive-member
+  count limit; large archives retain bounded record parsing and paged listing.
+- Concurrent creation begins prove a losing request cannot remove, abort, or
+  disconnect the winner's exclusive writer, and orphan expiry releases a live
+  writer only after its durable transition succeeds.
+- Python and Rust reject oversized stored, Deflate, BZIP2, and creation-upload
+  streams before writing bytes beyond their declared member size.
+- Direct extraction proves its central directory is parsed once per archive
+  execution, while single-member reads remain request-scoped.
+- V2 fixtures and terminal operation reads use only documented error codes.
+
 ## Validation Order For Every Phase
 
 1. Add or revise language-neutral corpus cases before changing coordinators.

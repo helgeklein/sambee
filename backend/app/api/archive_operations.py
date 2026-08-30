@@ -98,6 +98,7 @@ from app.services.archive.extraction import (
     validate_archive_rename_targets,
 )
 from app.services.archive.live_creation import (
+    ArchiveCreationWriterAlreadyActive,
     ArchiveCreationWriterMemberDataError,
     ArchiveCreationWriterSessionNotFound,
     LiveArchiveCreationWriterManager,
@@ -1487,6 +1488,8 @@ async def begin_companion_smb_archive_creation(
             not_ready_detail="Archive operation is not ready for Companion output",
         )
         return operation
+    except ArchiveCreationWriterAlreadyActive as exc:
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="Archive creation writer is already active") from exc
     except FileExistsError as exc:
         await execution.abort()
         relay.fail_message("Archive creation target already exists")
@@ -1540,6 +1543,8 @@ async def stream_companion_smb_archive_creation_member(
         async for chunk in request.stream():
             if not advance_relay_transfer(DurableArchiveExecutionStateStore(session), operation):
                 raise ArchiveCreationCancelled("Archive creation was cancelled")
+            if len(chunk) > source_size - source_bytes:
+                raise ArchiveFormatError("Archive creation source exceeds its declared size")
             source_bytes += len(chunk)
             yield chunk
         if source_bytes != source_size:

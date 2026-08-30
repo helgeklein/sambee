@@ -1,11 +1,12 @@
 """Durable, scoped state for archive creation and extraction workflows."""
 
+import json
 import uuid
 from datetime import datetime, timezone
 from enum import StrEnum
 from typing import Literal
 
-from pydantic import field_serializer
+from pydantic import computed_field, field_serializer
 from sqlalchemy import CheckConstraint
 from sqlmodel import Field, SQLModel
 from sqlmodel._compat import SQLModelConfig
@@ -31,6 +32,29 @@ class ArchiveOperationPhase(StrEnum):
     COMPLETED = "completed"
     CANCELLED = "cancelled"
     FAILED = "failed"
+
+
+class ArchiveOperationErrorCode(StrEnum):
+    """Stable machine-readable V2 archive operation error codes."""
+
+    INVALID_MANIFEST = "invalid_manifest"
+    INVALID_CHECKPOINT = "invalid_checkpoint"
+    INVALID_CONTRACT_VERSION = "invalid_contract_version"
+    INVALID_MEMBER_PATH = "invalid_member_path"
+    COLLISION = "collision"
+    PARTIAL_OUTPUT = "partial_output"
+    SOURCE_CHANGED = "source_changed"
+    TRANSPORT_FAILURE = "transport_failure"
+    CANCELLED = "cancelled"
+    IDEMPOTENCY_CONFLICT = "idempotency_conflict"
+    CAPABILITY_INVALID = "capability_invalid"
+    CAPABILITY_VERSION_MISMATCH = "capability_version_mismatch"
+    INVALID_REQUEST = "invalid_request"
+    AUTHENTICATION_INVALID = "authentication_invalid"
+    AUTHORIZATION_DENIED = "authorization_denied"
+    NOT_FOUND = "not_found"
+    INVALID_OPERATION_STATE = "invalid_operation_state"
+    OPERATION_UNAVAILABLE = "operation_unavailable"
 
 
 TERMINAL_ARCHIVE_OPERATION_PHASES = frozenset(
@@ -86,6 +110,13 @@ class ArchiveOperationPrepare(ArchiveV2Payload):
     plan_json: str = "{}"
 
 
+class ArchiveOperationError(SQLModel):
+    """A typed terminal failure projected from durable operation state."""
+
+    code: ArchiveOperationErrorCode
+    message: str = Field(min_length=1, max_length=500)
+
+
 class ArchiveOperationRead(SQLModel):
     id: uuid.UUID
     contract_version: ArchiveContractVersion
@@ -105,6 +136,21 @@ class ArchiveOperationRead(SQLModel):
     created_at: datetime
     updated_at: datetime
     heartbeat_at: datetime
+
+    @computed_field
+    def last_error(self) -> ArchiveOperationError | None:
+        """Decode persisted errors defensively without exposing undocumented codes."""
+
+        if self.last_error_json is None:
+            return None
+        try:
+            value = json.loads(self.last_error_json)
+            return ArchiveOperationError.model_validate(value)
+        except (json.JSONDecodeError, ValueError):
+            return ArchiveOperationError(
+                code=ArchiveOperationErrorCode.INVALID_OPERATION_STATE,
+                message="Archive operation error state is invalid",
+            )
 
     @field_serializer("created_at", "updated_at", "heartbeat_at", when_used="json")
     def serialize_v2_timestamp(self, value: datetime) -> str:

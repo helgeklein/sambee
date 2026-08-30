@@ -131,6 +131,8 @@ class PortableZipWriter:
             raise ValueError("ZIP writer is already finalized")
         source = source or _empty_chunks()
         probe, remainder = await _read_probe(source)
+        if expected_uncompressed_size is not None and len(probe) + len(remainder) > expected_uncompressed_size:
+            raise ArchiveFormatError("Archive source exceeds its declared size")
         method = _STORED_METHOD if is_directory or _should_store(probe) else _DEFLATE_METHOD
         flags = _UTF8_FLAG | _DATA_DESCRIPTOR_FLAG
         dos_time, dos_date = _dos_time_and_date(modified_at)
@@ -167,6 +169,8 @@ class PortableZipWriter:
         async for chunk in _prepend_chunks(probe, remainder, source):
             if not chunk:
                 continue
+            if expected_uncompressed_size is not None and len(chunk) > expected_uncompressed_size - uncompressed_size:
+                raise ArchiveFormatError("Archive source exceeds its declared size")
             crc = zlib.crc32(chunk, crc)
             uncompressed_size += len(chunk)
             output = compressor.compress(chunk) if compressor is not None else chunk
@@ -178,6 +182,9 @@ class PortableZipWriter:
             if output:
                 await self._write(output)
                 compressed_size += len(output)
+
+        if expected_uncompressed_size is not None and uncompressed_size != expected_uncompressed_size:
+            raise ArchiveFormatError("Archive source size does not match its manifest")
 
         if not uses_zip64 and (_requires_zip64(compressed_size) or _requires_zip64(uncompressed_size)):
             raise ArchiveFormatError("Archive source exceeded the ZIP32 size reserved for its streamed entry")

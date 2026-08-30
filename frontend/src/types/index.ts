@@ -521,9 +521,15 @@ export interface ArchiveOperation {
   collision_policy?: string | null;
   cancellation_requested: boolean;
   last_error_json?: string | null;
+  last_error: ArchiveOperationError | null;
   created_at: string;
   updated_at: string;
   heartbeat_at: string;
+}
+
+export interface ArchiveOperationError {
+  code: string;
+  message: string;
 }
 
 export interface ArchiveCompanionSession {

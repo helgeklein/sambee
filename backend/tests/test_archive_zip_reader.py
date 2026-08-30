@@ -43,6 +43,16 @@ def _symbolic_link_zip_bytes() -> bytes:
     return buffer.getvalue()
 
 
+def _zip_with_underreported_size(compression: int) -> bytes:
+    buffer = io.BytesIO()
+    with zipfile.ZipFile(buffer, "w", compression=compression) as archive:
+        archive.writestr("data.txt", b"oversized member")
+    data = bytearray(buffer.getvalue())
+    central_offset = data.index(b"PK\x01\x02")
+    struct.pack_into("<I", data, central_offset + 24, 1)
+    return bytes(data)
+
+
 def _zip_with_unicode_path_extra(*, valid_crc: bool) -> bytes:
     raw_name = b"cafe.txt"
     buffer = io.BytesIO()
@@ -197,3 +207,28 @@ async def test_streams_bzip2_member_in_bounded_chunks() -> None:
 
     assert b"".join(chunks) == expected
     assert max(map(len, chunks)) <= 1024
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("compression", [zipfile.ZIP_STORED, zipfile.ZIP_DEFLATED, zipfile.ZIP_BZIP2])
+async def test_rejects_member_before_yielding_bytes_beyond_its_declared_size(compression: int) -> None:
+    reader = ZipReader(MemoryRandomAccessReader(_zip_with_underreported_size(compression)), len(_zip_with_underreported_size(compression)))
+    chunks: list[bytes] = []
+
+    with pytest.raises(ArchiveFormatError, match="exceeds its declared"):
+        async for chunk in reader.stream_member("data.txt", chunk_size=1):
+            chunks.append(chunk)
+
+    assert len(b"".join(chunks)) <= 1
+
+
+@pytest.mark.asyncio
+async def test_caches_parsed_central_directory_entries() -> None:
+    data = _zip_bytes()
+    reader = ZipReader(MemoryRandomAccessReader(data), len(data))
+
+    first_entries = await reader.entries()
+    second_entries = await reader.entries()
+
+    assert first_entries == second_entries
+    assert reader._entries is not None

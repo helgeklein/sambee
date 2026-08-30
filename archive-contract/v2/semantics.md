@@ -17,9 +17,8 @@ are rejected unless the schema explicitly permits map entries. Member paths are
 UTF-8, forward-slash-separated relative paths, at most 4096 characters, with no
 leading slash, empty, `.` or `..` segment, colon, backslash, or NUL. Timestamps
 are RFC 3339 UTC strings ending in `Z`, or `null` only where a source timestamp
-is unavailable. Counts and byte sizes are non-negative integers. Routes that
-accept a member manifest allow at most 100000 entries; inspection pages contain
-1 through 500 items.
+is unavailable. Counts and byte sizes are non-negative integers. Inspection
+pages contain 1 through 500 items.
 
 ## Durable Operations
 
@@ -107,3 +106,8 @@ machine-readable representation; transport status distinguishes malformed input
 (`422`), unauthenticated or invalid capability (`401`), capability scope denial
 (`403`), stale state or idempotency conflict (`409`), unavailable operation
 controls (`405`), and failed dependency or I/O (`5xx`).
+
+Durable operation reads retain `last_error_json` for compatibility and expose
+the same parsed typed envelope as `last_error`. A failed operation always uses
+one of the stable codes above; malformed legacy error state is projected as
+`invalid_operation_state`.

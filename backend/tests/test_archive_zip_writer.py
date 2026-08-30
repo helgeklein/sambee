@@ -140,6 +140,17 @@ async def test_writes_zip64_records_when_the_local_header_offset_requires_them()
 
 
 @pytest.mark.asyncio
+async def test_rejects_oversized_source_before_writing_member_data() -> None:
+    target = MemoryExclusiveWriter()
+    writer = PortableZipWriter(target)
+
+    with pytest.raises(ArchiveFormatError, match="exceeds its declared size"):
+        await writer.add_file("notes.txt", _chunks(b"oversized"), expected_uncompressed_size=1)
+
+    assert target.data == b""
+
+
+@pytest.mark.asyncio
 async def test_creates_direct_archive_from_regular_file_sources() -> None:
     backend = MemoryCreationBackend({"in/first.txt": b"first", "in/second.txt": b"second"})
     outcomes = []

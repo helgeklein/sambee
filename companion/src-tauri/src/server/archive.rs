@@ -1879,7 +1879,11 @@ fn update_crc32(mut state: u32, bytes: &[u8]) -> u32 {
     state
 }
 
-fn copy_member_data(reader: &mut impl Read, output: &mut impl Write) -> Result<(u64, u32), LocalArchiveReadError> {
+fn copy_member_data(
+    reader: &mut impl Read,
+    output: &mut impl Write,
+    expected_uncompressed_size: u64,
+) -> Result<(u64, u32), LocalArchiveReadError> {
     let mut buffer = vec![0; ARCHIVE_COPY_BUFFER_SIZE];
     let mut total = 0_u64;
     let mut crc = u32::MAX;
@@ -1887,6 +1891,13 @@ fn copy_member_data(reader: &mut impl Read, output: &mut impl Write) -> Result<(
         let read = reader.read(&mut buffer)?;
         if read == 0 {
             return Ok((total, !crc));
+        }
+        if u64::try_from(read).map_err(|_| LocalArchiveReadError::MemberIntegrityFailure)?
+            > expected_uncompressed_size
+                .checked_sub(total)
+                .ok_or(LocalArchiveReadError::MemberIntegrityFailure)?
+        {
+            return Err(LocalArchiveReadError::MemberIntegrityFailure);
         }
         output.write_all(&buffer[..read])?;
         total = total
@@ -1899,16 +1910,24 @@ fn copy_member_data(reader: &mut impl Read, output: &mut impl Write) -> Result<(
 /// Stream one parser-validated local member without staging archive or payload bytes.
 pub fn stream_local_archive_member(archive_path: &Path, member_path: &str, output: &mut impl Write) -> Result<(), LocalArchiveReadError> {
     let entry = validate_local_archive_member(archive_path, member_path)?;
-    let (file, _) = member_data_offset(archive_path, &entry)?;
+    stream_local_archive_entry(archive_path, &entry, output)
+}
+
+fn stream_local_archive_entry(
+    archive_path: &Path,
+    entry: &LocalArchiveReadEntry,
+    output: &mut impl Write,
+) -> Result<(), LocalArchiveReadError> {
+    let (file, _) = member_data_offset(archive_path, entry)?;
     let (written, crc32) = match entry.compression_method {
         0 => {
             let mut reader = file.take(entry.compressed_size);
-            copy_member_data(&mut reader, output)?
+            copy_member_data(&mut reader, output, entry.uncompressed_size)?
         }
         8 => {
             let reader = file.take(entry.compressed_size);
             let mut decoder = DeflateDecoder::new(reader);
-            let result = copy_member_data(&mut decoder, output)?;
+            let result = copy_member_data(&mut decoder, output, entry.uncompressed_size)?;
             if decoder.into_inner().limit() != 0 {
                 return Err(LocalArchiveReadError::MemberIntegrityFailure);
             }
@@ -1917,7 +1936,7 @@ pub fn stream_local_archive_member(archive_path: &Path, member_path: &str, outpu
         12 => {
             let reader = file.take(entry.compressed_size);
             let mut decoder = BzDecoder::new(reader);
-            let result = copy_member_data(&mut decoder, output)?;
+            let result = copy_member_data(&mut decoder, output, entry.uncompressed_size)?;
             if decoder.into_inner().limit() != 0 {
                 return Err(LocalArchiveReadError::MemberIntegrityFailure);
             }
@@ -2134,7 +2153,7 @@ pub fn extract_local_archive_with_checkpoint_and_progress(
                 } else {
                     open_local_extraction_file(drive_root, &output_path)?
                 };
-                stream_local_archive_member(archive_path, &entry.path, &mut output)?;
+                stream_local_archive_entry(archive_path, &entry, &mut output)?;
                 output.flush()?;
                 if let Some(modified_at) = entry.modified_at {
                     output.set_modified(modified_at.into())?;
@@ -2695,6 +2714,9 @@ pub fn write_local_archive_stream_with_execution_plan<W: Write>(
             revalidate_local_archive_creation_source(entry)?;
             let mut source = FsFile::open(&entry.source_path)?;
             let probe_size = source.read(&mut buffer)?;
+            if probe_size as u64 > manifest_entry.source_size {
+                return Err(LocalArchiveError::InvalidCreationOutcome);
+            }
             writer.start_file(
                 normalized_archive_path(&manifest_entry.archive_path, false)?,
                 regular_file_options(&buffer[..probe_size])?,
@@ -2708,6 +2730,9 @@ pub fn write_local_archive_stream_with_execution_plan<W: Write>(
                 let read = source.read(&mut buffer)?;
                 if read == 0 {
                     break;
+                }
+                if read as u64 > manifest_entry.source_size.saturating_sub(source_bytes) {
+                    return Err(LocalArchiveError::InvalidCreationOutcome);
                 }
                 writer.write_all(&buffer[..read])?;
                 source_bytes = source_bytes
@@ -2842,11 +2867,17 @@ impl LocalArchiveRelayWriter {
         let (manifest_path, expected_size) = self.next_manifest_entry(archive_path, false)?;
         (|| {
             let (probe, pending_chunk, source_completed) = receive_compression_probe(&mut chunks)?;
+            if probe.len() as u64 > expected_size {
+                return Err(LocalArchiveError::InvalidCreationOutcome);
+            }
             self.writer
                 .start_file(normalized_archive_path(&manifest_path, false)?, regular_file_options(&probe)?)?;
             self.writer.write_all(&probe)?;
             let mut written = probe.len() as u64;
             if let Some(chunk) = pending_chunk {
+                if chunk.len() as u64 > expected_size.saturating_sub(written) {
+                    return Err(LocalArchiveError::InvalidCreationOutcome);
+                }
                 self.writer.write_all(&chunk)?;
                 written = written
                     .checked_add(chunk.len() as u64)
@@ -2856,6 +2887,9 @@ impl LocalArchiveRelayWriter {
                 loop {
                     match chunks.blocking_recv() {
                         Some(LocalArchiveRelayChunk::Data(chunk)) => {
+                            if chunk.len() as u64 > expected_size.saturating_sub(written) {
+                                return Err(LocalArchiveError::InvalidCreationOutcome);
+                            }
                             self.writer.write_all(&chunk)?;
                             written = written
                                 .checked_add(chunk.len() as u64)
@@ -3264,6 +3298,28 @@ mod tests {
     }
 
     #[test]
+    fn rejects_oversized_member_data_before_writing_for_supported_codecs() {
+        fn assert_oversized(reader: impl Read) {
+            let mut output = Vec::new();
+            assert!(matches!(
+                copy_member_data(&mut std::io::BufReader::new(reader), &mut output, 1),
+                Err(LocalArchiveReadError::MemberIntegrityFailure)
+            ));
+            assert!(output.is_empty());
+        }
+
+        assert_oversized(std::io::Cursor::new(b"oversized"));
+
+        let mut deflate_encoder = DeflateEncoder::new(Vec::new(), Compression::default());
+        deflate_encoder.write_all(b"oversized").unwrap();
+        assert_oversized(DeflateDecoder::new(std::io::Cursor::new(deflate_encoder.finish().unwrap())));
+
+        let mut bzip2_encoder = bzip2::write::BzEncoder::new(Vec::new(), bzip2::Compression::default());
+        bzip2_encoder.write_all(b"oversized").unwrap();
+        assert_oversized(BzDecoder::new(std::io::Cursor::new(bzip2_encoder.finish().unwrap())));
+    }
+
+    #[test]
     fn writes_directory_manifest_to_a_readable_zip() {
         let directory = tempdir().unwrap();
         let source_root = directory.path().join("source");
@@ -3369,6 +3425,33 @@ mod tests {
             writer.write_file("unexpected.txt", receiver),
             Err(LocalArchiveError::InvalidCreationOutcome)
         ));
+    }
+
+    #[test]
+    fn rejects_oversized_relay_members_before_writing_member_data() {
+        let directory = tempdir().unwrap();
+        let target = directory.path().join("archive.zip");
+        let manifest = ArchiveCreationManifest::from_entries(vec![ArchiveCreationManifestMember {
+            archive_path: "notes.txt".to_string(),
+            is_directory: false,
+            source_size: 1,
+            source_modified_at: None,
+        }])
+        .unwrap();
+        let writer = create_local_archive_relay_writer(directory.path(), &target, manifest).unwrap();
+        let (sender, receiver) = tokio::sync::mpsc::channel(1);
+        sender
+            .try_send(LocalArchiveRelayChunk::Data(vec![b'x'; ARCHIVE_COPY_BUFFER_SIZE]))
+            .unwrap();
+
+        assert!(matches!(
+            writer.write_file("notes.txt", receiver),
+            Err(LocalArchiveError::PartialArchiveOutput(_))
+        ));
+        assert!(!fs::read(target)
+            .unwrap()
+            .windows(b"notes.txt".len())
+            .any(|window| window == b"notes.txt"));
     }
 
     #[test]

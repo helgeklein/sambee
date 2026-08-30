@@ -349,6 +349,7 @@ class ZipReader:
             raise ArchiveFormatError("Archive is too small to be a ZIP file")
         self._reader = reader
         self._size = size
+        self._entries: tuple[ZipEntry, ...] | None = None
 
     async def _read_exact(self, offset: int, length: int) -> bytes:
         if offset < 0 or length < 0 or offset + length > self._size:
@@ -387,6 +388,8 @@ class ZipReader:
         return ZipDirectory(_u64(header, 48), _u64(header, 40), _u64(header, 32))
 
     async def entries(self) -> list[ZipEntry]:
+        if self._entries is not None:
+            return list(self._entries)
         directory = await self._directory()
         if directory.offset + directory.size > self._size:
             raise ArchiveFormatError("ZIP central directory extends beyond archive bounds")
@@ -444,7 +447,8 @@ class ZipReader:
             position += _CENTRAL_DIRECTORY_FIXED_SIZE + variable_length
         if position != directory_end:
             raise ArchiveFormatError("ZIP central-directory size does not match its entries")
-        return entries
+        self._entries = tuple(entries)
+        return list(self._entries)
 
     async def validate_member(self, path: str) -> ZipEntry:
         """Resolve and validate a member before a response commits headers."""
@@ -455,6 +459,13 @@ class ZipReader:
         )
         if entry is None:
             raise ArchiveFormatError("Archive member was not found")
+
+        await self._validate_entry(entry)
+        return entry
+
+    async def _validate_entry(self, entry: ZipEntry) -> None:
+        if entry not in await self.entries():
+            raise ArchiveFormatError("ZIP member was not found")
 
         local_header = await self._read_exact(entry.local_header_offset, 30)
         if local_header[:4] != _LOCAL_FILE_SIGNATURE:
@@ -469,7 +480,6 @@ class ZipReader:
         local_name = await self._read_exact(entry.local_header_offset + 30, local_name_length)
         if local_name != entry.raw_name:
             raise ArchiveFormatError("ZIP local header filename does not match central directory")
-        return entry
 
     async def inspection_manifest(self) -> ArchiveInspectionManifest:
         """Project parsed ZIP metadata into the shared inspection domain value."""
@@ -495,9 +505,20 @@ class ZipReader:
     async def stream_member(self, path: str, chunk_size: int = 262_144) -> AsyncIterator[bytes]:
         """Validate and stream a single permitted member without staging it."""
 
+        entry = await self.validate_member(path)
+        async for chunk in self._stream_validated_entry(entry, chunk_size=chunk_size):
+            yield chunk
+
+    async def stream_entry(self, entry: ZipEntry, chunk_size: int = 262_144) -> AsyncIterator[bytes]:
+        """Validate and stream a central-directory entry from this reader session."""
+
+        await self._validate_entry(entry)
+        async for chunk in self._stream_validated_entry(entry, chunk_size=chunk_size):
+            yield chunk
+
+    async def _stream_validated_entry(self, entry: ZipEntry, chunk_size: int = 262_144) -> AsyncIterator[bytes]:
         if not 0 < chunk_size <= _ARCHIVE_IO_CHUNK_BYTES:
             raise ValueError(f"ZIP member chunk size must be between 1 and {_ARCHIVE_IO_CHUNK_BYTES} bytes")
-        entry = await self.validate_member(path)
         local_header = await self._read_exact(entry.local_header_offset, 30)
         local_name_length = _u16(local_header, 26)
         local_extra_length = _u16(local_header, 28)
@@ -507,6 +528,14 @@ class ZipReader:
 
         crc = 0
         total = 0
+
+        def record_output(output: bytes) -> None:
+            nonlocal crc, total
+            if len(output) > entry.uncompressed_size - total:
+                raise ArchiveFormatError("ZIP member exceeds its declared uncompressed size")
+            crc = zlib.crc32(output, crc)
+            total += len(output)
+
         offset = data_offset
         remaining = entry.compressed_size
         if entry.compression_method == 0:
@@ -514,8 +543,7 @@ class ZipReader:
                 part = await self._read_exact(offset, min(chunk_size, remaining))
                 offset += len(part)
                 remaining -= len(part)
-                crc = zlib.crc32(part, crc)
-                total += len(part)
+                record_output(part)
                 yield part
         elif entry.compression_method == 8:
             deflate_decompressor = zlib.decompressobj(-zlib.MAX_WBITS)
@@ -528,13 +556,11 @@ class ZipReader:
                     output = deflate_decompressor.decompress(pending, chunk_size)
                     pending = deflate_decompressor.unconsumed_tail
                     if output:
-                        crc = zlib.crc32(output, crc)
-                        total += len(output)
+                        record_output(output)
                         yield output
             output = deflate_decompressor.flush(chunk_size)
             if output:
-                crc = zlib.crc32(output, crc)
-                total += len(output)
+                record_output(output)
                 yield output
             if not deflate_decompressor.eof:
                 raise ArchiveFormatError("ZIP Deflate member is truncated")
@@ -549,8 +575,7 @@ class ZipReader:
                     output = bzip2_decompressor.decompress(pending, max_length=chunk_size)
                     pending = b""
                     if output:
-                        crc = zlib.crc32(output, crc)
-                        total += len(output)
+                        record_output(output)
                         yield output
                     if bzip2_decompressor.eof or bzip2_decompressor.needs_input:
                         break
