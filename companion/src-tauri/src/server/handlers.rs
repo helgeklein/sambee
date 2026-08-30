@@ -41,10 +41,11 @@ use super::archive::{
     validate_local_archive_extraction, validate_local_extraction_member_path, validate_local_extraction_rename_target,
     ArchiveCreationManifest, ArchiveCreationManifestState, ArchiveDirectoryListingPresentation, ArchiveExtractionManifest,
     ArchiveExtractionManifestMember, ArchiveExtractionRelayExecutionPlan, ArchiveExtractionRelayState, ArchiveInspectionCoordinator,
-    ArchiveInspectionPlan, ArchiveInspectionPresentation, ArchiveMemberReadPresentation, CompanionArchiveOperationKind,
-    CompanionArchiveTopology, CompanionArchiveTopologyPlan, LocalArchiveCreationExecutionPlan, LocalArchiveCreationResult,
-    LocalArchiveEntry, LocalArchiveError, LocalArchiveExtractionCollisionAction, LocalArchiveExtractionExecutionPlan,
-    LocalArchiveExtractionRunResult, LocalArchiveInspectionSource, LocalArchiveReadEntry, LocalArchiveRelayChunk, ARCHIVE_COPY_BUFFER_SIZE,
+    ArchiveInspectionPlan, ArchiveInspectionPresentation, ArchiveMemberReadDelivery, ArchiveMemberReadPresentation,
+    CompanionArchiveBinding, CompanionArchiveExecutionDriver, CompanionArchiveOperationKind, CompanionArchiveTopology,
+    CompanionArchiveTopologyPlan, LocalArchiveCreationExecutionPlan, LocalArchiveCreationResult, LocalArchiveEntry, LocalArchiveError,
+    LocalArchiveExtractionCollisionAction, LocalArchiveExtractionExecutionPlan, LocalArchiveExtractionRunResult,
+    LocalArchiveInspectionSource, LocalArchiveReadEntry, LocalArchiveRelayChunk, ARCHIVE_COPY_BUFFER_SIZE,
 };
 use super::archive_sessions::{
     ArchiveSessionCompletion, ArchiveSessionManager, ArchiveSessionProgress, ArchiveSessionStatus, ArchiveSessionWork,
@@ -100,8 +101,22 @@ fn resolve_companion_inspection_coordinator(
     #[cfg(test)]
     INSPECTION_RESOLVER_CALL_COUNT.fetch_add(1, Ordering::Relaxed);
     if matches!(
-        (topology_plan.kind, topology_plan.topology),
-        (CompanionArchiveOperationKind::Inspect, CompanionArchiveTopology::LocalInspection)
+        (
+            topology_plan.kind,
+            topology_plan.driver,
+            topology_plan.topology,
+            topology_plan.source_is_local,
+            topology_plan.destination_is_local,
+            topology_plan.binding,
+        ),
+        (
+            CompanionArchiveOperationKind::Inspect,
+            CompanionArchiveExecutionDriver::Companion,
+            CompanionArchiveTopology::LocalInspection,
+            true,
+            None,
+            CompanionArchiveBinding::LocalInspection,
+        )
     ) {
         Ok(ArchiveInspectionCoordinator::from_plan(plan))
     } else {
@@ -790,7 +805,7 @@ pub async fn viewer_archive_member(Path(drive): Path<String>, Query(query): Quer
     })
     .await
     .map_err(|error| ApiError::Internal(format!("Local archive validation task failed: {error}")))??;
-    if !query.download && !member.inline_preview_eligible {
+    if member.delivery == ArchiveMemberReadDelivery::PreviewUnavailable {
         return Err(ApiError::PayloadTooLarge(
             "Archive member exceeds the inline preview size limit".to_string(),
         ));
@@ -4855,9 +4870,9 @@ mod tests {
         resolve_companion_archive_inspection_topology_plan, resolve_companion_archive_topology_plan, validate_local_archive_extraction,
         ArchiveCreationManifest, ArchiveCreationManifestMember, ArchiveDirectoryListingPresentation, ArchiveInspectionPlan,
         ArchiveInspectionPresentation, CompanionArchiveBinding, CompanionArchiveExecutionDriver, CompanionArchiveOperationKind,
-        CompanionArchiveTopology, LocalArchiveCreationResult, LocalArchiveEntry, LocalArchiveError, LocalArchiveExtractionMemberError,
-        LocalArchiveExtractionResult, LocalArchiveInspectionSource, LocalArchiveReadEntry, LocalArchiveReadError,
-        ARCHIVE_INLINE_PREVIEW_MAX_BYTES,
+        CompanionArchiveTopology, CompanionArchiveTopologyPlan, LocalArchiveCreationResult, LocalArchiveEntry, LocalArchiveError,
+        LocalArchiveExtractionMemberError, LocalArchiveExtractionResult, LocalArchiveInspectionSource, LocalArchiveReadEntry,
+        LocalArchiveReadError, ARCHIVE_INLINE_PREVIEW_MAX_BYTES,
     };
     use crate::server::archive_sessions::{
         ArchiveSessionKind, ArchiveSessionPendingDecision, ArchiveSessionPhase, ArchiveSessionProgress, ArchiveSessionStatus,
@@ -5006,6 +5021,11 @@ mod tests {
         assert!(inspection_topology.source_is_local);
         assert_eq!(inspection_topology.destination_is_local, None);
         assert_eq!(inspection_topology.binding, CompanionArchiveBinding::LocalInspection);
+        let incompatible_binding = CompanionArchiveTopologyPlan {
+            binding: CompanionArchiveBinding::LocalToLocal,
+            ..inspection_topology
+        };
+        assert!(resolve_companion_inspection_coordinator(incompatible_binding, plan.clone()).is_err());
         let create_topology = resolve_companion_archive_topology_plan(CompanionArchiveOperationKind::Create, true, true)
             .expect("creation topology should resolve");
         assert!(resolve_companion_inspection_coordinator(create_topology, plan).is_err());
@@ -5100,6 +5120,22 @@ mod tests {
         assert!(matches!(unavailable_member, ApiError::BadRequest(message) if message.contains("unavailable codec")));
         assert_eq!(inspection_resolver_call_count(), 5);
 
+        let encrypted_target = directory.path().join("encrypted.zip");
+        std::fs::copy(&target, &encrypted_target).expect("archive should be copied for encryption mutation");
+        mark_zip_member_encrypted(&encrypted_target);
+        let encrypted_member = viewer_archive_member(
+            Path(drive_id.clone()),
+            Query(ArchiveMemberQuery {
+                archive_path: "encrypted.zip".to_string(),
+                member_path: "source.txt".to_string(),
+                download: false,
+            }),
+        )
+        .await
+        .expect_err("encrypted archive member should be rejected");
+        assert!(matches!(encrypted_member, ApiError::BadRequest(message) if message.contains("blocked feature")));
+        assert_eq!(inspection_resolver_call_count(), 6);
+
         let large_source = directory.path().join("large.txt");
         let large_target = directory.path().join("large.zip");
         std::fs::write(&large_source, vec![b'x'; (ARCHIVE_INLINE_PREVIEW_MAX_BYTES + 1) as usize])
@@ -5117,25 +5153,37 @@ mod tests {
         .await
         .expect_err("oversized archive preview should be rejected");
         assert!(matches!(oversized_preview, ApiError::PayloadTooLarge(message) if message.contains("inline preview size limit")));
-        assert_eq!(inspection_resolver_call_count(), 6);
+        assert_eq!(inspection_resolver_call_count(), 7);
     }
 
     fn mark_zip_member_codec_unavailable(archive_path: &std::path::Path) {
+        update_zip_member_header_u16(archive_path, 8, 10, 99);
+    }
+
+    fn mark_zip_member_encrypted(archive_path: &std::path::Path) {
+        update_zip_member_header_u16(archive_path, 6, 8, 1);
+    }
+
+    fn update_zip_member_header_u16(
+        archive_path: &std::path::Path,
+        local_header_offset: usize,
+        central_directory_offset: usize,
+        value: u16,
+    ) {
         const LOCAL_HEADER: &[u8; 4] = b"PK\x03\x04";
         const CENTRAL_DIRECTORY_HEADER: &[u8; 4] = b"PK\x01\x02";
-        const UNAVAILABLE_CODEC: u16 = 99;
 
         let mut archive = std::fs::read(archive_path).expect("archive should be readable for codec mutation");
-        for offset in 0..=archive.len().saturating_sub(4) {
+        for offset in 0..archive.len().saturating_sub(3) {
             let signature = &archive[offset..offset + 4];
             let method_offset = if signature == LOCAL_HEADER {
-                offset + 8
+                offset + local_header_offset
             } else if signature == CENTRAL_DIRECTORY_HEADER {
-                offset + 10
+                offset + central_directory_offset
             } else {
                 continue;
             };
-            archive[method_offset..method_offset + 2].copy_from_slice(&UNAVAILABLE_CODEC.to_le_bytes());
+            archive[method_offset..method_offset + 2].copy_from_slice(&value.to_le_bytes());
         }
         std::fs::write(archive_path, archive).expect("mutated archive should be written");
     }

@@ -52,6 +52,21 @@ def _archive_bytes(
     return output.getvalue()
 
 
+def _archive_bytes_with_encrypted_members() -> bytes:
+    archive = bytearray(_archive_bytes())
+    for offset in range(len(archive) - 3):
+        signature = archive[offset : offset + 4]
+        if signature == b"PK\x03\x04":
+            flags_offset = offset + 6
+        elif signature == b"PK\x01\x02":
+            flags_offset = offset + 8
+        else:
+            continue
+        flags = int.from_bytes(archive[flags_offset : flags_offset + 2], "little") | 1
+        archive[flags_offset : flags_offset + 2] = flags.to_bytes(2, "little")
+    return bytes(archive)
+
+
 @pytest.fixture
 def mock_smb_backend():
     """Create a mock SMB backend."""
@@ -353,10 +368,11 @@ class TestStreamArchiveMember:
         assert archive_reader.closed is True
 
     @pytest.mark.parametrize(
-        ("member_path", "archive_data"),
+        ("member_path", "archive_data", "error_message"),
         [
-            ("missing.txt", _archive_bytes()),
-            ("docs/readme.txt", _archive_bytes(compression=zipfile.ZIP_LZMA)),
+            ("missing.txt", _archive_bytes(), "was not found"),
+            ("docs/readme.txt", _archive_bytes(compression=zipfile.ZIP_LZMA), "unavailable codec"),
+            ("docs/readme.txt", _archive_bytes_with_encrypted_members(), "blocked feature"),
         ],
     )
     def test_rejects_invalid_or_unavailable_archive_members_through_inspection_resolver(
@@ -366,6 +382,7 @@ class TestStreamArchiveMember:
         test_connection: Connection,
         member_path: str,
         archive_data: bytes,
+        error_message: str,
     ):
         archive_reader = _MemoryRandomAccessReader(archive_data)
         backend = AsyncMock()
@@ -389,6 +406,7 @@ class TestStreamArchiveMember:
 
         assert response.status_code == 422
         assert response.json()["detail"]["code"] == "invalid_zip"
+        assert error_message in response.json()["detail"]["message"]
         resolve_inspection.assert_called_once()
         assert archive_reader.closed is True
 

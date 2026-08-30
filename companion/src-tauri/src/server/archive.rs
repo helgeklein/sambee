@@ -402,6 +402,11 @@ impl ArchiveMemberReadPresentation {
         Ok(ArchiveMemberReadProjection {
             member_path: self.member_path.clone(),
             inline_preview_eligible: member.is_inline_preview_eligible(),
+            delivery: if !self.download && !member.is_inline_preview_eligible() {
+                ArchiveMemberReadDelivery::PreviewUnavailable
+            } else {
+                ArchiveMemberReadDelivery::Stream
+            },
             content_type: mime_guess::from_path(member_name).first_or_octet_stream().to_string(),
             content_disposition: format!(
                 "{}; filename=\"{member_name}\"",
@@ -411,11 +416,19 @@ impl ArchiveMemberReadPresentation {
     }
 }
 
+/// Transport-neutral V1 member delivery selected by the presentation adapter.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ArchiveMemberReadDelivery {
+    Stream,
+    PreviewUnavailable,
+}
+
 /// V1 member response details projected by a request-scoped presentation adapter.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ArchiveMemberReadProjection {
     pub member_path: String,
     pub inline_preview_eligible: bool,
+    pub delivery: ArchiveMemberReadDelivery,
     pub content_type: String,
     pub content_disposition: String,
 }
