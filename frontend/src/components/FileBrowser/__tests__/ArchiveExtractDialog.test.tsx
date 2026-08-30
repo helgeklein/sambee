@@ -139,6 +139,36 @@ describe("ArchiveExtractDialog", () => {
     expect(onCancelExtraction).toHaveBeenCalledOnce();
   });
 
+  it("retains the member-error recovery controls after a failed decision", async () => {
+    const user = userEvent.setup();
+    const onMemberErrorDecision = vi.fn();
+    const memberError = {
+      memberPath: "docs/readme.txt",
+      targetPath: "output/docs/readme.txt",
+      message: "Disk full",
+      partialOutput: true,
+    };
+    const { rerender } = render(
+      <ArchiveExtractDialog {...defaultProps} isExtracting={true} memberError={memberError} onMemberErrorDecision={onMemberErrorDecision} />
+    );
+
+    await user.click(screen.getByRole("radio", { name: "fileBrowser.archive.memberErrorChoiceIgnore" }));
+    await user.click(screen.getByRole("button", { name: "fileBrowser.archive.collisionContinue" }));
+    rerender(
+      <ArchiveExtractDialog
+        {...defaultProps}
+        isExtracting={true}
+        error="fileBrowser.archive.extractError"
+        memberError={memberError}
+        onMemberErrorDecision={onMemberErrorDecision}
+      />
+    );
+
+    expect(screen.getByText("Disk full")).toBeInTheDocument();
+    expect(screen.getByRole("radio", { name: "fileBrowser.archive.memberErrorChoiceIgnore" })).toBeChecked();
+    expect(screen.getByRole("button", { name: "fileBrowser.archive.collisionContinue" })).toBeEnabled();
+  });
+
   it("uses one collision choice and a single continue action", async () => {
     const user = userEvent.setup();
     const onConflictDecision = vi.fn();

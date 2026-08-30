@@ -113,6 +113,28 @@ describe("ArchiveConflictResolver", () => {
     await waitFor(() => expect(screen.getByTestId("archive-conflict-summary")).toHaveFocus());
   });
 
+  it("labels desktop metadata columns as archive and existing", () => {
+    render(
+      <ArchiveConflictResolver
+        conflict={{
+          ...conflict,
+          sourceSize: 10,
+          targetSize: 5,
+          sourceModifiedAt: "2026-08-30T20:00:00Z",
+          targetModifiedAt: "2026-08-29T20:00:00Z",
+        }}
+        allowedActions={[...allActions]}
+        isSubmitting={false}
+        error={null}
+        onResolutionChange={vi.fn()}
+      />
+    );
+
+    const headers = screen.getByTestId("archive-conflict-desktop-comparison-headers");
+    expect(headers).toHaveTextContent("fileBrowser.archive.collisionArchiveColumn");
+    expect(headers).toHaveTextContent("fileBrowser.archive.collisionDestinationColumn");
+  });
+
   it("does not emit an unsafe rename target", async () => {
     const user = userEvent.setup();
     const onResolutionChange = vi.fn();

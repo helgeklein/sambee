@@ -90,7 +90,7 @@ function ArchiveConflictMetadataRow({
       <Typography component="dt" variant="body2" sx={{ color: "text.secondary", gridColumn: { xs: "1 / -1", sm: "auto" } }}>
         {label}
       </Typography>
-      <Box component="dd" sx={{ m: 0, minWidth: 0 }}>
+      <Box component="dd" aria-label={`${label}: ${archiveLabel}`} sx={{ m: 0, minWidth: 0 }}>
         <Typography variant="caption" sx={{ color: "text.secondary", display: { sm: "none" } }}>
           {archiveLabel}
         </Typography>
@@ -98,7 +98,7 @@ function ArchiveConflictMetadataRow({
           {archiveValue ?? "-"}
         </Typography>
       </Box>
-      <Box component="dd" sx={{ m: 0, minWidth: 0 }}>
+      <Box component="dd" aria-label={`${label}: ${destinationLabel}`} sx={{ m: 0, minWidth: 0 }}>
         <Typography variant="caption" sx={{ color: "text.secondary", display: { sm: "none" } }}>
           {destinationLabel}
         </Typography>
@@ -208,21 +208,40 @@ export function ArchiveConflictResolver({
         />
       </Box>
       {(sourceSize !== null || targetSize !== null || sourceModifiedAt !== null || targetModifiedAt !== null) && (
-        <Box component="dl" sx={{ display: "flex", flexDirection: "column", gap: 1.5, m: 0 }}>
-          <ArchiveConflictMetadataRow
-            label={t("fileBrowser.archive.collisionSizeLabel")}
-            archiveValue={sourceSize}
-            destinationValue={targetSize}
-            archiveLabel={t("fileBrowser.archive.collisionArchiveColumn")}
-            destinationLabel={t("fileBrowser.archive.collisionDestinationColumn")}
-          />
-          <ArchiveConflictMetadataRow
-            label={t("fileBrowser.archive.collisionModifiedLabel")}
-            archiveValue={sourceModifiedAt}
-            destinationValue={targetModifiedAt}
-            archiveLabel={t("fileBrowser.archive.collisionArchiveColumn")}
-            destinationLabel={t("fileBrowser.archive.collisionDestinationColumn")}
-          />
+        <Box sx={{ display: "flex", flexDirection: "column", gap: 0.5 }}>
+          <Box
+            aria-hidden="true"
+            data-testid="archive-conflict-desktop-comparison-headers"
+            sx={{
+              display: { xs: "none", sm: "grid" },
+              gridTemplateColumns: "minmax(0, 0.8fr) minmax(0, 1fr) minmax(0, 1fr)",
+              gap: 1,
+            }}
+          >
+            <Box />
+            <Typography variant="caption" sx={{ color: "text.secondary" }}>
+              {t("fileBrowser.archive.collisionArchiveColumn")}
+            </Typography>
+            <Typography variant="caption" sx={{ color: "text.secondary" }}>
+              {t("fileBrowser.archive.collisionDestinationColumn")}
+            </Typography>
+          </Box>
+          <Box component="dl" sx={{ display: "flex", flexDirection: "column", gap: 1.5, m: 0 }}>
+            <ArchiveConflictMetadataRow
+              label={t("fileBrowser.archive.collisionSizeLabel")}
+              archiveValue={sourceSize}
+              destinationValue={targetSize}
+              archiveLabel={t("fileBrowser.archive.collisionArchiveColumn")}
+              destinationLabel={t("fileBrowser.archive.collisionDestinationColumn")}
+            />
+            <ArchiveConflictMetadataRow
+              label={t("fileBrowser.archive.collisionModifiedLabel")}
+              archiveValue={sourceModifiedAt}
+              destinationValue={targetModifiedAt}
+              archiveLabel={t("fileBrowser.archive.collisionArchiveColumn")}
+              destinationLabel={t("fileBrowser.archive.collisionDestinationColumn")}
+            />
+          </Box>
         </Box>
       )}
       <FormControl component="fieldset" disabled={isSubmitting}>
