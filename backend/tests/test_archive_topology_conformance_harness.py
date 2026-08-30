@@ -44,8 +44,8 @@ from app.services.archive.extraction import (
     ArchiveExtractionMemberError,
     ArchiveExtractionResult,
 )
-from app.services.archive.zip_reader import ArchiveInspectionManifest
 from app.services.archive.v2_checkpoint import new_v2_extraction_checkpoint
+from app.services.archive.zip_reader import ArchiveInspectionManifest
 
 
 class AdapterFault(StrEnum):

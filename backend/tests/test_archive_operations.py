@@ -42,15 +42,14 @@ from app.services.archive.coordinator import (
     complete_relay_execution,
     completed_extraction_member_paths,
     creation_outcome_summary,
-    extraction_outcome_summary,
     existing_files_decision,
+    extraction_outcome_summary,
     load_archive_checkpoint,
     member_error_decision,
     persist_extraction_member_outcome,
     record_extraction_member_outcome,
     start_archive_execution,
 )
-from app.services.archive.v2_checkpoint import new_v2_extraction_checkpoint
 from app.services.archive.creation import ArchiveCreationEntry, ArchiveCreationMemberOutcome, ArchiveCreationResult
 from app.services.archive.execution import (
     ArchiveCompanionRelayPurpose,
@@ -68,6 +67,7 @@ from app.services.archive.extraction import (
 )
 from app.services.archive.operation_monitor import expire_stale_archive_operations
 from app.services.archive.state_store import ArchiveOperationStateStore
+from app.services.archive.v2_checkpoint import new_v2_extraction_checkpoint
 
 
 class MemoryRandomAccessReader:
@@ -189,9 +189,7 @@ def test_creation_state_rejects_duplicate_members_and_bounds_member_lookup() -> 
     assert exc_info.value.status_code == status.HTTP_422_UNPROCESSABLE_CONTENT
 
     with pytest.raises(HTTPException, match="checkpoint is invalid") as exc_info:
-        ArchiveCreationState.from_checkpoint(
-            {**manifest.empty_checkpoint(), "manifest": manifest.empty_checkpoint()["manifest"] * 2}
-        )
+        ArchiveCreationState.from_checkpoint({**manifest.empty_checkpoint(), "manifest": manifest.empty_checkpoint()["manifest"] * 2})
     assert exc_info.value.status_code == status.HTTP_409_CONFLICT
     with pytest.raises(HTTPException, match="checkpoint is invalid") as exc_info:
         ArchiveCreationState.from_checkpoint(
@@ -278,9 +276,7 @@ def test_creation_member_commit_normalizes_and_persists_manifest_outcome() -> No
         ArchiveCreationMemberOutcome("docs\\readme.txt", "created", 7),
     )
 
-    assert json.loads(committed.checkpoint_json)["member_outcomes"] == {
-        "docs/readme.txt": {"status": "created", "source_bytes": 7}
-    }
+    assert json.loads(committed.checkpoint_json)["member_outcomes"] == {"docs/readme.txt": {"status": "created", "source_bytes": 7}}
 
 
 def test_creation_manifest_centralizes_relay_normalization_and_validation() -> None:
@@ -332,8 +328,8 @@ def test_creation_member_outcome_recorder_is_idempotent_and_rejects_conflicts() 
     record_creation_member_outcome(checkpoint, ArchiveCreationMemberOutcome("docs/readme.txt", "created", 7))
 
     assert checkpoint["member_outcomes"] == {
-            "docs": {"status": "directory", "source_bytes": 0},
-            "docs/readme.txt": {"status": "created", "source_bytes": 7},
+        "docs": {"status": "directory", "source_bytes": 0},
+        "docs/readme.txt": {"status": "created", "source_bytes": 7},
     }
     with pytest.raises(HTTPException, match="outcome conflicts") as exc_info:
         record_creation_member_outcome(checkpoint, ArchiveCreationMemberOutcome("docs/readme.txt", "created", 8))
@@ -663,22 +659,22 @@ def test_extraction_outcome_recorder_accumulates_member_outcomes() -> None:
     )
 
     assert checkpoint["member_outcomes"] == {
-            "readme.txt": {
-                "status": "extracted",
-                "target_path": "output/readme.txt",
-                "extracted_bytes": 5,
-                "directories_created": 1,
-                "replaced": True,
-                "renamed": False,
-            },
-            "skipped.txt": {
-                "status": "skipped",
-                "target_path": "output/skipped.txt",
-                "extracted_bytes": 0,
-                "directories_created": 0,
-                "replaced": False,
-                "renamed": False,
-            },
+        "readme.txt": {
+            "status": "extracted",
+            "target_path": "output/readme.txt",
+            "extracted_bytes": 5,
+            "directories_created": 1,
+            "replaced": True,
+            "renamed": False,
+        },
+        "skipped.txt": {
+            "status": "skipped",
+            "target_path": "output/skipped.txt",
+            "extracted_bytes": 0,
+            "directories_created": 0,
+            "replaced": False,
+            "renamed": False,
+        },
     }
 
 
@@ -686,23 +682,21 @@ def test_extraction_outcome_recorder_ignores_exact_duplicates_and_finalizes_part
     checkpoint = new_v2_test_extraction_checkpoint(
         ArchiveExtractionManifest.from_members([ArchiveExtractionManifestMember("retry.txt", False, 5, None)])
     )
-    checkpoint["member_outcomes"] = {
-        "retry.txt": {"status": "partial", "target_path": "output/retry.txt", "message": "connection closed"}
-    }
+    checkpoint["member_outcomes"] = {"retry.txt": {"status": "partial", "target_path": "output/retry.txt", "message": "connection closed"}}
     outcome = ArchiveExtractionMemberOutcome("retry.txt", "extracted", "output/retry.txt", extracted_bytes=5)
 
     record_extraction_member_outcome(checkpoint, outcome, preserve_absent_zero=True)
     record_extraction_member_outcome(checkpoint, outcome, preserve_absent_zero=True)
 
     assert checkpoint["member_outcomes"] == {
-            "retry.txt": {
-                "status": "extracted",
-                "target_path": "output/retry.txt",
-                "extracted_bytes": 5,
-                "directories_created": 0,
-                "replaced": False,
-                "renamed": False,
-            }
+        "retry.txt": {
+            "status": "extracted",
+            "target_path": "output/retry.txt",
+            "extracted_bytes": 5,
+            "directories_created": 0,
+            "replaced": False,
+            "renamed": False,
+        }
     }
 
 
@@ -721,25 +715,35 @@ def test_persists_extraction_outcome_through_injected_state_store() -> None:
     assert persisted is operation
     checkpoint = json.loads(operation.checkpoint_json)
     assert checkpoint["member_outcomes"] == {
-            "readme.txt": {
-                "status": "extracted",
-                "target_path": "output/readme.txt",
-                "extracted_bytes": 5,
-                "directories_created": 0,
-                "replaced": False,
-                "renamed": False,
-            }
+        "readme.txt": {
+            "status": "extracted",
+            "target_path": "output/readme.txt",
+            "extracted_bytes": 5,
+            "directories_created": 0,
+            "replaced": False,
+            "renamed": False,
+        }
     }
 
 
 def test_completed_extraction_member_paths_prefers_outcomes_and_excludes_partial_output() -> None:
     checkpoint = new_v2_test_extraction_checkpoint(
         ArchiveExtractionManifest.from_members(
-            [ArchiveExtractionManifestMember("complete.txt", False, 0, None), ArchiveExtractionManifestMember("partial.txt", False, 0, None)]
+            [
+                ArchiveExtractionManifestMember("complete.txt", False, 0, None),
+                ArchiveExtractionManifestMember("partial.txt", False, 0, None),
+            ]
         )
     )
     checkpoint["member_outcomes"] = {
-        "complete.txt": {"status": "extracted", "target_path": "output/complete.txt", "extracted_bytes": 0, "directories_created": 0, "replaced": False, "renamed": False},
+        "complete.txt": {
+            "status": "extracted",
+            "target_path": "output/complete.txt",
+            "extracted_bytes": 0,
+            "directories_created": 0,
+            "replaced": False,
+            "renamed": False,
+        },
         "partial.txt": {"status": "partial", "target_path": "output/partial.txt", "message": "interrupted"},
     }
 
@@ -1606,13 +1610,13 @@ def test_companion_relay_creates_empty_directory_members(
 
     assert response.status_code == 200
     assert json.loads(response.json()["checkpoint_json"])["member_outcomes"] == {
-            "empty": {
-                "status": "directory",
-                "target_path": "output/empty",
-                "extracted_bytes": 0,
-                "directories_created": 1,
-                "replaced": False,
-                "renamed": False,
+        "empty": {
+            "status": "directory",
+            "target_path": "output/empty",
+            "extracted_bytes": 0,
+            "directories_created": 1,
+            "replaced": False,
+            "renamed": False,
         }
     }
     backend.write_file_from_stream.assert_not_awaited()
@@ -1885,7 +1889,10 @@ def test_companion_local_relay_pauses_for_a_scoped_collision_and_checkpoints_a_s
     checkpoint = json.loads(complete.json()["checkpoint_json"])
     assert checkpoint["version"] == 2
     assert checkpoint["member_outcomes"]["readme.txt"]["status"] == "skipped"
-    assert sum(1 for outcome in checkpoint["member_outcomes"].values() if outcome["status"] == "skipped") == scenario["progress"]["files_skipped"]
+    assert (
+        sum(1 for outcome in checkpoint["member_outcomes"].values() if outcome["status"] == "skipped")
+        == scenario["progress"]["files_skipped"]
+    )
 
 
 def test_companion_local_relay_rename_preserves_the_normalized_destination_result(
@@ -2600,9 +2607,7 @@ def test_companion_smb_creation_relay_commits_local_members_and_completes(
     assert begin.status_code == 200
     assert member.status_code == 200
     assert member.json()["phase"] == "streaming"
-    assert json.loads(checkpoint.json()["checkpoint_json"])["member_outcomes"] == {
-        "readme.txt": {"status": "created", "source_bytes": 9}
-    }
+    assert json.loads(checkpoint.json()["checkpoint_json"])["member_outcomes"] == {"readme.txt": {"status": "created", "source_bytes": 9}}
     writer.write.assert_awaited()
     writer.close.assert_awaited_once()
     assert complete.status_code == 200
@@ -2747,9 +2752,7 @@ def test_cancelling_local_to_smb_creation_after_a_member_commit_preserves_ledger
     assert member.status_code == 200
     assert cancelled.status_code == 200
     assert cancelled.json()["phase"] == "cancelled"
-    assert json.loads(cancelled.json()["checkpoint_json"])["member_outcomes"] == {
-        "first.txt": {"status": "created", "source_bytes": 5}
-    }
+    assert json.loads(cancelled.json()["checkpoint_json"])["member_outcomes"] == {"first.txt": {"status": "created", "source_bytes": 5}}
     writer.abort_and_delete_if_owned.assert_awaited_once()
     backend.disconnect.assert_awaited_once()
 

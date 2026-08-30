@@ -920,7 +920,6 @@ def record_extraction_member_outcome(
     outcomes[outcome.member_path] = outcome_payload
 
 
-
 def extraction_outcome_summary(checkpoint: dict[str, object], root_directories_created: int) -> ArchiveExtractionProgress:
     """Derive terminal extraction counters exclusively from durable member outcomes."""
 
