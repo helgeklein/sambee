@@ -861,6 +861,7 @@ def test_prepare_archive_operation_rejects_unsupported_topology_before_persisten
         "/api/archive/v2/operations",
         headers=auth_headers_user,
         json={
+            "contract_version": "v2",
             "kind": "extract",
             "source_connection_id": str(source.id),
             "source_path": "backup.zip",
@@ -900,6 +901,7 @@ def test_prepare_read_and_cancel_archive_operation(
         "/api/archive/v2/operations",
         headers=auth_headers_user,
         json={
+            "contract_version": "v2",
             "kind": "extract",
             "source_connection_id": str(test_connection.id),
             "source_path": "backup.zip",
@@ -990,6 +992,17 @@ def test_v2_operation_routes_pin_contract_version_and_reject_legacy_input(
         "message": "Archive V2 request validation failed",
     }
 
+    missing_version = client.post(
+        "/api/archive/v2/operations",
+        headers=auth_headers_user,
+        json={key: value for key, value in payload.items() if key != "contract_version"},
+    )
+    assert missing_version.status_code == status.HTTP_422_UNPROCESSABLE_CONTENT
+    assert missing_version.json() == {
+        "code": "invalid_request",
+        "message": "Archive V2 request validation failed",
+    }
+
     unknown_field = client.post(
         "/api/archive/v2/operations",
         headers=auth_headers_user,
@@ -1052,6 +1065,7 @@ def test_expires_a_stale_archive_operation_as_interrupted(
         "/api/archive/v2/operations",
         headers=auth_headers_user,
         json={
+            "contract_version": "v2",
             "kind": "extract",
             "source_connection_id": str(test_connection.id),
             "source_path": "backup.zip",
@@ -1082,6 +1096,7 @@ def test_lists_owner_archive_operations_with_active_filter(
         "/api/archive/v2/operations",
         headers=auth_headers_user,
         json={
+            "contract_version": "v2",
             "kind": "extract",
             "source_connection_id": str(test_connection.id),
             "source_path": "active.zip",
@@ -1093,6 +1108,7 @@ def test_lists_owner_archive_operations_with_active_filter(
         "/api/archive/v2/operations",
         headers=auth_headers_user,
         json={
+            "contract_version": "v2",
             "kind": "create",
             "source_connection_id": str(test_connection.id),
             "source_path": "",
@@ -1125,6 +1141,7 @@ def test_mints_companion_session_only_for_mixed_archive_extraction(
         "/api/archive/v2/operations",
         headers=auth_headers_user,
         json={
+            "contract_version": "v2",
             "kind": "extract",
             "source_connection_id": "local-drive:c",
             "source_path": "backup.zip",
@@ -1147,6 +1164,7 @@ def test_mints_companion_session_only_for_mixed_archive_extraction(
         "/api/archive/v2/operations",
         headers=auth_headers_user,
         json={
+            "contract_version": "v2",
             "kind": "extract",
             "source_connection_id": str(test_connection.id),
             "source_path": "backup.zip",
@@ -1162,6 +1180,7 @@ def test_mints_companion_session_only_for_mixed_archive_extraction(
         "/api/archive/v2/operations",
         headers=auth_headers_user,
         json={
+            "contract_version": "v2",
             "kind": "extract",
             "source_connection_id": str(test_connection.id),
             "source_path": "backup.zip",
@@ -1214,6 +1233,7 @@ def test_companion_relay_failure_requires_its_scoped_purpose(
     source_connection_id = "local-drive:c" if source_is_local else str(test_connection.id)
     destination_connection_id = str(test_connection.id) if source_is_local else "local-drive:c"
     payload: dict[str, object] = {
+        "contract_version": "v2",
         "kind": kind,
         "source_connection_id": source_connection_id,
         "source_path": "backup.zip" if kind == "extract" else "",
@@ -1252,6 +1272,7 @@ def test_companion_relay_writes_scoped_members_and_completes(
         "/api/archive/v2/operations",
         headers=auth_headers_user,
         json={
+            "contract_version": "v2",
             "kind": "extract",
             "source_connection_id": "local-drive:c",
             "source_path": "backup.zip",
@@ -1331,6 +1352,7 @@ def test_manifest_backed_companion_relay_requires_terminal_member_coverage(
         "/api/archive/v2/operations",
         headers=auth_headers_user,
         json={
+            "contract_version": "v2",
             "kind": "extract",
             "source_connection_id": "local-drive:c",
             "source_path": "backup.zip",
@@ -1384,6 +1406,7 @@ def test_companion_local_source_relay_rejects_a_changed_manifest_before_resume(
         "/api/archive/v2/operations",
         headers=auth_headers_user,
         json={
+            "contract_version": "v2",
             "kind": "extract",
             "source_connection_id": "local-drive:c",
             "source_path": "backup.zip",
@@ -1429,6 +1452,7 @@ def test_companion_local_source_relay_requires_a_manifest_before_resume(
         "/api/archive/v2/operations",
         headers=auth_headers_user,
         json={
+            "contract_version": "v2",
             "kind": "extract",
             "source_connection_id": "local-drive:c",
             "source_path": "backup.zip",
@@ -1480,6 +1504,7 @@ def test_companion_relay_replace_older_compares_source_and_smb_timestamps(
         "/api/archive/v2/operations",
         headers=auth_headers_user,
         json={
+            "contract_version": "v2",
             "kind": "extract",
             "source_connection_id": "local-drive:c",
             "source_path": "backup.zip",
@@ -1563,6 +1588,7 @@ def test_companion_relay_rejects_unsafe_member_path(
         "/api/archive/v2/operations",
         headers=auth_headers_user,
         json={
+            "contract_version": "v2",
             "kind": "extract",
             "source_connection_id": "local-drive:c",
             "source_path": "backup.zip",
@@ -1602,6 +1628,7 @@ def test_companion_relay_creates_empty_directory_members(
         "/api/archive/v2/operations",
         headers=auth_headers_user,
         json={
+            "contract_version": "v2",
             "kind": "extract",
             "source_connection_id": "local-drive:c",
             "source_path": "backup.zip",
@@ -1655,6 +1682,7 @@ def test_companion_local_relay_streams_smb_members_and_completes(
         "/api/archive/v2/operations",
         headers=auth_headers_user,
         json={
+            "contract_version": "v2",
             "kind": "extract",
             "source_connection_id": str(test_connection.id),
             "source_path": "backup.zip",
@@ -1745,6 +1773,7 @@ def test_companion_local_relay_fails_preflight_for_a_normalized_path_collision(
         "/api/archive/v2/operations",
         headers=auth_headers_user,
         json={
+            "contract_version": "v2",
             "kind": "extract",
             "source_connection_id": str(test_connection.id),
             "source_path": "backup.zip",
@@ -1783,6 +1812,7 @@ def test_companion_local_extraction_relay_reuses_its_persisted_manifest(
         "/api/archive/v2/operations",
         headers=auth_headers_user,
         json={
+            "contract_version": "v2",
             "kind": "extract",
             "source_connection_id": str(test_connection.id),
             "source_path": "backup.zip",
@@ -1833,6 +1863,7 @@ def test_companion_local_relay_pauses_for_a_scoped_collision_and_checkpoints_a_s
         "/api/archive/v2/operations",
         headers=auth_headers_user,
         json={
+            "contract_version": "v2",
             "kind": "extract",
             "source_connection_id": str(test_connection.id),
             "source_path": "backup.zip",
@@ -1932,6 +1963,7 @@ def test_companion_local_relay_rename_preserves_the_normalized_destination_resul
         "/api/archive/v2/operations",
         headers=auth_headers_user,
         json={
+            "contract_version": "v2",
             "kind": "extract",
             "source_connection_id": str(test_connection.id),
             "source_path": "backup.zip",
@@ -2007,6 +2039,7 @@ def test_companion_local_relay_persists_partial_outcome_before_retry_or_ignore(
         "/api/archive/v2/operations",
         headers=auth_headers_user,
         json={
+            "contract_version": "v2",
             "kind": "extract",
             "source_connection_id": str(test_connection.id),
             "source_path": "backup.zip",
@@ -2093,6 +2126,7 @@ def test_companion_local_relay_cancels_before_accepting_late_member_completion(
         "/api/archive/v2/operations",
         headers=auth_headers_user,
         json={
+            "contract_version": "v2",
             "kind": "extract",
             "source_connection_id": str(test_connection.id),
             "source_path": "backup.zip",
@@ -2149,6 +2183,7 @@ def test_companion_local_relay_rejects_an_archive_changed_after_manifest_preflig
         "/api/archive/v2/operations",
         headers=auth_headers_user,
         json={
+            "contract_version": "v2",
             "kind": "extract",
             "source_connection_id": str(test_connection.id),
             "source_path": "backup.zip",
@@ -2196,6 +2231,7 @@ def test_companion_local_relay_rejects_a_member_outside_its_preflight_manifest(
         "/api/archive/v2/operations",
         headers=auth_headers_user,
         json={
+            "contract_version": "v2",
             "kind": "extract",
             "source_connection_id": str(test_connection.id),
             "source_path": "backup.zip",
@@ -2236,6 +2272,7 @@ def test_companion_local_creation_relay_streams_smb_members_and_completes(
         "/api/archive/v2/operations",
         headers=auth_headers_user,
         json={
+            "contract_version": "v2",
             "kind": "create",
             "source_connection_id": str(test_connection.id),
             "source_path": "",
@@ -2328,6 +2365,7 @@ def test_companion_creation_relay_rejects_invalid_idempotency_key(
         "/api/archive/v2/operations",
         headers=auth_headers_user,
         json={
+            "contract_version": "v2",
             "kind": "create",
             "source_connection_id": str(test_connection.id),
             "source_path": "",
@@ -2356,6 +2394,7 @@ def test_companion_local_creation_relay_reuses_its_persisted_manifest(
         "/api/archive/v2/operations",
         headers=auth_headers_user,
         json={
+            "contract_version": "v2",
             "kind": "create",
             "source_connection_id": str(test_connection.id),
             "source_path": "",
@@ -2397,6 +2436,7 @@ def test_companion_local_creation_relay_accepts_equivalent_canonical_source_time
         "/api/archive/v2/operations",
         headers=auth_headers_user,
         json={
+            "contract_version": "v2",
             "kind": "create",
             "source_connection_id": str(test_connection.id),
             "source_path": "",
@@ -2459,6 +2499,7 @@ def test_companion_local_creation_relay_rejects_a_source_changed_after_manifest_
         "/api/archive/v2/operations",
         headers=auth_headers_user,
         json={
+            "contract_version": "v2",
             "kind": "create",
             "source_connection_id": str(test_connection.id),
             "source_path": "",
@@ -2502,6 +2543,7 @@ def test_companion_local_creation_relay_rejects_an_inconsistent_completion_summa
         "/api/archive/v2/operations",
         headers=auth_headers_user,
         json={
+            "contract_version": "v2",
             "kind": "create",
             "source_connection_id": str(test_connection.id),
             "source_path": "",
@@ -2542,6 +2584,7 @@ def test_companion_local_creation_relay_requires_member_outcomes_before_completi
         "/api/archive/v2/operations",
         headers=auth_headers_user,
         json={
+            "contract_version": "v2",
             "kind": "create",
             "source_connection_id": str(test_connection.id),
             "source_path": "",
@@ -2582,6 +2625,7 @@ def test_companion_smb_creation_relay_commits_local_members_and_completes(
         "/api/archive/v2/operations",
         headers=auth_headers_user,
         json={
+            "contract_version": "v2",
             "kind": "create",
             "source_connection_id": "local-drive:c",
             "source_path": "",
@@ -2645,6 +2689,7 @@ def test_local_to_smb_creation_relay_commits_directories_and_replays_members_onc
         "/api/archive/v2/operations",
         headers=auth_headers_user,
         json={
+            "contract_version": "v2",
             "kind": "create",
             "source_connection_id": "local-drive:c",
             "source_path": "",
@@ -2731,6 +2776,7 @@ def test_cancelling_local_to_smb_creation_after_a_member_commit_preserves_ledger
         "/api/archive/v2/operations",
         headers=auth_headers_user,
         json={
+            "contract_version": "v2",
             "kind": "create",
             "source_connection_id": "local-drive:c",
             "source_path": "",
@@ -2785,6 +2831,7 @@ def test_local_to_smb_creation_rejects_completion_before_the_manifest_is_reporte
         "/api/archive/v2/operations",
         headers=auth_headers_user,
         json={
+            "contract_version": "v2",
             "kind": "create",
             "source_connection_id": "local-drive:c",
             "source_path": "",
@@ -2841,6 +2888,7 @@ def test_cancelled_local_to_smb_creation_does_not_open_a_live_writer(
         "/api/archive/v2/operations",
         headers=auth_headers_user,
         json={
+            "contract_version": "v2",
             "kind": "create",
             "source_connection_id": "local-drive:c",
             "source_path": "",
@@ -2878,6 +2926,7 @@ def test_cancelling_local_to_smb_creation_aborts_the_live_writer(
         "/api/archive/v2/operations",
         headers=auth_headers_user,
         json={
+            "contract_version": "v2",
             "kind": "create",
             "source_connection_id": "local-drive:c",
             "source_path": "",
@@ -2916,6 +2965,7 @@ def test_failing_local_to_smb_creation_aborts_the_live_writer(
         "/api/archive/v2/operations",
         headers=auth_headers_user,
         json={
+            "contract_version": "v2",
             "kind": "create",
             "source_connection_id": "local-drive:c",
             "source_path": "",
@@ -2960,6 +3010,7 @@ def test_local_to_smb_creation_rejects_changed_member_size(
         "/api/archive/v2/operations",
         headers=auth_headers_user,
         json={
+            "contract_version": "v2",
             "kind": "create",
             "source_connection_id": "local-drive:c",
             "source_path": "",
@@ -3005,6 +3056,7 @@ def test_local_to_smb_creation_rejects_members_after_live_writer_interruption(
         "/api/archive/v2/operations",
         headers=auth_headers_user,
         json={
+            "contract_version": "v2",
             "kind": "create",
             "source_connection_id": "local-drive:c",
             "source_path": "",
@@ -3052,6 +3104,7 @@ def test_companion_relay_pauses_for_destination_collision(
         "/api/archive/v2/operations",
         headers=auth_headers_user,
         json={
+            "contract_version": "v2",
             "kind": "extract",
             "source_connection_id": "local-drive:c",
             "source_path": "backup.zip",
@@ -3181,6 +3234,7 @@ def test_executes_same_connection_extraction(
         "/api/archive/v2/operations",
         headers=auth_headers_user,
         json={
+            "contract_version": "v2",
             "kind": "extract",
             "source_connection_id": str(test_connection.id),
             "source_path": "input.zip",
@@ -3311,6 +3365,7 @@ def test_extraction_conflicts_become_pending_user_decisions(
         "/api/archive/v2/operations",
         headers=auth_headers_user,
         json={
+            "contract_version": "v2",
             "kind": "extract",
             "source_connection_id": str(test_connection.id),
             "source_path": "input.zip",
@@ -3357,6 +3412,7 @@ def test_directory_extraction_conflicts_allow_only_rename_or_cancel(
         "/api/archive/v2/operations",
         headers=auth_headers_user,
         json={
+            "contract_version": "v2",
             "kind": "extract",
             "source_connection_id": str(test_connection.id),
             "source_path": "input.zip",
@@ -3397,6 +3453,7 @@ def test_individual_extraction_decision_is_limited_to_pending_member(
         "/api/archive/v2/operations",
         headers=auth_headers_user,
         json={
+            "contract_version": "v2",
             "kind": "extract",
             "source_connection_id": str(test_connection.id),
             "source_path": "input.zip",
@@ -3457,6 +3514,7 @@ def test_direct_smb_extraction_rejects_a_source_changed_after_pause(
         "/api/archive/v2/operations",
         headers=auth_headers_user,
         json={
+            "contract_version": "v2",
             "kind": "extract",
             "source_connection_id": str(test_connection.id),
             "source_path": "input.zip",
@@ -3514,6 +3572,7 @@ def test_individual_rename_decision_persists_a_safe_member_remap(
         "/api/archive/v2/operations",
         headers=auth_headers_user,
         json={
+            "contract_version": "v2",
             "kind": "extract",
             "source_connection_id": str(test_connection.id),
             "source_path": "input.zip",
@@ -3588,6 +3647,7 @@ def test_member_write_failure_pauses_for_retry_or_ignore(
         "/api/archive/v2/operations",
         headers=auth_headers_user,
         json={
+            "contract_version": "v2",
             "kind": "extract",
             "source_connection_id": str(test_connection.id),
             "source_path": "input.zip",
@@ -3674,6 +3734,7 @@ def test_rejects_malformed_persisted_extraction_decision(
         "/api/archive/v2/operations",
         headers=auth_headers_user,
         json={
+            "contract_version": "v2",
             "kind": "extract",
             "source_connection_id": str(test_connection.id),
             "source_path": "input.zip",

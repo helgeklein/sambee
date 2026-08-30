@@ -19,6 +19,8 @@ from sqlalchemy.exc import IntegrityError
 from sqlmodel import Session, SQLModel, create_engine, select
 
 from app.db.archive_cutover_preflight import preflight_result
+from app.db.archive_cutover_reset import RESET_CONFIRMATION_FLAG, discard_legacy_archive_operations
+from app.db.archive_cutover_reset import main as archive_cutover_reset_main
 from app.db.migrations import (
     MIGRATION_TABLE_NAME,
     MIGRATIONS,
@@ -150,6 +152,39 @@ class TestArchiveOperationContractVersionMigration:
                 "ready": True,
                 "legacy_operations": [],
             }
+        finally:
+            test_engine.dispose()
+
+    def test_reset_discards_only_legacy_rows(self, tmp_path: Path):
+        test_engine = create_engine(f"sqlite:///{tmp_path / 'archive-v2-reset.db'}")
+        try:
+            with test_engine.begin() as connection:
+                connection.execute(text("CREATE TABLE archive_operations (id CHAR(32) PRIMARY KEY, contract_version VARCHAR(8))"))
+                connection.execute(text("INSERT INTO archive_operations (id, contract_version) VALUES ('v2-operation', 'V2')"))
+                connection.execute(text("INSERT INTO archive_operations (id, contract_version) VALUES ('legacy-operation', 'v1')"))
+
+            assert discard_legacy_archive_operations(test_engine) == 1
+            assert preflight_result(test_engine)["ready"] is True
+            with test_engine.connect() as connection:
+                assert connection.execute(text("SELECT id FROM archive_operations")).scalars().all() == ["v2-operation"]
+        finally:
+            test_engine.dispose()
+
+    def test_reset_requires_confirmation_and_allows_migration(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
+        test_engine = create_engine(f"sqlite:///{tmp_path / 'archive-v2-reset-confirmation.db'}")
+        try:
+            with test_engine.begin() as connection:
+                connection.execute(text("CREATE TABLE archive_operations (id CHAR(32) PRIMARY KEY)"))
+                connection.execute(text("INSERT INTO archive_operations (id) VALUES ('legacy-operation')"))
+
+            monkeypatch.setattr("app.db.database.engine", test_engine)
+            assert archive_cutover_reset_main([]) == 2
+            assert preflight_result(test_engine)["ready"] is False
+            assert archive_cutover_reset_main([RESET_CONFIRMATION_FLAG]) == 0
+            assert preflight_result(test_engine)["ready"] is True
+            with test_engine.begin() as connection:
+                _apply_archive_operation_contract_version_migration(connection)
+                assert "contract_version" in {column["name"] for column in inspect(connection).get_columns("archive_operations")}
         finally:
             test_engine.dispose()
 

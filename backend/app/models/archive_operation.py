@@ -76,7 +76,7 @@ class ArchiveV2Payload(SQLModel):
 
 
 class ArchiveOperationPrepare(ArchiveV2Payload):
-    contract_version: ArchiveContractVersion = ArchiveContractVersion.V2
+    contract_version: ArchiveContractVersion
     kind: ArchiveOperationKind
     source_connection_id: str
     source_path: str
