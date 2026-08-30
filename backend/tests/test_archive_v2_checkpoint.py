@@ -4,12 +4,12 @@ import pytest
 from fastapi import HTTPException
 
 from app.services.archive.v2_checkpoint import (
-    legacy_execution_checkpoint_from_v2,
     legacy_creation_execution_checkpoint_from_v2,
+    legacy_execution_checkpoint_from_v2,
     new_v2_creation_checkpoint,
     new_v2_extraction_checkpoint,
-    v2_creation_checkpoint_from_legacy_execution,
     v2_checkpoint_from_legacy_execution,
+    v2_creation_checkpoint_from_legacy_execution,
     validate_v2_extraction_checkpoint,
 )
 

@@ -207,7 +207,13 @@ def validate_v2_creation_checkpoint(checkpoint: object) -> dict[str, object]:
         raise _invalid_checkpoint("Archive V2 creation checkpoint envelope is invalid")
     paths: set[str] = set()
     for member in manifest:
-        if not isinstance(member, dict) or frozenset(member) != {"archive_path", "is_directory", "source_size", "source_path", "modified_at"}:
+        if not isinstance(member, dict) or frozenset(member) != {
+            "archive_path",
+            "is_directory",
+            "source_size",
+            "source_path",
+            "modified_at",
+        }:
             raise _invalid_checkpoint("Archive V2 creation checkpoint manifest is invalid")
         path = _canonical_member_path(member["archive_path"])
         if path in paths or type(member["is_directory"]) is not bool or type(member["source_size"]) is not int or member["source_size"] < 0:
@@ -272,5 +278,11 @@ def v2_creation_checkpoint_from_legacy_execution(checkpoint: object) -> dict[str
         if isinstance(entry, dict)
     ]
     return validate_v2_creation_checkpoint(
-        {"version": V2_CHECKPOINT_VERSION, "manifest": manifest, "member_outcomes": checkpoint.get("creation_member_outcomes", {}), "decisions": {}, "pending_decision": None}
+        {
+            "version": V2_CHECKPOINT_VERSION,
+            "manifest": manifest,
+            "member_outcomes": checkpoint.get("creation_member_outcomes", {}),
+            "decisions": {},
+            "pending_decision": None,
+        }
     )
