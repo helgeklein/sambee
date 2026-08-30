@@ -819,9 +819,12 @@ class ApiService {
   ): Promise<ArchiveDirectoryListing> {
     const segment = getBrowseSegment(connectionId);
     const { client, extraConfig } = await this.getClientConfig(connectionId);
-    const response = await client.get<ArchiveDirectoryListing>(`/browse/${segment}/archive/list`, {
+    const path = isLocalDrive(connectionId) ? `/browse/${segment}/archive/v2/list` : "/archive/v2/inspection/directory";
+    const response = await client.get<ArchiveDirectoryListing>(path, {
       ...extraConfig,
       params: {
+        ...(isLocalDrive(connectionId) ? {} : { connection_id: connectionId }),
+        contract_version: "v2",
         archive_path: archivePath,
         virtual_path: virtualPath,
         cursor: options?.cursor,
@@ -849,9 +852,12 @@ class ApiService {
     try {
       const segment = getBrowseSegment(connectionId);
       const { client, extraConfig } = await this.getClientConfig(connectionId);
-      const response = await client.get<Blob>(`/viewer/${segment}/archive/member`, {
+      const path = isLocalDrive(connectionId) ? `/viewer/${segment}/archive/v2/member` : "/archive/v2/inspection/member";
+      const response = await client.get<Blob>(path, {
         ...extraConfig,
         params: {
+          ...(isLocalDrive(connectionId) ? {} : { connection_id: connectionId }),
+          contract_version: "v2",
           archive_path: archivePath,
           member_path: memberPath,
           download: options.download ?? false,
@@ -1023,8 +1029,9 @@ class ApiService {
     const segment = getBrowseSegment(connectionId);
     const { client, extraConfig } = await this.getClientConfig(connectionId);
     const response = await client.post(
-      `/browse/${segment}/archive/extract-to-smb`,
+      `/browse/${segment}/archive/v2/extract-to-smb`,
       {
+        contract_version: "v2",
         archive_path: archivePath,
         server_url: getCompanionServerUrl(this.api.defaults.baseURL),
         operation_id: operationId,
@@ -1052,8 +1059,9 @@ class ApiService {
     const segment = getBrowseSegment(destinationConnectionId);
     const { client, extraConfig } = await this.getClientConfig(destinationConnectionId);
     const response = await client.post(
-      `/browse/${segment}/archive/extract-from-smb`,
+      `/browse/${segment}/archive/v2/extract-from-smb`,
       {
+        contract_version: "v2",
         destination_path: destinationPath,
         server_url: getCompanionServerUrl(this.api.defaults.baseURL),
         operation_id: operationId,
@@ -1073,8 +1081,9 @@ class ApiService {
     const segment = getBrowseSegment(destinationConnectionId);
     const { client, extraConfig } = await this.getClientConfig(destinationConnectionId);
     const response = await client.post(
-      `/browse/${segment}/archive/create-from-smb`,
+      `/browse/${segment}/archive/v2/create-from-smb`,
       {
+        contract_version: "v2",
         target_path: targetPath,
         server_url: getCompanionServerUrl(this.api.defaults.baseURL),
         operation_id: operationId,
@@ -1095,8 +1104,9 @@ class ApiService {
     const segment = getBrowseSegment(sourceConnectionId);
     const { client, extraConfig } = await this.getClientConfig(sourceConnectionId);
     const response = await client.post(
-      `/browse/${segment}/archive/create-to-smb`,
+      `/browse/${segment}/archive/v2/create-to-smb`,
       {
+        contract_version: "v2",
         source_paths: sourcePaths,
         target_path: targetPath,
         server_url: getCompanionServerUrl(this.api.defaults.baseURL),

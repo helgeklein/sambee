@@ -15,6 +15,7 @@ use super::archive::{
     LocalArchiveExtractionMemberError, LocalArchiveExtractionResult,
 };
 use super::errors::ApiError;
+use super::models::ArchiveContractVersion;
 
 pub const ARCHIVE_SESSION_TIMEOUT: Duration = Duration::from_secs(120);
 pub const ARCHIVE_SESSION_STALE_REVISION_CODE: &str = "archive_execution_stale_revision";
@@ -123,6 +124,7 @@ pub(crate) enum ArchiveSessionCompletion {
 #[derive(Clone, Debug)]
 pub struct ArchiveSessionStatus {
     pub execution_id: String,
+    pub contract_version: ArchiveContractVersion,
     pub kind: ArchiveSessionKind,
     pub phase: ArchiveSessionPhase,
     pub revision: u64,
@@ -200,6 +202,7 @@ impl ArchiveSessionWork {
 
 struct ArchiveSession {
     execution_id: String,
+    contract_version: ArchiveContractVersion,
     drive: String,
     owner_origin: String,
     kind: ArchiveSessionKind,
@@ -224,6 +227,7 @@ impl ArchiveSession {
     fn status(&self) -> ArchiveSessionStatus {
         ArchiveSessionStatus {
             execution_id: self.execution_id.clone(),
+            contract_version: self.contract_version,
             kind: self.kind,
             phase: self.phase,
             revision: self.revision,
@@ -467,6 +471,7 @@ impl ArchiveSessionManager {
         let execution_id = Uuid::new_v4().to_string();
         let session = ArchiveSession {
             execution_id: execution_id.clone(),
+            contract_version: ArchiveContractVersion::V2,
             drive,
             owner_origin,
             kind: work.kind(),
@@ -504,6 +509,19 @@ impl ArchiveSessionManager {
             .filter(|session| session.drive == drive && session.owner_origin == owner_origin)
             .map(ArchiveSession::status)
             .ok_or_else(|| ApiError::NotFound("Archive execution not found or expired".to_string()))
+    }
+
+    /// Read an in-memory session only when it is pinned to the V2 contract.
+    pub async fn get_v2(&self, drive: &str, owner_origin: &str, execution_id: &str) -> Result<ArchiveSessionStatus, ApiError> {
+        let mut sessions = self.sessions.lock().await;
+        Self::remove_expired(&mut sessions);
+        sessions
+            .get(execution_id)
+            .filter(|session| {
+                session.drive == drive && session.owner_origin == owner_origin && session.contract_version == ArchiveContractVersion::V2
+            })
+            .map(ArchiveSession::status)
+            .ok_or_else(|| ApiError::NotFound("Archive V2 execution not found or expired".to_string()))
     }
 
     #[cfg(test)]

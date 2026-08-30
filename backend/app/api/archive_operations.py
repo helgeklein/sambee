@@ -7,14 +7,16 @@ from collections.abc import AsyncIterator, Awaitable, Callable
 from contextlib import asynccontextmanager
 from dataclasses import dataclass
 from datetime import datetime, timedelta
-from typing import Any
+from typing import Any, Literal
 
 from fastapi import APIRouter, Depends, Header, HTTPException, Query, Request, status
-from fastapi.responses import StreamingResponse
+from fastapi.responses import Response, StreamingResponse
 from joserfc.errors import ExpiredTokenError, JoseError
 from sqlmodel import Session, col, select
 
 from app.api._smb_helpers import build_smb_backend, disconnect_backend_safely
+from app.api.browser import list_archive_directory
+from app.api.viewer import stream_archive_member
 from app.core.logging import get_logger, set_user
 from app.core.security import (
     create_access_token,
@@ -24,6 +26,7 @@ from app.core.security import (
     oauth2_scheme,
 )
 from app.db.database import get_session
+from app.models.archive import ArchiveDirectoryListing
 from app.models.archive_operation import (
     TERMINAL_ARCHIVE_OPERATION_PHASES,
     ArchiveCompanionCreationManifest,
@@ -1629,6 +1632,8 @@ async def execute_archive_creation(
     operation_id: uuid.UUID,
     current_user: User = Depends(get_current_user_with_auth_check),
     session: Session = Depends(get_session),
+    *,
+    use_v2_checkpoint: bool = False,
 ) -> ArchiveOperation:
     """Create the operation's direct SMB target from its immutable file-source plan."""
 
@@ -1672,6 +1677,7 @@ async def execute_archive_creation(
         return await ArchiveCreationCoordinator(
             operation=operation,
             state_store=DurableArchiveExecutionStateStore(session),
+            use_v2_checkpoint=use_v2_checkpoint,
         ).run(run_creation, execution_plan=ArchiveCreationExecutionPlan(manifest))
 
 
@@ -1680,6 +1686,8 @@ async def execute_archive_extraction(
     operation_id: uuid.UUID,
     current_user: User = Depends(get_current_user_with_auth_check),
     session: Session = Depends(get_session),
+    *,
+    use_v2_checkpoint: bool = False,
 ) -> ArchiveOperation:
     """Extract the operation's archive into new paths on its source SMB connection."""
 
@@ -1721,7 +1729,7 @@ async def execute_archive_extraction(
                     manifest=manifest.checkpoint_entries(),
                     source_snapshot=_archive_source_identity(archive_info),
                 )
-                if operation.contract_version == ArchiveContractVersion.V2
+                if use_v2_checkpoint
                 else new_extraction_outcome_checkpoint(manifest=manifest, source_identity=_archive_source_identity(archive_info))
             )
             operation = DurableArchiveExecutionStateStore(session).update_checkpoint(operation, json.dumps(checkpoint))
@@ -1863,6 +1871,76 @@ async def prepare_v2_archive_operation(
     return await prepare_archive_operation(payload, current_user, session)
 
 
+@v2_router.get("/inspection/directory", response_model=ArchiveDirectoryListing)
+async def list_v2_archive_directory(
+    connection_id: uuid.UUID,
+    archive_path: str = Query(..., min_length=1),
+    virtual_path: str = Query(""),
+    cursor: str | None = Query(None),
+    page_size: int = Query(100, ge=1, le=500),
+    contract_version: ArchiveContractVersion = Query(...),
+    current_user: User = Depends(get_current_user_with_auth_check),
+    session: Session = Depends(get_session),
+) -> ArchiveDirectoryListing:
+    """Inspect an SMB archive directory through the V2 non-durable contract."""
+
+    if contract_version != ArchiveContractVersion.V2:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_CONTENT, detail="Archive inspection contract version is incompatible with V2"
+        )
+    return await list_archive_directory(
+        connection_id,
+        archive_path,
+        virtual_path,
+        cursor,
+        page_size,
+        current_user,
+        session,
+    )
+
+
+@v2_router.get("/inspection/member", response_model=None)
+async def stream_v2_archive_member(
+    connection_id: uuid.UUID,
+    archive_path: str = Query(..., min_length=1),
+    member_path: str = Query(..., min_length=1),
+    download: bool = Query(False),
+    view_kind: Literal["raw", "text", "image", "pdf"] = Query("raw"),
+    pdf_variant: Literal["original", "normalized"] = Query("original"),
+    viewport_width: int | None = Query(None),
+    viewport_height: int | None = Query(None),
+    no_resizing: bool = Query(False),
+    screen_width: int | None = Query(None, ge=320, le=16384),
+    screen_height: int | None = Query(None, ge=320, le=16384),
+    screen_zoom_percent: int = Query(200, ge=100, le=400),
+    contract_version: ArchiveContractVersion = Query(...),
+    current_user: User = Depends(get_current_user_with_auth_check),
+    session: Session = Depends(get_session),
+) -> Response | StreamingResponse:
+    """Read one SMB archive member through the V2 non-durable contract."""
+
+    if contract_version != ArchiveContractVersion.V2:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_CONTENT, detail="Archive inspection contract version is incompatible with V2"
+        )
+    return await stream_archive_member(
+        connection_id,
+        archive_path,
+        member_path,
+        download,
+        view_kind,
+        pdf_variant,
+        viewport_width,
+        viewport_height,
+        no_resizing,
+        screen_width,
+        screen_height,
+        screen_zoom_percent,
+        current_user,
+        session,
+    )
+
+
 @v2_router.get("/operations/{operation_id}", response_model=ArchiveOperationRead)
 async def get_v2_archive_operation(
     operation_id: uuid.UUID,
@@ -1924,7 +2002,7 @@ async def begin_v2_archive_creation(
     """Begin V2 direct SMB creation through the shared creation coordinator."""
 
     _get_owned_v2_operation_or_404(session, current_user, operation_id)
-    return await execute_archive_creation(operation_id, current_user, session)
+    return await execute_archive_creation(operation_id, current_user, session, use_v2_checkpoint=True)
 
 
 @v2_router.post("/operations/{operation_id}/extraction/begin", response_model=ArchiveOperationRead)
@@ -1936,7 +2014,7 @@ async def begin_v2_archive_extraction(
     """Begin V2 direct SMB extraction through the shared extraction coordinator."""
 
     _get_owned_v2_operation_or_404(session, current_user, operation_id)
-    return await execute_archive_extraction(operation_id, current_user, session)
+    return await execute_archive_extraction(operation_id, current_user, session, use_v2_checkpoint=True)
 
 
 @v2_router.post("/operations/{operation_id}/extraction/decision", response_model=ArchiveOperationRead)

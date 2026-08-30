@@ -820,9 +820,9 @@ impl ArchiveExtractionManifest {
 
 /// One durable terminal or partial outcome reported by a remote extraction destination.
 #[derive(Debug, Clone, Deserialize)]
+#[serde(deny_unknown_fields)]
 struct ArchiveExtractionRelayMemberOutcome {
     status: String,
-    #[serde(default)]
     target_path: String,
     #[serde(default)]
     directories_created: u64,
@@ -834,32 +834,43 @@ struct ArchiveExtractionRelayMemberOutcome {
     renamed: bool,
 }
 
-/// Typed remote extraction state used to resume local relay execution safely.
+#[derive(Debug, Clone, Deserialize)]
+#[serde(deny_unknown_fields)]
+struct ArchiveExtractionRelayManifestMember {
+    path: String,
+    is_directory: bool,
+    #[serde(rename = "uncompressed_size")]
+    _uncompressed_size: u64,
+    #[serde(rename = "modified_at")]
+    _modified_at: Option<DateTime<Utc>>,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+#[serde(deny_unknown_fields)]
+struct ArchiveExtractionRelaySourceSnapshot {
+    size: u64,
+    modified_at: Option<DateTime<Utc>>,
+}
+
 #[derive(Debug, Clone, Default, Deserialize)]
-pub struct ArchiveExtractionRelayState {
-    #[serde(default)]
-    extraction_outcome_checkpoint_version: Option<u8>,
-    #[serde(default)]
-    written_members: Vec<String>,
-    #[serde(default)]
-    member_outcomes: Option<HashMap<String, ArchiveExtractionRelayMemberOutcome>>,
-    #[serde(default)]
+#[serde(deny_unknown_fields)]
+struct ArchiveExtractionRelayDecisions {
+    collision_actions: HashMap<String, String>,
+    rename_targets: HashMap<String, String>,
     ignored_members: Vec<String>,
-    #[serde(default)]
     retry_members: Vec<String>,
-    #[serde(default)]
-    member_collision_actions: HashMap<String, String>,
-    #[serde(default)]
-    member_rename_targets: HashMap<String, String>,
-    collision_policy: Option<String>,
-    #[serde(default)]
-    files_extracted: u64,
-    #[serde(default)]
-    directories_created: u64,
-    #[serde(default)]
-    extracted_bytes: u64,
-    #[serde(default)]
-    files_skipped: u64,
+}
+
+/// Typed remote extraction state used to resume local relay execution safely.
+#[derive(Debug, Clone, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct ArchiveExtractionRelayState {
+    version: u8,
+    manifest: Vec<ArchiveExtractionRelayManifestMember>,
+    source_snapshot: ArchiveExtractionRelaySourceSnapshot,
+    member_outcomes: HashMap<String, ArchiveExtractionRelayMemberOutcome>,
+    decisions: ArchiveExtractionRelayDecisions,
+    pending_decision: Option<serde_json::Value>,
 }
 
 impl ArchiveExtractionRelayState {
@@ -875,22 +886,13 @@ impl ArchiveExtractionRelayState {
 
     /// Return members whose durable outcomes are terminal and therefore replayable.
     pub fn completed_members(&self) -> Result<HashSet<String>, LocalArchiveError> {
-        if self.extraction_outcome_checkpoint_version.is_some_and(|version| version != 1) {
+        if self.version != 2 {
             return Err(LocalArchiveError::Io(std::io::Error::new(
                 std::io::ErrorKind::InvalidData,
                 "Archive relay returned an unsupported extraction checkpoint version",
             )));
         }
-        let Some(outcomes) = &self.member_outcomes else {
-            if self.extraction_outcome_checkpoint_version.is_some() {
-                return Err(LocalArchiveError::Io(std::io::Error::new(
-                    std::io::ErrorKind::InvalidData,
-                    "Archive relay returned a versioned checkpoint without member outcomes",
-                )));
-            }
-            return Ok(self.legacy_v1_completed_members());
-        };
-        outcomes
+        self.member_outcomes
             .iter()
             .filter_map(|(member_path, outcome)| match outcome.status.as_str() {
                 "directory" | "extracted" | "skipped" | "ignored" => Some(Ok(member_path.clone())),
@@ -906,91 +908,88 @@ impl ArchiveExtractionRelayState {
     /// Bind persisted relay decisions and outcomes to the immutable member manifest.
     pub fn validate_manifest(&self, manifest: &ArchiveExtractionManifest) -> Result<(), LocalArchiveError> {
         let member_paths = manifest.entries.iter().map(|entry| entry.path.as_str()).collect::<HashSet<_>>();
+        if self.source_snapshot.modified_at.is_some() && self.source_snapshot.size == 0 {
+            return Err(LocalArchiveError::Io(std::io::Error::new(
+                std::io::ErrorKind::InvalidData,
+                "Archive relay returned an invalid source snapshot",
+            )));
+        }
+        if self.pending_decision.as_ref().is_some_and(|decision| !decision.is_object()) {
+            return Err(LocalArchiveError::Io(std::io::Error::new(
+                std::io::ErrorKind::InvalidData,
+                "Archive relay returned an invalid pending decision",
+            )));
+        }
+        if self.manifest.len() != manifest.entries.len()
+            || self
+                .manifest
+                .iter()
+                .zip(&manifest.entries)
+                .any(|(checkpoint_member, relay_member)| {
+                    checkpoint_member.path != relay_member.path || checkpoint_member.is_directory != relay_member.is_directory
+                })
+        {
+            return Err(LocalArchiveError::CheckpointMemberUnavailable);
+        }
         let mut referenced_members = self
             .member_outcomes
-            .as_ref()
-            .into_iter()
-            .flat_map(|outcomes| outcomes.keys())
-            .chain(self.ignored_members.iter())
-            .chain(self.retry_members.iter())
-            .chain(self.member_collision_actions.keys())
-            .chain(self.member_rename_targets.keys());
+            .keys()
+            .chain(self.decisions.ignored_members.iter())
+            .chain(self.decisions.retry_members.iter())
+            .chain(self.decisions.collision_actions.keys())
+            .chain(self.decisions.rename_targets.keys());
         if referenced_members.any(|member_path| !member_paths.contains(member_path.as_str())) {
             return Err(LocalArchiveError::CheckpointMemberUnavailable);
         }
-        if let Some(outcomes) = &self.member_outcomes {
-            for outcome in outcomes.values() {
-                if !matches!(
-                    outcome.status.as_str(),
-                    "directory" | "extracted" | "skipped" | "ignored" | "partial"
-                ) || (outcome.status != "partial" && outcome.target_path.is_empty())
-                    || (outcome.renamed && outcome.target_path.is_empty())
-                {
-                    return Err(LocalArchiveError::Io(std::io::Error::new(
-                        std::io::ErrorKind::InvalidData,
-                        "Archive relay returned an invalid member outcome",
-                    )));
-                }
+        for outcome in self.member_outcomes.values() {
+            if !matches!(
+                outcome.status.as_str(),
+                "directory" | "extracted" | "skipped" | "ignored" | "partial"
+            ) || (outcome.status != "partial" && outcome.target_path.is_empty())
+                || (outcome.renamed && outcome.target_path.is_empty())
+            {
+                return Err(LocalArchiveError::Io(std::io::Error::new(
+                    std::io::ErrorKind::InvalidData,
+                    "Archive relay returned an invalid member outcome",
+                )));
             }
         }
         Ok(())
     }
 
-    /// Read unversioned V1 members; retire this sole compatibility boundary with the V1 reader after V2 retention ends.
-    fn legacy_v1_completed_members(&self) -> HashSet<String> {
-        self.written_members.iter().cloned().collect()
-    }
-
     /// Return the currently approved local-relative target for one manifest member.
     pub fn target_member_path<'a>(&'a self, member_path: &'a str) -> &'a str {
-        self.member_rename_targets.get(member_path).map_or(member_path, String::as_str)
+        self.decisions.rename_targets.get(member_path).map_or(member_path, String::as_str)
     }
 
     /// Return whether a member is intentionally ignored by a persisted decision.
     pub fn is_ignored(&self, member_path: &str) -> bool {
-        self.ignored_members.iter().any(|member| member == member_path)
+        self.decisions.ignored_members.iter().any(|member| member == member_path)
     }
 
     /// Return whether a partial member was authorized to retry.
     pub fn is_retrying(&self, member_path: &str) -> bool {
-        self.retry_members.iter().any(|member| member == member_path)
-    }
-
-    /// Return the member-specific or global collision action, if one is persisted.
-    pub fn collision_action(&self, member_path: &str) -> Option<&str> {
-        self.member_collision_actions
-            .get(member_path)
-            .or(self.collision_policy.as_ref())
-            .map(String::as_str)
+        self.decisions.retry_members.iter().any(|member| member == member_path)
     }
 
     /// Return the durable aggregate progress reported by the backend.
     pub fn progress(&self) -> LocalArchiveExtractionResult {
-        if let Some(outcomes) = &self.member_outcomes {
-            let mut result = LocalArchiveExtractionResult::default();
-            for outcome in outcomes.values() {
-                result.directories_created = result.directories_created.saturating_add(outcome.directories_created);
-                match outcome.status.as_str() {
-                    "directory" => {}
-                    "extracted" => {
-                        result.files_extracted = result.files_extracted.saturating_add(1);
-                        result.extracted_bytes = result.extracted_bytes.saturating_add(outcome.extracted_bytes);
-                        result.files_replaced = result.files_replaced.saturating_add(u64::from(outcome.replaced));
-                    }
-                    "skipped" | "ignored" => result.files_skipped = result.files_skipped.saturating_add(1),
-                    "partial" => result.partial_members = result.partial_members.saturating_add(1),
-                    _ => return LocalArchiveExtractionResult::default(),
+        let mut result = LocalArchiveExtractionResult::default();
+        for outcome in self.member_outcomes.values() {
+            result.directories_created = result.directories_created.saturating_add(outcome.directories_created);
+            match outcome.status.as_str() {
+                "directory" => {}
+                "extracted" => {
+                    result.files_extracted = result.files_extracted.saturating_add(1);
+                    result.extracted_bytes = result.extracted_bytes.saturating_add(outcome.extracted_bytes);
+                    result.files_replaced = result.files_replaced.saturating_add(u64::from(outcome.replaced));
                 }
+                "skipped" | "ignored" => result.files_skipped = result.files_skipped.saturating_add(1),
+                "partial" => result.partial_members = result.partial_members.saturating_add(1),
+                _ => return LocalArchiveExtractionResult::default(),
             }
-            return result;
         }
-        LocalArchiveExtractionResult {
-            files_extracted: self.files_extracted,
-            directories_created: self.directories_created,
-            extracted_bytes: self.extracted_bytes,
-            files_skipped: self.files_skipped,
-            ..LocalArchiveExtractionResult::default()
-        }
+        result
     }
 }
 
@@ -999,6 +998,7 @@ impl ArchiveExtractionRelayState {
 pub struct ArchiveExtractionRelayExecutionPlan {
     manifest: ArchiveExtractionManifest,
     state: ArchiveExtractionRelayState,
+    collision_policy: Option<String>,
 }
 
 impl ArchiveExtractionRelayExecutionPlan {
@@ -1009,11 +1009,31 @@ impl ArchiveExtractionRelayExecutionPlan {
 
     pub fn from_state(manifest: ArchiveExtractionManifest, state: ArchiveExtractionRelayState) -> Result<Self, LocalArchiveError> {
         state.validate_manifest(&manifest)?;
-        Ok(Self { manifest, state })
+        Ok(Self {
+            manifest,
+            state,
+            collision_policy: None,
+        })
     }
 
     pub fn manifest(&self) -> &ArchiveExtractionManifest {
         &self.manifest
+    }
+
+    /// Apply the operation-level collision policy after validating the V2 checkpoint.
+    pub fn with_collision_policy(mut self, collision_policy: Option<String>) -> Self {
+        self.collision_policy = collision_policy;
+        self
+    }
+
+    /// Return a member-specific V2 decision or the operation's immutable fallback policy.
+    pub fn collision_action(&self, member_path: &str) -> Option<&str> {
+        self.state
+            .decisions
+            .collision_actions
+            .get(member_path)
+            .or(self.collision_policy.as_ref())
+            .map(String::as_str)
     }
 }
 
@@ -2350,6 +2370,7 @@ fn source_name(path: &Path) -> Result<String, LocalArchiveError> {
 }
 
 /// Build a complete recursive manifest from selected local sources.
+#[cfg(test)]
 pub fn build_local_archive_manifest(source_paths: &[PathBuf], target_path: &Path) -> Result<Vec<LocalArchiveEntry>, LocalArchiveError> {
     build_local_archive_manifest_with_cancellation(source_paths, target_path, || false)
 }
@@ -2493,6 +2514,7 @@ pub fn revalidate_local_archive_creation_source(entry: &LocalArchiveEntry) -> Re
 }
 
 /// Create a ZIP directly at a previously non-existent local output path.
+#[cfg(test)]
 pub fn create_local_archive(
     drive_root: &Path,
     target_path: &Path,
@@ -2503,6 +2525,7 @@ pub fn create_local_archive(
 }
 
 /// Create a local ZIP while publishing committed source-member progress.
+#[cfg(test)]
 pub fn create_local_archive_with_cancellation_and_progress(
     drive_root: &Path,
     target_path: &Path,
@@ -2515,6 +2538,7 @@ pub fn create_local_archive_with_cancellation_and_progress(
 }
 
 /// Create a local ZIP while retaining its immutable manifest and outcome ledger.
+#[cfg(test)]
 pub fn create_local_archive_with_cancellation_progress_and_state(
     drive_root: &Path,
     target_path: &Path,

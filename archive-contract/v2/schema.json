@@ -10,7 +10,187 @@
     },
     "memberPath": {
       "type": "string",
-      "pattern": "^(?!/)(?!.*(?:^|/)\\.{1,2}(?:/|$))(?!.*:)[^\\u0000]+$"
+      "pattern": "^(?!/)(?!.*//)(?!.*(?:^|/)\\.{1,2}(?:/|$))(?!.*:)(?!.*\\\\)[^\\u0000/]+(?:/[^\\u0000/]+)*$"
+    },
+    "timestamp": {
+      "type": [
+        "string",
+        "null"
+      ],
+      "pattern": "^\\d{4}-\\d{2}-\\d{2}T\\d{2}:\\d{2}:\\d{2}(?:\\.\\d+)?Z$"
+    },
+    "extractionMember": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "path",
+        "is_directory",
+        "uncompressed_size",
+        "modified_at"
+      ],
+      "properties": {
+        "path": {
+          "$ref": "#/$defs/memberPath"
+        },
+        "is_directory": {
+          "type": "boolean"
+        },
+        "uncompressed_size": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "modified_at": {
+          "$ref": "#/$defs/timestamp"
+        }
+      }
+    },
+    "extractionOutcome": {
+      "oneOf": [
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "status",
+            "target_path",
+            "extracted_bytes",
+            "directories_created",
+            "replaced",
+            "renamed"
+          ],
+          "properties": {
+            "status": {
+              "enum": [
+                "directory",
+                "extracted",
+                "skipped",
+                "ignored"
+              ]
+            },
+            "target_path": {
+              "$ref": "#/$defs/memberPath"
+            },
+            "extracted_bytes": {
+              "type": "integer",
+              "minimum": 0
+            },
+            "directories_created": {
+              "type": "integer",
+              "minimum": 0
+            },
+            "replaced": {
+              "type": "boolean"
+            },
+            "renamed": {
+              "type": "boolean"
+            }
+          }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "status",
+            "target_path",
+            "message"
+          ],
+          "properties": {
+            "status": {
+              "const": "partial"
+            },
+            "target_path": {
+              "$ref": "#/$defs/memberPath"
+            },
+            "message": {
+              "type": "string",
+              "minLength": 1
+            }
+          }
+        }
+      ]
+    },
+    "creationMember": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "archive_path",
+        "is_directory",
+        "source_size",
+        "source_path",
+        "modified_at"
+      ],
+      "properties": {
+        "archive_path": {
+          "$ref": "#/$defs/memberPath"
+        },
+        "is_directory": {
+          "type": "boolean"
+        },
+        "source_size": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "source_path": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "modified_at": {
+          "$ref": "#/$defs/timestamp"
+        }
+      }
+    },
+    "creationCheckpoint": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "version",
+        "manifest",
+        "member_outcomes",
+        "decisions",
+        "pending_decision"
+      ],
+      "properties": {
+        "version": {
+          "const": 2
+        },
+        "manifest": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/creationMember"
+          }
+        },
+        "member_outcomes": {
+          "type": "object",
+          "additionalProperties": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "status",
+              "source_bytes"
+            ],
+            "properties": {
+              "status": {
+                "enum": [
+                  "directory",
+                  "created"
+                ]
+              },
+              "source_bytes": {
+                "type": "integer",
+                "minimum": 0
+              }
+            }
+          }
+        },
+        "decisions": {
+          "type": "object",
+          "maxProperties": 0
+        },
+        "pending_decision": {
+          "type": "null"
+        }
+      }
     },
     "checkpoint": {
       "type": "object",
@@ -29,7 +209,10 @@
           "const": 2
         },
         "manifest": {
-          "type": "array"
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/extractionMember"
+          }
         },
         "source_snapshot": {
           "type": "object",
@@ -44,15 +227,15 @@
               "minimum": 0
             },
             "modified_at": {
-              "type": [
-                "string",
-                "null"
-              ]
+              "$ref": "#/$defs/timestamp"
             }
           }
         },
         "member_outcomes": {
-          "type": "object"
+          "type": "object",
+          "additionalProperties": {
+            "$ref": "#/$defs/extractionOutcome"
+          }
         },
         "decisions": {
           "type": "object",
@@ -65,10 +248,19 @@
           ],
           "properties": {
             "collision_actions": {
-              "type": "object"
+              "type": "object",
+              "additionalProperties": {
+                "enum": [
+                  "skip",
+                  "replace"
+                ]
+              }
             },
             "rename_targets": {
-              "type": "object"
+              "type": "object",
+              "additionalProperties": {
+                "$ref": "#/$defs/memberPath"
+              }
             },
             "ignored_members": {
               "type": "array",

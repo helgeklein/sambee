@@ -951,9 +951,9 @@ describe("API Service", () => {
 
       expect(mockAxiosInstance.get).toHaveBeenNthCalledWith(
         1,
-        "/viewer/conn1/archive/member",
+        "/archive/v2/inspection/member",
         expect.objectContaining({
-          params: expect.objectContaining({ viewport_width: 1280, viewport_height: 720 }),
+          params: expect.objectContaining({ contract_version: "v2", connection_id: "conn1", viewport_width: 1280, viewport_height: 720 }),
           responseType: "blob",
         })
       );

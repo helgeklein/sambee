@@ -15,6 +15,7 @@ from fastapi.testclient import TestClient
 from sqlmodel import select
 
 from app.api.archive_operations import _ensure_mixed_archive_parent_directories
+from app.models.archive import ArchiveDirectoryListing, ArchiveIdentity
 from app.models.archive_operation import (
     ARCHIVE_OPERATION_HEARTBEAT_TIMEOUT_SECONDS,
     ArchiveOperation,
@@ -973,6 +974,35 @@ def test_v2_operation_routes_pin_contract_version_and_reject_legacy_input(
     legacy_payload = {**payload, "contract_version": "v1"}
     rejected = client.post("/api/archive/v2/operations", headers=auth_headers_user, json=legacy_payload)
     assert rejected.status_code == status.HTTP_422_UNPROCESSABLE_CONTENT
+
+
+def test_v2_inspection_is_request_scoped_and_rejects_legacy_contract(
+    client: TestClient,
+    auth_headers_user: dict,
+    test_connection: Connection,
+) -> None:
+    with patch(
+        "app.api.archive_operations.list_archive_directory",
+        new=AsyncMock(
+            return_value=ArchiveDirectoryListing(
+                archive=ArchiveIdentity(path="input.zip", size=1), path="", items=[], total=0, page_size=100
+            )
+        ),
+    ) as list_inspection:
+        response = client.get(
+            "/api/archive/v2/inspection/directory",
+            headers=auth_headers_user,
+            params={"connection_id": str(test_connection.id), "archive_path": "input.zip", "contract_version": "v2"},
+        )
+        rejected = client.get(
+            "/api/archive/v2/inspection/directory",
+            headers=auth_headers_user,
+            params={"connection_id": str(test_connection.id), "archive_path": "input.zip", "contract_version": "v1"},
+        )
+
+    assert response.status_code == status.HTTP_200_OK
+    assert rejected.status_code == status.HTTP_422_UNPROCESSABLE_CONTENT
+    list_inspection.assert_awaited_once()
 
 
 def test_expires_a_stale_archive_operation_as_interrupted(

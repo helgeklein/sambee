@@ -68,6 +68,30 @@ def _validate_member_paths(values: object) -> list[str]:
     return [_canonical_member_path(value) for value in values]
 
 
+def _validate_member_outcome(value: object) -> None:
+    if not isinstance(value, dict):
+        raise _invalid_checkpoint("Archive V2 checkpoint member outcomes are invalid")
+    status_value = value.get("status")
+    if status_value == "partial":
+        if frozenset(value) != {"status", "target_path", "message"} or not isinstance(value["message"], str):
+            raise _invalid_checkpoint("Archive V2 checkpoint member outcomes are invalid")
+    elif status_value in {"directory", "extracted", "skipped", "ignored"}:
+        if frozenset(value) != {"status", "target_path", "extracted_bytes", "directories_created", "replaced", "renamed"}:
+            raise _invalid_checkpoint("Archive V2 checkpoint member outcomes are invalid")
+        if (
+            type(value["extracted_bytes"]) is not int
+            or value["extracted_bytes"] < 0
+            or type(value["directories_created"]) is not int
+            or value["directories_created"] < 0
+            or type(value["replaced"]) is not bool
+            or type(value["renamed"]) is not bool
+        ):
+            raise _invalid_checkpoint("Archive V2 checkpoint member outcomes are invalid")
+    else:
+        raise _invalid_checkpoint("Archive V2 checkpoint member outcomes are invalid")
+    _canonical_member_path(value.get("target_path"))
+
+
 def validate_v2_extraction_checkpoint(checkpoint: object) -> dict[str, object]:
     """Return a defensive V2 envelope copy or reject every legacy/unknown shape."""
 
@@ -106,11 +130,10 @@ def validate_v2_extraction_checkpoint(checkpoint: object) -> dict[str, object]:
         if member["modified_at"] is not None and not isinstance(member["modified_at"], str):
             raise _invalid_checkpoint("Archive V2 checkpoint manifest is invalid")
         manifest_paths.add(member_path)
-    if any(
-        _canonical_member_path(member_path) not in manifest_paths or not isinstance(outcome, dict)
-        for member_path, outcome in outcomes.items()
-    ):
-        raise _invalid_checkpoint("Archive V2 checkpoint member outcomes are invalid")
+    for member_path, outcome in outcomes.items():
+        if _canonical_member_path(member_path) not in manifest_paths:
+            raise _invalid_checkpoint("Archive V2 checkpoint member outcomes are invalid")
+        _validate_member_outcome(outcome)
     if not isinstance(decisions, dict) or frozenset(decisions) != V2_DECISION_FIELDS:
         raise _invalid_checkpoint("Archive V2 checkpoint decisions are invalid")
     collision_actions = decisions["collision_actions"]

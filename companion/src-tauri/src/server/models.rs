@@ -133,7 +133,7 @@ pub enum ArchiveV2ExecutionStartRequest {
 }
 
 /// The only archive contract accepted by the V2 Companion API.
-#[derive(Debug, Deserialize, Serialize)]
+#[derive(Clone, Copy, Debug, Deserialize, Eq, PartialEq, Serialize)]
 #[serde(rename_all = "lowercase")]
 pub enum ArchiveContractVersion {
     V2,
@@ -142,6 +142,7 @@ pub enum ArchiveContractVersion {
 /// Request to create a local ZIP from scoped SMB source members.
 #[derive(Debug, Deserialize)]
 pub struct ArchiveCreateFromSmbRequest {
+    pub contract_version: ArchiveContractVersion,
     pub target_path: String,
     pub server_url: String,
     pub operation_id: String,
@@ -151,6 +152,7 @@ pub struct ArchiveCreateFromSmbRequest {
 /// Request to create a scoped SMB ZIP from local source paths.
 #[derive(Debug, Deserialize)]
 pub struct ArchiveCreateToSmbRequest {
+    pub contract_version: ArchiveContractVersion,
     pub source_paths: Vec<String>,
     pub target_path: String,
     pub server_url: String,
@@ -251,6 +253,7 @@ pub struct ArchiveExecutionPendingDecision {
 /// Request to relay a local ZIP extraction to a scoped SMB archive operation.
 #[derive(Debug, Deserialize)]
 pub struct ArchiveExtractToSmbRequest {
+    pub contract_version: ArchiveContractVersion,
     pub archive_path: String,
     pub server_url: String,
     pub operation_id: String,
@@ -260,6 +263,7 @@ pub struct ArchiveExtractToSmbRequest {
 /// Request to extract a scoped SMB ZIP into a new local destination directory.
 #[derive(Debug, Deserialize)]
 pub struct ArchiveExtractFromSmbRequest {
+    pub contract_version: ArchiveContractVersion,
     pub destination_path: String,
     pub server_url: String,
     pub operation_id: String,

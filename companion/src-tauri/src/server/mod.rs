@@ -115,8 +115,8 @@ fn build_router(state: Arc<AppState>) -> Router {
         .route("/api/drives", axum::routing::get(handlers::list_drives))
         .route("/api/browse/{drive}/list", axum::routing::get(handlers::browse_list))
         .route(
-            "/api/browse/{drive}/archive/list",
-            axum::routing::get(handlers::browse_list_archive),
+            "/api/browse/{drive}/archive/v2/list",
+            axum::routing::get(handlers::browse_list_v2_archive),
         )
         .route(
             "/api/browse/{drive}/link-targets",
@@ -151,53 +151,36 @@ fn build_router(state: Arc<AppState>) -> Router {
             axum::routing::get(handlers::browse_edit_lock_status),
         )
         .route("/api/browse/{drive}/upload", axum::routing::post(handlers::browse_upload))
-        .route("/api/browse/{drive}/archive", axum::routing::post(handlers::browse_create_archive))
         .route(
-            "/api/browse/{drive}/archive/create-from-smb",
+            "/api/browse/{drive}/archive/v2/create-from-smb",
             axum::routing::post(handlers::browse_create_archive_from_smb),
         )
         .route(
-            "/api/browse/{drive}/archive/create-to-smb",
+            "/api/browse/{drive}/archive/v2/create-to-smb",
             axum::routing::post(handlers::browse_create_archive_to_smb),
-        )
-        .route(
-            "/api/browse/{drive}/archive/executions",
-            axum::routing::post(handlers::browse_start_archive_execution),
         )
         .route(
             "/api/browse/{drive}/archive/v2/executions",
             axum::routing::post(handlers::browse_start_v2_archive_execution),
         )
         .route(
-            "/api/browse/{drive}/archive/executions/{execution_id}",
-            axum::routing::get(handlers::browse_get_archive_execution),
-        )
-        .route(
             "/api/browse/{drive}/archive/v2/executions/{execution_id}",
             axum::routing::get(handlers::browse_get_v2_archive_execution),
-        )
-        .route(
-            "/api/browse/{drive}/archive/executions/{execution_id}/cancellation",
-            axum::routing::post(handlers::browse_cancel_archive_execution),
         )
         .route(
             "/api/browse/{drive}/archive/v2/executions/{execution_id}/cancellation",
             axum::routing::post(handlers::browse_cancel_v2_archive_execution),
         )
         .route(
-            "/api/browse/{drive}/archive/executions/{execution_id}/decision",
-            axum::routing::post(handlers::browse_decide_archive_execution),
-        )
-        .route(
             "/api/browse/{drive}/archive/v2/executions/{execution_id}/decision",
             axum::routing::post(handlers::browse_decide_v2_archive_execution),
         )
         .route(
-            "/api/browse/{drive}/archive/extract-to-smb",
+            "/api/browse/{drive}/archive/v2/extract-to-smb",
             axum::routing::post(handlers::browse_extract_archive_to_smb),
         )
         .route(
-            "/api/browse/{drive}/archive/extract-from-smb",
+            "/api/browse/{drive}/archive/v2/extract-from-smb",
             axum::routing::post(handlers::browse_extract_archive_from_smb),
         )
         .layer(axum::middleware::from_fn_with_state(state.clone(), auth::require_auth));
@@ -208,8 +191,8 @@ fn build_router(state: Arc<AppState>) -> Router {
         .route("/api/viewer/{drive}/file", axum::routing::get(handlers::viewer_file))
         .route("/api/viewer/{drive}/download", axum::routing::get(handlers::viewer_download))
         .route(
-            "/api/viewer/{drive}/archive/member",
-            axum::routing::get(handlers::viewer_archive_member),
+            "/api/viewer/{drive}/archive/v2/member",
+            axum::routing::get(handlers::viewer_v2_archive_member),
         )
         .layer(axum::middleware::from_fn_with_state(state.clone(), auth::require_auth_or_query));
 

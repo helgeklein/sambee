@@ -66,6 +66,63 @@
       "path": "/api/archive/v2/inspection/member",
       "operation": "member_read",
       "durable": false
+    },
+    {
+      "method": "POST|PUT|GET",
+      "path": "/api/archive/v2/operations/{operation_id}/companion-relay/local_zip_to_smb_extract/{begin|member|complete|fail}",
+      "operation": "relay_extraction",
+      "durable": true,
+      "capability": "v2"
+    },
+    {
+      "method": "POST|GET",
+      "path": "/api/archive/v2/operations/{operation_id}/companion-relay/smb_zip_to_local_extract/{begin|member|member-complete|member-collision|member-error|complete|fail}",
+      "operation": "relay_extraction",
+      "durable": true,
+      "capability": "v2"
+    },
+    {
+      "method": "POST|GET",
+      "path": "/api/archive/v2/operations/{operation_id}/companion-relay/smb_to_local_zip_create/{begin|member|member-complete|complete|fail}",
+      "operation": "relay_creation",
+      "durable": true,
+      "capability": "v2"
+    },
+    {
+      "method": "POST|PUT",
+      "path": "/api/archive/v2/operations/{operation_id}/companion-relay/local_to_smb_zip_create/{begin|member|complete|fail}",
+      "operation": "relay_creation",
+      "durable": true,
+      "capability": "v2"
+    },
+    {
+      "method": "POST|GET",
+      "path": "/api/browse/{drive}/archive/v2/executions[/{execution_id}[/{cancel|decision}]]",
+      "operation": "direct_local",
+      "durable": false,
+      "contract_version": "v2"
+    },
+    {
+      "method": "POST",
+      "path": "/api/browse/{drive}/archive/v2/{create-from-smb|create-to-smb|extract-from-smb|extract-to-smb}",
+      "operation": "companion_relay",
+      "durable": true,
+      "contract_version": "v2",
+      "capability": "v2"
+    },
+    {
+      "method": "GET",
+      "path": "/api/browse/{drive}/archive/v2/list",
+      "operation": "inspection",
+      "durable": false,
+      "contract_version": "v2"
+    },
+    {
+      "method": "GET",
+      "path": "/api/viewer/{drive}/archive/v2/member",
+      "operation": "member_read",
+      "durable": false,
+      "contract_version": "v2"
     }
   ]
 }

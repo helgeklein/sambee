@@ -1892,6 +1892,7 @@ class ArchiveCreationCoordinator:
 
     operation: ArchiveOperation
     state_store: ArchiveExecutionStateStore
+    use_v2_checkpoint: bool = False
 
     async def run(self, runner: ArchiveCreationRunner, *, execution_plan: ArchiveCreationExecutionPlan) -> ArchiveOperation:
         """Advance a creation adapter through its shared lifecycle."""
@@ -1931,7 +1932,7 @@ class ArchiveCreationCoordinator:
                     for member in execution_plan.manifest.members
                 ]
             )
-            if self.operation.contract_version == ArchiveContractVersion.V2
+            if self.use_v2_checkpoint
             else execution_plan.manifest.empty_checkpoint()
         )
         return start_archive_execution(

@@ -33,19 +33,18 @@ use crate::http_client::{classify_proxy_auth_intercept, log_request_error, Sambe
 use crate::{commands, show_pairing_success, show_pairing_window};
 
 use super::archive::{
-    build_local_archive_manifest, build_local_archive_manifest_for_remote_target, build_local_archive_manifest_with_cancellation,
-    create_local_archive, create_local_archive_relay_writer, create_local_archive_with_execution_plan_progress_and_state,
-    create_local_extraction_root, ensure_local_extraction_directory, extract_local_archive_with_checkpoint_and_progress,
-    open_local_extraction_file, project_local_archive_creation_manifest, reopen_partial_local_extraction_file,
-    resolve_companion_archive_inspection_topology_plan, resolve_companion_archive_topology_plan, stream_local_archive_member,
-    validate_local_archive_extraction, validate_local_extraction_member_path, validate_local_extraction_rename_target,
-    ArchiveCreationManifest, ArchiveCreationManifestState, ArchiveDirectoryListingPresentation, ArchiveExtractionManifest,
-    ArchiveExtractionManifestMember, ArchiveExtractionRelayExecutionPlan, ArchiveExtractionRelayState, ArchiveInspectionCoordinator,
-    ArchiveInspectionPlan, ArchiveInspectionPresentation, ArchiveMemberReadDelivery, ArchiveMemberReadPresentation,
-    CompanionArchiveBinding, CompanionArchiveExecutionDriver, CompanionArchiveOperationKind, CompanionArchiveTopology,
-    CompanionArchiveTopologyPlan, LocalArchiveCreationExecutionPlan, LocalArchiveCreationResult, LocalArchiveEntry, LocalArchiveError,
-    LocalArchiveExtractionCollisionAction, LocalArchiveExtractionExecutionPlan, LocalArchiveExtractionRunResult,
-    LocalArchiveInspectionSource, LocalArchiveReadEntry, LocalArchiveRelayChunk, ARCHIVE_COPY_BUFFER_SIZE,
+    build_local_archive_manifest_for_remote_target, build_local_archive_manifest_with_cancellation, create_local_archive_relay_writer,
+    create_local_archive_with_execution_plan_progress_and_state, create_local_extraction_root, ensure_local_extraction_directory,
+    extract_local_archive_with_checkpoint_and_progress, open_local_extraction_file, project_local_archive_creation_manifest,
+    reopen_partial_local_extraction_file, resolve_companion_archive_inspection_topology_plan, resolve_companion_archive_topology_plan,
+    stream_local_archive_member, validate_local_archive_extraction, validate_local_extraction_member_path,
+    validate_local_extraction_rename_target, ArchiveCreationManifest, ArchiveCreationManifestState, ArchiveDirectoryListingPresentation,
+    ArchiveExtractionManifest, ArchiveExtractionManifestMember, ArchiveExtractionRelayExecutionPlan, ArchiveExtractionRelayState,
+    ArchiveInspectionCoordinator, ArchiveInspectionPlan, ArchiveInspectionPresentation, ArchiveMemberReadDelivery,
+    ArchiveMemberReadPresentation, CompanionArchiveBinding, CompanionArchiveExecutionDriver, CompanionArchiveOperationKind,
+    CompanionArchiveTopology, CompanionArchiveTopologyPlan, LocalArchiveCreationExecutionPlan, LocalArchiveCreationResult,
+    LocalArchiveEntry, LocalArchiveError, LocalArchiveExtractionCollisionAction, LocalArchiveExtractionExecutionPlan,
+    LocalArchiveExtractionRunResult, LocalArchiveInspectionSource, LocalArchiveReadEntry, LocalArchiveRelayChunk, ARCHIVE_COPY_BUFFER_SIZE,
 };
 use super::archive_sessions::{
     ArchiveSessionCompletion, ArchiveSessionManager, ArchiveSessionProgress, ArchiveSessionStatus, ArchiveSessionWork,
@@ -486,6 +485,15 @@ pub struct ArchiveListQuery {
     pub page_size: Option<usize>,
 }
 
+#[derive(Deserialize)]
+pub struct ArchiveV2ListQuery {
+    pub contract_version: ArchiveContractVersion,
+    pub archive_path: String,
+    pub virtual_path: Option<String>,
+    pub cursor: Option<String>,
+    pub page_size: Option<usize>,
+}
+
 /// `GET /api/browse/{drive}/list` — list directory contents.
 pub async fn browse_list(Path(drive): Path<String>, Query(query): Query<BrowseQuery>) -> Result<Json<DirectoryListing>, ApiError> {
     let base_path = drives::resolve_drive_path(&drive).ok_or_else(|| ApiError::NotFound(format!("Unknown drive: {drive}")))?;
@@ -556,6 +564,24 @@ pub async fn browse_list_archive(
     .await
     .map_err(|error| ApiError::Internal(format!("Local archive listing task failed: {error}")))??;
     Ok(Json(listing))
+}
+
+/// `GET /api/browse/{drive}/archive/v2/list` — list a V2 local archive directory.
+pub async fn browse_list_v2_archive(
+    Path(drive): Path<String>,
+    Query(query): Query<ArchiveV2ListQuery>,
+) -> Result<Json<ArchiveDirectoryListing>, ApiError> {
+    let _contract_version = query.contract_version;
+    browse_list_archive(
+        Path(drive),
+        Query(ArchiveListQuery {
+            archive_path: query.archive_path,
+            virtual_path: query.virtual_path,
+            cursor: query.cursor,
+            page_size: query.page_size,
+        }),
+    )
+    .await
 }
 
 /// `GET /api/browse/{drive}/link-targets` — resolve display-safe target metadata for links in one directory.
@@ -725,6 +751,15 @@ pub struct ArchiveMemberQuery {
     pub download: bool,
 }
 
+#[derive(Deserialize)]
+pub struct ArchiveV2MemberQuery {
+    pub contract_version: ArchiveContractVersion,
+    pub archive_path: String,
+    pub member_path: String,
+    #[serde(default)]
+    pub download: bool,
+}
+
 /// Default MIME type for files we can't identify.
 const FALLBACK_MIME: &str = "application/octet-stream";
 
@@ -828,6 +863,23 @@ pub async fn viewer_archive_member(Path(drive): Path<String>, Query(query): Quer
         )
         .body(Body::from_stream(ReaderStream::new(reader)))
         .map_err(|error| ApiError::Internal(format!("Failed to build archive member response: {error}")))
+}
+
+/// `GET /api/viewer/{drive}/archive/v2/member` — stream a V2 local archive member.
+pub async fn viewer_v2_archive_member(
+    Path(drive): Path<String>,
+    Query(query): Query<ArchiveV2MemberQuery>,
+) -> Result<Response<Body>, ApiError> {
+    let _contract_version = query.contract_version;
+    viewer_archive_member(
+        Path(drive),
+        Query(ArchiveMemberQuery {
+            archive_path: query.archive_path,
+            member_path: query.member_path,
+            download: query.download,
+        }),
+    )
+    .await
 }
 
 /// Resolve drive + query path for viewer endpoints, returning the full path and MIME type.
@@ -1145,49 +1197,6 @@ pub async fn browse_open(
 }
 
 // ─── Archive Creation ───────────────────────────────────────────────────────
-
-/// `POST /api/browse/{drive}/archive` — write a ZIP directly from local selections.
-pub async fn browse_create_archive(
-    Path(drive): Path<String>,
-    Json(body): Json<ArchiveCreateRequest>,
-) -> Result<Json<ArchiveCreationResponse>, ApiError> {
-    if body.source_paths.is_empty() || body.target_path.trim().is_empty() {
-        return Err(ApiError::BadRequest(
-            "Archive creation requires source paths and a target path".to_string(),
-        ));
-    }
-    let base_path = drives::resolve_drive_path(&drive).ok_or_else(|| ApiError::NotFound(format!("Unknown drive: {drive}")))?;
-    let sources = body
-        .source_paths
-        .iter()
-        .map(|source_path| resolve_safe_path(&base_path, &drive, source_path))
-        .collect::<Result<Vec<_>, _>>()?;
-    let target = resolve_safe_path_for_new(&base_path, &drive, &body.target_path)?;
-    let Some(parent) = target.parent() else {
-        return Err(ApiError::BadRequest("Archive target path is invalid".to_string()));
-    };
-    if !parent.is_dir() {
-        return Err(ApiError::BadRequest("Archive target parent directory does not exist".to_string()));
-    }
-
-    let result = tokio::task::spawn_blocking(move || {
-        let manifest = build_local_archive_manifest(&sources, &target)?;
-        create_local_archive(&base_path, &target, &manifest, || false)
-    })
-    .await
-    .map_err(|error| ApiError::Internal(format!("Local archive task failed: {error}")))?
-    .map_err(map_local_archive_error)?;
-
-    info!(
-        "Created local archive with {} files and {} directories",
-        result.files_created, result.directories_created
-    );
-    Ok(Json(ArchiveCreationResponse {
-        files_created: result.files_created,
-        directories_created: result.directories_created,
-        source_bytes: result.source_bytes,
-    }))
-}
 
 fn archive_creation_response(result: LocalArchiveCreationResult) -> ArchiveCreationResponse {
     ArchiveCreationResponse {
@@ -2884,6 +2893,7 @@ pub async fn browse_create_archive_from_smb(
     headers: HeaderMap,
     Json(body): Json<ArchiveCreateFromSmbRequest>,
 ) -> Result<Json<ArchiveCreationResponse>, ApiError> {
+    let _contract_version = body.contract_version;
     match resolve_companion_archive_topology(CompanionArchiveOperationKind::Create, false, true)? {
         CompanionArchiveTopology::SmbToLocal => {}
         _ => {
@@ -2942,6 +2952,7 @@ pub async fn browse_create_archive_to_smb(
     headers: HeaderMap,
     Json(body): Json<ArchiveCreateToSmbRequest>,
 ) -> Result<Json<ArchiveCreationResponse>, ApiError> {
+    let _contract_version = body.contract_version;
     match resolve_companion_archive_topology(CompanionArchiveOperationKind::Create, true, false)? {
         CompanionArchiveTopology::LocalToSmb => {}
         _ => {
@@ -3274,26 +3285,17 @@ pub async fn browse_start_v2_archive_execution(
     Ok(Json(response))
 }
 
-/// `GET /api/browse/{drive}/archive/executions/{execution_id}` — retrieve lifecycle state.
-pub async fn browse_get_archive_execution(
-    State(state): State<Arc<AppState>>,
-    Path((drive, execution_id)): Path<(String, String)>,
-    headers: HeaderMap,
-) -> Result<Json<ArchiveExecutionResponse>, ApiError> {
-    let execution = state
-        .archive_sessions
-        .get(&drive, &extract_origin(&headers)?, &execution_id)
-        .await?;
-    Ok(Json(archive_execution_response(execution)))
-}
-
 /// `GET /api/browse/{drive}/archive/v2/executions/{execution_id}` — retrieve V2 local lifecycle state.
 pub async fn browse_get_v2_archive_execution(
     State(state): State<Arc<AppState>>,
     Path((drive, execution_id)): Path<(String, String)>,
     headers: HeaderMap,
 ) -> Result<Json<ArchiveExecutionResponse>, ApiError> {
-    let Json(mut response) = browse_get_archive_execution(State(state), Path((drive, execution_id)), headers).await?;
+    let execution = state
+        .archive_sessions
+        .get_v2(&drive, &extract_origin(&headers)?, &execution_id)
+        .await?;
+    let mut response = archive_execution_response(execution);
     response.contract_version = Some(ArchiveContractVersion::V2);
     Ok(Json(response))
 }
@@ -3402,6 +3404,7 @@ pub async fn browse_extract_archive_to_smb(
     headers: HeaderMap,
     Json(body): Json<ArchiveExtractToSmbRequest>,
 ) -> Result<Json<ArchiveExtractionResponse>, ApiError> {
+    let _contract_version = body.contract_version;
     match resolve_companion_archive_topology(CompanionArchiveOperationKind::Extract, true, false)? {
         CompanionArchiveTopology::LocalToSmb => {}
         _ => {
@@ -3492,6 +3495,7 @@ struct ArchiveRelayOperation {
     destination_path: String,
     checkpoint_json: String,
     pending_decision_json: Option<String>,
+    collision_policy: Option<String>,
 }
 
 enum ArchiveExtractionRelayResult {
@@ -3519,7 +3523,9 @@ fn archive_relay_extraction_plan(
     operation: &ArchiveRelayOperation,
     manifest: ArchiveExtractionManifest,
 ) -> Result<ArchiveExtractionRelayExecutionPlan, ApiError> {
-    ArchiveExtractionRelayExecutionPlan::from_checkpoint_json(manifest, &operation.checkpoint_json).map_err(map_local_archive_error)
+    ArchiveExtractionRelayExecutionPlan::from_checkpoint_json(manifest, &operation.checkpoint_json)
+        .map(|plan| plan.with_collision_policy(operation.collision_policy.clone()))
+        .map_err(map_local_archive_error)
 }
 
 async fn prepare_local_archive_extraction_relay_binding(
@@ -3612,6 +3618,7 @@ pub async fn browse_extract_archive_from_smb(
     headers: HeaderMap,
     Json(body): Json<ArchiveExtractFromSmbRequest>,
 ) -> Result<Json<ArchiveExtractionResponse>, ApiError> {
+    let _contract_version = body.contract_version;
     match resolve_companion_archive_topology(CompanionArchiveOperationKind::Extract, false, true)? {
         CompanionArchiveTopology::SmbToLocal => {}
         _ => {
@@ -3869,7 +3876,14 @@ async fn extract_smb_archive_manifest_to_local(
         }
         if member_bytes != entry.uncompressed_size {
             return relay
-                .pause_source_member_with_error_result(&entry.path, "Archive member size does not match its manifest".to_string(), true)
+                .pause_source_member_with_error_result(
+                    &entry.path,
+                    format!(
+                        "Archive member size {member_bytes} does not match manifest size {}",
+                        entry.uncompressed_size
+                    ),
+                    true,
+                )
                 .await;
         }
         let member_result = relay
@@ -4870,7 +4884,7 @@ fn resolve_local_archive_creation_request(drive: &str, body: &ArchiveCreateReque
 fn archive_execution_response(execution: ArchiveSessionStatus) -> ArchiveExecutionResponse {
     let progress = execution.result.unwrap_or(execution.progress);
     let mut response = ArchiveExecutionResponse {
-        contract_version: None,
+        contract_version: Some(execution.contract_version),
         execution_id: execution.execution_id,
         kind: execution.kind.as_str().to_string(),
         phase: execution.phase.as_str().to_string(),
@@ -5046,14 +5060,14 @@ mod tests {
     };
     use crate::server::errors::{ApiError, LOCAL_ARCHIVE_CREATION_PARTIAL_CODE, LOCAL_ARCHIVE_EXTRACTION_PARTIAL_CODE};
     use crate::server::models::{
-        ArchiveCreationResponse, ArchiveExtractionResponse, FileType, LinkKind, LinkTargetState, LinkTargetType, PublicPairingStatus,
+        ArchiveContractVersion, ArchiveCreationResponse, ArchiveExtractionResponse, FileType, LinkKind, LinkTargetState, LinkTargetType,
+        PublicPairingStatus,
     };
     use crate::server::pairing::PairingState;
     use axum::body::to_bytes;
     use axum::extract::{Path, Query, State};
     use axum::http::{HeaderMap, HeaderValue, Method, StatusCode, Uri};
     use axum::response::IntoResponse;
-    use serde::Deserialize;
     use std::collections::VecDeque;
     #[cfg(unix)]
     use std::os::unix::fs::symlink;
@@ -5061,24 +5075,6 @@ mod tests {
     use tokio::io::{AsyncReadExt, AsyncWriteExt};
     use tokio::sync::{oneshot, Mutex};
     const NONCE_A: &str = "00112233445566778899aabbccddeeff00112233445566778899aabbccddeeff";
-
-    #[derive(Deserialize)]
-    struct ExtractionOutcomeConformanceCorpus {
-        version: u8,
-        scenarios: Vec<ExtractionOutcomeConformanceScenario>,
-    }
-
-    #[derive(Deserialize)]
-    struct ExtractionOutcomeConformanceScenario {
-        checkpoint: Option<serde_json::Value>,
-        #[serde(default)]
-        result_reports: Vec<serde_json::Value>,
-        #[serde(default)]
-        completed_members: Vec<String>,
-        #[serde(default)]
-        progress: std::collections::HashMap<String, u64>,
-        error: Option<String>,
-    }
 
     fn relay_control_payload_example(name: &str) -> serde_json::Value {
         let fixture: serde_json::Value =
@@ -5500,13 +5496,93 @@ mod tests {
             .iter()
             .find(|case| case["name"] == case_name)
             .unwrap_or_else(|| panic!("topology trace fixture should define {case_name}"));
-        spawn_fixture_relay_playback(
+        spawn_fixture_relay_playback(upgrade_extraction_fixture_playback(
             case["relay_playback"]
                 .as_array()
                 .unwrap_or_else(|| panic!("topology trace fixture should define relay playback for {case_name}"))
                 .clone(),
-        )
+            &case["expected_trace"]["manifest_snapshot"],
+        ))
         .await
+    }
+
+    fn upgrade_extraction_fixture_playback(mut steps: Vec<serde_json::Value>, member_paths: &serde_json::Value) -> Vec<serde_json::Value> {
+        let manifest = steps
+            .iter()
+            .find_map(|step| step["response"]["json"]["entries"].as_array().cloned())
+            .unwrap_or_else(|| {
+                member_paths
+                    .as_array()
+                    .expect("fixture manifest snapshot must be an array")
+                    .iter()
+                    .map(|path| {
+                        serde_json::json!({
+                            "path": path.as_str().expect("fixture manifest path must be a string"),
+                            "is_directory": false,
+                            "uncompressed_size": 0,
+                            "modified_at": null,
+                        })
+                    })
+                    .collect()
+            });
+        for step in &mut steps {
+            if let Some(response_json) = step.get_mut("response").and_then(|response| response.get_mut("json")) {
+                upgrade_fixture_checkpoint_json(response_json, &manifest);
+            }
+        }
+        steps
+    }
+
+    fn upgrade_fixture_checkpoint_json(payload: &mut serde_json::Value, manifest: &[serde_json::Value]) {
+        let Some(object) = payload.as_object_mut() else {
+            return;
+        };
+        if let Some(operation) = object.get_mut("operation") {
+            upgrade_fixture_checkpoint_json(operation, manifest);
+        }
+        let Some(checkpoint_value) = object.get("checkpoint_json") else {
+            return;
+        };
+        let checkpoint = checkpoint_value
+            .as_str()
+            .and_then(|value| serde_json::from_str::<serde_json::Value>(value).ok())
+            .expect("fixture checkpoint must be valid JSON");
+        if let Some(collision_policy) = checkpoint.get("collision_policy") {
+            object.insert("collision_policy".to_string(), collision_policy.clone());
+        }
+        let decisions = serde_json::json!({
+            "collision_actions": checkpoint
+                .get("member_collision_actions")
+                .and_then(serde_json::Value::as_object)
+                .map(|actions| {
+                    actions
+                        .iter()
+                        .filter_map(|(path, action)| match action.as_str() {
+                            Some("skip") | Some("replace") => Some((path.clone(), action.clone())),
+                            Some("replace_older") => Some((path.clone(), serde_json::Value::String("skip".to_string()))),
+                            _ => None,
+                        })
+                        .collect::<serde_json::Map<_, _>>()
+                })
+                .unwrap_or_default(),
+            "rename_targets": checkpoint.get("member_rename_targets").cloned().unwrap_or_else(|| serde_json::json!({})),
+            "ignored_members": checkpoint.get("ignored_members").cloned().unwrap_or_else(|| serde_json::json!([])),
+            "retry_members": checkpoint.get("retry_members").cloned().unwrap_or_else(|| serde_json::json!([])),
+        });
+        object.insert(
+            "checkpoint_json".to_string(),
+            serde_json::Value::String(
+                serde_json::json!({
+                    "version": 2,
+                    "manifest": manifest,
+                    "source_snapshot": { "size": 0, "modified_at": null },
+                    "member_outcomes": checkpoint.get("member_outcomes").cloned().unwrap_or_else(|| serde_json::json!({})),
+                    "decisions": decisions,
+                    "pending_decision": null,
+                })
+                .to_string(),
+            ),
+        );
     }
 
     async fn spawn_fixture_relay_playback(steps: Vec<serde_json::Value>) -> FixtureRelayServer {
@@ -6577,7 +6653,11 @@ mod tests {
                         .cloned()
                 })
                 .collect::<Vec<_>>();
-            let playback = spawn_fixture_relay_playback(relay_steps).await;
+            let playback = spawn_fixture_relay_playback(upgrade_extraction_fixture_playback(
+                relay_steps,
+                &trajectory["expected_trace"]["manifest_snapshot"],
+            ))
+            .await;
             let directory = tempfile::tempdir().expect("temporary extraction directory should be created");
             let destination_path = directory.path().join("destination");
             let mut archive_path = None;
@@ -7052,38 +7132,32 @@ mod tests {
     }
 
     #[test]
-    fn passes_v1_extraction_outcome_conformance_corpus() {
-        let corpus_path = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR"))
-            .join("../..")
-            .join("archive-contract/v1/extraction-outcome-scenarios-v1.json");
-        let corpus: ExtractionOutcomeConformanceCorpus =
-            serde_json::from_slice(&std::fs::read(corpus_path).expect("shared extraction outcome corpus should be readable"))
-                .expect("shared extraction outcome corpus should be valid JSON");
-        assert_eq!(corpus.version, 1);
+    fn v2_extraction_checkpoint_rejects_legacy_shapes_and_derives_completed_members() {
+        let operation = ArchiveRelayOperation {
+            phase: "streaming".to_string(),
+            destination_path: "output".to_string(),
+            checkpoint_json: serde_json::json!({
+                "version": 2,
+                "manifest": [{"path": "entry.txt", "is_directory": false, "uncompressed_size": 5, "modified_at": null}],
+                "source_snapshot": {"size": 5, "modified_at": null},
+                "member_outcomes": {"entry.txt": {"status": "extracted", "target_path": "output/entry.txt", "extracted_bytes": 5, "directories_created": 0, "replaced": false, "renamed": false}},
+                "decisions": {"collision_actions": {}, "rename_targets": {}, "ignored_members": [], "retry_members": []},
+                "pending_decision": null,
+            })
+            .to_string(),
+            pending_decision_json: None,
+            collision_policy: None,
+        };
+        assert_eq!(
+            relay_completed_members(&operation).unwrap(),
+            ["entry.txt".to_string()].into_iter().collect()
+        );
 
-        for scenario in corpus.scenarios {
-            if !scenario.result_reports.is_empty() {
-                continue;
-            }
-            let checkpoint = scenario.checkpoint.expect("checkpoint replay scenario should include a checkpoint");
-            let operation = ArchiveRelayOperation {
-                phase: "streaming".to_string(),
-                destination_path: "output".to_string(),
-                checkpoint_json: checkpoint.to_string(),
-                pending_decision_json: None,
-            };
-            let completed = relay_completed_members(&operation);
-            if scenario.error.is_some() {
-                assert!(completed.is_err(), "shared extraction outcome scenario should be rejected");
-                continue;
-            }
-            let completed = completed.expect("shared extraction outcome scenario should be valid");
-            let expected: std::collections::HashSet<String> = scenario.completed_members.into_iter().collect();
-            assert_eq!(completed, expected);
-            for (key, value) in scenario.progress {
-                assert_eq!(checkpoint.get(&key).and_then(serde_json::Value::as_u64).unwrap_or(0), value);
-            }
-        }
+        let legacy = ArchiveRelayOperation {
+            checkpoint_json: serde_json::json!({"member_outcomes": {}}).to_string(),
+            ..operation
+        };
+        assert!(relay_completed_members(&legacy).is_err());
     }
 
     #[test]
@@ -7099,6 +7173,7 @@ mod tests {
         });
         let response = archive_execution_response(ArchiveSessionStatus {
             execution_id: "execution-id".to_string(),
+            contract_version: ArchiveContractVersion::V2,
             kind: ArchiveSessionKind::Extract,
             phase: ArchiveSessionPhase::Streaming,
             revision: 4,
@@ -7125,6 +7200,7 @@ mod tests {
     fn archive_execution_response_serializes_a_paused_member_error() {
         let response = archive_execution_response(ArchiveSessionStatus {
             execution_id: "execution-id".to_string(),
+            contract_version: ArchiveContractVersion::V2,
             kind: ArchiveSessionKind::Extract,
             phase: ArchiveSessionPhase::AwaitingUserDecision,
             revision: 4,
