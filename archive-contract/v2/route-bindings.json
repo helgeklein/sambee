@@ -1,0 +1,65 @@
+{
+  "version": "v2",
+  "routes": [
+    {
+      "method": "POST",
+      "path": "/api/archive/v2/operations",
+      "operation": "prepare",
+      "durable": true
+    },
+    {
+      "method": "GET",
+      "path": "/api/archive/v2/operations/{operation_id}",
+      "operation": "read",
+      "durable": true
+    },
+    {
+      "method": "GET",
+      "path": "/api/archive/v2/operations",
+      "operation": "list",
+      "durable": true
+    },
+    {
+      "method": "POST",
+      "path": "/api/archive/v2/operations/{operation_id}/companion-session",
+      "operation": "capability",
+      "durable": true
+    },
+    {
+      "method": "POST",
+      "path": "/api/archive/v2/operations/{operation_id}/creation/begin",
+      "operation": "creation",
+      "durable": true
+    },
+    {
+      "method": "POST",
+      "path": "/api/archive/v2/operations/{operation_id}/extraction/begin",
+      "operation": "extraction",
+      "durable": true
+    },
+    {
+      "method": "POST",
+      "path": "/api/archive/v2/operations/{operation_id}/extraction/decision",
+      "operation": "extraction",
+      "durable": true
+    },
+    {
+      "method": "POST",
+      "path": "/api/archive/v2/operations/{operation_id}/cancel",
+      "operation": "cancel",
+      "durable": true
+    },
+    {
+      "method": "GET",
+      "path": "/api/archive/v2/inspection/directory",
+      "operation": "inspection",
+      "durable": false
+    },
+    {
+      "method": "GET",
+      "path": "/api/archive/v2/inspection/member",
+      "operation": "member_read",
+      "durable": false
+    }
+  ]
+}

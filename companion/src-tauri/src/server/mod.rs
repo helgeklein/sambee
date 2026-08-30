@@ -165,16 +165,32 @@ fn build_router(state: Arc<AppState>) -> Router {
             axum::routing::post(handlers::browse_start_archive_execution),
         )
         .route(
+            "/api/browse/{drive}/archive/v2/executions",
+            axum::routing::post(handlers::browse_start_v2_archive_execution),
+        )
+        .route(
             "/api/browse/{drive}/archive/executions/{execution_id}",
             axum::routing::get(handlers::browse_get_archive_execution),
+        )
+        .route(
+            "/api/browse/{drive}/archive/v2/executions/{execution_id}",
+            axum::routing::get(handlers::browse_get_v2_archive_execution),
         )
         .route(
             "/api/browse/{drive}/archive/executions/{execution_id}/cancellation",
             axum::routing::post(handlers::browse_cancel_archive_execution),
         )
         .route(
+            "/api/browse/{drive}/archive/v2/executions/{execution_id}/cancellation",
+            axum::routing::post(handlers::browse_cancel_v2_archive_execution),
+        )
+        .route(
             "/api/browse/{drive}/archive/executions/{execution_id}/decision",
             axum::routing::post(handlers::browse_decide_archive_execution),
+        )
+        .route(
+            "/api/browse/{drive}/archive/v2/executions/{execution_id}/decision",
+            axum::routing::post(handlers::browse_decide_v2_archive_execution),
         )
         .route(
             "/api/browse/{drive}/archive/extract-to-smb",

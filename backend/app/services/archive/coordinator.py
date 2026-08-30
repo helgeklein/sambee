@@ -13,7 +13,7 @@ from fastapi import HTTPException, status
 from sqlmodel import Session
 
 from app.models.archive import ArchiveDirectoryListing, ArchiveEntryInfo, ArchiveIdentity
-from app.models.archive_operation import ArchiveOperation, ArchiveOperationPhase
+from app.models.archive_operation import ArchiveContractVersion, ArchiveOperation, ArchiveOperationKind, ArchiveOperationPhase
 from app.models.file import FileType
 from app.services.archive.creation import ArchiveCreationCancelled, ArchiveCreationMemberOutcome, ArchiveCreationResult
 from app.services.archive.execution import (
@@ -38,6 +38,7 @@ from app.services.archive.operations import (
     update_operation_checkpoint,
     update_operation_phase,
 )
+from app.services.archive.v2_checkpoint import legacy_execution_checkpoint_from_v2, v2_checkpoint_from_legacy_execution
 from app.services.archive.zip_reader import (
     ArchiveInspectionManifest,
     ArchiveInspectionManifestMember,
@@ -320,6 +321,16 @@ class DurableArchiveExecutionStateStore:
         )
 
     def update_checkpoint(self, operation: ArchiveOperation, checkpoint_json: str) -> ArchiveOperation:
+        if (
+            operation.contract_version == ArchiveContractVersion.V2
+            and operation.kind == ArchiveOperationKind.EXTRACT
+            and _has_v2_checkpoint(operation)
+        ):
+            try:
+                checkpoint = json.loads(checkpoint_json)
+            except json.JSONDecodeError as exc:
+                raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="Archive operation checkpoint is invalid") from exc
+            checkpoint_json = json.dumps(v2_checkpoint_from_legacy_execution(checkpoint))
         return update_operation_checkpoint(self.session, operation, checkpoint_json)
 
     def await_decision(self, operation: ArchiveOperation, decision: dict[str, object]) -> ArchiveOperation:
@@ -461,7 +472,26 @@ def load_archive_checkpoint(operation: ArchiveOperation) -> dict[str, object]:
         raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="Archive operation checkpoint is invalid") from exc
     if not isinstance(checkpoint, dict):
         raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="Archive operation checkpoint is invalid")
+    if (
+        operation.contract_version == ArchiveContractVersion.V2
+        and operation.kind == ArchiveOperationKind.EXTRACT
+        and _has_v2_checkpoint(operation)
+    ):
+        try:
+            return legacy_execution_checkpoint_from_v2(checkpoint)
+        except HTTPException as exc:
+            raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="Archive operation checkpoint is invalid") from exc
     return checkpoint
+
+
+def _has_v2_checkpoint(operation: ArchiveOperation) -> bool:
+    """Return whether this operation was initialized through the strict V2 boundary."""
+
+    try:
+        checkpoint = json.loads(operation.checkpoint_json or "{}")
+    except json.JSONDecodeError:
+        return False
+    return isinstance(checkpoint, dict) and checkpoint.get("version") == 2
 
 
 @dataclass(frozen=True)

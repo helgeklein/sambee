@@ -333,6 +333,7 @@ export function startZipArchiveExtraction(request: ArchiveExtractionRequest): Ar
 
     try {
       const operation = await api.prepareArchiveOperation({
+        contract_version: "v2",
         kind: "extract",
         source_connection_id: location.connectionId,
         source_path: location.source.path,

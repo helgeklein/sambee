@@ -947,6 +947,34 @@ def test_prepare_read_and_cancel_archive_operation(
     assert all("backup.zip" not in event.safe_details_json and "backup" not in event.safe_details_json for event in events)
 
 
+def test_v2_operation_routes_pin_contract_version_and_reject_legacy_input(
+    client: TestClient,
+    auth_headers_user: dict,
+    test_connection: Connection,
+) -> None:
+    payload = {
+        "contract_version": "v2",
+        "kind": "extract",
+        "source_connection_id": str(test_connection.id),
+        "source_path": "backup.zip",
+        "destination_connection_id": str(test_connection.id),
+        "destination_path": "backup",
+    }
+
+    created = client.post("/api/archive/v2/operations", headers=auth_headers_user, json=payload)
+    assert created.status_code == status.HTTP_201_CREATED
+    operation = created.json()
+    assert operation["contract_version"] == "v2"
+
+    read = client.get(f"/api/archive/v2/operations/{operation['id']}", headers=auth_headers_user)
+    assert read.status_code == status.HTTP_200_OK
+    assert read.json()["contract_version"] == "v2"
+
+    legacy_payload = {**payload, "contract_version": "v1"}
+    rejected = client.post("/api/archive/v2/operations", headers=auth_headers_user, json=legacy_payload)
+    assert rejected.status_code == status.HTTP_422_UNPROCESSABLE_CONTENT
+
+
 def test_expires_a_stale_archive_operation_as_interrupted(
     client: TestClient,
     auth_headers_user: dict,
@@ -3146,6 +3174,49 @@ def test_executes_same_connection_extraction(
     assert execution_plan.rename_targets() == {}
     assert execution_plan.ignored_member_paths() == []
     assert execution_plan.completed_member_paths() == frozenset()
+
+
+def test_v2_direct_extraction_persists_strict_checkpoint_envelope(
+    client: TestClient,
+    auth_headers_user: dict,
+    test_connection: Connection,
+) -> None:
+    prepared = client.post(
+        "/api/archive/v2/operations",
+        headers=auth_headers_user,
+        json={
+            "contract_version": "v2",
+            "kind": "extract",
+            "source_connection_id": str(test_connection.id),
+            "source_path": "input.zip",
+            "destination_connection_id": str(test_connection.id),
+            "destination_path": "output",
+        },
+    ).json()
+    backend = AsyncMock()
+    backend.connect.return_value = None
+    backend.disconnect.return_value = None
+    configure_direct_extraction_archive(backend, {"first.txt": b"12345"})
+
+    with (
+        patch("app.api.archive_operations.SMBBackend", return_value=backend),
+        patch(
+            "app.api.archive_operations.extract_archive_to_new_paths",
+            new=AsyncMock(
+                side_effect=completed_extraction_runner(
+                    ArchiveExtractionResult(1, 0, 5),
+                    [ArchiveExtractionDestinationResult("first.txt", "extracted", "output/first.txt", extracted_bytes=5)],
+                )
+            ),
+        ),
+    ):
+        response = client.post(f"/api/archive/v2/operations/{prepared['id']}/extraction/begin", headers=auth_headers_user)
+
+    assert response.status_code == 200
+    checkpoint = json.loads(response.json()["checkpoint_json"])
+    assert set(checkpoint) == {"version", "manifest", "source_snapshot", "member_outcomes", "decisions", "pending_decision"}
+    assert checkpoint["version"] == 2
+    assert checkpoint["member_outcomes"]["first.txt"]["status"] == "extracted"
 
 
 def test_extraction_conflicts_become_pending_user_decisions(

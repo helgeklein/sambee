@@ -27,7 +27,13 @@ describe("foreground archive operation tracking", () => {
   });
 
   it("persists an opaque recovery handle for adapter-owned archive work", () => {
-    const recovery = { schemaVersion: 1, backendKind: "smb" as const, opaqueOperationId: "operation-a", expiresAt: Date.now() + 60_000 };
+    const recovery = {
+      schemaVersion: 1,
+      contractVersion: "v2" as const,
+      backendKind: "smb" as const,
+      opaqueOperationId: "operation-a",
+      expiresAt: Date.now() + 60_000,
+    };
 
     storeForegroundArchiveOperation(recovery);
 
@@ -40,7 +46,7 @@ describe("foreground archive operation tracking", () => {
     requestForegroundArchiveCancellation("operation-id");
 
     expect(fetchSpy).toHaveBeenCalledWith(
-      "http://localhost:3000/api/archive/operations/operation-id/cancel",
+      "http://localhost:3000/api/archive/v2/operations/operation-id/cancel",
       expect.objectContaining({ credentials: "include", keepalive: true, method: "POST" })
     );
   });

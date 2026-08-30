@@ -872,8 +872,8 @@ describe("API Service", () => {
       });
 
       expect(mockAxiosInstance.post).toHaveBeenCalledWith(
-        "/browse/c/archive/executions",
-        { kind: "create", source_paths: ["Documents/report.txt"], target_path: "Archives/backup.zip" },
+        "/browse/c/archive/v2/executions",
+        { contract_version: "v2", kind: "create", source_paths: ["Documents/report.txt"], target_path: "Archives/backup.zip" },
         { headers: expect.any(Object) }
       );
     });
@@ -893,8 +893,16 @@ describe("API Service", () => {
       });
 
       expect(mockAxiosInstance.post.mock.calls.slice(-2)).toEqual([
-        ["/browse/c/archive/executions/create-1/cancellation", { expected_revision: 1 }, { headers: expect.any(Object) }],
-        ["/browse/c/archive/executions/create-1/cancellation", { expected_revision: 2 }, { headers: expect.any(Object) }],
+        [
+          "/browse/c/archive/v2/executions/create-1/cancellation",
+          { contract_version: "v2", expected_revision: 1 },
+          { headers: expect.any(Object) },
+        ],
+        [
+          "/browse/c/archive/v2/executions/create-1/cancellation",
+          { contract_version: "v2", expected_revision: 2 },
+          { headers: expect.any(Object) },
+        ],
       ]);
     });
   });

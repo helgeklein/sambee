@@ -18,7 +18,12 @@ from sqlalchemy import inspect, text
 from sqlalchemy.exc import IntegrityError
 from sqlmodel import Session, SQLModel, create_engine, select
 
-from app.db.migrations import MIGRATION_TABLE_NAME, MIGRATIONS, run_migrations
+from app.db.migrations import (
+    MIGRATION_TABLE_NAME,
+    MIGRATIONS,
+    _apply_archive_operation_contract_version_migration,
+    run_migrations,
+)
 from app.models.connection import Connection
 from app.models.user import User, UserRole
 
@@ -73,6 +78,36 @@ class TestDatabaseInitialization:
 
         # Verify create_all was called with the engine
         mock_create_all.assert_called_once_with(engine)
+
+
+@pytest.mark.unit
+class TestArchiveOperationContractVersionMigration:
+    """V2 cutover migration behavior for existing archive-operation tables."""
+
+    def test_adds_constrained_v2_version_to_empty_legacy_table(self, tmp_path: Path):
+        test_engine = create_engine(f"sqlite:///{tmp_path / 'archive-v2-empty.db'}")
+        try:
+            with test_engine.begin() as connection:
+                connection.execute(text("CREATE TABLE archive_operations (id CHAR(32) PRIMARY KEY)"))
+                _apply_archive_operation_contract_version_migration(connection)
+                assert connection.execute(text("SELECT contract_version FROM archive_operations")).all() == []
+                connection.execute(text("INSERT INTO archive_operations (id) VALUES ('v2-operation')"))
+                assert connection.execute(text("SELECT contract_version FROM archive_operations")).scalar_one() == "V2"
+                with pytest.raises(IntegrityError):
+                    connection.execute(text("INSERT INTO archive_operations (id, contract_version) VALUES ('legacy-operation', 'v1')"))
+        finally:
+            test_engine.dispose()
+
+    def test_rejects_nonempty_legacy_archive_operation_table(self, tmp_path: Path):
+        test_engine = create_engine(f"sqlite:///{tmp_path / 'archive-v2-legacy.db'}")
+        try:
+            with test_engine.begin() as connection:
+                connection.execute(text("CREATE TABLE archive_operations (id CHAR(32) PRIMARY KEY)"))
+                connection.execute(text("INSERT INTO archive_operations (id) VALUES ('legacy-operation')"))
+                with pytest.raises(RuntimeError, match="requires an empty archive_operations table"):
+                    _apply_archive_operation_contract_version_migration(connection)
+        finally:
+            test_engine.dispose()
 
 
 @pytest.mark.unit

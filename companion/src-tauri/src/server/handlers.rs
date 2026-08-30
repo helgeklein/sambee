@@ -3247,6 +3247,33 @@ pub async fn browse_start_archive_execution(
     Ok(Json(archive_execution_response(execution)))
 }
 
+/// `POST /api/browse/{drive}/archive/v2/executions` — start a V2 direct-local execution.
+pub async fn browse_start_v2_archive_execution(
+    State(state): State<Arc<AppState>>,
+    Path(drive): Path<String>,
+    headers: HeaderMap,
+    Json(body): Json<ArchiveV2ExecutionStartRequest>,
+) -> Result<Json<ArchiveExecutionResponse>, ApiError> {
+    let request = match body {
+        ArchiveV2ExecutionStartRequest::Create {
+            contract_version: _contract_version,
+            source_paths,
+            target_path,
+        } => ArchiveExecutionStartRequest::Create { source_paths, target_path },
+        ArchiveV2ExecutionStartRequest::Extract {
+            contract_version: _contract_version,
+            archive_path,
+            destination_path,
+        } => ArchiveExecutionStartRequest::Extract {
+            archive_path,
+            destination_path,
+        },
+    };
+    let Json(mut response) = browse_start_archive_execution(State(state), Path(drive), headers, Json(request)).await?;
+    response.contract_version = Some(ArchiveContractVersion::V2);
+    Ok(Json(response))
+}
+
 /// `GET /api/browse/{drive}/archive/executions/{execution_id}` — retrieve lifecycle state.
 pub async fn browse_get_archive_execution(
     State(state): State<Arc<AppState>>,
@@ -3258,6 +3285,17 @@ pub async fn browse_get_archive_execution(
         .get(&drive, &extract_origin(&headers)?, &execution_id)
         .await?;
     Ok(Json(archive_execution_response(execution)))
+}
+
+/// `GET /api/browse/{drive}/archive/v2/executions/{execution_id}` — retrieve V2 local lifecycle state.
+pub async fn browse_get_v2_archive_execution(
+    State(state): State<Arc<AppState>>,
+    Path((drive, execution_id)): Path<(String, String)>,
+    headers: HeaderMap,
+) -> Result<Json<ArchiveExecutionResponse>, ApiError> {
+    let Json(mut response) = browse_get_archive_execution(State(state), Path((drive, execution_id)), headers).await?;
+    response.contract_version = Some(ArchiveContractVersion::V2);
+    Ok(Json(response))
 }
 
 /// `POST /api/browse/{drive}/archive/executions/{execution_id}/cancellation` — request cancellation at the next member boundary.
@@ -3272,6 +3310,27 @@ pub async fn browse_cancel_archive_execution(
         .cancel(&drive, &extract_origin(&headers)?, &execution_id, body.expected_revision)
         .await?;
     Ok(Json(archive_execution_response(execution)))
+}
+
+/// `POST /api/browse/{drive}/archive/v2/executions/{execution_id}/cancellation` — cancel a V2 local execution.
+pub async fn browse_cancel_v2_archive_execution(
+    State(state): State<Arc<AppState>>,
+    Path((drive, execution_id)): Path<(String, String)>,
+    headers: HeaderMap,
+    Json(body): Json<ArchiveV2ExecutionCancellationRequest>,
+) -> Result<Json<ArchiveExecutionResponse>, ApiError> {
+    let _contract_version = body.contract_version;
+    let Json(mut response) = browse_cancel_archive_execution(
+        State(state),
+        Path((drive, execution_id)),
+        headers,
+        Json(ArchiveExecutionCancellationRequest {
+            expected_revision: body.expected_revision,
+        }),
+    )
+    .await?;
+    response.contract_version = Some(ArchiveContractVersion::V2);
+    Ok(Json(response))
 }
 
 /// `POST /api/browse/{drive}/archive/executions/{execution_id}/decision` — apply a paused local extraction decision.
@@ -3310,6 +3369,30 @@ pub async fn browse_decide_archive_execution(
     )
     .await?;
     Ok(Json(archive_execution_response(execution)))
+}
+
+/// `POST /api/browse/{drive}/archive/v2/executions/{execution_id}/decision` — decide a V2 local extraction pause.
+pub async fn browse_decide_v2_archive_execution(
+    State(state): State<Arc<AppState>>,
+    Path((drive, execution_id)): Path<(String, String)>,
+    headers: HeaderMap,
+    Json(body): Json<ArchiveV2ExecutionDecisionRequest>,
+) -> Result<Json<ArchiveExecutionResponse>, ApiError> {
+    let _contract_version = body.contract_version;
+    let Json(mut response) = browse_decide_archive_execution(
+        State(state),
+        Path((drive, execution_id)),
+        headers,
+        Json(ArchiveExecutionDecisionRequest {
+            expected_revision: body.expected_revision,
+            member_path: body.member_path,
+            action: body.action,
+            target_path: body.target_path,
+        }),
+    )
+    .await?;
+    response.contract_version = Some(ArchiveContractVersion::V2);
+    Ok(Json(response))
 }
 
 /// `POST /api/browse/{drive}/archive/extract-to-smb` — relay a local ZIP into one scoped SMB extraction operation.
@@ -3842,7 +3925,7 @@ fn normalize_archive_server_url(value: &str) -> Result<String, ApiError> {
 
 fn archive_relay_url(server_url: &str, operation_id: uuid::Uuid, binding: ArchiveRelayBinding) -> String {
     format!(
-        "{server_url}/api/archive/operations/{operation_id}/companion-relay/{}",
+        "{server_url}/api/archive/v2/operations/{operation_id}/companion-relay/{}",
         binding.path_segment()
     )
 }
@@ -4787,6 +4870,7 @@ fn resolve_local_archive_creation_request(drive: &str, body: &ArchiveCreateReque
 fn archive_execution_response(execution: ArchiveSessionStatus) -> ArchiveExecutionResponse {
     let progress = execution.result.unwrap_or(execution.progress);
     let mut response = ArchiveExecutionResponse {
+        contract_version: None,
         execution_id: execution.execution_id,
         kind: execution.kind.as_str().to_string(),
         phase: execution.phase.as_str().to_string(),

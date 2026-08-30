@@ -5,7 +5,14 @@ from datetime import datetime, timezone
 from enum import StrEnum
 from typing import Literal
 
+from sqlalchemy import CheckConstraint
 from sqlmodel import Field, SQLModel
+
+
+class ArchiveContractVersion(StrEnum):
+    """Archive wire-contract versions accepted by this release."""
+
+    V2 = "v2"
 
 
 class ArchiveOperationKind(StrEnum):
@@ -36,9 +43,11 @@ class ArchiveOperation(SQLModel, table=True):
     """State that lets direct archive output report progress after a request ends."""
 
     __tablename__ = "archive_operations"
+    __table_args__ = (CheckConstraint("contract_version = 'V2'", name="ck_archive_operations_contract_version_v2"),)
 
     id: uuid.UUID = Field(default_factory=uuid.uuid4, primary_key=True)
     user_id: uuid.UUID = Field(foreign_key="user.id", index=True)
+    contract_version: ArchiveContractVersion = Field(default=ArchiveContractVersion.V2, index=True)
     kind: ArchiveOperationKind = Field(index=True)
     phase: ArchiveOperationPhase = Field(default=ArchiveOperationPhase.PREPARED, index=True)
     source_connection_id: str = Field(default="", index=True)
@@ -59,6 +68,7 @@ class ArchiveOperation(SQLModel, table=True):
 
 
 class ArchiveOperationPrepare(SQLModel):
+    contract_version: ArchiveContractVersion = ArchiveContractVersion.V2
     kind: ArchiveOperationKind
     source_connection_id: str
     source_path: str
@@ -70,6 +80,7 @@ class ArchiveOperationPrepare(SQLModel):
 
 class ArchiveOperationRead(SQLModel):
     id: uuid.UUID
+    contract_version: ArchiveContractVersion
     kind: ArchiveOperationKind
     phase: ArchiveOperationPhase
     source_connection_id: str

@@ -3,6 +3,7 @@
 ## Bugs
 
 - Image viewer: while swiping through images in a directory (not an archive), rendering the last image (in either direction) times out.
+- Text and Markdown editors: there are still text selection highlighting issues.
 
 ## Settings
 

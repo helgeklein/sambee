@@ -1,0 +1,134 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://sambee.dev/archive-contract/v2/schema.json",
+  "title": "Archive Contract V2",
+  "type": "object",
+  "$defs": {
+    "contractVersion": {
+      "type": "string",
+      "const": "v2"
+    },
+    "memberPath": {
+      "type": "string",
+      "pattern": "^(?!/)(?!.*(?:^|/)\\.{1,2}(?:/|$))(?!.*:)[^\\u0000]+$"
+    },
+    "checkpoint": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "version",
+        "manifest",
+        "source_snapshot",
+        "member_outcomes",
+        "decisions",
+        "pending_decision"
+      ],
+      "properties": {
+        "version": {
+          "type": "integer",
+          "const": 2
+        },
+        "manifest": {
+          "type": "array"
+        },
+        "source_snapshot": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "size",
+            "modified_at"
+          ],
+          "properties": {
+            "size": {
+              "type": "integer",
+              "minimum": 0
+            },
+            "modified_at": {
+              "type": [
+                "string",
+                "null"
+              ]
+            }
+          }
+        },
+        "member_outcomes": {
+          "type": "object"
+        },
+        "decisions": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "collision_actions",
+            "rename_targets",
+            "ignored_members",
+            "retry_members"
+          ],
+          "properties": {
+            "collision_actions": {
+              "type": "object"
+            },
+            "rename_targets": {
+              "type": "object"
+            },
+            "ignored_members": {
+              "type": "array",
+              "items": {
+                "$ref": "#/$defs/memberPath"
+              }
+            },
+            "retry_members": {
+              "type": "array",
+              "items": {
+                "$ref": "#/$defs/memberPath"
+              }
+            }
+          }
+        },
+        "pending_decision": {
+          "type": [
+            "object",
+            "null"
+          ]
+        }
+      }
+    },
+    "operation": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "contract_version",
+        "kind",
+        "source_connection_id",
+        "source_path",
+        "destination_connection_id",
+        "destination_path"
+      ],
+      "properties": {
+        "contract_version": {
+          "$ref": "#/$defs/contractVersion"
+        },
+        "kind": {
+          "type": "string",
+          "enum": [
+            "create",
+            "extract"
+          ]
+        },
+        "source_connection_id": {
+          "type": "string",
+          "minLength": 1
+        },
+        "source_path": {
+          "type": "string"
+        },
+        "destination_connection_id": {
+          "type": "string",
+          "minLength": 1
+        },
+        "destination_path": {
+          "type": "string"
+        }
+      }
+    }
+  }
+}

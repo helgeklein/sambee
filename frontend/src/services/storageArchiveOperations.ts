@@ -162,6 +162,7 @@ export class StorageArchiveOperationCoordinator {
     }
     const recovery: StorageRecoveryHandle = interruptedOperation.recovery ?? {
       schemaVersion: 1,
+      contractVersion: "v2",
       backendKind: "smb",
       opaqueOperationId: interruptedOperation.operationId,
       expiresAt: interruptedOperation.startedAt + ARCHIVE_RECOVERY_TTL_MS,

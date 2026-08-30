@@ -459,6 +459,7 @@ app.include_router(system_settings.router, prefix="/api/admin", tags=["admin-set
 app.include_router(browser.router, prefix="/api/browse", tags=["browse"])
 app.include_router(viewer.router, prefix="/api/viewer", tags=["viewer"])
 app.include_router(archive_operations.router, prefix="/api/archive", tags=["archive"])
+app.include_router(archive_operations.v2_router, prefix="/api/archive", tags=["archive"])
 app.include_router(companion.router, prefix="/api/companion", tags=["companion"])
 app.include_router(logs.router, prefix="/api/logs", tags=["logs"])
 app.include_router(websocket.router, prefix="/api", tags=["websocket"])

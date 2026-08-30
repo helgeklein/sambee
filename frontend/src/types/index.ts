@@ -484,6 +484,7 @@ export interface ArchiveDirectoryListing {
 }
 
 export type ArchiveOperationKind = "create" | "extract";
+export type ArchiveContractVersion = "v2";
 export type ArchiveOperationPhase =
   | "prepared"
   | "accepted"
@@ -495,6 +496,7 @@ export type ArchiveOperationPhase =
   | "failed";
 
 export interface ArchiveOperationPrepare {
+  contract_version: ArchiveContractVersion;
   kind: ArchiveOperationKind;
   source_connection_id: string;
   source_path: string;
@@ -506,6 +508,7 @@ export interface ArchiveOperationPrepare {
 
 export interface ArchiveOperation {
   id: string;
+  contract_version: ArchiveContractVersion;
   kind: ArchiveOperationKind;
   phase: ArchiveOperationPhase;
   source_connection_id: string;

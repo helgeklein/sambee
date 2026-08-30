@@ -40,6 +40,7 @@ from app.models.archive_operation import (
     ArchiveCompanionFailure,
     ArchiveCompanionManifestEntry,
     ArchiveCompanionSession,
+    ArchiveContractVersion,
     ArchiveExtractionDecision,
     ArchiveOperation,
     ArchiveOperationKind,
@@ -108,6 +109,7 @@ from app.services.archive.operations import (
     request_operation_cancellation,
     update_operation_phase,
 )
+from app.services.archive.v2_checkpoint import new_v2_extraction_checkpoint
 from app.services.archive.zip_reader import ArchiveFormatError, ZipEntry, ZipReader
 from app.services.audit import AuditDetails, AuditEventName, AuditResult, write_audit_event
 from app.services.connection_access import get_accessible_connection_or_404, require_connection_write_access
@@ -115,6 +117,7 @@ from app.services.history_common import LOCAL_DRIVE_PREFIX
 from app.storage.smb import SMBBackend
 
 router = APIRouter()
+v2_router = APIRouter(prefix="/v2")
 logger = get_logger(__name__)
 _local_to_smb_creation_writers = LiveArchiveCreationWriterManager(logger)
 
@@ -298,6 +301,24 @@ def _get_owned_operation_or_404(session: Session, current_user: User, operation_
     return operation
 
 
+def _require_v2_operation(operation: ArchiveOperation) -> None:
+    """Reject any operation that is not pinned to the active V2 contract."""
+
+    if operation.contract_version != ArchiveContractVersion.V2:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="Archive operation contract version is incompatible with V2",
+        )
+
+
+def _get_owned_v2_operation_or_404(session: Session, current_user: User, operation_id: uuid.UUID) -> ArchiveOperation:
+    """Load an owned operation that may enter the V2 route family."""
+
+    operation = _get_owned_operation_or_404(session, current_user, operation_id)
+    _require_v2_operation(operation)
+    return operation
+
+
 def _require_backend_archive_execution(operation: ArchiveOperation) -> None:
     """Reject plans whose coordinator must run in Companion rather than the backend."""
 
@@ -429,6 +450,7 @@ async def create_archive_companion_session(
             "destination_connection_id": operation.destination_connection_id,
             "destination_path": operation.destination_path,
             "manifest_hash": operation.manifest_hash,
+            "contract_version": operation.contract_version.value,
         },
         expires_delta=timedelta(minutes=ARCHIVE_COMPANION_TOKEN_EXPIRE_MINUTES),
     )
@@ -461,6 +483,7 @@ def _get_scoped_companion_operation(
         "destination_connection_id": operation.destination_connection_id,
         "destination_path": operation.destination_path,
         "manifest_hash": operation.manifest_hash,
+        "contract_version": operation.contract_version.value,
     }
     if any(payload.get(name) != value for name, value in expected_claims.items()):
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Archive Companion session scope does not match this operation")
@@ -712,6 +735,7 @@ def _mixed_extraction_destination_connection(session: Session, user: User, opera
     return connection
 
 
+@v2_router.post("/operations/{operation_id}/companion-relay/local_zip_to_smb_extract/begin", response_model=ArchiveOperationRead)
 @router.post("/operations/{operation_id}/companion-relay/local_zip_to_smb_extract/begin", response_model=ArchiveOperationRead)
 async def begin_companion_archive_extraction(
     operation_id: uuid.UUID,
@@ -762,6 +786,7 @@ async def begin_companion_archive_extraction(
         await disconnect_backend_safely(backend, logger=logger, context=f"mixed archive begin operation {operation.id}")
 
 
+@v2_router.put("/operations/{operation_id}/companion-relay/local_zip_to_smb_extract/member", response_model=ArchiveOperationRead)
 @router.put("/operations/{operation_id}/companion-relay/local_zip_to_smb_extract/member", response_model=ArchiveOperationRead)
 async def write_companion_archive_member(
     operation_id: uuid.UUID,
@@ -882,6 +907,7 @@ async def write_companion_archive_member(
         await disconnect_backend_safely(backend, logger=logger, context=f"mixed archive member operation {operation.id}")
 
 
+@v2_router.post("/operations/{operation_id}/companion-relay/local_zip_to_smb_extract/complete", response_model=ArchiveOperationRead)
 @router.post("/operations/{operation_id}/companion-relay/local_zip_to_smb_extract/complete", response_model=ArchiveOperationRead)
 async def complete_companion_archive_extraction(
     operation_id: uuid.UUID,
@@ -904,6 +930,7 @@ async def complete_companion_archive_extraction(
     return _record_relay_delivery(session, operation, idempotency_key, command="extraction_complete", payload=payload_data)
 
 
+@v2_router.post("/operations/{operation_id}/companion-relay/local_zip_to_smb_extract/fail", response_model=ArchiveOperationRead)
 @router.post("/operations/{operation_id}/companion-relay/local_zip_to_smb_extract/fail", response_model=ArchiveOperationRead)
 async def fail_companion_archive_extraction(
     operation_id: uuid.UUID,
@@ -916,6 +943,9 @@ async def fail_companion_archive_extraction(
     return ScopedCompanionRelay(operation_id, ArchiveCompanionRelayPurpose.LOCAL_ZIP_TO_SMB_EXTRACT, operation_token, session).fail(payload)
 
 
+@v2_router.post(
+    "/operations/{operation_id}/companion-relay/smb_zip_to_local_extract/begin", response_model=ArchiveCompanionExtractionManifest
+)
 @router.post("/operations/{operation_id}/companion-relay/smb_zip_to_local_extract/begin", response_model=ArchiveCompanionExtractionManifest)
 async def begin_companion_local_archive_extraction(
     operation_id: uuid.UUID,
@@ -980,6 +1010,7 @@ async def begin_companion_local_archive_extraction(
         await disconnect_backend_safely(backend, logger=logger, context=f"mixed archive manifest operation {operation.id}")
 
 
+@v2_router.get("/operations/{operation_id}/companion-relay/smb_zip_to_local_extract/member")
 @router.get("/operations/{operation_id}/companion-relay/smb_zip_to_local_extract/member")
 async def stream_companion_local_archive_member(
     operation_id: uuid.UUID,
@@ -1042,6 +1073,7 @@ async def stream_companion_local_archive_member(
         raise
 
 
+@v2_router.post("/operations/{operation_id}/companion-relay/smb_zip_to_local_extract/member-complete", response_model=ArchiveOperationRead)
 @router.post("/operations/{operation_id}/companion-relay/smb_zip_to_local_extract/member-complete", response_model=ArchiveOperationRead)
 async def complete_companion_local_archive_member(
     operation_id: uuid.UUID,
@@ -1079,6 +1111,7 @@ async def complete_companion_local_archive_member(
     )
 
 
+@v2_router.post("/operations/{operation_id}/companion-relay/smb_zip_to_local_extract/member-collision", response_model=ArchiveOperationRead)
 @router.post("/operations/{operation_id}/companion-relay/smb_zip_to_local_extract/member-collision", response_model=ArchiveOperationRead)
 async def pause_companion_local_archive_member_for_collision(
     operation_id: uuid.UUID,
@@ -1111,6 +1144,7 @@ async def pause_companion_local_archive_member_for_collision(
     )
 
 
+@v2_router.post("/operations/{operation_id}/companion-relay/smb_zip_to_local_extract/member-error", response_model=ArchiveOperationRead)
 @router.post("/operations/{operation_id}/companion-relay/smb_zip_to_local_extract/member-error", response_model=ArchiveOperationRead)
 async def pause_companion_local_archive_member_for_error(
     operation_id: uuid.UUID,
@@ -1142,6 +1176,7 @@ async def pause_companion_local_archive_member_for_error(
     )
 
 
+@v2_router.post("/operations/{operation_id}/companion-relay/smb_zip_to_local_extract/complete", response_model=ArchiveOperationRead)
 @router.post("/operations/{operation_id}/companion-relay/smb_zip_to_local_extract/complete", response_model=ArchiveOperationRead)
 async def complete_companion_local_archive_extraction(
     operation_id: uuid.UUID,
@@ -1162,6 +1197,7 @@ async def complete_companion_local_archive_extraction(
     return _record_relay_delivery(session, operation, idempotency_key, command="extraction_complete", payload=payload_data)
 
 
+@v2_router.post("/operations/{operation_id}/companion-relay/smb_zip_to_local_extract/fail", response_model=ArchiveOperationRead)
 @router.post("/operations/{operation_id}/companion-relay/smb_zip_to_local_extract/fail", response_model=ArchiveOperationRead)
 async def fail_companion_local_archive_extraction(
     operation_id: uuid.UUID,
@@ -1174,6 +1210,7 @@ async def fail_companion_local_archive_extraction(
     return ScopedCompanionRelay(operation_id, ArchiveCompanionRelayPurpose.SMB_ZIP_TO_LOCAL_EXTRACT, operation_token, session).fail(payload)
 
 
+@v2_router.post("/operations/{operation_id}/companion-relay/smb_to_local_zip_create/begin", response_model=ArchiveCompanionCreationManifest)
 @router.post("/operations/{operation_id}/companion-relay/smb_to_local_zip_create/begin", response_model=ArchiveCompanionCreationManifest)
 async def begin_companion_local_archive_creation(
     operation_id: uuid.UUID,
@@ -1220,6 +1257,7 @@ async def begin_companion_local_archive_creation(
         await disconnect_backend_safely(backend, logger=logger, context=f"mixed archive creation manifest operation {operation.id}")
 
 
+@v2_router.get("/operations/{operation_id}/companion-relay/smb_to_local_zip_create/member")
 @router.get("/operations/{operation_id}/companion-relay/smb_to_local_zip_create/member")
 async def stream_companion_local_archive_creation_member(
     operation_id: uuid.UUID,
@@ -1273,6 +1311,7 @@ async def stream_companion_local_archive_creation_member(
         raise
 
 
+@v2_router.post("/operations/{operation_id}/companion-relay/smb_to_local_zip_create/member-complete", response_model=ArchiveOperationRead)
 @router.post("/operations/{operation_id}/companion-relay/smb_to_local_zip_create/member-complete", response_model=ArchiveOperationRead)
 async def complete_companion_local_archive_creation_member(
     operation_id: uuid.UUID,
@@ -1303,6 +1342,7 @@ async def complete_companion_local_archive_creation_member(
     )
 
 
+@v2_router.post("/operations/{operation_id}/companion-relay/smb_to_local_zip_create/complete", response_model=ArchiveOperationRead)
 @router.post("/operations/{operation_id}/companion-relay/smb_to_local_zip_create/complete", response_model=ArchiveOperationRead)
 async def complete_companion_local_archive_creation(
     operation_id: uuid.UUID,
@@ -1323,6 +1363,7 @@ async def complete_companion_local_archive_creation(
     return _record_relay_delivery(session, operation, idempotency_key, command="creation_complete", payload=payload_data)
 
 
+@v2_router.post("/operations/{operation_id}/companion-relay/smb_to_local_zip_create/fail", response_model=ArchiveOperationRead)
 @router.post("/operations/{operation_id}/companion-relay/smb_to_local_zip_create/fail", response_model=ArchiveOperationRead)
 async def fail_companion_local_archive_creation(
     operation_id: uuid.UUID,
@@ -1354,6 +1395,7 @@ def _local_to_smb_creation_manifest(payload: ArchiveCompanionCreationSourceManif
     )
 
 
+@v2_router.post("/operations/{operation_id}/companion-relay/local_to_smb_zip_create/begin", response_model=ArchiveOperationRead)
 @router.post("/operations/{operation_id}/companion-relay/local_to_smb_zip_create/begin", response_model=ArchiveOperationRead)
 async def begin_companion_smb_archive_creation(
     operation_id: uuid.UUID,
@@ -1395,6 +1437,7 @@ async def begin_companion_smb_archive_creation(
         raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail="Archive creation setup failed") from exc
 
 
+@v2_router.put("/operations/{operation_id}/companion-relay/local_to_smb_zip_create/member", response_model=ArchiveOperationRead)
 @router.put("/operations/{operation_id}/companion-relay/local_to_smb_zip_create/member", response_model=ArchiveOperationRead)
 async def stream_companion_smb_archive_creation_member(
     operation_id: uuid.UUID,
@@ -1481,6 +1524,7 @@ async def stream_companion_smb_archive_creation_member(
         raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail="Archive creation member output failed") from exc
 
 
+@v2_router.post("/operations/{operation_id}/companion-relay/local_to_smb_zip_create/complete", response_model=ArchiveOperationRead)
 @router.post("/operations/{operation_id}/companion-relay/local_to_smb_zip_create/complete", response_model=ArchiveOperationRead)
 async def complete_companion_smb_archive_creation(
     operation_id: uuid.UUID,
@@ -1507,6 +1551,7 @@ async def complete_companion_smb_archive_creation(
     return _record_relay_delivery(session, operation, idempotency_key, command="creation_complete", payload=payload_data)
 
 
+@v2_router.post("/operations/{operation_id}/companion-relay/local_to_smb_zip_create/fail", response_model=ArchiveOperationRead)
 @router.post("/operations/{operation_id}/companion-relay/local_to_smb_zip_create/fail", response_model=ArchiveOperationRead)
 async def fail_companion_smb_archive_creation(
     operation_id: uuid.UUID,
@@ -1671,10 +1716,15 @@ async def execute_archive_extraction(
                     for entry in entries
                 ]
             )
-            operation = DurableArchiveExecutionStateStore(session).update_checkpoint(
-                operation,
-                json.dumps(new_extraction_outcome_checkpoint(manifest=manifest, source_identity=_archive_source_identity(archive_info))),
+            checkpoint = (
+                new_v2_extraction_checkpoint(
+                    manifest=manifest.checkpoint_entries(),
+                    source_snapshot=_archive_source_identity(archive_info),
+                )
+                if operation.contract_version == ArchiveContractVersion.V2
+                else new_extraction_outcome_checkpoint(manifest=manifest, source_identity=_archive_source_identity(archive_info))
             )
+            operation = DurableArchiveExecutionStateStore(session).update_checkpoint(operation, json.dumps(checkpoint))
         else:
             archive_info = await backend.get_file_info(operation.source_path)
             if (
@@ -1796,3 +1846,106 @@ async def cancel_archive_operation(
         )
     await execution.abort()
     return operation
+
+
+@v2_router.post("/operations", response_model=ArchiveOperationRead, status_code=status.HTTP_201_CREATED)
+async def prepare_v2_archive_operation(
+    payload: ArchiveOperationPrepare,
+    current_user: User = Depends(get_current_user_with_auth_check),
+    session: Session = Depends(get_session),
+) -> ArchiveOperation:
+    """Create one V2-pinned durable archive operation."""
+
+    if payload.contract_version != ArchiveContractVersion.V2:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_CONTENT, detail="Archive operation contract version is incompatible with V2"
+        )
+    return await prepare_archive_operation(payload, current_user, session)
+
+
+@v2_router.get("/operations/{operation_id}", response_model=ArchiveOperationRead)
+async def get_v2_archive_operation(
+    operation_id: uuid.UUID,
+    current_user: User = Depends(get_current_user_with_auth_check),
+    session: Session = Depends(get_session),
+) -> ArchiveOperation:
+    """Read one V2-pinned durable archive operation."""
+
+    return _get_owned_v2_operation_or_404(session, current_user, operation_id)
+
+
+@v2_router.get("/operations", response_model=list[ArchiveOperationRead])
+async def list_v2_archive_operations(
+    active_only: bool = Query(default=False),
+    limit: int = Query(default=25, ge=1, le=100),
+    current_user: User = Depends(get_current_user_with_auth_check),
+    session: Session = Depends(get_session),
+) -> list[ArchiveOperation]:
+    """List owned V2 operations only."""
+
+    operations = await list_archive_operations(active_only, limit, current_user, session)
+    for operation in operations:
+        _require_v2_operation(operation)
+    return operations
+
+
+@v2_router.post("/operations/{operation_id}/companion-session", response_model=ArchiveCompanionSession)
+async def create_v2_archive_companion_session(
+    operation_id: uuid.UUID,
+    current_user: User = Depends(get_current_user_with_auth_check),
+    session: Session = Depends(get_session),
+) -> ArchiveCompanionSession:
+    """Mint one signed V2 Companion capability."""
+
+    _get_owned_v2_operation_or_404(session, current_user, operation_id)
+    return await create_archive_companion_session(operation_id, current_user, session)
+
+
+@v2_router.post("/operations/{operation_id}/creation/begin", response_model=ArchiveOperationRead)
+async def begin_v2_archive_creation(
+    operation_id: uuid.UUID,
+    current_user: User = Depends(get_current_user_with_auth_check),
+    session: Session = Depends(get_session),
+) -> ArchiveOperation:
+    """Begin V2 direct SMB creation through the shared creation coordinator."""
+
+    _get_owned_v2_operation_or_404(session, current_user, operation_id)
+    return await execute_archive_creation(operation_id, current_user, session)
+
+
+@v2_router.post("/operations/{operation_id}/extraction/begin", response_model=ArchiveOperationRead)
+async def begin_v2_archive_extraction(
+    operation_id: uuid.UUID,
+    current_user: User = Depends(get_current_user_with_auth_check),
+    session: Session = Depends(get_session),
+) -> ArchiveOperation:
+    """Begin V2 direct SMB extraction through the shared extraction coordinator."""
+
+    _get_owned_v2_operation_or_404(session, current_user, operation_id)
+    return await execute_archive_extraction(operation_id, current_user, session)
+
+
+@v2_router.post("/operations/{operation_id}/extraction/decision", response_model=ArchiveOperationRead)
+async def decide_v2_archive_extraction(
+    operation_id: uuid.UUID,
+    payload: ArchiveExtractionDecision,
+    current_user: User = Depends(get_current_user_with_auth_check),
+    session: Session = Depends(get_session),
+) -> ArchiveOperation:
+    """Apply one V2 extraction decision."""
+
+    _get_owned_v2_operation_or_404(session, current_user, operation_id)
+    return await decide_archive_extraction(operation_id, payload, current_user, session)
+
+
+@v2_router.post("/operations/{operation_id}/cancel", response_model=ArchiveOperationRead)
+async def cancel_v2_archive_operation(
+    operation_id: uuid.UUID,
+    expected_revision: int | None = Query(default=None, ge=0),
+    current_user: User = Depends(get_current_user_with_auth_check),
+    session: Session = Depends(get_session),
+) -> ArchiveOperation:
+    """Cancel one V2 operation without entering legacy route dispatch."""
+
+    _get_owned_v2_operation_or_404(session, current_user, operation_id)
+    return await cancel_archive_operation(operation_id, expected_revision, current_user, session)

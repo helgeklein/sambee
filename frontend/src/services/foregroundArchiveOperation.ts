@@ -20,6 +20,7 @@ function isStorageRecoveryHandle(value: unknown): value is StorageRecoveryHandle
   const handle = value as Partial<StorageRecoveryHandle>;
   return (
     handle.schemaVersion === 1 &&
+    handle.contractVersion === "v2" &&
     (handle.backendKind === "smb" || handle.backendKind === "local") &&
     typeof handle.opaqueOperationId === "string" &&
     handle.opaqueOperationId.length > 0 &&
@@ -41,7 +42,7 @@ function isForegroundArchiveOperation(value: unknown): value is ForegroundArchiv
 }
 
 function cancellationUrl(operationId: string): string {
-  return new URL(`archive/operations/${encodeURIComponent(operationId)}/cancel`, `${getServerBaseUrl().replace(/\/$/, "")}/`).toString();
+  return new URL(`archive/v2/operations/${encodeURIComponent(operationId)}/cancel`, `${getServerBaseUrl().replace(/\/$/, "")}/`).toString();
 }
 
 export function storeForegroundArchiveOperation(recovery: StorageRecoveryHandle | string): void {

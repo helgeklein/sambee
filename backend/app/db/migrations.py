@@ -703,6 +703,8 @@ def _apply_archive_operations_migration(connection: Connection) -> None:
             CREATE TABLE archive_operations (
                 id CHAR(32) NOT NULL PRIMARY KEY,
                 user_id CHAR(32) NOT NULL,
+                contract_version VARCHAR(8) NOT NULL DEFAULT 'V2'
+                    CONSTRAINT ck_archive_operations_contract_version_v2 CHECK (contract_version = 'V2'),
                 kind VARCHAR(32) NOT NULL,
                 phase VARCHAR(64) NOT NULL,
                 source_connection_id VARCHAR(256) NOT NULL,
@@ -747,6 +749,27 @@ def _apply_archive_operation_revision_migration(connection: Connection) -> None:
         connection.execute(text("ALTER TABLE archive_operations ADD COLUMN revision INTEGER NOT NULL DEFAULT 0"))
 
 
+def _apply_archive_operation_contract_version_migration(connection: Connection) -> None:
+    """Add V2 versioning only after legacy archive state was explicitly cleared."""
+
+    inspector = inspect(connection)
+    if not inspector.has_table("archive_operations"):
+        return
+    column_names = {column["name"] for column in inspector.get_columns("archive_operations")}
+    if "contract_version" in column_names:
+        return
+    legacy_operation_count = connection.execute(text("SELECT COUNT(*) FROM archive_operations")).scalar_one()
+    if legacy_operation_count:
+        raise RuntimeError(
+            "Archive V2 cutover requires an empty archive_operations table; "
+            "explicitly reset legacy archive state before applying this migration"
+        )
+    connection.execute(
+        text("ALTER TABLE archive_operations ADD COLUMN contract_version VARCHAR(8) NOT NULL DEFAULT 'V2' CHECK (contract_version = 'V2')")
+    )
+    connection.execute(text("CREATE INDEX IF NOT EXISTS ix_archive_operations_contract_version ON archive_operations (contract_version)"))
+
+
 MIGRATIONS: tuple[Migration, ...] = (
     Migration(version=1, name="ensure_connection_slugs", apply=_apply_connection_slug_migration),
     Migration(version=2, name="add_user_role_and_session_fields", apply=_apply_user_role_migration),
@@ -778,6 +801,7 @@ MIGRATIONS: tuple[Migration, ...] = (
     Migration(version=28, name="add_archive_operations", apply=_apply_archive_operations_migration),
     Migration(version=29, name="enforce_unique_edit_lock_targets", apply=_apply_edit_lock_target_uniqueness_migration),
     Migration(version=30, name="add_archive_operation_revision", apply=_apply_archive_operation_revision_migration),
+    Migration(version=31, name="add_archive_operation_contract_version", apply=_apply_archive_operation_contract_version_migration),
 )
 
 

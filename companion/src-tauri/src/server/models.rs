@@ -101,7 +101,7 @@ pub struct DirectoryListing {
 }
 
 /// Request to create a local archive from selected paths on one drive.
-#[derive(Debug, Deserialize)]
+#[derive(Debug, Deserialize, Serialize)]
 #[serde(deny_unknown_fields)]
 pub struct ArchiveCreateRequest {
     pub source_paths: Vec<String>,
@@ -114,6 +114,29 @@ pub struct ArchiveCreateRequest {
 pub enum ArchiveExecutionStartRequest {
     Create { source_paths: Vec<String>, target_path: String },
     Extract { archive_path: String, destination_path: String },
+}
+
+/// Start a V2-pinned direct-local archive lifecycle execution.
+#[derive(Debug, Deserialize)]
+#[serde(tag = "kind", rename_all = "snake_case", deny_unknown_fields)]
+pub enum ArchiveV2ExecutionStartRequest {
+    Create {
+        contract_version: ArchiveContractVersion,
+        source_paths: Vec<String>,
+        target_path: String,
+    },
+    Extract {
+        contract_version: ArchiveContractVersion,
+        archive_path: String,
+        destination_path: String,
+    },
+}
+
+/// The only archive contract accepted by the V2 Companion API.
+#[derive(Debug, Deserialize, Serialize)]
+#[serde(rename_all = "lowercase")]
+pub enum ArchiveContractVersion {
+    V2,
 }
 
 /// Request to create a local ZIP from scoped SMB source members.
@@ -159,10 +182,32 @@ pub struct ArchiveExecutionCancellationRequest {
     pub expected_revision: u64,
 }
 
+/// V2-pinned cancellation request for a direct-local archive execution.
+#[derive(Debug, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct ArchiveV2ExecutionCancellationRequest {
+    pub contract_version: ArchiveContractVersion,
+    #[serde(alias = "expectedRevision")]
+    pub expected_revision: u64,
+}
+
 /// Request to apply an explicit collision decision to a paused local extraction.
 #[derive(Debug, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct ArchiveExecutionDecisionRequest {
+    #[serde(alias = "expectedRevision")]
+    pub expected_revision: u64,
+    pub member_path: String,
+    pub action: ArchiveExecutionDecisionAction,
+    #[serde(default)]
+    pub target_path: Option<String>,
+}
+
+/// V2-pinned decision request for a direct-local archive execution.
+#[derive(Debug, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct ArchiveV2ExecutionDecisionRequest {
+    pub contract_version: ArchiveContractVersion,
     #[serde(alias = "expectedRevision")]
     pub expected_revision: u64,
     pub member_path: String,
@@ -239,6 +284,8 @@ pub struct ArchiveExtractionResponse {
 /// Current lifecycle state for a short-lived Companion archive execution.
 #[derive(Debug, Serialize)]
 pub struct ArchiveExecutionResponse {
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub contract_version: Option<ArchiveContractVersion>,
     pub execution_id: String,
     pub kind: String,
     pub phase: String,

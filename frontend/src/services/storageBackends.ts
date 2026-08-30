@@ -231,6 +231,7 @@ export class SambeeSmbBackend extends ApiStorageBackend {
   readonly archiveCreation: ArchiveCreationOperations = {
     prepareCreate: async (request) => {
       const operation = await api.prepareArchiveOperation({
+        contract_version: "v2",
         kind: "create",
         source_connection_id: connectionId(request.sources[0]!.target),
         source_path: "",
@@ -241,6 +242,7 @@ export class SambeeSmbBackend extends ApiStorageBackend {
       return {
         recovery: {
           schemaVersion: 1,
+          contractVersion: "v2",
           backendKind: "smb",
           opaqueOperationId: operation.id,
           expiresAt: Date.now() + ARCHIVE_RECOVERY_TTL_MS,

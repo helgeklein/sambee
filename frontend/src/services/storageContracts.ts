@@ -144,6 +144,7 @@ export type StorageOperationResult =
 
 export interface StorageRecoveryHandle {
   schemaVersion: 1;
+  contractVersion: "v2";
   backendKind: StorageTarget["kind"];
   opaqueOperationId: string;
   expiresAt: number;

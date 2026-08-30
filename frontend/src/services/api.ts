@@ -92,6 +92,7 @@ export interface ArchiveExecutionProgress {
 }
 
 export interface LocalArchiveExecution {
+  contract_version?: "v2";
   execution_id: string;
   kind: "create" | "extract";
   phase: "accepted" | "streaming" | "awaiting_user_decision" | "completed" | "cancelled" | "failed";
@@ -893,6 +894,7 @@ class ApiService {
   async startLocalArchiveExtraction(connectionId: string, archivePath: string, destinationPath: string): Promise<LocalArchiveExecution> {
     return this.startLocalArchiveExecution(connectionId, {
       kind: "extract",
+      contract_version: "v2",
       archive_path: archivePath,
       destination_path: destinationPath,
     });
@@ -901,6 +903,7 @@ class ApiService {
   async startLocalArchiveCreation(connectionId: string, sourcePaths: string[], targetPath: string): Promise<LocalArchiveExecution> {
     return this.startLocalArchiveExecution(connectionId, {
       kind: "create",
+      contract_version: "v2",
       source_paths: sourcePaths,
       target_path: targetPath,
     });
@@ -909,12 +912,12 @@ class ApiService {
   private async startLocalArchiveExecution(
     connectionId: string,
     body:
-      | { kind: "extract"; archive_path: string; destination_path: string }
-      | { kind: "create"; source_paths: string[]; target_path: string }
+      | { kind: "extract"; contract_version: "v2"; archive_path: string; destination_path: string }
+      | { kind: "create"; contract_version: "v2"; source_paths: string[]; target_path: string }
   ): Promise<LocalArchiveExecution> {
     const segment = getBrowseSegment(connectionId);
     const { client, extraConfig } = await this.getClientConfig(connectionId);
-    const response = await client.post<LocalArchiveExecution>(`/browse/${segment}/archive/executions`, body, extraConfig);
+    const response = await client.post<LocalArchiveExecution>(`/browse/${segment}/archive/v2/executions`, body, extraConfig);
     return response.data;
   }
 
@@ -926,7 +929,7 @@ class ApiService {
     const segment = getBrowseSegment(connectionId);
     const { client, extraConfig } = await this.getClientConfig(connectionId);
     const response = await client.get<LocalArchiveExecution>(
-      `/browse/${segment}/archive/executions/${encodeURIComponent(executionId)}`,
+      `/browse/${segment}/archive/v2/executions/${encodeURIComponent(executionId)}`,
       extraConfig
     );
     return response.data;
@@ -940,8 +943,8 @@ class ApiService {
     const segment = getBrowseSegment(connectionId);
     const { client, extraConfig } = await this.getClientConfig(connectionId);
     const response = await client.post<LocalArchiveExecution>(
-      `/browse/${segment}/archive/executions/${encodeURIComponent(executionId)}/cancellation`,
-      { expected_revision: expectedRevision },
+      `/browse/${segment}/archive/v2/executions/${encodeURIComponent(executionId)}/cancellation`,
+      { contract_version: "v2", expected_revision: expectedRevision },
       extraConfig
     );
     return response.data;
@@ -958,8 +961,8 @@ class ApiService {
     const segment = getBrowseSegment(connectionId);
     const { client, extraConfig } = await this.getClientConfig(connectionId);
     const response = await client.post<LocalArchiveExecution>(
-      `/browse/${segment}/archive/executions/${encodeURIComponent(executionId)}/decision`,
-      { expected_revision: expectedRevision, member_path: memberPath, action, target_path: targetPath },
+      `/browse/${segment}/archive/v2/executions/${encodeURIComponent(executionId)}/decision`,
+      { contract_version: "v2", expected_revision: expectedRevision, member_path: memberPath, action, target_path: targetPath },
       extraConfig
     );
     return response.data;
@@ -1106,22 +1109,22 @@ class ApiService {
   }
 
   async prepareArchiveOperation(payload: ArchiveOperationPrepare): Promise<ArchiveOperation> {
-    const response = await this.api.post<ArchiveOperation>("/archive/operations", payload);
+    const response = await this.api.post<ArchiveOperation>("/archive/v2/operations", payload);
     return response.data;
   }
 
   async getArchiveOperation(operationId: string): Promise<ArchiveOperation> {
-    const response = await this.api.get<ArchiveOperation>(`/archive/operations/${operationId}`);
+    const response = await this.api.get<ArchiveOperation>(`/archive/v2/operations/${operationId}`);
     return response.data;
   }
 
   async listArchiveOperations(activeOnly = false): Promise<ArchiveOperation[]> {
-    const response = await this.api.get<ArchiveOperation[]>("/archive/operations", { params: { active_only: activeOnly } });
+    const response = await this.api.get<ArchiveOperation[]>("/archive/v2/operations", { params: { active_only: activeOnly } });
     return response.data;
   }
 
   async getArchiveCompanionSession(operationId: string): Promise<ArchiveCompanionSession> {
-    const response = await this.api.post<ArchiveCompanionSession>(`/archive/operations/${operationId}/companion-session`);
+    const response = await this.api.post<ArchiveCompanionSession>(`/archive/v2/operations/${operationId}/companion-session`);
     return response.data;
   }
 
@@ -1130,7 +1133,7 @@ class ApiService {
     expectedPhase: ArchiveOperationPhase,
     nextPhase: ArchiveOperationPhase
   ): Promise<ArchiveOperation> {
-    const response = await this.api.post<ArchiveOperation>(`/archive/operations/${operationId}/phase`, {
+    const response = await this.api.post<ArchiveOperation>(`/archive/v2/operations/${operationId}/phase`, {
       expected_phase: expectedPhase,
       next_phase: nextPhase,
     });
@@ -1138,12 +1141,12 @@ class ApiService {
   }
 
   async executeArchiveCreation(operationId: string): Promise<ArchiveOperation> {
-    const response = await this.api.post<ArchiveOperation>(`/archive/operations/${operationId}/execute-create`);
+    const response = await this.api.post<ArchiveOperation>(`/archive/v2/operations/${operationId}/creation/begin`);
     return response.data;
   }
 
   async executeArchiveExtraction(operationId: string): Promise<ArchiveOperation> {
-    const response = await this.api.post<ArchiveOperation>(`/archive/operations/${operationId}/execute-extract`);
+    const response = await this.api.post<ArchiveOperation>(`/archive/v2/operations/${operationId}/extraction/begin`);
     return response.data;
   }
 
@@ -1153,7 +1156,7 @@ class ApiService {
     memberPath?: string,
     targetPath?: string
   ): Promise<ArchiveOperation> {
-    const response = await this.api.post<ArchiveOperation>(`/archive/operations/${operationId}/decide-extraction`, {
+    const response = await this.api.post<ArchiveOperation>(`/archive/v2/operations/${operationId}/extraction/decision`, {
       action,
       member_path: memberPath,
       target_path: targetPath,
@@ -1162,7 +1165,7 @@ class ApiService {
   }
 
   async cancelArchiveOperation(operationId: string): Promise<ArchiveOperation> {
-    const response = await this.api.post<ArchiveOperation>(`/archive/operations/${operationId}/cancel`);
+    const response = await this.api.post<ArchiveOperation>(`/archive/v2/operations/${operationId}/cancel`);
     return response.data;
   }
 
