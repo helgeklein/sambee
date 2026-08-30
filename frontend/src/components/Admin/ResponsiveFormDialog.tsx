@@ -39,6 +39,7 @@ interface ResponsiveFormDialogProps {
   closeButtonAriaLabel?: string;
   maxWidth?: DialogProps["maxWidth"];
   onKeyDown?: DialogProps["onKeyDown"];
+  onEscape?: () => void;
   contentSx?: SxProps<Theme>;
   paperSx?: SxProps<Theme>;
   paperRef?: Ref<HTMLDivElement>;
@@ -72,6 +73,7 @@ export function ResponsiveFormDialog({
   closeButtonAriaLabel,
   maxWidth = "sm",
   onKeyDown,
+  onEscape,
   contentSx,
   paperSx,
   paperRef,
@@ -158,6 +160,10 @@ export function ResponsiveFormDialog({
     if (event.key === "Escape") {
       event.preventDefault();
       event.stopPropagation();
+      if (onEscape) {
+        onEscape();
+        return;
+      }
       if (disableClose) {
         return;
       }

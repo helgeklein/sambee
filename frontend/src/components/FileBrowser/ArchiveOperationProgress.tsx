@@ -38,7 +38,7 @@ export function ArchiveOperationProgress({
         </Typography>
       ) : null}
       <Typography variant="body2" sx={{ color: "text.secondary" }}>
-        {t("fileBrowser.archive.progressCurrentItem")}: {currentItem}
+        {t("fileBrowser.archive.progressSourceArchive")}: {currentItem}
       </Typography>
     </Box>
   );

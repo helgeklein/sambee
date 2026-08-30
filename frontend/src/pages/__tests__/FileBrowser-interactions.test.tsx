@@ -823,7 +823,7 @@ describe("Browser Component - Interactions", () => {
       fireEvent.keyDown(document, { key: "F9", altKey: true });
 
       const extractDialog = await screen.findByRole("dialog", { name: "Extract ZIP Archive" });
-      expect(within(extractDialog).getByText("Test Server 2:/")).toBeInTheDocument();
+      expect(within(extractDialog).getByLabelText("Destination directory")).toHaveValue("Test Server 2:/");
       const locationBeforeTab = screen.getByTestId("router-location").textContent;
       fireEvent.keyDown(document, { key: "Tab" });
       expect(screen.getByTestId("router-location")).toHaveTextContent(locationBeforeTab ?? "");

@@ -438,7 +438,14 @@ export function startZipArchiveExtraction(request: ArchiveExtractionRequest): Ar
       if (!operationId || !awaitingDecision) {
         throw new Error("Archive extraction is not awaiting a collision decision");
       }
-      const operation = await api.decideArchiveExtraction(operationId, action, memberPath, targetPath);
+      const isMemberDecision =
+        action === "skip" || action === "replace" || action === "rename" || action === "retry" || action === "ignore";
+      const operation = await api.decideArchiveExtraction(
+        operationId,
+        action,
+        isMemberDecision ? memberPath : undefined,
+        action === "rename" ? targetPath : undefined
+      );
       if (operation.phase === "cancelled") {
         return finishServerOutcome({ status: "cancelled" });
       }

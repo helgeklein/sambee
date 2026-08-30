@@ -1,9 +1,10 @@
-import { render, screen } from "@testing-library/react";
+import { fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { describe, expect, it, vi } from "vitest";
 import { ArchiveExtractDialog } from "../ArchiveExtractDialog";
 
-vi.mock("react-i18next", () => ({
+vi.mock("react-i18next", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("react-i18next")>()),
   useTranslation: () => ({
     t: (key: string) => key,
   }),
@@ -19,11 +20,30 @@ const defaultProps = {
   onConfirm: vi.fn(),
 };
 
+function mockMobileMode(isMobile: boolean) {
+  Object.defineProperty(window, "matchMedia", {
+    writable: true,
+    configurable: true,
+    value: vi.fn().mockImplementation(() => ({
+      matches: isMobile,
+      addEventListener: vi.fn(),
+      removeEventListener: vi.fn(),
+    })),
+  });
+}
+
 describe("ArchiveExtractDialog", () => {
   it("prefills the provider-supplied destination name", () => {
     render(<ArchiveExtractDialog {...defaultProps} />);
 
     expect(screen.getByLabelText("fileBrowser.archive.destinationLabel")).toHaveValue("project");
+  });
+
+  it("uses the shared labelled read-only destination field when the destination is fixed", () => {
+    render(<ArchiveExtractDialog {...defaultProps} requiresDestinationName={false} destinationLabel="Demo:/Test" />);
+
+    expect(screen.getByLabelText("fileBrowser.archive.destinationLabel")).toHaveValue("Demo:/Test");
+    expect(screen.getByLabelText("fileBrowser.archive.destinationLabel")).toHaveAttribute("readonly");
   });
 
   it("rejects traversal destination paths", async () => {
@@ -60,6 +80,15 @@ describe("ArchiveExtractDialog", () => {
     expect(screen.getByRole("button", { name: "fileBrowser.archive.buttonCancelExtraction" })).toBeEnabled();
   });
 
+  it("cancels active extraction when Escape is pressed", () => {
+    const onCancelExtraction = vi.fn();
+    render(<ArchiveExtractDialog {...defaultProps} isExtracting={true} onCancelExtraction={onCancelExtraction} />);
+
+    fireEvent.keyDown(screen.getByRole("dialog"), { key: "Escape" });
+
+    expect(onCancelExtraction).toHaveBeenCalledOnce();
+  });
+
   it("shows determinate direct-local extraction progress", () => {
     render(
       <ArchiveExtractDialog
@@ -79,10 +108,10 @@ describe("ArchiveExtractDialog", () => {
     );
 
     expect(screen.getByRole("progressbar")).toHaveAttribute("aria-valuenow", "50");
-    expect(screen.getByText("fileBrowser.archive.progressCurrentItem: project.zip")).toBeInTheDocument();
+    expect(screen.getByText("fileBrowser.archive.progressSourceArchive: project.zip")).toBeInTheDocument();
   });
 
-  it("offers retry and ignore for a failed member while keeping cancellation available", async () => {
+  it("uses one member-error choice and a single continue action", async () => {
     const user = userEvent.setup();
     const onMemberErrorDecision = vi.fn();
     const onCancelExtraction = vi.fn();
@@ -102,31 +131,90 @@ describe("ArchiveExtractDialog", () => {
     );
 
     expect(screen.getByText(/Disk full/)).toBeInTheDocument();
-    await user.click(screen.getByRole("button", { name: "fileBrowser.archive.buttonRetryMemberError" }));
-    await user.click(screen.getByRole("button", { name: "fileBrowser.archive.buttonIgnoreMemberError" }));
+    await user.click(screen.getByRole("radio", { name: "fileBrowser.archive.memberErrorChoiceIgnore" }));
+    await user.click(screen.getByRole("button", { name: "fileBrowser.archive.collisionContinue" }));
     await user.click(screen.getByRole("button", { name: "fileBrowser.archive.buttonCancelExtraction" }));
 
-    expect(onMemberErrorDecision).toHaveBeenNthCalledWith(1, "retry");
-    expect(onMemberErrorDecision).toHaveBeenNthCalledWith(2, "ignore");
+    expect(onMemberErrorDecision).toHaveBeenCalledWith("ignore");
     expect(onCancelExtraction).toHaveBeenCalledOnce();
   });
 
-  it("keeps collision decisions inside the active extraction dialog", async () => {
+  it("uses one collision choice and a single continue action", async () => {
     const user = userEvent.setup();
     const onConflictDecision = vi.fn();
     render(
       <ArchiveExtractDialog
         {...defaultProps}
         isExtracting={true}
-        conflicts={[{ member_path: "docs/readme.txt", target_path: "output/docs/readme.txt" }]}
-        allowedConflictActions={["skip_all"]}
+        conflicts={[{ memberPath: "docs/readme.txt", targetPath: "output/docs/readme.txt" }]}
+        allowedConflictActions={["skip", "skip_all", "replace", "replace_all", "rename"]}
         onConflictDecision={onConflictDecision}
       />
     );
 
     expect(screen.getByText("docs/readme.txt")).toBeInTheDocument();
-    await user.click(screen.getByRole("button", { name: "fileBrowser.archive.buttonSkipAll" }));
+    expect(screen.queryByRole("button", { name: "fileBrowser.archive.buttonSkipAll" })).not.toBeInTheDocument();
+    await user.click(screen.getByRole("checkbox", { name: "fileBrowser.archive.collisionApplyRemaining" }));
+    await user.click(screen.getByRole("button", { name: "fileBrowser.archive.collisionContinue" }));
 
-    expect(onConflictDecision).toHaveBeenCalledWith("skip_all");
+    expect(onConflictDecision).toHaveBeenCalledWith("skip_all", "docs/readme.txt", undefined);
+  });
+
+  it("continues the safe collision resolution with Enter", async () => {
+    const onConflictDecision = vi.fn();
+    render(
+      <ArchiveExtractDialog
+        {...defaultProps}
+        isExtracting={true}
+        conflicts={[{ memberPath: "docs/readme.txt", targetPath: "output/docs/readme.txt" }]}
+        allowedConflictActions={["skip", "rename"]}
+        onConflictDecision={onConflictDecision}
+      />
+    );
+
+    await waitFor(() => expect(screen.getByRole("button", { name: "fileBrowser.archive.collisionContinue" })).toBeEnabled());
+    fireEvent.keyDown(screen.getByRole("dialog"), { key: "Enter" });
+
+    expect(onConflictDecision).toHaveBeenCalledWith("skip", "docs/readme.txt", undefined);
+  });
+
+  it("keeps the phone actions reachable for collision decisions", () => {
+    mockMobileMode(true);
+    render(
+      <ArchiveExtractDialog
+        {...defaultProps}
+        isExtracting={true}
+        conflicts={[{ memberPath: "docs/readme.txt", targetPath: "output/docs/readme.txt" }]}
+        allowedConflictActions={["skip", "rename"]}
+        onConflictDecision={vi.fn()}
+        onCancelExtraction={vi.fn()}
+      />
+    );
+
+    const actions = screen.getByTestId("responsive-form-dialog-mobile-actions");
+    expect(within(actions).getByRole("button", { name: "fileBrowser.archive.buttonCancelExtraction" })).toBeEnabled();
+    expect(within(actions).getByRole("button", { name: "fileBrowser.archive.collisionContinue" })).toBeEnabled();
+  });
+
+  it("shows only the current conflict from a large collision payload", () => {
+    mockMobileMode(false);
+    const conflicts = Array.from({ length: 1000 }, (_, index) => ({
+      memberPath: `member-${index}.txt`,
+      targetPath: `output/member-${index}.txt`,
+    }));
+    render(
+      <ArchiveExtractDialog
+        {...defaultProps}
+        isExtracting={true}
+        conflicts={conflicts}
+        allowedConflictActions={["skip", "rename"]}
+        onConflictDecision={vi.fn()}
+        onCancelExtraction={vi.fn()}
+      />
+    );
+
+    expect(screen.getByDisplayValue("member-0.txt")).toBeInTheDocument();
+    expect(screen.queryByDisplayValue("member-999.txt")).not.toBeInTheDocument();
+    expect(within(screen.getByTestId("responsive-form-dialog-desktop-actions")).getAllByRole("button")).toHaveLength(2);
   });
 });

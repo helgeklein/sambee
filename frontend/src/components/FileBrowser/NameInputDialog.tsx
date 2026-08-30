@@ -231,6 +231,7 @@ const NameInputDialog: React.FC<NameInputDialogProps> = ({
       open={open}
       onClose={onClose}
       disableClose={isSubmitting}
+      onEscape={isSubmitting && onCancelSubmitting ? onCancelSubmitting : undefined}
       title={title}
       description={description}
       actions={

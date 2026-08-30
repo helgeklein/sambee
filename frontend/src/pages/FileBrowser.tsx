@@ -93,6 +93,7 @@ import {
   startCreateContainer,
 } from "./FileBrowser/contentOperations";
 import type {
+  ArchiveExtractionConflict,
   ArchiveExtractionExecution,
   ArchiveExtractionOutcome,
   ArchiveExtractionSummary,
@@ -457,15 +458,7 @@ const Browser: React.FC = () => {
   const [archiveExtractionError, setArchiveExtractionError] = useState<string | null>(null);
   const [isExtractingArchive, setIsExtractingArchive] = useState(false);
   const [isCancellingArchiveExtraction, setIsCancellingArchiveExtraction] = useState(false);
-  const [archiveExtractionConflicts, setArchiveExtractionConflicts] = useState<Array<{
-    member_path: string;
-    target_path: string;
-    is_directory?: boolean;
-    source_size?: number;
-    source_modified_at?: string;
-    target_size?: number;
-    target_modified_at?: string;
-  }> | null>(null);
+  const [archiveExtractionConflicts, setArchiveExtractionConflicts] = useState<ArchiveExtractionConflict[] | null>(null);
   const [archiveExtractionMemberError, setArchiveExtractionMemberError] = useState<{
     memberPath: string;
     targetPath: string;
@@ -2121,21 +2114,14 @@ const Browser: React.FC = () => {
   const completeArchiveExtraction = useCallback(
     (outcome: ArchiveExtractionOutcome, context: NonNullable<typeof archiveExtractionContext>) => {
       if (outcome.status === "awaiting-decision") {
-        setArchiveExtractionConflicts(
-          outcome.conflicts.map((conflict) => ({
-            member_path: conflict.memberPath,
-            target_path: conflict.targetPath,
-            is_directory: conflict.isDirectory,
-            source_size: conflict.sourceSize,
-            source_modified_at: conflict.sourceModifiedAt,
-            target_size: conflict.targetSize,
-            target_modified_at: conflict.targetModifiedAt,
-          }))
-        );
+        setArchiveExtractionConflicts(outcome.conflicts);
         setArchiveExtractionAllowedActions(outcome.allowedActions);
+        setArchiveExtractionMemberError(null);
         return;
       }
       if (outcome.status === "awaiting-member-error") {
+        setArchiveExtractionConflicts(null);
+        setArchiveExtractionAllowedActions([]);
         setArchiveExtractionMemberError(outcome.error);
         return;
       }
@@ -2243,7 +2229,6 @@ const Browser: React.FC = () => {
       setIsSubmittingArchiveExtractionDecision(true);
       setArchiveExtractionError(null);
       try {
-        setArchiveExtractionMemberError(null);
         completeArchiveExtraction(await execution.decide(action, archiveExtractionMemberError.memberPath), archiveExtractionContext);
       } catch (error) {
         setArchiveExtractionError(t("fileBrowser.archive.extractError"));

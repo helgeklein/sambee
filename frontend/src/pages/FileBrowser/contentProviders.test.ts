@@ -281,18 +281,11 @@ describe("content providers", () => {
       conflicts: [{ memberPath: "source.txt", targetPath: "archives/one/renamed.txt", isDirectory: false }],
       allowedActions: ["skip", "skip_all", "replace", "replace_all", "replace_older", "rename"],
     });
-    await expect(execution.decide("rename", "source.txt", "renamed.txt")).resolves.toMatchObject({
+    await expect(execution.decide("replace_older", "source.txt")).resolves.toMatchObject({
       status: "completed",
       summary: { filesExtracted: 1 },
     });
-    expect(api.decideLocalArchiveExecution).toHaveBeenCalledWith(
-      "local-drive:c",
-      "local-extract-1",
-      2,
-      "source.txt",
-      "rename",
-      "renamed.txt"
-    );
+    expect(api.decideLocalArchiveExecution).toHaveBeenCalledWith("local-drive:c", "local-extract-1", 2, "source.txt", "replace_older");
   });
 
   it("retries a paused direct-local member error through the Companion decision endpoint", async () => {
@@ -577,8 +570,17 @@ describe("content providers", () => {
           conflicts: [{ member_path: "docs/readme.txt", target_path: "output/docs/readme.txt" }],
         }),
       } as never)
+      .mockResolvedValueOnce({
+        phase: "awaiting_user_decision",
+        pending_decision_json: JSON.stringify({
+          allowed_actions: ["skip", "skip_all", "replace", "replace_all", "replace_older", "rename"],
+          conflicts: [{ member_path: "images/cover.png", target_path: "output/images/cover.png" }],
+        }),
+      } as never)
       .mockResolvedValueOnce({ phase: "completed", checkpoint_json: JSON.stringify({ files_skipped: 2 }) } as never);
-    vi.mocked(api.decideArchiveExtraction).mockResolvedValueOnce({ phase: "streaming" } as never);
+    vi.mocked(api.decideArchiveExtraction)
+      .mockResolvedValueOnce({ phase: "streaming" } as never)
+      .mockResolvedValueOnce({ phase: "streaming" } as never);
 
     const execution = startArchiveExtraction(createContentProviderRegistry(), {
       source: archiveLocation,
@@ -590,14 +592,20 @@ describe("content providers", () => {
       allowedActions: ["skip", "skip_all", "replace", "replace_all", "replace_older", "rename"],
       conflicts: [{ memberPath: "docs/readme.txt", targetPath: "output/docs/readme.txt", isDirectory: undefined }],
     });
-    await expect(execution.decide("replace_older")).resolves.toMatchObject({
+    await expect(execution.decide("skip", "docs/readme.txt")).resolves.toEqual({
+      status: "awaiting-decision",
+      allowedActions: ["skip", "skip_all", "replace", "replace_all", "replace_older", "rename"],
+      conflicts: [{ memberPath: "images/cover.png", targetPath: "output/images/cover.png", isDirectory: undefined }],
+    });
+    await expect(execution.decide("replace_older", "images/cover.png")).resolves.toMatchObject({
       status: "completed",
       filesSkipped: 2,
       summary: { filesSkipped: 2, filesReplaced: 0, partialMembers: 0 },
     });
 
-    expect(api.decideArchiveExtraction).toHaveBeenCalledWith("extract-1", "replace_older", undefined, undefined);
-    expect(api.executeArchiveExtraction).toHaveBeenNthCalledWith(2, "extract-1");
+    expect(api.decideArchiveExtraction).toHaveBeenNthCalledWith(1, "extract-1", "skip", "docs/readme.txt", undefined);
+    expect(api.decideArchiveExtraction).toHaveBeenNthCalledWith(2, "extract-1", "replace_older", undefined, undefined);
+    expect(api.executeArchiveExtraction).toHaveBeenNthCalledWith(3, "extract-1");
   });
 
   it("preserves a retryable member error and resumes after an ignore decision", async () => {

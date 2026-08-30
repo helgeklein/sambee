@@ -1,10 +1,15 @@
 import { Alert, Box, Button, TextField } from "@mui/material";
 import { useEffect, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
-import type { ArchiveExtractionSummary } from "../../pages/FileBrowser/contentProviders";
+import type {
+  ArchiveExtractionConflict,
+  ArchiveExtractionConflictAction,
+  ArchiveExtractionSummary,
+} from "../../pages/FileBrowser/contentProviders";
+import { DialogReadOnlyField } from "../Admin/DialogReadOnlyField";
 import { ResponsiveFormDialog } from "../Admin/ResponsiveFormDialog";
 import { SettingsFormGroup, SettingsFormRow, SettingsFormSurface, settingsFormOutlinedControlSx } from "../Settings/SettingsFormLayout";
-import { ArchiveExtractionConflictDialog, type ArchiveExtractionConflictDialogProps } from "./ArchiveExtractionConflictDialog";
+import { type ArchiveConflictResolution, ArchiveConflictResolver, ArchiveMemberErrorResolver } from "./ArchiveConflictResolver";
 import { ArchiveOperationProgress } from "./ArchiveOperationProgress";
 
 interface ArchiveExtractDialogProps {
@@ -18,14 +23,14 @@ interface ArchiveExtractDialogProps {
   error: string | null;
   memberError?: { memberPath: string; targetPath: string; message: string; partialOutput: boolean } | null;
   progressSummary?: ArchiveExtractionSummary | null;
-  conflicts?: ArchiveExtractionConflictDialogProps["conflicts"] | null;
-  allowedConflictActions?: ArchiveExtractionConflictDialogProps["allowedActions"];
+  conflicts?: ArchiveExtractionConflict[] | null;
+  allowedConflictActions?: ArchiveExtractionConflictAction[];
   isSubmittingConflictDecision?: boolean;
   onClose: () => void;
   onConfirm: (destinationPath: string) => void;
   onCancelExtraction?: () => void;
   onMemberErrorDecision?: (action: "retry" | "ignore") => void;
-  onConflictDecision?: ArchiveExtractionConflictDialogProps["onDecision"];
+  onConflictDecision?: (action: ArchiveExtractionConflictAction, memberPath?: string, targetPath?: string) => void;
 }
 
 function validateDestinationPath(value: string): string | null {
@@ -61,6 +66,8 @@ export function ArchiveExtractDialog({
   const inputRef = useRef<HTMLInputElement>(null);
   const [destinationPath, setDestinationPath] = useState(initialDestinationName);
   const [validationError, setValidationError] = useState<string | null>(null);
+  const [conflictResolution, setConflictResolution] = useState<ArchiveConflictResolution | null>(null);
+  const [memberErrorResolution, setMemberErrorResolution] = useState<"retry" | "ignore">("retry");
 
   useEffect(() => {
     if (open) {
@@ -89,35 +96,81 @@ export function ArchiveExtractDialog({
       : validationError === "unsafe"
         ? t("fileBrowser.archive.validationDestinationUnsafe")
         : " ";
-  const awaitingConflictDecision = conflicts !== null && onConflictDecision !== undefined;
+  const currentConflict = conflicts?.[0] ?? null;
+  const awaitingConflictDecision = currentConflict !== null && onConflictDecision !== undefined;
+
+  useEffect(() => {
+    if (!awaitingConflictDecision) {
+      setConflictResolution(null);
+    }
+  }, [awaitingConflictDecision]);
+
+  const handleConflictContinue = () => {
+    if (!conflictResolution || !onConflictDecision) return;
+    onConflictDecision(conflictResolution.action, conflictResolution.memberPath, conflictResolution.targetPath);
+  };
+
+  const handleMemberErrorContinue = () => {
+    if (!memberError || !onMemberErrorDecision) return;
+    onMemberErrorDecision(memberErrorResolution);
+  };
+
+  const handleDecisionKeyDown = (event: React.KeyboardEvent) => {
+    if (event.key !== "Enter" || isCancelling || isSubmittingConflictDecision) return;
+    if (awaitingConflictDecision && conflictResolution) {
+      event.preventDefault();
+      handleConflictContinue();
+      return;
+    }
+    if (memberError && onMemberErrorDecision) {
+      event.preventDefault();
+      handleMemberErrorContinue();
+    }
+  };
 
   return (
     <ResponsiveFormDialog
       open={open}
       onClose={onClose}
       disableClose={isExtracting}
+      onEscape={isExtracting && onCancelExtraction ? onCancelExtraction : undefined}
+      onKeyDown={handleDecisionKeyDown}
       title={t("fileBrowser.archive.extractTitle")}
       description={t("fileBrowser.archive.extractPrompt", { archive: archiveName })}
       maxWidth="sm"
       actions={
-        isExtracting ? (
+        awaitingConflictDecision ? (
           <>
             {onCancelExtraction ? (
-              <Button onClick={onCancelExtraction} disabled={isCancelling}>
+              <Button onClick={onCancelExtraction} disabled={isCancelling || isSubmittingConflictDecision}>
                 {t("fileBrowser.archive.buttonCancelExtraction")}
               </Button>
             ) : null}
-            {memberError && onMemberErrorDecision ? (
-              <>
-                <Button onClick={() => onMemberErrorDecision("ignore")} disabled={isCancelling}>
-                  {t("fileBrowser.archive.buttonIgnoreMemberError")}
-                </Button>
-                <Button variant="contained" onClick={() => onMemberErrorDecision("retry")} disabled={isCancelling}>
-                  {t("fileBrowser.archive.buttonRetryMemberError")}
-                </Button>
-              </>
-            ) : null}
+            <Button
+              variant="contained"
+              onClick={handleConflictContinue}
+              disabled={conflictResolution === null || isCancelling || isSubmittingConflictDecision}
+            >
+              {t("fileBrowser.archive.collisionContinue")}
+            </Button>
           </>
+        ) : memberError ? (
+          <>
+            {onCancelExtraction ? (
+              <Button onClick={onCancelExtraction} disabled={isCancelling || isSubmittingConflictDecision}>
+                {t("fileBrowser.archive.buttonCancelExtraction")}
+              </Button>
+            ) : null}
+            <Button variant="contained" onClick={handleMemberErrorContinue} disabled={isCancelling || isSubmittingConflictDecision}>
+              {t("fileBrowser.archive.collisionContinue")}
+            </Button>
+          </>
+        ) : isExtracting ? (
+          onCancelExtraction ? (
+            <Button onClick={onCancelExtraction} disabled={isCancelling}>
+              {t("fileBrowser.archive.buttonCancelExtraction")}
+            </Button>
+          ) : null
         ) : (
           <>
             <Button onClick={onClose}>{t("common.actions.cancel")}</Button>
@@ -139,21 +192,23 @@ export function ArchiveExtractDialog({
           />
         ) : null}
         {error && !awaitingConflictDecision ? <Alert severity="error">{error}</Alert> : null}
-        {awaitingConflictDecision ? (
-          <ArchiveExtractionConflictDialog
-            inline
-            open
-            conflicts={conflicts}
+        {awaitingConflictDecision && currentConflict ? (
+          <ArchiveConflictResolver
+            key={currentConflict.memberPath}
+            conflict={currentConflict}
             allowedActions={allowedConflictActions}
             isSubmitting={isSubmittingConflictDecision}
             error={error}
-            onDecision={onConflictDecision}
+            onResolutionChange={setConflictResolution}
           />
         ) : null}
         {memberError ? (
-          <Alert severity={memberError.partialOutput ? "warning" : "error"}>
-            {memberError.message} ({memberError.memberPath} to {memberError.targetPath})
-          </Alert>
+          <ArchiveMemberErrorResolver
+            key={memberError.memberPath}
+            error={memberError}
+            isSubmitting={isSubmittingConflictDecision}
+            onResolutionChange={setMemberErrorResolution}
+          />
         ) : null}
         {!isExtracting && !awaitingConflictDecision && requiresDestinationName ? (
           <SettingsFormSurface>
@@ -182,7 +237,7 @@ export function ArchiveExtractDialog({
             </SettingsFormGroup>
           </SettingsFormSurface>
         ) : !isExtracting && !awaitingConflictDecision ? (
-          <Box sx={{ color: "text.secondary", typography: "body2" }}>{destinationLabel ?? ""}</Box>
+          <DialogReadOnlyField label={t("fileBrowser.archive.destinationLabel")} value={destinationLabel ?? ""} showFormSurface />
         ) : null}
       </Box>
     </ResponsiveFormDialog>
