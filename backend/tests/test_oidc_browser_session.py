@@ -94,6 +94,7 @@ def test_refresh_lease_allows_only_one_concurrent_provider_refresh(session: Sess
 
     assert acquire_refresh_lease(session, browser_session_id=browser_session.id) == OidcRefreshLeaseState.ACQUIRED
     assert acquire_refresh_lease(session, browser_session_id=browser_session.id) == OidcRefreshLeaseState.IN_PROGRESS
+    assert not session.in_transaction()
 
     session.refresh(browser_session)
     release_refresh_lease(browser_session)

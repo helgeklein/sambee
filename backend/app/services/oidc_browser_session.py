@@ -350,6 +350,7 @@ def acquire_refresh_lease(
         session.commit()
         return OidcRefreshLeaseState.ACQUIRED
 
+    session.commit()
     browser_session = session.get(OidcBrowserSession, browser_session_id)
     if (
         browser_session is not None
@@ -378,7 +379,9 @@ def acquire_refresh_lease(
         if expired_result.rowcount == 1:
             session.commit()
             return OidcRefreshLeaseState.EXPIRED
-        session.rollback()
+        session.commit()
+    else:
+        session.commit()
     return OidcRefreshLeaseState.IN_PROGRESS
 
 

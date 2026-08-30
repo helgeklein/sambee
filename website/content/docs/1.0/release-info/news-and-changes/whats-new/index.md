@@ -80,6 +80,10 @@ The settings gained a new category page:
 ## Image Viewer
 
 - Large images: better user feedback while loading
+## Miscellaneous
+
+- Bugfix: Concurrent OIDC token refreshes would cause SQLite database lock errors.
+
 
 ## Under the Hood
 
