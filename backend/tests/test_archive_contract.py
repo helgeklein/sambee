@@ -151,6 +151,34 @@ def test_v2_direct_local_execution_specimen_conforms_to_the_shared_schema() -> N
     )
 
 
+def test_v2_inspection_query_schemas_are_owner_specific() -> None:
+    _validate_contract_instance(
+        "backendInspectionMemberQuery",
+        {
+            "contract_version": "v2",
+            "connection_id": "connection-1",
+            "archive_path": "backup.zip",
+            "member_path": "docs/readme.pdf",
+            "view_kind": "pdf",
+            "viewport_width": 1024,
+            "viewport_height": 768,
+            "no_resizing": False,
+            "screen_width": 1440,
+            "screen_height": 900,
+            "screen_zoom_percent": 200,
+        },
+    )
+    _validate_contract_instance(
+        "localInspectionMemberQuery",
+        {
+            "contract_version": "v2",
+            "archive_path": "backup.zip",
+            "member_path": "docs/readme.pdf",
+            "download": False,
+        },
+    )
+
+
 def test_v2_relay_routes_are_normalized_and_capability_bound() -> None:
     fixture: dict[str, Any] = json.loads(ROUTE_BINDINGS_PATH.read_text(encoding="utf-8"))
     relay_routes = [route for route in fixture["routes"] if "/relay/" in route["path"]]

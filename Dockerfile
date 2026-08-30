@@ -176,5 +176,5 @@ EXPOSE 8000
 HEALTHCHECK --interval=30s --timeout=10s --start-period=5s --retries=3 \
     CMD wget -qO- http://localhost:8000/api/health >/dev/null || exit 1
 
-# Run the application
-CMD ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8000", "--no-proxy-headers"]
+# Block deployment before migrations when legacy archive operation state remains.
+CMD ["sh", "-c", "/app/scripts/preflight-archive-v2-cutover && exec uvicorn app.main:app --host 0.0.0.0 --port 8000 --no-proxy-headers"]

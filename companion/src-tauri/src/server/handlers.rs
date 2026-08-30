@@ -54,10 +54,11 @@ use super::auth;
 use super::drives;
 use super::edit_locks::EDIT_LOCK_LOST_CODE;
 use super::errors::{
-    ApiError, ArchiveV2Error, ArchiveV2Json, ArchiveV2Query, LOCAL_ARCHIVE_CREATION_PARTIAL_CODE, LOCAL_ARCHIVE_EXTRACTION_PARTIAL_CODE,
-    LOCAL_LINK_TARGET_ACCESS_DENIED_CODE, LOCAL_LINK_TARGET_MISSING_CODE, LOCAL_LINK_TARGET_UNMAPPED_DRIVE_CODE,
-    LOCAL_LINK_TARGET_UNRESOLVABLE_CODE, LOCAL_LINK_TARGET_UNSUPPORTED_TYPE_CODE, PAIR_CONFIRMATION_PENDING_CODE,
-    RECENT_FILE_NATIVE_LAUNCH_FAILED_CODE, RECENT_FILE_TARGET_MISSING_CODE, RECENT_FILE_TARGET_NOT_FILE_CODE,
+    ApiError, ArchiveV2Error, ArchiveV2Json, ArchiveV2NoQuery, ArchiveV2Query, LOCAL_ARCHIVE_CREATION_PARTIAL_CODE,
+    LOCAL_ARCHIVE_EXTRACTION_PARTIAL_CODE, LOCAL_LINK_TARGET_ACCESS_DENIED_CODE, LOCAL_LINK_TARGET_MISSING_CODE,
+    LOCAL_LINK_TARGET_UNMAPPED_DRIVE_CODE, LOCAL_LINK_TARGET_UNRESOLVABLE_CODE, LOCAL_LINK_TARGET_UNSUPPORTED_TYPE_CODE,
+    PAIR_CONFIRMATION_PENDING_CODE, RECENT_FILE_NATIVE_LAUNCH_FAILED_CODE, RECENT_FILE_TARGET_MISSING_CODE,
+    RECENT_FILE_TARGET_NOT_FILE_CODE,
 };
 use super::links::{resolve_activation_target, LinkResolutionError};
 use super::models::*;
@@ -3320,6 +3321,7 @@ pub async fn browse_get_v2_archive_execution(
     State(state): State<Arc<AppState>>,
     Path((drive, execution_id)): Path<(String, String)>,
     headers: HeaderMap,
+    _query: ArchiveV2NoQuery,
 ) -> Result<Json<ArchiveExecutionResponse>, ArchiveV2Error> {
     let execution = state
         .archive_sessions

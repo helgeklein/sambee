@@ -76,7 +76,7 @@ impl From<ApiError> for ArchiveV2Error {
                 };
                 (StatusCode::CONFLICT, code, message)
             }
-            ApiError::ConflictWithCode { message, code } => (StatusCode::CONFLICT, code, message),
+            ApiError::ConflictWithCode { message, .. } => (StatusCode::CONFLICT, "invalid_operation_state", message),
             ApiError::Io(error) => (StatusCode::INTERNAL_SERVER_ERROR, "transport_failure", error.to_string()),
             ApiError::Internal(message) | ApiError::InternalWithCode { message, .. } => {
                 (StatusCode::INTERNAL_SERVER_ERROR, "transport_failure", message)
@@ -111,10 +111,30 @@ where
     type Rejection = ArchiveV2Error;
 
     async fn from_request(request: Request, state: &S) -> Result<Self, Self::Rejection> {
+        if request.uri().query().is_some_and(|query| !query.is_empty()) {
+            return Err(ArchiveV2Error::invalid_request());
+        }
         Json::<T>::from_request(request, state)
             .await
             .map(|Json(value)| Self(value))
             .map_err(|_| ArchiveV2Error::invalid_request())
+    }
+}
+
+/// V2 extractor for endpoints whose contract intentionally defines no query object.
+pub struct ArchiveV2NoQuery;
+
+impl<S> FromRequestParts<S> for ArchiveV2NoQuery
+where
+    S: Send + Sync,
+{
+    type Rejection = ArchiveV2Error;
+
+    async fn from_request_parts(parts: &mut Parts, _state: &S) -> Result<Self, Self::Rejection> {
+        if parts.uri.query().is_some_and(|query| !query.is_empty()) {
+            return Err(ArchiveV2Error::invalid_request());
+        }
+        Ok(Self)
     }
 }
 
@@ -252,9 +272,14 @@ impl IntoResponse for ApiError {
 
 #[cfg(test)]
 mod tests {
-    use axum::{body::to_bytes, response::IntoResponse};
+    use axum::{
+        body::{to_bytes, Body},
+        extract::{FromRequest, FromRequestParts},
+        http::Request,
+        response::IntoResponse,
+    };
 
-    use super::{ApiError, ArchiveV2Error, RECENT_FILE_TARGET_NOT_FILE_CODE};
+    use super::{ApiError, ArchiveV2Error, ArchiveV2Json, ArchiveV2NoQuery, RECENT_FILE_TARGET_NOT_FILE_CODE};
 
     #[tokio::test]
     async fn coded_bad_request_includes_the_permanent_target_code() {
@@ -288,5 +313,39 @@ mod tests {
                 "message": "Archive relay idempotency key conflicts with its command",
             })
         );
+    }
+
+    #[tokio::test]
+    async fn archive_v2_error_normalizes_internal_conflict_codes() {
+        let response = ArchiveV2Error::from(ApiError::conflict_code(
+            "Archive execution changed before cancellation could be applied",
+            "archive_execution_stale_revision",
+        ))
+        .into_response();
+
+        let body = to_bytes(response.into_body(), usize::MAX)
+            .await
+            .expect("response body should be readable");
+        assert_eq!(
+            serde_json::from_slice::<serde_json::Value>(&body).expect("response body should be JSON"),
+            serde_json::json!({
+                "code": "invalid_operation_state",
+                "message": "Archive execution changed before cancellation could be applied",
+            })
+        );
+    }
+
+    #[tokio::test]
+    async fn archive_v2_extractors_reject_undeclared_query_parameters() {
+        let request = Request::builder()
+            .uri("/?unexpected=true")
+            .header("content-type", "application/json")
+            .body(Body::from("{}"))
+            .expect("request should build");
+        assert!(ArchiveV2Json::<serde_json::Value>::from_request(request, &()).await.is_err());
+
+        let request = Request::builder().uri("/?unexpected=true").body(()).expect("request should build");
+        let (mut parts, _body) = request.into_parts();
+        assert!(ArchiveV2NoQuery::from_request_parts(&mut parts, &()).await.is_err());
     }
 }

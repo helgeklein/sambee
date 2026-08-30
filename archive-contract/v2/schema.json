@@ -974,7 +974,7 @@
         }
       }
     },
-    "inspectionDirectoryQuery": {
+    "backendInspectionDirectoryQuery": {
       "type": "object",
       "additionalProperties": false,
       "required": [
@@ -1013,7 +1013,7 @@
         }
       }
     },
-    "inspectionMemberQuery": {
+    "backendInspectionMemberQuery": {
       "type": "object",
       "additionalProperties": false,
       "required": [
@@ -1054,6 +1054,101 @@
             "original",
             "normalized"
           ]
+        },
+        "viewport_width": {
+          "type": [
+            "integer",
+            "null"
+          ]
+        },
+        "viewport_height": {
+          "type": [
+            "integer",
+            "null"
+          ]
+        },
+        "no_resizing": {
+          "type": "boolean"
+        },
+        "screen_width": {
+          "type": [
+            "integer",
+            "null"
+          ],
+          "minimum": 320,
+          "maximum": 16384
+        },
+        "screen_height": {
+          "type": [
+            "integer",
+            "null"
+          ],
+          "minimum": 320,
+          "maximum": 16384
+        },
+        "screen_zoom_percent": {
+          "type": "integer",
+          "minimum": 100,
+          "maximum": 400
+        }
+      }
+    },
+    "localInspectionDirectoryQuery": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "contract_version",
+        "archive_path"
+      ],
+      "properties": {
+        "contract_version": {
+          "$ref": "#/$defs/contractVersion"
+        },
+        "archive_path": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 4096
+        },
+        "virtual_path": {
+          "type": "string",
+          "maxLength": 4096
+        },
+        "cursor": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "maxLength": 4096
+        },
+        "page_size": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 500
+        }
+      }
+    },
+    "localInspectionMemberQuery": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "contract_version",
+        "archive_path",
+        "member_path"
+      ],
+      "properties": {
+        "contract_version": {
+          "$ref": "#/$defs/contractVersion"
+        },
+        "archive_path": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 4096
+        },
+        "member_path": {
+          "$ref": "#/$defs/memberPath"
+        },
+        "download": {
+          "type": "boolean"
         }
       }
     },

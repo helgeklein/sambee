@@ -73,6 +73,11 @@ SMB, or relay adapter privately. SMB-to-SMB is backend-owned, local-to-local is
 Companion-owned, and mixed topologies use a Companion relay over a backend-owned
 durable operation.
 
+Inspection request schemas are owner-specific: backend SMB inspection requires
+`connection_id`, while Companion local inspection derives its source identity
+from the `{drive}` route parameter. Backend member inspection additionally
+declares its supported preview viewport and screen parameters.
+
 ## Capabilities And Idempotency
 
 A Companion capability is a signed, short-lived claim bound to the operation ID,

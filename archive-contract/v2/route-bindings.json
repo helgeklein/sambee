@@ -110,7 +110,7 @@
       "durable": false,
       "capability": false,
       "idempotency": "none",
-      "request_schema": "inspectionDirectoryQuery",
+      "request_schema": "backendInspectionDirectoryQuery",
       "response_schema": "inspectionDirectory"
     },
     {
@@ -121,7 +121,7 @@
       "durable": false,
       "capability": false,
       "idempotency": "none",
-      "request_schema": "inspectionMemberQuery",
+      "request_schema": "backendInspectionMemberQuery",
       "response_schema": "binary"
     },
     {
@@ -286,7 +286,7 @@
       "durable": false,
       "capability": false,
       "idempotency": "none",
-      "request_schema": "inspectionDirectoryQuery",
+      "request_schema": "localInspectionDirectoryQuery",
       "response_schema": "inspectionDirectory"
     },
     {
@@ -297,7 +297,7 @@
       "durable": false,
       "capability": false,
       "idempotency": "none",
-      "request_schema": "inspectionMemberQuery",
+      "request_schema": "localInspectionMemberQuery",
       "response_schema": "binary"
     },
     {

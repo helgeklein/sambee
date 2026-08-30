@@ -199,7 +199,6 @@ pub struct ArchiveExecutionCancellationRequest {
 #[serde(deny_unknown_fields)]
 pub struct ArchiveV2ExecutionCancellationRequest {
     pub contract_version: ArchiveContractVersion,
-    #[serde(alias = "expectedRevision")]
     pub expected_revision: u64,
 }
 
@@ -220,7 +219,6 @@ pub struct ArchiveExecutionDecisionRequest {
 #[serde(deny_unknown_fields)]
 pub struct ArchiveV2ExecutionDecisionRequest {
     pub contract_version: ArchiveContractVersion,
-    #[serde(alias = "expectedRevision")]
     pub expected_revision: u64,
     pub member_path: String,
     pub action: ArchiveExecutionDecisionAction,
@@ -359,7 +357,8 @@ pub struct ArchiveExecutionProgress {
 mod tests {
     use super::{
         ArchiveExecutionCancellationRequest, ArchiveExecutionDecisionAction, ArchiveExecutionDecisionRequest, ArchiveExecutionStartRequest,
-        ArchiveV2RelayCreationRequest, ArchiveV2RelayExtractionRequest,
+        ArchiveV2ExecutionCancellationRequest, ArchiveV2ExecutionDecisionRequest, ArchiveV2RelayCreationRequest,
+        ArchiveV2RelayExtractionRequest,
     };
 
     #[test]
@@ -448,6 +447,17 @@ mod tests {
         .is_err());
         assert!(serde_json::from_str::<ArchiveV2RelayCreationRequest>(
             r#"{"contract_version":"v1","target_path":"archive.zip","server_url":"http://localhost:3000","operation_id":"a8ddf5e8-4d57-46ca-ae79-80bc85610d23","operation_token":"token"}"#
+        )
+        .is_err());
+    }
+
+    #[test]
+    fn rejects_legacy_revision_aliases_in_v2_requests() {
+        assert!(
+            serde_json::from_str::<ArchiveV2ExecutionCancellationRequest>(r#"{"contract_version":"v2","expectedRevision":2}"#).is_err()
+        );
+        assert!(serde_json::from_str::<ArchiveV2ExecutionDecisionRequest>(
+            r#"{"contract_version":"v2","expectedRevision":2,"member_path":"source.txt","action":"skip"}"#
         )
         .is_err());
     }
