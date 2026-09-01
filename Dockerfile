@@ -121,14 +121,16 @@ RUN python -m venv /workspace/backend/.venv && \
         --find-links=/tmp/wheels \
         -r /tmp/requirements-dev.lock.txt && \
     rm -rf /tmp/wheels
-COPY backend/ ./backend/
-COPY archive-contract/ ./archive-contract/
-COPY archive_testdata/ ./archive_testdata/
-COPY companion/ ./companion/
-COPY VERSION ./VERSION
-COPY .github/ ./.github/
-COPY scripts/ ./scripts/
-RUN chown -R vscode:vscode /workspace
+COPY --chown=vscode:vscode companion/ ./companion/
+USER vscode
+RUN cargo test --manifest-path companion/src-tauri/Cargo.toml --lib --no-run -q
+USER root
+COPY --chown=vscode:vscode backend/ ./backend/
+COPY --chown=vscode:vscode archive-contract/ ./archive-contract/
+COPY --chown=vscode:vscode archive_testdata/ ./archive_testdata/
+COPY --chown=vscode:vscode VERSION ./VERSION
+COPY --chown=vscode:vscode .github/ ./.github/
+COPY --chown=vscode:vscode scripts/ ./scripts/
 USER vscode
 ENV PYTHONPATH=/workspace/backend
 
