@@ -121,6 +121,7 @@ RUN python -m venv /workspace/backend/.venv && \
         -r /tmp/requirements-dev.lock.txt && \
     rm -rf /tmp/wheels
 COPY backend/ ./backend/
+COPY archive-contract/ ./archive-contract/
 COPY VERSION ./VERSION
 COPY .github/ ./.github/
 COPY scripts/ ./scripts/
