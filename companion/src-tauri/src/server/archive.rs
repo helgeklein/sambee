@@ -2,12 +2,18 @@
 
 use std::collections::{BTreeMap, HashMap, HashSet};
 use std::fs::{self, File as FsFile, OpenOptions};
-use std::io::{Read, Write};
+use std::io::{BufWriter, Read, Write};
 use std::path::{Path, PathBuf};
+use std::sync::{
+    atomic::{AtomicU64, AtomicUsize, Ordering},
+    Arc,
+};
+use std::time::Instant;
 
 use bzip2::read::BzDecoder;
 use chrono::{DateTime, NaiveDate, SecondsFormat, Utc};
 use flate2::{read::DeflateDecoder, write::DeflateEncoder, Compression};
+use log::info;
 use serde::{Deserialize, Serialize};
 use thiserror::Error;
 use tokio::sync::mpsc::Receiver;
@@ -17,9 +23,11 @@ use zip::write::{SimpleFileOptions, StreamWriter, ZipWriter};
 use zip::CompressionMethod;
 
 use super::models::{ArchiveDirectoryListing, ArchiveEntryInfo, ArchiveEntryState, ArchiveIdentity, FileType};
+use super::target_resolution::{resolve_target_mutation, TargetResolutionDisposition, TargetResolutionPolicy, TargetSnapshot};
 
 /// Bounded source-read size for direct local archive output.
 pub const ARCHIVE_COPY_BUFFER_SIZE: usize = 64 * 1024;
+const ARCHIVE_WRITE_BUFFER_SIZE: usize = 256 * 1024;
 pub const ARCHIVE_INLINE_PREVIEW_MAX_BYTES: u64 = 5 * 1024 * 1024;
 const STORED_SAVINGS_BYTES: usize = 1024;
 const STORED_SAVINGS_RATIO: f64 = 0.05;
@@ -27,6 +35,30 @@ const EOCD_SIGNATURE: &[u8; 4] = b"PK\x05\x06";
 const CENTRAL_DIRECTORY_SIGNATURE: &[u8; 4] = b"PK\x01\x02";
 const ZIP64_LOCATOR_SIGNATURE: &[u8; 4] = b"PK\x06\x07";
 const ZIP64_EOCD_SIGNATURE: &[u8; 4] = b"PK\x06\x06";
+
+#[derive(Clone, Default)]
+struct ArchiveWriteMetrics {
+    bytes: Arc<AtomicU64>,
+    operations: Arc<AtomicUsize>,
+}
+
+struct MeasuredWriter<W: Write> {
+    inner: W,
+    metrics: ArchiveWriteMetrics,
+}
+
+impl<W: Write> Write for MeasuredWriter<W> {
+    fn write(&mut self, buffer: &[u8]) -> std::io::Result<usize> {
+        let written = self.inner.write(buffer)?;
+        self.metrics.operations.fetch_add(1, Ordering::Relaxed);
+        self.metrics.bytes.fetch_add(written as u64, Ordering::Relaxed);
+        Ok(written)
+    }
+
+    fn flush(&mut self) -> std::io::Result<()> {
+        self.inner.flush()
+    }
+}
 const LOCAL_FILE_SIGNATURE: &[u8; 4] = b"PK\x03\x04";
 const EOCD_SIZE: usize = 22;
 const ZIP64_LOCATOR_SIZE: usize = 20;
@@ -201,6 +233,140 @@ pub struct LocalArchiveReadEntry {
     pub raw_name: Vec<u8>,
 }
 
+/// Request-local last-wins projection retaining parsed central-directory entries.
+#[derive(Debug, Clone, PartialEq, Eq)]
+struct EffectiveLocalArchiveEntries {
+    entries: Vec<LocalArchiveReadEntry>,
+    directories: Vec<EffectiveLocalArchiveDirectory>,
+    has_unsafe_raw_entry: bool,
+    has_unsupported_special_raw_entry: bool,
+    member_by_exact_path: HashMap<String, LocalArchiveReadEntry>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+struct EffectiveLocalArchiveDirectory {
+    path: String,
+    explicit_entry: Option<LocalArchiveReadEntry>,
+    source_member_path: String,
+}
+
+fn effective_local_archive_entries(entries: &[LocalArchiveReadEntry]) -> EffectiveLocalArchiveEntries {
+    let mut selected_regular_paths = HashSet::new();
+    let mut selected_directory_paths = HashSet::new();
+    let mut selected_regular_indexes = HashSet::new();
+    let mut selected_directory_indexes = HashSet::new();
+    let mut has_unsafe_raw_entry = false;
+    let mut has_unsupported_special_raw_entry = false;
+    for (index, entry) in entries.iter().enumerate().rev() {
+        has_unsafe_raw_entry |= !entry.is_safe;
+        has_unsupported_special_raw_entry |= !entry.has_supported_file_type;
+        if !entry.is_safe || !entry.has_supported_file_type {
+            continue;
+        }
+        if entry.is_directory {
+            if selected_directory_paths.insert(entry.path.clone()) {
+                selected_directory_indexes.insert(index);
+            }
+        } else if selected_regular_paths.insert(entry.path.clone()) {
+            selected_regular_indexes.insert(index);
+        }
+    }
+    let entries = entries
+        .iter()
+        .enumerate()
+        .filter(|(index, entry)| {
+            selected_regular_indexes.contains(index)
+                || (selected_directory_indexes.contains(index) && !selected_regular_paths.contains(&entry.path))
+        })
+        .map(|(_, entry)| entry.clone())
+        .collect::<Vec<_>>();
+    let member_by_exact_path = entries
+        .iter()
+        .filter(|entry| !entry.is_directory && entry.is_safe && entry.has_supported_file_type)
+        .map(|entry| (entry.path.clone(), entry.clone()))
+        .collect();
+    let mut directories_by_path = HashMap::new();
+    for entry in entries.iter().filter(|entry| !entry.is_directory) {
+        let parts = entry.path.split('/').collect::<Vec<_>>();
+        for index in 1..parts.len() {
+            let path = parts[..index].join("/");
+            let candidate = EffectiveLocalArchiveDirectory {
+                path: path.clone(),
+                explicit_entry: None,
+                source_member_path: entry.path.clone(),
+            };
+            let candidate_distance = parts.len() - index;
+            let replace = directories_by_path
+                .get(&path)
+                .is_none_or(|existing: &EffectiveLocalArchiveDirectory| {
+                    existing.explicit_entry.is_none()
+                        && (candidate_distance, &candidate.source_member_path)
+                            < (
+                                entry_distance_from_directory(&existing.source_member_path, &path),
+                                &existing.source_member_path,
+                            )
+                });
+            if replace {
+                directories_by_path.insert(path, candidate);
+            }
+        }
+    }
+    for entry in entries.iter().filter(|entry| entry.is_directory) {
+        let parts = entry.path.split('/').collect::<Vec<_>>();
+        for index in 1..parts.len() {
+            let path = parts[..index].join("/");
+            directories_by_path
+                .entry(path.clone())
+                .or_insert_with(|| EffectiveLocalArchiveDirectory {
+                    path,
+                    explicit_entry: None,
+                    source_member_path: entry.path.clone(),
+                });
+        }
+        directories_by_path.insert(
+            entry.path.clone(),
+            EffectiveLocalArchiveDirectory {
+                path: entry.path.clone(),
+                explicit_entry: Some(entry.clone()),
+                source_member_path: entry.path.clone(),
+            },
+        );
+    }
+    let mut directories = directories_by_path.into_values().collect::<Vec<_>>();
+    directories.sort_by(|left, right| {
+        left.path
+            .matches('/')
+            .count()
+            .cmp(&right.path.matches('/').count())
+            .then_with(|| left.path.cmp(&right.path))
+    });
+    EffectiveLocalArchiveEntries {
+        entries,
+        directories,
+        has_unsafe_raw_entry,
+        has_unsupported_special_raw_entry,
+        member_by_exact_path,
+    }
+}
+
+fn entry_distance_from_directory(member_path: &str, directory_path: &str) -> usize {
+    member_path.matches('/').count().saturating_sub(directory_path.matches('/').count())
+}
+
+/// One local-header-validated member, bound to the file handle that supplied it.
+pub struct ValidatedLocalArchiveEntry {
+    entry: LocalArchiveReadEntry,
+    file: FsFile,
+}
+
+impl std::ops::Deref for ValidatedLocalArchiveEntry {
+    type Target = LocalArchiveReadEntry;
+
+    fn deref(&self) -> &Self::Target {
+        &self.entry
+    }
+}
+
 /// Normalized inspection metadata for one archive member.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ArchiveInspectionManifestMember {
@@ -236,6 +402,7 @@ impl ArchiveInspectionManifestMember {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ArchiveInspectionManifest {
     pub entries: Vec<ArchiveInspectionManifestMember>,
+    member_indexes_by_exact_path: HashMap<String, usize>,
 }
 
 impl ArchiveInspectionManifest {
@@ -246,9 +413,9 @@ impl ArchiveInspectionManifest {
             return Err(LocalArchiveReadError::InvalidMemberPath);
         }
         let entry = self
-            .entries
-            .iter()
-            .find(|entry| entry.is_safe && entry.has_supported_file_type && !entry.is_directory && entry.path == normalized_path)
+            .member_indexes_by_exact_path
+            .get(&normalized_path)
+            .and_then(|index| self.entries.get(*index))
             .ok_or(LocalArchiveReadError::MemberNotFound)?;
         if !entry.is_preview_available() {
             return Err(LocalArchiveReadError::UnavailableMember);
@@ -298,6 +465,9 @@ impl ArchiveInspectionManifest {
                     encrypted: false,
                     is_available: false,
                 });
+                continue;
+            }
+            if entry.is_directory && children.get(&path).is_some_and(|existing| !existing.is_directory) {
                 continue;
             }
             children.insert(
@@ -360,8 +530,8 @@ impl LocalArchiveInspectionSource {
         Self { archive_path }
     }
 
-    fn inspection_manifest(&self) -> Result<ArchiveInspectionManifest, LocalArchiveReadError> {
-        inspect_local_archive(&self.archive_path)
+    fn entries(&self) -> Result<Vec<LocalArchiveReadEntry>, LocalArchiveReadError> {
+        read_local_archive_entries(&self.archive_path)
     }
 }
 
@@ -496,6 +666,7 @@ pub enum ArchiveInspectionPresentation {
 pub struct ArchiveInspectionPlan {
     source: LocalArchiveInspectionSource,
     presentation: ArchiveInspectionPresentation,
+    effective_entries: EffectiveLocalArchiveEntries,
     manifest: ArchiveInspectionManifest,
 }
 
@@ -505,10 +676,14 @@ impl ArchiveInspectionPlan {
         source: LocalArchiveInspectionSource,
         presentation: ArchiveInspectionPresentation,
     ) -> Result<Self, LocalArchiveReadError> {
+        let raw_entries = source.entries()?;
+        let effective_entries = effective_local_archive_entries(&raw_entries);
+        validate_local_archive_inspection_entries(&effective_entries)?;
         Ok(Self {
-            manifest: source.inspection_manifest()?,
+            manifest: inspection_manifest_from_entries(&effective_entries.entries),
             source,
             presentation,
+            effective_entries,
         })
     }
 
@@ -541,6 +716,21 @@ impl ArchiveInspectionCoordinator {
             ArchiveInspectionPresentation::DirectoryListing(_) => Err(LocalArchiveReadError::PresentationMismatch),
             ArchiveInspectionPresentation::MemberRead(presentation) => presentation.present(&self.plan.manifest),
         }
+    }
+
+    /// Resolve and validate a streamed member against this request's parsed entries.
+    pub fn validated_member_read(
+        &self,
+    ) -> Result<(ArchiveMemberReadProjection, Option<ValidatedLocalArchiveEntry>), LocalArchiveReadError> {
+        let projection = self.member_read()?;
+        if projection.delivery == ArchiveMemberReadDelivery::PreviewUnavailable {
+            return Ok((projection, None));
+        }
+        let entry = resolve_local_archive_read_entry(&self.plan.effective_entries, &projection.member_path)?;
+        Ok((
+            projection,
+            Some(validate_local_archive_entry(&self.plan.source.archive_path, entry.clone())?),
+        ))
     }
 }
 
@@ -831,14 +1021,13 @@ impl ArchiveExtractionManifest {
     pub fn from_entries(entries: Vec<ArchiveExtractionManifestMember>) -> Result<Self, LocalArchiveError> {
         let mut normalized_entries = Vec::with_capacity(entries.len());
         let mut entry_paths = HashSet::new();
-        let mut file_paths = HashSet::new();
+        let mut file_path_keys = HashSet::new();
         let mut directory_paths = HashSet::new();
         for entry in entries {
             let path = normalized_archive_path(&entry.path, entry.is_directory)?
                 .trim_end_matches('/')
                 .to_string();
-            let path_key = collision_key(&path);
-            if !entry_paths.insert(path_key.clone()) {
+            if !entry_paths.insert(path.clone()) {
                 return Err(LocalArchiveError::DuplicateEntryPath);
             }
             let path_parts = path.split('/').collect::<Vec<_>>();
@@ -851,7 +1040,7 @@ impl ArchiveExtractionManifest {
                 directory_paths.insert(collision_key(&path_parts[..index].join("/")));
             }
             if !entry.is_directory {
-                file_paths.insert(path_key);
+                file_path_keys.insert(collision_key(&path));
             }
             normalized_entries.push(ArchiveExtractionManifestMember {
                 path,
@@ -860,7 +1049,7 @@ impl ArchiveExtractionManifest {
                 modified_at: entry.modified_at,
             });
         }
-        if !file_paths.is_disjoint(&directory_paths) {
+        if !file_path_keys.is_disjoint(&directory_paths) {
             return Err(LocalArchiveError::DuplicateEntryPath);
         }
         Ok(Self {
@@ -874,15 +1063,17 @@ impl ArchiveExtractionManifest {
 #[serde(deny_unknown_fields)]
 struct ArchiveExtractionRelayMemberOutcome {
     status: String,
-    target_path: String,
+    target_path: Option<String>,
     #[serde(default)]
-    directories_created: u64,
+    message: Option<String>,
     #[serde(default)]
-    extracted_bytes: u64,
+    directories_created: Option<u64>,
     #[serde(default)]
-    replaced: bool,
+    extracted_bytes: Option<u64>,
     #[serde(default)]
-    renamed: bool,
+    replaced: Option<bool>,
+    #[serde(default)]
+    renamed: Option<bool>,
 }
 
 #[derive(Debug, Clone, Deserialize)]
@@ -994,22 +1185,50 @@ impl ArchiveExtractionRelayState {
         {
             return Err(LocalArchiveError::CheckpointMemberUnavailable);
         }
-        let mut referenced_members = self
+        let mut member_references = self
             .member_outcomes
             .keys()
             .chain(self.decisions.ignored_members.iter())
             .chain(self.decisions.retry_members.iter())
-            .chain(self.decisions.collision_actions.keys())
-            .chain(self.decisions.rename_targets.keys());
-        if referenced_members.any(|member_path| !member_paths.contains(member_path.as_str())) {
+            .chain(self.decisions.collision_actions.keys());
+        if member_references.any(|member_path| !member_paths.contains(member_path.as_str()))
+            || self.decisions.rename_targets.keys().any(|member_path| {
+                !member_paths.contains(member_path.as_str())
+                    && !member_paths.iter().any(|path| path.starts_with(&format!("{member_path}/")))
+            })
+        {
             return Err(LocalArchiveError::CheckpointMemberUnavailable);
         }
+        if self
+            .decisions
+            .collision_actions
+            .values()
+            .any(|action| validated_local_archive_target_write_policy(Some(action)).is_err())
+        {
+            return Err(LocalArchiveError::Io(std::io::Error::new(
+                std::io::ErrorKind::InvalidData,
+                "Archive relay returned an invalid collision action",
+            )));
+        }
         for outcome in self.member_outcomes.values() {
+            let is_partial = outcome.status == "partial";
+            let has_terminal_fields = outcome.directories_created.is_some()
+                && outcome.extracted_bytes.is_some()
+                && outcome.replaced.is_some()
+                && outcome.renamed.is_some();
+            let has_any_terminal_field = outcome.directories_created.is_some()
+                || outcome.extracted_bytes.is_some()
+                || outcome.replaced.is_some()
+                || outcome.renamed.is_some();
             if !matches!(
                 outcome.status.as_str(),
                 "directory" | "extracted" | "skipped" | "ignored" | "partial"
-            ) || (outcome.status != "partial" && outcome.target_path.is_empty())
-                || (outcome.renamed && outcome.target_path.is_empty())
+            ) || outcome
+                .target_path
+                .as_deref()
+                .is_none_or(|path| normalized_archive_path(path, false).is_err())
+                || (is_partial && (outcome.message.is_none() || has_any_terminal_field))
+                || (!is_partial && (outcome.message.is_some() || !has_terminal_fields))
             {
                 return Err(LocalArchiveError::Io(std::io::Error::new(
                     std::io::ErrorKind::InvalidData,
@@ -1021,8 +1240,38 @@ impl ArchiveExtractionRelayState {
     }
 
     /// Return the currently approved local-relative target for one manifest member.
-    pub fn target_member_path<'a>(&'a self, member_path: &'a str) -> &'a str {
-        self.decisions.rename_targets.get(member_path).map_or(member_path, String::as_str)
+    pub fn target_member_path(&self, member_path: &str) -> String {
+        let matching_source = self
+            .decisions
+            .rename_targets
+            .keys()
+            .filter(|source| member_path == source.as_str() || member_path.starts_with(&format!("{source}/")))
+            .max_by_key(|source| source.len());
+        let Some(source) = matching_source else {
+            return member_path.to_string();
+        };
+        let target_path = &self.decisions.rename_targets[source];
+        let suffix = member_path[source.len()..].trim_matches('/');
+        if suffix.is_empty() {
+            target_path.clone()
+        } else {
+            format!("{target_path}/{suffix}")
+        }
+    }
+
+    pub fn source_directory_for_target_path(&self, member_path: &str, is_directory: bool, target_path: &str) -> Option<String> {
+        let parts = member_path.trim_end_matches('/').split('/').collect::<Vec<_>>();
+        let directory_count = if is_directory { parts.len() } else { parts.len().saturating_sub(1) };
+        (1..=directory_count)
+            .rev()
+            .map(|index| parts[..index].join("/"))
+            .find(|source_path| self.target_member_path(source_path) == target_path)
+    }
+
+    pub fn nearest_source_directory(&self, member_path: &str, is_directory: bool) -> Option<String> {
+        let parts = member_path.trim_end_matches('/').split('/').collect::<Vec<_>>();
+        let directory_count = if is_directory { parts.len() } else { parts.len().saturating_sub(1) };
+        (directory_count > 0).then(|| parts[..directory_count].join("/"))
     }
 
     /// Return whether a member is intentionally ignored by a persisted decision.
@@ -1039,13 +1288,17 @@ impl ArchiveExtractionRelayState {
     pub fn progress(&self) -> LocalArchiveExtractionResult {
         let mut result = LocalArchiveExtractionResult::default();
         for outcome in self.member_outcomes.values() {
-            result.directories_created = result.directories_created.saturating_add(outcome.directories_created);
+            result.directories_created = result
+                .directories_created
+                .saturating_add(outcome.directories_created.unwrap_or_default());
             match outcome.status.as_str() {
                 "directory" => {}
                 "extracted" => {
                     result.files_extracted = result.files_extracted.saturating_add(1);
-                    result.extracted_bytes = result.extracted_bytes.saturating_add(outcome.extracted_bytes);
-                    result.files_replaced = result.files_replaced.saturating_add(u64::from(outcome.replaced));
+                    result.extracted_bytes = result.extracted_bytes.saturating_add(outcome.extracted_bytes.unwrap_or_default());
+                    result.files_replaced = result
+                        .files_replaced
+                        .saturating_add(u64::from(outcome.replaced.unwrap_or_default()));
                 }
                 "skipped" | "ignored" => result.files_skipped = result.files_skipped.saturating_add(1),
                 "partial" => result.partial_members = result.partial_members.saturating_add(1),
@@ -1061,7 +1314,8 @@ impl ArchiveExtractionRelayState {
 pub struct ArchiveExtractionRelayExecutionPlan {
     manifest: ArchiveExtractionManifest,
     state: ArchiveExtractionRelayState,
-    collision_policy: Option<String>,
+    collision_policy: LocalArchiveTargetWritePolicy,
+    member_collision_policies: HashMap<String, LocalArchiveTargetWritePolicy>,
 }
 
 impl ArchiveExtractionRelayExecutionPlan {
@@ -1072,10 +1326,19 @@ impl ArchiveExtractionRelayExecutionPlan {
 
     pub fn from_state(manifest: ArchiveExtractionManifest, state: ArchiveExtractionRelayState) -> Result<Self, LocalArchiveError> {
         state.validate_manifest(&manifest)?;
+        let member_collision_policies = state
+            .decisions
+            .collision_actions
+            .iter()
+            .map(|(member_path, action)| {
+                validated_local_archive_target_write_policy(Some(action)).map(|policy| (member_path.clone(), policy))
+            })
+            .collect::<Result<HashMap<_, _>, _>>()?;
         Ok(Self {
             manifest,
             state,
-            collision_policy: None,
+            collision_policy: LocalArchiveTargetWritePolicy::Ask,
+            member_collision_policies,
         })
     }
 
@@ -1084,19 +1347,21 @@ impl ArchiveExtractionRelayExecutionPlan {
     }
 
     /// Apply the operation-level collision policy after validating the V2 checkpoint.
-    pub fn with_collision_policy(mut self, collision_policy: Option<String>) -> Self {
-        self.collision_policy = collision_policy;
-        self
+    pub fn with_collision_policy(mut self, collision_policy: Option<String>) -> Result<Self, LocalArchiveError> {
+        self.collision_policy = validated_local_archive_target_write_policy(collision_policy.as_deref())?;
+        Ok(self)
     }
 
-    /// Return a member-specific V2 decision or the operation's immutable fallback policy.
-    pub fn collision_action(&self, member_path: &str) -> Option<&str> {
-        self.state
-            .decisions
-            .collision_actions
+    /// Return a validated member-specific decision or the operation-level fallback policy.
+    pub fn target_write_policy(&self, member_path: &str) -> LocalArchiveTargetWritePolicy {
+        self.member_collision_policies
             .get(member_path)
-            .or(self.collision_policy.as_ref())
-            .map(String::as_str)
+            .copied()
+            .unwrap_or(self.collision_policy)
+    }
+
+    pub fn source_directory_for_target_path(&self, member_path: &str, is_directory: bool, target_path: &str) -> Option<String> {
+        self.state.source_directory_for_target_path(member_path, is_directory, target_path)
     }
 }
 
@@ -1124,9 +1389,11 @@ pub enum LocalArchiveRelayChunk {
 
 /// Stateful local ZIP writer used while an asynchronous source relay streams one member at a time.
 pub struct LocalArchiveRelayWriter {
-    writer: ZipWriter<StreamWriter<FsFile>>,
+    writer: ZipWriter<StreamWriter<BufWriter<MeasuredWriter<FsFile>>>>,
     manifest: ArchiveCreationManifest,
     next_manifest_index: usize,
+    metrics: ArchiveWriteMetrics,
+    started_at: Instant,
 }
 
 /// Summary of a completed local archive extraction.
@@ -1170,6 +1437,85 @@ pub enum LocalArchiveExtractionCollisionAction {
     ReplaceOlder,
 }
 
+/// Compatibility aliases for operation-neutral target-resolution types.
+pub type LocalArchiveTargetWritePolicy = TargetResolutionPolicy;
+pub type LocalArchiveTargetWriteDisposition = TargetResolutionDisposition;
+
+/// The local target-output controller result consumed by direct and relay extraction.
+pub enum LocalArchiveTargetOutput {
+    Ready {
+        file: FsFile,
+        replaced: bool,
+        directories_created: u64,
+    },
+    Skip,
+    AwaitCollision {
+        metadata: Option<fs::Metadata>,
+    },
+}
+
+/// One native local target-open attempt before content output begins.
+enum LocalArchiveTargetWriteAttempt {
+    Ready(FsFile),
+    TargetExistsBeforeContent,
+    Failure(LocalArchiveError),
+}
+
+/// The local directory controller result used by direct and relay extraction.
+pub enum LocalArchiveDirectoryOutput {
+    Ready { directories_created: u64 },
+    AwaitCollision { path: PathBuf, metadata: fs::Metadata },
+}
+
+pub type LocalArchiveTargetSnapshot = TargetSnapshot;
+
+fn validated_local_archive_target_write_policy(action: Option<&str>) -> Result<LocalArchiveTargetWritePolicy, LocalArchiveError> {
+    match action {
+        None | Some("ask") | Some("rename") => Ok(LocalArchiveTargetWritePolicy::Ask),
+        Some("skip") | Some("skip_all") => Ok(LocalArchiveTargetWritePolicy::Skip),
+        Some("replace") | Some("replace_all") => Ok(LocalArchiveTargetWritePolicy::Replace),
+        Some("replace_older") => Ok(LocalArchiveTargetWritePolicy::ReplaceOlder),
+        Some(_) => Err(LocalArchiveError::Io(std::io::Error::new(
+            std::io::ErrorKind::InvalidData,
+            "Archive relay returned an invalid collision action",
+        ))),
+    }
+}
+
+fn local_archive_target_write_policy_from_local_action(
+    action: Option<LocalArchiveExtractionCollisionAction>,
+) -> LocalArchiveTargetWritePolicy {
+    match action {
+        Some(LocalArchiveExtractionCollisionAction::Skip) => LocalArchiveTargetWritePolicy::Skip,
+        Some(LocalArchiveExtractionCollisionAction::Replace) => LocalArchiveTargetWritePolicy::Replace,
+        Some(LocalArchiveExtractionCollisionAction::ReplaceOlder) => LocalArchiveTargetWritePolicy::ReplaceOlder,
+        None => LocalArchiveTargetWritePolicy::Ask,
+    }
+}
+
+pub fn resolve_local_archive_target_write(
+    policy: LocalArchiveTargetWritePolicy,
+    source_modified_at: Option<DateTime<Utc>>,
+    target_metadata: Option<&fs::Metadata>,
+) -> LocalArchiveTargetWriteDisposition {
+    let target = match target_metadata {
+        None => LocalArchiveTargetSnapshot::Missing,
+        Some(metadata) if metadata.file_type().is_file() => LocalArchiveTargetSnapshot::RegularFile {
+            modified_at: metadata.modified().ok().map(DateTime::<Utc>::from),
+        },
+        Some(_) => LocalArchiveTargetSnapshot::Other,
+    };
+    resolve_local_archive_target_snapshot(policy, source_modified_at, target)
+}
+
+pub fn resolve_local_archive_target_snapshot(
+    policy: LocalArchiveTargetWritePolicy,
+    source_modified_at: Option<DateTime<Utc>>,
+    target: LocalArchiveTargetSnapshot,
+) -> LocalArchiveTargetWriteDisposition {
+    resolve_target_mutation(policy, source_modified_at, target)
+}
+
 /// Durable-in-session state required to restart local extraction after a pause.
 #[derive(Debug, Clone, Default)]
 pub struct LocalArchiveExtractionCheckpoint {
@@ -1210,13 +1556,17 @@ impl LocalArchiveExtractionExecutionPlan {
         checkpoint: LocalArchiveExtractionCheckpoint,
     ) -> Result<Self, LocalArchiveError> {
         let member_paths = manifest.entries.iter().map(|entry| entry.path.as_str()).collect::<HashSet<_>>();
-        let mut checkpoint_member_paths = checkpoint
+        let mut result_member_paths = checkpoint
             .member_outcomes
             .keys()
             .chain(checkpoint.collision_actions.keys())
-            .chain(checkpoint.member_rename_targets.keys())
             .chain(checkpoint.partial_members.keys());
-        if checkpoint_member_paths.any(|member_path| !member_paths.contains(member_path.as_str())) {
+        if result_member_paths.any(|member_path| !member_paths.contains(member_path.as_str()))
+            || checkpoint.member_rename_targets.keys().any(|member_path| {
+                !member_paths.contains(member_path.as_str())
+                    && !member_paths.iter().any(|path| path.starts_with(&format!("{member_path}/")))
+            })
+        {
             return Err(LocalArchiveError::CheckpointMemberUnavailable);
         }
         Ok(Self { manifest, checkpoint })
@@ -1313,10 +1663,31 @@ impl LocalArchiveExtractionCheckpoint {
     }
 
     pub fn rename_member(&mut self, member_path: String, target_path: String) {
-        self.member_rename_targets.insert(
-            member_path.trim_end_matches('/').to_string(),
-            target_path.trim_end_matches('/').to_string(),
-        );
+        let member_path = member_path.trim_end_matches('/').to_string();
+        self.member_rename_targets
+            .insert(member_path, target_path.trim_end_matches('/').to_string());
+    }
+
+    pub fn rename_directory_member(&mut self, member_path: String, target_path: String, collision_target_path: &str) {
+        let member_path = member_path.trim_end_matches('/').to_string();
+        let target_path = target_path.trim_end_matches('/').to_string();
+        let collision_target_path = collision_target_path.trim_end_matches('/');
+        for (source_path, existing_target) in &mut self.member_rename_targets {
+            if source_path.starts_with(&format!("{member_path}/"))
+                && (existing_target == collision_target_path || existing_target.starts_with(&format!("{collision_target_path}/")))
+            {
+                let suffix = existing_target
+                    .strip_prefix(collision_target_path)
+                    .expect("collision target prefix was validated")
+                    .trim_start_matches('/');
+                *existing_target = if suffix.is_empty() {
+                    target_path.clone()
+                } else {
+                    format!("{target_path}/{suffix}")
+                };
+            }
+        }
+        self.member_rename_targets.insert(member_path, target_path);
     }
 
     fn target_path(&self, member_path: &str) -> String {
@@ -1489,6 +1860,10 @@ pub enum LocalArchiveReadError {
     InvalidMemberPath,
     #[error("archive member was not found")]
     MemberNotFound,
+    #[error("archive entry path is unsafe")]
+    UnsafeEntryPath,
+    #[error("archive contains a symbolic link or unsupported special member")]
+    UnsupportedArchiveMember,
     #[error("archive member uses an unavailable codec or blocked feature")]
     UnavailableMember,
     #[error("ZIP local header is invalid or does not match the central directory")]
@@ -1778,38 +2153,83 @@ fn read_local_archive_entries(archive_path: &Path) -> Result<Vec<LocalArchiveRea
 }
 
 /// Project parsed local ZIP metadata into the shared inspection domain value.
-pub fn inspect_local_archive(archive_path: &Path) -> Result<ArchiveInspectionManifest, LocalArchiveReadError> {
-    Ok(ArchiveInspectionManifest {
-        entries: read_local_archive_entries(archive_path)?
-            .into_iter()
-            .map(|entry| ArchiveInspectionManifestMember {
-                path: entry.path,
-                is_directory: entry.is_directory,
-                compressed_size: entry.compressed_size,
-                uncompressed_size: entry.uncompressed_size,
-                compression_method: entry.compression_method,
-                crc32: entry.crc32,
-                modified_at: entry.modified_at,
-                encrypted: entry.encrypted,
-                is_safe: entry.is_safe,
-                has_supported_file_type: entry.has_supported_file_type,
-            })
-            .collect(),
-    })
+fn inspection_manifest_from_entries(entries: &[LocalArchiveReadEntry]) -> ArchiveInspectionManifest {
+    let entries = entries
+        .iter()
+        .map(|entry| ArchiveInspectionManifestMember {
+            path: entry.path.clone(),
+            is_directory: entry.is_directory,
+            compressed_size: entry.compressed_size,
+            uncompressed_size: entry.uncompressed_size,
+            compression_method: entry.compression_method,
+            crc32: entry.crc32,
+            modified_at: entry.modified_at,
+            encrypted: entry.encrypted,
+            is_safe: entry.is_safe,
+            has_supported_file_type: entry.has_supported_file_type,
+        })
+        .collect::<Vec<_>>();
+    let member_indexes_by_exact_path = entries
+        .iter()
+        .enumerate()
+        .filter(|(_, entry)| entry.is_safe && entry.has_supported_file_type && !entry.is_directory)
+        .map(|(index, entry)| (entry.path.clone(), index))
+        .collect();
+    ArchiveInspectionManifest {
+        entries,
+        member_indexes_by_exact_path,
+    }
 }
 
-/// Resolve and validate a local archive member before starting an HTTP response.
-pub fn validate_local_archive_member(archive_path: &Path, member_path: &str) -> Result<LocalArchiveReadEntry, LocalArchiveReadError> {
+fn validate_local_archive_inspection_entries(entries: &EffectiveLocalArchiveEntries) -> Result<(), LocalArchiveReadError> {
+    if entries.has_unsafe_raw_entry {
+        return Err(LocalArchiveReadError::UnsafeEntryPath);
+    }
+    if entries.has_unsupported_special_raw_entry {
+        return Err(LocalArchiveReadError::UnsupportedArchiveMember);
+    }
+    Ok(())
+}
+
+#[cfg(test)]
+pub fn inspect_local_archive(archive_path: &Path) -> Result<ArchiveInspectionManifest, LocalArchiveReadError> {
+    let raw_entries = read_local_archive_entries(archive_path)?;
+    let entries = effective_local_archive_entries(&raw_entries);
+    validate_local_archive_inspection_entries(&entries)?;
+    Ok(inspection_manifest_from_entries(&entries.entries))
+}
+
+fn resolve_local_archive_read_entry<'a>(
+    entries: &'a EffectiveLocalArchiveEntries,
+    member_path: &str,
+) -> Result<&'a LocalArchiveReadEntry, LocalArchiveReadError> {
     let (normalized_path, is_directory) = normalize_virtual_path(member_path);
     if is_directory || normalized_path.is_empty() || !is_safe_virtual_path(member_path, &normalized_path) {
         return Err(LocalArchiveReadError::InvalidMemberPath);
     }
-    let entry = read_local_archive_entries(archive_path)?
-        .into_iter()
-        .find(|candidate| {
-            candidate.is_safe && candidate.has_supported_file_type && !candidate.is_directory && candidate.path == normalized_path
-        })
+    let entry = entries
+        .member_by_exact_path
+        .get(&normalized_path)
         .ok_or(LocalArchiveReadError::MemberNotFound)?;
+    if entry.encrypted || !matches!(entry.compression_method, 0 | 8 | 12) {
+        return Err(LocalArchiveReadError::UnavailableMember);
+    }
+    Ok(entry)
+}
+
+/// Resolve and validate a local archive member before starting an HTTP response.
+#[cfg(test)]
+pub fn validate_local_archive_member(archive_path: &Path, member_path: &str) -> Result<ValidatedLocalArchiveEntry, LocalArchiveReadError> {
+    let raw_entries = read_local_archive_entries(archive_path)?;
+    let entries = effective_local_archive_entries(&raw_entries);
+    validate_local_archive_inspection_entries(&entries)?;
+    validate_local_archive_entry(archive_path, resolve_local_archive_read_entry(&entries, member_path)?.clone())
+}
+
+fn validate_local_archive_entry(
+    archive_path: &Path,
+    entry: LocalArchiveReadEntry,
+) -> Result<ValidatedLocalArchiveEntry, LocalArchiveReadError> {
     if entry.encrypted || !matches!(entry.compression_method, 0 | 8 | 12) {
         return Err(LocalArchiveReadError::UnavailableMember);
     }
@@ -1842,41 +2262,9 @@ pub fn validate_local_archive_member(archive_path: &Path, member_path: &str) -> 
     {
         return Err(LocalArchiveReadError::MemberOutOfBounds);
     }
-    Ok(entry)
-}
-
-fn member_data_offset(archive_path: &Path, entry: &LocalArchiveReadEntry) -> Result<(FsFile, u64), LocalArchiveReadError> {
-    let mut file = FsFile::open(archive_path)?;
-    let archive_size = file.metadata()?.len();
-    let local_header = read_exact_at(&mut file, archive_size, entry.local_header_offset, 30)?;
-    if local_header[..4] != *LOCAL_FILE_SIGNATURE
-        || u16_le(&local_header, 6) != entry.flags
-        || u16_le(&local_header, 8) != entry.compression_method
-    {
-        return Err(LocalArchiveReadError::InvalidLocalHeader);
-    }
-    let name_length = usize::from(u16_le(&local_header, 26));
-    let extra_length = usize::from(u16_le(&local_header, 28));
-    let local_name = read_exact_at(&mut file, archive_size, entry.local_header_offset + 30, name_length)?;
-    if local_name != entry.raw_name {
-        return Err(LocalArchiveReadError::InvalidLocalHeader);
-    }
-    let data_offset = entry
-        .local_header_offset
-        .checked_add(30)
-        .and_then(|offset| offset.checked_add(name_length as u64))
-        .and_then(|offset| offset.checked_add(extra_length as u64))
-        .ok_or(LocalArchiveReadError::MemberOutOfBounds)?;
-    if data_offset
-        .checked_add(entry.compressed_size)
-        .filter(|end| *end <= archive_size)
-        .is_none()
-    {
-        return Err(LocalArchiveReadError::MemberOutOfBounds);
-    }
     use std::io::{Seek, SeekFrom};
     file.seek(SeekFrom::Start(data_offset))?;
-    Ok((file, archive_size))
+    Ok(ValidatedLocalArchiveEntry { entry, file })
 }
 
 fn update_crc32(mut state: u32, bytes: &[u8]) -> u32 {
@@ -1918,17 +2306,24 @@ fn copy_member_data(
 }
 
 /// Stream one parser-validated local member without staging archive or payload bytes.
+#[cfg(test)]
 pub fn stream_local_archive_member(archive_path: &Path, member_path: &str, output: &mut impl Write) -> Result<(), LocalArchiveReadError> {
-    let entry = validate_local_archive_member(archive_path, member_path)?;
-    stream_local_archive_entry(archive_path, &entry, output)
+    stream_validated_local_archive_entry(validate_local_archive_member(archive_path, member_path)?, output)
 }
 
-fn stream_local_archive_entry(
+pub fn stream_local_archive_entry(
     archive_path: &Path,
     entry: &LocalArchiveReadEntry,
     output: &mut impl Write,
 ) -> Result<(), LocalArchiveReadError> {
-    let (file, _) = member_data_offset(archive_path, entry)?;
+    stream_validated_local_archive_entry(validate_local_archive_entry(archive_path, entry.clone())?, output)
+}
+
+pub fn stream_validated_local_archive_entry(
+    validated_entry: ValidatedLocalArchiveEntry,
+    output: &mut impl Write,
+) -> Result<(), LocalArchiveReadError> {
+    let ValidatedLocalArchiveEntry { entry, file } = validated_entry;
     let (written, crc32) = match entry.compression_method {
         0 => {
             let mut reader = file.take(entry.compressed_size);
@@ -1960,23 +2355,41 @@ fn stream_local_archive_entry(
     Ok(())
 }
 
+struct AcceptedByteWriter<'a, W: Write> {
+    writer: &'a mut W,
+    accepted_bytes: u64,
+}
+
+impl<W: Write> Write for AcceptedByteWriter<'_, W> {
+    fn write(&mut self, buffer: &[u8]) -> std::io::Result<usize> {
+        let written = self.writer.write(buffer)?;
+        self.accepted_bytes = self.accepted_bytes.saturating_add(written as u64);
+        Ok(written)
+    }
+
+    fn flush(&mut self) -> std::io::Result<()> {
+        self.writer.flush()
+    }
+}
+
 /// Validate every entry that a mixed-executor extraction will relay.
 ///
 /// Unlike direct local extraction, mixed extraction does not silently skip
 /// unreadable entries because the remote destination cannot be rolled back.
 pub fn validate_local_archive_extraction(archive_path: &Path) -> Result<Vec<LocalArchiveReadEntry>, LocalArchiveError> {
-    let entries = read_local_archive_entries(archive_path)?;
-    if entries.iter().any(|entry| !entry.is_safe) {
+    let raw_entries = read_local_archive_entries(archive_path)?;
+    let projection = effective_local_archive_entries(&raw_entries);
+    if projection.has_unsafe_raw_entry {
         return Err(LocalArchiveError::UnsafeEntryPath);
     }
-    if entries.iter().any(|entry| !entry.has_supported_file_type) {
+    if projection.has_unsupported_special_raw_entry {
         return Err(LocalArchiveError::UnsupportedArchiveMember);
     }
-    validate_extraction_output_paths(&entries)?;
-    for entry in entries.iter().filter(|entry| !entry.is_directory) {
-        validate_local_archive_member(archive_path, &entry.path)?;
+    validate_extraction_output_paths(&projection.entries, &projection.directories)?;
+    for entry in projection.entries.iter().filter(|entry| !entry.is_directory) {
+        validate_local_archive_entry(archive_path, entry.clone())?;
     }
-    Ok(entries)
+    Ok(projection.entries)
 }
 
 /// Extract local archive members until completion or the next unresolved file collision.
@@ -1984,10 +2397,33 @@ pub fn extract_local_archive_with_checkpoint_and_progress(
     drive_root: &Path,
     archive_path: &Path,
     destination_path: &Path,
+    checkpoint: LocalArchiveExtractionCheckpoint,
+    is_cancelled: impl Fn() -> bool,
+    on_progress: impl FnMut(LocalArchiveExtractionResult),
+) -> Result<LocalArchiveExtractionRunResult, LocalArchiveError> {
+    extract_local_archive_with_checkpoint_and_progress_with_open(
+        drive_root,
+        archive_path,
+        destination_path,
+        checkpoint,
+        is_cancelled,
+        on_progress,
+        open_local_extraction_file,
+    )
+}
+
+fn extract_local_archive_with_checkpoint_and_progress_with_open<OpenTarget>(
+    drive_root: &Path,
+    archive_path: &Path,
+    destination_path: &Path,
     mut checkpoint: LocalArchiveExtractionCheckpoint,
     is_cancelled: impl Fn() -> bool,
     mut on_progress: impl FnMut(LocalArchiveExtractionResult),
-) -> Result<LocalArchiveExtractionRunResult, LocalArchiveError> {
+    mut open_target: OpenTarget,
+) -> Result<LocalArchiveExtractionRunResult, LocalArchiveError>
+where
+    OpenTarget: FnMut(&Path, &Path) -> Result<FsFile, LocalArchiveError>,
+{
     if is_cancelled() {
         return Err(LocalArchiveError::Cancelled);
     }
@@ -1997,15 +2433,19 @@ pub fn extract_local_archive_with_checkpoint_and_progress(
         Some(_) => {}
         None => checkpoint.source_identity = Some(source_identity),
     }
-    let entries = read_local_archive_entries(archive_path)?;
-    if entries.iter().any(|entry| !entry.is_safe) {
+    let raw_entries = read_local_archive_entries(archive_path)?;
+    let projection = effective_local_archive_entries(&raw_entries);
+    if projection.has_unsafe_raw_entry {
         return Err(LocalArchiveError::UnsafeEntryPath);
     }
-    if entries.iter().any(|entry| !entry.has_supported_file_type) {
+    if projection.has_unsupported_special_raw_entry {
         return Err(LocalArchiveError::UnsupportedArchiveMember);
     }
-    validate_extraction_output_paths(&entries)?;
-    validate_checkpointed_extraction_output_paths(&entries, &checkpoint)?;
+    validate_extraction_output_paths(&projection.entries, &projection.directories)?;
+    validate_checkpointed_extraction_output_paths(&projection.entries, &projection.directories, &checkpoint)?;
+    let directory_sources = effective_directory_sources(&projection.directories, &checkpoint);
+    let entries = projection.entries;
+    let directories = projection.directories;
     let discovered_manifest = ArchiveExtractionManifest::from_entries(
         entries
             .iter()
@@ -2036,31 +2476,61 @@ pub fn extract_local_archive_with_checkpoint_and_progress(
         }
         on_progress(checkpoint.result());
 
-        for entry in entries {
+        for directory in directories {
+            if is_cancelled() {
+                return Err(LocalArchiveError::Cancelled);
+            }
+            if directory.explicit_entry.is_none() {
+                continue;
+            }
+            if checkpoint.is_completed(&directory.path) {
+                continue;
+            }
+            let target_path = checkpoint.target_path(&directory.path);
+            let renamed = target_path != directory.path;
+            if let Some(collision) =
+                extraction_directory_collision(destination_path, &directory.path, true, &checkpoint, &directory_sources)?
+            {
+                on_progress(checkpoint.result());
+                return Ok(LocalArchiveExtractionRunResult::AwaitingCollision { checkpoint, collision });
+            }
+            let directories_created = match ensure_extraction_directory(drive_root, destination_path, &destination_path.join(&target_path))?
+            {
+                LocalArchiveDirectoryOutput::Ready { directories_created } => directories_created,
+                LocalArchiveDirectoryOutput::AwaitCollision { path, .. } => {
+                    let collision_target_path = local_extraction_relative_target_path(destination_path, &path)?;
+                    let collision_member_path = directory_sources
+                        .get(&collision_target_path)
+                        .cloned()
+                        .unwrap_or_else(|| directory.path.clone());
+                    on_progress(checkpoint.result());
+                    return Ok(LocalArchiveExtractionRunResult::AwaitingCollision {
+                        checkpoint,
+                        collision: LocalArchiveExtractionCollision {
+                            member_path: collision_member_path,
+                            target_path: collision_target_path,
+                            is_directory: true,
+                        },
+                    });
+                }
+            };
+            checkpoint.record_destination_result(LocalArchiveExtractionDestinationResult {
+                renamed,
+                member_path: directory.path,
+                status: LocalArchiveExtractionDestinationStatus::Directory,
+                target_path,
+                extracted_bytes: 0,
+                directories_created,
+                replaced: false,
+            })?;
+            on_progress(checkpoint.result());
+        }
+
+        for entry in entries.into_iter().filter(|entry| !entry.is_directory) {
             if is_cancelled() {
                 return Err(LocalArchiveError::Cancelled);
             }
             if checkpoint.is_completed(&entry.path) {
-                continue;
-            }
-            if entry.is_directory {
-                let target_path = checkpoint.target_path(&entry.path);
-                let renamed = target_path != entry.path;
-                if let Some(collision) = extraction_directory_collision(destination_path, &entry.path, true, &checkpoint)? {
-                    on_progress(checkpoint.result());
-                    return Ok(LocalArchiveExtractionRunResult::AwaitingCollision { checkpoint, collision });
-                }
-                let directories_created = ensure_extraction_directory(drive_root, destination_path, &destination_path.join(&target_path))?;
-                checkpoint.record_destination_result(LocalArchiveExtractionDestinationResult {
-                    renamed,
-                    member_path: entry.path,
-                    status: LocalArchiveExtractionDestinationStatus::Directory,
-                    target_path,
-                    extracted_bytes: 0,
-                    directories_created,
-                    replaced: false,
-                })?;
-                on_progress(checkpoint.result());
                 continue;
             }
             if entry.encrypted || !matches!(entry.compression_method, 0 | 8 | 12) {
@@ -2081,32 +2551,95 @@ pub fn extract_local_archive_with_checkpoint_and_progress(
 
             let target_path = checkpoint.target_path(&entry.path);
             let output_path = destination_path.join(&target_path);
-            let parent = output_path.parent().ok_or(LocalArchiveError::TargetOutsideRoot)?;
-            if let Some(collision) = extraction_directory_collision(destination_path, &entry.path, false, &checkpoint)? {
+            if let Some(collision) = extraction_directory_collision(destination_path, &entry.path, false, &checkpoint, &directory_sources)?
+            {
                 on_progress(checkpoint.result());
                 return Ok(LocalArchiveExtractionRunResult::AwaitingCollision { checkpoint, collision });
             }
-            let parent_directories_created = ensure_extraction_directory(drive_root, destination_path, parent)?;
-            let reopen_partial = checkpoint.has_partial_member(&entry.path)
-                && fs::symlink_metadata(&output_path)
-                    .map(|metadata| metadata.file_type().is_file())
-                    .unwrap_or(false);
-            let mut replaced = false;
-            if output_path.exists() && !reopen_partial {
-                match checkpoint.collision_action(&entry.path) {
-                    None => {
-                        let target_path = checkpoint.target_path(&entry.path);
+            let reopen_partial = if checkpoint.has_partial_member(&entry.path) {
+                match fs::symlink_metadata(&output_path) {
+                    Ok(metadata) => metadata.file_type().is_file(),
+                    Err(error) if error.kind() == std::io::ErrorKind::NotFound => false,
+                    Err(error) => {
+                        on_progress(checkpoint.result());
+                        return Ok(LocalArchiveExtractionRunResult::AwaitingMemberError {
+                            checkpoint,
+                            error: LocalArchiveExtractionMemberError {
+                                member_path: entry.path,
+                                target_path,
+                                message: error.to_string(),
+                                partial_output: false,
+                            },
+                        });
+                    }
+                }
+            } else {
+                false
+            };
+            let renamed = target_path != entry.path;
+            let (mut output, parent_directories_created, replaced) = if reopen_partial {
+                let parent = output_path.parent().ok_or(LocalArchiveError::TargetOutsideRoot)?;
+                let directories_created = match ensure_extraction_directory(drive_root, destination_path, parent)? {
+                    LocalArchiveDirectoryOutput::Ready { directories_created } => directories_created,
+                    LocalArchiveDirectoryOutput::AwaitCollision { path, .. } => {
+                        let collision_target_path = local_extraction_relative_target_path(destination_path, &path)?;
+                        let collision_member_path = directory_sources
+                            .get(&collision_target_path)
+                            .cloned()
+                            .unwrap_or_else(|| entry.path.clone());
                         on_progress(checkpoint.result());
                         return Ok(LocalArchiveExtractionRunResult::AwaitingCollision {
                             checkpoint,
                             collision: LocalArchiveExtractionCollision {
-                                member_path: entry.path.clone(),
-                                target_path,
-                                is_directory: false,
+                                member_path: collision_member_path,
+                                target_path: collision_target_path,
+                                is_directory: true,
                             },
                         });
                     }
-                    Some(LocalArchiveExtractionCollisionAction::Skip) => {
+                };
+                match reopen_partial_local_extraction_file(drive_root, &output_path) {
+                    Ok(file) => (file, directories_created, false),
+                    Err(error) => {
+                        on_progress(checkpoint.result());
+                        return Ok(LocalArchiveExtractionRunResult::AwaitingMemberError {
+                            checkpoint,
+                            error: LocalArchiveExtractionMemberError {
+                                member_path: entry.path,
+                                target_path,
+                                message: error.to_string(),
+                                partial_output: false,
+                            },
+                        });
+                    }
+                }
+            } else {
+                match prepare_local_archive_target_output_with_open(
+                    drive_root,
+                    destination_path,
+                    &output_path,
+                    local_archive_target_write_policy_from_local_action(checkpoint.collision_action(&entry.path)),
+                    entry.modified_at,
+                    &mut open_target,
+                ) {
+                    Err(error) => {
+                        on_progress(checkpoint.result());
+                        return Ok(LocalArchiveExtractionRunResult::AwaitingMemberError {
+                            checkpoint,
+                            error: LocalArchiveExtractionMemberError {
+                                member_path: entry.path,
+                                target_path,
+                                message: error.to_string(),
+                                partial_output: false,
+                            },
+                        });
+                    }
+                    Ok(LocalArchiveTargetOutput::Ready {
+                        file,
+                        replaced,
+                        directories_created,
+                    }) => (file, directories_created, replaced),
+                    Ok(LocalArchiveTargetOutput::Skip) => {
                         checkpoint.record_destination_result(LocalArchiveExtractionDestinationResult {
                             member_path: entry.path,
                             status: LocalArchiveExtractionDestinationStatus::Skipped,
@@ -2114,56 +2647,36 @@ pub fn extract_local_archive_with_checkpoint_and_progress(
                             extracted_bytes: 0,
                             directories_created: 0,
                             replaced: false,
-                            renamed: false,
+                            renamed,
                         })?;
                         on_progress(checkpoint.result());
                         continue;
                     }
-                    Some(LocalArchiveExtractionCollisionAction::ReplaceOlder) => {
-                        let source_is_newer = entry.modified_at.is_some_and(|source| {
-                            fs::metadata(&output_path)
-                                .ok()
-                                .and_then(|metadata| metadata.modified().ok())
-                                .map(DateTime::<Utc>::from)
-                                .is_some_and(|target| source > target)
-                        });
-                        if !source_is_newer {
-                            checkpoint.record_destination_result(LocalArchiveExtractionDestinationResult {
+                    Ok(LocalArchiveTargetOutput::AwaitCollision { .. }) => {
+                        on_progress(checkpoint.result());
+                        return Ok(LocalArchiveExtractionRunResult::AwaitingCollision {
+                            checkpoint,
+                            collision: LocalArchiveExtractionCollision {
                                 member_path: entry.path,
-                                status: LocalArchiveExtractionDestinationStatus::Skipped,
                                 target_path,
-                                extracted_bytes: 0,
-                                directories_created: 0,
-                                replaced: false,
-                                renamed: false,
-                            })?;
-                            on_progress(checkpoint.result());
-                            continue;
-                        }
-                        revalidate_target_parent(drive_root, &output_path)?;
-                        if !fs::symlink_metadata(&output_path)?.file_type().is_file() {
-                            return Err(LocalArchiveError::UnsupportedSource);
-                        }
-                        fs::remove_file(&output_path)?;
-                        replaced = true;
-                    }
-                    Some(LocalArchiveExtractionCollisionAction::Replace) => {
-                        revalidate_target_parent(drive_root, &output_path)?;
-                        if !fs::symlink_metadata(&output_path)?.file_type().is_file() {
-                            return Err(LocalArchiveError::UnsupportedSource);
-                        }
-                        fs::remove_file(&output_path)?;
-                        replaced = true;
+                                is_directory: false,
+                            },
+                        });
                     }
                 }
-            }
+            };
+            let mut accepted_bytes = 0_u64;
             let member_result = (|| {
-                let mut output = if reopen_partial {
-                    reopen_partial_local_extraction_file(drive_root, &output_path)?
-                } else {
-                    open_local_extraction_file(drive_root, &output_path)?
+                let stream_result = {
+                    let mut counted_output = AcceptedByteWriter {
+                        writer: &mut output,
+                        accepted_bytes: 0,
+                    };
+                    let result = stream_local_archive_entry(archive_path, &entry, &mut counted_output);
+                    accepted_bytes = counted_output.accepted_bytes;
+                    result
                 };
-                stream_local_archive_entry(archive_path, &entry, &mut output)?;
+                stream_result?;
                 output.flush()?;
                 if let Some(modified_at) = entry.modified_at {
                     output.set_modified(modified_at.into())?;
@@ -2174,9 +2687,7 @@ pub fn extract_local_archive_with_checkpoint_and_progress(
                 if matches!(error, LocalArchiveError::Cancelled) {
                     return Err(LocalArchiveError::Cancelled);
                 }
-                let partial_output = fs::symlink_metadata(&output_path)
-                    .map(|metadata| metadata.file_type().is_file())
-                    .unwrap_or(false);
+                let partial_output = accepted_bytes > 0;
                 if partial_output {
                     checkpoint.record_partial_member(entry.path.clone(), parent_directories_created);
                 }
@@ -2215,28 +2726,27 @@ pub fn extract_local_archive_with_checkpoint_and_progress(
     })
 }
 
-fn validate_extraction_output_paths(entries: &[LocalArchiveReadEntry]) -> Result<(), LocalArchiveError> {
+fn validate_extraction_output_paths(
+    entries: &[LocalArchiveReadEntry],
+    directories: &[EffectiveLocalArchiveDirectory],
+) -> Result<(), LocalArchiveError> {
     let mut file_paths = HashSet::new();
+    let mut file_path_keys = HashSet::new();
     let mut directory_paths = HashSet::new();
     for entry in entries {
-        let parts = entry.path.split('/').collect::<Vec<_>>();
-        let directory_count = if entry.is_directory {
-            parts.len()
-        } else {
-            parts.len().saturating_sub(1)
-        };
-        for index in 1..=directory_count {
-            directory_paths.insert(collision_key(&parts[..index].join("/")));
-        }
         if !entry.is_directory
             && !entry.encrypted
             && matches!(entry.compression_method, 0 | 8 | 12)
-            && !file_paths.insert(collision_key(&entry.path))
+            && !file_paths.insert(entry.path.clone())
         {
             return Err(LocalArchiveError::DuplicateEntryPath);
         }
+        if !entry.is_directory {
+            file_path_keys.insert(collision_key(&entry.path));
+        }
     }
-    if !file_paths.is_disjoint(&directory_paths) {
+    directory_paths.extend(directories.iter().map(|directory| collision_key(&directory.path)));
+    if !file_path_keys.is_disjoint(&directory_paths) {
         return Err(LocalArchiveError::DuplicateEntryPath);
     }
     Ok(())
@@ -2249,16 +2759,15 @@ pub fn validate_local_extraction_rename_target(
     member_path: &str,
     target_path: &str,
     is_directory: bool,
+    collision_target_path: Option<&str>,
 ) -> Result<(), LocalArchiveError> {
     let normalized_target = normalized_archive_path(target_path, is_directory)?;
     let target_path = normalized_target.trim_end_matches('/');
     let member_path = member_path.trim_end_matches('/');
-    if collision_key(member_path) == collision_key(target_path) {
-        return Err(LocalArchiveError::DuplicateEntryPath);
-    }
-    let entries = read_local_archive_entries(archive_path)?;
+    let projection = effective_local_archive_entries(&read_local_archive_entries(archive_path)?);
+    let entries = projection.entries;
     let is_known_member = if is_directory {
-        archive_directory_paths(&entries).contains(member_path)
+        projection.directories.iter().any(|directory| directory.path == member_path)
     } else {
         entries.iter().any(|entry| entry.path == member_path && !entry.is_directory)
     };
@@ -2266,55 +2775,62 @@ pub fn validate_local_extraction_rename_target(
         return Err(LocalArchiveError::UnsupportedSource);
     }
     let mut candidate = checkpoint.clone();
-    candidate.rename_member(member_path.to_string(), target_path.to_string());
-    validate_checkpointed_extraction_output_paths(&entries, &candidate)
-}
-
-fn archive_directory_paths(entries: &[LocalArchiveReadEntry]) -> HashSet<String> {
-    let mut directories = HashSet::new();
-    for entry in entries {
-        if entry.is_directory {
-            directories.insert(entry.path.trim_end_matches('/').to_string());
-        }
-        let parts = entry.path.trim_end_matches('/').split('/').collect::<Vec<_>>();
-        let directory_count = if entry.is_directory {
-            parts.len()
+    if is_directory {
+        if let Some(collision_target_path) = collision_target_path {
+            candidate.rename_directory_member(member_path.to_string(), target_path.to_string(), collision_target_path);
         } else {
-            parts.len().saturating_sub(1)
-        };
-        for index in 1..=directory_count {
-            directories.insert(parts[..index].join("/"));
+            candidate.rename_member(member_path.to_string(), target_path.to_string());
         }
+    } else {
+        candidate.rename_member(member_path.to_string(), target_path.to_string());
     }
-    directories
+    validate_checkpointed_extraction_output_paths(&entries, &projection.directories, &candidate)
 }
 
 fn validate_checkpointed_extraction_output_paths(
     entries: &[LocalArchiveReadEntry],
+    directories: &[EffectiveLocalArchiveDirectory],
     checkpoint: &LocalArchiveExtractionCheckpoint,
 ) -> Result<(), LocalArchiveError> {
     let mut file_paths = HashSet::new();
+    let mut file_path_keys = HashSet::new();
+    let mut portable_file_groups: HashMap<String, Vec<(String, String)>> = HashMap::new();
+    let mut portable_directory_groups: HashMap<String, Vec<(String, String)>> = HashMap::new();
     let mut directory_paths = HashSet::new();
     for entry in entries {
         let target_path = checkpoint.target_path(&entry.path);
-        let parts = target_path.split('/').collect::<Vec<_>>();
-        let directory_count = if entry.is_directory {
-            parts.len()
-        } else {
-            parts.len().saturating_sub(1)
-        };
-        for index in 1..=directory_count {
-            directory_paths.insert(collision_key(&parts[..index].join("/")));
-        }
         if !entry.is_directory
             && !entry.encrypted
             && matches!(entry.compression_method, 0 | 8 | 12)
-            && !file_paths.insert(collision_key(&target_path))
+            && !file_paths.insert(target_path.clone())
         {
             return Err(LocalArchiveError::DuplicateEntryPath);
         }
+        if !entry.is_directory {
+            let path_key = collision_key(&target_path);
+            file_path_keys.insert(path_key.clone());
+            portable_file_groups
+                .entry(path_key)
+                .or_default()
+                .push((entry.path.clone(), target_path));
+        }
     }
-    if !file_paths.is_disjoint(&directory_paths) {
+    for directory in directories {
+        let target_path = checkpoint.target_path(&directory.path);
+        directory_paths.insert(collision_key(&target_path));
+        portable_directory_groups
+            .entry(collision_key(&target_path))
+            .or_default()
+            .push((directory.path.clone(), target_path));
+    }
+    if !file_path_keys.is_disjoint(&directory_paths)
+        || portable_file_groups
+            .values()
+            .any(|group| group.len() > 1 && group.iter().any(|(source, target)| source != target))
+        || portable_directory_groups
+            .values()
+            .any(|group| group.len() > 1 && group.iter().any(|(source, target)| source != target))
+    {
         return Err(LocalArchiveError::DuplicateEntryPath);
     }
     Ok(())
@@ -2325,6 +2841,7 @@ fn extraction_directory_collision(
     member_path: &str,
     is_directory: bool,
     checkpoint: &LocalArchiveExtractionCheckpoint,
+    directory_sources: &HashMap<String, String>,
 ) -> Result<Option<LocalArchiveExtractionCollision>, LocalArchiveError> {
     let parts = member_path.trim_end_matches('/').split('/').collect::<Vec<_>>();
     let directory_count = if is_directory { parts.len() } else { parts.len().saturating_sub(1) };
@@ -2334,7 +2851,29 @@ fn extraction_directory_collision(
         match fs::symlink_metadata(destination_path.join(&target_path)) {
             Ok(metadata) if !metadata.file_type().is_dir() => {
                 return Ok(Some(LocalArchiveExtractionCollision {
-                    member_path: source_path,
+                    member_path: directory_sources.get(&target_path).cloned().unwrap_or(source_path),
+                    target_path,
+                    is_directory: true,
+                }));
+            }
+            Ok(_) => {}
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => {}
+            Err(error) => return Err(LocalArchiveError::Io(error)),
+        }
+    }
+    let target_member_path = checkpoint.target_path(member_path);
+    let target_parts = target_member_path.split('/').collect::<Vec<_>>();
+    let fallback_source_directory = (directory_count > 0).then(|| parts[..directory_count].join("/"));
+    for index in 1..target_parts.len() {
+        let target_path = target_parts[..index].join("/");
+        match fs::symlink_metadata(destination_path.join(&target_path)) {
+            Ok(metadata) if !metadata.file_type().is_dir() => {
+                return Ok(Some(LocalArchiveExtractionCollision {
+                    member_path: directory_sources
+                        .get(&target_path)
+                        .cloned()
+                        .or_else(|| fallback_source_directory.clone())
+                        .unwrap_or_else(|| member_path.to_string()),
                     target_path,
                     is_directory: true,
                 }));
@@ -2347,7 +2886,27 @@ fn extraction_directory_collision(
     Ok(None)
 }
 
-fn ensure_extraction_directory(drive_root: &Path, destination_path: &Path, directory_path: &Path) -> Result<u64, LocalArchiveError> {
+fn effective_directory_sources(
+    directories: &[EffectiveLocalArchiveDirectory],
+    checkpoint: &LocalArchiveExtractionCheckpoint,
+) -> HashMap<String, String> {
+    directories
+        .iter()
+        .map(|directory| (checkpoint.target_path(&directory.path), directory.path.clone()))
+        .collect()
+}
+
+fn local_extraction_relative_target_path(destination_path: &Path, path: &Path) -> Result<String, LocalArchiveError> {
+    path.strip_prefix(destination_path)
+        .map_err(|_| LocalArchiveError::TargetOutsideRoot)
+        .map(|relative_path| relative_path.to_string_lossy().replace('\\', "/"))
+}
+
+fn ensure_extraction_directory(
+    drive_root: &Path,
+    destination_path: &Path,
+    directory_path: &Path,
+) -> Result<LocalArchiveDirectoryOutput, LocalArchiveError> {
     let relative_path = directory_path
         .strip_prefix(destination_path)
         .map_err(|_| LocalArchiveError::TargetOutsideRoot)?;
@@ -2355,31 +2914,60 @@ fn ensure_extraction_directory(drive_root: &Path, destination_path: &Path, direc
     let mut current = destination_path.to_path_buf();
     for segment in relative_path.components() {
         current.push(segment);
-        if current.exists() {
-            if !current.is_dir() {
-                return Err(LocalArchiveError::UnsupportedSource);
+        for attempt in 0..=1 {
+            match fs::symlink_metadata(&current) {
+                Ok(metadata) if metadata.file_type().is_dir() => break,
+                Ok(metadata) => return Ok(LocalArchiveDirectoryOutput::AwaitCollision { path: current, metadata }),
+                Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
+                    revalidate_target_parent(drive_root, &current)?;
+                    match fs::create_dir(&current) {
+                        Ok(()) => {
+                            created += 1;
+                            break;
+                        }
+                        Err(error) if error.kind() == std::io::ErrorKind::AlreadyExists => match fs::symlink_metadata(&current) {
+                            Ok(metadata) if metadata.file_type().is_dir() => break,
+                            Ok(metadata) => return Ok(LocalArchiveDirectoryOutput::AwaitCollision { path: current, metadata }),
+                            Err(observe_error) if observe_error.kind() == std::io::ErrorKind::NotFound && attempt == 0 => {
+                                continue;
+                            }
+                            Err(_) => return Err(LocalArchiveError::Io(error)),
+                        },
+                        Err(error) => return Err(LocalArchiveError::Io(error)),
+                    }
+                }
+                Err(error) => return Err(LocalArchiveError::Io(error)),
             }
-            continue;
         }
-        revalidate_target_parent(drive_root, &current)?;
-        fs::create_dir(&current)?;
-        created += 1;
     }
-    Ok(created)
+    Ok(LocalArchiveDirectoryOutput::Ready {
+        directories_created: created,
+    })
 }
 
 /// Create an extraction root when absent, or validate an existing directory.
 pub fn create_local_extraction_root(drive_root: &Path, destination_path: &Path) -> Result<bool, LocalArchiveError> {
-    if destination_path.exists() {
-        return if destination_path.is_dir() {
-            Ok(false)
-        } else {
-            Err(LocalArchiveError::ExtractionTargetExists)
-        };
+    for attempt in 0..=1 {
+        match fs::symlink_metadata(destination_path) {
+            Ok(metadata) => {
+                return if metadata.file_type().is_dir() {
+                    Ok(false)
+                } else {
+                    Err(LocalArchiveError::ExtractionTargetExists)
+                };
+            }
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
+                revalidate_target_parent(drive_root, destination_path)?;
+                match fs::create_dir(destination_path) {
+                    Ok(()) => return Ok(true),
+                    Err(error) if error.kind() == std::io::ErrorKind::AlreadyExists && attempt == 0 => continue,
+                    Err(error) => return Err(LocalArchiveError::Io(error)),
+                }
+            }
+            Err(error) => return Err(LocalArchiveError::Io(error)),
+        }
     }
-    revalidate_target_parent(drive_root, destination_path)?;
-    fs::create_dir(destination_path)?;
-    Ok(true)
+    Err(LocalArchiveError::ExtractionTargetExists)
 }
 
 /// Create required local descendants under an already-owned extraction root.
@@ -2387,7 +2975,7 @@ pub fn ensure_local_extraction_directory(
     drive_root: &Path,
     destination_path: &Path,
     directory_path: &Path,
-) -> Result<u64, LocalArchiveError> {
+) -> Result<LocalArchiveDirectoryOutput, LocalArchiveError> {
     ensure_extraction_directory(drive_root, destination_path, directory_path)
 }
 
@@ -2399,6 +2987,119 @@ pub fn open_local_extraction_file(drive_root: &Path, destination_path: &Path) ->
         .create_new(true)
         .open(destination_path)
         .map_err(LocalArchiveError::Io)
+}
+
+fn local_archive_target_write_attempt<OpenTarget>(
+    open_target: &mut OpenTarget,
+    drive_root: &Path,
+    destination_path: &Path,
+) -> LocalArchiveTargetWriteAttempt
+where
+    OpenTarget: FnMut(&Path, &Path) -> Result<FsFile, LocalArchiveError>,
+{
+    match open_target(drive_root, destination_path) {
+        Ok(file) => LocalArchiveTargetWriteAttempt::Ready(file),
+        Err(LocalArchiveError::Io(error)) if error.kind() == std::io::ErrorKind::AlreadyExists => {
+            LocalArchiveTargetWriteAttempt::TargetExistsBeforeContent
+        }
+        Err(error) => LocalArchiveTargetWriteAttempt::Failure(error),
+    }
+}
+
+/// Resolve one local extraction target using exclusive creation and one bounded late-race retry.
+pub fn prepare_local_archive_target_output(
+    drive_root: &Path,
+    destination_root: &Path,
+    destination_path: &Path,
+    policy: LocalArchiveTargetWritePolicy,
+    source_modified_at: Option<DateTime<Utc>>,
+) -> Result<LocalArchiveTargetOutput, LocalArchiveError> {
+    prepare_local_archive_target_output_with_open(
+        drive_root,
+        destination_root,
+        destination_path,
+        policy,
+        source_modified_at,
+        open_local_extraction_file,
+    )
+}
+
+pub(crate) fn prepare_local_archive_target_output_with_open<OpenTarget>(
+    drive_root: &Path,
+    destination_root: &Path,
+    destination_path: &Path,
+    policy: LocalArchiveTargetWritePolicy,
+    source_modified_at: Option<DateTime<Utc>>,
+    mut open_target: OpenTarget,
+) -> Result<LocalArchiveTargetOutput, LocalArchiveError>
+where
+    OpenTarget: FnMut(&Path, &Path) -> Result<FsFile, LocalArchiveError>,
+{
+    let parent = destination_path.parent().ok_or(LocalArchiveError::TargetOutsideRoot)?;
+    let directories_created = match ensure_extraction_directory(drive_root, destination_root, parent)? {
+        LocalArchiveDirectoryOutput::Ready { directories_created } => directories_created,
+        LocalArchiveDirectoryOutput::AwaitCollision { metadata, .. } => {
+            return Ok(LocalArchiveTargetOutput::AwaitCollision { metadata: Some(metadata) });
+        }
+    };
+    let mut replaced = false;
+    for attempt in 0..=1 {
+        let target_metadata = match fs::symlink_metadata(destination_path) {
+            Ok(metadata) => Some(metadata),
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => None,
+            Err(error) => return Err(LocalArchiveError::Io(error)),
+        };
+        let disposition = resolve_local_archive_target_write(policy, source_modified_at, target_metadata.as_ref());
+        match disposition {
+            LocalArchiveTargetWriteDisposition::Skip => return Ok(LocalArchiveTargetOutput::Skip),
+            LocalArchiveTargetWriteDisposition::AwaitCollision => {
+                return Ok(LocalArchiveTargetOutput::AwaitCollision { metadata: target_metadata })
+            }
+            LocalArchiveTargetWriteDisposition::ReplaceExisting => {
+                let metadata = target_metadata.expect("replace requires an observed target");
+                if !metadata.file_type().is_file() {
+                    return Ok(LocalArchiveTargetOutput::AwaitCollision { metadata: Some(metadata) });
+                }
+                revalidate_target_parent(drive_root, destination_path)?;
+                match fs::remove_file(destination_path) {
+                    Ok(()) => replaced = true,
+                    Err(error) if error.kind() == std::io::ErrorKind::NotFound && attempt == 0 => continue,
+                    Err(error) => match fs::symlink_metadata(destination_path) {
+                        Ok(metadata) if !metadata.file_type().is_file() => {
+                            return Ok(LocalArchiveTargetOutput::AwaitCollision { metadata: Some(metadata) });
+                        }
+                        _ => return Err(LocalArchiveError::Io(error)),
+                    },
+                }
+            }
+            LocalArchiveTargetWriteDisposition::CreateNew => {}
+        }
+        match local_archive_target_write_attempt(&mut open_target, drive_root, destination_path) {
+            LocalArchiveTargetWriteAttempt::Ready(file) => {
+                return Ok(LocalArchiveTargetOutput::Ready {
+                    file,
+                    replaced,
+                    directories_created,
+                })
+            }
+            LocalArchiveTargetWriteAttempt::TargetExistsBeforeContent if attempt == 0 => {}
+            LocalArchiveTargetWriteAttempt::TargetExistsBeforeContent => {
+                let metadata = match fs::symlink_metadata(destination_path) {
+                    Ok(metadata) => Some(metadata),
+                    Err(observe_error) if observe_error.kind() == std::io::ErrorKind::NotFound => None,
+                    Err(observe_error) => return Err(LocalArchiveError::Io(observe_error)),
+                };
+                return Ok(LocalArchiveTargetOutput::AwaitCollision { metadata });
+            }
+            LocalArchiveTargetWriteAttempt::Failure(error) => return Err(error),
+        }
+    }
+    let metadata = match fs::symlink_metadata(destination_path) {
+        Ok(metadata) => Some(metadata),
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => None,
+        Err(error) => return Err(LocalArchiveError::Io(error)),
+    };
+    Ok(LocalArchiveTargetOutput::AwaitCollision { metadata })
 }
 
 /// Reopen the known partial target of a failed member without broad overwrite permission.
@@ -2704,7 +3405,13 @@ pub fn write_local_archive_stream_with_execution_plan<W: Write>(
 ) -> Result<(LocalArchiveCreationResult, ArchiveCreationManifestState), LocalArchiveError> {
     validate_local_archive_manifest_entries(entries, &execution_plan.manifest)?;
     (|| {
-        let mut writer = ZipWriter::new_stream(output);
+        let started_at = Instant::now();
+        let metrics = ArchiveWriteMetrics::default();
+        let output = MeasuredWriter {
+            inner: output,
+            metrics: metrics.clone(),
+        };
+        let mut writer = ZipWriter::new_stream(BufWriter::with_capacity(ARCHIVE_WRITE_BUFFER_SIZE, output));
         let mut state = execution_plan.into_state();
         let manifest_entries = state.manifest.entries.clone();
         let mut buffer = vec![0; ARCHIVE_COPY_BUFFER_SIZE];
@@ -2759,6 +3466,13 @@ pub fn write_local_archive_stream_with_execution_plan<W: Write>(
         let mut output = writer.finish()?;
         output.flush()?;
         let result = state.terminal_summary()?;
+        info!(
+            "archive_metrics operation=archive_creation duration_ms={} entry_count={} physical_write_bytes={} physical_write_operations={}",
+            started_at.elapsed().as_millis(),
+            manifest_entries.len(),
+            metrics.bytes.load(Ordering::Relaxed),
+            metrics.operations.load(Ordering::Relaxed),
+        );
         Ok((result, state))
     })()
 }
@@ -2836,10 +3550,17 @@ pub fn create_local_archive_relay_writer(
     }
     revalidate_target_parent(drive_root, target_path)?;
     let output = OpenOptions::new().write(true).create_new(true).open(target_path)?;
+    let metrics = ArchiveWriteMetrics::default();
+    let output = MeasuredWriter {
+        inner: output,
+        metrics: metrics.clone(),
+    };
     Ok(LocalArchiveRelayWriter {
-        writer: ZipWriter::new_stream(output),
+        writer: ZipWriter::new_stream(BufWriter::with_capacity(ARCHIVE_WRITE_BUFFER_SIZE, output)),
         manifest,
         next_manifest_index: 0,
+        metrics,
+        started_at: Instant::now(),
     })
 }
 
@@ -2938,6 +3659,13 @@ impl LocalArchiveRelayWriter {
         (|| {
             let mut output = self.writer.finish()?;
             output.flush()?;
+            info!(
+                "archive_metrics operation=archive_creation_relay duration_ms={} entry_count={} physical_write_bytes={} physical_write_operations={}",
+                self.started_at.elapsed().as_millis(),
+                self.manifest.entries.len(),
+                self.metrics.bytes.load(Ordering::Relaxed),
+                self.metrics.operations.load(Ordering::Relaxed),
+            );
             Ok(())
         })()
         .map_err(|error| LocalArchiveError::PartialArchiveOutput(Box::new(error)))
@@ -2959,6 +3687,8 @@ mod tests {
     use std::cell::Cell;
     use std::fs;
     use std::io::{Read, Seek, SeekFrom, Write};
+    use std::rc::Rc;
+    use std::time::SystemTime;
 
     use serde::Deserialize;
     use sha2::{Digest, Sha256};
@@ -2993,6 +3723,22 @@ mod tests {
         member_sha256: Option<String>,
     }
 
+    #[derive(Default)]
+    struct CountingWrite {
+        write_calls: Rc<Cell<usize>>,
+    }
+
+    impl Write for CountingWrite {
+        fn write(&mut self, buffer: &[u8]) -> std::io::Result<usize> {
+            self.write_calls.set(self.write_calls.get() + 1);
+            Ok(buffer.len())
+        }
+
+        fn flush(&mut self) -> std::io::Result<()> {
+            Ok(())
+        }
+    }
+
     #[derive(Deserialize)]
     struct ExtractionOutcomeConformanceCorpus {
         version: u8,
@@ -3001,6 +3747,44 @@ mod tests {
         #[serde(default)]
         manifest_scenarios: Vec<ExtractionManifestConformanceScenario>,
         scenarios: Vec<ExtractionOutcomeConformanceScenario>,
+    }
+
+    #[derive(Deserialize)]
+    struct TargetWriteConformanceCorpus {
+        version: u8,
+        scenarios: Vec<TargetWriteConformanceScenario>,
+        attempt_scenarios: Vec<TargetWriteAttemptConformanceScenario>,
+    }
+
+    #[derive(Deserialize)]
+    struct TargetWriteConformanceScenario {
+        name: String,
+        phase: Option<String>,
+        attempt_ordinal: Option<u8>,
+        policy: String,
+        source_modified_at: Option<String>,
+        target: String,
+        target_modified_at: Option<String>,
+        expected: String,
+    }
+
+    #[derive(Deserialize)]
+    struct TargetWriteAttemptConformanceScenario {
+        name: String,
+        policy: String,
+        source_modified_at: Option<String>,
+        steps: Vec<TargetWriteAttemptConformanceStep>,
+        expected: String,
+        expected_attempts: u8,
+        expected_stream_polls: u8,
+    }
+
+    #[derive(Clone, Deserialize)]
+    struct TargetWriteAttemptConformanceStep {
+        kind: String,
+        target: Option<String>,
+        result: Option<String>,
+        target_modified_at: Option<String>,
     }
 
     #[derive(Deserialize)]
@@ -3763,6 +4547,40 @@ mod tests {
     }
 
     #[test]
+    fn materializes_explicit_directories_in_effective_depth_and_path_order() {
+        let directory = tempdir().unwrap();
+        let archive_path = directory.path().join("directories.zip");
+        let output = OpenOptions::new().write(true).create_new(true).open(&archive_path).unwrap();
+        let mut writer = ZipWriter::new_stream(output);
+        let options = SimpleFileOptions::default().compression_method(CompressionMethod::Stored);
+        writer.add_directory("z/", options).unwrap();
+        writer.add_directory("a/child/", options).unwrap();
+        writer.add_directory("a/", options).unwrap();
+        writer.finish().unwrap();
+        let destination = directory.path().join("output");
+        fs::create_dir(&destination).unwrap();
+        fs::write(destination.join("z"), b"existing file").unwrap();
+
+        let result = extract_local_archive_with_checkpoint_and_progress(
+            directory.path(),
+            &archive_path,
+            &destination,
+            LocalArchiveExtractionCheckpoint::default(),
+            || false,
+            |_| {},
+        )
+        .unwrap();
+
+        let LocalArchiveExtractionRunResult::AwaitingCollision { collision, .. } = result else {
+            panic!("expected a collision for z");
+        };
+        assert_eq!(collision.member_path, "z");
+        assert_eq!(collision.target_path, "z");
+        assert!(destination.join("a").is_dir());
+        assert!(!destination.join("a/child").exists());
+    }
+
+    #[test]
     fn records_each_local_destination_result_only_once() {
         let mut checkpoint = LocalArchiveExtractionCheckpoint::default();
         let result = LocalArchiveExtractionDestinationResult {
@@ -3897,6 +4715,375 @@ mod tests {
                 assert_eq!(entry.uncompressed_size, expected.uncompressed_size, "{}", scenario.name);
             }
         }
+    }
+
+    #[test]
+    fn passes_v2_target_write_resolution_scenarios() {
+        let corpus_path = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+            .join("../..")
+            .join("archive-contract/v2/fixtures/target-write-resolution-scenarios-v2.json");
+        let corpus: TargetWriteConformanceCorpus =
+            serde_json::from_slice(&fs::read(corpus_path).expect("target-write corpus should be readable"))
+                .expect("target-write corpus should be valid JSON");
+        assert_eq!(corpus.version, 2);
+
+        for scenario in corpus.scenarios {
+            match (&scenario.phase, scenario.attempt_ordinal) {
+                (None, None) => {}
+                (Some(phase), Some(attempt_ordinal)) => {
+                    assert_eq!(phase, "after_create_race", "{}", scenario.name);
+                    assert!((1..=2).contains(&attempt_ordinal), "{}", scenario.name);
+                }
+                _ => panic!("{} has incomplete late-race metadata", scenario.name),
+            }
+            let parse_timestamp = |value: Option<String>| {
+                value.map(|timestamp| {
+                    DateTime::parse_from_rfc3339(&timestamp)
+                        .expect("fixture timestamps must be RFC 3339")
+                        .with_timezone(&Utc)
+                })
+            };
+            let target = match scenario.target.as_str() {
+                "missing" => LocalArchiveTargetSnapshot::Missing,
+                "regular_file" => LocalArchiveTargetSnapshot::RegularFile {
+                    modified_at: parse_timestamp(scenario.target_modified_at),
+                },
+                "other" => LocalArchiveTargetSnapshot::Other,
+                _ => panic!("unknown target fixture kind: {}", scenario.target),
+            };
+            let policy = match scenario.policy.as_str() {
+                "ask" => LocalArchiveTargetWritePolicy::Ask,
+                "skip" => LocalArchiveTargetWritePolicy::Skip,
+                "replace" => LocalArchiveTargetWritePolicy::Replace,
+                "replace_older" => LocalArchiveTargetWritePolicy::ReplaceOlder,
+                _ => panic!("unknown target-write fixture policy: {}", scenario.policy),
+            };
+            let expected = match scenario.expected.as_str() {
+                "create_new" => LocalArchiveTargetWriteDisposition::CreateNew,
+                "replace_existing" => LocalArchiveTargetWriteDisposition::ReplaceExisting,
+                "skip" => LocalArchiveTargetWriteDisposition::Skip,
+                "await_collision" => LocalArchiveTargetWriteDisposition::AwaitCollision,
+                _ => panic!("unknown target-write fixture disposition: {}", scenario.expected),
+            };
+
+            assert_eq!(
+                resolve_local_archive_target_snapshot(policy, parse_timestamp(scenario.source_modified_at), target),
+                expected,
+                "{}",
+                scenario.name
+            );
+        }
+    }
+
+    #[test]
+    fn passes_v2_target_write_attempt_scenarios() {
+        let corpus_path = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+            .join("../..")
+            .join("archive-contract/v2/fixtures/target-write-resolution-scenarios-v2.json");
+        let corpus: TargetWriteConformanceCorpus =
+            serde_json::from_slice(&fs::read(corpus_path).expect("target-write corpus should be readable"))
+                .expect("target-write corpus should be valid JSON");
+
+        let parse_timestamp = |value: Option<String>| {
+            value.map(|timestamp| {
+                DateTime::parse_from_rfc3339(&timestamp)
+                    .expect("fixture timestamps must be RFC 3339")
+                    .with_timezone(&Utc)
+            })
+        };
+        for scenario in corpus.attempt_scenarios {
+            let policy = validated_local_archive_target_write_policy(Some(&scenario.policy)).expect("fixture policy must be valid");
+            let source_modified_at = parse_timestamp(scenario.source_modified_at);
+            assert_eq!(
+                scenario.steps.first().map(|step| step.kind.as_str()),
+                Some("observe"),
+                "{}",
+                scenario.name
+            );
+            assert_eq!(
+                scenario.steps.first().and_then(|step| step.target.as_deref()),
+                Some("missing"),
+                "{}",
+                scenario.name
+            );
+            let write_outcomes = scenario
+                .steps
+                .iter()
+                .enumerate()
+                .filter(|(_, step)| step.kind == "write")
+                .map(|(index, step)| {
+                    let observation = scenario.steps.get(index + 1).filter(|next| next.kind == "observe");
+                    (
+                        step.result.clone().expect("write step must specify a result"),
+                        observation.and_then(|next| next.target.clone()),
+                        observation.and_then(|next| next.target_modified_at.clone()),
+                    )
+                })
+                .collect::<Vec<_>>();
+            let temporary = tempdir().expect("temporary directory");
+            let root = temporary.path();
+            let target = root.join("entry.txt");
+            let mut write_attempts = 0_usize;
+
+            let output = prepare_local_archive_target_output_with_open(
+                root,
+                root,
+                &target,
+                policy,
+                source_modified_at,
+                |drive_root, destination_path| {
+                    let (result, next_target, next_modified_at) = write_outcomes
+                        .get(write_attempts)
+                        .expect("controller attempted more writes than the corpus permits");
+                    write_attempts += 1;
+                    if result == "ready" {
+                        return open_local_extraction_file(drive_root, destination_path);
+                    }
+                    assert_eq!(result, "target_exists_before_content", "{}", scenario.name);
+                    match next_target.as_deref() {
+                        None | Some("missing") => {}
+                        Some("regular_file") => {
+                            fs::write(destination_path, b"late target").expect("create late target");
+                            let modified_at =
+                                parse_timestamp(next_modified_at.clone()).expect("regular target observation must have a timestamp");
+                            fs::File::open(destination_path)
+                                .expect("open late target")
+                                .set_times(fs::FileTimes::new().set_modified(SystemTime::from(modified_at)))
+                                .expect("set late target timestamp");
+                        }
+                        Some("other") => fs::create_dir(destination_path).expect("create late directory target"),
+                        Some(target) => panic!("{} has invalid target kind {target}", scenario.name),
+                    }
+                    Err(LocalArchiveError::Io(std::io::Error::from(std::io::ErrorKind::AlreadyExists)))
+                },
+            )
+            .expect("corpus controller scenario should not fail");
+
+            let expected = match scenario.expected.as_str() {
+                "create_new" => matches!(output, LocalArchiveTargetOutput::Ready { replaced: false, .. }),
+                "replace_existing" => matches!(output, LocalArchiveTargetOutput::Ready { replaced: true, .. }),
+                "skip" => matches!(output, LocalArchiveTargetOutput::Skip),
+                "await_collision" => matches!(output, LocalArchiveTargetOutput::AwaitCollision { .. }),
+                _ => panic!("{} has an invalid expected disposition", scenario.name),
+            };
+            assert!(expected, "{}", scenario.name);
+            assert_eq!(write_attempts, usize::from(scenario.expected_attempts), "{}", scenario.name);
+            assert_eq!(
+                u8::from(matches!(output, LocalArchiveTargetOutput::Ready { .. })),
+                scenario.expected_stream_polls,
+                "{}",
+                scenario.name
+            );
+        }
+    }
+
+    #[test]
+    fn local_target_output_controller_applies_policy_without_broad_overwrite() {
+        let temporary = tempfile::tempdir().expect("temporary directory");
+        let root = temporary.path();
+        let target = root.join("output").join("entry.txt");
+        let source_modified_at = Utc::now();
+
+        let created =
+            prepare_local_archive_target_output(root, root, &target, LocalArchiveTargetWritePolicy::Ask, Some(source_modified_at))
+                .expect("missing target should create");
+        assert!(matches!(created, LocalArchiveTargetOutput::Ready { replaced: false, .. }));
+        drop(created);
+
+        let skipped =
+            prepare_local_archive_target_output(root, root, &target, LocalArchiveTargetWritePolicy::Skip, Some(source_modified_at))
+                .expect("skip policy should inspect target");
+        assert!(matches!(skipped, LocalArchiveTargetOutput::Skip));
+
+        let replaced = prepare_local_archive_target_output(
+            root,
+            root,
+            &target,
+            LocalArchiveTargetWritePolicy::Replace,
+            Some(source_modified_at),
+        )
+        .expect("replace policy should recreate regular target");
+        assert!(matches!(replaced, LocalArchiveTargetOutput::Ready { replaced: true, .. }));
+        drop(replaced);
+
+        fs::remove_file(&target).expect("remove file before directory collision");
+        fs::create_dir(&target).expect("create conflicting directory");
+        let collision = prepare_local_archive_target_output(
+            root,
+            root,
+            &target,
+            LocalArchiveTargetWritePolicy::Replace,
+            Some(source_modified_at),
+        )
+        .expect("non-file target should remain a collision");
+        assert!(matches!(collision, LocalArchiveTargetOutput::AwaitCollision { metadata: Some(_) }));
+    }
+
+    #[test]
+    fn local_target_output_controller_resolves_late_create_races() {
+        let temporary = tempfile::tempdir().expect("temporary directory");
+        let root = temporary.path();
+
+        let older_target = root.join("older.txt");
+        let mut older_opens = 0;
+        let older_result = prepare_local_archive_target_output_with_open(
+            root,
+            root,
+            &older_target,
+            LocalArchiveTargetWritePolicy::ReplaceOlder,
+            Some(Utc::now() + chrono::Duration::days(1)),
+            |drive_root, destination_path| {
+                older_opens += 1;
+                if older_opens == 1 {
+                    fs::write(destination_path, b"late target").expect("create late target");
+                }
+                open_local_extraction_file(drive_root, destination_path)
+            },
+        )
+        .expect("late older target should be replaced");
+        assert!(matches!(older_result, LocalArchiveTargetOutput::Ready { replaced: true, .. }));
+        assert_eq!(older_opens, 2);
+
+        let newer_target = root.join("newer.txt");
+        let mut newer_opens = 0;
+        let newer_result = prepare_local_archive_target_output_with_open(
+            root,
+            root,
+            &newer_target,
+            LocalArchiveTargetWritePolicy::ReplaceOlder,
+            Some(Utc::now() - chrono::Duration::days(1)),
+            |drive_root, destination_path| {
+                newer_opens += 1;
+                if newer_opens == 1 {
+                    fs::write(destination_path, b"late target").expect("create late target");
+                }
+                open_local_extraction_file(drive_root, destination_path)
+            },
+        )
+        .expect("late newer target should be skipped");
+        assert!(matches!(newer_result, LocalArchiveTargetOutput::Skip));
+        assert_eq!(newer_opens, 1);
+
+        let repeated_target = root.join("repeated.txt");
+        let mut repeated_opens = 0;
+        let repeated_result = prepare_local_archive_target_output_with_open(
+            root,
+            root,
+            &repeated_target,
+            LocalArchiveTargetWritePolicy::Replace,
+            None,
+            |drive_root, destination_path| {
+                repeated_opens += 1;
+                fs::write(destination_path, b"late target").expect("create late target");
+                open_local_extraction_file(drive_root, destination_path)
+            },
+        )
+        .expect("second late collision should pause");
+        assert!(matches!(
+            repeated_result,
+            LocalArchiveTargetOutput::AwaitCollision { metadata: Some(_) }
+        ));
+        assert_eq!(repeated_opens, 2);
+    }
+
+    #[test]
+    fn direct_local_extractor_runs_its_fixture_selected_late_target_race() {
+        let topology_fixture: serde_json::Value = serde_json::from_str(include_str!(
+            "../../../../archive-contract/v2/fixtures/topology-execution-traces-v2.json"
+        ))
+        .expect("topology trace fixture should be valid JSON");
+        let scenario_name = topology_fixture["target_write_attempt_cases"]
+            .as_array()
+            .expect("topology trace fixture should define target-write cases")
+            .iter()
+            .find(|case| case["topology"] == "local_to_local")
+            .and_then(|case| case["scenario"].as_str())
+            .expect("topology trace fixture should select a local target-write case");
+        let corpus: TargetWriteConformanceCorpus = serde_json::from_str(include_str!(
+            "../../../../archive-contract/v2/fixtures/target-write-resolution-scenarios-v2.json"
+        ))
+        .expect("target-write corpus should be valid JSON");
+        let scenario = corpus
+            .attempt_scenarios
+            .into_iter()
+            .find(|scenario| scenario.name == scenario_name)
+            .expect("topology target-write scenario must be defined");
+        assert_eq!(scenario.expected, "skip");
+
+        let source_modified_at =
+            DateTime::parse_from_rfc3339(scenario.source_modified_at.as_deref().expect("scenario must specify source mtime"))
+                .expect("scenario source timestamp must be valid")
+                .with_timezone(&Utc);
+        let target_modified_at = scenario
+            .steps
+            .iter()
+            .find(|step| step.target.as_deref() == Some("regular_file"))
+            .and_then(|step| step.target_modified_at.as_deref())
+            .map(|timestamp| {
+                DateTime::parse_from_rfc3339(timestamp)
+                    .expect("scenario target timestamp must be valid")
+                    .with_timezone(&Utc)
+            })
+            .expect("scenario must observe a late regular target");
+        let temporary = tempdir().expect("temporary directory");
+        let source = temporary.path().join("source.txt");
+        fs::write(&source, b"archive contents").expect("source should be written");
+        fs::File::open(&source)
+            .expect("source should open")
+            .set_times(fs::FileTimes::new().set_modified(SystemTime::from(source_modified_at)))
+            .expect("source timestamp should be set");
+        let archive_path = temporary.path().join("archive.zip");
+        let entries = build_local_archive_manifest(std::slice::from_ref(&source), &archive_path).expect("archive manifest should build");
+        create_local_archive(temporary.path(), &archive_path, &entries, || false).expect("archive should be created");
+        let destination = temporary.path().join("destination");
+        let mut checkpoint = LocalArchiveExtractionCheckpoint::default();
+        checkpoint.resolve_collision("source.txt".to_string(), LocalArchiveExtractionCollisionAction::ReplaceOlder);
+        let mut open_attempts = 0;
+
+        let result = extract_local_archive_with_checkpoint_and_progress_with_open(
+            temporary.path(),
+            &archive_path,
+            &destination,
+            checkpoint,
+            || false,
+            |_| {},
+            |drive_root, destination_path| {
+                open_attempts += 1;
+                if open_attempts == 1 {
+                    fs::write(destination_path, b"late target").expect("late target should be written");
+                    fs::File::open(destination_path)
+                        .expect("late target should open")
+                        .set_times(fs::FileTimes::new().set_modified(SystemTime::from(target_modified_at)))
+                        .expect("late target timestamp should be set");
+                }
+                open_local_extraction_file(drive_root, destination_path)
+            },
+        )
+        .expect("late newer target should not fail extraction");
+
+        let LocalArchiveExtractionRunResult::Completed(checkpoint) = result else {
+            panic!("late newer target should complete as skipped");
+        };
+        assert_eq!(checkpoint.result().files_skipped, 1);
+        assert_eq!(open_attempts, usize::from(scenario.expected_attempts));
+        assert_eq!(
+            fs::read(destination.join("source.txt")).expect("late target should remain"),
+            b"late target"
+        );
+    }
+
+    #[test]
+    fn local_directory_controller_reports_late_non_directory_blocker() {
+        let temporary = tempfile::tempdir().expect("temporary directory");
+        let root = temporary.path();
+        let destination = root.join("output");
+        fs::create_dir(&destination).expect("create destination");
+        fs::write(destination.join("blocked"), b"file").expect("create blocker");
+
+        let result = ensure_extraction_directory(root, &destination, &destination.join("blocked/child"))
+            .expect("directory observation should succeed");
+
+        assert!(matches!(result, LocalArchiveDirectoryOutput::AwaitCollision { .. }));
     }
 
     #[test]
@@ -4663,6 +5850,7 @@ mod tests {
                 "first.txt",
                 "SECOND.TXT",
                 false,
+                None,
             ),
             Err(LocalArchiveError::DuplicateEntryPath)
         ));
@@ -4774,6 +5962,7 @@ mod tests {
                 .expect("partial retry scenario must define a member path")
         );
         assert!(error.partial_output);
+
         assert!(destination.join("source.txt").is_file());
 
         let mut ignored_checkpoint = checkpoint.clone();
@@ -4806,6 +5995,297 @@ mod tests {
             Err(LocalArchiveError::ArchiveSourceChanged)
         ));
         assert_eq!(retry_scenario.member_error_action.as_deref(), Some("retry"));
+    }
+
+    #[test]
+    fn allows_renames_that_leave_case_distinct_members_untouched() {
+        let directory = tempdir().unwrap();
+        let archive_path = directory.path().join("case-distinct.zip");
+        let output = OpenOptions::new().write(true).create_new(true).open(&archive_path).unwrap();
+        let mut writer = ZipWriter::new_stream(output);
+        let options = SimpleFileOptions::default().compression_method(CompressionMethod::Stored);
+        writer.start_file("Report.txt", options).unwrap();
+        writer.write_all(b"upper").unwrap();
+        writer.start_file("report.txt", options).unwrap();
+        writer.write_all(b"lower").unwrap();
+        writer.start_file("other.txt", options).unwrap();
+        writer.write_all(b"other").unwrap();
+        writer.finish().unwrap();
+
+        let result = validate_local_extraction_rename_target(
+            &archive_path,
+            &LocalArchiveExtractionCheckpoint::default(),
+            "other.txt",
+            "renamed.txt",
+            false,
+            None,
+        );
+
+        assert!(result.is_ok());
+    }
+
+    #[test]
+    fn allows_a_case_only_rename_without_an_aliasing_member() {
+        let directory = tempdir().unwrap();
+        let archive_path = directory.path().join("case-only-rename.zip");
+        let output = OpenOptions::new().write(true).create_new(true).open(&archive_path).unwrap();
+        let mut writer = ZipWriter::new_stream(output);
+        writer
+            .start_file(
+                "Report.txt",
+                SimpleFileOptions::default().compression_method(CompressionMethod::Stored),
+            )
+            .unwrap();
+        writer.write_all(b"upper").unwrap();
+        writer.finish().unwrap();
+
+        assert!(validate_local_extraction_rename_target(
+            &archive_path,
+            &LocalArchiveExtractionCheckpoint::default(),
+            "Report.txt",
+            "REPORT.TXT",
+            false,
+            None,
+        )
+        .is_ok());
+    }
+
+    #[test]
+    fn renames_an_inferred_directory_collision_as_a_directory_subtree() {
+        let directory = tempdir().unwrap();
+        let archive_path = directory.path().join("inferred-directory.zip");
+        let output = OpenOptions::new().write(true).create_new(true).open(&archive_path).unwrap();
+        let mut writer = ZipWriter::new_stream(output);
+        let options = SimpleFileOptions::default().compression_method(CompressionMethod::Stored);
+        writer.start_file("docs/readme.txt", options).unwrap();
+        writer.write_all(b"readme").unwrap();
+        writer.finish().unwrap();
+        let destination = directory.path().join("output");
+        fs::create_dir(&destination).unwrap();
+        fs::write(destination.join("docs"), b"existing file").unwrap();
+
+        let (mut checkpoint, collision) = match extract_local_archive_with_checkpoint_and_progress(
+            directory.path(),
+            &archive_path,
+            &destination,
+            LocalArchiveExtractionCheckpoint::default(),
+            || false,
+            |_| {},
+        )
+        .unwrap()
+        {
+            LocalArchiveExtractionRunResult::AwaitingCollision { checkpoint, collision } => (checkpoint, collision),
+            _ => panic!("expected an inferred-directory collision pause"),
+        };
+        assert_eq!(collision.member_path, "docs");
+        assert_eq!(collision.target_path, "docs");
+        assert!(collision.is_directory);
+        checkpoint.rename_member(collision.member_path, "renamed-docs".to_string());
+
+        let resumed =
+            extract_local_archive_with_checkpoint_and_progress(directory.path(), &archive_path, &destination, checkpoint, || false, |_| {});
+        assert!(matches!(resumed, Ok(LocalArchiveExtractionRunResult::Completed(_))), "{resumed:?}");
+        assert_eq!(fs::read(destination.join("renamed-docs/readme.txt")).unwrap(), b"readme");
+    }
+
+    #[test]
+    fn renamed_file_parent_collision_resolves_as_its_logical_directory() {
+        let directory = tempdir().unwrap();
+        let archive_path = directory.path().join("renamed-file-parent.zip");
+        let output = OpenOptions::new().write(true).create_new(true).open(&archive_path).unwrap();
+        let mut writer = ZipWriter::new_stream(output);
+        let options = SimpleFileOptions::default().compression_method(CompressionMethod::Stored);
+        writer.start_file("docs/readme.txt", options).unwrap();
+        writer.write_all(b"readme").unwrap();
+        writer.finish().unwrap();
+        let destination = directory.path().join("output");
+        fs::create_dir(&destination).unwrap();
+        fs::write(destination.join("replacement"), b"existing file").unwrap();
+        let mut checkpoint = LocalArchiveExtractionCheckpoint::default();
+        checkpoint.rename_member("docs/readme.txt".to_string(), "replacement/custom.txt".to_string());
+
+        let (mut checkpoint, collision) = match extract_local_archive_with_checkpoint_and_progress(
+            directory.path(),
+            &archive_path,
+            &destination,
+            checkpoint,
+            || false,
+            |_| {},
+        )
+        .unwrap()
+        {
+            LocalArchiveExtractionRunResult::AwaitingCollision { checkpoint, collision } => (checkpoint, collision),
+            _ => panic!("expected a renamed parent collision pause"),
+        };
+        assert_eq!(collision.member_path, "docs");
+        assert_eq!(collision.target_path, "replacement");
+        assert!(collision.is_directory);
+        checkpoint.rename_directory_member(collision.member_path, "renamed-docs".to_string(), &collision.target_path);
+
+        let resumed =
+            extract_local_archive_with_checkpoint_and_progress(directory.path(), &archive_path, &destination, checkpoint, || false, |_| {});
+        assert!(matches!(resumed, Ok(LocalArchiveExtractionRunResult::Completed(_))), "{resumed:?}");
+        assert_eq!(fs::read(destination.join("renamed-docs/custom.txt")).unwrap(), b"readme");
+    }
+
+    #[test]
+    fn rejects_renamed_effective_directories_that_alias() {
+        let directory = tempdir().unwrap();
+        let archive_path = directory.path().join("directory-alias.zip");
+        let output = OpenOptions::new().write(true).create_new(true).open(&archive_path).unwrap();
+        let mut writer = ZipWriter::new_stream(output);
+        let options = SimpleFileOptions::default().compression_method(CompressionMethod::Stored);
+        writer.add_directory("first/", options).unwrap();
+        writer.add_directory("second/", options).unwrap();
+        writer.finish().unwrap();
+        let mut checkpoint = LocalArchiveExtractionCheckpoint::default();
+        checkpoint.rename_member("first".to_string(), "shared".to_string());
+
+        assert!(matches!(
+            validate_local_extraction_rename_target(&archive_path, &checkpoint, "second", "shared", true, None),
+            Err(LocalArchiveError::DuplicateEntryPath)
+        ));
+    }
+
+    #[test]
+    fn relay_directory_collisions_resolve_to_the_logical_directory_path() {
+        let manifest = ArchiveExtractionManifest::from_entries(vec![
+            ArchiveExtractionManifestMember {
+                path: "docs/deeper/item.txt".to_string(),
+                is_directory: false,
+                uncompressed_size: 4,
+                modified_at: None,
+            },
+            ArchiveExtractionManifestMember {
+                path: "docs/readme.txt".to_string(),
+                is_directory: false,
+                uncompressed_size: 6,
+                modified_at: None,
+            },
+        ])
+        .unwrap();
+        let checkpoint = serde_json::json!({
+            "version": 2,
+            "manifest": manifest.entries,
+            "source_snapshot": {"size": 1, "modified_at": null},
+            "member_outcomes": {},
+            "decisions": {"collision_actions": {}, "rename_targets": {}, "ignored_members": [], "retry_members": []},
+            "pending_decision": null,
+            "delivery_ids": {},
+        });
+        let plan = ArchiveExtractionRelayExecutionPlan::from_checkpoint_json(manifest, &checkpoint.to_string()).unwrap();
+
+        assert_eq!(
+            plan.source_directory_for_target_path("docs/readme.txt", false, "docs"),
+            Some("docs".to_string())
+        );
+    }
+
+    #[test]
+    fn relay_checkpoint_round_trip_preserves_case_distinct_members() {
+        let manifest = ArchiveExtractionManifest::from_entries(vec![
+            ArchiveExtractionManifestMember {
+                path: "Report.txt".to_string(),
+                is_directory: false,
+                uncompressed_size: 5,
+                modified_at: None,
+            },
+            ArchiveExtractionManifestMember {
+                path: "report.txt".to_string(),
+                is_directory: false,
+                uncompressed_size: 6,
+                modified_at: None,
+            },
+        ])
+        .unwrap();
+        let checkpoint = serde_json::json!({
+            "version": 2,
+            "manifest": manifest.entries,
+            "source_snapshot": {"size": 1, "modified_at": null},
+            "member_outcomes": {},
+            "decisions": {"collision_actions": {}, "rename_targets": {}, "ignored_members": [], "retry_members": []},
+            "pending_decision": null,
+            "delivery_ids": {},
+        });
+        let plan = ArchiveExtractionRelayExecutionPlan::from_checkpoint_json(manifest, &checkpoint.to_string()).unwrap();
+
+        assert_eq!(
+            plan.manifest().entries.iter().map(|entry| entry.path.as_str()).collect::<Vec<_>>(),
+            ["Report.txt", "report.txt"]
+        );
+    }
+
+    #[test]
+    fn relay_checkpoint_requires_the_v2_partial_outcome_shape() {
+        let manifest = ArchiveExtractionManifest::from_entries(vec![ArchiveExtractionManifestMember {
+            path: "docs/readme.txt".to_string(),
+            is_directory: false,
+            uncompressed_size: 6,
+            modified_at: None,
+        }])
+        .unwrap();
+        let checkpoint = |outcome: serde_json::Value| {
+            serde_json::json!({
+                "version": 2,
+                "manifest": manifest.entries,
+                "source_snapshot": {"size": 1, "modified_at": null},
+                "member_outcomes": {"docs/readme.txt": outcome},
+                "decisions": {"collision_actions": {}, "rename_targets": {}, "ignored_members": [], "retry_members": ["docs/readme.txt"]},
+                "pending_decision": null,
+                "delivery_ids": {},
+            })
+            .to_string()
+        };
+        let valid = checkpoint(serde_json::json!({
+            "status": "partial",
+            "target_path": "output/docs/readme.txt",
+            "message": "network interruption",
+        }));
+        assert!(ArchiveExtractionRelayExecutionPlan::from_checkpoint_json(manifest.clone(), &valid).is_ok());
+
+        let missing_message = checkpoint(serde_json::json!({
+            "status": "partial",
+            "target_path": "output/docs/readme.txt",
+        }));
+        assert!(ArchiveExtractionRelayExecutionPlan::from_checkpoint_json(manifest.clone(), &missing_message).is_err());
+
+        let extra_terminal_field = checkpoint(serde_json::json!({
+            "status": "partial",
+            "target_path": "output/docs/readme.txt",
+            "message": "network interruption",
+            "extracted_bytes": 0,
+        }));
+        assert!(ArchiveExtractionRelayExecutionPlan::from_checkpoint_json(manifest.clone(), &extra_terminal_field).is_err());
+
+        let valid_terminal = checkpoint(serde_json::json!({
+            "status": "extracted",
+            "target_path": "output/docs/readme.txt",
+            "directories_created": 0,
+            "extracted_bytes": 6,
+            "replaced": false,
+            "renamed": false,
+        }));
+        assert!(ArchiveExtractionRelayExecutionPlan::from_checkpoint_json(manifest.clone(), &valid_terminal).is_ok());
+
+        let terminal_with_message = checkpoint(serde_json::json!({
+            "status": "extracted",
+            "target_path": "output/docs/readme.txt",
+            "message": "unexpected",
+            "directories_created": 0,
+            "extracted_bytes": 6,
+            "replaced": false,
+            "renamed": false,
+        }));
+        assert!(ArchiveExtractionRelayExecutionPlan::from_checkpoint_json(manifest.clone(), &terminal_with_message).is_err());
+
+        let incomplete_terminal = checkpoint(serde_json::json!({
+            "status": "extracted",
+            "target_path": "output/docs/readme.txt",
+            "directories_created": 0,
+            "extracted_bytes": 6,
+            "replaced": false,
+        }));
+        assert!(ArchiveExtractionRelayExecutionPlan::from_checkpoint_json(manifest, &incomplete_terminal).is_err());
     }
 
     #[test]
@@ -4958,6 +6438,169 @@ mod tests {
             Err(LocalArchiveError::DuplicateEntryPath)
         ));
         assert!(!destination.exists());
+    }
+
+    #[test]
+    fn streaming_zip_writer_coalesces_directory_metadata_writes() {
+        let write_calls = Rc::new(Cell::new(0));
+        let output = CountingWrite {
+            write_calls: Rc::clone(&write_calls),
+        };
+        let mut writer = ZipWriter::new_stream(BufWriter::with_capacity(ARCHIVE_WRITE_BUFFER_SIZE, output));
+        let options = SimpleFileOptions::default().compression_method(CompressionMethod::Stored);
+        writer.add_directory("first", options).unwrap();
+        writer.add_directory("second", options).unwrap();
+        writer.add_directory("third", options).unwrap();
+
+        writer.finish().unwrap().flush().unwrap();
+
+        assert_eq!(write_calls.get(), 1);
+    }
+
+    #[test]
+    fn inspection_manifest_selects_the_last_regular_duplicate_and_preserves_it_in_listings() {
+        let first = ArchiveInspectionManifestMember {
+            path: "member".to_string(),
+            is_directory: false,
+            compressed_size: 5,
+            uncompressed_size: 5,
+            compression_method: 0,
+            crc32: 1,
+            modified_at: None,
+            encrypted: false,
+            is_safe: true,
+            has_supported_file_type: true,
+        };
+        let last = ArchiveInspectionManifestMember {
+            uncompressed_size: 11,
+            crc32: 2,
+            ..first.clone()
+        };
+        let directory = ArchiveInspectionManifestMember {
+            is_directory: true,
+            compressed_size: 0,
+            uncompressed_size: 0,
+            ..first.clone()
+        };
+        let manifest = ArchiveInspectionManifest {
+            entries: vec![first, last, directory],
+            member_indexes_by_exact_path: HashMap::from([(String::from("member"), 1)]),
+        };
+
+        let selected = manifest.member("member").unwrap();
+        let listing = manifest.list_directory("", None, 100).unwrap();
+
+        assert_eq!(selected.uncompressed_size, 11);
+        assert_eq!(listing.entries.len(), 1);
+        assert!(!listing.entries[0].is_directory);
+        assert_eq!(listing.entries[0].uncompressed_size, Some(11));
+    }
+
+    #[test]
+    fn local_member_validation_and_streaming_select_the_last_regular_duplicate() {
+        let directory = tempdir().unwrap();
+        let archive_path = directory.path().join("duplicates.zip");
+        let output = OpenOptions::new().write(true).create_new(true).open(&archive_path).unwrap();
+        let mut writer = ZipWriter::new_stream(output);
+        let options = SimpleFileOptions::default().compression_method(CompressionMethod::Stored);
+        writer.start_file("first1", options).unwrap();
+        writer.write_all(b"first").unwrap();
+        writer.start_file("member", options).unwrap();
+        writer.write_all(b"last record").unwrap();
+        writer.add_directory("member/", options).unwrap();
+        writer.finish().unwrap();
+        let mut archive_bytes = fs::read(&archive_path).unwrap();
+        for offset in archive_bytes
+            .windows(6)
+            .enumerate()
+            .filter_map(|(offset, value)| (value == b"first1").then_some(offset))
+            .collect::<Vec<_>>()
+        {
+            archive_bytes[offset..offset + 6].copy_from_slice(b"member");
+        }
+        fs::write(&archive_path, archive_bytes).unwrap();
+
+        let manifest = inspect_local_archive(&archive_path).unwrap();
+        let validated = validate_local_archive_member(&archive_path, "member").unwrap();
+        let extraction_entries = validate_local_archive_extraction(&archive_path).unwrap();
+        let mut streamed = Vec::new();
+        stream_local_archive_member(&archive_path, "member", &mut streamed).unwrap();
+
+        assert_eq!(manifest.member("member").unwrap().uncompressed_size, 11);
+        assert_eq!(validated.uncompressed_size, 11);
+        assert_eq!(extraction_entries.len(), 1);
+        assert_eq!(extraction_entries[0].uncompressed_size, 11);
+        assert_eq!(streamed, b"last record");
+    }
+
+    #[test]
+    fn rejects_unsupported_duplicate_before_inspection_or_member_delivery() {
+        let directory = tempdir().unwrap();
+        let archive_path = directory.path().join("duplicate-symbolic-link.zip");
+        let output = OpenOptions::new().write(true).create_new(true).open(&archive_path).unwrap();
+        let mut writer = ZipWriter::new_stream(output);
+        let options = SimpleFileOptions::default().compression_method(CompressionMethod::Stored);
+        writer.start_file("first1", options).unwrap();
+        writer.write_all(b"readable payload").unwrap();
+        writer.start_file("member", options).unwrap();
+        writer.write_all(b"target").unwrap();
+        writer.finish().unwrap();
+        let mut archive_bytes = fs::read(&archive_path).unwrap();
+        for offset in archive_bytes
+            .windows(6)
+            .enumerate()
+            .filter_map(|(offset, value)| (value == b"first1").then_some(offset))
+            .collect::<Vec<_>>()
+        {
+            archive_bytes[offset..offset + 6].copy_from_slice(b"member");
+        }
+        let offsets = archive_bytes
+            .windows(CENTRAL_DIRECTORY_SIGNATURE.len())
+            .enumerate()
+            .filter_map(|(offset, value)| (value == CENTRAL_DIRECTORY_SIGNATURE).then_some(offset))
+            .collect::<Vec<_>>();
+        let symbolic_link_offset = offsets[1];
+        archive_bytes[symbolic_link_offset + 4..symbolic_link_offset + 6].copy_from_slice(&0x0314_u16.to_le_bytes());
+        archive_bytes[symbolic_link_offset + 38..symbolic_link_offset + 42].copy_from_slice(&(0o120777_u32 << 16).to_le_bytes());
+        fs::write(&archive_path, archive_bytes).unwrap();
+
+        assert!(matches!(
+            inspect_local_archive(&archive_path),
+            Err(LocalArchiveReadError::UnsupportedArchiveMember)
+        ));
+        assert!(matches!(
+            validate_local_archive_member(&archive_path, "member"),
+            Err(LocalArchiveReadError::UnsupportedArchiveMember)
+        ));
+    }
+
+    #[test]
+    fn constructs_sorted_explicit_and_inferred_effective_directories() {
+        let directory = tempdir().unwrap();
+        let archive_path = directory.path().join("effective-directories.zip");
+        let output = OpenOptions::new().write(true).create_new(true).open(&archive_path).unwrap();
+        let mut writer = ZipWriter::new_stream(output);
+        let options = SimpleFileOptions::default().compression_method(CompressionMethod::Stored);
+        writer.add_directory("empty/", options).unwrap();
+        writer.start_file("nested/readme.txt", options).unwrap();
+        writer.write_all(b"readme").unwrap();
+        writer.finish().unwrap();
+
+        let projection = effective_local_archive_entries(&read_local_archive_entries(&archive_path).unwrap());
+
+        assert_eq!(
+            projection
+                .directories
+                .iter()
+                .map(|directory| (&directory.path, &directory.source_member_path))
+                .collect::<Vec<_>>(),
+            vec![
+                (&String::from("empty"), &String::from("empty")),
+                (&String::from("nested"), &String::from("nested/readme.txt")),
+            ]
+        );
+        assert_eq!(projection.directories[0].explicit_entry.as_ref().unwrap().path, "empty");
+        assert!(projection.directories[1].explicit_entry.is_none());
     }
 
     #[test]

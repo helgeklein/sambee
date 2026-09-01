@@ -3,13 +3,16 @@
 import base64
 import bz2
 import struct
+import time
 import unicodedata
 import zlib
 from collections.abc import AsyncIterator
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from datetime import datetime
-from typing import Literal
+from types import MappingProxyType
+from typing import Literal, Mapping
 
+from app.services.archive.telemetry import log_archive_operation_metrics
 from app.storage.base import RandomAccessReader
 
 _EOCD_SIGNATURE = b"PK\x05\x06"
@@ -65,6 +68,38 @@ class ZipEntry:
     local_header_offset: int
     flags: int
     raw_name: bytes
+    reader_identity: object = field(repr=False, compare=False)
+
+
+@dataclass(frozen=True)
+class ValidatedZipEntry:
+    """One local-header-validated entry bound to the reader that created it."""
+
+    entry: ZipEntry
+    data_offset: int
+    reader_identity: object = field(repr=False, compare=False)
+
+
+@dataclass(frozen=True)
+class EffectiveDirectory:
+    """One explicit or inferred directory required by selected ZIP entries."""
+
+    path: str
+    explicit_entry: ZipEntry | None
+    source_member_path: str
+
+
+@dataclass(frozen=True)
+class EffectiveArchiveEntries:
+    """Request-local last-wins ZIP entries retaining original parsed records."""
+
+    entries: tuple[ZipEntry, ...]
+    regular_entries: tuple[ZipEntry, ...]
+    directory_entries: tuple[ZipEntry, ...]
+    directories: tuple[EffectiveDirectory, ...]
+    has_unsafe_raw_entry: bool
+    has_unsupported_special_raw_entry: bool
+    member_by_exact_path: Mapping[str, ZipEntry] = field(repr=False, compare=False)
 
 
 @dataclass(frozen=True)
@@ -127,6 +162,13 @@ class ArchiveInspectionManifest:
     """Immutable normalized archive inspection result, independent of HTTP DTOs."""
 
     entries: tuple[ArchiveInspectionManifestMember, ...]
+    _member_by_exact_path: Mapping[str, ArchiveInspectionManifestMember] = field(init=False, repr=False, compare=False)
+
+    def __post_init__(self) -> None:
+        members = {
+            entry.path: entry for entry in self.entries if entry.is_safe and entry.has_supported_file_type and not entry.is_directory
+        }
+        object.__setattr__(self, "_member_by_exact_path", MappingProxyType(members))
 
     def member(self, path: str) -> ArchiveInspectionManifestMember:
         """Resolve a safe regular member that is available for reading."""
@@ -134,14 +176,7 @@ class ArchiveInspectionManifest:
         normalized_path, is_directory = _normalize_path(path)
         if is_directory or not normalized_path:
             raise ArchiveFormatError("Archive member path must identify a regular file")
-        entry = next(
-            (
-                candidate
-                for candidate in self.entries
-                if candidate.is_safe and candidate.has_supported_file_type and candidate.path == normalized_path
-            ),
-            None,
-        )
+        entry = self._member_by_exact_path.get(normalized_path)
         if entry is None:
             raise ArchiveFormatError("Archive member was not found")
         if entry.encrypted or entry.compression_method not in _READABLE_METHODS:
@@ -166,6 +201,8 @@ class ArchiveInspectionManifest:
             child_path = f"{prefix}{child_name}"
             if separator:
                 children.setdefault(child_path, ArchiveInspectionDirectoryEntry(child_name, child_path, True))
+                continue
+            if entry.is_directory and child_path in children and not children[child_path].is_directory:
                 continue
             children[child_path] = ArchiveInspectionDirectoryEntry(
                 name=child_name,
@@ -350,11 +387,19 @@ class ZipReader:
         self._reader = reader
         self._size = size
         self._entries: tuple[ZipEntry, ...] | None = None
+        self._effective_entries: EffectiveArchiveEntries | None = None
+        self._inspection_manifest: ArchiveInspectionManifest | None = None
+        self._entry_identity = object()
+        self._validation_identity = object()
+        self._read_operations = 0
+        self._read_bytes = 0
 
     async def _read_exact(self, offset: int, length: int) -> bytes:
         if offset < 0 or length < 0 or offset + length > self._size:
             raise ArchiveFormatError("ZIP record extends beyond archive bounds")
         data = await self._reader.read_at(offset, length)
+        self._read_operations += 1
+        self._read_bytes += len(data)
         if len(data) != length:
             raise ArchiveFormatError("ZIP record is truncated")
         return data
@@ -387,17 +432,33 @@ class ZipReader:
             raise ArchiveFormatError("ZIP64 end-of-central-directory record is invalid")
         return ZipDirectory(_u64(header, 48), _u64(header, 40), _u64(header, 32))
 
-    async def entries(self) -> list[ZipEntry]:
+    async def entries(self) -> tuple[ZipEntry, ...]:
         if self._entries is not None:
-            return list(self._entries)
+            return self._entries
+        started_at = time.perf_counter()
+        initial_read_operations = self._read_operations
+        initial_read_bytes = self._read_bytes
         directory = await self._directory()
         if directory.offset + directory.size > self._size:
             raise ArchiveFormatError("ZIP central directory extends beyond archive bounds")
         entries: list[ZipEntry] = []
-        position = directory.offset
         directory_end = directory.offset + directory.size
+        position = directory.offset
+        next_read_offset = directory.offset
+        buffer = bytearray()
+
+        async def fill_buffer(required_length: int) -> None:
+            nonlocal next_read_offset
+            while len(buffer) < required_length and next_read_offset < directory_end:
+                read_length = min(_ARCHIVE_IO_CHUNK_BYTES, directory_end - next_read_offset)
+                buffer.extend(await self._read_exact(next_read_offset, read_length))
+                next_read_offset += read_length
+
         for _ in range(directory.entries):
-            fixed = await self._read_exact(position, _CENTRAL_DIRECTORY_FIXED_SIZE)
+            await fill_buffer(_CENTRAL_DIRECTORY_FIXED_SIZE)
+            if len(buffer) < _CENTRAL_DIRECTORY_FIXED_SIZE:
+                raise ArchiveFormatError("ZIP central-directory entry is truncated")
+            fixed = bytes(buffer[:_CENTRAL_DIRECTORY_FIXED_SIZE])
             if fixed[:4] != _CENTRAL_DIRECTORY_SIGNATURE:
                 raise ArchiveFormatError("ZIP central-directory entry is invalid")
             flags = _u16(fixed, 8)
@@ -413,9 +474,13 @@ class ZipReader:
             extra_length = _u16(fixed, 30)
             comment_length = _u16(fixed, 32)
             variable_length = name_length + extra_length + comment_length
-            if variable_length > _MAX_ENTRY_VARIABLE_BYTES or position + _CENTRAL_DIRECTORY_FIXED_SIZE + variable_length > directory_end:
+            record_length = _CENTRAL_DIRECTORY_FIXED_SIZE + variable_length
+            if variable_length > _MAX_ENTRY_VARIABLE_BYTES or position + record_length > directory_end:
                 raise ArchiveFormatError("ZIP central-directory entry length is invalid")
-            variable = await self._read_exact(position + _CENTRAL_DIRECTORY_FIXED_SIZE, variable_length)
+            await fill_buffer(record_length)
+            if len(buffer) < record_length:
+                raise ArchiveFormatError("ZIP central-directory entry is truncated")
+            variable = bytes(buffer[_CENTRAL_DIRECTORY_FIXED_SIZE:record_length])
             raw_name = variable[:name_length]
             extra = variable[name_length : name_length + extra_length]
             decoded_name = _decode_name(raw_name, flags, extra)
@@ -442,29 +507,134 @@ class ZipReader:
                     local_header_offset=local_header_offset,
                     flags=flags,
                     raw_name=raw_name,
+                    reader_identity=self._entry_identity,
                 )
             )
-            position += _CENTRAL_DIRECTORY_FIXED_SIZE + variable_length
-        if position != directory_end:
+            del buffer[:record_length]
+            position += record_length
+        if position != directory_end or buffer:
             raise ArchiveFormatError("ZIP central-directory size does not match its entries")
         self._entries = tuple(entries)
-        return list(self._entries)
-
-    async def validate_member(self, path: str) -> ZipEntry:
-        """Resolve and validate a member before a response commits headers."""
-        inspection_member = (await self.inspection_manifest()).member(path)
-        entry = next(
-            (candidate for candidate in await self.entries() if candidate.path == inspection_member.path),
-            None,
+        log_archive_operation_metrics(
+            "inspection_parse",
+            (time.perf_counter() - started_at) * 1000,
+            {
+                "entry_count": len(entries),
+                "read_bytes": self._read_bytes - initial_read_bytes,
+                "read_operations": self._read_operations - initial_read_operations,
+            },
         )
+        return self._entries
+
+    async def effective_entries(self) -> EffectiveArchiveEntries:
+        """Return the request-local last-wins projection of parsed ZIP entries."""
+
+        if self._effective_entries is not None:
+            return self._effective_entries
+        raw_entries = await self.entries()
+        selected_regular_paths: set[str] = set()
+        selected_directory_paths: set[str] = set()
+        selected_regular_ids: set[int] = set()
+        selected_directory_ids: set[int] = set()
+        has_unsafe_raw_entry = False
+        has_unsupported_special_raw_entry = False
+        for entry in reversed(raw_entries):
+            has_unsafe_raw_entry |= not entry.is_safe
+            has_unsupported_special_raw_entry |= not entry.has_supported_file_type
+            if not entry.is_safe or not entry.has_supported_file_type:
+                continue
+            if entry.is_directory:
+                if entry.path not in selected_directory_paths:
+                    selected_directory_paths.add(entry.path)
+                    selected_directory_ids.add(id(entry))
+                continue
+            if entry.path not in selected_regular_paths:
+                selected_regular_paths.add(entry.path)
+                selected_regular_ids.add(id(entry))
+        entries = tuple(
+            entry
+            for entry in raw_entries
+            if id(entry) in selected_regular_ids or (id(entry) in selected_directory_ids and entry.path not in selected_regular_paths)
+        )
+        regular_entries = tuple(entry for entry in entries if not entry.is_directory)
+        directory_entries = tuple(entry for entry in entries if entry.is_directory)
+        inferred_directories: dict[str, EffectiveDirectory] = {}
+        for entry in regular_entries:
+            parts = entry.path.split("/")
+            for index in range(1, len(parts)):
+                path = "/".join(parts[:index])
+                candidate = EffectiveDirectory(path, None, entry.path)
+                existing = inferred_directories.get(path)
+                if existing is None or (entry.path.count("/") - path.count("/"), entry.path) < (
+                    existing.source_member_path.count("/") - path.count("/"),
+                    existing.source_member_path,
+                ):
+                    inferred_directories[path] = candidate
+        for entry in directory_entries:
+            inferred_directories[entry.path] = EffectiveDirectory(entry.path, entry, entry.path)
+        directories = tuple(sorted(inferred_directories.values(), key=lambda directory: (directory.path.count("/"), directory.path)))
+        self._effective_entries = EffectiveArchiveEntries(
+            entries=entries,
+            regular_entries=regular_entries,
+            directory_entries=directory_entries,
+            directories=directories,
+            has_unsafe_raw_entry=has_unsafe_raw_entry,
+            has_unsupported_special_raw_entry=has_unsupported_special_raw_entry,
+            member_by_exact_path=MappingProxyType(
+                {entry.path: entry for entry in regular_entries if entry.is_safe and entry.has_supported_file_type}
+            ),
+        )
+        return self._effective_entries
+
+    async def _validate_raw_entry_safety(self) -> None:
+        """Reject unsafe or unsupported records before exposing the archive."""
+
+        projection = await self.effective_entries()
+        if projection.has_unsafe_raw_entry:
+            raise ArchiveFormatError("Archive contains an unsafe member path")
+        if projection.has_unsupported_special_raw_entry:
+            raise ArchiveFormatError("Archive contains a symbolic link or unsupported special member")
+
+    async def validate_member(self, path: str) -> ValidatedZipEntry:
+        """Resolve and validate a member before a response commits headers."""
+        started_at = time.perf_counter()
+        initial_read_operations = self._read_operations
+        initial_read_bytes = self._read_bytes
+        entry = await self.resolve_member(path)
+        validated_entry = await self.validate_entry(entry)
+        log_archive_operation_metrics(
+            "member_validation",
+            (time.perf_counter() - started_at) * 1000,
+            {
+                "read_bytes": self._read_bytes - initial_read_bytes,
+                "read_operations": self._read_operations - initial_read_operations,
+            },
+        )
+        return validated_entry
+
+    async def validate_entry(self, entry: ZipEntry) -> ValidatedZipEntry:
+        """Validate one selected readable entry without resolving its path again."""
+
+        if entry.encrypted or entry.compression_method not in _READABLE_METHODS:
+            raise ArchiveFormatError("Archive member uses an unavailable codec or blocked feature")
+        return await self._validate_entry(entry)
+
+    async def resolve_member(self, path: str) -> ZipEntry:
+        """Resolve the request-local ZipEntry selected for one readable member."""
+
+        await self._validate_raw_entry_safety()
+        normalized_path, is_directory = _normalize_path(path)
+        if is_directory or not normalized_path:
+            raise ArchiveFormatError("Archive member path must identify a regular file")
+        entry = (await self.effective_entries()).member_by_exact_path.get(normalized_path)
         if entry is None:
             raise ArchiveFormatError("Archive member was not found")
-
-        await self._validate_entry(entry)
+        if entry.encrypted or entry.compression_method not in _READABLE_METHODS:
+            raise ArchiveFormatError("Archive member uses an unavailable codec or blocked feature")
         return entry
 
-    async def _validate_entry(self, entry: ZipEntry) -> None:
-        if entry not in await self.entries():
+    async def _validate_entry(self, entry: ZipEntry) -> ValidatedZipEntry:
+        if entry.reader_identity is not self._entry_identity:
             raise ArchiveFormatError("ZIP member was not found")
 
         local_header = await self._read_exact(entry.local_header_offset, 30)
@@ -473,6 +643,7 @@ class ZipReader:
         local_flags = _u16(local_header, 6)
         local_method = _u16(local_header, 8)
         local_name_length = _u16(local_header, 26)
+        local_extra_length = _u16(local_header, 28)
         if local_flags != entry.flags:
             raise ArchiveFormatError("ZIP local header flags do not match central directory")
         if local_method != entry.compression_method:
@@ -480,11 +651,19 @@ class ZipReader:
         local_name = await self._read_exact(entry.local_header_offset + 30, local_name_length)
         if local_name != entry.raw_name:
             raise ArchiveFormatError("ZIP local header filename does not match central directory")
+        data_offset = entry.local_header_offset + 30 + local_name_length + local_extra_length
+        if data_offset + entry.compressed_size > self._size:
+            raise ArchiveFormatError("ZIP member payload extends beyond archive bounds")
+        return ValidatedZipEntry(entry, data_offset, self._validation_identity)
 
     async def inspection_manifest(self) -> ArchiveInspectionManifest:
         """Project parsed ZIP metadata into the shared inspection domain value."""
 
-        return ArchiveInspectionManifest(
+        if self._inspection_manifest is not None:
+            return self._inspection_manifest
+        await self._validate_raw_entry_safety()
+        entries = await self.effective_entries()
+        self._inspection_manifest = ArchiveInspectionManifest(
             entries=tuple(
                 ArchiveInspectionManifestMember(
                     path=entry.path,
@@ -498,33 +677,34 @@ class ZipReader:
                     is_safe=entry.is_safe,
                     has_supported_file_type=entry.has_supported_file_type,
                 )
-                for entry in await self.entries()
+                for entry in entries.entries
             )
         )
+        return self._inspection_manifest
 
     async def stream_member(self, path: str, chunk_size: int = 262_144) -> AsyncIterator[bytes]:
         """Validate and stream a single permitted member without staging it."""
 
         entry = await self.validate_member(path)
-        async for chunk in self._stream_validated_entry(entry, chunk_size=chunk_size):
+        async for chunk in self.stream_validated_entry(entry, chunk_size=chunk_size):
             yield chunk
 
-    async def stream_entry(self, entry: ZipEntry, chunk_size: int = 262_144) -> AsyncIterator[bytes]:
+    async def stream_entry(self, entry: ZipEntry | ValidatedZipEntry, chunk_size: int = 262_144) -> AsyncIterator[bytes]:
         """Validate and stream a central-directory entry from this reader session."""
 
-        await self._validate_entry(entry)
-        async for chunk in self._stream_validated_entry(entry, chunk_size=chunk_size):
+        validated_entry = entry if isinstance(entry, ValidatedZipEntry) else await self._validate_entry(entry)
+        async for chunk in self.stream_validated_entry(validated_entry, chunk_size=chunk_size):
             yield chunk
 
-    async def _stream_validated_entry(self, entry: ZipEntry, chunk_size: int = 262_144) -> AsyncIterator[bytes]:
+    async def stream_validated_entry(self, validated_entry: ValidatedZipEntry, chunk_size: int = 262_144) -> AsyncIterator[bytes]:
+        """Stream one local-header-validated entry without repeating validation."""
+
+        if validated_entry.reader_identity is not self._validation_identity:
+            raise ArchiveFormatError("ZIP member validation belongs to a different reader")
         if not 0 < chunk_size <= _ARCHIVE_IO_CHUNK_BYTES:
             raise ValueError(f"ZIP member chunk size must be between 1 and {_ARCHIVE_IO_CHUNK_BYTES} bytes")
-        local_header = await self._read_exact(entry.local_header_offset, 30)
-        local_name_length = _u16(local_header, 26)
-        local_extra_length = _u16(local_header, 28)
-        data_offset = entry.local_header_offset + 30 + local_name_length + local_extra_length
-        if data_offset + entry.compressed_size > self._size:
-            raise ArchiveFormatError("ZIP member payload extends beyond archive bounds")
+        entry = validated_entry.entry
+        data_offset = validated_entry.data_offset
 
         crc = 0
         total = 0

@@ -21,7 +21,7 @@ import {
   createUnauthorizedError,
   setupSuccessfulApiMocks,
 } from "../../test/helpers";
-import { FileType } from "../../types";
+import { type ConflictInfo, FileType } from "../../types";
 import { QUICK_NAV_INCLUDE_DOT_DIRECTORIES_STORAGE_KEY } from "../FileBrowser/preferences";
 import { mockConnections, mockDirectoryListing, renderBrowser } from "./FileBrowser.test.utils";
 
@@ -34,6 +34,12 @@ const expectDirectoryLoad = (connectionId: string, path: string) => {
     })
   );
 };
+
+const completedTransferResult = {
+  status: "completed",
+  replaced: false,
+  effects: { source: "unchanged", destination: "mutated" },
+} as const;
 
 // Mock the API module
 vi.mock("../../services/api");
@@ -366,7 +372,7 @@ describe("Browser Component - Interactions", () => {
     it("refreshes the destination pane after copy to the other pane succeeds", async () => {
       const user = userEvent.setup();
 
-      vi.mocked(api.copyItem).mockResolvedValue(undefined);
+      vi.mocked(api.copyItem).mockResolvedValue(completedTransferResult);
 
       renderBrowser("/browse/smb/test-server-1?p2=smb/test-server-2/Documents");
 
@@ -397,6 +403,182 @@ describe("Browser Component - Interactions", () => {
         ).length;
         expect(destinationLoads).toBeGreaterThan(initialDestinationLoads);
       });
+    });
+
+    it("offers only safe file conflict actions when replacement is unavailable", async () => {
+      const user = userEvent.setup();
+      const conflict: ConflictInfo = {
+        incoming_file: {
+          name: "Documents",
+          path: "Documents",
+          type: FileType.FILE,
+          size: 1024,
+          modified_at: "2024-01-13T10:00:00Z",
+          is_readable: true,
+          is_hidden: false,
+        },
+        existing_file: {
+          name: "Documents",
+          path: "Documents/Documents",
+          type: FileType.FILE,
+          size: 2048,
+          modified_at: "2024-01-14T10:00:00Z",
+          is_readable: true,
+          is_hidden: false,
+        },
+      };
+      vi.mocked(api.copyItem).mockRejectedValueOnce({ response: { status: 409, data: { detail: conflict } } });
+
+      renderBrowser("/browse/smb/test-server-1?p2=smb/test-server-2/Documents");
+
+      await waitFor(() => {
+        expectDirectoryLoad("conn-1", "");
+        expectDirectoryLoad("conn-2", "Documents");
+      });
+
+      const listContainer = (await screen.findAllByTestId("virtual-list"))[0];
+      await user.click(listContainer);
+      await user.keyboard(" ");
+      await user.keyboard("{F5}");
+      await user.click(within(await screen.findByRole("dialog")).getByRole("button", { name: "Copy" }));
+      expect(await screen.findByRole("radio", { name: "Skip" })).toBeInTheDocument();
+      expect(screen.getByRole("radio", { name: "Rename" })).toBeInTheDocument();
+      expect(screen.queryByRole("radio", { name: "Overwrite" })).not.toBeInTheDocument();
+    });
+
+    it("reopens resolution when a renamed copy target also exists", async () => {
+      const user = userEvent.setup();
+      const firstConflict: ConflictInfo = {
+        incoming_file: {
+          name: "Documents",
+          path: "Documents",
+          type: FileType.FILE,
+          size: 1024,
+          modified_at: "2024-01-13T10:00:00Z",
+          is_readable: true,
+          is_hidden: false,
+        },
+        existing_file: {
+          name: "Documents",
+          path: "Documents/Documents",
+          type: FileType.FILE,
+          size: 2048,
+          modified_at: "2024-01-14T10:00:00Z",
+          is_readable: true,
+          is_hidden: false,
+        },
+      };
+      const renamedTargetConflict: ConflictInfo = {
+        ...firstConflict,
+        existing_file: {
+          ...firstConflict.existing_file,
+          name: "alternate.txt",
+          path: "Documents/alternate.txt",
+        },
+      };
+      vi.mocked(api.copyItem)
+        .mockRejectedValueOnce({ response: { status: 409, data: { detail: firstConflict } } })
+        .mockRejectedValueOnce({ response: { status: 409, data: { detail: renamedTargetConflict } } })
+        .mockResolvedValueOnce(completedTransferResult);
+
+      renderBrowser("/browse/smb/test-server-1?p2=smb/test-server-2/Documents");
+
+      await waitFor(() => {
+        expectDirectoryLoad("conn-1", "");
+        expectDirectoryLoad("conn-2", "Documents");
+      });
+
+      const listContainer = (await screen.findAllByTestId("virtual-list"))[0];
+      await user.click(listContainer);
+      await user.keyboard(" ");
+      await user.keyboard("{F5}");
+      await user.click(within(await screen.findByRole("dialog")).getByRole("button", { name: "Copy" }));
+      await user.click(await screen.findByRole("radio", { name: "Rename" }));
+      const targetName = screen.getByRole("textbox", { name: "Target name" });
+      await waitFor(() => expect(targetName).toHaveFocus());
+      fireEvent.change(targetName, { target: { value: "alternate.txt" } });
+      expect(targetName).toHaveValue("alternate.txt");
+      await user.click(screen.getByRole("button", { name: "Continue" }));
+
+      expect(await screen.findByRole("textbox", { name: "Target name" })).toHaveValue("alternate.txt");
+      await user.click(screen.getByRole("radio", { name: "Rename" }));
+      await user.click(screen.getByRole("button", { name: "Continue" }));
+
+      await waitFor(() => expect(api.copyItem).toHaveBeenCalledTimes(3));
+      expect(vi.mocked(api.copyItem).mock.calls[2]?.slice(0, 5)).toEqual([
+        "conn-1",
+        "Documents",
+        "Documents/alternate (copy).txt",
+        "conn-2",
+        "ask",
+      ]);
+    });
+
+    it("reopens resolution when a renamed move target also exists", async () => {
+      const user = userEvent.setup();
+      const firstConflict: ConflictInfo = {
+        incoming_file: {
+          name: "Documents",
+          path: "Documents",
+          type: FileType.FILE,
+          size: 1024,
+          modified_at: "2024-01-13T10:00:00Z",
+          is_readable: true,
+          is_hidden: false,
+        },
+        existing_file: {
+          name: "Documents",
+          path: "Documents/Documents",
+          type: FileType.FILE,
+          size: 2048,
+          modified_at: "2024-01-14T10:00:00Z",
+          is_readable: true,
+          is_hidden: false,
+        },
+      };
+      const renamedTargetConflict: ConflictInfo = {
+        ...firstConflict,
+        existing_file: {
+          ...firstConflict.existing_file,
+          name: "alternate.txt",
+          path: "Documents/alternate.txt",
+        },
+      };
+      vi.mocked(api.moveItem)
+        .mockRejectedValueOnce({ response: { status: 409, data: { detail: firstConflict } } })
+        .mockRejectedValueOnce({ response: { status: 409, data: { detail: renamedTargetConflict } } })
+        .mockResolvedValueOnce(completedTransferResult);
+
+      renderBrowser("/browse/smb/test-server-1?p2=smb/test-server-2/Documents");
+
+      await waitFor(() => {
+        expectDirectoryLoad("conn-1", "");
+        expectDirectoryLoad("conn-2", "Documents");
+      });
+
+      const listContainer = (await screen.findAllByTestId("virtual-list"))[0];
+      await user.click(listContainer);
+      await user.keyboard(" ");
+      await user.keyboard("{F6}");
+      await user.click(within(await screen.findByRole("dialog")).getByRole("button", { name: "Move" }));
+      await user.click(await screen.findByRole("radio", { name: "Rename" }));
+      const targetName = screen.getByRole("textbox", { name: "Target name" });
+      await waitFor(() => expect(targetName).toHaveFocus());
+      fireEvent.change(targetName, { target: { value: "alternate.txt" } });
+      await user.click(screen.getByRole("button", { name: "Continue" }));
+
+      expect(await screen.findByRole("textbox", { name: "Target name" })).toHaveValue("alternate.txt");
+      await user.click(screen.getByRole("radio", { name: "Rename" }));
+      await user.click(screen.getByRole("button", { name: "Continue" }));
+
+      await waitFor(() => expect(api.moveItem).toHaveBeenCalledTimes(3));
+      expect(vi.mocked(api.moveItem).mock.calls[2]?.slice(0, 5)).toEqual([
+        "conn-1",
+        "Documents",
+        "Documents/alternate (copy).txt",
+        "conn-2",
+        "ask",
+      ]);
     });
 
     it("does not open copy dialog when the destination connection is read-only", async () => {
@@ -445,10 +627,10 @@ describe("Browser Component - Interactions", () => {
       expect(api.copyItem).not.toHaveBeenCalled();
     });
 
-    it("does not open move dialog when the source connection is read-only", async () => {
+    it("phase_10_stabilization_move_commands_are_disabled", async () => {
       const user = userEvent.setup();
 
-      vi.mocked(api.getConnections).mockResolvedValue([{ ...mockConnections[0], access_mode: "read_only" }, mockConnections[1]]);
+      vi.mocked(api.getConnections).mockResolvedValue(mockConnections);
 
       renderBrowser("/browse/smb/test-server-1?p2=smb/test-server-2/Documents");
 

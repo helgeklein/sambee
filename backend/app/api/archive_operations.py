@@ -109,8 +109,14 @@ from app.services.archive.operations import (
     request_operation_cancellation,
     update_operation_phase,
 )
+from app.services.archive.target_write import (
+    TargetWriteDisposition,
+    TargetWriteFailure,
+    collision_policy_from_action,
+    resolve_target_write_attempt,
+)
 from app.services.archive.v2_checkpoint import canonical_v2_timestamp, new_v2_extraction_checkpoint
-from app.services.archive.zip_reader import ArchiveFormatError, ZipEntry, ZipReader
+from app.services.archive.zip_reader import ArchiveFormatError, EffectiveArchiveEntries, ZipReader
 from app.services.audit import AuditDetails, AuditEventName, AuditResult, write_audit_event
 from app.services.connection_access import get_accessible_connection_or_404, require_connection_write_access
 from app.services.history_common import LOCAL_DRIVE_PREFIX
@@ -291,11 +297,40 @@ def _archive_source_identity(info: FileInfo) -> dict[str, object]:
     }
 
 
+class ArchiveExtractionDirectoryCollision(Exception):
+    """A non-directory target blocks a required archive output directory."""
+
+    def __init__(self, path: str, target: FileInfo | None = None) -> None:
+        self.path = path
+        self.target = target
+        super().__init__(f"Archive output directory is blocked: {path}")
+
+
+def _mixed_directory_collision_member_path(
+    execution_plan: ArchiveExtractionExecutionPlan,
+    member_path: str,
+    destination_root: str,
+    target_path: str,
+    *,
+    is_directory: bool,
+) -> str:
+    """Map a materialized parent path to the source archive directory that owns it."""
+
+    parts = member_path.split("/")
+    directory_count = len(parts) if is_directory else len(parts) - 1
+    for index in range(directory_count, 0, -1):
+        source_path = "/".join(parts[:index])
+        if archive_member_target(destination_root, execution_plan.target_member_path(source_path)) == target_path:
+            return source_path
+    return member_path
+
+
 async def _ensure_mixed_archive_parent_directories(
     backend: SMBBackend,
     *,
     destination_root: str,
     target_path: str,
+    include_target: bool = False,
 ) -> int:
     """Create missing output parents below an already-owned destination root."""
 
@@ -304,14 +339,24 @@ async def _ensure_mixed_archive_parent_directories(
     target_parts = target_path.replace("\\", "/").strip("/").split("/")
     if target_parts[: len(root_parts)] != root_parts:
         raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_CONTENT, detail="Archive output path is outside its destination root")
-    parent_parts = target_parts[:-1]
-    for index in range(len(root_parts) + 1, len(parent_parts) + 1):
-        path = "/".join(parent_parts[:index])
-        try:
-            await backend.create_directory(path)
-            created += 1
-        except FileExistsError:
-            continue
+    directory_parts = target_parts if include_target else target_parts[:-1]
+    for index in range(len(root_parts) + 1, len(directory_parts) + 1):
+        path = "/".join(directory_parts[:index])
+        for attempt in range(2):
+            try:
+                await backend.create_directory(path)
+                created += 1
+                break
+            except FileExistsError as exc:
+                try:
+                    existing = await backend.get_file_info(path)
+                except FileNotFoundError:
+                    if attempt == 0:
+                        continue
+                    raise ArchiveExtractionDirectoryCollision(path) from exc
+                if existing.type == FileType.DIRECTORY:
+                    break
+                raise ArchiveExtractionDirectoryCollision(path, existing)
     return created
 
 
@@ -816,14 +861,20 @@ def _mixed_smb_source_connection(session: Session, user: User, operation: Archiv
         raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_CONTENT, detail="Archive source connection ID is invalid") from exc
 
 
-def _validate_smb_to_local_manifest(entries: list[ZipEntry]) -> None:
-    """Reject any source archive that cannot be safely extracted locally as a whole."""
+def _validate_archive_extraction_entry_safety(entries: EffectiveArchiveEntries) -> None:
+    """Reject raw unsafe paths and unsupported special member types."""
 
-    if any(not entry.is_safe for entry in entries):
+    if entries.has_unsafe_raw_entry:
         raise ArchiveFormatError("Archive extraction contains an unsafe member path")
-    if any(not entry.has_supported_file_type for entry in entries):
+    if entries.has_unsupported_special_raw_entry:
         raise ArchiveFormatError("Archive extraction contains a symbolic link or unsupported special member")
-    if any(entry.encrypted or entry.compression_method not in {0, 8, 12} for entry in entries if not entry.is_directory):
+
+
+def _validate_smb_to_local_manifest(entries: EffectiveArchiveEntries) -> None:
+    """Reject any source archive that cannot be streamed safely to a local executor."""
+
+    _validate_archive_extraction_entry_safety(entries)
+    if any(entry.encrypted or entry.compression_method not in {0, 8, 12} for entry in entries.regular_entries):
         raise ArchiveFormatError("Archive extraction contains an unavailable member")
 
 
@@ -951,47 +1002,61 @@ async def write_companion_archive_member(
     collision_action = execution_plan.collision_action(member_path)
     remapped_member_path = execution_plan.target_member_path(member_path)
     target_path = archive_member_target(operation.destination_path, remapped_member_path)
-    if not is_directory and collision_action in {"skip", "skip_all"}:
-        outcome = ArchiveExtractionMemberOutcome(member_path, "skipped", target_path)
-        return coordinator.record_member_completed(outcome)
 
     connection = _mixed_extraction_destination_connection(session, user, operation)
     backend = build_smb_backend(connection, backend_factory=SMBBackend)
     try:
         await backend.connect()
-        created_directories = await _ensure_mixed_archive_parent_directories(
-            backend,
-            destination_root=operation.destination_path,
-            target_path=target_path,
-        )
+        try:
+            created_directories = await _ensure_mixed_archive_parent_directories(
+                backend,
+                destination_root=operation.destination_path,
+                target_path=target_path,
+                include_target=is_directory,
+            )
+        except ArchiveExtractionDirectoryCollision as exc:
+            return coordinator.pause_for_collision(
+                member_path=_mixed_directory_collision_member_path(
+                    execution_plan,
+                    member_path,
+                    operation.destination_path,
+                    exc.path,
+                    is_directory=is_directory,
+                ),
+                is_directory=True,
+                target_size=exc.target.size if exc.target is not None else None,
+                target_modified_at=exc.target.modified_at if exc.target is not None else None,
+                target_path=exc.path,
+            )
         if is_directory:
-            await backend.create_directory(target_path)
-            created_directories += 1
             written = 0
         else:
-            replace_existing = collision_action in {"replace", "replace_all"}
-            if collision_action == "replace_older":
-                try:
-                    target_info = await backend.get_file_info(target_path)
-                except FileNotFoundError:
-                    target_info = None
-                if target_info is not None:
-                    if target_info.type != FileType.FILE:
-                        return coordinator.pause_for_collision(
-                            member_path=member_path,
-                            is_directory=True,
-                            target_size=None,
-                            target_modified_at=target_info.modified_at,
-                        )
-                    if source_modified_at is None or target_info.modified_at is None or source_modified_at <= target_info.modified_at:
-                        outcome = ArchiveExtractionMemberOutcome(member_path, "skipped", target_path)
-                        return coordinator.record_member_completed(outcome)
-                    replace_existing = True
-            written = await backend.write_file_from_stream(
-                target_path,
-                request.stream(),
-                overwrite=replace_existing,
+            target_write = await resolve_target_write_attempt(
+                target_path=target_path,
+                policy=collision_policy_from_action(collision_action),
+                source_modified_at=source_modified_at,
+                observe_target=backend.get_file_info,
+                stream_factory=request.stream,
+                write_target=lambda path, stream, overwrite, mtime: backend.write_file_from_stream(
+                    path,
+                    stream,
+                    overwrite=overwrite,
+                    source_mtime=mtime,
+                ),
             )
+            if target_write.disposition == TargetWriteDisposition.SKIP:
+                outcome = ArchiveExtractionMemberOutcome(member_path, "skipped", target_path)
+                return coordinator.record_member_completed(outcome)
+            if target_write.disposition == TargetWriteDisposition.AWAIT_COLLISION:
+                target_info = target_write.target
+                return coordinator.pause_for_collision(
+                    member_path=member_path,
+                    is_directory=target_info is not None and target_info.type != FileType.FILE,
+                    target_size=target_info.size if target_info is not None else None,
+                    target_modified_at=target_info.modified_at if target_info is not None else None,
+                )
+            written = target_write.bytes_written
+            replace_existing = target_write.replaced
         outcome = ArchiveExtractionMemberOutcome(
             member_path,
             "directory" if is_directory else "extracted",
@@ -1001,13 +1066,16 @@ async def write_companion_archive_member(
             replaced=not is_directory and replace_existing,
         )
         return coordinator.record_member_completed(outcome)
-    except FileExistsError:
-        return coordinator.pause_for_collision(
+    except TargetWriteFailure as exc:
+        return coordinator.pause_for_member_error(
             member_path=member_path,
-            is_directory=is_directory,
-            target_size=None,
-            target_modified_at=None,
+            message=str(exc),
+            partial_output=exc.bytes_written > 0,
         )
+    except FileExistsError as exc:
+        return coordinator.pause_for_member_error(member_path=member_path, message=str(exc), partial_output=False)
+    except OSError as exc:
+        return coordinator.pause_for_member_error(member_path=member_path, message=str(exc), partial_output=False)
     except HTTPException:
         raise
     except Exception as exc:
@@ -1069,8 +1137,10 @@ async def begin_companion_local_archive_extraction(
         if archive_info.type != FileType.FILE or archive_info.size is None:
             raise ArchiveFormatError("Archive extraction source must be a regular file")
         reader = await backend.open_random_access_reader(operation.source_path)
-        zip_entries = await ZipReader(reader, archive_info.size).entries()
-        _validate_smb_to_local_manifest(zip_entries)
+        zip_reader = ZipReader(reader, archive_info.size)
+        projection = await zip_reader.effective_entries()
+        _validate_smb_to_local_manifest(projection)
+        zip_entries = projection.entries
         try:
             manifest = ArchiveExtractionManifest.from_members(
                 [
@@ -1139,17 +1209,18 @@ async def stream_companion_local_archive_member(
             raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="Archive extraction source changed after manifest validation")
         reader = await backend.open_random_access_reader(operation.source_path)
         zip_reader = ZipReader(reader, archive_info.size)
-        member = await zip_reader.validate_member(member_path)
-        if member.uncompressed_size != expected_member.uncompressed_size:
+        member = (await zip_reader.effective_entries()).member_by_exact_path.get(expected_member.member_path)
+        if member is None or member.path != expected_member.member_path or member.uncompressed_size != expected_member.uncompressed_size:
             relay.fail_message(
                 "Archive extraction manifest changed after validation",
                 error_code=ArchiveOperationErrorCode.SOURCE_CHANGED,
             )
             raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="Archive extraction manifest changed after validation")
+        validated_member = await zip_reader.validate_entry(member)
 
         async def stream_member() -> AsyncIterator[bytes]:
             try:
-                async for chunk in zip_reader.stream_member(member_path):
+                async for chunk in zip_reader.stream_validated_entry(validated_member):
                     if not ArchiveExtractionCoordinator(operation, DurableArchiveExecutionStateStore(session)).advance():
                         return
                     yield chunk
@@ -1234,6 +1305,7 @@ async def pause_companion_local_archive_member_for_collision(
         is_directory=payload.is_directory,
         target_size=payload.target_size,
         target_modified_at=payload.target_modified_at,
+        target_path=payload.target_path,
     )
     return _record_relay_delivery(
         session,
@@ -2020,7 +2092,10 @@ async def execute_archive_extraction(
                 )
             random_reader = await backend.open_random_access_reader(operation.source_path)
             try:
-                entries = await ZipReader(random_reader, archive_info.size).entries()
+                zip_reader = ZipReader(random_reader, archive_info.size)
+                projection = await zip_reader.effective_entries()
+                _validate_archive_extraction_entry_safety(projection)
+                entries = projection.entries
             finally:
                 await random_reader.close()
             manifest = ArchiveExtractionManifest.from_members(
@@ -2130,7 +2205,7 @@ async def _validate_archive_extraction_rename(
                 status_code=status.HTTP_422_UNPROCESSABLE_CONTENT, detail="Archive extraction source must be a regular file"
             )
         reader = await backend.open_random_access_reader(operation.source_path)
-        entries = await ZipReader(reader, archive_info.size).entries()
+        entries = (await ZipReader(reader, archive_info.size).effective_entries()).entries
         rename_targets = ArchiveExtractionDecisionState.from_checkpoint(load_archive_checkpoint(operation)).rename_targets()
         rename_targets[payload.member_path] = payload.target_path
         validate_archive_rename_targets(entries, rename_targets)

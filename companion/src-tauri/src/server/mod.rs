@@ -15,6 +15,7 @@ pub mod links;
 pub mod localization;
 pub mod models;
 pub mod pairing;
+pub mod target_resolution;
 pub mod watcher;
 
 use std::net::SocketAddr;
@@ -130,8 +131,7 @@ fn build_router(state: Arc<AppState>) -> Router {
         .route("/api/browse/{drive}/item", axum::routing::delete(handlers::browse_delete))
         .route("/api/browse/{drive}/rename", axum::routing::post(handlers::browse_rename))
         .route("/api/browse/{drive}/create", axum::routing::post(handlers::browse_create))
-        .route("/api/browse/{drive}/copy", axum::routing::post(handlers::browse_copy))
-        .route("/api/browse/{drive}/move", axum::routing::post(handlers::browse_move))
+        .merge(transfer_routes().with_state::<Arc<AppState>>(()))
         .route("/api/browse/{drive}/open", axum::routing::post(handlers::browse_open))
         .route(
             "/api/browse/{drive}/directories",
@@ -198,4 +198,34 @@ fn build_router(state: Arc<AppState>) -> Router {
         .merge(ws_routes)
         .layer(cors)
         .with_state(state)
+}
+
+fn transfer_routes() -> Router {
+    Router::new()
+        .route("/api/browse/{drive}/copy", axum::routing::post(handlers::browse_copy))
+        .route("/api/browse/{drive}/move", axum::routing::post(handlers::browse_move))
+}
+
+#[cfg(test)]
+mod tests {
+    use axum::{body::Body, http::Request};
+    use tower::ServiceExt;
+
+    use super::transfer_routes;
+
+    #[tokio::test]
+    async fn phase_10_stabilization_smb_source_route_is_absent() {
+        let response = transfer_routes()
+            .oneshot(
+                Request::builder()
+                    .method("POST")
+                    .uri("/api/browse/test-drive/transfer/smb-source/file")
+                    .body(Body::empty())
+                    .expect("request should be valid"),
+            )
+            .await
+            .expect("router should handle the request");
+
+        assert_eq!(response.status(), axum::http::StatusCode::NOT_FOUND);
+    }
 }

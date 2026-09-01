@@ -177,6 +177,25 @@ def test_extraction_state_resolves_decided_target_and_terminal_coverage() -> Non
     assert extraction_outcome_summary(completed_checkpoint, 1).directories_created == 2
 
 
+def test_extraction_manifest_rejects_portable_file_directory_collisions() -> None:
+    """Keep exact case-distinct files separate while rejecting file/directory aliases."""
+
+    case_distinct_files = ArchiveExtractionManifest.from_members(
+        [
+            ArchiveExtractionManifestMember("Report.txt", False, 1, None),
+            ArchiveExtractionManifestMember("report.txt", False, 1, None),
+        ]
+    )
+    assert [member.member_path for member in case_distinct_files.members] == ["Report.txt", "report.txt"]
+    with pytest.raises(HTTPException):
+        ArchiveExtractionManifest.from_members(
+            [
+                ArchiveExtractionManifestMember("Docs", False, 1, None),
+                ArchiveExtractionManifestMember("docs/readme.txt", False, 1, None),
+            ]
+        )
+
+
 def test_extraction_checkpoint_factory_initializes_the_v2_outcome_ledger() -> None:
     """Keep relay checkpoint initialization independent of individual transport routes."""
 

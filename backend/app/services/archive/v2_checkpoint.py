@@ -73,6 +73,10 @@ def _validate_member_paths(values: object) -> list[str]:
     return [_canonical_member_path(value) for value in values]
 
 
+def _is_manifest_member_or_implicit_directory(member_path: str, manifest_paths: set[str]) -> bool:
+    return member_path in manifest_paths or any(path.startswith(f"{member_path}/") for path in manifest_paths)
+
+
 def _validate_timestamp(value: object, *, detail: str) -> None:
     if value is None:
         return
@@ -242,7 +246,7 @@ def validate_v2_extraction_checkpoint(checkpoint: object) -> dict[str, object]:
         if _canonical_member_path(member_path) not in manifest_paths or action not in {"skip", "replace"}:
             raise _invalid_checkpoint("Archive V2 checkpoint decisions are invalid")
     for member_path, target_path in rename_targets.items():
-        if _canonical_member_path(member_path) not in manifest_paths:
+        if not _is_manifest_member_or_implicit_directory(_canonical_member_path(member_path), manifest_paths):
             raise _invalid_checkpoint("Archive V2 checkpoint decisions are invalid")
         _canonical_member_path(target_path)
     for paths in (decisions["ignored_members"], decisions["retry_members"]):

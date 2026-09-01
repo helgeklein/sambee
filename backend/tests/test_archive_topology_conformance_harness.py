@@ -104,6 +104,7 @@ EXTRACTION_TRAJECTORY_CORPUS_PATH = WORKSPACE_ROOT / "archive-contract" / "v2" /
 CREATION_TRAJECTORY_CORPUS_PATH = WORKSPACE_ROOT / "archive-contract" / "v2" / "fixtures" / "creation-trajectory-scenarios-v2.json"
 TOPOLOGY_TRACE_FIXTURE_PATH = WORKSPACE_ROOT / "archive-contract" / "v2" / "fixtures" / "topology-execution-traces-v2.json"
 TRAJECTORY_TRACE_FIXTURE_PATH = WORKSPACE_ROOT / "archive-contract" / "v2" / "fixtures" / "topology-trajectory-traces-v2.json"
+TARGET_WRITE_CORPUS_PATH = WORKSPACE_ROOT / "archive-contract" / "v2" / "fixtures" / "target-write-resolution-scenarios-v2.json"
 
 
 def _load_trajectory_scenarios(path: Path) -> tuple[dict[str, Any], ...]:
@@ -210,6 +211,7 @@ BACKEND_TRAJECTORY_CASES = tuple(case for case in _trajectory_cases() if case.to
 
 def test_topology_trace_fixture_matches_resolved_execution_owners() -> None:
     fixture: dict[str, Any] = json.loads(TOPOLOGY_TRACE_FIXTURE_PATH.read_text(encoding="utf-8"))
+    target_write_corpus: dict[str, Any] = json.loads(TARGET_WRITE_CORPUS_PATH.read_text(encoding="utf-8"))
 
     assert fixture["version"] == 2
     assert set(fixture["adapter_faults"]) == {
@@ -231,6 +233,11 @@ def test_topology_trace_fixture_matches_resolved_execution_owners() -> None:
     }
     assert fixture["trajectory_trace_fixture"] == TRAJECTORY_TRACE_FIXTURE_PATH.name
     assert {case["name"] for case in fixture["topologies"]} == {case.name for case in TOPOLOGY_CASES}
+    attempt_scenarios = {scenario["name"]: scenario for scenario in target_write_corpus["attempt_scenarios"]}
+    assert {case["topology"] for case in fixture["target_write_attempt_cases"]} == {case.name for case in TOPOLOGY_CASES}
+    for case in fixture["target_write_attempt_cases"]:
+        scenario = attempt_scenarios[case["scenario"]]
+        assert case["expected_disposition"] == scenario["expected"]
     success_cases = {(case["operation"], case["topology"]) for case in fixture["cases"] if case["fault"] is None}
     assert success_cases == {(operation, case.name) for operation in fixture["operations"] for case in TOPOLOGY_CASES}
     assert {case["fault"] for case in fixture["cases"] if case["fault"] is not None} == set(fixture["adapter_faults"])
@@ -323,7 +330,7 @@ class FaultInjectingExtractionAdapter:
         if self.fault == AdapterFault.COLLISION:
             raise ArchiveExtractionConflicts([ArchiveExtractionConflict("entry.txt", "output/entry.txt", source_size=5)])
         if self.fault == AdapterFault.PARTIAL_WRITE:
-            raise ArchiveExtractionMemberError("entry.txt", "output/entry.txt", "injected partial write")
+            raise ArchiveExtractionMemberError("entry.txt", "output/entry.txt", "injected partial write", partial_output=True)
         if self.fault == AdapterFault.CANCELLATION:
             raise ArchiveExtractionCancelled()
         if self.fault == AdapterFault.SOURCE_CHANGED:

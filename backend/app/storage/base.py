@@ -1,7 +1,7 @@
 from abc import ABC, abstractmethod
 from collections.abc import AsyncIterator
 from datetime import datetime
-from typing import BinaryIO, Callable, Optional, Protocol
+from typing import Awaitable, BinaryIO, Callable, Optional, Protocol
 
 from app.models.file import DirectoryListing, FileInfo
 
@@ -307,8 +307,29 @@ class StorageBackend(ABC):
 
         Raises:
             FileExistsError: If the destination already exists and
-                *overwrite* is ``False``.
+                *overwrite* is ``False``. Archive destinations use the
+                ``TargetExistsBeforeContent`` subtype only when no input chunk
+                has been accepted.
             OSError: If the write operation fails.
+        """
+
+        pass
+
+    @abstractmethod
+    async def stage_and_commit_new_file_from_stream(
+        self,
+        path: str,
+        stream: AsyncIterator[bytes],
+        *,
+        before_commit: Callable[[], Awaitable[None]],
+        on_progress: ProgressCallback | None = None,
+        source_mtime: datetime | None = None,
+    ) -> int:
+        """Stage one stream and atomically publish it only to a missing target.
+
+        Implementations must own and clean up the private stage on every
+        failure. A target appearance during final publication raises
+        ``FileExistsError`` without modifying the visible target.
         """
 
         pass

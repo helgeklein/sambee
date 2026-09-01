@@ -340,12 +340,15 @@ def apply_existing_file_decision(
         if not isinstance(decisions, dict):
             raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="Archive operation checkpoint is invalid")
         if action == "rename":
-            if not _is_safe_relative_target_path(target_path):
+            if not isinstance(target_path, str) or not _is_safe_relative_target_path(target_path):
                 raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_CONTENT, detail="Archive rename target path is invalid")
             rename_targets = decisions.get("rename_targets")
             if not isinstance(rename_targets, dict):
                 raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="Archive operation checkpoint is invalid")
-            rename_targets[member_path] = target_path
+            if conflict.get("is_directory") is True:
+                rebase_directory_rename_targets(operation, rename_targets, member_path, conflict.get("target_path"), target_path)
+            else:
+                rename_targets[member_path] = target_path
         else:
             member_actions = decisions.get("collision_actions")
             if not isinstance(member_actions, dict):
@@ -382,6 +385,35 @@ def _is_safe_relative_target_path(target_path: object) -> bool:
         return False
     normalized = target_path.replace("\\", "/")
     return not normalized.startswith("/") and all(part not in {"", ".", ".."} for part in normalized.split("/"))
+
+
+def rebase_directory_rename_targets(
+    operation: ArchiveOperation,
+    rename_targets: dict[str, object],
+    directory_path: str,
+    collision_target_path: object,
+    replacement_path: str,
+) -> None:
+    """Preserve descendant target suffixes when renaming a collided logical directory."""
+
+    if not isinstance(collision_target_path, str):
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="Archive operation collision is invalid")
+    destination_root = operation.destination_path.replace("\\", "/").strip("/")
+    collision_prefix = f"{destination_root}/"
+    if not destination_root or not collision_target_path.startswith(collision_prefix):
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="Archive operation collision is invalid")
+    collided_directory = collision_target_path.removeprefix(collision_prefix)
+    if not _is_safe_relative_target_path(collided_directory):
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="Archive operation collision is invalid")
+    for source_path, existing_target in list(rename_targets.items()):
+        if (
+            source_path.startswith(f"{directory_path}/")
+            and isinstance(existing_target, str)
+            and (existing_target == collided_directory or existing_target.startswith(f"{collided_directory}/"))
+        ):
+            suffix = existing_target.removeprefix(collided_directory).lstrip("/")
+            rename_targets[source_path] = replacement_path if not suffix else f"{replacement_path}/{suffix}"
+    rename_targets[directory_path] = replacement_path
 
 
 def _apply_member_error_decision(

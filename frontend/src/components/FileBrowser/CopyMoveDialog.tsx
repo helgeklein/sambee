@@ -8,33 +8,16 @@
  *
  * Shows a confirmation dialog when the user presses F5 (copy) or F6 (move)
  * in dual-pane mode. Shows the destination inline for single-item operations
- * and in a read-only code-style field for multi-item operations. Single-item
+ * and in a read-only field for multi-item operations. Single-item
  * operations also provide an editable new-name field.
- *
- * For multi-file operations, a pre-flight "overwrite strategy" selector
- * lets the user choose how to handle destination conflicts before the
- * operation begins:
- *   - Ask for each file (default / safest)
- *   - Replace all existing files
- *   - Skip all existing files
+ * Existing-target conflicts are resolved individually by the shared
+ * overwrite-resolution dialog after they occur.
  *
  * The dialog calls the backend API for each item sequentially, showing
  * progress. Both panes refresh via WebSocket after completion.
  */
 
-import {
-  Alert,
-  Box,
-  Button,
-  CircularProgress,
-  FormControl,
-  FormControlLabel,
-  LinearProgress,
-  Radio,
-  RadioGroup,
-  TextField,
-  Typography,
-} from "@mui/material";
+import { Alert, Box, Button, CircularProgress, LinearProgress, TextField, Typography } from "@mui/material";
 import type React from "react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Trans } from "react-i18next";
@@ -55,15 +38,6 @@ import { validateItemName } from "./nameDialogStrings";
 /** Whether the dialog is being used for a copy or move operation. */
 export type CopyMoveMode = "copy" | "move";
 
-/**
- * Pre-flight strategy for handling destination conflicts.
- *
- * - ``ask``         — pause on each conflict and prompt the user (default)
- * - ``replace-all`` — silently overwrite every conflicting destination
- * - ``skip-all``    — silently skip every conflicting file
- */
-export type OverwriteStrategy = "ask" | "replace-all" | "skip-all";
-
 export interface CopyMoveDialogProps {
   /** Whether the dialog is open. */
   open: boolean;
@@ -75,8 +49,8 @@ export interface CopyMoveDialogProps {
   destinationLabel: string;
   /** Whether the source and destination locations are the same. */
   isSameDirectory: boolean;
-  /** Called when the user confirms with an optional renamed file name and overwrite strategy. */
-  onConfirm: (destFileName: string | undefined, overwriteStrategy: OverwriteStrategy) => void;
+  /** Called when the user confirms with an optional renamed file name. */
+  onConfirm: (destFileName: string | undefined) => void;
   /** Called when the user cancels. */
   onCancel: () => void;
   /** Whether an operation is currently in progress. */
@@ -134,7 +108,6 @@ const CopyMoveDialog: React.FC<CopyMoveDialogProps> = ({
   const isCopy = mode === "copy";
   const initialFileName = isSingleItem && isCopy && isSameDirectory ? suggestCopyFileName(originalFileName) : originalFileName;
   const [destFileName, setDestFileName] = useState(initialFileName);
-  const [overwriteStrategy, setOverwriteStrategy] = useState<OverwriteStrategy>("ask");
   const inputRef = useRef<HTMLInputElement>(null);
   const confirmButtonRef = useRef<HTMLButtonElement>(null);
 
@@ -142,7 +115,6 @@ const CopyMoveDialog: React.FC<CopyMoveDialogProps> = ({
   useEffect(() => {
     if (open) {
       setDestFileName(initialFileName);
-      setOverwriteStrategy("ask");
       // Focus the filename input for single-item, or the confirm
       // button for multi-item.  requestAnimationFrame lets the MUI
       // Dialog finish its own focus-trap setup first.
@@ -188,9 +160,9 @@ const CopyMoveDialog: React.FC<CopyMoveDialogProps> = ({
     if (canConfirm) {
       // Pass renamed file name only if it was changed for single-item operations
       const renamedFileName = isSingleItem && destFileName !== originalFileName ? destFileName : undefined;
-      onConfirm(renamedFileName, overwriteStrategy);
+      onConfirm(renamedFileName);
     }
-  }, [canConfirm, destFileName, originalFileName, isSingleItem, onConfirm, overwriteStrategy]);
+  }, [canConfirm, destFileName, originalFileName, isSingleItem, onConfirm]);
 
   const handleKeyDown = useMemo(() => dialogEnterKeyHandler(canConfirm ? handleConfirm : undefined), [canConfirm, handleConfirm]);
 
@@ -218,39 +190,13 @@ const CopyMoveDialog: React.FC<CopyMoveDialogProps> = ({
           </SettingsFormGroup>
         </SettingsFormSurface>
       ) : (
-        <>
-          <SettingsFormSurface>
-            <SettingsFormGroup>
-              <SettingsFormRow sx={{ display: { md: "block" } }}>
-                <DialogReadOnlyField ariaLabel={S.LABEL_DESTINATION} value={destinationLabel} codeBlock showFormSurface />
-              </SettingsFormRow>
-            </SettingsFormGroup>
-          </SettingsFormSurface>
-          <SettingsFormSurface>
-            <SettingsFormGroup>
-              <SettingsFormRow sx={{ display: { md: "block" } }}>
-                <FormControl disabled={isProcessing}>
-                  <Typography variant="body2" sx={{ mb: 1, color: "text.secondary" }}>
-                    {S.OVERWRITE_STRATEGY_LABEL}
-                  </Typography>
-                  <RadioGroup
-                    value={overwriteStrategy}
-                    onChange={(event) => setOverwriteStrategy(event.target.value as OverwriteStrategy)}
-                    sx={{
-                      "& .MuiFormControlLabel-root": { minHeight: 28, my: 0 },
-                      "& .MuiFormControlLabel-label": { fontSize: "0.875rem", lineHeight: 1.43 },
-                      "& .MuiRadio-root": { p: 0.5 },
-                    }}
-                  >
-                    <FormControlLabel value="ask" control={<Radio size="small" />} label={S.OVERWRITE_STRATEGY_ASK} />
-                    <FormControlLabel value="replace-all" control={<Radio size="small" />} label={S.OVERWRITE_STRATEGY_REPLACE_ALL} />
-                    <FormControlLabel value="skip-all" control={<Radio size="small" />} label={S.OVERWRITE_STRATEGY_SKIP_ALL} />
-                  </RadioGroup>
-                </FormControl>
-              </SettingsFormRow>
-            </SettingsFormGroup>
-          </SettingsFormSurface>
-        </>
+        <SettingsFormSurface>
+          <SettingsFormGroup>
+            <SettingsFormRow sx={{ display: { md: "block" }, py: 0 }}>
+              <DialogReadOnlyField ariaLabel={S.LABEL_DESTINATION} value={destinationLabel} showFormSurface />
+            </SettingsFormRow>
+          </SettingsFormGroup>
+        </SettingsFormSurface>
       )}
 
       {!isSingleItem ? (

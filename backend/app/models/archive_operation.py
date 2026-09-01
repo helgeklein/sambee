@@ -217,6 +217,7 @@ class ArchiveCompanionExtractionCollision(ArchiveV2Payload):
 
     member_path: str = Field(min_length=1)
     is_directory: bool
+    target_path: str | None = Field(default=None, min_length=1)
     target_size: int | None = Field(default=None, ge=0)
     target_modified_at: datetime | None = None
 

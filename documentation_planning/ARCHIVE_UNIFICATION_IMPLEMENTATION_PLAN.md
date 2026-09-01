@@ -640,6 +640,446 @@ Acceptance criteria:
   execution, while single-member reads remain request-scoped.
 - V2 fixtures and terminal operation reads use only documented error codes.
 
+### 9. Centralize Extraction Target-Write Resolution
+
+Extraction target collisions currently require native detection at separate SMB
+and local write boundaries, but their policy semantics must not be independently
+implemented. The desired design is one versioned target-write decision contract,
+one pure policy reducer in each runtime, and one local-output controller for
+all Companion local destinations. This phase replaces the temporary duplicated
+late-race branches; it does not add a generic filesystem abstraction or change
+the V2 decision payload.
+
+#### Normative Semantics
+
+`replace_older` is an operation-wide conditional policy, not a request to keep
+asking for each existing target. For a regular target file:
+
+| Persisted decision | Fresh target state | Result |
+| --- | --- | --- |
+| No decision | Existing file | Pause for overwrite resolution |
+| Skip or Skip all | Existing file | Record skipped member |
+| Replace or Replace all | Existing file | Replace target |
+| Replace only older | Source strictly newer | Replace target |
+| Replace only older | Target newer, equal, or timestamp incomparable | Record skipped member |
+| Any file policy | Missing target | Create target exclusively |
+| Any file policy | Directory or non-regular target | Pause for overwrite resolution |
+
+An exclusive-create `FileExistsError` or `AlreadyExists` is not a member error.
+The destination adapter maps it to a typed `TargetExistsBeforeContent`
+observation only when no content byte was accepted. The controller re-observes
+the target, applies this table, and either skips, replaces, creates, or pauses.
+A target that disappears before re-observation retries exclusive creation.
+Limit repeated re-observation and replacement to one retry per member attempt;
+a second unresolved create race pauses for a new overwrite decision. Do not
+persist partial output until a writer has accepted at least one content byte.
+
+#### Shared Contract
+
+1. Add `archive-contract/v2/fixtures/target-write-resolution-scenarios-v2.json`.
+   Each case contains a normalized member timestamp, persisted resolution,
+   fresh target kind and timestamp, attempt ordinal, and expected disposition:
+   `create_new`, `replace_existing`, `skip`, or `await_collision`.
+2. Include cases for preflight and post-open races: unknown timestamps, equal
+   timestamps, a newer target, an older target, a target that disappears,
+   target file-to-directory changes, and a second exclusive-create race.
+3. Keep the existing external V2 strings (`skip_all`, `replace_all`, and
+   `replace_older`) for requests and checkpoints. Normalize them only after
+   checkpoint validation into typed runtime values. The decision reducer must
+   never accept unvalidated strings.
+4. Both Python and Rust run this corpus directly. The existing topology trace
+   corpus adds one late-create case for each extraction topology, verifying the
+   actual owning executor uses the common disposition.
+
+#### Runtime Policy Model
+
+Define equivalent internal types in Python and Rust:
+
+```text
+ResolvedCollisionPolicy = Ask | Skip | Replace | ReplaceOlder
+TargetSnapshot = Missing | RegularFile { size, modified_at } | Other { kind, size?, modified_at? }
+TargetWriteDisposition = CreateNew | ReplaceExisting | Skip | AwaitCollision
+TargetWriteAttempt = Ready | TargetExistsBeforeContent | Failure
+```
+
+The reducer is pure. It receives a validated policy, member modification time,
+and `TargetSnapshot`; it neither performs I/O nor persists a checkpoint. It
+returns `AwaitCollision` with the snapshot needed to build the existing-files
+payload. Rename remains a target-path transformation before this reducer runs.
+
+#### Python Refactor
+
+1. Add a narrow archive extraction target-policy module. Move the current
+   `_resolution_for_existing_file`, timestamp comparison, and conflict metadata
+   projection out of the direct extractor into this module.
+2. Make the direct SMB extractor call the same reducer for preflight and after
+   `FileExistsError`. Its write controller receives a restartable ZIP-entry
+   stream factory, so it can safely retry the one permitted replacement attempt.
+3. Refactor the local-to-SMB relay endpoint to use the same policy controller,
+   instead of separately comparing timestamps and broadly pausing on
+   `FileExistsError`.
+4. Add a typed `TargetExistsBeforeContent` result at the archive destination
+   adapter boundary. The SMB writer maps a native `FileExistsError` to it only
+   before consuming an input chunk and proves that rule in tests. This allows
+   the relay endpoint to retry its request stream only when the policy reducer
+   authorizes replacement; a collision after bytes are accepted remains a real
+   member failure.
+5. The backend coordinator remains the sole authority for durable collision
+   pauses and terminal member-outcome persistence. The target-policy module
+   returns facts and dispositions, not HTTP responses or state transitions.
+
+#### Companion Refactor
+
+1. Move `LocalArchiveExtractionCollisionAction` into a shared extraction-policy
+   vocabulary. Convert `ArchiveExtractionRelayExecutionPlan` from raw action
+   strings to this validated type when it parses checkpoint state.
+2. Add one local target-output controller in `archive.rs`. It owns local
+   `symlink_metadata`, policy reduction, secure parent revalidation, exclusive
+   open, replacement removal, and the bounded late-race retry. It returns a
+   ready file, skip disposition, collision snapshot, or non-collision I/O
+   failure; it does not update a checkpoint or send a relay request.
+3. Make both direct-local extraction and SMB-to-local relay invoke this
+   controller. Direct-local records its in-memory outcome or session pause;
+   the relay reports the resulting completion or collision through its existing
+   backend messages.
+4. Remove the current duplicated `replace_older` comparisons, raw string
+   matching, `AlreadyExists` branches, and duplicate retry-open sequences from
+   the direct and relay loops.
+
+#### Delivery And Tests
+
+1. Land the corpus and pure reducer tests first in both runtimes.
+2. Refactor Python direct SMB extraction, then local-to-SMB relay. Test that a
+   late older target is overwritten, a late newer target is skipped, and a
+   late unresolved target pauses without creating a partial outcome.
+3. Refactor the shared Rust local-output controller, then migrate direct-local
+   and SMB-to-local execution. Test the same cases with deterministic local
+   target changes.
+4. Add topology-harness cases for SMB-to-SMB, local-to-local, SMB-to-local,
+   and local-to-SMB. Assert identical normalized dispositions and durable
+   outcome/pause traces.
+5. Retain explicit tests for non-existence failures: permission, read,
+   integrity, capacity, flush, and post-byte write errors must continue to
+   produce member recovery rather than collision resolution.
+
+Acceptance criteria:
+
+- No production extraction loop compares `replace_older` timestamps or matches
+  raw collision-policy strings directly.
+- Direct-local and SMB-to-local use the same local-output controller.
+- Direct SMB and local-to-SMB use the same Python target-policy reducer and
+   typed pre-consumption target-exists contract.
+- Every topology produces the same disposition for the shared target-write
+  corpus, including late target appearance and bounded repeated races.
+- Existing frontend overwrite and member-recovery contracts remain unchanged.
+
+### 10. Reuse Target Resolution For File Copy And Move
+
+> **Status: deferred.** The implementation scope in this section is superseded
+> by `PHASE_10_TRANSFER_STABILIZATION_PLAN.md`. Treat the remainder of this
+> section as a future cross-owner-transfer proposal; do not implement it unless
+> that deferred feature receives separate product approval.
+
+Extend the Phase 9 target-resolution semantics to ordinary **file** copy and
+move without making archive extraction the owner of transfer behavior. The
+shared part is deliberately small: a fresh target observation and a pure
+decision choose create, replace, skip, or a refreshed conflict. Archive
+extraction, file copy, and file move retain their own source reading,
+staging-and-commit, progress, recovery, and cleanup rules.
+
+The current implementation has two independent and stale policy owners: the
+browser compares timestamps from a `409` response, while backend and Companion
+copy/move endpoints accept only `overwrite: bool`. Mixed SMB/local transfers
+can also pass file bytes through the browser. This phase makes the resolved
+**target owner** authoritative for target policy and commit in every topology.
+The browser supplies a user choice, starts one transfer, and presents factual
+results. It neither compares timestamps nor relays content nor deletes a move
+source after a destination request.
+
+#### Preconditions: Prove Safe Commit First
+
+1. Before changing the overwrite API or enabling replacement, perform a bounded
+   feasibility spike for each local and SMB target adapter. It must identify a
+   native primitive that can atomically create a missing target and conditionally
+   replace the exact regular target observed by the attempt. Test it against a
+   concurrent target replacement and a file-to-directory change.
+2. Record the result as a target-adapter capability. `replace` and
+   `replace_older` are enabled only where guarded replacement is proven. On an
+   adapter without that capability, an existing regular target remains a
+   refreshed conflict; it is never deleted as an approximation of replacement.
+   `skip`, `rename`, and missing-target creation remain available.
+3. Do not retain or introduce `exists -> delete -> copy/rename` on an enabled
+   replacement path. The current delete-before-copy and delete-before-rename
+   implementations are migration targets, not an acceptable fallback. A failed
+   capability spike narrows the UI/actions for that adapter; it does not weaken
+   the safety rule.
+4. Reuse the generic parts of the existing archive scoped-capability and relay
+   authorization infrastructure for mixed transfers. Add transfer-specific
+   topology bindings and claims only; do not create a second capability issuer,
+   token format, relay client, or operation-lifecycle framework.
+
+#### Scope And Normative Semantics
+
+1. The regular-file transfer coordinator accepts a validated regular-file source
+   only. It rejects another source kind at its constructor boundary. Directory
+   copy/move remains on a separate route with root-level skip-or-rename handling;
+   it must never invoke the regular-file policy controller for the root or any
+   descendant.
+2. The file policy is `Ask`, `Skip`, `Replace`, or `ReplaceOlder`; rename
+   transforms the target path before observation. A regular target resolves to
+   the same Phase 9 dispositions: `CreateNew`, `ReplaceExisting`, `Skip`, or
+   `AwaitCollision`. `Ask`, or any non-regular target, returns a refreshed
+   conflict.
+3. `ReplaceOlder` replaces only when the source snapshot is strictly newer than
+   the freshly observed regular target. Equal, missing, or incomparable times
+   skip. `Skip` is a successful, non-mutating outcome. The shared reducer owns
+   this comparison; no handler, adapter, or frontend duplicates it.
+4. One `ContentTransferPlan` has at most two internal target-mutation attempts.
+   A typed pre-mutation collision causes one fresh observation and reduction;
+   the second unresolved collision returns `AwaitCollision` with current facts.
+   A user submission after any response is a new plan with a new two-attempt
+   allowance. A transport retry uses the same idempotency key, not a new plan.
+5. A move commits the destination before deleting the source. Skip, conflict,
+   cancellation, source change, stage failure, or destination-commit failure
+   leaves the source intact. If guarded source deletion fails after a commit, the
+   result is `completed_with_source_retained`, with destination mutated and
+   source unchanged; it is not an ordinary successful move or a reason to retry
+   automatically.
+6. This phase is request-scoped and does not create archive checkpoints or make
+   transfers resumable. A target owner retains an expiring idempotency receipt
+   only to replay the factual result after a lost response. When that receipt is
+   unavailable, a client treats the transfer outcome as unknown, refreshes both
+   locations, and never automatically re-executes a move.
+
+#### Shared Target-Resolution Module
+
+1. Keep the existing versioned Phase 9 corpus in `archive-contract/v2`, but
+   promote its normative section and fixture namespace to **content target
+   resolution**. Archive extraction and transfer cases share this one corpus;
+   do not create a separately versioned contract lifecycle for this small common
+   vocabulary.
+2. Define matching internal types in Python and Rust:
+
+   ```text
+   TargetResolutionPolicy = Ask | Skip | Replace | ReplaceOlder
+   TargetSnapshot = Missing | RegularFile { size, modified_at } | Other { kind, size?, modified_at? }
+   TargetResolutionDisposition = CreateNew | ReplaceExisting | Skip | AwaitCollision
+   TargetMutationAttempt = Committed { replaced } | TargetExistsBeforeMutation | Failure
+   ```
+
+   `TargetSnapshot` is public policy/dialog data. A runtime target observation
+   also includes an adapter-private identity guard used solely by guarded commit;
+   neither the browser nor another runtime supplies that guard.
+3. Move the Phase 9 policy vocabulary, timestamp comparison, and pure reducer
+   from archive-named Python and Rust modules into one operation-neutral module
+   per runtime. Archive extraction, copy, and move import it. The TypeScript
+   client defines only the matching request/result vocabulary; it must not
+   implement the reducer or timestamp comparison.
+4. Add one `resolve_target_mutation_attempt()` controller per runtime. It owns
+   only this sequence: observe, reduce, invoke a fresh authorized attempt,
+   re-observe once after `TargetExistsBeforeMutation`, and return factual final
+   disposition/target/replacement data. It does not authenticate, construct HTTP
+   responses, stage bytes, calculate progress, update caches/checkpoints, or
+   delete sources.
+5. The controller accepts an **attempt factory**, not a reusable mutation
+   callback. Every call must allocate a fresh owned stage and obtain a fresh,
+   snapshot-validated source reader; it must close and discard those resources
+   on any non-committed result. This makes its bounded retry well-defined for
+   archive entry streams and ordinary cross-provider file streams.
+6. Refactor the archive stream controller into a thin caller of this controller.
+   It adapts `TargetExistsBeforeContent` to `TargetExistsBeforeMutation`,
+   provides a restartable ZIP-entry reader, and retains only archive-specific
+   accepted-byte, partial-output, and member-recovery facts.
+
+#### Transfer Plan, Source Proof, And Target Ownership
+
+1. Define immutable runtime `ContentTransferPlan` values in Python and Rust.
+   Each holds operation kind, a validated regular-file source snapshot, target
+   path, policy, source binding, target binding, cancellation context, and an
+   idempotency key. The browser has a typed transfer request/result, not a local
+   copy of the runtime plan or its private bindings/guards.
+2. A source snapshot is immutable plan data, not a claim that a filesystem object
+   cannot change. It contains canonical path, size, modification time, and the
+   provider's strongest stable revision/identity guard. The source binding must:
+   validate the snapshot before opening every reader; stream exactly one bounded
+   reader per attempt; verify the snapshot before target commit and move deletion;
+   and report `source_changed` when it cannot prove a match. Providers lacking a
+   sufficiently strong identity/consistency primitive must document and expose a
+   safe failure, not silently treat browser metadata as proof.
+3. For mixed transfers, the source owner snapshots and authorizes the source
+   during plan preparation. Its existing-style short-lived scoped capability
+   binds transfer kind, topology, source identity, target scope, expiry, and
+   idempotency key. The target owner validates it and opens a bounded relay reader
+   for each attempt. It never trusts browser-supplied size, timestamp, identity,
+   or target facts.
+4. Resolve each plan to its target-owning coordinator:
+   - SMB -> SMB: backend coordinator with SMB source and target bindings;
+   - local -> local: Companion coordinator with local source and target bindings;
+   - SMB -> local: Companion coordinator with backend relay source and local target;
+   - local -> SMB: backend coordinator with Companion relay source and SMB target.
+5. The target owner runs the shared controller and guarded target attempt. Only
+   after a committed move does it request `delete_if_matches(source_snapshot)`
+   through the source binding. This replaces browser blob download/upload and
+   browser-issued source deletion without adding a generic filesystem interface.
+
+#### Narrow Transfer Adapters And Guarded Commit
+
+1. Define transfer-specific bindings, not a generic local/SMB filesystem API:
+
+   ```text
+   SourceBinding: snapshot -> fresh_reader(snapshot) -> verify(snapshot) -> delete_if_matches(snapshot)
+   TargetBinding: observe -> begin_owned_stage -> write/verify/flush -> guarded_commit(observation) -> discard_stage
+   ```
+
+   Each method has operation-specific Python/Rust types and transport errors;
+   the shape describes ownership only and does not erase SMB/local differences.
+2. The attempt factory runs only for `CreateNew` or `ReplaceExisting`. It obtains
+   a fresh source reader after authorization, writes to a uniquely named,
+   exclusively owned stage, checks accepted-byte count and required integrity,
+   re-verifies the source snapshot, then asks the target binding to commit. A
+   read, write, verification, flush, lock, or stage-cleanup error is a transfer
+   failure, never an overwrite conflict.
+3. Guarded commit means exactly one of: atomically create a missing target, or
+   atomically replace the same regular target represented by the private
+   observation guard. A changed, vanished-on-replace, non-regular, or newly
+   colliding target returns `TargetExistsBeforeMutation` when safe to re-observe;
+   a distinct platform error remains an I/O failure. Staging and final commit are
+   distinct terms from the user-visible copy operation.
+4. An adapter owns and removes only its own stage. Cancellation, source change,
+   or any failed attempt discards that stage and leaves visible source and target
+   paths unchanged. Progress counts destination bytes accepted into the stage;
+   skips and pre-mutation collisions report no transfer progress. `replaced` is
+   true only after a guarded commit actually replaced the observed target.
+5. A same-owner move may use native conditional rename only after it passes the
+   guarded-commit capability tests. Otherwise it uses the staged-commit pattern
+   followed by guarded source deletion. Cross-owner moves always use staged
+   commit followed by guarded source deletion.
+
+#### Wire Contract, Idempotency, And Frontend
+
+1. Replace boolean `CopyMoveRequest.overwrite` with the exact validated field
+   `target_resolution_policy: ask | skip | replace | replace_older` in backend
+   and Companion schemas. During a bounded migration, accept legacy `overwrite`
+   only when the policy is absent, normalize once at the boundary, and reject
+   conflicting values. Bulk strings never cross this wire.
+2. Keep copy/move routes as thin compatibility entries if needed, but both must
+   construct the same runtime plan and invoke the same coordinator. Return one
+   typed result with factual effects:
+
+   ```text
+   ContentTransferResult =
+     Completed { replaced, effects }
+     | Skipped { effects: unchanged }
+     | CompletedWithSourceRetained { replaced, effects, error }
+       | OutcomeUnknown { effects: unknown }
+     | Failed { code, effects }
+     | Cancelled { effects }
+   ```
+
+   `AwaitCollision` maps to the existing `409 ConflictInfo` during migration;
+   it contains the controller's final observation. Every request supplies an
+   idempotency key. Repeating the same key receives its retained result, while a
+   new key is a new plan and never assumes prior staged or move state.
+3. Make `apply to all` a frontend choice for later independent files in the
+   current batch. Each file sends one normalized policy and records its own
+   result. Known failure, skip, or `completed_with_source_retained` outcomes are
+   summarized and do not become hidden retries; remaining independent files may
+   continue under the selected policy unless the user cancels. An unknown result
+   stops automatic processing and refreshes source and target listings.
+4. Add matching TypeScript policy, request, idempotency, and result types to the
+   storage contracts. Refactor the content-operation layer to use one transfer
+   starter that resolves the target owner; remove browser blob download/upload,
+   browser source delete, local timestamp comparison, and boolean-overwrite
+   branching. API client wrappers remain transport-only.
+5. Keep the shared overwrite dialog limited to collecting a policy or renamed
+   target and displaying a refreshed conflict. Directory refresh and cache
+   invalidation consume factual mutation effects only. Skipped, conflict,
+   cancelled, unknown, and source-retained outcomes are never displayed or
+   cached as an ordinary completed move.
+
+#### Code Migration
+
+1. Promote the existing Phase 9 target-resolution fixture/module in place. Move
+   the operation-neutral Python core out of
+   `backend/app/services/archive/target_write.py` and the Rust core out of
+   `companion/src-tauri/src/server/archive.rs` into runtime-neutral
+   target-resolution modules; retain archive files as thin adapters without
+   changing archive payloads or behavior.
+2. Run the guarded-commit feasibility spike and add explicit local/SMB adapter
+   capability tests. Do not expose `replace` or `replace_older` for copy/move
+   until each enabled target adapter passes them.
+3. Add backend and Companion content-transfer coordinator modules next to their
+   current browser/archive server services. Make `backend/app/api/browser.py`
+   and `companion/src-tauri/src/server/handlers.rs` thin authentication and
+   plan-construction entries. Route directory sources before regular-file plan
+   construction and retain their separate narrow behavior.
+4. Extract generic scoped relay authorization from the archive implementation,
+   add transfer binding values, and introduce bounded source-reader and guarded
+   source-delete relay actions. Migrate SMB -> local and local -> SMB to their
+   target owner, then remove browser-mediated transfer bytes and source deletes.
+5. Add source/target transfer bindings around
+   `backend/app/services/cross_connection.py`, `backend/app/storage/base.py`,
+   `backend/app/storage/smb.py`, and the Companion local transfer helpers;
+   retire delete-before-copy/rename only after guarded staging/commit passes.
+   Migrate same-owner copy/move through the coordinator, then cross-owner paths.
+6. Migrate the frontend types in `frontend/src/services/storageContracts.ts`,
+   routing in `frontend/src/pages/FileBrowser/contentOperations.ts`, transport
+   in `frontend/src/services/api.ts` and `frontend/src/services/storageBackends.ts`,
+   and batch presentation in `frontend/src/pages/FileBrowser.tsx`. Remove client
+   timestamp decisions, legacy overwrite handling, and obsolete browser
+   direct/cross-backend transfer paths.
+
+#### Delivery And Tests
+
+1. Run the shared target-resolution corpus in Python and Rust through archive
+   and transfer callers. Cover missing, regular, non-regular, equal/newer/
+   incomparable times, renamed targets, target disappearance, first late
+   collision, and second unresolved collision.
+2. Prove every enabled target adapter's guarded create/replace capability with
+   real concurrent target replacement, target-kind change, lock, and cancellation
+   tests. An adapter that fails this gate must expose only its safe policy set;
+   no test may permit a delete-then-commit replacement fallback.
+3. Add deterministic coordinator tests for fresh attempt factories, a fresh
+   source reader per internal retry, source snapshot validation before read/commit/
+   delete, no source read before authorization, stage cleanup, factual replacement,
+   idempotency replay, unavailable receipt/unknown outcome, and guarded source
+   deletion.
+4. Add actual coordinator traces for SMB -> SMB, local -> local, SMB -> local,
+   and local -> SMB. Mixed traces use the existing-style passive bounded relay,
+   scoped capability validation, and target-owner execution; they prove no
+   frontend stream/delete path remains.
+5. Retain tests for directories, permission, timeout, read, write, integrity,
+   flush, lock, transport, source change, cancellation, and source-delete
+   failure. Add API/schema tests for legacy normalization, conflicting policy
+   rejection, final-observation `409`, and typed effects. Add frontend batch,
+   unknown-result, and cache-effect tests.
+6. Run backend archive/browser tests, Companion server tests, frontend tests and
+   lint, target-resolution corpus, transfer and archive topology-conformance
+   gates, mypy, strict Clippy, Rustfmt, diagnostics, and `git diff --check`.
+
+Acceptance criteria:
+
+- Archive extraction, regular-file copy, and regular-file move share one
+  operation-neutral target-resolution vocabulary, timestamp comparison, pure
+  reducer, corpus, and bounded late-collision controller in each runtime.
+- Replacement is enabled only for target adapters that prove guarded commit.
+  No production replacement path uses `exists -> delete -> copy/rename`; an
+  unproven adapter returns a refreshed conflict without mutating either path.
+- The target owner, never the frontend, resolves policy and commits output for
+  all four regular-file transfer topologies. Mixed flows reuse scoped relay
+  authorization and receive source-owner-issued snapshots/readers.
+- Every attempt owns fresh source-reader and staging resources, proves source
+  identity before commit and move deletion, cleans up only its own stage, and
+  preserves visible paths on every non-committed outcome.
+- Typed results and idempotency receipts distinguish completed, skipped,
+  refreshed conflict, cancelled, failed, unknown, and destination-committed/
+  source-retained outcomes. The frontend applies cache effects only to factual
+  known outcomes and never silently retries a move.
+- Directory paths remain explicitly outside the regular-file controller with
+  root-level skip-or-rename behavior and no recursive file-policy propagation.
+- Guarded-commit, source-proof, relay, and actual-owner tests prove the four
+  transfer topologies while the existing Phase 9 archive behavior remains green.
+
 ## Validation Order For Every Phase
 
 1. Add or revise language-neutral corpus cases before changing coordinators.

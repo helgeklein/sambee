@@ -1,6 +1,7 @@
 """Round-trip tests for direct portable ZIP creation."""
 
 import io
+import logging
 import struct
 import zipfile
 from collections.abc import AsyncIterator
@@ -28,6 +29,28 @@ class MemoryExclusiveWriter:
     async def abort_and_delete_if_owned(self) -> bool:
         self.data.clear()
         return False
+
+
+class CountingExclusiveWriter(MemoryExclusiveWriter):
+    def __init__(self) -> None:
+        super().__init__()
+        self.write_sizes: list[int] = []
+
+    async def write(self, data: bytes) -> int:
+        self.write_sizes.append(len(data))
+        return await super().write(data)
+
+    @property
+    def write_count(self) -> int:
+        return len(self.write_sizes)
+
+
+class ShortWritingExclusiveWriter(CountingExclusiveWriter):
+    async def write(self, data: bytes) -> int:
+        written = max(1, len(data) // 2)
+        self.write_sizes.append(written)
+        self.data.extend(data[:written])
+        return written
 
 
 class MemoryCreationBackend:
@@ -137,6 +160,65 @@ async def test_writes_zip64_records_when_the_local_header_offset_requires_them()
     assert b"PK\x06\x06" in target.data
     assert b"PK\x06\x07" in target.data
     assert target.data[-22:-18] == b"PK\x05\x06"
+
+
+@pytest.mark.asyncio
+async def test_coalesces_local_and_central_directory_metadata_writes() -> None:
+    target = CountingExclusiveWriter()
+    writer = PortableZipWriter(target)
+
+    await writer.add_directory("first")
+    await writer.add_directory("second")
+    await writer.add_directory("third")
+    await writer.close()
+
+    assert target.write_sizes[:6] == [len(b"first/") + 30, 16, len(b"second/") + 30, 16, len(b"third/") + 30, 16]
+    assert target.write_sizes[-2] == 3 * 46 + len(b"first/second/third/")
+    assert target.write_sizes[-1] == 22
+    assert target.write_count == 8
+
+
+@pytest.mark.asyncio
+async def test_logs_aggregate_creation_metrics_without_member_name(caplog: pytest.LogCaptureFixture) -> None:
+    target = MemoryExclusiveWriter()
+    writer = PortableZipWriter(target)
+
+    with caplog.at_level(logging.INFO, logger="app.services.archive.telemetry"):
+        await writer.add_file("private-member.txt", _chunks(b"content"))
+        await writer.close()
+
+    message = next(record.getMessage() for record in caplog.records if "operation='archive_creation'" in record.getMessage())
+    assert "entry_count=1" in message
+    assert "metadata_write_operations=" in message
+    assert "write_operations=" in message
+    assert "private-member.txt" not in message
+
+
+@pytest.mark.asyncio
+async def test_coalesced_metadata_remains_valid_when_the_target_short_writes() -> None:
+    target = ShortWritingExclusiveWriter()
+    writer = PortableZipWriter(target)
+
+    await writer.add_directory("first")
+    await writer.add_directory("second")
+    await writer.close()
+
+    with zipfile.ZipFile(io.BytesIO(target.data)) as archive:
+        assert archive.namelist() == ["first/", "second/"]
+
+
+@pytest.mark.asyncio
+async def test_bounds_buffered_central_directory_write_size() -> None:
+    target = CountingExclusiveWriter()
+    writer = PortableZipWriter(target)
+
+    for index in range(5_000):
+        await writer.add_directory(f"directory-{index:04d}")
+    await writer.close()
+
+    with zipfile.ZipFile(io.BytesIO(target.data)) as archive:
+        assert len(archive.infolist()) == 5_000
+    assert max(target.write_sizes) <= 256 * 1024
 
 
 @pytest.mark.asyncio

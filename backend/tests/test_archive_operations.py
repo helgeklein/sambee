@@ -16,7 +16,7 @@ from fastapi import HTTPException, status
 from fastapi.testclient import TestClient
 from sqlmodel import select
 
-from app.api.archive_operations import _ensure_mixed_archive_parent_directories
+from app.api.archive_operations import ArchiveExtractionDirectoryCollision, _ensure_mixed_archive_parent_directories
 from app.core.security import create_access_token, decode_access_token
 from app.models.archive import ArchiveDirectoryListing, ArchiveIdentity
 from app.models.archive_operation import (
@@ -73,6 +73,7 @@ from app.services.archive.extraction import (
 )
 from app.services.archive.operation_monitor import expire_stale_archive_operations, expire_stale_archive_operations_and_cleanup
 from app.services.archive.state_store import ArchiveOperationStateStore
+from app.services.archive.target_write import TargetExistsBeforeContent, TargetWriteResult
 from app.services.archive.v2_checkpoint import new_v2_extraction_checkpoint
 
 
@@ -104,6 +105,21 @@ def configure_direct_extraction_archive(backend: AsyncMock, members: dict[str, b
         size=len(archive_bytes),
     )
     backend.open_random_access_reader.side_effect = lambda _path: MemoryRandomAccessReader(archive_bytes)
+
+
+def set_zip_central_directory_compression_method(archive_bytes: bytes, occurrence: int, compression_method: int) -> bytes:
+    """Set one test ZIP central-directory record's compression method without changing payload bytes."""
+
+    central_directory_signature = b"PK\x01\x02"
+    position = -1
+    for _ in range(occurrence + 1):
+        position = archive_bytes.find(central_directory_signature, position + 1)
+        if position < 0:
+            raise AssertionError("Test ZIP does not contain the requested central-directory record")
+    patched_bytes = bytearray(archive_bytes)
+    method_offset = position + 10
+    patched_bytes[method_offset : method_offset + 2] = compression_method.to_bytes(2, "little")
+    return bytes(patched_bytes)
 
 
 def completed_extraction_runner(
@@ -647,6 +663,34 @@ def test_in_memory_execution_store_serializes_typed_terminal_errors() -> None:
     }
 
 
+def test_in_memory_directory_rename_rebases_a_redirected_descendant_target() -> None:
+    manifest = ArchiveExtractionManifest.from_members([ArchiveExtractionManifestMember("docs/readme.txt", False, 6, None)])
+    checkpoint = new_v2_test_extraction_checkpoint(manifest)
+    checkpoint["decisions"]["rename_targets"] = {"docs/readme.txt": "replacement/custom.txt"}
+    operation = ArchiveOperation(
+        user_id=uuid.uuid4(),
+        kind=ArchiveOperationKind.EXTRACT,
+        phase=ArchiveOperationPhase.AWAITING_USER_DECISION,
+        destination_path="output",
+        checkpoint_json=json.dumps(checkpoint),
+        pending_decision_json=json.dumps(
+            existing_files_decision([ArchiveExtractionConflict("docs", "output/replacement", is_directory=True)])
+        ),
+    )
+
+    InMemoryArchiveExecutionStateStore().apply_extraction_decision(
+        operation,
+        "rename",
+        "docs",
+        "renamed-docs",
+    )
+
+    assert json.loads(operation.checkpoint_json)["decisions"]["rename_targets"] == {
+        "docs": "renamed-docs",
+        "docs/readme.txt": "renamed-docs/custom.txt",
+    }
+
+
 def test_relay_transfer_guard_transitions_a_cancelled_stream(session, regular_user) -> None:
     operation = ArchiveOperation(
         user_id=regular_user.id,
@@ -962,6 +1006,43 @@ def test_mixed_archive_parent_creation_rejects_target_outside_destination_root()
 
     assert exc_info.value.status_code == status.HTTP_422_UNPROCESSABLE_CONTENT
     backend.create_directory.assert_not_awaited()
+
+
+def test_mixed_archive_explicit_directory_accepts_an_existing_directory() -> None:
+    backend = AsyncMock()
+    backend.create_directory.side_effect = FileExistsError("output/docs")
+    backend.get_file_info.return_value = FileInfo(name="docs", path="output/docs", type=FileType.DIRECTORY)
+
+    created = asyncio.run(
+        _ensure_mixed_archive_parent_directories(
+            backend,
+            destination_root="output",
+            target_path="output/docs",
+            include_target=True,
+        )
+    )
+
+    assert created == 0
+    backend.create_directory.assert_awaited_once_with("output/docs")
+
+
+def test_mixed_archive_explicit_directory_repeated_race_is_a_collision() -> None:
+    backend = AsyncMock()
+    backend.create_directory.side_effect = FileExistsError("output/docs")
+    backend.get_file_info.side_effect = FileNotFoundError("output/docs")
+
+    with pytest.raises(ArchiveExtractionDirectoryCollision) as error:
+        asyncio.run(
+            _ensure_mixed_archive_parent_directories(
+                backend,
+                destination_root="output",
+                target_path="output/docs",
+                include_target=True,
+            )
+        )
+
+    assert error.value.path == "output/docs"
+    assert backend.create_directory.await_count == 2
 
 
 def test_prepare_read_and_cancel_archive_operation(
@@ -1489,6 +1570,7 @@ def test_companion_relay_writes_scoped_members_and_completes(
     backend.connect.return_value = None
     backend.disconnect.return_value = None
     backend.create_directory.return_value = None
+    backend.get_file_info.side_effect = FileNotFoundError
 
     async def write_member(_path, stream, **_kwargs):
         bytes_written = 0
@@ -1569,6 +1651,7 @@ def test_manifest_backed_companion_relay_requires_terminal_member_coverage(
     backend.connect.return_value = None
     backend.disconnect.return_value = None
     backend.create_directory.return_value = None
+    backend.get_file_info.side_effect = FileNotFoundError
     backend.write_file_from_stream.return_value = 5
 
     with patch("app.api.archive_operations.SMBBackend", return_value=backend):
@@ -1879,6 +1962,7 @@ def test_companion_local_relay_streams_smb_members_and_completes(
     archive_buffer = BytesIO()
     with ZipFile(archive_buffer, "w") as archive:
         archive.writestr("empty/", b"")
+        archive.writestr("readme.txt", b"discarded")
         archive.writestr("readme.txt", b"hello")
     archive_bytes = archive_buffer.getvalue()
     prepared = client.post(
@@ -1962,7 +2046,7 @@ def test_companion_local_relay_streams_smb_members_and_completes(
     assert checkpoint["manifest"] == manifest.json()["entries"]
 
 
-def test_companion_local_relay_fails_preflight_for_a_normalized_path_collision(
+def test_companion_local_relay_accepts_case_distinct_manifest_paths(
     client: TestClient,
     auth_headers_user: dict,
     test_connection: Connection,
@@ -1985,6 +2069,7 @@ def test_companion_local_relay_fails_preflight_for_a_normalized_path_collision(
         },
     ).json()
     capability = client.post(f"/api/archive/v2/operations/{prepared['id']}/companion-session", headers=auth_headers_user).json()
+    relay_headers = {"Authorization": f"Bearer {capability['token']}"}
     backend = AsyncMock()
     backend.connect.return_value = None
     backend.disconnect.return_value = None
@@ -1993,13 +2078,125 @@ def test_companion_local_relay_fails_preflight_for_a_normalized_path_collision(
     with patch("app.api.archive_operations.SMBBackend", return_value=backend):
         response = client.post(
             f"/api/archive/v2/operations/{prepared['id']}/relay/extraction/begin",
-            headers={"Authorization": f"Bearer {capability['token']}"},
+            headers=relay_headers,
+        )
+        paused = client.post(
+            f"/api/archive/v2/operations/{prepared['id']}/relay/extraction/member-collision",
+            headers=relay_headers,
+            json={"member_path": "report.txt", "is_directory": False, "target_path": "output/report.txt", "target_size": 6},
+        )
+        resumed = client.post(
+            f"/api/archive/v2/operations/{prepared['id']}/extraction/decision",
+            headers=auth_headers_user,
+            json={"action": "rename", "member_path": "report.txt", "target_path": "renamed-report.txt"},
+        )
+        first_complete = client.post(
+            f"/api/archive/v2/operations/{prepared['id']}/relay/extraction/member-complete",
+            headers=relay_headers,
+            json={
+                "member_path": "Report.txt",
+                "status": "extracted",
+                "target_path": "output/Report.txt",
+                "directories_created": 0,
+                "extracted_bytes": 5,
+                "replaced": False,
+                "renamed": False,
+            },
+        )
+        second_complete = client.post(
+            f"/api/archive/v2/operations/{prepared['id']}/relay/extraction/member-complete",
+            headers=relay_headers,
+            json={
+                "member_path": "report.txt",
+                "status": "extracted",
+                "target_path": "output/renamed-report.txt",
+                "directories_created": 0,
+                "extracted_bytes": 6,
+                "replaced": False,
+                "renamed": True,
+            },
+        )
+        completed = client.post(
+            f"/api/archive/v2/operations/{prepared['id']}/relay/extraction/complete",
+            headers=relay_headers,
+            json={"destination_root_created": True},
         )
         operation = client.get(f"/api/archive/v2/operations/{prepared['id']}", headers=auth_headers_user)
 
-    assert response.status_code == 422
-    assert response.json()["message"] == "Archive extraction source is invalid"
-    assert operation.json()["phase"] == "failed"
+    assert response.status_code == 200
+    assert [entry["path"] for entry in response.json()["entries"]] == ["Report.txt", "report.txt"]
+    assert paused.status_code == 200
+    assert resumed.status_code == 200
+    assert first_complete.status_code == 200
+    assert second_complete.status_code == 200
+    assert completed.status_code == 200
+    assert operation.json()["phase"] == "completed"
+    checkpoint = json.loads(operation.json()["checkpoint_json"])
+    assert [entry["path"] for entry in checkpoint["manifest"]] == ["Report.txt", "report.txt"]
+    assert checkpoint["member_outcomes"] == {
+        "Report.txt": {
+            "status": "extracted",
+            "target_path": "output/Report.txt",
+            "extracted_bytes": 5,
+            "directories_created": 0,
+            "replaced": False,
+            "renamed": False,
+        },
+        "report.txt": {
+            "status": "extracted",
+            "target_path": "output/renamed-report.txt",
+            "extracted_bytes": 6,
+            "directories_created": 0,
+            "replaced": False,
+            "renamed": True,
+        },
+    }
+
+
+def test_companion_local_relay_streams_the_last_normalized_duplicate(
+    client: TestClient,
+    auth_headers_user: dict,
+    test_connection: Connection,
+) -> None:
+    archive_buffer = BytesIO()
+    with ZipFile(archive_buffer, "w") as archive:
+        archive.writestr("folder\\readme.txt", b"discarded")
+        archive.writestr("folder/readme.txt", b"selected")
+    archive_bytes = archive_buffer.getvalue()
+    prepared = client.post(
+        "/api/archive/v2/operations",
+        headers=auth_headers_user,
+        json={
+            "contract_version": "v2",
+            "kind": "extract",
+            "source_connection_id": str(test_connection.id),
+            "source_path": "backup.zip",
+            "destination_connection_id": "local-drive:c",
+            "destination_path": "output",
+        },
+    ).json()
+    capability = client.post(f"/api/archive/v2/operations/{prepared['id']}/companion-session", headers=auth_headers_user).json()
+    relay_headers = {"Authorization": f"Bearer {capability['token']}"}
+    backend = AsyncMock()
+    backend.connect.return_value = None
+    backend.disconnect.return_value = None
+    backend.get_file_info.return_value = FileInfo(name="backup.zip", path="backup.zip", type=FileType.FILE, size=len(archive_bytes))
+    backend.open_random_access_reader.side_effect = lambda _path: MemoryRandomAccessReader(archive_bytes)
+    with patch("app.api.archive_operations.SMBBackend", return_value=backend):
+        manifest = client.post(
+            f"/api/archive/v2/operations/{prepared['id']}/relay/extraction/begin",
+            headers=relay_headers,
+        )
+        member = client.get(
+            f"/api/archive/v2/operations/{prepared['id']}/relay/extraction/member",
+            headers=relay_headers,
+            params={"member_path": "folder/readme.txt"},
+        )
+
+    assert manifest.status_code == 200
+    assert [entry["path"] for entry in manifest.json()["entries"]] == ["folder/readme.txt"]
+    assert member.status_code == 200
+    assert member.content == b"selected"
 
 
 def test_companion_local_extraction_relay_reuses_its_persisted_manifest(
@@ -2148,7 +2345,7 @@ def test_companion_local_relay_pauses_for_a_scoped_collision_and_checkpoints_a_s
     )
 
 
-def test_companion_local_relay_rename_preserves_the_normalized_destination_result(
+def test_companion_smb_to_local_relay_renames_an_inferred_directory_collision(
     client: TestClient,
     auth_headers_user: dict,
     test_connection: Connection,
@@ -2160,7 +2357,7 @@ def test_companion_local_relay_rename_preserves_the_normalized_destination_resul
     )
     archive_buffer = BytesIO()
     with ZipFile(archive_buffer, "w") as archive:
-        archive.writestr("root.txt", b"hello")
+        archive.writestr("docs/readme.txt", b"hello")
     archive_bytes = archive_buffer.getvalue()
     prepared = client.post(
         "/api/archive/v2/operations",
@@ -2181,7 +2378,7 @@ def test_companion_local_relay_rename_preserves_the_normalized_destination_resul
     backend.disconnect.return_value = None
     backend.get_file_info.return_value = FileInfo(name="backup.zip", path="backup.zip", type=FileType.FILE, size=len(archive_bytes))
     backend.open_random_access_reader.side_effect = lambda _path: MemoryRandomAccessReader(archive_bytes)
-    target_path = f"output/{scenario['rename_target']}"
+    target_path = "output/renamed-docs/readme.txt"
     with patch("app.api.archive_operations.SMBBackend", return_value=backend):
         begin = client.post(
             f"/api/archive/v2/operations/{prepared['id']}/relay/extraction/begin",
@@ -2190,18 +2387,18 @@ def test_companion_local_relay_rename_preserves_the_normalized_destination_resul
         paused = client.post(
             f"/api/archive/v2/operations/{prepared['id']}/relay/extraction/member-collision",
             headers=relay_headers,
-            json={"member_path": "root.txt", "is_directory": False, "target_size": 8},
+            json={"member_path": "docs", "is_directory": True, "target_path": "output/docs"},
         )
         resumed = client.post(
             f"/api/archive/v2/operations/{prepared['id']}/extraction/decision",
             headers=auth_headers_user,
-            json={"action": "rename", "member_path": "root.txt", "target_path": scenario["rename_target"]},
+            json={"action": "rename", "member_path": "docs", "target_path": "renamed-docs"},
         )
         completion = client.post(
             f"/api/archive/v2/operations/{prepared['id']}/relay/extraction/member-complete",
             headers=relay_headers,
             json={
-                "member_path": "root.txt",
+                "member_path": "docs/readme.txt",
                 "status": scenario["member_outcome"]["status"],
                 "target_path": target_path,
                 "directories_created": 0,
@@ -2212,11 +2409,12 @@ def test_companion_local_relay_rename_preserves_the_normalized_destination_resul
         )
 
     assert begin.status_code == 200
-    assert paused.status_code == 200
+    assert paused.status_code == 200, paused.text
     assert resumed.status_code == 200
     assert completion.status_code == 200
     assert scenario["terminal_phase"] == "completed"
-    outcome = json.loads(completion.json()["checkpoint_json"])["member_outcomes"]["root.txt"]
+    assert json.loads(paused.json()["pending_decision_json"])["conflicts"][0]["member_path"] == "docs"
+    outcome = json.loads(completion.json()["checkpoint_json"])["member_outcomes"]["docs/readme.txt"]
     assert outcome["target_path"] == target_path
     assert outcome["renamed"] is scenario["member_outcome"]["renamed"]
 
@@ -2380,7 +2578,8 @@ def test_companion_local_relay_rejects_an_archive_changed_after_manifest_preflig
 ) -> None:
     archive_buffer = BytesIO()
     with ZipFile(archive_buffer, "w") as archive:
-        archive.writestr("readme.txt", b"hello")
+        archive.writestr("readme.txt", b"discarded")
+        archive.writestr("readme.txt", b"selected")
     archive_bytes = archive_buffer.getvalue()
     prepared = client.post(
         "/api/archive/v2/operations",
@@ -3324,7 +3523,11 @@ def test_companion_relay_pauses_for_destination_collision(
     backend.connect.return_value = None
     backend.disconnect.return_value = None
     backend.create_directory.return_value = None
-    backend.write_file_from_stream.side_effect = FileExistsError()
+    backend.write_file_from_stream.side_effect = TargetExistsBeforeContent()
+    backend.get_file_info.side_effect = [
+        FileNotFoundError(),
+        FileInfo(name="existing.txt", path="output/existing.txt", type=FileType.FILE, size=7),
+    ]
     with patch("app.api.archive_operations.SMBBackend", return_value=backend):
         client.post(
             f"/api/archive/v2/operations/{prepared['id']}/relay/extraction/begin",
@@ -3342,9 +3545,88 @@ def test_companion_relay_pauses_for_destination_collision(
     assert response.status_code == 200
     assert response.json()["phase"] == "awaiting_user_decision"
     assert json.loads(response.json()["pending_decision_json"])["conflicts"] == [
-        {"member_path": "existing.txt", "target_path": "output/existing.txt", "is_directory": False, "source_size": 7}
+        {
+            "member_path": "existing.txt",
+            "target_path": "output/existing.txt",
+            "is_directory": False,
+            "source_size": 7,
+            "target_size": 7,
+        }
     ]
     assert operation.json()["phase"] == "awaiting_user_decision"
+
+
+def test_companion_relay_runs_its_fixture_selected_late_target_race(
+    client: TestClient,
+    auth_headers_user: dict,
+    test_connection: Connection,
+) -> None:
+    workspace_root = Path(__file__).resolve().parents[2]
+    topology_fixture = json.loads(
+        (workspace_root / "archive-contract" / "v2" / "fixtures" / "topology-execution-traces-v2.json").read_text(encoding="utf-8")
+    )
+    scenario_name = next(case["scenario"] for case in topology_fixture["target_write_attempt_cases"] if case["topology"] == "local_to_smb")
+    target_write_fixture = json.loads(
+        (workspace_root / "archive-contract" / "v2" / "fixtures" / "target-write-resolution-scenarios-v2.json").read_text(encoding="utf-8")
+    )
+    scenario = next(scenario for scenario in target_write_fixture["attempt_scenarios"] if scenario["name"] == scenario_name)
+    assert scenario["expected"] == "create_new"
+
+    prepared = client.post(
+        "/api/archive/v2/operations",
+        headers=auth_headers_user,
+        json={
+            "contract_version": "v2",
+            "kind": "extract",
+            "source_connection_id": "local-drive:c",
+            "source_path": "backup.zip",
+            "destination_connection_id": str(test_connection.id),
+            "destination_path": "output",
+        },
+    ).json()
+    capability = client.post(f"/api/archive/v2/operations/{prepared['id']}/companion-session", headers=auth_headers_user).json()
+    relay_headers = {"Authorization": f"Bearer {capability['token']}"}
+    backend = AsyncMock()
+    backend.connect.return_value = None
+    backend.disconnect.return_value = None
+    backend.create_directory.return_value = None
+    backend.get_file_info.side_effect = [FileNotFoundError(), FileNotFoundError()]
+    write_attempts = 0
+    stream_consumptions = 0
+
+    async def write_target(_path, stream, *, overwrite, source_mtime):
+        nonlocal write_attempts, stream_consumptions
+        assert overwrite is False
+        assert source_mtime is None
+        write_attempts += 1
+        if write_attempts == 1:
+            raise TargetExistsBeforeContent()
+        stream_consumptions += 1
+        bytes_written = 0
+        async for chunk in stream:
+            bytes_written += len(chunk)
+        return TargetWriteResult(bytes_written)
+
+    backend.write_file_from_stream.side_effect = write_target
+    with patch("app.api.archive_operations.SMBBackend", return_value=backend):
+        begin = client.post(
+            f"/api/archive/v2/operations/{prepared['id']}/relay/extraction/begin",
+            headers=relay_headers,
+            json={"entries": [{"path": "entry.txt", "is_directory": False, "uncompressed_size": 5, "modified_at": None}]},
+        )
+        response = client.put(
+            f"/api/archive/v2/operations/{prepared['id']}/relay/extraction/member",
+            headers=relay_headers,
+            params={"member_path": "entry.txt"},
+            content=b"entry",
+        )
+
+    assert begin.status_code == 200
+    assert response.status_code == 200
+    checkpoint = json.loads(response.json()["checkpoint_json"])
+    assert checkpoint["member_outcomes"]["entry.txt"]["status"] == "extracted"
+    assert write_attempts == scenario["expected_attempts"]
+    assert stream_consumptions == scenario["expected_stream_polls"]
 
 
 def test_v2_executes_same_connection_creation_with_strict_ledger(
@@ -3509,6 +3791,123 @@ def test_executes_same_connection_extraction(
     assert execution_plan.rename_targets() == {}
     assert execution_plan.ignored_member_paths() == []
     assert execution_plan.completed_member_paths() == frozenset()
+
+
+def test_direct_extraction_manifest_uses_last_effective_duplicate_entries(
+    client: TestClient,
+    auth_headers_user: dict,
+    test_connection: Connection,
+) -> None:
+    prepared = client.post(
+        "/api/archive/v2/operations",
+        headers=auth_headers_user,
+        json={
+            "contract_version": "v2",
+            "kind": "extract",
+            "source_connection_id": str(test_connection.id),
+            "source_path": "input.zip",
+            "destination_connection_id": str(test_connection.id),
+            "destination_path": "output",
+        },
+    ).json()
+    archive_buffer = BytesIO()
+    with ZipFile(archive_buffer, "w") as archive:
+        archive.writestr("same.txt", b"discarded")
+        archive.writestr("same.txt", b"selected")
+        archive.writestr("folder\\note.txt", b"discarded normalized")
+        archive.writestr("folder/note.txt", b"selected normalized")
+    archive_bytes = set_zip_central_directory_compression_method(archive_buffer.getvalue(), 0, 99)
+    backend = AsyncMock()
+    backend.connect.return_value = None
+    backend.disconnect.return_value = None
+    backend.get_file_info.return_value = FileInfo(
+        name="input.zip",
+        path="input.zip",
+        type=FileType.FILE,
+        size=len(archive_bytes),
+    )
+    backend.open_random_access_reader.side_effect = lambda _path: MemoryRandomAccessReader(archive_bytes)
+
+    with (
+        patch("app.api.archive_operations.SMBBackend", return_value=backend),
+        patch(
+            "app.api.archive_operations.extract_archive_to_new_paths",
+            new=AsyncMock(
+                side_effect=completed_extraction_runner(
+                    ArchiveExtractionResult(2, 0, len(b"selected") + len(b"selected normalized")),
+                    [
+                        ArchiveExtractionDestinationResult("same.txt", "extracted", "output/same.txt", extracted_bytes=8),
+                        ArchiveExtractionDestinationResult(
+                            "folder/note.txt",
+                            "extracted",
+                            "output/folder/note.txt",
+                            extracted_bytes=len(b"selected normalized"),
+                        ),
+                    ],
+                )
+            ),
+        ) as extract_archive,
+    ):
+        response = client.post(f"/api/archive/v2/operations/{prepared['id']}/extraction/begin", headers=auth_headers_user)
+
+    assert response.status_code == 200, response.text
+    checkpoint = json.loads(response.json()["checkpoint_json"])
+    assert [entry["path"] for entry in checkpoint["manifest"]] == ["same.txt", "folder/note.txt"]
+    assert [member.member_path for member in extract_archive.await_args.kwargs["execution_plan"].manifest.members] == [
+        "same.txt",
+        "folder/note.txt",
+    ]
+
+
+def test_direct_extraction_manifest_retains_an_unavailable_selected_member(
+    client: TestClient,
+    auth_headers_user: dict,
+    test_connection: Connection,
+) -> None:
+    prepared = client.post(
+        "/api/archive/v2/operations",
+        headers=auth_headers_user,
+        json={
+            "contract_version": "v2",
+            "kind": "extract",
+            "source_connection_id": str(test_connection.id),
+            "source_path": "input.zip",
+            "destination_connection_id": str(test_connection.id),
+            "destination_path": "output",
+        },
+    ).json()
+    archive_buffer = BytesIO()
+    with ZipFile(archive_buffer, "w") as archive:
+        archive.writestr("unavailable.txt", b"unavailable payload")
+    archive_bytes = set_zip_central_directory_compression_method(archive_buffer.getvalue(), 0, 99)
+    backend = AsyncMock()
+    backend.connect.return_value = None
+    backend.disconnect.return_value = None
+    backend.get_file_info.return_value = FileInfo(
+        name="input.zip",
+        path="input.zip",
+        type=FileType.FILE,
+        size=len(archive_bytes),
+    )
+    backend.open_random_access_reader.side_effect = lambda _path: MemoryRandomAccessReader(archive_bytes)
+
+    with (
+        patch("app.api.archive_operations.SMBBackend", return_value=backend),
+        patch(
+            "app.api.archive_operations.extract_archive_to_new_paths",
+            new=AsyncMock(
+                side_effect=completed_extraction_runner(
+                    ArchiveExtractionResult(0, 0, 0, files_skipped=1),
+                    [ArchiveExtractionDestinationResult("unavailable.txt", "skipped", "output/unavailable.txt")],
+                )
+            ),
+        ) as extract_archive,
+    ):
+        response = client.post(f"/api/archive/v2/operations/{prepared['id']}/extraction/begin", headers=auth_headers_user)
+
+    assert response.status_code == 200, response.text
+    assert [entry["path"] for entry in json.loads(response.json()["checkpoint_json"])["manifest"]] == ["unavailable.txt"]
+    assert [member.member_path for member in extract_archive.await_args.kwargs["execution_plan"].manifest.members] == ["unavailable.txt"]
 
 
 def test_v2_direct_extraction_persists_strict_checkpoint_envelope(
@@ -3843,6 +4242,74 @@ def test_individual_rename_decision_persists_a_safe_member_remap(
     assert extract_archive.await_args.kwargs["execution_plan"].rename_targets() == {"root.txt": "renamed/root-copy.txt"}
 
 
+def test_directory_rename_rebases_a_descendant_renamed_parent_collision(
+    client: TestClient,
+    auth_headers_user: dict,
+    test_connection: Connection,
+) -> None:
+    prepared = client.post(
+        "/api/archive/v2/operations",
+        headers=auth_headers_user,
+        json={
+            "contract_version": "v2",
+            "kind": "extract",
+            "source_connection_id": str(test_connection.id),
+            "source_path": "input.zip",
+            "destination_connection_id": "local-drive:c",
+            "destination_path": "output",
+        },
+    ).json()
+    archive_buffer = BytesIO()
+    with ZipFile(archive_buffer, "w") as archive:
+        archive.writestr("docs/readme.txt", b"contents")
+    archive_bytes = archive_buffer.getvalue()
+    backend = AsyncMock()
+    backend.connect.return_value = None
+    backend.disconnect.return_value = None
+    backend.get_file_info.return_value = FileInfo(name="input.zip", path="input.zip", type=FileType.FILE, size=len(archive_bytes))
+    backend.open_random_access_reader.side_effect = lambda _path: MemoryRandomAccessReader(archive_bytes)
+    capability = client.post(f"/api/archive/v2/operations/{prepared['id']}/companion-session", headers=auth_headers_user).json()
+    relay_headers = {"Authorization": f"Bearer {capability['token']}"}
+
+    with patch("app.api.archive_operations.SMBBackend", return_value=backend):
+        assert client.post(f"/api/archive/v2/operations/{prepared['id']}/relay/extraction/begin", headers=relay_headers).status_code == 200
+        assert (
+            client.post(
+                f"/api/archive/v2/operations/{prepared['id']}/relay/extraction/member-collision",
+                headers=relay_headers,
+                json={"member_path": "docs/readme.txt", "is_directory": False, "target_path": "output/docs/readme.txt"},
+            ).status_code
+            == 200
+        )
+        assert (
+            client.post(
+                f"/api/archive/v2/operations/{prepared['id']}/extraction/decision",
+                headers=auth_headers_user,
+                json={"action": "rename", "member_path": "docs/readme.txt", "target_path": "replacement/readme.txt"},
+            ).status_code
+            == 200
+        )
+        assert (
+            client.post(
+                f"/api/archive/v2/operations/{prepared['id']}/relay/extraction/member-collision",
+                headers=relay_headers,
+                json={"member_path": "docs", "is_directory": True, "target_path": "output/replacement"},
+            ).status_code
+            == 200
+        )
+        response = client.post(
+            f"/api/archive/v2/operations/{prepared['id']}/extraction/decision",
+            headers=auth_headers_user,
+            json={"action": "rename", "member_path": "docs", "target_path": "renamed-docs"},
+        )
+
+    assert response.status_code == 200
+    assert json.loads(response.json()["checkpoint_json"])["decisions"]["rename_targets"] == {
+        "docs": "renamed-docs",
+        "docs/readme.txt": "renamed-docs/readme.txt",
+    }
+
+
 def test_member_write_failure_pauses_for_retry_or_ignore(
     client: TestClient,
     auth_headers_user: dict,
@@ -3870,7 +4337,7 @@ def test_member_write_failure_pauses_for_retry_or_ignore(
         patch("app.api.archive_operations.SMBBackend", return_value=backend),
         patch(
             "app.api.archive_operations.extract_archive_to_new_paths",
-            new=AsyncMock(side_effect=ArchiveExtractionMemberError("root.txt", "output/root.txt", "Disk full")),
+            new=AsyncMock(side_effect=ArchiveExtractionMemberError("root.txt", "output/root.txt", "Disk full", True)),
         ),
     ):
         response = client.post(f"/api/archive/v2/operations/{prepared['id']}/extraction/begin", headers=auth_headers_user)
@@ -3894,7 +4361,7 @@ def test_member_write_failure_pauses_for_retry_or_ignore(
         patch("app.api.archive_operations.SMBBackend", return_value=backend),
         patch(
             "app.api.archive_operations.extract_archive_to_new_paths",
-            new=AsyncMock(side_effect=ArchiveExtractionMemberError("root.txt", "output/root.txt", "Disk full")),
+            new=AsyncMock(side_effect=ArchiveExtractionMemberError("root.txt", "output/root.txt", "Disk full", True)),
         ),
     ):
         response = client.post(f"/api/archive/v2/operations/{prepared['id']}/extraction/begin", headers=auth_headers_user)

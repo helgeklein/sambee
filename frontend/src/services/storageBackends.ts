@@ -3,6 +3,7 @@ import api from "./api";
 import type {
   ArchiveCreationOperations,
   ArchiveSourceOperations,
+  ContentTransferResult,
   ResolvedStorageDirectoryLocation,
   ResolvedStorageItemLocation,
   ResolvedStorageTarget,
@@ -166,30 +167,37 @@ abstract class ApiStorageBackend implements StorageBackend {
     await api.deleteItem(connectionId(item.target), item.path);
     return COMPLETED;
   }
-  async copyWithinBackend(request: SameBackendTransferRequest): Promise<StorageOperationResult> {
+  async copyWithinBackend(request: SameBackendTransferRequest): Promise<ContentTransferResult> {
     return this.transfer(request, false);
   }
-  async moveWithinBackend(request: SameBackendTransferRequest): Promise<StorageOperationResult> {
+  async moveWithinBackend(request: SameBackendTransferRequest): Promise<ContentTransferResult> {
     return this.transfer(request, true);
   }
-  private async transfer(request: SameBackendTransferRequest, move: boolean): Promise<StorageOperationResult> {
+  private async transfer(request: SameBackendTransferRequest, move: boolean): Promise<ContentTransferResult> {
     assertOwned(this.kind, request.source.resolvedTarget, request.destination.resolvedTarget);
     const name = request.targetName ?? request.source.path.split("/").pop() ?? "";
     const destination = `${request.destination.path}/${name}`.replace(/^\//, "");
     const sourceConnectionId = connectionId(request.source.target);
     const destinationConnectionId = connectionId(request.destination.target);
     if (move) {
-      if (request.overwrite) {
-        await api.moveItem(sourceConnectionId, request.source.path, destination, destinationConnectionId, true);
-      } else {
-        await api.moveItem(sourceConnectionId, request.source.path, destination, destinationConnectionId);
-      }
-    } else if (request.overwrite) {
-      await api.copyItem(sourceConnectionId, request.source.path, destination, destinationConnectionId, true);
+      return api.moveItem(
+        sourceConnectionId,
+        request.source.path,
+        destination,
+        request.idempotencyKey,
+        destinationConnectionId,
+        request.targetResolutionPolicy
+      );
     } else {
-      await api.copyItem(sourceConnectionId, request.source.path, destination, destinationConnectionId);
+      return api.copyItem(
+        sourceConnectionId,
+        request.source.path,
+        destination,
+        request.idempotencyKey,
+        destinationConnectionId,
+        request.targetResolutionPolicy
+      );
     }
-    return { status: "completed", effects: { source: move ? "mutated" : "unchanged", destination: "mutated" } };
   }
   readonly archive: ArchiveSourceOperations = {
     listDirectory: (source, path, options) => api.listArchiveDirectory(connectionId(source.target), source.path, path, options),

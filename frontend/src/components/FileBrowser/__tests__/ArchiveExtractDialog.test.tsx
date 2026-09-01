@@ -2,6 +2,7 @@ import { fireEvent, render, screen, waitFor, within } from "@testing-library/rea
 import userEvent from "@testing-library/user-event";
 import { describe, expect, it, vi } from "vitest";
 import { ArchiveExtractDialog } from "../ArchiveExtractDialog";
+import { OVERWRITE_CONFLICT_STRINGS as S } from "../overwriteConflictStrings";
 
 vi.mock("react-i18next", async (importOriginal) => ({
   ...(await importOriginal<typeof import("react-i18next")>()),
@@ -39,11 +40,22 @@ describe("ArchiveExtractDialog", () => {
     expect(screen.getByLabelText("fileBrowser.archive.destinationLabel")).toHaveValue("project");
   });
 
-  it("uses the shared labelled read-only destination field when the destination is fixed", () => {
-    render(<ArchiveExtractDialog {...defaultProps} requiresDestinationName={false} destinationLabel="Demo:/Test" />);
+  it("focuses Extract and uses code formatting when the destination is fixed", async () => {
+    const user = userEvent.setup();
+    const onConfirm = vi.fn();
+    render(<ArchiveExtractDialog {...defaultProps} requiresDestinationName={false} destinationLabel="Demo:/Test" onConfirm={onConfirm} />);
 
-    expect(screen.getByLabelText("fileBrowser.archive.destinationLabel")).toHaveValue("Demo:/Test");
-    expect(screen.getByLabelText("fileBrowser.archive.destinationLabel")).toHaveAttribute("readonly");
+    const destination = screen.getByLabelText("fileBrowser.archive.destinationLabel");
+    expect(destination).toHaveValue("Demo:/Test");
+    expect(destination).toHaveAttribute("readonly");
+    expect(destination).not.toHaveAttribute("wrap");
+    expect(screen.queryByText("fileBrowser.archive.destinationLabel")).not.toBeInTheDocument();
+    expect(screen.getByTestId("archive-extract-prompt-name").tagName).toBe("CODE");
+    const extractButton = screen.getByRole("button", { name: "fileBrowser.archive.buttonExtract" });
+    await waitFor(() => expect(extractButton).toHaveFocus());
+    await user.keyboard("{Enter}");
+
+    expect(onConfirm).toHaveBeenCalledWith("");
   });
 
   it("rejects traversal destination paths", async () => {
@@ -111,7 +123,7 @@ describe("ArchiveExtractDialog", () => {
     expect(screen.getByText("fileBrowser.archive.progressSourceArchive: project.zip")).toBeInTheDocument();
   });
 
-  it("uses one member-error choice and a single continue action", async () => {
+  it("offers direct retry and skip actions for a member error", async () => {
     const user = userEvent.setup();
     const onMemberErrorDecision = vi.fn();
     const onCancelExtraction = vi.fn();
@@ -131,15 +143,18 @@ describe("ArchiveExtractDialog", () => {
     );
 
     expect(screen.getByText(/Disk full/)).toBeInTheDocument();
-    await user.click(screen.getByRole("radio", { name: "fileBrowser.archive.memberErrorChoiceIgnore" }));
-    await user.click(screen.getByRole("button", { name: "fileBrowser.archive.collisionContinue" }));
+    expect(screen.getByRole("heading", { name: "fileBrowser.archive.memberErrorTitle" })).toBeInTheDocument();
+    expect(screen.getByText("fileBrowser.archive.memberErrorPrompt")).toBeInTheDocument();
+    expect(screen.getByText("fileBrowser.archive.memberErrorPartialOutputNote")).toBeInTheDocument();
+    await waitFor(() => expect(screen.getByRole("button", { name: "fileBrowser.archive.buttonRetryMemberError" })).toHaveFocus());
+    await user.click(screen.getByRole("button", { name: "fileBrowser.archive.buttonIgnoreMemberError" }));
     await user.click(screen.getByRole("button", { name: "fileBrowser.archive.buttonCancelExtraction" }));
 
     expect(onMemberErrorDecision).toHaveBeenCalledWith("ignore");
     expect(onCancelExtraction).toHaveBeenCalledOnce();
   });
 
-  it("retains the member-error recovery controls after a failed decision", async () => {
+  it("retains direct member-error recovery actions after a failed decision", async () => {
     const user = userEvent.setup();
     const onMemberErrorDecision = vi.fn();
     const memberError = {
@@ -152,8 +167,7 @@ describe("ArchiveExtractDialog", () => {
       <ArchiveExtractDialog {...defaultProps} isExtracting={true} memberError={memberError} onMemberErrorDecision={onMemberErrorDecision} />
     );
 
-    await user.click(screen.getByRole("radio", { name: "fileBrowser.archive.memberErrorChoiceIgnore" }));
-    await user.click(screen.getByRole("button", { name: "fileBrowser.archive.collisionContinue" }));
+    await user.click(screen.getByRole("button", { name: "fileBrowser.archive.buttonIgnoreMemberError" }));
     rerender(
       <ArchiveExtractDialog
         {...defaultProps}
@@ -165,11 +179,11 @@ describe("ArchiveExtractDialog", () => {
     );
 
     expect(screen.getByText("Disk full")).toBeInTheDocument();
-    expect(screen.getByRole("radio", { name: "fileBrowser.archive.memberErrorChoiceIgnore" })).toBeChecked();
-    expect(screen.getByRole("button", { name: "fileBrowser.archive.collisionContinue" })).toBeEnabled();
+    expect(screen.getByRole("button", { name: "fileBrowser.archive.buttonIgnoreMemberError" })).toBeEnabled();
+    expect(screen.getByRole("button", { name: "fileBrowser.archive.buttonRetryMemberError" })).toBeEnabled();
   });
 
-  it("uses one collision choice and a single continue action", async () => {
+  it("uses the shared overwrite dialog and maps bulk skip to the archive protocol", async () => {
     const user = userEvent.setup();
     const onConflictDecision = vi.fn();
     render(
@@ -182,10 +196,12 @@ describe("ArchiveExtractDialog", () => {
       />
     );
 
-    expect(screen.getByText("docs/readme.txt")).toBeInTheDocument();
-    expect(screen.queryByRole("button", { name: "fileBrowser.archive.buttonSkipAll" })).not.toBeInTheDocument();
-    await user.click(screen.getByRole("checkbox", { name: "fileBrowser.archive.collisionApplyRemaining" }));
-    await user.click(screen.getByRole("button", { name: "fileBrowser.archive.collisionContinue" }));
+    expect(screen.getByRole("heading", { name: S.TITLE })).toBeInTheDocument();
+    expect(screen.getByRole("textbox", { name: S.LABEL_TARGET_NAME })).toHaveValue("readme.txt");
+    expect(screen.getByTestId("overwrite-conflict-source-path")).toHaveTextContent("docs/readme.txt");
+    expect(screen.getByTestId("overwrite-conflict-target-directory")).toHaveTextContent("output/docs");
+    await user.click(screen.getByRole("checkbox", { name: S.APPLY_TO_ALL }));
+    await user.click(screen.getByRole("button", { name: S.BUTTON_CONTINUE }));
 
     expect(onConflictDecision).toHaveBeenCalledWith("skip_all", "docs/readme.txt", undefined);
   });
@@ -202,10 +218,83 @@ describe("ArchiveExtractDialog", () => {
       />
     );
 
-    await waitFor(() => expect(screen.getByRole("button", { name: "fileBrowser.archive.collisionContinue" })).toBeEnabled());
+    await waitFor(() => expect(screen.getByRole("button", { name: S.BUTTON_CONTINUE })).toBeEnabled());
     fireEvent.keyDown(screen.getByRole("dialog"), { key: "Enter" });
 
     expect(onConflictDecision).toHaveBeenCalledWith("skip", "docs/readme.txt", undefined);
+  });
+
+  it("maps Rename to an archive-relative target path", async () => {
+    const user = userEvent.setup();
+    const onConflictDecision = vi.fn();
+    render(
+      <ArchiveExtractDialog
+        {...defaultProps}
+        isExtracting={true}
+        conflicts={[{ memberPath: "docs/readme.txt", targetPath: "output/docs/readme.txt" }]}
+        allowedConflictActions={["rename"]}
+        onConflictDecision={onConflictDecision}
+      />
+    );
+
+    await user.click(screen.getByRole("radio", { name: S.BUTTON_RENAME }));
+    const targetName = screen.getByRole("textbox", { name: S.LABEL_TARGET_NAME });
+    await user.clear(targetName);
+    await user.type(targetName, "renamed.txt");
+    await user.click(screen.getByRole("button", { name: S.BUTTON_CONTINUE }));
+
+    expect(onConflictDecision).toHaveBeenCalledWith("rename", "docs/readme.txt", "docs/renamed.txt");
+  });
+
+  it("resets resolution and Target name when the current conflict changes", async () => {
+    const user = userEvent.setup();
+    const firstConflict = { memberPath: "docs/readme.txt", targetPath: "output/docs/readme.txt" };
+    const { rerender } = render(
+      <ArchiveExtractDialog
+        {...defaultProps}
+        isExtracting={true}
+        conflicts={[firstConflict]}
+        allowedConflictActions={["skip", "rename"]}
+        onConflictDecision={vi.fn()}
+      />
+    );
+
+    await user.click(screen.getByRole("radio", { name: S.BUTTON_RENAME }));
+    const targetName = screen.getByRole("textbox", { name: S.LABEL_TARGET_NAME });
+    await user.clear(targetName);
+    await user.type(targetName, "custom-name.txt");
+
+    rerender(
+      <ArchiveExtractDialog
+        {...defaultProps}
+        isExtracting={true}
+        conflicts={[{ memberPath: "notes/readme.txt", targetPath: "output/notes/readme.txt" }]}
+        allowedConflictActions={["skip", "rename"]}
+        onConflictDecision={vi.fn()}
+      />
+    );
+
+    await waitFor(() => expect(screen.getByRole("radio", { name: S.BUTTON_SKIP })).toBeChecked());
+    expect(screen.getByRole("textbox", { name: S.LABEL_TARGET_NAME })).toHaveValue("readme.txt");
+  });
+
+  it("does not show a bulk checkbox when only a bulk archive action is allowed", async () => {
+    const user = userEvent.setup();
+    const onConflictDecision = vi.fn();
+    render(
+      <ArchiveExtractDialog
+        {...defaultProps}
+        isExtracting={true}
+        conflicts={[{ memberPath: "docs/readme.txt", targetPath: "output/docs/readme.txt" }]}
+        allowedConflictActions={["skip_all"]}
+        onConflictDecision={onConflictDecision}
+      />
+    );
+
+    expect(screen.queryByRole("checkbox", { name: S.APPLY_TO_ALL })).not.toBeInTheDocument();
+    await user.click(screen.getByRole("button", { name: S.BUTTON_CONTINUE }));
+
+    expect(onConflictDecision).toHaveBeenCalledWith("skip_all", "docs/readme.txt", undefined);
   });
 
   it("keeps the phone actions reachable for collision decisions", () => {
@@ -222,8 +311,8 @@ describe("ArchiveExtractDialog", () => {
     );
 
     const actions = screen.getByTestId("responsive-form-dialog-mobile-actions");
-    expect(within(actions).getByRole("button", { name: "fileBrowser.archive.buttonCancelExtraction" })).toBeEnabled();
-    expect(within(actions).getByRole("button", { name: "fileBrowser.archive.collisionContinue" })).toBeEnabled();
+    expect(within(actions).getByRole("button", { name: S.CANCEL_OPERATION("extract") })).toBeEnabled();
+    expect(within(actions).getByRole("button", { name: S.BUTTON_CONTINUE })).toBeEnabled();
   });
 
   it("shows only the current conflict from a large collision payload", () => {
@@ -243,7 +332,7 @@ describe("ArchiveExtractDialog", () => {
       />
     );
 
-    expect(screen.getByDisplayValue("member-0.txt")).toBeInTheDocument();
+    expect(screen.getByTestId("overwrite-conflict-source-path")).toHaveTextContent("member-0.txt");
     expect(screen.queryByDisplayValue("member-999.txt")).not.toBeInTheDocument();
     expect(within(screen.getByTestId("responsive-form-dialog-desktop-actions")).getAllByRole("button")).toHaveLength(2);
   });

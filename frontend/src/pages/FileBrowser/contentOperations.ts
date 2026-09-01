@@ -1,8 +1,9 @@
+import { isLocalDrive } from "../../services/backendRouter";
 import type { BrowserHistoryService } from "../../services/browserHistoryService";
 import { logger } from "../../services/logger";
 import { publishRecentFilesChanged } from "../../services/recentFilesSync";
 import type { StorageArchiveOperationCoordinator } from "../../services/storageArchiveOperations";
-import type { StorageBackendRegistry } from "../../services/storageContracts";
+import type { ContentTransferResult, StorageBackendRegistry, TargetResolutionPolicy } from "../../services/storageContracts";
 import { FileType, isApiError } from "../../types";
 import { startZipArchiveExtraction } from "./archiveExtractionExecution";
 import type {
@@ -80,7 +81,7 @@ export interface TransferRequest {
   source: ContentItemHandle;
   destination: ContentLocation;
   targetName?: string;
-  overwrite?: boolean;
+  targetResolutionPolicy?: TargetResolutionPolicy;
 }
 
 export interface CreateContainerRequest {
@@ -120,42 +121,6 @@ function isPhysicalLocation(location: ContentLocation): location is PhysicalLoca
 
 function isPhysicalItem(item: ContentItemHandle): item is PhysicalItemHandle {
   return item.kind === "physical";
-}
-
-function joinPath(parentPath: string, name: string): string {
-  return parentPath ? `${parentPath}/${name}` : name;
-}
-
-async function transferAcrossBackends(
-  request: TransferRequest,
-  source: import("../../services/storageContracts").ResolvedStorageItemLocation,
-  destination: import("../../services/storageContracts").ResolvedStorageDirectoryLocation,
-  environment: ContentOperationEnvironment
-): Promise<void> {
-  const registry = environment.storageRegistry;
-  const sourceBackend = registry.getBackend(source.target);
-  const destinationBackend = registry.getBackend(destination.target);
-  const sourceInfo = await sourceBackend.getInfo(source);
-  const name = request.targetName ?? source.path.split("/").pop() ?? "";
-
-  if (sourceInfo.type === FileType.FILE) {
-    const content = await sourceBackend.read(source, { kind: "raw" });
-    const result = await destinationBackend.writeFile(destination, { name, content, overwrite: request.overwrite ?? false });
-    if (result.status !== "completed") throw new Error(`Content transfer failed: ${result.status}`);
-  } else {
-    const createResult = await destinationBackend.create(destination, { name, kind: "directory" });
-    if (createResult.status !== "completed") throw new Error(`Content transfer failed: ${createResult.status}`);
-    const childDestination = { ...destination, path: joinPath(destination.path, name) };
-    const listing = await sourceBackend.list({ ...source, path: source.path });
-    for (const child of listing.items) {
-      await transferAcrossBackends({ ...request, kind: "copy" }, { ...source, path: child.path }, childDestination, environment);
-    }
-  }
-
-  if (request.kind === "move") {
-    const result = await sourceBackend.remove(source);
-    if (result.status !== "completed") throw new Error(`Content move failed while removing source: ${result.status}`);
-  }
 }
 
 function unavailable(reason: ContentOperationReason): ContentOperationAvailability {
@@ -279,6 +244,15 @@ export function getTransferAvailability(
   if (!isPhysicalItem(request.source)) {
     return unavailable("unsupported-source");
   }
+  if (request.kind === "move") {
+    return unavailable("unsupported-destination");
+  }
+  if (
+    isPhysicalLocation(request.destination) &&
+    isLocalDrive(request.source.location.connectionId) !== isLocalDrive(request.destination.connectionId)
+  ) {
+    return unavailable("unsupported-destination");
+  }
   const destinationAvailability = canWriteLocation(request.destination, environment);
   if (!destinationAvailability.available) {
     return destinationAvailability;
@@ -292,10 +266,19 @@ export function getTransferAvailability(
   return { available: true };
 }
 
-export async function executeTransfer(request: TransferRequest, environment: ContentOperationEnvironment): Promise<void> {
-  const availability = getTransferAvailability(request, environment);
-  if (!availability.available || !isPhysicalItem(request.source) || !isPhysicalLocation(request.destination)) {
+export async function executeTransfer(request: TransferRequest, environment: ContentOperationEnvironment): Promise<ContentTransferResult> {
+  if (!isPhysicalItem(request.source) || !isPhysicalLocation(request.destination)) {
+    const availability = getTransferAvailability(request, environment);
     throw new Error(`Content transfer is unavailable: ${availability.reason ?? "unsupported"}`);
+  }
+  const availability = getTransferAvailability(request, environment);
+  if (!availability.available) {
+    return {
+      status: "failed",
+      replaced: false,
+      effects: { source: "unchanged", destination: "unchanged" },
+      error: { code: "unavailable", reason: "unsupported" },
+    };
   }
 
   const source = environment.storageRegistry.resolveItem({
@@ -303,14 +286,16 @@ export async function executeTransfer(request: TransferRequest, environment: Con
     path: request.source.path,
   });
   const destination = environment.storageRegistry.resolveDirectory(request.destination);
-  if (source.target.kind === destination.target.kind) {
-    const backend = environment.storageRegistry.getBackend(source.target);
-    const transfer = { source, destination, targetName: request.targetName, overwrite: request.overwrite ?? false };
-    const result = request.kind === "copy" ? await backend.copyWithinBackend(transfer) : await backend.moveWithinBackend(transfer);
-    if (result.status !== "completed") throw new Error(`Content transfer failed: ${result.status}`);
-    return;
-  }
-  await transferAcrossBackends(request, source, destination, environment);
+  const idempotencyKey = crypto.randomUUID();
+  const targetResolutionPolicy = request.targetResolutionPolicy ?? "ask";
+  const backend = environment.storageRegistry.getBackend(source.target);
+  return backend.copyWithinBackend({
+    source,
+    destination,
+    targetName: request.targetName,
+    targetResolutionPolicy,
+    idempotencyKey,
+  });
 }
 
 export function areSameContentLocations(left: ContentLocation, right: ContentLocation): boolean {

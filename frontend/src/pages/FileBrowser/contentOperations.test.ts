@@ -97,11 +97,11 @@ describe("content operations", () => {
       storageRegistry,
     } as never);
 
-    expect(copyWithinBackend).toHaveBeenCalledWith(expect.objectContaining({ targetName: undefined, overwrite: false }));
+    expect(copyWithinBackend).toHaveBeenCalledWith(expect.objectContaining({ targetName: undefined, targetResolutionPolicy: "ask" }));
     expect(api.copyItem).not.toHaveBeenCalled();
   });
 
-  it("uses registry capabilities to reject moves from read-only sources", () => {
+  it("phase_10_stabilization_move_is_unavailable", () => {
     const sourceResolvedTarget = {
       target: { kind: "smb", connectionId: "source" },
       connection: null,
@@ -129,10 +129,10 @@ describe("content operations", () => {
         ...environment,
         storageRegistry,
       } as never)
-    ).toEqual({ available: false, reason: "read-only" });
+    ).toEqual({ available: false, reason: "unsupported-destination" });
   });
 
-  it("writes cross-backend content before removing the source for a move", async () => {
+  it("does not let the browser stream or delete a cross-backend move source", async () => {
     const sourceResolvedTarget = {
       target: { kind: "local", driveId: "c" },
       connection: null,
@@ -160,16 +160,46 @@ describe("content operations", () => {
       getBackend: vi.fn((target: { kind: string }) => (target.kind === "local" ? sourceBackend : destinationBackend)),
     };
 
-    await executeTransfer(
-      { kind: "move", source: physicalItemHandle("local-drive:c", "report.txt"), destination: physicalLocation("destination", "output") },
-      { ...environment, storageRegistry } as never
-    );
+    await expect(
+      executeTransfer(
+        { kind: "move", source: physicalItemHandle("local-drive:c", "report.txt"), destination: physicalLocation("destination", "output") },
+        { ...environment, storageRegistry } as never
+      )
+    ).resolves.toMatchObject({ status: "failed", effects: { source: "unchanged", destination: "unchanged" } });
 
-    expect(destinationBackend.writeFile).toHaveBeenCalledWith(
-      expect.anything(),
-      expect.objectContaining({ name: "report.txt", overwrite: false })
-    );
-    expect(sourceBackend.remove).toHaveBeenCalledAfter(destinationBackend.writeFile as never);
+    expect(sourceBackend.read).not.toHaveBeenCalled();
+    expect(destinationBackend.writeFile).not.toHaveBeenCalled();
+    expect(sourceBackend.remove).not.toHaveBeenCalled();
+  });
+
+  it("phase_10_stabilization_mixed_transfers_do_no_io", async () => {
+    const sourceResolvedTarget = {
+      target: { kind: "smb", connectionId: "source" },
+      connection: null,
+      capabilitySnapshot: { capabilityRevision: 1 },
+    };
+    const destinationResolvedTarget = {
+      target: { kind: "local", driveId: "c" },
+      connection: null,
+      capabilitySnapshot: { capabilityRevision: 1 },
+    };
+    const storageRegistry = {
+      resolveItem: vi.fn(() => ({ target: sourceResolvedTarget.target, path: "report.txt", resolvedTarget: sourceResolvedTarget })),
+      resolveDirectory: vi.fn(() => ({
+        target: destinationResolvedTarget.target,
+        path: "output",
+        resolvedTarget: destinationResolvedTarget,
+      })),
+      getCapabilities: vi.fn(() => ({ writable: true })),
+      getBackend: vi.fn(),
+    };
+    await expect(
+      executeTransfer(
+        { kind: "copy", source: physicalItemHandle("source", "report.txt"), destination: physicalLocation("local-drive:c", "output") },
+        { ...environment, storageRegistry } as never
+      )
+    ).resolves.toMatchObject({ status: "failed", effects: { source: "unchanged", destination: "unchanged" } });
+    expect(storageRegistry.getBackend).not.toHaveBeenCalled();
   });
 
   it("rejects container sources from different connections before starting an operation", async () => {

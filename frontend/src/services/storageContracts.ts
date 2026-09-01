@@ -90,6 +90,8 @@ export interface WriteFileRequest {
   signal?: AbortSignal;
 }
 
+export type TargetResolutionPolicy = "ask" | "skip" | "replace" | "replace_older";
+
 export interface StorageTextWriteOptions {
   mimeType?: string;
 }
@@ -121,7 +123,8 @@ export interface SameBackendTransferRequest {
   source: ResolvedStorageItemLocation;
   destination: ResolvedStorageDirectoryLocation;
   targetName?: string;
-  overwrite: boolean;
+  targetResolutionPolicy: TargetResolutionPolicy;
+  idempotencyKey: string;
   signal?: AbortSignal;
 }
 
@@ -130,11 +133,25 @@ export interface StorageMutationEffects {
   destination: "unchanged" | "mutated" | "unknown";
 }
 
+export type ContentTransferResult =
+  | { status: "completed"; replaced: boolean; effects: StorageMutationEffects }
+  | { status: "skipped"; replaced: false; effects: { source: "unchanged"; destination: "unchanged" } }
+  | {
+      status: "completed_with_source_retained";
+      replaced: boolean;
+      effects: { source: "unchanged"; destination: "mutated" };
+      error: { code: "source_delete_failed"; detail: string };
+    }
+  | { status: "outcome_unknown"; replaced: false; effects: { source: "unknown"; destination: "unknown" } }
+  | { status: "failed"; replaced: false; effects: StorageMutationEffects; error: StorageOperationError }
+  | { status: "cancelled"; replaced: false; effects: StorageMutationEffects };
+
 export type StorageOperationError =
   | { code: "unavailable"; reason: "read-only" | "unpaired" | "unsupported" | "missing-target" }
   | { code: "validation"; reason: "heterogeneous-source-target" | "invalid-name" }
   | { code: "stale-capability"; expectedRevision: number; actualRevision: number }
   | { code: "conflict"; detail: string }
+  | { code: "source_changed"; detail: string }
   | { code: "transport"; detail: string };
 
 export type StorageOperationResult =
@@ -221,8 +238,8 @@ export interface StorageBackend {
   create(destination: ResolvedStorageDirectoryLocation, request: StorageCreateRequest): Promise<StorageOperationResult>;
   rename(item: ResolvedStorageItemLocation, name: string): Promise<StorageOperationResult>;
   remove(item: ResolvedStorageItemLocation): Promise<StorageOperationResult>;
-  copyWithinBackend(request: SameBackendTransferRequest): Promise<StorageOperationResult>;
-  moveWithinBackend(request: SameBackendTransferRequest): Promise<StorageOperationResult>;
+  copyWithinBackend(request: SameBackendTransferRequest): Promise<ContentTransferResult>;
+  moveWithinBackend(request: SameBackendTransferRequest): Promise<ContentTransferResult>;
   resolveActivation?(item: ResolvedStorageItemLocation): Promise<StorageActivationResult>;
   openInNativeApp?(item: ResolvedStorageItemLocation, options: StorageNativeOpenOptions): Promise<StorageNativeOpenResult>;
   editing?: StorageEditingOperations;

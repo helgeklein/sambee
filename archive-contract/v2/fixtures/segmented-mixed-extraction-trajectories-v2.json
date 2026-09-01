@@ -826,7 +826,7 @@
                   "operation": {
                     "phase": "streaming",
                     "destination_path": "output",
-                    "checkpoint_json": "{\"version\":2,\"manifest\":[{\"path\":\"source.txt\",\"is_directory\":false,\"uncompressed_size\":0,\"modified_at\":null}],\"source_snapshot\":{\"size\":0,\"modified_at\":null},\"member_outcomes\":{\"source.txt\":{\"status\":\"partial\",\"target_path\":\"output/source.txt\",\"extracted_bytes\":3,\"directories_created\":0,\"replaced\":false,\"renamed\":false}},\"decisions\":{\"collision_actions\":{},\"rename_targets\":{},\"ignored_members\":[],\"retry_members\":[\"source.txt\"]},\"pending_decision\":null,\"delivery_ids\":{}}",
+                    "checkpoint_json": "{\"version\":2,\"manifest\":[{\"path\":\"source.txt\",\"is_directory\":false,\"uncompressed_size\":0,\"modified_at\":null}],\"source_snapshot\":{\"size\":0,\"modified_at\":null},\"member_outcomes\":{\"source.txt\":{\"status\":\"partial\",\"target_path\":\"output/source.txt\",\"message\":\"network interruption\"}},\"decisions\":{\"collision_actions\":{},\"rename_targets\":{},\"ignored_members\":[],\"retry_members\":[\"source.txt\"]},\"pending_decision\":null,\"delivery_ids\":{}}",
                     "pending_decision_json": null
                   },
                   "entries": [
@@ -971,7 +971,7 @@
                 "json": {
                   "phase": "streaming",
                   "destination_path": "output",
-                  "checkpoint_json": "{\"version\":2,\"manifest\":[{\"path\":\"source.txt\",\"is_directory\":false,\"uncompressed_size\":0,\"modified_at\":null}],\"source_snapshot\":{\"size\":0,\"modified_at\":null},\"member_outcomes\":{\"source.txt\":{\"status\":\"partial\",\"target_path\":\"output/source.txt\",\"extracted_bytes\":0,\"directories_created\":0,\"replaced\":false,\"renamed\":false}},\"decisions\":{\"collision_actions\":{},\"rename_targets\":{},\"ignored_members\":[],\"retry_members\":[\"source.txt\"]},\"pending_decision\":null,\"delivery_ids\":{}}",
+                  "checkpoint_json": "{\"version\":2,\"manifest\":[{\"path\":\"source.txt\",\"is_directory\":false,\"uncompressed_size\":0,\"modified_at\":null}],\"source_snapshot\":{\"size\":0,\"modified_at\":null},\"member_outcomes\":{\"source.txt\":{\"status\":\"partial\",\"target_path\":\"output/source.txt\",\"message\":\"network interruption\"}},\"decisions\":{\"collision_actions\":{},\"rename_targets\":{},\"ignored_members\":[],\"retry_members\":[\"source.txt\"]},\"pending_decision\":null,\"delivery_ids\":{}}",
                   "pending_decision_json": null
                 }
               }

@@ -55,7 +55,6 @@ import type {
   SmbSettingsUpdate,
   User,
 } from "../types";
-import { FileType } from "../types";
 import { AuthSessionError, authSession } from "./authSession";
 import {
   getBackendAvailabilitySnapshot,
@@ -71,6 +70,7 @@ import { COMPANION_BASE_URL } from "./companion";
 import { companionSession } from "./companionSession";
 import { snapshotRegisteredDrafts } from "./draftRecovery";
 import { logger } from "./logger";
+import type { ContentTransferResult, TargetResolutionPolicy } from "./storageContracts";
 
 export interface DirectorySearchOptions {
   includeDotDirectories?: boolean;
@@ -1297,64 +1297,86 @@ class ApiService {
    * Copy a file or directory to a new location.
    *
    * When ``destConnectionId`` is provided and differs from ``connectionId``,
-   * a cross-connection copy is performed. For same-backend transfers (both
-   * SMB or both local), the backend handles it natively. For cross-backend
-   * transfers (SMB ↔ local), the browser mediates: download from source,
-   * upload to destination.
+   * a same-owner cross-connection copy is performed. Cross-provider transfers
+   * are unavailable.
    */
-  async copyItem(connectionId: string, sourcePath: string, destPath: string, destConnectionId?: string, overwrite = false): Promise<void> {
+  async copyItem(
+    connectionId: string,
+    sourcePath: string,
+    destPath: string,
+    idempotencyKey: string,
+    destConnectionId?: string,
+    targetResolutionPolicy: TargetResolutionPolicy = "ask"
+  ): Promise<ContentTransferResult> {
     if (destConnectionId && this.isCrossBackendTransfer(connectionId, destConnectionId)) {
-      await this.crossBackendCopy(connectionId, sourcePath, destConnectionId, destPath, overwrite);
-      return;
+      return {
+        status: "failed",
+        replaced: false,
+        effects: { source: "unchanged", destination: "unchanged" },
+        error: { code: "unavailable", reason: "unsupported" },
+      };
     }
     const segment = getBrowseSegment(connectionId);
     const { client, extraConfig } = await this.getClientConfig(connectionId);
-    await client.post(
+    return this.postTransfer(
+      client,
       `/browse/${segment}/copy`,
       {
         source_path: sourcePath,
         dest_path: destPath,
         dest_connection_id: destConnectionId,
-        overwrite,
+        target_resolution_policy: targetResolutionPolicy,
+        idempotency_key: idempotencyKey,
       },
       extraConfig
     );
   }
 
   /**
-   * Move a file or directory to a new location.
-   *
-   * When ``destConnectionId`` is provided and differs from ``connectionId``,
-   * a cross-connection move is performed (copy + delete source).
-   * For cross-backend transfers (SMB ↔ local), the browser mediates.
+   * Return the stabilized unavailable result for all Move requests.
    */
-  async moveItem(connectionId: string, sourcePath: string, destPath: string, destConnectionId?: string, overwrite = false): Promise<void> {
-    if (destConnectionId && this.isCrossBackendTransfer(connectionId, destConnectionId)) {
-      await this.crossBackendCopy(connectionId, sourcePath, destConnectionId, destPath, overwrite);
-      await this.deleteItem(connectionId, sourcePath);
-      return;
+  async moveItem(
+    _connectionId: string,
+    _sourcePath: string,
+    _destPath: string,
+    _idempotencyKey: string,
+    _destConnectionId?: string,
+    _targetResolutionPolicy: TargetResolutionPolicy = "ask"
+  ): Promise<ContentTransferResult> {
+    return {
+      status: "failed",
+      replaced: false,
+      effects: { source: "unchanged", destination: "unchanged" },
+      error: { code: "unavailable", reason: "unsupported" },
+    };
+  }
+
+  // ── Transfer routing helpers ────────────────────────────────────────────
+
+  private async postTransfer(
+    client: AxiosInstance,
+    path: string,
+    payload: Record<string, unknown>,
+    config: AxiosRequestConfig
+  ): Promise<ContentTransferResult> {
+    try {
+      return this.normalizeTransferResult((await client.post<ContentTransferResult>(path, payload, config)).data);
+    } catch (firstError) {
+      if (!axios.isAxiosError(firstError) || firstError.response) {
+        throw firstError;
+      }
+      return { status: "outcome_unknown", replaced: false, effects: { source: "unknown", destination: "unknown" } };
     }
-    const segment = getBrowseSegment(connectionId);
-    const { client, extraConfig } = await this.getClientConfig(connectionId);
-    await client.post(
-      `/browse/${segment}/move`,
-      {
-        source_path: sourcePath,
-        dest_path: destPath,
-        dest_connection_id: destConnectionId,
-        overwrite,
-      },
-      extraConfig
-    );
   }
 
-  // ── Cross-backend transfer helpers ──────────────────────────────────────
+  private normalizeTransferResult(result: ContentTransferResult): ContentTransferResult {
+    if (result.status === "failed" && result.error.code === "unavailable" && "detail" in result.error) {
+      return { ...result, error: { code: "unavailable", reason: "unsupported" } };
+    }
+    return result;
+  }
 
-  /**
-   * Check whether source and destination are on different backend types
-   * (one local, one SMB). Same-type transfers are handled natively by
-   * each backend.
-   */
+  /** Check whether source and destination are on different backend types. */
   private isCrossBackendTransfer(sourceConnectionId: string, destConnectionId: string): boolean {
     return isLocalDrive(sourceConnectionId) !== isLocalDrive(destConnectionId);
   }
@@ -1427,83 +1449,6 @@ class ApiService {
 
   async writeFile(connectionId: string, destinationPath: string, content: Blob, filename: string): Promise<void> {
     await this.uploadFileBlob(connectionId, destinationPath, content, filename);
-  }
-
-  /**
-   * Browser-mediated cross-backend copy.
-   *
-   * Downloads each file from the source backend and uploads it to the
-   * destination backend. For directories, recursively lists the source
-   * and processes all contained files.
-   */
-  private async crossBackendCopy(
-    sourceConnectionId: string,
-    sourcePath: string,
-    destConnectionId: string,
-    destPath: string,
-    overwrite: boolean
-  ): Promise<void> {
-    // Determine whether the source is a file or directory
-    const info = await this.getFileInfo(sourceConnectionId, sourcePath);
-
-    if (info.type === FileType.FILE) {
-      // Check for existing file on the destination before uploading
-      if (!overwrite) {
-        try {
-          await this.getFileInfo(destConnectionId, destPath);
-          // If we get here, the dest exists — throw a 409-like error
-          throw Object.assign(new Error("Destination already exists"), {
-            response: { status: 409, data: { detail: `Destination already exists: ${destPath}` } },
-            isAxiosError: true,
-          });
-        } catch (e: unknown) {
-          // 404 = dest doesn't exist, which is what we want
-          const err = e as { response?: { status?: number } };
-          if (err.response?.status !== 404) throw e;
-        }
-      }
-
-      const blob = await this.downloadFileBlob(sourceConnectionId, sourcePath);
-      const filename = sourcePath.split("/").pop() ?? sourcePath;
-      await this.uploadFileBlob(destConnectionId, destPath, blob, filename);
-    } else {
-      // Directory — recursively process contents
-      await this.crossBackendCopyDirectory(sourceConnectionId, sourcePath, destConnectionId, destPath, overwrite);
-    }
-  }
-
-  /**
-   * Recursively copy a directory across backends.
-   *
-   * Creates the target directory, then lists the source and processes
-   * each child (files are downloaded/uploaded, subdirectories recurse).
-   */
-  private async crossBackendCopyDirectory(
-    sourceConnectionId: string,
-    sourceDirPath: string,
-    destConnectionId: string,
-    destDirPath: string,
-    overwrite: boolean
-  ): Promise<void> {
-    // Create the destination directory
-    const destDirName = destDirPath.split("/").pop() ?? destDirPath;
-    const destParent = destDirPath.includes("/") ? destDirPath.substring(0, destDirPath.lastIndexOf("/")) : "";
-    await this.createItem(destConnectionId, destParent, destDirName, "directory");
-
-    // List the source directory
-    const listing = await this.listDirectory(sourceConnectionId, sourceDirPath);
-
-    for (const item of listing.items) {
-      const childSourcePath = item.path;
-      const childDestPath = destDirPath ? `${destDirPath}/${item.name}` : item.name;
-
-      if (item.type === FileType.DIRECTORY) {
-        await this.crossBackendCopyDirectory(sourceConnectionId, childSourcePath, destConnectionId, childDestPath, overwrite);
-      } else {
-        const blob = await this.downloadFileBlob(sourceConnectionId, childSourcePath);
-        await this.uploadFileBlob(destConnectionId, childDestPath, blob, item.name);
-      }
-    }
   }
 
   // Viewer endpoints
@@ -1849,51 +1794,37 @@ class ApiService {
       });
 
       const contentType = getResponseContentType(response.headers["content-type"], "application/pdf");
-      // response.data is an ArrayBuffer when responseType is 'arraybuffer'
       return new Blob([response.data], { type: contentType });
     } catch (error) {
-      // When responseType is 'arraybuffer', error responses come as ArrayBuffer
-      // We need to convert them to JSON to access the detail field
-      if (axios.isAxiosError(error)) {
-        // Check if data is a string (common when responseType is arraybuffer but error is JSON)
-        if (typeof error.response?.data === "string") {
-          try {
-            const json = JSON.parse(error.response.data);
-            // Re-throw with parsed data
-            throw {
-              ...error,
-              response: {
-                ...error.response,
-                data: json,
-              },
-            };
-          } catch {
-            // If parsing fails, continue to next check
-          }
-        }
-      }
-
-      if (axios.isAxiosError(error) && error.response?.data instanceof ArrayBuffer) {
-        const decoder = new TextDecoder();
-        const text = decoder.decode(error.response.data);
+      if (axios.isAxiosError(error) && typeof error.response?.data === "string") {
         try {
-          const json = JSON.parse(text);
-          // Create error with parsed JSON data
-          const newError = {
+          throw {
             ...error,
             response: {
               ...error.response,
-              data: json,
+              data: JSON.parse(error.response.data),
             },
           };
-          throw newError;
         } catch (parseError) {
-          // If JSON.parse fails, throw original error
-          if (parseError instanceof SyntaxError) {
-            throw error;
+          if (!(parseError instanceof SyntaxError)) {
+            throw parseError;
           }
-          // If it's not a SyntaxError, it's our thrown newError - re-throw it
-          throw parseError;
+        }
+      }
+      if (axios.isAxiosError(error) && error.response?.data instanceof ArrayBuffer) {
+        const text = new TextDecoder().decode(error.response.data);
+        try {
+          throw {
+            ...error,
+            response: {
+              ...error.response,
+              data: JSON.parse(text),
+            },
+          };
+        } catch (parseError) {
+          if (!(parseError instanceof SyntaxError)) {
+            throw parseError;
+          }
         }
       }
       throw error;

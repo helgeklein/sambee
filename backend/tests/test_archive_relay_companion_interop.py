@@ -72,7 +72,8 @@ class _LoopbackSmbBackend:
     async def create_directory(self, path: str) -> None:
         self.created_directories.append(path)
 
-    async def write_file_from_stream(self, path: str, source, *, overwrite: bool) -> int:
+    async def write_file_from_stream(self, path: str, source, *, overwrite: bool, source_mtime=None) -> int:
+        del overwrite, source_mtime
         contents = bytearray()
         async for chunk in source:
             contents.extend(chunk)

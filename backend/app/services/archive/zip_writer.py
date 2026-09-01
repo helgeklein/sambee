@@ -1,12 +1,14 @@
 """Portable ZIP creation directly to an exclusive final-target writer."""
 
 import struct
+import time
 import unicodedata
 import zlib
 from collections.abc import AsyncIterator
 from dataclasses import dataclass
 from datetime import datetime
 
+from app.services.archive.telemetry import log_archive_operation_metrics
 from app.services.archive.zip_reader import ArchiveFormatError
 from app.storage.base import ExclusiveWriter
 
@@ -73,13 +75,23 @@ class PortableZipWriter:
         self._entries: list[_WrittenEntry] = []
         self._path_keys: set[str] = set()
         self._closed = False
+        self._started_at = time.perf_counter()
+        self._write_operations = 0
+        self._write_bytes = 0
+        self._metadata_write_operations = 0
+        self._metadata_write_bytes = 0
 
-    async def _write(self, data: bytes) -> None:
+    async def _write(self, data: bytes, *, metadata: bool = False) -> None:
         position = 0
         while position < len(data):
             written = await self._writer.write(data[position:])
             if written <= 0:
                 raise OSError("Archive target writer accepted no bytes")
+            self._write_operations += 1
+            self._write_bytes += written
+            if metadata:
+                self._metadata_write_operations += 1
+                self._metadata_write_bytes += written
             position += written
         self._offset += len(data)
 
@@ -158,9 +170,10 @@ class PortableZipWriter:
                 len(name),
                 len(local_extra),
             )
+            + name
+            + local_extra,
+            metadata=True,
         )
-        await self._write(name)
-        await self._write(local_extra)
 
         crc = 0
         uncompressed_size = 0
@@ -189,9 +202,9 @@ class PortableZipWriter:
         if not uses_zip64 and (_requires_zip64(compressed_size) or _requires_zip64(uncompressed_size)):
             raise ArchiveFormatError("Archive source exceeded the ZIP32 size reserved for its streamed entry")
         if uses_zip64:
-            await self._write(struct.pack("<IIQQ", 0x08074B50, crc & _ZIP32_MAX, compressed_size, uncompressed_size))
+            await self._write(struct.pack("<IIQQ", 0x08074B50, crc & _ZIP32_MAX, compressed_size, uncompressed_size), metadata=True)
         else:
-            await self._write(struct.pack("<IIII", 0x08074B50, crc & _ZIP32_MAX, compressed_size, uncompressed_size))
+            await self._write(struct.pack("<IIII", 0x08074B50, crc & _ZIP32_MAX, compressed_size, uncompressed_size), metadata=True)
         self._entries.append(
             _WrittenEntry(
                 name,
@@ -214,6 +227,17 @@ class PortableZipWriter:
         if self._closed:
             return
         directory_offset = self._offset
+        central_directory = bytearray()
+
+        async def append_central_record(record: bytes) -> None:
+            if central_directory and len(central_directory) + len(record) > _ARCHIVE_IO_CHUNK_BYTES:
+                await self._write(bytes(central_directory), metadata=True)
+                central_directory.clear()
+            if len(record) > _ARCHIVE_IO_CHUNK_BYTES:
+                await self._write(record, metadata=True)
+                return
+            central_directory.extend(record)
+
         for entry in self._entries:
             external_attributes = 0x10 if entry.is_directory else 0
             uses_zip64 = entry.uses_zip64 or any(
@@ -225,7 +249,7 @@ class PortableZipWriter:
             offset_value = _ZIP32_MAX if uses_zip64 else entry.local_offset
             version_needed = _ZIP64_VERSION_NEEDED if uses_zip64 else _ZIP_VERSION_NEEDED
             version_made_by = (_ZIP_VERSION_MADE_BY & 0xFF00) | version_needed
-            await self._write(
+            await append_central_record(
                 struct.pack(
                     "<IHHHHHHIIIHHHHHII",
                     0x02014B50,
@@ -246,9 +270,11 @@ class PortableZipWriter:
                     external_attributes,
                     offset_value,
                 )
+                + entry.name
+                + central_extra
             )
-            await self._write(entry.name)
-            await self._write(central_extra)
+        if central_directory:
+            await self._write(bytes(central_directory), metadata=True)
         directory_size = self._offset - directory_offset
         requires_zip64_directory = len(self._entries) >= _ZIP16_MAX or _requires_zip64(directory_offset) or _requires_zip64(directory_size)
         if requires_zip64_directory:
@@ -266,9 +292,10 @@ class PortableZipWriter:
                     len(self._entries),
                     directory_size,
                     directory_offset,
-                )
+                ),
+                metadata=True,
             )
-            await self._write(struct.pack("<IIQI", 0x07064B50, 0, zip64_directory_offset, 1))
+            await self._write(struct.pack("<IIQI", 0x07064B50, 0, zip64_directory_offset, 1), metadata=True)
         await self._write(
             struct.pack(
                 "<IHHHHIIH",
@@ -280,10 +307,22 @@ class PortableZipWriter:
                 _ZIP32_MAX if requires_zip64_directory else directory_size,
                 _ZIP32_MAX if requires_zip64_directory else directory_offset,
                 0,
-            )
+            ),
+            metadata=True,
         )
         self._closed = True
         await self._writer.close()
+        log_archive_operation_metrics(
+            "archive_creation",
+            (time.perf_counter() - self._started_at) * 1000,
+            {
+                "entry_count": len(self._entries),
+                "metadata_write_bytes": self._metadata_write_bytes,
+                "metadata_write_operations": self._metadata_write_operations,
+                "write_bytes": self._write_bytes,
+                "write_operations": self._write_operations,
+            },
+        )
 
 
 async def _empty_chunks() -> AsyncIterator[bytes]:

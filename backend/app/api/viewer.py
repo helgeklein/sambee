@@ -122,7 +122,8 @@ async def stream_archive_member(
         )
         inspection_projection = await inspection.member_read()
         inspection_member = inspection_projection.member
-        member = await source.validate_member(inspection_member.path)
+        validated_member = await source.validate_member(inspection_member.path)
+        member = validated_member.entry
         if inspection_projection.delivery == "preview_unavailable":
             raise HTTPException(
                 status_code=status.HTTP_413_REQUEST_ENTITY_TOO_LARGE, detail="Archive member exceeds the inline preview size limit"
@@ -131,7 +132,7 @@ async def stream_archive_member(
 
         async def read_member_source() -> tuple[bytes, PDFSourceRevision]:
             chunks: list[bytes] = []
-            async for chunk in source.stream_member(member_path):
+            async for chunk in source.stream_validated_member(validated_member):
                 chunks.append(chunk)
             refreshed_archive = await backend.get_file_info(archive_path)
             if (
@@ -191,7 +192,7 @@ async def stream_archive_member(
 
         async def stream_member() -> AsyncIterator[bytes]:
             try:
-                async for chunk in source.stream_member(member_path):
+                async for chunk in source.stream_validated_member(validated_member):
                     yield chunk
             finally:
                 await reader.close()
@@ -246,7 +247,7 @@ async def invalidate_archive_member_pdf_derivative(
             ArchiveInspectionPlan(source, topology, ArchiveMemberReadPresentation(member_path=member_path, download=False))
         )
         inspection_member = (await inspection.member_read()).member
-        member = await source.validate_member(inspection_member.path)
+        member = (await source.validate_member(inspection_member.path)).entry
         member_name = member_path.replace("\\", "/").rsplit("/", 1)[-1]
         if not needs_pdf_normalization(member_name):
             raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="PDF derivative invalidation requires a PDF file")

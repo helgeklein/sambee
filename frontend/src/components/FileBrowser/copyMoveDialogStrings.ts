@@ -34,20 +34,6 @@ export const COPY_MOVE_STRINGS = {
     return translate("fileBrowser.copyMove.labelFilename");
   },
 
-  // Overwrite strategy (pre-flight choice for multi-file operations)
-  get OVERWRITE_STRATEGY_LABEL() {
-    return translate("fileBrowser.copyMove.overwriteStrategyLabel");
-  },
-  get OVERWRITE_STRATEGY_ASK() {
-    return translate("fileBrowser.copyMove.overwriteStrategyAsk");
-  },
-  get OVERWRITE_STRATEGY_REPLACE_ALL() {
-    return translate("fileBrowser.copyMove.overwriteStrategyReplaceAll");
-  },
-  get OVERWRITE_STRATEGY_SKIP_ALL() {
-    return translate("fileBrowser.copyMove.overwriteStrategySkipAll");
-  },
-
   // Validation errors
   get ERROR_SAME_FILENAME() {
     return translate("fileBrowser.copyMove.errorSameFilename");

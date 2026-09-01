@@ -45,7 +45,7 @@
       "error": "unsafe_path"
     },
     {
-      "name": "case_folded_extraction_manifest_duplicate_is_rejected",
+      "name": "case_distinct_extraction_manifest_members_are_allowed",
       "entries": [
         {
           "path": "Report.txt",
@@ -58,7 +58,18 @@
           "uncompressed_size": 1
         }
       ],
-      "error": "duplicate_path"
+      "normalized_entries": [
+        {
+          "path": "Report.txt",
+          "is_directory": false,
+          "uncompressed_size": 1
+        },
+        {
+          "path": "report.txt",
+          "is_directory": false,
+          "uncompressed_size": 1
+        }
+      ]
     },
     {
       "name": "extraction_file_descendant_collision_is_rejected",

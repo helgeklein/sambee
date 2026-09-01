@@ -81,7 +81,8 @@ describe("CopyMoveDialog", () => {
     const destination = screen.getByLabelText(S.LABEL_DESTINATION);
     expect(destination).toHaveValue("My Server:/backup");
     expect(screen.queryByText(S.LABEL_DESTINATION)).not.toBeInTheDocument();
-    expect(destination).toHaveAttribute("wrap", "off");
+    expect(destination).not.toHaveAttribute("wrap");
+    expect(screen.queryByRole("radio")).not.toBeInTheDocument();
   });
 
   it("shows move single-item prompt with destination", () => {
@@ -118,7 +119,7 @@ describe("CopyMoveDialog", () => {
     render(<CopyMoveDialog {...defaultProps} onConfirm={onConfirm} />);
 
     await user.click(screen.getByRole("button", { name: S.BUTTON_COPY }));
-    expect(onConfirm).toHaveBeenCalledWith(undefined, "ask");
+    expect(onConfirm).toHaveBeenCalledWith(undefined);
   });
 
   it("preserves leading whitespace in a single-item rename", async () => {
@@ -132,7 +133,7 @@ describe("CopyMoveDialog", () => {
     await user.type(input, "  renamed.txt");
     await user.click(screen.getByRole("button", { name: S.BUTTON_COPY }));
 
-    expect(onConfirm).toHaveBeenCalledWith("  renamed.txt", "ask");
+    expect(onConfirm).toHaveBeenCalledWith("  renamed.txt");
   });
 
   it("rejects a single-item rename with trailing whitespace", async () => {
@@ -157,7 +158,7 @@ describe("CopyMoveDialog", () => {
     render(<CopyMoveDialog {...props} />);
 
     await user.click(screen.getByRole("button", { name: S.BUTTON_COPY }));
-    expect(onConfirm).toHaveBeenCalledWith(undefined, "ask");
+    expect(onConfirm).toHaveBeenCalledWith(undefined);
   });
 
   it("calls onCancel when Cancel is clicked", async () => {
@@ -179,7 +180,7 @@ describe("CopyMoveDialog", () => {
     await user.click(input);
     await user.keyboard("{Enter}");
 
-    expect(onConfirm).toHaveBeenCalledWith(undefined, "ask");
+    expect(onConfirm).toHaveBeenCalledWith(undefined);
   });
 
   it("disables confirm button during processing", () => {
@@ -234,7 +235,7 @@ describe("CopyMoveDialog", () => {
     await user.type(input, "readme-copy.txt");
     await user.click(screen.getByRole("button", { name: S.BUTTON_COPY }));
 
-    expect(onConfirm).toHaveBeenCalledWith("readme-copy.txt", "ask");
+    expect(onConfirm).toHaveBeenCalledWith("readme-copy.txt");
   });
 
   it("suggests a valid copy name for a single item copied to its current directory", async () => {
@@ -255,7 +256,7 @@ describe("CopyMoveDialog", () => {
     expect(screen.getByRole("button", { name: S.BUTTON_COPY })).toBeEnabled();
 
     await user.click(screen.getByRole("button", { name: S.BUTTON_COPY }));
-    expect(onConfirm).toHaveBeenCalledWith("readme (copy).txt", "ask");
+    expect(onConfirm).toHaveBeenCalledWith("readme (copy).txt");
   });
 
   it("shows a detailed filename error when a same-directory target is changed back to its original name", async () => {

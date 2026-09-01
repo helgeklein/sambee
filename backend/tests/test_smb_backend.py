@@ -12,7 +12,12 @@ Tests cover:
 """
 
 import asyncio
+import io
+import os
 import stat as stat_module
+import uuid
+import zipfile
+from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
 from datetime import datetime
 from threading import Event
@@ -21,8 +26,12 @@ from unittest.mock import ANY, AsyncMock, MagicMock, call, patch
 import pytest
 from smbclient._os import FileAttributes
 
-from app.models.file import DirectoryListing, FileType
+from app.models.file import DirectoryListing, FileInfo, FileType
+from app.services.archive.extraction import extract_archive_to_new_paths
 from app.storage.smb import SMBBackend
+
+_LIVE_SMB_ENVIRONMENT_VARIABLES = ("TEST_SMB_HOST", "TEST_SMB_SHARE", "TEST_SMB_USERNAME", "TEST_SMB_PASSWORD")
+_LIVE_SMB_ENABLED = all(os.environ.get(name) for name in _LIVE_SMB_ENVIRONMENT_VARIABLES)
 
 SMB_AUTH_KWARGS = {
     "username": "user",
@@ -37,8 +46,12 @@ SMB_AUTH_KWARGS = {
 
 
 @pytest.fixture(autouse=True)
-def mock_smb_pool():
+def mock_smb_pool(request: pytest.FixtureRequest):
     """Mock the SMB connection pool for all tests."""
+
+    if request.node.get_closest_marker("integration") is not None:
+        yield None
+        return
 
     @asynccontextmanager
     async def mock_get_connection(host, port, username, password, share_name, connection_cache=None):
@@ -51,6 +64,65 @@ def mock_smb_pool():
         mock_pool_instance.retain_connection_until_future_complete = AsyncMock()
         mock_pool.return_value = mock_pool_instance
         yield mock_pool
+
+
+class _MemoryArchiveReader:
+    def __init__(self, data: bytes) -> None:
+        self._data = data
+
+    async def read_at(self, offset: int, length: int) -> bytes:
+        return self._data[offset : offset + length]
+
+    async def close(self) -> None:
+        return None
+
+
+class _MemoryArchiveSource:
+    def __init__(self, data: bytes) -> None:
+        self._data = data
+
+    async def get_file_info(self, path: str) -> FileInfo:
+        if path != "source.zip":
+            raise FileNotFoundError(path)
+        return FileInfo(name=path, path=path, type=FileType.FILE, size=len(self._data))
+
+    async def open_random_access_reader(self, path: str) -> _MemoryArchiveReader:
+        if path != "source.zip":
+            raise FileNotFoundError(path)
+        return _MemoryArchiveReader(self._data)
+
+
+class _CountingExtractionDestination:
+    def __init__(self, backend: SMBBackend) -> None:
+        self._backend = backend
+        self.file_info_paths: list[str] = []
+        self.listed_paths: list[str] = []
+
+    async def get_file_info(self, path: str) -> FileInfo:
+        self.file_info_paths.append(path)
+        return await self._backend.get_file_info(path)
+
+    async def list_directory(self, path: str = "") -> DirectoryListing:
+        self.listed_paths.append(path)
+        return await self._backend.list_directory(path)
+
+    async def create_directory(self, path: str) -> None:
+        await self._backend.create_directory(path)
+
+    async def write_file_from_stream(
+        self,
+        path: str,
+        stream: AsyncIterator[bytes],
+        *,
+        overwrite: bool = False,
+        source_mtime: object | None = None,
+    ) -> int:
+        return await self._backend.write_file_from_stream(
+            path,
+            stream,
+            overwrite=overwrite,
+            source_mtime=source_mtime,
+        )
 
 
 @pytest.mark.asyncio
@@ -76,6 +148,64 @@ async def test_disconnect_closes_an_ephemeral_connection_cache() -> None:
         connection_cache=backend._connection_cache,
         reason="ephemeral connection validation completed",
     )
+
+
+@pytest.mark.asyncio
+@patch("app.storage.smb.smbclient.open_file")
+async def test_write_file_from_stream_retries_short_native_writes(mock_open: MagicMock) -> None:
+    mock_file = MagicMock()
+    mock_file.write.side_effect = [2, 3]
+    mock_open.return_value = mock_file
+    backend = SMBBackend(host="server.local", share_name="share", username="user", password="pass")
+
+    async def stream():
+        yield b"hello"
+
+    result = await backend.write_file_from_stream("target.txt", stream())
+
+    assert int(result) == 5
+    assert mock_file.write.call_args_list == [call(b"hello"), call(b"llo")]
+    mock_file.close.assert_called_once()
+
+
+@pytest.mark.integration
+@pytest.mark.asyncio
+@pytest.mark.skipif(not _LIVE_SMB_ENABLED, reason="requires TEST_SMB_HOST, TEST_SMB_SHARE, TEST_SMB_USERNAME, and TEST_SMB_PASSWORD")
+async def test_live_smb_extraction_preflight_coalesces_flat_destination_checks() -> None:
+    archive_buffer = io.BytesIO()
+    member_names = ("first.txt", "second.txt", "third.txt")
+    with zipfile.ZipFile(archive_buffer, "w", compression=zipfile.ZIP_STORED) as archive:
+        for member_name in member_names:
+            archive.writestr(member_name, member_name)
+    backend = SMBBackend(
+        host=os.environ["TEST_SMB_HOST"],
+        share_name=os.environ["TEST_SMB_SHARE"],
+        username=os.environ["TEST_SMB_USERNAME"],
+        password=os.environ["TEST_SMB_PASSWORD"],
+    )
+    destination_root = f"sambee-archive-preflight-{uuid.uuid4().hex}/output"
+    destination = _CountingExtractionDestination(backend)
+    root_created = False
+    try:
+        await backend.create_directory(destination_root.rpartition("/")[0])
+        root_created = True
+        await backend.create_directory(destination_root)
+
+        result = await extract_archive_to_new_paths(
+            _MemoryArchiveSource(archive_buffer.getvalue()),
+            destination=destination,
+            archive_path="source.zip",
+            destination_root=destination_root,
+        )
+
+        target_paths = [f"{destination_root}/{member_name}" for member_name in member_names]
+        assert result.files_extracted == len(member_names)
+        assert destination.listed_paths == [destination_root]
+        assert all(destination.file_info_paths.count(path) == 1 for path in target_paths)
+    finally:
+        if root_created:
+            await backend.delete_item(destination_root.rpartition("/")[0])
+        await backend.disconnect()
 
 
 class TestPathConstruction:
@@ -514,6 +644,29 @@ class TestDirectoryListing:
         assert result.items[0].size == 1024
         assert result.items[1].name == "file2.pdf"
         assert result.items[1].size == 2048
+
+    @pytest.mark.asyncio
+    @patch("app.storage.smb.smbclient.stat")
+    @patch("app.storage.smb.smbclient.scandir")
+    async def test_list_directory_coalesces_populated_entries_without_child_stats(self, mock_scandir, mock_stat):
+        entries = []
+        for index in range(3):
+            entry = MagicMock()
+            entry.name = f"file-{index}.txt"
+            entry.smb_info.file_attributes = 0
+            entry.smb_info.end_of_file = index + 1
+            entry.smb_info.last_write_time = datetime(2024, 1, 15, 10, 30)
+            entry.smb_info.creation_time = datetime(2024, 1, 10, 9, 0)
+            entries.append(entry)
+        mock_scandir.return_value = entries
+        backend = SMBBackend(host="server.local", share_name="share", username="user", password="pass")
+
+        result = await backend.list_directory("output")
+
+        assert result.total == len(entries)
+        assert [item.name for item in result.items] == ["file-0.txt", "file-1.txt", "file-2.txt"]
+        mock_scandir.assert_called_once_with(r"\\server.local\share\output", **SMB_AUTH_KWARGS)
+        mock_stat.assert_not_called()
 
     @pytest.mark.asyncio
     @patch("app.storage.smb.smbclient.scandir")

@@ -1,5 +1,14 @@
 # TODO
 
+## Zip Archive Implementation
+
+- More reviews:
+   - Archive architecture from the point of view of an implementor of:
+      - additional archive format
+      - additional file based virtual format like iso
+      - additional backend like SFTP
+   - Security
+
 ## Bugs
 
 - Image viewer: while swiping through images in a directory (not an archive), rendering the last image (in either direction) times out.

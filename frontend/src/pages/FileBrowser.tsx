@@ -25,7 +25,7 @@ import { Trans, useTranslation } from "react-i18next";
 import { useLocation, useNavigate, useParams, useSearchParams } from "react-router-dom";
 import { ArchiveExtractDialog } from "../components/FileBrowser/ArchiveExtractDialog";
 import { ArchiveOperationProgress } from "../components/FileBrowser/ArchiveOperationProgress";
-import CopyMoveDialog, { type CopyMoveMode, type OverwriteStrategy } from "../components/FileBrowser/CopyMoveDialog";
+import CopyMoveDialog, { type CopyMoveMode } from "../components/FileBrowser/CopyMoveDialog";
 import { DesktopToolbar } from "../components/FileBrowser/DesktopToolbar";
 import { DynamicViewer } from "../components/FileBrowser/DynamicViewer";
 import type { CompanionLifecycleStatus } from "../components/FileBrowser/FileBrowserAlerts";
@@ -33,7 +33,11 @@ import { FileBrowserAlerts } from "../components/FileBrowser/FileBrowserAlerts";
 import { InlineItemName } from "../components/FileBrowser/InlineItemName";
 import { MobileToolbar } from "../components/FileBrowser/MobileToolbar";
 import NameInputDialog from "../components/FileBrowser/NameInputDialog";
-import OverwriteConflictDialog, { type ConflictResolution } from "../components/FileBrowser/OverwriteConflictDialog";
+import {
+  type ConflictDecision,
+  type ConflictResolution,
+  OverwriteResolutionDialog,
+} from "../components/FileBrowser/OverwriteConflictDialog";
 import { SecondaryActionStrip } from "../components/FileBrowser/SecondaryActionStrip";
 import { useBrowserCommandsProvider } from "../components/FileBrowser/search";
 import { useFileSearchProvider } from "../components/FileBrowser/search/useFileSearchProvider";
@@ -70,11 +74,12 @@ import { RECENT_DIRECTORIES_CHANGED_EVENT } from "../services/recentDirectoriesS
 import { RECENT_FILES_CHANGED_EVENT } from "../services/recentFilesSync";
 import { scheduleRuntimeWarmup } from "../services/runtimeWarmup";
 import { buildServerWebSocketUrl } from "../services/serverWebsocket";
+import type { TargetResolutionPolicy } from "../services/storageContracts";
 import { loadCurrentUserSettings } from "../services/userSettingsSync";
 import { FILE_BROWSER_ROW_HEIGHT } from "../theme/constants";
 import { getMobileViewportShellSx, mobileSafeAreaAppBarSx, mobileSafeAreaToolbarSx, SAFE_AREA_INSET } from "../theme/mobileShell";
 import type { ConflictInfo, Connection } from "../types";
-import { isApiError } from "../types";
+import { FileType, isApiError } from "../types";
 import { openExternalUrl } from "../utils/externalLinks";
 import { compareLocalizedStrings } from "../utils/localeFormatting";
 import { canOpenFileInApp, getConnectionById, isConnectionReadOnly, isConnectionWritable } from "./FileBrowser/access";
@@ -134,6 +139,9 @@ const COMPANION_WEBSOCKET_CONNECT_TIMEOUT_MS = 15_000;
 
 const COMPANION_STATUS_QUERY_PARAM = "companion_status";
 const IGNORED_REALTIME_MESSAGE_TYPES = new Set(["subscribed", "unsubscribed", "pong"]);
+const COPY_MOVE_FILE_CONFLICT_ACTIONS: readonly ConflictResolution[] = ["skip", "rename"];
+const COPY_MOVE_DIRECTORY_CONFLICT_ACTIONS: readonly ConflictResolution[] = ["skip", "rename"];
+type CopyMoveConflictPolicy = "ask" | "skip-all";
 
 function parentPath(path: string): string {
   const separatorIndex = path.lastIndexOf("/");
@@ -146,6 +154,19 @@ function fileName(path: string): string {
 
 function joinPath(parent: string, child: string): string {
   return parent ? `${parent}/${child}` : child;
+}
+
+export function getCopyMoveConflictActions(conflict: ConflictInfo | null): readonly ConflictResolution[] {
+  if (conflict?.incoming_file.type === FileType.FILE && conflict.existing_file.type === FileType.FILE) {
+    return COPY_MOVE_FILE_CONFLICT_ACTIONS;
+  }
+  return COPY_MOVE_DIRECTORY_CONFLICT_ACTIONS;
+}
+
+export function targetResolutionPolicyForConflictResolution(resolution: ConflictResolution): TargetResolutionPolicy {
+  if (resolution === "overwrite") return "replace";
+  if (resolution === "overwrite-older") return "replace_older";
+  return "ask";
 }
 
 type RealtimeMessage =
@@ -508,7 +529,7 @@ const Browser: React.FC = () => {
   const [conflictInfo, setConflictInfo] = useState<ConflictInfo | null>(null);
   const [conflictProgress, setConflictProgress] = useState<{ current: number; total: number; conflictsSoFar: number } | undefined>();
   /** Ref holding the resolve function of a Promise used to pause the processing loop while the conflict dialog is open. */
-  const conflictResolveRef = React.useRef<((value: { resolution: ConflictResolution; applyToAll: boolean }) => void) | null>(null);
+  const conflictResolveRef = React.useRef<((value: ConflictDecision | null) => void) | null>(null);
 
   // ──────────────────────────────────────────────────────────────────────────
   // Dual-Pane State
@@ -1830,7 +1851,7 @@ const Browser: React.FC = () => {
    * Shows progress per file. Both panes refresh via WebSocket after completion.
    */
   const handleCopyMoveConfirm = useCallback(
-    async (destFileName: string | undefined, overwriteStrategy: OverwriteStrategy) => {
+    async (destFileName: string | undefined) => {
       if (copyMoveItems.length === 0 || !copyMoveDestination) return;
 
       setCopyMoveProcessing(true);
@@ -1840,36 +1861,93 @@ const Browser: React.FC = () => {
       const errors: string[] = [];
       let destinationMutated = false;
       let sourceMutated = false;
-      let effectiveStrategy = overwriteStrategy;
+      let effectiveStrategy: CopyMoveConflictPolicy = "ask";
       let conflictCount = 0;
+      let operationCancelled = false;
+      let outcomeUnknown = false;
 
       for (let index = 0; index < copyMoveItems.length; index += 1) {
         const item = copyMoveItems[index]!;
         const request = { kind: copyMoveMode, source: item.handle, destination: copyMoveDestination, targetName: destFileName } as const;
-        const execute = (overwrite = false) => executeTransfer({ ...request, overwrite }, contentOperationEnvironment);
+        let targetName = destFileName;
+        const execute = (targetResolutionPolicy: TargetResolutionPolicy = "ask") =>
+          executeTransfer({ ...request, targetName, targetResolutionPolicy }, contentOperationEnvironment);
+        const applyTransferResult = (result: import("./services/storageContracts").ContentTransferResult) => {
+          destinationMutated ||= result.effects.destination !== "unchanged";
+          sourceMutated ||= result.effects.source !== "unchanged";
+          if (result.status === "completed" || result.status === "skipped") return;
+          if (result.status === "completed_with_source_retained") {
+            throw new Error(result.error.detail);
+          }
+          if (result.status === "outcome_unknown") {
+            outcomeUnknown = true;
+            throw new Error("The transfer outcome is unknown. Both locations were refreshed.");
+          }
+          if (result.status === "failed") {
+            throw new Error(`Content transfer failed: ${result.error.code}`);
+          }
+          throw new Error("Content transfer was cancelled");
+        };
         setCopyMoveProgress({ current: index + 1, total: copyMoveItems.length });
 
         try {
-          await execute();
-          destinationMutated = true;
-          sourceMutated ||= copyMoveMode === "move";
+          applyTransferResult(await execute());
         } catch (error) {
           if (isApiError(error) && error.response?.status === 409) {
             const detail = error.response?.data?.detail;
-            const conflict = typeof detail === "object" && detail !== null ? (detail as ConflictInfo) : null;
+            let conflict = typeof detail === "object" && detail !== null ? (detail as ConflictInfo) : null;
             if (conflict && effectiveStrategy === "ask") {
-              conflictCount += 1;
-              setConflictInfo(conflict);
-              setConflictProgress({ current: index + 1, total: copyMoveItems.length, conflictsSoFar: conflictCount });
-              const decision = await new Promise<{ resolution: ConflictResolution; applyToAll: boolean }>((resolve) => {
-                conflictResolveRef.current = resolve;
-                setConflictDialogOpen(true);
-              });
-              setConflictDialogOpen(false);
-              if (decision.applyToAll) {
-                effectiveStrategy = decision.resolution === "replace" ? "replace-all" : "skip-all";
+              let resolutionHandled = false;
+              while (conflict) {
+                conflictCount += 1;
+                setConflictInfo(conflict);
+                setConflictProgress({ current: index + 1, total: copyMoveItems.length, conflictsSoFar: conflictCount });
+                const decision = await new Promise<ConflictDecision | null>((resolve) => {
+                  conflictResolveRef.current = resolve;
+                  setConflictDialogOpen(true);
+                });
+                setConflictDialogOpen(false);
+                if (!decision) {
+                  operationCancelled = true;
+                  break;
+                }
+                if (decision.applyToAll && decision.resolution === "skip") {
+                  effectiveStrategy = "skip-all";
+                }
+                if (decision.resolution === "skip") {
+                  resolutionHandled = true;
+                  break;
+                }
+                if (decision.resolution === "rename") {
+                  if (!decision.targetName) {
+                    errors.push(`A target name is required to ${copyMoveMode} ${item.entry.name}`);
+                    logger.error(`${copyMoveMode} rename decision was missing a target name`, { file: item.entry.name }, "browser");
+                    resolutionHandled = true;
+                    break;
+                  }
+                  targetName = decision.targetName;
+                }
+                try {
+                  applyTransferResult(await execute(targetResolutionPolicyForConflictResolution(decision.resolution)));
+                } catch (retryError) {
+                  const retryDetail = isApiError(retryError) ? retryError.response?.data?.detail : null;
+                  const retryConflict = typeof retryDetail === "object" && retryDetail !== null ? (retryDetail as ConflictInfo) : null;
+                  if (decision.resolution === "rename" && isApiError(retryError) && retryError.response?.status === 409 && retryConflict) {
+                    conflict = retryConflict;
+                    continue;
+                  }
+                  const message =
+                    (isApiError(retryError) ? retryError.message : undefined) ?? `Failed to ${copyMoveMode} ${item.entry.name}`;
+                  errors.push(message);
+                  logger.error(`${copyMoveMode} resolution retry failed`, { file: item.entry.name, error: retryError }, "browser");
+                }
+                resolutionHandled = true;
+                break;
               }
-              if (decision.resolution !== "replace") {
+              if (operationCancelled || outcomeUnknown) {
+                break;
+              }
+              if (resolutionHandled) {
                 continue;
               }
             }
@@ -1877,24 +1955,14 @@ const Browser: React.FC = () => {
             if (effectiveStrategy === "skip-all") {
               continue;
             }
-            if (effectiveStrategy === "replace-all" || conflict) {
-              try {
-                await execute(true);
-                destinationMutated = true;
-                sourceMutated ||= copyMoveMode === "move";
-                continue;
-              } catch (retryError) {
-                const message = (isApiError(retryError) ? retryError.message : undefined) ?? `Failed to ${copyMoveMode} ${item.entry.name}`;
-                errors.push(message);
-                logger.error(`${copyMoveMode} overwrite failed`, { file: item.entry.name, error: retryError }, "browser");
-                continue;
-              }
-            }
           }
 
           const message = (isApiError(error) ? error.message : undefined) ?? `Failed to ${copyMoveMode} ${item.entry.name}`;
           errors.push(message);
           logger.error(`${copyMoveMode} failed`, { file: item.entry.name, error }, "browser");
+        }
+        if (outcomeUnknown) {
+          break;
         }
       }
 
@@ -1904,6 +1972,11 @@ const Browser: React.FC = () => {
       const destinationPane = copyMoveDestinationPaneId === "left" ? leftPane : rightPane;
       if (destinationMutated) void destinationPane.reloadCurrentLocation({ forceRefresh: true });
       if (sourceMutated) void sourcePane.reloadCurrentLocation({ forceRefresh: true });
+      if (operationCancelled) {
+        setCopyMoveDialogOpen(false);
+        setConflictInfo(null);
+        return;
+      }
 
       if (errors.length > 0) {
         setCopyMoveError(errors.join("; "));
@@ -1925,8 +1998,13 @@ const Browser: React.FC = () => {
   );
 
   /** Called when the user resolves an overwrite conflict dialog. */
-  const handleConflictResolve = useCallback((resolution: ConflictResolution, applyToAll: boolean) => {
-    conflictResolveRef.current?.({ resolution, applyToAll });
+  const handleConflictResolve = useCallback((decision: ConflictDecision) => {
+    conflictResolveRef.current?.(decision);
+    conflictResolveRef.current = null;
+  }, []);
+
+  const handleConflictCancel = useCallback(() => {
+    conflictResolveRef.current?.(null);
     conflictResolveRef.current = null;
   }, []);
 
@@ -3105,6 +3183,22 @@ const Browser: React.FC = () => {
         archiveName={archiveExtractionContext?.archiveName ?? ""}
         initialDestinationName={archiveExtractionContext?.initialDestinationName ?? ""}
         destinationLabel={archiveExtractionContext?.destinationLabel}
+        sourcePathPrefix={
+          archiveExtractionContext
+            ? getLocationDisplayName(
+                archiveExtractionContext.location,
+                (connectionId) => getConnectionById(allConnections, connectionId)?.name ?? connectionId
+              )
+            : undefined
+        }
+        targetConnectionName={
+          archiveExtractionContext
+            ? (getConnectionById(
+                allConnections,
+                (archiveExtractionContext.destination ?? archiveExtractionContext.destinationParent).connectionId
+              )?.name ?? (archiveExtractionContext.destination ?? archiveExtractionContext.destinationParent).connectionId)
+            : undefined
+        }
         requiresDestinationName={archiveExtractionContext?.usesSiblingDirectory ?? true}
         open={archiveExtractionContext !== null}
         isExtracting={isExtractingArchive}
@@ -3156,11 +3250,34 @@ const Browser: React.FC = () => {
         error={copyMoveError}
       />
       {/* Overwrite Conflict Dialog (shown per-file during copy/move) */}
-      <OverwriteConflictDialog
+      <OverwriteResolutionDialog
         open={conflictDialogOpen}
         conflict={conflictInfo}
+        operation={copyMoveMode}
+        allowedActions={getCopyMoveConflictActions(conflictInfo)}
         progress={conflictProgress}
+        sourcePath={
+          conflictInfo && copyMoveItems[0]
+            ? getLocationDisplayName(
+                { kind: "physical", connectionId: copyMoveItems[0].handle.location.connectionId, path: conflictInfo.incoming_file.path },
+                (connectionId) => getConnectionById(allConnections, connectionId)?.name ?? connectionId
+              )
+            : undefined
+        }
+        targetDirectoryPath={
+          conflictInfo && copyMoveDestination
+            ? getLocationDisplayName(
+                {
+                  kind: "physical",
+                  connectionId: copyMoveDestination.connectionId,
+                  path: parentPath(conflictInfo.existing_file.path),
+                },
+                (connectionId) => getConnectionById(allConnections, connectionId)?.name ?? connectionId
+              )
+            : undefined
+        }
         onResolve={handleConflictResolve}
+        onCancel={handleConflictCancel}
       />
     </Box>
   );

@@ -1,0 +1,371 @@
+from datetime import datetime, timedelta, timezone
+from uuid import uuid4
+
+import pytest
+
+from app.models.file import CopyMoveRequest, FileInfo, FileType
+from app.services.content_transfer import (
+    ContentTransferPlan,
+    RegularFileSourceSnapshot,
+    SourceChangedError,
+    TargetMutationCommitted,
+    TargetMutationTargetExistsBeforeMutation,
+    resolve_regular_file_transfer,
+    resolve_target_mutation_attempt,
+)
+from app.services.cross_connection import DirectoryTransferError, cross_connection_copy
+from app.services.target_resolution import TargetResolutionDisposition, TargetResolutionPolicy
+
+
+def file_info(path: str, modified_at: datetime) -> FileInfo:
+    return FileInfo(
+        name=path.rsplit("/", 1)[-1],
+        path=path,
+        type=FileType.FILE,
+        size=1,
+        modified_at=modified_at,
+        stable_id="source-id",
+    )
+
+
+class MemoryTransferBackend:
+    def __init__(self, files: dict[str, bytes], modified_at: datetime) -> None:
+        self.files = files
+        self.modified_at = modified_at
+        self.write_count = 0
+
+    async def get_file_info(self, path: str) -> FileInfo:
+        if path not in self.files:
+            raise FileNotFoundError(path)
+        return FileInfo(
+            name=path.rsplit("/", 1)[-1],
+            path=path,
+            type=FileType.FILE,
+            size=len(self.files[path]),
+            modified_at=self.modified_at,
+            stable_id=f"identity:{path}",
+        )
+
+    async def read_file(self, path: str):
+        yield self.files[path]
+
+    async def write_file_from_stream(self, path: str, stream, **_kwargs: object) -> int:
+        if path in self.files:
+            raise FileExistsError(path)
+        self.write_count += 1
+        self.files[path] = b"".join([chunk async for chunk in stream])
+        return len(self.files[path])
+
+    async def stage_and_commit_new_file_from_stream(self, path: str, stream, *, before_commit, **_kwargs: object) -> int:
+        if path in self.files:
+            raise FileExistsError(path)
+        staged_content = b"".join([chunk async for chunk in stream])
+        await before_commit()
+        if path in self.files:
+            raise FileExistsError(path)
+        self.write_count += 1
+        self.files[path] = staged_content
+        return len(staged_content)
+
+
+@pytest.mark.asyncio
+async def test_replace_older_skips_when_target_is_newer_without_attempting_write() -> None:
+    now = datetime.now(timezone.utc)
+    source = file_info("source.txt", now)
+    target = file_info("target.txt", now + timedelta(seconds=1))
+    attempt_count = 0
+
+    async def attempt_create() -> None:
+        nonlocal attempt_count
+        attempt_count += 1
+
+    resolution = await resolve_regular_file_transfer(
+        source=source,
+        target_path="target.txt",
+        policy=TargetResolutionPolicy.REPLACE_OLDER,
+        observe_target=lambda: _return(target),
+        attempt_create=attempt_create,
+        replacement_supported=False,
+    )
+
+    assert resolution.disposition == TargetResolutionDisposition.SKIP
+    assert attempt_count == 0
+
+
+@pytest.mark.asyncio
+async def test_replace_returns_refreshed_conflict_when_guarded_replacement_is_unavailable() -> None:
+    now = datetime.now(timezone.utc)
+    source = file_info("source.txt", now)
+    target = file_info("target.txt", now - timedelta(seconds=1))
+    attempt_count = 0
+
+    async def attempt_create() -> None:
+        nonlocal attempt_count
+        attempt_count += 1
+
+    resolution = await resolve_regular_file_transfer(
+        source=source,
+        target_path="target.txt",
+        policy=TargetResolutionPolicy.REPLACE,
+        observe_target=lambda: _return(target),
+        attempt_create=attempt_create,
+        replacement_supported=False,
+    )
+
+    assert resolution.disposition == TargetResolutionDisposition.AWAIT_COLLISION
+    assert resolution.target == target
+    assert attempt_count == 0
+
+
+@pytest.mark.asyncio
+async def test_late_create_collision_uses_one_fresh_retry() -> None:
+    now = datetime.now(timezone.utc)
+    source = file_info("source.txt", now)
+    attempt_count = 0
+
+    async def observe_target() -> FileInfo:
+        raise FileNotFoundError
+
+    async def attempt_create() -> None:
+        nonlocal attempt_count
+        attempt_count += 1
+        if attempt_count == 1:
+            raise FileExistsError
+
+    resolution = await resolve_regular_file_transfer(
+        source=source,
+        target_path="target.txt",
+        policy=TargetResolutionPolicy.ASK,
+        observe_target=observe_target,
+        attempt_create=attempt_create,
+        replacement_supported=False,
+    )
+
+    assert resolution.disposition == TargetResolutionDisposition.CREATE_NEW
+    assert attempt_count == 2
+
+
+@pytest.mark.asyncio
+async def test_successful_create_returns_the_single_committed_attempt_result() -> None:
+    now = datetime.now(timezone.utc)
+    source = file_info("source.txt", now)
+    attempt_count = 0
+
+    async def observe_target() -> FileInfo:
+        raise FileNotFoundError
+
+    async def attempt_create() -> int:
+        nonlocal attempt_count
+        attempt_count += 1
+        return 42
+
+    resolution = await resolve_regular_file_transfer(
+        source=source,
+        target_path="target.txt",
+        policy=TargetResolutionPolicy.ASK,
+        observe_target=observe_target,
+        attempt_create=attempt_create,
+        replacement_supported=False,
+    )
+
+    assert resolution.disposition == TargetResolutionDisposition.CREATE_NEW
+    assert resolution.mutation_result == 42
+    assert attempt_count == 1
+
+
+@pytest.mark.asyncio
+async def test_typed_controller_retries_with_a_fresh_attempt_after_one_late_collision() -> None:
+    now = datetime.now(timezone.utc)
+    source = file_info("source.txt", now)
+    attempts: list[TargetResolutionDisposition] = []
+
+    async def observe_target() -> FileInfo:
+        raise FileNotFoundError
+
+    async def make_attempt(disposition: TargetResolutionDisposition):
+        attempts.append(disposition)
+        if len(attempts) == 1:
+            return TargetMutationTargetExistsBeforeMutation()
+        return TargetMutationCommitted(result=42)
+
+    resolution = await resolve_target_mutation_attempt(
+        plan=ContentTransferPlan(
+            source=source,
+            target_path="target.txt",
+            policy=TargetResolutionPolicy.ASK,
+            replacement_supported=False,
+        ),
+        observe_target=observe_target,
+        attempt_factory=make_attempt,
+    )
+
+    assert resolution.disposition == TargetResolutionDisposition.CREATE_NEW
+    assert resolution.mutation_result == 42
+    assert attempts == [TargetResolutionDisposition.CREATE_NEW, TargetResolutionDisposition.CREATE_NEW]
+
+
+@pytest.mark.asyncio
+async def test_typed_controller_never_allocates_an_attempt_for_skip() -> None:
+    now = datetime.now(timezone.utc)
+    source = file_info("source.txt", now)
+    target = file_info("target.txt", now)
+    attempt_count = 0
+
+    async def make_attempt(_disposition: TargetResolutionDisposition):
+        nonlocal attempt_count
+        attempt_count += 1
+        return TargetMutationCommitted()
+
+    resolution = await resolve_target_mutation_attempt(
+        plan=ContentTransferPlan(
+            source=source,
+            target_path="target.txt",
+            policy=TargetResolutionPolicy.SKIP,
+            replacement_supported=False,
+        ),
+        observe_target=lambda: _return(target),
+        attempt_factory=make_attempt,
+    )
+
+    assert resolution.disposition == TargetResolutionDisposition.SKIP
+    assert attempt_count == 0
+
+
+@pytest.mark.asyncio
+async def test_explicit_policy_copy_commits_a_missing_target_once() -> None:
+    now = datetime.now(timezone.utc)
+    source = MemoryTransferBackend({"source.txt": b"content"}, now)
+    target = MemoryTransferBackend({}, now)
+
+    bytes_written, source_info = await cross_connection_copy(
+        source,
+        target,
+        "source.txt",
+        "target.txt",
+        target_resolution_policy=TargetResolutionPolicy.ASK,
+    )
+
+    assert bytes_written == len(b"content")
+    assert source_info.path == "source.txt"
+    assert target.files == {"target.txt": b"content"}
+    assert target.write_count == 1
+
+
+@pytest.mark.asyncio
+async def test_source_change_before_staged_commit_leaves_target_unchanged() -> None:
+    now = datetime.now(timezone.utc)
+    source = MemoryTransferBackend({"source.txt": b"content"}, now)
+
+    class SourceMutatingTarget(MemoryTransferBackend):
+        async def stage_and_commit_new_file_from_stream(self, path: str, stream, *, before_commit, **_kwargs: object) -> int:
+            staged_content = b"".join([chunk async for chunk in stream])
+            source.files["source.txt"] = b"changed-source"
+            await before_commit()
+            self.files[path] = staged_content
+            return len(staged_content)
+
+    target = SourceMutatingTarget({}, now)
+
+    with pytest.raises(SourceChangedError, match="Source changed before commit"):
+        await cross_connection_copy(
+            source,
+            target,
+            "source.txt",
+            "target.txt",
+            target_resolution_policy=TargetResolutionPolicy.ASK,
+        )
+
+    assert target.files == {}
+
+
+@pytest.mark.asyncio
+async def test_directory_child_collision_reports_a_mutated_destination() -> None:
+    now = datetime.now(timezone.utc)
+
+    class DirectoryTransferBackend(MemoryTransferBackend):
+        async def list_directory(self, path: str):
+            if path == "source":
+                return type("Listing", (), {"items": [file_info("child.txt", now)], "total": 1})()
+            return type("Listing", (), {"items": [], "total": 0})()
+
+        async def create_directory(self, path: str) -> None:
+            if path in self.files:
+                raise FileExistsError(path)
+            self.files[path] = b"directory"
+
+        async def set_file_times(self, _path: str, _modified_at: datetime) -> None:
+            return None
+
+    source = DirectoryTransferBackend({"source": b"directory", "source/child.txt": b"content"}, now)
+    target = DirectoryTransferBackend({"target/child.txt": b"existing"}, now)
+    source.get_file_info = lambda path: _return(
+        FileInfo(
+            name=path.rsplit("/", 1)[-1],
+            path=path,
+            type=FileType.DIRECTORY if path == "source" else FileType.FILE,
+            size=0,
+            modified_at=now,
+            stable_id=f"identity:{path}",
+        )
+    )
+
+    with pytest.raises(DirectoryTransferError, match="child target already exists") as error:
+        await cross_connection_copy(source, target, "source", "target")
+
+    assert error.value.destination_mutated
+    assert target.files["target"] == b"directory"
+    assert target.files["target/child.txt"] == b"existing"
+
+
+def test_source_snapshot_rejects_an_identity_that_appears_after_planning() -> None:
+    now = datetime.now(timezone.utc)
+    snapshot = RegularFileSourceSnapshot.from_file_info(file_info("source.txt", now))
+    current = file_info("source.txt", now)
+    current.stable_id = "unexpected-id"
+
+    assert not snapshot.matches(current)
+
+
+@pytest.mark.asyncio
+async def test_copy_rejects_a_source_without_stable_identity_before_reading() -> None:
+    now = datetime.now(timezone.utc)
+
+    class UnstableSource(MemoryTransferBackend):
+        async def get_file_info(self, path: str) -> FileInfo:
+            info = await super().get_file_info(path)
+            info.stable_id = None
+            return info
+
+    source = UnstableSource({"source.txt": b"content"}, now)
+    target = MemoryTransferBackend({}, now)
+
+    with pytest.raises(SourceChangedError, match="no stable identity"):
+        await cross_connection_copy(source, target, "source.txt", "target.txt", target_resolution_policy=TargetResolutionPolicy.ASK)
+
+    assert target.files == {}
+
+
+async def _return(value: FileInfo) -> FileInfo:
+    return value
+
+
+def test_copy_move_request_normalizes_legacy_overwrite() -> None:
+    request = CopyMoveRequest(source_path="source", dest_path="target", idempotency_key=str(uuid4()))
+    assert request.normalized_target_resolution_policy == "ask"
+    assert request.idempotency_key
+    assert (
+        CopyMoveRequest(
+            source_path="source", dest_path="target", overwrite=True, idempotency_key=str(uuid4())
+        ).normalized_target_resolution_policy
+        == "replace"
+    )
+    with pytest.raises(ValueError, match="conflicts"):
+        CopyMoveRequest(
+            source_path="source",
+            dest_path="target",
+            target_resolution_policy="skip",
+            overwrite=True,
+            idempotency_key=str(uuid4()),
+        )
+    with pytest.raises(ValueError, match="idempotency_key"):
+        CopyMoveRequest(source_path="source", dest_path="target")

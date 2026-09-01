@@ -184,6 +184,53 @@ describe("API Service", () => {
     );
   });
 
+  it("phase_10_stabilization_api_requires_a_supplied_idempotency_key", async () => {
+    mockAxiosInstance.post.mockResolvedValue({
+      data: { status: "completed", replaced: false, effects: { source: "unchanged", destination: "mutated" } },
+    } as AxiosResponse);
+
+    await apiService.copyItem("connection", "source.txt", "destination.txt", "00000000-0000-4000-8000-000000000003");
+
+    expect(mockAxiosInstance.post).toHaveBeenCalledWith(
+      "/browse/connection/copy",
+      expect.objectContaining({ idempotency_key: "00000000-0000-4000-8000-000000000003" }),
+      expect.anything()
+    );
+  });
+
+  it("phase_10_stabilization_no_response_returns_unknown_without_retry", async () => {
+    mockAxiosInstance.post.mockRejectedValue({ isAxiosError: true, message: "Network Error" });
+
+    await expect(
+      apiService.copyItem("connection", "source.txt", "destination.txt", "00000000-0000-4000-8000-000000000001")
+    ).resolves.toEqual({
+      status: "outcome_unknown",
+      replaced: false,
+      effects: { source: "unknown", destination: "unknown" },
+    });
+    expect(mockAxiosInstance.post).toHaveBeenCalledTimes(1);
+  });
+
+  it("phase_10_stabilization_normalizes_unavailable_response", async () => {
+    mockAxiosInstance.post.mockResolvedValue({
+      data: {
+        status: "failed",
+        replaced: false,
+        effects: { source: "unchanged", destination: "unchanged" },
+        error: { code: "unavailable", detail: "Transfers are unavailable in this release" },
+      },
+    } as AxiosResponse);
+
+    await expect(
+      apiService.copyItem("connection", "source.txt", "destination.txt", "00000000-0000-4000-8000-000000000002")
+    ).resolves.toEqual({
+      status: "failed",
+      replaced: false,
+      effects: { source: "unchanged", destination: "unchanged" },
+      error: { code: "unavailable", reason: "unsupported" },
+    });
+  });
+
   describe("Authentication", () => {
     it("login() sets access token and returns auth data", async () => {
       const mockAuthToken: AuthToken = {

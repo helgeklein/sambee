@@ -63,6 +63,28 @@
   ],
   "segmented_mixed_extraction_trajectory_fixture": "segmented-mixed-extraction-trajectories-v2.json",
   "trajectory_trace_fixture": "topology-trajectory-traces-v2.json",
+  "target_write_attempt_cases": [
+    {
+      "topology": "smb_to_smb",
+      "scenario": "late_older_target_replaces",
+      "expected_disposition": "replace_existing"
+    },
+    {
+      "topology": "local_to_local",
+      "scenario": "late_newer_target_skips",
+      "expected_disposition": "skip"
+    },
+    {
+      "topology": "smb_to_local",
+      "scenario": "second_late_non_file_target_pauses",
+      "expected_disposition": "await_collision"
+    },
+    {
+      "topology": "local_to_smb",
+      "scenario": "late_target_disappears_then_creates",
+      "expected_disposition": "create_new"
+    }
+  ],
   "trajectory_cases": [
     {
       "operation": "create",

@@ -49,7 +49,7 @@ describe("ConfirmDeleteDialog", () => {
     expect(screen.getByText(CONFIRM_DELETE_STRINGS.CONFIRM_MULTI(2))).toBeInTheDocument();
     expect(screen.getByRole("textbox", { name: "Items to delete" })).toHaveValue("readme.txt\nnotes.md");
     expect(screen.getByRole("textbox", { name: "Items to delete" })).toHaveAttribute("readonly");
-    expect(screen.getByRole("textbox", { name: "Items to delete" })).toHaveAttribute("wrap", "off");
+    expect(screen.getByRole("textbox", { name: "Items to delete" })).not.toHaveAttribute("wrap");
   });
 
   it("calls onClose when Cancel is clicked", async () => {

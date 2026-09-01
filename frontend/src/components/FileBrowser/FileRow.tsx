@@ -15,6 +15,7 @@ import type { ViewMode } from "../../pages/FileBrowser/types";
 import type { FileEntry } from "../../types";
 import { isShortcutFile } from "../../utils/fileEntries";
 import { getFileIcon } from "../../utils/fileIcons";
+import { abbreviatePath } from "../../utils/pathDisplay";
 import { FileRowButton } from "./FileRowButton";
 
 interface FileRowProps {
@@ -44,66 +45,7 @@ interface FileRowProps {
   onRename?: (file: FileEntry, index: number) => void;
 }
 
-const ELLIPSIS = "...";
-
-type TextMeasurer = (text: string) => number;
-
-/** Preserve the end of a label when its complete text cannot fit. */
-function shortenTextFromStart(text: string, availableWidth: number, measureText: TextMeasurer): string {
-  if (availableWidth <= 0 || measureText(text) <= availableWidth) {
-    return text;
-  }
-
-  let low = 0;
-  let high = text.length;
-  while (low < high) {
-    const middle = Math.floor((low + high) / 2);
-    if (measureText(`${ELLIPSIS}${text.slice(middle)}`) <= availableWidth) {
-      high = middle;
-    } else {
-      low = middle + 1;
-    }
-  }
-
-  return `${ELLIPSIS}${text.slice(low)}`;
-}
-
-/** Preserve the target basename while collapsing ancestor directories to fit. */
-export function shortenTargetPath(path: string, availableWidth: number, measureText: TextMeasurer): string {
-  if (availableWidth <= 0 || measureText(path) <= availableWidth) {
-    return path;
-  }
-
-  const separator = path.includes("\\") ? "\\" : "/";
-  const driveMatch = path.match(/^[A-Za-z]:[\\/]/);
-  const root = driveMatch ? `${driveMatch[0][0]}:${separator}` : path.startsWith(separator) ? separator : "";
-  const segments = path.slice(root.length).split(/[\\/]/).filter(Boolean);
-  const basename = segments.pop();
-  if (!basename) {
-    return path;
-  }
-
-  if (measureText(basename) > availableWidth) {
-    return shortenTextFromStart(basename, availableWidth, measureText);
-  }
-
-  if (segments.length === 0) {
-    return basename;
-  }
-
-  const prefix = root ? `${root}${ELLIPSIS}${separator}` : `${ELLIPSIS}${separator}`;
-  let shortened = `${prefix}${basename}`;
-  while (segments.length > 0) {
-    const candidate = `${prefix}${segments.at(-1)}${separator}${shortened.slice(prefix.length)}`;
-    if (measureText(candidate) > availableWidth) {
-      break;
-    }
-    shortened = candidate;
-    segments.pop();
-  }
-
-  return shortened;
-}
+export const shortenTargetPath = abbreviatePath;
 
 function TargetPathLabel({ path, rowTextSx }: { path: string; rowTextSx?: Record<string, string> }) {
   const labelRef = useRef<HTMLSpanElement>(null);

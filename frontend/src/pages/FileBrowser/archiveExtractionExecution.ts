@@ -7,6 +7,7 @@ import {
   storeForegroundArchiveOperation,
 } from "../../services/foregroundArchiveOperation";
 import type { ArchiveExtractionDecisionAction, ArchiveOperation } from "../../types";
+import { isApiError } from "../../types";
 import type {
   ArchiveExtractionConflict,
   ArchiveExtractionConflictAction,
@@ -380,9 +381,19 @@ export function startZipArchiveExtraction(request: ArchiveExtractionRequest): Ar
         return;
       }
       if (awaitingDecision) {
-        await api.decideArchiveExtraction(operationId, "cancel");
-        clearForegroundArchiveOperation(operationId);
-        return;
+        try {
+          await api.decideArchiveExtraction(operationId, "cancel");
+          clearForegroundArchiveOperation(operationId);
+          return;
+        } catch (error) {
+          if (!isApiError(error) || error.response?.status !== 409) {
+            throw error;
+          }
+          // The operation may have advanced after a failed decision attempt.
+          // Its local paused-state snapshot is stale, so use the general
+          // cancellation endpoint that can cancel any non-terminal phase.
+          awaitingDecision = false;
+        }
       }
       await api.cancelArchiveOperation(operationId);
     },

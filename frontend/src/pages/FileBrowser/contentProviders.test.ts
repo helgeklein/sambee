@@ -386,6 +386,31 @@ describe("content providers", () => {
     expect(api.cancelLocalArchiveExecutionWithRevisionRetry).toHaveBeenCalledWith("local-drive:c", "local-extract-1", 1);
   });
 
+  it("falls back to general cancellation when a paused server decision becomes stale", async () => {
+    vi.mocked(api.prepareArchiveOperation).mockResolvedValueOnce({ id: "extract-1" } as never);
+    vi.mocked(api.executeArchiveExtraction).mockResolvedValueOnce({
+      phase: "awaiting_user_decision",
+      pending_decision_json: JSON.stringify({
+        allowed_actions: ["skip", "skip_all", "replace", "replace_all", "replace_older", "rename"],
+        conflicts: [{ member_path: "docs/readme.txt", target_path: "output/docs/readme.txt" }],
+      }),
+    } as never);
+    vi.mocked(api.decideArchiveExtraction).mockRejectedValueOnce({ isAxiosError: true, response: { status: 409 } });
+    vi.mocked(api.cancelArchiveOperation).mockResolvedValueOnce({ phase: "streaming" } as never);
+
+    const execution = startArchiveExtraction(createContentProviderRegistry(), {
+      source: archiveLocation,
+      destination: physicalLocation("conn-1", "output"),
+    });
+
+    await expect(execution.result).resolves.toMatchObject({ status: "awaiting-decision" });
+    await expect(execution.cancel()).resolves.toBeUndefined();
+
+    expect(api.decideArchiveExtraction).toHaveBeenCalledWith("extract-1", "cancel");
+    expect(api.cancelArchiveOperation).toHaveBeenCalledWith("extract-1");
+    vi.clearAllMocks();
+  });
+
   it("uses the shared direct-local cancellation helper after a progress revision race", async () => {
     const localArchiveLocation = virtualLocation("zip", "local-drive:c", physicalLocation("local-drive:c", "archives/one.zip"), "");
     vi.mocked(api.startLocalArchiveExtraction).mockResolvedValueOnce({

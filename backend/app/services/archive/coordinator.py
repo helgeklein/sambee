@@ -53,7 +53,7 @@ from app.services.archive.v2_checkpoint import (
 from app.services.archive.zip_reader import (
     ArchiveInspectionManifest,
     ArchiveInspectionManifestMember,
-    ZipEntry,
+    ValidatedZipEntry,
     ZipReader,
 )
 from app.utils.content_disposition import build_content_disposition
@@ -75,14 +75,15 @@ def _validate_archive_member_hierarchy(
     members: list[tuple[str, bool]],
     *,
     error_message: str,
+    exact_member_identity: bool = False,
 ) -> None:
-    """Reject normalized duplicate members and file/directory path collisions."""
+    """Reject duplicate member identities and portable file/directory collisions."""
 
     member_path_keys: set[str] = set()
-    file_path_keys: set[str] = set()
+    portable_file_path_keys: set[str] = set()
     directory_path_keys: set[str] = set()
     for member_path, is_directory in members:
-        member_path_key = unicodedata.normalize("NFC", member_path).casefold()
+        member_path_key = member_path if exact_member_identity else unicodedata.normalize("NFC", member_path).casefold()
         if member_path_key in member_path_keys:
             raise ValueError(error_message)
         member_path_keys.add(member_path_key)
@@ -91,8 +92,8 @@ def _validate_archive_member_hierarchy(
         for index in range(1, directory_part_count + 1):
             directory_path_keys.add(unicodedata.normalize("NFC", "/".join(path_parts[:index])).casefold())
         if not is_directory:
-            file_path_keys.add(member_path_key)
-    if not file_path_keys.isdisjoint(directory_path_keys):
+            portable_file_path_keys.add(unicodedata.normalize("NFC", member_path).casefold())
+    if not portable_file_path_keys.isdisjoint(directory_path_keys):
         raise ValueError(error_message)
 
 
@@ -157,11 +158,14 @@ class SmbArchiveInspectionSource:
     async def inspection_manifest(self) -> ArchiveInspectionManifest:
         return await self.zip_reader.inspection_manifest()
 
-    async def validate_member(self, path: str) -> ZipEntry:
+    async def validate_member(self, path: str) -> ValidatedZipEntry:
         return await self.zip_reader.validate_member(path)
 
     def stream_member(self, path: str) -> AsyncIterator[bytes]:
         return self.zip_reader.stream_member(path)
+
+    def stream_validated_member(self, member: ValidatedZipEntry) -> AsyncIterator[bytes]:
+        return self.zip_reader.stream_validated_entry(member)
 
 
 class ArchiveInspectionPresentation:
@@ -464,7 +468,34 @@ class InMemoryArchiveExecutionStateStore:
             member_rename_targets = decisions.get("rename_targets")
             if not isinstance(member_rename_targets, dict):
                 raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="Archive operation checkpoint is invalid")
-            member_rename_targets[member_path] = target_path
+            try:
+                pending = json.loads(operation.pending_decision_json or "{}")
+            except json.JSONDecodeError as exc:
+                raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="Archive operation decision state is invalid") from exc
+            conflicts = pending.get("conflicts") if isinstance(pending, dict) and pending.get("kind") == "existing_files" else None
+            conflict = (
+                next(
+                    (
+                        pending_conflict
+                        for pending_conflict in conflicts
+                        if isinstance(pending_conflict, dict) and pending_conflict.get("member_path") == member_path
+                    ),
+                    None,
+                )
+                if isinstance(conflicts, list)
+                else None
+            )
+            if conflict is None:
+                raise HTTPException(
+                    status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
+                    detail="Archive member is not awaiting a collision decision",
+                )
+            if conflict.get("is_directory") is True:
+                from app.services.archive.operations import rebase_directory_rename_targets
+
+                rebase_directory_rename_targets(operation, member_rename_targets, member_path, conflict.get("target_path"), target_path)
+            else:
+                member_rename_targets[member_path] = target_path
         elif action == "retry":
             if not isinstance(member_path, str):
                 raise HTTPException(
@@ -574,9 +605,18 @@ class ArchiveExtractionDecisionState:
         return dict(self._member_rename_targets)
 
     def target_member_path(self, member_path: str) -> str:
-        """Return one persisted member target or its original relative path."""
+        """Return a persisted target path, including an implicit directory remap."""
 
-        return self._member_rename_targets.get(member_path, member_path)
+        matching_source = max(
+            (source for source in self._member_rename_targets if member_path == source or member_path.startswith(f"{source}/")),
+            key=len,
+            default=None,
+        )
+        if matching_source is None:
+            return member_path
+        target_path = self._member_rename_targets[matching_source]
+        suffix = member_path[len(matching_source) :].strip("/")
+        return target_path if not suffix else f"{target_path}/{suffix}"
 
     def ignored_member_paths(self) -> list[str]:
         """Return validated members that were explicitly ignored after an error."""
@@ -672,6 +712,7 @@ class ArchiveExtractionManifest:
         _validate_archive_member_hierarchy(
             [(member.member_path, member.is_directory) for member in validated_members],
             error_message="Archive extraction manifest is invalid",
+            exact_member_identity=True,
         )
         return tuple(validated_members)
 
@@ -691,6 +732,18 @@ class ArchiveExtractionManifest:
         if is_directory is not None and member.is_directory is not is_directory:
             raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_CONTENT, detail="Archive member type is invalid")
         return member
+
+    def is_implicit_directory(self, member_path: str) -> bool:
+        """Return whether *member_path* is a safe directory ancestor of a manifest member."""
+
+        try:
+            normalized_member_path = _normalize_extraction_manifest_path(member_path)
+        except (AttributeError, ValueError) as exc:
+            raise HTTPException(
+                status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
+                detail="Archive member is invalid or unavailable",
+            ) from exc
+        return any(member.member_path.startswith(f"{normalized_member_path}/") for member in self.members)
 
     def checkpoint_entries(self) -> list[dict[str, object]]:
         """Serialize the immutable manifest into the durable relay checkpoint."""
@@ -760,8 +813,13 @@ class ArchiveExtractionState:
     def target_member_path(self, member_path: str) -> str:
         """Return the decided local-relative output member path."""
 
-        member = self.member(member_path)
-        target_member_path = self.decisions.target_member_path(member.member_path)
+        try:
+            source_member_path = self.member(member_path).member_path
+        except HTTPException:
+            if not self.manifest.is_implicit_directory(member_path):
+                raise
+            source_member_path = _normalize_extraction_manifest_path(member_path)
+        target_member_path = self.decisions.target_member_path(source_member_path)
         try:
             return _normalize_extraction_manifest_path(target_member_path)
         except (AttributeError, ValueError) as exc:
@@ -822,6 +880,23 @@ class ArchiveExtractionExecutionPlan:
 
     def target_member_path(self, member_path: str) -> str:
         return self.state.target_member_path(member_path)
+
+    def is_implicit_directory(self, member_path: str) -> bool:
+        return self.manifest.is_implicit_directory(member_path)
+
+    def is_resolved_descendant_directory_target(self, member_path: str, target_path: str) -> bool:
+        """Return whether *target_path* is a resolved output-directory ancestor of an implicit member."""
+
+        if not self.is_implicit_directory(member_path):
+            return False
+        for member in self.manifest.members:
+            if member.is_directory or not member.member_path.startswith(f"{member_path}/"):
+                continue
+            target_parts = self.target_member_path(member.member_path).split("/")
+            for index in range(1, len(target_parts)):
+                if "/".join(target_parts[:index]) == target_path:
+                    return True
+        return False
 
     def collision_action(self, member_path: str) -> str | None:
         return self.state.decisions.collision_action(member_path, self.existing_file_policy)
@@ -1657,14 +1732,15 @@ class ArchiveExtractionCoordinator:
         except ArchiveExtractionConflicts as exc:
             return self.state_store.await_decision(operation, existing_files_decision(exc.conflicts))
         except ArchiveExtractionMemberError as exc:
-            operation = persist_extraction_partial_member_outcome(
-                self.state_store,
-                operation,
-                ArchiveExtractionPartialMemberOutcome(exc.member_path, exc.target_path, exc.message),
-            )
+            if exc.partial_output:
+                operation = persist_extraction_partial_member_outcome(
+                    self.state_store,
+                    operation,
+                    ArchiveExtractionPartialMemberOutcome(exc.member_path, exc.target_path, exc.message),
+                )
             return self.state_store.await_decision(
                 operation,
-                member_error_decision(exc.member_path, exc.target_path, exc.message, partial_output=True),
+                member_error_decision(exc.member_path, exc.target_path, exc.message, partial_output=exc.partial_output),
             )
         except HTTPException:
             raise
@@ -1736,6 +1812,7 @@ class ArchiveExtractionCoordinator:
         is_directory: bool,
         target_size: int | None,
         target_modified_at: datetime | None,
+        target_path: str | None = None,
     ) -> ArchiveOperation:
         """Convert an adapter-observed collision to a normalized persisted pause."""
 
@@ -1743,18 +1820,36 @@ class ArchiveExtractionCoordinator:
             load_archive_checkpoint(self.operation),
             existing_file_policy=self.operation.collision_policy,
         )
-        entry = execution_plan.member(member_path, is_directory=is_directory)
-        target_path = archive_member_target(self.operation.destination_path, execution_plan.target_member_path(member_path))
+        try:
+            entry = execution_plan.member(member_path)
+        except HTTPException:
+            if not is_directory or not execution_plan.is_implicit_directory(member_path):
+                raise
+            entry = None
+        expected_target_path = archive_member_target(
+            self.operation.destination_path,
+            execution_plan.target_member_path(member_path),
+        )
+        if target_path is not None:
+            target_member_path = target_path.removeprefix(f"{self.operation.destination_path.rstrip('/')}/")
+            is_descendant_parent = (
+                is_directory
+                and target_member_path != target_path
+                and execution_plan.is_resolved_descendant_directory_target(member_path, target_member_path)
+            )
+            if target_path != expected_target_path and not is_descendant_parent:
+                raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_CONTENT, detail="Archive collision target is invalid")
+        resolved_target_path = target_path or expected_target_path
         return self.state_store.await_decision(
             self.operation,
             existing_files_decision(
                 [
                     ArchiveExtractionConflict(
                         member_path,
-                        target_path,
+                        resolved_target_path,
                         is_directory=is_directory,
-                        source_size=entry.uncompressed_size if not is_directory else None,
-                        source_modified_at=entry.source_modified_at,
+                        source_size=entry.uncompressed_size if entry is not None and not is_directory else None,
+                        source_modified_at=entry.source_modified_at if entry is not None else None,
                         target_size=target_size,
                         target_modified_at=target_modified_at,
                     )
@@ -1771,11 +1866,13 @@ class ArchiveExtractionCoordinator:
         )
         execution_plan.member(member_path)
         target_path = archive_member_target(self.operation.destination_path, execution_plan.target_member_path(member_path))
-        operation = persist_extraction_partial_member_outcome(
-            self.state_store,
-            self.operation,
-            ArchiveExtractionPartialMemberOutcome(member_path, target_path, message),
-        )
+        operation = self.operation
+        if partial_output:
+            operation = persist_extraction_partial_member_outcome(
+                self.state_store,
+                operation,
+                ArchiveExtractionPartialMemberOutcome(member_path, target_path, message),
+            )
         return self.state_store.await_decision(
             operation,
             member_error_decision(member_path, target_path, message, partial_output=partial_output),
