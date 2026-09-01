@@ -6647,12 +6647,10 @@ mod tests {
         fs::write(&archive_path, archive_bytes).unwrap();
         let destination = directory.path().join("output");
 
-        assert!(inspect_local_archive(&archive_path)
-            .unwrap()
-            .list_directory("", None, 100)
-            .unwrap()
-            .entries
-            .is_empty());
+        assert!(matches!(
+            inspect_local_archive(&archive_path),
+            Err(LocalArchiveReadError::UnsupportedArchiveMember)
+        ));
         assert!(matches!(
             extract_local_archive_to_new_directory(directory.path(), &archive_path, &destination),
             Err(LocalArchiveError::UnsupportedArchiveMember)

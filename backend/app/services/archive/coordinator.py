@@ -835,7 +835,7 @@ class ArchiveExtractionState:
 
         if not self.has_complete_terminal_coverage():
             raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="Archive operation has unfinished members")
-        outcomes = _extraction_member_outcomes(self.checkpoint, migrate_legacy_members=False)
+        _extraction_member_outcomes(self.checkpoint, migrate_legacy_members=False)
         extraction_outcome_summary(self.checkpoint, int(destination_root_created))
         return json.dumps(self.checkpoint)
 
