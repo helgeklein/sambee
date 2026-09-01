@@ -107,9 +107,10 @@ RUN pyvips_version="$(sed -n 's/^pyvips==\([^[:space:]\\]*\).*/\1/p' requirement
     test -n "$pyvips_version" && \
     pip wheel --wheel-dir /tmp/wheels --no-deps "pyvips==$pyvips_version"
 
-# Backend test target: exercises the same runtime base as production with the
-# complete development dependency set.
-FROM runtime-base AS backend-test
+# Backend test target: combines the shared runtime dependencies with the
+# development toolchain required by Companion relay interoperability tests.
+FROM devcontainer AS backend-test
+USER root
 WORKDIR /workspace
 COPY backend/requirements-dev.lock.txt /tmp/requirements-dev.lock.txt
 COPY --from=pyvips-wheel-builder /tmp/wheels /tmp/wheels
@@ -122,9 +123,13 @@ RUN python -m venv /workspace/backend/.venv && \
     rm -rf /tmp/wheels
 COPY backend/ ./backend/
 COPY archive-contract/ ./archive-contract/
+COPY archive_testdata/ ./archive_testdata/
+COPY companion/ ./companion/
 COPY VERSION ./VERSION
 COPY .github/ ./.github/
 COPY scripts/ ./scripts/
+RUN chown -R vscode:vscode /workspace
+USER vscode
 ENV PYTHONPATH=/workspace/backend
 
 # Production target: Python backend with built frontend.

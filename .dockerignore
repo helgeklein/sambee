@@ -4,7 +4,6 @@
 .gitattributes
 
 # Unused top-level content
-companion/
 data/
 images/
 website/
@@ -14,6 +13,9 @@ website-temp/
 .devcontainer
 .vscode
 node_modules
+companion/node_modules/
+companion/dist/
+companion/src-tauri/target/
 __pycache__
 *.pyc
 .pytest_cache
