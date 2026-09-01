@@ -84,40 +84,59 @@ jobs:
     - name: Verify shared Python runtime image
       run: python3 scripts/verify-python-runtime-image.py
 
-    - name: Set up Python
-      uses: ./.github/actions/setup-runtime-python
+    - name: Set up Docker Buildx
+      uses: docker/setup-buildx-action@37fe631027851001ddb9b187196cc803df7f5f0e # v4.3.0
+
+    - name: Build backend test image
+      uses: docker/build-push-action@53b7df96c91f9c12dcc8a07bcb9ccacbed38856a # v7.3.0
       with:
-        cache: pip
-        cache-dependency-path: backend/requirements-dev.lock.txt
-
-    - name: Install backend system dependencies
-      run: |
-        sudo apt-get update
-        sudo env SKIP_APT_UPDATE=1 bash scripts/install-system-deps
-
-    - name: Set up backend virtual environment
-      run: scripts/setup-backend-venv
+        context: .
+        file: ./Dockerfile
+        target: backend-test
+        load: true
+        tags: sambee:backend-test
+        build-args: |
+          APT_REFRESH_KEY=${{ github.run_id }}-${{ github.run_attempt }}
+        cache-from: type=gha,scope=backend-test
+        cache-to: type=gha,mode=max,scope=backend-test
 
     - name: Run backend checks
       env:
         SECRET_KEY: test-secret-key-for-ci-only-not-for-production-use
         ENCRYPTION_KEY: YYFPojCh_1WUExv5xXVEyFe0ITw_5dgZZ-fC-iZk3nU=
       run: |
-        QUIET=1 scripts/setup-test-images
-        cd backend
-        .venv/bin/python -m mypy app
-        .venv/bin/python -m pytest -n auto -m "not performance" --cov=app --cov-report=term-missing --cov-report=xml
-        .venv/bin/python -m pytest -m performance --cov=app --cov-append --cov-report=term-missing --cov-report=xml
+        docker run \
+          --name sambee-backend-test \
+          -e SECRET_KEY \
+          -e ENCRYPTION_KEY \
+          sambee:backend-test \
+          sh -c '
+            QUIET=1 scripts/setup-test-images &&
+            cd backend &&
+            .venv/bin/python -m mypy app &&
+            .venv/bin/python -m pytest -n auto -m "not performance" --cov=app --cov-report=term-missing --cov-report=xml &&
+            .venv/bin/python -m pytest -m performance --cov=app --cov-append --cov-report=term-missing --cov-report=xml
+          '
+
+    - name: Export coverage report
+      if: always()
+      run: |
+        mkdir -p "${{ runner.temp }}/coverage"
+        docker cp sambee-backend-test:/workspace/backend/coverage.xml "${{ runner.temp }}/coverage/coverage.xml" || true
 
     - name: Upload coverage reports
       if: always()
       uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
       with:
         name: coverage-reports
-        path: backend/coverage.xml
+        path: ${{ runner.temp }}/coverage/coverage.xml
         retention-days: 7
         compression-level: 6
         if-no-files-found: warn
+
+    - name: Clean up backend test container
+      if: always()
+      run: docker rm -f sambee-backend-test || true
 
   # ──────────────────────────────────────────────
   # Frontend: Node.js + tsc + vitest

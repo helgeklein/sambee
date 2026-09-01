@@ -841,9 +841,9 @@ impl FixtureDirectLocalInvocation {
 #[cfg(test)]
 mod tests {
     use std::fs;
-    use std::path::PathBuf;
+    use std::path::{Path, PathBuf};
     use std::sync::Arc;
-    use std::time::Duration;
+    use std::time::{Duration, SystemTime};
 
     use tempfile::tempdir;
 
@@ -852,6 +852,27 @@ mod tests {
         FixtureDirectLocalInvocation,
     };
     use crate::server::archive::{build_local_archive_manifest, create_local_archive};
+
+    fn set_test_file_modified_time(path: &Path, modified_at: SystemTime) {
+        fs::OpenOptions::new()
+            .write(true)
+            .open(path)
+            .expect("test file should open for timestamp updates")
+            .set_times(fs::FileTimes::new().set_modified(modified_at))
+            .expect("test file timestamp should be set");
+    }
+
+    fn is_transport_failure(error: &str) -> bool {
+        let normalized = error.to_ascii_lowercase();
+        [
+            "no such file or directory",
+            "the system cannot find the file specified",
+            "access is denied",
+            "permission denied",
+        ]
+        .iter()
+        .any(|message| normalized.contains(message))
+    }
 
     fn expected_trace(case_name: &str) -> serde_json::Value {
         let fixture: serde_json::Value = serde_json::from_str(include_str!(
@@ -903,7 +924,7 @@ mod tests {
                         "partial_write"
                     } else if status.error.as_deref().is_some_and(|error| error.contains("output already exists")) {
                         "collision"
-                    } else if status.error.as_deref().is_some_and(|error| error.contains("No such file or directory")) {
+                    } else if status.error.as_deref().is_some_and(is_transport_failure) {
                         "transport_failure"
                     } else {
                         "invalid_input"
@@ -1250,10 +1271,7 @@ mod tests {
                 let paused = wait_for_pending_decision(&manager, &session.execution_id).await;
                 if step["action"] == "retry" {
                     fs::write(&archive_path, &original_archive).unwrap();
-                    fs::File::open(&archive_path)
-                        .unwrap()
-                        .set_times(std::fs::FileTimes::new().set_modified(session_source_modified_at))
-                        .unwrap();
+                    set_test_file_modified_time(&archive_path, session_source_modified_at);
                 }
                 coordinator
                     .decide(

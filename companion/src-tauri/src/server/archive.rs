@@ -3697,6 +3697,17 @@ mod tests {
 
     use super::*;
 
+    fn set_test_path_modified_time(path: &std::path::Path, modified_at: SystemTime) {
+        let file = if path.is_dir() {
+            fs::File::open(path)
+        } else {
+            fs::OpenOptions::new().write(true).open(path)
+        }
+        .expect("test path should open for timestamp updates");
+        file.set_times(fs::FileTimes::new().set_modified(modified_at))
+            .expect("test path timestamp should be set");
+    }
+
     #[derive(Deserialize)]
     struct ConformanceManifest {
         version: u8,
@@ -4846,10 +4857,7 @@ mod tests {
                             fs::write(destination_path, b"late target").expect("create late target");
                             let modified_at =
                                 parse_timestamp(next_modified_at.clone()).expect("regular target observation must have a timestamp");
-                            fs::File::open(destination_path)
-                                .expect("open late target")
-                                .set_times(fs::FileTimes::new().set_modified(SystemTime::from(modified_at)))
-                                .expect("set late target timestamp");
+                            set_test_path_modified_time(destination_path, SystemTime::from(modified_at));
                         }
                         Some("other") => fs::create_dir(destination_path).expect("create late directory target"),
                         Some(target) => panic!("{} has invalid target kind {target}", scenario.name),
@@ -5028,10 +5036,7 @@ mod tests {
         let temporary = tempdir().expect("temporary directory");
         let source = temporary.path().join("source.txt");
         fs::write(&source, b"archive contents").expect("source should be written");
-        fs::File::open(&source)
-            .expect("source should open")
-            .set_times(fs::FileTimes::new().set_modified(SystemTime::from(source_modified_at)))
-            .expect("source timestamp should be set");
+        set_test_path_modified_time(&source, SystemTime::from(source_modified_at));
         let archive_path = temporary.path().join("archive.zip");
         let entries = build_local_archive_manifest(std::slice::from_ref(&source), &archive_path).expect("archive manifest should build");
         create_local_archive(temporary.path(), &archive_path, &entries, || false).expect("archive should be created");
@@ -5051,10 +5056,7 @@ mod tests {
                 open_attempts += 1;
                 if open_attempts == 1 {
                     fs::write(destination_path, b"late target").expect("late target should be written");
-                    fs::File::open(destination_path)
-                        .expect("late target should open")
-                        .set_times(fs::FileTimes::new().set_modified(SystemTime::from(target_modified_at)))
-                        .expect("late target timestamp should be set");
+                    set_test_path_modified_time(destination_path, SystemTime::from(target_modified_at));
                 }
                 open_local_extraction_file(drive_root, destination_path)
             },
@@ -6802,10 +6804,7 @@ mod tests {
                 };
                 let timestamp = DateTime::parse_from_rfc3339(modified_at).unwrap().with_timezone(&Utc).into();
                 let path = root.path().join(node["path"].as_str().unwrap());
-                fs::File::open(path)
-                    .unwrap()
-                    .set_times(fs::FileTimes::new().set_modified(timestamp))
-                    .unwrap();
+                set_test_path_modified_time(&path, timestamp);
             }
             let sources = scenario["sources"]
                 .as_array()

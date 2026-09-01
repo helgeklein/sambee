@@ -35,17 +35,22 @@ SAMBEE_SYSTEM_PACKAGES=(
     wget
 )
 
-MAGICK_SYSTEM_PACKAGE="imagemagick"
 MAGICK_VERSIONED_SYSTEM_PACKAGE="imagemagick-7.q16"
 
 get_imagemagick_package_name() {
-    local package_to_install="$MAGICK_SYSTEM_PACKAGE"
+    local distro_description="unknown distribution"
 
-    if apt-cache show "$MAGICK_VERSIONED_SYSTEM_PACKAGE" >/dev/null 2>&1; then
-        package_to_install="$MAGICK_VERSIONED_SYSTEM_PACKAGE"
+    if [[ -r /etc/os-release ]]; then
+        distro_description="$(. /etc/os-release && printf '%s' "${PRETTY_NAME:-${ID:-unknown distribution}}")"
     fi
 
-    printf '%s\n' "$package_to_install"
+    if ! apt-cache show "$MAGICK_VERSIONED_SYSTEM_PACKAGE" >/dev/null 2>&1; then
+        echo "ImageMagick 7 is required, but package '$MAGICK_VERSIONED_SYSTEM_PACKAGE' is unavailable for $distro_description." >&2
+        echo "Use a supported runtime base image that provides ImageMagick 7." >&2
+        return 1
+    fi
+
+    printf '%s\n' "$MAGICK_VERSIONED_SYSTEM_PACKAGE"
 }
 
 install_imagemagick_from_package_manager() {

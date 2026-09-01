@@ -38,6 +38,7 @@ from app.core.system_setting_definitions import SystemSettingKey
 from app.services.system_settings import get_integer_setting_value
 
 logger = logging.getLogger(__name__)
+IMAGEMAGICK_7_VERSION_MARKER = b"ImageMagick 7."
 
 
 class PreprocessorError(SambeeError):
@@ -186,16 +187,14 @@ class ImageMagickPreprocessor(PreprocessorInterface):
     def __init__(self) -> None:
         """Initialize the ImageMagick preprocessor."""
 
-        self.convert_command = "convert"  # ImageMagick 6
-        self.magick_command = "magick"  # ImageMagick 7
+        self.magick_command = "magick"
 
     #
     # check_availability
     #
     def check_availability(self) -> bool:
-        """Check if ImageMagick is installed and accessible."""
+        """Check whether ImageMagick 7 is installed and accessible."""
 
-        # Try ImageMagick 7 first (magick command)
         try:
             result = subprocess.run(
                 [self.magick_command, "--version"],
@@ -203,20 +202,7 @@ class ImageMagickPreprocessor(PreprocessorInterface):
                 timeout=5,
                 check=False,
             )
-            if result.returncode == 0:
-                return True
-        except (subprocess.SubprocessError, FileNotFoundError):
-            pass
-
-        # Fall back to ImageMagick 6 (convert command)
-        try:
-            result = subprocess.run(
-                [self.convert_command, "--version"],
-                capture_output=True,
-                timeout=5,
-                check=False,
-            )
-            return result.returncode == 0
+            return result.returncode == 0 and IMAGEMAGICK_7_VERSION_MARKER in (result.stdout or b"")
         except (subprocess.SubprocessError, FileNotFoundError):
             return False
 
@@ -224,23 +210,12 @@ class ImageMagickPreprocessor(PreprocessorInterface):
     # _get_command
     #
     def _get_command(self) -> str:
-        """Determine which ImageMagick command to use (v6 or v7)."""
+        """Return the required ImageMagick 7 command."""
 
-        # Try ImageMagick 7 first
-        try:
-            result = subprocess.run(
-                [self.magick_command, "--version"],
-                capture_output=True,
-                timeout=5,
-                check=False,
-            )
-            if result.returncode == 0:
-                return self.magick_command
-        except (subprocess.SubprocessError, FileNotFoundError):
-            pass
+        if not self.check_availability():
+            raise PreprocessorError("ImageMagick 7 is required but not available")
 
-        # Fall back to ImageMagick 6
-        return self.convert_command
+        return self.magick_command
 
     #
     # _detect_colorspace

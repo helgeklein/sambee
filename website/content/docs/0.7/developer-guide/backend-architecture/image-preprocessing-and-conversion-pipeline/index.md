@@ -104,7 +104,7 @@ It also centralizes file-size and timeout access through system settings so thos
 
 It is responsible for:
 
-- detecting ImageMagick 7 through `magick` and falling back to ImageMagick 6 through `convert`
+- requiring ImageMagick 7 through `magick`
 - validating supported extensions
 - converting PSD, PSB, EPS, and AI input directly to JPEG or PNG
 - applying centralized output arguments from `image_settings.py`
