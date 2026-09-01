@@ -222,7 +222,7 @@ const OverwriteConflictDialog: React.FC<OverwriteConflictDialogProps> = ({
   const errorAlertRef = useRef<HTMLDivElement>(null);
   const previousConflictIdentityRef = useRef<string | null>(null);
   const shouldFocusInitialControlRef = useRef(false);
-  const shouldSelectInitialRenameRef = useRef(false);
+  const shouldFocusRenameInputRef = useRef(false);
 
   const sourcePath = ownerSourcePath ?? conflict?.incoming_file.path ?? "";
   const existingTargetName = conflict?.existing_file.name ?? "";
@@ -254,28 +254,24 @@ const OverwriteConflictDialog: React.FC<OverwriteConflictDialogProps> = ({
   );
 
   const focusInitialControl = useCallback(() => {
+    if (!shouldFocusInitialControlRef.current) return;
+    shouldFocusInitialControlRef.current = false;
     if (!hasAvailableResolution) {
       errorAlertRef.current?.focus();
       return;
     }
     if (safeDefaultResolution === "rename") {
-      targetNameRef.current?.select();
+      targetNameRef.current?.focus();
       return;
     }
     resolutionGroupRef.current?.querySelector<HTMLInputElement>(`input[value="${safeDefaultResolution}"]`)?.focus();
   }, [hasAvailableResolution, safeDefaultResolution]);
 
-  const handleTargetNameFocus = useCallback((event: React.FocusEvent<HTMLInputElement | HTMLTextAreaElement>) => {
-    if (shouldSelectInitialRenameRef.current) {
-      event.currentTarget.select();
-      shouldSelectInitialRenameRef.current = false;
-    }
-  }, []);
-
   useLayoutEffect(() => {
     if (!open) {
       previousConflictIdentityRef.current = null;
       shouldFocusInitialControlRef.current = false;
+      shouldFocusRenameInputRef.current = false;
       return;
     }
 
@@ -287,7 +283,7 @@ const OverwriteConflictDialog: React.FC<OverwriteConflictDialogProps> = ({
     setRenameDraft(suggestCopyName(existingTargetName));
     setIsSubmitting(false);
     shouldFocusInitialControlRef.current = true;
-    shouldSelectInitialRenameRef.current = safeDefaultResolution === "rename";
+    shouldFocusRenameInputRef.current = safeDefaultResolution === "rename";
   }, [dialogStateIdentity, existingTargetName, open, safeDefaultResolution]);
 
   useEffect(() => {
@@ -300,7 +296,6 @@ const OverwriteConflictDialog: React.FC<OverwriteConflictDialogProps> = ({
         return;
       }
       focusInitialControl();
-      shouldFocusInitialControlRef.current = false;
     });
     return () => cancelAnimationFrame(frameId);
   }, [focusInitialControl, isSubmittingOrPending, open]);
@@ -311,10 +306,11 @@ const OverwriteConflictDialog: React.FC<OverwriteConflictDialogProps> = ({
     }
   }, [open, ownerIsSubmitting]);
 
-  useEffect(() => {
-    if (open && isRename) {
+  useLayoutEffect(() => {
+    if (open && isRename && shouldFocusRenameInputRef.current) {
       targetNameRef.current?.focus();
       targetNameRef.current?.select();
+      shouldFocusRenameInputRef.current = false;
     }
   }, [isRename, open]);
 
@@ -324,11 +320,15 @@ const OverwriteConflictDialog: React.FC<OverwriteConflictDialogProps> = ({
     }
   }, [displayedError]);
 
-  const handleResolutionChange = useCallback((event: React.ChangeEvent<HTMLInputElement>) => {
-    const nextResolution = event.target.value as ConflictResolution;
-    setResolution(nextResolution);
-    setApplyToAll(false);
-  }, []);
+  const handleResolutionChange = useCallback(
+    (event: React.ChangeEvent<HTMLInputElement>) => {
+      const nextResolution = event.target.value as ConflictResolution;
+      shouldFocusRenameInputRef.current = nextResolution === "rename" && resolution !== "rename";
+      setResolution(nextResolution);
+      setApplyToAll(false);
+    },
+    [resolution]
+  );
 
   const handleContinue = useCallback(() => {
     if (!canContinue) return;
@@ -402,7 +402,6 @@ const OverwriteConflictDialog: React.FC<OverwriteConflictDialogProps> = ({
           error={Boolean(targetNameError)}
           helperText={targetNameError ?? " "}
           autoFocus={safeDefaultResolution === "rename" && isRename}
-          onFocus={handleTargetNameFocus}
           showFormSurface={!isRename}
           sx={{ mb: 2 }}
         />
