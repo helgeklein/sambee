@@ -131,6 +131,32 @@ def _regular_then_symbolic_duplicate_zip_bytes() -> bytes:
     return buffer.getvalue()
 
 
+@pytest.mark.asyncio
+async def test_reads_central_directory_records_forward_in_archive_order() -> None:
+    data = _zip_bytes()
+    reader = ZipReader(MemoryRandomAccessReader(data), len(data))
+
+    entries: list[str] = []
+    while (entry := await reader.next_entry()) is not None:
+        entries.append(entry.path)
+
+    assert entries == ["root.txt", "folder/nested.txt", "folder/deeper/item.txt"]
+    assert await reader.next_entry() is None
+
+
+@pytest.mark.asyncio
+async def test_inspection_page_continues_from_a_record_boundary_without_a_manifest() -> None:
+    data = _zip_bytes()
+    first_reader = ZipReader(MemoryRandomAccessReader(data), len(data))
+    first_page, cursor = await first_reader.inspection_page(None, 1)
+    second_reader = ZipReader(MemoryRandomAccessReader(data), len(data))
+    second_page, next_cursor = await second_reader.inspection_page(cursor, 1)
+
+    assert [entry.path for entry in first_page] == ["root.txt"]
+    assert [entry.path for entry in second_page] == ["folder/nested.txt"]
+    assert next_cursor is not None
+
+
 def _zip_with_underreported_size(compression: int) -> bytes:
     buffer = io.BytesIO()
     with zipfile.ZipFile(buffer, "w", compression=compression) as archive:

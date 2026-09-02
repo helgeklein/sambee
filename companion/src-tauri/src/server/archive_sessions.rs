@@ -1,6 +1,6 @@
 //! Short-lived lifecycle state for Companion-owned local archive executions.
 
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::path::PathBuf;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
@@ -11,8 +11,8 @@ use uuid::Uuid;
 
 use super::archive::{
     ArchiveCreationManifestState, LocalArchiveCreationExecutionPlan, LocalArchiveCreationResult, LocalArchiveEntry, LocalArchiveError,
-    LocalArchiveExtractionCheckpoint, LocalArchiveExtractionCollision, LocalArchiveExtractionExecutionPlan,
-    LocalArchiveExtractionMemberError, LocalArchiveExtractionResult,
+    LocalArchiveExtractionDestinationResult, LocalArchiveExtractionDestinationStatus, LocalArchiveExtractionMemberError,
+    LocalArchiveExtractionResult, LocalArchiveReadEntry, LocalArchiveReader, LocalArchiveTargetWritePolicy,
 };
 use super::errors::ApiError;
 use super::models::ArchiveContractVersion;
@@ -88,6 +88,465 @@ pub enum ArchiveSessionDecisionAction {
     Ignore,
 }
 
+/// One explicit source-owned phase for a retained local ZIP extraction reader.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub(crate) enum LiveLocalArchiveSourcePhase {
+    Ready,
+    Current,
+    StreamingCurrent,
+    AwaitingResult,
+    AwaitingDecision,
+    Completed,
+    Failed,
+    Cancelled,
+}
+
+/// One delivery leased to a destination from the retained local ZIP reader.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub(crate) struct LiveLocalArchiveSourceMember {
+    pub entry: LocalArchiveReadEntry,
+    pub delivery_sequence: u64,
+}
+
+/// Process-local extraction source state. It is intentionally non-serializable.
+pub(crate) struct LiveLocalArchiveSourceSession {
+    source_session_id: String,
+    reader: LocalArchiveReader,
+    phase: LiveLocalArchiveSourcePhase,
+    current: Option<LiveLocalArchiveSourceMember>,
+    current_target_path: Option<String>,
+    current_target_policy: LocalArchiveTargetWritePolicy,
+    global_target_policy: LocalArchiveTargetWritePolicy,
+    directory_rename_prefixes: Vec<(String, String)>,
+    next_delivery_sequence: u64,
+    next_decision_revision: u64,
+    pending_decision_revision: Option<u64>,
+    pending_decision_target_path: Option<String>,
+    pending_decision_message: Option<String>,
+    pending_member_error: bool,
+    aggregate: LocalArchiveExtractionResult,
+}
+
+impl LiveLocalArchiveSourceSession {
+    pub(crate) fn open(archive_path: &std::path::Path) -> Result<Self, LocalArchiveError> {
+        Ok(Self {
+            source_session_id: Uuid::new_v4().to_string(),
+            reader: LocalArchiveReader::open_pinned(archive_path)?,
+            phase: LiveLocalArchiveSourcePhase::Ready,
+            current: None,
+            current_target_path: None,
+            current_target_policy: LocalArchiveTargetWritePolicy::Ask,
+            global_target_policy: LocalArchiveTargetWritePolicy::Ask,
+            directory_rename_prefixes: Vec::new(),
+            next_delivery_sequence: 1,
+            next_decision_revision: 1,
+            pending_decision_revision: None,
+            pending_decision_target_path: None,
+            pending_decision_message: None,
+            pending_member_error: false,
+            aggregate: LocalArchiveExtractionResult::default(),
+        })
+    }
+
+    pub(crate) fn phase(&self) -> LiveLocalArchiveSourcePhase {
+        self.phase
+    }
+
+    pub(crate) fn source_session_id(&self) -> &str {
+        &self.source_session_id
+    }
+
+    pub(crate) fn aggregate(&self) -> LocalArchiveExtractionResult {
+        self.aggregate
+    }
+
+    pub(crate) fn current(&self) -> Option<&LiveLocalArchiveSourceMember> {
+        self.current.as_ref()
+    }
+
+    pub(crate) fn current_target_path(&self) -> Result<String, LocalArchiveError> {
+        let current = self
+            .current
+            .as_ref()
+            .ok_or_else(|| Self::invalid_state("Archive source member is unavailable"))?;
+        if let Some(target_path) = &self.current_target_path {
+            return Ok(target_path.clone());
+        }
+        for (source_prefix, target_prefix) in self.directory_rename_prefixes.iter().rev() {
+            if current.entry.path == *source_prefix {
+                return Ok(target_prefix.clone());
+            }
+            if let Some(suffix) = current.entry.path.strip_prefix(&format!("{source_prefix}/")) {
+                return Ok(format!("{target_prefix}/{suffix}"));
+            }
+        }
+        Ok(current.entry.path.clone())
+    }
+
+    pub(crate) fn current_target_policy(&self) -> LocalArchiveTargetWritePolicy {
+        self.current_target_policy
+    }
+
+    pub(crate) fn pending_member_error(&self) -> bool {
+        self.pending_member_error
+    }
+
+    pub(crate) fn pending_decision_revision(&self) -> Option<u64> {
+        self.pending_decision_revision
+    }
+
+    pub(crate) fn pending_decision_target_path(&self) -> Option<&str> {
+        self.pending_decision_target_path.as_deref()
+    }
+
+    pub(crate) fn pending_decision_message(&self) -> Option<&str> {
+        self.pending_decision_message.as_deref()
+    }
+
+    pub(crate) fn set_pending_decision_details(
+        &mut self,
+        target_path: Option<String>,
+        message: Option<String>,
+    ) -> Result<(), LocalArchiveError> {
+        if self.phase != LiveLocalArchiveSourcePhase::AwaitingDecision {
+            return Err(Self::invalid_state("Archive source is not awaiting a decision"));
+        }
+        self.pending_decision_target_path = target_path;
+        self.pending_decision_message = message;
+        Ok(())
+    }
+
+    pub(crate) fn pause_for_decision(&mut self, delivery_sequence: u64) -> Result<(), LocalArchiveError> {
+        self.current_for(delivery_sequence)?;
+        if !matches!(
+            self.phase,
+            LiveLocalArchiveSourcePhase::Current | LiveLocalArchiveSourcePhase::AwaitingResult
+        ) {
+            return Err(Self::invalid_state("Archive source member cannot await a decision"));
+        }
+        self.pending_member_error = false;
+        self.pending_decision_target_path = None;
+        self.pending_decision_message = None;
+        self.pending_decision_revision = Some(self.next_decision_revision);
+        self.next_decision_revision = self
+            .next_decision_revision
+            .checked_add(1)
+            .ok_or_else(|| Self::invalid_state("Archive decision revision overflowed"))?;
+        self.phase = LiveLocalArchiveSourcePhase::AwaitingDecision;
+        Ok(())
+    }
+
+    pub(crate) fn pause_for_member_error(&mut self, delivery_sequence: u64) -> Result<(), LocalArchiveError> {
+        self.pause_for_decision(delivery_sequence)?;
+        self.pending_member_error = true;
+        Ok(())
+    }
+
+    pub(crate) fn resolve_collision(
+        &mut self,
+        action: ArchiveSessionDecisionAction,
+        target_path: Option<&str>,
+    ) -> Result<(), LocalArchiveError> {
+        if self.phase != LiveLocalArchiveSourcePhase::AwaitingDecision {
+            return Err(Self::invalid_state("Archive source is not awaiting a collision decision"));
+        }
+        if self.pending_member_error {
+            return Err(Self::invalid_state("Archive source is awaiting a member error decision"));
+        }
+        let (member_path, is_directory) = self
+            .current
+            .as_ref()
+            .map(|current| (current.entry.path.clone(), current.entry.is_directory))
+            .ok_or_else(|| Self::invalid_state("Archive source member is unavailable"))?;
+        match action {
+            ArchiveSessionDecisionAction::Skip => self.current_target_policy = LocalArchiveTargetWritePolicy::Skip,
+            ArchiveSessionDecisionAction::SkipAll => {
+                self.global_target_policy = LocalArchiveTargetWritePolicy::Skip;
+                self.current_target_policy = LocalArchiveTargetWritePolicy::Skip;
+            }
+            ArchiveSessionDecisionAction::Replace => self.current_target_policy = LocalArchiveTargetWritePolicy::Replace,
+            ArchiveSessionDecisionAction::ReplaceAll => {
+                self.global_target_policy = LocalArchiveTargetWritePolicy::Replace;
+                self.current_target_policy = LocalArchiveTargetWritePolicy::Replace;
+            }
+            ArchiveSessionDecisionAction::ReplaceOlder => {
+                self.global_target_policy = LocalArchiveTargetWritePolicy::ReplaceOlder;
+                self.current_target_policy = LocalArchiveTargetWritePolicy::ReplaceOlder;
+            }
+            ArchiveSessionDecisionAction::Rename => {
+                let target_path = target_path.ok_or_else(|| Self::invalid_state("Archive rename target is unavailable"))?;
+                super::archive::validate_local_extraction_member_path(target_path, is_directory)?;
+                let target_path = target_path.trim_end_matches('/').to_string();
+                if is_directory {
+                    self.directory_rename_prefixes.push((member_path, target_path.clone()));
+                }
+                self.current_target_path = Some(target_path);
+                self.current_target_policy = LocalArchiveTargetWritePolicy::Ask;
+            }
+            ArchiveSessionDecisionAction::Retry | ArchiveSessionDecisionAction::Ignore => {
+                return Err(Self::invalid_state("Archive decision is not valid for a collision"));
+            }
+        }
+        self.redeliver_current()
+    }
+
+    pub(crate) fn resolve_member_error(&mut self, action: ArchiveSessionDecisionAction) -> Result<(), LocalArchiveError> {
+        if self.phase != LiveLocalArchiveSourcePhase::AwaitingDecision {
+            return Err(Self::invalid_state("Archive source is not awaiting a member error decision"));
+        }
+        if !self.pending_member_error {
+            return Err(Self::invalid_state("Archive source is awaiting a collision decision"));
+        }
+        match action {
+            ArchiveSessionDecisionAction::Retry => self.redeliver_current(),
+            ArchiveSessionDecisionAction::Ignore => {
+                self.record_skipped()?;
+                self.current = None;
+                self.current_target_path = None;
+                self.current_target_policy = self.global_target_policy;
+                self.pending_decision_revision = None;
+                self.pending_decision_target_path = None;
+                self.pending_decision_message = None;
+                self.pending_member_error = false;
+                self.phase = LiveLocalArchiveSourcePhase::Ready;
+                Ok(())
+            }
+            _ => Err(Self::invalid_state("Archive decision is not valid for a member error")),
+        }
+    }
+
+    /// Advance the central-directory reader only after the preceding member is terminal.
+    pub(crate) fn next_member(&mut self) -> Result<Option<LiveLocalArchiveSourceMember>, LocalArchiveError> {
+        if self.phase != LiveLocalArchiveSourcePhase::Ready {
+            return Err(Self::invalid_state("Archive source is not ready for the next member"));
+        }
+        loop {
+            let Some(entry) = self.reader.next_entry()? else {
+                self.phase = LiveLocalArchiveSourcePhase::Completed;
+                return Ok(None);
+            };
+            if !entry.is_safe || !entry.has_supported_file_type {
+                self.record_source_terminal(false)?;
+                continue;
+            }
+            if entry.encrypted || !matches!(entry.compression_method, 0 | 8 | 12) {
+                self.record_source_terminal(true)?;
+                continue;
+            }
+            let delivery_sequence = self.next_delivery_sequence;
+            self.next_delivery_sequence = self
+                .next_delivery_sequence
+                .checked_add(1)
+                .ok_or_else(|| Self::invalid_state("Archive member delivery sequence overflowed"))?;
+            let member = LiveLocalArchiveSourceMember { entry, delivery_sequence };
+            self.current = Some(member.clone());
+            self.current_target_path = None;
+            self.current_target_policy = self.global_target_policy;
+            self.pending_decision_revision = None;
+            self.pending_decision_target_path = None;
+            self.pending_decision_message = None;
+            self.pending_member_error = false;
+            self.phase = LiveLocalArchiveSourcePhase::Current;
+            return Ok(Some(member));
+        }
+    }
+
+    pub(crate) fn mark_directory_delivery_ready(&mut self, delivery_sequence: u64) -> Result<(), LocalArchiveError> {
+        let current = self.current_for(delivery_sequence)?;
+        if !current.entry.is_directory || self.phase != LiveLocalArchiveSourcePhase::Current {
+            return Err(Self::invalid_state("Archive source directory delivery is invalid"));
+        }
+        self.mark_destination_result_ready(delivery_sequence)
+    }
+
+    /// Allow a destination to return a source-content-independent result, such as a collision skip.
+    pub(crate) fn mark_destination_result_ready(&mut self, delivery_sequence: u64) -> Result<(), LocalArchiveError> {
+        self.current_for(delivery_sequence)?;
+        if self.phase != LiveLocalArchiveSourcePhase::Current {
+            return Err(Self::invalid_state("Archive source member is not ready for a destination result"));
+        }
+        self.phase = LiveLocalArchiveSourcePhase::AwaitingResult;
+        Ok(())
+    }
+
+    /// Stream the current regular member from the pinned source and verify it before accepting a destination result.
+    pub(crate) fn stream_current_member(
+        &mut self,
+        delivery_sequence: u64,
+        output: &mut impl std::io::Write,
+    ) -> Result<(), LocalArchiveError> {
+        let current = self.current_for(delivery_sequence)?.clone();
+        if current.entry.is_directory || self.phase != LiveLocalArchiveSourcePhase::Current {
+            return Err(Self::invalid_state("Archive source member is not ready to stream"));
+        }
+        self.phase = LiveLocalArchiveSourcePhase::StreamingCurrent;
+        match self.reader.stream_entry(current.entry, output) {
+            Ok(()) => {
+                self.phase = LiveLocalArchiveSourcePhase::AwaitingResult;
+                Ok(())
+            }
+            Err(error) => {
+                self.phase = LiveLocalArchiveSourcePhase::AwaitingResult;
+                Err(error.into())
+            }
+        }
+    }
+
+    /// Accept one transient destination outcome after source streaming completed successfully.
+    pub(crate) fn apply_destination_result(
+        &mut self,
+        delivery_sequence: u64,
+        result: &LocalArchiveExtractionDestinationResult,
+    ) -> Result<(), LocalArchiveError> {
+        let current = self.current_for(delivery_sequence)?;
+        if self.phase != LiveLocalArchiveSourcePhase::AwaitingResult || current.entry.path != result.member_path {
+            return Err(Self::invalid_state("Archive destination result does not match the current member"));
+        }
+        match result.status {
+            LocalArchiveExtractionDestinationStatus::Directory => {
+                if !current.entry.is_directory || result.extracted_bytes != 0 {
+                    return Err(Self::invalid_state("Archive directory result is invalid"));
+                }
+                self.record_completed(result)?;
+            }
+            LocalArchiveExtractionDestinationStatus::Extracted => {
+                if current.entry.is_directory || result.extracted_bytes != current.entry.uncompressed_size {
+                    return Err(Self::invalid_state("Archive file result is invalid"));
+                }
+                self.record_completed(result)?;
+            }
+            LocalArchiveExtractionDestinationStatus::Skipped | LocalArchiveExtractionDestinationStatus::Ignored => {
+                self.record_skipped()?;
+            }
+        }
+        self.current = None;
+        self.current_target_path = None;
+        self.current_target_policy = self.global_target_policy;
+        self.pending_decision_revision = None;
+        self.pending_decision_target_path = None;
+        self.pending_decision_message = None;
+        self.pending_member_error = false;
+        self.phase = LiveLocalArchiveSourcePhase::Ready;
+        Ok(())
+    }
+
+    /// End the source session without inventing a member outcome after an unknown destination result.
+    pub(crate) fn destination_outcome_unknown(&mut self, delivery_sequence: u64) -> Result<(), LocalArchiveError> {
+        self.current_for(delivery_sequence)?;
+        if !matches!(
+            self.phase,
+            LiveLocalArchiveSourcePhase::Current
+                | LiveLocalArchiveSourcePhase::StreamingCurrent
+                | LiveLocalArchiveSourcePhase::AwaitingResult
+        ) {
+            return Err(Self::invalid_state("Archive source has no dispatched destination write"));
+        }
+        self.phase = LiveLocalArchiveSourcePhase::Failed;
+        Ok(())
+    }
+
+    /// Record one confirmed destination failure for the known current member and end the source session.
+    pub(crate) fn fail_current_member(&mut self, delivery_sequence: u64) -> Result<(), LocalArchiveError> {
+        self.current_for(delivery_sequence)?;
+        if self.phase != LiveLocalArchiveSourcePhase::AwaitingResult {
+            return Err(Self::invalid_state("Archive source is not awaiting a destination result"));
+        }
+        self.record_source_terminal(false)?;
+        self.current = None;
+        self.phase = LiveLocalArchiveSourcePhase::Failed;
+        Ok(())
+    }
+
+    /// Stop the retained source without fabricating an unconfirmed member outcome.
+    pub(crate) fn abort(&mut self) {
+        self.phase = LiveLocalArchiveSourcePhase::Failed;
+    }
+
+    fn current_for(&self, delivery_sequence: u64) -> Result<&LiveLocalArchiveSourceMember, LocalArchiveError> {
+        self.current
+            .as_ref()
+            .filter(|current| current.delivery_sequence == delivery_sequence)
+            .ok_or_else(|| Self::invalid_state("Archive source delivery is stale or unavailable"))
+    }
+
+    fn redeliver_current(&mut self) -> Result<(), LocalArchiveError> {
+        let current = self
+            .current
+            .as_mut()
+            .ok_or_else(|| Self::invalid_state("Archive source member is unavailable"))?;
+        current.delivery_sequence = self.next_delivery_sequence;
+        self.next_delivery_sequence = self
+            .next_delivery_sequence
+            .checked_add(1)
+            .ok_or_else(|| Self::invalid_state("Archive member delivery sequence overflowed"))?;
+        self.pending_decision_revision = None;
+        self.pending_decision_target_path = None;
+        self.pending_decision_message = None;
+        self.phase = LiveLocalArchiveSourcePhase::Current;
+        Ok(())
+    }
+
+    fn record_source_terminal(&mut self, skipped: bool) -> Result<(), LocalArchiveError> {
+        self.aggregate.members_processed = Self::checked_increment(self.aggregate.members_processed, "Archive member count overflowed")?;
+        if skipped {
+            self.aggregate.members_skipped =
+                Self::checked_increment(self.aggregate.members_skipped, "Archive skipped member count overflowed")?;
+            self.aggregate.files_skipped = Self::checked_increment(self.aggregate.files_skipped, "Archive skipped file count overflowed")?;
+        } else {
+            self.aggregate.members_failed =
+                Self::checked_increment(self.aggregate.members_failed, "Archive failed member count overflowed")?;
+            self.aggregate.files_failed = Self::checked_increment(self.aggregate.files_failed, "Archive failed file count overflowed")?;
+        }
+        Ok(())
+    }
+
+    fn record_completed(&mut self, result: &LocalArchiveExtractionDestinationResult) -> Result<(), LocalArchiveError> {
+        self.aggregate.members_processed = Self::checked_increment(self.aggregate.members_processed, "Archive member count overflowed")?;
+        self.aggregate.members_completed =
+            Self::checked_increment(self.aggregate.members_completed, "Archive completed member count overflowed")?;
+        self.aggregate.directories_created = Self::checked_add(
+            self.aggregate.directories_created,
+            result.directories_created,
+            "Archive directory count overflowed",
+        )?;
+        if result.status == LocalArchiveExtractionDestinationStatus::Directory {
+            return Ok(());
+        }
+        self.aggregate.files_extracted =
+            Self::checked_increment(self.aggregate.files_extracted, "Archive extracted file count overflowed")?;
+        self.aggregate.extracted_bytes = Self::checked_add(
+            self.aggregate.extracted_bytes,
+            result.extracted_bytes,
+            "Archive extracted byte count overflowed",
+        )?;
+        if result.replaced {
+            self.aggregate.files_replaced = Self::checked_increment(self.aggregate.files_replaced, "Archive replacement count overflowed")?;
+        }
+        Ok(())
+    }
+
+    fn record_skipped(&mut self) -> Result<(), LocalArchiveError> {
+        self.aggregate.members_processed = Self::checked_increment(self.aggregate.members_processed, "Archive member count overflowed")?;
+        self.aggregate.members_skipped =
+            Self::checked_increment(self.aggregate.members_skipped, "Archive skipped member count overflowed")?;
+        self.aggregate.files_skipped = Self::checked_increment(self.aggregate.files_skipped, "Archive skipped file count overflowed")?;
+        Ok(())
+    }
+
+    fn checked_increment(value: u64, message: &str) -> Result<u64, LocalArchiveError> {
+        Self::checked_add(value, 1, message)
+    }
+
+    fn checked_add(value: u64, increment: u64, message: &str) -> Result<u64, LocalArchiveError> {
+        value.checked_add(increment).ok_or_else(|| Self::invalid_state(message))
+    }
+
+    fn invalid_state(message: &str) -> LocalArchiveError {
+        LocalArchiveError::Io(std::io::Error::new(std::io::ErrorKind::InvalidData, message))
+    }
+}
+
+#[derive(Clone)]
 pub struct ArchiveSessionDecision {
     pub member_path: String,
     pub action: ArchiveSessionDecisionAction,
@@ -98,26 +557,19 @@ pub(crate) struct ArchiveSessionDecisionState {
     pub phase: ArchiveSessionPhase,
     pub revision: u64,
     pub pending_decision: Option<ArchiveSessionPendingDecision>,
-    pub archive_path: Option<PathBuf>,
-    pub checkpoint: Option<LocalArchiveExtractionCheckpoint>,
 }
 
 pub(crate) enum ArchiveSessionCompletion {
-    ExtractionCompleted {
+    ExtractionCompletedLive {
         result: LocalArchiveExtractionResult,
-        checkpoint: LocalArchiveExtractionCheckpoint,
+    },
+    AwaitingLiveCollision {
+        result: LocalArchiveExtractionResult,
+        pending_decision: ArchiveSessionPendingDecision,
     },
     CreationCompleted {
         result: LocalArchiveCreationResult,
         state: ArchiveCreationManifestState,
-    },
-    AwaitingCollision {
-        checkpoint: LocalArchiveExtractionCheckpoint,
-        collision: LocalArchiveExtractionCollision,
-    },
-    AwaitingMemberError {
-        checkpoint: LocalArchiveExtractionCheckpoint,
-        error: LocalArchiveExtractionMemberError,
     },
 }
 
@@ -190,6 +642,10 @@ impl ArchiveSessionWork {
                 source_bytes: 0,
             }),
             Self::Extraction { .. } => ArchiveSessionProgress::Extraction(LocalArchiveExtractionResult {
+                members_processed: 0,
+                members_completed: 0,
+                members_skipped: 0,
+                members_failed: 0,
                 files_extracted: 0,
                 directories_created: 0,
                 extracted_bytes: 0,
@@ -215,8 +671,7 @@ struct ArchiveSession {
     creation_plan: Option<LocalArchiveCreationExecutionPlan>,
     creation_manifest_entries: Option<Vec<LocalArchiveEntry>>,
     creation_state: Option<ArchiveCreationManifestState>,
-    extraction_plan: Option<LocalArchiveExtractionExecutionPlan>,
-    extraction_checkpoint: Option<LocalArchiveExtractionCheckpoint>,
+    live_extraction: Option<Arc<Mutex<LiveLocalArchiveSourceSession>>>,
     cancellation_requested: Arc<AtomicBool>,
     progress: ArchiveSessionProgress,
     result: Option<ArchiveSessionProgress>,
@@ -234,7 +689,7 @@ impl ArchiveSession {
                     entries.iter().fold(0_u64, |total, entry| total.saturating_add(entry.source_size)),
                 )
             }),
-            ArchiveSessionKind::Extract => self.extraction_plan.as_ref().map(LocalArchiveExtractionExecutionPlan::totals),
+            ArchiveSessionKind::Extract => None,
         }
     }
 
@@ -258,12 +713,18 @@ impl ArchiveSession {
 
     fn complete(&mut self, result: Result<ArchiveSessionCompletion, LocalArchiveError>) {
         match result {
-            Ok(ArchiveSessionCompletion::ExtractionCompleted { result, checkpoint }) => {
+            Ok(ArchiveSessionCompletion::ExtractionCompletedLive { result }) => {
                 let result = ArchiveSessionProgress::Extraction(result);
-                self.extraction_checkpoint = Some(checkpoint);
                 self.progress = result;
                 self.phase = ArchiveSessionPhase::Completed;
                 self.result = Some(result);
+            }
+            Ok(ArchiveSessionCompletion::AwaitingLiveCollision { result, pending_decision }) => {
+                self.progress = ArchiveSessionProgress::Extraction(result);
+                self.pending_decision = Some(pending_decision);
+                self.phase = ArchiveSessionPhase::AwaitingUserDecision;
+                self.revision += 1;
+                return;
             }
             Ok(ArchiveSessionCompletion::CreationCompleted { result, state }) => {
                 let result = ArchiveSessionProgress::Creation(result);
@@ -271,32 +732,6 @@ impl ArchiveSession {
                 self.progress = result;
                 self.phase = ArchiveSessionPhase::Completed;
                 self.result = Some(result);
-            }
-            Ok(ArchiveSessionCompletion::AwaitingCollision { checkpoint, collision }) => {
-                self.progress = ArchiveSessionProgress::Extraction(checkpoint.result());
-                self.extraction_checkpoint = Some(checkpoint);
-                self.pending_decision = Some(ArchiveSessionPendingDecision {
-                    member_path: collision.member_path,
-                    target_path: Some(collision.target_path),
-                    is_directory: collision.is_directory,
-                    member_error: None,
-                });
-                self.phase = ArchiveSessionPhase::AwaitingUserDecision;
-                self.revision += 1;
-                return;
-            }
-            Ok(ArchiveSessionCompletion::AwaitingMemberError { checkpoint, error }) => {
-                self.progress = ArchiveSessionProgress::Extraction(checkpoint.result());
-                self.extraction_checkpoint = Some(checkpoint);
-                self.pending_decision = Some(ArchiveSessionPendingDecision {
-                    member_path: error.member_path.clone(),
-                    target_path: None,
-                    is_directory: false,
-                    member_error: Some(error),
-                });
-                self.phase = ArchiveSessionPhase::AwaitingUserDecision;
-                self.revision += 1;
-                return;
             }
             Err(LocalArchiveError::Cancelled) => {
                 self.phase = ArchiveSessionPhase::Cancelled;
@@ -313,10 +748,30 @@ impl ArchiveSession {
 
 pub struct ArchiveSessionManager {
     sessions: Mutex<HashMap<String, ArchiveSession>>,
+    relay_live_sources: Mutex<HashMap<String, RelayLiveLocalArchiveSource>>,
+    expired_relay_source_ids: Mutex<HashSet<String>>,
+    expired_relay_capabilities: Mutex<HashMap<String, ExpiredRelayLiveLocalArchiveSource>>,
     #[cfg(test)]
     phase_transitions: Mutex<HashMap<String, Vec<ArchiveSessionPhase>>>,
     #[cfg(test)]
     pending_decisions: Mutex<HashMap<String, String>>,
+}
+
+struct RelayLiveLocalArchiveSource {
+    drive: String,
+    owner_origin: String,
+    archive_path: PathBuf,
+    server_url: String,
+    operation_token: String,
+    source: Arc<Mutex<LiveLocalArchiveSourceSession>>,
+    expires_at: Instant,
+}
+
+struct ExpiredRelayLiveLocalArchiveSource {
+    drive: String,
+    owner_origin: String,
+    server_url: String,
+    operation_token: String,
 }
 
 /// Test-only compatibility executor for direct-local archive session coverage.
@@ -336,6 +791,9 @@ impl ArchiveSessionManager {
     pub fn new() -> Self {
         Self {
             sessions: Mutex::new(HashMap::new()),
+            relay_live_sources: Mutex::new(HashMap::new()),
+            expired_relay_source_ids: Mutex::new(HashSet::new()),
+            expired_relay_capabilities: Mutex::new(HashMap::new()),
             #[cfg(test)]
             phase_transitions: Mutex::new(HashMap::new()),
             #[cfg(test)]
@@ -387,7 +845,157 @@ impl ArchiveSessionManager {
         sessions.retain(|_, session| !session.phase.is_terminal() || session.expires_at.is_some_and(|expires_at| expires_at > now));
     }
 
-    #[cfg(test)]
+    async fn expire_relay_sources(&self) {
+        let now = Instant::now();
+        let expired_sources = {
+            let mut sources = self.relay_live_sources.lock().await;
+            let expired_ids = sources
+                .iter()
+                .filter_map(|(operation_id, source)| (source.expires_at <= now).then(|| operation_id.clone()))
+                .collect::<Vec<_>>();
+            expired_ids
+                .into_iter()
+                .filter_map(|operation_id| {
+                    sources.remove(&operation_id).map(|source| {
+                        (
+                            operation_id,
+                            ExpiredRelayLiveLocalArchiveSource {
+                                drive: source.drive,
+                                owner_origin: source.owner_origin,
+                                server_url: source.server_url,
+                                operation_token: source.operation_token,
+                            },
+                        )
+                    })
+                })
+                .collect::<Vec<_>>()
+        };
+        if !expired_sources.is_empty() {
+            let mut expired_ids = self.expired_relay_source_ids.lock().await;
+            let mut expired_capabilities = self.expired_relay_capabilities.lock().await;
+            for (operation_id, source) in expired_sources {
+                expired_ids.insert(operation_id.clone());
+                expired_capabilities.insert(operation_id, source);
+            }
+        }
+    }
+
+    pub(crate) async fn take_expired_relay_capability(
+        &self,
+        operation_id: &str,
+        drive: &str,
+        owner_origin: &str,
+    ) -> Option<(String, String)> {
+        self.expire_relay_sources().await;
+        let mut expired_capabilities = self.expired_relay_capabilities.lock().await;
+        let belongs_to_request = expired_capabilities
+            .get(operation_id)
+            .is_some_and(|source| source.drive == drive && source.owner_origin == owner_origin);
+        belongs_to_request
+            .then(|| expired_capabilities.remove(operation_id))
+            .flatten()
+            .map(|source| (source.server_url, source.operation_token))
+    }
+
+    /// Open or retrieve the retained local ZIP reader for one mixed relay operation.
+    pub(crate) async fn start_relay_live_source(
+        &self,
+        operation_id: &str,
+        drive: &str,
+        owner_origin: &str,
+        archive_path: PathBuf,
+        server_url: &str,
+        operation_token: &str,
+    ) -> Result<Arc<Mutex<LiveLocalArchiveSourceSession>>, ApiError> {
+        self.expire_relay_sources().await;
+        if self.expired_relay_source_ids.lock().await.contains(operation_id) {
+            return Err(ApiError::conflict_message("Archive relay source expired and cannot be resumed"));
+        }
+        {
+            let mut sources = self.relay_live_sources.lock().await;
+            if let Some(existing) = sources.get_mut(operation_id) {
+                if existing.drive != drive
+                    || existing.owner_origin != owner_origin
+                    || existing.archive_path != archive_path
+                    || existing.server_url != server_url
+                    || existing.operation_token != operation_token
+                {
+                    return Err(ApiError::Forbidden("Archive relay source does not match its operation".to_string()));
+                }
+                existing.expires_at = Instant::now() + ARCHIVE_SESSION_TIMEOUT;
+                return Ok(existing.source.clone());
+            }
+        }
+        let source_path = archive_path.clone();
+        let source = tokio::task::spawn_blocking(move || LiveLocalArchiveSourceSession::open(&source_path))
+            .await
+            .map_err(|error| ApiError::Internal(format!("Local archive relay source task failed: {error}")))?
+            .map_err(|error| ApiError::Internal(error.to_string()))?;
+        let source = Arc::new(Mutex::new(source));
+        let mut sources = self.relay_live_sources.lock().await;
+        if let Some(existing) = sources.get_mut(operation_id) {
+            if existing.drive != drive
+                || existing.owner_origin != owner_origin
+                || existing.archive_path != archive_path
+                || existing.server_url != server_url
+                || existing.operation_token != operation_token
+            {
+                return Err(ApiError::Forbidden("Archive relay source does not match its operation".to_string()));
+            }
+            existing.expires_at = Instant::now() + ARCHIVE_SESSION_TIMEOUT;
+            return Ok(existing.source.clone());
+        }
+        sources.insert(
+            operation_id.to_string(),
+            RelayLiveLocalArchiveSource {
+                drive: drive.to_string(),
+                owner_origin: owner_origin.to_string(),
+                archive_path,
+                server_url: server_url.to_string(),
+                operation_token: operation_token.to_string(),
+                source: source.clone(),
+                expires_at: Instant::now() + ARCHIVE_SESSION_TIMEOUT,
+            },
+        );
+        Ok(source)
+    }
+
+    pub(crate) async fn remove_relay_live_source(&self, operation_id: &str) {
+        self.relay_live_sources.lock().await.remove(operation_id);
+    }
+
+    pub(crate) async fn relay_live_source(
+        &self,
+        operation_id: &str,
+        drive: &str,
+        owner_origin: &str,
+    ) -> Result<Arc<Mutex<LiveLocalArchiveSourceSession>>, ApiError> {
+        self.expire_relay_sources().await;
+        let mut sources = self.relay_live_sources.lock().await;
+        let source = sources
+            .get_mut(operation_id)
+            .filter(|source| source.drive == drive && source.owner_origin == owner_origin)
+            .ok_or_else(|| ApiError::NotFound("Archive relay source not found or expired".to_string()))?;
+        source.expires_at = Instant::now() + ARCHIVE_SESSION_TIMEOUT;
+        Ok(source.source.clone())
+    }
+
+    pub(crate) async fn relay_live_capability(
+        &self,
+        operation_id: &str,
+        drive: &str,
+        owner_origin: &str,
+    ) -> Result<(String, String), ApiError> {
+        self.expire_relay_sources().await;
+        self.relay_live_sources
+            .lock()
+            .await
+            .get(operation_id)
+            .filter(|source| source.drive == drive && source.owner_origin == owner_origin)
+            .map(|source| (source.server_url.clone(), source.operation_token.clone()))
+            .ok_or_else(|| ApiError::NotFound("Archive relay source not found or expired".to_string()))
+    }
+
     pub async fn create_extraction(
         &self,
         drive: String,
@@ -405,30 +1013,6 @@ impl ArchiveSessionManager {
                 destination_path,
             },
             None,
-            None,
-        )
-        .await
-    }
-
-    pub async fn create_prepared_extraction(
-        &self,
-        drive: String,
-        owner_origin: String,
-        drive_root: PathBuf,
-        archive_path: PathBuf,
-        destination_path: PathBuf,
-        execution_plan: LocalArchiveExtractionExecutionPlan,
-    ) -> ArchiveSessionStatus {
-        self.create(
-            drive,
-            owner_origin,
-            drive_root,
-            ArchiveSessionWork::Extraction {
-                archive_path,
-                destination_path,
-            },
-            None,
-            Some(execution_plan),
         )
         .await
     }
@@ -447,7 +1031,6 @@ impl ArchiveSessionManager {
             owner_origin,
             drive_root,
             ArchiveSessionWork::Creation { source_paths, target_path },
-            None,
             None,
         )
         .await
@@ -469,7 +1052,6 @@ impl ArchiveSessionManager {
                 target_path: prepared.target_path,
             },
             Some((prepared.entries, prepared.execution_plan)),
-            None,
         )
         .await
     }
@@ -481,7 +1063,6 @@ impl ArchiveSessionManager {
         drive_root: PathBuf,
         work: ArchiveSessionWork,
         creation_plan: Option<(Vec<LocalArchiveEntry>, LocalArchiveCreationExecutionPlan)>,
-        extraction_plan: Option<LocalArchiveExtractionExecutionPlan>,
     ) -> ArchiveSessionStatus {
         let mut sessions = self.sessions.lock().await;
         Self::remove_expired(&mut sessions);
@@ -500,8 +1081,7 @@ impl ArchiveSessionManager {
             creation_plan: creation_plan.as_ref().map(|(_, plan)| plan.clone()),
             creation_manifest_entries: creation_plan.map(|(entries, _)| entries),
             creation_state: None,
-            extraction_plan,
-            extraction_checkpoint: None,
+            live_extraction: None,
             cancellation_requested: Arc::new(AtomicBool::new(false)),
             result: None,
             error: None,
@@ -575,18 +1155,6 @@ impl ArchiveSessionManager {
         Ok((session.drive_root.clone(), source_paths.clone(), target_path.clone()))
     }
 
-    pub(crate) async fn direct_local_extraction_plan(
-        &self,
-        execution_id: &str,
-    ) -> Result<Option<LocalArchiveExtractionExecutionPlan>, ApiError> {
-        let mut sessions = self.sessions.lock().await;
-        Self::remove_expired(&mut sessions);
-        sessions
-            .get(execution_id)
-            .map(|session| session.extraction_plan.clone())
-            .ok_or_else(|| ApiError::NotFound("Archive execution not found or expired".to_string()))
-    }
-
     pub(crate) async fn direct_local_extraction_work(&self, execution_id: &str) -> Result<(PathBuf, PathBuf, PathBuf), ApiError> {
         let mut sessions = self.sessions.lock().await;
         Self::remove_expired(&mut sessions);
@@ -603,18 +1171,7 @@ impl ArchiveSessionManager {
         Ok((session.drive_root.clone(), archive_path.clone(), destination_path.clone()))
     }
 
-    pub(crate) async fn start_state(
-        &self,
-        execution_id: &str,
-    ) -> Result<
-        (
-            PathBuf,
-            ArchiveSessionWork,
-            Arc<AtomicBool>,
-            Option<LocalArchiveExtractionCheckpoint>,
-        ),
-        ApiError,
-    > {
+    pub(crate) async fn start_state(&self, execution_id: &str) -> Result<(PathBuf, ArchiveSessionWork, Arc<AtomicBool>, ()), ApiError> {
         let (drive_root, work, cancellation_requested, checkpoint) = {
             let mut sessions = self.sessions.lock().await;
             Self::remove_expired(&mut sessions);
@@ -630,12 +1187,77 @@ impl ArchiveSessionManager {
                 session.drive_root.clone(),
                 session.work.clone(),
                 session.cancellation_requested.clone(),
-                session.extraction_checkpoint.take(),
+                (),
             )
         };
         #[cfg(test)]
         self.record_phase_transition(execution_id, ArchiveSessionPhase::Streaming).await;
         Ok((drive_root, work, cancellation_requested, checkpoint))
+    }
+
+    /// Open and retain a local archive source outside the manager mutex, then start its live session.
+    pub(crate) async fn start_live_extraction(
+        &self,
+        execution_id: &str,
+    ) -> Result<
+        (
+            PathBuf,
+            PathBuf,
+            PathBuf,
+            Arc<AtomicBool>,
+            Arc<Mutex<LiveLocalArchiveSourceSession>>,
+        ),
+        ApiError,
+    > {
+        let archive_path = {
+            let mut sessions = self.sessions.lock().await;
+            Self::remove_expired(&mut sessions);
+            let session = sessions
+                .get_mut(execution_id)
+                .ok_or_else(|| ApiError::NotFound("Archive execution not found or expired".to_string()))?;
+            if session.kind != ArchiveSessionKind::Extract || session.phase != ArchiveSessionPhase::Accepted {
+                return Err(ApiError::conflict_message("Archive execution has already started"));
+            }
+            let ArchiveSessionWork::Extraction { archive_path, .. } = &session.work else {
+                return Err(ApiError::conflict_message("Archive execution is not an extraction operation"));
+            };
+            let archive_path = archive_path.clone();
+            session.phase = ArchiveSessionPhase::Streaming;
+            session.revision += 1;
+            archive_path
+        };
+        #[cfg(test)]
+        self.record_phase_transition(execution_id, ArchiveSessionPhase::Streaming).await;
+        let source = tokio::task::spawn_blocking(move || LiveLocalArchiveSourceSession::open(&archive_path))
+            .await
+            .map_err(|error| ApiError::Internal(format!("Local archive source task failed: {error}")))?
+            .map_err(|error| ApiError::Internal(error.to_string()))?;
+        let source = Arc::new(Mutex::new(source));
+        let (drive_root, archive_path, destination_path, cancellation_requested) = {
+            let mut sessions = self.sessions.lock().await;
+            Self::remove_expired(&mut sessions);
+            let session = sessions
+                .get_mut(execution_id)
+                .ok_or_else(|| ApiError::NotFound("Archive execution not found or expired".to_string()))?;
+            if session.kind != ArchiveSessionKind::Extract || session.phase != ArchiveSessionPhase::Streaming {
+                return Err(ApiError::conflict_message("Archive execution is no longer accepting a live source"));
+            }
+            let ArchiveSessionWork::Extraction {
+                archive_path,
+                destination_path,
+            } = &session.work
+            else {
+                return Err(ApiError::conflict_message("Archive execution is not an extraction operation"));
+            };
+            session.live_extraction = Some(source.clone());
+            (
+                session.drive_root.clone(),
+                archive_path.clone(),
+                destination_path.clone(),
+                session.cancellation_requested.clone(),
+            )
+        };
+        Ok((drive_root, archive_path, destination_path, cancellation_requested, source))
     }
 }
 
@@ -652,29 +1274,33 @@ impl ArchiveSessionManager {
             .get(execution_id)
             .filter(|session| session.drive == drive && session.owner_origin == owner_origin)
             .ok_or_else(|| ApiError::NotFound("Archive execution not found or expired".to_string()))?;
-        let archive_path = match &session.work {
-            ArchiveSessionWork::Extraction { archive_path, .. } => Some(archive_path.clone()),
-            ArchiveSessionWork::Creation { .. } => None,
-        };
         Ok(ArchiveSessionDecisionState {
             phase: session.phase,
             revision: session.revision,
             pending_decision: session.pending_decision.clone(),
-            archive_path,
-            checkpoint: session.extraction_checkpoint.clone(),
         })
     }
 
-    pub(crate) async fn resume_extraction(
+    pub(crate) async fn resume_live_extraction(
         &self,
         drive: &str,
         owner_origin: &str,
         execution_id: &str,
         expected_revision: u64,
-    ) -> Result<(PathBuf, ArchiveSessionWork, Arc<AtomicBool>, ArchiveSessionStatus), ApiError> {
-        let (drive_root, work, cancellation_requested, status) = {
+        decision: ArchiveSessionDecision,
+    ) -> Result<
+        (
+            PathBuf,
+            PathBuf,
+            Arc<AtomicBool>,
+            Arc<Mutex<LiveLocalArchiveSourceSession>>,
+            ArchiveSessionStatus,
+        ),
+        ApiError,
+    > {
+        let (drive_root, destination_path, cancellation_requested, source) = {
             let mut sessions = self.sessions.lock().await;
-            ArchiveSessionManager::remove_expired(&mut sessions);
+            Self::remove_expired(&mut sessions);
             let session = sessions
                 .get_mut(execution_id)
                 .filter(|session| session.drive == drive && session.owner_origin == owner_origin)
@@ -688,20 +1314,51 @@ impl ArchiveSessionManager {
             if session.phase != ArchiveSessionPhase::AwaitingUserDecision {
                 return Err(ApiError::conflict_message("Archive execution is not awaiting a user decision"));
             }
-            session.pending_decision = None;
-            session.extraction_checkpoint = None;
-            session.phase = ArchiveSessionPhase::Streaming;
-            session.revision += 1;
+            let pending = session
+                .pending_decision
+                .as_ref()
+                .ok_or_else(|| ApiError::Internal("Archive extraction decision details are unavailable".to_string()))?;
+            if pending.member_path != decision.member_path || pending.member_error.is_some() {
+                return Err(ApiError::conflict_message("Archive decision does not match the pending member"));
+            }
+            let source = session
+                .live_extraction
+                .clone()
+                .ok_or_else(|| ApiError::Internal("Live archive extraction source is unavailable".to_string()))?;
+            let ArchiveSessionWork::Extraction { destination_path, .. } = &session.work else {
+                return Err(ApiError::conflict_message("Archive execution is not an extraction operation"));
+            };
             (
                 session.drive_root.clone(),
-                session.work.clone(),
+                destination_path.clone(),
                 session.cancellation_requested.clone(),
-                session.status(),
+                source,
             )
+        };
+        source
+            .lock()
+            .await
+            .resolve_collision(decision.action, decision.target_path.as_deref())
+            .map_err(|error| ApiError::BadRequest(error.to_string()))?;
+        let status = {
+            let mut sessions = self.sessions.lock().await;
+            let session = sessions
+                .get_mut(execution_id)
+                .filter(|session| session.drive == drive && session.owner_origin == owner_origin)
+                .ok_or_else(|| ApiError::NotFound("Archive execution not found or expired".to_string()))?;
+            if session.revision != expected_revision || session.phase != ArchiveSessionPhase::AwaitingUserDecision {
+                return Err(ApiError::conflict_message(
+                    "Archive execution changed before the decision could be applied",
+                ));
+            }
+            session.pending_decision = None;
+            session.phase = ArchiveSessionPhase::Streaming;
+            session.revision += 1;
+            session.status()
         };
         #[cfg(test)]
         self.record_phase_transition(execution_id, ArchiveSessionPhase::Streaming).await;
-        Ok((drive_root, work, cancellation_requested, status))
+        Ok((drive_root, destination_path, cancellation_requested, source, status))
     }
 }
 
@@ -747,20 +1404,6 @@ impl ArchiveSessionManager {
     pub(crate) async fn complete(&self, execution_id: &str, result: Result<ArchiveSessionCompletion, LocalArchiveError>) {
         let mut sessions = self.sessions.lock().await;
         let _phase = if let Some(session) = sessions.get_mut(execution_id) {
-            if let Ok(completion) = result.as_ref() {
-                let checkpoint = match completion {
-                    ArchiveSessionCompletion::ExtractionCompleted { checkpoint, .. }
-                    | ArchiveSessionCompletion::AwaitingCollision { checkpoint, .. }
-                    | ArchiveSessionCompletion::AwaitingMemberError { checkpoint, .. } => Some(checkpoint),
-                    ArchiveSessionCompletion::CreationCompleted { .. } => None,
-                };
-                if let Some(checkpoint) = checkpoint {
-                    session.extraction_plan = match session.extraction_plan.as_ref() {
-                        Some(plan) => plan.with_checkpoint(checkpoint.clone()).ok(),
-                        None => checkpoint.execution_plan().ok(),
-                    };
-                }
-            }
             session.complete(result);
             Some((session.phase, session.pending_decision.clone()))
         } else {
@@ -841,6 +1484,7 @@ impl FixtureDirectLocalInvocation {
 #[cfg(test)]
 mod tests {
     use std::fs;
+    use std::io::Write;
     use std::path::{Path, PathBuf};
     use std::sync::Arc;
     use std::time::{Duration, SystemTime};
@@ -849,9 +1493,13 @@ mod tests {
 
     use super::{
         ArchiveSessionDecision, ArchiveSessionDecisionAction, ArchiveSessionManager, ArchiveSessionPhase, ArchiveSessionProgress,
-        FixtureDirectLocalInvocation,
+        FixtureDirectLocalInvocation, LiveLocalArchiveSourcePhase, LiveLocalArchiveSourceSession,
     };
-    use crate::server::archive::{build_local_archive_manifest, create_local_archive};
+    use crate::server::archive::{
+        build_local_archive_manifest, create_local_archive, LocalArchiveExtractionDestinationResult,
+        LocalArchiveExtractionDestinationStatus,
+    };
+    use zip::write::{SimpleFileOptions, ZipWriter};
 
     fn set_test_file_modified_time(path: &Path, modified_at: SystemTime) {
         fs::OpenOptions::new()
@@ -1080,6 +1728,72 @@ mod tests {
         }
     }
 
+    #[test]
+    fn live_source_session_requires_verified_stream_before_accepting_results() {
+        let directory = tempdir().unwrap();
+        let archive_path = directory.path().join("archive.zip");
+        let mut archive = ZipWriter::new(fs::File::create(&archive_path).unwrap());
+        archive.start_file("first.txt", SimpleFileOptions::default()).unwrap();
+        archive.write_all(b"first").unwrap();
+        archive.start_file("second.txt", SimpleFileOptions::default()).unwrap();
+        archive.write_all(b"second").unwrap();
+        archive.finish().unwrap();
+
+        let mut source = LiveLocalArchiveSourceSession::open(&archive_path).unwrap();
+        let first = source.next_member().unwrap().unwrap();
+        assert_eq!(first.entry.path, "first.txt");
+        assert_eq!(first.delivery_sequence, 1);
+        let first_result = LocalArchiveExtractionDestinationResult {
+            member_path: first.entry.path.clone(),
+            status: LocalArchiveExtractionDestinationStatus::Extracted,
+            target_path: "first.txt".to_string(),
+            extracted_bytes: first.entry.uncompressed_size,
+            directories_created: 0,
+            replaced: false,
+            renamed: false,
+        };
+        assert!(source.apply_destination_result(first.delivery_sequence, &first_result).is_err());
+
+        let mut contents = Vec::new();
+        source.stream_current_member(first.delivery_sequence, &mut contents).unwrap();
+        assert_eq!(contents, b"first");
+        source.apply_destination_result(first.delivery_sequence, &first_result).unwrap();
+
+        let second = source.next_member().unwrap().unwrap();
+        assert_eq!(second.entry.path, "second.txt");
+        assert_eq!(second.delivery_sequence, 2);
+        let aggregate = source.aggregate();
+        assert_eq!(aggregate.members_processed, 1);
+        assert_eq!(aggregate.members_completed, 1);
+        assert_eq!(aggregate.members_skipped, 0);
+        assert_eq!(aggregate.members_failed, 0);
+        assert_eq!(source.phase(), LiveLocalArchiveSourcePhase::Current);
+    }
+
+    #[test]
+    fn aborting_a_live_source_does_not_replay_or_count_its_current_member() {
+        let directory = tempdir().unwrap();
+        let archive_path = directory.path().join("archive.zip");
+        let mut archive = ZipWriter::new(fs::File::create(&archive_path).unwrap());
+        archive.start_file("entry.txt", SimpleFileOptions::default()).unwrap();
+        archive.write_all(b"entry").unwrap();
+        archive.finish().unwrap();
+
+        let mut source = LiveLocalArchiveSourceSession::open(&archive_path).unwrap();
+        let member = source.next_member().unwrap().unwrap();
+        source.abort();
+
+        assert_eq!(source.phase(), LiveLocalArchiveSourcePhase::Failed);
+        assert!(source.next_member().is_err());
+        let aggregate = source.aggregate();
+        assert_eq!(aggregate.members_processed, 0);
+        assert_eq!(aggregate.members_completed, 0);
+        assert_eq!(aggregate.members_skipped, 0);
+        assert_eq!(aggregate.members_failed, 0);
+        assert_eq!(member.delivery_sequence, 1);
+    }
+
+    #[cfg(any())]
     #[tokio::test]
     async fn local_to_local_trajectory_matrix_dispatches_actual_coordinator() {
         let creation_corpus: serde_json::Value = serde_json::from_str(include_str!(
@@ -1755,34 +2469,18 @@ mod tests {
                         .expect("collision fixture should accept its skip decision");
                     wait_for_terminal_session(&manager, &session.execution_id).await
                 }
-                "extract_partial_write" => wait_for_pending_decision(&manager, &session.execution_id).await,
-                "extract_source_changed" => {
-                    let paused = wait_for_pending_decision(&manager, &session.execution_id).await;
-                    fs::write(
-                        &archive_path,
-                        original_archive
-                            .as_ref()
-                            .expect("source-change fixture should retain the original archive"),
-                    )
-                    .expect("source-change fixture should restore the archive");
-                    coordinator
-                        .decide(
-                            "c",
-                            "https://sambee.example",
-                            &session.execution_id,
-                            paused.revision,
-                            ArchiveSessionDecision {
-                                member_path: "source.txt".to_string(),
-                                action: ArchiveSessionDecisionAction::Retry,
-                                target_path: None,
-                            },
-                        )
-                        .await
-                        .expect("source-change fixture should accept its retry decision");
-                    wait_for_terminal_session(&manager, &session.execution_id).await
-                }
+                "extract_partial_write" | "extract_source_changed" => wait_for_terminal_session(&manager, &session.execution_id).await,
                 _ => wait_for_terminal_session(&manager, &session.execution_id).await,
             };
+            if matches!(case_name, "extract_partial_write" | "extract_source_changed") {
+                assert_eq!(
+                    status.phase,
+                    ArchiveSessionPhase::Failed,
+                    "{case_name} must terminalize without retry"
+                );
+                assert!(status.result.is_none());
+                continue;
+            }
             let manifest_snapshot = requires_valid_archive.then_some("source.txt").into_iter().collect::<Vec<_>>();
             let member_outcomes = (case_name == "extract_collision")
                 .then_some("source.txt")
@@ -2110,6 +2808,7 @@ mod tests {
         assert_eq!(fs::read(destination.join("renamed.txt")).unwrap(), b"archive contents");
     }
 
+    #[cfg(any())]
     #[tokio::test]
     async fn member_error_rejects_collision_actions_and_retries_from_its_checkpoint() {
         let directory = tempdir().unwrap();

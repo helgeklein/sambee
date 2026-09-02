@@ -2,7 +2,6 @@
 
 import io
 import json
-import logging
 import zipfile
 from collections.abc import AsyncIterator
 from datetime import datetime, timedelta, timezone
@@ -14,14 +13,11 @@ import pytest
 from app.models.file import DirectoryListing, FileInfo, FileType
 from app.services.archive.extraction import (
     ArchiveExtractionCancelled,
-    ArchiveExtractionConflicts,
-    ArchiveExtractionDestinationResult,
     ArchiveExtractionMemberError,
-    ArchiveExtractionMemberOutcome,
-    ArchiveExtractionProgress,
     extract_archive_to_new_paths,
-    validate_archive_rename_targets,
+    extract_live_archive_to_new_paths,
 )
+from app.services.archive.live_extraction import DestinationWriteResult, LiveSourceSession, LiveSourceSessionError, LiveSourceSessionPhase
 from app.services.archive.target_write import (
     ResolvedCollisionPolicy,
     TargetExistsBeforeContent,
@@ -31,7 +27,7 @@ from app.services.archive.target_write import (
     resolve_target_write,
     resolve_target_write_attempt,
 )
-from app.services.archive.zip_reader import ArchiveFormatError, ZipReader
+from app.services.archive.zip_reader import ZipReader
 
 WORKSPACE_ROOT = Path(__file__).resolve().parents[2]
 EXTRACTION_OUTCOME_CORPUS_PATH = WORKSPACE_ROOT / "archive-contract" / "v2" / "fixtures" / "extraction-outcome-scenarios-v2.json"
@@ -99,6 +95,9 @@ class MemoryExtractionBackend:
         assert path == "input.zip"
         return self.reader
 
+    async def open_archive_source_reader(self, path: str) -> MemoryRandomReader:
+        return await self.open_random_access_reader(path)
+
     async def create_directory(self, path: str) -> None:
         self.created_directory_paths.append(path)
         if path in self.directories:
@@ -144,6 +143,9 @@ class MemoryExtractionSource:
 
     async def open_random_access_reader(self, path: str) -> MemoryRandomReader:
         return await self.backend.open_random_access_reader(path)
+
+    async def open_archive_source_reader(self, path: str) -> MemoryRandomReader:
+        return await self.backend.open_archive_source_reader(path)
 
 
 class MemoryExtractionDestination:
@@ -205,6 +207,97 @@ def _flat_archive_bytes(member_names: list[str]) -> bytes:
         for member_name in member_names:
             archive.writestr(member_name, member_name)
     return output.getvalue()
+
+
+@pytest.mark.asyncio
+async def test_live_extraction_streams_members_in_record_order_without_preflight() -> None:
+    backend = MemoryExtractionBackend(_archive_bytes())
+    source_session = LiveSourceSession(ZipReader(backend.reader, len(backend.archive)))
+
+    aggregate = await extract_live_archive_to_new_paths(
+        source_session,
+        destination=backend,
+        destination_root="output",
+        existing_file_policy=None,
+    )
+
+    assert backend.written_file_paths == ["output/docs/readme.txt", "output/root.txt"]
+    assert backend.listed_paths == []
+    assert aggregate.members_processed == 2
+    assert aggregate.members_completed == 2
+    assert aggregate.files_extracted == 2
+    assert aggregate.extracted_bytes == len(b"readme") + len(b"root")
+    assert source_session.phase == LiveSourceSessionPhase.COMPLETED
+
+
+@pytest.mark.asyncio
+async def test_live_extraction_retains_current_member_for_a_collision_decision() -> None:
+    backend = MemoryExtractionBackend(_flat_archive_bytes(["first.txt"]))
+    backend.files["output/first.txt"] = b"existing"
+    source_session = LiveSourceSession(ZipReader(backend.reader, len(backend.archive)))
+
+    aggregate = await extract_live_archive_to_new_paths(
+        source_session,
+        destination=backend,
+        destination_root="output",
+        existing_file_policy=None,
+    )
+
+    decision = await source_session.pending_decision()
+    assert aggregate.members_processed == 0
+    assert source_session.phase == LiveSourceSessionPhase.AWAITING_DECISION
+    assert decision is not None
+    assert decision.member_path == "first.txt"
+    assert backend.written_file_paths == []
+
+
+@pytest.mark.asyncio
+async def test_live_source_rejects_stale_collision_decision_revisions() -> None:
+    backend = MemoryExtractionBackend(_flat_archive_bytes(["first.txt"]))
+    source_session = LiveSourceSession(ZipReader(backend.reader, len(backend.archive)))
+    member = await source_session.next_member()
+
+    assert member is not None
+    await source_session.apply_destination_write_result(
+        DestinationWriteResult(member.source_session_id, member.delivery_sequence, member.path, "awaiting_collision")
+    )
+    decision = await source_session.pending_decision()
+    assert decision is not None
+
+    with pytest.raises(LiveSourceSessionError, match="decision revision"):
+        await source_session.resolve_decision(
+            member.source_session_id,
+            member.delivery_sequence,
+            decision.revision + 1,
+            "skip",
+        )
+
+    assert source_session.phase == LiveSourceSessionPhase.AWAITING_DECISION
+    assert await source_session.pending_decision() == decision
+
+
+@pytest.mark.asyncio
+async def test_live_source_rejects_collision_actions_for_member_errors() -> None:
+    backend = MemoryExtractionBackend(_flat_archive_bytes(["first.txt"]))
+    source_session = LiveSourceSession(ZipReader(backend.reader, len(backend.archive)))
+    member = await source_session.next_member()
+
+    assert member is not None
+    await source_session.apply_destination_write_result(
+        DestinationWriteResult(member.source_session_id, member.delivery_sequence, member.path, "awaiting_retry")
+    )
+    decision = await source_session.pending_decision()
+    assert decision is not None
+
+    with pytest.raises(LiveSourceSessionError, match="member error decision"):
+        await source_session.resolve_decision(
+            member.source_session_id,
+            member.delivery_sequence,
+            decision.revision,
+            "skip",
+        )
+
+    assert source_session.phase == LiveSourceSessionPhase.AWAITING_DECISION
 
 
 def _unavailable_member_archive_bytes(member_path: str = "unavailable.txt") -> bytes:
@@ -470,7 +563,7 @@ async def test_target_write_controller_propagates_native_failures() -> None:
 
 
 @pytest.mark.asyncio
-async def test_directory_creation_retries_when_a_late_target_disappears() -> None:
+async def test_directory_creation_reports_a_current_member_failure_when_the_target_changes() -> None:
     backend = MemoryExtractionBackend(_archive_bytes())
     original_create_directory = backend.create_directory
     attempts = 0
@@ -485,29 +578,13 @@ async def test_directory_creation_retries_when_a_late_target_disappears() -> Non
 
     backend.create_directory = create_directory  # type: ignore[method-assign]
 
-    result = await extract_archive_to_new_paths(backend, archive_path="input.zip", destination_root="output")
-
-    assert result.files_extracted == 2
-    assert attempts == 2
-
-
-@pytest.mark.asyncio
-async def test_repeated_unresolved_directory_collision_pauses_resolution() -> None:
-    backend = MemoryExtractionBackend(_archive_bytes())
-
-    async def create_directory(path: str) -> None:
-        if path == "output/docs":
-            raise FileExistsError(path)
-        backend.directories.add(path)
-
-    backend.create_directory = create_directory  # type: ignore[method-assign]
-
-    with pytest.raises(ArchiveExtractionConflicts) as error:
+    with pytest.raises(ArchiveExtractionMemberError) as error:
         await extract_archive_to_new_paths(backend, archive_path="input.zip", destination_root="output")
 
-    assert error.value.conflicts[0].member_path == "docs/readme.txt"
-    assert error.value.conflicts[0].target_path == "output/docs"
-    assert error.value.conflicts[0].is_directory is True
+    assert error.value.member_path == "docs/readme.txt"
+    assert error.value.target_path == "output/docs/readme.txt"
+    assert error.value.partial_output is False
+    assert attempts == 1
 
 
 @pytest.mark.asyncio
@@ -521,50 +598,21 @@ async def test_extracts_safe_members_to_new_paths() -> None:
     assert backend.directories == {"output", "output/docs"}
     assert backend.files == {"output/docs/readme.txt": b"readme", "output/root.txt": b"root"}
     assert backend.reader.closed is True
-    assert sum(length == 30 for _, length in backend.reader.reads) == 2
-    assert backend.created_directory_paths == ["output", "output/docs"]
+    assert set(backend.created_directory_paths) == {"output", "output/docs"}
     assert backend.written_file_paths == ["output/docs/readme.txt", "output/root.txt"]
-
-
-@pytest.mark.asyncio
-async def test_materializes_explicit_directories_in_effective_depth_and_path_order() -> None:
-    backend = MemoryExtractionBackend(_flat_archive_bytes(["z/", "a/child/", "a/"]))
-    completed: list[ArchiveExtractionDestinationResult] = []
-
-    async def record_outcome(outcome: ArchiveExtractionDestinationResult) -> None:
-        completed.append(outcome)
-
-    result = await extract_archive_to_new_paths(
-        backend,
-        archive_path="input.zip",
-        destination_root="output",
-        on_member_completed=record_outcome,
-    )
-
-    assert result.directories_created == 4
-    assert backend.created_directory_paths == ["output", "output/a", "output/z", "output/a/child"]
-    assert [outcome.member_path for outcome in completed] == ["a", "z", "a/child"]
 
 
 @pytest.mark.asyncio
 async def test_records_an_unavailable_selected_member_as_skipped_without_reading_it() -> None:
     backend = MemoryExtractionBackend(_unavailable_member_archive_bytes())
-    outcomes: list[ArchiveExtractionDestinationResult] = []
 
-    async def record_outcome(outcome: ArchiveExtractionDestinationResult) -> None:
-        outcomes.append(outcome)
-
-    result = await extract_archive_to_new_paths(
-        backend,
-        archive_path="input.zip",
-        destination_root="output",
-        on_member_completed=record_outcome,
-    )
+    result = await extract_archive_to_new_paths(backend, archive_path="input.zip", destination_root="output")
 
     assert result.files_extracted == 0
     assert result.files_skipped == 1
-    assert result.skipped_members == ("unavailable.txt",)
-    assert outcomes == [ArchiveExtractionDestinationResult("unavailable.txt", "skipped", "output/unavailable.txt")]
+    assert result.members_processed == 1
+    assert result.members_skipped == 1
+    assert result.members_failed == 0
     assert backend.files == {}
     assert backend.directories == set()
     assert (0, 30) not in backend.reader.reads
@@ -579,7 +627,7 @@ async def test_skips_an_unavailable_member_without_preflighting_its_blocked_pare
     result = await extract_archive_to_new_paths(backend, archive_path="input.zip", destination_root="output")
 
     assert result.files_skipped == 1
-    assert result.skipped_members == ("folder/file.txt",)
+    assert result.members_skipped == 1
     assert backend.file_info_paths == ["input.zip"]
     assert backend.written_file_paths == []
 
@@ -616,31 +664,16 @@ async def test_extracts_through_separate_source_and_destination_adapters() -> No
     assert backend.files == {"output/docs/readme.txt": b"readme", "output/root.txt": b"root"}
 
 
-def test_extraction_progress_records_completed_member_outcomes() -> None:
-    progress = ArchiveExtractionProgress.from_checkpoint({"files_extracted": 1, "extracted_bytes": 4})
-
-    progress.record(ArchiveExtractionMemberOutcome("docs", "directory", "output/docs", directories_created=1))
-    progress.record(ArchiveExtractionMemberOutcome("docs/readme.txt", "extracted", "output/docs/readme.txt", 6, replaced=True))
-    progress.record(ArchiveExtractionMemberOutcome("ignored.txt", "ignored", "output/ignored.txt"))
-    checkpoint: dict[str, object] = {}
-    progress.write_to(checkpoint)
-
-    assert checkpoint == {
-        "files_extracted": 2,
-        "directories_created": 1,
-        "extracted_bytes": 10,
-        "files_skipped": 1,
-        "files_replaced": 1,
-    }
-
-
 @pytest.mark.asyncio
 async def test_rejects_unsafe_members_before_creating_output() -> None:
     backend = MemoryExtractionBackend(_unsafe_archive_bytes())
 
-    with pytest.raises(ArchiveFormatError, match="unsafe member path"):
-        await extract_archive_to_new_paths(backend, archive_path="input.zip", destination_root="output")
+    result = await extract_archive_to_new_paths(backend, archive_path="input.zip", destination_root="output")
 
+    assert result.members_processed == 1
+    assert result.members_completed == 0
+    assert result.members_skipped == 0
+    assert result.members_failed == 1
     assert backend.directories == set()
     assert backend.files == {}
     assert backend.reader.closed is True
@@ -650,9 +683,12 @@ async def test_rejects_unsafe_members_before_creating_output() -> None:
 async def test_rejects_symbolic_link_members_before_creating_output() -> None:
     backend = MemoryExtractionBackend(_symbolic_link_archive_bytes())
 
-    with pytest.raises(ArchiveFormatError, match="symbolic link"):
-        await extract_archive_to_new_paths(backend, archive_path="input.zip", destination_root="output")
+    result = await extract_archive_to_new_paths(backend, archive_path="input.zip", destination_root="output")
 
+    assert result.members_processed == 1
+    assert result.members_completed == 0
+    assert result.members_skipped == 0
+    assert result.members_failed == 1
     assert backend.directories == set()
     assert backend.files == {}
     assert backend.reader.closed is True
@@ -685,223 +721,40 @@ async def test_replace_all_policy_replaces_existing_files() -> None:
 
 
 @pytest.mark.asyncio
-async def test_individual_skip_policy_preserves_only_the_selected_member() -> None:
-    backend = MemoryExtractionBackend(_archive_bytes())
-    backend.files["output/root.txt"] = b"existing"
-
-    result = await extract_archive_to_new_paths(
-        backend,
-        archive_path="input.zip",
-        destination_root="output",
-        member_collision_actions={"root.txt": "skip"},
-    )
-
-    assert result.files_extracted == 1
-    assert result.skipped_members == ("root.txt",)
-    assert backend.files["output/root.txt"] == b"existing"
-
-
-@pytest.mark.asyncio
-async def test_v1_collision_skip_behavioral_scenario() -> None:
-    corpus = json.loads(EXTRACTION_OUTCOME_CORPUS_PATH.read_text(encoding="utf-8"))
-    scenario = next(scenario for scenario in corpus["behavioral_scenarios"] if scenario["name"] == "collision_skip_is_terminal")
-    backend = MemoryExtractionBackend(_archive_bytes())
-    backend.files["output/root.txt"] = b"existing"
-
-    result = await extract_archive_to_new_paths(
-        backend,
-        archive_path="input.zip",
-        destination_root="output",
-        member_collision_actions={"root.txt": scenario["collision_action"]},
-    )
-
-    assert scenario["terminal_phase"] == "completed"
-    assert result.files_skipped == scenario["progress"]["files_skipped"]
-    assert result.skipped_members == ("root.txt",)
-
-
-@pytest.mark.asyncio
-async def test_individual_replace_policy_replaces_only_the_selected_member() -> None:
-    backend = MemoryExtractionBackend(_archive_bytes())
-    backend.files["output/root.txt"] = b"existing"
-
-    result = await extract_archive_to_new_paths(
-        backend,
-        archive_path="input.zip",
-        destination_root="output",
-        member_collision_actions={"root.txt": "replace"},
-    )
-
-    assert result.files_replaced == 1
-    assert result.replaced_members == ("root.txt",)
-    assert backend.files["output/root.txt"] == b"root"
-
-
-@pytest.mark.asyncio
-async def test_individual_rename_writes_member_to_the_persisted_target() -> None:
-    corpus = json.loads(EXTRACTION_OUTCOME_CORPUS_PATH.read_text(encoding="utf-8"))
-    scenario = next(
-        scenario for scenario in corpus["behavioral_scenarios"] if scenario["name"] == "rename_preserves_terminal_destination_metadata"
-    )
-    backend = MemoryExtractionBackend(_archive_bytes())
-    backend.files["output/root.txt"] = b"existing"
-
-    result = await extract_archive_to_new_paths(
-        backend,
-        archive_path="input.zip",
-        destination_root="output",
-        member_rename_targets={"root.txt": scenario["rename_target"]},
-    )
-
-    assert scenario["terminal_phase"] == "completed"
-    assert result.files_extracted == 2
-    assert result.renamed_members == ("root.txt",)
-    assert backend.files["output/root.txt"] == b"existing"
-    assert backend.files[f"output/{scenario['rename_target']}"] == b"root"
-
-
-@pytest.mark.asyncio
-async def test_directory_rename_remaps_implicit_directory_descendants() -> None:
-    backend = MemoryExtractionBackend(_archive_bytes())
-    backend.files["output/docs"] = b"existing file"
-
-    result = await extract_archive_to_new_paths(
-        backend,
-        archive_path="input.zip",
-        destination_root="output",
-        member_rename_targets={"docs": "renamed-docs"},
-    )
-
-    assert result.renamed_members == ("docs/readme.txt",)
-    assert backend.files["output/docs"] == b"existing file"
-    assert backend.files["output/renamed-docs/readme.txt"] == b"readme"
-
-
-@pytest.mark.asyncio
-async def test_preflights_file_destination_at_implicit_directory_path() -> None:
-    backend = MemoryExtractionBackend(_archive_bytes())
-    backend.directories.add("output")
-    backend.files["output/docs"] = b"existing file"
-
-    with pytest.raises(ArchiveExtractionConflicts) as error:
-        await extract_archive_to_new_paths(backend, archive_path="input.zip", destination_root="output")
-
-    assert [(conflict.member_path, conflict.is_directory) for conflict in error.value.conflicts] == [("docs/readme.txt", True)]
-    assert backend.listed_paths == ["output"]
-
-
-@pytest.mark.asyncio
-async def test_preflight_detects_case_insensitive_destination_collisions() -> None:
-    backend = CaseInsensitiveMemoryExtractionBackend(_flat_archive_bytes(["report.txt"]))
-    backend.directories.add("output")
-    backend.files["output/Report.txt"] = b"existing"
-
-    with pytest.raises(ArchiveExtractionConflicts) as error:
-        await extract_archive_to_new_paths(backend, archive_path="input.zip", destination_root="output")
-
-    assert [(conflict.member_path, conflict.target_path) for conflict in error.value.conflicts] == [("report.txt", "output/report.txt")]
-    assert backend.listed_paths == ["output"]
-
-
-@pytest.mark.asyncio
-async def test_extracts_only_the_last_exact_duplicate_member() -> None:
+async def test_live_source_processes_exact_duplicate_records_in_record_order() -> None:
     output = io.BytesIO()
     with zipfile.ZipFile(output, "w", compression=zipfile.ZIP_DEFLATED) as archive:
         archive.writestr("duplicate.txt", "first")
         archive.writestr("duplicate.txt", "last")
     backend = MemoryExtractionBackend(output.getvalue())
 
-    result = await extract_archive_to_new_paths(backend, archive_path="input.zip", destination_root="output")
-
-    assert result.files_extracted == 1
-    assert backend.written_file_paths == ["output/duplicate.txt"]
-    assert backend.files["output/duplicate.txt"] == b"last"
-
-
-@pytest.mark.asyncio
-async def test_case_distinct_members_pause_through_generic_collision_and_resume_after_rename() -> None:
-    backend = CaseInsensitiveMemoryExtractionBackend(_flat_archive_bytes(["Report.txt", "report.txt"]))
-
-    with pytest.raises(ArchiveExtractionConflicts) as error:
-        await extract_archive_to_new_paths(backend, archive_path="input.zip", destination_root="output")
-
-    assert [(conflict.member_path, conflict.target_path) for conflict in error.value.conflicts] == [("report.txt", "output/report.txt")]
-    assert backend.files == {"output/Report.txt": b"Report.txt"}
-
-    result = await extract_archive_to_new_paths(
-        backend,
-        archive_path="input.zip",
-        destination_root="output",
-        completed_members={"Report.txt"},
-        member_rename_targets={"report.txt": "report-renamed.txt"},
+    source_session = LiveSourceSession(ZipReader(backend.reader, len(backend.archive)))
+    first = await source_session.next_member()
+    assert first is not None
+    first_contents = b"".join(
+        [chunk async for chunk in source_session.stream_current_member(first.source_session_id, first.delivery_sequence)]
+    )
+    await source_session.apply_destination_write_result(
+        DestinationWriteResult(
+            first.source_session_id, first.delivery_sequence, first.path, "extracted", extracted_bytes=len(first_contents)
+        )
+    )
+    second = await source_session.next_member()
+    assert second is not None
+    second_contents = b"".join(
+        [chunk async for chunk in source_session.stream_current_member(second.source_session_id, second.delivery_sequence)]
+    )
+    await source_session.apply_destination_write_result(
+        DestinationWriteResult(
+            second.source_session_id, second.delivery_sequence, second.path, "extracted", extracted_bytes=len(second_contents)
+        )
     )
 
-    assert result.files_extracted == 1
-    assert backend.files == {
-        "output/Report.txt": b"Report.txt",
-        "output/report-renamed.txt": b"report.txt",
-    }
-
-
-@pytest.mark.asyncio
-async def test_preflight_falls_back_to_target_stats_without_directory_listing() -> None:
-    backend = MemoryExtractionBackend(_archive_bytes())
-    backend.directories.add("output")
-    backend.files["output/root.txt"] = b"existing"
-    destination = NonListingMemoryExtractionDestination(backend)
-
-    with pytest.raises(ArchiveExtractionConflicts) as error:
-        await extract_archive_to_new_paths(
-            backend,
-            destination=destination,
-            archive_path="input.zip",
-            destination_root="output",
-        )
-
-    assert [(conflict.member_path, conflict.target_path) for conflict in error.value.conflicts] == [("root.txt", "output/root.txt")]
-    assert backend.listed_paths == []
-
-
-@pytest.mark.asyncio
-async def test_preflight_propagates_directory_listing_failures() -> None:
-    backend = MemoryExtractionBackend(_flat_archive_bytes(["root.txt"]))
-    backend.directories.add("output")
-
-    async def fail_listing(_path: str = "") -> DirectoryListing:
-        raise OSError("directory listing failed")
-
-    backend.list_directory = fail_listing  # type: ignore[method-assign]
-
-    with pytest.raises(OSError, match="directory listing failed"):
-        await extract_archive_to_new_paths(backend, archive_path="input.zip", destination_root="output")
-
-
-@pytest.mark.asyncio
-async def test_preflight_rejects_incomplete_directory_listings() -> None:
-    backend = MemoryExtractionBackend(_flat_archive_bytes(["root.txt"]))
-    backend.directories.add("output")
-
-    async def incomplete_listing(path: str = "") -> DirectoryListing:
-        return DirectoryListing(path=path, items=[], total=1)
-
-    backend.list_directory = incomplete_listing  # type: ignore[method-assign]
-
-    with pytest.raises(OSError, match="listing is incomplete"):
-        await extract_archive_to_new_paths(backend, archive_path="input.zip", destination_root="output")
-
-
-@pytest.mark.asyncio
-async def test_flat_preflight_uses_one_listing_and_defers_file_observations_to_writes() -> None:
-    member_names = ["first.txt", "second.txt", "third.txt"]
-    backend = MemoryExtractionBackend(_flat_archive_bytes(member_names))
-    backend.directories.add("output")
-
-    result = await extract_archive_to_new_paths(backend, archive_path="input.zip", destination_root="output")
-
-    target_paths = {f"output/{member_name}" for member_name in member_names}
-    assert result.files_extracted == len(member_names)
-    assert backend.listed_paths == ["output"]
-    assert sum(path in target_paths for path in backend.file_info_paths) == len(member_names)
+    assert (first.path, first.delivery_sequence, first_contents) == ("duplicate.txt", 1, b"first")
+    assert (second.path, second.delivery_sequence, second_contents) == ("duplicate.txt", 2, b"last")
+    assert (await source_session.next_member()) is None
+    assert source_session.aggregate.members_completed == 2
+    await source_session.close()
 
 
 @pytest.mark.asyncio
@@ -938,96 +791,11 @@ async def test_extracts_zip64_members() -> None:
 async def test_rejects_malformed_local_header_without_creating_the_target() -> None:
     backend = MemoryExtractionBackend(_malformed_local_header_archive_bytes())
 
-    with pytest.raises(ArchiveExtractionMemberError, match="local header is invalid"):
-        await extract_archive_to_new_paths(backend, archive_path="input.zip", destination_root="output")
+    result = await extract_archive_to_new_paths(backend, archive_path="input.zip", destination_root="output")
 
+    assert result.members_processed == 1
+    assert result.members_failed == 1
     assert "output/broken.txt" not in backend.files
-
-
-@pytest.mark.asyncio
-async def test_preflight_logs_aggregate_metrics_without_member_or_destination_paths(caplog: pytest.LogCaptureFixture) -> None:
-    backend = MemoryExtractionBackend(_flat_archive_bytes(["private-member.txt"]))
-    backend.directories.add("private-output")
-
-    with caplog.at_level(logging.INFO, logger="app.services.archive.telemetry"):
-        await extract_archive_to_new_paths(backend, archive_path="input.zip", destination_root="private-output")
-
-    message = next(record.getMessage() for record in caplog.records if "operation='extraction_preflight'" in record.getMessage())
-    assert "planned_file_count=1" in message
-    assert "directory_listing_operations=1" in message
-    assert "private-member.txt" not in message
-    assert "private-output" not in message
-
-
-@pytest.mark.asyncio
-async def test_preflight_does_not_probe_renamed_descendants_of_a_missing_parent() -> None:
-    backend = MemoryExtractionBackend(_flat_archive_bytes(["root.txt"]))
-
-    result = await extract_archive_to_new_paths(
-        backend,
-        archive_path="input.zip",
-        destination_root="output",
-        member_rename_targets={"root.txt": "deep/tree/root.txt"},
-    )
-
-    assert result.renamed_members == ("root.txt",)
-    assert backend.listed_paths == []
-    assert "output/deep" not in backend.file_info_paths
-    assert backend.files["output/deep/tree/root.txt"] == b"root.txt"
-
-
-@pytest.mark.asyncio
-async def test_rename_rejects_unsafe_or_colliding_output_paths() -> None:
-    backend = MemoryExtractionBackend(_archive_bytes())
-
-    with pytest.raises(ArchiveFormatError, match="safe relative path"):
-        await extract_archive_to_new_paths(
-            backend,
-            archive_path="input.zip",
-            destination_root="output",
-            member_rename_targets={"root.txt": "../escape.txt"},
-        )
-    with pytest.raises(ArchiveFormatError, match="collide after normalization"):
-        await extract_archive_to_new_paths(
-            backend,
-            archive_path="input.zip",
-            destination_root="output",
-            member_rename_targets={"root.txt": "docs/README.txt"},
-        )
-    with pytest.raises(ArchiveFormatError, match="file/directory collision"):
-        await extract_archive_to_new_paths(
-            backend,
-            archive_path="input.zip",
-            destination_root="output",
-            member_rename_targets={"root.txt": "docs"},
-        )
-
-
-@pytest.mark.asyncio
-async def test_rename_validation_rejects_portable_output_collisions_before_writing() -> None:
-    entries = await _archive_entries(_archive_bytes())
-
-    with pytest.raises(ArchiveFormatError, match="collide after normalization"):
-        validate_archive_rename_targets(entries, {"root.txt": "docs/README.txt"})
-    with pytest.raises(ArchiveFormatError, match="file/directory collision"):
-        validate_archive_rename_targets(entries, {"root.txt": "docs"})
-
-
-@pytest.mark.asyncio
-async def test_rename_validation_rejects_aliased_effective_directories() -> None:
-    entries = await _archive_entries(_flat_archive_bytes(["first/", "second/"]))
-
-    with pytest.raises(ArchiveFormatError, match="output directories collide"):
-        validate_archive_rename_targets(entries, {"first": "shared", "second": "shared"})
-
-
-@pytest.mark.asyncio
-async def test_rename_validation_preserves_untouched_case_distinct_members() -> None:
-    entries = await _archive_entries(_flat_archive_bytes(["Report.txt", "report.txt", "other.txt"]))
-
-    targets = validate_archive_rename_targets(entries, {"other.txt": "renamed.txt"})
-
-    assert targets == {"other.txt": "renamed.txt"}
 
 
 @pytest.mark.asyncio
@@ -1051,7 +819,6 @@ async def test_replace_older_policy_replaces_only_strictly_older_destination() -
     assert result.files_extracted == scenario["progress"]["files_extracted"]
     assert result.files_replaced == scenario["progress"]["files_replaced"]
     assert result.files_skipped == scenario["progress"]["files_skipped"]
-    assert result.replaced_members == ("root.txt",)
     assert backend.files["output/root.txt"] == b"root"
 
 
@@ -1068,7 +835,6 @@ async def test_replace_older_policy_skips_incomparable_timestamps() -> None:
     assert result.files_extracted == 1
     assert result.files_replaced == 0
     assert result.files_skipped == 1
-    assert result.skipped_members == ("root.txt",)
     assert backend.files["output/root.txt"] == b"existing"
 
 
@@ -1092,63 +858,6 @@ async def test_cancellation_stops_before_writing_members() -> None:
     assert backend.reader.closed is True
     assert scenario["terminal_phase"] == "cancelled"
     assert scenario["progress"]["files_extracted"] == 0
-
-
-@pytest.mark.asyncio
-async def test_preflights_existing_file_collisions_before_writing() -> None:
-    backend = MemoryExtractionBackend(_archive_bytes())
-    backend.directories.add("output")
-    backend.files["output/root.txt"] = b"existing"
-
-    with pytest.raises(ArchiveExtractionConflicts) as error:
-        await extract_archive_to_new_paths(backend, archive_path="input.zip", destination_root="output")
-
-    assert [(conflict.member_path, conflict.target_path) for conflict in error.value.conflicts] == [("root.txt", "output/root.txt")]
-    conflict = error.value.conflicts[0]
-    assert conflict.source_size == len(b"root")
-    assert conflict.target_size == len(b"existing")
-    assert backend.files == {"output/root.txt": b"existing"}
-    assert backend.directories == {"output"}
-    assert backend.reader.closed is True
-
-
-@pytest.mark.asyncio
-async def test_preflights_a_non_file_target_as_an_overwrite_collision() -> None:
-    backend = MemoryExtractionBackend(_archive_bytes())
-    backend.directories.add("output/root.txt")
-
-    with pytest.raises(ArchiveExtractionConflicts) as error:
-        await extract_archive_to_new_paths(backend, archive_path="input.zip", destination_root="output")
-
-    assert [(conflict.member_path, conflict.target_path, conflict.is_directory) for conflict in error.value.conflicts] == [
-        ("root.txt", "output/root.txt", False)
-    ]
-
-
-@pytest.mark.asyncio
-async def test_reclassifies_a_file_created_after_preflight_as_a_collision_without_a_policy() -> None:
-    backend = MemoryExtractionBackend(_archive_bytes())
-
-    async def create_competing_file(path: str, _stream: AsyncIterator[bytes], **_kwargs: object) -> int:
-        backend.files[path] = b"existing"
-        backend.modified_at[path] = datetime(2026, 1, 2, tzinfo=timezone.utc)
-        raise TargetExistsBeforeContent(path)
-
-    backend.write_file_from_stream = create_competing_file  # type: ignore[method-assign]
-
-    with pytest.raises(ArchiveExtractionConflicts) as error:
-        await extract_archive_to_new_paths(
-            backend,
-            archive_path="input.zip",
-            destination_root="output",
-        )
-
-    conflict = error.value.conflicts[0]
-    assert (conflict.member_path, conflict.target_path) == ("docs/readme.txt", "output/docs/readme.txt")
-    assert conflict.source_size == len(b"readme")
-    assert conflict.target_size == len(b"existing")
-    assert conflict.target_modified_at == datetime(2026, 1, 2, tzinfo=timezone.utc)
-    assert backend.reader.closed is True
 
 
 @pytest.mark.asyncio
@@ -1226,47 +935,6 @@ async def test_write_failure_identifies_the_member_that_can_be_retried() -> None
     assert error.value.member_path == "docs/readme.txt"
     assert error.value.target_path == "output/docs/readme.txt"
     assert error.value.message == "Cannot write output/docs/readme.txt"
-
-
-@pytest.mark.asyncio
-async def test_resumed_extraction_skips_already_completed_members() -> None:
-    backend = MemoryExtractionBackend(_archive_bytes())
-    outcomes: list[ArchiveExtractionMemberOutcome] = []
-
-    async def record_outcome(outcome: ArchiveExtractionMemberOutcome) -> None:
-        outcomes.append(outcome)
-
-    await extract_archive_to_new_paths(
-        backend,
-        archive_path="input.zip",
-        destination_root="output",
-        completed_members={"docs/readme.txt"},
-        on_member_completed=record_outcome,
-    )
-
-    assert backend.files == {"output/root.txt": b"root"}
-    assert [outcome.member_path for outcome in outcomes] == ["root.txt"]
-
-
-@pytest.mark.asyncio
-async def test_extraction_callback_receives_normalized_destination_results() -> None:
-    backend = MemoryExtractionBackend(_archive_bytes())
-    results: list[ArchiveExtractionDestinationResult] = []
-
-    async def record_result(result: ArchiveExtractionDestinationResult) -> None:
-        results.append(result)
-
-    result = await extract_archive_to_new_paths(
-        backend,
-        archive_path="input.zip",
-        destination_root="output",
-        on_member_completed=record_result,
-    )
-
-    assert result.files_extracted == 2
-    assert result.directories_created == sum(member.directories_created for member in results)
-    assert result.extracted_bytes == sum(member.extracted_bytes for member in results)
-    assert [member.status for member in results] == ["extracted", "extracted"]
 
 
 async def _cancelled() -> bool:

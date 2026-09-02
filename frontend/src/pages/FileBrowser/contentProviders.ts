@@ -336,7 +336,7 @@ const zipContentProvider: VirtualContentProvider = {
     });
     return {
       items: listing.items.map((entry) => virtualItem(location, toArchiveEntry(entry))),
-      total: listing.total,
+      total: listing.items.length,
       nextCursor: listing.next_cursor ?? null,
     };
   },
@@ -443,7 +443,7 @@ export function createStorageBackedContentProviderRegistry(registry: StorageBack
       const listing = await archive.listDirectory(source, location.path, options);
       return {
         items: listing.items.map((entry) => virtualItem(location, toArchiveEntry(entry))),
-        total: listing.total,
+        total: listing.items.length,
         nextCursor: listing.next_cursor ?? null,
       };
     },

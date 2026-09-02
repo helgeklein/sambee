@@ -229,9 +229,7 @@ pub enum ArchiveExecutionPendingDecision {
 pub struct ArchiveV2RelayExtractionLocalSourceRequest {
     pub contract_version: ArchiveContractVersion,
     pub archive_path: String,
-    pub server_url: String,
     pub operation_id: String,
-    pub operation_token: String,
 }
 
 /// V2 relay extraction request when the local drive receives output.
@@ -240,9 +238,19 @@ pub struct ArchiveV2RelayExtractionLocalSourceRequest {
 pub struct ArchiveV2RelayExtractionLocalDestinationRequest {
     pub contract_version: ArchiveContractVersion,
     pub destination_path: String,
-    pub server_url: String,
     pub operation_id: String,
-    pub operation_token: String,
+}
+
+/// One browser-approved, source-fenced decision for a retained local ZIP relay source.
+#[derive(Debug, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct ArchiveV2RelayExtractionDecisionRequest {
+    pub source_session_id: String,
+    pub delivery_sequence: u64,
+    pub decision_revision: u64,
+    pub action: String,
+    pub member_path: String,
+    pub target_path: Option<String>,
 }
 
 /// An operation-based V2 relay extraction request.
@@ -350,10 +358,14 @@ mod tests {
         ));
         assert!(matches!(
             serde_json::from_str::<ArchiveV2RelayExtractionRequest>(
-                r#"{"contract_version":"v2","destination_path":"output","server_url":"http://localhost:3000","operation_id":"a8ddf5e8-4d57-46ca-ae79-80bc85610d23","operation_token":"token"}"#
+                r#"{"contract_version":"v2","destination_path":"output","operation_id":"a8ddf5e8-4d57-46ca-ae79-80bc85610d23"}"#
             ),
             Ok(ArchiveV2RelayExtractionRequest::LocalDestination(_))
         ));
+        assert!(serde_json::from_str::<ArchiveV2RelayExtractionRequest>(
+            r#"{"contract_version":"v2","destination_path":"output","server_url":"http://localhost:3000","operation_id":"a8ddf5e8-4d57-46ca-ae79-80bc85610d23","operation_token":"token"}"#
+        )
+        .is_err());
         assert!(serde_json::from_str::<ArchiveV2RelayExtractionRequest>(
             r#"{"contract_version":"v2","archive_path":"archive.zip","destination_path":"output","server_url":"http://localhost:3000","operation_id":"a8ddf5e8-4d57-46ca-ae79-80bc85610d23","operation_token":"token"}"#
         )
@@ -421,7 +433,6 @@ pub struct ArchiveDirectoryListing {
     pub archive: ArchiveIdentity,
     pub path: String,
     pub items: Vec<ArchiveEntryInfo>,
-    pub total: usize,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub next_cursor: Option<String>,
     pub page_size: usize,

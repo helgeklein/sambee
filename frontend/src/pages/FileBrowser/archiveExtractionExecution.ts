@@ -1,4 +1,4 @@
-import api from "../../services/api";
+import api, { type ArchiveLiveExtractionStatus, type LocalArchiveRelayExtractionStatus } from "../../services/api";
 import { isLocalDrive } from "../../services/backendRouter";
 import {
   beginForegroundLocalArchiveRequest,
@@ -28,19 +28,17 @@ function archiveExtractionSummary(checkpointJson: string | undefined): ArchiveEx
     if (typeof checkpoint !== "object" || checkpoint === null) {
       throw new Error("Archive extraction checkpoint is invalid");
     }
-    const partialMembers =
-      typeof checkpoint.member_outcomes === "object" && checkpoint.member_outcomes !== null && !Array.isArray(checkpoint.member_outcomes)
-        ? Object.values(checkpoint.member_outcomes).filter(
-            (outcome) => typeof outcome === "object" && outcome !== null && "status" in outcome && outcome.status === "partial"
-          ).length
-        : 0;
+    const aggregate = "aggregate_counters" in checkpoint ? checkpoint.aggregate_counters : checkpoint;
+    if (typeof aggregate !== "object" || aggregate === null || Array.isArray(aggregate)) {
+      throw new Error("Archive extraction aggregate is invalid");
+    }
     return {
-      filesExtracted: nonNegativeCounter(checkpoint.files_extracted),
-      directoriesCreated: nonNegativeCounter(checkpoint.directories_created),
-      extractedBytes: nonNegativeCounter(checkpoint.extracted_bytes),
-      filesSkipped: nonNegativeCounter(checkpoint.files_skipped),
-      filesReplaced: nonNegativeCounter(checkpoint.files_replaced),
-      partialMembers,
+      filesExtracted: nonNegativeCounter(aggregate.files_extracted),
+      directoriesCreated: nonNegativeCounter(aggregate.directories_created),
+      extractedBytes: nonNegativeCounter(aggregate.extracted_bytes),
+      filesSkipped: nonNegativeCounter(aggregate.members_skipped),
+      filesReplaced: nonNegativeCounter(aggregate.files_replaced),
+      partialMembers: 0,
     };
   } catch {
     return { filesExtracted: 0, directoriesCreated: 0, extractedBytes: 0, filesSkipped: 0, filesReplaced: 0, partialMembers: 0 };
@@ -75,97 +73,43 @@ function companionExtractionOutcome(result: {
   checkpoint_json?: string;
   pending_decision_json?: string | null;
 }): ArchiveExtractionOutcome {
-  if (result.phase === "awaiting_user_decision" && typeof result.checkpoint_json === "string") {
-    return toExtractionOutcome(result as ArchiveOperation);
+  if (result.phase === "awaiting_user_decision") {
+    throw new Error("Archive extraction decision must be read from the live source session");
   }
   const summary = responseExtractionSummary(result);
   return { status: "completed", filesSkipped: summary.filesSkipped, summary };
 }
 
-function pendingConflicts(operation: ArchiveOperation): {
-  conflicts: ArchiveExtractionConflict[];
-  allowedActions: ArchiveExtractionConflictAction[];
-} {
-  try {
-    const pending: unknown = JSON.parse(operation.pending_decision_json ?? "{}");
-    if (
-      typeof pending !== "object" ||
-      pending === null ||
-      !("conflicts" in pending) ||
-      !Array.isArray(pending.conflicts) ||
-      !("allowed_actions" in pending) ||
-      !Array.isArray(pending.allowed_actions)
-    ) {
-      throw new Error("Archive extraction conflict details are invalid");
-    }
-    const conflicts = pending.conflicts.map((conflict) => {
-      if (
-        typeof conflict !== "object" ||
-        conflict === null ||
-        typeof conflict.member_path !== "string" ||
-        typeof conflict.target_path !== "string" ||
-        ("is_directory" in conflict && typeof conflict.is_directory !== "boolean") ||
-        ("source_size" in conflict && (!Number.isSafeInteger(conflict.source_size) || conflict.source_size < 0)) ||
-        ("target_size" in conflict && (!Number.isSafeInteger(conflict.target_size) || conflict.target_size < 0)) ||
-        ("source_modified_at" in conflict && typeof conflict.source_modified_at !== "string") ||
-        ("target_modified_at" in conflict && typeof conflict.target_modified_at !== "string")
-      ) {
-        throw new Error("Archive extraction conflict details are invalid");
-      }
-      return {
-        memberPath: conflict.member_path,
-        targetPath: conflict.target_path,
-        isDirectory: conflict.is_directory,
-        sourceSize: conflict.source_size,
-        sourceModifiedAt: conflict.source_modified_at,
-        targetSize: conflict.target_size,
-        targetModifiedAt: conflict.target_modified_at,
-      };
-    });
-    const allowedActions = pending.allowed_actions.filter(
-      (action): action is ArchiveExtractionConflictAction =>
-        action === "skip" ||
-        action === "skip_all" ||
-        action === "replace" ||
-        action === "replace_all" ||
-        action === "replace_older" ||
-        action === "rename"
-    );
-    if (allowedActions.length !== pending.allowed_actions.length) {
-      throw new Error("Archive extraction conflict details are invalid");
-    }
-    return { conflicts, allowedActions };
-  } catch (error) {
-    throw error instanceof Error ? error : new Error("Archive extraction conflict details are invalid");
+function localRelayExtractionOutcome(status: LocalArchiveRelayExtractionStatus): ArchiveExtractionOutcome {
+  const pending = status.pending_decision;
+  if (status.phase !== "awaiting_decision" || !pending || !Number.isSafeInteger(pending.revision) || pending.revision < 1) {
+    throw new Error("Local archive relay decision is unavailable");
   }
-}
-
-function pendingMemberError(operation: ArchiveOperation): ArchiveExtractionMemberError {
-  try {
-    const pending: unknown = JSON.parse(operation.pending_decision_json ?? "{}");
-    if (
-      typeof pending !== "object" ||
-      pending === null ||
-      pending.kind !== "member_error" ||
-      typeof pending.member_path !== "string" ||
-      typeof pending.target_path !== "string" ||
-      typeof pending.message !== "string" ||
-      typeof pending.partial_output !== "boolean" ||
-      !Array.isArray(pending.allowed_actions) ||
-      !pending.allowed_actions.includes("retry") ||
-      !pending.allowed_actions.includes("ignore")
-    ) {
-      throw new Error("Archive extraction member error details are invalid");
+  if (pending.kind === "member_error") {
+    if (!pending.target_path || !pending.message) {
+      throw new Error("Local archive relay member error details are invalid");
     }
     return {
-      memberPath: pending.member_path,
-      targetPath: pending.target_path,
-      message: pending.message,
-      partialOutput: pending.partial_output,
+      status: "awaiting-member-error",
+      error: {
+        memberPath: pending.member_path,
+        targetPath: pending.target_path,
+        message: pending.message,
+        partialOutput: true,
+      },
     };
-  } catch (error) {
-    throw error instanceof Error ? error : new Error("Archive extraction member error details are invalid");
   }
+  return {
+    status: "awaiting-decision",
+    conflicts: [
+      { memberPath: pending.member_path, targetPath: pending.target_path ?? pending.member_path, isDirectory: pending.is_directory },
+    ],
+    allowedActions: pending.allowed_actions as ArchiveExtractionConflictAction[],
+  };
+}
+
+function liveExtractionOutcome(status: ArchiveLiveExtractionStatus): ArchiveExtractionOutcome {
+  return localRelayExtractionOutcome(status);
 }
 
 function toExtractionOutcome(operation: ArchiveOperation): ArchiveExtractionOutcome {
@@ -175,13 +119,6 @@ function toExtractionOutcome(operation: ArchiveOperation): ArchiveExtractionOutc
   }
   if (operation.phase === "cancelled") {
     return { status: "cancelled" };
-  }
-  if (operation.phase === "awaiting_user_decision") {
-    const pending: unknown = JSON.parse(operation.pending_decision_json ?? "{}");
-    if (typeof pending === "object" && pending !== null && pending.kind === "member_error") {
-      return { status: "awaiting-member-error", error: pendingMemberError(operation) };
-    }
-    return { status: "awaiting-decision", ...pendingConflicts(operation) };
   }
   throw new Error("Archive extraction did not reach a terminal state");
 }
@@ -207,6 +144,8 @@ export function startZipArchiveExtraction(request: ArchiveExtractionRequest): Ar
   let localCancellation: Promise<void> | null = null;
   let awaitingDecision = false;
   let cancellationRequested = false;
+  let localRelayDecision: { sourceSessionId: string; deliverySequence: number; decisionRevision: number; memberPath: string } | null = null;
+  let serverRelayDecision: { sourceSessionId: string; deliverySequence: number; decisionRevision: number; memberPath: string } | null = null;
   let latestProgress: ArchiveExtractionSummary | null = null;
   const progressListeners = new Set<(summary: ArchiveExtractionSummary) => void>();
 
@@ -242,6 +181,9 @@ export function startZipArchiveExtraction(request: ArchiveExtractionRequest): Ar
     }
     return outcome;
   };
+
+  const isLiveStatusUnavailable = (error: unknown): boolean =>
+    isApiError(error) && (error.response?.status === 404 || error.response?.status === 409);
 
   const waitForLocalOutcome = async (): Promise<ArchiveExtractionOutcome> => {
     if (!localExecution) {
@@ -290,15 +232,78 @@ export function startZipArchiveExtraction(request: ArchiveExtractionRequest): Ar
     if (!operationId) {
       throw new Error("Archive extraction operation is unavailable");
     }
-    return finishServerOutcome(toExtractionOutcome(await api.executeArchiveExtraction(operationId)));
+    const operation = await api.executeArchiveExtraction(operationId);
+    if (operation.phase !== "awaiting_user_decision") {
+      return finishServerOutcome(toExtractionOutcome(operation));
+    }
+    let liveStatus: ArchiveLiveExtractionStatus;
+    try {
+      liveStatus = await api.getArchiveLiveExtractionStatus(operationId);
+    } catch (error) {
+      if (isLiveStatusUnavailable(error)) {
+        return finishServerOutcome({ status: "interrupted" });
+      }
+      throw error;
+    }
+    const pending = liveStatus.pending_decision;
+    if (!pending) {
+      throw new Error("Live archive extraction decision is unavailable");
+    }
+    serverRelayDecision = {
+      sourceSessionId: liveStatus.source_session_id,
+      deliverySequence: pending.delivery_sequence,
+      decisionRevision: pending.revision,
+      memberPath: pending.member_path,
+    };
+    return finishServerOutcome(liveExtractionOutcome(liveStatus));
   };
 
   const executeCompanionOperation = async (): Promise<ArchiveExtractionOutcome> => {
     if (!operationId) throw new Error("Archive extraction operation is unavailable");
-    const companionSession = await api.getArchiveCompanionSession(operationId);
     const companionResult = isLocalDrive(location.connectionId)
-      ? await api.extractLocalArchiveToSmb(location.connectionId, location.source.path, operationId, companionSession.token)
-      : await api.extractSmbArchiveToLocal(destination.connectionId, destinationPath, operationId, companionSession.token);
+      ? await api.extractLocalArchiveToSmb(location.connectionId, location.source.path, operationId)
+      : await api.extractSmbArchiveToLocal(destination.connectionId, destinationPath, operationId);
+    if (companionResult.phase === "awaiting_user_decision" && isLocalDrive(location.connectionId)) {
+      const liveStatus = await api.getLocalArchiveRelayExtractionStatus(location.connectionId, operationId);
+      const pending = liveStatus.pending_decision;
+      if (
+        !pending ||
+        typeof liveStatus.source_session_id !== "string" ||
+        !Number.isSafeInteger(pending.delivery_sequence) ||
+        pending.delivery_sequence < 1
+      ) {
+        throw new Error("Local archive relay decision fence is invalid");
+      }
+      localRelayDecision = {
+        sourceSessionId: liveStatus.source_session_id,
+        deliverySequence: pending.delivery_sequence,
+        decisionRevision: pending.revision,
+        memberPath: pending.member_path,
+      };
+      return finishServerOutcome(localRelayExtractionOutcome(liveStatus));
+    }
+    if (companionResult.phase === "awaiting_user_decision") {
+      let liveStatus: ArchiveLiveExtractionStatus;
+      try {
+        liveStatus = await api.getArchiveLiveExtractionStatus(operationId);
+      } catch (error) {
+        if (isLiveStatusUnavailable(error)) {
+          return finishServerOutcome({ status: "interrupted" });
+        }
+        throw error;
+      }
+      const pending = liveStatus.pending_decision;
+      if (!pending) {
+        throw new Error("Live archive extraction decision is unavailable");
+      }
+      serverRelayDecision = {
+        sourceSessionId: liveStatus.source_session_id,
+        deliverySequence: pending.delivery_sequence,
+        decisionRevision: pending.revision,
+        memberPath: pending.member_path,
+      };
+      return finishServerOutcome(liveExtractionOutcome(liveStatus));
+    }
     return finishServerOutcome(companionExtractionOutcome(companionResult));
   };
 
@@ -448,6 +453,44 @@ export function startZipArchiveExtraction(request: ArchiveExtractionRequest): Ar
       }
       if (!operationId || !awaitingDecision) {
         throw new Error("Archive extraction is not awaiting a collision decision");
+      }
+      if (isLocalDrive(location.connectionId) && localRelayDecision) {
+        const companionResult = await api.decideLocalArchiveRelayExtraction(
+          location.connectionId,
+          operationId,
+          localRelayDecision.sourceSessionId,
+          localRelayDecision.deliverySequence,
+          localRelayDecision.decisionRevision,
+          action,
+          localRelayDecision.memberPath,
+          targetPath
+        );
+        localRelayDecision = null;
+        awaitingDecision = false;
+        return finishServerOutcome(companionExtractionOutcome(companionResult));
+      }
+      if (serverRelayDecision) {
+        const decision = serverRelayDecision;
+        serverRelayDecision = null;
+        const liveDecision = {
+          sourceSessionId: decision.sourceSessionId,
+          deliverySequence: decision.deliverySequence,
+          decisionRevision: decision.decisionRevision,
+        };
+        const operation = await api.decideArchiveExtraction(
+          operationId,
+          action,
+          decision.memberPath,
+          action === "rename" ? targetPath : undefined,
+          liveDecision
+        );
+        awaitingDecision = false;
+        if (operation.phase === "cancelled") {
+          return finishServerOutcome({ status: "cancelled" });
+        }
+        return isLocalDrive(location.connectionId) || isLocalDrive(destination.connectionId)
+          ? executeCompanionOperation()
+          : executeServerOperation();
       }
       const isMemberDecision =
         action === "skip" || action === "replace" || action === "rename" || action === "retry" || action === "ignore";

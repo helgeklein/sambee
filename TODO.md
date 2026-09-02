@@ -7,7 +7,6 @@
       - additional archive format
       - additional file based virtual format like iso
       - additional backend like SFTP
-   - Security
 
 ## Bugs
 

@@ -478,7 +478,6 @@ export interface ArchiveDirectoryListing {
   archive: ArchiveIdentity;
   path: string;
   items: ArchiveEntryInfo[];
-  total: number;
   next_cursor?: string | null;
   page_size: number;
 }

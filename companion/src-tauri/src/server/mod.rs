@@ -96,6 +96,7 @@ fn build_router(state: Arc<AppState>) -> Router {
         }))
         .allow_methods([Method::GET, Method::POST, Method::PUT, Method::DELETE])
         .allow_headers([
+            header::AUTHORIZATION,
             header::CONTENT_TYPE,
             header::ORIGIN,
             header::HeaderName::from_static("x-companion-secret"),
@@ -174,6 +175,14 @@ fn build_router(state: Arc<AppState>) -> Router {
         .route(
             "/api/browse/{drive}/archive/v2/relay/extraction",
             axum::routing::post(handlers::browse_relay_v2_archive_extraction),
+        )
+        .route(
+            "/api/browse/{drive}/archive/v2/relay/extraction/{operation_id}/decision",
+            axum::routing::post(handlers::browse_decide_v2_relay_extraction),
+        )
+        .route(
+            "/api/browse/{drive}/archive/v2/relay/extraction/{operation_id}/status",
+            axum::routing::get(handlers::browse_get_v2_relay_extraction_status),
         )
         .layer(axum::middleware::from_fn_with_state(state.clone(), auth::require_auth));
 

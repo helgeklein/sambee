@@ -129,6 +129,38 @@ export interface LocalArchiveExecution {
       };
 }
 
+export interface LocalArchiveRelayExtractionStatus {
+  source_session_id: string;
+  phase: "ready" | "current" | "streaming_current" | "awaiting_result" | "awaiting_decision" | "completed" | "failed" | "cancelled";
+  aggregate_counters: {
+    members_processed: number;
+    members_completed: number;
+    members_skipped: number;
+    members_failed: number;
+    files_extracted: number;
+    directories_created: number;
+    extracted_bytes: number;
+    files_replaced: number;
+  };
+  pending_decision: {
+    revision: number;
+    kind: "collision" | "member_error";
+    member_path: string;
+    target_path: string | null;
+    message: string | null;
+    delivery_sequence: number;
+    is_directory: boolean;
+    allowed_actions: ArchiveExtractionDecisionAction[];
+  } | null;
+}
+
+export interface ArchiveLiveExtractionStatus {
+  source_session_id: string;
+  phase: "ready" | "current" | "streaming_current" | "awaiting_result" | "awaiting_decision" | "completed" | "failed" | "cancelled";
+  aggregate_counters: LocalArchiveRelayExtractionStatus["aggregate_counters"];
+  pending_decision: LocalArchiveRelayExtractionStatus["pending_decision"];
+}
+
 function isLocalArchiveStaleRevisionError(error: unknown): boolean {
   return (error as { response?: { status?: unknown } } | null)?.response?.status === 409;
 }
@@ -1021,8 +1053,49 @@ class ApiService {
   async extractLocalArchiveToSmb(
     connectionId: string,
     archivePath: string,
+    operationId: string
+  ): Promise<{
+    files_extracted: number;
+    directories_created: number;
+    extracted_bytes: number;
+    files_skipped: number;
+    phase?: string;
+    checkpoint_json?: string;
+    pending_decision_json?: string | null;
+  }> {
+    const segment = getBrowseSegment(connectionId);
+    const { client, extraConfig } = await this.getClientConfig(connectionId);
+    const accessToken = authSession.getAccessToken();
+    if (!accessToken) {
+      throw new Error("Authentication is required to start local archive extraction");
+    }
+    const response = await client.post(
+      `/browse/${segment}/archive/v2/relay/extraction`,
+      {
+        contract_version: "v2",
+        archive_path: archivePath,
+        operation_id: operationId,
+      },
+      {
+        ...extraConfig,
+        headers: {
+          ...extraConfig.headers,
+          Authorization: `Bearer ${accessToken}`,
+        },
+      }
+    );
+    return response.data;
+  }
+
+  async decideLocalArchiveRelayExtraction(
+    connectionId: string,
     operationId: string,
-    operationToken: string
+    sourceSessionId: string,
+    deliverySequence: number,
+    decisionRevision: number,
+    action: ArchiveExtractionDecisionAction,
+    memberPath: string,
+    targetPath?: string
   ): Promise<{
     files_extracted: number;
     directories_created: number;
@@ -1035,24 +1108,31 @@ class ApiService {
     const segment = getBrowseSegment(connectionId);
     const { client, extraConfig } = await this.getClientConfig(connectionId);
     const response = await client.post(
-      `/browse/${segment}/archive/v2/relay/extraction`,
+      `/browse/${segment}/archive/v2/relay/extraction/${operationId}/decision`,
       {
-        contract_version: "v2",
-        archive_path: archivePath,
-        server_url: getCompanionServerUrl(this.api.defaults.baseURL),
-        operation_id: operationId,
-        operation_token: operationToken,
+        source_session_id: sourceSessionId,
+        delivery_sequence: deliverySequence,
+        decision_revision: decisionRevision,
+        action,
+        member_path: memberPath,
+        target_path: targetPath,
       },
       extraConfig
     );
     return response.data;
   }
 
+  async getLocalArchiveRelayExtractionStatus(connectionId: string, operationId: string): Promise<LocalArchiveRelayExtractionStatus> {
+    const segment = getBrowseSegment(connectionId);
+    const { client, extraConfig } = await this.getClientConfig(connectionId);
+    const response = await client.get(`/browse/${segment}/archive/v2/relay/extraction/${operationId}/status`, extraConfig);
+    return response.data;
+  }
+
   async extractSmbArchiveToLocal(
     destinationConnectionId: string,
     destinationPath: string,
-    operationId: string,
-    operationToken: string
+    operationId: string
   ): Promise<{
     files_extracted: number;
     directories_created: number;
@@ -1069,9 +1149,7 @@ class ApiService {
       {
         contract_version: "v2",
         destination_path: destinationPath,
-        server_url: getCompanionServerUrl(this.api.defaults.baseURL),
         operation_id: operationId,
-        operation_token: operationToken,
       },
       extraConfig
     );
@@ -1166,16 +1244,25 @@ class ApiService {
     return response.data;
   }
 
+  async getArchiveLiveExtractionStatus(operationId: string): Promise<ArchiveLiveExtractionStatus> {
+    const response = await this.api.get<ArchiveLiveExtractionStatus>(`/archive/v2/operations/${operationId}/extraction/live-status`);
+    return response.data;
+  }
+
   async decideArchiveExtraction(
     operationId: string,
     action: ArchiveExtractionDecisionAction,
     memberPath?: string,
-    targetPath?: string
+    targetPath?: string,
+    liveDecision?: { sourceSessionId: string; deliverySequence: number; decisionRevision: number }
   ): Promise<ArchiveOperation> {
     const response = await this.api.post<ArchiveOperation>(`/archive/v2/operations/${operationId}/extraction/decision`, {
       action,
       member_path: memberPath,
       target_path: targetPath,
+      source_session_id: liveDecision?.sourceSessionId,
+      delivery_sequence: liveDecision?.deliverySequence,
+      decision_revision: liveDecision?.decisionRevision,
     });
     return response.data;
   }

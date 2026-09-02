@@ -289,3 +289,89 @@ class ArchiveExtractionDecision(ArchiveV2Payload):
     member_path: str | None = None
     target_path: str | None = None
     expected_revision: int | None = Field(default=None, ge=0)
+    source_session_id: str | None = Field(default=None, min_length=1, max_length=64)
+    delivery_sequence: int | None = Field(default=None, ge=1)
+    decision_revision: int | None = Field(default=None, ge=1)
+
+
+class ArchiveLiveExtractionPendingDecision(ArchiveV2Payload):
+    revision: int = Field(ge=1)
+    kind: Literal["collision", "member_error"]
+    member_path: str
+    delivery_sequence: int = Field(ge=1)
+    is_directory: bool
+    allowed_actions: list[Literal["skip", "skip_all", "replace", "replace_all", "replace_older", "rename", "retry", "ignore"]]
+    target_path: str | None = None
+    message: str | None = None
+
+
+class ArchiveLiveExtractionStatus(ArchiveV2Payload):
+    source_session_id: str
+    phase: str
+    aggregate_counters: dict[str, int]
+    pending_decision: ArchiveLiveExtractionPendingDecision | None = None
+
+
+class ArchiveCompanionLiveExtractionBegin(ArchiveV2Payload):
+    operation: ArchiveOperationRead
+    source_session_id: str
+
+
+class ArchiveCompanionLiveExtractionMember(ArchiveV2Payload):
+    source_session_id: str
+    delivery_sequence: int = Field(ge=1)
+    member_path: str
+    is_directory: bool
+    uncompressed_size: int = Field(ge=0)
+    modified_at: datetime | None = None
+    target_path: str | None = Field(default=None, min_length=1)
+    collision_policy: Literal["ask", "skip", "skip_all", "replace", "replace_all", "replace_older", "rename"] | None = None
+
+
+class ArchiveCompanionLiveDestinationWriteResult(ArchiveV2Payload):
+    source_session_id: str = Field(min_length=1, max_length=64)
+    delivery_sequence: int = Field(ge=1)
+    member_path: str = Field(min_length=1)
+    status: Literal["directory", "extracted", "skipped", "ignored", "awaiting_collision", "awaiting_retry", "fatal"]
+    extracted_bytes: int = Field(default=0, ge=0)
+    directories_created: int = Field(default=0, ge=0)
+    replaced: bool = False
+    target_path: str | None = Field(default=None, min_length=1)
+    message: str | None = Field(default=None, min_length=1, max_length=500)
+
+
+class ArchiveCompanionLiveDestinationWriteRequest(ArchiveV2Payload):
+    """One transient write request from a Companion-held live ZIP source."""
+
+    source_session_id: str = Field(min_length=1, max_length=64)
+    delivery_sequence: int = Field(ge=1)
+    member_path: str = Field(min_length=1)
+    target_path: str | None = Field(default=None, min_length=1)
+    is_directory: bool
+    modified_at: datetime | None = None
+    collision_policy: Literal["ask", "skip", "skip_all", "replace", "replace_all", "replace_older", "rename"] | None = None
+
+
+class ArchiveCompanionLiveExtractionSummary(ArchiveV2Payload):
+    """Aggregate-only terminal state supplied by a Companion-held ZIP source."""
+
+    source_session_id: str = Field(min_length=1, max_length=64)
+    members_processed: int = Field(ge=0)
+    members_completed: int = Field(ge=0)
+    members_skipped: int = Field(ge=0)
+    members_failed: int = Field(ge=0)
+    files_extracted: int = Field(ge=0)
+    directories_created: int = Field(ge=0)
+    extracted_bytes: int = Field(ge=0)
+    files_replaced: int = Field(ge=0)
+
+
+class ArchiveCompanionLiveDestinationDecision(ArchiveV2Payload):
+    """One fenced decision that a Companion-held live source will validate and apply."""
+
+    source_session_id: str = Field(min_length=1, max_length=64)
+    delivery_sequence: int = Field(ge=1)
+    decision_revision: int = Field(ge=1)
+    action: Literal["skip", "skip_all", "replace", "replace_all", "replace_older", "rename", "retry", "ignore", "cancel"]
+    member_path: str = Field(min_length=1)
+    target_path: str | None = Field(default=None, min_length=1)

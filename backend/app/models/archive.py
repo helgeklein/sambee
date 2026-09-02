@@ -32,11 +32,10 @@ class ArchiveEntryInfo(BaseModel):
 
 
 class ArchiveDirectoryListing(BaseModel):
-    """One stable, bounded page from an archive virtual directory."""
+    """One bounded record-order page from an archive central directory."""
 
     archive: ArchiveIdentity
     path: str
     items: list[ArchiveEntryInfo]
-    total: int
     next_cursor: str | None = None
     page_size: int = Field(ge=1, le=500)

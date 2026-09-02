@@ -41,10 +41,17 @@ from app.models.archive_operation import (
     ArchiveCompanionExtractionSourceManifest,
     ArchiveCompanionExtractionSummary,
     ArchiveCompanionFailure,
-    ArchiveCompanionManifestEntry,
+    ArchiveCompanionLiveDestinationDecision,
+    ArchiveCompanionLiveDestinationWriteRequest,
+    ArchiveCompanionLiveDestinationWriteResult,
+    ArchiveCompanionLiveExtractionBegin,
+    ArchiveCompanionLiveExtractionMember,
+    ArchiveCompanionLiveExtractionSummary,
     ArchiveCompanionSession,
     ArchiveContractVersion,
     ArchiveExtractionDecision,
+    ArchiveLiveExtractionPendingDecision,
+    ArchiveLiveExtractionStatus,
     ArchiveOperation,
     ArchiveOperationErrorCode,
     ArchiveOperationKind,
@@ -62,12 +69,6 @@ from app.services.archive.coordinator import (
     ArchiveCreationManifest,
     ArchiveCreationManifestMember,
     ArchiveCreationState,
-    ArchiveExtractionCoordinator,
-    ArchiveExtractionDecisionState,
-    ArchiveExtractionExecutionPlan,
-    ArchiveExtractionManifest,
-    ArchiveExtractionManifestMember,
-    ArchiveExtractionState,
     DurableArchiveExecutionStateStore,
     advance_relay_transfer,
     archive_member_target,
@@ -76,7 +77,6 @@ from app.services.archive.coordinator import (
     complete_creation_relay_execution,
     complete_relay_execution,
     load_archive_checkpoint,
-    persist_extraction_member_outcome,
 )
 from app.services.archive.creation import (
     ArchiveCreationCancelled,
@@ -91,18 +91,19 @@ from app.services.archive.execution import (
     ArchiveExecutionDriver,
     resolve_archive_operation_topology_plan,
 )
-from app.services.archive.extraction import (
-    ArchiveExtractionDestinationResult,
-    ArchiveExtractionMemberOutcome,
-    ArchiveExtractionResult,
-    extract_archive_to_new_paths,
-    validate_archive_rename_targets,
-)
+from app.services.archive.extraction import archive_extraction_target_path, extract_live_archive_to_new_paths
+from app.services.archive.lifecycle_cleanup import archive_operation_cleanup_registry
 from app.services.archive.live_creation import (
     ArchiveCreationWriterAlreadyActive,
     ArchiveCreationWriterMemberDataError,
     ArchiveCreationWriterSessionNotFound,
     LiveArchiveCreationWriterManager,
+)
+from app.services.archive.live_extraction import (
+    DestinationWriteResult,
+    LiveSourceSessionError,
+    LiveSourceSessionPhase,
+    LiveSourceSessionRegistry,
 )
 from app.services.archive.operations import (
     fail_operation,
@@ -116,7 +117,7 @@ from app.services.archive.target_write import (
     resolve_target_write_attempt,
 )
 from app.services.archive.v2_checkpoint import canonical_v2_timestamp, new_v2_extraction_checkpoint
-from app.services.archive.zip_reader import ArchiveFormatError, EffectiveArchiveEntries, ZipReader
+from app.services.archive.zip_reader import ArchiveFormatError
 from app.services.audit import AuditDetails, AuditEventName, AuditResult, write_audit_event
 from app.services.connection_access import get_accessible_connection_or_404, require_connection_write_access
 from app.services.history_common import LOCAL_DRIVE_PREFIX
@@ -124,12 +125,19 @@ from app.storage.smb import SMBBackend
 
 logger = get_logger(__name__)
 _local_to_smb_creation_writers = LiveArchiveCreationWriterManager(logger)
+_live_extraction_sessions = LiveSourceSessionRegistry()
 
 
 async def shutdown_local_to_smb_creation_writers() -> None:
     """Abort foreground local-to-SMB archive targets still held during shutdown."""
 
     await _local_to_smb_creation_writers.shutdown()
+
+
+async def shutdown_live_extraction_sessions() -> None:
+    """Close retained live archive sources before their connection pool stops."""
+
+    await _live_extraction_sessions.close_all()
 
 
 ARCHIVE_COMPANION_TOKEN_EXPIRE_MINUTES = 15
@@ -141,6 +149,10 @@ V2_ROUTE_QUERY_PARAMETERS: dict[str, frozenset[str]] = {
     "/v2/operations": frozenset({"active_only", "limit"}),
     "/v2/operations/{operation_id}/cancel": frozenset({"expected_revision"}),
     "/v2/inspection/directory": frozenset({"connection_id", "archive_path", "virtual_path", "cursor", "page_size", "contract_version"}),
+    "/v2/operations/{operation_id}/relay/extraction/live/current-member": frozenset({"source_session_id", "delivery_sequence"}),
+    "/v2/operations/{operation_id}/relay/extraction/live/destination-member": frozenset(
+        {"source_session_id", "delivery_sequence", "member_path", "target_path", "is_directory", "modified_at", "collision_policy"}
+    ),
     "/v2/inspection/member": frozenset(
         {
             "connection_id",
@@ -272,31 +284,6 @@ def _validate_archive_companion_token(
     return user, payload
 
 
-def _record_mixed_archive_member_completion(
-    session: Session,
-    operation: ArchiveOperation,
-    checkpoint: dict[str, object],
-    outcome: ArchiveExtractionDestinationResult,
-) -> ArchiveOperation:
-    """Persist one validated mixed-extraction member outcome and its counters."""
-
-    return persist_extraction_member_outcome(
-        DurableArchiveExecutionStateStore(session),
-        operation,
-        outcome,
-        checkpoint=checkpoint,
-    )
-
-
-def _archive_source_identity(info: FileInfo) -> dict[str, object]:
-    """Return the stable source metadata available before opening an SMB ZIP."""
-
-    return {
-        "size": info.size,
-        "modified_at": canonical_v2_timestamp(info.modified_at),
-    }
-
-
 class ArchiveExtractionDirectoryCollision(Exception):
     """A non-directory target blocks a required archive output directory."""
 
@@ -304,60 +291,6 @@ class ArchiveExtractionDirectoryCollision(Exception):
         self.path = path
         self.target = target
         super().__init__(f"Archive output directory is blocked: {path}")
-
-
-def _mixed_directory_collision_member_path(
-    execution_plan: ArchiveExtractionExecutionPlan,
-    member_path: str,
-    destination_root: str,
-    target_path: str,
-    *,
-    is_directory: bool,
-) -> str:
-    """Map a materialized parent path to the source archive directory that owns it."""
-
-    parts = member_path.split("/")
-    directory_count = len(parts) if is_directory else len(parts) - 1
-    for index in range(directory_count, 0, -1):
-        source_path = "/".join(parts[:index])
-        if archive_member_target(destination_root, execution_plan.target_member_path(source_path)) == target_path:
-            return source_path
-    return member_path
-
-
-async def _ensure_mixed_archive_parent_directories(
-    backend: SMBBackend,
-    *,
-    destination_root: str,
-    target_path: str,
-    include_target: bool = False,
-) -> int:
-    """Create missing output parents below an already-owned destination root."""
-
-    created = 0
-    root_parts = destination_root.replace("\\", "/").strip("/").split("/")
-    target_parts = target_path.replace("\\", "/").strip("/").split("/")
-    if target_parts[: len(root_parts)] != root_parts:
-        raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_CONTENT, detail="Archive output path is outside its destination root")
-    directory_parts = target_parts if include_target else target_parts[:-1]
-    for index in range(len(root_parts) + 1, len(directory_parts) + 1):
-        path = "/".join(directory_parts[:index])
-        for attempt in range(2):
-            try:
-                await backend.create_directory(path)
-                created += 1
-                break
-            except FileExistsError as exc:
-                try:
-                    existing = await backend.get_file_info(path)
-                except FileNotFoundError:
-                    if attempt == 0:
-                        continue
-                    raise ArchiveExtractionDirectoryCollision(path) from exc
-                if existing.type == FileType.DIRECTORY:
-                    break
-                raise ArchiveExtractionDirectoryCollision(path, existing)
-    return created
 
 
 def _verify_operation_connection_scope(
@@ -517,22 +450,24 @@ async def create_archive_companion_session(
         expected_phase=ArchiveOperationPhase.PREPARED,
         next_phase=ArchiveOperationPhase.ACCEPTED,
     )
+    claims: dict[str, object] = {
+        "sub": current_user.username,
+        "tv": current_user.token_version,
+        "jti": uuid.uuid4().hex,
+        ARCHIVE_COMPANION_TOKEN_CLAIM: True,
+        "token_class": ARCHIVE_COMPANION_TOKEN_CLASS,
+        "purpose": topology_plan.topology.companion_purpose,
+        "archive_operation_id": str(operation.id),
+        "source_connection_id": operation.source_connection_id,
+        "source_path": operation.source_path,
+        "destination_connection_id": operation.destination_connection_id,
+        "destination_path": operation.destination_path,
+        "contract_version": operation.contract_version.value,
+    }
+    if operation.kind == ArchiveOperationKind.CREATE:
+        claims["manifest_hash"] = operation.manifest_hash
     token = create_access_token(
-        data={
-            "sub": current_user.username,
-            "tv": current_user.token_version,
-            "jti": uuid.uuid4().hex,
-            ARCHIVE_COMPANION_TOKEN_CLAIM: True,
-            "token_class": ARCHIVE_COMPANION_TOKEN_CLASS,
-            "purpose": topology_plan.topology.companion_purpose,
-            "archive_operation_id": str(operation.id),
-            "source_connection_id": operation.source_connection_id,
-            "source_path": operation.source_path,
-            "destination_connection_id": operation.destination_connection_id,
-            "destination_path": operation.destination_path,
-            "manifest_hash": operation.manifest_hash,
-            "contract_version": operation.contract_version.value,
-        },
+        data=claims,
         expires_delta=timedelta(minutes=ARCHIVE_COMPANION_TOKEN_EXPIRE_MINUTES),
     )
     return ArchiveCompanionSession(
@@ -593,9 +528,10 @@ def _get_scoped_companion_operation_from_claims(
         "source_path": operation.source_path,
         "destination_connection_id": operation.destination_connection_id,
         "destination_path": operation.destination_path,
-        "manifest_hash": operation.manifest_hash,
         "contract_version": operation.contract_version.value,
     }
+    if operation.kind == ArchiveOperationKind.CREATE:
+        expected_claims["manifest_hash"] = operation.manifest_hash
     if any(payload.get(name) != value for name, value in expected_claims.items()):
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Archive Companion session scope does not match this operation")
     if (
@@ -702,14 +638,6 @@ class ScopedCompanionRelay:
             checkpoint_json=checkpoint_json,
         )
 
-    def complete_extraction(self, *, destination_root_created: bool) -> ArchiveOperation:
-        """Complete a manifest-backed extraction after typed terminal coverage validation."""
-
-        _user, operation = self.resolve()
-        return ArchiveExtractionCoordinator(operation, DurableArchiveExecutionStateStore(self.session)).complete(
-            destination_root_created=destination_root_created
-        )
-
     def commit_preflight(
         self,
         operation: ArchiveOperation,
@@ -809,27 +737,6 @@ class ScopedCompanionRelay:
         return operation
 
 
-def _companion_extraction_manifest_response(
-    operation: ArchiveOperation,
-    manifest: ArchiveExtractionManifest,
-) -> ArchiveCompanionExtractionManifest:
-    """Serialize a typed extraction manifest only at the Companion API boundary."""
-
-    try:
-        entries = [
-            ArchiveCompanionManifestEntry(
-                path=entry.member_path,
-                is_directory=entry.is_directory,
-                uncompressed_size=entry.uncompressed_size,
-                modified_at=datetime.fromisoformat(entry.source_modified_at) if entry.source_modified_at is not None else None,
-            )
-            for entry in manifest.members
-        ]
-    except ValueError as exc:
-        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="Archive operation checkpoint is invalid") from exc
-    return ArchiveCompanionExtractionManifest(operation=ArchiveOperationRead.model_validate(operation), entries=entries)
-
-
 def _companion_creation_manifest_response(
     operation: ArchiveOperation,
     manifest: ArchiveCreationManifest,
@@ -861,52 +768,6 @@ def _mixed_smb_source_connection(session: Session, user: User, operation: Archiv
         raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_CONTENT, detail="Archive source connection ID is invalid") from exc
 
 
-def _validate_archive_extraction_entry_safety(entries: EffectiveArchiveEntries) -> None:
-    """Reject raw unsafe paths and unsupported special member types."""
-
-    if entries.has_unsafe_raw_entry:
-        raise ArchiveFormatError("Archive extraction contains an unsafe member path")
-    if entries.has_unsupported_special_raw_entry:
-        raise ArchiveFormatError("Archive extraction contains a symbolic link or unsupported special member")
-
-
-def _validate_smb_to_local_manifest(entries: EffectiveArchiveEntries) -> None:
-    """Reject any source archive that cannot be streamed safely to a local executor."""
-
-    _validate_archive_extraction_entry_safety(entries)
-    if any(entry.encrypted or entry.compression_method not in {0, 8, 12} for entry in entries.regular_entries):
-        raise ArchiveFormatError("Archive extraction contains an unavailable member")
-
-
-def _companion_extraction_manifest(payload: ArchiveCompanionExtractionSourceManifest | None) -> ArchiveExtractionManifest | None:
-    """Canonicalize a local Companion source manifest for durable relay comparison."""
-
-    if payload is None:
-        return None
-    return ArchiveExtractionManifest.from_members(
-        [
-            ArchiveExtractionManifestMember(
-                entry.path,
-                entry.is_directory,
-                entry.uncompressed_size,
-                canonical_v2_timestamp(entry.modified_at),
-            )
-            for entry in payload.entries
-        ]
-    )
-
-
-def _local_manifest_source_snapshot(manifest: ArchiveExtractionManifest) -> dict[str, object]:
-    """Derive the stable local ZIP source snapshot carried by its validated manifest."""
-
-    return {
-        "size": sum(member.uncompressed_size for member in manifest.members),
-        "modified_at": max(
-            (member.source_modified_at for member in manifest.members if member.source_modified_at is not None), default=None
-        ),
-    }
-
-
 def _mixed_extraction_destination_connection(session: Session, user: User, operation: ArchiveOperation) -> Connection:
     try:
         connection = get_accessible_connection_or_404(session, user, uuid.UUID(operation.destination_connection_id))
@@ -918,34 +779,370 @@ def _mixed_extraction_destination_connection(session: Session, user: User, opera
     return connection
 
 
-async def begin_companion_archive_extraction(
-    payload: ArchiveCompanionExtractionSourceManifest | None = None,
-    relay: ScopedCompanionRelay | None = None,
-) -> ArchiveOperation:
-    """Claim one new SMB destination root for a scoped local ZIP relay."""
+async def _ensure_mixed_archive_parent_directories(
+    backend: SMBBackend,
+    *,
+    destination_root: str,
+    target_path: str,
+    include_target: bool = False,
+) -> int:
+    """Create missing output parents below an already-owned destination root."""
 
-    if relay is None:
-        raise ValueError("A resolved archive relay is required")
+    created = 0
+    root_parts = destination_root.replace("\\", "/").strip("/").split("/")
+    target_parts = target_path.replace("\\", "/").strip("/").split("/")
+    if target_parts[: len(root_parts)] != root_parts:
+        raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_CONTENT, detail="Archive output path is outside its destination root")
+    directory_parts = target_parts if include_target else target_parts[:-1]
+    for index in range(len(root_parts) + 1, len(directory_parts) + 1):
+        path = "/".join(directory_parts[:index])
+        for attempt in range(2):
+            try:
+                await backend.create_directory(path)
+                created += 1
+                break
+            except FileExistsError as exc:
+                try:
+                    existing = await backend.get_file_info(path)
+                except FileNotFoundError:
+                    if attempt == 0:
+                        continue
+                    raise ArchiveExtractionDirectoryCollision(path) from exc
+                if existing.type == FileType.DIRECTORY:
+                    break
+                raise ArchiveExtractionDirectoryCollision(path, existing)
+    return created
+
+
+async def begin_live_companion_local_archive_extraction(
+    relay: ScopedCompanionRelay,
+) -> ArchiveCompanionLiveExtractionBegin:
+    """Open one retained SMB ZIP source for a source-owned local relay."""
+
     session = relay.session
     user, operation = relay.begin()
     if operation.phase == ArchiveOperationPhase.STREAMING:
-        checkpoint = load_archive_checkpoint(operation)
-        manifest = _companion_extraction_manifest(payload)
-        if manifest is None:
-            relay.fail_message("Archive extraction source manifest is required to resume")
-            raise HTTPException(
-                status_code=status.HTTP_409_CONFLICT,
-                detail="Archive extraction source manifest is required to resume",
+        try:
+            source_session = await _live_extraction_sessions.get_for_operation(operation.id)
+        except LiveSourceSessionError as exc:
+            relay.fail_message("Live archive source session is unavailable; start a new extraction operation")
+            raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=str(exc)) from exc
+        return ArchiveCompanionLiveExtractionBegin(
+            operation=ArchiveOperationRead.model_validate(operation), source_session_id=source_session.source_session_id
+        )
+    connection = _mixed_smb_source_connection(session, user, operation)
+    backend = build_smb_backend(connection, backend_factory=SMBBackend)
+    reader = None
+    try:
+        await backend.connect()
+        archive_info = await backend.get_file_info(operation.source_path)
+        if archive_info.type != FileType.FILE or archive_info.size is None:
+            raise ArchiveFormatError("Archive extraction source must be a regular file")
+        reader = await backend.open_archive_source_reader(operation.source_path)
+        source_session = await _live_extraction_sessions.open(reader, archive_info.size, operation_id=operation.id)
+        reader = None
+        archive_operation_cleanup_registry.register(
+            operation.id,
+            lambda: _live_extraction_sessions.remove_for_operation(operation.id),
+        )
+        operation = relay.commit_preflight(operation, checkpoint_json=json.dumps(new_v2_extraction_checkpoint()))
+        return ArchiveCompanionLiveExtractionBegin(
+            operation=ArchiveOperationRead.model_validate(operation), source_session_id=source_session.source_session_id
+        )
+    except ArchiveFormatError as exc:
+        relay.fail_message(str(exc))
+        raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_CONTENT, detail="Archive extraction source is invalid") from exc
+    except Exception:
+        if reader is not None:
+            await reader.close()
+        raise
+    finally:
+        await disconnect_backend_safely(backend, logger=logger, context=f"live mixed archive begin operation {operation.id}")
+
+
+async def next_live_companion_local_archive_member(relay: ScopedCompanionRelay) -> ArchiveCompanionLiveExtractionMember | None:
+    """Select the one next source-owned member without accepting a path selector."""
+
+    _user, operation = relay.streaming(not_streaming_detail="Archive operation is not accepting source member reads")
+    try:
+        source_session = await _live_extraction_sessions.get_for_operation(operation.id)
+        member = await source_session.current_member()
+        if member is None:
+            member = await source_session.next_member()
+    except (ArchiveFormatError, LiveSourceSessionError) as exc:
+        relay.fail_message(str(exc))
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="Live archive source session is unavailable") from exc
+    if member is None:
+        return None
+    if member.is_directory:
+        await source_session.mark_directory_delivery_ready(member.source_session_id, member.delivery_sequence)
+    return ArchiveCompanionLiveExtractionMember(
+        source_session_id=member.source_session_id,
+        delivery_sequence=member.delivery_sequence,
+        member_path=member.path,
+        is_directory=member.is_directory,
+        uncompressed_size=member.uncompressed_size,
+        modified_at=member.modified_at if isinstance(member.modified_at, datetime) else None,
+        target_path=member.target_path,
+        collision_policy=member.collision_policy,
+    )
+
+
+async def stream_live_companion_local_archive_member(
+    source_session_id: str,
+    delivery_sequence: int,
+    relay: ScopedCompanionRelay,
+) -> StreamingResponse:
+    """Stream only the currently fenced regular source member to Companion."""
+
+    _user, operation = relay.streaming(not_streaming_detail="Archive operation is not accepting source member reads")
+    try:
+        source_session = await _live_extraction_sessions.get_for_operation(operation.id)
+        member = await source_session.current_member()
+        if member is None or member.source_session_id != source_session_id or member.delivery_sequence != delivery_sequence:
+            raise LiveSourceSessionError("Archive delivery sequence does not match the current member")
+        if member.is_directory:
+            raise LiveSourceSessionError("Current archive member is a directory")
+    except LiveSourceSessionError as exc:
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=str(exc)) from exc
+    return StreamingResponse(
+        source_session.stream_current_member(source_session_id, delivery_sequence),
+        media_type=mimetypes.guess_type(member.path)[0] or "application/octet-stream",
+    )
+
+
+async def apply_live_companion_local_archive_result(
+    payload: ArchiveCompanionLiveDestinationWriteResult,
+    relay: ScopedCompanionRelay,
+) -> ArchiveOperation:
+    """Accept one transient Companion destination result through its SMB source session."""
+
+    _user, operation = relay.streaming(not_streaming_detail="Archive operation is not accepting destination results")
+    try:
+        source_session = await _live_extraction_sessions.get_for_operation(operation.id)
+        await source_session.apply_destination_write_result(
+            DestinationWriteResult(
+                payload.source_session_id,
+                payload.delivery_sequence,
+                payload.member_path,
+                payload.status,
+                payload.extracted_bytes,
+                payload.directories_created,
+                payload.replaced,
+                payload.target_path,
+                payload.message,
             )
-        if manifest != ArchiveExtractionManifest.from_checkpoint(checkpoint):
-            relay.fail_message(
-                "Archive extraction source changed after manifest validation",
-                error_code=ArchiveOperationErrorCode.SOURCE_CHANGED,
+        )
+    except LiveSourceSessionError as exc:
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=str(exc)) from exc
+    if source_session.phase == LiveSourceSessionPhase.AWAITING_DECISION:
+        return update_operation_phase(
+            relay.session,
+            operation,
+            expected_phase=ArchiveOperationPhase.STREAMING,
+            next_phase=ArchiveOperationPhase.AWAITING_USER_DECISION,
+            additional_changes={"pending_decision_json": None},
+        )
+    return operation
+
+
+async def complete_live_companion_local_archive_extraction(relay: ScopedCompanionRelay) -> ArchiveOperation:
+    """Persist aggregate results only after the SMB source reaches end-of-directory."""
+
+    _user, operation = relay.streaming(not_streaming_detail="Archive operation is not ready for completion")
+    try:
+        source_session = await _live_extraction_sessions.get_for_operation(operation.id)
+    except LiveSourceSessionError as exc:
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=str(exc)) from exc
+    if source_session.phase != LiveSourceSessionPhase.COMPLETED:
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="Archive source has not reached end of directory")
+    checkpoint = new_v2_extraction_checkpoint()
+    checkpoint["aggregate_counters"] = source_session.aggregate.checkpoint_payload()
+    operation = relay.complete(checkpoint_json=json.dumps(checkpoint))
+    await _live_extraction_sessions.remove_for_operation(operation.id)
+    archive_operation_cleanup_registry.unregister(operation.id)
+    return operation
+
+
+async def write_live_companion_archive_destination_member(
+    request: Request,
+    payload: ArchiveCompanionLiveDestinationWriteRequest,
+    relay: ScopedCompanionRelay,
+) -> ArchiveCompanionLiveDestinationWriteResult:
+    """Write one current Companion source record without reading an extraction manifest."""
+
+    session = relay.session
+    user, operation = relay.streaming(not_streaming_detail="Archive operation is not accepting destination output")
+    connection = _mixed_extraction_destination_connection(session, user, operation)
+    target_member_path = payload.target_path or payload.member_path
+    try:
+        target_path = archive_member_target(operation.destination_path, target_member_path)
+        policy = collision_policy_from_action(payload.collision_policy or operation.collision_policy)
+    except (HTTPException, ValueError) as exc:
+        if isinstance(exc, HTTPException):
+            raise
+        raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_CONTENT, detail=str(exc)) from exc
+    backend = build_smb_backend(connection, backend_factory=SMBBackend)
+    try:
+        await backend.connect()
+        try:
+            directories_created = await _ensure_mixed_archive_parent_directories(
+                backend,
+                destination_root=operation.destination_path,
+                target_path=target_path,
+                include_target=payload.is_directory,
             )
-            raise HTTPException(
-                status_code=status.HTTP_409_CONFLICT,
-                detail="Archive extraction source changed after manifest validation",
+        except ArchiveExtractionDirectoryCollision as exc:
+            update_operation_phase(
+                session,
+                operation,
+                expected_phase=ArchiveOperationPhase.STREAMING,
+                next_phase=ArchiveOperationPhase.AWAITING_USER_DECISION,
+                additional_changes={"pending_decision_json": None},
             )
+            return ArchiveCompanionLiveDestinationWriteResult(
+                source_session_id=payload.source_session_id,
+                delivery_sequence=payload.delivery_sequence,
+                member_path=payload.member_path,
+                status="awaiting_collision",
+                target_path=exc.path,
+                message="Archive output directory is blocked",
+            )
+        if payload.is_directory:
+            return ArchiveCompanionLiveDestinationWriteResult(
+                source_session_id=payload.source_session_id,
+                delivery_sequence=payload.delivery_sequence,
+                member_path=payload.member_path,
+                status="directory",
+                directories_created=directories_created,
+                target_path=target_path,
+            )
+        target_write = await resolve_target_write_attempt(
+            target_path=target_path,
+            policy=policy,
+            source_modified_at=payload.modified_at,
+            observe_target=backend.get_file_info,
+            stream_factory=request.stream,
+            write_target=lambda path, stream, overwrite, mtime: backend.write_file_from_stream(
+                path,
+                stream,
+                overwrite=overwrite,
+                source_mtime=mtime,
+            ),
+        )
+        if target_write.disposition == TargetWriteDisposition.SKIP:
+            return ArchiveCompanionLiveDestinationWriteResult(
+                source_session_id=payload.source_session_id,
+                delivery_sequence=payload.delivery_sequence,
+                member_path=payload.member_path,
+                status="skipped",
+                target_path=target_path,
+            )
+        if target_write.disposition == TargetWriteDisposition.AWAIT_COLLISION:
+            target_info = target_write.target
+            update_operation_phase(
+                session,
+                operation,
+                expected_phase=ArchiveOperationPhase.STREAMING,
+                next_phase=ArchiveOperationPhase.AWAITING_USER_DECISION,
+                additional_changes={"pending_decision_json": None},
+            )
+            return ArchiveCompanionLiveDestinationWriteResult(
+                source_session_id=payload.source_session_id,
+                delivery_sequence=payload.delivery_sequence,
+                member_path=payload.member_path,
+                status="awaiting_collision",
+                target_path=target_path,
+                message=(
+                    "Archive target is not a regular file"
+                    if target_info is not None and target_info.type != FileType.FILE
+                    else "Archive target already exists"
+                ),
+            )
+        return ArchiveCompanionLiveDestinationWriteResult(
+            source_session_id=payload.source_session_id,
+            delivery_sequence=payload.delivery_sequence,
+            member_path=payload.member_path,
+            status="extracted",
+            extracted_bytes=target_write.bytes_written,
+            directories_created=directories_created,
+            replaced=target_write.replaced,
+            target_path=target_path,
+        )
+    except TargetWriteFailure as exc:
+        update_operation_phase(
+            session,
+            operation,
+            expected_phase=ArchiveOperationPhase.STREAMING,
+            next_phase=ArchiveOperationPhase.AWAITING_USER_DECISION,
+            additional_changes={"pending_decision_json": None},
+        )
+        return ArchiveCompanionLiveDestinationWriteResult(
+            source_session_id=payload.source_session_id,
+            delivery_sequence=payload.delivery_sequence,
+            member_path=payload.member_path,
+            status="awaiting_retry",
+            target_path=target_path,
+            message=str(exc),
+        )
+    except (FileExistsError, OSError) as exc:
+        return ArchiveCompanionLiveDestinationWriteResult(
+            source_session_id=payload.source_session_id,
+            delivery_sequence=payload.delivery_sequence,
+            member_path=payload.member_path,
+            status="fatal",
+            target_path=target_path,
+            message=str(exc),
+        )
+    finally:
+        await disconnect_backend_safely(backend, logger=logger, context=f"live local archive destination member operation {operation.id}")
+
+
+async def complete_live_companion_archive_extraction(
+    payload: ArchiveCompanionLiveExtractionSummary,
+    relay: ScopedCompanionRelay,
+) -> ArchiveOperation:
+    """Persist only a Companion source's terminal aggregate after end-of-directory."""
+
+    _user, operation = relay.streaming(not_streaming_detail="Archive operation is not ready for completion")
+    if payload.members_processed != payload.members_completed + payload.members_skipped + payload.members_failed:
+        raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_CONTENT, detail="Archive aggregate member counters are invalid")
+    checkpoint = new_v2_extraction_checkpoint()
+    checkpoint["aggregate_counters"] = payload.model_dump(exclude={"source_session_id"})
+    return relay.complete(checkpoint_json=json.dumps(checkpoint))
+
+
+def resume_live_companion_archive_destination(
+    payload: ArchiveCompanionLiveDestinationDecision,
+    relay: ScopedCompanionRelay,
+) -> ArchiveOperation:
+    """Reopen an aggregate-only destination after its owning Companion source validates a decision."""
+
+    _user, operation = relay.resolve()
+    if operation.phase != ArchiveOperationPhase.AWAITING_USER_DECISION:
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="Archive operation is not awaiting a live destination decision")
+    if payload.action == "cancel":
+        return update_operation_phase(
+            relay.session,
+            operation,
+            expected_phase=ArchiveOperationPhase.AWAITING_USER_DECISION,
+            next_phase=ArchiveOperationPhase.CANCELLED,
+        )
+    return update_operation_phase(
+        relay.session,
+        operation,
+        expected_phase=ArchiveOperationPhase.AWAITING_USER_DECISION,
+        next_phase=ArchiveOperationPhase.STREAMING,
+        additional_changes={"pending_decision_json": None},
+    )
+
+
+async def begin_live_companion_archive_extraction_destination(relay: ScopedCompanionRelay) -> ArchiveOperation:
+    """Claim the SMB destination root for a Companion-held live ZIP source."""
+
+    session = relay.session
+    user, operation = relay.begin()
+    if operation.phase == ArchiveOperationPhase.STREAMING:
         return operation
     connection = _mixed_extraction_destination_connection(session, user, operation)
     backend = build_smb_backend(connection, backend_factory=SMBBackend)
@@ -960,420 +1157,9 @@ async def begin_companion_archive_extraction(
                     status_code=status.HTTP_409_CONFLICT,
                     detail="Archive extraction destination is not a directory",
                 )
-        manifest = _companion_extraction_manifest(payload)
-        if manifest is None:
-            raise HTTPException(
-                status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
-                detail="Archive extraction source manifest is required",
-            )
-        return relay.commit_preflight(
-            operation,
-            checkpoint_json=json.dumps(
-                new_v2_extraction_checkpoint(
-                    manifest=manifest.checkpoint_entries(),
-                    source_snapshot=_local_manifest_source_snapshot(manifest),
-                )
-            ),
-        )
+        return relay.commit_preflight(operation, checkpoint_json=json.dumps(new_v2_extraction_checkpoint()))
     finally:
-        await disconnect_backend_safely(backend, logger=logger, context=f"mixed archive begin operation {operation.id}")
-
-
-async def write_companion_archive_member(
-    request: Request,
-    member_path: str = Query(..., min_length=1),
-    is_directory: bool = Query(False),
-    source_modified_at: datetime | None = Query(None),
-    relay: ScopedCompanionRelay | None = None,
-) -> ArchiveOperation:
-    """Stream one validated local ZIP member to its operation-owned SMB target."""
-
-    if relay is None:
-        raise ValueError("A resolved archive relay is required")
-    session = relay.session
-    user, operation = relay.streaming(not_streaming_detail="Archive operation is not accepting member output")
-    coordinator = ArchiveExtractionCoordinator(operation, DurableArchiveExecutionStateStore(session))
-    checkpoint = load_archive_checkpoint(operation)
-    execution_plan = ArchiveExtractionExecutionPlan.from_checkpoint(checkpoint, existing_file_policy=operation.collision_policy)
-    completed_members = execution_plan.completed_member_paths()
-    if member_path in completed_members:
-        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="Archive member has already been written")
-    execution_plan.member(member_path, is_directory=is_directory)
-    collision_action = execution_plan.collision_action(member_path)
-    remapped_member_path = execution_plan.target_member_path(member_path)
-    target_path = archive_member_target(operation.destination_path, remapped_member_path)
-
-    connection = _mixed_extraction_destination_connection(session, user, operation)
-    backend = build_smb_backend(connection, backend_factory=SMBBackend)
-    try:
-        await backend.connect()
-        try:
-            created_directories = await _ensure_mixed_archive_parent_directories(
-                backend,
-                destination_root=operation.destination_path,
-                target_path=target_path,
-                include_target=is_directory,
-            )
-        except ArchiveExtractionDirectoryCollision as exc:
-            return coordinator.pause_for_collision(
-                member_path=_mixed_directory_collision_member_path(
-                    execution_plan,
-                    member_path,
-                    operation.destination_path,
-                    exc.path,
-                    is_directory=is_directory,
-                ),
-                is_directory=True,
-                target_size=exc.target.size if exc.target is not None else None,
-                target_modified_at=exc.target.modified_at if exc.target is not None else None,
-                target_path=exc.path,
-            )
-        if is_directory:
-            written = 0
-        else:
-            target_write = await resolve_target_write_attempt(
-                target_path=target_path,
-                policy=collision_policy_from_action(collision_action),
-                source_modified_at=source_modified_at,
-                observe_target=backend.get_file_info,
-                stream_factory=request.stream,
-                write_target=lambda path, stream, overwrite, mtime: backend.write_file_from_stream(
-                    path,
-                    stream,
-                    overwrite=overwrite,
-                    source_mtime=mtime,
-                ),
-            )
-            if target_write.disposition == TargetWriteDisposition.SKIP:
-                outcome = ArchiveExtractionMemberOutcome(member_path, "skipped", target_path)
-                return coordinator.record_member_completed(outcome)
-            if target_write.disposition == TargetWriteDisposition.AWAIT_COLLISION:
-                target_info = target_write.target
-                return coordinator.pause_for_collision(
-                    member_path=member_path,
-                    is_directory=target_info is not None and target_info.type != FileType.FILE,
-                    target_size=target_info.size if target_info is not None else None,
-                    target_modified_at=target_info.modified_at if target_info is not None else None,
-                )
-            written = target_write.bytes_written
-            replace_existing = target_write.replaced
-        outcome = ArchiveExtractionMemberOutcome(
-            member_path,
-            "directory" if is_directory else "extracted",
-            target_path,
-            extracted_bytes=written,
-            directories_created=created_directories,
-            replaced=not is_directory and replace_existing,
-        )
-        return coordinator.record_member_completed(outcome)
-    except TargetWriteFailure as exc:
-        return coordinator.pause_for_member_error(
-            member_path=member_path,
-            message=str(exc),
-            partial_output=exc.bytes_written > 0,
-        )
-    except FileExistsError as exc:
-        return coordinator.pause_for_member_error(member_path=member_path, message=str(exc), partial_output=False)
-    except OSError as exc:
-        return coordinator.pause_for_member_error(member_path=member_path, message=str(exc), partial_output=False)
-    except HTTPException:
-        raise
-    except Exception as exc:
-        logger.exception("Mixed archive member write failed: operation_id=%s, member_path=%r", operation.id, member_path)
-        relay.fail_message(str(exc))
-        raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail="Archive member write failed") from exc
-    finally:
-        await disconnect_backend_safely(backend, logger=logger, context=f"mixed archive member operation {operation.id}")
-
-
-async def complete_companion_archive_extraction(
-    idempotency_key: str | None = Header(default=None, alias=ARCHIVE_RELAY_IDEMPOTENCY_HEADER),
-    relay: ScopedCompanionRelay | None = None,
-) -> ArchiveOperation:
-    """Record the terminal result after Companion has streamed all safe members."""
-
-    _validate_archive_relay_idempotency_key(idempotency_key)
-    if relay is None:
-        raise ValueError("A resolved archive relay is required")
-    session = relay.session
-    _user, operation = relay.resolve()
-    payload_data: dict[str, object] = {}
-    if _relay_delivery_replayed(operation, idempotency_key, command="extraction_complete", payload=payload_data):
-        return operation
-    operation = relay.complete_extraction(destination_root_created=False)
-    return _record_relay_delivery(session, operation, idempotency_key, command="extraction_complete", payload=payload_data)
-
-
-async def fail_companion_archive_extraction(
-    payload: ArchiveCompanionFailure,
-    relay: ScopedCompanionRelay | None = None,
-) -> ArchiveOperation:
-    """Record a local ZIP extractor failure without leaving the operation active."""
-
-    if relay is None:
-        raise ValueError("A resolved archive relay is required")
-    return relay.fail(payload)
-
-
-async def begin_companion_local_archive_extraction(
-    relay: ScopedCompanionRelay | None = None,
-) -> ArchiveCompanionExtractionManifest:
-    """Validate and expose one complete SMB ZIP manifest to its local Companion executor."""
-
-    if relay is None:
-        raise ValueError("A resolved archive relay is required")
-    session = relay.session
-    user, operation = relay.begin()
-    if operation.phase == ArchiveOperationPhase.STREAMING:
-        checkpoint = load_archive_checkpoint(operation)
-        extraction_state = ArchiveExtractionState.from_checkpoint(checkpoint)
-        return _companion_extraction_manifest_response(operation, extraction_state.manifest)
-    connection = _mixed_smb_source_connection(session, user, operation)
-    backend = build_smb_backend(connection, backend_factory=SMBBackend)
-    reader = None
-    try:
-        await backend.connect()
-        archive_info = await backend.get_file_info(operation.source_path)
-        if archive_info.type != FileType.FILE or archive_info.size is None:
-            raise ArchiveFormatError("Archive extraction source must be a regular file")
-        reader = await backend.open_random_access_reader(operation.source_path)
-        zip_reader = ZipReader(reader, archive_info.size)
-        projection = await zip_reader.effective_entries()
-        _validate_smb_to_local_manifest(projection)
-        zip_entries = projection.entries
-        try:
-            manifest = ArchiveExtractionManifest.from_members(
-                [
-                    ArchiveExtractionManifestMember(
-                        entry.path,
-                        entry.is_directory,
-                        entry.uncompressed_size,
-                        canonical_v2_timestamp(entry.modified_at),
-                    )
-                    for entry in zip_entries
-                ]
-            )
-        except HTTPException as exc:
-            raise ArchiveFormatError("Archive extraction output paths are invalid") from exc
-        operation = relay.commit_preflight(
-            operation,
-            checkpoint_json=json.dumps(
-                new_v2_extraction_checkpoint(
-                    manifest=manifest.checkpoint_entries(),
-                    source_snapshot=_archive_source_identity(archive_info),
-                )
-            ),
-        )
-        return _companion_extraction_manifest_response(operation, manifest)
-    except ArchiveFormatError as exc:
-        relay.fail_message(str(exc))
-        raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_CONTENT, detail="Archive extraction source is invalid") from exc
-    except HTTPException:
-        raise
-    except Exception as exc:
-        logger.exception("Mixed SMB archive manifest read failed: operation_id=%s", operation.id)
-        relay.fail_message(str(exc))
-        raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail="Archive manifest read failed") from exc
-    finally:
-        if reader is not None:
-            await reader.close()
-        await disconnect_backend_safely(backend, logger=logger, context=f"mixed archive manifest operation {operation.id}")
-
-
-async def stream_companion_local_archive_member(
-    member_path: str = Query(..., min_length=1),
-    relay: ScopedCompanionRelay | None = None,
-) -> StreamingResponse:
-    """Stream one validated SMB ZIP member directly to the scoped local executor."""
-
-    if relay is None:
-        raise ValueError("A resolved archive relay is required")
-    session = relay.session
-    user, operation = relay.streaming(not_streaming_detail="Archive operation is not accepting member reads")
-    checkpoint = load_archive_checkpoint(operation)
-    extraction_state = ArchiveExtractionState.from_checkpoint(checkpoint)
-    expected_member = extraction_state.member(member_path, is_directory=False)
-    connection = _mixed_smb_source_connection(session, user, operation)
-    backend = build_smb_backend(connection, backend_factory=SMBBackend)
-    reader = None
-    try:
-        await backend.connect()
-        archive_info = await backend.get_file_info(operation.source_path)
-        if archive_info.type != FileType.FILE or archive_info.size is None:
-            raise ArchiveFormatError("Archive extraction source must be a regular file")
-        if checkpoint.get("source_snapshot") != _archive_source_identity(archive_info):
-            relay.fail_message(
-                "Archive extraction source changed after manifest validation",
-                error_code=ArchiveOperationErrorCode.SOURCE_CHANGED,
-            )
-            raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="Archive extraction source changed after manifest validation")
-        reader = await backend.open_random_access_reader(operation.source_path)
-        zip_reader = ZipReader(reader, archive_info.size)
-        member = (await zip_reader.effective_entries()).member_by_exact_path.get(expected_member.member_path)
-        if member is None or member.path != expected_member.member_path or member.uncompressed_size != expected_member.uncompressed_size:
-            relay.fail_message(
-                "Archive extraction manifest changed after validation",
-                error_code=ArchiveOperationErrorCode.SOURCE_CHANGED,
-            )
-            raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="Archive extraction manifest changed after validation")
-        validated_member = await zip_reader.validate_entry(member)
-
-        async def stream_member() -> AsyncIterator[bytes]:
-            try:
-                async for chunk in zip_reader.stream_validated_entry(validated_member):
-                    if not ArchiveExtractionCoordinator(operation, DurableArchiveExecutionStateStore(session)).advance():
-                        return
-                    yield chunk
-            finally:
-                await reader.close()
-                await disconnect_backend_safely(
-                    backend,
-                    logger=logger,
-                    context=f"mixed archive member stream operation {operation.id}",
-                )
-
-        return StreamingResponse(
-            stream_member(),
-            media_type=mimetypes.guess_type(member.path)[0] or "application/octet-stream",
-        )
-    except ArchiveFormatError as exc:
-        if reader is not None:
-            await reader.close()
-        await disconnect_backend_safely(backend, logger=logger, context=f"invalid mixed archive member operation {operation.id}")
-        raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_CONTENT, detail="Archive member is invalid or unavailable") from exc
-    except Exception:
-        if reader is not None:
-            await reader.close()
-        await disconnect_backend_safely(backend, logger=logger, context=f"failed mixed archive member operation {operation.id}")
-        raise
-
-
-async def complete_companion_local_archive_member(
-    payload: ArchiveCompanionExtractionMemberCompletion,
-    idempotency_key: str | None = Header(default=None, alias=ARCHIVE_RELAY_IDEMPOTENCY_HEADER),
-    relay: ScopedCompanionRelay | None = None,
-) -> ArchiveOperation:
-    """Durably acknowledge one completed local member before the next member opens."""
-
-    _validate_archive_relay_idempotency_key(idempotency_key)
-    if relay is None:
-        raise ValueError("A resolved archive relay is required")
-    session = relay.session
-    _user, operation = relay.resolve()
-    payload_data = payload.model_dump(mode="json")
-    if _relay_delivery_replayed(operation, idempotency_key, command="extraction_member_complete", payload=payload_data):
-        return operation
-    _user, operation = relay.streaming(not_streaming_detail="Archive operation is not accepting member output")
-    operation = ArchiveExtractionCoordinator(operation, DurableArchiveExecutionStateStore(session)).record_member_completed(
-        ArchiveExtractionMemberOutcome(
-            payload.member_path,
-            payload.status,
-            payload.target_path,
-            extracted_bytes=payload.extracted_bytes,
-            directories_created=payload.directories_created,
-            replaced=payload.replaced,
-            renamed=payload.renamed,
-        ),
-    )
-    return _record_relay_delivery(
-        session,
-        operation,
-        idempotency_key,
-        command="extraction_member_complete",
-        payload=payload_data,
-    )
-
-
-async def pause_companion_local_archive_member_for_collision(
-    payload: ArchiveCompanionExtractionCollision,
-    idempotency_key: str | None = Header(default=None, alias=ARCHIVE_RELAY_IDEMPOTENCY_HEADER),
-    relay: ScopedCompanionRelay | None = None,
-) -> ArchiveOperation:
-    """Pause before Companion opens a verified pre-existing local output target."""
-
-    _validate_archive_relay_idempotency_key(idempotency_key)
-    if relay is None:
-        raise ValueError("A resolved archive relay is required")
-    session = relay.session
-    _user, operation = relay.resolve()
-    payload_data = payload.model_dump(mode="json")
-    if _relay_delivery_replayed(operation, idempotency_key, command="extraction_member_collision", payload=payload_data):
-        return operation
-    _user, operation = relay.streaming(not_streaming_detail="Archive operation is not accepting member output")
-    operation = ArchiveExtractionCoordinator(operation, DurableArchiveExecutionStateStore(session)).pause_for_collision(
-        member_path=payload.member_path,
-        is_directory=payload.is_directory,
-        target_size=payload.target_size,
-        target_modified_at=payload.target_modified_at,
-        target_path=payload.target_path,
-    )
-    return _record_relay_delivery(
-        session,
-        operation,
-        idempotency_key,
-        command="extraction_member_collision",
-        payload=payload_data,
-    )
-
-
-async def pause_companion_local_archive_member_for_error(
-    payload: ArchiveCompanionExtractionMemberError,
-    idempotency_key: str | None = Header(default=None, alias=ARCHIVE_RELAY_IDEMPOTENCY_HEADER),
-    relay: ScopedCompanionRelay | None = None,
-) -> ArchiveOperation:
-    """Pause a scoped local member failure for retry or explicit ignore."""
-
-    _validate_archive_relay_idempotency_key(idempotency_key)
-    if relay is None:
-        raise ValueError("A resolved archive relay is required")
-    session = relay.session
-    _user, operation = relay.resolve()
-    payload_data = payload.model_dump(mode="json")
-    if _relay_delivery_replayed(operation, idempotency_key, command="extraction_member_error", payload=payload_data):
-        return operation
-    _user, operation = relay.streaming(not_streaming_detail="Archive operation is not accepting member output")
-    operation = ArchiveExtractionCoordinator(operation, DurableArchiveExecutionStateStore(session)).pause_for_member_error(
-        member_path=payload.member_path,
-        message=payload.message,
-        partial_output=payload.partial_output,
-    )
-    return _record_relay_delivery(
-        session,
-        operation,
-        idempotency_key,
-        command="extraction_member_error",
-        payload=payload_data,
-    )
-
-
-async def complete_companion_local_archive_extraction(
-    payload: ArchiveCompanionExtractionSummary,
-    idempotency_key: str | None = Header(default=None, alias=ARCHIVE_RELAY_IDEMPOTENCY_HEADER),
-    relay: ScopedCompanionRelay | None = None,
-) -> ArchiveOperation:
-    """Complete after every scoped member outcome commits to the durable ledger."""
-
-    _validate_archive_relay_idempotency_key(idempotency_key)
-    if relay is None:
-        raise ValueError("A resolved archive relay is required")
-    session = relay.session
-    _user, operation = relay.resolve()
-    payload_data = payload.model_dump(mode="json")
-    if _relay_delivery_replayed(operation, idempotency_key, command="extraction_complete", payload=payload_data):
-        return operation
-    operation = relay.complete_extraction(destination_root_created=payload.destination_root_created)
-    return _record_relay_delivery(session, operation, idempotency_key, command="extraction_complete", payload=payload_data)
-
-
-async def fail_companion_local_archive_extraction(
-    payload: ArchiveCompanionFailure,
-    relay: ScopedCompanionRelay | None = None,
-) -> ArchiveOperation:
-    """Record a local executor failure without leaving the operation active."""
-
-    if relay is None:
-        raise ValueError("A resolved archive relay is required")
-    return relay.fail(payload)
+        await disconnect_backend_safely(backend, logger=logger, context=f"live local archive destination begin operation {operation.id}")
 
 
 async def begin_companion_local_archive_creation(
@@ -1724,15 +1510,144 @@ async def begin_v2_companion_relay_extraction(
     payload: ArchiveCompanionExtractionSourceManifest | None = None,
     relay_context: ResolvedRelayOperation = Depends(_resolve_v2_relay_operation),
 ) -> ArchiveOperation | ArchiveCompanionExtractionManifest:
-    """Begin a V2 extraction relay selected only from its durable operation."""
+    """Reject the superseded manifest-based extraction relay protocol."""
 
-    purpose = relay_context.binding
-    relay = ScopedCompanionRelay.from_resolved_context(relay_context)
-    if purpose == ArchiveCompanionRelayPurpose.LOCAL_ZIP_TO_SMB_EXTRACT:
-        return await begin_companion_archive_extraction(payload, relay)
-    if purpose == ArchiveCompanionRelayPurpose.SMB_ZIP_TO_LOCAL_EXTRACT:
-        return await begin_companion_local_archive_extraction(relay)
-    raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="Archive operation is not an extraction relay")
+    del operation_id, payload, relay_context
+    raise HTTPException(status_code=status.HTTP_410_GONE, detail="Use the live source-owned extraction relay endpoints")
+
+
+@v2_router.post("/operations/{operation_id}/relay/extraction/live/begin", response_model=ArchiveCompanionLiveExtractionBegin)
+async def begin_v2_live_companion_relay_extraction(
+    operation_id: uuid.UUID,
+    relay_context: ResolvedRelayOperation = Depends(_resolve_v2_relay_operation),
+) -> ArchiveCompanionLiveExtractionBegin:
+    """Begin the source-owned SMB-to-local extraction exchange."""
+
+    if relay_context.binding != ArchiveCompanionRelayPurpose.SMB_ZIP_TO_LOCAL_EXTRACT:
+        raise HTTPException(status_code=status.HTTP_405_METHOD_NOT_ALLOWED, detail="Archive relay does not provide an SMB ZIP source")
+    return await begin_live_companion_local_archive_extraction(ScopedCompanionRelay.from_resolved_context(relay_context))
+
+
+@v2_router.post("/operations/{operation_id}/relay/extraction/live/destination-begin", response_model=ArchiveOperationRead)
+async def begin_v2_live_companion_relay_extraction_destination(
+    operation_id: uuid.UUID,
+    relay_context: ResolvedRelayOperation = Depends(_resolve_v2_relay_operation),
+) -> ArchiveOperation:
+    """Begin the destination-only side of a Companion-held ZIP source relay."""
+
+    if relay_context.binding != ArchiveCompanionRelayPurpose.LOCAL_ZIP_TO_SMB_EXTRACT:
+        raise HTTPException(status_code=status.HTTP_405_METHOD_NOT_ALLOWED, detail="Archive relay does not provide a local ZIP source")
+    return await begin_live_companion_archive_extraction_destination(ScopedCompanionRelay.from_resolved_context(relay_context))
+
+
+@v2_router.put(
+    "/operations/{operation_id}/relay/extraction/live/destination-member",
+    response_model=ArchiveCompanionLiveDestinationWriteResult,
+)
+async def write_v2_live_companion_relay_extraction_destination_member(
+    operation_id: uuid.UUID,
+    request: Request,
+    payload: ArchiveCompanionLiveDestinationWriteRequest = Depends(),
+    relay_context: ResolvedRelayOperation = Depends(_resolve_v2_relay_operation),
+) -> ArchiveCompanionLiveDestinationWriteResult:
+    """Write one fenced member supplied by a Companion-held ZIP source."""
+
+    if relay_context.binding != ArchiveCompanionRelayPurpose.LOCAL_ZIP_TO_SMB_EXTRACT:
+        raise HTTPException(
+            status_code=status.HTTP_405_METHOD_NOT_ALLOWED, detail="Archive relay does not accept local ZIP destination writes"
+        )
+    return await write_live_companion_archive_destination_member(
+        request,
+        payload,
+        ScopedCompanionRelay.from_resolved_context(relay_context),
+    )
+
+
+@v2_router.post(
+    "/operations/{operation_id}/relay/extraction/live/destination-complete",
+    response_model=ArchiveOperationRead,
+)
+async def complete_v2_live_companion_relay_extraction_destination(
+    operation_id: uuid.UUID,
+    payload: ArchiveCompanionLiveExtractionSummary,
+    relay_context: ResolvedRelayOperation = Depends(_resolve_v2_relay_operation),
+) -> ArchiveOperation:
+    """Persist aggregate completion from a Companion-held ZIP source."""
+
+    if relay_context.binding != ArchiveCompanionRelayPurpose.LOCAL_ZIP_TO_SMB_EXTRACT:
+        raise HTTPException(status_code=status.HTTP_405_METHOD_NOT_ALLOWED, detail="Archive relay does not accept local ZIP completion")
+    return await complete_live_companion_archive_extraction(payload, ScopedCompanionRelay.from_resolved_context(relay_context))
+
+
+@v2_router.post(
+    "/operations/{operation_id}/relay/extraction/live/destination-decision",
+    response_model=ArchiveOperationRead,
+)
+async def decide_v2_live_companion_relay_extraction_destination(
+    operation_id: uuid.UUID,
+    payload: ArchiveCompanionLiveDestinationDecision,
+    relay_context: ResolvedRelayOperation = Depends(_resolve_v2_relay_operation),
+) -> ArchiveOperation:
+    """Resume or cancel the destination after the local retained source accepts its decision fence."""
+
+    if relay_context.binding != ArchiveCompanionRelayPurpose.LOCAL_ZIP_TO_SMB_EXTRACT:
+        raise HTTPException(status_code=status.HTTP_405_METHOD_NOT_ALLOWED, detail="Archive relay does not accept local ZIP decisions")
+    return resume_live_companion_archive_destination(payload, ScopedCompanionRelay.from_resolved_context(relay_context))
+
+
+@v2_router.get("/operations/{operation_id}/relay/extraction/live/next-member", response_model=ArchiveCompanionLiveExtractionMember | None)
+async def next_v2_live_companion_relay_extraction_member(
+    operation_id: uuid.UUID,
+    relay_context: ResolvedRelayOperation = Depends(_resolve_v2_relay_operation),
+) -> ArchiveCompanionLiveExtractionMember | None:
+    """Return only the next source-selected ZIP member metadata, or end-of-directory."""
+
+    if relay_context.binding != ArchiveCompanionRelayPurpose.SMB_ZIP_TO_LOCAL_EXTRACT:
+        raise HTTPException(status_code=status.HTTP_405_METHOD_NOT_ALLOWED, detail="Archive relay does not provide an SMB ZIP source")
+    return await next_live_companion_local_archive_member(ScopedCompanionRelay.from_resolved_context(relay_context))
+
+
+@v2_router.get("/operations/{operation_id}/relay/extraction/live/current-member")
+async def read_v2_live_companion_relay_extraction_member(
+    operation_id: uuid.UUID,
+    source_session_id: str = Query(..., min_length=1, max_length=64),
+    delivery_sequence: int = Query(..., ge=1),
+    relay_context: ResolvedRelayOperation = Depends(_resolve_v2_relay_operation),
+) -> StreamingResponse:
+    """Stream the current source-selected ZIP file only under its live fence."""
+
+    if relay_context.binding != ArchiveCompanionRelayPurpose.SMB_ZIP_TO_LOCAL_EXTRACT:
+        raise HTTPException(status_code=status.HTTP_405_METHOD_NOT_ALLOWED, detail="Archive relay does not provide an SMB ZIP source")
+    return await stream_live_companion_local_archive_member(
+        source_session_id,
+        delivery_sequence,
+        ScopedCompanionRelay.from_resolved_context(relay_context),
+    )
+
+
+@v2_router.post("/operations/{operation_id}/relay/extraction/live/result", response_model=ArchiveOperationRead)
+async def result_v2_live_companion_relay_extraction_member(
+    operation_id: uuid.UUID,
+    payload: ArchiveCompanionLiveDestinationWriteResult,
+    relay_context: ResolvedRelayOperation = Depends(_resolve_v2_relay_operation),
+) -> ArchiveOperation:
+    """Accept a transient local-destination result through the SMB source session."""
+
+    if relay_context.binding != ArchiveCompanionRelayPurpose.SMB_ZIP_TO_LOCAL_EXTRACT:
+        raise HTTPException(status_code=status.HTTP_405_METHOD_NOT_ALLOWED, detail="Archive relay does not provide an SMB ZIP source")
+    return await apply_live_companion_local_archive_result(payload, ScopedCompanionRelay.from_resolved_context(relay_context))
+
+
+@v2_router.post("/operations/{operation_id}/relay/extraction/live/complete", response_model=ArchiveOperationRead)
+async def complete_v2_live_companion_relay_extraction(
+    operation_id: uuid.UUID,
+    relay_context: ResolvedRelayOperation = Depends(_resolve_v2_relay_operation),
+) -> ArchiveOperation:
+    """Complete a source-owned SMB ZIP relay only after end-of-directory."""
+
+    if relay_context.binding != ArchiveCompanionRelayPurpose.SMB_ZIP_TO_LOCAL_EXTRACT:
+        raise HTTPException(status_code=status.HTTP_405_METHOD_NOT_ALLOWED, detail="Archive relay does not provide an SMB ZIP source")
+    return await complete_live_companion_local_archive_extraction(ScopedCompanionRelay.from_resolved_context(relay_context))
 
 
 @v2_router.get("/operations/{operation_id}/relay/extraction/member")
@@ -1741,11 +1656,10 @@ async def read_v2_companion_relay_extraction_member(
     member_path: str = Query(..., min_length=1),
     relay_context: ResolvedRelayOperation = Depends(_resolve_v2_relay_operation),
 ) -> StreamingResponse:
-    """Read one source member for an SMB-owned V2 extraction relay."""
+    """Reject the superseded member-addressed extraction relay protocol."""
 
-    if relay_context.binding != ArchiveCompanionRelayPurpose.SMB_ZIP_TO_LOCAL_EXTRACT:
-        raise HTTPException(status_code=status.HTTP_405_METHOD_NOT_ALLOWED, detail="Archive relay does not provide source member reads")
-    return await stream_companion_local_archive_member(member_path, ScopedCompanionRelay.from_resolved_context(relay_context))
+    del operation_id, member_path, relay_context
+    raise HTTPException(status_code=status.HTTP_410_GONE, detail="Use the live source-owned extraction relay endpoints")
 
 
 @v2_router.put("/operations/{operation_id}/relay/extraction/member", response_model=ArchiveOperationRead)
@@ -1757,15 +1671,10 @@ async def write_v2_companion_relay_extraction_member(
     source_modified_at: datetime | None = Query(None),
     relay_context: ResolvedRelayOperation = Depends(_resolve_v2_relay_operation),
 ) -> ArchiveOperation:
-    """Write one destination member for a local-owned V2 extraction relay."""
+    """Reject the superseded member-addressed extraction relay protocol."""
 
-    if relay_context.binding != ArchiveCompanionRelayPurpose.LOCAL_ZIP_TO_SMB_EXTRACT:
-        raise HTTPException(
-            status_code=status.HTTP_405_METHOD_NOT_ALLOWED, detail="Archive relay does not accept destination member writes"
-        )
-    return await write_companion_archive_member(
-        request, member_path, is_directory, source_modified_at, ScopedCompanionRelay.from_resolved_context(relay_context)
-    )
+    del operation_id, request, member_path, is_directory, source_modified_at, relay_context
+    raise HTTPException(status_code=status.HTTP_410_GONE, detail="Use the live source-owned extraction relay endpoints")
 
 
 @v2_router.post("/operations/{operation_id}/relay/extraction/member-complete", response_model=ArchiveOperationRead)
@@ -1775,15 +1684,10 @@ async def complete_v2_companion_relay_extraction_member(
     idempotency_key: str | None = Header(default=None, alias=ARCHIVE_RELAY_IDEMPOTENCY_HEADER),
     relay_context: ResolvedRelayOperation = Depends(_resolve_v2_relay_operation),
 ) -> ArchiveOperation:
-    """Acknowledge one local destination member through the V2 relay resource."""
+    """Reject the superseded per-member extraction acknowledgement protocol."""
 
-    if relay_context.binding != ArchiveCompanionRelayPurpose.SMB_ZIP_TO_LOCAL_EXTRACT:
-        raise HTTPException(
-            status_code=status.HTTP_405_METHOD_NOT_ALLOWED, detail="Archive relay does not accept member completion acknowledgements"
-        )
-    return await complete_companion_local_archive_member(
-        payload, idempotency_key, ScopedCompanionRelay.from_resolved_context(relay_context)
-    )
+    del operation_id, payload, idempotency_key, relay_context
+    raise HTTPException(status_code=status.HTTP_410_GONE, detail="Use the live source-owned extraction relay endpoints")
 
 
 @v2_router.post("/operations/{operation_id}/relay/extraction/member-collision", response_model=ArchiveOperationRead)
@@ -1793,15 +1697,10 @@ async def pause_v2_companion_relay_extraction_member_for_collision(
     idempotency_key: str | None = Header(default=None, alias=ARCHIVE_RELAY_IDEMPOTENCY_HEADER),
     relay_context: ResolvedRelayOperation = Depends(_resolve_v2_relay_operation),
 ) -> ArchiveOperation:
-    """Pause an extraction relay for a local destination collision."""
+    """Reject the superseded per-member extraction acknowledgement protocol."""
 
-    if relay_context.binding != ArchiveCompanionRelayPurpose.SMB_ZIP_TO_LOCAL_EXTRACT:
-        raise HTTPException(
-            status_code=status.HTTP_405_METHOD_NOT_ALLOWED, detail="Archive relay does not accept collision acknowledgements"
-        )
-    return await pause_companion_local_archive_member_for_collision(
-        payload, idempotency_key, ScopedCompanionRelay.from_resolved_context(relay_context)
-    )
+    del operation_id, payload, idempotency_key, relay_context
+    raise HTTPException(status_code=status.HTTP_410_GONE, detail="Use the live source-owned extraction relay endpoints")
 
 
 @v2_router.post("/operations/{operation_id}/relay/extraction/member-error", response_model=ArchiveOperationRead)
@@ -1811,15 +1710,10 @@ async def pause_v2_companion_relay_extraction_member_for_error(
     idempotency_key: str | None = Header(default=None, alias=ARCHIVE_RELAY_IDEMPOTENCY_HEADER),
     relay_context: ResolvedRelayOperation = Depends(_resolve_v2_relay_operation),
 ) -> ArchiveOperation:
-    """Pause an extraction relay for a local destination write failure."""
+    """Reject the superseded per-member extraction acknowledgement protocol."""
 
-    if relay_context.binding != ArchiveCompanionRelayPurpose.SMB_ZIP_TO_LOCAL_EXTRACT:
-        raise HTTPException(
-            status_code=status.HTTP_405_METHOD_NOT_ALLOWED, detail="Archive relay does not accept member error acknowledgements"
-        )
-    return await pause_companion_local_archive_member_for_error(
-        payload, idempotency_key, ScopedCompanionRelay.from_resolved_context(relay_context)
-    )
+    del operation_id, payload, idempotency_key, relay_context
+    raise HTTPException(status_code=status.HTTP_410_GONE, detail="Use the live source-owned extraction relay endpoints")
 
 
 @v2_router.post("/operations/{operation_id}/relay/extraction/complete", response_model=ArchiveOperationRead)
@@ -1829,19 +1723,10 @@ async def complete_v2_companion_relay_extraction(
     idempotency_key: str | None = Header(default=None, alias=ARCHIVE_RELAY_IDEMPOTENCY_HEADER),
     relay_context: ResolvedRelayOperation = Depends(_resolve_v2_relay_operation),
 ) -> ArchiveOperation:
-    """Complete a V2 extraction relay selected from the durable topology."""
+    """Reject the superseded manifest-based extraction completion protocol."""
 
-    purpose = relay_context.binding
-    relay = ScopedCompanionRelay.from_resolved_context(relay_context)
-    if purpose == ArchiveCompanionRelayPurpose.LOCAL_ZIP_TO_SMB_EXTRACT:
-        return await complete_companion_archive_extraction(idempotency_key, relay)
-    if purpose == ArchiveCompanionRelayPurpose.SMB_ZIP_TO_LOCAL_EXTRACT:
-        if payload is None:
-            raise HTTPException(
-                status_code=status.HTTP_422_UNPROCESSABLE_CONTENT, detail="Archive extraction completion payload is required"
-            )
-        return await complete_companion_local_archive_extraction(payload, idempotency_key, relay)
-    raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="Archive operation is not an extraction relay")
+    del operation_id, payload, idempotency_key, relay_context
+    raise HTTPException(status_code=status.HTTP_410_GONE, detail="Use the live source-owned extraction relay endpoints")
 
 
 @v2_router.post("/operations/{operation_id}/relay/extraction/fail", response_model=ArchiveOperationRead)
@@ -1850,15 +1735,10 @@ async def fail_v2_companion_relay_extraction(
     payload: ArchiveCompanionFailure,
     relay_context: ResolvedRelayOperation = Depends(_resolve_v2_relay_operation),
 ) -> ArchiveOperation:
-    """Fail a V2 extraction relay selected from its durable topology."""
+    """Reject the superseded manifest-based extraction failure protocol."""
 
-    purpose = relay_context.binding
-    relay = ScopedCompanionRelay.from_resolved_context(relay_context)
-    if purpose == ArchiveCompanionRelayPurpose.LOCAL_ZIP_TO_SMB_EXTRACT:
-        return await fail_companion_archive_extraction(payload, relay)
-    if purpose == ArchiveCompanionRelayPurpose.SMB_ZIP_TO_LOCAL_EXTRACT:
-        return await fail_companion_local_archive_extraction(payload, relay)
-    raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="Archive operation is not an extraction relay")
+    del operation_id, payload, relay_context
+    raise HTTPException(status_code=status.HTTP_410_GONE, detail="Use the live source-owned extraction relay endpoints")
 
 
 @v2_router.post("/operations/{operation_id}/relay/creation/begin", response_model=None)
@@ -2074,7 +1954,7 @@ async def execute_archive_extraction(
     current_user: User = Depends(get_current_user_with_auth_check),
     session: Session = Depends(get_session),
 ) -> ArchiveOperation:
-    """Extract the operation's archive into new paths on its source SMB connection."""
+    """Extract in record order through one retained, source-owned ZIP session."""
 
     async with _open_direct_smb_archive_execution(
         operation_id,
@@ -2084,74 +1964,86 @@ async def execute_archive_extraction(
         kind_name="extraction",
         write_action="extract archive",
     ) as (operation, backend):
+        state_store = DurableArchiveExecutionStateStore(session)
         if operation.phase == ArchiveOperationPhase.PREPARED:
             archive_info = await backend.get_file_info(operation.source_path)
             if archive_info.type != FileType.FILE or archive_info.size is None:
                 raise HTTPException(
                     status_code=status.HTTP_422_UNPROCESSABLE_CONTENT, detail="Archive extraction source must be a regular file"
                 )
-            random_reader = await backend.open_random_access_reader(operation.source_path)
+            random_reader = await backend.open_archive_source_reader(operation.source_path)
             try:
-                zip_reader = ZipReader(random_reader, archive_info.size)
-                projection = await zip_reader.effective_entries()
-                _validate_archive_extraction_entry_safety(projection)
-                entries = projection.entries
-            finally:
+                source_session = await _live_extraction_sessions.open(random_reader, archive_info.size, operation_id=operation.id)
+            except Exception:
                 await random_reader.close()
-            manifest = ArchiveExtractionManifest.from_members(
-                [
-                    ArchiveExtractionManifestMember(
-                        entry.path,
-                        entry.is_directory,
-                        entry.uncompressed_size,
-                        canonical_v2_timestamp(entry.modified_at),
-                    )
-                    for entry in entries
-                ]
+                raise
+            archive_operation_cleanup_registry.register(
+                operation.id,
+                lambda: _live_extraction_sessions.remove_for_operation(operation.id),
             )
-            checkpoint = new_v2_extraction_checkpoint(
-                manifest=manifest.checkpoint_entries(),
-                source_snapshot=_archive_source_identity(archive_info),
+            operation = state_store.update_checkpoint(operation, json.dumps(new_v2_extraction_checkpoint()))
+            operation = state_store.transition(
+                operation,
+                expected_phase=ArchiveOperationPhase.PREPARED,
+                next_phase=ArchiveOperationPhase.ACCEPTED,
             )
-            operation = DurableArchiveExecutionStateStore(session).update_checkpoint(operation, json.dumps(checkpoint))
+            operation = state_store.transition(
+                operation,
+                expected_phase=ArchiveOperationPhase.ACCEPTED,
+                next_phase=ArchiveOperationPhase.STREAMING,
+            )
         else:
-            checkpoint = load_archive_checkpoint(operation)
-            archive_info = await backend.get_file_info(operation.source_path)
-            if (
-                archive_info.type != FileType.FILE
-                or archive_info.size is None
-                or checkpoint.get("source_snapshot") != _archive_source_identity(archive_info)
-            ):
-                DurableArchiveExecutionStateStore(session).fail(
+            try:
+                source_session = await _live_extraction_sessions.get_for_operation(operation.id)
+            except LiveSourceSessionError as exc:
+                state_store.fail(
                     operation,
-                    "Archive extraction source changed after manifest validation",
-                    error_code=ArchiveOperationErrorCode.SOURCE_CHANGED,
+                    "Live archive source session is unavailable; start a new extraction operation",
+                    error_code=ArchiveOperationErrorCode.OPERATION_UNAVAILABLE,
                 )
-                raise HTTPException(
-                    status_code=status.HTTP_409_CONFLICT,
-                    detail="Archive extraction source changed after manifest validation",
-                )
-
-        async def run_extraction(
-            execution_plan: ArchiveExtractionExecutionPlan,
-            record_member_completed: Callable[[ArchiveExtractionDestinationResult], Awaitable[None]],
-            is_cancelled: Callable[[], Awaitable[bool]],
-        ) -> ArchiveExtractionResult:
-            return await extract_archive_to_new_paths(
-                backend,
+                raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=str(exc)) from exc
+            if operation.phase != ArchiveOperationPhase.STREAMING:
+                raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="Archive operation is not streaming")
+        try:
+            aggregate = await extract_live_archive_to_new_paths(
+                source_session,
                 destination=backend,
-                archive_path=operation.source_path,
                 destination_root=operation.destination_path,
-                execution_plan=execution_plan,
-                on_member_completed=record_member_completed,
-                is_cancelled=is_cancelled,
+                existing_file_policy=operation.collision_policy,
+                is_cancelled=lambda: state_store.is_cancelled(operation),
             )
-
-        coordinator = ArchiveExtractionCoordinator(
-            operation=operation,
-            state_store=DurableArchiveExecutionStateStore(session),
-        )
-        return await coordinator.run(run_extraction)
+            checkpoint = new_v2_extraction_checkpoint()
+            checkpoint["aggregate_counters"] = aggregate.checkpoint_payload()
+            operation = state_store.update_checkpoint(operation, json.dumps(checkpoint))
+            if source_session.phase == LiveSourceSessionPhase.AWAITING_DECISION:
+                return state_store.transition(
+                    operation,
+                    expected_phase=ArchiveOperationPhase.STREAMING,
+                    next_phase=ArchiveOperationPhase.AWAITING_USER_DECISION,
+                    additional_changes={"pending_decision_json": None},
+                )
+            if source_session.phase != LiveSourceSessionPhase.COMPLETED:
+                raise ArchiveFormatError("Archive source session did not reach a terminal completion state")
+            operation = state_store.transition(
+                operation,
+                expected_phase=ArchiveOperationPhase.STREAMING,
+                next_phase=ArchiveOperationPhase.VERIFYING,
+            )
+            operation = state_store.transition(
+                operation,
+                expected_phase=ArchiveOperationPhase.VERIFYING,
+                next_phase=ArchiveOperationPhase.COMPLETED,
+            )
+            await _live_extraction_sessions.remove_for_operation(operation.id)
+            archive_operation_cleanup_registry.unregister(operation.id)
+            return operation
+        except Exception:
+            if not source_session.phase.is_terminal:
+                await source_session.cancel()
+            state_store.fail(operation, "Live archive extraction failed")
+            await _live_extraction_sessions.remove_for_operation(operation.id)
+            archive_operation_cleanup_registry.unregister(operation.id)
+            raise
 
 
 async def decide_archive_extraction(
@@ -2160,61 +2052,65 @@ async def decide_archive_extraction(
     current_user: User = Depends(get_current_user_with_auth_check),
     session: Session = Depends(get_session),
 ) -> ArchiveOperation:
-    """Apply an allowed all-files collision policy or cancel the paused extraction."""
+    """Resolve a decision held by the active live source session."""
 
     operation = _get_owned_operation_or_404(session, current_user, operation_id)
     _require_expected_archive_operation_revision(operation, payload.expected_revision)
-    if payload.action == "cancel":
+    try:
+        source_session = await _live_extraction_sessions.get_for_operation(operation.id)
+    except LiveSourceSessionError:
+        source_session = None
+    if source_session is not None:
+        if operation.phase != ArchiveOperationPhase.AWAITING_USER_DECISION:
+            raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="Archive operation is not awaiting a decision")
+        if payload.action == "cancel":
+            await source_session.cancel()
+            operation = update_operation_phase(
+                session,
+                operation,
+                expected_phase=ArchiveOperationPhase.AWAITING_USER_DECISION,
+                next_phase=ArchiveOperationPhase.CANCELLED,
+            )
+            await _live_extraction_sessions.remove_for_operation(operation.id)
+            archive_operation_cleanup_registry.unregister(operation.id)
+            return operation
+        if payload.source_session_id is None or payload.delivery_sequence is None or payload.decision_revision is None:
+            raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_CONTENT, detail="Live archive decision fence is required")
+        target_path = None
+        if payload.action == "rename":
+            if not isinstance(payload.target_path, str):
+                raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_CONTENT, detail="Archive rename target path is invalid")
+            try:
+                target_path = archive_extraction_target_path(operation.destination_path, payload.target_path)
+            except ArchiveFormatError as exc:
+                raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_CONTENT, detail=str(exc)) from exc
+        try:
+            await source_session.resolve_decision(
+                payload.source_session_id,
+                payload.delivery_sequence,
+                payload.decision_revision,
+                payload.action,
+                target_path,
+            )
+        except LiveSourceSessionError as exc:
+            raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=str(exc)) from exc
         return update_operation_phase(
             session,
             operation,
             expected_phase=ArchiveOperationPhase.AWAITING_USER_DECISION,
-            next_phase=ArchiveOperationPhase.CANCELLED,
+            next_phase=ArchiveOperationPhase.STREAMING,
+            additional_changes={"pending_decision_json": None},
         )
-    if payload.action == "rename" and not operation.source_connection_id.startswith(LOCAL_DRIVE_PREFIX):
-        await _validate_archive_extraction_rename(session, current_user, operation, payload)
-    return ArchiveExtractionCoordinator(
-        operation=operation,
-        state_store=DurableArchiveExecutionStateStore(session),
-    ).apply_decision(payload.action, member_path=payload.member_path, target_path=payload.target_path)
-
-
-async def _validate_archive_extraction_rename(
-    session: Session,
-    current_user: User,
-    operation: ArchiveOperation,
-    payload: ArchiveExtractionDecision,
-) -> None:
-    """Reject a rename that would make the complete archive output ambiguous."""
-
-    if not isinstance(payload.member_path, str) or not isinstance(payload.target_path, str):
-        return
-    try:
-        connection = get_accessible_connection_or_404(session, current_user, uuid.UUID(operation.source_connection_id))
-    except ValueError as exc:
-        raise HTTPException(
-            status_code=status.HTTP_422_UNPROCESSABLE_CONTENT, detail="Archive extraction connection ID is invalid"
-        ) from exc
-    backend = build_smb_backend(connection, backend_factory=SMBBackend)
-    reader = None
-    try:
-        await backend.connect()
-        archive_info = await backend.get_file_info(operation.source_path)
-        if archive_info.type != FileType.FILE or archive_info.size is None:
-            raise HTTPException(
-                status_code=status.HTTP_422_UNPROCESSABLE_CONTENT, detail="Archive extraction source must be a regular file"
-            )
-        reader = await backend.open_random_access_reader(operation.source_path)
-        entries = (await ZipReader(reader, archive_info.size).effective_entries()).entries
-        rename_targets = ArchiveExtractionDecisionState.from_checkpoint(load_archive_checkpoint(operation)).rename_targets()
-        rename_targets[payload.member_path] = payload.target_path
-        validate_archive_rename_targets(entries, rename_targets)
-    except ArchiveFormatError as exc:
-        raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_CONTENT, detail=str(exc)) from exc
-    finally:
-        if reader is not None:
-            await reader.close()
-        await disconnect_backend_safely(backend, logger=logger, context=f"archive extraction rename validation {operation.id}")
+    fail_operation(
+        session,
+        operation,
+        "Live archive source session is unavailable; start a new extraction operation",
+        error_code=ArchiveOperationErrorCode.OPERATION_UNAVAILABLE,
+    )
+    raise HTTPException(
+        status_code=status.HTTP_409_CONFLICT,
+        detail="Live archive source session is unavailable; start a new extraction operation",
+    )
 
 
 async def cancel_archive_operation(
@@ -2228,6 +2124,22 @@ async def cancel_archive_operation(
     operation = _get_owned_operation_or_404(session, current_user, operation_id)
     _require_expected_archive_operation_revision(operation, expected_revision)
     operation = request_operation_cancellation(session, operation)
+    try:
+        source_session = await _live_extraction_sessions.get_for_operation(operation.id)
+    except LiveSourceSessionError:
+        source_session = None
+    if source_session is not None:
+        await source_session.cancel()
+        if operation.phase not in TERMINAL_ARCHIVE_OPERATION_PHASES:
+            operation = update_operation_phase(
+                session,
+                operation,
+                expected_phase=operation.phase,
+                next_phase=ArchiveOperationPhase.CANCELLED,
+            )
+        await _live_extraction_sessions.remove_for_operation(operation.id)
+        archive_operation_cleanup_registry.unregister(operation.id)
+        return operation
     execution = _local_to_smb_creation_writers.execution(operation.id)
     if execution.is_active():
         return await complete_creation_relay_execution(
@@ -2238,6 +2150,58 @@ async def cancel_archive_operation(
         )
     await execution.abort()
     return operation
+
+
+@v2_router.get("/operations/{operation_id}/extraction/live-status", response_model=ArchiveLiveExtractionStatus)
+async def get_live_archive_extraction_status(
+    operation_id: uuid.UUID,
+    current_user: User = Depends(get_current_user_with_auth_check),
+    session: Session = Depends(get_session),
+) -> ArchiveLiveExtractionStatus:
+    """Return the current source-owned decision and aggregate progress, if live."""
+
+    operation = _get_owned_operation_or_404(session, current_user, operation_id)
+    if operation.kind != ArchiveOperationKind.EXTRACT:
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="Archive operation is not an extraction operation")
+    try:
+        source_session = await _live_extraction_sessions.get_for_operation(operation.id)
+    except LiveSourceSessionError as exc:
+        fail_operation(
+            session,
+            operation,
+            "Live archive source session is unavailable; start a new extraction operation",
+            error_code=ArchiveOperationErrorCode.OPERATION_UNAVAILABLE,
+        )
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="Live archive source session is unavailable") from exc
+    decision = await source_session.pending_decision()
+    current_member = await source_session.current_member()
+    if decision is not None and current_member is None:
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="Live archive source decision is unavailable")
+    pending_decision = None
+    if decision is not None:
+        assert current_member is not None
+        pending_decision = ArchiveLiveExtractionPendingDecision(
+            revision=decision.revision,
+            kind=decision.kind,
+            member_path=decision.member_path,
+            delivery_sequence=current_member.delivery_sequence,
+            is_directory=current_member.is_directory,
+            allowed_actions=(
+                ["retry", "ignore"]
+                if decision.kind == "member_error"
+                else ["rename"]
+                if current_member.is_directory
+                else ["skip", "skip_all", "replace", "replace_all", "replace_older", "rename"]
+            ),
+            target_path=decision.target_path,
+            message=decision.message,
+        )
+    return ArchiveLiveExtractionStatus(
+        source_session_id=source_session.source_session_id,
+        phase=source_session.phase.value,
+        aggregate_counters=source_session.aggregate.checkpoint_payload(),
+        pending_decision=pending_decision,
+    )
 
 
 @v2_router.post("/operations", response_model=ArchiveOperationRead, status_code=status.HTTP_201_CREATED)

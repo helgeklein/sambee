@@ -61,13 +61,7 @@ from app.models.recent_file import (
     RecentFileValidationError,
 )
 from app.models.user import User
-from app.services.archive.coordinator import (
-    ArchiveDirectoryListingPresentation,
-    ArchiveInspectionPlan,
-    SmbArchiveInspectionSource,
-    resolve_archive_inspection_coordinator,
-)
-from app.services.archive.execution import ArchiveExecutionDriver, resolve_archive_inspection_topology_plan
+from app.services.archive.execution import resolve_archive_inspection_topology_plan
 from app.services.archive.zip_reader import ArchiveFormatError, ZipReader
 from app.services.connection_access import get_accessible_connection_or_404, require_connection_write_access
 from app.services.content_transfer import (
@@ -610,9 +604,14 @@ async def list_archive_directory(
     current_user: User = Depends(get_current_user_with_auth_check),
     session: Session = Depends(get_session),
 ) -> ArchiveDirectoryListing:
-    """Return one bounded page from a ZIP archive without staging its contents."""
+    """Return one bounded record-order page from a ZIP central directory."""
 
     set_user(current_user.username)
+    if virtual_path:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
+            detail="Archive record-order listing does not support virtual directory paths",
+        )
     connection = _get_connection_or_404(session, current_user, connection_id)
     backend = build_smb_backend(connection, backend_factory=SMBBackend)
     reader = None
@@ -623,26 +622,33 @@ async def list_archive_directory(
             raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_CONTENT, detail="Archive path must identify a regular file")
         reader = await backend.open_random_access_reader(archive_path)
         topology = resolve_archive_inspection_topology_plan(source_connection_id=str(connection_id))
-        if topology.driver != ArchiveExecutionDriver.BACKEND:
+        if topology.source_is_local:
             raise HTTPException(
                 status_code=status.HTTP_422_UNPROCESSABLE_CONTENT, detail="Archive inspection requires the Companion coordinator"
             )
-        source = SmbArchiveInspectionSource(ZipReader(reader, archive_info.size))
-        inspection = resolve_archive_inspection_coordinator(
-            ArchiveInspectionPlan(
-                source,
-                topology,
-                ArchiveDirectoryListingPresentation(
-                    archive_path=archive_path,
-                    archive_size=archive_info.size,
-                    archive_modified_at=archive_info.modified_at,
-                    virtual_path=virtual_path,
-                    cursor=cursor,
-                    page_size=page_size,
-                ),
-            )
+        zip_reader = ZipReader(reader, archive_info.size)
+        entries, next_cursor = await zip_reader.inspection_page(cursor, page_size)
+        return ArchiveDirectoryListing(
+            archive={"path": archive_path, "size": archive_info.size, "modified_at": archive_info.modified_at},
+            path="",
+            items=[
+                {
+                    "name": entry.path.rsplit("/", 1)[-1],
+                    "path": entry.path,
+                    "type": FileType.DIRECTORY if entry.is_directory else FileType.FILE,
+                    "size": None if entry.is_directory else entry.uncompressed_size,
+                    "compressed_size": None if entry.is_directory else entry.compressed_size,
+                    "compression_method": None if entry.is_directory else entry.compression_method,
+                    "crc32": None if entry.is_directory else entry.crc32,
+                    "modified_at": entry.modified_at,
+                    "state": "blocked" if entry.encrypted else "readable" if entry.compression_method in {0, 8, 12} else "unavailable",
+                    "is_hidden": entry.path.rsplit("/", 1)[-1].startswith("."),
+                }
+                for entry in entries
+            ],
+            next_cursor=next_cursor,
+            page_size=page_size,
         )
-        return await inspection.directory_listing()
     except ArchiveFormatError as exc:
         raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_CONTENT, detail={"code": "invalid_zip", "message": str(exc)}) from exc
     except FileNotFoundError as exc:

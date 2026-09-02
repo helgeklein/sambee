@@ -670,8 +670,8 @@ class SMBBackend(StorageBackend):
             logger.error(f"Failed to read file {path}: {e}")
             raise
 
-    async def open_random_access_reader(self, path: str) -> RandomAccessReader:
-        """Open a pooled SMB handle for serialized bounded offset reads."""
+    async def _open_random_access_reader(self, path: str, *, share_access: str, operation_name: str) -> RandomAccessReader:
+        """Open one pooled SMB handle for serialized bounded offset reads."""
 
         smb_path = self._build_smb_path(path)
         pool = await get_connection_pool()
@@ -687,12 +687,12 @@ class SMBBackend(StorageBackend):
         await connection_lease.__aenter__()
         try:
             handle = await self._run_blocking_smb_call(
-                "open_file_for_random_read",
+                operation_name,
                 lambda: smbclient.open_file(
                     smb_path,
                     mode="rb",
                     buffering=0,
-                    share_access="rwd",
+                    share_access=share_access,
                     **self._smb_auth_kwargs(),
                 ),
                 SMB_FILE_OPEN_TIMEOUT_SECONDS,
@@ -707,6 +707,24 @@ class SMBBackend(StorageBackend):
             smb_path=smb_path,
             handle=handle,
             connection_lease=connection_lease,
+        )
+
+    async def open_random_access_reader(self, path: str) -> RandomAccessReader:
+        """Open a general-purpose SMB reader that permits concurrent share updates."""
+
+        return await self._open_random_access_reader(
+            path,
+            share_access="rwd",
+            operation_name="open_file_for_random_read",
+        )
+
+    async def open_archive_source_reader(self, path: str) -> RandomAccessReader:
+        """Pin an archive source against concurrent SMB writers for its live operation."""
+
+        return await self._open_random_access_reader(
+            path,
+            share_access="r",
+            operation_name="open_file_for_archive_source_read",
         )
 
     async def open_exclusive_writer(self, path: str) -> ExclusiveWriter:

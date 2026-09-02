@@ -28,6 +28,7 @@ on:
       - '.github/scripts/cleanup_untagged_container_versions.py'
       - '.github/scripts/cleanup_signature_container_versions.py'
       - 'scripts/verify-python-runtime-image.py'
+      - 'scripts/verify-archive-single-worker.py'
       - 'Dockerfile'
       - '.dockerignore'
       - 'VERSION'
@@ -58,6 +59,7 @@ on:
       - '.github/scripts/cleanup_untagged_container_versions.py'
       - '.github/scripts/cleanup_signature_container_versions.py'
       - 'scripts/verify-python-runtime-image.py'
+      - 'scripts/verify-archive-single-worker.py'
       - 'Dockerfile'
       - '.dockerignore'
       - 'VERSION'
@@ -107,6 +109,9 @@ jobs:
 
     - name: Verify shared Python runtime image
       run: python3 scripts/verify-python-runtime-image.py
+
+    - name: Verify archive live-session worker contract
+      run: python3 scripts/verify-archive-single-worker.py
 
     - name: Set up QEMU
       if: ${{ matrix.platform_id == 'amd64' }}

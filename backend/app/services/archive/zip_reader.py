@@ -2,6 +2,7 @@
 
 import base64
 import bz2
+import json
 import struct
 import time
 import unicodedata
@@ -378,6 +379,31 @@ def decode_cursor(value: str | None) -> int:
     return offset
 
 
+def _forward_cursor(position: int, remaining_entries: int) -> str:
+    """Encode one bounded central-directory continuation point."""
+
+    return (
+        base64.urlsafe_b64encode(json.dumps({"position": position, "remaining_entries": remaining_entries}, separators=(",", ":")).encode())
+        .decode()
+        .rstrip("=")
+    )
+
+
+def _decode_forward_cursor(value: str) -> tuple[int, int]:
+    """Decode a continuation point emitted by this reader only."""
+
+    try:
+        padded = value + "=" * (-len(value) % 4)
+        payload = json.loads(base64.urlsafe_b64decode(padded.encode()).decode())
+        position = payload["position"]
+        remaining_entries = payload["remaining_entries"]
+    except (KeyError, TypeError, UnicodeDecodeError, ValueError, json.JSONDecodeError) as exc:
+        raise ArchiveFormatError("Archive listing cursor is invalid") from exc
+    if type(position) is not int or type(remaining_entries) is not int or position < 0 or remaining_entries < 0:
+        raise ArchiveFormatError("Archive listing cursor is invalid")
+    return position, remaining_entries
+
+
 class ZipReader:
     """Read ZIP metadata without staging archive contents or member bytes."""
 
@@ -391,8 +417,18 @@ class ZipReader:
         self._inspection_manifest: ArchiveInspectionManifest | None = None
         self._entry_identity = object()
         self._validation_identity = object()
+        self._forward_directory: ZipDirectory | None = None
+        self._forward_position: int | None = None
+        self._forward_remaining_entries: int | None = None
+        self._forward_next_read_offset: int | None = None
+        self._forward_buffer = bytearray()
         self._read_operations = 0
         self._read_bytes = 0
+
+    async def close(self) -> None:
+        """Release the retained random-access archive source."""
+
+        await self._reader.close()
 
     async def _read_exact(self, offset: int, length: int) -> bytes:
         if offset < 0 or length < 0 or offset + length > self._size:
@@ -432,88 +468,148 @@ class ZipReader:
             raise ArchiveFormatError("ZIP64 end-of-central-directory record is invalid")
         return ZipDirectory(_u64(header, 48), _u64(header, 40), _u64(header, 32))
 
-    async def entries(self) -> tuple[ZipEntry, ...]:
-        if self._entries is not None:
-            return self._entries
-        started_at = time.perf_counter()
-        initial_read_operations = self._read_operations
-        initial_read_bytes = self._read_bytes
+    async def _initialize_forward_reader(self) -> ZipDirectory:
+        if self._forward_directory is not None:
+            return self._forward_directory
         directory = await self._directory()
         if directory.offset + directory.size > self._size:
             raise ArchiveFormatError("ZIP central directory extends beyond archive bounds")
-        entries: list[ZipEntry] = []
+        self._forward_directory = directory
+        self._forward_position = directory.offset
+        self._forward_remaining_entries = directory.entries
+        self._forward_next_read_offset = directory.offset
+        return directory
+
+    async def set_forward_cursor(self, cursor: str | None) -> None:
+        """Set this new reader to a previously emitted record boundary."""
+
+        if cursor is None:
+            return
+        if self._forward_position is not None:
+            raise ArchiveFormatError("Archive listing cursor cannot be applied after traversal begins")
+        position, remaining_entries = _decode_forward_cursor(cursor)
+        directory = await self._initialize_forward_reader()
         directory_end = directory.offset + directory.size
-        position = directory.offset
-        next_read_offset = directory.offset
-        buffer = bytearray()
+        if position < directory.offset or position > directory_end or remaining_entries > directory.entries:
+            raise ArchiveFormatError("Archive listing cursor is out of range")
+        self._forward_position = position
+        self._forward_remaining_entries = remaining_entries
+        self._forward_next_read_offset = position
+        self._forward_buffer.clear()
 
-        async def fill_buffer(required_length: int) -> None:
-            nonlocal next_read_offset
-            while len(buffer) < required_length and next_read_offset < directory_end:
-                read_length = min(_ARCHIVE_IO_CHUNK_BYTES, directory_end - next_read_offset)
-                buffer.extend(await self._read_exact(next_read_offset, read_length))
-                next_read_offset += read_length
+    async def inspection_page(self, cursor: str | None, page_size: int) -> tuple[tuple[ZipEntry, ...], str | None]:
+        """Return one record-order page without collecting the full directory."""
 
-        for _ in range(directory.entries):
-            await fill_buffer(_CENTRAL_DIRECTORY_FIXED_SIZE)
-            if len(buffer) < _CENTRAL_DIRECTORY_FIXED_SIZE:
-                raise ArchiveFormatError("ZIP central-directory entry is truncated")
-            fixed = bytes(buffer[:_CENTRAL_DIRECTORY_FIXED_SIZE])
-            if fixed[:4] != _CENTRAL_DIRECTORY_SIGNATURE:
-                raise ArchiveFormatError("ZIP central-directory entry is invalid")
-            flags = _u16(fixed, 8)
-            version_made_by = _u16(fixed, 4)
-            external_attributes = _u32(fixed, 38)
-            method = _u16(fixed, 10)
-            time_value = _u16(fixed, 12)
-            date_value = _u16(fixed, 14)
-            crc32 = _u32(fixed, 16)
-            compressed_size = _u32(fixed, 20)
-            uncompressed_size = _u32(fixed, 24)
-            name_length = _u16(fixed, 28)
-            extra_length = _u16(fixed, 30)
-            comment_length = _u16(fixed, 32)
-            variable_length = name_length + extra_length + comment_length
-            record_length = _CENTRAL_DIRECTORY_FIXED_SIZE + variable_length
-            if variable_length > _MAX_ENTRY_VARIABLE_BYTES or position + record_length > directory_end:
-                raise ArchiveFormatError("ZIP central-directory entry length is invalid")
-            await fill_buffer(record_length)
-            if len(buffer) < record_length:
-                raise ArchiveFormatError("ZIP central-directory entry is truncated")
-            variable = bytes(buffer[_CENTRAL_DIRECTORY_FIXED_SIZE:record_length])
-            raw_name = variable[:name_length]
-            extra = variable[name_length : name_length + extra_length]
-            decoded_name = _decode_name(raw_name, flags, extra)
-            path, is_directory = _normalize_path(decoded_name)
-            local_header_offset = _u32(fixed, 42)
-            compressed_size, uncompressed_size, local_header_offset = _zip64_member_values(
-                extra,
-                compressed_size=compressed_size,
-                uncompressed_size=uncompressed_size,
-                local_header_offset=local_header_offset,
-            )
-            entries.append(
-                ZipEntry(
-                    path=path,
-                    is_directory=is_directory,
-                    compressed_size=compressed_size,
-                    uncompressed_size=uncompressed_size,
-                    compression_method=method,
-                    crc32=crc32,
-                    modified_at=_dos_datetime(date_value, time_value),
-                    encrypted=bool(flags & 1),
-                    is_safe=_is_safe_path(decoded_name, path),
-                    has_supported_file_type=_has_supported_file_type(version_made_by, external_attributes),
-                    local_header_offset=local_header_offset,
-                    flags=flags,
-                    raw_name=raw_name,
-                    reader_identity=self._entry_identity,
-                )
-            )
-            del buffer[:record_length]
-            position += record_length
-        if position != directory_end or buffer:
+        if not 1 <= page_size <= 500:
+            raise ValueError("Archive listing page size is invalid")
+        await self.set_forward_cursor(cursor)
+        entries: list[ZipEntry] = []
+        while len(entries) < page_size:
+            entry = await self.next_entry()
+            if entry is None:
+                return tuple(entries), None
+            if not entry.is_safe or not entry.has_supported_file_type:
+                raise ArchiveFormatError("Archive contains an unsafe or unsupported member")
+            entries.append(entry)
+        assert self._forward_position is not None
+        assert self._forward_remaining_entries is not None
+        return tuple(entries), _forward_cursor(self._forward_position, self._forward_remaining_entries)
+
+    async def _fill_forward_buffer(self, required_length: int, directory_end: int) -> None:
+        next_read_offset = self._forward_next_read_offset
+        if next_read_offset is None:
+            raise ArchiveFormatError("ZIP forward reader is not initialized")
+        while len(self._forward_buffer) < required_length and next_read_offset < directory_end:
+            read_length = min(_ARCHIVE_IO_CHUNK_BYTES, directory_end - next_read_offset)
+            self._forward_buffer.extend(await self._read_exact(next_read_offset, read_length))
+            next_read_offset += read_length
+        self._forward_next_read_offset = next_read_offset
+
+    async def next_entry(self) -> ZipEntry | None:
+        """Return the next central-directory record without retaining prior records."""
+
+        directory = await self._initialize_forward_reader()
+        assert self._forward_position is not None
+        assert self._forward_remaining_entries is not None
+        assert self._forward_next_read_offset is not None
+        directory_end = directory.offset + directory.size
+
+        if self._forward_remaining_entries == 0:
+            if self._forward_position != directory_end or self._forward_buffer:
+                raise ArchiveFormatError("ZIP central-directory size does not match its entries")
+            return None
+
+        await self._fill_forward_buffer(_CENTRAL_DIRECTORY_FIXED_SIZE, directory_end)
+        if len(self._forward_buffer) < _CENTRAL_DIRECTORY_FIXED_SIZE:
+            raise ArchiveFormatError("ZIP central-directory entry is truncated")
+        fixed = bytes(self._forward_buffer[:_CENTRAL_DIRECTORY_FIXED_SIZE])
+        if fixed[:4] != _CENTRAL_DIRECTORY_SIGNATURE:
+            raise ArchiveFormatError("ZIP central-directory entry is invalid")
+        flags = _u16(fixed, 8)
+        version_made_by = _u16(fixed, 4)
+        external_attributes = _u32(fixed, 38)
+        method = _u16(fixed, 10)
+        time_value = _u16(fixed, 12)
+        date_value = _u16(fixed, 14)
+        crc32 = _u32(fixed, 16)
+        compressed_size = _u32(fixed, 20)
+        uncompressed_size = _u32(fixed, 24)
+        name_length = _u16(fixed, 28)
+        extra_length = _u16(fixed, 30)
+        comment_length = _u16(fixed, 32)
+        variable_length = name_length + extra_length + comment_length
+        record_length = _CENTRAL_DIRECTORY_FIXED_SIZE + variable_length
+        if variable_length > _MAX_ENTRY_VARIABLE_BYTES or self._forward_position + record_length > directory_end:
+            raise ArchiveFormatError("ZIP central-directory entry length is invalid")
+        await self._fill_forward_buffer(record_length, directory_end)
+        if len(self._forward_buffer) < record_length:
+            raise ArchiveFormatError("ZIP central-directory entry is truncated")
+        variable = bytes(self._forward_buffer[_CENTRAL_DIRECTORY_FIXED_SIZE:record_length])
+        raw_name = variable[:name_length]
+        extra = variable[name_length : name_length + extra_length]
+        decoded_name = _decode_name(raw_name, flags, extra)
+        path, is_directory = _normalize_path(decoded_name)
+        local_header_offset = _u32(fixed, 42)
+        compressed_size, uncompressed_size, local_header_offset = _zip64_member_values(
+            extra,
+            compressed_size=compressed_size,
+            uncompressed_size=uncompressed_size,
+            local_header_offset=local_header_offset,
+        )
+        del self._forward_buffer[:record_length]
+        self._forward_position += record_length
+        self._forward_remaining_entries -= 1
+        if self._forward_remaining_entries == 0 and (self._forward_position != directory_end or self._forward_buffer):
             raise ArchiveFormatError("ZIP central-directory size does not match its entries")
+        return ZipEntry(
+            path=path,
+            is_directory=is_directory,
+            compressed_size=compressed_size,
+            uncompressed_size=uncompressed_size,
+            compression_method=method,
+            crc32=crc32,
+            modified_at=_dos_datetime(date_value, time_value),
+            encrypted=bool(flags & 1),
+            is_safe=_is_safe_path(decoded_name, path),
+            has_supported_file_type=_has_supported_file_type(version_made_by, external_attributes),
+            local_header_offset=local_header_offset,
+            flags=flags,
+            raw_name=raw_name,
+            reader_identity=self._entry_identity,
+        )
+
+    async def entries(self) -> tuple[ZipEntry, ...]:
+        if self._entries is not None:
+            return self._entries
+        directory = await self._initialize_forward_reader()
+        if self._forward_position is not None and self._forward_position != directory.offset:
+            raise ArchiveFormatError("ZIP reader cannot collect entries after forward traversal starts")
+        started_at = time.perf_counter()
+        initial_read_operations = self._read_operations
+        initial_read_bytes = self._read_bytes
+        entries: list[ZipEntry] = []
+        while (entry := await self.next_entry()) is not None:
+            entries.append(entry)
         self._entries = tuple(entries)
         log_archive_operation_metrics(
             "inspection_parse",
@@ -611,6 +707,22 @@ class ZipReader:
             },
         )
         return validated_entry
+
+    async def validate_member_in_record_order(self, path: str) -> ValidatedZipEntry:
+        """Find and validate one safe regular member without collecting all entries."""
+
+        normalized_path, is_directory = _normalize_path(path)
+        if is_directory or not normalized_path:
+            raise ArchiveFormatError("Archive member path must identify a regular file")
+        while (entry := await self.next_entry()) is not None:
+            if not entry.is_safe or not entry.has_supported_file_type:
+                raise ArchiveFormatError("Archive contains an unsafe or unsupported member")
+            if entry.path != normalized_path:
+                continue
+            if entry.is_directory:
+                raise ArchiveFormatError("Archive member path must identify a regular file")
+            return await self.validate_entry(entry)
+        raise ArchiveFormatError("Archive member was not found")
 
     async def validate_entry(self, entry: ZipEntry) -> ValidatedZipEntry:
         """Validate one selected readable entry without resolving its path again."""

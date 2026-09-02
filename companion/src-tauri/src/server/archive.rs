@@ -507,12 +507,11 @@ impl ArchiveInspectionManifest {
         if start > entries.len() {
             return Err(LocalArchiveReadError::InvalidCursor);
         }
-        let total = entries.len();
+        let entry_count = entries.len();
         let next_offset = start.saturating_add(page_size);
-        let next_cursor = (next_offset < total).then(|| format!("{next_offset:x}"));
+        let next_cursor = (next_offset < entry_count).then(|| format!("{next_offset:x}"));
         Ok(LocalArchiveDirectoryPage {
             entries: entries.into_iter().skip(start).take(page_size).collect(),
-            total,
             next_cursor,
         })
     }
@@ -530,9 +529,45 @@ impl LocalArchiveInspectionSource {
         Self { archive_path }
     }
 
-    fn entries(&self) -> Result<Vec<LocalArchiveReadEntry>, LocalArchiveReadError> {
-        read_local_archive_entries(&self.archive_path)
+    fn inspection_page(&self, cursor: Option<&str>, page_size: usize) -> Result<LocalArchiveDirectoryPage, LocalArchiveReadError> {
+        LocalArchiveReader::open_pinned(&self.archive_path)?.inspection_page(cursor, page_size)
     }
+
+    fn member_entry(&self, member_path: &str) -> Result<LocalArchiveReadEntry, LocalArchiveReadError> {
+        let mut reader = LocalArchiveReader::open_pinned(&self.archive_path)?;
+        find_local_archive_member(&mut reader, member_path)
+    }
+
+    fn validated_member(&self, member_path: &str) -> Result<ValidatedLocalArchiveEntry, LocalArchiveReadError> {
+        let mut reader = LocalArchiveReader::open_pinned(&self.archive_path)?;
+        let entry = find_local_archive_member(&mut reader, member_path)?;
+        reader.validate_entry(entry)
+    }
+}
+
+fn find_local_archive_member(reader: &mut LocalArchiveReader, member_path: &str) -> Result<LocalArchiveReadEntry, LocalArchiveReadError> {
+    let (normalized_path, is_directory) = normalize_virtual_path(member_path);
+    if is_directory || normalized_path.is_empty() || !is_safe_virtual_path(member_path, &normalized_path) {
+        return Err(LocalArchiveReadError::InvalidMemberPath);
+    }
+    while let Some(entry) = reader.next_entry()? {
+        if !entry.is_safe {
+            return Err(LocalArchiveReadError::UnsafeEntryPath);
+        }
+        if !entry.has_supported_file_type {
+            return Err(LocalArchiveReadError::UnsupportedArchiveMember);
+        }
+        if entry.path == normalized_path {
+            if entry.is_directory {
+                return Err(LocalArchiveReadError::MemberNotFound);
+            }
+            if entry.encrypted || !matches!(entry.compression_method, 0 | 8 | 12) {
+                return Err(LocalArchiveReadError::UnavailableMember);
+            }
+            return Ok(entry);
+        }
+    }
+    Err(LocalArchiveReadError::MemberNotFound)
 }
 
 /// Immutable V2 archive-directory presenter bound before inspection starts.
@@ -541,8 +576,6 @@ pub struct ArchiveDirectoryListingPresentation {
     archive_path: String,
     archive_size: u64,
     archive_modified_at: Option<DateTime<Utc>>,
-    requested_virtual_path: String,
-    response_virtual_path: String,
     cursor: Option<String>,
     page_size: usize,
 }
@@ -552,7 +585,7 @@ impl ArchiveDirectoryListingPresentation {
         archive_path: String,
         archive_size: u64,
         archive_modified_at: Option<DateTime<Utc>>,
-        virtual_path: String,
+        _virtual_path: String,
         cursor: Option<String>,
         page_size: usize,
     ) -> Self {
@@ -560,22 +593,19 @@ impl ArchiveDirectoryListingPresentation {
             archive_path,
             archive_size,
             archive_modified_at,
-            response_virtual_path: virtual_path.trim_end_matches('/').to_string(),
-            requested_virtual_path: virtual_path,
             cursor,
             page_size,
         }
     }
 
-    fn present(&self, manifest: &ArchiveInspectionManifest) -> Result<ArchiveDirectoryListing, LocalArchiveReadError> {
-        let page = manifest.list_directory(&self.requested_virtual_path, self.cursor.as_deref(), self.page_size)?;
-        Ok(ArchiveDirectoryListing {
+    fn present(&self, page: LocalArchiveDirectoryPage) -> ArchiveDirectoryListing {
+        ArchiveDirectoryListing {
             archive: ArchiveIdentity {
                 path: self.archive_path.clone(),
                 size: self.archive_size,
                 modified_at: self.archive_modified_at,
             },
-            path: self.response_virtual_path.clone(),
+            path: String::new(),
             items: page
                 .entries
                 .into_iter()
@@ -598,10 +628,9 @@ impl ArchiveDirectoryListingPresentation {
                     is_hidden: entry.name.starts_with('.'),
                 })
                 .collect(),
-            total: page.total,
             next_cursor: page.next_cursor,
             page_size: self.page_size,
-        })
+        }
     }
 }
 
@@ -617,13 +646,16 @@ impl ArchiveMemberReadPresentation {
         Self { member_path, download }
     }
 
-    fn present(&self, manifest: &ArchiveInspectionManifest) -> Result<ArchiveMemberReadProjection, LocalArchiveReadError> {
-        let member = manifest.member(&self.member_path)?;
+    fn present(&self, member: &LocalArchiveReadEntry) -> Result<ArchiveMemberReadProjection, LocalArchiveReadError> {
         let member_name = self.member_path.rsplit('/').next().unwrap_or("download");
+        let inline_preview_eligible = !member.is_directory
+            && !member.encrypted
+            && matches!(member.compression_method, 0 | 8 | 12)
+            && member.uncompressed_size <= ARCHIVE_INLINE_PREVIEW_MAX_BYTES;
         Ok(ArchiveMemberReadProjection {
-            member_path: self.member_path.clone(),
-            inline_preview_eligible: member.is_inline_preview_eligible(),
-            delivery: if !self.download && !member.is_inline_preview_eligible() {
+            member_path: member.path.clone(),
+            inline_preview_eligible,
+            delivery: if !self.download && !inline_preview_eligible {
                 ArchiveMemberReadDelivery::PreviewUnavailable
             } else {
                 ArchiveMemberReadDelivery::Stream
@@ -666,25 +698,15 @@ pub enum ArchiveInspectionPresentation {
 pub struct ArchiveInspectionPlan {
     source: LocalArchiveInspectionSource,
     presentation: ArchiveInspectionPresentation,
-    effective_entries: EffectiveLocalArchiveEntries,
-    manifest: ArchiveInspectionManifest,
 }
 
 impl ArchiveInspectionPlan {
-    /// Read the local source once and bind its normalized manifest and V2 presentation to this request.
+    /// Bind a local source and request presentation without retaining archive-wide state.
     pub fn from_local_source(
         source: LocalArchiveInspectionSource,
         presentation: ArchiveInspectionPresentation,
     ) -> Result<Self, LocalArchiveReadError> {
-        let raw_entries = source.entries()?;
-        let effective_entries = effective_local_archive_entries(&raw_entries);
-        validate_local_archive_inspection_entries(&effective_entries)?;
-        Ok(Self {
-            manifest: inspection_manifest_from_entries(&effective_entries.entries),
-            source,
-            presentation,
-            effective_entries,
-        })
+        Ok(Self { source, presentation })
     }
 
     /// Return the existing V2 response projection selected for this request.
@@ -706,7 +728,13 @@ impl ArchiveInspectionCoordinator {
 
     pub fn directory_listing(&self) -> Result<ArchiveDirectoryListing, LocalArchiveReadError> {
         match self.plan.presentation() {
-            ArchiveInspectionPresentation::DirectoryListing(presentation) => presentation.present(&self.plan.manifest),
+            ArchiveInspectionPresentation::DirectoryListing(presentation) => {
+                let page = self
+                    .plan
+                    .source
+                    .inspection_page(presentation.cursor.as_deref(), presentation.page_size)?;
+                Ok(presentation.present(page))
+            }
             ArchiveInspectionPresentation::MemberRead(_) => Err(LocalArchiveReadError::PresentationMismatch),
         }
     }
@@ -714,7 +742,9 @@ impl ArchiveInspectionCoordinator {
     pub fn member_read(&self) -> Result<ArchiveMemberReadProjection, LocalArchiveReadError> {
         match self.plan.presentation() {
             ArchiveInspectionPresentation::DirectoryListing(_) => Err(LocalArchiveReadError::PresentationMismatch),
-            ArchiveInspectionPresentation::MemberRead(presentation) => presentation.present(&self.plan.manifest),
+            ArchiveInspectionPresentation::MemberRead(presentation) => {
+                presentation.present(&self.plan.source.member_entry(&presentation.member_path)?)
+            }
         }
     }
 
@@ -722,15 +752,15 @@ impl ArchiveInspectionCoordinator {
     pub fn validated_member_read(
         &self,
     ) -> Result<(ArchiveMemberReadProjection, Option<ValidatedLocalArchiveEntry>), LocalArchiveReadError> {
-        let projection = self.member_read()?;
+        let ArchiveInspectionPresentation::MemberRead(presentation) = self.plan.presentation() else {
+            return Err(LocalArchiveReadError::PresentationMismatch);
+        };
+        let entry = self.plan.source.member_entry(&presentation.member_path)?;
+        let projection = presentation.present(&entry)?;
         if projection.delivery == ArchiveMemberReadDelivery::PreviewUnavailable {
             return Ok((projection, None));
         }
-        let entry = resolve_local_archive_read_entry(&self.plan.effective_entries, &projection.member_path)?;
-        Ok((
-            projection,
-            Some(validate_local_archive_entry(&self.plan.source.archive_path, entry.clone())?),
-        ))
+        Ok((projection, Some(self.plan.source.validated_member(&entry.path)?)))
     }
 }
 
@@ -753,7 +783,6 @@ pub struct LocalArchiveDirectoryEntry {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct LocalArchiveDirectoryPage {
     pub entries: Vec<LocalArchiveDirectoryEntry>,
-    pub total: usize,
     pub next_cursor: Option<String>,
 }
 
@@ -1399,6 +1428,10 @@ pub struct LocalArchiveRelayWriter {
 /// Summary of a completed local archive extraction.
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
 pub struct LocalArchiveExtractionResult {
+    pub members_processed: u64,
+    pub members_completed: u64,
+    pub members_skipped: u64,
+    pub members_failed: u64,
     pub files_extracted: u64,
     pub directories_created: u64,
     pub extracted_bytes: u64,
@@ -1634,15 +1667,20 @@ impl LocalArchiveExtractionCheckpoint {
             ..LocalArchiveExtractionResult::default()
         };
         for outcome in self.member_outcomes.values() {
+            result.members_processed = result.members_processed.saturating_add(1);
             result.directories_created = result.directories_created.saturating_add(outcome.directories_created);
             result.extracted_bytes = result.extracted_bytes.saturating_add(outcome.extracted_bytes);
             match outcome.status {
-                LocalArchiveExtractionDestinationStatus::Directory => {}
+                LocalArchiveExtractionDestinationStatus::Directory => {
+                    result.members_completed = result.members_completed.saturating_add(1);
+                }
                 LocalArchiveExtractionDestinationStatus::Extracted => {
+                    result.members_completed = result.members_completed.saturating_add(1);
                     result.files_extracted = result.files_extracted.saturating_add(1);
                     result.files_replaced = result.files_replaced.saturating_add(u64::from(outcome.replaced));
                 }
                 LocalArchiveExtractionDestinationStatus::Skipped | LocalArchiveExtractionDestinationStatus::Ignored => {
+                    result.members_skipped = result.members_skipped.saturating_add(1);
                     result.files_skipped = result.files_skipped.saturating_add(1);
                 }
             }
@@ -1899,6 +1937,21 @@ fn u64_le(data: &[u8], offset: usize) -> u64 {
     ])
 }
 
+fn encode_inspection_cursor(position: u64, remaining_entries: u64) -> String {
+    let mut bytes = [0_u8; 16];
+    bytes[..8].copy_from_slice(&position.to_le_bytes());
+    bytes[8..].copy_from_slice(&remaining_entries.to_le_bytes());
+    hex::encode(bytes)
+}
+
+fn decode_inspection_cursor(value: &str) -> Result<(u64, u64), LocalArchiveReadError> {
+    let bytes = hex::decode(value).map_err(|_| LocalArchiveReadError::InvalidCursor)?;
+    if bytes.len() != 16 {
+        return Err(LocalArchiveReadError::InvalidCursor);
+    }
+    Ok((u64_le(&bytes, 0), u64_le(&bytes, 8)))
+}
+
 fn read_exact_at(file: &mut FsFile, archive_size: u64, offset: u64, length: usize) -> Result<Vec<u8>, LocalArchiveReadError> {
     let end = offset
         .checked_add(length as u64)
@@ -1911,6 +1964,308 @@ fn read_exact_at(file: &mut FsFile, archive_size: u64, offset: u64, length: usiz
     file.seek(SeekFrom::Start(offset))?;
     file.read_exact(&mut data)?;
     Ok(data)
+}
+
+#[cfg(windows)]
+const WINDOWS_FILE_SHARE_READ: u32 = 0x0000_0001;
+
+fn open_pinned_archive_file(path: &Path) -> Result<FsFile, LocalArchiveReadError> {
+    let mut options = OpenOptions::new();
+    options.read(true);
+    #[cfg(windows)]
+    {
+        use std::os::windows::fs::OpenOptionsExt;
+
+        options.share_mode(WINDOWS_FILE_SHARE_READ);
+    }
+    Ok(options.open(path)?)
+}
+
+/// One retained, forward-only local ZIP central-directory reader.
+pub struct LocalArchiveReader {
+    file: FsFile,
+    archive_size: u64,
+    #[cfg(unix)]
+    archive_metadata: PinnedArchiveMetadata,
+    directory_start: u64,
+    directory_end: u64,
+    position: u64,
+    remaining_entries: u64,
+    total_entries: u64,
+}
+
+#[cfg(unix)]
+#[derive(Clone, Copy, Eq, PartialEq)]
+struct PinnedArchiveMetadata {
+    device: u64,
+    inode: u64,
+    size: u64,
+    modified_seconds: i64,
+    modified_nanoseconds: i64,
+    changed_seconds: i64,
+    changed_nanoseconds: i64,
+}
+
+#[cfg(unix)]
+impl PinnedArchiveMetadata {
+    fn from_metadata(metadata: &std::fs::Metadata) -> Self {
+        use std::os::unix::fs::MetadataExt;
+
+        Self {
+            device: metadata.dev(),
+            inode: metadata.ino(),
+            size: metadata.len(),
+            modified_seconds: metadata.mtime(),
+            modified_nanoseconds: metadata.mtime_nsec(),
+            changed_seconds: metadata.ctime(),
+            changed_nanoseconds: metadata.ctime_nsec(),
+        }
+    }
+}
+
+impl LocalArchiveReader {
+    /// Open a local ZIP once and retain its descriptor until the source session ends.
+    pub fn open_pinned(archive_path: &Path) -> Result<Self, LocalArchiveReadError> {
+        let mut file = open_pinned_archive_file(archive_path)?;
+        let metadata = file.metadata()?;
+        let archive_size = metadata.len();
+        #[cfg(unix)]
+        let archive_metadata = PinnedArchiveMetadata::from_metadata(&metadata);
+        if archive_size < EOCD_SIZE as u64 {
+            return Err(LocalArchiveReadError::TooSmall);
+        }
+        let tail_length = archive_size.min((EOCD_SIZE + MAX_COMMENT_BYTES) as u64) as usize;
+        let tail = read_exact_at(&mut file, archive_size, archive_size - tail_length as u64, tail_length)?;
+        let Some(eocd_index) = tail.windows(EOCD_SIGNATURE.len()).rposition(|window| window == EOCD_SIGNATURE) else {
+            return Err(LocalArchiveReadError::InvalidEndOfDirectory);
+        };
+        if eocd_index + EOCD_SIZE > tail.len() || eocd_index + EOCD_SIZE + usize::from(u16_le(&tail, eocd_index + 20)) != tail.len() {
+            return Err(LocalArchiveReadError::InvalidEndOfDirectory);
+        }
+        let eocd_offset = archive_size - tail_length as u64 + eocd_index as u64;
+        let mut remaining_entries = u64::from(u16_le(&tail, eocd_index + 10));
+        let mut directory_size = u64::from(u32_le(&tail, eocd_index + 12));
+        let mut position = u64::from(u32_le(&tail, eocd_index + 16));
+        if remaining_entries == u64::from(ZIP64_SENTINEL_U16)
+            || directory_size == u64::from(ZIP64_SENTINEL_U32)
+            || position == u64::from(ZIP64_SENTINEL_U32)
+        {
+            if eocd_offset < ZIP64_LOCATOR_SIZE as u64 {
+                return Err(LocalArchiveReadError::InvalidZip64Directory);
+            }
+            let locator = read_exact_at(&mut file, archive_size, eocd_offset - ZIP64_LOCATOR_SIZE as u64, ZIP64_LOCATOR_SIZE)?;
+            if locator[..4] != *ZIP64_LOCATOR_SIGNATURE {
+                return Err(LocalArchiveReadError::InvalidZip64Directory);
+            }
+            let header = read_exact_at(&mut file, archive_size, u64_le(&locator, 8), 56)?;
+            if header[..4] != *ZIP64_EOCD_SIGNATURE || u64_le(&header, 4) < 44 {
+                return Err(LocalArchiveReadError::InvalidZip64Directory);
+            }
+            remaining_entries = u64_le(&header, 32);
+            directory_size = u64_le(&header, 40);
+            position = u64_le(&header, 48);
+        }
+        let directory_end = position
+            .checked_add(directory_size)
+            .filter(|end| *end <= archive_size)
+            .ok_or(LocalArchiveReadError::DirectoryOutOfBounds)?;
+        Ok(Self {
+            file,
+            archive_size,
+            #[cfg(unix)]
+            archive_metadata,
+            directory_start: position,
+            directory_end,
+            position,
+            remaining_entries,
+            total_entries: remaining_entries,
+        })
+    }
+
+    /// Return one bounded central-directory page without retaining prior records.
+    pub fn inspection_page(&mut self, cursor: Option<&str>, page_size: usize) -> Result<LocalArchiveDirectoryPage, LocalArchiveReadError> {
+        if !(1..=500).contains(&page_size) {
+            return Err(LocalArchiveReadError::InvalidCursor);
+        }
+        self.set_inspection_cursor(cursor)?;
+        let mut entries = Vec::with_capacity(page_size);
+        while entries.len() < page_size {
+            let Some(entry) = self.next_entry()? else {
+                return Ok(LocalArchiveDirectoryPage {
+                    entries,
+                    next_cursor: None,
+                });
+            };
+            if !entry.is_safe {
+                return Err(LocalArchiveReadError::UnsafeEntryPath);
+            }
+            if !entry.has_supported_file_type {
+                return Err(LocalArchiveReadError::UnsupportedArchiveMember);
+            }
+            entries.push(LocalArchiveDirectoryEntry {
+                name: entry.path.rsplit('/').next().unwrap_or_default().to_string(),
+                path: entry.path,
+                is_directory: entry.is_directory,
+                compressed_size: (!entry.is_directory).then_some(entry.compressed_size),
+                uncompressed_size: (!entry.is_directory).then_some(entry.uncompressed_size),
+                compression_method: (!entry.is_directory).then_some(entry.compression_method),
+                crc32: (!entry.is_directory).then_some(entry.crc32),
+                modified_at: entry.modified_at,
+                encrypted: entry.encrypted,
+                is_available: !entry.is_directory
+                    && !entry.encrypted
+                    && matches!(entry.compression_method, 0 | 8 | 12)
+                    && entry.uncompressed_size <= ARCHIVE_INLINE_PREVIEW_MAX_BYTES,
+            });
+        }
+        Ok(LocalArchiveDirectoryPage {
+            entries,
+            next_cursor: (self.remaining_entries > 0).then(|| encode_inspection_cursor(self.position, self.remaining_entries)),
+        })
+    }
+
+    fn set_inspection_cursor(&mut self, cursor: Option<&str>) -> Result<(), LocalArchiveReadError> {
+        let Some(cursor) = cursor else {
+            return Ok(());
+        };
+        if self.position != self.directory_start || self.remaining_entries != self.total_entries {
+            return Err(LocalArchiveReadError::InvalidCursor);
+        }
+        let (position, remaining_entries) = decode_inspection_cursor(cursor)?;
+        if position < self.directory_start
+            || position > self.directory_end
+            || remaining_entries > self.total_entries
+            || (remaining_entries == 0 && position != self.directory_end)
+        {
+            return Err(LocalArchiveReadError::InvalidCursor);
+        }
+        self.position = position;
+        self.remaining_entries = remaining_entries;
+        Ok(())
+    }
+
+    /// Return exactly one central-directory entry, preserving archive record order.
+    pub fn next_entry(&mut self) -> Result<Option<LocalArchiveReadEntry>, LocalArchiveReadError> {
+        self.ensure_source_unchanged()?;
+        if self.remaining_entries == 0 {
+            return if self.position == self.directory_end {
+                Ok(None)
+            } else {
+                Err(LocalArchiveReadError::InvalidDirectoryEntry)
+            };
+        }
+        let fixed = read_exact_at(&mut self.file, self.archive_size, self.position, CENTRAL_DIRECTORY_FIXED_SIZE)?;
+        if fixed[..4] != *CENTRAL_DIRECTORY_SIGNATURE {
+            return Err(LocalArchiveReadError::InvalidDirectoryEntry);
+        }
+        let name_length = usize::from(u16_le(&fixed, 28));
+        let extra_length = usize::from(u16_le(&fixed, 30));
+        let comment_length = usize::from(u16_le(&fixed, 32));
+        let variable_length = name_length + extra_length + comment_length;
+        if variable_length > MAX_ENTRY_VARIABLE_BYTES {
+            return Err(LocalArchiveReadError::InvalidEntryLength);
+        }
+        let entry_end = self
+            .position
+            .checked_add(CENTRAL_DIRECTORY_FIXED_SIZE as u64)
+            .and_then(|offset| offset.checked_add(variable_length as u64))
+            .filter(|end| *end <= self.directory_end)
+            .ok_or(LocalArchiveReadError::InvalidEntryLength)?;
+        let variable = read_exact_at(
+            &mut self.file,
+            self.archive_size,
+            self.position + CENTRAL_DIRECTORY_FIXED_SIZE as u64,
+            variable_length,
+        )?;
+        let raw_name = variable[..name_length].to_vec();
+        let flags = u16_le(&fixed, 8);
+        let extra = &variable[name_length..name_length + extra_length];
+        let decoded_name = decode_entry_name(&raw_name, flags, extra);
+        let (path, is_directory) = normalize_virtual_path(&decoded_name);
+        let (compressed_size, uncompressed_size, local_header_offset) = zip64_member_values(
+            extra,
+            u64::from(u32_le(&fixed, 20)),
+            u64::from(u32_le(&fixed, 24)),
+            u64::from(u32_le(&fixed, 42)),
+        )?;
+        self.position = entry_end;
+        self.remaining_entries -= 1;
+        if self.remaining_entries == 0 && self.position != self.directory_end {
+            return Err(LocalArchiveReadError::InvalidDirectoryEntry);
+        }
+        Ok(Some(LocalArchiveReadEntry {
+            path: path.clone(),
+            is_directory,
+            compressed_size,
+            uncompressed_size,
+            compression_method: u16_le(&fixed, 10),
+            crc32: u32_le(&fixed, 16),
+            modified_at: dos_datetime(u16_le(&fixed, 14), u16_le(&fixed, 12)),
+            encrypted: flags & 1 != 0,
+            is_safe: is_safe_virtual_path(&decoded_name, &path),
+            has_supported_file_type: has_supported_file_type(u16_le(&fixed, 4), u32_le(&fixed, 38)),
+            local_header_offset,
+            flags,
+            raw_name,
+        }))
+    }
+
+    /// Validate a record through a duplicate of the original pinned descriptor.
+    pub fn validate_entry(&self, entry: LocalArchiveReadEntry) -> Result<ValidatedLocalArchiveEntry, LocalArchiveReadError> {
+        self.ensure_source_unchanged()?;
+        if entry.encrypted || !matches!(entry.compression_method, 0 | 8 | 12) {
+            return Err(LocalArchiveReadError::UnavailableMember);
+        }
+        let mut file = self.file.try_clone()?;
+        let local_header = read_exact_at(&mut file, self.archive_size, entry.local_header_offset, 30)?;
+        if local_header[..4] != *LOCAL_FILE_SIGNATURE
+            || u16_le(&local_header, 6) != entry.flags
+            || u16_le(&local_header, 8) != entry.compression_method
+        {
+            return Err(LocalArchiveReadError::InvalidLocalHeader);
+        }
+        let name_length = usize::from(u16_le(&local_header, 26));
+        let extra_length = usize::from(u16_le(&local_header, 28));
+        let local_name = read_exact_at(&mut file, self.archive_size, entry.local_header_offset + 30, name_length)?;
+        if local_name != entry.raw_name {
+            return Err(LocalArchiveReadError::InvalidLocalHeader);
+        }
+        let data_offset = entry
+            .local_header_offset
+            .checked_add(30)
+            .and_then(|offset| offset.checked_add(name_length as u64))
+            .and_then(|offset| offset.checked_add(extra_length as u64))
+            .ok_or(LocalArchiveReadError::MemberOutOfBounds)?;
+        if data_offset
+            .checked_add(entry.compressed_size)
+            .filter(|end| *end <= self.archive_size)
+            .is_none()
+        {
+            return Err(LocalArchiveReadError::MemberOutOfBounds);
+        }
+        use std::io::{Seek, SeekFrom};
+        file.seek(SeekFrom::Start(data_offset))?;
+        Ok(ValidatedLocalArchiveEntry { entry, file })
+    }
+
+    /// Stream one entry through a duplicate of this reader's pinned descriptor.
+    pub fn stream_entry(&self, entry: LocalArchiveReadEntry, output: &mut impl Write) -> Result<(), LocalArchiveReadError> {
+        self.ensure_source_unchanged()?;
+        let result = stream_validated_local_archive_entry(self.validate_entry(entry)?, output);
+        self.ensure_source_unchanged()?;
+        result
+    }
+
+    fn ensure_source_unchanged(&self) -> Result<(), LocalArchiveReadError> {
+        #[cfg(unix)]
+        {
+            let metadata = self.file.metadata()?;
+            if PinnedArchiveMetadata::from_metadata(&metadata) != self.archive_metadata {
+                return Err(LocalArchiveReadError::Io(std::io::Error::other("Pinned archive source changed")));
+            }
+        }
+        Ok(())
+    }
 }
 
 fn unicode_path_name(raw_name: &[u8], extra: &[u8]) -> Option<String> {
@@ -2050,104 +2405,10 @@ fn zip64_member_values(
 }
 
 fn read_local_archive_entries(archive_path: &Path) -> Result<Vec<LocalArchiveReadEntry>, LocalArchiveReadError> {
-    let mut file = FsFile::open(archive_path)?;
-    let archive_size = file.metadata()?.len();
-    if archive_size < EOCD_SIZE as u64 {
-        return Err(LocalArchiveReadError::TooSmall);
-    }
-    let tail_length = archive_size.min((EOCD_SIZE + MAX_COMMENT_BYTES) as u64) as usize;
-    let tail = read_exact_at(&mut file, archive_size, archive_size - tail_length as u64, tail_length)?;
-    let Some(eocd_index) = tail.windows(EOCD_SIGNATURE.len()).rposition(|window| window == EOCD_SIGNATURE) else {
-        return Err(LocalArchiveReadError::InvalidEndOfDirectory);
-    };
-    if eocd_index + EOCD_SIZE > tail.len() || eocd_index + EOCD_SIZE + usize::from(u16_le(&tail, eocd_index + 20)) != tail.len() {
-        return Err(LocalArchiveReadError::InvalidEndOfDirectory);
-    }
-    let eocd_offset = archive_size - tail_length as u64 + eocd_index as u64;
-    let mut entry_count = u64::from(u16_le(&tail, eocd_index + 10));
-    let mut directory_size = u64::from(u32_le(&tail, eocd_index + 12));
-    let mut directory_offset = u64::from(u32_le(&tail, eocd_index + 16));
-    if entry_count == u64::from(ZIP64_SENTINEL_U16)
-        || directory_size == u64::from(ZIP64_SENTINEL_U32)
-        || directory_offset == u64::from(ZIP64_SENTINEL_U32)
-    {
-        if eocd_offset < ZIP64_LOCATOR_SIZE as u64 {
-            return Err(LocalArchiveReadError::InvalidZip64Directory);
-        }
-        let locator = read_exact_at(&mut file, archive_size, eocd_offset - ZIP64_LOCATOR_SIZE as u64, ZIP64_LOCATOR_SIZE)?;
-        if locator[..4] != *ZIP64_LOCATOR_SIGNATURE {
-            return Err(LocalArchiveReadError::InvalidZip64Directory);
-        }
-        let zip64_offset = u64_le(&locator, 8);
-        let header = read_exact_at(&mut file, archive_size, zip64_offset, 56)?;
-        if header[..4] != *ZIP64_EOCD_SIGNATURE || u64_le(&header, 4) < 44 {
-            return Err(LocalArchiveReadError::InvalidZip64Directory);
-        }
-        entry_count = u64_le(&header, 32);
-        directory_size = u64_le(&header, 40);
-        directory_offset = u64_le(&header, 48);
-    }
-    let directory_end = directory_offset
-        .checked_add(directory_size)
-        .filter(|end| *end <= archive_size)
-        .ok_or(LocalArchiveReadError::DirectoryOutOfBounds)?;
+    let mut reader = LocalArchiveReader::open_pinned(archive_path)?;
     let mut entries = Vec::new();
-    let mut position = directory_offset;
-    for _ in 0..entry_count {
-        let fixed = read_exact_at(&mut file, archive_size, position, CENTRAL_DIRECTORY_FIXED_SIZE)?;
-        if fixed[..4] != *CENTRAL_DIRECTORY_SIGNATURE {
-            return Err(LocalArchiveReadError::InvalidDirectoryEntry);
-        }
-        let name_length = usize::from(u16_le(&fixed, 28));
-        let extra_length = usize::from(u16_le(&fixed, 30));
-        let comment_length = usize::from(u16_le(&fixed, 32));
-        let variable_length = name_length + extra_length + comment_length;
-        let entry_end = position
-            .checked_add(CENTRAL_DIRECTORY_FIXED_SIZE as u64)
-            .and_then(|offset| offset.checked_add(variable_length as u64))
-            .filter(|end| *end <= directory_end)
-            .ok_or(LocalArchiveReadError::InvalidEntryLength)?;
-        if variable_length > MAX_ENTRY_VARIABLE_BYTES {
-            return Err(LocalArchiveReadError::InvalidEntryLength);
-        }
-        let variable = read_exact_at(
-            &mut file,
-            archive_size,
-            position + CENTRAL_DIRECTORY_FIXED_SIZE as u64,
-            variable_length,
-        )?;
-        let raw_name = variable[..name_length].to_vec();
-        let flags = u16_le(&fixed, 8);
-        let version_made_by = u16_le(&fixed, 4);
-        let external_attributes = u32_le(&fixed, 38);
-        let extra = &variable[name_length..name_length + extra_length];
-        let decoded_name = decode_entry_name(&raw_name, flags, extra);
-        let (path, is_directory) = normalize_virtual_path(&decoded_name);
-        let (compressed_size, uncompressed_size, local_header_offset) = zip64_member_values(
-            extra,
-            u64::from(u32_le(&fixed, 20)),
-            u64::from(u32_le(&fixed, 24)),
-            u64::from(u32_le(&fixed, 42)),
-        )?;
-        entries.push(LocalArchiveReadEntry {
-            path: path.clone(),
-            is_directory,
-            compressed_size,
-            uncompressed_size,
-            compression_method: u16_le(&fixed, 10),
-            crc32: u32_le(&fixed, 16),
-            modified_at: dos_datetime(u16_le(&fixed, 14), u16_le(&fixed, 12)),
-            encrypted: flags & 1 != 0,
-            is_safe: is_safe_virtual_path(&decoded_name, &path),
-            has_supported_file_type: has_supported_file_type(version_made_by, external_attributes),
-            local_header_offset,
-            flags,
-            raw_name,
-        });
-        position = entry_end;
-    }
-    if position != directory_end {
-        return Err(LocalArchiveReadError::InvalidDirectoryEntry);
+    while let Some(entry) = reader.next_entry()? {
+        entries.push(entry);
     }
     Ok(entries)
 }
@@ -2230,41 +2491,7 @@ fn validate_local_archive_entry(
     archive_path: &Path,
     entry: LocalArchiveReadEntry,
 ) -> Result<ValidatedLocalArchiveEntry, LocalArchiveReadError> {
-    if entry.encrypted || !matches!(entry.compression_method, 0 | 8 | 12) {
-        return Err(LocalArchiveReadError::UnavailableMember);
-    }
-
-    let mut file = FsFile::open(archive_path)?;
-    let archive_size = file.metadata()?.len();
-    let local_header = read_exact_at(&mut file, archive_size, entry.local_header_offset, 30)?;
-    if local_header[..4] != *LOCAL_FILE_SIGNATURE
-        || u16_le(&local_header, 6) != entry.flags
-        || u16_le(&local_header, 8) != entry.compression_method
-    {
-        return Err(LocalArchiveReadError::InvalidLocalHeader);
-    }
-    let name_length = usize::from(u16_le(&local_header, 26));
-    let extra_length = usize::from(u16_le(&local_header, 28));
-    let local_name = read_exact_at(&mut file, archive_size, entry.local_header_offset + 30, name_length)?;
-    if local_name != entry.raw_name {
-        return Err(LocalArchiveReadError::InvalidLocalHeader);
-    }
-    let data_offset = entry
-        .local_header_offset
-        .checked_add(30)
-        .and_then(|offset| offset.checked_add(name_length as u64))
-        .and_then(|offset| offset.checked_add(extra_length as u64))
-        .ok_or(LocalArchiveReadError::MemberOutOfBounds)?;
-    if data_offset
-        .checked_add(entry.compressed_size)
-        .filter(|end| *end <= archive_size)
-        .is_none()
-    {
-        return Err(LocalArchiveReadError::MemberOutOfBounds);
-    }
-    use std::io::{Seek, SeekFrom};
-    file.seek(SeekFrom::Start(data_offset))?;
-    Ok(ValidatedLocalArchiveEntry { entry, file })
+    LocalArchiveReader::open_pinned(archive_path)?.validate_entry(entry)
 }
 
 fn update_crc32(mut state: u32, bytes: &[u8]) -> u32 {
@@ -4065,6 +4292,46 @@ mod tests {
     }
 
     #[test]
+    fn pinned_reader_returns_entries_in_central_directory_order() {
+        let directory = tempdir().unwrap();
+        let archive_path = directory.path().join("ordered.zip");
+        let mut archive = ZipWriter::new(FsFile::create(&archive_path).unwrap());
+        archive.start_file("first.txt", SimpleFileOptions::default()).unwrap();
+        archive.write_all(b"first").unwrap();
+        archive.start_file("second.txt", SimpleFileOptions::default()).unwrap();
+        archive.write_all(b"second").unwrap();
+        archive.finish().unwrap();
+        let mut reader = LocalArchiveReader::open_pinned(&archive_path).unwrap();
+
+        let first = reader.next_entry().unwrap().unwrap();
+        let second = reader.next_entry().unwrap().unwrap();
+
+        let mut contents = Vec::new();
+        reader.stream_entry(first.clone(), &mut contents).unwrap();
+
+        assert_eq!(first.path, "first.txt");
+        assert_eq!(contents, b"first");
+        assert_eq!(second.path, "second.txt");
+        assert!(reader.next_entry().unwrap().is_none());
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn pinned_reader_rejects_a_source_changed_after_open() {
+        let directory = tempdir().unwrap();
+        let archive_path = directory.path().join("changed.zip");
+        let mut archive = ZipWriter::new(FsFile::create(&archive_path).unwrap());
+        archive.start_file("first.txt", SimpleFileOptions::default()).unwrap();
+        archive.write_all(b"first").unwrap();
+        archive.finish().unwrap();
+        let mut reader = LocalArchiveReader::open_pinned(&archive_path).unwrap();
+
+        fs::write(&archive_path, b"replacement archive contents").unwrap();
+
+        assert!(matches!(reader.next_entry(), Err(LocalArchiveReadError::Io(_))));
+    }
+
+    #[test]
     fn passes_v2_zip_reader_conformance_corpus() {
         let corpus_root = conformance_corpus_root();
         let manifest: ConformanceManifest = serde_json::from_slice(&fs::read(corpus_root.join("manifest-v2.json")).unwrap()).unwrap();
@@ -4409,7 +4676,7 @@ mod tests {
     }
 
     #[test]
-    fn lists_safe_virtual_archive_directories_in_bounded_pages() {
+    fn lists_archive_records_in_bounded_record_order_pages() {
         let directory = tempdir().unwrap();
         let source_root = directory.path().join("source");
         fs::create_dir_all(source_root.join("nested/empty")).unwrap();
@@ -4426,7 +4693,7 @@ mod tests {
                     "archive.zip".to_string(),
                     0,
                     None,
-                    "source/".to_string(),
+                    String::new(),
                     None,
                     1,
                 )),
@@ -4434,10 +4701,10 @@ mod tests {
             .unwrap(),
         );
         let first_page = inspection.directory_listing().unwrap();
-        assert_eq!(first_page.total, 2);
-        assert_eq!(first_page.items[0].name, "nested");
-        assert_eq!(first_page.items[0].file_type, FileType::Directory);
-        assert_eq!(first_page.next_cursor.as_deref(), Some("1"));
+        let expected_entries = read_local_archive_entries(&target).unwrap();
+        assert_eq!(first_page.items.len(), 1);
+        assert_eq!(first_page.items[0].path, expected_entries[0].path);
+        assert!(first_page.next_cursor.is_some());
 
         let second_page = ArchiveInspectionCoordinator::from_plan(
             ArchiveInspectionPlan::from_local_source(
@@ -4446,7 +4713,7 @@ mod tests {
                     "archive.zip".to_string(),
                     0,
                     None,
-                    "source/".to_string(),
+                    String::new(),
                     first_page.next_cursor,
                     1,
                 )),
@@ -4455,27 +4722,8 @@ mod tests {
         )
         .directory_listing()
         .unwrap();
-        assert_eq!(second_page.items[0].name, "alpha.txt");
-        assert_eq!(second_page.items[0].size, Some(5));
-        assert_eq!(second_page.next_cursor, None);
-        assert!(matches!(
-            ArchiveInspectionCoordinator::from_plan(
-                ArchiveInspectionPlan::from_local_source(
-                    LocalArchiveInspectionSource::from_archive_path(target),
-                    ArchiveInspectionPresentation::DirectoryListing(ArchiveDirectoryListingPresentation::new(
-                        "archive.zip".to_string(),
-                        0,
-                        None,
-                        "../unsafe/".to_string(),
-                        None,
-                        100,
-                    )),
-                )
-                .unwrap(),
-            )
-            .directory_listing(),
-            Err(LocalArchiveReadError::InvalidDirectoryPath)
-        ));
+        assert_eq!(second_page.items.len(), 1);
+        assert_eq!(second_page.items[0].path, expected_entries[1].path);
     }
 
     #[test]
@@ -4610,6 +4858,10 @@ mod tests {
         assert_eq!(
             checkpoint.result(),
             LocalArchiveExtractionResult {
+                members_processed: 1,
+                members_completed: 1,
+                members_skipped: 0,
+                members_failed: 0,
                 files_extracted: 1,
                 directories_created: 1,
                 extracted_bytes: 6,
@@ -5564,6 +5816,10 @@ mod tests {
         assert_eq!(
             progress.first(),
             Some(&LocalArchiveExtractionResult {
+                members_processed: 0,
+                members_completed: 0,
+                members_skipped: 0,
+                members_failed: 0,
                 files_extracted: 0,
                 directories_created: 1,
                 extracted_bytes: 0,

@@ -354,6 +354,10 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     await archive_operations.shutdown_local_to_smb_creation_writers()
     logger.info("Live archive creation writers stopped")
 
+    logger.info("Stopping live archive extraction sessions...")
+    await archive_operations.shutdown_live_extraction_sessions()
+    logger.info("Live archive extraction sessions stopped")
+
     logger.info("Closing SMB connection pool...")
     await shutdown_connection_pool()
     logger.info("SMB connection pool closed")

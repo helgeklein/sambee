@@ -121,12 +121,12 @@ RUN python -m venv /workspace/backend/.venv && \
         --find-links=/tmp/wheels \
         -r /tmp/requirements-dev.lock.txt && \
     rm -rf /tmp/wheels
+COPY --chown=vscode:vscode archive-contract/ ./archive-contract/
 COPY --chown=vscode:vscode companion/ ./companion/
 USER vscode
 RUN cargo test --manifest-path companion/src-tauri/Cargo.toml --lib --no-run -q
 USER root
 COPY --chown=vscode:vscode backend/ ./backend/
-COPY --chown=vscode:vscode archive-contract/ ./archive-contract/
 COPY --chown=vscode:vscode archive_testdata/ ./archive_testdata/
 COPY --chown=vscode:vscode VERSION ./VERSION
 COPY --chown=vscode:vscode .github/ ./.github/
@@ -186,4 +186,4 @@ HEALTHCHECK --interval=30s --timeout=10s --start-period=5s --retries=3 \
     CMD wget -qO- http://localhost:8000/api/health >/dev/null || exit 1
 
 # Block deployment before migrations when legacy archive operation state remains.
-CMD ["sh", "-c", "/app/scripts/preflight-archive-v2-cutover && exec uvicorn app.main:app --host 0.0.0.0 --port 8000 --no-proxy-headers"]
+CMD ["sh", "-c", "/app/scripts/preflight-archive-v2-cutover && exec uvicorn app.main:app --host 0.0.0.0 --port 8000 --workers 1 --no-proxy-headers"]

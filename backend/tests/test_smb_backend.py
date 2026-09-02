@@ -1104,6 +1104,17 @@ class TestRandomAccessReading:
         with pytest.raises(ValueError, match="closed"):
             await reader.read_at(0, 1)
 
+    @pytest.mark.asyncio
+    @patch("app.storage.smb.smbclient.open_file")
+    async def test_archive_source_reader_denies_concurrent_writers(self, mock_open):
+        mock_open.return_value = MagicMock()
+        backend = SMBBackend(host="server.local", share_name="share", username="user", password="pass")
+
+        reader = await backend.open_archive_source_reader("backup.zip")
+
+        assert mock_open.call_args.kwargs["share_access"] == "r"
+        await reader.close()
+
 
 class TestExclusiveArchiveWriting:
     """Test direct final-target writers used by archive creation."""

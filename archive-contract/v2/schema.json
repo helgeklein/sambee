@@ -744,6 +744,342 @@
         }
       ]
     },
+    "liveExtractionBegin": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "operation",
+        "source_session_id"
+      ],
+      "properties": {
+        "operation": {
+          "$ref": "#/$defs/operationRead"
+        },
+        "source_session_id": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 64
+        }
+      }
+    },
+    "liveExtractionStatus": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "source_session_id",
+        "phase",
+        "aggregate_counters"
+      ],
+      "properties": {
+        "source_session_id": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 64
+        },
+        "phase": {
+          "type": "string"
+        },
+        "aggregate_counters": {
+          "type": "object",
+          "additionalProperties": {
+            "type": "integer",
+            "minimum": 0
+          }
+        },
+        "pending_decision": {
+          "oneOf": [
+            {
+              "$ref": "#/$defs/liveExtractionPendingDecision"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        }
+      }
+    },
+    "liveExtractionPendingDecision": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "revision",
+        "kind",
+        "member_path",
+        "delivery_sequence",
+        "is_directory",
+        "allowed_actions",
+        "target_path",
+        "message"
+      ],
+      "properties": {
+        "revision": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "kind": {
+          "enum": [
+            "collision",
+            "member_error"
+          ]
+        },
+        "member_path": {
+          "$ref": "#/$defs/memberPath"
+        },
+        "delivery_sequence": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "is_directory": {
+          "type": "boolean"
+        },
+        "allowed_actions": {
+          "type": "array",
+          "items": {
+            "enum": [
+              "skip",
+              "skip_all",
+              "replace",
+              "replace_all",
+              "replace_older",
+              "rename",
+              "retry",
+              "ignore"
+            ]
+          }
+        },
+        "target_path": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "message": {
+          "type": [
+            "string",
+            "null"
+          ]
+        }
+      }
+    },
+    "liveExtractionMember": {
+      "oneOf": [
+        {
+          "type": "null"
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "source_session_id",
+            "delivery_sequence",
+            "member_path",
+            "is_directory",
+            "uncompressed_size",
+            "modified_at"
+          ],
+          "properties": {
+            "source_session_id": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 64
+            },
+            "delivery_sequence": {
+              "type": "integer",
+              "minimum": 1
+            },
+            "member_path": {
+              "$ref": "#/$defs/memberPath"
+            },
+            "is_directory": {
+              "type": "boolean"
+            },
+            "uncompressed_size": {
+              "type": "integer",
+              "minimum": 0
+            },
+            "modified_at": {
+              "$ref": "#/$defs/timestamp"
+            },
+            "target_path": {
+              "$ref": "#/$defs/memberPath"
+            },
+            "collision_policy": {
+              "enum": [
+                "ask",
+                "skip",
+                "skip_all",
+                "replace",
+                "replace_all",
+                "replace_older",
+                "rename"
+              ]
+            }
+          }
+        }
+      ]
+    },
+    "liveCurrentMemberQuery": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "source_session_id",
+        "delivery_sequence"
+      ],
+      "properties": {
+        "source_session_id": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 64
+        },
+        "delivery_sequence": {
+          "type": "integer",
+          "minimum": 1
+        }
+      }
+    },
+    "liveDestinationWriteResult": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "source_session_id",
+        "delivery_sequence",
+        "member_path",
+        "status"
+      ],
+      "properties": {
+        "source_session_id": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 64
+        },
+        "delivery_sequence": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "member_path": {
+          "$ref": "#/$defs/memberPath"
+        },
+        "status": {
+          "enum": [
+            "directory",
+            "extracted",
+            "skipped",
+            "ignored",
+            "awaiting_collision",
+            "awaiting_retry",
+            "fatal"
+          ]
+        },
+        "extracted_bytes": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "directories_created": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "replaced": {
+          "type": "boolean"
+        },
+        "target_path": {
+          "$ref": "#/$defs/memberPath"
+        },
+        "message": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 500
+        }
+      }
+    },
+    "liveExtractionSummary": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "source_session_id",
+        "members_processed",
+        "members_completed",
+        "members_skipped",
+        "members_failed",
+        "files_extracted",
+        "directories_created",
+        "extracted_bytes",
+        "files_replaced"
+      ],
+      "properties": {
+        "source_session_id": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 64
+        },
+        "members_processed": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "members_completed": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "members_skipped": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "members_failed": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "files_extracted": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "directories_created": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "extracted_bytes": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "files_replaced": {
+          "type": "integer",
+          "minimum": 0
+        }
+      }
+    },
+    "liveDestinationDecision": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "source_session_id",
+        "delivery_sequence",
+        "decision_revision",
+        "action",
+        "member_path"
+      ],
+      "properties": {
+        "source_session_id": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 64
+        },
+        "delivery_sequence": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "decision_revision": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "action": {
+          "$ref": "#/$defs/decisionAction"
+        },
+        "member_path": {
+          "$ref": "#/$defs/memberPath"
+        },
+        "target_path": {
+          "$ref": "#/$defs/memberPath"
+        }
+      }
+    },
     "relayCreationBegin": {
       "oneOf": [
         {
@@ -1610,9 +1946,7 @@
           "required": [
             "contract_version",
             "destination_path",
-            "server_url",
-            "operation_id",
-            "operation_token"
+            "operation_id"
           ],
           "properties": {
             "contract_version": {
@@ -1623,17 +1957,9 @@
               "minLength": 1,
               "maxLength": 4096
             },
-            "server_url": {
-              "type": "string",
-              "format": "uri"
-            },
             "operation_id": {
               "type": "string",
               "format": "uuid"
-            },
-            "operation_token": {
-              "type": "string",
-              "minLength": 1
             }
           }
         }

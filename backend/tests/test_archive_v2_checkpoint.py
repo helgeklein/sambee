@@ -23,17 +23,14 @@ def test_canonical_v2_timestamp_uses_utc_z_suffix() -> None:
 
 
 def valid_checkpoint() -> dict[str, object]:
-    return new_v2_extraction_checkpoint(
-        manifest=[{"path": "docs/readme.txt", "is_directory": False, "uncompressed_size": 7, "modified_at": None}],
-        source_snapshot={"size": 7, "modified_at": None},
-    )
+    return new_v2_extraction_checkpoint()
 
 
 @pytest.mark.parametrize(
     "mutate",
     [
         lambda checkpoint: checkpoint.pop("version"),
-        lambda checkpoint: checkpoint.__setitem__("files_extracted", 0),
+        lambda checkpoint: checkpoint.__setitem__("manifest", []),
         lambda checkpoint: checkpoint.__setitem__("unexpected", True),
         lambda checkpoint: checkpoint.__setitem__("version", 1),
     ],
@@ -54,22 +51,22 @@ def test_v2_checkpoint_rejects_all_invalid_fixture_cases() -> None:
             validate_v2_extraction_checkpoint(case["checkpoint"])
 
 
-def test_v2_checkpoint_rejects_noncanonical_member_paths() -> None:
+@pytest.mark.parametrize("field", ["manifest", "source_snapshot", "member_outcomes", "decisions", "pending_decision", "delivery_ids"])
+def test_v2_checkpoint_rejects_legacy_extraction_state(field: str) -> None:
     checkpoint = valid_checkpoint()
-    checkpoint["manifest"] = [{"path": "docs\\readme.txt", "is_directory": False, "uncompressed_size": 7, "modified_at": None}]
-    with pytest.raises(HTTPException, match="member path"):
+    checkpoint[field] = {}  # type: ignore[assignment]
+    with pytest.raises(HTTPException, match="disallowed fields"):
         validate_v2_extraction_checkpoint(checkpoint)
 
 
 @pytest.mark.parametrize(
     "mutate",
     [
-        lambda checkpoint: checkpoint["source_snapshot"].__setitem__("modified_at", "not-a-timestamp"),  # type: ignore[index,union-attr]
-        lambda checkpoint: checkpoint.__setitem__("pending_decision", {}),
-        lambda checkpoint: checkpoint.__setitem__(
-            "pending_decision",
-            {"kind": "existing_files", "allowed_actions": ["skip"], "conflicts": []},
-        ),
+        lambda checkpoint: checkpoint.__setitem__("aggregate_counters", {}),
+        lambda checkpoint: checkpoint["aggregate_counters"].__setitem__("members_processed", -1),  # type: ignore[index,union-attr]
+        lambda checkpoint: checkpoint["aggregate_counters"].__setitem__("members_completed", True),  # type: ignore[index,union-attr]
+        lambda checkpoint: checkpoint["aggregate_counters"].__setitem__("files_replaced", 1 << 63),  # type: ignore[index,union-attr]
+        lambda checkpoint: checkpoint["aggregate_counters"].__setitem__("members_processed", 1),  # type: ignore[index,union-attr]
     ],
 )
 def test_v2_checkpoint_rejects_invalid_canonical_nested_values(mutate) -> None:
@@ -92,6 +89,22 @@ def test_v2_checkpoint_rejects_disallowed_executor_fields() -> None:
     checkpoint["files_extracted"] = 1
     with pytest.raises(HTTPException, match="disallowed fields"):
         validate_v2_extraction_checkpoint(checkpoint)
+
+
+def test_v2_checkpoint_accepts_aggregate_result() -> None:
+    checkpoint = valid_checkpoint()
+    checkpoint["aggregate_counters"] = {
+        "members_processed": 3,
+        "members_completed": 1,
+        "members_skipped": 1,
+        "members_failed": 1,
+        "files_extracted": 1,
+        "directories_created": 2,
+        "extracted_bytes": 7,
+        "files_replaced": 1,
+    }
+
+    assert validate_v2_extraction_checkpoint(checkpoint) == checkpoint
 
 
 def test_v2_creation_checkpoint_rejects_aggregate_counters() -> None:

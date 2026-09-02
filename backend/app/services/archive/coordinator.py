@@ -18,7 +18,6 @@ from app.models.archive_operation import (
     ArchiveOperation,
     ArchiveOperationError,
     ArchiveOperationErrorCode,
-    ArchiveOperationKind,
     ArchiveOperationPhase,
 )
 from app.models.file import FileType
@@ -29,17 +28,7 @@ from app.services.archive.execution import (
     ArchiveInspectionOperationKind,
     ArchiveInspectionTopologyPlan,
 )
-from app.services.archive.extraction import (
-    ArchiveExtractionCancelled,
-    ArchiveExtractionConflict,
-    ArchiveExtractionConflicts,
-    ArchiveExtractionDestinationResult,
-    ArchiveExtractionMemberError,
-    ArchiveExtractionProgress,
-    ArchiveExtractionResult,
-)
 from app.services.archive.operations import (
-    await_operation_decision,
     fail_operation,
     heartbeat_operation,
     update_operation_checkpoint,
@@ -59,15 +48,10 @@ from app.services.archive.zip_reader import (
 from app.utils.content_disposition import build_content_disposition
 from app.utils.file_type_registry import needs_processing
 
-ArchiveExtractionRunner = Callable[
-    ["ArchiveExtractionExecutionPlan", Callable[[ArchiveExtractionDestinationResult], Awaitable[None]], Callable[[], Awaitable[bool]]],
-    Awaitable[ArchiveExtractionResult],
-]
 ArchiveCreationRunner = Callable[
     [Callable[[ArchiveCreationMemberOutcome], Awaitable[None]], Callable[[], Awaitable[bool]]],
     Awaitable[ArchiveCreationResult],
 ]
-_EXTRACTION_MEMBER_OUTCOME_STATUSES = frozenset({"directory", "extracted", "skipped", "ignored", "partial"})
 _CREATION_MEMBER_OUTCOME_STATUSES = frozenset({"directory", "created"})
 
 
@@ -111,8 +95,6 @@ class ArchiveExecutionStateStore(Protocol):
 
     def update_checkpoint(self, operation: ArchiveOperation, checkpoint_json: str) -> ArchiveOperation: ...
 
-    def await_decision(self, operation: ArchiveOperation, decision: dict[str, object]) -> ArchiveOperation: ...
-
     def fail(
         self,
         operation: ArchiveOperation,
@@ -124,14 +106,6 @@ class ArchiveExecutionStateStore(Protocol):
     def cancellation_requested(self, operation: ArchiveOperation) -> bool: ...
 
     def heartbeat(self, operation: ArchiveOperation) -> None: ...
-
-    def apply_extraction_decision(
-        self,
-        operation: ArchiveOperation,
-        action: str,
-        member_path: str | None,
-        target_path: str | None,
-    ) -> ArchiveOperation: ...
 
     async def is_cancelled(self, operation: ArchiveOperation) -> bool: ...
 
@@ -160,6 +134,9 @@ class SmbArchiveInspectionSource:
 
     async def validate_member(self, path: str) -> ValidatedZipEntry:
         return await self.zip_reader.validate_member(path)
+
+    async def validate_member_in_record_order(self, path: str) -> ValidatedZipEntry:
+        return await self.zip_reader.validate_member_in_record_order(path)
 
     def stream_member(self, path: str) -> AsyncIterator[bytes]:
         return self.zip_reader.stream_member(path)
@@ -241,7 +218,9 @@ class ArchiveMemberReadPresentation(ArchiveInspectionPresentation):
     screen_zoom_percent: int = 200
 
     def project(self, manifest: ArchiveInspectionManifest) -> ArchiveMemberReadProjection:
-        member = manifest.member(self.member_path)
+        return self.project_member(manifest.member(self.member_path))
+
+    def project_member(self, member: ArchiveInspectionManifestMember) -> ArchiveMemberReadProjection:
         member_name = member.path.rsplit("/", 1)[-1]
         preview_requested = not self.download and self.view_kind != "raw"
         if preview_requested and not member.is_inline_preview_eligible():
@@ -345,9 +324,6 @@ class DurableArchiveExecutionStateStore:
     def update_checkpoint(self, operation: ArchiveOperation, checkpoint_json: str) -> ArchiveOperation:
         return update_operation_checkpoint(self.session, operation, _validated_checkpoint_json(operation, checkpoint_json))
 
-    def await_decision(self, operation: ArchiveOperation, decision: dict[str, object]) -> ArchiveOperation:
-        return await_operation_decision(self.session, operation, decision)
-
     def fail(
         self,
         operation: ArchiveOperation,
@@ -363,19 +339,6 @@ class DurableArchiveExecutionStateStore:
 
     def heartbeat(self, operation: ArchiveOperation) -> None:
         heartbeat_operation(self.session, operation)
-
-    def apply_extraction_decision(
-        self,
-        operation: ArchiveOperation,
-        action: str,
-        member_path: str | None,
-        target_path: str | None,
-    ) -> ArchiveOperation:
-        """Apply a durable decision through the existing atomic audited mutation."""
-
-        from app.services.archive.operations import apply_existing_file_decision
-
-        return apply_existing_file_decision(self.session, operation, action, member_path, target_path)
 
     async def is_cancelled(self, operation: ArchiveOperation) -> bool:
         if self.cancellation_requested(operation):
@@ -413,11 +376,6 @@ class InMemoryArchiveExecutionStateStore:
         operation.checkpoint_json = checkpoint_json
         return operation
 
-    def await_decision(self, operation: ArchiveOperation, decision: dict[str, object]) -> ArchiveOperation:
-        operation.phase = ArchiveOperationPhase.AWAITING_USER_DECISION
-        operation.pending_decision_json = json.dumps(decision)
-        return operation
-
     def fail(
         self,
         operation: ArchiveOperation,
@@ -437,84 +395,6 @@ class InMemoryArchiveExecutionStateStore:
 
     def heartbeat(self, operation: ArchiveOperation) -> None:
         return None
-
-    def apply_extraction_decision(
-        self,
-        operation: ArchiveOperation,
-        action: str,
-        member_path: str | None,
-        target_path: str | None,
-    ) -> ArchiveOperation:
-        """Apply an in-memory decision for deterministic coordinator execution."""
-
-        if operation.phase != ArchiveOperationPhase.AWAITING_USER_DECISION:
-            raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="Archive operation is not awaiting a decision")
-        checkpoint = load_archive_checkpoint(operation)
-        decisions = checkpoint.get("decisions")
-        if not isinstance(decisions, dict):
-            raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="Archive operation checkpoint is invalid")
-        if action in {"skip", "replace"}:
-            if not isinstance(member_path, str):
-                raise HTTPException(
-                    status_code=status.HTTP_422_UNPROCESSABLE_CONTENT, detail="Archive member decision requires a pending member"
-                )
-            member_collision_actions = decisions.get("collision_actions")
-            if not isinstance(member_collision_actions, dict):
-                raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="Archive operation checkpoint is invalid")
-            member_collision_actions[member_path] = action
-        elif action == "rename":
-            if not isinstance(member_path, str) or not isinstance(target_path, str):
-                raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_CONTENT, detail="Archive rename target path is invalid")
-            member_rename_targets = decisions.get("rename_targets")
-            if not isinstance(member_rename_targets, dict):
-                raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="Archive operation checkpoint is invalid")
-            try:
-                pending = json.loads(operation.pending_decision_json or "{}")
-            except json.JSONDecodeError as exc:
-                raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="Archive operation decision state is invalid") from exc
-            conflicts = pending.get("conflicts") if isinstance(pending, dict) and pending.get("kind") == "existing_files" else None
-            conflict = (
-                next(
-                    (
-                        pending_conflict
-                        for pending_conflict in conflicts
-                        if isinstance(pending_conflict, dict) and pending_conflict.get("member_path") == member_path
-                    ),
-                    None,
-                )
-                if isinstance(conflicts, list)
-                else None
-            )
-            if conflict is None:
-                raise HTTPException(
-                    status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
-                    detail="Archive member is not awaiting a collision decision",
-                )
-            if conflict.get("is_directory") is True:
-                from app.services.archive.operations import rebase_directory_rename_targets
-
-                rebase_directory_rename_targets(operation, member_rename_targets, member_path, conflict.get("target_path"), target_path)
-            else:
-                member_rename_targets[member_path] = target_path
-        elif action == "retry":
-            if not isinstance(member_path, str):
-                raise HTTPException(
-                    status_code=status.HTTP_422_UNPROCESSABLE_CONTENT, detail="Archive member error decision is not allowed"
-                )
-            decisions["retry_members"] = [member_path]
-        elif action == "ignore":
-            if not isinstance(member_path, str):
-                raise HTTPException(
-                    status_code=status.HTTP_422_UNPROCESSABLE_CONTENT, detail="Archive member error decision is not allowed"
-                )
-            decisions["ignored_members"] = [member_path]
-        elif action not in {"skip_all", "replace_all", "replace_older"}:
-            raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_CONTENT, detail="Archive operation decision is not allowed")
-        operation.checkpoint_json = json.dumps(checkpoint)
-        operation.collision_policy = action if action in {"skip_all", "replace_all", "replace_older"} else operation.collision_policy
-        operation.pending_decision_json = None
-        operation.phase = ArchiveOperationPhase.STREAMING
-        return operation
 
     async def is_cancelled(self, operation: ArchiveOperation) -> bool:
         return operation.cancellation_requested
@@ -553,212 +433,6 @@ def _validate_operation_checkpoint(operation: ArchiveOperation, checkpoint: obje
         raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="Archive operation checkpoint is invalid") from exc
 
 
-@dataclass(frozen=True)
-class ArchiveExtractionDecisionState:
-    """Validated extraction choices persisted in an operation checkpoint."""
-
-    _member_collision_actions: dict[str, str]
-    _member_rename_targets: dict[str, str]
-    _ignored_members: list[str]
-    _retry_members: list[str]
-
-    @classmethod
-    def from_checkpoint(cls, checkpoint: dict[str, object]) -> "ArchiveExtractionDecisionState":
-        decisions = checkpoint.get("decisions")
-        if not isinstance(decisions, dict):
-            raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="Archive operation checkpoint is invalid")
-        member_collision_actions = decisions.get("collision_actions")
-        member_rename_targets = decisions.get("rename_targets")
-        ignored_members = decisions.get("ignored_members")
-        retry_members = decisions.get("retry_members")
-        if (
-            not isinstance(member_collision_actions, dict)
-            or not all(
-                isinstance(member_path, str) and member_path and action in {"skip", "replace"}
-                for member_path, action in member_collision_actions.items()
-            )
-            or not isinstance(member_rename_targets, dict)
-            or not all(
-                isinstance(member_path, str) and isinstance(target_path, str) for member_path, target_path in member_rename_targets.items()
-            )
-            or not isinstance(ignored_members, list)
-            or not all(isinstance(member_path, str) for member_path in ignored_members)
-            or not isinstance(retry_members, list)
-            or not all(isinstance(member_path, str) for member_path in retry_members)
-        ):
-            raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="Archive operation checkpoint is invalid")
-        return cls(member_collision_actions, member_rename_targets, ignored_members, retry_members)
-
-    def collision_actions_for_execution(self) -> dict[str, str]:
-        """Return valid per-member collision choices for a direct extractor."""
-
-        return dict(self._member_collision_actions)
-
-    def collision_action(self, member_path: str, default_action: str | None) -> str | None:
-        """Resolve one member's collision action against the operation default."""
-
-        return self.collision_actions_for_execution().get(member_path, default_action)
-
-    def rename_targets(self) -> dict[str, str]:
-        """Return a copy of persisted member rename targets for structural validation."""
-
-        return dict(self._member_rename_targets)
-
-    def target_member_path(self, member_path: str) -> str:
-        """Return a persisted target path, including an implicit directory remap."""
-
-        matching_source = max(
-            (source for source in self._member_rename_targets if member_path == source or member_path.startswith(f"{source}/")),
-            key=len,
-            default=None,
-        )
-        if matching_source is None:
-            return member_path
-        target_path = self._member_rename_targets[matching_source]
-        suffix = member_path[len(matching_source) :].strip("/")
-        return target_path if not suffix else f"{target_path}/{suffix}"
-
-    def ignored_member_paths(self) -> list[str]:
-        """Return validated members that were explicitly ignored after an error."""
-
-        if not all(self._ignored_members):
-            raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="Archive operation checkpoint is invalid")
-        return list(self._ignored_members)
-
-    def retry_members_after_completion(self, member_path: str) -> list[str]:
-        """Return retry state after one member obtains a terminal outcome."""
-
-        return [retry_member for retry_member in self._retry_members if retry_member != member_path]
-
-
-@dataclass(frozen=True)
-class ArchiveExtractionManifestMember:
-    """One immutable ZIP member expected by the local extraction relay."""
-
-    member_path: str
-    is_directory: bool
-    uncompressed_size: int
-    source_modified_at: str | None
-
-
-@dataclass(frozen=True)
-class ArchiveExtractionManifest:
-    """Validated immutable ZIP manifest shared by the SMB-to-local relay."""
-
-    members: tuple[ArchiveExtractionManifestMember, ...]
-    _member_index: Mapping[str, ArchiveExtractionManifestMember] = field(init=False, repr=False, compare=False)
-
-    def __post_init__(self) -> None:
-        member_index = {member.member_path: member for member in self.members}
-        if len(member_index) != len(self.members):
-            raise ValueError("Archive extraction manifest is invalid")
-        object.__setattr__(self, "_member_index", MappingProxyType(member_index))
-
-    @classmethod
-    def from_members(cls, members: list[ArchiveExtractionManifestMember]) -> "ArchiveExtractionManifest":
-        """Normalize and validate preflight ZIP members before relay output begins."""
-
-        try:
-            return cls(cls._validate_members(members, normalize_member_paths=True))
-        except ValueError as exc:
-            raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_CONTENT, detail="Archive extraction manifest is invalid") from exc
-
-    @classmethod
-    def from_checkpoint(cls, checkpoint: dict[str, object]) -> "ArchiveExtractionManifest":
-        """Load a strict immutable extraction manifest from durable state."""
-
-        manifest = checkpoint.get("manifest")
-        if not isinstance(manifest, list):
-            raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="Archive operation checkpoint is invalid")
-        try:
-            members = []
-            for entry in manifest:
-                if not isinstance(entry, dict):
-                    raise ValueError
-                member_path = entry.get("path")
-                is_directory = entry.get("is_directory")
-                uncompressed_size = entry.get("uncompressed_size")
-                source_modified_at = entry.get("modified_at")
-                if (
-                    not isinstance(member_path, str)
-                    or type(is_directory) is not bool
-                    or type(uncompressed_size) is not int
-                    or uncompressed_size < 0
-                    or (source_modified_at is not None and not isinstance(source_modified_at, str))
-                ):
-                    raise ValueError
-                members.append(ArchiveExtractionManifestMember(member_path, is_directory, uncompressed_size, source_modified_at))
-            return cls(cls._validate_members(members, normalize_member_paths=False))
-        except ValueError as exc:
-            raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="Archive operation checkpoint is invalid") from exc
-
-    @staticmethod
-    def _validate_members(
-        members: list[ArchiveExtractionManifestMember], *, normalize_member_paths: bool
-    ) -> tuple[ArchiveExtractionManifestMember, ...]:
-        validated_members: list[ArchiveExtractionManifestMember] = []
-        for member in members:
-            normalized_member_path = _normalize_extraction_manifest_path(member.member_path)
-            if not normalize_member_paths and normalized_member_path != member.member_path:
-                raise ValueError
-            validated_members.append(
-                ArchiveExtractionManifestMember(
-                    normalized_member_path,
-                    member.is_directory,
-                    member.uncompressed_size,
-                    member.source_modified_at,
-                )
-            )
-        _validate_archive_member_hierarchy(
-            [(member.member_path, member.is_directory) for member in validated_members],
-            error_message="Archive extraction manifest is invalid",
-            exact_member_identity=True,
-        )
-        return tuple(validated_members)
-
-    def member(self, member_path: str, *, is_directory: bool | None = None) -> ArchiveExtractionManifestMember:
-        """Return one approved member without accepting arbitrary executor paths."""
-
-        try:
-            normalized_member_path = _normalize_extraction_manifest_path(member_path)
-        except (AttributeError, ValueError) as exc:
-            raise HTTPException(
-                status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
-                detail="Archive member is invalid or unavailable",
-            ) from exc
-        member = self._member_index.get(normalized_member_path)
-        if member is None:
-            raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_CONTENT, detail="Archive member is invalid or unavailable")
-        if is_directory is not None and member.is_directory is not is_directory:
-            raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_CONTENT, detail="Archive member type is invalid")
-        return member
-
-    def is_implicit_directory(self, member_path: str) -> bool:
-        """Return whether *member_path* is a safe directory ancestor of a manifest member."""
-
-        try:
-            normalized_member_path = _normalize_extraction_manifest_path(member_path)
-        except (AttributeError, ValueError) as exc:
-            raise HTTPException(
-                status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
-                detail="Archive member is invalid or unavailable",
-            ) from exc
-        return any(member.member_path.startswith(f"{normalized_member_path}/") for member in self.members)
-
-    def checkpoint_entries(self) -> list[dict[str, object]]:
-        """Serialize the immutable manifest into the durable relay checkpoint."""
-
-        return [
-            {
-                "path": member.member_path,
-                "is_directory": member.is_directory,
-                "uncompressed_size": member.uncompressed_size,
-                "modified_at": canonical_v2_timestamp(member.source_modified_at),
-            }
-            for member in self.members
-        ]
-
-
 def _normalize_v2_archive_member_path(member_path: str, *, error_message: str) -> str:
     """Return one canonical safe V2 archive member path for any operation manifest."""
 
@@ -772,265 +446,6 @@ def _normalize_v2_archive_member_path(member_path: str, *, error_message: str) -
     ):
         raise ValueError(error_message)
     return normalized
-
-
-def _normalize_extraction_manifest_path(member_path: str) -> str:
-    return _normalize_v2_archive_member_path(member_path, error_message="Archive extraction member is invalid or unavailable")
-
-
-@dataclass(frozen=True)
-class ArchiveExtractionState:
-    """One strictly validated immutable projection of an extraction checkpoint."""
-
-    checkpoint: dict[str, object]
-    manifest: ArchiveExtractionManifest
-    decisions: ArchiveExtractionDecisionState
-
-    @classmethod
-    def from_checkpoint(cls, checkpoint: dict[str, object]) -> "ArchiveExtractionState":
-        """Load immutable manifest and shared execution state from one checkpoint."""
-
-        try:
-            validated_checkpoint = validate_v2_operation_checkpoint(ArchiveOperationKind.EXTRACT, checkpoint)
-        except HTTPException as exc:
-            raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="Archive operation checkpoint is invalid") from exc
-        return cls(
-            validated_checkpoint,
-            ArchiveExtractionManifest.from_checkpoint(validated_checkpoint),
-            ArchiveExtractionDecisionState.from_checkpoint(validated_checkpoint),
-        )
-
-    def completed_member_paths(self) -> frozenset[str]:
-        """Return terminal member paths from this validated checkpoint projection."""
-
-        return frozenset(completed_extraction_member_paths(self.checkpoint))
-
-    def member(self, member_path: str, *, is_directory: bool | None = None) -> ArchiveExtractionManifestMember:
-        """Return one approved immutable extraction member."""
-
-        return self.manifest.member(member_path, is_directory=is_directory)
-
-    def target_member_path(self, member_path: str) -> str:
-        """Return the decided local-relative output member path."""
-
-        try:
-            source_member_path = self.member(member_path).member_path
-        except HTTPException:
-            if not self.manifest.is_implicit_directory(member_path):
-                raise
-            source_member_path = _normalize_extraction_manifest_path(member_path)
-        target_member_path = self.decisions.target_member_path(source_member_path)
-        try:
-            return _normalize_extraction_manifest_path(target_member_path)
-        except (AttributeError, ValueError) as exc:
-            raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="Archive operation checkpoint is invalid") from exc
-
-    def has_complete_terminal_coverage(self) -> bool:
-        """Return whether every immutable member has one terminal durable outcome."""
-
-        return self.completed_member_paths() == {member.member_path for member in self.manifest.members}
-
-    def completion_checkpoint_json(self, *, destination_root_created: bool) -> str:
-        """Validate terminal coverage and serialize the final extraction checkpoint."""
-
-        if not self.has_complete_terminal_coverage():
-            raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="Archive operation has unfinished members")
-        _extraction_member_outcomes(self.checkpoint, migrate_legacy_members=False)
-        extraction_outcome_summary(self.checkpoint, int(destination_root_created))
-        return json.dumps(self.checkpoint)
-
-
-@dataclass(frozen=True)
-class ArchiveExtractionExecutionPlan:
-    """Immutable manifest plus persisted decisions consumed by every extraction executor."""
-
-    state: ArchiveExtractionState
-    existing_file_policy: str | None
-
-    @classmethod
-    def from_checkpoint(
-        cls,
-        checkpoint: dict[str, object],
-        *,
-        existing_file_policy: str | None = None,
-    ) -> "ArchiveExtractionExecutionPlan":
-        if existing_file_policy not in {None, "skip_all", "replace_all", "replace_older"}:
-            raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="Archive operation collision policy is invalid")
-        state = ArchiveExtractionState.from_checkpoint(checkpoint)
-        return cls(state, existing_file_policy)
-
-    @property
-    def manifest(self) -> ArchiveExtractionManifest:
-        return self.state.manifest
-
-    def completed_member_paths(self) -> frozenset[str]:
-        return self.state.completed_member_paths()
-
-    def collision_actions(self) -> dict[str, str]:
-        return self.state.decisions.collision_actions_for_execution()
-
-    def rename_targets(self) -> dict[str, str]:
-        return self.state.decisions.rename_targets()
-
-    def ignored_member_paths(self) -> list[str]:
-        return self.state.decisions.ignored_member_paths()
-
-    def member(self, member_path: str, *, is_directory: bool | None = None) -> ArchiveExtractionManifestMember:
-        return self.manifest.member(member_path, is_directory=is_directory)
-
-    def target_member_path(self, member_path: str) -> str:
-        return self.state.target_member_path(member_path)
-
-    def is_implicit_directory(self, member_path: str) -> bool:
-        return self.manifest.is_implicit_directory(member_path)
-
-    def is_resolved_descendant_directory_target(self, member_path: str, target_path: str) -> bool:
-        """Return whether *target_path* is a resolved output-directory ancestor of an implicit member."""
-
-        if not self.is_implicit_directory(member_path):
-            return False
-        for member in self.manifest.members:
-            if member.is_directory or not member.member_path.startswith(f"{member_path}/"):
-                continue
-            target_parts = self.target_member_path(member.member_path).split("/")
-            for index in range(1, len(target_parts)):
-                if "/".join(target_parts[:index]) == target_path:
-                    return True
-        return False
-
-    def collision_action(self, member_path: str) -> str | None:
-        return self.state.decisions.collision_action(member_path, self.existing_file_policy)
-
-    def completion_checkpoint_json(self, *, destination_root_created: bool) -> str:
-        return self.state.completion_checkpoint_json(destination_root_created=destination_root_created)
-
-
-@dataclass(frozen=True)
-class ArchiveExtractionPartialMemberOutcome:
-    """One nonterminal member output that may be retried or explicitly ignored."""
-
-    member_path: str
-    target_path: str
-    message: str
-
-
-def record_extraction_partial_member_outcome(checkpoint: dict[str, object], outcome: ArchiveExtractionPartialMemberOutcome) -> None:
-    """Record a retryable partial output without allowing it to replace a terminal result."""
-
-    outcomes = _extraction_member_outcomes(checkpoint, migrate_legacy_members=True)
-    existing_outcome = outcomes.get(outcome.member_path)
-    if existing_outcome is not None:
-        if not isinstance(existing_outcome, dict):
-            raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="Archive operation checkpoint is invalid")
-        if existing_outcome.get("status") != "partial":
-            raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="Archive member outcome conflicts with its checkpoint")
-    outcomes[outcome.member_path] = {
-        "status": "partial",
-        "target_path": outcome.target_path,
-        "message": outcome.message,
-    }
-
-
-def persist_extraction_partial_member_outcome(
-    state_store: ArchiveExecutionStateStore,
-    operation: ArchiveOperation,
-    outcome: ArchiveExtractionPartialMemberOutcome,
-) -> ArchiveOperation:
-    """Persist one retryable partial output through the common extraction ledger."""
-
-    checkpoint = load_archive_checkpoint(operation)
-    record_extraction_partial_member_outcome(checkpoint, outcome)
-    return state_store.update_checkpoint(operation, json.dumps(checkpoint))
-
-
-def record_extraction_member_outcome(
-    checkpoint: dict[str, object],
-    outcome: ArchiveExtractionDestinationResult,
-    *,
-    preserve_absent_zero: bool,
-) -> None:
-    """Record one detailed member outcome and its counters in a durable checkpoint."""
-
-    outcomes = _extraction_member_outcomes(checkpoint, migrate_legacy_members=True)
-    if not isinstance(outcomes, dict):
-        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="Archive operation checkpoint is invalid")
-    outcome_payload = {
-        "status": outcome.status,
-        "target_path": outcome.target_path,
-        "extracted_bytes": outcome.extracted_bytes,
-        "directories_created": outcome.directories_created,
-        "replaced": outcome.replaced,
-        "renamed": outcome.renamed,
-    }
-    existing_outcome = outcomes.get(outcome.member_path)
-    if existing_outcome is not None:
-        if not isinstance(existing_outcome, dict):
-            raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="Archive operation checkpoint is invalid")
-        if existing_outcome.get("status") != "partial":
-            if existing_outcome == outcome_payload:
-                return
-            raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="Archive member outcome conflicts with its checkpoint")
-    outcomes[outcome.member_path] = outcome_payload
-
-
-def extraction_outcome_summary(checkpoint: dict[str, object], root_directories_created: int) -> ArchiveExtractionProgress:
-    """Derive terminal extraction counters exclusively from durable member outcomes."""
-
-    if type(root_directories_created) is not int or root_directories_created < 0:
-        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="Archive operation checkpoint is invalid")
-    outcomes = _extraction_member_outcomes(checkpoint, migrate_legacy_members=False)
-    progress = ArchiveExtractionProgress(directories_created=root_directories_created)
-    for member_path, raw_outcome in outcomes.items():
-        if not isinstance(raw_outcome, dict):
-            raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="Archive operation checkpoint is invalid")
-        status_value = raw_outcome.get("status")
-        if status_value == "partial":
-            continue
-        target_path = raw_outcome.get("target_path")
-        extracted_bytes = raw_outcome.get("extracted_bytes", 0)
-        directories_created = raw_outcome.get("directories_created", 0)
-        replaced = raw_outcome.get("replaced", False)
-        renamed = raw_outcome.get("renamed", False)
-        if (
-            not isinstance(member_path, str)
-            or status_value not in _EXTRACTION_MEMBER_OUTCOME_STATUSES - {"partial"}
-            or not isinstance(target_path, str)
-            or type(extracted_bytes) is not int
-            or extracted_bytes < 0
-            or type(directories_created) is not int
-            or directories_created < 0
-            or type(replaced) is not bool
-            or type(renamed) is not bool
-        ):
-            raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="Archive operation checkpoint is invalid")
-        progress.record(
-            ArchiveExtractionDestinationResult(
-                member_path,
-                status_value,
-                target_path,
-                extracted_bytes,
-                directories_created,
-                replaced,
-                renamed,
-            )
-        )
-    return progress
-
-
-def persist_extraction_member_outcome(
-    state_store: ArchiveExecutionStateStore,
-    operation: ArchiveOperation,
-    outcome: ArchiveExtractionDestinationResult,
-    *,
-    checkpoint: dict[str, object] | None = None,
-    preserve_absent_zero: bool = True,
-) -> ArchiveOperation:
-    """Record one outcome and atomically persist its shared checkpoint shape."""
-
-    if checkpoint is None:
-        checkpoint = load_archive_checkpoint(operation)
-    record_extraction_member_outcome(checkpoint, outcome, preserve_absent_zero=preserve_absent_zero)
-    return state_store.update_checkpoint(operation, json.dumps(checkpoint))
 
 
 @dataclass(frozen=True)
@@ -1264,6 +679,7 @@ class ArchiveCreationState:
         existing_outcome = outcomes.get(expected_outcome.archive_path)
         if existing_outcome is None:
             return False
+
         expected_payload = {"status": expected_outcome.status, "source_bytes": expected_outcome.source_bytes}
         if existing_outcome == expected_payload:
             return True
@@ -1447,66 +863,6 @@ def _creation_member_outcomes(checkpoint: dict[str, object], *, initialize: bool
     return outcomes
 
 
-def completed_extraction_member_paths(checkpoint: dict[str, object]) -> list[str]:
-    """Return members with terminal durable output while rejecting malformed ledgers."""
-
-    outcomes = _extraction_member_outcomes(checkpoint, migrate_legacy_members=False)
-    completed: list[str] = []
-    for member_path, outcome in outcomes.items():
-        if (
-            not isinstance(member_path, str)
-            or not isinstance(outcome, dict)
-            or outcome.get("status") not in _EXTRACTION_MEMBER_OUTCOME_STATUSES
-        ):
-            raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="Archive operation checkpoint is invalid")
-        if outcome["status"] != "partial":
-            completed.append(member_path)
-    return completed
-
-
-def _extraction_member_outcomes(checkpoint: dict[str, object], *, migrate_legacy_members: bool) -> dict[str, object]:
-    outcomes = checkpoint.get("member_outcomes")
-    if not isinstance(outcomes, dict):
-        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="Archive operation checkpoint is invalid")
-    return outcomes
-
-
-def existing_files_decision(conflicts: list[ArchiveExtractionConflict]) -> dict[str, object]:
-    """Build the common collision decision payload for every extraction binding."""
-
-    has_directory_conflict = any(conflict.is_directory for conflict in conflicts)
-    return {
-        "kind": "existing_files",
-        "allowed_actions": ["rename"]
-        if has_directory_conflict
-        else ["skip", "skip_all", "replace", "replace_all", "replace_older", "rename"],
-        "conflicts": [
-            {
-                "member_path": conflict.member_path,
-                "target_path": conflict.target_path,
-                "is_directory": conflict.is_directory,
-                **({"source_size": conflict.source_size} if conflict.source_size is not None else {}),
-                **(
-                    {
-                        "source_modified_at": canonical_v2_timestamp(conflict.source_modified_at)
-                        if isinstance(conflict.source_modified_at, datetime)
-                        else conflict.source_modified_at
-                    }
-                    if conflict.source_modified_at is not None
-                    else {}
-                ),
-                **({"target_size": conflict.target_size} if conflict.target_size is not None else {}),
-                **(
-                    {"target_modified_at": canonical_v2_timestamp(conflict.target_modified_at)}
-                    if conflict.target_modified_at is not None
-                    else {}
-                ),
-            }
-            for conflict in conflicts
-        ],
-    }
-
-
 def archive_member_target(destination_root: str, member_path: str) -> str:
     """Join a validated archive member beneath its operation-owned output root."""
 
@@ -1645,238 +1001,6 @@ def start_archive_execution(
         allow_streaming=allow_streaming,
         not_ready_detail="Archive operation is not ready to execute",
     )
-
-
-@dataclass(frozen=True)
-class ArchiveExtractionCoordinator:
-    """Drive one durable extraction without owning source or destination I/O."""
-
-    operation: ArchiveOperation
-    state_store: ArchiveExecutionStateStore
-
-    def begin(self, *, checkpoint_json: str | None = None, allow_streaming: bool = True) -> ArchiveOperation:
-        """Start a direct or relay extraction after its adapter-specific preflight succeeds."""
-
-        return start_archive_execution(
-            self.state_store,
-            self.operation,
-            checkpoint_json=checkpoint_json,
-            allow_streaming=allow_streaming,
-        )
-
-    def advance(self) -> bool:
-        """Refresh an active adapter lease and transition cancellation through the common lifecycle."""
-
-        return advance_relay_transfer(self.state_store, self.operation)
-
-    def complete(self, *, destination_root_created: bool) -> ArchiveOperation:
-        """Validate terminal ledger coverage and complete a direct or relay extraction."""
-
-        return complete_relay_execution(
-            self.state_store,
-            self.operation,
-            prepare_checkpoint_json=lambda: ArchiveExtractionState.from_checkpoint(
-                load_archive_checkpoint(self.operation)
-            ).completion_checkpoint_json(destination_root_created=destination_root_created),
-        )
-
-    def fail(
-        self,
-        message: str,
-        *,
-        error_code: ArchiveOperationErrorCode | None = None,
-    ) -> ArchiveOperation:
-        """Persist an adapter-detected terminal failure through the coordinator state store."""
-
-        return self.state_store.fail(self.operation, message, error_code=error_code)
-
-    async def run(self, runner: ArchiveExtractionRunner) -> ArchiveOperation:
-        """Advance an extraction adapter from its current lifecycle phase."""
-
-        operation = self._start_streaming()
-        execution_plan = ArchiveExtractionExecutionPlan.from_checkpoint(
-            load_archive_checkpoint(operation),
-            existing_file_policy=operation.collision_policy,
-        )
-
-        async def is_cancelled() -> bool:
-            return await self.state_store.is_cancelled(operation)
-
-        async def record_member_completed(outcome: ArchiveExtractionDestinationResult) -> None:
-            nonlocal operation
-            operation = persist_extraction_member_outcome(self.state_store, operation, outcome)
-
-        try:
-            await runner(execution_plan, record_member_completed, is_cancelled)
-            checkpoint = load_archive_checkpoint(operation)
-            completed_checkpoint_json = ArchiveExtractionExecutionPlan.from_checkpoint(checkpoint).completion_checkpoint_json(
-                destination_root_created=False
-            )
-            operation = self.state_store.update_checkpoint(operation, completed_checkpoint_json)
-            self.state_store.transition(
-                operation,
-                expected_phase=ArchiveOperationPhase.STREAMING,
-                next_phase=ArchiveOperationPhase.VERIFYING,
-            )
-            return self.state_store.transition(
-                operation,
-                expected_phase=ArchiveOperationPhase.VERIFYING,
-                next_phase=ArchiveOperationPhase.COMPLETED,
-            )
-        except ArchiveExtractionCancelled:
-            return self.state_store.transition(
-                operation,
-                expected_phase=ArchiveOperationPhase.STREAMING,
-                next_phase=ArchiveOperationPhase.CANCELLED,
-            )
-        except ArchiveExtractionConflicts as exc:
-            return self.state_store.await_decision(operation, existing_files_decision(exc.conflicts))
-        except ArchiveExtractionMemberError as exc:
-            if exc.partial_output:
-                operation = persist_extraction_partial_member_outcome(
-                    self.state_store,
-                    operation,
-                    ArchiveExtractionPartialMemberOutcome(exc.member_path, exc.target_path, exc.message),
-                )
-            return self.state_store.await_decision(
-                operation,
-                member_error_decision(exc.member_path, exc.target_path, exc.message, partial_output=exc.partial_output),
-            )
-        except HTTPException:
-            raise
-        except Exception as exc:
-            self.state_store.fail(operation, str(exc))
-            raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail="Archive extraction failed") from exc
-
-    def _start_streaming(self) -> ArchiveOperation:
-        return self.begin()
-
-    def apply_decision(
-        self,
-        action: str,
-        *,
-        member_path: str | None = None,
-        target_path: str | None = None,
-    ) -> ArchiveOperation:
-        """Apply one validated pause decision through the coordinator's state store."""
-
-        return self.state_store.apply_extraction_decision(self.operation, action, member_path, target_path)
-
-    def record_member_completed(self, reported_outcome: ArchiveExtractionDestinationResult) -> ArchiveOperation:
-        """Validate and persist one terminal result reported by any execution adapter."""
-
-        checkpoint = load_archive_checkpoint(self.operation)
-        execution_plan = ArchiveExtractionExecutionPlan.from_checkpoint(
-            checkpoint,
-            existing_file_policy=self.operation.collision_policy,
-        )
-        member_path = reported_outcome.member_path
-        entry = execution_plan.member(member_path, is_directory=reported_outcome.status == "directory")
-        target_path = archive_member_target(self.operation.destination_path, execution_plan.target_member_path(member_path))
-        if reported_outcome.target_path != target_path:
-            raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_CONTENT, detail="Archive member target path is invalid")
-        renamed = target_path != archive_member_target(self.operation.destination_path, member_path)
-        if reported_outcome.renamed != renamed:
-            raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_CONTENT, detail="Archive member rename state is invalid")
-        if member_path in completed_extraction_member_paths(checkpoint):
-            return self.operation
-        if reported_outcome.status == "directory":
-            if not entry.is_directory or reported_outcome.extracted_bytes or reported_outcome.replaced:
-                raise HTTPException(
-                    status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
-                    detail="Archive directory completion counts are invalid",
-                )
-        elif reported_outcome.status in {"skipped", "ignored"}:
-            if entry.is_directory or any(
-                (reported_outcome.directories_created, reported_outcome.extracted_bytes, reported_outcome.replaced)
-            ):
-                raise HTTPException(
-                    status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
-                    detail="Archive skipped member counts are invalid",
-                )
-        elif entry.is_directory or reported_outcome.extracted_bytes != entry.uncompressed_size:
-            raise HTTPException(
-                status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
-                detail="Archive member completion counts are invalid",
-            )
-        decisions = checkpoint.get("decisions")
-        if not isinstance(decisions, dict):
-            raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="Archive operation checkpoint is invalid")
-        decisions["retry_members"] = ArchiveExtractionDecisionState.from_checkpoint(checkpoint).retry_members_after_completion(member_path)
-        return persist_extraction_member_outcome(self.state_store, self.operation, reported_outcome, checkpoint=checkpoint)
-
-    def pause_for_collision(
-        self,
-        *,
-        member_path: str,
-        is_directory: bool,
-        target_size: int | None,
-        target_modified_at: datetime | None,
-        target_path: str | None = None,
-    ) -> ArchiveOperation:
-        """Convert an adapter-observed collision to a normalized persisted pause."""
-
-        execution_plan = ArchiveExtractionExecutionPlan.from_checkpoint(
-            load_archive_checkpoint(self.operation),
-            existing_file_policy=self.operation.collision_policy,
-        )
-        try:
-            entry = execution_plan.member(member_path)
-        except HTTPException:
-            if not is_directory or not execution_plan.is_implicit_directory(member_path):
-                raise
-            entry = None
-        expected_target_path = archive_member_target(
-            self.operation.destination_path,
-            execution_plan.target_member_path(member_path),
-        )
-        if target_path is not None:
-            target_member_path = target_path.removeprefix(f"{self.operation.destination_path.rstrip('/')}/")
-            is_descendant_parent = (
-                is_directory
-                and target_member_path != target_path
-                and execution_plan.is_resolved_descendant_directory_target(member_path, target_member_path)
-            )
-            if target_path != expected_target_path and not is_descendant_parent:
-                raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_CONTENT, detail="Archive collision target is invalid")
-        resolved_target_path = target_path or expected_target_path
-        return self.state_store.await_decision(
-            self.operation,
-            existing_files_decision(
-                [
-                    ArchiveExtractionConflict(
-                        member_path,
-                        resolved_target_path,
-                        is_directory=is_directory,
-                        source_size=entry.uncompressed_size if entry is not None and not is_directory else None,
-                        source_modified_at=entry.source_modified_at if entry is not None else None,
-                        target_size=target_size,
-                        target_modified_at=target_modified_at,
-                    )
-                ]
-            ),
-        )
-
-    def pause_for_member_error(self, *, member_path: str, message: str, partial_output: bool) -> ArchiveOperation:
-        """Persist an adapter-observed partial write before awaiting a coordinator decision."""
-
-        execution_plan = ArchiveExtractionExecutionPlan.from_checkpoint(
-            load_archive_checkpoint(self.operation),
-            existing_file_policy=self.operation.collision_policy,
-        )
-        execution_plan.member(member_path)
-        target_path = archive_member_target(self.operation.destination_path, execution_plan.target_member_path(member_path))
-        operation = self.operation
-        if partial_output:
-            operation = persist_extraction_partial_member_outcome(
-                self.state_store,
-                operation,
-                ArchiveExtractionPartialMemberOutcome(member_path, target_path, message),
-            )
-        return self.state_store.await_decision(
-            operation,
-            member_error_decision(member_path, target_path, message, partial_output=partial_output),
-        )
 
 
 @dataclass(frozen=True)

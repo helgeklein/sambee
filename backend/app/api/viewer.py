@@ -26,13 +26,11 @@ from app.models.edit_lock import HEARTBEAT_TIMEOUT_SECONDS, EditLock
 from app.models.file import FileInfo, FileType
 from app.models.user import User
 from app.services.archive.coordinator import (
-    ArchiveInspectionPlan,
     ArchiveMemberReadPresentation,
     SmbArchiveInspectionSource,
-    resolve_archive_inspection_coordinator,
 )
 from app.services.archive.execution import ArchiveExecutionDriver, resolve_archive_inspection_topology_plan
-from app.services.archive.zip_reader import ArchiveFormatError, ZipEntry, ZipReader
+from app.services.archive.zip_reader import ArchiveFormatError, ArchiveInspectionManifestMember, ZipEntry, ZipReader
 from app.services.connection_access import get_accessible_connection_or_404
 from app.services.image_converter import convert_image_for_viewer
 from app.services.pdf_derivative_cache import PDFDerivativeCachePolicy, PDFSourceRevision, pdf_derivative_cache
@@ -51,6 +49,23 @@ from app.utils.file_type_registry import needs_processing
 
 router = APIRouter()
 logger = get_logger(__name__)
+
+
+def _inspection_member(entry: ZipEntry) -> ArchiveInspectionManifestMember:
+    """Map one record-order entry to existing viewer presentation metadata."""
+
+    return ArchiveInspectionManifestMember(
+        path=entry.path,
+        is_directory=entry.is_directory,
+        compressed_size=entry.compressed_size,
+        uncompressed_size=entry.uncompressed_size,
+        compression_method=entry.compression_method,
+        crc32=entry.crc32,
+        modified_at=entry.modified_at,
+        encrypted=entry.encrypted,
+        is_safe=entry.is_safe,
+        has_supported_file_type=entry.has_supported_file_type,
+    )
 
 
 def archive_member_pdf_revision(
@@ -102,28 +117,22 @@ async def stream_archive_member(
             raise HTTPException(
                 status_code=status.HTTP_422_UNPROCESSABLE_CONTENT, detail="Archive inspection requires the Companion coordinator"
             )
-        inspection = resolve_archive_inspection_coordinator(
-            ArchiveInspectionPlan(
-                source,
-                topology,
-                ArchiveMemberReadPresentation(
-                    member_path=member_path,
-                    download=download,
-                    view_kind=view_kind,
-                    pdf_variant=pdf_variant,
-                    viewport_width=viewport_width,
-                    viewport_height=viewport_height,
-                    no_resizing=no_resizing,
-                    screen_width=screen_width,
-                    screen_height=screen_height,
-                    screen_zoom_percent=screen_zoom_percent,
-                ),
-            )
+        presentation = ArchiveMemberReadPresentation(
+            member_path=member_path,
+            download=download,
+            view_kind=view_kind,
+            pdf_variant=pdf_variant,
+            viewport_width=viewport_width,
+            viewport_height=viewport_height,
+            no_resizing=no_resizing,
+            screen_width=screen_width,
+            screen_height=screen_height,
+            screen_zoom_percent=screen_zoom_percent,
         )
-        inspection_projection = await inspection.member_read()
-        inspection_member = inspection_projection.member
-        validated_member = await source.validate_member(inspection_member.path)
+        validated_member = await source.validate_member_in_record_order(member_path)
         member = validated_member.entry
+        inspection_member = _inspection_member(member)
+        inspection_projection = presentation.project_member(inspection_member)
         if inspection_projection.delivery == "preview_unavailable":
             raise HTTPException(
                 status_code=status.HTTP_413_REQUEST_ENTITY_TOO_LARGE, detail="Archive member exceeds the inline preview size limit"
@@ -243,11 +252,11 @@ async def invalidate_archive_member_pdf_derivative(
         reader = await backend.open_random_access_reader(archive_path)
         topology = resolve_archive_inspection_topology_plan(source_connection_id=str(connection_id))
         source = SmbArchiveInspectionSource(ZipReader(reader, archive_info.size))
-        inspection = resolve_archive_inspection_coordinator(
-            ArchiveInspectionPlan(source, topology, ArchiveMemberReadPresentation(member_path=member_path, download=False))
-        )
-        inspection_member = (await inspection.member_read()).member
-        member = (await source.validate_member(inspection_member.path)).entry
+        if topology.driver != ArchiveExecutionDriver.BACKEND:
+            raise HTTPException(
+                status_code=status.HTTP_422_UNPROCESSABLE_CONTENT, detail="Archive inspection requires the Companion coordinator"
+            )
+        member = (await source.validate_member_in_record_order(member_path)).entry
         member_name = member_path.replace("\\", "/").rsplit("/", 1)[-1]
         if not needs_pdf_normalization(member_name):
             raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="PDF derivative invalidation requires a PDF file")

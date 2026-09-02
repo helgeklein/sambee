@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import re
-from collections.abc import Mapping
 from copy import deepcopy
 from datetime import datetime, timezone
 from uuid import UUID
@@ -16,14 +15,20 @@ V2_CHECKPOINT_VERSION = 2
 V2_CHECKPOINT_FIELDS = frozenset(
     {
         "version",
-        "manifest",
-        "source_snapshot",
-        "member_outcomes",
-        "decisions",
-        "pending_decision",
-        "delivery_ids",
+        "aggregate_counters",
     }
 )
+V2_EXTRACTION_COUNTER_FIELDS = (
+    "members_processed",
+    "members_completed",
+    "members_skipped",
+    "members_failed",
+    "files_extracted",
+    "directories_created",
+    "extracted_bytes",
+    "files_replaced",
+)
+V2_EXTRACTION_MAX_COUNTER = (1 << 63) - 1
 V2_DECISION_FIELDS = frozenset({"collision_actions", "rename_targets", "ignored_members", "retry_members"})
 V2_CREATION_CHECKPOINT_FIELDS = frozenset({"version", "manifest", "member_outcomes", "decisions", "pending_decision", "delivery_ids"})
 V2_TIMESTAMP_PATTERN = re.compile(r"^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d+)?Z$")
@@ -32,6 +37,13 @@ DISALLOWED_CHECKPOINT_FIELDS = frozenset(
         "extraction_outcome_checkpoint_version",
         "archive_manifest",
         "source_identity",
+        "manifest",
+        "source_snapshot",
+        "member_outcomes",
+        "decisions",
+        "pending_decision",
+        "delivery_ids",
+        "total_members",
         "files_extracted",
         "directories_created",
         "extracted_bytes",
@@ -197,7 +209,7 @@ def _validate_delivery_ids(value: object) -> None:
 
 
 def validate_v2_extraction_checkpoint(checkpoint: object) -> dict[str, object]:
-    """Return a defensive V2 envelope copy or reject every legacy/unknown shape."""
+    """Return the aggregate-only S1 extraction envelope or reject legacy state."""
 
     if not isinstance(checkpoint, dict):
         raise _invalid_checkpoint("Archive V2 checkpoint must be an object")
@@ -208,72 +220,25 @@ def validate_v2_extraction_checkpoint(checkpoint: object) -> dict[str, object]:
         raise _invalid_checkpoint("Archive V2 checkpoint fields are invalid")
     if checkpoint.get("version") != V2_CHECKPOINT_VERSION:
         raise _invalid_checkpoint("Archive V2 checkpoint version is invalid")
-    manifest = checkpoint.get("manifest")
-    source_snapshot = checkpoint.get("source_snapshot")
-    outcomes = checkpoint.get("member_outcomes")
-    decisions = checkpoint.get("decisions")
-    pending_decision = checkpoint.get("pending_decision")
-    if not isinstance(manifest, list) or not isinstance(source_snapshot, dict) or not isinstance(outcomes, dict):
-        raise _invalid_checkpoint("Archive V2 checkpoint envelope is invalid")
-    if frozenset(source_snapshot) != {"size", "modified_at"} or type(source_snapshot["size"]) is not int or source_snapshot["size"] < 0:
-        raise _invalid_checkpoint("Archive V2 checkpoint source snapshot is invalid")
-    _validate_timestamp(source_snapshot["modified_at"], detail="Archive V2 checkpoint source snapshot is invalid")
-    manifest_paths: set[str] = set()
-    for member in manifest:
-        if not isinstance(member, dict) or frozenset(member) != {"path", "is_directory", "uncompressed_size", "modified_at"}:
-            raise _invalid_checkpoint("Archive V2 checkpoint manifest is invalid")
-        member_path = _canonical_member_path(member["path"])
-        if (
-            member_path in manifest_paths
-            or type(member["is_directory"]) is not bool
-            or type(member["uncompressed_size"]) is not int
-            or member["uncompressed_size"] < 0
-        ):
-            raise _invalid_checkpoint("Archive V2 checkpoint manifest is invalid")
-        _validate_timestamp(member["modified_at"], detail="Archive V2 checkpoint manifest is invalid")
-        manifest_paths.add(member_path)
-    for member_path, outcome in outcomes.items():
-        if _canonical_member_path(member_path) not in manifest_paths:
-            raise _invalid_checkpoint("Archive V2 checkpoint member outcomes are invalid")
-        _validate_member_outcome(outcome)
-    if not isinstance(decisions, dict) or frozenset(decisions) != V2_DECISION_FIELDS:
-        raise _invalid_checkpoint("Archive V2 checkpoint decisions are invalid")
-    collision_actions = decisions["collision_actions"]
-    rename_targets = decisions["rename_targets"]
-    if not isinstance(collision_actions, dict) or not isinstance(rename_targets, dict):
-        raise _invalid_checkpoint("Archive V2 checkpoint decisions are invalid")
-    for member_path, action in collision_actions.items():
-        if _canonical_member_path(member_path) not in manifest_paths or action not in {"skip", "replace"}:
-            raise _invalid_checkpoint("Archive V2 checkpoint decisions are invalid")
-    for member_path, target_path in rename_targets.items():
-        if not _is_manifest_member_or_implicit_directory(_canonical_member_path(member_path), manifest_paths):
-            raise _invalid_checkpoint("Archive V2 checkpoint decisions are invalid")
-        _canonical_member_path(target_path)
-    for paths in (decisions["ignored_members"], decisions["retry_members"]):
-        if any(member_path not in manifest_paths for member_path in _validate_member_paths(paths)):
-            raise _invalid_checkpoint("Archive V2 checkpoint decisions are invalid")
-    _validate_pending_decision(pending_decision, manifest_paths)
-    _validate_delivery_ids(checkpoint.get("delivery_ids"))
+    counters = checkpoint.get("aggregate_counters")
+    if not isinstance(counters, dict) or frozenset(counters) != frozenset(V2_EXTRACTION_COUNTER_FIELDS):
+        raise _invalid_checkpoint("Archive V2 checkpoint aggregate counters are invalid")
+    for name in V2_EXTRACTION_COUNTER_FIELDS:
+        value = counters[name]
+        if type(value) is not int or value < 0 or value > V2_EXTRACTION_MAX_COUNTER:
+            raise _invalid_checkpoint("Archive V2 checkpoint aggregate counters are invalid")
+    if counters["members_processed"] != counters["members_completed"] + counters["members_skipped"] + counters["members_failed"]:
+        raise _invalid_checkpoint("Archive V2 checkpoint aggregate counters are invalid")
     return deepcopy(checkpoint)
 
 
-def new_v2_extraction_checkpoint(*, manifest: list[dict[str, object]], source_snapshot: Mapping[str, object]) -> dict[str, object]:
-    """Create a validated V2 envelope before any extraction output is written."""
+def new_v2_extraction_checkpoint() -> dict[str, object]:
+    """Create the empty aggregate-only V2 extraction envelope."""
 
     return validate_v2_extraction_checkpoint(
         {
             "version": V2_CHECKPOINT_VERSION,
-            "manifest": manifest,
-            "source_snapshot": dict(source_snapshot),
-            "member_outcomes": {},
-            "decisions": {
-                "collision_actions": {},
-                "rename_targets": {},
-                "ignored_members": [],
-                "retry_members": [],
-            },
-            "pending_decision": None,
-            "delivery_ids": {},
+            "aggregate_counters": {name: 0 for name in V2_EXTRACTION_COUNTER_FIELDS},
         }
     )
 

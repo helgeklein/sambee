@@ -188,7 +188,11 @@ def test_v2_relay_routes_are_normalized_and_capability_bound() -> None:
     assert all(
         route["path"].split("/relay/", maxsplit=1)[1].split("/", maxsplit=1)[0] in {"creation", "extraction"} for route in relay_routes
     )
-    assert all(route["capability"] is True and route["durable"] is True for route in relay_routes)
+    assert all(route["durable"] is True for route in relay_routes)
+    assert all(route["capability"] is True for route in relay_routes if route["owner"] == "backend")
+    assert all(
+        route["capability"] is False for route in relay_routes if route["owner"] == "companion" and "/relay/extraction" in route["path"]
+    )
     assert all("companion-relay" not in route["path"] for route in fixture["routes"])
     assert all("_to_" not in route["path"] and "_from_" not in route["path"] for route in relay_routes)
 
