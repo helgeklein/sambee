@@ -125,6 +125,7 @@ RUN python -m venv /workspace/backend/.venv && \
         --require-hashes \
         --find-links=/tmp/wheels \
         -r /tmp/requirements-dev.lock.txt && \
+    chown vscode:vscode /workspace/backend && \
     rm -rf /tmp/wheels
 COPY --chown=vscode:vscode archive-contract/ ./archive-contract/
 COPY --chown=vscode:vscode companion/ ./companion/
@@ -136,7 +137,6 @@ COPY --chown=vscode:vscode archive_testdata/ ./archive_testdata/
 COPY --chown=vscode:vscode VERSION ./VERSION
 COPY --chown=vscode:vscode .github/ ./.github/
 COPY --chown=vscode:vscode scripts/ ./scripts/
-RUN install -d -o vscode -g vscode -m 0755 /workspace/backend/data
 USER vscode
 ENV PYTHONPATH=/workspace/backend
 
