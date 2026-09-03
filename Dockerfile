@@ -122,6 +122,7 @@ COPY backend/requirements-dev.lock.txt /tmp/requirements-dev.lock.txt
 COPY --from=pyvips-wheel-builder /tmp/wheels /tmp/wheels
 RUN python -m venv /workspace/backend/.venv && \
     /workspace/backend/.venv/bin/python -m pip install \
+        --no-binary=mypy \
         --require-hashes \
         --find-links=/tmp/wheels \
         -r /tmp/requirements-dev.lock.txt && \
