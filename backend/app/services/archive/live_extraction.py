@@ -2,7 +2,7 @@
 
 import asyncio
 import uuid
-from collections.abc import AsyncIterator
+from collections.abc import AsyncIterator, Callable
 from dataclasses import dataclass, field
 from datetime import datetime
 from enum import StrEnum
@@ -16,6 +16,10 @@ _MAX_AGGREGATE_COUNTER = (1 << 63) - 1
 
 class LiveSourceSessionError(ValueError):
     """Raised when a live source transition does not match its current state."""
+
+
+class LiveSourceSessionCancelled(Exception):
+    """Raised when a live source stream observes its cancellation fence."""
 
 
 class LiveSourceSessionPhase(StrEnum):
@@ -142,7 +146,7 @@ class LiveSourceMember:
 @dataclass
 class _CurrentEntry:
     entry: ZipEntry
-    validated_entry: ValidatedZipEntry | None
+    validated_entry: ValidatedZipEntry
     delivery_sequence: int
     target_path: str | None = None
     collision_policy: str | None = None
@@ -157,47 +161,72 @@ class LiveSourceSession:
     aggregate: LiveExtractionAggregate = field(default_factory=LiveExtractionAggregate)
     phase: LiveSourceSessionPhase = LiveSourceSessionPhase.READY
     _current: _CurrentEntry | None = field(default=None, init=False, repr=False)
+    _redelivery_available: bool = field(default=False, init=False, repr=False)
     _next_delivery_sequence: int = field(default=1, init=False, repr=False)
     _next_decision_revision: int = field(default=1, init=False, repr=False)
     _pending_decision: LiveSourcePendingDecision | None = field(default=None, init=False, repr=False)
     _collision_policy: str | None = field(default=None, init=False, repr=False)
     _lock: asyncio.Lock = field(default_factory=asyncio.Lock, init=False, repr=False)
+    _cancellation_requested: asyncio.Event = field(default_factory=asyncio.Event, init=False, repr=False)
+    _stream_finished: asyncio.Event = field(default_factory=asyncio.Event, init=False, repr=False)
+    _streaming: bool = field(default=False, init=False, repr=False)
+    _close_lock: asyncio.Lock = field(default_factory=asyncio.Lock, init=False, repr=False)
+    _closed: bool = field(default=False, init=False, repr=False)
 
     async def next_member(self) -> LiveSourceMember | None:
         """Return the next destination-facing record after source-only rejections."""
 
         async with self._lock:
             self._require_phase(LiveSourceSessionPhase.READY)
-            while True:
-                entry = await self.reader.next_entry()
-                if entry is None:
-                    self.phase = LiveSourceSessionPhase.COMPLETED
-                    return None
-                outcome = self._source_only_outcome(entry)
-                if outcome is not None:
-                    self.finalize_source_outcome(entry, outcome)
-                    continue
-                validated_entry: ValidatedZipEntry | None = None
-                if not entry.is_directory:
-                    try:
-                        validated_entry = await self.reader.validate_entry(entry)
-                    except ArchiveFormatError:
-                        self.finalize_source_outcome(entry, "failed")
-                        continue
-                delivery_sequence = self._next_delivery_sequence
-                self._next_delivery_sequence += 1
-                self._current = _CurrentEntry(entry, validated_entry, delivery_sequence, collision_policy=self._collision_policy)
-                self.phase = LiveSourceSessionPhase.CURRENT
-                return LiveSourceMember(
-                    self.source_session_id,
-                    delivery_sequence,
-                    entry.path,
-                    entry.is_directory,
-                    entry.uncompressed_size,
-                    entry.modified_at,
-                    None,
-                    self._collision_policy,
-                )
+            return await self._next_member_locked()
+
+    async def next_destination_member(self) -> LiveSourceMember | None:
+        """Return a new record or the one redelivery authorized by a live decision."""
+
+        async with self._lock:
+            if self.phase == LiveSourceSessionPhase.CURRENT and self._redelivery_available:
+                self._redelivery_available = False
+                return self._member_from_current()
+            self._require_phase(LiveSourceSessionPhase.READY)
+            return await self._next_member_locked()
+
+    async def _next_member_locked(self) -> LiveSourceMember | None:
+        while True:
+            entry = await self.reader.next_entry()
+            if entry is None:
+                self.phase = LiveSourceSessionPhase.COMPLETED
+                return None
+            outcome = self._source_only_outcome(entry)
+            if outcome is not None:
+                self.finalize_source_outcome(entry, outcome)
+                continue
+            try:
+                validated_entry = await self.reader.validate_entry(entry)
+            except ArchiveFormatError:
+                self.finalize_source_outcome(entry, "failed")
+                continue
+            delivery_sequence = self._next_delivery_sequence
+            self._next_delivery_sequence += 1
+            self._current = _CurrentEntry(entry, validated_entry, delivery_sequence, collision_policy=self._collision_policy)
+            self._redelivery_available = False
+            self.phase = LiveSourceSessionPhase.CURRENT
+            return self._member_from_current()
+
+    def _member_from_current(self) -> LiveSourceMember:
+        current = self._current
+        if current is None:
+            raise LiveSourceSessionError("Archive source member is unavailable")
+        entry = current.entry
+        return LiveSourceMember(
+            self.source_session_id,
+            current.delivery_sequence,
+            entry.path,
+            entry.is_directory,
+            entry.uncompressed_size,
+            entry.modified_at,
+            current.target_path,
+            current.collision_policy,
+        )
 
     def finalize_source_outcome(self, entry: ZipEntry, outcome: Literal["skipped", "failed"]) -> None:
         """Record one known pre-transfer rejection without allocating a delivery."""
@@ -206,19 +235,35 @@ class LiveSourceSession:
             raise LiveSourceSessionError("Source-only outcome is not valid for the current session state")
         self.aggregate.record(outcome)
 
-    async def stream_current_member(self, source_session_id: str, delivery_sequence: int) -> AsyncIterator[bytes]:
+    async def stream_current_member(
+        self,
+        source_session_id: str,
+        delivery_sequence: int,
+        *,
+        on_chunk: Callable[[], None] | None = None,
+    ) -> AsyncIterator[bytes]:
         """Stream the current regular member and enable result acceptance at clean EOF."""
 
         async with self._lock:
             current = self._current_for_delivery(source_session_id, delivery_sequence)
-            if self.phase != LiveSourceSessionPhase.CURRENT or current.entry.is_directory or current.validated_entry is None:
+            if self.phase != LiveSourceSessionPhase.CURRENT or current.entry.is_directory:
                 raise LiveSourceSessionError("Current archive member is not available for streaming")
             self.phase = LiveSourceSessionPhase.STREAMING_CURRENT
+            self._streaming = True
+            self._stream_finished.clear()
             validated_entry = current.validated_entry
         completed = False
         try:
             async for chunk in self.reader.stream_validated_entry(validated_entry):
+                if self._cancellation_requested.is_set():
+                    raise LiveSourceSessionCancelled()
+                if on_chunk is not None:
+                    on_chunk()
                 yield chunk
+                if self._cancellation_requested.is_set():
+                    raise LiveSourceSessionCancelled()
+        except LiveSourceSessionCancelled:
+            raise
         except ArchiveFormatError as error:
             async with self._lock:
                 if self.phase == LiveSourceSessionPhase.STREAMING_CURRENT:
@@ -231,9 +276,13 @@ class LiveSourceSession:
                 self.phase = LiveSourceSessionPhase.AWAITING_RESULT
                 completed = True
         finally:
-            if not completed:
-                async with self._lock:
-                    if self.phase == LiveSourceSessionPhase.STREAMING_CURRENT:
+            async with self._lock:
+                self._streaming = False
+                self._stream_finished.set()
+                if not completed and self.phase == LiveSourceSessionPhase.STREAMING_CURRENT:
+                    if self._cancellation_requested.is_set():
+                        self.phase = LiveSourceSessionPhase.CANCELLED
+                    else:
                         self.phase = LiveSourceSessionPhase.FAILED
 
     async def mark_directory_delivery_ready(self, source_session_id: str, delivery_sequence: int) -> None:
@@ -253,7 +302,8 @@ class LiveSourceSession:
             if result.member_path != current.entry.path:
                 raise LiveSourceSessionError("Destination result member does not match the current source record")
             if result.status in {"awaiting_collision", "awaiting_retry"}:
-                if self.phase not in {LiveSourceSessionPhase.CURRENT, LiveSourceSessionPhase.AWAITING_RESULT}:
+                pre_stream_collision = result.status == "awaiting_collision" and self.phase == LiveSourceSessionPhase.CURRENT
+                if self.phase != LiveSourceSessionPhase.AWAITING_RESULT and not pre_stream_collision:
                     raise LiveSourceSessionError("Archive source is not awaiting a destination result")
                 decision_kind: Literal["collision", "member_error"] = (
                     "collision" if result.status == "awaiting_collision" else "member_error"
@@ -268,6 +318,7 @@ class LiveSourceSession:
             if result.status == "fatal":
                 self.aggregate.record("failed")
                 self._current = None
+                self._redelivery_available = False
                 self.phase = LiveSourceSessionPhase.FAILED
                 return
             if result.status == "directory":
@@ -277,8 +328,7 @@ class LiveSourceSession:
                 if current.entry.is_directory or result.extracted_bytes != current.entry.uncompressed_size:
                     raise LiveSourceSessionError("Destination result byte count is invalid")
             elif result.status in {"skipped", "ignored"}:
-                if current.entry.is_directory:
-                    raise LiveSourceSessionError("Directory destination result cannot be skipped")
+                pass
             else:
                 raise LiveSourceSessionError("Destination result status is invalid")
             self.aggregate.record(
@@ -288,6 +338,7 @@ class LiveSourceSession:
                 replaced=result.replaced,
             )
             self._current = None
+            self._redelivery_available = False
             self.phase = LiveSourceSessionPhase.READY
 
     async def resolve_decision(
@@ -312,8 +363,6 @@ class LiveSourceSession:
             if decision.kind == "collision":
                 if action not in collision_actions:
                     raise LiveSourceSessionError("Archive collision decision is not valid for the current member")
-                if current.entry.is_directory and action != "rename":
-                    raise LiveSourceSessionError("Archive directory collisions may only be resolved by renaming")
             elif action not in member_error_actions:
                 raise LiveSourceSessionError("Archive member error decision is not valid for the current member")
             if action in {"skip", "skip_all", "ignore"}:
@@ -321,6 +370,7 @@ class LiveSourceSession:
                     self._collision_policy = action
                 self.aggregate.record("ignored" if action == "ignore" else "skipped")
                 self._current = None
+                self._redelivery_available = False
                 self._pending_decision = None
                 self.phase = LiveSourceSessionPhase.READY
                 return None
@@ -337,16 +387,8 @@ class LiveSourceSession:
             self._next_delivery_sequence += 1
             self._pending_decision = None
             self.phase = LiveSourceSessionPhase.CURRENT
-            return LiveSourceMember(
-                self.source_session_id,
-                current.delivery_sequence,
-                current.entry.path,
-                current.entry.is_directory,
-                current.entry.uncompressed_size,
-                current.entry.modified_at,
-                current.target_path,
-                current.collision_policy,
-            )
+            self._redelivery_available = True
+            return self._member_from_current()
 
     async def destination_outcome_unknown(self, source_session_id: str, delivery_sequence: int) -> None:
         """Fence the session after a dispatched write has no trustworthy result."""
@@ -364,6 +406,7 @@ class LiveSourceSession:
     async def cancel(self) -> None:
         """Fence future transitions without creating a member outcome."""
 
+        self._cancellation_requested.set()
         async with self._lock:
             if not self.phase.is_terminal:
                 self.phase = LiveSourceSessionPhase.CANCELLED
@@ -371,7 +414,21 @@ class LiveSourceSession:
     async def close(self) -> None:
         """Close the retained archive handle after the owning session ends."""
 
-        await self.reader.close()
+        async with self._close_lock:
+            if self._closed:
+                return
+            await self.cancel()
+            async with self._lock:
+                streaming = self._streaming
+            if streaming:
+                await self._stream_finished.wait()
+            await self.reader.close()
+            self._closed = True
+
+    def cancellation_requested(self) -> bool:
+        """Return whether an external cancellation fence has been requested."""
+
+        return self._cancellation_requested.is_set()
 
     async def pending_decision(self) -> LiveSourcePendingDecision | None:
         """Return the active bounded decision without exposing prior member state."""

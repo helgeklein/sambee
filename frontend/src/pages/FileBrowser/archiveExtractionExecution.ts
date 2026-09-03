@@ -9,10 +9,8 @@ import {
 import type { ArchiveExtractionDecisionAction, ArchiveOperation } from "../../types";
 import { isApiError } from "../../types";
 import type {
-  ArchiveExtractionConflict,
   ArchiveExtractionConflictAction,
   ArchiveExtractionExecution,
-  ArchiveExtractionMemberError,
   ArchiveExtractionOutcome,
   ArchiveExtractionRequest,
   ArchiveExtractionSummary,
@@ -46,21 +44,22 @@ function archiveExtractionSummary(checkpointJson: string | undefined): ArchiveEx
 }
 
 function responseExtractionSummary(result: {
-  files_extracted?: number;
-  directories_created?: number;
-  extracted_bytes?: number;
-  files_skipped?: number;
-  progress?: { partialMembers?: number; totalMembers?: number; totalBytes?: number };
+  aggregate_counters?: {
+    files_extracted: number;
+    directories_created: number;
+    extracted_bytes: number;
+    members_skipped: number;
+    files_replaced: number;
+  };
 }): ArchiveExtractionSummary {
+  const aggregate = result.aggregate_counters;
   return {
-    filesExtracted: nonNegativeCounter(result.files_extracted),
-    directoriesCreated: nonNegativeCounter(result.directories_created),
-    extractedBytes: nonNegativeCounter(result.extracted_bytes),
-    totalMembers: nonNegativeCounter(result.progress?.totalMembers) || undefined,
-    totalBytes: nonNegativeCounter(result.progress?.totalBytes) || undefined,
-    filesSkipped: nonNegativeCounter(result.files_skipped),
-    filesReplaced: 0,
-    partialMembers: nonNegativeCounter(result.progress?.partialMembers),
+    filesExtracted: nonNegativeCounter(aggregate?.files_extracted),
+    directoriesCreated: nonNegativeCounter(aggregate?.directories_created),
+    extractedBytes: nonNegativeCounter(aggregate?.extracted_bytes),
+    filesSkipped: nonNegativeCounter(aggregate?.members_skipped),
+    filesReplaced: nonNegativeCounter(aggregate?.files_replaced),
+    partialMembers: 0,
   };
 }
 
@@ -68,15 +67,14 @@ function companionExtractionOutcome(result: {
   files_extracted: number;
   directories_created: number;
   extracted_bytes: number;
-  files_skipped: number;
+  members_skipped: number;
+  files_replaced: number;
   phase?: string;
-  checkpoint_json?: string;
-  pending_decision_json?: string | null;
 }): ArchiveExtractionOutcome {
   if (result.phase === "awaiting_user_decision") {
     throw new Error("Archive extraction decision must be read from the live source session");
   }
-  const summary = responseExtractionSummary(result);
+  const summary = responseExtractionSummary({ aggregate_counters: result });
   return { status: "completed", filesSkipped: summary.filesSkipped, summary };
 }
 
@@ -145,7 +143,8 @@ export function startZipArchiveExtraction(request: ArchiveExtractionRequest): Ar
   let awaitingDecision = false;
   let cancellationRequested = false;
   let localRelayDecision: { sourceSessionId: string; deliverySequence: number; decisionRevision: number; memberPath: string } | null = null;
-  let serverRelayDecision: { sourceSessionId: string; deliverySequence: number; decisionRevision: number; memberPath: string } | null = null;
+  let serverRelayDecision: { sourceSessionId: string; deliverySequence: number; decisionRevision: number; memberPath: string } | null =
+    null;
   let latestProgress: ArchiveExtractionSummary | null = null;
   const progressListeners = new Set<(summary: ArchiveExtractionSummary) => void>();
 
@@ -191,6 +190,7 @@ export function startZipArchiveExtraction(request: ArchiveExtractionRequest): Ar
     }
     const status = await api.waitForLocalArchiveExecution(location.connectionId, localExecution.executionId, publishLocalProgress);
     localExecution.revision = status.revision;
+    localExecution.pendingDecision = status.pendingDecision;
     if (status.phase === "completed") {
       const summary = latestProgress ?? responseExtractionSummary(status);
       return { status: "completed", filesSkipped: summary.filesSkipped, summary };
@@ -424,12 +424,19 @@ export function startZipArchiveExtraction(request: ArchiveExtractionRequest): Ar
         ) {
           throw new Error("Local archive extraction requires a valid decision for the pending member");
         }
+        const pendingDecision = localExecution.pendingDecision;
+        if (!pendingDecision) {
+          throw new Error("Local archive extraction is missing its pending live decision");
+        }
         const execution =
           targetPath === undefined
             ? await api.decideLocalArchiveExecution(
                 location.connectionId,
                 localExecution.executionId,
                 localExecution.revision,
+                pendingDecision.source_session_id,
+                pendingDecision.delivery_sequence,
+                pendingDecision.decision_revision,
                 memberPath,
                 action
               )
@@ -437,6 +444,9 @@ export function startZipArchiveExtraction(request: ArchiveExtractionRequest): Ar
                 location.connectionId,
                 localExecution.executionId,
                 localExecution.revision,
+                pendingDecision.source_session_id,
+                pendingDecision.delivery_sequence,
+                pendingDecision.decision_revision,
                 memberPath,
                 action,
                 targetPath

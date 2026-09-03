@@ -6,14 +6,19 @@ from datetime import datetime
 from typing import Protocol, cast
 
 from app.models.file import FileInfo, FileType
-from app.services.archive.live_extraction import DestinationWriteResult, LiveExtractionAggregate, LiveSourceSession
+from app.services.archive.live_extraction import (
+    DestinationWriteResult,
+    LiveExtractionAggregate,
+    LiveSourceSession,
+    LiveSourceSessionCancelled,
+)
 from app.services.archive.target_write import (
     TargetWriteDisposition,
     TargetWriteFailure,
     collision_policy_from_action,
     resolve_target_write_attempt,
 )
-from app.services.archive.zip_reader import ArchiveFormatError, ZipReader
+from app.services.archive.zip_reader import ArchiveFormatError, ArchiveSourceUnavailableError, ZipReader
 from app.storage.base import RandomAccessReader
 
 
@@ -40,22 +45,6 @@ class ArchiveExtractionDestination(Protocol):
         overwrite: bool = False,
         source_mtime: datetime | None = None,
     ) -> int: ...
-
-
-@dataclass(frozen=True)
-class ArchiveExtractionResult:
-    files_extracted: int
-    directories_created: int
-    extracted_bytes: int
-    files_skipped: int = 0
-    files_replaced: int = 0
-    members_processed: int = 0
-    members_completed: int = 0
-    members_skipped: int = 0
-    members_failed: int = 0
-    skipped_members: tuple[str, ...] = ()
-    replaced_members: tuple[str, ...] = ()
-    renamed_members: tuple[str, ...] = ()
 
 
 class ArchiveExtractionCancelled(Exception):
@@ -101,6 +90,7 @@ async def extract_live_archive_to_new_paths(
     destination_root: str,
     existing_file_policy: str | None,
     is_cancelled: Callable[[], Awaitable[bool]] | None = None,
+    on_chunk: Callable[[], None] | None = None,
 ) -> LiveExtractionAggregate:
     """Extract in central-directory order without a manifest or member ledger.
 
@@ -146,13 +136,18 @@ async def extract_live_archive_to_new_paths(
                 policy=collision_policy_from_action(member.collision_policy or existing_file_policy),
                 source_modified_at=member.modified_at,
                 observe_target=destination.get_file_info,
-                stream_factory=lambda: source_session.stream_current_member(member.source_session_id, member.delivery_sequence),
+                stream_factory=lambda: source_session.stream_current_member(
+                    member.source_session_id,
+                    member.delivery_sequence,
+                    on_chunk=on_chunk,
+                ),
                 write_target=lambda path, stream, overwrite, mtime: destination.write_file_from_stream(
                     path, stream, overwrite=overwrite, source_mtime=mtime
                 ),
             )
+        except LiveSourceSessionCancelled as error:
+            raise ArchiveExtractionCancelled("Archive extraction was cancelled") from error
         except ArchiveExtractionConflicts as error:
-            await source_session.mark_directory_delivery_ready(member.source_session_id, member.delivery_sequence)
             await source_session.apply_destination_write_result(
                 DestinationWriteResult(
                     member.source_session_id,
@@ -163,6 +158,8 @@ async def extract_live_archive_to_new_paths(
                 )
             )
             return source_session.aggregate
+        except ArchiveSourceUnavailableError:
+            raise
         except ArchiveFormatError as error:
             if await source_session.pending_decision() is not None:
                 return source_session.aggregate
@@ -171,7 +168,9 @@ async def extract_live_archive_to_new_paths(
         except Exception as error:
             if isinstance(error, ArchiveExtractionCancelled):
                 raise
-            partial_output = isinstance(error, TargetWriteFailure) and error.bytes_written > 0
+            if source_session.cancellation_requested():
+                raise ArchiveExtractionCancelled("Archive extraction was cancelled") from error
+            partial_output = isinstance(error, TargetWriteFailure) and error.output_may_exist
             await source_session.destination_outcome_unknown(member.source_session_id, member.delivery_sequence)
             raise ArchiveExtractionMemberError(member.path, target_path, str(error), partial_output=partial_output) from error
         if target_write.disposition == TargetWriteDisposition.AWAIT_COLLISION:
@@ -265,7 +264,7 @@ async def extract_archive_to_new_paths(
     destination_root: str,
     existing_file_policy: str | None = None,
     is_cancelled: Callable[[], Awaitable[bool]] | None = None,
-) -> ArchiveExtractionResult:
+) -> LiveExtractionAggregate:
     """Extract through one retained source session without archive-wide state."""
 
     if destination is None:
@@ -283,16 +282,6 @@ async def extract_archive_to_new_paths(
             existing_file_policy=existing_file_policy,
             is_cancelled=is_cancelled,
         )
-        return ArchiveExtractionResult(
-            files_extracted=aggregate.files_extracted,
-            directories_created=aggregate.directories_created,
-            extracted_bytes=aggregate.extracted_bytes,
-            files_skipped=aggregate.members_skipped,
-            files_replaced=aggregate.files_replaced,
-            members_processed=aggregate.members_processed,
-            members_completed=aggregate.members_completed,
-            members_skipped=aggregate.members_skipped,
-            members_failed=aggregate.members_failed,
-        )
+        return aggregate
     finally:
         await source_session.close()

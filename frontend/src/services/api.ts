@@ -89,7 +89,6 @@ export interface ArchiveExecutionProgress {
   totalMembers?: number;
   skippedMembers: number;
   failedMembers: number;
-  partialMembers: number;
   processedBytes?: number;
   totalBytes?: number;
 }
@@ -102,16 +101,17 @@ export interface LocalArchiveExecution {
   revision: number;
   progress: ArchiveExecutionProgress;
   cancellation_requested: boolean;
-  files_extracted?: number;
+  aggregate_counters?: LocalArchiveRelayExtractionStatus["aggregate_counters"];
   directories_created?: number;
-  extracted_bytes?: number;
-  files_skipped?: number;
   files_created?: number;
   source_bytes?: number;
   error?: string;
   pendingDecision?:
     | {
         kind: "existing_files";
+        source_session_id: string;
+        delivery_sequence: number;
+        decision_revision: number;
         conflicts: Array<{
           member_path: string;
           target_path: string;
@@ -121,6 +121,9 @@ export interface LocalArchiveExecution {
       }
     | {
         kind: "member_error";
+        source_session_id: string;
+        delivery_sequence: number;
+        decision_revision: number;
         member_path: string;
         target_path: string;
         message: string;
@@ -152,6 +155,18 @@ export interface LocalArchiveRelayExtractionStatus {
     is_directory: boolean;
     allowed_actions: ArchiveExtractionDecisionAction[];
   } | null;
+}
+
+export interface ArchiveRelayExtractionResponse {
+  members_processed: number;
+  members_completed: number;
+  members_skipped: number;
+  members_failed: number;
+  files_extracted: number;
+  directories_created: number;
+  extracted_bytes: number;
+  files_replaced: number;
+  phase?: "awaiting_user_decision";
 }
 
 export interface ArchiveLiveExtractionStatus {
@@ -998,6 +1013,9 @@ class ApiService {
     connectionId: string,
     executionId: string,
     expectedRevision: number,
+    sourceSessionId: string,
+    deliverySequence: number,
+    decisionRevision: number,
     memberPath: string,
     action: "skip" | "skip_all" | "replace" | "replace_all" | "replace_older" | "rename" | "retry" | "ignore",
     targetPath?: string
@@ -1006,7 +1024,16 @@ class ApiService {
     const { client, extraConfig } = await this.getClientConfig(connectionId);
     const response = await client.post<LocalArchiveExecution>(
       `/browse/${segment}/archive/v2/executions/${encodeURIComponent(executionId)}/decision`,
-      { contract_version: "v2", expected_revision: expectedRevision, member_path: memberPath, action, target_path: targetPath },
+      {
+        contract_version: "v2",
+        expected_revision: expectedRevision,
+        source_session_id: sourceSessionId,
+        delivery_sequence: deliverySequence,
+        decision_revision: decisionRevision,
+        member_path: memberPath,
+        action,
+        target_path: targetPath,
+      },
       extraConfig
     );
     return response.data;
@@ -1050,19 +1077,7 @@ class ApiService {
     return execution;
   }
 
-  async extractLocalArchiveToSmb(
-    connectionId: string,
-    archivePath: string,
-    operationId: string
-  ): Promise<{
-    files_extracted: number;
-    directories_created: number;
-    extracted_bytes: number;
-    files_skipped: number;
-    phase?: string;
-    checkpoint_json?: string;
-    pending_decision_json?: string | null;
-  }> {
+  async extractLocalArchiveToSmb(connectionId: string, archivePath: string, operationId: string): Promise<ArchiveRelayExtractionResponse> {
     const segment = getBrowseSegment(connectionId);
     const { client, extraConfig } = await this.getClientConfig(connectionId);
     const accessToken = authSession.getAccessToken();
@@ -1096,15 +1111,7 @@ class ApiService {
     action: ArchiveExtractionDecisionAction,
     memberPath: string,
     targetPath?: string
-  ): Promise<{
-    files_extracted: number;
-    directories_created: number;
-    extracted_bytes: number;
-    files_skipped: number;
-    phase?: string;
-    checkpoint_json?: string;
-    pending_decision_json?: string | null;
-  }> {
+  ): Promise<ArchiveRelayExtractionResponse> {
     const segment = getBrowseSegment(connectionId);
     const { client, extraConfig } = await this.getClientConfig(connectionId);
     const response = await client.post(
@@ -1133,15 +1140,7 @@ class ApiService {
     destinationConnectionId: string,
     destinationPath: string,
     operationId: string
-  ): Promise<{
-    files_extracted: number;
-    directories_created: number;
-    extracted_bytes: number;
-    files_skipped: number;
-    phase?: string;
-    checkpoint_json?: string;
-    pending_decision_json?: string | null;
-  }> {
+  ): Promise<ArchiveRelayExtractionResponse> {
     const segment = getBrowseSegment(destinationConnectionId);
     const { client, extraConfig } = await this.getClientConfig(destinationConnectionId);
     const response = await client.post(

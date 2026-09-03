@@ -29,7 +29,6 @@ V2_EXTRACTION_COUNTER_FIELDS = (
     "files_replaced",
 )
 V2_EXTRACTION_MAX_COUNTER = (1 << 63) - 1
-V2_DECISION_FIELDS = frozenset({"collision_actions", "rename_targets", "ignored_members", "retry_members"})
 V2_CREATION_CHECKPOINT_FIELDS = frozenset({"version", "manifest", "member_outcomes", "decisions", "pending_decision", "delivery_ids"})
 V2_TIMESTAMP_PATTERN = re.compile(r"^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d+)?Z$")
 DISALLOWED_CHECKPOINT_FIELDS = frozenset(
@@ -79,16 +78,6 @@ def _canonical_member_path(value: object) -> str:
     return normalized
 
 
-def _validate_member_paths(values: object) -> list[str]:
-    if not isinstance(values, list):
-        raise _invalid_checkpoint("Archive V2 checkpoint member paths are invalid")
-    return [_canonical_member_path(value) for value in values]
-
-
-def _is_manifest_member_or_implicit_directory(member_path: str, manifest_paths: set[str]) -> bool:
-    return member_path in manifest_paths or any(path.startswith(f"{member_path}/") for path in manifest_paths)
-
-
 def _validate_timestamp(value: object, *, detail: str) -> None:
     if value is None:
         return
@@ -110,90 +99,6 @@ def canonical_v2_timestamp(value: datetime | str | None) -> str | None:
     if value.tzinfo is None:
         value = value.replace(tzinfo=timezone.utc)
     return value.astimezone(timezone.utc).isoformat().replace("+00:00", "Z")
-
-
-def _validate_member_outcome(value: object) -> None:
-    if not isinstance(value, dict):
-        raise _invalid_checkpoint("Archive V2 checkpoint member outcomes are invalid")
-    status_value = value.get("status")
-    if status_value == "partial":
-        if frozenset(value) != {"status", "target_path", "message"} or not isinstance(value["message"], str):
-            raise _invalid_checkpoint("Archive V2 checkpoint member outcomes are invalid")
-    elif status_value in {"directory", "extracted", "skipped", "ignored"}:
-        if frozenset(value) != {"status", "target_path", "extracted_bytes", "directories_created", "replaced", "renamed"}:
-            raise _invalid_checkpoint("Archive V2 checkpoint member outcomes are invalid")
-        if (
-            type(value["extracted_bytes"]) is not int
-            or value["extracted_bytes"] < 0
-            or type(value["directories_created"]) is not int
-            or value["directories_created"] < 0
-            or type(value["replaced"]) is not bool
-            or type(value["renamed"]) is not bool
-        ):
-            raise _invalid_checkpoint("Archive V2 checkpoint member outcomes are invalid")
-    else:
-        raise _invalid_checkpoint("Archive V2 checkpoint member outcomes are invalid")
-    _canonical_member_path(value.get("target_path"))
-
-
-def _validate_pending_decision(value: object, manifest_paths: set[str]) -> None:
-    if value is None:
-        return
-    if not isinstance(value, dict):
-        raise _invalid_checkpoint("Archive V2 checkpoint pending decision is invalid")
-    if value.get("kind") == "existing_files":
-        if frozenset(value) != {"kind", "allowed_actions", "conflicts"}:
-            raise _invalid_checkpoint("Archive V2 checkpoint pending decision is invalid")
-        allowed_actions = value["allowed_actions"]
-        conflicts = value["conflicts"]
-        valid_actions = {"skip", "skip_all", "replace", "replace_all", "replace_older", "rename", "retry", "ignore", "cancel"}
-        if (
-            not isinstance(allowed_actions, list)
-            or not allowed_actions
-            or len(set(allowed_actions)) != len(allowed_actions)
-            or any(action not in valid_actions for action in allowed_actions)
-            or not isinstance(conflicts, list)
-            or not conflicts
-        ):
-            raise _invalid_checkpoint("Archive V2 checkpoint pending decision is invalid")
-        for conflict in conflicts:
-            if not isinstance(conflict, dict) or not {"member_path", "target_path", "is_directory"}.issubset(conflict):
-                raise _invalid_checkpoint("Archive V2 checkpoint pending decision is invalid")
-            if frozenset(conflict) - {
-                "member_path",
-                "target_path",
-                "is_directory",
-                "source_size",
-                "source_modified_at",
-                "target_size",
-                "target_modified_at",
-            }:
-                raise _invalid_checkpoint("Archive V2 checkpoint pending decision is invalid")
-            _canonical_member_path(conflict["member_path"])
-            if type(conflict["is_directory"]) is not bool:
-                raise _invalid_checkpoint("Archive V2 checkpoint pending decision is invalid")
-            _canonical_member_path(conflict["target_path"])
-            for size_field in ("source_size", "target_size"):
-                if size_field in conflict and (type(conflict[size_field]) is not int or conflict[size_field] < 0):
-                    raise _invalid_checkpoint("Archive V2 checkpoint pending decision is invalid")
-            for timestamp_field in ("source_modified_at", "target_modified_at"):
-                if timestamp_field in conflict:
-                    _validate_timestamp(conflict[timestamp_field], detail="Archive V2 checkpoint pending decision is invalid")
-        return
-    if value.get("kind") == "member_error":
-        if frozenset(value) != {"kind", "member_path", "target_path", "message", "partial_output", "allowed_actions"}:
-            raise _invalid_checkpoint("Archive V2 checkpoint pending decision is invalid")
-        if (
-            _canonical_member_path(value["member_path"]) not in manifest_paths
-            or not isinstance(value["message"], str)
-            or not 1 <= len(value["message"]) <= 500
-            or type(value["partial_output"]) is not bool
-            or value["allowed_actions"] != ["retry", "ignore"]
-        ):
-            raise _invalid_checkpoint("Archive V2 checkpoint pending decision is invalid")
-        _canonical_member_path(value["target_path"])
-        return
-    raise _invalid_checkpoint("Archive V2 checkpoint pending decision is invalid")
 
 
 def _validate_delivery_ids(value: object) -> None:

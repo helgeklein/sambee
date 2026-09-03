@@ -23,6 +23,7 @@ from app.services.archive.target_write import (
     TargetExistsBeforeContent,
     TargetSnapshot,
     TargetWriteDisposition,
+    TargetWriteFailure,
     TargetWriteResult,
     resolve_target_write,
     resolve_target_write_attempt,
@@ -30,6 +31,7 @@ from app.services.archive.target_write import (
 from app.services.archive.zip_reader import ZipReader
 
 WORKSPACE_ROOT = Path(__file__).resolve().parents[2]
+ARCHIVE_TESTDATA_ROOT = WORKSPACE_ROOT / "archive_testdata"
 EXTRACTION_OUTCOME_CORPUS_PATH = WORKSPACE_ROOT / "archive-contract" / "v2" / "fixtures" / "extraction-outcome-scenarios-v2.json"
 TARGET_WRITE_CORPUS_PATH = WORKSPACE_ROOT / "archive-contract" / "v2" / "fixtures" / "target-write-resolution-scenarios-v2.json"
 TOPOLOGY_TRACE_FIXTURE_PATH = WORKSPACE_ROOT / "archive-contract" / "v2" / "fixtures" / "topology-execution-traces-v2.json"
@@ -100,7 +102,7 @@ class MemoryExtractionBackend:
 
     async def create_directory(self, path: str) -> None:
         self.created_directory_paths.append(path)
-        if path in self.directories:
+        if path in self.directories or path in self.files:
             raise FileExistsError(path)
         self.directories.add(path)
 
@@ -252,6 +254,71 @@ async def test_live_extraction_retains_current_member_for_a_collision_decision()
 
 
 @pytest.mark.asyncio
+async def test_live_extraction_requires_a_collision_decision_for_replacement_decoded_names() -> None:
+    archive = (ARCHIVE_TESTDATA_ROOT / "compat-names.zip").read_bytes()
+    backend = MemoryExtractionBackend(archive)
+    source_session = LiveSourceSession(ZipReader(backend.reader, len(archive)))
+
+    aggregate = await extract_live_archive_to_new_paths(
+        source_session,
+        destination=backend,
+        destination_root="output",
+        existing_file_policy=None,
+    )
+
+    decision = await source_session.pending_decision()
+    assert aggregate.members_processed == 1
+    assert source_session.phase == LiveSourceSessionPhase.AWAITING_DECISION
+    assert decision is not None
+    assert decision.member_path == "bad\ufffd.txt"
+    assert backend.written_file_paths == ["output/bad\ufffd.txt"]
+    assert backend.files == {"output/bad\ufffd.txt": b"malformed UTF-8 name"}
+
+
+@pytest.mark.asyncio
+async def test_live_extraction_retains_a_regular_member_when_its_parent_is_a_file() -> None:
+    backend = MemoryExtractionBackend(_flat_archive_bytes(["parent/file.txt"]))
+    backend.files["output/parent"] = b"blocked"
+    source_session = LiveSourceSession(ZipReader(backend.reader, len(backend.archive)))
+
+    aggregate = await extract_live_archive_to_new_paths(
+        source_session,
+        destination=backend,
+        destination_root="output",
+        existing_file_policy=None,
+    )
+
+    decision = await source_session.pending_decision()
+    assert aggregate.members_processed == 0
+    assert source_session.phase == LiveSourceSessionPhase.AWAITING_DECISION
+    assert decision is not None
+    assert decision.member_path == "parent/file.txt"
+    assert decision.target_path == "output/parent"
+    assert backend.written_file_paths == []
+
+    member = await source_session.current_member()
+    assert member is not None
+    redelivery = await source_session.resolve_decision(
+        member.source_session_id,
+        member.delivery_sequence,
+        decision.revision,
+        "rename",
+        "renamed/file.txt",
+    )
+    assert redelivery is not None
+    aggregate = await extract_live_archive_to_new_paths(
+        source_session,
+        destination=backend,
+        destination_root="output",
+        existing_file_policy=None,
+    )
+
+    assert aggregate.members_processed == 1
+    assert aggregate.members_completed == 1
+    assert backend.files["renamed/file.txt"] == b"parent/file.txt"
+
+
+@pytest.mark.asyncio
 async def test_live_source_rejects_stale_collision_decision_revisions() -> None:
     backend = MemoryExtractionBackend(_flat_archive_bytes(["first.txt"]))
     source_session = LiveSourceSession(ZipReader(backend.reader, len(backend.archive)))
@@ -277,27 +344,19 @@ async def test_live_source_rejects_stale_collision_decision_revisions() -> None:
 
 
 @pytest.mark.asyncio
-async def test_live_source_rejects_collision_actions_for_member_errors() -> None:
+async def test_live_source_rejects_pre_stream_retry_result() -> None:
     backend = MemoryExtractionBackend(_flat_archive_bytes(["first.txt"]))
     source_session = LiveSourceSession(ZipReader(backend.reader, len(backend.archive)))
     member = await source_session.next_member()
 
     assert member is not None
-    await source_session.apply_destination_write_result(
-        DestinationWriteResult(member.source_session_id, member.delivery_sequence, member.path, "awaiting_retry")
-    )
-    decision = await source_session.pending_decision()
-    assert decision is not None
-
-    with pytest.raises(LiveSourceSessionError, match="member error decision"):
-        await source_session.resolve_decision(
-            member.source_session_id,
-            member.delivery_sequence,
-            decision.revision,
-            "skip",
+    with pytest.raises(LiveSourceSessionError, match="not awaiting a destination result"):
+        await source_session.apply_destination_write_result(
+            DestinationWriteResult(member.source_session_id, member.delivery_sequence, member.path, "awaiting_retry")
         )
 
-    assert source_session.phase == LiveSourceSessionPhase.AWAITING_DECISION
+    assert source_session.phase == LiveSourceSessionPhase.CURRENT
+    assert await source_session.pending_decision() is None
 
 
 def _unavailable_member_archive_bytes(member_path: str = "unavailable.txt") -> bytes:
@@ -363,10 +422,10 @@ def _symbolic_link_archive_bytes() -> bytes:
     return output.getvalue()
 
 
-async def _archive_entries(archive: bytes):
+async def _first_archive_entry(archive: bytes):
     reader = MemoryRandomReader(archive)
     try:
-        return await ZipReader(reader, len(archive)).entries()
+        return await ZipReader(reader, len(archive)).next_entry()
     finally:
         await reader.close()
 
@@ -563,6 +622,23 @@ async def test_target_write_controller_propagates_native_failures() -> None:
 
 
 @pytest.mark.asyncio
+async def test_direct_extraction_marks_a_zero_byte_mutated_target_as_partial_output() -> None:
+    backend = MemoryExtractionBackend(_flat_archive_bytes(["empty.txt"]))
+
+    async def create_then_fail(path: str, _stream: AsyncIterator[bytes], **_kwargs: object) -> int:
+        backend.files[path] = b""
+        raise TargetWriteFailure(OSError("metadata update failed"), 0)
+
+    backend.write_file_from_stream = create_then_fail  # type: ignore[method-assign]
+
+    with pytest.raises(ArchiveExtractionMemberError) as raised:
+        await extract_archive_to_new_paths(backend, archive_path="input.zip", destination_root="output")
+
+    assert raised.value.partial_output is True
+    assert backend.files["output/empty.txt"] == b""
+
+
+@pytest.mark.asyncio
 async def test_directory_creation_reports_a_current_member_failure_when_the_target_changes() -> None:
     backend = MemoryExtractionBackend(_archive_bytes())
     original_create_directory = backend.create_directory
@@ -609,7 +685,7 @@ async def test_records_an_unavailable_selected_member_as_skipped_without_reading
     result = await extract_archive_to_new_paths(backend, archive_path="input.zip", destination_root="output")
 
     assert result.files_extracted == 0
-    assert result.files_skipped == 1
+    assert result.members_skipped == 1
     assert result.members_processed == 1
     assert result.members_skipped == 1
     assert result.members_failed == 0
@@ -626,7 +702,7 @@ async def test_skips_an_unavailable_member_without_preflighting_its_blocked_pare
 
     result = await extract_archive_to_new_paths(backend, archive_path="input.zip", destination_root="output")
 
-    assert result.files_skipped == 1
+    assert result.members_skipped == 1
     assert result.members_skipped == 1
     assert backend.file_info_paths == ["input.zip"]
     assert backend.written_file_paths == []
@@ -818,7 +894,7 @@ async def test_replace_older_policy_replaces_only_strictly_older_destination() -
     assert scenario["terminal_phase"] == "completed"
     assert result.files_extracted == scenario["progress"]["files_extracted"]
     assert result.files_replaced == scenario["progress"]["files_replaced"]
-    assert result.files_skipped == scenario["progress"]["files_skipped"]
+    assert result.members_skipped == scenario["progress"]["files_skipped"]
     assert backend.files["output/root.txt"] == b"root"
 
 
@@ -834,7 +910,7 @@ async def test_replace_older_policy_skips_incomparable_timestamps() -> None:
 
     assert result.files_extracted == 1
     assert result.files_replaced == 0
-    assert result.files_skipped == 1
+    assert result.members_skipped == 1
     assert backend.files["output/root.txt"] == b"existing"
 
 
@@ -879,7 +955,7 @@ async def test_replace_older_skips_a_newer_target_created_after_preflight() -> N
     )
 
     assert result.files_extracted == 0
-    assert result.files_skipped == 2
+    assert result.members_skipped == 2
     assert backend.files["output/docs/readme.txt"] == b"existing"
 
 
@@ -892,7 +968,9 @@ async def test_replace_older_retries_an_older_target_created_after_preflight() -
     assert scenario["expected"] == "replace_existing"
 
     backend = MemoryExtractionBackend(_archive_bytes())
-    source_modified_at = (await _archive_entries(backend.archive))[0].modified_at
+    source_entry = await _first_archive_entry(backend.archive)
+    assert source_entry is not None
+    source_modified_at = source_entry.modified_at
     assert source_modified_at is not None
     writes: list[tuple[str, bool]] = []
 

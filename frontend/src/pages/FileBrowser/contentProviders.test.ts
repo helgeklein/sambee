@@ -51,7 +51,21 @@ vi.mock("../../services/api", () => ({
 }));
 
 function localArchiveProgress(completedMembers = 0, skippedMembers = 0, totalMembers?: number, totalBytes?: number) {
-  return { completedMembers, skippedMembers, failedMembers: 0, partialMembers: 0, totalMembers, totalBytes };
+  return { completedMembers, skippedMembers, failedMembers: 0, totalMembers, totalBytes };
+}
+
+function extractionAggregate(filesExtracted = 0, directoriesCreated = 0, extractedBytes = 0, membersSkipped = 0, filesReplaced = 0) {
+  const membersCompleted = filesExtracted + directoriesCreated;
+  return {
+    members_processed: membersCompleted + membersSkipped,
+    members_completed: membersCompleted,
+    members_skipped: membersSkipped,
+    members_failed: 0,
+    files_extracted: filesExtracted,
+    directories_created: directoriesCreated,
+    extracted_bytes: extractedBytes,
+    files_replaced: filesReplaced,
+  };
 }
 
 function liveExtractionStatus(pendingDecision: Record<string, unknown>) {
@@ -177,10 +191,7 @@ describe("content providers", () => {
         revision: 1,
         progress: localArchiveProgress(2, 0, 3, 10),
         cancellation_requested: false,
-        files_extracted: 1,
-        directories_created: 1,
-        extracted_bytes: 5,
-        files_skipped: 0,
+        aggregate_counters: extractionAggregate(1, 1, 5),
       });
       const completed = {
         execution_id: "local-extract-1",
@@ -188,10 +199,7 @@ describe("content providers", () => {
         revision: 2,
         progress: localArchiveProgress(3, 1, 3, 10),
         cancellation_requested: false,
-        files_extracted: 2,
-        directories_created: 1,
-        extracted_bytes: 10,
-        files_skipped: 1,
+        aggregate_counters: extractionAggregate(2, 1, 10, 1),
       };
       onUpdate?.(completed);
       return completed;
@@ -211,8 +219,6 @@ describe("content providers", () => {
         filesExtracted: 2,
         directoriesCreated: 1,
         extractedBytes: 10,
-        totalMembers: 3,
-        totalBytes: 10,
         filesSkipped: 1,
         filesReplaced: 0,
         partialMembers: 0,
@@ -225,8 +231,6 @@ describe("content providers", () => {
       filesExtracted: 1,
       directoriesCreated: 1,
       extractedBytes: 5,
-      totalMembers: 3,
-      totalBytes: 10,
       filesSkipped: 0,
       filesReplaced: 0,
       partialMembers: 0,
@@ -269,6 +273,9 @@ describe("content providers", () => {
         cancellation_requested: false,
         pendingDecision: {
           kind: "existing_files",
+          source_session_id: "source-session-1",
+          delivery_sequence: 1,
+          decision_revision: 1,
           conflicts: [{ member_path: "source.txt", target_path: "renamed.txt", is_directory: false }],
           allowed_actions: ["skip", "skip_all", "replace", "replace_all", "replace_older", "rename"],
         },
@@ -279,10 +286,7 @@ describe("content providers", () => {
         revision: 4,
         progress: localArchiveProgress(1),
         cancellation_requested: false,
-        files_extracted: 1,
-        directories_created: 0,
-        extracted_bytes: 5,
-        files_skipped: 0,
+        aggregate_counters: extractionAggregate(1, 0, 5),
       });
     vi.mocked(api.decideLocalArchiveExecution).mockResolvedValueOnce({
       execution_id: "local-extract-1",
@@ -306,7 +310,16 @@ describe("content providers", () => {
       status: "completed",
       summary: { filesExtracted: 1 },
     });
-    expect(api.decideLocalArchiveExecution).toHaveBeenCalledWith("local-drive:c", "local-extract-1", 2, "source.txt", "replace_older");
+    expect(api.decideLocalArchiveExecution).toHaveBeenCalledWith(
+      "local-drive:c",
+      "local-extract-1",
+      2,
+      "source-session-1",
+      1,
+      1,
+      "source.txt",
+      "replace_older"
+    );
   });
 
   it("retries a paused direct-local member error through the Companion decision endpoint", async () => {
@@ -323,10 +336,13 @@ describe("content providers", () => {
         execution_id: "local-extract-1",
         phase: "awaiting_user_decision",
         revision: 2,
-        progress: { ...localArchiveProgress(), partialMembers: 1 },
+        progress: localArchiveProgress(),
         cancellation_requested: false,
         pendingDecision: {
           kind: "member_error",
+          source_session_id: "source-session-1",
+          delivery_sequence: 1,
+          decision_revision: 1,
           member_path: "source.txt",
           target_path: "archives/one/source.txt",
           message: "archive member integrity check failed",
@@ -340,16 +356,13 @@ describe("content providers", () => {
         revision: 4,
         progress: localArchiveProgress(1),
         cancellation_requested: false,
-        files_extracted: 1,
-        directories_created: 0,
-        extracted_bytes: 5,
-        files_skipped: 0,
+        aggregate_counters: extractionAggregate(1, 0, 5),
       });
     vi.mocked(api.decideLocalArchiveExecution).mockResolvedValueOnce({
       execution_id: "local-extract-1",
       phase: "streaming",
       revision: 3,
-      progress: { ...localArchiveProgress(), partialMembers: 1 },
+      progress: localArchiveProgress(),
       cancellation_requested: false,
     });
 
@@ -370,7 +383,16 @@ describe("content providers", () => {
       status: "completed",
       summary: { filesExtracted: 1 },
     });
-    expect(api.decideLocalArchiveExecution).toHaveBeenCalledWith("local-drive:c", "local-extract-1", 2, "source.txt", "retry");
+    expect(api.decideLocalArchiveExecution).toHaveBeenCalledWith(
+      "local-drive:c",
+      "local-extract-1",
+      2,
+      "source-session-1",
+      1,
+      1,
+      "source.txt",
+      "retry"
+    );
   });
 
   it("cancels a direct-local ZIP extraction through its execution handle", async () => {
@@ -477,7 +499,7 @@ describe("content providers", () => {
   it("routes a local archive to an SMB destination through the Companion", async () => {
     const localArchiveLocation = virtualLocation("zip", "local-drive:c", physicalLocation("local-drive:c", "archives/one.zip"), "");
     vi.mocked(api.prepareArchiveOperation).mockResolvedValueOnce({ id: "extract-1" } as never);
-    vi.mocked(api.extractLocalArchiveToSmb).mockResolvedValueOnce({ files_skipped: 0 } as never);
+    vi.mocked(api.extractLocalArchiveToSmb).mockResolvedValueOnce(extractionAggregate() as never);
 
     const execution = startArchiveExtraction(createContentProviderRegistry(), {
       source: localArchiveLocation,
@@ -498,22 +520,10 @@ describe("content providers", () => {
     vi.mocked(api.getArchiveCompanionSession).mockResolvedValue({ token: "session-token" } as never);
     vi.mocked(api.extractLocalArchiveToSmb)
       .mockResolvedValueOnce({
-        files_extracted: 0,
-        directories_created: 1,
-        extracted_bytes: 0,
-        files_skipped: 0,
+        ...extractionAggregate(0, 1),
         phase: "awaiting_user_decision",
-        pending_decision_json: JSON.stringify({
-          kind: "collision",
-          source_session_id: "source-session-1",
-          delivery_sequence: 1,
-          decision_revision: 1,
-          member_path: "readme.txt",
-          allowed_actions: ["skip", "skip_all", "replace", "replace_all", "replace_older", "rename"],
-          conflicts: [{ member_path: "readme.txt", target_path: "output/readme.txt", is_directory: false }],
-        }),
       } as never)
-      .mockResolvedValueOnce({ files_extracted: 1, directories_created: 1, extracted_bytes: 5, files_skipped: 0 } as never);
+      .mockResolvedValueOnce(extractionAggregate(1, 1, 5) as never);
     vi.mocked(api.getLocalArchiveRelayExtractionStatus).mockResolvedValueOnce({
       source_session_id: "source-session-1",
       phase: "awaiting_decision",
@@ -539,10 +549,7 @@ describe("content providers", () => {
       },
     } as never);
     vi.mocked(api.decideLocalArchiveRelayExtraction).mockResolvedValueOnce({
-      files_extracted: 1,
-      directories_created: 1,
-      extracted_bytes: 5,
-      files_skipped: 0,
+      ...extractionAggregate(1, 1, 5),
     } as never);
 
     const execution = startArchiveExtraction(createContentProviderRegistry(), {
@@ -568,7 +575,7 @@ describe("content providers", () => {
   it("routes an SMB archive to a local destination through the Companion", async () => {
     vi.mocked(api.prepareArchiveOperation).mockResolvedValueOnce({ id: "extract-1" } as never);
     vi.mocked(api.getArchiveCompanionSession).mockResolvedValueOnce({ token: "session-token" } as never);
-    vi.mocked(api.extractSmbArchiveToLocal).mockResolvedValueOnce({ files_skipped: 0 } as never);
+    vi.mocked(api.extractSmbArchiveToLocal).mockResolvedValueOnce(extractionAggregate() as never);
 
     const execution = startArchiveExtraction(createContentProviderRegistry(), {
       source: archiveLocation,
@@ -588,13 +595,10 @@ describe("content providers", () => {
     vi.mocked(api.getArchiveCompanionSession).mockResolvedValue({ token: "session-token" } as never);
     vi.mocked(api.extractSmbArchiveToLocal)
       .mockResolvedValueOnce({
-        files_extracted: 0,
-        directories_created: 1,
-        extracted_bytes: 0,
-        files_skipped: 0,
+        ...extractionAggregate(0, 1),
         phase: "awaiting_user_decision",
       } as never)
-      .mockResolvedValueOnce({ files_extracted: 1, directories_created: 1, extracted_bytes: 5, files_skipped: 0 } as never);
+      .mockResolvedValueOnce(extractionAggregate(1, 1, 5) as never);
     vi.mocked(api.getArchiveLiveExtractionStatus).mockResolvedValueOnce(
       liveExtractionStatus({
         revision: 1,

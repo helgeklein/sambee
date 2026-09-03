@@ -224,6 +224,28 @@
       "response_schema": "binary"
     },
     {
+      "method": "GET",
+      "path": "/api/archive/v2/operations/{operation_id}/relay/extraction/live/status",
+      "owner": "backend",
+      "operation": "relay-extraction-live",
+      "durable": true,
+      "capability": true,
+      "idempotency": "none",
+      "request_schema": null,
+      "response_schema": "liveExtractionStatus"
+    },
+    {
+      "method": "POST",
+      "path": "/api/archive/v2/operations/{operation_id}/relay/extraction/live/fail",
+      "owner": "backend",
+      "operation": "relay-extraction-live",
+      "durable": true,
+      "capability": true,
+      "idempotency": "none",
+      "request_schema": "failure",
+      "response_schema": "operationRead"
+    },
+    {
       "method": "POST",
       "path": "/api/archive/v2/operations/{operation_id}/relay/extraction/live/result",
       "owner": "backend",

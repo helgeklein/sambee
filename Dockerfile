@@ -17,6 +17,9 @@ RUN --mount=type=cache,target=/var/cache/apt,sharing=locked \
 # Development target: inherits the runtime contract, then adds editor and
 # companion tooling without upgrading shared runtime packages again.
 FROM runtime-base AS devcontainer
+# Keep this major aligned with the frontend builder and every setup-node CI job.
+# Node major upgrades are coordinated manually; Dependabot maintains Docker's
+# pinned builder image within the supported major line.
 ARG HUGO_VERSION=0.160.0
 ARG NODE_MAJOR=24
 ARG RUST_TOOLCHAIN=stable
@@ -89,7 +92,7 @@ WORKDIR /workspace
 CMD ["sleep", "infinity"]
 
 # Build frontend on the native builder because the emitted assets are architecture-independent.
-FROM --platform=$BUILDPLATFORM node:24-alpine AS frontend-builder
+FROM --platform=$BUILDPLATFORM node:24.20.0-alpine@sha256:e67514e5d0f6c46656005e1b693b2ec9d52e80b641307de684d4a015ba7a4eaf AS frontend-builder
 WORKDIR /app
 COPY frontend/package*.json ./
 COPY frontend/scripts ./scripts
@@ -103,9 +106,12 @@ RUN npm run build
 FROM --platform=$BUILDPLATFORM ${PYTHON_BASE_IMAGE} AS pyvips-wheel-builder
 WORKDIR /tmp/pyvips-wheel-builder
 COPY backend/requirements.lock.txt ./
-RUN pyvips_version="$(sed -n 's/^pyvips==\([^[:space:]\\]*\).*/\1/p' requirements.lock.txt)" && \
-    test -n "$pyvips_version" && \
-    pip wheel --wheel-dir /tmp/wheels --no-deps "pyvips==$pyvips_version"
+COPY scripts/extract-pyvips-wheel-requirement.py /usr/local/bin/
+RUN --mount=type=cache,target=/root/.cache/pip \
+    python /usr/local/bin/extract-pyvips-wheel-requirement.py \
+        requirements.lock.txt /tmp/pyvips-wheel-requirement.txt && \
+    pip wheel --wheel-dir /tmp/wheels --require-hashes --no-deps \
+        -r /tmp/pyvips-wheel-requirement.txt
 
 # Backend test target: combines the shared runtime dependencies with the
 # development toolchain required by Companion relay interoperability tests.
@@ -115,7 +121,6 @@ WORKDIR /workspace
 COPY backend/requirements-dev.lock.txt /tmp/requirements-dev.lock.txt
 COPY --from=pyvips-wheel-builder /tmp/wheels /tmp/wheels
 RUN python -m venv /workspace/backend/.venv && \
-    /workspace/backend/.venv/bin/python -m pip install --upgrade pip && \
     /workspace/backend/.venv/bin/python -m pip install \
         --require-hashes \
         --find-links=/tmp/wheels \
@@ -137,9 +142,7 @@ ENV PYTHONPATH=/workspace/backend
 # Production target: Python backend with built frontend.
 FROM runtime-base AS production
 WORKDIR /app
-RUN useradd -m -u 1000 sambee && \
-    mkdir -p /app/data && \
-    chown sambee:sambee /app/data
+RUN useradd -m -u 1000 sambee
 
 # Copy ImageMagick policy and metadata files
 COPY imagemagick-policy.xml /etc/ImageMagick-7/policy.xml
@@ -153,27 +156,18 @@ RUN --mount=type=cache,target=/root/.cache/pip \
     pip install --root-user-action=ignore --disable-pip-version-check --require-hashes --find-links=/tmp/wheels -r requirements.lock.txt && \
     rm -rf /tmp/wheels
 
-# Copy version metadata (changes often)
+# The production image needs only the application package and startup guards.
+# Tests, development requirements, and backend-local configuration stay out.
+COPY --link backend/app ./app
+COPY --link scripts/preflight-archive-v2-cutover scripts/reset-archive-v2-cutover-state ./scripts/
+RUN install -d -o sambee -g sambee /app/data
+
+# Changing release metadata must not invalidate application-code layers.
 COPY VERSION /VERSION
 COPY GIT_COMMIT /GIT_COMMIT
-
 ARG BUILD_CREATED_AT=unknown
-
-# Keep runtime build metadata consistent across architectures by sourcing it
-# from a single workflow-provided timestamp instead of per-platform build time.
 RUN printf '%s\n' "$BUILD_CREATED_AT" > /BUILD_TIME
-
-# Copy backend code and built frontend (change often)
-COPY backend/ ./
-COPY scripts/preflight-archive-v2-cutover scripts/reset-archive-v2-cutover-state ./scripts/
-COPY --from=frontend-builder /app/dist ./static
-
-# Recreate the writable runtime data directory after copying the backend.
-# This prevents checked-in dev data from shadowing the production data path
-# and ensures SQLite can create /app/data/sambee.db as the non-root user.
-RUN rm -rf /app/data && \
-    mkdir -p /app/data && \
-    chown sambee:sambee /app/data
+COPY --link --from=frontend-builder /app/dist ./static
 
 # Switch to non-root user
 USER sambee

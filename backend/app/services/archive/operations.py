@@ -180,6 +180,7 @@ def fail_operation(
     message: str,
     *,
     error_code: ArchiveOperationErrorCode | None = None,
+    checkpoint_json: str | None = None,
 ) -> ArchiveOperation:
     """Record an executor failure without masking the original request error."""
 
@@ -193,7 +194,8 @@ def fail_operation(
         ).model_dump_json(),
     }
     if operation.phase in _CHECKPOINTED_ARCHIVE_OPERATION_PHASES:
-        changes["checkpoint_json"] = _validated_checkpoint_for_execution_transition(operation, None)
+        additional_changes: dict[str, object] | None = {"checkpoint_json": checkpoint_json} if checkpoint_json is not None else None
+        changes["checkpoint_json"] = _validated_checkpoint_for_execution_transition(operation, additional_changes)
     now = datetime.now(timezone.utc)
     previous_phase = operation.phase
     _state_store.compare_and_swap(

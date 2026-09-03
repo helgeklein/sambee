@@ -13,6 +13,7 @@ from smbclient._os import FileAttributes
 from app.core.system_setting_definitions import SystemSettingKey
 from app.models.file import DirectoryListing, FileInfo, FileType
 from app.services.archive.target_write import TargetExistsBeforeContent, TargetWriteFailure, TargetWriteResult
+from app.services.archive.zip_reader import ArchiveSourceUnavailableError
 from app.services.system_settings import get_integer_setting_value, get_smbclient_policy_kwargs
 from app.storage.base import ExclusiveWriter, ProgressCallback, RandomAccessReader, StorageBackend
 from app.storage.smb_pool import get_connection_pool, get_smb_connection_cache
@@ -721,11 +722,15 @@ class SMBBackend(StorageBackend):
     async def open_archive_source_reader(self, path: str) -> RandomAccessReader:
         """Pin an archive source against concurrent SMB writers for its live operation."""
 
-        return await self._open_random_access_reader(
-            path,
-            share_access="r",
-            operation_name="open_file_for_archive_source_read",
-        )
+        try:
+            return await self._open_random_access_reader(
+                path,
+                share_access="r",
+                operation_name="open_file_for_archive_source_read",
+            )
+        except Exception as exc:
+            logger.warning("Unable to open pinned archive source '%s': %s", path, exc)
+            raise ArchiveSourceUnavailableError("Archive source cannot be opened with required sharing") from exc
 
     async def open_exclusive_writer(self, path: str) -> ExclusiveWriter:
         """Create a final SMB target without replacement and retain its handle."""
@@ -1542,6 +1547,7 @@ class SMBBackend(StorageBackend):
 
         bytes_written = 0
         replaced = False
+        target_may_have_changed = False
         try:
             pool = await get_connection_pool()
 
@@ -1557,6 +1563,7 @@ class SMBBackend(StorageBackend):
                     # When overwrite is requested, remove the existing
                     # regular file before exclusively recreating it below.
                     replaced = await self._remove_regular_file_if_exists(smb_path)
+                    target_may_have_changed = replaced
 
                 # Exclusive creation closes the check/open race. A target that
                 # appears after replacement removal is reported before any
@@ -1572,6 +1579,7 @@ class SMBBackend(StorageBackend):
                     15.0,
                     smb_path=smb_path,
                 )
+                target_may_have_changed = True
 
                 try:
                     async for chunk in stream:
@@ -1619,12 +1627,12 @@ class SMBBackend(StorageBackend):
         except asyncio.TimeoutError as exc:
             logger.error(f"Timeout during write_file_from_stream for '{path}'")
             timeout_error = TimeoutError(f"SMB operation timed out while writing: {path}")
-            if bytes_written:
+            if target_may_have_changed:
                 raise TargetWriteFailure(timeout_error, bytes_written) from exc
             raise timeout_error from exc
         except OSError as e:
             error_str = str(e)
-            if bytes_written:
+            if target_may_have_changed:
                 raise TargetWriteFailure(e, bytes_written) from e
             if isinstance(e, FileExistsError) or "0xc0000035" in error_str:
                 raise TargetExistsBeforeContent(f"Destination already exists: {path}") from e
@@ -1633,7 +1641,7 @@ class SMBBackend(StorageBackend):
             logger.error(f"Failed write_file_from_stream '{path}': {type(e).__name__}: {e}", exc_info=True)
             raise
         except Exception as e:
-            if bytes_written:
+            if target_may_have_changed:
                 raise TargetWriteFailure(e, bytes_written) from e
             logger.error(f"Failed write_file_from_stream '{path}': {type(e).__name__}: {e}", exc_info=True)
             raise

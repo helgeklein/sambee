@@ -25,16 +25,23 @@ every topology:
 
 | ID | Finding | Security risk | Delivery effort | Priority |
 | --- | --- | --- | --- | --- |
-| S1 | ZIP resource exhaustion | High | Medium | P0 |
-| S2 | Local extraction symlink-swap race | High | High | P0 |
-| S3 | Local creation source symlink-swap race | Medium | High | P1 |
-| S4 | Backend accepts trailing compressed payload data | Low | Low | P2 |
-| S5 | UTF-8 filename decoding differs by executor | Low | Low | P2 |
+| S1 | ZIP resource exhaustion | Remediated | Completed | Done |
+| S2 | Local extraction symlink-swap race | Accepted (same-user local process) | Not planned | Accepted risk |
+| S3 | Local creation source symlink-swap race | Accepted (same-user local process) | Not planned | Accepted risk |
+| S4 | Trailing compressed-payload handling differs by executor | Compatibility | Low | P3 |
+| S5 | Malformed flagged UTF-8 filename handling differs by executor | Compatibility | Low | P3 |
 
 Risk is the impact if the issue is exploited in a deployment where a hostile
 user, local process, or SMB peer can provide archive content or mutate selected
 paths. Effort includes implementation, compatibility testing, and release
 validation.
+
+S2 and S3 are accepted risks for the supported desktop deployment: a local
+process able to perform the substitution has the same operating-system access
+as Companion and can directly read or write the redirected path. They do not
+create an authorization-boundary bypass in that model. Reassess both findings
+before supporting an elevated Companion, a separate service account, or local
+drive access unavailable to the potentially hostile process.
 
 ## S1: Incremental Trusted-Source Archive Processing
 
@@ -374,13 +381,9 @@ manifest, page manifest, or per-member membership authorization is needed.
    source outcome, no destination call, no delivery sequence, and correct
    continuation to a later valid member.
 
----
-Reviewed until here
----
+## S2: Accepted Risk - Local Extraction Symlink-Swap Races
 
-## S2: Eliminate Local Extraction Symlink-Swap Races
-
-**Risk: High. Effort: High.**
+**Disposition: Accepted risk. No implementation planned.**
 
 ### Threat
 
@@ -391,6 +394,10 @@ that interval. The subsequent operation can follow the replacement outside the
 approved drive root.
 
 ### Proposal
+
+No mitigation is planned for the supported same-user desktop deployment. The
+root-anchored filesystem capability below remains a future design option if the
+deployment trust boundary changes.
 
 Replace check-then-use path operations with root-anchored, component-by-
 component filesystem operations. The root must be opened once and every child
@@ -447,9 +454,9 @@ disabled.
 - The implementation does not depend on timing assumptions between validation
   and filesystem mutation.
 
-## S3: Bind Local Creation Reads to Preflighted Files
+## S3: Accepted Risk - Local Creation Source Symlink-Swap Races
 
-**Risk: Medium. Effort: High.**
+**Disposition: Accepted risk. No implementation planned.**
 
 ### Threat
 
@@ -460,6 +467,10 @@ preflight and read. Size and timestamp comparison lowers the chance of success
 but does not prove the same file is read.
 
 ### Proposal
+
+No mitigation is planned for the supported same-user desktop deployment. The
+source-identity design below remains a future design option if the deployment
+trust boundary changes.
 
 Bind each source member to stable file identity at preflight, then open it with
 no-follow semantics and compare the opened handle identity immediately before
@@ -503,90 +514,165 @@ archiving its bytes.
 - A source replacement or symlink substitution cannot add unrelated data to a
   successful archive.
 
-## S4: Require Exact Compressed-Payload Consumption
+## S4: Align Recoverable Trailing Compressed-Payload Handling
 
-**Risk: Low. Effort: Low.**
+**Impact: Compatibility. Effort: Low.**
 
-### Threat
+### Compatibility Problem
 
-The backend accepts Deflate and BZIP2 payloads that reach a valid end marker
-before the declared compressed region ends. The Companion rejects them. This
-inconsistency can produce topology-dependent inspection and extraction results.
+A ZIP central-directory record declares a compressed-byte range for each
+member. A Deflate or BZIP2 stream can reach a valid end marker before the end
+of that range. The bytes left in the declared range do not become file output;
+they can be padding, producer-specific data, or another compressed stream.
 
-### Proposal
+The backend currently accepts a member when its decoded output has the declared
+size and CRC. Companion behavior differs or is decoder-buffer dependent. The
+same ZIP can therefore extract when its source is SMB-hosted and fail when its
+source is local. This is a robustness and interoperability concern, not a
+standalone authorization, path-escape, or resource-exhaustion vulnerability.
 
-Require every supported decompressor to consume exactly the declared compressed
-size and reject trailing compressed payload data.
+S1 makes the ZIP-owning source authoritative for the operation, so a mixed
+operation no longer depends on a second executor parsing the member. It does
+not remove the user-visible topology difference when the same ZIP is opened
+locally or through SMB.
 
-### Design and Tests
+### Compatibility Policy
 
-1. In `ZipReader.stream_validated_entry`, after Deflate reaches EOF, reject any
-   `unused_data`. Preserve the current truncated-stream check.
-2. Do the equivalent for BZIP2. After EOF, reject bytes supplied after the end
-   of the stream, including bytes that arrive in later chunks.
-3. Add shared fixtures for valid payloads, trailing junk, a valid stream plus a
-   second stream, and truncated payloads for both codecs.
-4. Confirm that inspection remains metadata-only while member streaming and
-   extraction consistently reject malformed payloads before a successful
-   outcome is recorded.
+Adopt permissive, member-scoped recovery consistent with common archive tools.
+Treat the central directory's declared compressed-size range as the member
+boundary. When a supported decompressor reaches a valid end marker before that
+boundary, accept the member if, and only if, its output exactly matches the
+declared uncompressed size and CRC. Ignore the remaining bytes in the declared
+compressed range.
 
-### Acceptance Criteria
-
-- Python and Rust have identical acceptance behavior for the shared malformed
-  payload fixtures.
-- A member with trailing bytes never produces a successful download or
-  extraction result.
-
-## S5: Reject Invalid Flagged UTF-8 Names in Companion
-
-**Risk: Low. Effort: Low.**
-
-### Threat
-
-When the ZIP UTF-8 flag is set, the backend rejects invalid byte sequences but
-the Companion replaces invalid bytes. The resulting U+FFFD name can change
-manifest identity and collision behavior across topologies.
-
-### Proposal
-
-Make Rust decoding fallible. For a UTF-8-flagged entry, use strict UTF-8
-decoding and return `InvalidEntryName` on failure. Preserve the existing
-validated Info-ZIP Unicode Path and CP437 behavior for unflagged entries.
+Do not scan beyond the declared member boundary, reinterpret those remaining
+bytes as another ZIP record, concatenate another compression stream into the
+member output, or relax header, size, CRC, codec, path, and special-file
+validation. A truncated stream, output exceeding or falling short of the
+declared size, CRC mismatch, unreadable declared range, invalid local header,
+or unknown next central-directory boundary remains a member or operation
+failure under the existing S1 rules.
 
 ### Design and Tests
 
-1. Change `decode_entry_name` to return `Result<String, LocalArchiveReadError>`
-   and propagate its result through the central-directory parser.
-2. Add the matching error variant and map it to the existing invalid-ZIP client
-   response without echoing hostile filename bytes.
-3. Add conformance fixtures for invalid flagged UTF-8, valid flagged UTF-8,
-   invalid unflagged bytes with CP437 fallback, and Unicode Path extra fields
-   with valid and invalid CRCs.
-4. Update backend and Companion tests to assert matching normalized names and
-   matching rejection behavior.
+1. Preserve the backend's permissive bounded-stream behavior: it must stop at
+   the declared compressed-size boundary and retain its existing truncated
+   stream, declared-size, and CRC checks.
+2. Make Companion deliberately match that policy for Deflate and BZIP2. Do not
+   reject a member solely because bytes remain after decoder EOF within the
+   `take(compressed_size)` reader; decoder buffering must not make the result
+   depend on chunking or library implementation details.
+3. Add shared, versioned fixtures for each supported codec: a normal stream,
+   a valid stream with trailing non-stream bytes, a valid stream followed by a
+   second stream, a truncated stream, declared-size underflow and overflow, and
+   a CRC mismatch. Each fixture must state whether extraction succeeds and the
+   expected output bytes when it succeeds.
+4. Test the backend and Companion against the same fixtures with multiple read
+   chunk sizes. Assert identical success or failure and, for accepted members,
+   identical output. Include direct extraction and both S1 relay directions so
+   the authoritative source's result is visible at the operation boundary.
+5. Keep inspection metadata-only. It may list a member whose payload later
+   proves truncated or has a bad CRC; streaming or extraction determines that
+   member-level result.
 
 ### Acceptance Criteria
 
-- No flagged invalid UTF-8 name appears in a Companion manifest.
-- Both runtimes agree on every filename-encoding conformance fixture.
+- Python and Rust have identical behavior for every shared payload fixture.
+- A valid supported stream with leftover bytes inside its declared compressed
+  range extracts the same verified output in both runtimes.
+- Trailing bytes cannot extend a member beyond its declared compressed range or
+  contribute to its output.
+- Truncated streams, declared-size mismatches, CRC mismatches, unavailable
+  codecs, invalid headers, and unsafe members continue to fail according to the
+  existing member and operation policies.
+
+## S5: Align Recoverable Malformed UTF-8 Filename Handling
+
+**Impact: Compatibility. Effort: Low.**
+
+### Compatibility Problem
+
+A ZIP entry can claim UTF-8 filename encoding while containing malformed UTF-8
+bytes. There is no universally correct filename to recover: archive tools may
+reject the member, substitute U+FFFD replacement characters, or make a legacy
+encoding guess.
+
+The backend currently rejects malformed flagged UTF-8 while Companion replaces
+malformed byte sequences. The same ZIP can therefore be unusable when opened
+from SMB but usable locally. This is a robustness and interoperability concern,
+not a standalone authorization or path-escape vulnerability: both runtimes run
+their normal safe-relative-path checks after decoding, and a replacement
+character cannot create a path separator, traversal segment, NUL, or absolute
+path.
+
+Replacement intentionally does not preserve the original malformed byte
+sequence. Distinct malformed names, or a malformed name and a literal U+FFFD
+name, can decode to the same visible name. Existing archive-record order and
+destination collision handling remain authoritative for that outcome. S1 makes
+the ZIP-owning source authoritative during a mixed operation, but direct local
+and SMB inspection must still use the same recovery rule.
+
+### Compatibility Policy
+
+Adopt deterministic replacement decoding for malformed names marked as UTF-8.
+The backend must match Companion's U+FFFD replacement behavior exactly. Do not
+guess CP437 or another legacy encoding for a UTF-8-flagged name: replacement is
+predictable, produces a valid Unicode string for the UI and relay protocol, and
+does not claim to recover the original byte identity.
+
+Preserve the existing validated Info-ZIP Unicode Path and CP437 behavior for
+unflagged names. Preserve raw central-directory name bytes for local-header
+matching; replacement applies only to the displayed and destination-relative
+name after that structural validation.
+
+### Design and Tests
+
+1. Change the backend's UTF-8-flagged decoding to deterministic replacement
+   decoding that matches Rust's `String::from_utf8_lossy` semantics. Do not add
+   a strict-invalid-name error path for this recoverable condition.
+2. Confirm that the backend and Companion apply the same replacement grouping
+   for malformed byte sequences, not merely the same replacement character.
+   Keep decoded-name normalization, safe-relative-path validation, and
+   case-folded collision keys unchanged.
+3. Add shared, versioned fixtures for valid flagged UTF-8, malformed flagged
+   UTF-8 with isolated and consecutive invalid bytes, invalid unflagged bytes
+   with CP437 fallback, and Unicode Path extra fields with valid and invalid
+   CRCs. Each fixture must state the expected decoded normalized name or safe
+   rejection result.
+4. Add collision fixtures for two malformed names that normalize to one
+   replacement-decoded name and for a malformed name that collides with a
+   literal U+FFFD name. Assert the existing record-order and destination
+   collision policy rather than inventing raw-byte identity semantics.
+5. Test direct inspection and extraction plus both S1 relay directions. Assert
+   identical decoded names, safe-path decisions, collision outcomes, and output
+   paths for backend and Companion sources.
+
+### Acceptance Criteria
+
+- Python and Rust produce identical decoded normalized names and safe-path
+  decisions for every shared filename-encoding fixture.
+- A malformed flagged UTF-8 name is recoverable with deterministic U+FFFD
+  replacement when its resulting normalized path is safe.
+- A replacement-decoded collision follows the existing archive-record and
+  destination collision policies; it never silently overwrites a target.
+- Invalid unflagged names retain their existing CP437 and validated Info-ZIP
+  Unicode Path behavior.
+- Raw local-header name validation, file-type validation, path restrictions,
+  and all payload-integrity checks remain unchanged.
 
 ## Implementation Order
 
-1. Land S4 and S5 first. They are small, reduce parser divergence, and provide
-   shared corpus patterns for the larger work.
-2. Land S1 inspection pages next, then assess their production memory behavior
-   before designing paged extraction and mixed-relay protocol changes.
-3. Land S2 before expanding local extraction usage or exposing new local write
-   paths. It addresses the only confirmed write-outside-root vulnerability.
-4. Land S3 after the trusted directory-handle utilities from S2 are available;
-   reuse those utilities for source traversal where appropriate.
+1. Land S4 and S5 compatibility alignment first. They are small, reduce parser
+   divergence, and provide shared corpus patterns for later parser work.
+2. S1 is complete.
+3. Do not schedule S2 or S3 unless the supported deployment model changes to
+   give Companion access beyond that of a potentially hostile local process.
 
 ## Cross-Cutting Requirements
 
 - Extend `archive_testdata` with versioned, hash-verified security fixtures;
   each fixture should state its expected backend and Companion result.
-- Add structured security telemetry for archive-page traversal,
-   unsafe-filesystem-entry rejections, source-identity changes, and parser
+- Add structured security telemetry for archive-page traversal and parser
    conformance failures. Do not log raw archive paths or filenames at info level.
 - Treat a parser or filesystem integrity failure as an operation failure
   with an actionable generic client message and a specific internal error code.

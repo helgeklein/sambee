@@ -28,6 +28,7 @@ from smbclient._os import FileAttributes
 
 from app.models.file import DirectoryListing, FileInfo, FileType
 from app.services.archive.extraction import extract_archive_to_new_paths
+from app.services.archive.target_write import TargetWriteFailure
 from app.storage.smb import SMBBackend
 
 _LIVE_SMB_ENVIRONMENT_VARIABLES = ("TEST_SMB_HOST", "TEST_SMB_SHARE", "TEST_SMB_USERNAME", "TEST_SMB_PASSWORD")
@@ -165,6 +166,29 @@ async def test_write_file_from_stream_retries_short_native_writes(mock_open: Mag
 
     assert int(result) == 5
     assert mock_file.write.call_args_list == [call(b"hello"), call(b"llo")]
+    mock_file.close.assert_called_once()
+
+
+@pytest.mark.asyncio
+@patch("app.storage.smb.smbclient.utime")
+@patch("app.storage.smb.smbclient.open_file")
+async def test_write_file_from_stream_marks_an_empty_created_target_as_partial_on_metadata_failure(
+    mock_open: MagicMock, mock_utime: MagicMock
+) -> None:
+    mock_file = MagicMock()
+    mock_open.return_value = mock_file
+    mock_utime.side_effect = OSError("metadata update failed")
+    backend = SMBBackend(host="server.local", share_name="share", username="user", password="pass")
+
+    async def stream() -> AsyncIterator[bytes]:
+        if False:
+            yield b""
+
+    with pytest.raises(TargetWriteFailure, match="metadata update failed") as raised:
+        await backend.write_file_from_stream("target.txt", stream(), source_mtime=datetime.now())
+
+    assert raised.value.bytes_written == 0
+    assert raised.value.output_may_exist is True
     mock_file.close.assert_called_once()
 
 

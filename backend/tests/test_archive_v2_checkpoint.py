@@ -6,7 +6,9 @@ from pathlib import Path
 
 import pytest
 from fastapi import HTTPException
+from pydantic import ValidationError
 
+from app.models.archive_operation import ArchiveCompanionLiveExtractionSummary, ArchiveExtractionAggregate
 from app.services.archive.v2_checkpoint import (
     canonical_v2_timestamp,
     new_v2_creation_checkpoint,
@@ -24,6 +26,30 @@ def test_canonical_v2_timestamp_uses_utc_z_suffix() -> None:
 
 def valid_checkpoint() -> dict[str, object]:
     return new_v2_extraction_checkpoint()
+
+
+def test_companion_extraction_summary_enforces_strict_aggregate_counters() -> None:
+    summary = {
+        "source_session_id": "source-session",
+        "members_processed": 3,
+        "members_completed": 1,
+        "members_skipped": 1,
+        "members_failed": 1,
+        "files_extracted": 1,
+        "directories_created": 0,
+        "extracted_bytes": 42,
+        "files_replaced": 0,
+    }
+    assert ArchiveCompanionLiveExtractionSummary.model_validate(summary).members_processed == 3
+
+    for value in (True, 1.5, 1 << 63):
+        invalid_summary = {**summary, "members_processed": value}
+        with pytest.raises(ValidationError):
+            ArchiveCompanionLiveExtractionSummary.model_validate(invalid_summary)
+
+    invalid_summary = {**summary, "members_processed": 2}
+    with pytest.raises(ValidationError, match="aggregate member counters"):
+        ArchiveCompanionLiveExtractionSummary.model_validate(invalid_summary)
 
 
 @pytest.mark.parametrize(
@@ -105,6 +131,29 @@ def test_v2_checkpoint_accepts_aggregate_result() -> None:
     }
 
     assert validate_v2_extraction_checkpoint(checkpoint) == checkpoint
+
+
+def test_live_extraction_aggregate_requires_exact_valid_counters() -> None:
+    aggregate = {
+        "members_processed": 3,
+        "members_completed": 1,
+        "members_skipped": 1,
+        "members_failed": 1,
+        "files_extracted": 1,
+        "directories_created": 2,
+        "extracted_bytes": 7,
+        "files_replaced": 1,
+    }
+
+    assert ArchiveExtractionAggregate.model_validate(aggregate).model_dump() == aggregate
+    for invalid in (
+        {**aggregate, "members_processed": True},
+        {**aggregate, "members_processed": 2},
+        {key: value for key, value in aggregate.items() if key != "files_replaced"},
+        {**aggregate, "unexpected": 1},
+    ):
+        with pytest.raises(ValidationError):
+            ArchiveExtractionAggregate.model_validate(invalid)
 
 
 def test_v2_creation_checkpoint_rejects_aggregate_counters() -> None:

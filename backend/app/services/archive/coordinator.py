@@ -12,7 +12,6 @@ from typing import Literal, Protocol
 from fastapi import HTTPException, status
 from sqlmodel import Session
 
-from app.models.archive import ArchiveDirectoryListing, ArchiveEntryInfo, ArchiveIdentity
 from app.models.archive_operation import (
     ArchiveContractVersion,
     ArchiveOperation,
@@ -20,14 +19,7 @@ from app.models.archive_operation import (
     ArchiveOperationErrorCode,
     ArchiveOperationPhase,
 )
-from app.models.file import FileType
 from app.services.archive.creation import ArchiveCreationCancelled, ArchiveCreationMemberOutcome, ArchiveCreationResult
-from app.services.archive.execution import (
-    ArchiveExecutionDriver,
-    ArchiveInspectionBinding,
-    ArchiveInspectionOperationKind,
-    ArchiveInspectionTopologyPlan,
-)
 from app.services.archive.operations import (
     fail_operation,
     heartbeat_operation,
@@ -39,12 +31,7 @@ from app.services.archive.v2_checkpoint import (
     new_v2_creation_checkpoint,
     validate_v2_operation_checkpoint,
 )
-from app.services.archive.zip_reader import (
-    ArchiveInspectionManifest,
-    ArchiveInspectionManifestMember,
-    ValidatedZipEntry,
-    ZipReader,
-)
+from app.services.archive.zip_reader import ArchiveInspectionManifestMember, ValidatedZipEntry, ZipReader
 from app.utils.content_disposition import build_content_disposition
 from app.utils.file_type_registry import needs_processing
 
@@ -110,30 +97,14 @@ class ArchiveExecutionStateStore(Protocol):
     async def is_cancelled(self, operation: ArchiveOperation) -> bool: ...
 
 
-class ArchiveInspectionSource(Protocol):
-    """Provide a normalized manifest for one request-scoped archive inspection."""
-
-    @property
-    def binding(self) -> ArchiveInspectionBinding: ...
-
-    async def inspection_manifest(self) -> ArchiveInspectionManifest: ...
-
-
 @dataclass(frozen=True)
 class SmbArchiveInspectionSource:
     """Bind the existing SMB-backed ZIP reader to one inspection request."""
 
     zip_reader: ZipReader
 
-    @property
-    def binding(self) -> ArchiveInspectionBinding:
-        return ArchiveInspectionBinding.BACKEND_SMB
-
-    async def inspection_manifest(self) -> ArchiveInspectionManifest:
-        return await self.zip_reader.inspection_manifest()
-
     async def validate_member(self, path: str) -> ValidatedZipEntry:
-        return await self.zip_reader.validate_member(path)
+        return await self.zip_reader.validate_member_in_record_order(path)
 
     async def validate_member_in_record_order(self, path: str) -> ValidatedZipEntry:
         return await self.zip_reader.validate_member_in_record_order(path)
@@ -143,47 +114,6 @@ class SmbArchiveInspectionSource:
 
     def stream_validated_member(self, member: ValidatedZipEntry) -> AsyncIterator[bytes]:
         return self.zip_reader.stream_validated_entry(member)
-
-
-class ArchiveInspectionPresentation:
-    """Immutable existing-V1 response presenter selected for one inspection request."""
-
-
-@dataclass(frozen=True)
-class ArchiveDirectoryListingPresentation(ArchiveInspectionPresentation):
-    """Project one normalized manifest into the V1 directory-listing DTO."""
-
-    archive_path: str
-    archive_size: int
-    archive_modified_at: datetime | None
-    virtual_path: str
-    cursor: str | None
-    page_size: int
-
-    def project(self, manifest: ArchiveInspectionManifest) -> ArchiveDirectoryListing:
-        page = manifest.list_directory(self.virtual_path, self.cursor, self.page_size)
-        return ArchiveDirectoryListing(
-            archive=ArchiveIdentity(path=self.archive_path, size=self.archive_size, modified_at=self.archive_modified_at),
-            path=self.virtual_path.rstrip("/"),
-            items=[
-                ArchiveEntryInfo(
-                    name=entry.name,
-                    path=entry.path,
-                    type=FileType.DIRECTORY if entry.is_directory else FileType.FILE,
-                    size=entry.uncompressed_size,
-                    compressed_size=entry.compressed_size,
-                    compression_method=entry.compression_method,
-                    crc32=entry.crc32,
-                    modified_at=entry.modified_at,
-                    state=entry.preview_state,
-                    is_hidden=entry.name.startswith("."),
-                )
-                for entry in page.entries
-            ],
-            total=page.total,
-            next_cursor=page.next_cursor,
-            page_size=self.page_size,
-        )
 
 
 @dataclass(frozen=True)
@@ -203,7 +133,7 @@ class ArchiveMemberReadProjection:
 
 
 @dataclass(frozen=True)
-class ArchiveMemberReadPresentation(ArchiveInspectionPresentation):
+class ArchiveMemberReadPresentation:
     """Project one normalized manifest member into V1 streaming response metadata."""
 
     member_path: str
@@ -216,9 +146,6 @@ class ArchiveMemberReadPresentation(ArchiveInspectionPresentation):
     screen_width: int | None = None
     screen_height: int | None = None
     screen_zoom_percent: int = 200
-
-    def project(self, manifest: ArchiveInspectionManifest) -> ArchiveMemberReadProjection:
-        return self.project_member(manifest.member(self.member_path))
 
     def project_member(self, member: ArchiveInspectionManifestMember) -> ArchiveMemberReadProjection:
         member_name = member.path.rsplit("/", 1)[-1]
@@ -243,55 +170,6 @@ class ArchiveMemberReadPresentation(ArchiveInspectionPresentation):
             screen_height=self.screen_height,
             screen_zoom_percent=self.screen_zoom_percent,
         )
-
-
-@dataclass(frozen=True)
-class ArchiveInspectionPlan:
-    """Immutable, non-durable source binding for one archive inspection request."""
-
-    source: ArchiveInspectionSource
-    topology: ArchiveInspectionTopologyPlan
-    presentation: ArchiveInspectionPresentation
-
-
-@dataclass(frozen=True)
-class ArchiveInspectionCoordinator:
-    """Resolve a request-scoped inspection plan without owning transport or HTTP projection."""
-
-    plan: ArchiveInspectionPlan
-
-    async def manifest(self) -> ArchiveInspectionManifest:
-        """Load the normalized inspection manifest through the bound source adapter."""
-
-        return await self.plan.source.inspection_manifest()
-
-    async def directory_listing(self) -> ArchiveDirectoryListing:
-        """Project the bound normalized manifest into the V1 directory-listing DTO."""
-
-        if not isinstance(self.plan.presentation, ArchiveDirectoryListingPresentation):
-            raise ValueError("Archive inspection plan does not support a directory-listing response")
-        return self.plan.presentation.project(await self.manifest())
-
-    async def member_read(self) -> ArchiveMemberReadProjection:
-        """Project the bound normalized manifest into V1 member response metadata."""
-
-        if not isinstance(self.plan.presentation, ArchiveMemberReadPresentation):
-            raise ValueError("Archive inspection plan does not support a member-read response")
-        return self.plan.presentation.project(await self.manifest())
-
-
-def resolve_archive_inspection_coordinator(plan: ArchiveInspectionPlan) -> ArchiveInspectionCoordinator:
-    """Construct the backend coordinator only for an SMB-owned inspection plan."""
-
-    if (
-        plan.topology.kind != ArchiveInspectionOperationKind.INSPECT
-        or plan.topology.driver != ArchiveExecutionDriver.BACKEND
-        or plan.topology.source_is_local
-        or plan.topology.binding != ArchiveInspectionBinding.BACKEND_SMB
-        or plan.source.binding != plan.topology.binding
-    ):
-        raise ValueError("Archive inspection topology did not resolve to a compatible backend binding")
-    return ArchiveInspectionCoordinator(plan)
 
 
 @dataclass(frozen=True)

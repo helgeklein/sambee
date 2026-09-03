@@ -2,8 +2,9 @@
 
 V2 is the only archive contract. Creation and extraction are durable operation
 resources. Inspection and member reads are request-scoped and non-durable.
-There is no V1 route, payload, checkpoint, capability, migration, or recovery
-fallback.
+Extraction uses S1 live, source-owned processing: it has no manifest, resumable
+checkpoint, member ledger, source snapshot, or replay state. Creation remains a
+separate ledger-based workflow outside S1's extraction scope.
 
 ## Versioning And Encoding
 
@@ -29,32 +30,37 @@ one of `prepared`, `accepted`, `streaming`, `awaiting_user_decision`,
 terminal. A revision-bound transition, decision, or cancellation must match its
 expected revision when supplied.
 
-Terminal summaries are derived only from terminal `member_outcomes`. They are
-not checkpoint fields and must never be independently resumed or incremented.
+An extraction terminal summary contains only the checked aggregate counters
+`members_processed`, `members_completed`, `members_skipped`, `members_failed`,
+`files_extracted`, `directories_created`, `extracted_bytes`, and
+`files_replaced`. It satisfies
+`members_processed = members_completed + members_skipped + members_failed`.
+It does not expose an archive-wide total-member count.
 
-## Checkpoints And Decisions
+## Extraction Checkpoints And Decisions
 
-An extraction checkpoint has exactly `version` (integer `2`), immutable
-`manifest`, immutable `source_snapshot`, `member_outcomes`, `decisions`,
-`pending_decision`, and `delivery_ids`. A creation checkpoint has the same
-fields except it has no `source_snapshot`; its `decisions` is `{}` and its
-`pending_decision` is `null`. Both envelopes reject unversioned objects,
-independently maintained aggregate counters, `written_members`, and every V1
-checkpoint field.
+An extraction checkpoint has exactly `version` (integer `2`) and
+`aggregate_counters`. It rejects manifests, source snapshots, member outcomes,
+reader cursors, decisions, pending-decision payloads, delivery IDs, and every
+replay or idempotency field. A legacy extraction checkpoint is incompatible and
+its operation must terminate; it is never migrated or resumed.
 
-Extraction terminal outcomes are `directory`, `extracted`, `skipped`, and
-`ignored`. A `partial` outcome records an incomplete target and is not terminal;
-the member must be retried or explicitly ignored. Creation terminal outcomes are
-`directory` and `created`.
+The ZIP-owning executor holds one in-memory live source session containing its
+pinned reader, current record, delivery sequence, aggregate counters, live
+collision policy, and an optional current decision. `next-member` is the only
+transition that reads the next ZIP record. Source-only rejections finalize one
+known aggregate outcome without a delivery sequence or destination request.
 
-`decisions` persists member-local collision actions (`skip` or `replace`),
-rename targets, ignored members, and retry members. A pending collision is an
-`existing_files` object with one or more conflicts and allowed actions. A pending
-write failure is a `member_error` object with canonical member and target paths,
-a bounded message, `partial_output`, and exactly `retry` and `ignore` actions.
-Control decisions may use `skip`, `skip_all`, `replace`, `replace_all`,
-`replace_older`, `rename`, `retry`, `ignore`, or `cancel`; the pending decision
-limits which actions are valid.
+For a destination write, the source accepts one transient result only after its
+own stream validation completes. It verifies the source-session ID, delivery
+sequence, and current phase before it changes the current record or aggregate.
+Lost or uncertain destination outcomes terminalize without inventing a member
+outcome. Collision and retry details remain only in the live source session;
+the durable operation retains at most its awaiting-decision phase and revision.
+
+Creation checkpoints remain ledger-based and contain `version`, `manifest`,
+`member_outcomes`, `decisions`, `pending_decision`, and `delivery_ids`. Creation
+terminal outcomes are `directory` and `created`.
 
 ## Routes And Ownership
 
@@ -65,12 +71,19 @@ at `/api/browse/{drive}/archive/v2/executions`. Mixed Companion execution uses
 only `/api/browse/{drive}/archive/v2/relay/creation` and
 `/api/browse/{drive}/archive/v2/relay/extraction`.
 
-Public route names and payloads are operation-based. The disjoint relay request
-shapes identify whether the local drive supplies source data or receives output;
-they do not expose a topology selector. The runtime resolves the actual local,
-SMB, or relay adapter privately. SMB-to-SMB is backend-owned, local-to-local is
+Public route names and payloads are operation-based. Active extraction relay
+routes are rooted at `/relay/extraction/live`: the ZIP owner begins, supplies the
+next current member, accepts its transient destination result, and reports the
+final aggregate after end-of-directory. The disjoint relay bindings identify
+whether the local drive supplies source data or receives output; they do not
+expose a topology selector. SMB-to-SMB is backend-owned, local-to-local is
 Companion-owned, and mixed topologies use a Companion relay over a backend-owned
 durable operation.
+
+The bindings file also lists retained superseded extraction paths so it covers
+every registered route. Those paths return `410 Gone`; they do not accept a
+manifest, member acknowledgement, completion, or failure command. New clients
+must use the live extraction routes.
 
 Inspection request schemas are owner-specific: backend SMB inspection requires
 `connection_id`, while Companion local inspection derives its source identity
@@ -80,17 +93,15 @@ declares its supported preview viewport and screen parameters.
 ## Capabilities And Idempotency
 
 A Companion capability is a signed, short-lived claim bound to the operation ID,
-contract version, operation kind, resolved topology, relay binding, source and
-destination connection IDs and paths, and manifest hash. The backend validates
-every claim against the durable operation before relay I/O.
+contract version, operation kind, resolved topology, relay binding, and scoped
+source and destination roots. The backend validates every claim against the
+durable operation before relay I/O. S1 extraction capabilities do not include a
+manifest hash.
 
-`Idempotency-Key` is an optional UUID delivery identity on relay acknowledgement
-controls. It is scoped to one operation and command. The checkpoint `delivery_ids`
-map stores at most 1024 entries whose values are nonempty fingerprints up to 4096
-characters. The fingerprint is the compact JSON serialization of
-`{"command": command, "payload": payload}` with sorted keys and separators
-`,` and `:`. An identical replay is a no-op; reuse with a different fingerprint
-fails with `idempotency_conflict`.
+S1 extraction has no delivery ID, idempotency key, replay fingerprint, or result
+receipt. Its source-session ID and delivery sequence are live fencing tokens for
+the current record only. Creation retains its separate bounded delivery-ID map
+and replay behavior.
 
 ## Error Vocabulary
 

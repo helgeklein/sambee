@@ -181,10 +181,11 @@ updates:
       - dependencies
       - docker
     ignore:
-      # Node upgrades affect both frontend and companion toolchains and remain
-      # coordinated manually. Python is the shared runtime-base input and is
-      # validated by the Docker target checks in CI.
+      # Node major upgrades affect the frontend builder, devcontainer, and CI
+      # toolchains. Dependabot maintains supported-major image updates only.
       - dependency-name: "node"
+        update-types:
+          - "version-update:semver-major"
     groups:
       root-docker:
         patterns:

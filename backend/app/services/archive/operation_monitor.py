@@ -77,12 +77,50 @@ async def expire_stale_archive_operations_and_cleanup(
     cutoff = current_time - timedelta(seconds=ARCHIVE_OPERATION_HEARTBEAT_TIMEOUT_SECONDS)
     if session is None:
         with Session(database.engine) as managed_session:
-            expired_operation_ids = _expire_stale_archive_operations(managed_session, cutoff=cutoff, current_time=current_time)
+            expired_operation_ids = await _expire_stale_archive_operations_and_prepare_cleanup(
+                managed_session,
+                cutoff=cutoff,
+                current_time=current_time,
+            )
     else:
-        expired_operation_ids = _expire_stale_archive_operations(session, cutoff=cutoff, current_time=current_time)
+        expired_operation_ids = await _expire_stale_archive_operations_and_prepare_cleanup(
+            session,
+            cutoff=cutoff,
+            current_time=current_time,
+        )
     for operation_id in expired_operation_ids:
         await archive_operation_cleanup_registry.cleanup(operation_id)
     return len(expired_operation_ids)
+
+
+async def _expire_stale_archive_operations_and_prepare_cleanup(
+    session: Session,
+    *,
+    cutoff: datetime,
+    current_time: datetime,
+) -> list[uuid.UUID]:
+    """Fence active sources before persisting their terminal expiry state."""
+
+    candidates = session.exec(select(ArchiveOperation).where(ArchiveOperation.heartbeat_at < cutoff)).all()
+    expired = [operation for operation in candidates if operation.phase not in TERMINAL_ARCHIVE_OPERATION_PHASES]
+    expired_operation_ids = []
+    for operation in expired:
+        checkpoint_json = await archive_operation_cleanup_registry.prepare_failure(operation.id)
+        try:
+            fail_operation(
+                session,
+                operation,
+                "Archive work was interrupted before completion",
+                error_code=ArchiveOperationErrorCode.TRANSPORT_FAILURE,
+                checkpoint_json=checkpoint_json,
+            )
+        except HTTPException as exc:
+            if exc.status_code == status.HTTP_409_CONFLICT and exc.detail == "Archive operation revision is stale":
+                continue
+            logger.warning("Skipped stale archive operation expiry: operation_id=%s, detail=%s", operation.id, exc.detail)
+        else:
+            expired_operation_ids.append(operation.id)
+    return expired_operation_ids
 
 
 def _expire_stale_archive_operations(session: Session, *, cutoff: datetime, current_time: datetime) -> list[uuid.UUID]:

@@ -27,8 +27,6 @@ pub const LOCAL_LINK_TARGET_UNRESOLVABLE_CODE: &str = "local_link_target_unresol
 pub const LOCAL_LINK_TARGET_UNMAPPED_DRIVE_CODE: &str = "local_link_target_unmapped_drive";
 /// Stable error code for a link whose target is not a regular file or directory.
 pub const LOCAL_LINK_TARGET_UNSUPPORTED_TYPE_CODE: &str = "local_link_target_unsupported_type";
-/// Stable error code when direct archive extraction leaves a partial destination.
-pub const LOCAL_ARCHIVE_EXTRACTION_PARTIAL_CODE: &str = "local_archive_extraction_partial";
 /// Stable error code when direct archive creation leaves a partial ZIP output.
 pub const LOCAL_ARCHIVE_CREATION_PARTIAL_CODE: &str = "local_archive_creation_partial";
 /// Stable V2 archive error code when a source identity no longer matches its preflight manifest.

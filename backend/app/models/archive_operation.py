@@ -6,7 +6,7 @@ from datetime import datetime, timezone
 from enum import StrEnum
 from typing import Literal
 
-from pydantic import computed_field, field_serializer
+from pydantic import StrictInt, computed_field, field_serializer, model_validator
 from sqlalchemy import CheckConstraint
 from sqlmodel import Field, SQLModel
 from sqlmodel._compat import SQLModelConfig
@@ -305,10 +305,38 @@ class ArchiveLiveExtractionPendingDecision(ArchiveV2Payload):
     message: str | None = None
 
 
+class ArchiveExtractionAggregate(ArchiveV2Payload):
+    """Exact checked aggregate counters exposed by every S1 extraction status."""
+
+    members_processed: StrictInt = Field(ge=0, lt=1 << 63)
+    members_completed: StrictInt = Field(ge=0, lt=1 << 63)
+    members_skipped: StrictInt = Field(ge=0, lt=1 << 63)
+    members_failed: StrictInt = Field(ge=0, lt=1 << 63)
+    files_extracted: StrictInt = Field(ge=0, lt=1 << 63)
+    directories_created: StrictInt = Field(ge=0, lt=1 << 63)
+    extracted_bytes: StrictInt = Field(ge=0, lt=1 << 63)
+    files_replaced: StrictInt = Field(ge=0, lt=1 << 63)
+
+    @model_validator(mode="after")
+    def _validate_member_outcomes(self) -> "ArchiveExtractionAggregate":
+        if self.members_processed != self.members_completed + self.members_skipped + self.members_failed:
+            raise ValueError("Archive aggregate member counters are invalid")
+        return self
+
+
 class ArchiveLiveExtractionStatus(ArchiveV2Payload):
     source_session_id: str
-    phase: str
-    aggregate_counters: dict[str, int]
+    phase: Literal[
+        "ready",
+        "current",
+        "streaming_current",
+        "awaiting_result",
+        "awaiting_decision",
+        "completed",
+        "failed",
+        "cancelled",
+    ]
+    aggregate_counters: ArchiveExtractionAggregate
     pending_decision: ArchiveLiveExtractionPendingDecision | None = None
 
 
@@ -356,14 +384,20 @@ class ArchiveCompanionLiveExtractionSummary(ArchiveV2Payload):
     """Aggregate-only terminal state supplied by a Companion-held ZIP source."""
 
     source_session_id: str = Field(min_length=1, max_length=64)
-    members_processed: int = Field(ge=0)
-    members_completed: int = Field(ge=0)
-    members_skipped: int = Field(ge=0)
-    members_failed: int = Field(ge=0)
-    files_extracted: int = Field(ge=0)
-    directories_created: int = Field(ge=0)
-    extracted_bytes: int = Field(ge=0)
-    files_replaced: int = Field(ge=0)
+    members_processed: StrictInt = Field(ge=0, lt=1 << 63)
+    members_completed: StrictInt = Field(ge=0, lt=1 << 63)
+    members_skipped: StrictInt = Field(ge=0, lt=1 << 63)
+    members_failed: StrictInt = Field(ge=0, lt=1 << 63)
+    files_extracted: StrictInt = Field(ge=0, lt=1 << 63)
+    directories_created: StrictInt = Field(ge=0, lt=1 << 63)
+    extracted_bytes: StrictInt = Field(ge=0, lt=1 << 63)
+    files_replaced: StrictInt = Field(ge=0, lt=1 << 63)
+
+    @model_validator(mode="after")
+    def _validate_member_outcomes(self) -> "ArchiveCompanionLiveExtractionSummary":
+        if self.members_processed != self.members_completed + self.members_skipped + self.members_failed:
+            raise ValueError("Archive aggregate member counters are invalid")
+        return self
 
 
 class ArchiveCompanionLiveDestinationDecision(ArchiveV2Payload):

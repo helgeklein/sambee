@@ -762,6 +762,62 @@
         }
       }
     },
+    "extractionAggregate": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "members_processed",
+        "members_completed",
+        "members_skipped",
+        "members_failed",
+        "files_extracted",
+        "directories_created",
+        "extracted_bytes",
+        "files_replaced"
+      ],
+      "properties": {
+        "members_processed": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 9223372036854775807
+        },
+        "members_completed": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 9223372036854775807
+        },
+        "members_skipped": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 9223372036854775807
+        },
+        "members_failed": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 9223372036854775807
+        },
+        "files_extracted": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 9223372036854775807
+        },
+        "directories_created": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 9223372036854775807
+        },
+        "extracted_bytes": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 9223372036854775807
+        },
+        "files_replaced": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 9223372036854775807
+        }
+      }
+    },
     "liveExtractionStatus": {
       "type": "object",
       "additionalProperties": false,
@@ -777,14 +833,19 @@
           "maxLength": 64
         },
         "phase": {
-          "type": "string"
+          "enum": [
+            "ready",
+            "current",
+            "streaming_current",
+            "awaiting_result",
+            "awaiting_decision",
+            "completed",
+            "failed",
+            "cancelled"
+          ]
         },
         "aggregate_counters": {
-          "type": "object",
-          "additionalProperties": {
-            "type": "integer",
-            "minimum": 0
-          }
+          "$ref": "#/$defs/extractionAggregate"
         },
         "pending_decision": {
           "oneOf": [
@@ -1013,35 +1074,43 @@
         },
         "members_processed": {
           "type": "integer",
-          "minimum": 0
+          "minimum": 0,
+          "maximum": 9223372036854775807
         },
         "members_completed": {
           "type": "integer",
-          "minimum": 0
+          "minimum": 0,
+          "maximum": 9223372036854775807
         },
         "members_skipped": {
           "type": "integer",
-          "minimum": 0
+          "minimum": 0,
+          "maximum": 9223372036854775807
         },
         "members_failed": {
           "type": "integer",
-          "minimum": 0
+          "minimum": 0,
+          "maximum": 9223372036854775807
         },
         "files_extracted": {
           "type": "integer",
-          "minimum": 0
+          "minimum": 0,
+          "maximum": 9223372036854775807
         },
         "directories_created": {
           "type": "integer",
-          "minimum": 0
+          "minimum": 0,
+          "maximum": 9223372036854775807
         },
         "extracted_bytes": {
           "type": "integer",
-          "minimum": 0
+          "minimum": 0,
+          "maximum": 9223372036854775807
         },
         "files_replaced": {
           "type": "integer",
-          "minimum": 0
+          "minimum": 0,
+          "maximum": 9223372036854775807
         }
       }
     },
@@ -1268,44 +1337,60 @@
       "type": "object",
       "additionalProperties": false,
       "required": [
+        "members_processed",
+        "members_completed",
+        "members_skipped",
+        "members_failed",
         "files_extracted",
         "directories_created",
         "extracted_bytes",
-        "files_skipped"
+        "files_replaced"
       ],
       "properties": {
+        "members_processed": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 9223372036854775807
+        },
+        "members_completed": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 9223372036854775807
+        },
+        "members_skipped": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 9223372036854775807
+        },
+        "members_failed": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 9223372036854775807
+        },
         "files_extracted": {
           "type": "integer",
-          "minimum": 0
+          "minimum": 0,
+          "maximum": 9223372036854775807
         },
         "directories_created": {
           "type": "integer",
-          "minimum": 0
+          "minimum": 0,
+          "maximum": 9223372036854775807
         },
         "extracted_bytes": {
           "type": "integer",
-          "minimum": 0
+          "minimum": 0,
+          "maximum": 9223372036854775807
         },
-        "files_skipped": {
+        "files_replaced": {
           "type": "integer",
-          "minimum": 0
+          "minimum": 0,
+          "maximum": 9223372036854775807
         },
         "phase": {
-          "type": "string"
-        },
-        "checkpoint_json": {
-          "type": [
-            "string",
-            "null"
-          ],
-          "maxLength": 1048576
-        },
-        "pending_decision_json": {
-          "type": [
-            "string",
-            "null"
-          ],
-          "maxLength": 1048576
+          "enum": [
+            "awaiting_user_decision"
+          ]
         }
       }
     },

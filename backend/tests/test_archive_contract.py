@@ -5,6 +5,7 @@ import re
 from pathlib import Path
 from typing import Any
 
+import pytest
 from fastapi.routing import APIRoute
 from fastapi.testclient import TestClient
 from jsonschema import Draft202012Validator, FormatChecker
@@ -150,6 +151,89 @@ def test_v2_direct_local_execution_specimen_conforms_to_the_shared_schema() -> N
             },
         },
     )
+
+
+def test_live_extraction_status_requires_the_exact_aggregate_counter_set() -> None:
+    valid_status = {
+        "source_session_id": "source-session",
+        "phase": "ready",
+        "aggregate_counters": {
+            "members_processed": 3,
+            "members_completed": 1,
+            "members_skipped": 1,
+            "members_failed": 1,
+            "files_extracted": 1,
+            "directories_created": 0,
+            "extracted_bytes": 42,
+            "files_replaced": 0,
+        },
+    }
+    _validate_contract_instance("liveExtractionStatus", valid_status)
+
+    invalid_statuses = [
+        {**valid_status, "aggregate_counters": {**valid_status["aggregate_counters"], "unexpected": 1}},
+        {
+            **valid_status,
+            "aggregate_counters": {key: value for key, value in valid_status["aggregate_counters"].items() if key != "files_replaced"},
+        },
+        {**valid_status, "aggregate_counters": {**valid_status["aggregate_counters"], "members_processed": -1}},
+        {**valid_status, "aggregate_counters": {**valid_status["aggregate_counters"], "members_processed": True}},
+        {**valid_status, "aggregate_counters": {**valid_status["aggregate_counters"], "members_processed": 1.5}},
+        {**valid_status, "phase": "unexpected"},
+        {
+            **valid_status,
+            "aggregate_counters": {**valid_status["aggregate_counters"], "members_processed": 1 << 63},
+        },
+    ]
+    for invalid_status in invalid_statuses:
+        with pytest.raises(AssertionError):
+            _validate_contract_instance("liveExtractionStatus", invalid_status)
+
+
+def test_live_extraction_summary_rejects_invalid_counter_values() -> None:
+    valid_summary = {
+        "source_session_id": "source-session",
+        "members_processed": 3,
+        "members_completed": 1,
+        "members_skipped": 1,
+        "members_failed": 1,
+        "files_extracted": 1,
+        "directories_created": 0,
+        "extracted_bytes": 42,
+        "files_replaced": 0,
+    }
+    _validate_contract_instance("liveExtractionSummary", valid_summary)
+
+    for value in (True, 1.5, 1 << 63):
+        with pytest.raises(AssertionError):
+            _validate_contract_instance(
+                "liveExtractionSummary",
+                {**valid_summary, "members_processed": value},
+            )
+
+
+def test_extraction_result_requires_the_s1_aggregate_shape() -> None:
+    valid_result = {
+        "members_processed": 3,
+        "members_completed": 1,
+        "members_skipped": 1,
+        "members_failed": 1,
+        "files_extracted": 1,
+        "directories_created": 2,
+        "extracted_bytes": 42,
+        "files_replaced": 0,
+        "phase": "awaiting_user_decision",
+    }
+    _validate_contract_instance("extractionResult", valid_result)
+
+    for invalid_result in (
+        {key: value for key, value in valid_result.items() if key != "members_failed"},
+        {**valid_result, "files_skipped": 1},
+        {**valid_result, "phase": "completed"},
+        {**valid_result, "members_processed": 1 << 63},
+    ):
+        with pytest.raises(AssertionError):
+            _validate_contract_instance("extractionResult", invalid_result)
 
 
 def test_v2_inspection_query_schemas_are_owner_specific() -> None:

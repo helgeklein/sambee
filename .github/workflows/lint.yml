@@ -249,14 +249,23 @@ jobs:
   # ─────────────────────────────────────────────────────────────────────
   # Gate: single required check for branch protection
   # ─────────────────────────────────────────────────────────────────────
+  node-runtime-contract:
+    runs-on: ubuntu-latest
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+    - name: Verify coordinated Node.js runtime
+      run: python3 scripts/verify-node-runtime.py
+
   lint-gate:
     if: always()
-    needs: [lint-backend, lint-frontend, lint-companion]
+    needs: [lint-backend, lint-frontend, lint-companion, node-runtime-contract]
     runs-on: ubuntu-latest
     steps:
     - name: Check results
       run: |
-        results="${{ needs.lint-backend.result }} ${{ needs.lint-frontend.result }} ${{ needs.lint-companion.result }}"
+        results="${{ needs.lint-backend.result }} ${{ needs.lint-frontend.result }} ${{ needs.lint-companion.result }} ${{ needs.node-runtime-contract.result }}"
         for r in $results; do
           if [[ "$r" != "success" && "$r" != "skipped" ]]; then
             echo "Job failed or was cancelled: $r"

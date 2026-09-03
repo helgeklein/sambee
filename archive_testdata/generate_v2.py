@@ -1,5 +1,6 @@
 """Generate deterministic V2 ZIP reader conformance fixtures and manifest."""
 
+import bz2
 import hashlib
 import io
 import json
@@ -39,6 +40,20 @@ PREVIEW_MAX_BYTES = 5 * 1024 * 1024
 EOCD_MALFORMED_MEMBER_NAME = "eocd.txt"
 EOCD_MALFORMED_MEMBER_CONTENT = b"malformed " * 16
 INVALID_EOCD_COMMENT_LENGTH = 0x00FF
+COMPATIBILITY_CONTRACT_PATH = (
+    ROOT.parent
+    / "archive-contract"
+    / "v2"
+    / "fixtures"
+    / "zip-compatibility-recovery.json"
+)
+COMPATIBILITY_CONTENT = b"verified compatibility payload"
+COMPATIBILITY_SECOND_STREAM_CONTENT = b"second member stream"
+
+
+def _raw_deflate(content: bytes) -> bytes:
+    compressor = zlib.compressobj(wbits=-zlib.MAX_WBITS)
+    return compressor.compress(content) + compressor.flush()
 
 
 class NonSeekableBuffer(io.BytesIO):
@@ -244,6 +259,146 @@ def _write_eocd_malformed_fixture(path: Path) -> None:
     path.write_bytes(data)
 
 
+def _append_declared_member_data(path: Path, trailing_data: bytes) -> None:
+    """Append ignored member bytes before the central directory of a single-entry ZIP."""
+
+    data = bytearray(path.read_bytes())
+    local_offset = data.index(b"PK\x03\x04")
+    central_offset = data.index(b"PK\x01\x02")
+    eocd_offset = data.rindex(b"PK\x05\x06")
+    compressed_size = struct.unpack_from(
+        "<I", data, central_offset + CENTRAL_COMPRESSED_SIZE_OFFSET
+    )[0]
+
+    data[central_offset:central_offset] = trailing_data
+    central_offset += len(trailing_data)
+    eocd_offset += len(trailing_data)
+    struct.pack_into(
+        "<I", data, local_offset + 18, compressed_size + len(trailing_data)
+    )
+    struct.pack_into(
+        "<I",
+        data,
+        central_offset + CENTRAL_COMPRESSED_SIZE_OFFSET,
+        compressed_size + len(trailing_data),
+    )
+    directory_offset = struct.unpack_from(
+        "<I", data, eocd_offset + EOCD_DIRECTORY_OFFSET
+    )[0]
+    struct.pack_into(
+        "<I",
+        data,
+        eocd_offset + EOCD_DIRECTORY_OFFSET,
+        directory_offset + len(trailing_data),
+    )
+    path.write_bytes(data)
+
+
+def _write_compatibility_member_fixture(
+    path: Path, member_name: str, method: int, trailing_data: bytes = b""
+) -> None:
+    with zipfile.ZipFile(path, "w", compression=method) as archive:
+        _write_entry(archive, member_name, COMPATIBILITY_CONTENT, method)
+    if trailing_data:
+        _append_declared_member_data(path, trailing_data)
+
+
+def _write_truncated_compatibility_fixture(path: Path) -> None:
+    _write_compatibility_member_fixture(
+        path, "truncated-deflate.txt", zipfile.ZIP_DEFLATED
+    )
+    data = bytearray(path.read_bytes())
+    central_offset = data.index(b"PK\x01\x02")
+    compressed_size = struct.unpack_from(
+        "<I", data, central_offset + CENTRAL_COMPRESSED_SIZE_OFFSET
+    )[0]
+    assert compressed_size > 1
+    struct.pack_into("<I", data, 18, compressed_size - 1)
+    struct.pack_into(
+        "<I", data, central_offset + CENTRAL_COMPRESSED_SIZE_OFFSET, compressed_size - 1
+    )
+    path.write_bytes(data)
+
+
+def _write_bad_crc_compatibility_fixture(path: Path) -> None:
+    _write_compatibility_member_fixture(
+        path, "bad-crc-deflate.txt", zipfile.ZIP_DEFLATED
+    )
+    data = bytearray(path.read_bytes())
+    central_offset = data.index(b"PK\x01\x02")
+    crc32 = struct.unpack_from("<I", data, central_offset + 16)[0]
+    struct.pack_into("<I", data, central_offset + 16, crc32 ^ 1)
+    path.write_bytes(data)
+
+
+def _write_bad_size_compatibility_fixture(path: Path) -> None:
+    _write_compatibility_member_fixture(
+        path, "bad-size-deflate.txt", zipfile.ZIP_DEFLATED
+    )
+    data = bytearray(path.read_bytes())
+    central_offset = data.index(b"PK\x01\x02")
+    struct.pack_into(
+        "<I",
+        data,
+        central_offset + CENTRAL_UNCOMPRESSED_SIZE_OFFSET,
+        len(COMPATIBILITY_CONTENT) - 1,
+    )
+    path.write_bytes(data)
+
+
+def _write_compatibility_name_fixture(path: Path) -> None:
+    raw_malformed_name = b"bad\xff.txt"
+    with zipfile.ZipFile(path, "w", compression=zipfile.ZIP_STORED) as archive:
+        _write_entry(archive, "badx.txt", b"malformed UTF-8 name", zipfile.ZIP_STORED)
+        _write_entry(archive, "bad\ufffd.txt", b"replacement name", zipfile.ZIP_STORED)
+    data = bytearray(path.read_bytes())
+    local_offset = data.index(b"PK\x03\x04")
+    central_offset = data.index(b"PK\x01\x02")
+    assert len(raw_malformed_name) == len(b"badx.txt")
+    data[local_offset + 7] |= 0x08
+    data[central_offset + 9] |= 0x08
+    data[local_offset + 30 : local_offset + 30 + len(raw_malformed_name)] = (
+        raw_malformed_name
+    )
+    data[
+        central_offset + CENTRAL_DIRECTORY_FIXED_SIZE : central_offset
+        + CENTRAL_DIRECTORY_FIXED_SIZE
+        + len(raw_malformed_name)
+    ] = raw_malformed_name
+    path.write_bytes(data)
+
+
+def _compatibility_fixture(
+    name: str, members: list[dict[str, object]]
+) -> dict[str, object]:
+    return {
+        "name": name,
+        "sha256": hashlib.sha256((ROOT / name).read_bytes()).hexdigest(),
+        "members": members,
+    }
+
+
+def _compatibility_member(
+    raw_name: bytes,
+    path: str,
+    method: int,
+    *,
+    accepted: bool,
+    content: bytes = COMPATIBILITY_CONTENT,
+    collision_group: str | None = None,
+) -> dict[str, object]:
+    member = {
+        "raw_name_hex": raw_name.hex(),
+        "path": path,
+        "method": method,
+        "outcome": "accepted" if accepted else "rejected",
+        "member_sha256": hashlib.sha256(content).hexdigest() if accepted else None,
+    }
+    if collision_group is not None:
+        member["collision_group"] = collision_group
+    return member
+
+
 def _entry(
     name: str,
     content: bytes | None,
@@ -291,6 +446,34 @@ def main() -> None:
     _write_preview_boundary_fixture(ROOT / "preview-boundary-v2.zip")
     _write_malformed_fixture(ROOT / "malformed-v2.zip")
     _write_eocd_malformed_fixture(ROOT / "eocd-malformed-v2.zip")
+    _write_compatibility_member_fixture(
+        ROOT / "compat-deflate-padding.zip",
+        "deflate-padding.txt",
+        zipfile.ZIP_DEFLATED,
+        b"producer padding",
+    )
+    _write_compatibility_member_fixture(
+        ROOT / "compat-bzip2-padding.zip",
+        "bzip2-padding.txt",
+        zipfile.ZIP_BZIP2,
+        b"producer padding",
+    )
+    _write_compatibility_member_fixture(
+        ROOT / "compat-deflate-second-stream.zip",
+        "deflate-second-stream.txt",
+        zipfile.ZIP_DEFLATED,
+        _raw_deflate(COMPATIBILITY_SECOND_STREAM_CONTENT),
+    )
+    _write_compatibility_member_fixture(
+        ROOT / "compat-bzip2-second-stream.zip",
+        "bzip2-second-stream.txt",
+        zipfile.ZIP_BZIP2,
+        bz2.compress(COMPATIBILITY_SECOND_STREAM_CONTENT),
+    )
+    _write_truncated_compatibility_fixture(ROOT / "compat-truncated-deflate.zip")
+    _write_bad_crc_compatibility_fixture(ROOT / "compat-bad-crc-deflate.zip")
+    _write_bad_size_compatibility_fixture(ROOT / "compat-bad-size-deflate.zip")
+    _write_compatibility_name_fixture(ROOT / "compat-names.zip")
     manifest = {
         "version": 2,
         "fixtures": [
@@ -360,6 +543,112 @@ def main() -> None:
     }
     (ROOT / "manifest-v2.json").write_text(
         json.dumps(manifest, indent=2, sort_keys=True) + "\n"
+    )
+    compatibility_contract = {
+        "version": 1,
+        "fixtures": [
+            _compatibility_fixture(
+                "compat-deflate-padding.zip",
+                [
+                    _compatibility_member(
+                        b"deflate-padding.txt",
+                        "deflate-padding.txt",
+                        zipfile.ZIP_DEFLATED,
+                        accepted=True,
+                    )
+                ],
+            ),
+            _compatibility_fixture(
+                "compat-bzip2-padding.zip",
+                [
+                    _compatibility_member(
+                        b"bzip2-padding.txt",
+                        "bzip2-padding.txt",
+                        zipfile.ZIP_BZIP2,
+                        accepted=True,
+                    )
+                ],
+            ),
+            _compatibility_fixture(
+                "compat-deflate-second-stream.zip",
+                [
+                    _compatibility_member(
+                        b"deflate-second-stream.txt",
+                        "deflate-second-stream.txt",
+                        zipfile.ZIP_DEFLATED,
+                        accepted=True,
+                    )
+                ],
+            ),
+            _compatibility_fixture(
+                "compat-bzip2-second-stream.zip",
+                [
+                    _compatibility_member(
+                        b"bzip2-second-stream.txt",
+                        "bzip2-second-stream.txt",
+                        zipfile.ZIP_BZIP2,
+                        accepted=True,
+                    )
+                ],
+            ),
+            _compatibility_fixture(
+                "compat-truncated-deflate.zip",
+                [
+                    _compatibility_member(
+                        b"truncated-deflate.txt",
+                        "truncated-deflate.txt",
+                        zipfile.ZIP_DEFLATED,
+                        accepted=False,
+                    )
+                ],
+            ),
+            _compatibility_fixture(
+                "compat-bad-crc-deflate.zip",
+                [
+                    _compatibility_member(
+                        b"bad-crc-deflate.txt",
+                        "bad-crc-deflate.txt",
+                        zipfile.ZIP_DEFLATED,
+                        accepted=False,
+                    )
+                ],
+            ),
+            _compatibility_fixture(
+                "compat-bad-size-deflate.zip",
+                [
+                    _compatibility_member(
+                        b"bad-size-deflate.txt",
+                        "bad-size-deflate.txt",
+                        zipfile.ZIP_DEFLATED,
+                        accepted=False,
+                    )
+                ],
+            ),
+            _compatibility_fixture(
+                "compat-names.zip",
+                [
+                    _compatibility_member(
+                        b"bad\xff.txt",
+                        "bad\ufffd.txt",
+                        zipfile.ZIP_STORED,
+                        accepted=True,
+                        content=b"malformed UTF-8 name",
+                        collision_group="replacement-decoded-name",
+                    ),
+                    _compatibility_member(
+                        "bad\ufffd.txt".encode(),
+                        "bad\ufffd.txt",
+                        zipfile.ZIP_STORED,
+                        accepted=True,
+                        content=b"replacement name",
+                        collision_group="replacement-decoded-name",
+                    ),
+                ],
+            ),
+        ],
+    }
+    COMPATIBILITY_CONTRACT_PATH.write_text(
+        json.dumps(compatibility_contract, indent=2, sort_keys=True) + "\n"
     )
 
 

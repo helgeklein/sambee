@@ -176,6 +176,9 @@ pub struct ArchiveV2ExecutionCancellationRequest {
 pub struct ArchiveV2ExecutionDecisionRequest {
     pub contract_version: ArchiveContractVersion,
     pub expected_revision: u64,
+    pub source_session_id: String,
+    pub delivery_sequence: u64,
+    pub decision_revision: u64,
     pub member_path: String,
     pub action: ArchiveExecutionDecisionAction,
     #[serde(default)]
@@ -210,11 +213,17 @@ pub struct ArchiveExecutionConflict {
 pub enum ArchiveExecutionPendingDecision {
     ExistingFiles {
         kind: &'static str,
+        source_session_id: String,
+        delivery_sequence: u64,
+        decision_revision: u64,
         allowed_actions: Vec<String>,
         conflicts: Vec<ArchiveExecutionConflict>,
     },
     MemberError {
         kind: &'static str,
+        source_session_id: String,
+        delivery_sequence: u64,
+        decision_revision: u64,
         member_path: String,
         target_path: String,
         message: String,
@@ -264,16 +273,16 @@ pub enum ArchiveV2RelayExtractionRequest {
 /// Summary returned after a local archive extraction completes.
 #[derive(Debug, Serialize)]
 pub struct ArchiveExtractionResponse {
+    pub members_processed: u64,
+    pub members_completed: u64,
+    pub members_skipped: u64,
+    pub members_failed: u64,
     pub files_extracted: u64,
     pub directories_created: u64,
     pub extracted_bytes: u64,
-    pub files_skipped: u64,
+    pub files_replaced: u64,
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub phase: Option<String>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub checkpoint_json: Option<String>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub pending_decision_json: Option<String>,
+    pub phase: Option<&'static str>,
 }
 
 /// Current lifecycle state for a short-lived Companion archive execution.
@@ -287,13 +296,9 @@ pub struct ArchiveExecutionResponse {
     pub progress: ArchiveExecutionProgress,
     pub cancellation_requested: bool,
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub files_extracted: Option<u64>,
+    pub aggregate_counters: Option<ArchiveExtractionAggregate>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub directories_created: Option<u64>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub extracted_bytes: Option<u64>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub files_skipped: Option<u64>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub files_created: Option<u64>,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -302,6 +307,19 @@ pub struct ArchiveExecutionResponse {
     pub error: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none", rename = "pendingDecision")]
     pub pending_decision: Option<ArchiveExecutionPendingDecision>,
+}
+
+/// Aggregate-only extraction outcomes owned by the retained ZIP source.
+#[derive(Debug, Serialize)]
+pub struct ArchiveExtractionAggregate {
+    pub members_processed: u64,
+    pub members_completed: u64,
+    pub members_skipped: u64,
+    pub members_failed: u64,
+    pub files_extracted: u64,
+    pub directories_created: u64,
+    pub extracted_bytes: u64,
+    pub files_replaced: u64,
 }
 
 /// Contract-shaped aggregate progress counters for an archive lifecycle execution.
@@ -315,8 +333,6 @@ pub struct ArchiveExecutionProgress {
     pub skipped_members: u64,
     #[serde(rename = "failedMembers")]
     pub failed_members: u64,
-    #[serde(rename = "partialMembers")]
-    pub partial_members: u64,
     #[serde(rename = "processedBytes")]
     pub processed_bytes: u64,
     #[serde(skip_serializing_if = "Option::is_none", rename = "totalBytes")]

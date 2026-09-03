@@ -1,5 +1,6 @@
 """Integration tests for persisted archive-operation lifecycle state."""
 
+import asyncio
 import json
 import uuid
 from datetime import datetime, timedelta, timezone
@@ -11,6 +12,7 @@ import pytest
 from fastapi import HTTPException, status
 from fastapi.testclient import TestClient
 
+from app.api.archive_operations import _live_extraction_sessions
 from app.models.archive_operation import (
     ArchiveOperation,
     ArchiveOperationError,
@@ -30,6 +32,7 @@ from app.services.archive.coordinator import (
 )
 from app.services.archive.creation import ArchiveCreationEntry, ArchiveCreationMemberOutcome, ArchiveCreationResult
 from app.services.archive.live_extraction import LiveSourceSessionError
+from app.services.archive.zip_reader import ArchiveSourceUnavailableError
 
 
 class MemoryRandomAccessReader:
@@ -37,12 +40,26 @@ class MemoryRandomAccessReader:
 
     def __init__(self, data: bytes) -> None:
         self.data = data
+        self.closed = False
 
     async def read_at(self, offset: int, length: int) -> bytes:
         return self.data[offset : offset + length]
 
     async def close(self) -> None:
-        return None
+        self.closed = True
+
+
+class FailingPayloadRandomAccessReader(MemoryRandomAccessReader):
+    """Fail after one payload chunk to exercise retained-source loss."""
+
+    def __init__(self, data: bytes, failure_offset: int) -> None:
+        super().__init__(data)
+        self.failure_offset = failure_offset
+
+    async def read_at(self, offset: int, length: int) -> bytes:
+        if offset == self.failure_offset:
+            raise OSError("source handle lost")
+        return await super().read_at(offset, length)
 
 
 def configure_direct_extraction_archive(backend: AsyncMock, members: dict[str, bytes]) -> None:
@@ -1401,6 +1418,218 @@ def test_live_status_source_loss_terminalizes_operation_and_rejects_stale_decisi
     assert stale_decision.status_code == status.HTTP_409_CONFLICT
 
 
+def test_direct_extraction_failed_pinned_source_open_terminalizes_operation(
+    client: TestClient,
+    auth_headers_user: dict,
+    test_connection: Connection,
+) -> None:
+    prepared = client.post(
+        "/api/archive/v2/operations",
+        headers=auth_headers_user,
+        json={
+            "contract_version": "v2",
+            "kind": "extract",
+            "source_connection_id": str(test_connection.id),
+            "source_path": "input.zip",
+            "destination_connection_id": str(test_connection.id),
+            "destination_path": "output",
+        },
+    ).json()
+    backend = AsyncMock()
+    backend.connect.return_value = None
+    backend.disconnect.return_value = None
+    backend.get_file_info.return_value = FileInfo(name="input.zip", path="input.zip", type=FileType.FILE, size=22)
+    backend.open_archive_source_reader.side_effect = ArchiveSourceUnavailableError("sharing violation")
+
+    with patch("app.api.archive_operations.SMBBackend", return_value=backend):
+        response = client.post(f"/api/archive/v2/operations/{prepared['id']}/extraction/begin", headers=auth_headers_user)
+
+    assert response.status_code == status.HTTP_409_CONFLICT
+    operation = client.get(f"/api/archive/v2/operations/{prepared['id']}", headers=auth_headers_user).json()
+    assert operation["phase"] == ArchiveOperationPhase.FAILED.value
+    assert operation["last_error"]["code"] == ArchiveOperationErrorCode.OPERATION_UNAVAILABLE.value
+    backend.open_archive_source_reader.assert_awaited_once_with("input.zip")
+    backend.open_random_access_reader.assert_not_awaited()
+
+
+def test_direct_duplicate_live_source_registration_preserves_existing_source(
+    client: TestClient,
+    auth_headers_user: dict,
+    test_connection: Connection,
+) -> None:
+    prepared = client.post(
+        "/api/archive/v2/operations",
+        headers=auth_headers_user,
+        json={
+            "contract_version": "v2",
+            "kind": "extract",
+            "source_connection_id": str(test_connection.id),
+            "source_path": "input.zip",
+            "destination_connection_id": str(test_connection.id),
+            "destination_path": "output",
+        },
+    ).json()
+    archive = BytesIO()
+    with ZipFile(archive, "w") as zip_file:
+        zip_file.writestr("entry.txt", b"payload")
+    archive_bytes = archive.getvalue()
+    existing_reader = MemoryRandomAccessReader(archive_bytes)
+    losing_reader = MemoryRandomAccessReader(archive_bytes)
+    existing_source = asyncio.run(
+        _live_extraction_sessions.open(existing_reader, len(archive_bytes), operation_id=uuid.UUID(prepared["id"]))
+    )
+    backend = AsyncMock()
+    backend.connect.return_value = None
+    backend.disconnect.return_value = None
+    backend.get_file_info.return_value = FileInfo(name="input.zip", path="input.zip", type=FileType.FILE, size=len(archive_bytes))
+    backend.open_archive_source_reader.return_value = losing_reader
+
+    try:
+        with patch("app.api.archive_operations.SMBBackend", return_value=backend):
+            response = client.post(f"/api/archive/v2/operations/{prepared['id']}/extraction/begin", headers=auth_headers_user)
+
+        assert response.status_code == status.HTTP_409_CONFLICT
+        assert losing_reader.closed
+        assert asyncio.run(_live_extraction_sessions.get_for_operation(uuid.UUID(prepared["id"]))) is existing_source
+        operation = client.get(f"/api/archive/v2/operations/{prepared['id']}", headers=auth_headers_user).json()
+        assert operation["phase"] == ArchiveOperationPhase.PREPARED.value
+    finally:
+        asyncio.run(_live_extraction_sessions.remove_for_operation(uuid.UUID(prepared["id"])))
+
+
+def test_direct_extraction_mid_stream_source_loss_terminalizes_as_unavailable(
+    client: TestClient,
+    auth_headers_user: dict,
+    test_connection: Connection,
+) -> None:
+    prepared = client.post(
+        "/api/archive/v2/operations",
+        headers=auth_headers_user,
+        json={
+            "contract_version": "v2",
+            "kind": "extract",
+            "source_connection_id": str(test_connection.id),
+            "source_path": "input.zip",
+            "destination_connection_id": str(test_connection.id),
+            "destination_path": "output",
+        },
+    ).json()
+    payload = b"x" * (256 * 1024 + 1)
+    archive_buffer = BytesIO()
+    with ZipFile(archive_buffer, "w") as archive:
+        archive.writestr("member.bin", payload)
+    archive_bytes = archive_buffer.getvalue()
+    payload_offset = archive_bytes.index(payload)
+    backend = AsyncMock()
+    backend.connect.return_value = None
+    backend.disconnect.return_value = None
+
+    async def get_file_info(path: str) -> FileInfo:
+        if path == "input.zip":
+            return FileInfo(
+                name="input.zip",
+                path="input.zip",
+                type=FileType.FILE,
+                size=len(archive_bytes),
+            )
+        raise FileNotFoundError(path)
+
+    backend.get_file_info.side_effect = get_file_info
+    reader = FailingPayloadRandomAccessReader(
+        archive_bytes,
+        payload_offset + 256 * 1024,
+    )
+    backend.open_archive_source_reader.return_value = reader
+
+    written_chunks: list[bytes] = []
+
+    async def write_file_from_stream(path: str, stream, *, overwrite: bool = False, source_mtime=None) -> int:
+        total = 0
+        async for chunk in stream:
+            written_chunks.append(chunk)
+            total += len(chunk)
+        return total
+
+    backend.write_file_from_stream.side_effect = write_file_from_stream
+    with patch("app.api.archive_operations.SMBBackend", return_value=backend):
+        response = client.post(f"/api/archive/v2/operations/{prepared['id']}/extraction/begin", headers=auth_headers_user)
+
+    assert response.status_code == status.HTTP_409_CONFLICT
+    operation = client.get(f"/api/archive/v2/operations/{prepared['id']}", headers=auth_headers_user).json()
+    assert operation["phase"] == ArchiveOperationPhase.FAILED.value
+    assert operation["last_error"]["code"] == ArchiveOperationErrorCode.OPERATION_UNAVAILABLE.value
+    backend.write_file_from_stream.assert_awaited_once()
+    assert [len(chunk) for chunk in written_chunks] == [256 * 1024]
+    assert reader.closed
+
+
+def test_direct_extraction_source_loss_persists_known_aggregate_progress(
+    client: TestClient,
+    auth_headers_user: dict,
+    test_connection: Connection,
+) -> None:
+    prepared = client.post(
+        "/api/archive/v2/operations",
+        headers=auth_headers_user,
+        json={
+            "contract_version": "v2",
+            "kind": "extract",
+            "source_connection_id": str(test_connection.id),
+            "source_path": "input.zip",
+            "destination_connection_id": str(test_connection.id),
+            "destination_path": "output",
+        },
+    ).json()
+    second_payload = b"y" * 1024
+    archive_buffer = BytesIO()
+    with ZipFile(archive_buffer, "w") as archive:
+        archive.writestr("first.txt", b"first")
+        archive.writestr("second.bin", second_payload)
+    archive_bytes = archive_buffer.getvalue()
+    backend = AsyncMock()
+    backend.connect.return_value = None
+    backend.disconnect.return_value = None
+
+    async def get_file_info(path: str) -> FileInfo:
+        if path == "input.zip":
+            return FileInfo(
+                name="input.zip",
+                path="input.zip",
+                type=FileType.FILE,
+                size=len(archive_bytes),
+            )
+        raise FileNotFoundError(path)
+
+    backend.get_file_info.side_effect = get_file_info
+    reader = FailingPayloadRandomAccessReader(archive_bytes, archive_bytes.index(second_payload))
+    backend.open_archive_source_reader.return_value = reader
+
+    async def write_file_from_stream(path: str, stream, *, overwrite: bool = False, source_mtime=None) -> int:
+        total = 0
+        async for chunk in stream:
+            total += len(chunk)
+        return total
+
+    backend.write_file_from_stream.side_effect = write_file_from_stream
+    with patch("app.api.archive_operations.SMBBackend", return_value=backend):
+        response = client.post(f"/api/archive/v2/operations/{prepared['id']}/extraction/begin", headers=auth_headers_user)
+
+    assert response.status_code == status.HTTP_409_CONFLICT
+    operation = client.get(f"/api/archive/v2/operations/{prepared['id']}", headers=auth_headers_user).json()
+    checkpoint = json.loads(operation["checkpoint_json"])
+    assert checkpoint["aggregate_counters"] == {
+        "members_processed": 1,
+        "members_completed": 1,
+        "members_skipped": 0,
+        "members_failed": 0,
+        "files_extracted": 1,
+        "directories_created": 1,
+        "extracted_bytes": len(b"first"),
+        "files_replaced": 0,
+    }
+    assert reader.closed
+
+
 def test_live_smb_to_companion_relay_is_source_driven_and_aggregate_only(
     client: TestClient,
     auth_headers_user: dict,
@@ -1464,10 +1693,12 @@ def test_live_smb_to_companion_relay_is_source_driven_and_aggregate_only(
     assert premature_result.status_code == 409
     assert content.content == b"contents"
     assert result.status_code == 200
+    assert result.json()["aggregate_counters"]["members_completed"] == 1
+    assert result.json()["phase"] == "ready"
     assert duplicate_result.status_code == 409
     assert end.json() is None
     assert completed.json()["phase"] == "completed"
-    assert json.loads(completed.json()["checkpoint_json"])["aggregate_counters"] == {
+    assert completed.json()["aggregate_counters"] == {
         "members_processed": 1,
         "members_completed": 1,
         "members_skipped": 0,
@@ -1477,5 +1708,7 @@ def test_live_smb_to_companion_relay_is_source_driven_and_aggregate_only(
         "extracted_bytes": len(b"contents"),
         "files_replaced": 0,
     }
+    operation = client.get(f"/api/archive/v2/operations/{prepared['id']}", headers=auth_headers_user).json()
+    assert json.loads(operation["checkpoint_json"])["aggregate_counters"] == completed.json()["aggregate_counters"]
     backend.open_archive_source_reader.assert_awaited_once_with("input.zip")
     backend.open_random_access_reader.assert_not_awaited()

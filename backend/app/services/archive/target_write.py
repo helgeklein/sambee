@@ -19,10 +19,11 @@ class TargetExistsBeforeContent(FileExistsError):
 
 
 class TargetWriteFailure(OSError):
-    """A target write failed after the destination accepted content bytes."""
+    """A target write failed after the destination may have changed."""
 
-    def __init__(self, error: BaseException, bytes_written: int) -> None:
+    def __init__(self, error: BaseException, bytes_written: int, *, output_may_exist: bool = True) -> None:
         self.bytes_written = bytes_written
+        self.output_may_exist = output_may_exist
         super().__init__(str(error))
 
 
