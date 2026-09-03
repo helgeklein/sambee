@@ -1,7 +1,8 @@
 # syntax=docker/dockerfile:1.7
 
-# Shared runtime for production, development, and container validation. Each
-# cache-busted build refreshes Debian packages before installing dependencies.
+# Shared runtime for production, development, and container validation. Normal
+# builds retain the stable default; scheduled image workflows may opt in to a
+# refresh until immutable system package inputs are introduced.
 ARG PYTHON_BASE_IMAGE=python:3.13.12-slim@sha256:f1927c75e81efd1e091dbd64b6c0ecaa5630b38635a3d1c04034ac636e1f94c8
 FROM ${PYTHON_BASE_IMAGE} AS runtime-base
 ENV DEBIAN_FRONTEND=noninteractive
