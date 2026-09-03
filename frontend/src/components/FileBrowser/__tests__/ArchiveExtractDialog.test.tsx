@@ -67,7 +67,7 @@ describe("ArchiveExtractDialog", () => {
     await user.type(screen.getByLabelText("fileBrowser.archive.destinationLabel"), "../outside");
     await user.click(screen.getByRole("button", { name: "fileBrowser.archive.buttonExtract" }));
 
-    expect(screen.getByText("fileBrowser.archive.validationDestinationUnsafe")).toBeInTheDocument();
+    expect(await screen.findByText("fileBrowser.archive.validationDestinationUnsafe")).toBeInTheDocument();
     expect(onConfirm).not.toHaveBeenCalled();
   });
 
