@@ -126,6 +126,7 @@ RUN python -m venv /workspace/backend/.venv && \
         --require-hashes \
         --find-links=/tmp/wheels \
         -r /tmp/requirements-dev.lock.txt && \
+    /workspace/backend/.venv/bin/python -c 'import mypy; assert mypy.__file__.endswith("__init__.py"), mypy.__file__' && \
     rm -rf /tmp/wheels
 COPY --chown=vscode:vscode archive-contract/ ./archive-contract/
 COPY --chown=vscode:vscode companion/ ./companion/

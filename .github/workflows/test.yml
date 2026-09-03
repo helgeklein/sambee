@@ -116,7 +116,7 @@ jobs:
           sh -c '
             QUIET=1 scripts/setup-test-images &&
             cd backend &&
-            .venv/bin/python -m mypy app &&
+            .venv/bin/python -m mypy --show-traceback app &&
             .venv/bin/python -m pytest -n auto -m "not performance" --cov=app --cov-report=term-missing --cov-report=xml &&
             .venv/bin/python -m pytest -m performance --cov=app --cov-append --cov-report=term-missing --cov-report=xml
           '
