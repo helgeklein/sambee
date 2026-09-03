@@ -98,8 +98,6 @@ jobs:
         target: backend-test
         load: true
         tags: sambee:backend-test
-        build-args: |
-          APT_REFRESH_KEY=${{ github.run_id }}-${{ github.run_attempt }}
         cache-from: type=gha,scope=backend-test
         cache-to: type=gha,mode=max,scope=backend-test
 

@@ -1,15 +1,15 @@
 # syntax=docker/dockerfile:1.7
 
-# Shared runtime for production, development, and container validation. Each
-# cache-busted build refreshes Debian packages before installing dependencies.
+# Shared runtime for production, development, and container validation. Bump the
+# revision only as part of an intentional system dependency refresh.
 ARG PYTHON_BASE_IMAGE=python:3.13.12-slim@sha256:f1927c75e81efd1e091dbd64b6c0ecaa5630b38635a3d1c04034ac636e1f94c8
 FROM ${PYTHON_BASE_IMAGE} AS runtime-base
 ENV DEBIAN_FRONTEND=noninteractive
-ARG APT_REFRESH_KEY=static
+ARG SYSTEM_DEPS_REVISION=1
 
 COPY scripts/install-system-deps /tmp/
 RUN --mount=type=cache,target=/var/cache/apt,sharing=locked \
-    printf 'APT package refresh key: %s\n' "$APT_REFRESH_KEY" && \
+    printf 'System dependency revision: %s\n' "$SYSTEM_DEPS_REVISION" && \
     rm -f /etc/apt/apt.conf.d/docker-clean && \
     UPGRADE_EXISTING_PACKAGES=1 bash /tmp/install-system-deps && \
     rm /tmp/install-system-deps
