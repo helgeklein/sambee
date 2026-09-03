@@ -6,13 +6,15 @@ Make the backend GitHub Actions job fast on ordinary changes while preserving
 one defined and auditable platform dependency set for the devcontainer, CI test
 image, and production image.
 
-The current backend job takes about 12 minutes, with more than 10 minutes in
-the `Build backend test image` step. The test commands are not the primary
-cause: a CI-like run of 1,655 non-performance tests with coverage took about
-30 seconds locally, 17 performance tests took about 8 seconds, and mypy took
-about 7 seconds. The build is slow because each run passes a unique
-`APT_REFRESH_KEY`, invalidating the Docker layer that installs and upgrades OS
-packages and every layer derived from it.
+Before Phase 1, the backend job took about 12 minutes, with more than 10
+minutes in the `Build backend test image` step. The test commands were not the
+primary cause: a CI-like run of 1,655 non-performance tests with coverage took
+about 30 seconds locally, 17 performance tests took about 8 seconds, and mypy
+took about 7 seconds. The workflow passed a unique `APT_REFRESH_KEY`,
+invalidating the Docker layer that installs and upgrades OS packages and every
+layer derived from it.
+
+Phase 1 is implemented. Phases 2 through 6 remain planned work.
 
 ## Desired Outcome
 
@@ -53,7 +55,7 @@ conditional optimizations, not prerequisites for fixing the current regression.
 
 | Rank | Measure | ROI | Effort | Risk | Why |
 | --- | --- | --- | --- | --- | --- |
-| 1 | Replace the per-run APT cache key with a checked-in, stable dependency revision | Very high | Low | Low | Restores reuse of the existing BuildKit cache and removes the direct cause of the 10-minute build. |
+| 1 | Remove the per-run APT cache key from the backend test build | Very high | Low | Low | Restores reuse of the existing BuildKit cache without disabling the existing scheduled image-refresh workflows. |
 | 2 | Stop producing duplicate and unused coverage reports | Medium | Low | Low | CI uploads XML only; current defaults also request HTML and duplicate terminal/XML reports. |
 | 3 | Resolve APT packages from an immutable Debian snapshot and remove `apt-get upgrade` | High | Medium | Medium | Makes the restored cache compatible with actual reproducibility rather than relying on the first build's moving APT result. |
 | 4 | Add a scheduled, validated system dependency refresh process | High | Medium | Medium | Keeps immutable inputs secure without returning to per-run package refreshes. |
@@ -64,15 +66,15 @@ conditional optimizations, not prerequisites for fixing the current regression.
 
 ## Phase 1: Restore Cache Reuse
 
-This is the independent, immediate remediation.
+Status: implemented. This is the independent, immediate remediation.
 
 ### Changes
 
 1. Remove the `APT_REFRESH_KEY=${{ github.run_id }}-${{ github.run_attempt }}`
    build argument from the backend job in `.github/workflows/test.yml`.
-2. Retain the Dockerfile default for the argument, or replace it with a
-   checked-in constant such as `SYSTEM_DEPS_REVISION=1`. The value must change
-   only as part of a reviewed system dependency update.
+2. Retain the Dockerfile's `APT_REFRESH_KEY=static` default. This preserves the
+  existing opt-in refresh contract for scheduled image-validation and security
+  workflows while the backend test workflow uses the stable value.
 3. Keep the existing `cache-from` and `cache-to` entries in the
    `backend-test` scope.
 4. Keep the cache key independent of PR metadata, retries, and workflow runs.
@@ -90,9 +92,10 @@ This is the independent, immediate remediation.
 
 ### Rollback
 
-Revert only the workflow build-argument change. This restores the current
-behavior without changing the image contents, but should be used only while a
-separate image build issue is diagnosed.
+Restore the backend workflow build argument only. Because the Dockerfile still
+consumes `APT_REFRESH_KEY`, this intentionally forces a fresh APT resolution on
+each backend test run. Use it only while a separate image-build issue is
+diagnosed.
 
 ## Phase 2: Make Coverage Outputs Intentional
 
@@ -127,35 +130,51 @@ reproducibility improvement and should be implemented in a dedicated change.
 ### Dependency Model
 
 Use an immutable Debian snapshot timestamp as the system dependency revision.
-Configure the APT sources used by the shared `runtime-base` stage to point to
-the matching Debian and Debian security snapshot archives. Preserve the
-snapshot timestamp in a Dockerfile `ARG` with a checked-in default, for example
-`DEBIAN_SNAPSHOT=YYYYMMDDTHHMMSSZ`.
+Configure every Debian APT use in both `runtime-base` and `devcontainer` to
+point to matching Debian and Debian security snapshot archives. `backend-test`
+inherits `devcontainer`, so freezing only the shared runtime layer is
+insufficient. Preserve the snapshot timestamp in a Dockerfile `ARG` with a
+checked-in default, for example `DEBIAN_SNAPSHOT=YYYYMMDDTHHMMSSZ`.
 
 The snapshot is the resolver lock for direct packages and their transitive APT
 dependencies. The package names in `scripts/install-system-deps` remain the
 human-readable dependency declaration. A separate long list of exact
 transitive package versions is unnecessary and would be harder to maintain.
 
+The same phase must also freeze the non-Debian toolchain inputs in
+`devcontainer`: Node.js is currently selected through a moving NodeSource major
+repository and Rust is selected through the moving `stable` toolchain. These
+inputs are inherited by `backend-test` and are part of its platform contract.
+
 ### Changes
 
-1. Add snapshot-source setup at the start of the shared runtime stage, before
-   the first `apt-get update`. Support the Debian source-file format used by the
-   pinned Python base image and fail clearly if the expected source definition
-   is absent.
+1. Add snapshot-source setup before the first `apt-get update`, and apply it to
+  the later `devcontainer` package installation as well. Support the Debian
+  source-file format used by the pinned Python base image and fail clearly if
+  the expected source definition is absent.
 2. Use snapshot archive URLs for both normal Debian and security repositories.
-   Configure APT's snapshot-validity behavior deliberately rather than allowing
-   an expired metadata check to make historical rebuilds fail.
+  Configure APT's snapshot-validity behavior deliberately rather than allowing
+  an expired metadata check to make historical rebuilds fail.
 3. Remove `UPGRADE_EXISTING_PACKAGES=1` from the Dockerfile invocation and
    remove the conditional `apt-get upgrade` path from the common install helper
    when no other supported caller requires it. The pinned base image and APT
    snapshot together define the intended OS state.
-4. Keep installation non-interactive and retain cache mounts for APT downloads.
-5. Rename `APT_REFRESH_KEY` to `DEBIAN_SNAPSHOT` or `SYSTEM_DEPS_REVISION` so
-   its purpose is clear. Do not retain a misleading refresh mechanism.
-6. Add a lightweight verification command that prints the configured snapshot
-   and a sorted package inventory (`dpkg-query`) from each image target. Store
-   it as a CI artifact for system-update pull requests.
+4. Replace the moving NodeSource major repository with either an official
+  Node.js image pinned by digest or a versioned, checksum-verified Node.js
+  distribution. Pin one full Node.js version, rather than a major line, and
+  update the existing runtime verifier to require that exact version.
+5. Pin the Rust toolchain to a full release and verify the Rust installer by
+  checksum, or copy the toolchain from an official Rust image pinned by digest.
+  Pin required Rust components and targets to that toolchain revision.
+6. Replace `APT_REFRESH_KEY` with the canonical `DEBIAN_SNAPSHOT` input and
+  remove the timestamp-generated refresh-key preparation and build arguments
+  from every image workflow in the same change. No image workflow may retain a
+  per-run system dependency input after the snapshot is authoritative.
+7. Keep installation non-interactive and retain cache mounts for APT downloads.
+8. Add a lightweight verification command that prints the configured snapshot,
+  exact Node.js and Rust versions where installed, and a sorted package
+  inventory (`dpkg-query`) from each image target. Store it as a CI artifact
+  for system-update pull requests.
 
 ### Compatibility Checks
 
@@ -164,6 +183,8 @@ transitive package versions is unnecessary and would be harder to maintain.
 - Run the backend job checks in `backend-test`.
 - Run the image conversion tests, because the system dependency set includes
   ImageMagick, Ghostscript, libvips, and codecs.
+- Verify the exact pinned Node.js and Rust versions in `devcontainer` and
+  `backend-test`, including required Rust components and targets.
 - Verify the production image starts and passes its existing health endpoint
   check.
 - Rebuild the same commit twice with a cleared local cache and compare the
@@ -177,6 +198,7 @@ transitive package versions is unnecessary and would be harder to maintain.
 | Security package is not present at an arbitrarily chosen timestamp | The refresh process selects a verified snapshot, runs full image tests, and merges only a passing update. |
 | A package name disappears or changes between Debian releases | The image build fails at dependency installation with the package name; update the shared package list in the same reviewed change. |
 | Historical snapshot metadata expires | Configure APT specifically for immutable snapshot use and test a rebuild before adopting the implementation. |
+| NodeSource or Rustup serves different content for the same moving selector | Replace moving selectors with exact version-and-digest or checksum-verified inputs and verify installed versions in CI. |
 
 ## Phase 4: System Dependency Update Process
 
@@ -190,18 +212,20 @@ and low ongoing maintenance.
   rebuild all normal PRs against it.
 - Allow a maintainer-dispatched urgent refresh for published security advisories
   or an unavailable package.
-- Keep the snapshot revision and, if used, the base image digest in the pull
-  request diff. They are the authoritative records of the chosen platform.
+- Keep the snapshot revision, base-image digest, and exact Node.js/Rust inputs
+  in the pull request diff. They are the authoritative records of the chosen
+  platform.
 - Treat a missed scheduled update as visible CI maintenance debt, not as a
   reason to restore per-run APT updates.
 
 ### Refresh Workflow
 
 1. Select one candidate Debian snapshot timestamp from the Debian snapshot
-   service, allowing enough publication delay for both normal and security
-   archive metadata to be available.
-2. Update only the checked-in snapshot revision. Do not update unrelated
-   language dependencies in the same pull request.
+  service, allowing enough publication delay for both normal and security
+  archive metadata to be available.
+2. Update the checked-in snapshot revision and any intentionally refreshed
+  pinned base-image, Node.js, or Rust toolchain input. Do not update unrelated
+  application dependencies in the same pull request.
 3. Build all three Docker targets without relying on the prior runtime-base
    layer. Save their sorted installed-package inventories and image digests as
    workflow artifacts.
@@ -218,9 +242,9 @@ and low ongoing maintenance.
 
 Add a small script or workflow action with these responsibilities:
 
-- validate that the candidate timestamp resolves both required snapshot sources;
-- update the single canonical snapshot revision;
-- build targets and emit inventories; and
+- validate that the candidate timestamp resolves every required Debian source;
+- update the canonical snapshot and selected exact toolchain inputs;
+- build targets and emit package, Node.js, and Rust inventories; and
 - fail on missing packages, source errors, or an inconsistent target inventory.
 
 The automation should propose the update, not merge it autonomously. A human
@@ -235,7 +259,9 @@ updates into manual archaeology.
 - An intentional snapshot update invalidates the runtime-base layer exactly
   once and produces reviewable inventories.
 - The devcontainer, backend-test, and production targets report the same
-  snapshot revision and compatible versions of their shared system packages.
+  snapshot revision and identical versions of their shared system packages.
+- The devcontainer and backend-test targets report the configured exact Node.js
+  and Rust toolchain versions.
 - The scheduled workflow can be rerun safely and produces no change when the
   chosen candidate is already recorded.
 
