@@ -1,0 +1,50 @@
+#!/bin/bash
+set -euo pipefail
+
+REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+BACKEND_PYTHON="$REPO_ROOT/backend/.venv/bin/python"
+COMPONENT="${1:-all}"
+
+case "$COMPONENT" in
+    all|backend|companion) ;;
+    *)
+        echo "Usage: $0 [all|backend|companion]" >&2
+        exit 2
+        ;;
+esac
+
+if [[ "$COMPONENT" == "all" ]]; then
+    "$REPO_ROOT/scripts/check-archive-v2-cutover"
+fi
+
+if [[ "$COMPONENT" == "all" || "$COMPONENT" == "backend" ]]; then
+    if [[ ! -x "$BACKEND_PYTHON" ]]; then
+        echo "Backend virtual environment is required at backend/.venv" >&2
+        exit 1
+    fi
+
+    cd "$REPO_ROOT/backend"
+    "$BACKEND_PYTHON" -m pytest -q \
+        tests/test_archive_topology_conformance_harness.py \
+        tests/test_archive_conformance.py \
+        tests/test_archive_execution_conformance.py \
+        tests/test_archive_contract.py \
+        tests/test_archive_v2_checkpoint.py \
+        tests/test_database.py::TestArchiveOperationContractVersionMigration \
+        tests/test_browser.py \
+        tests/test_archive_operations.py
+    "$BACKEND_PYTHON" -m mypy app
+fi
+
+if [[ "$COMPONENT" == "all" || "$COMPONENT" == "companion" ]]; then
+    cd "$REPO_ROOT/companion/src-tauri"
+    cargo test --lib -q
+    cargo fmt --check
+    cargo clippy --lib --tests -- -D warnings
+fi
+
+if [[ "$COMPONENT" == "all" ]]; then
+    "$REPO_ROOT/scripts/test-archive-relay-integration"
+    cd "$REPO_ROOT"
+    git diff --check
+fi

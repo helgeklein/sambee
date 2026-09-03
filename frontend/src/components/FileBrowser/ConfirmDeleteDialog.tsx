@@ -107,7 +107,6 @@ const ConfirmDeleteDialog: React.FC<ConfirmDeleteDialogProps> = ({ open, items, 
         multiline={!isSingleItem}
         minRows={isSingleItem ? undefined : Math.min(items.length, DELETE_LIST_MAX_VISIBLE_ROWS)}
         maxRows={isSingleItem ? undefined : DELETE_LIST_MAX_VISIBLE_ROWS}
-        codeBlock={!isSingleItem}
         showFormSurface
       />
     </ResponsiveFormDialog>

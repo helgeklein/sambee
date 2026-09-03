@@ -3,7 +3,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import apiService from "../../services/api";
 import { logger } from "../../services/logger";
-import { IMAGE_LOAD_CANCELED_MESSAGE, useCachedImageGallery } from "../useCachedImageGallery";
+import { IMAGE_LOAD_CANCELED_MESSAGE, IMAGE_LOAD_FAILED_MESSAGE, useCachedImageGallery } from "../useCachedImageGallery";
 
 vi.mock("../../services/api", () => ({
   default: {
@@ -35,6 +35,9 @@ function registerAbortableDeferredRequest(deferredByPath: Map<string, DeferredRe
   });
 }
 
+const loadMockImageBlob = (path: string, options: { signal: AbortSignal; viewportWidth: number; viewportHeight: number }) =>
+  apiService.getImageBlob("conn-1", path, options);
+
 describe("useCachedImageGallery", () => {
   afterEach(() => {
     vi.useRealTimers();
@@ -55,6 +58,7 @@ describe("useCachedImageGallery", () => {
     const { result } = renderHook(() =>
       useCachedImageGallery({
         connectionId: "conn-1",
+        loadImageBlob: (path, options) => apiService.getImageBlob("conn-1", path, options),
         images: ["/0.jpg"],
         preloadRange: 0,
       })
@@ -72,6 +76,65 @@ describe("useCachedImageGallery", () => {
     expect(result.current.loadingStates.get(0)).toBe(false);
   });
 
+  it("uses the same error message for image fetch and decode failures", async () => {
+    vi.mocked(apiService.getImageBlob).mockRejectedValue({ response: { status: 422, data: { detail: "Invalid PSD" } } });
+
+    const { result: fetchResult } = renderHook(() =>
+      useCachedImageGallery({
+        connectionId: "conn-1",
+        loadImageBlob: (path, options) => apiService.getImageBlob("conn-1", path, options),
+        images: ["/invalid.psd"],
+        preloadRange: 0,
+      })
+    );
+
+    await waitFor(() => {
+      expect(fetchResult.current.errorStates.get(0)).toBe(IMAGE_LOAD_FAILED_MESSAGE);
+    });
+
+    vi.mocked(apiService.getImageBlob).mockResolvedValue(new Blob(["invalid PSD"], { type: "image/vnd.adobe.photoshop" }));
+    const { result: decodeResult } = renderHook(() =>
+      useCachedImageGallery({
+        connectionId: "conn-1",
+        loadImageBlob: (path, options) => apiService.getImageBlob("conn-1", path, options),
+        images: ["/invalid.psd"],
+        preloadRange: 0,
+      })
+    );
+
+    await waitFor(() => {
+      expect(decodeResult.current.currentImageLoadPhase).toBe("decoding");
+    });
+
+    act(() => {
+      decodeResult.current.markImageDecodeFailed(0, "blob:gallery-image");
+    });
+
+    expect(decodeResult.current.errorStates.get(0)).toBe(IMAGE_LOAD_FAILED_MESSAGE);
+  });
+
+  it("uses an explicit image loader for non-filesystem image sources", async () => {
+    const loadImageBlob = vi.fn().mockResolvedValue(new Blob(["archive image"], { type: "image/png" }));
+
+    renderHook(() =>
+      useCachedImageGallery({
+        connectionId: "conn-1",
+        images: ["photos/inside.png"],
+        gallerySourceKey: "archive:backup.zip",
+        loadImageBlob,
+        preloadRange: 0,
+      })
+    );
+
+    await waitFor(() => {
+      expect(loadImageBlob).toHaveBeenCalledWith(
+        "photos/inside.png",
+        expect.objectContaining({ signal: expect.any(AbortSignal), viewportWidth: expect.any(Number), viewportHeight: expect.any(Number) })
+      );
+    });
+    expect(apiService.getImageBlob).not.toHaveBeenCalled();
+  });
+
   it("cancels the active image without treating cancellation as a fetch error", async () => {
     const capturedSignals: AbortSignal[] = [];
     vi.mocked(apiService.getImageBlob).mockImplementation((_connectionId: string, _path: string, options?: { signal?: AbortSignal }) => {
@@ -87,6 +150,7 @@ describe("useCachedImageGallery", () => {
     const { result } = renderHook(() =>
       useCachedImageGallery({
         connectionId: "conn-1",
+        loadImageBlob: (path, options) => apiService.getImageBlob("conn-1", path, options),
         images: ["/0.jpg"],
         preloadRange: 0,
       })
@@ -122,6 +186,7 @@ describe("useCachedImageGallery", () => {
       ({ initialIndex }) =>
         useCachedImageGallery({
           connectionId: "conn-1",
+          loadImageBlob: (path, options) => apiService.getImageBlob("conn-1", path, options),
           images: ["/0.jpg", "/1.jpg", "/2.jpg", "/3.jpg"],
           initialIndex,
           preloadRange: 1,
@@ -166,6 +231,7 @@ describe("useCachedImageGallery", () => {
       ({ initialIndex }) =>
         useCachedImageGallery({
           connectionId: "conn-1",
+          loadImageBlob: (path, options) => apiService.getImageBlob("conn-1", path, options),
           images: ["/0.jpg", "/1.jpg", "/2.jpg", "/3.jpg"],
           initialIndex,
           preloadRange: 1,
@@ -213,6 +279,7 @@ describe("useCachedImageGallery", () => {
       ({ initialIndex }) =>
         useCachedImageGallery({
           connectionId: "conn-1",
+          loadImageBlob: (path, options) => apiService.getImageBlob("conn-1", path, options),
           images: ["/0.jpg", "/1.jpg", "/2.jpg", "/3.jpg"],
           initialIndex,
           preloadRange: 1,
@@ -283,6 +350,7 @@ describe("useCachedImageGallery", () => {
       ({ initialIndex }) =>
         useCachedImageGallery({
           connectionId: "conn-1",
+          loadImageBlob: (path, options) => apiService.getImageBlob("conn-1", path, options),
           images: ["/0.jpg", "/1.jpg", "/2.jpg"],
           initialIndex,
           preloadRange: 1,
@@ -337,6 +405,7 @@ describe("useCachedImageGallery", () => {
       ({ initialIndex }) =>
         useCachedImageGallery({
           connectionId: "conn-1",
+          loadImageBlob: (path, options) => apiService.getImageBlob("conn-1", path, options),
           images: ["/0.jpg", "/1.jpg", "/2.jpg", "/3.jpg", "/4.jpg", "/5.jpg", "/6.jpg"],
           initialIndex,
           preloadRange: 2,
@@ -397,6 +466,7 @@ describe("useCachedImageGallery", () => {
       ({ initialIndex }) =>
         useCachedImageGallery({
           connectionId: "conn-1",
+          loadImageBlob: (path, options) => apiService.getImageBlob("conn-1", path, options),
           images: ["/0.jpg", "/1.jpg", "/2.jpg"],
           initialIndex,
           preloadRange: 1,
@@ -448,6 +518,7 @@ describe("useCachedImageGallery", () => {
       ({ initialIndex }) =>
         useCachedImageGallery({
           connectionId: "conn-1",
+          loadImageBlob: (path, options) => apiService.getImageBlob("conn-1", path, options),
           images: ["/0.jpg", "/1.jpg", "/2.jpg", "/3.jpg", "/4.jpg", "/5.jpg", "/6.jpg"],
           initialIndex,
           preloadRange: 2,
@@ -507,6 +578,7 @@ describe("useCachedImageGallery", () => {
       ({ initialIndex }) =>
         useCachedImageGallery({
           connectionId: "conn-1",
+          loadImageBlob: (path, options) => apiService.getImageBlob("conn-1", path, options),
           images: ["/0.jpg", "/1.jpg", "/2.jpg", "/3.jpg", "/4.jpg", "/5.jpg", "/6.jpg"],
           initialIndex,
           preloadRange: 2,
@@ -565,6 +637,7 @@ describe("useCachedImageGallery", () => {
       ({ initialIndex }) =>
         useCachedImageGallery({
           connectionId: "conn-1",
+          loadImageBlob: (path, options) => apiService.getImageBlob("conn-1", path, options),
           images: ["/0.jpg", "/1.jpg", "/2.jpg", "/3.jpg"],
           initialIndex,
           preloadRange: 2,
@@ -626,6 +699,7 @@ describe("useCachedImageGallery", () => {
       ({ connectionId, images }) =>
         useCachedImageGallery({
           connectionId,
+          loadImageBlob: loadMockImageBlob,
           images,
           initialIndex: 0,
           preloadRange: 1,
@@ -633,6 +707,7 @@ describe("useCachedImageGallery", () => {
       {
         initialProps: {
           connectionId: "conn-1",
+          loadImageBlob: (path, options) => apiService.getImageBlob("conn-1", path, options),
           images: ["/a0.jpg", "/shared.jpg", "/a2.jpg"],
         },
       }
@@ -644,6 +719,7 @@ describe("useCachedImageGallery", () => {
 
     rerender({
       connectionId: "conn-1",
+      loadImageBlob: (path, options) => apiService.getImageBlob("conn-1", path, options),
       images: ["/b0.jpg", "/shared.jpg", "/b2.jpg"],
     });
 
@@ -663,6 +739,7 @@ describe("useCachedImageGallery", () => {
       ({ images, initialIndex }) =>
         useCachedImageGallery({
           connectionId: "conn-1",
+          loadImageBlob: loadMockImageBlob,
           images,
           initialIndex,
           preloadRange: 0,
@@ -700,6 +777,7 @@ describe("useCachedImageGallery", () => {
       ({ images, initialIndex }) =>
         useCachedImageGallery({
           connectionId: "conn-1",
+          loadImageBlob: loadMockImageBlob,
           images,
           initialIndex,
           preloadRange: 0,
@@ -746,6 +824,7 @@ describe("useCachedImageGallery", () => {
       ({ images, initialIndex }) =>
         useCachedImageGallery({
           connectionId: "conn-1",
+          loadImageBlob: loadMockImageBlob,
           images,
           initialIndex,
           preloadRange: 0,
@@ -796,6 +875,7 @@ describe("useCachedImageGallery", () => {
       ({ initialIndex }) =>
         useCachedImageGallery({
           connectionId: "conn-1",
+          loadImageBlob: (path, options) => apiService.getImageBlob("conn-1", path, options),
           images: ["/0.jpg", "/1.jpg", "/2.jpg"],
           initialIndex,
           preloadRange: 0,
@@ -865,6 +945,7 @@ describe("useCachedImageGallery", () => {
     const { result } = renderHook(() =>
       useCachedImageGallery({
         connectionId: "conn-1",
+        loadImageBlob: (path, options) => apiService.getImageBlob("conn-1", path, options),
         images: ["/0.jpg", "/1.jpg", "/2.jpg"],
         initialIndex: 0,
         preloadRange: 0,
@@ -916,6 +997,7 @@ describe("useCachedImageGallery", () => {
     const { result } = renderHook(() =>
       useCachedImageGallery({
         connectionId: "conn-1",
+        loadImageBlob: (path, options) => apiService.getImageBlob("conn-1", path, options),
         images: ["/0.jpg", "/1.jpg", "/2.jpg"],
         initialIndex: 0,
         preloadRange: 0,
@@ -960,6 +1042,7 @@ describe("useCachedImageGallery", () => {
       ({ images, initialIndex }) =>
         useCachedImageGallery({
           connectionId: "conn-1",
+          loadImageBlob: loadMockImageBlob,
           images,
           initialIndex,
           preloadRange: 0,
@@ -1011,6 +1094,7 @@ describe("useCachedImageGallery", () => {
       ({ images, initialIndex }) =>
         useCachedImageGallery({
           connectionId: "conn-1",
+          loadImageBlob: loadMockImageBlob,
           images,
           initialIndex,
           onIndexChange,

@@ -1,5 +1,6 @@
 import type { SxProps, Theme } from "@mui/material";
 import { TextField } from "@mui/material";
+import type { ChangeEventHandler, FocusEventHandler, Ref } from "react";
 import { DIALOG_FORM_SURFACE_CSS_VARIABLE, getModeAdjustedSurfaceColor } from "../../theme/palette";
 import { settingsFormOutlinedControlSx } from "../Settings/SettingsFormLayout";
 
@@ -9,11 +10,17 @@ interface DialogReadOnlyFieldProps {
   ariaLabel?: string;
   ariaDescribedBy?: string;
   value: string;
+  editable?: boolean;
+  onChange?: ChangeEventHandler<HTMLInputElement | HTMLTextAreaElement>;
+  inputRef?: Ref<HTMLInputElement>;
+  error?: boolean;
+  helperText?: string;
+  autoFocus?: boolean;
+  onFocus?: FocusEventHandler<HTMLInputElement | HTMLTextAreaElement>;
   size?: "small" | "medium";
   multiline?: boolean;
   minRows?: number;
   maxRows?: number;
-  codeBlock?: boolean;
   showFormSurface?: boolean;
   sx?: SxProps<Theme>;
 }
@@ -25,11 +32,17 @@ export function DialogReadOnlyField({
   ariaLabel,
   ariaDescribedBy,
   value,
+  editable = false,
+  onChange,
+  inputRef,
+  error = false,
+  helperText,
+  autoFocus = false,
+  onFocus,
   size,
   multiline = false,
   minRows,
   maxRows,
-  codeBlock = false,
   showFormSurface = false,
   sx,
 }: DialogReadOnlyFieldProps) {
@@ -39,6 +52,11 @@ export function DialogReadOnlyField({
       label={label}
       hiddenLabel={!label}
       value={value}
+      onChange={editable ? onChange : undefined}
+      error={error}
+      helperText={helperText}
+      autoFocus={autoFocus}
+      onFocus={onFocus}
       size={size}
       fullWidth
       multiline={multiline}
@@ -47,11 +65,11 @@ export function DialogReadOnlyField({
       variant="outlined"
       slotProps={{
         htmlInput: {
-          readOnly: true,
+          ref: inputRef,
+          readOnly: !editable,
           "aria-label": ariaLabel,
           "aria-describedby": ariaDescribedBy,
-          "aria-readonly": true,
-          wrap: codeBlock ? "off" : undefined,
+          "aria-readonly": !editable,
         },
       }}
       sx={[
@@ -67,15 +85,6 @@ export function DialogReadOnlyField({
           "& .MuiInputBase-input": {
             color: "text.primary",
             cursor: "text",
-            ...(codeBlock
-              ? {
-                  fontFamily: "monospace",
-                  fontSize: "0.875rem",
-                  lineHeight: 1.5,
-                  overflow: "auto !important",
-                  whiteSpace: "pre",
-                }
-              : {}),
           },
           "& .MuiInputLabel-root.MuiInputLabel-shrink": {
             bgcolor: showFormSurface ? undefined : "transparent",

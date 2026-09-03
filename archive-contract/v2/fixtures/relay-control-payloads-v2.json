@@ -1,0 +1,103 @@
+{
+  "version": 2,
+  "payloads": [
+    {
+      "name": "extraction_member_completion",
+      "schema": "ArchiveExtractionMemberCompletion",
+      "required": [
+        "member_path",
+        "status",
+        "target_path",
+        "directories_created",
+        "extracted_bytes",
+        "replaced",
+        "renamed"
+      ],
+      "example": {
+        "member_path": "docs/readme.txt",
+        "status": "extracted",
+        "target_path": "output/docs/readme.txt",
+        "directories_created": 1,
+        "extracted_bytes": 5,
+        "replaced": false,
+        "renamed": false
+      }
+    },
+    {
+      "name": "extraction_collision",
+      "schema": "ArchiveExtractionCollision",
+      "required": [
+        "member_path",
+        "is_directory"
+      ],
+      "example": {
+        "member_path": "docs/readme.txt",
+        "is_directory": false,
+        "target_size": 5,
+        "target_modified_at": null
+      }
+    },
+    {
+      "name": "extraction_member_error",
+      "schema": "ArchiveExtractionMemberError",
+      "required": [
+        "member_path",
+        "message",
+        "partial_output"
+      ],
+      "example": {
+        "member_path": "docs/readme.txt",
+        "message": "read failed",
+        "partial_output": true
+      }
+    },
+    {
+      "name": "extraction_summary",
+      "schema": "ArchiveExtractionSummary",
+      "required": [
+        "destination_root_created"
+      ],
+      "example": {
+        "destination_root_created": true
+      }
+    },
+    {
+      "name": "creation_member_completion",
+      "schema": "ArchiveCreationMemberCompletion",
+      "required": [
+        "archive_path",
+        "status",
+        "source_bytes"
+      ],
+      "example": {
+        "archive_path": "docs/readme.txt",
+        "status": "created",
+        "source_bytes": 5
+      }
+    },
+    {
+      "name": "creation_summary",
+      "schema": "ArchiveCreationSummary",
+      "required": [
+        "files_created",
+        "directories_created",
+        "source_bytes"
+      ],
+      "example": {
+        "files_created": 1,
+        "directories_created": 1,
+        "source_bytes": 5
+      }
+    },
+    {
+      "name": "failure",
+      "schema": "ArchiveFailure",
+      "required": [
+        "message"
+      ],
+      "example": {
+        "message": "Archive relay failed"
+      }
+    }
+  ]
+}

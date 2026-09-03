@@ -8,10 +8,15 @@ import { clearCurrentUserSettingsCache } from "../../services/userSettingsSync";
 import { type ApiMock, setupSuccessfulApiMocks } from "../../test/helpers";
 import { SambeeThemeProvider } from "../../theme/ThemeContext";
 import { FileType, type LocalLinkTargetListing } from "../../types";
-import { useFileBrowserPane } from "../FileBrowser/useFileBrowserPane";
+import { shouldLoadNextVirtualPage, useFileBrowserPane } from "../FileBrowser/useFileBrowserPane";
+import { getPreferredViewerId, setPreferredViewerId } from "../FileBrowser/viewerPreferences";
 import { mockConnections, mockDirectoryListing, mockEmptyDirectory, mockNestedDirectory } from "./FileBrowser.test.utils";
 
 vi.mock("../../services/api");
+vi.mock("../FileBrowser/viewerPreferences", () => ({
+  getPreferredViewerId: vi.fn(),
+  setPreferredViewerId: vi.fn(),
+}));
 
 function deferred<T>() {
   let resolve: (value: T) => void;
@@ -19,6 +24,32 @@ function deferred<T>() {
     resolve = nextResolve;
   });
   return { promise, resolve: (value: T) => resolve(value) };
+}
+
+function createLocalStorageRegistry() {
+  const backend = {
+    async resolveActivation(item: { target: { driveId: string }; path: string }) {
+      const activation = await api.resolveLocalActivation(`local-drive:${item.target.driveId}`, item.path);
+      return {
+        connectionId: `local-drive:${activation.drive_id}`,
+        path: activation.path,
+        type: activation.item.type,
+        item: activation.item,
+      };
+    },
+    async openInNativeApp(item: { target: { driveId: string }; path: string }, options: { forcePicker: boolean }) {
+      await api.openLocalFile(`local-drive:${item.target.driveId}`, item.path, { forcePicker: options.forcePicker });
+      return { kind: "opened-locally" as const };
+    },
+  };
+  return {
+    resolveItem: vi.fn(({ connectionId, path }: { connectionId: string; path: string }) => {
+      const target = { kind: "local" as const, driveId: connectionId.replace("local-drive:", "") };
+      return { target, path, resolvedTarget: { target, connection: null, capabilitySnapshot: { capabilityRevision: 1 } } };
+    }),
+    getCapabilities: vi.fn(() => ({ canOpenInNativeApp: true, readable: true, writable: true })),
+    getBackend: vi.fn(() => backend),
+  };
 }
 
 describe("useFileBrowserPane", () => {
@@ -29,6 +60,61 @@ describe("useFileBrowserPane", () => {
     clearCurrentUserSettingsCache();
     authSession.setAuthenticated({ access_token: "fake-token", token_type: "bearer" }, false);
     setupSuccessfulApiMocks(api as unknown as ApiMock);
+    vi.mocked(getPreferredViewerId).mockResolvedValue(null);
+    vi.mocked(setPreferredViewerId).mockResolvedValue();
+  });
+
+  it("requests the next virtual page only near the rendered tail or for an underfilled viewport", () => {
+    expect(
+      shouldLoadNextVirtualPage({
+        hasNextPage: true,
+        isLoadingNextPage: false,
+        lastRenderedIndex: 89,
+        loadedItemCount: 100,
+        scrollDirection: "forward",
+        viewportIsUnderfilled: false,
+      })
+    ).toBe(true);
+    expect(
+      shouldLoadNextVirtualPage({
+        hasNextPage: true,
+        isLoadingNextPage: false,
+        lastRenderedIndex: 40,
+        loadedItemCount: 100,
+        scrollDirection: "backward",
+        viewportIsUnderfilled: false,
+      })
+    ).toBe(false);
+    expect(
+      shouldLoadNextVirtualPage({
+        hasNextPage: true,
+        isLoadingNextPage: false,
+        lastRenderedIndex: 0,
+        loadedItemCount: 1,
+        scrollDirection: null,
+        viewportIsUnderfilled: true,
+      })
+    ).toBe(true);
+    expect(
+      shouldLoadNextVirtualPage({
+        hasNextPage: true,
+        isLoadingNextPage: false,
+        lastRenderedIndex: 99,
+        loadedItemCount: 100,
+        scrollDirection: "forward",
+        viewportIsUnderfilled: null,
+      })
+    ).toBe(false);
+    expect(
+      shouldLoadNextVirtualPage({
+        hasNextPage: true,
+        isLoadingNextPage: true,
+        lastRenderedIndex: 99,
+        loadedItemCount: 100,
+        scrollDirection: "forward",
+        viewportIsUnderfilled: false,
+      })
+    ).toBe(false);
   });
 
   it("ignores a stale route replay after starting a local directory navigation", async () => {
@@ -182,6 +268,72 @@ describe("useFileBrowserPane", () => {
     });
   });
 
+  it("restores archive recovery snapshots as read-only virtual content", async () => {
+    const archiveLocation = { providerId: "zip" as const, archivePath: "Archives/backup.zip", virtualPath: "docs" };
+    const archiveMember = {
+      name: "notes.txt",
+      path: "docs/notes.txt",
+      type: FileType.FILE,
+      is_readable: true,
+      is_hidden: false,
+    };
+    vi.mocked(api.listArchiveDirectory).mockResolvedValue({
+      archive: { path: "Archives/backup.zip", size: 1 },
+      path: "docs",
+      items: [{ ...archiveMember, state: "readable" }],
+      total: 1,
+      page_size: 100,
+    });
+
+    const { result } = renderHook(() => useFileBrowserPane({ rowHeight: 40, connections: mockConnections }), { wrapper });
+    act(() => {
+      result.current.restoreRecoverySnapshot({
+        connectionId: "conn-1",
+        path: "Archives",
+        archiveLocation,
+        items: [archiveMember],
+        sortBy: "name",
+        sortDirection: "asc",
+        viewMode: "list",
+        focusedIndex: 0,
+        focusedFileName: "notes.txt",
+        selectedFileNames: [],
+        viewInfo: {
+          path: "docs/notes.txt",
+          mimeType: "text/plain",
+          viewerId: "text",
+          virtualSource: {
+            kind: "virtual",
+            location: {
+              kind: "virtual",
+              providerId: "zip",
+              connectionId: "conn-1",
+              source: { kind: "physical", connectionId: "conn-1", path: "Archives/backup.zip" },
+              path: "docs",
+            },
+            path: "docs/notes.txt",
+          },
+          sessionId: "archive-session",
+        },
+        scrollOffset: 0,
+      });
+    });
+
+    await waitFor(() => {
+      expect(result.current.archiveLocation).toEqual(archiveLocation);
+      expect(result.current.contentCapabilities.mutate).toBe(false);
+      expect(result.current.viewInfo?.virtualSource).toMatchObject({ kind: "virtual", path: "docs/notes.txt" });
+    });
+    expect(result.current.captureRecoverySnapshot()?.archiveLocation).toEqual(archiveLocation);
+
+    act(() => {
+      result.current.handleRenameForFile(result.current.files[0]!, 0);
+      result.current.handleDeleteRequest({ requireListFocus: false });
+    });
+    expect(result.current.renameDialogOpen).toBe(false);
+    expect(result.current.deleteDialogOpen).toBe(false);
+  });
+
   it("normalizes same-drive absolute Windows paths for local-drive panes", async () => {
     const localDriveConnection = {
       ...mockConnections[0],
@@ -196,6 +348,7 @@ describe("useFileBrowserPane", () => {
         useFileBrowserPane({
           rowHeight: 40,
           connections: [localDriveConnection],
+          storageRegistry: createLocalStorageRegistry() as never,
         }),
       { wrapper }
     );
@@ -242,6 +395,7 @@ describe("useFileBrowserPane", () => {
         useFileBrowserPane({
           rowHeight: 40,
           connections: [localDriveConnection],
+          storageRegistry: createLocalStorageRegistry() as never,
         }),
       { wrapper }
     );
@@ -421,14 +575,17 @@ describe("useFileBrowserPane", () => {
     vi.mocked(api.resolveLocalActivation).mockImplementation(async (_connectionId, path) => ({
       drive_id: "d",
       path,
-      item: { ...documentsDirectory!, path, type: FileType.DIRECTORY },
+      item: { ...documentsDirectory!, path, type: path === "Documents" ? FileType.DIRECTORY : FileType.FILE },
     }));
+    const onNavigatePath = vi.fn();
 
     const { result } = renderHook(
       () =>
         useFileBrowserPane({
           rowHeight: 40,
           connections: [localDriveConnection],
+          storageRegistry: createLocalStorageRegistry() as never,
+          onNavigatePath,
         }),
       { wrapper }
     );
@@ -445,8 +602,12 @@ describe("useFileBrowserPane", () => {
       result.current.handleFileClick(documentsDirectory!);
     });
 
+    await waitFor(() => expect(onNavigatePath).toHaveBeenCalledWith("Documents"));
+    act(() => {
+      result.current.applyLocation("local-drive:d", "Documents");
+    });
+
     await waitFor(() => {
-      expect(api.getFileInfo).toHaveBeenCalledWith("local-drive:d", "Documents");
       expect(api.recordRecentDirectory).toHaveBeenCalledWith("local-drive:d", "Documents");
     });
 
@@ -456,9 +617,7 @@ describe("useFileBrowserPane", () => {
       result.current.handleFileClick({ ...documentsDirectory!, name: "Other", path: "Other" });
     });
 
-    await waitFor(() => {
-      expect(api.getFileInfo).toHaveBeenCalledWith("local-drive:d", "Documents/Other");
-    });
+    await waitFor(() => expect(api.resolveLocalActivation).toHaveBeenCalledWith("local-drive:d", "Documents/Other"));
     expect(api.recordRecentDirectory).toHaveBeenCalledTimes(1);
   });
 
@@ -491,6 +650,7 @@ describe("useFileBrowserPane", () => {
           rowHeight: 40,
           connections: [sourceConnection, targetConnection],
           onNavigateDirectory,
+          storageRegistry: createLocalStorageRegistry() as never,
         }),
       { wrapper }
     );
@@ -508,6 +668,947 @@ describe("useFileBrowserPane", () => {
     await waitFor(() => {
       expect(api.resolveLocalActivation).toHaveBeenCalledWith("local-drive:c", "Links/Archive.lnk");
       expect(onNavigateDirectory).toHaveBeenCalledWith("local-drive:d", "Projects/Archive");
+    });
+  });
+
+  it("opens a local ZIP as a virtual pane location instead of resolving a native file", async () => {
+    const localConnection = { ...mockConnections[0], id: "local-drive:c", slug: "c", type: "local" };
+    const archive = {
+      name: "backup.zip",
+      path: "backup.zip",
+      type: FileType.FILE,
+      is_readable: true,
+      is_hidden: false,
+    };
+
+    const { result } = renderHook(
+      () =>
+        useFileBrowserPane({
+          rowHeight: 40,
+          connections: [localConnection],
+          storageRegistry: createLocalStorageRegistry() as never,
+        }),
+      { wrapper }
+    );
+
+    act(() => {
+      result.current.applyLocation("local-drive:c", "Archives");
+    });
+    await waitFor(() => {
+      expect(result.current.connectionId).toBe("local-drive:c");
+    });
+    act(() => {
+      result.current.handleOpenFileForFile(archive, 0);
+    });
+
+    await waitFor(() => {
+      expect(result.current.archiveLocation).toEqual({ providerId: "zip", archivePath: "Archives/backup.zip", virtualPath: "" });
+      expect(api.listArchiveDirectory).toHaveBeenCalledWith("local-drive:c", "Archives/backup.zip", "", {
+        pageSize: 100,
+        signal: expect.any(AbortSignal),
+      });
+    });
+    expect(api.resolveLocalActivation).not.toHaveBeenCalled();
+  });
+
+  it("loads subsequent archive pages and appends their entries", async () => {
+    const archive = {
+      name: "backup.zip",
+      path: "backup.zip",
+      type: FileType.FILE,
+      is_readable: true,
+      is_hidden: false,
+    };
+    vi.mocked(api.listArchiveDirectory)
+      .mockResolvedValueOnce({
+        archive: { path: "backup.zip", size: 1 },
+        path: "",
+        items: [{ name: "first.txt", path: "first.txt", type: FileType.FILE, state: "readable", is_hidden: false }],
+        total: 2,
+        page_size: 1,
+        next_cursor: "page-two",
+      })
+      .mockResolvedValueOnce({
+        archive: { path: "backup.zip", size: 1 },
+        path: "",
+        items: [{ name: "second.txt", path: "second.txt", type: FileType.FILE, state: "readable", is_hidden: false }],
+        total: 2,
+        page_size: 1,
+        next_cursor: null,
+      });
+
+    const { result } = renderHook(
+      () =>
+        useFileBrowserPane({
+          rowHeight: 40,
+          connections: mockConnections,
+        }),
+      { wrapper }
+    );
+
+    act(() => {
+      result.current.applyLocation("conn-1", "");
+    });
+    await waitFor(() => {
+      expect(result.current.connectionId).toBe("conn-1");
+    });
+
+    act(() => {
+      result.current.handleOpenFileForFile(archive, 0);
+    });
+    await waitFor(() => {
+      expect(result.current.files.map((file) => file.name)).toEqual(["first.txt"]);
+      expect(result.current.archiveHasMore).toBe(true);
+    });
+
+    act(() => {
+      result.current.loadMoreArchive();
+    });
+    await waitFor(() => {
+      expect(result.current.files.map((file) => file.name)).toEqual(["first.txt", "second.txt"]);
+      expect(result.current.archiveHasMore).toBe(false);
+    });
+
+    expect(api.listArchiveDirectory).toHaveBeenLastCalledWith("conn-1", "backup.zip", "", {
+      cursor: "page-two",
+      pageSize: 100,
+      signal: expect.any(AbortSignal),
+    });
+  });
+
+  it("allows archive pagination after a refresh supersedes an in-flight append", async () => {
+    const archive = {
+      name: "backup.zip",
+      path: "backup.zip",
+      type: FileType.FILE,
+      is_readable: true,
+      is_hidden: false,
+    };
+    const pendingAppend = deferred<{
+      archive: { path: string; size: number };
+      path: string;
+      items: Array<{ name: string; path: string; type: FileType; state: string; is_hidden: boolean }>;
+      total: number;
+      page_size: number;
+      next_cursor: string | null;
+    }>();
+    vi.mocked(api.listArchiveDirectory)
+      .mockResolvedValueOnce({
+        archive: { path: "backup.zip", size: 1 },
+        path: "",
+        items: [{ name: "first.txt", path: "first.txt", type: FileType.FILE, state: "readable", is_hidden: false }],
+        total: 3,
+        page_size: 1,
+        next_cursor: "page-two",
+      })
+      .mockImplementationOnce(() => pendingAppend.promise)
+      .mockResolvedValueOnce({
+        archive: { path: "backup.zip", size: 1 },
+        path: "",
+        items: [{ name: "refreshed.txt", path: "refreshed.txt", type: FileType.FILE, state: "readable", is_hidden: false }],
+        total: 2,
+        page_size: 1,
+        next_cursor: "page-two",
+      })
+      .mockResolvedValueOnce({
+        archive: { path: "backup.zip", size: 1 },
+        path: "",
+        items: [{ name: "second.txt", path: "second.txt", type: FileType.FILE, state: "readable", is_hidden: false }],
+        total: 2,
+        page_size: 1,
+        next_cursor: null,
+      });
+
+    const { result } = renderHook(
+      () =>
+        useFileBrowserPane({
+          rowHeight: 40,
+          connections: mockConnections,
+        }),
+      { wrapper }
+    );
+
+    act(() => {
+      result.current.applyLocation("conn-1", "");
+    });
+    await waitFor(() => {
+      expect(result.current.connectionId).toBe("conn-1");
+    });
+
+    act(() => {
+      result.current.handleOpenFileForFile(archive, 0);
+    });
+    await waitFor(() => {
+      expect(result.current.archiveHasMore).toBe(true);
+    });
+
+    act(() => {
+      result.current.loadMoreArchive();
+    });
+    await waitFor(() => {
+      expect(result.current.archiveLoadingMore).toBe(true);
+    });
+
+    await act(async () => {
+      await result.current.reloadCurrentLocation({ forceRefresh: true });
+    });
+
+    expect(result.current.archiveLoadingMore).toBe(false);
+
+    act(() => {
+      result.current.loadMoreArchive();
+    });
+    await waitFor(() => {
+      expect(result.current.files.map((file) => file.name)).toEqual(["refreshed.txt", "second.txt"]);
+      expect(result.current.archiveLoadingMore).toBe(false);
+    });
+  });
+
+  it("navigates archive folders in the pane and returns to the containing directory from archive root", async () => {
+    const archive = {
+      name: "backup.zip",
+      path: "backup.zip",
+      type: FileType.FILE,
+      is_readable: true,
+      is_hidden: false,
+    };
+    vi.mocked(api.listDirectory).mockResolvedValue({
+      path: "Archives",
+      items: [
+        { name: "aardvark.txt", path: "Archives/aardvark.txt", type: FileType.FILE, is_readable: true, is_hidden: false },
+        { ...archive, path: "Archives/backup.zip" },
+      ],
+      total: 2,
+    });
+    vi.mocked(api.listArchiveDirectory).mockImplementation((_connectionId, _archivePath, virtualPath) =>
+      Promise.resolve({
+        archive: { path: "Archives/backup.zip", size: 1 },
+        path: virtualPath,
+        items:
+          virtualPath === ""
+            ? [
+                { name: "alpha", path: "alpha", type: FileType.DIRECTORY, state: "readable", is_hidden: false },
+                { name: "nested", path: "nested", type: FileType.DIRECTORY, state: "readable", is_hidden: false },
+              ]
+            : [{ name: "member.txt", path: "nested/member.txt", type: FileType.FILE, state: "readable", is_hidden: false }],
+        total: 1,
+        page_size: 100,
+      })
+    );
+
+    const { result } = renderHook(
+      () =>
+        useFileBrowserPane({
+          rowHeight: 40,
+          connections: mockConnections,
+        }),
+      { wrapper }
+    );
+
+    act(() => {
+      result.current.applyLocation("conn-1", "Archives");
+    });
+    await waitFor(() => {
+      expect(result.current.currentPath).toBe("Archives");
+    });
+
+    act(() => {
+      result.current.handleOpenFileForFile(archive, 0);
+    });
+    await waitFor(() => {
+      expect(result.current.archiveLocation).toEqual({ providerId: "zip", archivePath: "Archives/backup.zip", virtualPath: "" });
+      expect(result.current.files.map((file) => file.name)).toEqual(["alpha", "nested"]);
+    });
+
+    const scrollContainer = document.createElement("div");
+    act(() => {
+      (result.current.parentRef as { current: HTMLDivElement | null }).current = scrollContainer as HTMLDivElement;
+      scrollContainer.scrollTop = 96;
+      const nestedDirectory = result.current.files.find((file) => file.name === "nested");
+      expect(nestedDirectory).toBeDefined();
+      result.current.handleFileClick(nestedDirectory!);
+    });
+    await waitFor(() => {
+      expect(result.current.archiveLocation).toEqual({ providerId: "zip", archivePath: "Archives/backup.zip", virtualPath: "nested" });
+      expect(result.current.files[0]?.name).toBe("member.txt");
+    });
+
+    act(() => {
+      result.current.handleNavigateUpDirectory();
+    });
+    await waitFor(() => {
+      expect(result.current.archiveLocation).toEqual({ providerId: "zip", archivePath: "Archives/backup.zip", virtualPath: "" });
+      expect(result.current.focusedIndex).toBe(1);
+      expect(scrollContainer.scrollTop).toBe(96);
+    });
+
+    act(() => {
+      result.current.handleNavigateUpDirectory();
+    });
+    await waitFor(() => {
+      expect(result.current.archiveLocation).toBeNull();
+      expect(result.current.currentPath).toBe("Archives");
+      expect(result.current.focusedIndex).toBe(1);
+    });
+  });
+
+  it("ignores an archive viewer activation that completes after leaving the archive", async () => {
+    const archive = { name: "backup.zip", path: "backup.zip", type: FileType.FILE, is_readable: true, is_hidden: false };
+    const preferredViewer = deferred<"text" | null>();
+    vi.mocked(getPreferredViewerId).mockReturnValueOnce(preferredViewer.promise);
+    vi.mocked(api.listArchiveDirectory).mockResolvedValue({
+      archive: { path: "backup.zip", size: 1 },
+      path: "",
+      items: [{ name: "notes.txt", path: "notes.txt", type: FileType.FILE, state: "readable", is_hidden: false }],
+      total: 1,
+      page_size: 100,
+    });
+
+    const { result } = renderHook(() => useFileBrowserPane({ rowHeight: 40, connections: mockConnections }), { wrapper });
+    act(() => {
+      result.current.applyLocation("conn-1", "Archives");
+    });
+    await waitFor(() => {
+      expect(result.current.connectionId).toBe("conn-1");
+    });
+    act(() => {
+      result.current.handleOpenFileForFile(archive, 0);
+    });
+    await waitFor(() => {
+      expect(result.current.files).toHaveLength(1);
+    });
+
+    act(() => {
+      result.current.handleFileClick(result.current.files[0]!);
+      result.current.handleNavigateUpDirectory();
+    });
+    await act(async () => {
+      preferredViewer.resolve("text");
+      await preferredViewer.promise;
+    });
+
+    expect(result.current.archiveLocation).toBeNull();
+    expect(result.current.viewInfo).toBeNull();
+  });
+
+  it("ignores an archive viewer activation that completes after a route change", async () => {
+    const archive = { name: "backup.zip", path: "backup.zip", type: FileType.FILE, is_readable: true, is_hidden: false };
+    const preferredViewer = deferred<"text" | null>();
+    vi.mocked(getPreferredViewerId).mockReturnValueOnce(preferredViewer.promise);
+    vi.mocked(api.listArchiveDirectory).mockResolvedValue({
+      archive: { path: "Archives/backup.zip", size: 1 },
+      path: "",
+      items: [{ name: "notes.txt", path: "notes.txt", type: FileType.FILE, state: "readable", is_hidden: false }],
+      total: 1,
+      page_size: 100,
+    });
+
+    const { result } = renderHook(() => useFileBrowserPane({ rowHeight: 40, connections: mockConnections }), { wrapper });
+    act(() => {
+      result.current.applyLocation("conn-1", "Archives");
+    });
+    await waitFor(() => {
+      expect(result.current.connectionId).toBe("conn-1");
+    });
+    act(() => {
+      result.current.handleOpenFileForFile(archive, 0);
+    });
+    await waitFor(() => {
+      expect(result.current.files).toHaveLength(1);
+    });
+
+    act(() => {
+      result.current.handleFileClick(result.current.files[0]!);
+      result.current.applyLocation("conn-1", "Elsewhere");
+    });
+    await act(async () => {
+      preferredViewer.resolve("text");
+      await preferredViewer.promise;
+    });
+
+    expect(result.current.archiveLocation).toBeNull();
+    expect(result.current.currentPath).toBe("Elsewhere");
+    expect(result.current.viewInfo).toBeNull();
+    expect(result.current.browserViewerPickerState).toBeNull();
+  });
+
+  it("does not let a deferred physical listing overwrite an open archive", async () => {
+    const physicalListing = deferred<typeof mockDirectoryListing>();
+    vi.mocked(api.listDirectory).mockReturnValueOnce(physicalListing.promise);
+    vi.mocked(api.listArchiveDirectory).mockResolvedValue({
+      archive: { path: "backup.zip", size: 1 },
+      path: "",
+      items: [{ name: "inside.txt", path: "inside.txt", type: FileType.FILE, state: "readable", is_hidden: false }],
+      total: 1,
+      page_size: 100,
+    });
+
+    const { result } = renderHook(() => useFileBrowserPane({ rowHeight: 40, connections: mockConnections }), { wrapper });
+    act(() => {
+      result.current.applyLocation("conn-1", "");
+    });
+    await waitFor(() => {
+      expect(api.listDirectory).toHaveBeenCalled();
+    });
+
+    act(() => {
+      result.current.openArchive("backup.zip");
+    });
+    await waitFor(() => {
+      expect(result.current.files.map((file) => file.name)).toEqual(["inside.txt"]);
+    });
+
+    await act(async () => {
+      physicalListing.resolve(mockDirectoryListing);
+      await physicalListing.promise;
+    });
+
+    expect(result.current.archiveLocation).toEqual({ providerId: "zip", archivePath: "backup.zip", virtualPath: "" });
+    expect(result.current.files.map((file) => file.name)).toEqual(["inside.txt"]);
+  });
+
+  it("reloads an open archive when its physical parent directory changes", async () => {
+    const archive = { name: "backup.zip", path: "backup.zip", type: FileType.FILE, is_readable: true, is_hidden: false };
+    vi.mocked(api.listArchiveDirectory)
+      .mockResolvedValueOnce({
+        archive: { path: "Archives/backup.zip", size: 1 },
+        path: "",
+        items: [{ name: "before.txt", path: "before.txt", type: FileType.FILE, state: "readable", is_hidden: false }],
+        total: 1,
+        page_size: 100,
+      })
+      .mockResolvedValueOnce({
+        archive: { path: "Archives/backup.zip", size: 1 },
+        path: "",
+        items: [{ name: "after.txt", path: "after.txt", type: FileType.FILE, state: "readable", is_hidden: false }],
+        total: 1,
+        page_size: 100,
+      });
+
+    const { result } = renderHook(() => useFileBrowserPane({ rowHeight: 40, connections: mockConnections }), { wrapper });
+    act(() => {
+      result.current.applyLocation("conn-1", "Archives");
+    });
+    await waitFor(() => {
+      expect(result.current.connectionId).toBe("conn-1");
+    });
+    act(() => {
+      result.current.handleOpenFileForFile(archive, 0);
+    });
+    await waitFor(() => {
+      expect(result.current.files.map((file) => file.name)).toEqual(["before.txt"]);
+    });
+
+    act(() => {
+      result.current.handleDirectoryChanged({ connectionId: "conn-1", path: "Archives" });
+    });
+    await waitFor(() => {
+      expect(result.current.files.map((file) => file.name)).toEqual(["after.txt"]);
+    });
+  });
+
+  it("reloads an open root archive when its root directory changes", async () => {
+    vi.mocked(api.listArchiveDirectory)
+      .mockResolvedValueOnce({
+        archive: { path: "backup.zip", size: 1 },
+        path: "",
+        items: [{ name: "before.txt", path: "before.txt", type: FileType.FILE, state: "readable", is_hidden: false }],
+        total: 1,
+        page_size: 100,
+      })
+      .mockResolvedValueOnce({
+        archive: { path: "backup.zip", size: 1 },
+        path: "",
+        items: [{ name: "after.txt", path: "after.txt", type: FileType.FILE, state: "readable", is_hidden: false }],
+        total: 1,
+        page_size: 100,
+      });
+
+    const { result } = renderHook(() => useFileBrowserPane({ rowHeight: 40, connections: mockConnections }), { wrapper });
+    act(() => {
+      result.current.applyLocation("conn-1", "");
+      result.current.openArchive("backup.zip");
+    });
+    await waitFor(() => {
+      expect(result.current.files.map((file) => file.name)).toEqual(["before.txt"]);
+    });
+
+    act(() => {
+      result.current.handleDirectoryChanged({ connectionId: "conn-1", path: "" });
+    });
+    await waitFor(() => {
+      expect(result.current.files.map((file) => file.name)).toEqual(["after.txt"]);
+    });
+  });
+
+  it("exits an archive before switching connections", async () => {
+    const archive = { name: "backup.zip", path: "backup.zip", type: FileType.FILE, is_readable: true, is_hidden: false };
+    const otherConnection = { ...mockConnections[0], id: "conn-2", name: "Other Server", slug: "other-server" };
+    vi.mocked(api.listArchiveDirectory).mockResolvedValue({
+      archive: { path: "Archives/backup.zip", size: 1 },
+      path: "",
+      items: [{ name: "notes.txt", path: "notes.txt", type: FileType.FILE, state: "readable", is_hidden: false }],
+      total: 1,
+      page_size: 100,
+    });
+
+    const { result } = renderHook(() => useFileBrowserPane({ rowHeight: 40, connections: [...mockConnections, otherConnection] }), {
+      wrapper,
+    });
+    act(() => {
+      result.current.applyLocation("conn-1", "Archives");
+    });
+    await waitFor(() => {
+      expect(result.current.connectionId).toBe("conn-1");
+    });
+    act(() => {
+      result.current.handleOpenFileForFile(archive, 0);
+    });
+    await waitFor(() => {
+      expect(result.current.archiveLocation).not.toBeNull();
+    });
+
+    act(() => {
+      result.current.handleConnectionChange("conn-2");
+    });
+    await waitFor(() => {
+      expect(result.current.connectionId).toBe("conn-2");
+      expect(result.current.currentPath).toBe("");
+      expect(result.current.archiveLocation).toBeNull();
+    });
+    expect(vi.mocked(api.listArchiveDirectory).mock.calls.every(([connectionId]) => connectionId === "conn-1")).toBe(true);
+  });
+
+  it("closes an archive picker when a refreshed member is no longer readable", async () => {
+    const archive = { name: "backup.zip", path: "backup.zip", type: FileType.FILE, is_readable: true, is_hidden: false };
+    vi.mocked(api.listArchiveDirectory)
+      .mockResolvedValueOnce({
+        archive: { path: "Archives/backup.zip", size: 1 },
+        path: "",
+        items: [{ name: "notes.txt", path: "notes.txt", type: FileType.FILE, state: "readable", is_hidden: false }],
+        total: 1,
+        page_size: 100,
+      })
+      .mockResolvedValueOnce({
+        archive: { path: "Archives/backup.zip", size: 1 },
+        path: "",
+        items: [{ name: "notes.txt", path: "notes.txt", type: FileType.FILE, state: "blocked", is_hidden: false }],
+        total: 1,
+        page_size: 100,
+      });
+
+    const { result } = renderHook(() => useFileBrowserPane({ rowHeight: 40, connections: mockConnections }), { wrapper });
+    act(() => {
+      result.current.applyLocation("conn-1", "Archives");
+    });
+    await waitFor(() => {
+      expect(result.current.connectionId).toBe("conn-1");
+    });
+    act(() => {
+      result.current.handleOpenFileForFile(archive, 0);
+    });
+    await waitFor(() => {
+      expect(result.current.archiveLocation).toEqual({ providerId: "zip", archivePath: "Archives/backup.zip", virtualPath: "" });
+      expect(result.current.files.map((file) => file.name)).toEqual(["notes.txt"]);
+    });
+    act(() => {
+      result.current.handleOpenFileForFile(result.current.files[0]!, 0, "force-viewer-picker");
+    });
+    await waitFor(() => {
+      expect(result.current.browserViewerPickerState).not.toBeNull();
+    });
+
+    act(() => {
+      result.current.handleDirectoryChanged({ connectionId: "conn-1", path: "Archives" });
+    });
+    await waitFor(() => {
+      expect(result.current.files[0]?.is_readable).toBe(false);
+      expect(result.current.browserViewerPickerState).toBeNull();
+    });
+  });
+
+  it("does not open physical mutation dialogs while viewing archive entries", async () => {
+    const archive = {
+      name: "backup.zip",
+      path: "backup.zip",
+      type: FileType.FILE,
+      is_readable: true,
+      is_hidden: false,
+    };
+    vi.mocked(api.listArchiveDirectory).mockResolvedValue({
+      archive: { path: "backup.zip", size: 1 },
+      path: "",
+      items: [{ name: "report.txt", path: "report.txt", type: FileType.FILE, state: "readable", is_hidden: false }],
+      total: 1,
+      page_size: 100,
+    });
+
+    const { result } = renderHook(
+      () =>
+        useFileBrowserPane({
+          rowHeight: 40,
+          connections: mockConnections,
+        }),
+      { wrapper }
+    );
+
+    act(() => {
+      result.current.applyLocation("conn-1", "");
+    });
+    await waitFor(() => {
+      expect(result.current.connectionId).toBe("conn-1");
+    });
+
+    act(() => {
+      result.current.handleOpenFileForFile(archive, 0);
+    });
+    await waitFor(() => {
+      expect(result.current.archiveLocation).not.toBeNull();
+    });
+
+    act(() => {
+      result.current.handleDeleteRequest({ requireListFocus: false });
+      result.current.handleRenameRequest({ requireListFocus: false });
+      result.current.handleNewDirectoryRequest();
+      result.current.handleNewFileRequest();
+    });
+
+    expect(result.current.deleteDialogOpen).toBe(false);
+    expect(result.current.renameDialogOpen).toBe(false);
+    expect(result.current.createDialogOpen).toBe(false);
+  });
+
+  it("opens archive images in the standard viewer", async () => {
+    const archive = {
+      name: "backup.zip",
+      path: "backup.zip",
+      type: FileType.FILE,
+      is_readable: true,
+      is_hidden: false,
+    };
+    vi.mocked(api.listArchiveDirectory).mockResolvedValue({
+      archive: { path: "backup.zip", size: 1 },
+      path: "",
+      items: [{ name: "inside.png", path: "images/inside.png", type: FileType.FILE, state: "readable", is_hidden: false }],
+      total: 1,
+      page_size: 100,
+    });
+
+    const { result } = renderHook(
+      () =>
+        useFileBrowserPane({
+          rowHeight: 40,
+          connections: mockConnections,
+        }),
+      { wrapper }
+    );
+
+    act(() => {
+      result.current.applyLocation("conn-1", "");
+    });
+    await waitFor(() => {
+      expect(result.current.connectionId).toBe("conn-1");
+    });
+    act(() => {
+      result.current.handleOpenFileForFile(archive, 0);
+    });
+    await waitFor(() => {
+      expect(result.current.files).toHaveLength(1);
+    });
+
+    act(() => {
+      result.current.handleFileClick(result.current.files[0]!);
+    });
+
+    await waitFor(() => {
+      expect(result.current.viewInfo).toMatchObject({
+        path: "images/inside.png",
+        viewerId: "image",
+        virtualSource: {
+          kind: "virtual",
+          location: { providerId: "zip", source: { path: "backup.zip" } },
+        },
+        images: ["images/inside.png"],
+        currentIndex: 0,
+      });
+    });
+  });
+
+  it.each([
+    ["inside.pdf", "pdf", "docs/inside.pdf", "application/pdf"],
+    ["readme.md", "markdown", "docs/readme.md", "text/markdown"],
+    ["notes.txt", "text", "docs/notes.txt", "text/plain"],
+  ] as const)("routes virtual %s members through the %s viewer", async (name, viewerId, path, mimeType) => {
+    const archive = {
+      name: "backup.zip",
+      path: "backup.zip",
+      type: FileType.FILE,
+      is_readable: true,
+      is_hidden: false,
+    };
+    vi.mocked(api.listArchiveDirectory).mockResolvedValue({
+      archive: { path: "backup.zip", size: 1 },
+      path: "",
+      items: [{ name, path, type: FileType.FILE, state: "readable", is_hidden: false }],
+      total: 1,
+      page_size: 100,
+    });
+
+    const { result } = renderHook(
+      () =>
+        useFileBrowserPane({
+          rowHeight: 40,
+          connections: mockConnections,
+        }),
+      { wrapper }
+    );
+
+    act(() => {
+      result.current.applyLocation("conn-1", "");
+    });
+    await waitFor(() => {
+      expect(result.current.connectionId).toBe("conn-1");
+    });
+    act(() => {
+      result.current.handleOpenFileForFile(archive, 0);
+    });
+    await waitFor(() => {
+      expect(result.current.files).toHaveLength(1);
+    });
+
+    act(() => {
+      result.current.handleFileClick(result.current.files[0]!);
+    });
+
+    await waitFor(() => {
+      expect(result.current.viewInfo).toMatchObject({
+        path,
+        mimeType,
+        viewerId,
+        virtualSource: {
+          kind: "virtual",
+          location: { providerId: "zip", source: { path: "backup.zip" } },
+        },
+      });
+    });
+  });
+
+  it("opens the Sambee viewer picker for an unknown archive member without downloading it", async () => {
+    const archive = {
+      name: "backup.zip",
+      path: "backup.zip",
+      type: FileType.FILE,
+      is_readable: true,
+      is_hidden: false,
+    };
+    vi.mocked(api.listArchiveDirectory).mockResolvedValue({
+      archive: { path: "backup.zip", size: 1 },
+      path: "",
+      items: [{ name: "inside.sss", path: "files/inside.sss", type: FileType.FILE, state: "readable", is_hidden: false }],
+      total: 1,
+      page_size: 100,
+    });
+
+    const { result } = renderHook(() => useFileBrowserPane({ rowHeight: 40, connections: mockConnections }), { wrapper });
+    act(() => {
+      result.current.applyLocation("conn-1", "");
+    });
+    await waitFor(() => {
+      expect(result.current.connectionId).toBe("conn-1");
+    });
+    act(() => {
+      result.current.handleOpenFileForFile(archive, 0);
+    });
+    await waitFor(() => {
+      expect(result.current.files).toHaveLength(1);
+    });
+
+    act(() => {
+      result.current.handleFileClick(result.current.files[0]!);
+    });
+
+    await waitFor(() => {
+      expect(result.current.browserViewerPickerState).toMatchObject({
+        filePath: "files/inside.sss",
+        showNativeOption: false,
+        virtualSource: { kind: "virtual", path: "files/inside.sss" },
+      });
+    });
+    expect(api.getArchiveMember).not.toHaveBeenCalled();
+  });
+
+  it("does not activate nested archive members in a Sambee viewer", async () => {
+    const archive = {
+      name: "backup.zip",
+      path: "backup.zip",
+      type: FileType.FILE,
+      is_readable: true,
+      is_hidden: false,
+    };
+    vi.mocked(api.listArchiveDirectory).mockResolvedValue({
+      archive: { path: "backup.zip", size: 1 },
+      path: "",
+      items: [{ name: "nested.zip", path: "archives/nested.zip", type: FileType.FILE, state: "readable", is_hidden: false }],
+      total: 1,
+      page_size: 100,
+    });
+
+    const { result } = renderHook(() => useFileBrowserPane({ rowHeight: 40, connections: mockConnections }), { wrapper });
+    act(() => {
+      result.current.applyLocation("conn-1", "");
+    });
+    await waitFor(() => {
+      expect(result.current.connectionId).toBe("conn-1");
+    });
+    act(() => {
+      result.current.handleOpenFileForFile(archive, 0);
+    });
+    await waitFor(() => {
+      expect(result.current.files).toHaveLength(1);
+    });
+
+    act(() => {
+      result.current.handleFileClick(result.current.files[0]!);
+      result.current.handleOpenFileForFile(result.current.files[0]!, 0, "force-viewer-picker");
+    });
+
+    expect(getPreferredViewerId).not.toHaveBeenCalled();
+    expect(result.current.viewInfo).toBeNull();
+    expect(result.current.browserViewerPickerState).toBeNull();
+    expect(api.getArchiveMember).not.toHaveBeenCalled();
+  });
+
+  it("preserves a virtual source through viewer selection and reuses the saved preference", async () => {
+    const archive = {
+      name: "backup.zip",
+      path: "backup.zip",
+      type: FileType.FILE,
+      is_readable: true,
+      is_hidden: false,
+    };
+    vi.mocked(api.listArchiveDirectory).mockResolvedValue({
+      archive: { path: "backup.zip", size: 1 },
+      path: "",
+      items: [{ name: "readme.md", path: "docs/readme.md", type: FileType.FILE, state: "readable", is_hidden: false }],
+      total: 1,
+      page_size: 100,
+    });
+    vi.mocked(getPreferredViewerId).mockResolvedValueOnce(null).mockResolvedValueOnce("text");
+
+    const { result } = renderHook(
+      () =>
+        useFileBrowserPane({
+          rowHeight: 40,
+          connections: mockConnections,
+        }),
+      { wrapper }
+    );
+
+    act(() => {
+      result.current.applyLocation("conn-1", "");
+    });
+    await waitFor(() => {
+      expect(result.current.connectionId).toBe("conn-1");
+    });
+    act(() => {
+      result.current.handleOpenFileForFile(archive, 0);
+    });
+    await waitFor(() => {
+      expect(result.current.files).toHaveLength(1);
+    });
+
+    act(() => {
+      result.current.handleOpenFileForFile(result.current.files[0]!, 0, "force-viewer-picker");
+    });
+    await waitFor(() => {
+      expect(result.current.browserViewerPickerState).toMatchObject({
+        filePath: "docs/readme.md",
+        showNativeOption: false,
+        virtualSource: {
+          kind: "virtual",
+          location: { providerId: "zip", source: { path: "backup.zip" } },
+        },
+      });
+    });
+
+    await act(async () => {
+      await result.current.confirmBrowserViewerPicker({ viewerId: "text", rememberSelection: true });
+    });
+    expect(setPreferredViewerId).toHaveBeenCalledWith("readme.md", "text/markdown", "text");
+    expect(result.current.viewInfo).toMatchObject({
+      path: "docs/readme.md",
+      viewerId: "text",
+      virtualSource: { kind: "virtual" },
+    });
+
+    act(() => {
+      result.current.setViewInfo(null);
+      result.current.handleFileClick(result.current.files[0]!);
+    });
+    await waitFor(() => {
+      expect(result.current.viewInfo).toMatchObject({ viewerId: "text", virtualSource: { kind: "virtual" } });
+    });
+  });
+
+  it("extends an open virtual image gallery when another archive page loads", async () => {
+    const archive = {
+      name: "backup.zip",
+      path: "backup.zip",
+      type: FileType.FILE,
+      is_readable: true,
+      is_hidden: false,
+    };
+    vi.mocked(api.listArchiveDirectory)
+      .mockResolvedValueOnce({
+        archive: { path: "backup.zip", size: 1 },
+        path: "",
+        items: [{ name: "first.png", path: "images/first.png", type: FileType.FILE, state: "readable", is_hidden: false }],
+        total: 2,
+        page_size: 1,
+        next_cursor: "page-two",
+      })
+      .mockResolvedValueOnce({
+        archive: { path: "backup.zip", size: 1 },
+        path: "",
+        items: [{ name: "second.png", path: "images/second.png", type: FileType.FILE, state: "readable", is_hidden: false }],
+        total: 2,
+        page_size: 1,
+        next_cursor: null,
+      });
+
+    const { result } = renderHook(
+      () =>
+        useFileBrowserPane({
+          rowHeight: 40,
+          connections: mockConnections,
+        }),
+      { wrapper }
+    );
+
+    act(() => {
+      result.current.applyLocation("conn-1", "");
+    });
+    await waitFor(() => {
+      expect(result.current.connectionId).toBe("conn-1");
+    });
+    act(() => {
+      result.current.handleOpenFileForFile(archive, 0);
+    });
+    await waitFor(() => {
+      expect(result.current.files).toHaveLength(1);
+    });
+    act(() => {
+      result.current.handleFileClick(result.current.files[0]!);
+    });
+    await waitFor(() => {
+      expect(result.current.viewInfo?.images).toEqual(["images/first.png"]);
+    });
+
+    act(() => {
+      result.current.loadMoreArchive();
+    });
+    await waitFor(() => {
+      expect(result.current.viewInfo?.images).toEqual(["images/first.png", "images/second.png"]);
     });
   });
 
@@ -538,6 +1639,7 @@ describe("useFileBrowserPane", () => {
         useFileBrowserPane({
           rowHeight: 40,
           connections: [localConnection],
+          storageRegistry: createLocalStorageRegistry() as never,
         }),
       { wrapper }
     );
@@ -588,6 +1690,7 @@ describe("useFileBrowserPane", () => {
         useFileBrowserPane({
           rowHeight: 40,
           connections: [localConnection],
+          storageRegistry: createLocalStorageRegistry() as never,
         }),
       { wrapper }
     );
@@ -623,6 +1726,7 @@ describe("useFileBrowserPane", () => {
         useFileBrowserPane({
           rowHeight: 40,
           connections: [localConnection],
+          storageRegistry: createLocalStorageRegistry() as never,
         }),
       { wrapper }
     );
@@ -666,6 +1770,7 @@ describe("useFileBrowserPane", () => {
         useFileBrowserPane({
           rowHeight: 40,
           connections: [localConnection],
+          storageRegistry: createLocalStorageRegistry() as never,
         }),
       { wrapper }
     );
@@ -742,6 +1847,7 @@ describe("useFileBrowserPane", () => {
         useFileBrowserPane({
           rowHeight: 40,
           connections: [localConnection],
+          storageRegistry: createLocalStorageRegistry() as never,
         }),
       { wrapper }
     );
@@ -876,7 +1982,7 @@ describe("useFileBrowserPane", () => {
     vi.mocked(api.listDirectory).mockResolvedValueOnce(mockNestedDirectory);
 
     await act(async () => {
-      await result.current.loadFiles("Documents", true);
+      await result.current.reloadCurrentLocation({ forceRefresh: true });
     });
 
     expect(api.recordRecentDirectory).not.toHaveBeenCalled();
@@ -1094,6 +2200,7 @@ describe("useFileBrowserPane", () => {
         useFileBrowserPane({
           rowHeight: 40,
           connections: [localConnection],
+          storageRegistry: createLocalStorageRegistry() as never,
         }),
       { wrapper }
     );
@@ -1155,6 +2262,7 @@ describe("useFileBrowserPane", () => {
         useFileBrowserPane({
           rowHeight: 40,
           connections: [localConnection],
+          storageRegistry: createLocalStorageRegistry() as never,
         }),
       { wrapper }
     );
@@ -1164,6 +2272,7 @@ describe("useFileBrowserPane", () => {
     });
 
     await waitFor(() => {
+      expect(api.openLocalFile).toHaveBeenCalledWith("local-drive:c", "Documents/report.txt", { forcePicker: false });
       expect(api.removeRecentFile).toHaveBeenCalledWith("recent-1");
       expect(result.current.error).toBe(detail);
     });
@@ -1189,6 +2298,7 @@ describe("useFileBrowserPane", () => {
         useFileBrowserPane({
           rowHeight: 40,
           connections: [sourceConnection],
+          storageRegistry: createLocalStorageRegistry() as never,
         }),
       { wrapper }
     );
@@ -1226,6 +2336,7 @@ describe("useFileBrowserPane", () => {
           rowHeight: 40,
           connections: [sourceConnection],
           onNavigateDirectory,
+          storageRegistry: createLocalStorageRegistry() as never,
         }),
       { wrapper }
     );
@@ -1252,6 +2363,7 @@ describe("useFileBrowserPane", () => {
         useFileBrowserPane({
           rowHeight: 40,
           connections: [localConnection],
+          storageRegistry: createLocalStorageRegistry() as never,
         }),
       { wrapper }
     );

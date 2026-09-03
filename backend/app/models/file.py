@@ -1,8 +1,9 @@
 from datetime import datetime
 from enum import StrEnum
-from typing import List, Optional
+from typing import List, Literal, Optional
+from uuid import UUID
 
-from pydantic import BaseModel
+from pydantic import BaseModel, model_validator
 
 
 class FileType(StrEnum):
@@ -51,15 +52,38 @@ class CopyMoveRequest(BaseModel):
     ``dest_path`` is relative to the destination connection's share
     (or the same connection when ``dest_connection_id`` is omitted).
 
-    When ``overwrite`` is ``True`` the destination is replaced if it
-    already exists.  The default (``False``) causes a 409 response
-    that includes ``ConflictInfo`` so the frontend can prompt the user.
+    ``target_resolution_policy`` is the authoritative file collision policy.
+    The legacy ``overwrite`` field is accepted only while clients migrate and
+    is normalized at the API boundary.
     """
 
     source_path: str
     dest_path: str
     dest_connection_id: Optional[str] = None
-    overwrite: bool = False
+    target_resolution_policy: Literal["ask", "skip", "replace", "replace_older"] | None = None
+    overwrite: bool | None = None
+    # Each executed plan needs a caller-supplied key so a transport retry can
+    # retrieve its factual result instead of starting a new mutation.
+    idempotency_key: str
+
+    @model_validator(mode="after")
+    def validate_resolution_policy(self) -> "CopyMoveRequest":
+        if self.target_resolution_policy is not None and self.overwrite is not None:
+            expected_legacy_value = self.target_resolution_policy == "replace"
+            if self.overwrite != expected_legacy_value:
+                raise ValueError("overwrite conflicts with target_resolution_policy")
+        if self.idempotency_key is not None:
+            try:
+                UUID(self.idempotency_key)
+            except ValueError as exc:
+                raise ValueError("idempotency_key must be a UUID") from exc
+        return self
+
+    @property
+    def normalized_target_resolution_policy(self) -> str:
+        if self.target_resolution_policy is not None:
+            return self.target_resolution_policy
+        return "replace" if self.overwrite else "ask"
 
 
 class ConflictInfo(BaseModel):
@@ -71,6 +95,49 @@ class ConflictInfo(BaseModel):
 
     existing_file: FileInfo
     incoming_file: FileInfo
+
+
+class ContentTransferEffects(BaseModel):
+    """Factual mutations made by a copy or move request."""
+
+    source: Literal["unchanged", "mutated", "unknown"]
+    destination: Literal["unchanged", "mutated", "unknown"]
+
+
+class ContentTransferError(BaseModel):
+    """A stable failure detail for a factual transfer result."""
+
+    code: Literal["source_changed", "source_delete_failed", "transport", "unavailable"]
+    detail: str
+
+
+class ContentTransferResult(BaseModel):
+    """Outcome returned by a regular-file copy or move operation."""
+
+    status: Literal["completed", "skipped", "completed_with_source_retained", "outcome_unknown", "failed", "cancelled"]
+    effects: ContentTransferEffects
+    replaced: bool = False
+    error: ContentTransferError | None = None
+
+    @model_validator(mode="after")
+    def validate_factual_outcome(self) -> "ContentTransferResult":
+        if self.status in {"completed", "skipped", "outcome_unknown", "cancelled"} and self.error is not None:
+            raise ValueError(f"{self.status} transfer outcomes cannot include an error")
+        if self.status in {"completed_with_source_retained", "failed"} and self.error is None:
+            raise ValueError(f"{self.status} transfer outcomes require an error")
+        if self.status == "skipped" and (self.effects.source != "unchanged" or self.effects.destination != "unchanged" or self.replaced):
+            raise ValueError("skipped transfer outcomes must leave both paths unchanged")
+        if self.status == "outcome_unknown" and (
+            self.effects.source != "unknown" or self.effects.destination != "unknown" or self.replaced
+        ):
+            raise ValueError("unknown transfer outcomes must report unknown effects")
+        if self.status == "completed_with_source_retained" and (
+            self.effects.source != "unchanged" or self.effects.destination != "mutated"
+        ):
+            raise ValueError("source-retained outcomes require an unchanged source and mutated destination")
+        if self.status in {"skipped", "outcome_unknown", "failed", "cancelled"} and self.replaced:
+            raise ValueError(f"{self.status} transfer outcomes cannot report a replacement")
+        return self
 
 
 class DirectorySearchResult(BaseModel):

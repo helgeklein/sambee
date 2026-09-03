@@ -10,48 +10,74 @@
 import { translate } from "../../i18n";
 
 export const OVERWRITE_CONFLICT_STRINGS = {
-  // Dialog title
-  TITLE(isDirectory: boolean) {
-    return translate(isDirectory ? "fileBrowser.overwriteConflict.titleDirectory" : "fileBrowser.overwriteConflict.titleFile");
+  get TITLE() {
+    return translate("fileBrowser.overwriteConflict.title");
   },
 
-  // Info text
-  ALREADY_EXISTS(isDirectory: boolean) {
-    return translate(
-      isDirectory ? "fileBrowser.overwriteConflict.alreadyExistsDirectory" : "fileBrowser.overwriteConflict.alreadyExistsFile"
-    );
+  get LABEL_SOURCE_PATH() {
+    return translate("fileBrowser.overwriteConflict.labelSourcePath");
+  },
+  get LABEL_TARGET_NAME() {
+    return translate("fileBrowser.overwriteConflict.labelTargetName");
+  },
+  get LABEL_TARGET_DIRECTORY() {
+    return translate("fileBrowser.overwriteConflict.labelTargetDirectory");
   },
 
-  // Section header for metadata comparison
-  get LABEL_OPERATION() {
-    return translate("fileBrowser.overwriteConflict.labelOperation");
-  },
-  get LABEL_TARGET() {
-    return translate("fileBrowser.overwriteConflict.labelTarget");
-  },
-
-  // Column headers
   get LABEL_EXISTING() {
     return translate("fileBrowser.overwriteConflict.labelExisting");
   },
   get LABEL_INCOMING() {
     return translate("fileBrowser.overwriteConflict.labelIncoming");
   },
+  get LABEL_SIZE() {
+    return translate("fileBrowser.overwriteConflict.labelSize");
+  },
+  get LABEL_MODIFIED() {
+    return translate("fileBrowser.overwriteConflict.labelModified");
+  },
+  get METADATA_LABEL() {
+    return translate("fileBrowser.overwriteConflict.metadataLabel");
+  },
 
-  // Buttons
   get BUTTON_SKIP() {
-    return translate("common.actions.skip");
+    return translate("fileBrowser.overwriteConflict.resolutionSkip");
   },
-  get BUTTON_REPLACE() {
-    return translate("common.actions.replace");
+  get BUTTON_OVERWRITE() {
+    return translate("fileBrowser.overwriteConflict.resolutionOverwrite");
+  },
+  get BUTTON_OVERWRITE_ONLY_OLDER() {
+    return translate("fileBrowser.overwriteConflict.resolutionOverwriteOnlyOlder");
+  },
+  get BUTTON_RENAME() {
+    return translate("fileBrowser.overwriteConflict.resolutionRename");
+  },
+  get RESOLUTION_LABEL() {
+    return translate("fileBrowser.overwriteConflict.resolutionLabel");
   },
 
-  // "Apply to all" checkbox
   get APPLY_TO_ALL() {
     return translate("fileBrowser.overwriteConflict.applyToAll");
   },
+  get ERROR_TARGET_NAME_UNCHANGED() {
+    return translate("fileBrowser.overwriteConflict.targetNameUnchanged");
+  },
+  get ERROR_NO_RESOLUTION_AVAILABLE() {
+    return translate("fileBrowser.overwriteConflict.noResolutionAvailable");
+  },
+  CANCEL_OPERATION(operation: "copy" | "move" | "extract") {
+    return translate(
+      operation === "copy"
+        ? "fileBrowser.overwriteConflict.cancelCopy"
+        : operation === "move"
+          ? "fileBrowser.overwriteConflict.cancelMove"
+          : "fileBrowser.overwriteConflict.cancelExtraction"
+    );
+  },
+  get BUTTON_CONTINUE() {
+    return translate("fileBrowser.overwriteConflict.continue");
+  },
 
-  // Progress context
   PROGRESS_CONTEXT(current: number, total: number, conflicts: number) {
     return translate("fileBrowser.overwriteConflict.progressContext", { current, total, count: conflicts });
   },

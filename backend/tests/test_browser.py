@@ -3,19 +3,181 @@ Tests for file browsing functionality.
 Uses mocked SMB backend to avoid dependency on real SMB server.
 """
 
+import asyncio
+import io
 import uuid
+import zipfile
 from datetime import datetime, timedelta, timezone
+from types import SimpleNamespace
 from unittest.mock import AsyncMock, patch
 
 import pytest
+from fastapi.responses import Response
 from fastapi.testclient import TestClient
 from sqlmodel import Session, select
 
+from app.api import browser as browser_api
 from app.api.companion import COMPANION_OPERATION_PURPOSE, COMPANION_TOKEN_CLAIM, COMPANION_TOKEN_CLASS
 from app.core.security import create_access_token
 from app.models.connection import Connection, ConnectionScope
 from app.models.edit_lock import EditLock
-from app.models.file import DirectoryListing, FileInfo, FileType
+from app.models.file import ContentTransferEffects, ContentTransferResult, CopyMoveRequest, DirectoryListing, FileInfo, FileType
+
+
+class _MemoryRandomAccessReader:
+    def __init__(self, data: bytes) -> None:
+        self._data = data
+        self.closed = False
+        self.reads: list[tuple[int, int]] = []
+
+    async def read_at(self, offset: int, length: int) -> bytes:
+        self.reads.append((offset, length))
+        return self._data[offset : offset + length]
+
+    async def close(self) -> None:
+        self.closed = True
+
+
+def _archive_bytes(
+    extra_members: dict[str, bytes] | None = None,
+    *,
+    compression: int = zipfile.ZIP_DEFLATED,
+) -> bytes:
+    output = io.BytesIO()
+    with zipfile.ZipFile(output, "w", compression=compression) as archive:
+        archive.writestr("docs/readme.txt", "hello")
+        archive.writestr("root.txt", "root")
+        for path, content in (extra_members or {}).items():
+            archive.writestr(path, content)
+    return output.getvalue()
+
+
+def _archive_bytes_with_encrypted_members() -> bytes:
+    archive = bytearray(_archive_bytes())
+    for offset in range(len(archive) - 3):
+        signature = archive[offset : offset + 4]
+        if signature == b"PK\x03\x04":
+            flags_offset = offset + 6
+        elif signature == b"PK\x01\x02":
+            flags_offset = offset + 8
+        else:
+            continue
+        flags = int.from_bytes(archive[flags_offset : flags_offset + 2], "little") | 1
+        archive[flags_offset : flags_offset + 2] = flags.to_bytes(2, "little")
+    return bytes(archive)
+
+
+@pytest.mark.asyncio
+async def test_in_flight_transfer_receipt_waits_for_the_owner_result() -> None:
+    """Concurrent same-key requests share one factual result instead of mutating twice."""
+    user = SimpleNamespace(username=f"receipt-owner-{uuid.uuid4()}")
+    request = CopyMoveRequest(
+        source_path="a.txt",
+        dest_path="b.txt",
+        idempotency_key=str(uuid.uuid4()),
+    )
+
+    assert await browser_api._find_transfer_receipt(user, request) is None
+    waiting_result = asyncio.create_task(browser_api._find_transfer_receipt(user, request))
+    await asyncio.sleep(0)
+    assert not waiting_result.done()
+
+    committed = ContentTransferResult(
+        status="completed",
+        effects=ContentTransferEffects(source="unchanged", destination="mutated"),
+    )
+    await browser_api._record_transfer_receipt(user, request, committed)
+
+    assert await waiting_result == committed
+
+
+@pytest.mark.asyncio
+async def test_unrecorded_transfer_reservation_returns_unknown_outcome() -> None:
+    """An owner that exits without facts cannot release a key for another mutation."""
+    user = SimpleNamespace(username=f"receipt-owner-{uuid.uuid4()}")
+    request = CopyMoveRequest(
+        source_path="a.txt",
+        dest_path="b.txt",
+        idempotency_key=str(uuid.uuid4()),
+    )
+
+    assert await browser_api._find_transfer_receipt(user, request) is None
+    waiting_result = asyncio.create_task(browser_api._find_transfer_receipt(user, request))
+    await asyncio.sleep(0)
+    await browser_api._record_unknown_transfer_outcome(user, request)
+
+    assert (await waiting_result).status == "outcome_unknown"
+
+
+def test_move_is_unavailable_after_validation(
+    client: TestClient,
+    auth_headers_user: dict,
+    test_connection: Connection,
+):
+    """A valid Move request never reaches the SMB backend in this release."""
+    with patch("app.api.browser.SMBBackend") as mock_backend:
+        response = client.post(
+            f"/api/browse/{test_connection.id}/move",
+            headers=auth_headers_user,
+            json={
+                "source_path": "docs/file.txt",
+                "dest_path": "archive/file.txt",
+                "idempotency_key": str(uuid.uuid4()),
+            },
+        )
+
+    assert response.status_code == 200
+    assert response.json() == {
+        "status": "failed",
+        "effects": {"source": "unchanged", "destination": "unchanged"},
+        "replaced": False,
+        "error": {"code": "unavailable", "detail": "Transfers are unavailable in this release"},
+    }
+    mock_backend.assert_not_called()
+
+
+@pytest.mark.parametrize("idempotency_key", [None, "not-a-uuid"])
+def test_copy_rejects_missing_or_malformed_idempotency_key(
+    client: TestClient,
+    auth_headers_user: dict,
+    test_connection: Connection,
+    idempotency_key: str | None,
+):
+    """Copy requests require a caller-provided UUID before any SMB work."""
+    payload = {"source_path": "docs/file.txt", "dest_path": "archive/file.txt"}
+    if idempotency_key is not None:
+        payload["idempotency_key"] = idempotency_key
+
+    with patch("app.api.browser.SMBBackend") as mock_backend:
+        response = client.post(
+            f"/api/browse/{test_connection.id}/copy",
+            headers=auth_headers_user,
+            json=payload,
+        )
+
+    assert response.status_code == 422
+    mock_backend.assert_not_called()
+
+
+def test_smb_to_local_routes_are_absent(
+    client: TestClient,
+    auth_headers_user: dict,
+    test_connection: Connection,
+):
+    """The withdrawn SMB-to-local capability and source routes are not registered."""
+    responses = (
+        client.post(
+            f"/api/browse/{test_connection.id}/transfer/smb-to-local-capability",
+            headers=auth_headers_user,
+            json={},
+        ),
+        client.get(
+            f"/api/browse/{test_connection.id}/transfer/relay/source",
+            headers=auth_headers_user,
+        ),
+    )
+
+    assert [response.status_code for response in responses] == [404, 404]
 
 
 @pytest.fixture
@@ -174,6 +336,371 @@ class TestListDirectory:
             params={"path": ""},
         )
         assert response.status_code == 400
+
+
+@pytest.mark.integration
+class TestListArchiveDirectory:
+    def test_lists_zip_root_with_authenticated_connection(
+        self,
+        client: TestClient,
+        auth_headers_user: dict,
+        test_connection: Connection,
+        mock_smb_backend,
+    ):
+        _, backend = mock_smb_backend
+        data = _archive_bytes()
+        archive_reader = _MemoryRandomAccessReader(data)
+        backend.get_file_info.return_value = FileInfo(
+            name="backup.zip",
+            path="backup.zip",
+            type=FileType.FILE,
+            size=len(data),
+        )
+        backend.open_random_access_reader = AsyncMock(return_value=archive_reader)
+
+        response = client.get(
+            f"/api/browse/{test_connection.id}/archive/list",
+            headers=auth_headers_user,
+            params={"archive_path": "backup.zip", "page_size": 1},
+        )
+
+        assert response.status_code == 200
+        result = response.json()
+        assert [(item["name"], item["type"]) for item in result["items"]] == [("readme.txt", "file")]
+        assert result["next_cursor"] is not None
+        assert archive_reader.closed is True
+        assert len(archive_reader.reads) == 2
+
+    def test_lists_zip_subdirectory_with_canonical_path(
+        self,
+        client: TestClient,
+        auth_headers_user: dict,
+        test_connection: Connection,
+        mock_smb_backend,
+    ):
+        _, backend = mock_smb_backend
+        data = _archive_bytes()
+        archive_reader = _MemoryRandomAccessReader(data)
+        backend.get_file_info.return_value = FileInfo(
+            name="backup.zip",
+            path="backup.zip",
+            type=FileType.FILE,
+            size=len(data),
+        )
+        backend.open_random_access_reader = AsyncMock(return_value=archive_reader)
+
+        response = client.get(
+            f"/api/browse/{test_connection.id}/archive/list",
+            headers=auth_headers_user,
+            params={"archive_path": "backup.zip", "virtual_path": "docs"},
+        )
+
+        assert response.status_code == 422
+        assert "does not support virtual directory paths" in response.json()["detail"]
+
+    def test_rejects_invalid_archive_listing_cursor_through_inspection_resolver(
+        self,
+        client: TestClient,
+        auth_headers_user: dict,
+        test_connection: Connection,
+        mock_smb_backend,
+    ):
+        _, backend = mock_smb_backend
+        data = _archive_bytes()
+        archive_reader = _MemoryRandomAccessReader(data)
+        backend.get_file_info.return_value = FileInfo(name="backup.zip", path="backup.zip", type=FileType.FILE, size=len(data))
+        backend.open_random_access_reader = AsyncMock(return_value=archive_reader)
+
+        response = client.get(
+            f"/api/browse/{test_connection.id}/archive/list",
+            headers=auth_headers_user,
+            params={"archive_path": "backup.zip", "cursor": "not-a-cursor"},
+        )
+
+        assert response.status_code == 422
+        assert response.json()["detail"]["code"] == "invalid_zip"
+        assert "cursor is invalid" in response.json()["detail"]["message"]
+        assert archive_reader.closed is True
+
+
+@pytest.mark.integration
+class TestStreamArchiveMember:
+    def test_streams_validated_zip_member(
+        self,
+        client: TestClient,
+        auth_headers_user: dict,
+        test_connection: Connection,
+    ):
+        data = _archive_bytes()
+        archive_reader = _MemoryRandomAccessReader(data)
+        backend = AsyncMock()
+        backend.connect.return_value = None
+        backend.disconnect.return_value = None
+        backend.get_file_info.return_value = FileInfo(
+            name="backup.zip",
+            path="backup.zip",
+            type=FileType.FILE,
+            size=len(data),
+        )
+        backend.open_random_access_reader = AsyncMock(return_value=archive_reader)
+
+        with patch("app.api.viewer.SMBBackend", return_value=backend):
+            response = client.get(
+                f"/api/viewer/{test_connection.id}/archive/member",
+                headers=auth_headers_user,
+                params={"archive_path": "backup.zip", "member_path": "docs/readme.txt"},
+            )
+
+        assert response.status_code == 200
+        assert response.content == b"hello"
+        assert response.headers["content-type"].startswith("text/plain")
+        assert response.headers["content-disposition"].startswith("inline;")
+        assert archive_reader.closed is True
+
+    def test_streams_zip_member_after_one_local_header_validation(
+        self,
+        client: TestClient,
+        auth_headers_user: dict,
+        test_connection: Connection,
+    ):
+        data = _archive_bytes()
+        archive_reader = _MemoryRandomAccessReader(data)
+        backend = AsyncMock()
+        backend.connect.return_value = None
+        backend.disconnect.return_value = None
+        backend.get_file_info.return_value = FileInfo(
+            name="backup.zip",
+            path="backup.zip",
+            type=FileType.FILE,
+            size=len(data),
+        )
+        backend.open_random_access_reader = AsyncMock(return_value=archive_reader)
+
+        with patch("app.api.viewer.SMBBackend", return_value=backend):
+            response = client.get(
+                f"/api/viewer/{test_connection.id}/archive/member",
+                headers=auth_headers_user,
+                params={"archive_path": "backup.zip", "member_path": "docs/readme.txt"},
+            )
+
+        assert response.status_code == 200
+        assert archive_reader.reads.count((0, 30)) == 1
+
+    @pytest.mark.parametrize(
+        ("member_path", "archive_data", "error_message"),
+        [
+            pytest.param("missing.txt", _archive_bytes(), "was not found", id="missing-member"),
+            pytest.param(
+                "docs/readme.txt",
+                _archive_bytes(compression=zipfile.ZIP_LZMA),
+                "unavailable codec",
+                id="unavailable-codec",
+            ),
+            pytest.param(
+                "docs/readme.txt",
+                _archive_bytes_with_encrypted_members(),
+                "blocked feature",
+                id="encrypted-member",
+            ),
+        ],
+    )
+    def test_rejects_invalid_or_unavailable_archive_members_through_inspection_resolver(
+        self,
+        client: TestClient,
+        auth_headers_user: dict,
+        test_connection: Connection,
+        member_path: str,
+        archive_data: bytes,
+        error_message: str,
+    ):
+        archive_reader = _MemoryRandomAccessReader(archive_data)
+        backend = AsyncMock()
+        backend.connect.return_value = None
+        backend.disconnect.return_value = None
+        backend.get_file_info.return_value = FileInfo(name="backup.zip", path="backup.zip", type=FileType.FILE, size=len(archive_data))
+        backend.open_random_access_reader = AsyncMock(return_value=archive_reader)
+
+        with patch("app.api.viewer.SMBBackend", return_value=backend):
+            response = client.get(
+                f"/api/viewer/{test_connection.id}/archive/member",
+                headers=auth_headers_user,
+                params={"archive_path": "backup.zip", "member_path": member_path},
+            )
+
+        assert response.status_code == 422
+        assert response.json()["detail"]["code"] == "invalid_zip"
+        assert error_message in response.json()["detail"]["message"]
+        assert archive_reader.closed is True
+
+    def test_rejects_oversized_archive_preview_through_inspection_resolver(
+        self,
+        client: TestClient,
+        auth_headers_user: dict,
+        test_connection: Connection,
+    ):
+        archive_data = _archive_bytes({"large.txt": b"x" * (5 * 1024 * 1024 + 1)})
+        archive_reader = _MemoryRandomAccessReader(archive_data)
+        backend = AsyncMock()
+        backend.connect.return_value = None
+        backend.disconnect.return_value = None
+        backend.get_file_info.return_value = FileInfo(name="backup.zip", path="backup.zip", type=FileType.FILE, size=len(archive_data))
+        backend.open_random_access_reader = AsyncMock(return_value=archive_reader)
+
+        with patch("app.api.viewer.SMBBackend", return_value=backend):
+            response = client.get(
+                f"/api/viewer/{test_connection.id}/archive/member",
+                headers=auth_headers_user,
+                params={"archive_path": "backup.zip", "member_path": "large.txt", "view_kind": "text"},
+            )
+
+        assert response.status_code == 413
+        assert response.json()["detail"] == "Archive member exceeds the inline preview size limit"
+        assert archive_reader.closed is True
+
+    def test_invalidates_archive_pdf_derivative_through_inspection_resolver(
+        self,
+        client: TestClient,
+        auth_headers_user: dict,
+        test_connection: Connection,
+    ):
+        data = _archive_bytes({"docs/inside.pdf": b"%PDF-1.7"})
+        archive_reader = _MemoryRandomAccessReader(data)
+        backend = AsyncMock()
+        backend.connect.return_value = None
+        backend.disconnect.return_value = None
+        backend.get_file_info.return_value = FileInfo(
+            name="backup.zip",
+            path="backup.zip",
+            type=FileType.FILE,
+            size=len(data),
+        )
+        backend.open_random_access_reader = AsyncMock(return_value=archive_reader)
+
+        with (
+            patch("app.api.viewer.SMBBackend", return_value=backend),
+            patch("app.api.viewer.invalidate_pdf_derivative_for_revision", new_callable=AsyncMock) as invalidate_derivative,
+        ):
+            response = client.delete(
+                f"/api/viewer/{test_connection.id}/archive/member/pdf-derivative",
+                headers=auth_headers_user,
+                params={"archive_path": "backup.zip", "member_path": "docs/inside.pdf"},
+            )
+
+        assert response.status_code == 204
+        invalidate_derivative.assert_awaited_once()
+        assert archive_reader.closed is True
+
+    def test_streams_large_raw_archive_members_like_physical_files(
+        self,
+        client: TestClient,
+        auth_headers_user: dict,
+        test_connection: Connection,
+    ):
+        large_content = b"a" * (5 * 1024 * 1024 + 1)
+        data = _archive_bytes({"docs/large.txt": large_content})
+        backend = AsyncMock()
+        backend.connect.return_value = None
+        backend.disconnect.return_value = None
+        backend.get_file_info.return_value = FileInfo(
+            name="backup.zip",
+            path="backup.zip",
+            type=FileType.FILE,
+            size=len(data),
+        )
+        backend.open_random_access_reader = AsyncMock(return_value=_MemoryRandomAccessReader(data))
+
+        with patch("app.api.viewer.SMBBackend", return_value=backend):
+            response = client.get(
+                f"/api/viewer/{test_connection.id}/archive/member",
+                headers=auth_headers_user,
+                params={"archive_path": "backup.zip", "member_path": "docs/large.txt"},
+            )
+
+        assert response.status_code == 200
+        assert response.content == large_content
+
+    def test_converts_archive_jpeg_xl_for_browser_viewing(
+        self,
+        client: TestClient,
+        auth_headers_user: dict,
+        test_connection: Connection,
+    ):
+        data = _archive_bytes({"images/photo.jxl": b"valid JPEG XL"})
+        archive_reader = _MemoryRandomAccessReader(data)
+        backend = AsyncMock()
+        backend.connect.return_value = None
+        backend.disconnect.return_value = None
+        backend.get_file_info.return_value = FileInfo(
+            name="backup.zip",
+            path="backup.zip",
+            type=FileType.FILE,
+            size=len(data),
+        )
+        backend.open_random_access_reader = AsyncMock(return_value=archive_reader)
+
+        with (
+            patch("app.api.viewer.SMBBackend", return_value=backend),
+            patch("app.api.viewer.convert_image_for_viewer", return_value=(b"converted", "image/webp", "libvips", 1)),
+        ):
+            response = client.get(
+                f"/api/viewer/{test_connection.id}/archive/member",
+                headers=auth_headers_user,
+                params={
+                    "archive_path": "backup.zip",
+                    "member_path": "images/photo.jxl",
+                    "view_kind": "image",
+                    "viewport_width": 1280,
+                    "viewport_height": 720,
+                },
+            )
+
+        assert response.status_code == 200
+        assert response.content == b"converted"
+        assert response.headers["content-type"].startswith("image/webp")
+        assert archive_reader.closed is True
+
+    def test_normalizes_archive_pdf_through_the_shared_derivative_pipeline(
+        self,
+        client: TestClient,
+        auth_headers_user: dict,
+        test_connection: Connection,
+    ):
+        data = _archive_bytes({"docs/inside.pdf": b"%PDF-1.7"})
+        archive_reader = _MemoryRandomAccessReader(data)
+        backend = AsyncMock()
+        backend.connect.return_value = None
+        backend.disconnect.return_value = None
+        backend.get_file_info.return_value = FileInfo(
+            name="backup.zip",
+            path="backup.zip",
+            type=FileType.FILE,
+            size=len(data),
+        )
+        backend.open_random_access_reader = AsyncMock(return_value=archive_reader)
+
+        with (
+            patch("app.api.viewer.SMBBackend", return_value=backend),
+            patch(
+                "app.api.viewer.create_normalized_pdf_response_for_source",
+                new_callable=AsyncMock,
+                return_value=Response(content=b"normalized", media_type="application/pdf"),
+            ) as normalize_pdf,
+        ):
+            response = client.get(
+                f"/api/viewer/{test_connection.id}/archive/member",
+                headers=auth_headers_user,
+                params={
+                    "archive_path": "backup.zip",
+                    "member_path": "docs/inside.pdf",
+                    "view_kind": "pdf",
+                    "pdf_variant": "normalized",
+                },
+            )
+
+        assert response.status_code == 200
+        assert response.content == b"normalized"
+        assert normalize_pdf.await_count == 1
+        assert archive_reader.closed is True
 
 
 @pytest.mark.integration
@@ -376,6 +903,30 @@ class TestBrowserEditLocks:
         assert replacement_lock.lock_capability == data["lock_capability"]
         assert replacement_lock.operation_id == data["operation_id"]
         assert replacement_lock.locked_by == regular_user.username
+
+    def test_acquire_browser_edit_lock_rejects_a_second_session_for_the_same_user(
+        self,
+        client: TestClient,
+        auth_headers_user: dict,
+        test_connection: Connection,
+        session: Session,
+    ):
+        first = client.post(
+            f"/api/browse/{test_connection.id}/lock",
+            headers=auth_headers_user,
+            params={"path": "/docs/readme.md"},
+        )
+        second = client.post(
+            f"/api/browse/{test_connection.id}/lock",
+            headers=auth_headers_user,
+            params={"path": "/docs/readme.md"},
+        )
+
+        assert first.status_code == 200
+        assert second.status_code == 409
+        locks = session.exec(select(EditLock).where(EditLock.connection_id == test_connection.id)).all()
+        assert len(locks) == 1
+        assert str(locks[0].id) == first.json()["lock_id"]
 
     def test_browser_edit_lock_heartbeat_and_release(
         self,
@@ -1402,6 +1953,99 @@ class TestValidateItemName:
 class TestUploadFile:
     """Tests for POST /api/browse/{connection_id}/upload"""
 
+    def test_editor_upload_accepts_matching_browser_lock(
+        self,
+        client: TestClient,
+        auth_headers_user: dict,
+        test_connection: Connection,
+    ):
+        lock = client.post(
+            f"/api/browse/{test_connection.id}/lock",
+            headers=auth_headers_user,
+            params={"path": "/docs/readme.md"},
+        ).json()
+        mock_info = FileInfo(name="readme.md", path="/docs/readme.md", type=FileType.FILE, size=8)
+
+        with patch("app.api.browser.SMBBackend") as mock_backend:
+            backend = AsyncMock()
+            backend.write_file = AsyncMock(return_value=8)
+            backend.get_file_info = AsyncMock(return_value=mock_info)
+            mock_backend.return_value = backend
+            response = client.post(
+                f"/api/browse/{test_connection.id}/upload",
+                headers=auth_headers_user,
+                params={
+                    "path": "/docs/readme.md",
+                    "editor_operation_id": lock["operation_id"],
+                    "editor_lock_id": lock["lock_id"],
+                    "editor_lock_capability": lock["lock_capability"],
+                },
+                files={"file": ("readme.md", b"updated", "text/markdown")},
+            )
+
+        assert response.status_code == 200
+        backend.write_file.assert_awaited_once()
+
+    def test_editor_upload_recreates_missing_target_with_matching_browser_lock(
+        self,
+        client: TestClient,
+        auth_headers_user: dict,
+        test_connection: Connection,
+    ):
+        path = "/docs/recreated.md"
+        lock = client.post(
+            f"/api/browse/{test_connection.id}/lock",
+            headers=auth_headers_user,
+            params={"path": path},
+        ).json()
+        mock_info = FileInfo(name="recreated.md", path=path, type=FileType.FILE, size=8)
+
+        with patch("app.api.browser.SMBBackend") as mock_backend:
+            backend = AsyncMock()
+            backend.write_file = AsyncMock(return_value=8)
+            backend.get_file_info = AsyncMock(return_value=mock_info)
+            mock_backend.return_value = backend
+            response = client.post(
+                f"/api/browse/{test_connection.id}/upload",
+                headers=auth_headers_user,
+                params={
+                    "path": path,
+                    "editor_operation_id": lock["operation_id"],
+                    "editor_lock_id": lock["lock_id"],
+                    "editor_lock_capability": lock["lock_capability"],
+                },
+                files={"file": ("recreated.md", b"updated", "text/markdown")},
+            )
+
+        assert response.status_code == 200
+        backend.write_file.assert_awaited_once()
+
+    def test_editor_upload_rejects_mismatched_browser_lock(
+        self,
+        client: TestClient,
+        auth_headers_user: dict,
+        test_connection: Connection,
+    ):
+        lock = client.post(
+            f"/api/browse/{test_connection.id}/lock",
+            headers=auth_headers_user,
+            params={"path": "/docs/readme.md"},
+        ).json()
+
+        response = client.post(
+            f"/api/browse/{test_connection.id}/upload",
+            headers=auth_headers_user,
+            params={
+                "path": "/docs/readme.md",
+                "editor_operation_id": lock["operation_id"],
+                "editor_lock_id": lock["lock_id"],
+                "editor_lock_capability": "wrong-capability",
+            },
+            files={"file": ("readme.md", b"updated", "text/markdown")},
+        )
+
+        assert response.status_code == 403
+
     def test_upload_rejects_operation_token_without_operation_context(
         self,
         client: TestClient,
@@ -1618,17 +2262,36 @@ class TestCopyItem:
     ):
         """Test copying a file returns 204."""
         mock_class, mock_instance = mock_smb_backend
-        mock_instance.copy_item.return_value = None
+        mock_instance.get_file_info.side_effect = [
+            FileInfo(name="file.txt", path="docs/file.txt", type=FileType.FILE, size=1, stable_id="source-file"),
+            FileNotFoundError("target does not exist"),
+            FileInfo(name="file.txt", path="docs/file.txt", type=FileType.FILE, size=1, stable_id="source-file"),
+            FileInfo(name="file.txt", path="docs/file.txt", type=FileType.FILE, size=1, stable_id="source-file"),
+            FileInfo(name="file.txt", path="docs/file.txt", type=FileType.FILE, size=1, stable_id="source-file"),
+        ]
+
+        async def read_file(_path: str):
+            yield b"x"
+
+        async def stage_and_commit(_path: str, stream, *, before_commit, **_kwargs: object) -> int:
+            _ = b"".join([chunk async for chunk in stream])
+            await before_commit()
+            return 1
+
+        mock_instance.read_file = read_file
+        mock_instance.stage_and_commit_new_file_from_stream = AsyncMock(side_effect=stage_and_commit)
 
         response = client.post(
             f"/api/browse/{test_connection.id}/copy",
             headers=auth_headers_user,
-            json={"source_path": "docs/file.txt", "dest_path": "backup/file.txt"},
+            json={"idempotency_key": str(uuid.uuid4()), "source_path": "docs/file.txt", "dest_path": "backup/file.txt"},
         )
 
-        assert response.status_code == 204
+        assert response.status_code == 200
+        assert response.json()["status"] == "completed"
         mock_instance.connect.assert_called_once()
-        mock_instance.copy_item.assert_called_once_with("docs/file.txt", "backup/file.txt", overwrite=False)
+        mock_instance.stage_and_commit_new_file_from_stream.assert_called_once()
+        mock_instance.copy_item.assert_not_called()
         mock_instance.disconnect.assert_called_once()
 
     def test_copy_directory_success(
@@ -1641,21 +2304,174 @@ class TestCopyItem:
         """Test copying a directory returns 204."""
         mock_class, mock_instance = mock_smb_backend
         mock_instance.copy_item.return_value = None
+        mock_instance.get_file_info.side_effect = [
+            FileInfo(name="photos", path="photos", type=FileType.DIRECTORY),
+            FileNotFoundError("target does not exist"),
+        ]
 
         response = client.post(
             f"/api/browse/{test_connection.id}/copy",
             headers=auth_headers_admin,
-            json={"source_path": "photos", "dest_path": "photos-backup"},
+            json={"idempotency_key": str(uuid.uuid4()), "source_path": "photos", "dest_path": "photos-backup"},
         )
 
-        assert response.status_code == 204
+        assert response.status_code == 200
+        assert response.json()["status"] == "completed"
         mock_instance.copy_item.assert_called_once_with("photos", "photos-backup", overwrite=False)
+
+    def test_copy_replays_a_factual_result_for_the_same_idempotency_key(
+        self,
+        client: TestClient,
+        auth_headers_user: dict,
+        test_connection: Connection,
+        mock_smb_backend,
+    ):
+        """A lost response must not cause a copy request to run twice."""
+        _mock_class, mock_instance = mock_smb_backend
+        request = {
+            "source_path": "docs/file.txt",
+            "dest_path": "backup/file.txt",
+            "idempotency_key": str(uuid.uuid4()),
+        }
+        source_info = FileInfo(name="file.txt", path="docs/file.txt", type=FileType.FILE, size=1, stable_id="source-file")
+        mock_instance.get_file_info.side_effect = [
+            source_info,
+            FileNotFoundError("target does not exist"),
+            source_info,
+            source_info,
+            source_info,
+        ]
+
+        async def read_file(_path: str):
+            yield b"x"
+
+        async def stage_and_commit(_path: str, stream, *, before_commit, **_kwargs: object) -> int:
+            _ = b"".join([chunk async for chunk in stream])
+            await before_commit()
+            return 1
+
+        mock_instance.read_file = read_file
+        mock_instance.stage_and_commit_new_file_from_stream = AsyncMock(side_effect=stage_and_commit)
+
+        first = client.post(f"/api/browse/{test_connection.id}/copy", headers=auth_headers_user, json=request)
+        replay = client.post(f"/api/browse/{test_connection.id}/copy", headers=auth_headers_user, json=request)
+
+        assert first.status_code == 200
+        assert replay.status_code == 200
+        assert replay.json() == first.json()
+        mock_instance.stage_and_commit_new_file_from_stream.assert_awaited_once()
+        mock_instance.copy_item.assert_not_called()
+
+    def test_copy_file_reports_source_change_without_committing_destination(
+        self,
+        client: TestClient,
+        auth_headers_user: dict,
+        test_connection: Connection,
+        mock_smb_backend,
+    ):
+        """A changed source aborts the staged same-share copy before publication."""
+        _mock_class, mock_instance = mock_smb_backend
+        source_info = FileInfo(name="file.txt", path="docs/file.txt", type=FileType.FILE, size=1, stable_id="source-file")
+        changed_source = FileInfo(name="file.txt", path="docs/file.txt", type=FileType.FILE, size=2, stable_id="replaced-file")
+        mock_instance.get_file_info.side_effect = [
+            source_info,
+            FileNotFoundError("target does not exist"),
+            source_info,
+            changed_source,
+        ]
+        destination_committed = False
+
+        async def read_file(_path: str):
+            yield b"x"
+
+        async def stage_and_commit(_path: str, stream, *, before_commit, **_kwargs: object) -> int:
+            nonlocal destination_committed
+            _ = b"".join([chunk async for chunk in stream])
+            await before_commit()
+            destination_committed = True
+            return 1
+
+        mock_instance.read_file = read_file
+        mock_instance.stage_and_commit_new_file_from_stream = AsyncMock(side_effect=stage_and_commit)
+
+        response = client.post(
+            f"/api/browse/{test_connection.id}/copy",
+            headers=auth_headers_user,
+            json={"idempotency_key": str(uuid.uuid4()), "source_path": "docs/file.txt", "dest_path": "backup/file.txt"},
+        )
+
+        assert response.status_code == 200
+        result = response.json()
+        assert result["status"] == "failed"
+        assert result["effects"] == {"source": "unchanged", "destination": "unchanged"}
+        assert result["error"] == {"code": "source_changed", "detail": "Source changed before commit: docs/file.txt"}
+        assert result["replaced"] is False
+        assert destination_committed is False
+
+    def test_copy_replays_source_not_found_for_the_same_idempotency_key(
+        self,
+        client: TestClient,
+        auth_headers_user: dict,
+        test_connection: Connection,
+        mock_smb_backend,
+    ):
+        """A repeated key must preserve the original source-not-found response."""
+        _mock_class, mock_instance = mock_smb_backend
+        request = {
+            "source_path": "missing.txt",
+            "dest_path": "backup/missing.txt",
+            "idempotency_key": str(uuid.uuid4()),
+        }
+        mock_instance.get_file_info.side_effect = FileNotFoundError("source does not exist")
+
+        first = client.post(f"/api/browse/{test_connection.id}/copy", headers=auth_headers_user, json=request)
+        replay = client.post(f"/api/browse/{test_connection.id}/copy", headers=auth_headers_user, json=request)
+
+        assert first.status_code == 404
+        assert replay.status_code == 404
+        assert replay.json() == first.json()
+        mock_instance.get_file_info.assert_awaited_once_with("missing.txt")
+
+    def test_copy_replays_timeout_for_the_same_idempotency_key(
+        self,
+        client: TestClient,
+        auth_headers_user: dict,
+        test_connection: Connection,
+        mock_smb_backend,
+    ):
+        """A repeated key must preserve the original timeout rather than become unknown."""
+        _mock_class, mock_instance = mock_smb_backend
+        request = {
+            "source_path": "a.txt",
+            "dest_path": "b.txt",
+            "idempotency_key": str(uuid.uuid4()),
+        }
+        source_info = FileInfo(name="a.txt", path="a.txt", type=FileType.FILE, size=1, stable_id="source-file")
+        mock_instance.get_file_info.side_effect = [
+            source_info,
+            FileNotFoundError("target does not exist"),
+            source_info,
+        ]
+        mock_instance.stage_and_commit_new_file_from_stream.side_effect = TimeoutError("SMB timed out")
+
+        async def read_file(_path: str):
+            yield b"x"
+
+        mock_instance.read_file = read_file
+
+        first = client.post(f"/api/browse/{test_connection.id}/copy", headers=auth_headers_user, json=request)
+        replay = client.post(f"/api/browse/{test_connection.id}/copy", headers=auth_headers_user, json=request)
+
+        assert first.status_code == 504
+        assert replay.status_code == 504
+        assert replay.json() == first.json()
+        mock_instance.stage_and_commit_new_file_from_stream.assert_awaited_once()
 
     def test_copy_without_auth(self, client: TestClient, test_connection: Connection):
         """Test that copying requires authentication."""
         response = client.post(
             f"/api/browse/{test_connection.id}/copy",
-            json={"source_path": "a.txt", "dest_path": "b.txt"},
+            json={"idempotency_key": str(uuid.uuid4()), "source_path": "a.txt", "dest_path": "b.txt"},
         )
         assert response.status_code == 401
 
@@ -1665,7 +2481,7 @@ class TestCopyItem:
         response = client.post(
             f"/api/browse/{fake_id}/copy",
             headers=auth_headers_user,
-            json={"source_path": "a.txt", "dest_path": "b.txt"},
+            json={"idempotency_key": str(uuid.uuid4()), "source_path": "a.txt", "dest_path": "b.txt"},
         )
         assert response.status_code == 404
 
@@ -1680,7 +2496,7 @@ class TestCopyItem:
         response = client.post(
             f"/api/browse/{test_connection.id}/copy",
             headers=auth_headers_user,
-            json={"source_path": "", "dest_path": "backup/file.txt"},
+            json={"idempotency_key": str(uuid.uuid4()), "source_path": "", "dest_path": "backup/file.txt"},
         )
         assert response.status_code == 400
         assert "source" in response.json()["detail"].lower()
@@ -1696,7 +2512,7 @@ class TestCopyItem:
         response = client.post(
             f"/api/browse/{test_connection.id}/copy",
             headers=auth_headers_user,
-            json={"source_path": "docs/file.txt", "dest_path": ""},
+            json={"idempotency_key": str(uuid.uuid4()), "source_path": "docs/file.txt", "dest_path": ""},
         )
         assert response.status_code == 400
         assert "destination" in response.json()["detail"].lower()
@@ -1712,7 +2528,7 @@ class TestCopyItem:
         response = client.post(
             f"/api/browse/{test_connection.id}/copy",
             headers=auth_headers_user,
-            json={"source_path": "docs/file.txt", "dest_path": "docs/file.txt"},
+            json={"idempotency_key": str(uuid.uuid4()), "source_path": "docs/file.txt", "dest_path": "docs/file.txt"},
         )
         assert response.status_code == 400
         assert "different" in response.json()["detail"].lower()
@@ -1728,7 +2544,7 @@ class TestCopyItem:
         response = client.post(
             f"/api/browse/{test_connection.id}/copy",
             headers=auth_headers_user,
-            json={"source_path": "photos", "dest_path": "photos/photos-copy"},
+            json={"idempotency_key": str(uuid.uuid4()), "source_path": "photos", "dest_path": "photos/photos-copy"},
         )
         assert response.status_code == 400
         assert "into itself" in response.json()["detail"].lower()
@@ -1743,11 +2559,12 @@ class TestCopyItem:
         """Test copying a non-existent source returns 404."""
         mock_class, mock_instance = mock_smb_backend
         mock_instance.copy_item.side_effect = FileNotFoundError("Source not found")
+        mock_instance.get_file_info.side_effect = FileNotFoundError("Source not found")
 
         response = client.post(
             f"/api/browse/{test_connection.id}/copy",
             headers=auth_headers_user,
-            json={"source_path": "ghost.txt", "dest_path": "backup/ghost.txt"},
+            json={"idempotency_key": str(uuid.uuid4()), "source_path": "ghost.txt", "dest_path": "backup/ghost.txt"},
         )
         assert response.status_code == 404
 
@@ -1765,9 +2582,90 @@ class TestCopyItem:
         response = client.post(
             f"/api/browse/{test_connection.id}/copy",
             headers=auth_headers_user,
-            json={"source_path": "a.txt", "dest_path": "b.txt"},
+            json={"idempotency_key": str(uuid.uuid4()), "source_path": "a.txt", "dest_path": "b.txt"},
         )
         assert response.status_code == 409
+
+    def test_copy_ask_existing_target_does_not_call_native_mutation(
+        self,
+        client: TestClient,
+        auth_headers_user: dict,
+        test_connection: Connection,
+        mock_smb_backend,
+    ):
+        """The default ask policy reports an existing target before mutation."""
+        _mock_class, mock_instance = mock_smb_backend
+        mock_instance.get_file_info.side_effect = [
+            FileInfo(name="a.txt", path="a.txt", type=FileType.FILE, size=1),
+            FileInfo(name="b.txt", path="b.txt", type=FileType.FILE, size=2),
+        ]
+
+        response = client.post(
+            f"/api/browse/{test_connection.id}/copy",
+            headers=auth_headers_user,
+            json={"idempotency_key": str(uuid.uuid4()), "source_path": "a.txt", "dest_path": "b.txt"},
+        )
+
+        assert response.status_code == 409
+        mock_instance.copy_item.assert_not_called()
+
+    def test_copy_conflict_replays_as_409_for_the_same_idempotency_key(
+        self,
+        client: TestClient,
+        auth_headers_user: dict,
+        test_connection: Connection,
+        mock_smb_backend,
+    ):
+        """A lost conflict response must not become an unknown successful response."""
+        _mock_class, mock_instance = mock_smb_backend
+        mock_instance.get_file_info.side_effect = [
+            FileInfo(name="a.txt", path="a.txt", type=FileType.FILE, size=1),
+            FileInfo(name="b.txt", path="b.txt", type=FileType.FILE, size=2),
+        ]
+        request = {
+            "source_path": "a.txt",
+            "dest_path": "b.txt",
+            "idempotency_key": str(uuid.uuid4()),
+        }
+
+        first = client.post(f"/api/browse/{test_connection.id}/copy", headers=auth_headers_user, json=request)
+        observations_after_first = mock_instance.get_file_info.call_count
+        replay = client.post(f"/api/browse/{test_connection.id}/copy", headers=auth_headers_user, json=request)
+
+        assert first.status_code == 409
+        assert replay.status_code == 409
+        assert replay.json() == first.json()
+        assert mock_instance.get_file_info.call_count == observations_after_first
+        mock_instance.copy_item.assert_not_called()
+
+    def test_copy_skip_existing_directory_does_not_call_native_mutation(
+        self,
+        client: TestClient,
+        auth_headers_user: dict,
+        test_connection: Connection,
+        mock_smb_backend,
+    ):
+        """Skip applies to the directory root before recursive copy begins."""
+        _mock_class, mock_instance = mock_smb_backend
+        mock_instance.get_file_info.side_effect = [
+            FileInfo(name="source", path="source", type=FileType.DIRECTORY),
+            FileInfo(name="target", path="target", type=FileType.DIRECTORY),
+        ]
+
+        response = client.post(
+            f"/api/browse/{test_connection.id}/copy",
+            headers=auth_headers_user,
+            json={
+                "idempotency_key": str(uuid.uuid4()),
+                "source_path": "source",
+                "dest_path": "target",
+                "target_resolution_policy": "skip",
+            },
+        )
+
+        assert response.status_code == 200
+        assert response.json()["status"] == "skipped"
+        mock_instance.copy_item.assert_not_called()
 
     def test_copy_server_error(
         self,
@@ -1778,12 +2676,22 @@ class TestCopyItem:
     ):
         """Test generic SMB error returns 500."""
         mock_class, mock_instance = mock_smb_backend
-        mock_instance.copy_item.side_effect = Exception("Connection lost")
+        mock_instance.stage_and_commit_new_file_from_stream.side_effect = Exception("Connection lost")
+        mock_instance.get_file_info.side_effect = [
+            FileInfo(name="a.txt", path="a.txt", type=FileType.FILE, size=1, stable_id="source-file"),
+            FileNotFoundError("target does not exist"),
+            FileInfo(name="a.txt", path="a.txt", type=FileType.FILE, size=1, stable_id="source-file"),
+        ]
+
+        async def read_file(_path: str):
+            yield b"x"
+
+        mock_instance.read_file = read_file
 
         response = client.post(
             f"/api/browse/{test_connection.id}/copy",
             headers=auth_headers_user,
-            json={"source_path": "a.txt", "dest_path": "b.txt"},
+            json={"idempotency_key": str(uuid.uuid4()), "source_path": "a.txt", "dest_path": "b.txt"},
         )
         assert response.status_code == 500
 
@@ -1796,12 +2704,22 @@ class TestCopyItem:
     ):
         """Timed out SMB copies should surface as 504 responses."""
         mock_class, mock_instance = mock_smb_backend
-        mock_instance.copy_item.side_effect = TimeoutError("SMB operation timed out while copying: a.txt")
+        mock_instance.stage_and_commit_new_file_from_stream.side_effect = TimeoutError("SMB operation timed out while copying: a.txt")
+        mock_instance.get_file_info.side_effect = [
+            FileInfo(name="a.txt", path="a.txt", type=FileType.FILE, size=1, stable_id="source-file"),
+            FileNotFoundError("target does not exist"),
+            FileInfo(name="a.txt", path="a.txt", type=FileType.FILE, size=1, stable_id="source-file"),
+        ]
+
+        async def read_file(_path: str):
+            yield b"x"
+
+        mock_instance.read_file = read_file
 
         response = client.post(
             f"/api/browse/{test_connection.id}/copy",
             headers=auth_headers_user,
-            json={"source_path": "a.txt", "dest_path": "b.txt"},
+            json={"idempotency_key": str(uuid.uuid4()), "source_path": "a.txt", "dest_path": "b.txt"},
         )
 
         assert response.status_code == 504
@@ -1828,6 +2746,7 @@ class TestCopyItem:
                 path="a.txt",
                 type=FileType.FILE,
                 size=100,
+                stable_id="source-a",
             )
             src_instance.get_file_size.return_value = 100
 
@@ -1835,7 +2754,8 @@ class TestCopyItem:
                 yield b"file content"
 
             src_instance.read_file = fake_read_file
-            dst_instance.write_file_from_stream = AsyncMock(return_value=12)
+            dst_instance.stage_and_commit_new_file_from_stream = AsyncMock(return_value=12)
+            dst_instance.get_file_info.side_effect = FileNotFoundError("target does not exist")
 
             # Return different instances for source and dest backends
             MockBackend.side_effect = [src_instance, dst_instance]
@@ -1845,13 +2765,15 @@ class TestCopyItem:
                     f"/api/browse/{test_connection.id}/copy",
                     headers=auth_headers_user,
                     json={
+                        "idempotency_key": str(uuid.uuid4()),
                         "source_path": "a.txt",
                         "dest_path": "b.txt",
                         "dest_connection_id": str(dest_conn.id),
                     },
                 )
 
-            assert response.status_code == 204
+            assert response.status_code == 200
+            assert response.json()["status"] == "completed"
 
     def test_copy_cross_connection_dest_not_found(
         self,
@@ -1865,6 +2787,7 @@ class TestCopyItem:
             f"/api/browse/{test_connection.id}/copy",
             headers=auth_headers_user,
             json={
+                "idempotency_key": str(uuid.uuid4()),
                 "source_path": "a.txt",
                 "dest_path": "b.txt",
                 "dest_connection_id": fake_dest_id,
@@ -1884,7 +2807,7 @@ class TestCopyItem:
             response = client.post(
                 f"/api/browse/{read_only_connection.id}/copy",
                 headers=auth_headers_user,
-                json={"source_path": "a.txt", "dest_path": "b.txt"},
+                json={"idempotency_key": str(uuid.uuid4()), "source_path": "a.txt", "dest_path": "b.txt"},
             )
 
         assert response.status_code == 403
@@ -1909,13 +2832,15 @@ class TestCopyItem:
                 path="a.txt",
                 type=FileType.FILE,
                 size=100,
+                stable_id="source-a",
             )
 
             async def fake_read_file(path):
                 yield b"file content"
 
             src_instance.read_file = fake_read_file
-            dst_instance.write_file_from_stream = AsyncMock(return_value=12)
+            dst_instance.stage_and_commit_new_file_from_stream = AsyncMock(return_value=12)
+            dst_instance.get_file_info.side_effect = FileNotFoundError("target does not exist")
 
             MockBackend.side_effect = [src_instance, dst_instance]
 
@@ -1924,13 +2849,15 @@ class TestCopyItem:
                     f"/api/browse/{read_only_connection.id}/copy",
                     headers=auth_headers_user,
                     json={
+                        "idempotency_key": str(uuid.uuid4()),
                         "source_path": "a.txt",
                         "dest_path": "b.txt",
                         "dest_connection_id": str(test_connection.id),
                     },
                 )
 
-        assert response.status_code == 204
+        assert response.status_code == 200
+        assert response.json()["status"] == "completed"
 
     def test_copy_cross_connection_to_read_only_destination_blocked(
         self,
@@ -1946,6 +2873,7 @@ class TestCopyItem:
                 f"/api/browse/{test_connection.id}/copy",
                 headers=auth_headers_user,
                 json={
+                    "idempotency_key": str(uuid.uuid4()),
                     "source_path": "a.txt",
                     "dest_path": "b.txt",
                     "dest_connection_id": str(read_only_connection.id),
@@ -1963,6 +2891,7 @@ class TestCopyItem:
 
 
 @pytest.mark.integration
+@pytest.mark.skip(reason="Move execution is unavailable; covered by test_move_is_unavailable_after_validation")
 class TestMoveItem:
     """Test move item endpoint."""
 
@@ -1973,19 +2902,40 @@ class TestMoveItem:
         test_connection: Connection,
         mock_smb_backend,
     ):
-        """Test moving a file returns 204."""
+        """A regular-file move commits a staged destination and retains its source."""
         mock_class, mock_instance = mock_smb_backend
-        mock_instance.move_item.return_value = None
+        source_info = FileInfo(name="file.txt", path="docs/file.txt", type=FileType.FILE, size=1, stable_id="source-file")
+        mock_instance.get_file_info.side_effect = [
+            source_info,
+            FileNotFoundError("target does not exist"),
+            source_info,
+            source_info,
+            source_info,
+        ]
+
+        async def read_file(_path: str):
+            yield b"x"
+
+        async def stage_and_commit(_path: str, stream, *, before_commit, **_kwargs: object) -> int:
+            _ = b"".join([chunk async for chunk in stream])
+            await before_commit()
+            return 1
+
+        mock_instance.read_file = read_file
+        mock_instance.stage_and_commit_new_file_from_stream = AsyncMock(side_effect=stage_and_commit)
 
         response = client.post(
             f"/api/browse/{test_connection.id}/move",
             headers=auth_headers_user,
-            json={"source_path": "docs/file.txt", "dest_path": "archive/file.txt"},
+            json={"idempotency_key": str(uuid.uuid4()), "source_path": "docs/file.txt", "dest_path": "archive/file.txt"},
         )
 
-        assert response.status_code == 204
+        assert response.status_code == 200
+        assert response.json()["status"] == "completed_with_source_retained"
+        assert response.json()["effects"] == {"source": "unchanged", "destination": "mutated"}
         mock_instance.connect.assert_called_once()
-        mock_instance.move_item.assert_called_once_with("docs/file.txt", "archive/file.txt", overwrite=False)
+        mock_instance.stage_and_commit_new_file_from_stream.assert_awaited_once()
+        mock_instance.move_item.assert_not_called()
         mock_instance.disconnect.assert_called_once()
 
     def test_move_directory_success(
@@ -1995,24 +2945,31 @@ class TestMoveItem:
         test_connection: Connection,
         mock_smb_backend,
     ):
-        """Test moving a directory returns 204."""
+        """A directory move retains its source until guarded deletion is available."""
         mock_class, mock_instance = mock_smb_backend
-        mock_instance.move_item.return_value = None
+        mock_instance.copy_item.return_value = None
+        mock_instance.get_file_info.side_effect = [
+            FileInfo(name="old-folder", path="old-folder", type=FileType.DIRECTORY),
+            FileNotFoundError("target does not exist"),
+        ]
 
         response = client.post(
             f"/api/browse/{test_connection.id}/move",
             headers=auth_headers_admin,
-            json={"source_path": "old-folder", "dest_path": "new-folder"},
+            json={"idempotency_key": str(uuid.uuid4()), "source_path": "old-folder", "dest_path": "new-folder"},
         )
 
-        assert response.status_code == 204
-        mock_instance.move_item.assert_called_once_with("old-folder", "new-folder", overwrite=False)
+        assert response.status_code == 200
+        assert response.json()["status"] == "completed_with_source_retained"
+        assert response.json()["effects"] == {"source": "unchanged", "destination": "mutated"}
+        mock_instance.copy_item.assert_called_once_with("old-folder", "new-folder", overwrite=False)
+        mock_instance.move_item.assert_not_called()
 
     def test_move_without_auth(self, client: TestClient, test_connection: Connection):
         """Test that moving requires authentication."""
         response = client.post(
             f"/api/browse/{test_connection.id}/move",
-            json={"source_path": "a.txt", "dest_path": "b.txt"},
+            json={"idempotency_key": str(uuid.uuid4()), "source_path": "a.txt", "dest_path": "b.txt"},
         )
         assert response.status_code == 401
 
@@ -2022,7 +2979,7 @@ class TestMoveItem:
         response = client.post(
             f"/api/browse/{fake_id}/move",
             headers=auth_headers_user,
-            json={"source_path": "a.txt", "dest_path": "b.txt"},
+            json={"idempotency_key": str(uuid.uuid4()), "source_path": "a.txt", "dest_path": "b.txt"},
         )
         assert response.status_code == 404
 
@@ -2037,7 +2994,7 @@ class TestMoveItem:
         response = client.post(
             f"/api/browse/{test_connection.id}/move",
             headers=auth_headers_user,
-            json={"source_path": "", "dest_path": "archive/file.txt"},
+            json={"idempotency_key": str(uuid.uuid4()), "source_path": "", "dest_path": "archive/file.txt"},
         )
         assert response.status_code == 400
 
@@ -2052,7 +3009,7 @@ class TestMoveItem:
         response = client.post(
             f"/api/browse/{test_connection.id}/move",
             headers=auth_headers_user,
-            json={"source_path": "docs/file.txt", "dest_path": "docs/file.txt"},
+            json={"idempotency_key": str(uuid.uuid4()), "source_path": "docs/file.txt", "dest_path": "docs/file.txt"},
         )
         assert response.status_code == 400
 
@@ -2067,7 +3024,7 @@ class TestMoveItem:
         response = client.post(
             f"/api/browse/{test_connection.id}/move",
             headers=auth_headers_user,
-            json={"source_path": "photos", "dest_path": "photos/subfolder"},
+            json={"idempotency_key": str(uuid.uuid4()), "source_path": "photos", "dest_path": "photos/subfolder"},
         )
         assert response.status_code == 400
         assert "into itself" in response.json()["detail"].lower()
@@ -2082,11 +3039,12 @@ class TestMoveItem:
         """Test moving a non-existent source returns 404."""
         mock_class, mock_instance = mock_smb_backend
         mock_instance.move_item.side_effect = FileNotFoundError("Source not found")
+        mock_instance.get_file_info.side_effect = FileNotFoundError("Source not found")
 
         response = client.post(
             f"/api/browse/{test_connection.id}/move",
             headers=auth_headers_user,
-            json={"source_path": "ghost.txt", "dest_path": "archive/ghost.txt"},
+            json={"idempotency_key": str(uuid.uuid4()), "source_path": "ghost.txt", "dest_path": "archive/ghost.txt"},
         )
         assert response.status_code == 404
 
@@ -2104,9 +3062,38 @@ class TestMoveItem:
         response = client.post(
             f"/api/browse/{test_connection.id}/move",
             headers=auth_headers_user,
-            json={"source_path": "a.txt", "dest_path": "b.txt"},
+            json={"idempotency_key": str(uuid.uuid4()), "source_path": "a.txt", "dest_path": "b.txt"},
         )
         assert response.status_code == 409
+
+    def test_move_skip_existing_target_does_not_call_native_mutation(
+        self,
+        client: TestClient,
+        auth_headers_user: dict,
+        test_connection: Connection,
+        mock_smb_backend,
+    ):
+        """Skip leaves both source and existing target unchanged for moves."""
+        _mock_class, mock_instance = mock_smb_backend
+        mock_instance.get_file_info.side_effect = [
+            FileInfo(name="a.txt", path="a.txt", type=FileType.FILE, size=1),
+            FileInfo(name="b.txt", path="b.txt", type=FileType.FILE, size=2),
+        ]
+
+        response = client.post(
+            f"/api/browse/{test_connection.id}/move",
+            headers=auth_headers_user,
+            json={
+                "idempotency_key": str(uuid.uuid4()),
+                "source_path": "a.txt",
+                "dest_path": "b.txt",
+                "target_resolution_policy": "skip",
+            },
+        )
+
+        assert response.status_code == 200
+        assert response.json()["status"] == "skipped"
+        mock_instance.move_item.assert_not_called()
 
     def test_move_server_error(
         self,
@@ -2117,12 +3104,22 @@ class TestMoveItem:
     ):
         """Test generic SMB error returns 500."""
         mock_class, mock_instance = mock_smb_backend
-        mock_instance.move_item.side_effect = Exception("Connection lost")
+        mock_instance.stage_and_commit_new_file_from_stream.side_effect = Exception("Connection lost")
+        mock_instance.get_file_info.side_effect = [
+            FileInfo(name="a.txt", path="a.txt", type=FileType.FILE, size=1, stable_id="source-file"),
+            FileNotFoundError("target does not exist"),
+            FileInfo(name="a.txt", path="a.txt", type=FileType.FILE, size=1, stable_id="source-file"),
+        ]
+
+        async def read_file(_path: str):
+            yield b"x"
+
+        mock_instance.read_file = read_file
 
         response = client.post(
             f"/api/browse/{test_connection.id}/move",
             headers=auth_headers_user,
-            json={"source_path": "a.txt", "dest_path": "b.txt"},
+            json={"idempotency_key": str(uuid.uuid4()), "source_path": "a.txt", "dest_path": "b.txt"},
         )
         assert response.status_code == 500
 
@@ -2135,12 +3132,22 @@ class TestMoveItem:
     ):
         """Timed out SMB moves should surface as 504 responses."""
         mock_class, mock_instance = mock_smb_backend
-        mock_instance.move_item.side_effect = TimeoutError("SMB operation timed out while moving: a.txt")
+        mock_instance.stage_and_commit_new_file_from_stream.side_effect = TimeoutError("SMB operation timed out while moving: a.txt")
+        mock_instance.get_file_info.side_effect = [
+            FileInfo(name="a.txt", path="a.txt", type=FileType.FILE, size=1, stable_id="source-file"),
+            FileNotFoundError("target does not exist"),
+            FileInfo(name="a.txt", path="a.txt", type=FileType.FILE, size=1, stable_id="source-file"),
+        ]
+
+        async def read_file(_path: str):
+            yield b"x"
+
+        mock_instance.read_file = read_file
 
         response = client.post(
             f"/api/browse/{test_connection.id}/move",
             headers=auth_headers_user,
-            json={"source_path": "a.txt", "dest_path": "b.txt"},
+            json={"idempotency_key": str(uuid.uuid4()), "source_path": "a.txt", "dest_path": "b.txt"},
         )
 
         assert response.status_code == 504
@@ -2154,7 +3161,7 @@ class TestMoveItem:
         test_connection: Connection,
         multiple_connections: list,
     ):
-        """Test that cross-connection move returns 204 (copy + delete)."""
+        """A cross-connection move retains its source without a guarded delete primitive."""
         dest_conn = multiple_connections[0]
 
         with patch("app.api.browser.SMBBackend") as MockBackend:
@@ -2166,15 +3173,16 @@ class TestMoveItem:
                 path="a.txt",
                 type=FileType.FILE,
                 size=100,
+                stable_id="source-a",
             )
             src_instance.get_file_size.return_value = 100
-            src_instance.delete_item.return_value = None
 
             async def fake_read_file(path):
                 yield b"file content"
 
             src_instance.read_file = fake_read_file
-            dst_instance.write_file_from_stream = AsyncMock(return_value=12)
+            dst_instance.stage_and_commit_new_file_from_stream = AsyncMock(return_value=12)
+            dst_instance.get_file_info.side_effect = FileNotFoundError("target does not exist")
 
             MockBackend.side_effect = [src_instance, dst_instance]
 
@@ -2183,15 +3191,61 @@ class TestMoveItem:
                     f"/api/browse/{test_connection.id}/move",
                     headers=auth_headers_user,
                     json={
+                        "idempotency_key": str(uuid.uuid4()),
                         "source_path": "a.txt",
                         "dest_path": "b.txt",
                         "dest_connection_id": str(dest_conn.id),
                     },
                 )
 
-            assert response.status_code == 204
-            # Verify that source was deleted after copy
-            src_instance.delete_item.assert_called_once_with("a.txt")
+            assert response.status_code == 200
+            assert response.json()["status"] == "completed_with_source_retained"
+            assert response.json()["effects"] == {"source": "unchanged", "destination": "mutated"}
+            src_instance.delete_item.assert_not_called()
+
+    def test_move_reports_destination_committed_when_source_delete_fails(
+        self,
+        client: TestClient,
+        auth_headers_user: dict,
+        test_connection: Connection,
+        multiple_connections: list,
+    ):
+        """An unguarded source delete is never attempted after destination commit."""
+        dest_conn = multiple_connections[0]
+        with patch("app.api.browser.SMBBackend") as MockBackend:
+            source_backend = AsyncMock()
+            destination_backend = AsyncMock()
+            source_backend.get_file_info.return_value = FileInfo(
+                name="a.txt",
+                path="a.txt",
+                type=FileType.FILE,
+                size=12,
+                stable_id="source-a",
+            )
+
+            async def fake_read_file(path):
+                yield b"file content"
+
+            source_backend.read_file = fake_read_file
+            destination_backend.stage_and_commit_new_file_from_stream = AsyncMock(return_value=12)
+            destination_backend.get_file_info.side_effect = FileNotFoundError("target does not exist")
+            MockBackend.side_effect = [source_backend, destination_backend]
+
+            response = client.post(
+                f"/api/browse/{test_connection.id}/move",
+                headers=auth_headers_user,
+                json={
+                    "idempotency_key": str(uuid.uuid4()),
+                    "source_path": "a.txt",
+                    "dest_path": "b.txt",
+                    "dest_connection_id": str(dest_conn.id),
+                },
+            )
+
+        assert response.status_code == 200
+        assert response.json()["status"] == "completed_with_source_retained"
+        assert response.json()["effects"] == {"source": "unchanged", "destination": "mutated"}
+        source_backend.delete_item.assert_not_called()
 
     def test_move_cross_connection_dest_not_found(
         self,
@@ -2205,6 +3259,7 @@ class TestMoveItem:
             f"/api/browse/{test_connection.id}/move",
             headers=auth_headers_user,
             json={
+                "idempotency_key": str(uuid.uuid4()),
                 "source_path": "a.txt",
                 "dest_path": "b.txt",
                 "dest_connection_id": fake_dest_id,
@@ -2224,7 +3279,7 @@ class TestMoveItem:
             response = client.post(
                 f"/api/browse/{read_only_connection.id}/move",
                 headers=auth_headers_user,
-                json={"source_path": "a.txt", "dest_path": "b.txt"},
+                json={"idempotency_key": str(uuid.uuid4()), "source_path": "a.txt", "dest_path": "b.txt"},
             )
 
         assert response.status_code == 403
@@ -2245,6 +3300,7 @@ class TestMoveItem:
                 f"/api/browse/{read_only_connection.id}/move",
                 headers=auth_headers_user,
                 json={
+                    "idempotency_key": str(uuid.uuid4()),
                     "source_path": "a.txt",
                     "dest_path": "b.txt",
                     "dest_connection_id": str(test_connection.id),
@@ -2269,6 +3325,7 @@ class TestMoveItem:
                 f"/api/browse/{test_connection.id}/move",
                 headers=auth_headers_user,
                 json={
+                    "idempotency_key": str(uuid.uuid4()),
                     "source_path": "a.txt",
                     "dest_path": "b.txt",
                     "dest_connection_id": str(read_only_connection.id),

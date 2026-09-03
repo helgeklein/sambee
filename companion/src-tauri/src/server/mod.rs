@@ -4,14 +4,18 @@
 //! frontend to browse and manage local drives through the same API contract
 //! used by the main Python backend for SMB shares.
 
+pub mod archive;
+pub mod archive_sessions;
 pub mod auth;
 pub mod drives;
+pub mod edit_locks;
 pub mod errors;
 pub mod handlers;
 pub mod links;
 pub mod localization;
 pub mod models;
 pub mod pairing;
+pub mod target_resolution;
 pub mod watcher;
 
 use std::net::SocketAddr;
@@ -23,7 +27,9 @@ use log::{error, info};
 use tauri::AppHandle;
 use tower_http::cors::{AllowOrigin, CorsLayer};
 
+use self::archive_sessions::ArchiveSessionManager;
 use self::auth::AuthState;
+use self::edit_locks::EditLockManager;
 use self::localization::LocalizationState;
 use self::pairing::PairingState;
 use self::watcher::DirectoryWatcher;
@@ -38,6 +44,8 @@ pub struct AppState {
     pub pairing: Arc<PairingState>,
     pub localization: Arc<LocalizationState>,
     pub auth: AuthState,
+    pub archive_sessions: Arc<ArchiveSessionManager>,
+    pub edit_locks: Arc<EditLockManager>,
     pub watcher: DirectoryWatcher,
 }
 
@@ -65,6 +73,8 @@ async fn run_server(
         pairing,
         localization,
         auth: AuthState::new(),
+        archive_sessions: Arc::new(ArchiveSessionManager::new()),
+        edit_locks: Arc::new(EditLockManager::new()),
         watcher: DirectoryWatcher::new(),
     });
 
@@ -84,8 +94,9 @@ fn build_router(state: Arc<AppState>) -> Router {
         .allow_origin(AllowOrigin::predicate(|origin, _| {
             origin.to_str().ok().map(auth::is_allowed_browser_origin_for_cors).unwrap_or(false)
         }))
-        .allow_methods([Method::GET, Method::POST, Method::DELETE])
+        .allow_methods([Method::GET, Method::POST, Method::PUT, Method::DELETE])
         .allow_headers([
+            header::AUTHORIZATION,
             header::CONTENT_TYPE,
             header::ORIGIN,
             header::HeaderName::from_static("x-companion-secret"),
@@ -106,6 +117,10 @@ fn build_router(state: Arc<AppState>) -> Router {
         .route("/api/drives", axum::routing::get(handlers::list_drives))
         .route("/api/browse/{drive}/list", axum::routing::get(handlers::browse_list))
         .route(
+            "/api/browse/{drive}/archive/v2/list",
+            axum::routing::get(handlers::browse_list_v2_archive),
+        )
+        .route(
             "/api/browse/{drive}/link-targets",
             axum::routing::get(handlers::browse_list_link_targets),
         )
@@ -117,14 +132,58 @@ fn build_router(state: Arc<AppState>) -> Router {
         .route("/api/browse/{drive}/item", axum::routing::delete(handlers::browse_delete))
         .route("/api/browse/{drive}/rename", axum::routing::post(handlers::browse_rename))
         .route("/api/browse/{drive}/create", axum::routing::post(handlers::browse_create))
-        .route("/api/browse/{drive}/copy", axum::routing::post(handlers::browse_copy))
-        .route("/api/browse/{drive}/move", axum::routing::post(handlers::browse_move))
+        .merge(transfer_routes().with_state::<Arc<AppState>>(()))
         .route("/api/browse/{drive}/open", axum::routing::post(handlers::browse_open))
         .route(
             "/api/browse/{drive}/directories",
             axum::routing::get(handlers::browse_search_directories),
         )
+        .route("/api/browse/{drive}/lock", axum::routing::post(handlers::browse_acquire_edit_lock))
+        .route(
+            "/api/browse/{drive}/lock/heartbeat",
+            axum::routing::post(handlers::browse_heartbeat_edit_lock),
+        )
+        .route(
+            "/api/browse/{drive}/lock",
+            axum::routing::delete(handlers::browse_release_edit_lock),
+        )
+        .route(
+            "/api/browse/{drive}/lock-status",
+            axum::routing::get(handlers::browse_edit_lock_status),
+        )
         .route("/api/browse/{drive}/upload", axum::routing::post(handlers::browse_upload))
+        .route(
+            "/api/browse/{drive}/archive/v2/relay/creation",
+            axum::routing::post(handlers::browse_relay_v2_archive_creation),
+        )
+        .route(
+            "/api/browse/{drive}/archive/v2/executions",
+            axum::routing::post(handlers::browse_start_v2_archive_execution),
+        )
+        .route(
+            "/api/browse/{drive}/archive/v2/executions/{execution_id}",
+            axum::routing::get(handlers::browse_get_v2_archive_execution),
+        )
+        .route(
+            "/api/browse/{drive}/archive/v2/executions/{execution_id}/cancellation",
+            axum::routing::post(handlers::browse_cancel_v2_archive_execution),
+        )
+        .route(
+            "/api/browse/{drive}/archive/v2/executions/{execution_id}/decision",
+            axum::routing::post(handlers::browse_decide_v2_archive_execution),
+        )
+        .route(
+            "/api/browse/{drive}/archive/v2/relay/extraction",
+            axum::routing::post(handlers::browse_relay_v2_archive_extraction),
+        )
+        .route(
+            "/api/browse/{drive}/archive/v2/relay/extraction/{operation_id}/decision",
+            axum::routing::post(handlers::browse_decide_v2_relay_extraction),
+        )
+        .route(
+            "/api/browse/{drive}/archive/v2/relay/extraction/{operation_id}/status",
+            axum::routing::get(handlers::browse_get_v2_relay_extraction_status),
+        )
         .layer(axum::middleware::from_fn_with_state(state.clone(), auth::require_auth));
 
     // Viewer routes support both header-based and query-param auth so that
@@ -132,6 +191,10 @@ fn build_router(state: Arc<AppState>) -> Router {
     let viewer_routes = Router::new()
         .route("/api/viewer/{drive}/file", axum::routing::get(handlers::viewer_file))
         .route("/api/viewer/{drive}/download", axum::routing::get(handlers::viewer_download))
+        .route(
+            "/api/viewer/{drive}/archive/v2/member",
+            axum::routing::get(handlers::viewer_v2_archive_member),
+        )
         .layer(axum::middleware::from_fn_with_state(state.clone(), auth::require_auth_or_query));
 
     // WebSocket route — uses query-param auth (browser WS API has no custom headers).
@@ -144,4 +207,34 @@ fn build_router(state: Arc<AppState>) -> Router {
         .merge(ws_routes)
         .layer(cors)
         .with_state(state)
+}
+
+fn transfer_routes() -> Router {
+    Router::new()
+        .route("/api/browse/{drive}/copy", axum::routing::post(handlers::browse_copy))
+        .route("/api/browse/{drive}/move", axum::routing::post(handlers::browse_move))
+}
+
+#[cfg(test)]
+mod tests {
+    use axum::{body::Body, http::Request};
+    use tower::ServiceExt;
+
+    use super::transfer_routes;
+
+    #[tokio::test]
+    async fn phase_10_stabilization_smb_source_route_is_absent() {
+        let response = transfer_routes()
+            .oneshot(
+                Request::builder()
+                    .method("POST")
+                    .uri("/api/browse/test-drive/transfer/smb-source/file")
+                    .body(Body::empty())
+                    .expect("request should be valid"),
+            )
+            .await
+            .expect("router should handle the request");
+
+        assert_eq!(response.status(), axum::http::StatusCode::NOT_FOUND);
+    }
 }

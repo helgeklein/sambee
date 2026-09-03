@@ -10,7 +10,7 @@ import "./ImageViewer.css";
 import { BROWSER_SHORTCUTS, COMMON_SHORTCUTS, VIEWER_SHORTCUTS } from "../../config/keyboardShortcuts";
 import { useCachedImageGallery } from "../../hooks/useCachedImageGallery";
 import { useKeyboardShortcuts } from "../../hooks/useKeyboardShortcuts";
-import apiService from "../../services/api";
+import { readViewerContent, readVirtualContent, useContentProviderRegistry } from "../../pages/FileBrowser/contentProviders";
 import { error as logError, info as logInfo } from "../../services/logger";
 import { useSambeeTheme } from "../../theme";
 import { getViewerColors } from "../../theme/viewerStyles";
@@ -19,6 +19,7 @@ import { blurActiveToolbarControl } from "../../utils/keyboardUtils";
 import { createShareFile, shareNativeContent, shouldWarmNativeSharePayload, supportsNativeShare } from "../../utils/nativeShare";
 import { KeyboardShortcutsHelp } from "../KeyboardShortcutsHelp";
 import { ViewerControls, ViewerFilenameBadge } from "./ViewerControls";
+import { downloadViewerBlob } from "./viewerContent";
 
 type ZoomRef = import("yet-another-react-lightbox").ZoomRef;
 type FullscreenRef = import("yet-another-react-lightbox").FullscreenRef;
@@ -65,11 +66,16 @@ const ImageViewer: React.FC<ViewerComponentProps> = ({
   path,
   onClose,
   isReadOnly = false,
+  virtualSource,
+  hasMoreItems = false,
+  isLoadingMoreItems = false,
+  onLoadMoreItems,
   images = [path],
   currentIndex: initialIndex = 0,
   onCurrentIndexChange,
   sessionId,
 }) => {
+  const contentProviders = useContentProviderRegistry();
   const { t } = useTranslation();
   const [rotate, setRotate] = useState(0);
   const [hideControls, setHideControls] = useState(false);
@@ -97,9 +103,26 @@ const ImageViewer: React.FC<ViewerComponentProps> = ({
   const shareEnabled = isMobile && supportsNativeShare();
   const shareWarmEnabled = shareEnabled && shouldWarmNativeSharePayload();
   const { viewerBg, toolbarBg, toolbarText } = getViewerColors(currentTheme, "image");
-  const readOnlyIndicator = isReadOnly ? (
-    <ViewerFilenameBadge label={t("settings.connectionDialog.accessMode.readOnlyLabel")} toolbarText={toolbarText} />
-  ) : null;
+  const readOnlyIndicator =
+    isReadOnly || virtualSource ? (
+      <ViewerFilenameBadge label={t("settings.connectionDialog.accessMode.readOnlyLabel")} toolbarText={toolbarText} />
+    ) : null;
+
+  const loadImageBlob = useCallback(
+    (imagePath: string, options: { signal: AbortSignal; viewportWidth?: number; viewportHeight?: number }) =>
+      readViewerContent(
+        connectionId,
+        imagePath,
+        {
+          kind: "image",
+          viewportWidth: options.viewportWidth,
+          viewportHeight: options.viewportHeight,
+        },
+        { signal: options.signal, virtualSource },
+        contentProviders
+      ),
+    [connectionId, contentProviders, virtualSource]
+  );
 
   const {
     currentIndex,
@@ -107,7 +130,6 @@ const ImageViewer: React.FC<ViewerComponentProps> = ({
     currentPath,
     filename,
     getCachedImageSrc,
-    loadingStates,
     errorStates,
     currentImageLoadPhase,
     showLoadingSpinner,
@@ -117,6 +139,10 @@ const ImageViewer: React.FC<ViewerComponentProps> = ({
   } = useCachedImageGallery({
     connectionId,
     images,
+    gallerySourceKey: virtualSource
+      ? `${virtualSource.location.providerId}:${virtualSource.location.connectionId}:${virtualSource.location.source.path}`
+      : undefined,
+    loadImageBlob,
     initialIndex,
     onIndexChange: onCurrentIndexChange,
     isTouchDevice: isTouchDevice(),
@@ -194,16 +220,13 @@ const ImageViewer: React.FC<ViewerComponentProps> = ({
     };
   }, [sessionId]);
 
-  // biome-ignore lint/correctness/useExhaustiveDependencies: loadingStates/errorStates trigger re-render when images load and cached sources are read through the hook getter
-  const slides = useMemo<LightboxImageSlide[]>(() => {
-    return images.map((imagePath, index) => ({
-      type: "image",
-      src: getCachedImageSrc(index) ?? TRANSPARENT_PIXEL,
-      alt: imagePath.split("/").pop() ?? imagePath,
-      imageIndex: index,
-      originalPath: imagePath,
-    }));
-  }, [errorStates, getCachedImageSrc, images, loadingStates]);
+  const slides: LightboxImageSlide[] = images.map((imagePath, index) => ({
+    type: "image",
+    src: getCachedImageSrc(index) ?? TRANSPARENT_PIXEL,
+    alt: imagePath.split("/").pop() ?? imagePath,
+    imageIndex: index,
+    originalPath: imagePath,
+  }));
 
   const handleClose = useCallback(() => {
     onClose();
@@ -263,11 +286,18 @@ const ImageViewer: React.FC<ViewerComponentProps> = ({
 
   const handleDownload = useCallback(async () => {
     try {
-      await apiService.downloadFile(connectionId, currentPath, filename);
+      if (virtualSource) {
+        downloadViewerBlob(await readVirtualContent(virtualSource, currentPath, { download: true }, contentProviders), filename);
+        return;
+      }
+      downloadViewerBlob(
+        await readViewerContent(connectionId, currentPath, { kind: "raw" }, { download: true }, contentProviders),
+        filename
+      );
     } catch (err) {
       logError("Failed to download file", { error: err, path: currentPath, connectionId });
     }
-  }, [connectionId, currentPath, filename]);
+  }, [connectionId, contentProviders, currentPath, filename, virtualSource]);
 
   const loadShareFile = useCallback(
     async (signal?: AbortSignal) => {
@@ -279,9 +309,11 @@ const ImageViewer: React.FC<ViewerComponentProps> = ({
         return sharePrefetchPromiseRef.current;
       }
 
-      const shareFilePromise = apiService
-        .getImageBlob(connectionId, currentPath, { no_resizing: true, signal })
-        .then((blob) => createShareFile(blob, filename));
+      const shareFilePromise = (
+        virtualSource
+          ? readViewerContent(connectionId, currentPath, { kind: "image", noResizing: true }, { signal, virtualSource }, contentProviders)
+          : readViewerContent(connectionId, currentPath, { kind: "image", noResizing: true }, { signal }, contentProviders)
+      ).then((blob) => createShareFile(blob, filename));
 
       sharePrefetchPromiseRef.current = shareFilePromise;
 
@@ -293,7 +325,7 @@ const ImageViewer: React.FC<ViewerComponentProps> = ({
         }
       }
     },
-    [connectionId, currentPath, filename]
+    [connectionId, contentProviders, currentPath, filename, virtualSource]
   );
 
   useEffect(() => {
@@ -360,14 +392,25 @@ const ImageViewer: React.FC<ViewerComponentProps> = ({
   const handleNavigateNext = useCallback(() => {
     if (currentIndex < images.length - 1) {
       setCurrentIndex(currentIndex + 1);
+      return;
     }
-  }, [currentIndex, images.length, setCurrentIndex]);
+
+    if (hasMoreItems && !isLoadingMoreItems) {
+      onLoadMoreItems?.();
+    }
+  }, [currentIndex, hasMoreItems, images.length, isLoadingMoreItems, onLoadMoreItems, setCurrentIndex]);
 
   const handleNavigatePrevious = useCallback(() => {
     if (currentIndex > 0) {
       setCurrentIndex(currentIndex - 1);
     }
   }, [currentIndex, setCurrentIndex]);
+
+  useEffect(() => {
+    if (currentIndex === images.length - 1 && hasMoreItems && !isLoadingMoreItems) {
+      onLoadMoreItems?.();
+    }
+  }, [currentIndex, hasMoreItems, images.length, isLoadingMoreItems, onLoadMoreItems]);
 
   const handleToggleFullscreen = useCallback(() => {
     if (fullscreenRef.current?.fullscreen) {
@@ -677,6 +720,7 @@ const ImageViewer: React.FC<ViewerComponentProps> = ({
         {/* Lightbox container - fills remaining space below toolbar */}
         <Box
           ref={portalRef}
+          className={currentImageError ? "image-viewer-load-error" : undefined}
           sx={{
             flex: 1,
             position: "relative",

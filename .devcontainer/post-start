@@ -1,5 +1,7 @@
 #!/bin/bash
 
+set -euo pipefail
+
 # Logging function
 log() {
     echo "[$(date '+%Y-%m-%d %H:%M:%S')] POST-START: $1" | tee -a /tmp/post-start.log

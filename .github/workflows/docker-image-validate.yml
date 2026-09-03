@@ -28,6 +28,8 @@ on:
       - '.github/scripts/cleanup_untagged_container_versions.py'
       - '.github/scripts/cleanup_signature_container_versions.py'
       - 'scripts/verify-python-runtime-image.py'
+      - 'scripts/verify-node-runtime.py'
+      - 'scripts/verify-archive-single-worker.py'
       - 'Dockerfile'
       - '.dockerignore'
       - 'VERSION'
@@ -58,6 +60,8 @@ on:
       - '.github/scripts/cleanup_untagged_container_versions.py'
       - '.github/scripts/cleanup_signature_container_versions.py'
       - 'scripts/verify-python-runtime-image.py'
+      - 'scripts/verify-node-runtime.py'
+      - 'scripts/verify-archive-single-worker.py'
       - 'Dockerfile'
       - '.dockerignore'
       - 'VERSION'
@@ -107,6 +111,12 @@ jobs:
 
     - name: Verify shared Python runtime image
       run: python3 scripts/verify-python-runtime-image.py
+
+    - name: Verify coordinated Node.js runtime
+      run: python3 scripts/verify-node-runtime.py
+
+    - name: Verify archive live-session worker contract
+      run: python3 scripts/verify-archive-single-worker.py
 
     - name: Set up QEMU
       if: ${{ matrix.platform_id == 'amd64' }}
@@ -185,6 +195,18 @@ jobs:
         echo "Timed out waiting for /api/health" >&2
         docker logs sambee-smoke-${{ matrix.platform_id }} || true
         exit 1
+
+    - name: Verify Archive V2 cutover tools
+      shell: bash
+      run: |
+        docker exec sambee-smoke-${{ matrix.platform_id }} sh -c '
+          test -d /app/app
+          test ! -e /app/tests
+          test ! -e /app/.env
+          test -w /app/data
+          test -x /app/scripts/preflight-archive-v2-cutover
+          test -x /app/scripts/reset-archive-v2-cutover-state
+        '
 
     - name: Report production runtime contract
       shell: bash

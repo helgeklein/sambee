@@ -1,0 +1,2169 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://sambee.dev/archive-contract/v2/schema.json",
+  "title": "Archive Contract V2",
+  "type": "object",
+  "$defs": {
+    "contractVersion": {
+      "type": "string",
+      "const": "v2"
+    },
+    "memberPath": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 4096,
+      "pattern": "^(?!/)(?!.*//)(?!.*(?:^|/)\\.{1,2}(?:/|$))(?!.*:)(?!.*\\\\)[^\\u0000/]+(?:/[^\\u0000/]+)*$"
+    },
+    "timestamp": {
+      "type": [
+        "string",
+        "null"
+      ],
+      "pattern": "^\\d{4}-\\d{2}-\\d{2}T\\d{2}:\\d{2}:\\d{2}(?:\\.\\d+)?Z$"
+    },
+    "extractionMember": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "path",
+        "is_directory",
+        "uncompressed_size",
+        "modified_at"
+      ],
+      "properties": {
+        "path": {
+          "$ref": "#/$defs/memberPath"
+        },
+        "is_directory": {
+          "type": "boolean"
+        },
+        "uncompressed_size": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "modified_at": {
+          "$ref": "#/$defs/timestamp"
+        }
+      }
+    },
+    "extractionOutcome": {
+      "oneOf": [
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "status",
+            "target_path",
+            "extracted_bytes",
+            "directories_created",
+            "replaced",
+            "renamed"
+          ],
+          "properties": {
+            "status": {
+              "enum": [
+                "directory",
+                "extracted",
+                "skipped",
+                "ignored"
+              ]
+            },
+            "target_path": {
+              "$ref": "#/$defs/memberPath"
+            },
+            "extracted_bytes": {
+              "type": "integer",
+              "minimum": 0
+            },
+            "directories_created": {
+              "type": "integer",
+              "minimum": 0
+            },
+            "replaced": {
+              "type": "boolean"
+            },
+            "renamed": {
+              "type": "boolean"
+            }
+          }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "status",
+            "target_path",
+            "message"
+          ],
+          "properties": {
+            "status": {
+              "const": "partial"
+            },
+            "target_path": {
+              "$ref": "#/$defs/memberPath"
+            },
+            "message": {
+              "type": "string",
+              "minLength": 1
+            }
+          }
+        }
+      ]
+    },
+    "creationMember": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "archive_path",
+        "is_directory",
+        "source_size",
+        "source_path",
+        "modified_at"
+      ],
+      "properties": {
+        "archive_path": {
+          "$ref": "#/$defs/memberPath"
+        },
+        "is_directory": {
+          "type": "boolean"
+        },
+        "source_size": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "source_path": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "modified_at": {
+          "$ref": "#/$defs/timestamp"
+        }
+      }
+    },
+    "creationCheckpoint": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "version",
+        "manifest",
+        "member_outcomes",
+        "decisions",
+        "pending_decision",
+        "delivery_ids"
+      ],
+      "properties": {
+        "version": {
+          "const": 2
+        },
+        "manifest": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/creationMember"
+          }
+        },
+        "member_outcomes": {
+          "type": "object",
+          "additionalProperties": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "status",
+              "source_bytes"
+            ],
+            "properties": {
+              "status": {
+                "enum": [
+                  "directory",
+                  "created"
+                ]
+              },
+              "source_bytes": {
+                "type": "integer",
+                "minimum": 0
+              }
+            }
+          }
+        },
+        "decisions": {
+          "type": "object",
+          "maxProperties": 0
+        },
+        "pending_decision": {
+          "type": "null"
+        },
+        "delivery_ids": {
+          "$ref": "#/$defs/deliveryIds"
+        }
+      }
+    },
+    "deliveryIds": {
+      "type": "object",
+      "maxProperties": 1024,
+      "propertyNames": {
+        "format": "uuid"
+      },
+      "additionalProperties": {
+        "type": "string",
+        "minLength": 1,
+        "maxLength": 4096
+      }
+    },
+    "checkpoint": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "version",
+        "manifest",
+        "source_snapshot",
+        "member_outcomes",
+        "decisions",
+        "pending_decision",
+        "delivery_ids"
+      ],
+      "properties": {
+        "version": {
+          "type": "integer",
+          "const": 2
+        },
+        "manifest": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/extractionMember"
+          }
+        },
+        "source_snapshot": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "size",
+            "modified_at"
+          ],
+          "properties": {
+            "size": {
+              "type": "integer",
+              "minimum": 0
+            },
+            "modified_at": {
+              "$ref": "#/$defs/timestamp"
+            }
+          }
+        },
+        "member_outcomes": {
+          "type": "object",
+          "additionalProperties": {
+            "$ref": "#/$defs/extractionOutcome"
+          }
+        },
+        "decisions": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "collision_actions",
+            "rename_targets",
+            "ignored_members",
+            "retry_members"
+          ],
+          "properties": {
+            "collision_actions": {
+              "type": "object",
+              "additionalProperties": {
+                "enum": [
+                  "skip",
+                  "replace"
+                ]
+              }
+            },
+            "rename_targets": {
+              "type": "object",
+              "additionalProperties": {
+                "$ref": "#/$defs/memberPath"
+              }
+            },
+            "ignored_members": {
+              "type": "array",
+              "items": {
+                "$ref": "#/$defs/memberPath"
+              }
+            },
+            "retry_members": {
+              "type": "array",
+              "items": {
+                "$ref": "#/$defs/memberPath"
+              }
+            }
+          }
+        },
+        "pending_decision": {
+          "oneOf": [
+            {
+              "$ref": "#/$defs/pendingDecision"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "delivery_ids": {
+          "$ref": "#/$defs/deliveryIds"
+        }
+      }
+    },
+    "decisionAction": {
+      "enum": [
+        "skip",
+        "skip_all",
+        "replace",
+        "replace_all",
+        "replace_older",
+        "rename",
+        "retry",
+        "ignore",
+        "cancel"
+      ]
+    },
+    "pendingDecision": {
+      "oneOf": [
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "kind",
+            "allowed_actions",
+            "conflicts"
+          ],
+          "properties": {
+            "kind": {
+              "const": "existing_files"
+            },
+            "allowed_actions": {
+              "type": "array",
+              "minItems": 1,
+              "uniqueItems": true,
+              "items": {
+                "$ref": "#/$defs/decisionAction"
+              }
+            },
+            "conflicts": {
+              "type": "array",
+              "minItems": 1,
+              "items": {
+                "type": "object",
+                "additionalProperties": false,
+                "required": [
+                  "member_path",
+                  "target_path",
+                  "is_directory"
+                ],
+                "properties": {
+                  "member_path": {
+                    "$ref": "#/$defs/memberPath"
+                  },
+                  "target_path": {
+                    "$ref": "#/$defs/memberPath"
+                  },
+                  "is_directory": {
+                    "type": "boolean"
+                  },
+                  "source_size": {
+                    "type": "integer",
+                    "minimum": 0
+                  },
+                  "source_modified_at": {
+                    "$ref": "#/$defs/timestamp"
+                  },
+                  "target_size": {
+                    "type": "integer",
+                    "minimum": 0
+                  },
+                  "target_modified_at": {
+                    "$ref": "#/$defs/timestamp"
+                  }
+                }
+              }
+            }
+          }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "kind",
+            "member_path",
+            "target_path",
+            "message",
+            "partial_output",
+            "allowed_actions"
+          ],
+          "properties": {
+            "kind": {
+              "const": "member_error"
+            },
+            "member_path": {
+              "$ref": "#/$defs/memberPath"
+            },
+            "target_path": {
+              "$ref": "#/$defs/memberPath"
+            },
+            "message": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 500
+            },
+            "partial_output": {
+              "type": "boolean"
+            },
+            "allowed_actions": {
+              "const": [
+                "retry",
+                "ignore"
+              ]
+            }
+          }
+        }
+      ]
+    },
+    "operation": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "contract_version",
+        "kind",
+        "source_connection_id",
+        "source_path",
+        "destination_connection_id",
+        "destination_path"
+      ],
+      "properties": {
+        "contract_version": {
+          "$ref": "#/$defs/contractVersion"
+        },
+        "kind": {
+          "type": "string",
+          "enum": [
+            "create",
+            "extract"
+          ]
+        },
+        "source_connection_id": {
+          "type": "string",
+          "minLength": 1
+        },
+        "source_path": {
+          "type": "string"
+        },
+        "destination_connection_id": {
+          "type": "string",
+          "minLength": 1
+        },
+        "destination_path": {
+          "type": "string"
+        }
+      }
+    },
+    "operationRead": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "id",
+        "contract_version",
+        "kind",
+        "phase",
+        "source_connection_id",
+        "source_path",
+        "destination_connection_id",
+        "destination_path",
+        "manifest_hash",
+        "revision",
+        "checkpoint_json",
+        "pending_decision_json",
+        "collision_policy",
+        "cancellation_requested",
+        "last_error_json",
+        "last_error",
+        "created_at",
+        "updated_at",
+        "heartbeat_at"
+      ],
+      "properties": {
+        "id": {
+          "type": "string",
+          "format": "uuid"
+        },
+        "contract_version": {
+          "$ref": "#/$defs/contractVersion"
+        },
+        "kind": {
+          "enum": [
+            "create",
+            "extract"
+          ]
+        },
+        "phase": {
+          "enum": [
+            "prepared",
+            "accepted",
+            "streaming",
+            "awaiting_user_decision",
+            "verifying",
+            "completed",
+            "cancelled",
+            "failed"
+          ]
+        },
+        "source_connection_id": {
+          "type": "string",
+          "minLength": 1
+        },
+        "source_path": {
+          "type": "string",
+          "maxLength": 4096
+        },
+        "destination_connection_id": {
+          "type": "string",
+          "minLength": 1
+        },
+        "destination_path": {
+          "type": "string",
+          "maxLength": 4096
+        },
+        "manifest_hash": {
+          "type": "string",
+          "maxLength": 128
+        },
+        "revision": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "checkpoint_json": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "maxLength": 1048576
+        },
+        "pending_decision_json": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "maxLength": 1048576
+        },
+        "collision_policy": {
+          "enum": [
+            "skip_all",
+            "replace_all",
+            "replace_older",
+            null
+          ]
+        },
+        "cancellation_requested": {
+          "type": "boolean"
+        },
+        "last_error_json": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "maxLength": 1048576
+        },
+        "last_error": {
+          "oneOf": [
+            {
+              "$ref": "#/$defs/error"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "created_at": {
+          "$ref": "#/$defs/timestamp"
+        },
+        "updated_at": {
+          "$ref": "#/$defs/timestamp"
+        },
+        "heartbeat_at": {
+          "$ref": "#/$defs/timestamp"
+        }
+      }
+    },
+    "operationReadList": {
+      "type": "array",
+      "maxItems": 100,
+      "items": {
+        "$ref": "#/$defs/operationRead"
+      }
+    },
+    "operationTransition": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "expected_phase",
+        "next_phase"
+      ],
+      "properties": {
+        "expected_phase": {
+          "type": "string"
+        },
+        "next_phase": {
+          "type": "string"
+        },
+        "expected_revision": {
+          "type": [
+            "integer",
+            "null"
+          ],
+          "minimum": 0
+        }
+      }
+    },
+    "extractionDecision": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "action"
+      ],
+      "properties": {
+        "action": {
+          "$ref": "#/$defs/decisionAction"
+        },
+        "member_path": {
+          "$ref": "#/$defs/memberPath"
+        },
+        "target_path": {
+          "$ref": "#/$defs/memberPath"
+        },
+        "expected_revision": {
+          "type": [
+            "integer",
+            "null"
+          ],
+          "minimum": 0
+        }
+      }
+    },
+    "companionSession": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "token",
+        "expires_in",
+        "operation"
+      ],
+      "properties": {
+        "token": {
+          "type": "string",
+          "minLength": 1
+        },
+        "expires_in": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "operation": {
+          "$ref": "#/$defs/operationRead"
+        }
+      }
+    },
+    "extractionSourceManifest": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "entries"
+      ],
+      "properties": {
+        "entries": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/extractionMember"
+          }
+        }
+      }
+    },
+    "creationSourceManifest": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "entries"
+      ],
+      "properties": {
+        "entries": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/creationMember"
+          }
+        }
+      }
+    },
+    "extractionManifest": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "operation",
+        "entries"
+      ],
+      "properties": {
+        "operation": {
+          "$ref": "#/$defs/operationRead"
+        },
+        "entries": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/extractionMember"
+          }
+        }
+      }
+    },
+    "creationManifest": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "operation",
+        "entries"
+      ],
+      "properties": {
+        "operation": {
+          "$ref": "#/$defs/operationRead"
+        },
+        "entries": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/creationMember"
+          }
+        }
+      }
+    },
+    "relayExtractionBegin": {
+      "oneOf": [
+        {
+          "$ref": "#/$defs/operationRead"
+        },
+        {
+          "$ref": "#/$defs/extractionManifest"
+        }
+      ]
+    },
+    "liveExtractionBegin": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "operation",
+        "source_session_id"
+      ],
+      "properties": {
+        "operation": {
+          "$ref": "#/$defs/operationRead"
+        },
+        "source_session_id": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 64
+        }
+      }
+    },
+    "extractionAggregate": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "members_processed",
+        "members_completed",
+        "members_skipped",
+        "members_failed",
+        "files_extracted",
+        "directories_created",
+        "extracted_bytes",
+        "files_replaced"
+      ],
+      "properties": {
+        "members_processed": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 9223372036854775807
+        },
+        "members_completed": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 9223372036854775807
+        },
+        "members_skipped": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 9223372036854775807
+        },
+        "members_failed": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 9223372036854775807
+        },
+        "files_extracted": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 9223372036854775807
+        },
+        "directories_created": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 9223372036854775807
+        },
+        "extracted_bytes": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 9223372036854775807
+        },
+        "files_replaced": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 9223372036854775807
+        }
+      }
+    },
+    "liveExtractionStatus": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "source_session_id",
+        "phase",
+        "aggregate_counters"
+      ],
+      "properties": {
+        "source_session_id": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 64
+        },
+        "phase": {
+          "enum": [
+            "ready",
+            "current",
+            "streaming_current",
+            "awaiting_result",
+            "awaiting_decision",
+            "completed",
+            "failed",
+            "cancelled"
+          ]
+        },
+        "aggregate_counters": {
+          "$ref": "#/$defs/extractionAggregate"
+        },
+        "pending_decision": {
+          "oneOf": [
+            {
+              "$ref": "#/$defs/liveExtractionPendingDecision"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        }
+      }
+    },
+    "liveExtractionPendingDecision": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "revision",
+        "kind",
+        "member_path",
+        "delivery_sequence",
+        "is_directory",
+        "allowed_actions",
+        "target_path",
+        "message"
+      ],
+      "properties": {
+        "revision": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "kind": {
+          "enum": [
+            "collision",
+            "member_error"
+          ]
+        },
+        "member_path": {
+          "$ref": "#/$defs/memberPath"
+        },
+        "delivery_sequence": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "is_directory": {
+          "type": "boolean"
+        },
+        "allowed_actions": {
+          "type": "array",
+          "items": {
+            "enum": [
+              "skip",
+              "skip_all",
+              "replace",
+              "replace_all",
+              "replace_older",
+              "rename",
+              "retry",
+              "ignore"
+            ]
+          }
+        },
+        "target_path": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "message": {
+          "type": [
+            "string",
+            "null"
+          ]
+        }
+      }
+    },
+    "liveExtractionMember": {
+      "oneOf": [
+        {
+          "type": "null"
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "source_session_id",
+            "delivery_sequence",
+            "member_path",
+            "is_directory",
+            "uncompressed_size",
+            "modified_at"
+          ],
+          "properties": {
+            "source_session_id": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 64
+            },
+            "delivery_sequence": {
+              "type": "integer",
+              "minimum": 1
+            },
+            "member_path": {
+              "$ref": "#/$defs/memberPath"
+            },
+            "is_directory": {
+              "type": "boolean"
+            },
+            "uncompressed_size": {
+              "type": "integer",
+              "minimum": 0
+            },
+            "modified_at": {
+              "$ref": "#/$defs/timestamp"
+            },
+            "target_path": {
+              "$ref": "#/$defs/memberPath"
+            },
+            "collision_policy": {
+              "enum": [
+                "ask",
+                "skip",
+                "skip_all",
+                "replace",
+                "replace_all",
+                "replace_older",
+                "rename"
+              ]
+            }
+          }
+        }
+      ]
+    },
+    "liveCurrentMemberQuery": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "source_session_id",
+        "delivery_sequence"
+      ],
+      "properties": {
+        "source_session_id": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 64
+        },
+        "delivery_sequence": {
+          "type": "integer",
+          "minimum": 1
+        }
+      }
+    },
+    "liveDestinationWriteResult": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "source_session_id",
+        "delivery_sequence",
+        "member_path",
+        "status"
+      ],
+      "properties": {
+        "source_session_id": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 64
+        },
+        "delivery_sequence": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "member_path": {
+          "$ref": "#/$defs/memberPath"
+        },
+        "status": {
+          "enum": [
+            "directory",
+            "extracted",
+            "skipped",
+            "ignored",
+            "awaiting_collision",
+            "awaiting_retry",
+            "fatal"
+          ]
+        },
+        "extracted_bytes": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "directories_created": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "replaced": {
+          "type": "boolean"
+        },
+        "target_path": {
+          "$ref": "#/$defs/memberPath"
+        },
+        "message": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 500
+        }
+      }
+    },
+    "liveExtractionSummary": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "source_session_id",
+        "members_processed",
+        "members_completed",
+        "members_skipped",
+        "members_failed",
+        "files_extracted",
+        "directories_created",
+        "extracted_bytes",
+        "files_replaced"
+      ],
+      "properties": {
+        "source_session_id": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 64
+        },
+        "members_processed": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 9223372036854775807
+        },
+        "members_completed": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 9223372036854775807
+        },
+        "members_skipped": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 9223372036854775807
+        },
+        "members_failed": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 9223372036854775807
+        },
+        "files_extracted": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 9223372036854775807
+        },
+        "directories_created": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 9223372036854775807
+        },
+        "extracted_bytes": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 9223372036854775807
+        },
+        "files_replaced": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 9223372036854775807
+        }
+      }
+    },
+    "liveDestinationDecision": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "source_session_id",
+        "delivery_sequence",
+        "decision_revision",
+        "action",
+        "member_path"
+      ],
+      "properties": {
+        "source_session_id": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 64
+        },
+        "delivery_sequence": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "decision_revision": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "action": {
+          "$ref": "#/$defs/decisionAction"
+        },
+        "member_path": {
+          "$ref": "#/$defs/memberPath"
+        },
+        "target_path": {
+          "$ref": "#/$defs/memberPath"
+        }
+      }
+    },
+    "relayCreationBegin": {
+      "oneOf": [
+        {
+          "$ref": "#/$defs/operationRead"
+        },
+        {
+          "$ref": "#/$defs/creationManifest"
+        }
+      ]
+    },
+    "relayMemberQuery": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "member_path": {
+          "$ref": "#/$defs/memberPath"
+        },
+        "archive_path": {
+          "$ref": "#/$defs/memberPath"
+        }
+      },
+      "oneOf": [
+        {
+          "required": [
+            "member_path"
+          ]
+        },
+        {
+          "required": [
+            "archive_path"
+          ]
+        }
+      ]
+    },
+    "extractionMemberCompletion": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "member_path",
+        "status",
+        "target_path",
+        "directories_created",
+        "extracted_bytes",
+        "replaced",
+        "renamed"
+      ],
+      "properties": {
+        "member_path": {
+          "$ref": "#/$defs/memberPath"
+        },
+        "status": {
+          "enum": [
+            "directory",
+            "extracted",
+            "skipped",
+            "ignored"
+          ]
+        },
+        "target_path": {
+          "$ref": "#/$defs/memberPath"
+        },
+        "directories_created": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "extracted_bytes": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "replaced": {
+          "type": "boolean"
+        },
+        "renamed": {
+          "type": "boolean"
+        }
+      }
+    },
+    "extractionCollision": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "member_path",
+        "is_directory"
+      ],
+      "properties": {
+        "member_path": {
+          "$ref": "#/$defs/memberPath"
+        },
+        "is_directory": {
+          "type": "boolean"
+        },
+        "target_size": {
+          "type": [
+            "integer",
+            "null"
+          ],
+          "minimum": 0
+        },
+        "target_modified_at": {
+          "$ref": "#/$defs/timestamp"
+        }
+      }
+    },
+    "extractionMemberError": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "member_path",
+        "message",
+        "partial_output"
+      ],
+      "properties": {
+        "member_path": {
+          "$ref": "#/$defs/memberPath"
+        },
+        "message": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 500
+        },
+        "partial_output": {
+          "type": "boolean"
+        }
+      }
+    },
+    "extractionSummary": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "destination_root_created"
+      ],
+      "properties": {
+        "destination_root_created": {
+          "type": "boolean"
+        }
+      }
+    },
+    "creationMemberCompletion": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "archive_path",
+        "status",
+        "source_bytes"
+      ],
+      "properties": {
+        "archive_path": {
+          "$ref": "#/$defs/memberPath"
+        },
+        "status": {
+          "enum": [
+            "directory",
+            "created"
+          ]
+        },
+        "source_bytes": {
+          "type": "integer",
+          "minimum": 0
+        }
+      }
+    },
+    "creationSummary": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "files_created",
+        "directories_created",
+        "source_bytes"
+      ],
+      "properties": {
+        "files_created": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "directories_created": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "source_bytes": {
+          "type": "integer",
+          "minimum": 0
+        }
+      }
+    },
+    "extractionResult": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "members_processed",
+        "members_completed",
+        "members_skipped",
+        "members_failed",
+        "files_extracted",
+        "directories_created",
+        "extracted_bytes",
+        "files_replaced"
+      ],
+      "properties": {
+        "members_processed": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 9223372036854775807
+        },
+        "members_completed": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 9223372036854775807
+        },
+        "members_skipped": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 9223372036854775807
+        },
+        "members_failed": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 9223372036854775807
+        },
+        "files_extracted": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 9223372036854775807
+        },
+        "directories_created": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 9223372036854775807
+        },
+        "extracted_bytes": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 9223372036854775807
+        },
+        "files_replaced": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 9223372036854775807
+        },
+        "phase": {
+          "enum": [
+            "awaiting_user_decision"
+          ]
+        }
+      }
+    },
+    "failure": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "message"
+      ],
+      "properties": {
+        "message": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 500
+        }
+      }
+    },
+    "backendInspectionDirectoryQuery": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "contract_version",
+        "connection_id",
+        "archive_path"
+      ],
+      "properties": {
+        "contract_version": {
+          "$ref": "#/$defs/contractVersion"
+        },
+        "connection_id": {
+          "type": "string",
+          "minLength": 1
+        },
+        "archive_path": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 4096
+        },
+        "virtual_path": {
+          "type": "string",
+          "maxLength": 4096
+        },
+        "cursor": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "maxLength": 4096
+        },
+        "page_size": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 500
+        }
+      }
+    },
+    "backendInspectionMemberQuery": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "contract_version",
+        "connection_id",
+        "archive_path",
+        "member_path"
+      ],
+      "properties": {
+        "contract_version": {
+          "$ref": "#/$defs/contractVersion"
+        },
+        "connection_id": {
+          "type": "string",
+          "minLength": 1
+        },
+        "archive_path": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 4096
+        },
+        "member_path": {
+          "$ref": "#/$defs/memberPath"
+        },
+        "download": {
+          "type": "boolean"
+        },
+        "view_kind": {
+          "enum": [
+            "raw",
+            "text",
+            "image",
+            "pdf"
+          ]
+        },
+        "pdf_variant": {
+          "enum": [
+            "original",
+            "normalized"
+          ]
+        },
+        "viewport_width": {
+          "type": [
+            "integer",
+            "null"
+          ]
+        },
+        "viewport_height": {
+          "type": [
+            "integer",
+            "null"
+          ]
+        },
+        "no_resizing": {
+          "type": "boolean"
+        },
+        "screen_width": {
+          "type": [
+            "integer",
+            "null"
+          ],
+          "minimum": 320,
+          "maximum": 16384
+        },
+        "screen_height": {
+          "type": [
+            "integer",
+            "null"
+          ],
+          "minimum": 320,
+          "maximum": 16384
+        },
+        "screen_zoom_percent": {
+          "type": "integer",
+          "minimum": 100,
+          "maximum": 400
+        }
+      }
+    },
+    "localInspectionDirectoryQuery": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "contract_version",
+        "archive_path"
+      ],
+      "properties": {
+        "contract_version": {
+          "$ref": "#/$defs/contractVersion"
+        },
+        "archive_path": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 4096
+        },
+        "virtual_path": {
+          "type": "string",
+          "maxLength": 4096
+        },
+        "cursor": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "maxLength": 4096
+        },
+        "page_size": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 500
+        }
+      }
+    },
+    "localInspectionMemberQuery": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "contract_version",
+        "archive_path",
+        "member_path"
+      ],
+      "properties": {
+        "contract_version": {
+          "$ref": "#/$defs/contractVersion"
+        },
+        "archive_path": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 4096
+        },
+        "member_path": {
+          "$ref": "#/$defs/memberPath"
+        },
+        "download": {
+          "type": "boolean"
+        }
+      }
+    },
+    "inspectionIdentity": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "path",
+        "size"
+      ],
+      "properties": {
+        "path": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 4096
+        },
+        "size": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "modified_at": {
+          "$ref": "#/$defs/timestamp"
+        }
+      }
+    },
+    "inspectionEntry": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "name",
+        "path",
+        "type",
+        "state",
+        "is_hidden"
+      ],
+      "properties": {
+        "name": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 4096
+        },
+        "path": {
+          "$ref": "#/$defs/memberPath"
+        },
+        "type": {
+          "enum": [
+            "file",
+            "directory"
+          ]
+        },
+        "size": {
+          "type": [
+            "integer",
+            "null"
+          ],
+          "minimum": 0
+        },
+        "compressed_size": {
+          "type": [
+            "integer",
+            "null"
+          ],
+          "minimum": 0
+        },
+        "compression_method": {
+          "type": [
+            "integer",
+            "null"
+          ],
+          "minimum": 0
+        },
+        "crc32": {
+          "type": [
+            "integer",
+            "null"
+          ],
+          "minimum": 0,
+          "maximum": 4294967295
+        },
+        "modified_at": {
+          "$ref": "#/$defs/timestamp"
+        },
+        "state": {
+          "enum": [
+            "readable",
+            "blocked",
+            "unavailable"
+          ]
+        },
+        "is_hidden": {
+          "type": "boolean"
+        }
+      }
+    },
+    "inspectionDirectory": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "archive",
+        "path",
+        "items",
+        "total",
+        "page_size"
+      ],
+      "properties": {
+        "archive": {
+          "$ref": "#/$defs/inspectionIdentity"
+        },
+        "path": {
+          "type": "string",
+          "maxLength": 4096
+        },
+        "items": {
+          "type": "array",
+          "maxItems": 500,
+          "items": {
+            "$ref": "#/$defs/inspectionEntry"
+          }
+        },
+        "total": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "next_cursor": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "page_size": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 500
+        }
+      }
+    },
+    "directLocalStart": {
+      "oneOf": [
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "contract_version",
+            "kind",
+            "source_paths",
+            "target_path"
+          ],
+          "properties": {
+            "contract_version": {
+              "$ref": "#/$defs/contractVersion"
+            },
+            "kind": {
+              "const": "create"
+            },
+            "source_paths": {
+              "type": "array",
+              "minItems": 1,
+              "items": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 4096
+              }
+            },
+            "target_path": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 4096
+            }
+          }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "contract_version",
+            "kind",
+            "archive_path",
+            "destination_path"
+          ],
+          "properties": {
+            "contract_version": {
+              "$ref": "#/$defs/contractVersion"
+            },
+            "kind": {
+              "const": "extract"
+            },
+            "archive_path": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 4096
+            },
+            "destination_path": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 4096
+            }
+          }
+        }
+      ]
+    },
+    "directLocalCancellation": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "contract_version",
+        "expected_revision"
+      ],
+      "properties": {
+        "contract_version": {
+          "$ref": "#/$defs/contractVersion"
+        },
+        "expected_revision": {
+          "type": "integer",
+          "minimum": 0
+        }
+      }
+    },
+    "directLocalProgress": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "completedMembers",
+        "skippedMembers",
+        "failedMembers",
+        "partialMembers"
+      ],
+      "properties": {
+        "completedMembers": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "skippedMembers": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "failedMembers": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "partialMembers": {
+          "type": "integer",
+          "minimum": 0
+        }
+      }
+    },
+    "directLocalExecution": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "contract_version",
+        "execution_id",
+        "kind",
+        "phase",
+        "revision",
+        "progress",
+        "cancellation_requested"
+      ],
+      "properties": {
+        "contract_version": {
+          "$ref": "#/$defs/contractVersion"
+        },
+        "execution_id": {
+          "type": "string",
+          "format": "uuid"
+        },
+        "kind": {
+          "enum": [
+            "create",
+            "extract"
+          ]
+        },
+        "phase": {
+          "enum": [
+            "prepared",
+            "accepted",
+            "streaming",
+            "awaiting_user_decision",
+            "verifying",
+            "completed",
+            "cancelled",
+            "failed"
+          ]
+        },
+        "revision": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "progress": {
+          "$ref": "#/$defs/directLocalProgress"
+        },
+        "cancellation_requested": {
+          "type": "boolean"
+        },
+        "files_extracted": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "directories_created": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "extracted_bytes": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "files_skipped": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "files_created": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "source_bytes": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "error": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 500
+        },
+        "pendingDecision": {
+          "$ref": "#/$defs/pendingDecision"
+        }
+      }
+    },
+    "relayCreation": {
+      "oneOf": [
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "contract_version",
+            "target_path",
+            "server_url",
+            "operation_id",
+            "operation_token"
+          ],
+          "properties": {
+            "contract_version": {
+              "$ref": "#/$defs/contractVersion"
+            },
+            "target_path": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 4096
+            },
+            "server_url": {
+              "type": "string",
+              "format": "uri"
+            },
+            "operation_id": {
+              "type": "string",
+              "format": "uuid"
+            },
+            "operation_token": {
+              "type": "string",
+              "minLength": 1
+            }
+          }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "contract_version",
+            "source_paths",
+            "target_path",
+            "server_url",
+            "operation_id",
+            "operation_token"
+          ],
+          "properties": {
+            "contract_version": {
+              "$ref": "#/$defs/contractVersion"
+            },
+            "source_paths": {
+              "type": "array",
+              "minItems": 1,
+              "items": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 4096
+              }
+            },
+            "target_path": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 4096
+            },
+            "server_url": {
+              "type": "string",
+              "format": "uri"
+            },
+            "operation_id": {
+              "type": "string",
+              "format": "uuid"
+            },
+            "operation_token": {
+              "type": "string",
+              "minLength": 1
+            }
+          }
+        }
+      ]
+    },
+    "relayExtraction": {
+      "oneOf": [
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "contract_version",
+            "archive_path",
+            "server_url",
+            "operation_id",
+            "operation_token"
+          ],
+          "properties": {
+            "contract_version": {
+              "$ref": "#/$defs/contractVersion"
+            },
+            "archive_path": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 4096
+            },
+            "server_url": {
+              "type": "string",
+              "format": "uri"
+            },
+            "operation_id": {
+              "type": "string",
+              "format": "uuid"
+            },
+            "operation_token": {
+              "type": "string",
+              "minLength": 1
+            }
+          }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "contract_version",
+            "destination_path",
+            "operation_id"
+          ],
+          "properties": {
+            "contract_version": {
+              "$ref": "#/$defs/contractVersion"
+            },
+            "destination_path": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 4096
+            },
+            "operation_id": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        }
+      ]
+    },
+    "binary": {
+      "type": "string",
+      "contentEncoding": "base64"
+    },
+    "capabilityClaims": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "sub",
+        "tv",
+        "jti",
+        "archive_operation",
+        "token_class",
+        "purpose",
+        "archive_operation_id",
+        "source_connection_id",
+        "source_path",
+        "destination_connection_id",
+        "destination_path",
+        "manifest_hash",
+        "contract_version"
+      ],
+      "properties": {
+        "sub": {
+          "type": "string",
+          "minLength": 1
+        },
+        "tv": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "jti": {
+          "type": "string",
+          "minLength": 1
+        },
+        "archive_operation": {
+          "const": true
+        },
+        "token_class": {
+          "const": "archive_operation"
+        },
+        "purpose": {
+          "enum": [
+            "local_zip_to_smb_extract",
+            "smb_zip_to_local_extract",
+            "smb_to_local_zip_create",
+            "local_to_smb_zip_create"
+          ]
+        },
+        "archive_operation_id": {
+          "type": "string",
+          "format": "uuid"
+        },
+        "source_connection_id": {
+          "type": "string",
+          "minLength": 1
+        },
+        "source_path": {
+          "type": "string",
+          "maxLength": 4096
+        },
+        "destination_connection_id": {
+          "type": "string",
+          "minLength": 1
+        },
+        "destination_path": {
+          "type": "string",
+          "maxLength": 4096
+        },
+        "manifest_hash": {
+          "type": "string",
+          "maxLength": 128
+        },
+        "contract_version": {
+          "$ref": "#/$defs/contractVersion"
+        }
+      }
+    },
+    "error": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "code",
+        "message"
+      ],
+      "properties": {
+        "code": {
+          "enum": [
+            "invalid_manifest",
+            "invalid_checkpoint",
+            "invalid_contract_version",
+            "invalid_member_path",
+            "collision",
+            "partial_output",
+            "source_changed",
+            "transport_failure",
+            "cancelled",
+            "idempotency_conflict",
+            "capability_invalid",
+            "capability_version_mismatch",
+            "invalid_request",
+            "authentication_invalid",
+            "authorization_denied",
+            "not_found",
+            "invalid_operation_state",
+            "operation_unavailable"
+          ]
+        },
+        "message": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 500
+        }
+      }
+    }
+  }
+}

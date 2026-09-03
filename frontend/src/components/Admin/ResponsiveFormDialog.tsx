@@ -39,6 +39,7 @@ interface ResponsiveFormDialogProps {
   closeButtonAriaLabel?: string;
   maxWidth?: DialogProps["maxWidth"];
   onKeyDown?: DialogProps["onKeyDown"];
+  onEscape?: () => void;
   contentSx?: SxProps<Theme>;
   paperSx?: SxProps<Theme>;
   paperRef?: Ref<HTMLDivElement>;
@@ -55,6 +56,11 @@ interface ResponsiveFormDialogProps {
 
 import { useTranslation } from "react-i18next";
 
+export const responsiveFormDialogContentPaddingSx: SxProps<Theme> = {
+  px: { xs: 2, sm: 3 },
+  py: 2,
+};
+
 export function ResponsiveFormDialog({
   open,
   onClose,
@@ -67,6 +73,7 @@ export function ResponsiveFormDialog({
   closeButtonAriaLabel,
   maxWidth = "sm",
   onKeyDown,
+  onEscape,
   contentSx,
   paperSx,
   paperRef,
@@ -153,6 +160,10 @@ export function ResponsiveFormDialog({
     if (event.key === "Escape") {
       event.preventDefault();
       event.stopPropagation();
+      if (onEscape) {
+        onEscape();
+        return;
+      }
       if (disableClose) {
         return;
       }
@@ -227,9 +238,9 @@ export function ResponsiveFormDialog({
 
           <Box
             sx={[
+              responsiveFormDialogContentPaddingSx,
               {
                 ...mobileScrollableContentSx,
-                p: 2,
                 pb: `calc(16px + ${SAFE_AREA_INSET.BOTTOM})`,
               },
               ...(Array.isArray(contentSx) ? contentSx : contentSx ? [contentSx] : []),
@@ -312,6 +323,7 @@ export function ResponsiveFormDialog({
             // first line of dialog content is never visually clipped.
             ".MuiDialogTitle-root + &&": { pt: 2 },
           },
+          responsiveFormDialogContentPaddingSx,
           ...(Array.isArray(contentSx) ? contentSx : contentSx ? [contentSx] : []),
         ]}
       >

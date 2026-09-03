@@ -1,5 +1,7 @@
 """Tests for image conversion service using libvips."""
 
+from unittest.mock import MagicMock, patch
+
 import pytest
 import pyvips
 
@@ -7,6 +9,7 @@ from app.services.image_converter import (
     convert_image_for_viewer,
     get_image_info,
 )
+from app.services.preprocessor import PreprocessorError, PreprocessorRegistry
 from app.utils.file_type_registry import (
     is_image_file,
     needs_processing,
@@ -257,6 +260,24 @@ class TestImageConversion:
 
         with pytest.raises(ValueError, match="Failed to convert image"):
             convert_image_for_viewer(invalid_data, "test.jpg")
+
+    def test_preprocessor_error_hides_converter_details(self):
+        """Preprocessor diagnostics must not be exposed in the image viewer."""
+        preprocessor = MagicMock()
+        preprocessor.convert_to_final_format.side_effect = PreprocessorError(
+            "ImageMagick conversion failed: improper image header /tmp/private-file"
+        )
+
+        with (
+            patch("app.services.image_converter.VIPS_AVAILABLE", True),
+            patch.object(PreprocessorRegistry, "get_preprocessor_for_format", return_value=preprocessor),
+            pytest.raises(ValueError) as error,
+        ):
+            convert_image_for_viewer(b"invalid PSD", "image.psd")
+
+        assert str(error.value) == "Unable to preview this PSD file. The file may be invalid or corrupted."
+        assert "ImageMagick" not in str(error.value)
+        assert "/tmp/private-file" not in str(error.value)
 
     def test_get_image_info(self):
         """Test getting image information."""

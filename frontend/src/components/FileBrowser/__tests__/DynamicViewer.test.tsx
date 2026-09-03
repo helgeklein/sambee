@@ -1,5 +1,6 @@
 import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
+import type { ViewerComponentProps } from "../../../utils/FileTypeRegistry";
 import { DynamicViewer } from "../DynamicViewer";
 
 const { mockGetViewerComponentLoadResult, mockLogger } = vi.hoisted(() => ({
@@ -50,6 +51,37 @@ describe("DynamicViewer", () => {
     render(<DynamicViewer {...defaultProps} />);
 
     expect(await screen.findByTestId("loaded-viewer")).toBeInTheDocument();
+  });
+
+  it("forwards an archive source to the loaded viewer component", async () => {
+    mockGetViewerComponentLoadResult.mockResolvedValue({
+      status: "loaded",
+      component: function LoadedViewer({ virtualSource }: ViewerComponentProps) {
+        return <div data-testid="loaded-viewer">{virtualSource?.location.source.path}</div>;
+      },
+    });
+
+    render(
+      <DynamicViewer
+        {...defaultProps}
+        viewInfo={{
+          ...defaultProps.viewInfo,
+          virtualSource: {
+            kind: "virtual",
+            path: "images/photo.png",
+            location: {
+              kind: "virtual",
+              providerId: "zip",
+              connectionId: "conn-1",
+              source: { kind: "physical", connectionId: "conn-1", path: "archives/backup.zip" },
+              path: "images",
+            },
+          },
+        }}
+      />
+    );
+
+    expect(await screen.findByTestId("loaded-viewer")).toHaveTextContent("archives/backup.zip");
   });
 
   it("shows a failure dialog when the viewer module cannot be loaded", async () => {

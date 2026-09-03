@@ -80,6 +80,38 @@ describe("NameInputDialog", () => {
     expect(screen.getByRole("button", { name: NAME_DIALOG_STRINGS.BUTTON_CANCEL })).toBeInTheDocument();
   });
 
+  it("uses the active-operation cancellation action while submitting", async () => {
+    const user = userEvent.setup();
+    const onCancelSubmitting = vi.fn();
+    render(
+      <NameInputDialog
+        {...defaultProps}
+        isSubmitting
+        cancelSubmittingLabel="Cancel archive creation"
+        onCancelSubmitting={onCancelSubmitting}
+      />
+    );
+
+    await user.click(screen.getByRole("button", { name: "Cancel archive creation" }));
+
+    expect(onCancelSubmitting).toHaveBeenCalledOnce();
+  });
+
+  it("replaces the form with active-operation content while submitting", () => {
+    render(
+      <NameInputDialog
+        {...defaultProps}
+        isSubmitting
+        onCancelSubmitting={vi.fn()}
+        submittingContent={<div>Creating archive progress</div>}
+      />
+    );
+
+    expect(screen.getByText("Creating archive progress")).toBeInTheDocument();
+    expect(screen.queryByLabelText("Name")).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Submit" })).not.toBeInTheDocument();
+  });
+
   it("does not render when open is false", () => {
     render(<NameInputDialog {...defaultProps} open={false} />);
     expect(screen.queryByText("Test Dialog")).not.toBeInTheDocument();

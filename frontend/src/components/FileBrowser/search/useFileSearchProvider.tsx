@@ -1,7 +1,7 @@
 import { useCallback, useRef } from "react";
 import { useTranslation } from "react-i18next";
 import type { BrowserOpenMode } from "../../../pages/FileBrowser/types";
-import api from "../../../services/api";
+import { type BrowserHistoryService, browserHistoryService } from "../../../services/browserHistoryService";
 import { publishRecentFilesChanged } from "../../../services/recentFilesSync";
 import type { FileEntry, RecentFile } from "../../../types";
 import { removeRecentHistoryResult } from "./recentHistory";
@@ -55,6 +55,7 @@ interface FileSearchProviderOptions {
   getConnectionName: (connectionId: string) => string;
   onOpenCurrentFile: (file: FileEntry, mode: BrowserOpenMode) => void;
   onOpenRecentFile: (file: RecentFile, mode: BrowserOpenMode) => void;
+  history?: BrowserHistoryService;
 }
 
 export function useFileSearchProvider({
@@ -66,6 +67,7 @@ export function useFileSearchProvider({
   getConnectionName,
   onOpenCurrentFile,
   onOpenRecentFile,
+  history = browserHistoryService,
 }: FileSearchProviderOptions): SearchProvider {
   const { t } = useTranslation();
   const recentFilesRef = useRef(new Map<string, RecentFile>());
@@ -79,7 +81,7 @@ export function useFileSearchProvider({
         .sort((left, right) => {
           return currentFileMatchRank(left.name, normalizedQuery) - currentFileMatchRank(right.name, normalizedQuery);
         });
-      const recentResponse = await api.searchRecentFiles(query, resultLimit, signal);
+      const recentResponse = await history.searchRecentFiles(query, resultLimit, signal);
       const effectiveResultLimit = recentResponse.result_limit ?? resultLimit;
       const recentPaths = new Set(recentResponse.results.map((file) => `${file.connection_id}\u0000${file.path}`));
       const uniqueCurrentMatches = currentCandidates
@@ -130,7 +132,7 @@ export function useFileSearchProvider({
         })),
       ];
     },
-    [connectionId, connectionName, currentPath, files, getConnectionName, resultLimit, t]
+    [connectionId, connectionName, currentPath, files, getConnectionName, history, resultLimit, t]
   );
 
   const onSelect = useCallback(
@@ -149,15 +151,18 @@ export function useFileSearchProvider({
 
   const getStatusInfo = useCallback((): SearchStatusInfo | null => null, []);
 
-  const onRemoveSelected = useCallback(async (value: string) => {
-    return removeRecentHistoryResult({
-      value,
-      prefix: RECENT_FILE_PREFIX,
-      records: recentFilesRef.current,
-      remove: api.removeRecentFile.bind(api),
-      publish: publishRecentFilesChanged,
-    });
-  }, []);
+  const onRemoveSelected = useCallback(
+    async (value: string) => {
+      return removeRecentHistoryResult({
+        value,
+        prefix: RECENT_FILE_PREFIX,
+        records: recentFilesRef.current,
+        remove: history.removeRecentFile,
+        publish: publishRecentFilesChanged,
+      });
+    },
+    [history]
+  );
 
   return {
     id: "file-search",

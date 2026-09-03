@@ -13,10 +13,13 @@
  */
 
 import { screen, waitFor } from "@testing-library/react";
+import userEvent from "@testing-library/user-event";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import api from "../../services/api";
 import { authSession } from "../../services/authSession";
 import { type ApiMock, createMarkdownViewerMock, createSettingsDialogMock, setupSuccessfulApiMocks } from "../../test/helpers";
+import { FileType } from "../../types";
+import { parseBrowseRoute, serializeBrowseRoute } from "../FileBrowser/routing";
 import { ACTIVE_PANE_QUERY_KEY, RIGHT_PANE_QUERY_KEY } from "../FileBrowser/types";
 import { renderBrowser } from "./FileBrowser.test.utils";
 
@@ -61,6 +64,41 @@ describe("FileBrowser — URL Routing (Phase 3)", () => {
 
     it("ACTIVE_PANE_QUERY_KEY is 'active'", () => {
       expect(ACTIVE_PANE_QUERY_KEY).toBe("active");
+    });
+
+    it("serializes independent virtual locations as slash-delimited pane paths", () => {
+      const route = {
+        left: {
+          kind: "smb" as const,
+          targetId: "test-server-1",
+          path: "Archives",
+          virtualLocation: { providerId: "zip", sourcePath: "Archives/left.zip", virtualPath: "docs" },
+        },
+        right: {
+          kind: "smb" as const,
+          targetId: "test-server-2",
+          path: "Backups",
+          virtualLocation: { providerId: "zip", sourcePath: "Backups/right.zip", virtualPath: "inside" },
+        },
+        activePaneId: "right" as const,
+      };
+
+      const url = serializeBrowseRoute(route);
+      expect(url).toBe("/browse/smb/test-server-1/Archives/left.zip/docs?p2=smb%2Ftest-server-2%2FBackups%2Fright.zip%2Finside&active=2");
+
+      const parsedUrl = new URL(url, "http://localhost");
+      expect(
+        parseBrowseRoute({
+          targetType: "smb",
+          targetId: "test-server-1",
+          path: "Archives/left.zip/docs",
+          searchParams: parsedUrl.searchParams,
+        })
+      ).toEqual({
+        left: { kind: "smb", targetId: "test-server-1", path: "Archives/left.zip/docs" },
+        right: { kind: "smb", targetId: "test-server-2", path: "Backups/right.zip/inside" },
+        activePaneId: "right",
+      });
     });
   });
 
@@ -111,6 +149,132 @@ describe("FileBrowser — URL Routing (Phase 3)", () => {
 
       await waitFor(() => {
         expectDirectoryLoad("conn-1", "Documents");
+      });
+    });
+
+    it("serializes archive navigation and restores a virtual archive deep link", async () => {
+      vi.mocked(api.listDirectory).mockImplementation(async (_connectionId, path) => ({
+        path,
+        items:
+          path === "Archives"
+            ? [
+                {
+                  name: "backup.zip",
+                  path: "Archives/backup.zip",
+                  type: FileType.FILE,
+                  is_readable: true,
+                  is_hidden: false,
+                },
+              ]
+            : [],
+        total: path === "Archives" ? 1 : 0,
+      }));
+      vi.mocked(api.listArchiveDirectory).mockImplementation(async (_connectionId, archivePath, virtualPath) => ({
+        archive: { path: archivePath, size: 1 },
+        path: virtualPath,
+        items:
+          virtualPath === ""
+            ? [{ name: "nested", path: "nested", type: FileType.DIRECTORY, state: "readable", is_hidden: false }]
+            : [{ name: "member.txt", path: "nested/member.txt", type: FileType.FILE, state: "readable", is_hidden: false }],
+        total: 1,
+        page_size: 100,
+      }));
+      vi.mocked(api.getFileInfo).mockImplementation(
+        async (_connectionId, path) =>
+          ({
+            type: path === "Archives/backup.zip" ? FileType.FILE : FileType.DIRECTORY,
+          }) as never
+      );
+
+      const user = userEvent.setup();
+      renderBrowser("/browse/smb/test-server-1/Archives");
+
+      await user.click(await screen.findByRole("button", { name: /file: backup\.zip/i }));
+      await waitFor(() => {
+        expect(screen.getByTestId("router-location")).toHaveTextContent("/browse/smb/test-server-1/Archives/backup.zip");
+      });
+
+      await user.click(await screen.findByRole("button", { name: /folder: nested/i }));
+      await waitFor(() => {
+        expect(screen.getByTestId("router-location")).toHaveTextContent("/browse/smb/test-server-1/Archives/backup.zip/nested");
+      });
+
+      await user.keyboard("{Backspace}");
+      await user.keyboard("{Backspace}");
+      await waitFor(() => {
+        expect(screen.getByTestId("router-location")).toHaveTextContent("/browse/smb/test-server-1/Archives");
+      });
+    });
+
+    it("hydrates an archive deep link through its virtual provider", async () => {
+      vi.mocked(api.listArchiveDirectory).mockImplementation(async (_connectionId, archivePath, virtualPath) => ({
+        archive: { path: archivePath, size: 1 },
+        path: virtualPath,
+        items:
+          virtualPath === ""
+            ? [{ name: "nested", path: "nested", type: FileType.DIRECTORY, state: "readable", is_hidden: false }]
+            : [{ name: "member.txt", path: "nested/member.txt", type: FileType.FILE, state: "readable", is_hidden: false }],
+        total: 1,
+        page_size: 100,
+      }));
+      vi.mocked(api.getFileInfo).mockImplementation(
+        async (_connectionId, path) =>
+          ({
+            type: path === "Archives/backup.zip" ? FileType.FILE : FileType.DIRECTORY,
+          }) as never
+      );
+
+      renderBrowser("/browse/smb/test-server-1/Archives/backup.zip/nested");
+      await waitFor(() => {
+        expect(api.listArchiveDirectory).toHaveBeenCalledWith("conn-1", "Archives/backup.zip", "nested", {
+          pageSize: 100,
+          signal: expect.any(AbortSignal),
+        });
+      });
+      expect((await screen.findAllByText("member.txt")).length).toBeGreaterThan(0);
+    });
+
+    it("keeps physical directory semantics for a directory named with an archive extension", async () => {
+      vi.mocked(api.getFileInfo).mockResolvedValue({ type: FileType.DIRECTORY } as never);
+
+      renderBrowser("/browse/smb/test-server-1/folder.zip/child");
+
+      await waitFor(() => {
+        expectDirectoryLoad("conn-1", "folder.zip/child");
+      });
+      expect(api.listArchiveDirectory).not.toHaveBeenCalled();
+    });
+
+    it("replaces a missing archive route with its deepest existing physical ancestor", async () => {
+      vi.mocked(api.getFileInfo).mockImplementation(async (_connectionId, path) => {
+        if (path === "Existing/missing.zip") {
+          throw { isAxiosError: true, response: { status: 404 } };
+        }
+        return { type: FileType.DIRECTORY } as never;
+      });
+
+      renderBrowser("/browse/smb/test-server-1/Existing/missing.zip");
+
+      await waitFor(() => {
+        expect(screen.getByTestId("router-location")).toHaveTextContent("/browse/smb/test-server-1/Existing");
+        expectDirectoryLoad("conn-1", "Existing");
+      });
+    });
+
+    it("replaces an invalid archive route with the physical parent directory", async () => {
+      vi.mocked(api.getFileInfo).mockImplementation(
+        async (_connectionId, path) =>
+          ({
+            type: path === "Archives/broken.zip" ? FileType.FILE : FileType.DIRECTORY,
+          }) as never
+      );
+      vi.mocked(api.listArchiveDirectory).mockRejectedValue({ isAxiosError: true, response: { status: 422 } });
+
+      renderBrowser("/browse/smb/test-server-1/Archives/broken.zip/nested");
+
+      await waitFor(() => {
+        expect(screen.getByTestId("router-location")).toHaveTextContent("/browse/smb/test-server-1/Archives");
+        expectDirectoryLoad("conn-1", "Archives");
       });
     });
   });

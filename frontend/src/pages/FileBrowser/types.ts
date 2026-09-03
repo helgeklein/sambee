@@ -5,8 +5,19 @@
 import type { Virtualizer } from "@tanstack/react-virtual";
 import type React from "react";
 import type { SearchProvider } from "../../components/FileBrowser/search/types";
+import type { BrowserHistoryService } from "../../services/browserHistoryService";
+import type { BrowserLinkTargetService } from "../../services/browserLinkTargetService";
+import type { StorageBackendRegistry } from "../../services/storageContracts";
 import type { Connection, FileEntry, FileType } from "../../types";
 import type { ViewerId } from "../../utils/FileTypeRegistry";
+import type {
+  BrowserItem,
+  ContentCapabilities,
+  ContentLocation,
+  ContentProviderRegistry,
+  VirtualContentProviderId,
+  VirtualItemHandle,
+} from "./contentProviders";
 
 export type SortField = "name" | "size" | "modified" | "type";
 
@@ -28,6 +39,7 @@ export interface ViewInfo {
   path: string;
   mimeType: string;
   viewerId?: ViewerId;
+  virtualSource?: VirtualItemHandle;
   images?: string[];
   currentIndex?: number;
   sessionId: string;
@@ -38,6 +50,8 @@ export interface BrowserViewerPickerState {
   fileName: string;
   filePath: string;
   mimeType: string;
+  virtualSource?: VirtualItemHandle;
+  virtualActivationId?: number;
   viewerIds: ViewerId[];
   compatibleViewerIds: ViewerId[];
   defaultViewerId: ViewerId | null;
@@ -56,9 +70,22 @@ export interface DirectoryCacheEntry {
   timestamp: number;
 }
 
+/** A ZIP directory shown through an ordinary file-browser pane. */
+export interface ArchiveLocation {
+  providerId: VirtualContentProviderId;
+  archivePath: string;
+  virtualPath: string;
+}
+
+export interface DirectoryChange {
+  connectionId: string;
+  path: string;
+}
+
 export interface FileBrowserPaneRecoverySnapshot {
   connectionId: string;
   path: string;
+  archiveLocation?: ArchiveLocation | null;
   items: FileEntry[];
   sortBy: SortField;
   sortDirection: "asc" | "desc";
@@ -94,6 +121,13 @@ export const RIGHT_PANE_QUERY_KEY = "p2";
 /** Query parameter recording which pane has focus (1 = left, 2 = right). */
 export const ACTIVE_PANE_QUERY_KEY = "active";
 
+/** A provider-neutral, read-only location layered on a physical route path. */
+export interface VirtualRouteLocation {
+  providerId: VirtualContentProviderId;
+  sourcePath: string;
+  virtualPath: string;
+}
+
 // ============================================================================
 // Pane hook configuration & return types
 // ============================================================================
@@ -105,6 +139,18 @@ export interface UseFileBrowserPaneConfig {
 
   /** Available connections so the hook can derive capability state for the selected connection. */
   connections?: Connection[];
+
+  /** Browser-file providers composed at the page boundary. */
+  contentProviders?: ContentProviderRegistry;
+
+  /** Browser storage target resolver composed at the page boundary. */
+  storageRegistry?: StorageBackendRegistry;
+
+  /** Recent-history and directory-navigation service composed at the page boundary. */
+  history?: BrowserHistoryService;
+
+  /** Link-target metadata service composed at the page boundary. */
+  linkTargets?: BrowserLinkTargetService;
 
   /**
    * When true, keyboard handlers inside the pane are suppressed.
@@ -130,6 +176,12 @@ export interface UseFileBrowserPaneConfig {
 
   /** Called when the pane should navigate to a directory in any accessible connection. */
   onNavigateDirectory?: (connectionId: string, path: string) => void;
+
+  /** Called when the pane should navigate into or out of a virtual provider location. */
+  onNavigateVirtualLocation?: (location: VirtualRouteLocation | null) => void;
+
+  /** Called when an incoming route resolves to a canonical existing location. */
+  onResolveRouteLocation?: (path: string, archiveLocation: ArchiveLocation | null) => void;
 }
 
 /** Everything returned by useFileBrowserPane for use by the parent and pane component. */
@@ -139,6 +191,11 @@ export interface UseFileBrowserPaneReturn {
   setConnectionId: React.Dispatch<React.SetStateAction<string>>;
   currentPath: string;
   setCurrentPath: React.Dispatch<React.SetStateAction<string>>;
+  currentLocation: ContentLocation;
+  archiveLocation: ArchiveLocation | null;
+  contentCapabilities: ContentCapabilities;
+  archiveHasMore: boolean;
+  archiveLoadingMore: boolean;
   files: FileEntry[];
   loading: boolean;
   error: string | null;
@@ -170,7 +227,7 @@ export interface UseFileBrowserPaneReturn {
    * Returns the effective selection: if files are explicitly selected,
    * returns those; otherwise returns the single focused file.
    */
-  getEffectiveSelection: () => FileEntry[];
+  getEffectiveSelection: () => BrowserItem[];
 
   // ── Computed Data ──────────────────────────────────────────────────────
   sortedFiles: FileEntry[];
@@ -184,10 +241,10 @@ export interface UseFileBrowserPaneReturn {
 
   // ── Dialog State ───────────────────────────────────────────────────────
   deleteDialogOpen: boolean;
-  deleteTarget: FileEntry | null;
+  deleteTargets: BrowserItem[];
   isDeleting: boolean;
   renameDialogOpen: boolean;
-  renameTarget: FileEntry | null;
+  renameTarget: BrowserItem | null;
   isRenaming: boolean;
   renameError: string | null;
   createDialogOpen: boolean;
@@ -223,14 +280,17 @@ export interface UseFileBrowserPaneReturn {
   handleOpenFile: (options?: { requireListFocus?: boolean; mode?: BrowserOpenMode }) => void;
   handleOpenFileForFile: (file: FileEntry, index: number, mode?: BrowserOpenMode) => void;
   handleOpenFileAtPath: (connectionId: string, path: string, mode?: BrowserOpenMode, recentRecordId?: string) => Promise<void>;
+  openArchive: (archivePath: string) => void;
+  navigateArchiveToPath: (virtualPath: string) => void;
+  loadMoreArchive: () => void;
+  closeArchive: () => void;
   navigateToPath: (path: string) => void;
-  prepareDirectoryTransition: (connectionId: string, path: string) => void;
   handleNavigateUpDirectory: () => void;
   handleNavigateUp: () => void;
   handleClose: () => void;
   handleFocusSearch: () => void;
   handleRefresh: () => void;
-  forceReloadCurrentDirectory: (preserveVisibleContent?: boolean) => void;
+  reloadCurrentLocation: (options?: { forceRefresh?: boolean; preserveVisibleContent?: boolean }) => Promise<void>;
 
   // ── Viewer Handlers ────────────────────────────────────────────────────
   handleViewIndexChange: (index: number) => void;
@@ -261,15 +321,13 @@ export interface UseFileBrowserPaneReturn {
    * `directory_changed` event is received.  Invalidates the cache entry
    * and triggers a reload if this pane is viewing the affected directory.
    */
-  handleDirectoryChanged: (changedConnectionId: string, changedPath: string) => void;
+  handleDirectoryChanged: (change: DirectoryChange) => void;
 
   // ── Cache Management ───────────────────────────────────────────────────
   /** Clear all directory and navigation caches (e.g. on connection switch). */
   clearCaches: () => void;
   /** Invalidate cached entries for a specific connection (e.g. after settings change). */
   invalidateConnectionCache: (targetConnectionId: string) => void;
-  /** Load files for a specific path, optionally bypassing cache. */
-  loadFiles: (path: string, forceRefresh?: boolean, preserveVisibleContent?: boolean) => Promise<void>;
   /** Seed directory contents and cache from already-known data for a matching connection/path. */
   seedDirectorySnapshot: (connectionId: string, path: string, items: FileEntry[]) => void;
   /** Apply route-driven state from the browser location without triggering navigation again. */

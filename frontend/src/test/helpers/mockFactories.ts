@@ -14,6 +14,7 @@ import { mockConnections, mockDirectoryListing, mockEmptyDirectory, mockNestedDi
 export interface ApiMock {
   getConnections: Mock;
   listDirectory: Mock;
+  listArchiveDirectory: Mock;
   listLocalLinkTargets: Mock;
   getCurrentUser: Mock;
   getCurrentUserSettings: Mock;
@@ -58,6 +59,13 @@ export function setupSuccessfulApiMocks(api: ApiMock): void {
 
   api.getConnections.mockResolvedValue(mockConnections);
   api.listDirectory.mockResolvedValue(mockDirectoryListing);
+  api.listArchiveDirectory.mockResolvedValue({
+    archive: { path: "archive.zip", size: 0 },
+    path: "",
+    items: [],
+    total: 0,
+    page_size: 100,
+  });
   api.listLocalLinkTargets.mockResolvedValue({ items: [] });
   api.getCurrentUser.mockResolvedValue({
     username: "admin",
@@ -86,7 +94,9 @@ export function setupSuccessfulApiMocks(api: ApiMock): void {
       is_hidden: false,
     })
   );
-  api.getFileInfo.mockResolvedValue({ type: "directory" });
+  api.getFileInfo.mockImplementation(async (_connectionId: string, path: string) => ({
+    type: path.toLowerCase().endsWith(".zip") ? "file" : "directory",
+  }));
 
   // Mock getImageBlob to return a fake blob
   api.getImageBlob.mockResolvedValue(new Blob(["fake-image-data"], { type: "image/png" }));

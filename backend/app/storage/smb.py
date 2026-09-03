@@ -1,18 +1,21 @@
 import asyncio
 import logging
 import stat
+import uuid
 from collections.abc import AsyncIterator, Callable
 from datetime import datetime
 from pathlib import PurePosixPath
-from typing import BinaryIO, TypeVar
+from typing import Awaitable, BinaryIO, TypeVar
 
 import smbclient
 from smbclient._os import FileAttributes
 
 from app.core.system_setting_definitions import SystemSettingKey
 from app.models.file import DirectoryListing, FileInfo, FileType
+from app.services.archive.target_write import TargetExistsBeforeContent, TargetWriteFailure, TargetWriteResult
+from app.services.archive.zip_reader import ArchiveSourceUnavailableError
 from app.services.system_settings import get_integer_setting_value, get_smbclient_policy_kwargs
-from app.storage.base import ProgressCallback, StorageBackend
+from app.storage.base import ExclusiveWriter, ProgressCallback, RandomAccessReader, StorageBackend
 from app.storage.smb_pool import get_connection_pool, get_smb_connection_cache
 from app.utils.file_type_registry import get_mime_type
 
@@ -28,6 +31,115 @@ SMB_EXISTS_TIMEOUT_SECONDS = 10.0
 SMB_DELETE_TIMEOUT_SECONDS = 120.0
 
 BlockingResultT = TypeVar("BlockingResultT")
+
+
+class _SMBRandomAccessReader:
+    """One SMB handle with serialized offset reads for an archive operation."""
+
+    def __init__(self, *, backend: "SMBBackend", smb_path: str, handle: BinaryIO, connection_lease: object) -> None:
+        self._backend = backend
+        self._smb_path = smb_path
+        self._handle = handle
+        self._connection_lease = connection_lease
+        self._lock = asyncio.Lock()
+        self._closed = False
+
+    async def read_at(self, offset: int, length: int) -> bytes:
+        if offset < 0 or length < 0:
+            raise ValueError("SMB random-access reads require non-negative offset and length")
+
+        async with self._lock:
+            if self._closed:
+                raise ValueError("SMB random-access reader is closed")
+
+            def _read_at() -> bytes:
+                self._handle.seek(offset)
+                return self._handle.read(length)
+
+            return await self._backend._run_blocking_smb_call(
+                "read_file_at",
+                _read_at,
+                SMB_READ_CHUNK_TIMEOUT_SECONDS,
+                smb_path=self._smb_path,
+            )
+
+    async def close(self) -> None:
+        async with self._lock:
+            if self._closed:
+                return
+            self._closed = True
+            try:
+                await self._backend._run_blocking_smb_call(
+                    "close_file_after_random_read",
+                    self._handle.close,
+                    SMB_FILE_CLOSE_TIMEOUT_SECONDS,
+                    smb_path=self._smb_path,
+                )
+            finally:
+                await self._connection_lease.__aexit__(None, None, None)  # type: ignore[attr-defined]
+
+
+class _SMBExclusiveWriter:
+    """One exclusively created SMB target, retained until close or cleanup."""
+
+    def __init__(self, *, backend: "SMBBackend", smb_path: str, handle: BinaryIO, connection_lease: object) -> None:
+        self._backend = backend
+        self._smb_path = smb_path
+        self._handle = handle
+        self._connection_lease = connection_lease
+        self._lock = asyncio.Lock()
+        self._closed = False
+
+    async def write(self, data: bytes) -> int:
+        if not data:
+            return 0
+        async with self._lock:
+            if self._closed:
+                raise ValueError("SMB exclusive writer is closed")
+            return await self._backend._run_blocking_smb_call(
+                "write_exclusive_file",
+                lambda: self._handle.write(data),
+                SMB_WRITE_FILE_TIMEOUT_SECONDS,
+                smb_path=self._smb_path,
+            )
+
+    async def close(self) -> None:
+        async with self._lock:
+            if self._closed:
+                return
+            self._closed = True
+            try:
+                await self._backend._run_blocking_smb_call(
+                    "close_exclusive_file",
+                    self._handle.close,
+                    SMB_FILE_CLOSE_TIMEOUT_SECONDS,
+                    smb_path=self._smb_path,
+                )
+            finally:
+                await self._connection_lease.__aexit__(None, None, None)  # type: ignore[attr-defined]
+
+    async def abort_and_delete_if_owned(self) -> bool:
+        async with self._lock:
+            if self._closed:
+                return False
+            try:
+                await self._backend._run_blocking_smb_call(
+                    "delete_owned_exclusive_file",
+                    lambda: smbclient.remove(self._smb_path, **self._backend._smb_auth_kwargs()),
+                    SMB_DELETE_TIMEOUT_SECONDS,
+                    smb_path=self._smb_path,
+                )
+            except OSError:
+                return False
+            await self._backend._run_blocking_smb_call(
+                "close_deleted_exclusive_file",
+                self._handle.close,
+                SMB_FILE_CLOSE_TIMEOUT_SECONDS,
+                smb_path=self._smb_path,
+            )
+            self._closed = True
+            await self._connection_lease.__aexit__(None, None, None)  # type: ignore[attr-defined]
+            return True
 
 
 class SMBBackend(StorageBackend):
@@ -559,6 +671,104 @@ class SMBBackend(StorageBackend):
             logger.error(f"Failed to read file {path}: {e}")
             raise
 
+    async def _open_random_access_reader(self, path: str, *, share_access: str, operation_name: str) -> RandomAccessReader:
+        """Open one pooled SMB handle for serialized bounded offset reads."""
+
+        smb_path = self._build_smb_path(path)
+        pool = await get_connection_pool()
+        connection_lease = pool.get_connection(
+            host=self.host,
+            port=self.port,
+            username=self.username,
+            password=self.password,
+            share_name=self.share_name,
+            connection_cache=self._connection_cache,
+        )
+
+        await connection_lease.__aenter__()
+        try:
+            handle = await self._run_blocking_smb_call(
+                operation_name,
+                lambda: smbclient.open_file(
+                    smb_path,
+                    mode="rb",
+                    buffering=0,
+                    share_access=share_access,
+                    **self._smb_auth_kwargs(),
+                ),
+                SMB_FILE_OPEN_TIMEOUT_SECONDS,
+                smb_path=smb_path,
+            )
+        except BaseException:
+            await connection_lease.__aexit__(None, None, None)
+            raise
+
+        return _SMBRandomAccessReader(
+            backend=self,
+            smb_path=smb_path,
+            handle=handle,
+            connection_lease=connection_lease,
+        )
+
+    async def open_random_access_reader(self, path: str) -> RandomAccessReader:
+        """Open a general-purpose SMB reader that permits concurrent share updates."""
+
+        return await self._open_random_access_reader(
+            path,
+            share_access="rwd",
+            operation_name="open_file_for_random_read",
+        )
+
+    async def open_archive_source_reader(self, path: str) -> RandomAccessReader:
+        """Pin an archive source against concurrent SMB writers for its live operation."""
+
+        try:
+            return await self._open_random_access_reader(
+                path,
+                share_access="r",
+                operation_name="open_file_for_archive_source_read",
+            )
+        except Exception as exc:
+            logger.warning("Unable to open pinned archive source '%s': %s", path, exc)
+            raise ArchiveSourceUnavailableError("Archive source cannot be opened with required sharing") from exc
+
+    async def open_exclusive_writer(self, path: str) -> ExclusiveWriter:
+        """Create a final SMB target without replacement and retain its handle."""
+
+        smb_path = self._build_smb_path(path)
+        pool = await get_connection_pool()
+        connection_lease = pool.get_connection(
+            host=self.host,
+            port=self.port,
+            username=self.username,
+            password=self.password,
+            share_name=self.share_name,
+            connection_cache=self._connection_cache,
+        )
+        await connection_lease.__aenter__()
+        try:
+            handle = await self._run_blocking_smb_call(
+                "open_file_for_exclusive_write",
+                lambda: smbclient.open_file(
+                    smb_path,
+                    mode="x+b",
+                    buffering=0,
+                    share_access="rwd",
+                    **self._smb_auth_kwargs(),
+                ),
+                SMB_FILE_OPEN_TIMEOUT_SECONDS,
+                smb_path=smb_path,
+            )
+        except BaseException:
+            await connection_lease.__aexit__(None, None, None)
+            raise
+        return _SMBExclusiveWriter(
+            backend=self,
+            smb_path=smb_path,
+            handle=handle,
+            connection_lease=connection_lease,
+        )
+
     #
     # write_file
     #
@@ -673,7 +883,7 @@ class SMBBackend(StorageBackend):
     #
     # _remove_if_exists
     #
-    async def _remove_if_exists(self, smb_path: str) -> None:
+    async def _remove_if_exists(self, smb_path: str) -> bool:
         """Remove *smb_path* (file or directory) if it exists.
 
         Used internally by copy/move/write operations when the caller
@@ -683,9 +893,9 @@ class SMBBackend(StorageBackend):
         Directory removal is depth-first (recursive).
         """
 
-        def _remove(target: str) -> None:
+        def _remove(target: str) -> bool:
             if not smbclient.path.exists(target, **self._smb_auth_kwargs()):  # pyright: ignore[reportAttributeAccessIssue]
-                return
+                return False
             stat_info = smbclient.stat(target, **self._smb_auth_kwargs())
             if stat.S_ISDIR(stat_info.st_mode):
                 # Collect all children before recursing so the scandir
@@ -696,9 +906,29 @@ class SMBBackend(StorageBackend):
                 smbclient.rmdir(target, **self._smb_auth_kwargs())
             else:
                 smbclient.remove(target, **self._smb_auth_kwargs())
+            return True
 
-        await self._run_blocking_smb_call(
+        return await self._run_blocking_smb_call(
             "remove existing destination",
+            lambda: _remove(smb_path),
+            SMB_DELETE_TIMEOUT_SECONDS,
+            smb_path=smb_path,
+        )
+
+    async def _remove_regular_file_if_exists(self, smb_path: str) -> bool:
+        """Remove only a regular target file for archive replacement."""
+
+        def _remove(target: str) -> bool:
+            if not smbclient.path.exists(target, **self._smb_auth_kwargs()):  # pyright: ignore[reportAttributeAccessIssue]
+                return False
+            stat_info = smbclient.stat(target, **self._smb_auth_kwargs())
+            if not stat.S_ISREG(stat_info.st_mode):
+                raise FileExistsError(f"Archive target is not a regular file: {target}")
+            smbclient.remove(target, **self._smb_auth_kwargs())
+            return True
+
+        return await self._run_blocking_smb_call(
+            "remove archive replacement target",
             lambda: _remove(smb_path),
             SMB_DELETE_TIMEOUT_SECONDS,
             smb_path=smb_path,
@@ -1094,9 +1324,8 @@ class SMBBackend(StorageBackend):
         Args:
             source_path: Relative path of the item to copy.
             dest_path: Relative destination path (full path including name).
-            overwrite: When ``True``, remove the destination before
-                copying.  When ``False`` (default), raise
-                ``FileExistsError`` if the destination exists.
+            overwrite: Retained for compatibility. Replacement is not supported
+                until the caller can provide a guarded commit primitive.
 
         Raises:
             FileNotFoundError: If the source path does not exist.
@@ -1120,24 +1349,17 @@ class SMBBackend(StorageBackend):
                 share_name=self.share_name,
                 connection_cache=self._connection_cache,
             ):
-                # Guard: raise early when the destination already
-                # exists and the caller has not opted into overwrite.
-                if not overwrite:
-                    exists = await self._run_blocking_smb_operation(
-                        "check copy destination",
-                        lambda: smbclient.path.exists(  # pyright: ignore[reportAttributeAccessIssue]
-                            smb_dst,
-                            **self._smb_auth_kwargs(),
-                        ),
-                        10.0,
-                        smb_path=smb_dst,
-                    )
-                    if exists:
-                        raise FileExistsError(f"Destination already exists: {dest_path}")
-                else:
-                    # When overwrite is requested, remove the existing
-                    # destination so the copy can proceed cleanly.
-                    await self._remove_if_exists(smb_dst)
+                exists = await self._run_blocking_smb_operation(
+                    "check copy destination",
+                    lambda: smbclient.path.exists(  # pyright: ignore[reportAttributeAccessIssue]
+                        smb_dst,
+                        **self._smb_auth_kwargs(),
+                    ),
+                    10.0,
+                    smb_path=smb_dst,
+                )
+                if exists:
+                    raise FileExistsError(f"Destination already exists: {dest_path}")
 
                 def _copy_recursive(src: str, dst: str) -> None:
                     """Copy *src* to *dst*, creating directories as needed.
@@ -1211,9 +1433,8 @@ class SMBBackend(StorageBackend):
         Args:
             source_path: Relative path of the item to move.
             dest_path: Relative destination path (full path including name).
-            overwrite: When ``True``, remove the destination before
-                moving.  When ``False`` (default), raise
-                ``FileExistsError`` if the destination exists.
+            overwrite: Retained for compatibility. Replacement is not supported
+                until the caller can provide a guarded commit primitive.
 
         Raises:
             FileNotFoundError: If the source path does not exist.
@@ -1237,24 +1458,17 @@ class SMBBackend(StorageBackend):
                 share_name=self.share_name,
                 connection_cache=self._connection_cache,
             ):
-                # Guard: raise early when the destination already
-                # exists and the caller has not opted into overwrite.
-                if not overwrite:
-                    exists = await self._run_blocking_smb_operation(
-                        "check move destination",
-                        lambda: smbclient.path.exists(  # pyright: ignore[reportAttributeAccessIssue]
-                            smb_dst,
-                            **self._smb_auth_kwargs(),
-                        ),
-                        10.0,
-                        smb_path=smb_dst,
-                    )
-                    if exists:
-                        raise FileExistsError(f"Destination already exists: {dest_path}")
-                else:
-                    # When overwrite is requested, remove the existing
-                    # destination so the rename can proceed cleanly.
-                    await self._remove_if_exists(smb_dst)
+                exists = await self._run_blocking_smb_operation(
+                    "check move destination",
+                    lambda: smbclient.path.exists(  # pyright: ignore[reportAttributeAccessIssue]
+                        smb_dst,
+                        **self._smb_auth_kwargs(),
+                    ),
+                    10.0,
+                    smb_path=smb_dst,
+                )
+                if exists:
+                    raise FileExistsError(f"Destination already exists: {dest_path}")
 
                 await self._run_blocking_smb_operation(
                     "move",
@@ -1331,6 +1545,9 @@ class SMBBackend(StorageBackend):
         smb_path = self._build_smb_path(path)
         logger.debug(f"write_file_from_stream: path='{path}' -> smb_path='{smb_path}'")
 
+        bytes_written = 0
+        replaced = False
+        target_may_have_changed = False
         try:
             pool = await get_connection_pool()
 
@@ -1342,93 +1559,208 @@ class SMBBackend(StorageBackend):
                 share_name=self.share_name,
                 connection_cache=self._connection_cache,
             ):
-                # Guard: raise early when the destination already
-                # exists and the caller has not opted into overwrite.
-                if not overwrite:
-                    exists = await self._run_blocking_smb_operation(
-                        "check write destination",
-                        lambda: smbclient.path.exists(  # pyright: ignore[reportAttributeAccessIssue]
-                            smb_path,
-                            **self._smb_auth_kwargs(),
-                        ),
-                        10.0,
-                        smb_path=smb_path,
-                    )
-                    if exists:
-                        raise FileExistsError(f"Destination already exists: {path}")
-                else:
+                if overwrite:
                     # When overwrite is requested, remove the existing
-                    # destination so the write can proceed cleanly.
-                    await self._remove_if_exists(smb_path)
+                    # regular file before exclusively recreating it below.
+                    replaced = await self._remove_regular_file_if_exists(smb_path)
+                    target_may_have_changed = replaced
 
-                # Open the file handle once — we keep it open while streaming.
+                # Exclusive creation closes the check/open race. A target that
+                # appears after replacement removal is reported before any
+                # input chunk is consumed.
                 file_handle = await self._run_blocking_smb_operation(
                     "open write handle",
                     lambda: smbclient.open_file(
                         smb_path,
-                        mode="wb",
+                        mode="x+b",
                         share_access="r",
                         **self._smb_auth_kwargs(),
                     ),
                     15.0,
                     smb_path=smb_path,
                 )
+                target_may_have_changed = True
 
-                bytes_written = 0
                 try:
                     async for chunk in stream:
-                        await self._run_blocking_smb_operation(
-                            "write chunk",
-                            lambda: file_handle.write(chunk),
-                            chunk_write_timeout_s,
-                            smb_path=smb_path,
-                        )
-                        bytes_written += len(chunk)
-                        if on_progress:
-                            on_progress(bytes_written, None)
+                        offset = 0
+                        while offset < len(chunk):
+                            remaining = chunk[offset:]
+                            accepted = await self._run_blocking_smb_operation(
+                                "write chunk",
+                                lambda: file_handle.write(remaining),
+                                chunk_write_timeout_s,
+                                smb_path=smb_path,
+                            )
+                            if not isinstance(accepted, int) or not 0 < accepted <= len(remaining):
+                                raise OSError(f"SMB write returned an invalid byte count for '{path}'")
+                            offset += accepted
+                            bytes_written += accepted
+                            if on_progress:
+                                on_progress(bytes_written, None)
                 finally:
-                    try:
-                        await self._run_blocking_smb_operation(
-                            "close write handle",
-                            file_handle.close,
-                            5.0,
-                            smb_path=smb_path,
-                        )
-                    except Exception as close_err:
-                        logger.warning(f"Error closing file handle for '{path}': {close_err}")
+                    await self._run_blocking_smb_operation(
+                        "close write handle",
+                        file_handle.close,
+                        5.0,
+                        smb_path=smb_path,
+                    )
 
                 # Preserve the original modification timestamp inside
                 # the same connection context (no extra pool checkout).
                 if source_mtime is not None:
-                    try:
-                        mtime_ns = int(source_mtime.timestamp() * 1_000_000_000)
-                        await self._run_blocking_smb_operation(
-                            "preserve modification time",
-                            lambda: smbclient.utime(
-                                smb_path,
-                                ns=(mtime_ns, mtime_ns),
-                                **self._smb_auth_kwargs(),
-                            ),
-                            10.0,
-                            smb_path=smb_path,
-                        )
-                    except Exception as utime_err:
-                        logger.warning(f"Could not preserve modification time for '{path}': {utime_err}")
+                    mtime_ns = int(source_mtime.timestamp() * 1_000_000_000)
+                    await self._run_blocking_smb_operation(
+                        "preserve modification time",
+                        lambda: smbclient.utime(
+                            smb_path,
+                            ns=(mtime_ns, mtime_ns),
+                            **self._smb_auth_kwargs(),
+                        ),
+                        10.0,
+                        smb_path=smb_path,
+                    )
 
                 logger.debug(f"write_file_from_stream: wrote {bytes_written} bytes to '{path}'")
-                return bytes_written
+                return TargetWriteResult(bytes_written, replaced=replaced)
 
-        except asyncio.TimeoutError:
+        except asyncio.TimeoutError as exc:
             logger.error(f"Timeout during write_file_from_stream for '{path}'")
-            raise TimeoutError(f"SMB operation timed out while writing: {path}")
+            timeout_error = TimeoutError(f"SMB operation timed out while writing: {path}")
+            if target_may_have_changed:
+                raise TargetWriteFailure(timeout_error, bytes_written) from exc
+            raise timeout_error from exc
         except OSError as e:
             error_str = str(e)
-            if "0xc0000035" in error_str:
-                raise FileExistsError(f"Destination already exists: {path}") from e
+            if target_may_have_changed:
+                raise TargetWriteFailure(e, bytes_written) from e
+            if isinstance(e, FileExistsError) or "0xc0000035" in error_str:
+                raise TargetExistsBeforeContent(f"Destination already exists: {path}") from e
             if "0xc0000043" in error_str or "being used by another process" in error_str:
                 raise IOError(f"File is locked and cannot be written: {path}") from e
             logger.error(f"Failed write_file_from_stream '{path}': {type(e).__name__}: {e}", exc_info=True)
             raise
         except Exception as e:
+            if target_may_have_changed:
+                raise TargetWriteFailure(e, bytes_written) from e
             logger.error(f"Failed write_file_from_stream '{path}': {type(e).__name__}: {e}", exc_info=True)
             raise
+
+    async def stage_and_commit_new_file_from_stream(
+        self,
+        path: str,
+        stream: AsyncIterator[bytes],
+        *,
+        before_commit: Callable[[], Awaitable[None]],
+        on_progress: ProgressCallback | None = None,
+        source_mtime: datetime | None = None,
+    ) -> int:
+        """Publish a streamed file through a private sibling stage.
+
+        SMB rename is a no-replace operation. Writing a unique stage first
+        therefore leaves the visible destination unchanged if reading,
+        writing, source validation, flushing, or final publication fails.
+        """
+
+        target_path = self._normalize_relative_path(path)
+        target_parts = PurePosixPath(target_path)
+        stage_name = f".{target_parts.name}.sambee-stage-{uuid.uuid4().hex}"
+        stage_path = str(target_parts.with_name(stage_name))
+        smb_path = self._build_smb_path(target_path)
+        smb_stage_path = self._build_smb_path(stage_path)
+        bytes_written = 0
+        committed = False
+
+        async def remove_stage() -> None:
+            if committed:
+                return
+            try:
+                await self._run_blocking_smb_operation(
+                    "discard transfer stage",
+                    lambda: smbclient.remove(smb_stage_path, **self._smb_auth_kwargs()),
+                    SMB_DELETE_TIMEOUT_SECONDS,
+                    smb_path=smb_stage_path,
+                )
+            except Exception as cleanup_error:
+                logger.warning(
+                    "Failed to discard SMB transfer stage '%s': %s",
+                    stage_path,
+                    cleanup_error,
+                )
+
+        try:
+            pool = await get_connection_pool()
+            async with pool.get_connection(
+                host=self.host,
+                port=self.port,
+                username=self.username,
+                password=self.password,
+                share_name=self.share_name,
+                connection_cache=self._connection_cache,
+            ):
+                file_handle = await self._run_blocking_smb_operation(
+                    "open transfer stage",
+                    lambda: smbclient.open_file(
+                        smb_stage_path,
+                        mode="x+b",
+                        share_access="r",
+                        **self._smb_auth_kwargs(),
+                    ),
+                    SMB_FILE_OPEN_TIMEOUT_SECONDS,
+                    smb_path=smb_stage_path,
+                )
+                try:
+                    async for chunk in stream:
+                        offset = 0
+                        while offset < len(chunk):
+                            remaining = chunk[offset:]
+                            accepted = await self._run_blocking_smb_operation(
+                                "write transfer stage chunk",
+                                lambda: file_handle.write(remaining),
+                                SMB_WRITE_FILE_TIMEOUT_SECONDS,
+                                smb_path=smb_stage_path,
+                            )
+                            if not isinstance(accepted, int) or not 0 < accepted <= len(remaining):
+                                raise OSError(f"SMB write returned an invalid byte count for transfer stage '{path}'")
+                            offset += accepted
+                            bytes_written += accepted
+                            if on_progress:
+                                on_progress(bytes_written, None)
+                finally:
+                    await self._run_blocking_smb_operation(
+                        "close transfer stage",
+                        file_handle.close,
+                        SMB_FILE_CLOSE_TIMEOUT_SECONDS,
+                        smb_path=smb_stage_path,
+                    )
+
+                if source_mtime is not None:
+                    mtime_ns = int(source_mtime.timestamp() * 1_000_000_000)
+                    await self._run_blocking_smb_operation(
+                        "preserve transfer stage modification time",
+                        lambda: smbclient.utime(
+                            smb_stage_path,
+                            ns=(mtime_ns, mtime_ns),
+                            **self._smb_auth_kwargs(),
+                        ),
+                        SMB_FILE_INFO_TIMEOUT_SECONDS,
+                        smb_path=smb_stage_path,
+                    )
+
+                await before_commit()
+                await self._run_blocking_smb_operation(
+                    "commit transfer stage",
+                    lambda: smbclient.rename(smb_stage_path, smb_path, **self._smb_auth_kwargs()),
+                    SMB_FILE_OPEN_TIMEOUT_SECONDS,
+                    smb_path=smb_path,
+                )
+                committed = True
+                logger.debug("Committed staged SMB transfer: '%s'", path)
+                return bytes_written
+        except OSError as error:
+            error_text = str(error)
+            if isinstance(error, FileExistsError) or "0xc0000035" in error_text:
+                raise FileExistsError(f"Destination already exists: {path}") from error
+            raise
+        finally:
+            await remove_stage()

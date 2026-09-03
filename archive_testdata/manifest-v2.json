@@ -1,0 +1,159 @@
+{
+  "fixtures": [
+    {
+      "entries": [
+        {
+          "data_descriptor": false,
+          "directory": false,
+          "member_sha256": "87b04e58961f9a99d853d4046a0b5b793e7c3e4bbd21f5aca8fb17c20cdb1d8b",
+          "method": 0,
+          "path": "stored.txt",
+          "raw_name_hex": "73746f7265642e747874",
+          "safe": true,
+          "uncompressed_size": 6
+        },
+        {
+          "data_descriptor": false,
+          "directory": false,
+          "member_sha256": "ab87dc430ba1810458717ced36de2b28deea2f89fb9cfe600c164adab21ab25e",
+          "method": 8,
+          "path": "deflated.txt",
+          "raw_name_hex": "6465666c617465642e747874",
+          "safe": true,
+          "uncompressed_size": 1152
+        },
+        {
+          "data_descriptor": false,
+          "directory": true,
+          "member_sha256": null,
+          "method": 0,
+          "path": "empty",
+          "raw_name_hex": "656d7074792f",
+          "safe": true,
+          "uncompressed_size": 0
+        }
+      ],
+      "name": "portable-v2.zip",
+      "sha256": "744499b989ac581ac6f807fe961c8cd56ed0e8e1f217eaf881a99a77352bd5ea"
+    },
+    {
+      "entries": [
+        {
+          "data_descriptor": false,
+          "directory": false,
+          "member_sha256": "6973dddd3ef9cb6a2932702f31777faad9c9bf3124d147a84f31aadb6d139546",
+          "method": 0,
+          "path": "../unsafe.txt",
+          "raw_name_hex": "2e2e2f756e736166652e747874",
+          "safe": false,
+          "uncompressed_size": 7
+        }
+      ],
+      "name": "unsafe-path-v2.zip",
+      "sha256": "d3332ed8f813d8d17ddae677f82b6c7fcd004d00f78ad6250590eb6b86ba9b7e"
+    },
+    {
+      "entries": [
+        {
+          "data_descriptor": true,
+          "directory": false,
+          "member_sha256": "c6d29f5c74ae6ab4dbd5fbdef61a21eb958455efa23695c28415ac4fc133e5f4",
+          "method": 8,
+          "path": "descriptor.txt",
+          "raw_name_hex": "64657363726970746f722e747874",
+          "safe": true,
+          "uncompressed_size": 1408
+        }
+      ],
+      "name": "data-descriptor-v2.zip",
+      "sha256": "de7457cda6d512e406c6879549d14d44d80354e742630d116dfcdc0187aea14d"
+    },
+    {
+      "entries": [
+        {
+          "data_descriptor": false,
+          "directory": false,
+          "member_sha256": "2fcf76a4c3c75b1fb5288d83d62dd114dc556d16fba206ab35d38bfe294a2857",
+          "method": 0,
+          "path": "caf\u00e9.txt",
+          "raw_name_hex": "636166652e747874",
+          "safe": true,
+          "uncompressed_size": 7
+        }
+      ],
+      "name": "unicode-path-v2.zip",
+      "sha256": "94d55b52a434b026c64c19a7851f7f86fdb023794080e8355f9816763b9a7466"
+    },
+    {
+      "entries": [
+        {
+          "data_descriptor": false,
+          "directory": false,
+          "member_sha256": "b9a3708757cc1690e4b4950203b5ee85577df73c70453c5c8a2be8477915f4d5",
+          "method": 8,
+          "path": "zip64.txt",
+          "raw_name_hex": "7a697036342e747874",
+          "safe": true,
+          "uncompressed_size": 768
+        }
+      ],
+      "name": "zip64-v2.zip",
+      "sha256": "7822b427f1ea13acfa5c5cd29e29446f39c17ce5a03ade5197d8162a2a928358"
+    },
+    {
+      "entries": [
+        {
+          "data_descriptor": false,
+          "directory": false,
+          "member_sha256": "d79adcb03d89eca3e38a87c1cb611fc360d889e6e29507d4755b3536422027a2",
+          "method": 12,
+          "path": "bzip2.txt",
+          "raw_name_hex": "627a6970322e747874",
+          "safe": true,
+          "uncompressed_size": 768
+        }
+      ],
+      "name": "bzip2-v2.zip",
+      "sha256": "f18473b9faba3e7a80afafb9a87cb73c382c0de3b446854a84c3349d69ab4854"
+    },
+    {
+      "entries": [
+        {
+          "data_descriptor": false,
+          "directory": false,
+          "member_sha256": "c036cbb7553a909f8b8877d4461924307f27ecb66cff928eeeafd569c3887e29",
+          "method": 8,
+          "path": "exact-limit.txt",
+          "raw_name_hex": "65786163742d6c696d69742e747874",
+          "safe": true,
+          "uncompressed_size": 5242880
+        },
+        {
+          "data_descriptor": false,
+          "directory": false,
+          "member_sha256": "09b203d5582fff801c1990a28ad8d1ab2a1d89a78ffff0208841e59def0d64d7",
+          "method": 8,
+          "path": "over-limit.txt",
+          "raw_name_hex": "6f7665722d6c696d69742e747874",
+          "safe": true,
+          "uncompressed_size": 5242881
+        }
+      ],
+      "name": "preview-boundary-v2.zip",
+      "sha256": "30702a39d2746e595277143b56bfa4c99f1c71dc3c230fbd7d559606a19962bf"
+    },
+    {
+      "entries": [],
+      "expected_error": "format_error",
+      "name": "malformed-v2.zip",
+      "sha256": "bf1500171d6d150fcb14ba9a385e2759aa803fb5ec70e3c39e1f482a15fd194c"
+    },
+    {
+      "entries": [],
+      "expected_error": "format_error",
+      "name": "eocd-malformed-v2.zip",
+      "sha256": "13c9be8b08cbc19795cc2d15fd0ece082689c7be8d76a4bf9df7c55ec58fd251"
+    }
+  ],
+  "version": 2
+}

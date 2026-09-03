@@ -14,8 +14,15 @@ import FileBrowser from "../FileBrowser";
 
 const mockUseCompanion = vi.fn<() => UseCompanionResult>();
 const mockBuildCompanionWsUrl = vi.fn<() => Promise<string | null>>();
+const mockCopyMoveDialog = vi.fn();
 
 vi.mock("../../services/api");
+vi.mock("../../components/FileBrowser/CopyMoveDialog", () => ({
+  default: (props: unknown) => {
+    mockCopyMoveDialog(props);
+    return null;
+  },
+}));
 vi.mock("../../hooks/useCompanion", () => ({
   useCompanion: () => mockUseCompanion(),
 }));
@@ -183,6 +190,63 @@ describe("FileBrowser WebSocket behavior", () => {
     backendSocket?.close();
 
     expect(getBackendAvailabilitySnapshot().status).toBe("available");
+  });
+
+  it("ignores malformed WebSocket frames and continues handling later directory changes", async () => {
+    const warnSpy = vi.spyOn(logger, "warn");
+    const { renderBrowser } = await import("./FileBrowser.test.utils");
+
+    renderBrowser("/browse/smb/test-server-1");
+
+    await waitFor(() => {
+      expect(InspectableWebSocket.instances.length).toBeGreaterThan(0);
+      expect(api.listDirectory).toHaveBeenCalledTimes(1);
+    });
+    const backendSocket = InspectableWebSocket.instances.find(isServerSocket);
+    expect(backendSocket).toBeDefined();
+    backendSocket?.open();
+
+    expect(() => {
+      act(() => {
+        backendSocket?.onmessage?.(new MessageEvent("message", { data: "not-json" }));
+      });
+    }).not.toThrow();
+    expect(warnSpy).toHaveBeenCalledWith("Ignoring malformed WebSocket message", undefined, "websocket");
+
+    act(() => {
+      backendSocket?.onmessage?.(
+        new MessageEvent("message", { data: JSON.stringify({ type: "directory_changed", connection_id: "conn-1", path: "" }) })
+      );
+    });
+
+    await waitFor(() => {
+      expect(api.listDirectory).toHaveBeenCalledTimes(2);
+    });
+  });
+
+  it("ignores acknowledged WebSocket control frames without malformed-message warnings", async () => {
+    const warnSpy = vi.spyOn(logger, "warn");
+    const { renderBrowser } = await import("./FileBrowser.test.utils");
+
+    renderBrowser("/browse/smb/test-server-1");
+
+    await waitFor(() => {
+      expect(InspectableWebSocket.instances.length).toBeGreaterThan(0);
+    });
+    const backendSocket = InspectableWebSocket.instances.find(isServerSocket);
+    expect(backendSocket).toBeDefined();
+    backendSocket?.open();
+    warnSpy.mockClear();
+    mockCopyMoveDialog.mockClear();
+
+    act(() => {
+      for (const type of ["subscribed", "unsubscribed", "pong"]) {
+        backendSocket?.onmessage?.(new MessageEvent("message", { data: JSON.stringify({ type }) }));
+      }
+    });
+
+    expect(warnSpy).not.toHaveBeenCalledWith("Ignoring malformed WebSocket message", undefined, "websocket");
+    expect(mockCopyMoveDialog).not.toHaveBeenCalled();
   });
 
   it("does not build a companion WebSocket while viewing only SMB panes", async () => {

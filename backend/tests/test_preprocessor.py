@@ -184,25 +184,23 @@ class TestImageMagickPreprocessor:
 
         mock_result = MagicMock()
         mock_result.returncode = 0
+        mock_result.stdout = b"Version: ImageMagick 7.1.1-43 Q16"
 
         with patch("subprocess.run", return_value=mock_result) as mock_run:
             assert preprocessor.check_availability() is True
-            # Should try magick command first
             assert mock_run.call_args[0][0][0] == "magick"
 
-    def test_check_availability_v6_installed(self):
-        """Test availability check with ImageMagick 6 (convert command)."""
+    def test_check_availability_rejects_v6(self):
+        """Test availability check rejects ImageMagick 6."""
         preprocessor = ImageMagickPreprocessor()
 
-        def run_side_effect(args, **kwargs):
-            if args[0] == "magick":
-                raise FileNotFoundError()
-            mock_result = MagicMock()
-            mock_result.returncode = 0
-            return mock_result
+        mock_result = MagicMock()
+        mock_result.returncode = 0
+        mock_result.stdout = b"Version: ImageMagick 6.9.12-98 Q16"
 
-        with patch("subprocess.run", side_effect=run_side_effect):
-            assert preprocessor.check_availability() is True
+        with patch("subprocess.run", return_value=mock_result) as mock_run:
+            assert preprocessor.check_availability() is False
+            assert mock_run.call_args[0][0][0] == "magick"
 
     def test_check_availability_not_installed(self):
         """Test availability check when ImageMagick is not installed."""
@@ -211,29 +209,20 @@ class TestImageMagickPreprocessor:
         with patch("subprocess.run", side_effect=FileNotFoundError):
             assert preprocessor.check_availability() is False
 
-    def test_get_command_prefers_v7(self):
-        """Test that _get_command prefers ImageMagick 7 over 6."""
+    def test_get_command_returns_v7_command(self):
+        """Test command resolution returns the ImageMagick 7 command."""
         preprocessor = ImageMagickPreprocessor()
 
-        mock_result = MagicMock()
-        mock_result.returncode = 0
-
-        with patch("subprocess.run", return_value=mock_result):
+        with patch.object(preprocessor, "check_availability", return_value=True):
             assert preprocessor._get_command() == "magick"
 
-    def test_get_command_falls_back_to_v6(self):
-        """Test that _get_command falls back to ImageMagick 6 if v7 unavailable."""
+    def test_get_command_requires_v7(self):
+        """Test command resolution rejects a missing ImageMagick 7."""
         preprocessor = ImageMagickPreprocessor()
 
-        def run_side_effect(args, **kwargs):
-            if args[0] == "magick":
-                raise FileNotFoundError()
-            mock_result = MagicMock()
-            mock_result.returncode = 0
-            return mock_result
-
-        with patch("subprocess.run", side_effect=run_side_effect):
-            assert preprocessor._get_command() == "convert"
+        with patch.object(preprocessor, "check_availability", return_value=False):
+            with pytest.raises(PreprocessorError, match="ImageMagick 7 is required"):
+                preprocessor._get_command()
 
 
 class TestPreprocessorFactory:

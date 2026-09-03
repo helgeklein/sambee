@@ -15,6 +15,7 @@ import type { ViewMode } from "../../pages/FileBrowser/types";
 import type { FileEntry } from "../../types";
 import { isShortcutFile } from "../../utils/fileEntries";
 import { getFileIcon } from "../../utils/fileIcons";
+import { abbreviatePath } from "../../utils/pathDisplay";
 import { FileRowButton } from "./FileRowButton";
 
 interface FileRowProps {
@@ -37,72 +38,14 @@ interface FileRowProps {
   viewMode: ViewMode;
   onOpenAssociatedViewer?: (file: FileEntry, index: number) => void;
   onOpenViewerPicker?: (file: FileEntry, index: number) => void;
+  canOpenInBrowserViewer?: (file: FileEntry) => boolean;
   onOpenAssociatedNativeApp?: (file: FileEntry, index: number) => void;
   onOpenNativePicker?: (file: FileEntry, index: number) => void;
   /** Called when "Rename" is chosen from the context menu */
   onRename?: (file: FileEntry, index: number) => void;
 }
 
-const ELLIPSIS = "...";
-
-type TextMeasurer = (text: string) => number;
-
-/** Preserve the end of a label when its complete text cannot fit. */
-function shortenTextFromStart(text: string, availableWidth: number, measureText: TextMeasurer): string {
-  if (availableWidth <= 0 || measureText(text) <= availableWidth) {
-    return text;
-  }
-
-  let low = 0;
-  let high = text.length;
-  while (low < high) {
-    const middle = Math.floor((low + high) / 2);
-    if (measureText(`${ELLIPSIS}${text.slice(middle)}`) <= availableWidth) {
-      high = middle;
-    } else {
-      low = middle + 1;
-    }
-  }
-
-  return `${ELLIPSIS}${text.slice(low)}`;
-}
-
-/** Preserve the target basename while collapsing ancestor directories to fit. */
-export function shortenTargetPath(path: string, availableWidth: number, measureText: TextMeasurer): string {
-  if (availableWidth <= 0 || measureText(path) <= availableWidth) {
-    return path;
-  }
-
-  const separator = path.includes("\\") ? "\\" : "/";
-  const driveMatch = path.match(/^[A-Za-z]:[\\/]/);
-  const root = driveMatch ? `${driveMatch[0][0]}:${separator}` : path.startsWith(separator) ? separator : "";
-  const segments = path.slice(root.length).split(/[\\/]/).filter(Boolean);
-  const basename = segments.pop();
-  if (!basename) {
-    return path;
-  }
-
-  if (measureText(basename) > availableWidth) {
-    return shortenTextFromStart(basename, availableWidth, measureText);
-  }
-
-  if (segments.length === 0) {
-    return basename;
-  }
-
-  const prefix = root ? `${root}${ELLIPSIS}${separator}` : `${ELLIPSIS}${separator}`;
-  let shortened = `${prefix}${basename}`;
-  while (segments.length > 0) {
-    const candidate = `${prefix}${segments.at(-1)}${separator}${shortened.slice(prefix.length)}`;
-    if (measureText(candidate) > availableWidth) {
-      break;
-    }
-    shortened = candidate;
-    segments.pop();
-  }
-
-  return shortened;
-}
+export const shortenTargetPath = abbreviatePath;
 
 function TargetPathLabel({ path, rowTextSx }: { path: string; rowTextSx?: Record<string, string> }) {
   const labelRef = useRef<HTMLSpanElement>(null);
@@ -178,6 +121,7 @@ export const FileRow = React.memo(
         viewMode,
         onOpenAssociatedViewer,
         onOpenViewerPicker,
+        canOpenInBrowserViewer,
         onOpenAssociatedNativeApp,
         onOpenNativePicker,
         onRename,
@@ -189,10 +133,16 @@ export const FileRow = React.memo(
       const linkTarget = file.link_target?.target;
       const isShortcut = isShortcutFile(file);
       const isFile = file.type !== "directory" && linkTarget?.type !== "directory";
+      const isUnavailableArchiveEntry = file.archive_entry_state !== undefined && !file.is_readable;
+      const hasBrowserViewerActions = isFile && (canOpenInBrowserViewer?.(file) ?? true);
       const rowTextSx = useCompactLayout ? { fontSize: "16px" } : undefined;
       const hasContextMenu = !!(
-        onRename ||
-        (isFile && (onOpenAssociatedViewer || onOpenViewerPicker || onOpenAssociatedNativeApp || onOpenNativePicker))
+        !isUnavailableArchiveEntry &&
+        (onRename ||
+          (isFile &&
+            ((hasBrowserViewerActions && (onOpenAssociatedViewer || onOpenViewerPicker)) ||
+              onOpenAssociatedNativeApp ||
+              onOpenNativePicker)))
       );
       const itemTypeLabel = t(file.type === "directory" ? "fileBrowser.row.itemTypes.folder" : "fileBrowser.row.itemTypes.file");
       const linkTargetName = linkTarget?.name;
@@ -289,7 +239,8 @@ export const FileRow = React.memo(
             tabIndex={-1}
             onClick={() => onClick(file, index)}
             onContextMenu={handleContextMenu}
-            sx={rowStyle}
+            disabled={isUnavailableArchiveEntry}
+            sx={[rowStyle, isUnavailableArchiveEntry ? { cursor: "not-allowed", opacity: 0.5 } : {}]}
             dataSelected={isSelected ? "true" : undefined}
             ariaLabel={ariaLabel}
           >
@@ -361,7 +312,7 @@ export const FileRow = React.memo(
                   <ListItemText>{t("common.actions.rename")}</ListItemText>
                 </MenuItem>
               )}
-              {isFile && onOpenAssociatedViewer && (
+              {hasBrowserViewerActions && onOpenAssociatedViewer && (
                 <MenuItem onClick={handleOpenAssociatedViewerClick}>
                   <ListItemIcon>
                     <VisibilityIcon fontSize="small" />
@@ -369,7 +320,7 @@ export const FileRow = React.memo(
                   <ListItemText>{t("fileBrowser.row.openInBrowserViewer")}</ListItemText>
                 </MenuItem>
               )}
-              {isFile && onOpenViewerPicker && (
+              {hasBrowserViewerActions && onOpenViewerPicker && (
                 <MenuItem onClick={handleOpenViewerPickerClick}>
                   <ListItemIcon>
                     <VisibilityIcon fontSize="small" />
@@ -408,6 +359,8 @@ export const FileRow = React.memo(
     prev.file.name === next.file.name &&
     prev.file.modified_at === next.file.modified_at &&
     prev.file.size === next.file.size &&
+    prev.file.is_readable === next.file.is_readable &&
+    prev.file.archive_entry_state === next.file.archive_entry_state &&
     prev.file.link_kind === next.file.link_kind &&
     prev.file.link_target === next.file.link_target &&
     prev.virtualStart === next.virtualStart &&
@@ -415,6 +368,7 @@ export const FileRow = React.memo(
     prev.viewMode === next.viewMode &&
     prev.onOpenAssociatedViewer === next.onOpenAssociatedViewer &&
     prev.onOpenViewerPicker === next.onOpenViewerPicker &&
+    prev.canOpenInBrowserViewer === next.canOpenInBrowserViewer &&
     prev.onOpenAssociatedNativeApp === next.onOpenAssociatedNativeApp &&
     prev.onOpenNativePicker === next.onOpenNativePicker &&
     prev.onRename === next.onRename

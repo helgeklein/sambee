@@ -425,6 +425,33 @@ describe("PDFViewer", () => {
     });
   });
 
+  it("loads a virtual PDF through its provider instead of the physical PDF endpoint", async () => {
+    const virtualSource = {
+      kind: "virtual" as const,
+      path: "docs/inside.pdf",
+      location: {
+        kind: "virtual" as const,
+        providerId: "zip",
+        connectionId: "test-conn-id",
+        source: { kind: "physical" as const, connectionId: "test-conn-id", path: "archives/backup.zip" },
+        path: "docs",
+      },
+    };
+    (apiService.getArchiveMember as Mock).mockResolvedValue(new Blob(["virtual pdf"], { type: "application/pdf" }));
+
+    renderPDFViewer({ ...defaultProps, path: "docs/inside.pdf", virtualSource });
+
+    await waitFor(() => {
+      expect(apiService.getArchiveMember).toHaveBeenCalledWith("test-conn-id", "archives/backup.zip", "docs/inside.pdf", {
+        download: undefined,
+        request: { kind: "pdf" },
+        signal: expect.anything(),
+      });
+    });
+    expect(apiService.getPdfBlob).not.toHaveBeenCalled();
+    expect(screen.getByText("Read only")).toBeInTheDocument();
+  });
+
   describe("Rendering States", () => {
     it("renders loading state initially", () => {
       renderPDFViewer();
@@ -520,8 +547,11 @@ describe("PDFViewer", () => {
         expect(screen.getByLabelText("Zoom in")).toBeDisabled();
         expect(screen.getByLabelText("Download")).toBeEnabled();
 
-        fireEvent.click(screen.getByLabelText("Download"));
-        expect(apiService.downloadFile).toHaveBeenCalledWith("test-conn-id", "/test/document.pdf", "document.pdf");
+        await act(async () => {
+          fireEvent.click(screen.getByLabelText("Download"));
+          await Promise.resolve();
+        });
+        expect(apiService.getOriginalFileBlob).toHaveBeenCalledWith("test-conn-id", "/test/document.pdf", { signal: undefined });
 
         await act(async () => {
           await vi.advanceTimersByTimeAsync(6000);

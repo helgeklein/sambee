@@ -59,6 +59,8 @@ const mockMarkdownEditorCommands = {
 
 const mockEditLockInfo = {
   lock_id: "lock-1",
+  lock_capability: "capability-1",
+  operation_id: "operation-1",
   file_path: "/docs/readme.md",
   locked_by: "alice",
   locked_at: "2026-03-23T12:00:00Z",
@@ -442,6 +444,13 @@ describe("MarkdownViewer", () => {
     localStorage.clear();
     localStorage.setItem("access_token", "mock-token");
     vi.restoreAllMocks();
+    vi.spyOn(apiService, "writeTextWithEditLock").mockImplementation(async (connectionId, path, content, _lockInfo, options) => {
+      await apiService.saveTextFile(connectionId, path, content, {
+        filename: path.split("/").pop() ?? path,
+        mimeType: options.mimeType,
+      });
+    });
+    vi.spyOn(apiService, "acquireEditLock").mockResolvedValue(mockEditLockInfo);
     mockLoadMarkdownRichEditor.mockReset();
     mockLoadMarkdownRichEditor.mockResolvedValue({ default: MockMarkdownRichEditor });
     mockMarkdownEditorBehavior.changeBeforeUserEdit = false;
@@ -495,6 +504,8 @@ describe("MarkdownViewer", () => {
     vi.spyOn(apiService, "supportsEditLocks").mockReturnValue(true);
     const acquireLockSpy = vi.spyOn(apiService, "acquireEditLock").mockResolvedValueOnce({
       lock_id: "lock-1",
+      lock_capability: "capability-1",
+      operation_id: "operation-1",
       file_path: "/docs/readme.md",
       locked_by: "alice",
       locked_at: "2026-03-23T12:00:00Z",
@@ -516,12 +527,50 @@ describe("MarkdownViewer", () => {
     expect(acquireLockSpy).not.toHaveBeenCalled();
   });
 
+  it("loads virtual markdown through its provider and blocks editing", async () => {
+    const virtualSource = {
+      kind: "virtual" as const,
+      path: "docs/readme.md",
+      location: {
+        kind: "virtual" as const,
+        providerId: "zip",
+        connectionId: "conn1",
+        source: { kind: "physical" as const, connectionId: "conn1", path: "archives/backup.zip" },
+        path: "docs",
+      },
+    };
+    const getArchiveMemberSpy = vi
+      .spyOn(apiService, "getArchiveMember")
+      .mockResolvedValue(new Blob(["# Virtual Readme\n"], { type: "text/markdown" }));
+    const getFileContentSpy = vi.spyOn(apiService, "getFileContent").mockResolvedValue("physical content");
+    const acquireLockSpy = vi.spyOn(apiService, "acquireEditLock");
+
+    render(
+      <SambeeThemeProvider>
+        <MarkdownViewer connectionId="conn1" path="docs/readme.md" onClose={() => {}} virtualSource={virtualSource} />
+      </SambeeThemeProvider>
+    );
+
+    await screen.findByText("Virtual Readme");
+    expect(getArchiveMemberSpy).toHaveBeenCalledWith("conn1", "archives/backup.zip", "docs/readme.md", {
+      download: undefined,
+      request: { kind: "text" },
+      signal: expect.anything(),
+    });
+    expect(getFileContentSpy).not.toHaveBeenCalled();
+    expect(screen.getByText("Read only")).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Edit" })).not.toBeInTheDocument();
+    expect(acquireLockSpy).not.toHaveBeenCalled();
+  });
+
   it("enters edit mode and acquires a lock for server-backed markdown files", async () => {
     const getFileContentSpy = vi.spyOn(apiService, "getFileContent").mockResolvedValueOnce("# Readme\n");
     vi.spyOn(apiService, "supportsEditLocks").mockReturnValue(true);
     vi.spyOn(apiService, "releaseEditLock").mockResolvedValue();
     const acquireLockSpy = vi.spyOn(apiService, "acquireEditLock").mockResolvedValueOnce({
       lock_id: "lock-1",
+      lock_capability: "capability-1",
+      operation_id: "operation-1",
       file_path: "/docs/readme.md",
       locked_by: "alice",
       locked_at: "2026-03-23T12:00:00Z",
@@ -538,7 +587,7 @@ describe("MarkdownViewer", () => {
     await waitFor(() => {
       expect(screen.getByRole("textbox", { name: "Markdown editor" })).toHaveFocus();
     });
-    expect(acquireLockSpy).toHaveBeenCalledWith("conn1", "/docs/readme.md", expect.any(String));
+    expect(acquireLockSpy).toHaveBeenCalledWith("conn1", "/docs/readme.md");
     expect(getFileContentSpy).toHaveBeenCalledTimes(1);
   });
 
@@ -625,6 +674,8 @@ describe("MarkdownViewer", () => {
     vi.spyOn(apiService, "releaseEditLock").mockResolvedValue();
     vi.spyOn(apiService, "acquireEditLock").mockResolvedValueOnce({
       lock_id: "lock-1",
+      lock_capability: "capability-1",
+      operation_id: "operation-1",
       file_path: "/docs/readme.md",
       locked_by: "alice",
       locked_at: "2026-03-23T12:00:00Z",
@@ -654,6 +705,8 @@ describe("MarkdownViewer", () => {
     vi.spyOn(apiService, "releaseEditLock").mockResolvedValue();
     vi.spyOn(apiService, "acquireEditLock").mockResolvedValueOnce({
       lock_id: "lock-1",
+      lock_capability: "capability-1",
+      operation_id: "operation-1",
       file_path: "/docs/readme.md",
       locked_by: "alice",
       locked_at: "2026-03-23T12:00:00Z",
@@ -683,6 +736,8 @@ describe("MarkdownViewer", () => {
     vi.spyOn(apiService, "supportsEditLocks").mockReturnValue(true);
     vi.spyOn(apiService, "acquireEditLock").mockResolvedValueOnce({
       lock_id: "lock-1",
+      lock_capability: "capability-1",
+      operation_id: "operation-1",
       file_path: "/docs/readme.md",
       locked_by: "alice",
       locked_at: "2026-03-23T12:00:00Z",
@@ -713,7 +768,8 @@ describe("MarkdownViewer", () => {
 
   it("renders only the close button in the top bar while editing", async () => {
     vi.spyOn(apiService, "getFileContent").mockResolvedValueOnce("# Readme\n");
-    vi.spyOn(apiService, "supportsEditLocks").mockReturnValue(false);
+    vi.spyOn(apiService, "supportsEditLocks").mockReturnValue(true);
+    vi.spyOn(apiService, "acquireEditLock").mockResolvedValueOnce(mockEditLockInfo);
 
     renderViewer();
 
@@ -747,6 +803,8 @@ describe("MarkdownViewer", () => {
     vi.spyOn(apiService, "supportsEditLocks").mockReturnValue(true);
     vi.spyOn(apiService, "acquireEditLock").mockResolvedValueOnce({
       lock_id: "lock-1",
+      lock_capability: "capability-1",
+      operation_id: "operation-1",
       file_path: "/docs/readme.md",
       locked_by: "alice",
       locked_at: "2026-03-23T12:00:00Z",
@@ -779,6 +837,8 @@ describe("MarkdownViewer", () => {
     vi.spyOn(apiService, "supportsEditLocks").mockReturnValue(true);
     vi.spyOn(apiService, "acquireEditLock").mockResolvedValueOnce({
       lock_id: "lock-1",
+      lock_capability: "capability-1",
+      operation_id: "operation-1",
       file_path: "/docs/readme.md",
       locked_by: "alice",
       locked_at: "2026-03-23T12:00:00Z",
@@ -813,6 +873,8 @@ describe("MarkdownViewer", () => {
     vi.spyOn(apiService, "supportsEditLocks").mockReturnValue(true);
     vi.spyOn(apiService, "acquireEditLock").mockResolvedValueOnce({
       lock_id: "lock-1",
+      lock_capability: "capability-1",
+      operation_id: "operation-1",
       file_path: "/docs/readme.md",
       locked_by: "alice",
       locked_at: "2026-03-23T12:00:00Z",
@@ -845,6 +907,8 @@ describe("MarkdownViewer", () => {
     vi.spyOn(apiService, "supportsEditLocks").mockReturnValue(true);
     vi.spyOn(apiService, "acquireEditLock").mockResolvedValueOnce({
       lock_id: "lock-1",
+      lock_capability: "capability-1",
+      operation_id: "operation-1",
       file_path: "/docs/readme.md",
       locked_by: "alice",
       locked_at: "2026-03-23T12:00:00Z",
@@ -885,6 +949,8 @@ describe("MarkdownViewer", () => {
     vi.spyOn(apiService, "supportsEditLocks").mockReturnValue(true);
     vi.spyOn(apiService, "acquireEditLock").mockResolvedValueOnce({
       lock_id: "lock-1",
+      lock_capability: "capability-1",
+      operation_id: "operation-1",
       file_path: "/docs/readme.md",
       locked_by: "alice",
       locked_at: "2026-03-23T12:00:00Z",
@@ -912,6 +978,8 @@ describe("MarkdownViewer", () => {
     vi.spyOn(apiService, "supportsEditLocks").mockReturnValue(true);
     vi.spyOn(apiService, "acquireEditLock").mockResolvedValueOnce({
       lock_id: "lock-1",
+      lock_capability: "capability-1",
+      operation_id: "operation-1",
       file_path: "/docs/readme.md",
       locked_by: "alice",
       locked_at: "2026-03-23T12:00:00Z",
@@ -951,6 +1019,8 @@ describe("MarkdownViewer", () => {
     vi.spyOn(apiService, "supportsEditLocks").mockReturnValue(true);
     vi.spyOn(apiService, "acquireEditLock").mockResolvedValueOnce({
       lock_id: "lock-1",
+      lock_capability: "capability-1",
+      operation_id: "operation-1",
       file_path: "/docs/readme.md",
       locked_by: "alice",
       locked_at: "2026-03-23T12:00:00Z",
@@ -982,6 +1052,8 @@ describe("MarkdownViewer", () => {
     vi.spyOn(apiService, "supportsEditLocks").mockReturnValue(true);
     vi.spyOn(apiService, "acquireEditLock").mockResolvedValueOnce({
       lock_id: "lock-1",
+      lock_capability: "capability-1",
+      operation_id: "operation-1",
       file_path: "/docs/readme.md",
       locked_by: "alice",
       locked_at: "2026-03-23T12:00:00Z",
@@ -1014,6 +1086,8 @@ describe("MarkdownViewer", () => {
     vi.spyOn(apiService, "supportsEditLocks").mockReturnValue(true);
     vi.spyOn(apiService, "acquireEditLock").mockResolvedValueOnce({
       lock_id: "lock-1",
+      lock_capability: "capability-1",
+      operation_id: "operation-1",
       file_path: "/docs/readme.md",
       locked_by: "alice",
       locked_at: "2026-03-23T12:00:00Z",
@@ -1046,6 +1120,8 @@ describe("MarkdownViewer", () => {
     vi.spyOn(apiService, "supportsEditLocks").mockReturnValue(true);
     vi.spyOn(apiService, "acquireEditLock").mockResolvedValueOnce({
       lock_id: "lock-1",
+      lock_capability: "capability-1",
+      operation_id: "operation-1",
       file_path: "/docs/readme.md",
       locked_by: "alice",
       locked_at: "2026-03-23T12:00:00Z",
@@ -1074,6 +1150,8 @@ describe("MarkdownViewer", () => {
     vi.spyOn(apiService, "supportsEditLocks").mockReturnValue(true);
     vi.spyOn(apiService, "acquireEditLock").mockResolvedValueOnce({
       lock_id: "lock-1",
+      lock_capability: "capability-1",
+      operation_id: "operation-1",
       file_path: "/docs/readme.md",
       locked_by: "alice",
       locked_at: "2026-03-23T12:00:00Z",
@@ -1105,6 +1183,8 @@ describe("MarkdownViewer", () => {
     vi.spyOn(apiService, "supportsEditLocks").mockReturnValue(true);
     vi.spyOn(apiService, "acquireEditLock").mockResolvedValueOnce({
       lock_id: "lock-1",
+      lock_capability: "capability-1",
+      operation_id: "operation-1",
       file_path: "/docs/readme.md",
       locked_by: "alice",
       locked_at: "2026-03-23T12:00:00Z",
@@ -1136,6 +1216,8 @@ describe("MarkdownViewer", () => {
     vi.spyOn(apiService, "supportsEditLocks").mockReturnValue(true);
     vi.spyOn(apiService, "acquireEditLock").mockResolvedValueOnce({
       lock_id: "lock-1",
+      lock_capability: "capability-1",
+      operation_id: "operation-1",
       file_path: "/docs/readme.md",
       locked_by: "alice",
       locked_at: "2026-03-23T12:00:00Z",
@@ -1297,7 +1379,8 @@ describe("MarkdownViewer", () => {
   it("restores viewer focus after opening an external markdown link so shortcuts still work", async () => {
     vi.spyOn(window, "open").mockImplementation(() => null);
     vi.spyOn(apiService, "getFileContent").mockResolvedValueOnce("[Docs](https://example.com/docs)\n");
-    vi.spyOn(apiService, "supportsEditLocks").mockReturnValue(false);
+    vi.spyOn(apiService, "supportsEditLocks").mockReturnValue(true);
+    vi.spyOn(apiService, "acquireEditLock").mockResolvedValueOnce(mockEditLockInfo);
 
     renderViewer();
 
@@ -1329,6 +1412,8 @@ describe("MarkdownViewer", () => {
     vi.spyOn(apiService, "supportsEditLocks").mockReturnValue(true);
     vi.spyOn(apiService, "acquireEditLock").mockResolvedValueOnce({
       lock_id: "lock-1",
+      lock_capability: "capability-1",
+      operation_id: "operation-1",
       file_path: "/docs/readme.md",
       locked_by: "alice",
       locked_at: "2026-03-23T12:00:00Z",
@@ -1359,6 +1444,8 @@ describe("MarkdownViewer", () => {
     vi.spyOn(apiService, "supportsEditLocks").mockReturnValue(true);
     vi.spyOn(apiService, "acquireEditLock").mockResolvedValueOnce({
       lock_id: "lock-1",
+      lock_capability: "capability-1",
+      operation_id: "operation-1",
       file_path: "/docs/readme.md",
       locked_by: "alice",
       locked_at: "2026-03-23T12:00:00Z",
@@ -1395,6 +1482,8 @@ describe("MarkdownViewer", () => {
     vi.spyOn(apiService, "supportsEditLocks").mockReturnValue(true);
     vi.spyOn(apiService, "acquireEditLock").mockResolvedValueOnce({
       lock_id: "lock-1",
+      lock_capability: "capability-1",
+      operation_id: "operation-1",
       file_path: "/docs/readme.md",
       locked_by: "alice",
       locked_at: "2026-03-23T12:00:00Z",
@@ -1434,6 +1523,8 @@ describe("MarkdownViewer", () => {
     vi.spyOn(apiService, "supportsEditLocks").mockReturnValue(true);
     vi.spyOn(apiService, "acquireEditLock").mockResolvedValueOnce({
       lock_id: "lock-1",
+      lock_capability: "capability-1",
+      operation_id: "operation-1",
       file_path: "/docs/readme.md",
       locked_by: "alice",
       locked_at: "2026-03-23T12:00:00Z",
@@ -1466,6 +1557,8 @@ describe("MarkdownViewer", () => {
     vi.spyOn(apiService, "releaseEditLock").mockResolvedValue();
     vi.spyOn(apiService, "acquireEditLock").mockResolvedValueOnce({
       lock_id: "lock-1",
+      lock_capability: "capability-1",
+      operation_id: "operation-1",
       file_path: "/docs/readme.md",
       locked_by: "alice",
       locked_at: "2026-03-23T12:00:00Z",
@@ -1491,6 +1584,8 @@ describe("MarkdownViewer", () => {
     vi.spyOn(apiService, "releaseEditLock").mockResolvedValue();
     vi.spyOn(apiService, "acquireEditLock").mockResolvedValueOnce({
       lock_id: "lock-1",
+      lock_capability: "capability-1",
+      operation_id: "operation-1",
       file_path: "/docs/readme.md",
       locked_by: "alice",
       locked_at: "2026-03-23T12:00:00Z",
@@ -1516,6 +1611,8 @@ describe("MarkdownViewer", () => {
     vi.spyOn(apiService, "releaseEditLock").mockResolvedValue();
     vi.spyOn(apiService, "acquireEditLock").mockResolvedValueOnce({
       lock_id: "lock-1",
+      lock_capability: "capability-1",
+      operation_id: "operation-1",
       file_path: "/docs/readme.md",
       locked_by: "alice",
       locked_at: "2026-03-23T12:00:00Z",
@@ -1545,6 +1642,8 @@ describe("MarkdownViewer", () => {
     vi.spyOn(apiService, "releaseEditLock").mockResolvedValue();
     vi.spyOn(apiService, "acquireEditLock").mockResolvedValueOnce({
       lock_id: "lock-1",
+      lock_capability: "capability-1",
+      operation_id: "operation-1",
       file_path: "/docs/readme.md",
       locked_by: "alice",
       locked_at: "2026-03-23T12:00:00Z",
@@ -1573,6 +1672,8 @@ describe("MarkdownViewer", () => {
     vi.spyOn(apiService, "releaseEditLock").mockResolvedValue();
     vi.spyOn(apiService, "acquireEditLock").mockResolvedValueOnce({
       lock_id: "lock-1",
+      lock_capability: "capability-1",
+      operation_id: "operation-1",
       file_path: "/docs/readme.md",
       locked_by: "alice",
       locked_at: "2026-03-23T12:00:00Z",
@@ -1606,6 +1707,8 @@ describe("MarkdownViewer", () => {
     vi.spyOn(apiService, "releaseEditLock").mockResolvedValue();
     vi.spyOn(apiService, "acquireEditLock").mockResolvedValueOnce({
       lock_id: "lock-1",
+      lock_capability: "capability-1",
+      operation_id: "operation-1",
       file_path: "/docs/readme.md",
       locked_by: "alice",
       locked_at: "2026-03-23T12:00:00Z",
@@ -1639,6 +1742,8 @@ describe("MarkdownViewer", () => {
     vi.spyOn(apiService, "releaseEditLock").mockResolvedValue();
     vi.spyOn(apiService, "acquireEditLock").mockResolvedValueOnce({
       lock_id: "lock-1",
+      lock_capability: "capability-1",
+      operation_id: "operation-1",
       file_path: "/docs/readme.md",
       locked_by: "alice",
       locked_at: "2026-03-23T12:00:00Z",
@@ -1668,6 +1773,8 @@ describe("MarkdownViewer", () => {
     vi.spyOn(apiService, "releaseEditLock").mockResolvedValue();
     vi.spyOn(apiService, "acquireEditLock").mockResolvedValueOnce({
       lock_id: "lock-1",
+      lock_capability: "capability-1",
+      operation_id: "operation-1",
       file_path: "/docs/readme.md",
       locked_by: "alice",
       locked_at: "2026-03-23T12:00:00Z",
@@ -1694,6 +1801,8 @@ describe("MarkdownViewer", () => {
     vi.spyOn(apiService, "releaseEditLock").mockResolvedValue();
     vi.spyOn(apiService, "acquireEditLock").mockResolvedValueOnce({
       lock_id: "lock-1",
+      lock_capability: "capability-1",
+      operation_id: "operation-1",
       file_path: "/docs/readme.md",
       locked_by: "alice",
       locked_at: "2026-03-23T12:00:00Z",
@@ -1719,6 +1828,8 @@ describe("MarkdownViewer", () => {
     vi.spyOn(apiService, "supportsEditLocks").mockReturnValue(true);
     vi.spyOn(apiService, "acquireEditLock").mockResolvedValueOnce({
       lock_id: "lock-1",
+      lock_capability: "capability-1",
+      operation_id: "operation-1",
       file_path: "/docs/readme.md",
       locked_by: "alice",
       locked_at: "2026-03-23T12:00:00Z",
@@ -1770,6 +1881,8 @@ describe("MarkdownViewer", () => {
     vi.spyOn(apiService, "supportsEditLocks").mockReturnValue(true);
     vi.spyOn(apiService, "acquireEditLock").mockResolvedValueOnce({
       lock_id: "lock-1",
+      lock_capability: "capability-1",
+      operation_id: "operation-1",
       file_path: "/docs/readme.md",
       locked_by: "alice",
       locked_at: "2026-03-23T12:00:00Z",
@@ -1800,6 +1913,8 @@ describe("MarkdownViewer", () => {
     vi.spyOn(apiService, "supportsEditLocks").mockReturnValue(true);
     vi.spyOn(apiService, "acquireEditLock").mockResolvedValueOnce({
       lock_id: "lock-1",
+      lock_capability: "capability-1",
+      operation_id: "operation-1",
       file_path: "/docs/readme.md",
       locked_by: "alice",
       locked_at: "2026-03-23T12:00:00Z",
@@ -1833,6 +1948,8 @@ describe("MarkdownViewer", () => {
     vi.spyOn(apiService, "supportsEditLocks").mockReturnValue(true);
     vi.spyOn(apiService, "acquireEditLock").mockResolvedValueOnce({
       lock_id: "lock-1",
+      lock_capability: "capability-1",
+      operation_id: "operation-1",
       file_path: "/docs/readme.md",
       locked_by: "alice",
       locked_at: "2026-03-23T12:00:00Z",
@@ -1907,7 +2024,7 @@ describe("MarkdownViewer", () => {
 
   it("searches markdown while editing and navigates between matches", async () => {
     vi.spyOn(apiService, "getFileContent").mockResolvedValueOnce("# Alpha\n\nAlpha beta alpha\n");
-    vi.spyOn(apiService, "supportsEditLocks").mockReturnValue(false);
+    vi.spyOn(apiService, "supportsEditLocks").mockReturnValue(true);
 
     renderViewer();
 
@@ -1930,7 +2047,7 @@ describe("MarkdownViewer", () => {
 
   it("seeds edit-mode search from the current editor selection without moving it", async () => {
     vi.spyOn(apiService, "getFileContent").mockResolvedValueOnce("# Alpha\n\nAlpha beta alpha\n");
-    vi.spyOn(apiService, "supportsEditLocks").mockReturnValue(false);
+    vi.spyOn(apiService, "supportsEditLocks").mockReturnValue(true);
 
     renderViewer();
 
@@ -1956,7 +2073,7 @@ describe("MarkdownViewer", () => {
 
   it("reseeds edit-mode search from the latest selection when reopening search", async () => {
     vi.spyOn(apiService, "getFileContent").mockResolvedValueOnce("# Alpha\n\nAlpha beta alpha\n");
-    vi.spyOn(apiService, "supportsEditLocks").mockReturnValue(false);
+    vi.spyOn(apiService, "supportsEditLocks").mockReturnValue(true);
 
     renderViewer();
 
@@ -2002,7 +2119,7 @@ describe("MarkdownViewer", () => {
 
   it("clears the search input when reopening edit-mode search without a selection", async () => {
     vi.spyOn(apiService, "getFileContent").mockResolvedValueOnce("# Alpha\n\nAlpha beta alpha\n");
-    vi.spyOn(apiService, "supportsEditLocks").mockReturnValue(false);
+    vi.spyOn(apiService, "supportsEditLocks").mockReturnValue(true);
 
     renderViewer();
 
@@ -2048,7 +2165,7 @@ describe("MarkdownViewer", () => {
     const onClose = vi.fn();
 
     vi.spyOn(apiService, "getFileContent").mockResolvedValueOnce("# Alpha\n\nAlpha beta alpha\n");
-    vi.spyOn(apiService, "supportsEditLocks").mockReturnValue(false);
+    vi.spyOn(apiService, "supportsEditLocks").mockReturnValue(true);
 
     renderViewerWithProps({ onClose });
 
@@ -2084,7 +2201,7 @@ describe("MarkdownViewer", () => {
 
   it("keeps focus in the search input while typing in edit-mode search", async () => {
     vi.spyOn(apiService, "getFileContent").mockResolvedValueOnce("# Alpha\n\nAlpha beta alpha\n");
-    vi.spyOn(apiService, "supportsEditLocks").mockReturnValue(false);
+    vi.spyOn(apiService, "supportsEditLocks").mockReturnValue(true);
 
     renderViewer();
 
@@ -2107,7 +2224,7 @@ describe("MarkdownViewer", () => {
 
   it("opens find and replace with Ctrl+H and keeps F3 navigation available from the panel", async () => {
     vi.spyOn(apiService, "getFileContent").mockResolvedValueOnce("# Alpha\n\nAlpha beta alpha\n");
-    vi.spyOn(apiService, "supportsEditLocks").mockReturnValue(false);
+    vi.spyOn(apiService, "supportsEditLocks").mockReturnValue(true);
 
     renderViewer();
 
@@ -2160,7 +2277,7 @@ describe("MarkdownViewer", () => {
 
   it("does not restore preview highlights after exiting edit mode when edit search was already closed", async () => {
     vi.spyOn(apiService, "getFileContent").mockResolvedValueOnce("# Alpha\n\nAlpha beta alpha\n");
-    vi.spyOn(apiService, "supportsEditLocks").mockReturnValue(false);
+    vi.spyOn(apiService, "supportsEditLocks").mockReturnValue(true);
 
     renderViewer();
 
@@ -2191,7 +2308,7 @@ describe("MarkdownViewer", () => {
 
   it("triggers inline code formatting from the markdown shortcut", async () => {
     vi.spyOn(apiService, "getFileContent").mockResolvedValueOnce("# Alpha\n");
-    vi.spyOn(apiService, "supportsEditLocks").mockReturnValue(false);
+    vi.spyOn(apiService, "supportsEditLocks").mockReturnValue(true);
 
     renderViewer();
 
@@ -2206,7 +2323,7 @@ describe("MarkdownViewer", () => {
 
   it("opens the create-link dialog from the markdown shortcut", async () => {
     vi.spyOn(apiService, "getFileContent").mockResolvedValueOnce("# Alpha\n");
-    vi.spyOn(apiService, "supportsEditLocks").mockReturnValue(false);
+    vi.spyOn(apiService, "supportsEditLocks").mockReturnValue(true);
 
     renderViewer();
 
@@ -2221,7 +2338,7 @@ describe("MarkdownViewer", () => {
 
   it("inserts a table from the markdown shortcut", async () => {
     vi.spyOn(apiService, "getFileContent").mockResolvedValueOnce("# Alpha\n");
-    vi.spyOn(apiService, "supportsEditLocks").mockReturnValue(false);
+    vi.spyOn(apiService, "supportsEditLocks").mockReturnValue(true);
 
     renderViewer();
 
@@ -2236,7 +2353,7 @@ describe("MarkdownViewer", () => {
 
   it("inserts a thematic break from the markdown shortcut", async () => {
     vi.spyOn(apiService, "getFileContent").mockResolvedValueOnce("# Alpha\n");
-    vi.spyOn(apiService, "supportsEditLocks").mockReturnValue(false);
+    vi.spyOn(apiService, "supportsEditLocks").mockReturnValue(true);
 
     renderViewer();
 
@@ -2253,7 +2370,7 @@ describe("MarkdownViewer", () => {
 
   it("inserts a code block from the markdown shortcut", async () => {
     vi.spyOn(apiService, "getFileContent").mockResolvedValueOnce("# Alpha\n");
-    vi.spyOn(apiService, "supportsEditLocks").mockReturnValue(false);
+    vi.spyOn(apiService, "supportsEditLocks").mockReturnValue(true);
 
     renderViewer();
 
@@ -2270,7 +2387,7 @@ describe("MarkdownViewer", () => {
     const restoreCrashNoiseSuppression = suppressExpectedRenderCrashNoise("Editor render failed");
 
     vi.spyOn(apiService, "getFileContent").mockResolvedValueOnce("# Alpha\n");
-    vi.spyOn(apiService, "supportsEditLocks").mockReturnValue(false);
+    vi.spyOn(apiService, "supportsEditLocks").mockReturnValue(true);
     mockMarkdownEditorBehavior.throwOnRender = true;
 
     renderViewer();
@@ -2293,7 +2410,7 @@ describe("MarkdownViewer", () => {
 
   it("shows a recoverable error when a markdown editor command throws", async () => {
     vi.spyOn(apiService, "getFileContent").mockResolvedValueOnce("# Alpha\n");
-    vi.spyOn(apiService, "supportsEditLocks").mockReturnValue(false);
+    vi.spyOn(apiService, "supportsEditLocks").mockReturnValue(true);
     mockMarkdownEditorBehavior.throwOnInsertCodeBlock = true;
 
     renderViewer();

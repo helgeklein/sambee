@@ -10,8 +10,9 @@
 - All potential errors, exceptions, and return values must be handled properly.
 - Log messages should be specific to the situation and contain actionable info for the user.
 
-## AI behavior
+## AI behavior and language
 
+- Don't use jargon excessively. Use plain, correct, well-known language.
 - When asked to analyze or research, present your findings. Then ask if/how to implement them.
 - Whenever changing code, verify if the related documentation needs to be updated, too.
 

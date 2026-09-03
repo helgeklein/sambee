@@ -1,0 +1,14 @@
+{
+  "version": 2,
+  "retired_route_fragments": [
+    "/archive/v1",
+    "/companion-relay/"
+  ],
+  "retired_backend_requests": [
+    {
+      "method": "GET",
+      "path": "/api/archive/v1/operations",
+      "status": 404
+    }
+  ]
+}

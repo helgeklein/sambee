@@ -73,6 +73,45 @@ describe("FileRow", () => {
     expect(props.onClick).toHaveBeenCalledWith(props.file, props.index);
   });
 
+  it("disables unavailable archive entries and hides their actions", () => {
+    const props = createDefaultFileRowProps();
+    props.file = { ...props.file, is_readable: false, archive_entry_state: "blocked" };
+
+    render(<FileRow {...props} />);
+
+    const rowButton = screen.getByRole("button", { name: /report\.pdf/i });
+    expect(rowButton).toBeDisabled();
+    fireEvent.click(rowButton);
+    fireEvent.contextMenu(rowButton);
+
+    expect(props.onClick).not.toHaveBeenCalled();
+    expect(screen.queryByText(translate("fileBrowser.row.openInBrowserViewer"))).not.toBeInTheDocument();
+  });
+
+  it("updates archive entry actions when a refresh marks the entry unavailable", () => {
+    const props = createDefaultFileRowProps();
+    const { rerender } = render(<FileRow {...props} />);
+
+    rerender(<FileRow {...props} file={{ ...props.file, is_readable: false, archive_entry_state: "blocked" }} />);
+
+    const rowButton = screen.getByRole("button", { name: /report\.pdf/i });
+    expect(rowButton).toBeDisabled();
+    fireEvent.contextMenu(rowButton);
+    expect(screen.queryByText(translate("fileBrowser.row.openInBrowserViewer"))).not.toBeInTheDocument();
+  });
+
+  it("hides browser-viewer actions when the file cannot be opened in Sambee", () => {
+    const props = createDefaultFileRowProps();
+    props.canOpenInBrowserViewer = () => false;
+
+    render(<FileRow {...props} />);
+    fireEvent.contextMenu(screen.getByRole("button", { name: /report\.pdf/i }));
+
+    expect(screen.queryByText(translate("fileBrowser.row.openInBrowserViewer"))).not.toBeInTheDocument();
+    expect(screen.queryByText(translate("fileBrowser.row.chooseBrowserViewer"))).not.toBeInTheDocument();
+    expect(screen.getByText(translate("fileBrowser.row.openInNativeApp"))).toBeInTheDocument();
+  });
+
   it("renders a shortcut's full target path", () => {
     const props = createDefaultFileRowProps();
     props.isMultiSelected = false;

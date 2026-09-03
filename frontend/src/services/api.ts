@@ -11,6 +11,11 @@ import type {
   AdminUserUpdateInput,
   AdvancedSystemSettings,
   AdvancedSystemSettingsUpdate,
+  ArchiveDirectoryListing,
+  ArchiveExtractionDecisionAction,
+  ArchiveOperation,
+  ArchiveOperationPhase,
+  ArchiveOperationPrepare,
   AuthenticationMode,
   AuthenticationModeActivationResponse,
   AuthToken,
@@ -50,7 +55,6 @@ import type {
   SmbSettingsUpdate,
   User,
 } from "../types";
-import { FileType } from "../types";
 import { AuthSessionError, authSession } from "./authSession";
 import {
   getBackendAvailabilitySnapshot,
@@ -63,8 +67,10 @@ import {
 import { getBaseUrl, getBrowseSegment, isLocalDrive } from "./backendRouter";
 import { clearBrowserRecoverySnapshot } from "./browserRecoverySnapshot";
 import { COMPANION_BASE_URL } from "./companion";
+import { companionSession } from "./companionSession";
 import { snapshotRegisteredDrafts } from "./draftRecovery";
 import { logger } from "./logger";
+import type { ContentTransferResult, TargetResolutionPolicy } from "./storageContracts";
 
 export interface DirectorySearchOptions {
   includeDotDirectories?: boolean;
@@ -76,8 +82,114 @@ const API_PATH_SUFFIX = "/api";
 const LOCAL_DRIVE_EDIT_LOCKS_UNSUPPORTED_MESSAGE = "Edit locks are not supported for local drives";
 const DIRECTORY_LIST_REQUEST_TIMEOUT_MS = 40_000;
 const LOCAL_LINK_TARGET_REQUEST_TIMEOUT_MS = 15_000;
+const LOCAL_ARCHIVE_EXECUTION_POLL_INTERVAL_MS = 200;
+const LOCAL_ARCHIVE_CANCELLATION_MAX_REVISION_RETRIES = 3;
+export interface ArchiveExecutionProgress {
+  completedMembers: number;
+  totalMembers?: number;
+  skippedMembers: number;
+  failedMembers: number;
+  processedBytes?: number;
+  totalBytes?: number;
+}
+
+export interface LocalArchiveExecution {
+  contract_version: "v2";
+  execution_id: string;
+  kind: "create" | "extract";
+  phase: "accepted" | "streaming" | "awaiting_user_decision" | "completed" | "cancelled" | "failed";
+  revision: number;
+  progress: ArchiveExecutionProgress;
+  cancellation_requested: boolean;
+  aggregate_counters?: LocalArchiveRelayExtractionStatus["aggregate_counters"];
+  directories_created?: number;
+  files_created?: number;
+  source_bytes?: number;
+  error?: string;
+  pendingDecision?:
+    | {
+        kind: "existing_files";
+        source_session_id: string;
+        delivery_sequence: number;
+        decision_revision: number;
+        conflicts: Array<{
+          member_path: string;
+          target_path: string;
+          is_directory: boolean;
+        }>;
+        allowed_actions: ("skip" | "skip_all" | "replace" | "replace_all" | "replace_older" | "rename")[];
+      }
+    | {
+        kind: "member_error";
+        source_session_id: string;
+        delivery_sequence: number;
+        decision_revision: number;
+        member_path: string;
+        target_path: string;
+        message: string;
+        partial_output: boolean;
+        allowed_actions: ("retry" | "ignore")[];
+      };
+}
+
+export interface LocalArchiveRelayExtractionStatus {
+  source_session_id: string;
+  phase: "ready" | "current" | "streaming_current" | "awaiting_result" | "awaiting_decision" | "completed" | "failed" | "cancelled";
+  aggregate_counters: {
+    members_processed: number;
+    members_completed: number;
+    members_skipped: number;
+    members_failed: number;
+    files_extracted: number;
+    directories_created: number;
+    extracted_bytes: number;
+    files_replaced: number;
+  };
+  pending_decision: {
+    revision: number;
+    kind: "collision" | "member_error";
+    member_path: string;
+    target_path: string | null;
+    message: string | null;
+    delivery_sequence: number;
+    is_directory: boolean;
+    allowed_actions: ArchiveExtractionDecisionAction[];
+  } | null;
+}
+
+export interface ArchiveRelayExtractionResponse {
+  members_processed: number;
+  members_completed: number;
+  members_skipped: number;
+  members_failed: number;
+  files_extracted: number;
+  directories_created: number;
+  extracted_bytes: number;
+  files_replaced: number;
+  phase?: "awaiting_user_decision";
+}
+
+export interface ArchiveLiveExtractionStatus {
+  source_session_id: string;
+  phase: "ready" | "current" | "streaming_current" | "awaiting_result" | "awaiting_decision" | "completed" | "failed" | "cancelled";
+  aggregate_counters: LocalArchiveRelayExtractionStatus["aggregate_counters"];
+  pending_decision: LocalArchiveRelayExtractionStatus["pending_decision"];
+}
+
+function isLocalArchiveStaleRevisionError(error: unknown): boolean {
+  return (error as { response?: { status?: unknown } } | null)?.response?.status === 409;
+}
+
+function isLocalArchiveExecutionTerminal(execution: LocalArchiveExecution): boolean {
+  return execution.phase === "completed" || execution.phase === "cancelled" || execution.phase === "failed";
+}
+
 export const PDF_VIEWER_REQUEST_TIMEOUT_MS = 90_000;
 export const OIDC_FINALIZATION_REQUEST_TIMEOUT_MS = 15_000;
+
+function getDevicePixelDimension(value: number | undefined): number | undefined {
+  return value === undefined ? undefined : Math.round(value * window.devicePixelRatio);
+}
 
 let controlledReauthenticationInProgress = false;
 
@@ -323,26 +435,7 @@ class ApiService {
    * Uses Web Crypto API for HMAC-SHA256(secret, timestamp).
    */
   private async buildCompanionHeaders(): Promise<Record<string, string>> {
-    const secret = localStorage.getItem("companion_secret");
-    if (!secret) {
-      throw new Error("Not paired with companion");
-    }
-
-    const timestamp = Math.floor(Date.now() / 1000).toString();
-    const encoder = new TextEncoder();
-    const keyData = encoder.encode(secret);
-    const msgData = encoder.encode(timestamp);
-
-    const cryptoKey = await crypto.subtle.importKey("raw", keyData, { name: "HMAC", hash: "SHA-256" }, false, ["sign"]);
-    const signature = await crypto.subtle.sign("HMAC", cryptoKey, msgData);
-    const hmac = Array.from(new Uint8Array(signature))
-      .map((b) => b.toString(16).padStart(2, "0"))
-      .join("");
-
-    return {
-      "X-Companion-Secret": hmac,
-      "X-Companion-Timestamp": timestamp,
-    };
+    return companionSession.getSigningHeaders();
   }
 
   /**
@@ -352,24 +445,7 @@ class ApiService {
    * Returns a query string fragment: `hmac=...&ts=...&origin=...`
    */
   private async buildCompanionQueryAuth(): Promise<string> {
-    const secret = localStorage.getItem("companion_secret");
-    if (!secret) {
-      throw new Error("Not paired with companion");
-    }
-
-    const timestamp = Math.floor(Date.now() / 1000).toString();
-    const encoder = new TextEncoder();
-    const keyData = encoder.encode(secret);
-    const msgData = encoder.encode(timestamp);
-
-    const cryptoKey = await crypto.subtle.importKey("raw", keyData, { name: "HMAC", hash: "SHA-256" }, false, ["sign"]);
-    const signature = await crypto.subtle.sign("HMAC", cryptoKey, msgData);
-    const hmac = Array.from(new Uint8Array(signature))
-      .map((b) => b.toString(16).padStart(2, "0"))
-      .join("");
-
-    const origin = encodeURIComponent(window.location.origin);
-    return `hmac=${hmac}&ts=${timestamp}&origin=${origin}`;
+    return companionSession.getSignedQuery();
   }
 
   /**
@@ -386,14 +462,8 @@ class ApiService {
     return { client: this.api, extraConfig: {} };
   }
 
-  private assertEditLocksSupported(connectionId: string): void {
-    if (isLocalDrive(connectionId)) {
-      throw new Error(LOCAL_DRIVE_EDIT_LOCKS_UNSUPPORTED_MESSAGE);
-    }
-  }
-
   supportsEditLocks(connectionId: string): boolean {
-    return !isLocalDrive(connectionId);
+    return Boolean(connectionId);
   }
 
   // Auth endpoints
@@ -794,12 +864,420 @@ class ApiService {
     return response.data;
   }
 
-  async getFileInfo(connectionId: string, path: string): Promise<FileInfo> {
+  async listArchiveDirectory(
+    connectionId: string,
+    archivePath: string,
+    virtualPath = "",
+    options?: { cursor?: string; pageSize?: number; signal?: AbortSignal }
+  ): Promise<ArchiveDirectoryListing> {
+    const segment = getBrowseSegment(connectionId);
+    const { client, extraConfig } = await this.getClientConfig(connectionId);
+    const path = isLocalDrive(connectionId) ? `/browse/${segment}/archive/v2/list` : "/archive/v2/inspection/directory";
+    const response = await client.get<ArchiveDirectoryListing>(path, {
+      ...extraConfig,
+      params: {
+        ...(isLocalDrive(connectionId) ? {} : { connection_id: connectionId }),
+        contract_version: "v2",
+        archive_path: archivePath,
+        virtual_path: virtualPath,
+        cursor: options?.cursor,
+        page_size: options?.pageSize,
+      },
+      signal: options?.signal,
+    });
+    return response.data;
+  }
+
+  async getArchiveMember(
+    connectionId: string,
+    archivePath: string,
+    memberPath: string,
+    options: {
+      download?: boolean;
+      request?:
+        | { kind: "raw" }
+        | { kind: "text" }
+        | { kind: "image"; viewportWidth?: number; viewportHeight?: number; noResizing?: boolean }
+        | { kind: "pdf"; variant?: "normalized"; screenProfile?: { width: number; height: number; zoomPercent: number } };
+      signal?: AbortSignal;
+    } = {}
+  ): Promise<Blob> {
+    try {
+      const segment = getBrowseSegment(connectionId);
+      const { client, extraConfig } = await this.getClientConfig(connectionId);
+      const path = isLocalDrive(connectionId) ? `/viewer/${segment}/archive/v2/member` : "/archive/v2/inspection/member";
+      const response = await client.get<Blob>(path, {
+        ...extraConfig,
+        params: {
+          ...(isLocalDrive(connectionId) ? {} : { connection_id: connectionId }),
+          contract_version: "v2",
+          archive_path: archivePath,
+          member_path: memberPath,
+          download: options.download ?? false,
+          view_kind: options.request?.kind ?? "raw",
+          ...(options.request?.kind === "image"
+            ? {
+                viewport_width: getDevicePixelDimension(options.request.viewportWidth),
+                viewport_height: getDevicePixelDimension(options.request.viewportHeight),
+                no_resizing: options.request.noResizing ? 1 : undefined,
+              }
+            : {}),
+          ...(options.request?.kind === "pdf"
+            ? {
+                pdf_variant: options.request.variant,
+                screen_width: options.request.screenProfile?.width,
+                screen_height: options.request.screenProfile?.height,
+                screen_zoom_percent: options.request.screenProfile?.zoomPercent,
+              }
+            : {}),
+        },
+        responseType: "blob",
+        signal: options.signal,
+      });
+      return response.data;
+    } catch (error) {
+      if (axios.isAxiosError(error) && error.response?.data instanceof Blob) {
+        try {
+          const data = JSON.parse(await error.response.data.text());
+          throw { ...error, response: { ...error.response, data } };
+        } catch (parseError) {
+          if (!(parseError instanceof SyntaxError)) {
+            throw parseError;
+          }
+        }
+      }
+      throw error;
+    }
+  }
+
+  async startLocalArchiveExtraction(connectionId: string, archivePath: string, destinationPath: string): Promise<LocalArchiveExecution> {
+    return this.startLocalArchiveExecution(connectionId, {
+      kind: "extract",
+      contract_version: "v2",
+      archive_path: archivePath,
+      destination_path: destinationPath,
+    });
+  }
+
+  async startLocalArchiveCreation(connectionId: string, sourcePaths: string[], targetPath: string): Promise<LocalArchiveExecution> {
+    return this.startLocalArchiveExecution(connectionId, {
+      kind: "create",
+      contract_version: "v2",
+      source_paths: sourcePaths,
+      target_path: targetPath,
+    });
+  }
+
+  private async startLocalArchiveExecution(
+    connectionId: string,
+    body:
+      | { kind: "extract"; contract_version: "v2"; archive_path: string; destination_path: string }
+      | { kind: "create"; contract_version: "v2"; source_paths: string[]; target_path: string }
+  ): Promise<LocalArchiveExecution> {
+    const segment = getBrowseSegment(connectionId);
+    const { client, extraConfig } = await this.getClientConfig(connectionId);
+    const response = await client.post<LocalArchiveExecution>(`/browse/${segment}/archive/v2/executions`, body, extraConfig);
+    return response.data;
+  }
+
+  async getLocalArchiveExtraction(connectionId: string, executionId: string): Promise<LocalArchiveExecution> {
+    return this.getLocalArchiveExecution(connectionId, executionId);
+  }
+
+  async getLocalArchiveExecution(connectionId: string, executionId: string): Promise<LocalArchiveExecution> {
+    const segment = getBrowseSegment(connectionId);
+    const { client, extraConfig } = await this.getClientConfig(connectionId);
+    const response = await client.get<LocalArchiveExecution>(
+      `/browse/${segment}/archive/v2/executions/${encodeURIComponent(executionId)}`,
+      extraConfig
+    );
+    return response.data;
+  }
+
+  async cancelLocalArchiveExtraction(connectionId: string, executionId: string, expectedRevision: number): Promise<LocalArchiveExecution> {
+    return this.cancelLocalArchiveExecution(connectionId, executionId, expectedRevision);
+  }
+
+  async cancelLocalArchiveExecution(connectionId: string, executionId: string, expectedRevision: number): Promise<LocalArchiveExecution> {
+    const segment = getBrowseSegment(connectionId);
+    const { client, extraConfig } = await this.getClientConfig(connectionId);
+    const response = await client.post<LocalArchiveExecution>(
+      `/browse/${segment}/archive/v2/executions/${encodeURIComponent(executionId)}/cancellation`,
+      { contract_version: "v2", expected_revision: expectedRevision },
+      extraConfig
+    );
+    return response.data;
+  }
+
+  async decideLocalArchiveExecution(
+    connectionId: string,
+    executionId: string,
+    expectedRevision: number,
+    sourceSessionId: string,
+    deliverySequence: number,
+    decisionRevision: number,
+    memberPath: string,
+    action: "skip" | "skip_all" | "replace" | "replace_all" | "replace_older" | "rename" | "retry" | "ignore",
+    targetPath?: string
+  ): Promise<LocalArchiveExecution> {
+    const segment = getBrowseSegment(connectionId);
+    const { client, extraConfig } = await this.getClientConfig(connectionId);
+    const response = await client.post<LocalArchiveExecution>(
+      `/browse/${segment}/archive/v2/executions/${encodeURIComponent(executionId)}/decision`,
+      {
+        contract_version: "v2",
+        expected_revision: expectedRevision,
+        source_session_id: sourceSessionId,
+        delivery_sequence: deliverySequence,
+        decision_revision: decisionRevision,
+        member_path: memberPath,
+        action,
+        target_path: targetPath,
+      },
+      extraConfig
+    );
+    return response.data;
+  }
+
+  async cancelLocalArchiveExecutionWithRevisionRetry(
+    connectionId: string,
+    executionId: string,
+    expectedRevision: number
+  ): Promise<LocalArchiveExecution> {
+    let execution = { execution_id: executionId, revision: expectedRevision };
+    for (let attempt = 0; attempt < LOCAL_ARCHIVE_CANCELLATION_MAX_REVISION_RETRIES; attempt += 1) {
+      try {
+        return await this.cancelLocalArchiveExecution(connectionId, execution.execution_id, execution.revision);
+      } catch (error) {
+        if (!isLocalArchiveStaleRevisionError(error) || attempt + 1 === LOCAL_ARCHIVE_CANCELLATION_MAX_REVISION_RETRIES) {
+          throw error;
+        }
+        const latest = await this.getLocalArchiveExecution(connectionId, execution.execution_id);
+        if (isLocalArchiveExecutionTerminal(latest)) {
+          return latest;
+        }
+        execution = latest;
+      }
+    }
+    throw new Error("Local archive execution changed too frequently to cancel");
+  }
+
+  async waitForLocalArchiveExecution(
+    connectionId: string,
+    executionId: string,
+    onUpdate?: (execution: LocalArchiveExecution) => void
+  ): Promise<LocalArchiveExecution> {
+    let execution = await this.getLocalArchiveExecution(connectionId, executionId);
+    onUpdate?.(execution);
+    while (!isLocalArchiveExecutionTerminal(execution) && execution.phase !== "awaiting_user_decision") {
+      await new Promise<void>((resolve) => window.setTimeout(resolve, LOCAL_ARCHIVE_EXECUTION_POLL_INTERVAL_MS));
+      execution = await this.getLocalArchiveExecution(connectionId, executionId);
+      onUpdate?.(execution);
+    }
+    return execution;
+  }
+
+  async extractLocalArchiveToSmb(connectionId: string, archivePath: string, operationId: string): Promise<ArchiveRelayExtractionResponse> {
+    const segment = getBrowseSegment(connectionId);
+    const { client, extraConfig } = await this.getClientConfig(connectionId);
+    const accessToken = authSession.getAccessToken();
+    if (!accessToken) {
+      throw new Error("Authentication is required to start local archive extraction");
+    }
+    const response = await client.post(
+      `/browse/${segment}/archive/v2/relay/extraction`,
+      {
+        contract_version: "v2",
+        archive_path: archivePath,
+        operation_id: operationId,
+      },
+      {
+        ...extraConfig,
+        headers: {
+          ...extraConfig.headers,
+          Authorization: `Bearer ${accessToken}`,
+        },
+      }
+    );
+    return response.data;
+  }
+
+  async decideLocalArchiveRelayExtraction(
+    connectionId: string,
+    operationId: string,
+    sourceSessionId: string,
+    deliverySequence: number,
+    decisionRevision: number,
+    action: ArchiveExtractionDecisionAction,
+    memberPath: string,
+    targetPath?: string
+  ): Promise<ArchiveRelayExtractionResponse> {
+    const segment = getBrowseSegment(connectionId);
+    const { client, extraConfig } = await this.getClientConfig(connectionId);
+    const response = await client.post(
+      `/browse/${segment}/archive/v2/relay/extraction/${operationId}/decision`,
+      {
+        source_session_id: sourceSessionId,
+        delivery_sequence: deliverySequence,
+        decision_revision: decisionRevision,
+        action,
+        member_path: memberPath,
+        target_path: targetPath,
+      },
+      extraConfig
+    );
+    return response.data;
+  }
+
+  async getLocalArchiveRelayExtractionStatus(connectionId: string, operationId: string): Promise<LocalArchiveRelayExtractionStatus> {
+    const segment = getBrowseSegment(connectionId);
+    const { client, extraConfig } = await this.getClientConfig(connectionId);
+    const response = await client.get(`/browse/${segment}/archive/v2/relay/extraction/${operationId}/status`, extraConfig);
+    return response.data;
+  }
+
+  async extractSmbArchiveToLocal(
+    destinationConnectionId: string,
+    destinationPath: string,
+    operationId: string
+  ): Promise<ArchiveRelayExtractionResponse> {
+    const segment = getBrowseSegment(destinationConnectionId);
+    const { client, extraConfig } = await this.getClientConfig(destinationConnectionId);
+    const response = await client.post(
+      `/browse/${segment}/archive/v2/relay/extraction`,
+      {
+        contract_version: "v2",
+        destination_path: destinationPath,
+        operation_id: operationId,
+      },
+      extraConfig
+    );
+    return response.data;
+  }
+
+  async createSmbArchiveToLocal(
+    destinationConnectionId: string,
+    targetPath: string,
+    operationId: string,
+    operationToken: string
+  ): Promise<{ files_created: number; directories_created: number; source_bytes: number }> {
+    const segment = getBrowseSegment(destinationConnectionId);
+    const { client, extraConfig } = await this.getClientConfig(destinationConnectionId);
+    const response = await client.post(
+      `/browse/${segment}/archive/v2/relay/creation`,
+      {
+        contract_version: "v2",
+        target_path: targetPath,
+        server_url: getCompanionServerUrl(this.api.defaults.baseURL),
+        operation_id: operationId,
+        operation_token: operationToken,
+      },
+      extraConfig
+    );
+    return response.data;
+  }
+
+  async createLocalArchiveToSmb(
+    sourceConnectionId: string,
+    sourcePaths: string[],
+    targetPath: string,
+    operationId: string,
+    operationToken: string
+  ): Promise<{ files_created: number; directories_created: number; source_bytes: number }> {
+    const segment = getBrowseSegment(sourceConnectionId);
+    const { client, extraConfig } = await this.getClientConfig(sourceConnectionId);
+    const response = await client.post(
+      `/browse/${segment}/archive/v2/relay/creation`,
+      {
+        contract_version: "v2",
+        source_paths: sourcePaths,
+        target_path: targetPath,
+        server_url: getCompanionServerUrl(this.api.defaults.baseURL),
+        operation_id: operationId,
+        operation_token: operationToken,
+      },
+      extraConfig
+    );
+    return response.data;
+  }
+
+  async prepareArchiveOperation(payload: ArchiveOperationPrepare): Promise<ArchiveOperation> {
+    const response = await this.api.post<ArchiveOperation>("/archive/v2/operations", payload);
+    return response.data;
+  }
+
+  async getArchiveOperation(operationId: string): Promise<ArchiveOperation> {
+    const response = await this.api.get<ArchiveOperation>(`/archive/v2/operations/${operationId}`);
+    return response.data;
+  }
+
+  async listArchiveOperations(activeOnly = false): Promise<ArchiveOperation[]> {
+    const response = await this.api.get<ArchiveOperation[]>("/archive/v2/operations", { params: { active_only: activeOnly } });
+    return response.data;
+  }
+
+  async getArchiveCompanionSession(operationId: string): Promise<ArchiveCompanionSession> {
+    const response = await this.api.post<ArchiveCompanionSession>(`/archive/v2/operations/${operationId}/companion-session`);
+    return response.data;
+  }
+
+  async transitionArchiveOperation(
+    operationId: string,
+    expectedPhase: ArchiveOperationPhase,
+    nextPhase: ArchiveOperationPhase
+  ): Promise<ArchiveOperation> {
+    const response = await this.api.post<ArchiveOperation>(`/archive/v2/operations/${operationId}/phase`, {
+      expected_phase: expectedPhase,
+      next_phase: nextPhase,
+    });
+    return response.data;
+  }
+
+  async executeArchiveCreation(operationId: string): Promise<ArchiveOperation> {
+    const response = await this.api.post<ArchiveOperation>(`/archive/v2/operations/${operationId}/creation/begin`);
+    return response.data;
+  }
+
+  async executeArchiveExtraction(operationId: string): Promise<ArchiveOperation> {
+    const response = await this.api.post<ArchiveOperation>(`/archive/v2/operations/${operationId}/extraction/begin`);
+    return response.data;
+  }
+
+  async getArchiveLiveExtractionStatus(operationId: string): Promise<ArchiveLiveExtractionStatus> {
+    const response = await this.api.get<ArchiveLiveExtractionStatus>(`/archive/v2/operations/${operationId}/extraction/live-status`);
+    return response.data;
+  }
+
+  async decideArchiveExtraction(
+    operationId: string,
+    action: ArchiveExtractionDecisionAction,
+    memberPath?: string,
+    targetPath?: string,
+    liveDecision?: { sourceSessionId: string; deliverySequence: number; decisionRevision: number }
+  ): Promise<ArchiveOperation> {
+    const response = await this.api.post<ArchiveOperation>(`/archive/v2/operations/${operationId}/extraction/decision`, {
+      action,
+      member_path: memberPath,
+      target_path: targetPath,
+      source_session_id: liveDecision?.sourceSessionId,
+      delivery_sequence: liveDecision?.deliverySequence,
+      decision_revision: liveDecision?.decisionRevision,
+    });
+    return response.data;
+  }
+
+  async cancelArchiveOperation(operationId: string): Promise<ArchiveOperation> {
+    const response = await this.api.post<ArchiveOperation>(`/archive/v2/operations/${operationId}/cancel`);
+    return response.data;
+  }
+
+  async getFileInfo(connectionId: string, path: string, options: { signal?: AbortSignal } = {}): Promise<FileInfo> {
     const segment = getBrowseSegment(connectionId);
     const { client, extraConfig } = await this.getClientConfig(connectionId);
     const response = await client.get<FileInfo>(`/browse/${segment}/info`, {
       ...extraConfig,
       params: { path },
+      signal: options.signal,
     });
     return response.data;
   }
@@ -905,64 +1383,86 @@ class ApiService {
    * Copy a file or directory to a new location.
    *
    * When ``destConnectionId`` is provided and differs from ``connectionId``,
-   * a cross-connection copy is performed. For same-backend transfers (both
-   * SMB or both local), the backend handles it natively. For cross-backend
-   * transfers (SMB ↔ local), the browser mediates: download from source,
-   * upload to destination.
+   * a same-owner cross-connection copy is performed. Cross-provider transfers
+   * are unavailable.
    */
-  async copyItem(connectionId: string, sourcePath: string, destPath: string, destConnectionId?: string, overwrite = false): Promise<void> {
+  async copyItem(
+    connectionId: string,
+    sourcePath: string,
+    destPath: string,
+    idempotencyKey: string,
+    destConnectionId?: string,
+    targetResolutionPolicy: TargetResolutionPolicy = "ask"
+  ): Promise<ContentTransferResult> {
     if (destConnectionId && this.isCrossBackendTransfer(connectionId, destConnectionId)) {
-      await this.crossBackendCopy(connectionId, sourcePath, destConnectionId, destPath, overwrite);
-      return;
+      return {
+        status: "failed",
+        replaced: false,
+        effects: { source: "unchanged", destination: "unchanged" },
+        error: { code: "unavailable", reason: "unsupported" },
+      };
     }
     const segment = getBrowseSegment(connectionId);
     const { client, extraConfig } = await this.getClientConfig(connectionId);
-    await client.post(
+    return this.postTransfer(
+      client,
       `/browse/${segment}/copy`,
       {
         source_path: sourcePath,
         dest_path: destPath,
         dest_connection_id: destConnectionId,
-        overwrite,
+        target_resolution_policy: targetResolutionPolicy,
+        idempotency_key: idempotencyKey,
       },
       extraConfig
     );
   }
 
   /**
-   * Move a file or directory to a new location.
-   *
-   * When ``destConnectionId`` is provided and differs from ``connectionId``,
-   * a cross-connection move is performed (copy + delete source).
-   * For cross-backend transfers (SMB ↔ local), the browser mediates.
+   * Return the stabilized unavailable result for all Move requests.
    */
-  async moveItem(connectionId: string, sourcePath: string, destPath: string, destConnectionId?: string, overwrite = false): Promise<void> {
-    if (destConnectionId && this.isCrossBackendTransfer(connectionId, destConnectionId)) {
-      await this.crossBackendCopy(connectionId, sourcePath, destConnectionId, destPath, overwrite);
-      await this.deleteItem(connectionId, sourcePath);
-      return;
+  async moveItem(
+    _connectionId: string,
+    _sourcePath: string,
+    _destPath: string,
+    _idempotencyKey: string,
+    _destConnectionId?: string,
+    _targetResolutionPolicy: TargetResolutionPolicy = "ask"
+  ): Promise<ContentTransferResult> {
+    return {
+      status: "failed",
+      replaced: false,
+      effects: { source: "unchanged", destination: "unchanged" },
+      error: { code: "unavailable", reason: "unsupported" },
+    };
+  }
+
+  // ── Transfer routing helpers ────────────────────────────────────────────
+
+  private async postTransfer(
+    client: AxiosInstance,
+    path: string,
+    payload: Record<string, unknown>,
+    config: AxiosRequestConfig
+  ): Promise<ContentTransferResult> {
+    try {
+      return this.normalizeTransferResult((await client.post<ContentTransferResult>(path, payload, config)).data);
+    } catch (firstError) {
+      if (!axios.isAxiosError(firstError) || firstError.response) {
+        throw firstError;
+      }
+      return { status: "outcome_unknown", replaced: false, effects: { source: "unknown", destination: "unknown" } };
     }
-    const segment = getBrowseSegment(connectionId);
-    const { client, extraConfig } = await this.getClientConfig(connectionId);
-    await client.post(
-      `/browse/${segment}/move`,
-      {
-        source_path: sourcePath,
-        dest_path: destPath,
-        dest_connection_id: destConnectionId,
-        overwrite,
-      },
-      extraConfig
-    );
   }
 
-  // ── Cross-backend transfer helpers ──────────────────────────────────────
+  private normalizeTransferResult(result: ContentTransferResult): ContentTransferResult {
+    if (result.status === "failed" && result.error.code === "unavailable" && "detail" in result.error) {
+      return { ...result, error: { code: "unavailable", reason: "unsupported" } };
+    }
+    return result;
+  }
 
-  /**
-   * Check whether source and destination are on different backend types
-   * (one local, one SMB). Same-type transfers are handled natively by
-   * each backend.
-   */
+  /** Check whether source and destination are on different backend types. */
   private isCrossBackendTransfer(sourceConnectionId: string, destConnectionId: string): boolean {
     return isLocalDrive(sourceConnectionId) !== isLocalDrive(destConnectionId);
   }
@@ -971,7 +1471,7 @@ class ApiService {
    * Download a file's raw bytes from any backend (companion or server).
    * Returns the data as a `Blob`.
    */
-  private async downloadFileBlob(connectionId: string, path: string): Promise<Blob> {
+  async getOriginalFileBlob(connectionId: string, path: string, options: { signal?: AbortSignal } = {}): Promise<Blob> {
     const baseUrl = getBaseUrl(connectionId);
     const segment = getBrowseSegment(connectionId);
     const url = `${baseUrl}/viewer/${segment}/download?path=${encodeURIComponent(path)}`;
@@ -984,7 +1484,7 @@ class ApiService {
       if (token) headers["Authorization"] = `Bearer ${token}`;
     }
 
-    const response = await fetch(url, { headers });
+    const response = await fetch(url, { headers, signal: options.signal });
     if (!response.ok) {
       throw new Error(`Download failed (${response.status}): ${response.statusText}`);
     }
@@ -998,7 +1498,13 @@ class ApiService {
    * Uses multipart form data with a single `file` field, matching both
    * the Python backend and the companion upload endpoints.
    */
-  private async uploadFileBlob(connectionId: string, destPath: string, blob: Blob, filename: string): Promise<void> {
+  private async uploadFileBlob(
+    connectionId: string,
+    destPath: string,
+    blob: Blob,
+    filename: string,
+    params?: Record<string, string>
+  ): Promise<void> {
     const baseUrl = getBaseUrl(connectionId);
     const segment = getBrowseSegment(connectionId);
     const url = `${baseUrl}/browse/${segment}/upload?path=${encodeURIComponent(destPath)}`;
@@ -1014,7 +1520,8 @@ class ApiService {
       if (token) headers["Authorization"] = `Bearer ${token}`;
     }
 
-    const response = await fetch(url, {
+    const requestUrl = params ? `${url}&${new URLSearchParams(params).toString()}` : url;
+    const response = await fetch(requestUrl, {
       method: "POST",
       headers,
       body: formData,
@@ -1026,81 +1533,8 @@ class ApiService {
     }
   }
 
-  /**
-   * Browser-mediated cross-backend copy.
-   *
-   * Downloads each file from the source backend and uploads it to the
-   * destination backend. For directories, recursively lists the source
-   * and processes all contained files.
-   */
-  private async crossBackendCopy(
-    sourceConnectionId: string,
-    sourcePath: string,
-    destConnectionId: string,
-    destPath: string,
-    overwrite: boolean
-  ): Promise<void> {
-    // Determine whether the source is a file or directory
-    const info = await this.getFileInfo(sourceConnectionId, sourcePath);
-
-    if (info.type === FileType.FILE) {
-      // Check for existing file on the destination before uploading
-      if (!overwrite) {
-        try {
-          await this.getFileInfo(destConnectionId, destPath);
-          // If we get here, the dest exists — throw a 409-like error
-          throw Object.assign(new Error("Destination already exists"), {
-            response: { status: 409, data: { detail: `Destination already exists: ${destPath}` } },
-            isAxiosError: true,
-          });
-        } catch (e: unknown) {
-          // 404 = dest doesn't exist, which is what we want
-          const err = e as { response?: { status?: number } };
-          if (err.response?.status !== 404) throw e;
-        }
-      }
-
-      const blob = await this.downloadFileBlob(sourceConnectionId, sourcePath);
-      const filename = sourcePath.split("/").pop() ?? sourcePath;
-      await this.uploadFileBlob(destConnectionId, destPath, blob, filename);
-    } else {
-      // Directory — recursively process contents
-      await this.crossBackendCopyDirectory(sourceConnectionId, sourcePath, destConnectionId, destPath, overwrite);
-    }
-  }
-
-  /**
-   * Recursively copy a directory across backends.
-   *
-   * Creates the target directory, then lists the source and processes
-   * each child (files are downloaded/uploaded, subdirectories recurse).
-   */
-  private async crossBackendCopyDirectory(
-    sourceConnectionId: string,
-    sourceDirPath: string,
-    destConnectionId: string,
-    destDirPath: string,
-    overwrite: boolean
-  ): Promise<void> {
-    // Create the destination directory
-    const destDirName = destDirPath.split("/").pop() ?? destDirPath;
-    const destParent = destDirPath.includes("/") ? destDirPath.substring(0, destDirPath.lastIndexOf("/")) : "";
-    await this.createItem(destConnectionId, destParent, destDirName, "directory");
-
-    // List the source directory
-    const listing = await this.listDirectory(sourceConnectionId, sourceDirPath);
-
-    for (const item of listing.items) {
-      const childSourcePath = item.path;
-      const childDestPath = destDirPath ? `${destDirPath}/${item.name}` : item.name;
-
-      if (item.type === FileType.DIRECTORY) {
-        await this.crossBackendCopyDirectory(sourceConnectionId, childSourcePath, destConnectionId, childDestPath, overwrite);
-      } else {
-        const blob = await this.downloadFileBlob(sourceConnectionId, childSourcePath);
-        await this.uploadFileBlob(destConnectionId, childDestPath, blob, item.name);
-      }
-    }
+  async writeFile(connectionId: string, destinationPath: string, content: Blob, filename: string): Promise<void> {
+    await this.uploadFileBlob(connectionId, destinationPath, content, filename);
   }
 
   // Viewer endpoints
@@ -1241,9 +1675,23 @@ class ApiService {
     await this.uploadFileBlob(connectionId, path, blob, filename);
   }
 
-  async acquireEditLock(connectionId: string, path: string, _sessionId?: string): Promise<EditLockInfo> {
-    this.assertEditLocksSupported(connectionId);
+  async writeTextWithEditLock(
+    connectionId: string,
+    path: string,
+    content: string,
+    lockInfo: Required<Pick<EditLockInfo, "lock_id" | "lock_capability" | "operation_id">>,
+    options: { filename?: string; mimeType?: string } = {}
+  ): Promise<void> {
+    const filename = options.filename ?? path.split("/").pop() ?? path;
+    const mimeType = options.mimeType ?? "text/plain;charset=utf-8";
+    await this.uploadFileBlob(connectionId, path, new Blob([content], { type: mimeType }), filename, {
+      editor_lock_id: lockInfo.lock_id,
+      editor_lock_capability: lockInfo.lock_capability,
+      editor_operation_id: lockInfo.operation_id,
+    });
+  }
 
+  async acquireEditLock(connectionId: string, path: string, _sessionId?: string): Promise<EditLockInfo> {
     const segment = getBrowseSegment(connectionId);
     const { client, extraConfig } = await this.getClientConfig(connectionId);
     const response = await client.post<EditLockInfo>(`/browse/${segment}/lock`, undefined, {
@@ -1255,8 +1703,6 @@ class ApiService {
   }
 
   async heartbeatEditLock(connectionId: string, path: string, lockInfo: EditLockInfo): Promise<void> {
-    this.assertEditLocksSupported(connectionId);
-
     if (!lockInfo.operation_id || !lockInfo.lock_capability) {
       throw new Error("Edit lock context is incomplete");
     }
@@ -1278,8 +1724,6 @@ class ApiService {
   }
 
   async releaseEditLock(connectionId: string, path: string, lockInfo: EditLockInfo): Promise<void> {
-    this.assertEditLocksSupported(connectionId);
-
     if (!lockInfo.operation_id || !lockInfo.lock_capability) {
       throw new Error("Edit lock context is incomplete");
     }
@@ -1298,10 +1742,6 @@ class ApiService {
   }
 
   async getEditLockStatus(connectionId: string, path: string): Promise<EditLockStatus> {
-    if (isLocalDrive(connectionId)) {
-      return { locked: false };
-    }
-
     const segment = getBrowseSegment(connectionId);
     const { client, extraConfig } = await this.getClientConfig(connectionId);
     const response = await client.get<EditLockStatus>(`/browse/${segment}/lock-status`, {
@@ -1327,10 +1767,10 @@ class ApiService {
 
       // Add viewport dimensions if provided (for server-side resizing)
       if (options.viewportWidth) {
-        params["viewport_width"] = Math.round(options.viewportWidth * window.devicePixelRatio);
+        params["viewport_width"] = getDevicePixelDimension(options.viewportWidth);
       }
       if (options.viewportHeight) {
-        params["viewport_height"] = Math.round(options.viewportHeight * window.devicePixelRatio);
+        params["viewport_height"] = getDevicePixelDimension(options.viewportHeight);
       }
       if (options.no_resizing) {
         params["no_resizing"] = 1;
@@ -1440,51 +1880,37 @@ class ApiService {
       });
 
       const contentType = getResponseContentType(response.headers["content-type"], "application/pdf");
-      // response.data is an ArrayBuffer when responseType is 'arraybuffer'
       return new Blob([response.data], { type: contentType });
     } catch (error) {
-      // When responseType is 'arraybuffer', error responses come as ArrayBuffer
-      // We need to convert them to JSON to access the detail field
-      if (axios.isAxiosError(error)) {
-        // Check if data is a string (common when responseType is arraybuffer but error is JSON)
-        if (typeof error.response?.data === "string") {
-          try {
-            const json = JSON.parse(error.response.data);
-            // Re-throw with parsed data
-            throw {
-              ...error,
-              response: {
-                ...error.response,
-                data: json,
-              },
-            };
-          } catch {
-            // If parsing fails, continue to next check
-          }
-        }
-      }
-
-      if (axios.isAxiosError(error) && error.response?.data instanceof ArrayBuffer) {
-        const decoder = new TextDecoder();
-        const text = decoder.decode(error.response.data);
+      if (axios.isAxiosError(error) && typeof error.response?.data === "string") {
         try {
-          const json = JSON.parse(text);
-          // Create error with parsed JSON data
-          const newError = {
+          throw {
             ...error,
             response: {
               ...error.response,
-              data: json,
+              data: JSON.parse(error.response.data),
             },
           };
-          throw newError;
         } catch (parseError) {
-          // If JSON.parse fails, throw original error
-          if (parseError instanceof SyntaxError) {
-            throw error;
+          if (!(parseError instanceof SyntaxError)) {
+            throw parseError;
           }
-          // If it's not a SyntaxError, it's our thrown newError - re-throw it
-          throw parseError;
+        }
+      }
+      if (axios.isAxiosError(error) && error.response?.data instanceof ArrayBuffer) {
+        const text = new TextDecoder().decode(error.response.data);
+        try {
+          throw {
+            ...error,
+            response: {
+              ...error.response,
+              data: JSON.parse(text),
+            },
+          };
+        } catch (parseError) {
+          if (!(parseError instanceof SyntaxError)) {
+            throw parseError;
+          }
         }
       }
       throw error;
@@ -1502,6 +1928,30 @@ class ApiService {
       ...extraConfig,
       params: {
         path,
+        ...(screenProfile
+          ? {
+              screen_width: screenProfile.width,
+              screen_height: screenProfile.height,
+              screen_zoom_percent: screenProfile.zoomPercent,
+            }
+          : {}),
+      },
+    });
+  }
+
+  async invalidateArchiveMemberPdfDerivative(
+    connectionId: string,
+    archivePath: string,
+    memberPath: string,
+    screenProfile?: { width: number; height: number; zoomPercent: number }
+  ): Promise<void> {
+    const segment = getBrowseSegment(connectionId);
+    const { client, extraConfig } = await this.getClientConfig(connectionId);
+    await client.delete(`/viewer/${segment}/archive/member/pdf-derivative`, {
+      ...extraConfig,
+      params: {
+        archive_path: archivePath,
+        member_path: memberPath,
         ...(screenProfile
           ? {
               screen_width: screenProfile.width,

@@ -19,7 +19,7 @@
 import { useCallback, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { BROWSER_SHORTCUTS } from "../../../config/keyboardShortcuts";
-import api from "../../../services/api";
+import { type BrowserHistoryService, browserHistoryService } from "../../../services/browserHistoryService";
 import { logger } from "../../../services/logger";
 import { publishRecentDirectoriesChanged } from "../../../services/recentDirectoriesSync";
 import type { DirectorySearchResult, RecentDirectory } from "../../../types";
@@ -183,6 +183,7 @@ interface DirectorySearchProviderOptions {
   getConnectionName?: (connectionId: string) => string;
   onNavigateDirectory?: (connectionId: string, path: string) => void;
   resultLimit?: number;
+  history?: BrowserHistoryService;
 }
 
 // ============================================================================
@@ -210,6 +211,7 @@ export function useDirectorySearchProvider(
   const [totalMatches, setTotalMatches] = useState(0);
   const includeDotDirectories = options.includeDotDirectories ?? false;
   const recentDirectoryResultLimit = options.resultLimit ?? DEFAULT_RECENT_DIRECTORY_RESULT_LIMIT;
+  const history = options.history ?? browserHistoryService;
   const recentDirectoriesRef = useRef(new Map<string, RecentDirectory>());
 
   const getRecentDirectoryPresentation = useCallback(
@@ -233,10 +235,10 @@ export function useDirectorySearchProvider(
       const normalizedQuery = normalizeQuerySeparators(query);
 
       try {
-        const recentDirectoriesRequest = api.searchRecentDirectories(normalizedQuery, recentDirectoryResultLimit, signal);
+        const recentDirectoriesRequest = history.searchRecentDirectories(normalizedQuery, recentDirectoryResultLimit, signal);
         const directorySearchRequest =
           normalizedQuery.length >= DIRECTORY_MIN_QUERY_LENGTH
-            ? api.searchDirectories(connectionId, normalizedQuery, {
+            ? history.searchDirectories(connectionId, normalizedQuery, {
                 includeDotDirectories,
                 signal,
               })
@@ -306,7 +308,7 @@ export function useDirectorySearchProvider(
         throw error;
       }
     },
-    [connectionId, getRecentDirectoryPresentation, includeDotDirectories, recentDirectoryResultLimit, t]
+    [connectionId, getRecentDirectoryPresentation, history, includeDotDirectories, recentDirectoryResultLimit, t]
   );
 
   //
@@ -329,15 +331,18 @@ export function useDirectorySearchProvider(
     [onNavigate, options.onNavigateDirectory]
   );
 
-  const onRemoveSelected = useCallback(async (value: string) => {
-    return removeRecentHistoryResult({
-      value,
-      prefix: RECENT_DIRECTORY_PREFIX,
-      records: recentDirectoriesRef.current,
-      remove: api.removeRecentDirectory.bind(api),
-      publish: publishRecentDirectoriesChanged,
-    });
-  }, []);
+  const onRemoveSelected = useCallback(
+    async (value: string) => {
+      return removeRecentHistoryResult({
+        value,
+        prefix: RECENT_DIRECTORY_PREFIX,
+        records: recentDirectoriesRef.current,
+        remove: history.removeRecentDirectory,
+        publish: publishRecentDirectoriesChanged,
+      });
+    },
+    [history]
+  );
 
   //
   // getStatusInfo
@@ -369,7 +374,7 @@ export function useDirectorySearchProvider(
   const onActivate = useCallback(() => {
     // Trigger an empty search to warm up the directory cache
     const controller = new AbortController();
-    api
+    history
       .searchDirectories(connectionId, "", {
         includeDotDirectories,
         signal: controller.signal,
@@ -385,7 +390,7 @@ export function useDirectorySearchProvider(
           logger.error("Failed to warm up directory cache", { error }, "directory-search-provider");
         }
       });
-  }, [connectionId, includeDotDirectories]);
+  }, [connectionId, history, includeDotDirectories]);
 
   //
   // footerInfo

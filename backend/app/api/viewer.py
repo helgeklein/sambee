@@ -1,7 +1,7 @@
 import asyncio
 import hashlib
 import uuid
-from collections.abc import AsyncIterator
+from collections.abc import AsyncIterator, Awaitable, Callable
 from datetime import datetime, timedelta, timezone
 from functools import partial
 from typing import Literal, Optional
@@ -23,8 +23,14 @@ from app.core.system_setting_definitions import SystemSettingKey
 from app.db.database import get_session
 from app.models.connection import Connection
 from app.models.edit_lock import HEARTBEAT_TIMEOUT_SECONDS, EditLock
-from app.models.file import FileType
+from app.models.file import FileInfo, FileType
 from app.models.user import User
+from app.services.archive.coordinator import (
+    ArchiveMemberReadPresentation,
+    SmbArchiveInspectionSource,
+)
+from app.services.archive.execution import ArchiveExecutionDriver, resolve_archive_inspection_topology_plan
+from app.services.archive.zip_reader import ArchiveFormatError, ArchiveInspectionManifestMember, ZipEntry, ZipReader
 from app.services.connection_access import get_accessible_connection_or_404
 from app.services.image_converter import convert_image_for_viewer
 from app.services.pdf_derivative_cache import PDFDerivativeCachePolicy, PDFSourceRevision, pdf_derivative_cache
@@ -43,6 +49,234 @@ from app.utils.file_type_registry import needs_processing
 
 router = APIRouter()
 logger = get_logger(__name__)
+
+
+def _inspection_member(entry: ZipEntry) -> ArchiveInspectionManifestMember:
+    """Map one record-order entry to existing viewer presentation metadata."""
+
+    return ArchiveInspectionManifestMember(
+        path=entry.path,
+        is_directory=entry.is_directory,
+        compressed_size=entry.compressed_size,
+        uncompressed_size=entry.uncompressed_size,
+        compression_method=entry.compression_method,
+        crc32=entry.crc32,
+        modified_at=entry.modified_at,
+        encrypted=entry.encrypted,
+        is_safe=entry.is_safe,
+        has_supported_file_type=entry.has_supported_file_type,
+    )
+
+
+def archive_member_pdf_revision(
+    archive_path: str, member_path: str, archive_info: FileInfo, member: ZipEntry, content_digest: str | None = None
+) -> PDFSourceRevision:
+    """Build a cache identity that changes when either the archive or member changes."""
+
+    return PDFSourceRevision(
+        path=f"zip:{archive_path}!{member_path}",
+        size=member.uncompressed_size,
+        modified_at=archive_info.modified_at.isoformat() if archive_info.modified_at else None,
+        created_at=archive_info.created_at.isoformat() if archive_info.created_at else None,
+        stable_id=f"{archive_info.stable_id or ''}:{member.crc32}:{member.compressed_size}:{member.local_header_offset}",
+        content_digest=content_digest,
+    )
+
+
+@router.get("/{connection_id}/archive/member", response_model=None)
+async def stream_archive_member(
+    connection_id: uuid.UUID,
+    archive_path: str = Query(..., min_length=1, description="Path to the ZIP archive"),
+    member_path: str = Query(..., min_length=1, description="Virtual archive member path"),
+    download: bool = Query(False, description="Return an attachment instead of inline content"),
+    view_kind: Literal["raw", "text", "image", "pdf"] = Query("raw", description="Viewer content purpose"),
+    pdf_variant: Literal["original", "normalized"] = Query("original", description="PDF viewer source variant"),
+    viewport_width: int | None = Query(None, description="Viewport width in pixels (including DPR)"),
+    viewport_height: int | None = Query(None, description="Viewport height in pixels (including DPR)"),
+    no_resizing: bool = Query(False, description="Return original image dimensions"),
+    screen_width: int | None = Query(None, ge=320, le=16384, description="Physical display width in pixels"),
+    screen_height: int | None = Query(None, ge=320, le=16384, description="Physical display height in pixels"),
+    screen_zoom_percent: int = Query(200, ge=100, le=400, description="Maximum requested viewing zoom"),
+    current_user: User = Depends(get_current_user_with_auth_check),
+    session: Session = Depends(get_session),
+) -> Response | StreamingResponse:
+    """Open one validated archive member using the requested viewer semantics."""
+
+    connection = get_accessible_connection_or_404(session, current_user, connection_id)
+    backend = build_smb_backend(connection, backend_factory=SMBBackend)
+    reader = None
+    try:
+        await backend.connect()
+        archive_info = await backend.get_file_info(archive_path)
+        if archive_info.type != FileType.FILE or archive_info.size is None:
+            raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_CONTENT, detail="Archive path must identify a regular file")
+        reader = await backend.open_random_access_reader(archive_path)
+        source = SmbArchiveInspectionSource(ZipReader(reader, archive_info.size))
+        topology = resolve_archive_inspection_topology_plan(source_connection_id=str(connection_id))
+        if topology.driver != ArchiveExecutionDriver.BACKEND:
+            raise HTTPException(
+                status_code=status.HTTP_422_UNPROCESSABLE_CONTENT, detail="Archive inspection requires the Companion coordinator"
+            )
+        presentation = ArchiveMemberReadPresentation(
+            member_path=member_path,
+            download=download,
+            view_kind=view_kind,
+            pdf_variant=pdf_variant,
+            viewport_width=viewport_width,
+            viewport_height=viewport_height,
+            no_resizing=no_resizing,
+            screen_width=screen_width,
+            screen_height=screen_height,
+            screen_zoom_percent=screen_zoom_percent,
+        )
+        validated_member = await source.validate_member_in_record_order(member_path)
+        member = validated_member.entry
+        inspection_member = _inspection_member(member)
+        inspection_projection = presentation.project_member(inspection_member)
+        if inspection_projection.delivery == "preview_unavailable":
+            raise HTTPException(
+                status_code=status.HTTP_413_REQUEST_ENTITY_TOO_LARGE, detail="Archive member exceeds the inline preview size limit"
+            )
+        member_name = inspection_member.path.rsplit("/", 1)[-1]
+
+        async def read_member_source() -> tuple[bytes, PDFSourceRevision]:
+            chunks: list[bytes] = []
+            async for chunk in source.stream_validated_member(validated_member):
+                chunks.append(chunk)
+            refreshed_archive = await backend.get_file_info(archive_path)
+            if (
+                refreshed_archive.size != archive_info.size
+                or refreshed_archive.modified_at != archive_info.modified_at
+                or refreshed_archive.created_at != archive_info.created_at
+                or refreshed_archive.stable_id != archive_info.stable_id
+            ):
+                raise HTTPException(
+                    status_code=status.HTTP_409_CONFLICT,
+                    detail="The archive changed while compatibility processing was being prepared. Try again.",
+                )
+            member_bytes = b"".join(chunks)
+            return member_bytes, archive_member_pdf_revision(
+                archive_path, member_path, archive_info, member, hashlib.sha256(member_bytes).hexdigest()
+            )
+
+        metadata_revision = archive_member_pdf_revision(archive_path, member_path, archive_info, member)
+
+        if inspection_projection.delivery == "image":
+            try:
+                image_bytes, _ = await read_member_source()
+                return await create_converted_image_response(
+                    image_bytes=image_bytes,
+                    filename=member_name,
+                    max_width=inspection_projection.viewport_width,
+                    max_height=inspection_projection.viewport_height,
+                    no_resizing=inspection_projection.no_resizing,
+                )
+            finally:
+                await reader.close()
+                reader = None
+                await disconnect_backend_safely(backend, logger=logger, context=f"archive image view: {archive_path!r}")
+
+        if inspection_projection.delivery == "normalized_pdf":
+            try:
+                return await create_normalized_pdf_response_for_source(
+                    filename=member_name,
+                    metadata_revision=metadata_revision,
+                    connection_id=connection_id,
+                    user_id=current_user.id,
+                    screen_profile=(
+                        PDFScreenProfile(
+                            inspection_projection.screen_width,
+                            inspection_projection.screen_height,
+                            inspection_projection.screen_zoom_percent,
+                        )
+                        if inspection_projection.screen_width is not None and inspection_projection.screen_height is not None
+                        else None
+                    ),
+                    read_source=read_member_source,
+                )
+            finally:
+                await reader.close()
+                reader = None
+                await disconnect_backend_safely(backend, logger=logger, context=f"archive PDF derivative: {archive_path!r}")
+
+        async def stream_member() -> AsyncIterator[bytes]:
+            try:
+                async for chunk in source.stream_validated_member(validated_member):
+                    yield chunk
+            finally:
+                await reader.close()
+                await disconnect_backend_safely(
+                    backend,
+                    logger=logger,
+                    context=f"archive member stream: connection_id={connection_id}, archive_path={archive_path!r}",
+                )
+
+        return StreamingResponse(
+            stream_member(),
+            media_type=inspection_projection.content_type,
+            headers={"Content-Disposition": inspection_projection.content_disposition},
+        )
+    except ArchiveFormatError as exc:
+        if reader is not None:
+            await reader.close()
+        await disconnect_backend_safely(backend, logger=logger, context=f"invalid archive member request: {archive_path!r}")
+        raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_CONTENT, detail={"code": "invalid_zip", "message": str(exc)}) from exc
+    except Exception:
+        if reader is not None:
+            await reader.close()
+        await disconnect_backend_safely(backend, logger=logger, context=f"failed archive member request: {archive_path!r}")
+        raise
+
+
+@router.delete("/{connection_id}/archive/member/pdf-derivative", status_code=status.HTTP_204_NO_CONTENT)
+async def invalidate_archive_member_pdf_derivative(
+    connection_id: uuid.UUID,
+    archive_path: str = Query(..., min_length=1, description="Path to the ZIP archive"),
+    member_path: str = Query(..., min_length=1, description="Virtual archive member path"),
+    screen_width: int | None = Query(None, ge=320, le=16384),
+    screen_height: int | None = Query(None, ge=320, le=16384),
+    screen_zoom_percent: int = Query(200, ge=100, le=400),
+    current_user: User = Depends(get_current_user_with_auth_check),
+    session: Session = Depends(get_session),
+) -> Response:
+    """Discard the current user's PDF derivative for one ZIP member."""
+
+    connection = get_accessible_connection_or_404(session, current_user, connection_id)
+    backend = build_smb_backend(connection, backend_factory=SMBBackend)
+    reader = None
+    try:
+        await backend.connect()
+        archive_info = await backend.get_file_info(archive_path)
+        if archive_info.type != FileType.FILE or archive_info.size is None:
+            raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_CONTENT, detail="Archive path must identify a regular file")
+        reader = await backend.open_random_access_reader(archive_path)
+        topology = resolve_archive_inspection_topology_plan(source_connection_id=str(connection_id))
+        source = SmbArchiveInspectionSource(ZipReader(reader, archive_info.size))
+        if topology.driver != ArchiveExecutionDriver.BACKEND:
+            raise HTTPException(
+                status_code=status.HTTP_422_UNPROCESSABLE_CONTENT, detail="Archive inspection requires the Companion coordinator"
+            )
+        member = (await source.validate_member_in_record_order(member_path)).entry
+        member_name = member_path.replace("\\", "/").rsplit("/", 1)[-1]
+        if not needs_pdf_normalization(member_name):
+            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="PDF derivative invalidation requires a PDF file")
+        await invalidate_pdf_derivative_for_revision(
+            connection_id=connection_id,
+            user_id=current_user.id,
+            revision=archive_member_pdf_revision(archive_path, member_path, archive_info, member),
+            screen_profile=(
+                PDFScreenProfile(screen_width, screen_height, screen_zoom_percent)
+                if screen_width is not None and screen_height is not None
+                else None
+            ),
+        )
+    except ArchiveFormatError as exc:
+        raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_CONTENT, detail={"code": "invalid_zip", "message": str(exc)}) from exc
+    finally:
+        if reader is not None:
+            await reader.close()
+        await disconnect_backend_safely(backend, logger=logger, context=f"archive PDF derivative invalidation: {archive_path!r}")
+    return Response(status_code=status.HTTP_204_NO_CONTENT)
 
 
 def _get_active_lock(connection_id: uuid.UUID, path: str, session: Session) -> EditLock | None:
@@ -99,13 +333,10 @@ async def read_pdf_derivative_source(
 ) -> tuple[bytes, PDFSourceRevision]:
     """Read one PDF snapshot and reject it when SMB metadata changes mid-read."""
 
-    try:
-        chunks: list[bytes] = []
-        async for chunk in backend.read_file(path):
-            chunks.append(chunk)
-        refreshed_info = await backend.get_file_info(path)
-    finally:
-        await disconnect_backend_safely(backend, logger=logger, context=f"PDF derivative read for '{path}'")
+    chunks: list[bytes] = []
+    async for chunk in backend.read_file(path):
+        chunks.append(chunk)
+    refreshed_info = await backend.get_file_info(path)
 
     if (
         refreshed_info.size != initial_size
@@ -143,13 +374,44 @@ async def create_normalized_pdf_response(
 ) -> Response:
     """Return an explicitly requested cached compatibility derivative."""
 
+    metadata_revision = PDFSourceRevision(
+        path=path,
+        size=initial_size,
+        modified_at=initial_modified_at.isoformat() if initial_modified_at else None,
+        created_at=initial_created_at.isoformat() if initial_created_at else None,
+        stable_id=initial_stable_id,
+    )
+    try:
+        return await create_normalized_pdf_response_for_source(
+            filename=filename,
+            metadata_revision=metadata_revision,
+            connection_id=connection_id,
+            user_id=user_id,
+            screen_profile=screen_profile,
+            read_source=lambda: read_pdf_derivative_source(
+                backend, path, initial_size, initial_modified_at, initial_created_at, initial_stable_id
+            ),
+        )
+    finally:
+        await disconnect_backend_safely(backend, logger=logger, context=f"PDF derivative for '{path}'")
+
+
+async def create_normalized_pdf_response_for_source(
+    *,
+    filename: str,
+    metadata_revision: PDFSourceRevision,
+    connection_id: uuid.UUID,
+    user_id: uuid.UUID,
+    screen_profile: PDFScreenProfile | None,
+    read_source: Callable[[], Awaitable[tuple[bytes, PDFSourceRevision]]],
+) -> Response:
+    """Normalize a revisioned PDF source, regardless of its backing provider."""
+
     if not is_pdf_normalization_available():
-        await disconnect_backend_safely(backend, logger=logger, context=f"unavailable PDF derivative for '{path}'")
         raise HTTPException(status_code=status.HTTP_503_SERVICE_UNAVAILABLE, detail="PDF compatibility processing is unavailable")
 
     max_source_size = get_integer_setting_value(SystemSettingKey.PDF_NORMALIZER_MAX_SOURCE_SIZE_BYTES)
-    if initial_size is not None and initial_size > max_source_size:
-        await disconnect_backend_safely(backend, logger=logger, context=f"oversized PDF derivative for '{path}'")
+    if metadata_revision.size is not None and metadata_revision.size > max_source_size:
         raise HTTPException(
             status_code=status.HTTP_413_REQUEST_ENTITY_TOO_LARGE,
             detail="This PDF exceeds the configured compatibility-processing size limit.",
@@ -167,13 +429,6 @@ async def create_normalized_pdf_response(
         temporary_disk_bytes=get_integer_setting_value(SystemSettingKey.PDF_NORMALIZER_TEMPORARY_DISK_BYTES),
     )
     loop = asyncio.get_running_loop()
-    metadata_revision = PDFSourceRevision(
-        path=path,
-        size=initial_size,
-        modified_at=initial_modified_at.isoformat() if initial_modified_at else None,
-        created_at=initial_created_at.isoformat() if initial_created_at else None,
-        stable_id=initial_stable_id,
-    )
     screen_enabled = get_integer_setting_value(SystemSettingKey.PDF_SCREEN_DERIVATIVE_ENABLED) == 1
     screen_variant = f"screen-{screen_profile.cache_suffix()}" if screen_enabled and screen_profile else None
     # With a screen profile, a normalized cache entry cannot establish the
@@ -197,11 +452,10 @@ async def create_normalized_pdf_response(
         logger.info(
             "pdf_derivative outcome=cache_hit connection_id=%s path=%r variant=%s derivative_bytes=%d",
             connection_id,
-            path,
+            metadata_revision.path,
             cached_variant,
             len(cached_derivative),
         )
-        await disconnect_backend_safely(backend, logger=logger, context=f"PDF derivative cache hit for '{path}'")
         return Response(
             content=cached_derivative,
             media_type="application/pdf",
@@ -213,9 +467,7 @@ async def create_normalized_pdf_response(
             },
         )
 
-    pdf_bytes, revision = await read_pdf_derivative_source(
-        backend, path, initial_size, initial_modified_at, initial_created_at, initial_stable_id
-    )
+    pdf_bytes, revision = await read_source()
     if len(pdf_bytes) > max_source_size:
         raise HTTPException(
             status_code=status.HTTP_413_REQUEST_ENTITY_TOO_LARGE,
@@ -237,7 +489,7 @@ async def create_normalized_pdf_response(
         logger.info(
             "pdf_derivative outcome=screen_analysis connection_id=%s path=%r oversized=%s max_image_pixels=%d max_required_pixels=%d",
             connection_id,
-            path,
+            revision.path,
             analysis.is_oversized,
             analysis.maximum_image_pixels,
             analysis.maximum_required_pixels,
@@ -270,7 +522,7 @@ async def create_normalized_pdf_response(
         logger.warning(
             "pdf_derivative outcome=failed connection_id=%s path=%r variant=%s code=%s",
             connection_id,
-            path,
+            revision.path,
             selected_variant,
             exc.code,
         )
@@ -283,7 +535,7 @@ async def create_normalized_pdf_response(
         "pdf_derivative outcome=%s connection_id=%s path=%r variant=%s derivative_bytes=%d",
         "cache_hit" if cache_hit else "created",
         connection_id,
-        path,
+        revision.path,
         selected_variant,
         len(derivative),
     )
@@ -297,6 +549,32 @@ async def create_normalized_pdf_response(
             "Cache-Control": "private, no-store",
         },
     )
+
+
+async def invalidate_pdf_derivative_for_revision(
+    *,
+    connection_id: uuid.UUID,
+    user_id: uuid.UUID,
+    revision: PDFSourceRevision,
+    screen_profile: PDFScreenProfile | None,
+) -> None:
+    """Discard all applicable cached PDF derivatives for one resolved source revision."""
+
+    variants = ["normalized"]
+    if screen_profile is not None:
+        variants.append(f"screen-{screen_profile.cache_suffix()}")
+    loop = asyncio.get_running_loop()
+    for variant in variants:
+        await loop.run_in_executor(
+            None,
+            partial(
+                pdf_derivative_cache.invalidate,
+                user_id=str(user_id),
+                connection_id=str(connection_id),
+                revision=revision,
+                variant=variant,
+            ),
+        )
 
 
 @router.delete("/{connection_id}/pdf-derivative", status_code=status.HTTP_204_NO_CONTENT)
@@ -325,21 +603,16 @@ async def invalidate_pdf_derivative(
             created_at=file_info.created_at.isoformat() if file_info.created_at else None,
             stable_id=file_info.stable_id,
         )
-        variants = ["normalized"]
-        if screen_width is not None and screen_height is not None:
-            variants.append(f"screen-{PDFScreenProfile(screen_width, screen_height, screen_zoom_percent).cache_suffix()}")
-        loop = asyncio.get_running_loop()
-        for variant in variants:
-            await loop.run_in_executor(
-                None,
-                partial(
-                    pdf_derivative_cache.invalidate,
-                    user_id=str(current_user.id),
-                    connection_id=str(connection_id),
-                    revision=revision,
-                    variant=variant,
-                ),
-            )
+        await invalidate_pdf_derivative_for_revision(
+            connection_id=connection_id,
+            user_id=current_user.id,
+            revision=revision,
+            screen_profile=(
+                PDFScreenProfile(screen_width, screen_height, screen_zoom_percent)
+                if screen_width is not None and screen_height is not None
+                else None
+            ),
+        )
     finally:
         await disconnect_backend_safely(backend, logger=logger, context=f"PDF derivative invalidation for '{path}'")
     return Response(status_code=status.HTTP_204_NO_CONTENT)
@@ -348,6 +621,62 @@ async def invalidate_pdf_derivative(
 #
 # read_and_convert_image
 #
+async def create_converted_image_response(
+    *,
+    image_bytes: bytes,
+    filename: str,
+    max_width: int | None = None,
+    max_height: int | None = None,
+    no_resizing: bool = False,
+) -> Response:
+    """Convert already-resolved image bytes into a browser-compatible response."""
+
+    try:
+        loop = asyncio.get_running_loop()
+        converted_bytes, converted_mime, converter_name, duration_ms = await loop.run_in_executor(
+            None,
+            partial(
+                convert_image_for_viewer,
+                image_bytes,
+                filename,
+                max_width=None if no_resizing else max_width,
+                max_height=None if no_resizing else max_height,
+                output_format="auto",
+            ),
+        )
+        logger.info(
+            "Image converted: %s -> %s (%d -> %d KB) via %s in %.0f ms",
+            filename,
+            converted_mime,
+            len(image_bytes) // 1024,
+            len(converted_bytes) // 1024,
+            converter_name,
+            duration_ms,
+        )
+        return Response(
+            content=converted_bytes,
+            media_type=converted_mime,
+            headers={"Content-Disposition": build_content_disposition("inline", filename)},
+        )
+    except ImportError as exc:
+        logger.error("Image conversion failed - missing dependency: %s", exc, exc_info=True)
+        raise HTTPException(
+            status_code=status.HTTP_501_NOT_IMPLEMENTED,
+            detail="Image format not supported: HEIC/HEIF requires additional system libraries",
+        ) from exc
+    except ValueError as exc:
+        import re
+
+        error_message = re.sub(r"\.(\s*\.)+", ".", re.sub(r"[ \t]+", " ", re.sub(r"\r?\n", ". ", str(exc)))).strip()
+        logger.error("Image conversion failed: filename=%r error=%s", filename, error_message)
+        raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_CONTENT, detail=error_message) from exc
+    except HTTPException:
+        raise
+    except Exception as exc:
+        logger.error("Unexpected error during image conversion: filename=%r error=%s: %s", filename, type(exc).__name__, exc, exc_info=True)
+        raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail="Failed to process image") from exc
+
+
 async def read_and_convert_image(
     backend: SMBBackend,
     path: str,
@@ -376,38 +705,16 @@ async def read_and_convert_image(
             await disconnect_backend_safely(backend, logger=logger, context=f"image conversion read for '{path}'")
         image_bytes = b"".join(chunks)
 
-        # Convert to browser-ready format with optional resizing
-        # If no_resizing=True, don't resize
-        max_width = None if no_resizing else max_width
-        max_height = None if no_resizing else max_height
-
-        # Run CPU-intensive image conversion in a thread pool to avoid
-        # blocking the async event loop (which would stall all other requests).
-        loop = asyncio.get_event_loop()
-        converted_bytes, converted_mime, converter_name, duration_ms = await loop.run_in_executor(
-            None,
-            partial(
-                convert_image_for_viewer,
-                image_bytes,
-                filename,
-                max_width=max_width,
-                max_height=max_height,
-                output_format="auto",  # Auto-select WebP/PNG/JPEG
-            ),
+        return await create_converted_image_response(
+            image_bytes=image_bytes,
+            filename=filename,
+            max_width=max_width,
+            max_height=max_height,
+            no_resizing=no_resizing,
         )
 
-        logger.info(
-            f"Image converted: {filename} → {converted_mime} "
-            f"({len(image_bytes) / 1024:.0f} → {len(converted_bytes) / 1024:.0f} KB) "
-            f"via {converter_name} in {duration_ms:.0f} ms"
-        )
-
-        return Response(
-            content=converted_bytes,
-            media_type=converted_mime,
-            headers={"Content-Disposition": build_content_disposition("inline", filename)},
-        )
-
+    except HTTPException:
+        raise
     except TimeoutError as e:
         logger.error(
             f"Timeout reading file: connection_id={connection_id}, path='{path}', error={e}",
@@ -415,33 +722,6 @@ async def read_and_convert_image(
         raise HTTPException(
             status_code=status.HTTP_504_GATEWAY_TIMEOUT,
             detail="Timeout reading file from network share",
-        )
-    except ImportError as e:
-        logger.error(
-            f"Image conversion failed - missing dependency: {e}",
-            exc_info=True,
-        )
-        raise HTTPException(
-            status_code=status.HTTP_501_NOT_IMPLEMENTED,
-            detail="Image format not supported: HEIC/HEIF requires additional system libraries",
-        )
-    except ValueError as e:
-        # Clean error message: replace newlines with ". " and normalize spaces
-        import re
-
-        # Replace Windows (\r\n) and Unix (\n) newlines with ". "
-        error_msg = re.sub(r"\r?\n", ". ", str(e))
-        # Collapse multiple spaces/tabs into single space
-        error_msg = re.sub(r"[ \t]+", " ", error_msg)
-        # Clean up multiple periods (e.g., ".. " -> ". ")
-        error_msg = re.sub(r"\.(\s*\.)+", ".", error_msg).strip()
-
-        logger.error(
-            f"Image conversion failed: connection_id={connection_id}, path='{path}', error={error_msg}",
-        )
-        raise HTTPException(
-            status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
-            detail=error_msg,
         )
     except Exception as e:
         logger.error(

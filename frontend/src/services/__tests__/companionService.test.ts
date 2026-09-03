@@ -155,3 +155,32 @@ describe("companionService.syncLocalization", () => {
     );
   });
 });
+
+describe("companionService.createArchive", () => {
+  beforeEach(() => {
+    localStorage.clear();
+    vi.clearAllMocks();
+    localStorage.setItem("companion_secret", "shared-secret");
+  });
+
+  it("forwards an abort signal for direct local archive creation", async () => {
+    const controller = new AbortController();
+    mockAxiosInstance.post.mockResolvedValueOnce({
+      data: { files_created: 1, directories_created: 0, source_bytes: 4 },
+    });
+
+    await companionService.createArchive("c", ["source.txt"], "archive.zip", controller.signal);
+
+    expect(mockAxiosInstance.post).toHaveBeenCalledWith(
+      "/browse/c/archive",
+      { source_paths: ["source.txt"], target_path: "archive.zip" },
+      {
+        headers: expect.objectContaining({
+          "X-Companion-Secret": expect.any(String),
+          "X-Companion-Timestamp": expect.any(String),
+        }),
+        signal: controller.signal,
+      }
+    );
+  });
+});

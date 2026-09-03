@@ -1,0 +1,18 @@
+#!/bin/bash
+set -euo pipefail
+
+REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+readonly REPO_ROOT
+
+if [[ -x "$REPO_ROOT/backend/.venv/bin/python" ]]; then
+	cd "$REPO_ROOT/backend"
+	exec .venv/bin/python -m app.db.archive_cutover_reset "$@"
+fi
+
+if [[ -f "$REPO_ROOT/app/db/archive_cutover_reset.py" ]]; then
+	cd "$REPO_ROOT"
+	exec python -m app.db.archive_cutover_reset "$@"
+fi
+
+echo "Archive V2 cutover reset could not locate the backend application" >&2
+exit 1

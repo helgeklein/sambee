@@ -1,6 +1,7 @@
 import { extractDriveId, isLocalDrive, LOCAL_DRIVE_PREFIX } from "../../services/backendRouter";
 import type { Connection } from "../../types";
-import type { PaneId } from "./types";
+import type { PaneId, VirtualRouteLocation } from "./types";
+import { ACTIVE_PANE_QUERY_KEY, RIGHT_PANE_QUERY_KEY } from "./types";
 
 export const BROWSE_TARGET_KIND_SMB = "smb";
 export const BROWSE_TARGET_KIND_LOCAL = "local";
@@ -11,6 +12,7 @@ export interface BrowseRouteTarget {
   kind: BrowseTargetKind;
   targetId: string;
   path: string;
+  virtualLocation?: VirtualRouteLocation;
 }
 
 export interface ResolvedBrowseRouteTarget extends BrowseRouteTarget {
@@ -35,9 +37,6 @@ interface ParseBrowseRouteInput {
   path?: string;
   searchParams: URLSearchParams;
 }
-
-const RIGHT_PANE_QUERY_KEY = "p2";
-const ACTIVE_PANE_QUERY_KEY = "active";
 
 const isBrowseTargetKind = (value?: string): value is BrowseTargetKind => {
   return value === BROWSE_TARGET_KIND_SMB || value === BROWSE_TARGET_KIND_LOCAL;
@@ -70,10 +69,19 @@ const parseRouteTarget = (kind: string | undefined, targetId: string | undefined
   };
 };
 
+const buildRoutePath = (path: string, virtualLocation?: VirtualRouteLocation | null): string => {
+  if (!virtualLocation) {
+    return path;
+  }
+
+  return [virtualLocation.sourcePath, virtualLocation.virtualPath].filter(Boolean).join("/");
+};
+
 export const buildBrowseRouteTarget = (
   connectionId: string,
   path: string,
-  connections: Pick<Connection, "id" | "slug">[]
+  connections: Pick<Connection, "id" | "slug">[],
+  virtualLocation?: VirtualRouteLocation | null
 ): BrowseRouteTarget | null => {
   if (!connectionId) {
     return null;
@@ -85,7 +93,8 @@ export const buildBrowseRouteTarget = (
       kind: BROWSE_TARGET_KIND_LOCAL,
       targetId: driveId,
       connectionId,
-      path,
+      path: buildRoutePath(path, virtualLocation),
+      ...(virtualLocation ? { virtualLocation } : {}),
     };
   }
 
@@ -97,7 +106,8 @@ export const buildBrowseRouteTarget = (
   return {
     kind: BROWSE_TARGET_KIND_SMB,
     targetId: connection.slug,
-    path,
+    path: buildRoutePath(path, virtualLocation),
+    ...(virtualLocation ? { virtualLocation } : {}),
   };
 };
 
@@ -163,18 +173,21 @@ export const serializeBrowseRoute = ({ left, right, activePaneId }: BrowseRouteS
   }
 
   const encodedTargetId = encodeURIComponent(left.targetId);
-  const encodedLeftPath = encodePath(left.path);
+  const encodedLeftPath = encodePath(buildRoutePath(left.path, left.virtualLocation));
   let nextUrl = `/browse/${left.kind}/${encodedTargetId}${encodedLeftPath ? `/${encodedLeftPath}` : ""}`;
 
+  const queryParams = new URLSearchParams();
   if (right) {
     const encodedRightTargetId = encodeURIComponent(right.targetId);
-    const encodedRightPath = encodePath(right.path);
+    const encodedRightPath = encodePath(buildRoutePath(right.path, right.virtualLocation));
     const p2Value = `${right.kind}/${encodedRightTargetId}${encodedRightPath ? `/${encodedRightPath}` : ""}`;
-    const queryParams = new URLSearchParams();
     queryParams.set(RIGHT_PANE_QUERY_KEY, p2Value);
     if (activePaneId === "right") {
       queryParams.set(ACTIVE_PANE_QUERY_KEY, "2");
     }
+  }
+
+  if (queryParams.size > 0) {
     nextUrl += `?${queryParams.toString()}`;
   }
 

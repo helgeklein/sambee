@@ -41,13 +41,18 @@ fi
 # If still not found, exit with error
 if [ -z "$MAGICK_CMD" ]; then
     echo "❌ ImageMagick 7 not found. Please run scripts/install-system-deps first."
-    echo "   Or install manually: sudo apt-get install imagemagick"
+    exit 1
+fi
+
+MAGICK_VERSION="$($MAGICK_CMD --version 2>/dev/null | head -1)"
+if [[ "$MAGICK_VERSION" != *"ImageMagick 7."* ]]; then
+    echo "❌ ImageMagick 7 is required, got: $MAGICK_VERSION" >&2
     exit 1
 fi
 
 if [ "$QUIET" = "0" ]; then
     echo "✓ ImageMagick found ($MAGICK_CMD)"
-    $MAGICK_CMD --version | head -1
+    echo "$MAGICK_VERSION"
 fi
 
 # Function to create minimal test images for raster formats

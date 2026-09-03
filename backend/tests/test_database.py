@@ -15,9 +15,18 @@ from unittest.mock import patch
 
 import pytest
 from sqlalchemy import inspect, text
+from sqlalchemy.exc import IntegrityError
 from sqlmodel import Session, SQLModel, create_engine, select
 
-from app.db.migrations import MIGRATION_TABLE_NAME, MIGRATIONS, run_migrations
+from app.db.archive_cutover_preflight import preflight_result
+from app.db.archive_cutover_reset import RESET_CONFIRMATION_FLAG, discard_legacy_archive_operations
+from app.db.archive_cutover_reset import main as archive_cutover_reset_main
+from app.db.migrations import (
+    MIGRATION_TABLE_NAME,
+    MIGRATIONS,
+    _apply_archive_operation_contract_version_migration,
+    run_migrations,
+)
 from app.models.connection import Connection
 from app.models.user import User, UserRole
 
@@ -72,6 +81,112 @@ class TestDatabaseInitialization:
 
         # Verify create_all was called with the engine
         mock_create_all.assert_called_once_with(engine)
+
+
+@pytest.mark.unit
+class TestArchiveOperationContractVersionMigration:
+    """V2 cutover migration behavior for existing archive-operation tables."""
+
+    def test_adds_constrained_v2_version_to_empty_legacy_table(self, tmp_path: Path):
+        test_engine = create_engine(f"sqlite:///{tmp_path / 'archive-v2-empty.db'}")
+        try:
+            with test_engine.begin() as connection:
+                connection.execute(text("CREATE TABLE archive_operations (id CHAR(32) PRIMARY KEY)"))
+                _apply_archive_operation_contract_version_migration(connection)
+                assert connection.execute(text("SELECT contract_version FROM archive_operations")).all() == []
+                connection.execute(text("INSERT INTO archive_operations (id) VALUES ('v2-operation')"))
+                assert connection.execute(text("SELECT contract_version FROM archive_operations")).scalar_one() == "V2"
+                with pytest.raises(IntegrityError):
+                    connection.execute(text("INSERT INTO archive_operations (id, contract_version) VALUES ('legacy-operation', 'v1')"))
+        finally:
+            test_engine.dispose()
+
+    def test_rejects_nonempty_legacy_archive_operation_table(self, tmp_path: Path):
+        test_engine = create_engine(f"sqlite:///{tmp_path / 'archive-v2-legacy.db'}")
+        try:
+            with test_engine.begin() as connection:
+                connection.execute(text("CREATE TABLE archive_operations (id CHAR(32) PRIMARY KEY)"))
+                connection.execute(text("INSERT INTO archive_operations (id) VALUES ('legacy-operation')"))
+                with pytest.raises(RuntimeError, match="requires an empty archive_operations table"):
+                    _apply_archive_operation_contract_version_migration(connection)
+        finally:
+            test_engine.dispose()
+
+    def test_preflight_lists_legacy_operations_and_blocks_cutover(self, tmp_path: Path):
+        test_engine = create_engine(f"sqlite:///{tmp_path / 'archive-v2-preflight.db'}")
+        try:
+            with test_engine.begin() as connection:
+                connection.execute(text("CREATE TABLE archive_operations (id CHAR(32) PRIMARY KEY, kind VARCHAR(16), phase VARCHAR(32))"))
+                connection.execute(
+                    text("INSERT INTO archive_operations (id, kind, phase) VALUES ('legacy-operation', 'extract', 'streaming')")
+                )
+
+            result = preflight_result(test_engine)
+
+            assert result == {
+                "archive_contract_version": "v2",
+                "ready": False,
+                "legacy_operations": [
+                    {
+                        "id": "legacy-operation",
+                        "user_id": None,
+                        "kind": "extract",
+                        "phase": "streaming",
+                        "created_at": None,
+                        "updated_at": None,
+                    }
+                ],
+            }
+        finally:
+            test_engine.dispose()
+
+    def test_preflight_accepts_only_v2_archive_operations(self, tmp_path: Path):
+        test_engine = create_engine(f"sqlite:///{tmp_path / 'archive-v2-ready.db'}")
+        try:
+            with test_engine.begin() as connection:
+                connection.execute(text("CREATE TABLE archive_operations (id CHAR(32) PRIMARY KEY, contract_version VARCHAR(8) NOT NULL)"))
+                connection.execute(text("INSERT INTO archive_operations (id, contract_version) VALUES ('v2-operation', 'V2')"))
+
+            assert preflight_result(test_engine) == {
+                "archive_contract_version": "v2",
+                "ready": True,
+                "legacy_operations": [],
+            }
+        finally:
+            test_engine.dispose()
+
+    def test_reset_discards_only_legacy_rows(self, tmp_path: Path):
+        test_engine = create_engine(f"sqlite:///{tmp_path / 'archive-v2-reset.db'}")
+        try:
+            with test_engine.begin() as connection:
+                connection.execute(text("CREATE TABLE archive_operations (id CHAR(32) PRIMARY KEY, contract_version VARCHAR(8))"))
+                connection.execute(text("INSERT INTO archive_operations (id, contract_version) VALUES ('v2-operation', 'V2')"))
+                connection.execute(text("INSERT INTO archive_operations (id, contract_version) VALUES ('legacy-operation', 'v1')"))
+
+            assert discard_legacy_archive_operations(test_engine) == 1
+            assert preflight_result(test_engine)["ready"] is True
+            with test_engine.connect() as connection:
+                assert connection.execute(text("SELECT id FROM archive_operations")).scalars().all() == ["v2-operation"]
+        finally:
+            test_engine.dispose()
+
+    def test_reset_requires_confirmation_and_allows_migration(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
+        test_engine = create_engine(f"sqlite:///{tmp_path / 'archive-v2-reset-confirmation.db'}")
+        try:
+            with test_engine.begin() as connection:
+                connection.execute(text("CREATE TABLE archive_operations (id CHAR(32) PRIMARY KEY)"))
+                connection.execute(text("INSERT INTO archive_operations (id) VALUES ('legacy-operation')"))
+
+            monkeypatch.setattr("app.db.database.engine", test_engine)
+            assert archive_cutover_reset_main([]) == 2
+            assert preflight_result(test_engine)["ready"] is False
+            assert archive_cutover_reset_main([RESET_CONFIRMATION_FLAG]) == 0
+            assert preflight_result(test_engine)["ready"] is True
+            with test_engine.begin() as connection:
+                _apply_archive_operation_contract_version_migration(connection)
+                assert "contract_version" in {column["name"] for column in inspect(connection).get_columns("archive_operations")}
+        finally:
+            test_engine.dispose()
 
 
 @pytest.mark.unit
@@ -354,6 +469,112 @@ class TestDatabaseEngine:
 
                 applied_versions = set(connection.execute(text(f"SELECT version FROM {MIGRATION_TABLE_NAME}")).scalars().all())
                 assert 11 in applied_versions
+        finally:
+            test_engine.dispose()
+
+    def test_run_migrations_enforces_unique_edit_lock_targets(self, tmp_path: Path):
+        """Duplicate historical locks are reduced to the most recently active row before enforcing uniqueness."""
+        db_path = tmp_path / "duplicate-edit-locks.db"
+        test_engine = create_engine(f"sqlite:///{db_path}")
+
+        try:
+            with test_engine.begin() as connection:
+                connection.execute(
+                    text(
+                        f"""
+                        CREATE TABLE {MIGRATION_TABLE_NAME} (
+                            version INTEGER PRIMARY KEY,
+                            name TEXT NOT NULL,
+                            applied_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+                        )
+                        """
+                    )
+                )
+                connection.execute(
+                    text(
+                        """
+                        CREATE TABLE edit_locks (
+                            id CHAR(32) NOT NULL PRIMARY KEY,
+                            file_path VARCHAR NOT NULL,
+                            connection_id CHAR(32) NOT NULL,
+                            locked_by VARCHAR NOT NULL,
+                            operation_id VARCHAR NOT NULL DEFAULT '',
+                            locked_at DATETIME NOT NULL,
+                            lock_capability VARCHAR NOT NULL DEFAULT '',
+                            last_heartbeat DATETIME NOT NULL
+                        )
+                        """
+                    )
+                )
+                connection.execute(
+                    text(
+                        """
+                        INSERT INTO edit_locks (
+                            id, file_path, connection_id, locked_by, operation_id, locked_at, lock_capability, last_heartbeat
+                        ) VALUES (
+                            :id, :file_path, :connection_id, :locked_by, :operation_id, :locked_at, :lock_capability, :last_heartbeat
+                        )
+                        """
+                    ),
+                    [
+                        {
+                            "id": "a" * 32,
+                            "file_path": "/docs/report.docx",
+                            "connection_id": "b" * 32,
+                            "locked_by": "alice",
+                            "operation_id": "first",
+                            "locked_at": "2026-08-27 12:00:00",
+                            "lock_capability": "first-capability",
+                            "last_heartbeat": "2026-08-27 12:00:00",
+                        },
+                        {
+                            "id": "c" * 32,
+                            "file_path": "/docs/report.docx",
+                            "connection_id": "b" * 32,
+                            "locked_by": "alice",
+                            "operation_id": "second",
+                            "locked_at": "2026-08-27 12:01:00",
+                            "lock_capability": "second-capability",
+                            "last_heartbeat": "2026-08-27 12:01:00",
+                        },
+                    ],
+                )
+                connection.execute(
+                    text(f"INSERT INTO {MIGRATION_TABLE_NAME} (version, name) VALUES (:version, :name)"),
+                    [{"version": migration.version, "name": migration.name} for migration in MIGRATIONS if migration.version < 29],
+                )
+
+            run_migrations(test_engine)
+
+            with test_engine.connect() as connection:
+                remaining_locks = connection.execute(text("SELECT id FROM edit_locks")).scalars().all()
+                assert remaining_locks == ["c" * 32]
+                indexes = {index["name"]: index for index in inspect(connection).get_indexes("edit_locks")}
+                assert indexes["uq_edit_locks_connection_path"]["unique"]
+
+            with pytest.raises(IntegrityError):
+                with test_engine.begin() as connection:
+                    connection.execute(
+                        text(
+                            """
+                            INSERT INTO edit_locks (
+                                id, file_path, connection_id, locked_by, operation_id, locked_at, lock_capability, last_heartbeat
+                            ) VALUES (
+                                :id, :file_path, :connection_id, :locked_by, :operation_id, :locked_at, :lock_capability, :last_heartbeat
+                            )
+                            """
+                        ),
+                        {
+                            "id": "d" * 32,
+                            "file_path": "/docs/report.docx",
+                            "connection_id": "b" * 32,
+                            "locked_by": "bob",
+                            "operation_id": "third",
+                            "locked_at": "2026-08-27 12:02:00",
+                            "lock_capability": "third-capability",
+                            "last_heartbeat": "2026-08-27 12:02:00",
+                        },
+                    )
         finally:
             test_engine.dispose()
 

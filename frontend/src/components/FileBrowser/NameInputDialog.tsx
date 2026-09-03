@@ -44,10 +44,18 @@ interface NameInputDialogProps {
   submitLabel: string;
   /** Label for the submit button while in progress (e.g. "Renaming…", "Creating…") */
   submittingLabel: string;
+  /** Optional content that replaces the form during an active operation. */
+  submittingContent?: React.ReactNode;
   /** Whether an operation is in progress */
   isSubmitting: boolean;
+  /** Whether cancellation of an active operation is in progress. */
+  isCancelling?: boolean;
   /** Called when the user cancels */
   onClose: () => void;
+  /** Cancels an active operation while retaining the dialog until it settles. */
+  onCancelSubmitting?: () => void;
+  /** Optional active-operation cancellation label. */
+  cancelSubmittingLabel?: string;
   /** Called when the user confirms with the validated name */
   onConfirm: (name: string) => void;
   /** Error message from the API */
@@ -77,8 +85,12 @@ const NameInputDialog: React.FC<NameInputDialogProps> = ({
   initialValue,
   submitLabel,
   submittingLabel,
+  submittingContent,
   isSubmitting,
+  isCancelling = false,
   onClose,
+  onCancelSubmitting,
+  cancelSubmittingLabel,
   onConfirm,
   apiError,
   extraValidate,
@@ -219,27 +231,41 @@ const NameInputDialog: React.FC<NameInputDialogProps> = ({
       open={open}
       onClose={onClose}
       disableClose={isSubmitting}
+      onEscape={isSubmitting && onCancelSubmitting ? onCancelSubmitting : undefined}
       title={title}
       description={description}
       actions={
-        <>
-          <Button onClick={onClose} disabled={isSubmitting}>
-            {NAME_DIALOG_STRINGS.BUTTON_CANCEL}
-          </Button>
-          <Button
-            onClick={handleSubmit}
-            variant="contained"
-            disabled={isSubmitting || hasError}
-            startIcon={isSubmitting ? <CircularProgress size={16} /> : undefined}
-          >
-            {isSubmitting ? submittingLabel : submitLabel}
-          </Button>
-        </>
+        isSubmitting && submittingContent ? (
+          onCancelSubmitting ? (
+            <Button onClick={onCancelSubmitting} disabled={isCancelling}>
+              {cancelSubmittingLabel ?? NAME_DIALOG_STRINGS.BUTTON_CANCEL}
+            </Button>
+          ) : null
+        ) : (
+          <>
+            {isSubmitting && onCancelSubmitting ? (
+              <Button onClick={onCancelSubmitting} disabled={isCancelling}>
+                {cancelSubmittingLabel ?? NAME_DIALOG_STRINGS.BUTTON_CANCEL}
+              </Button>
+            ) : (
+              <Button onClick={onClose} disabled={isSubmitting}>
+                {NAME_DIALOG_STRINGS.BUTTON_CANCEL}
+              </Button>
+            )}
+            <Button
+              onClick={handleSubmit}
+              variant="contained"
+              disabled={isSubmitting || hasError}
+              startIcon={isSubmitting ? <CircularProgress size={16} /> : undefined}
+            >
+              {isSubmitting ? submittingLabel : submitLabel}
+            </Button>
+          </>
+        )
       }
       maxWidth="sm"
-      contentSx={{ p: 2 }}
     >
-      {formContent}
+      {isSubmitting && submittingContent ? submittingContent : formContent}
     </ResponsiveFormDialog>
   );
 };

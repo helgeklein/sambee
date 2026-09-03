@@ -1,4 +1,4 @@
-import type { FileBrowserPaneRecoverySnapshot, PaneId, PaneMode } from "../pages/FileBrowser/types";
+import type { ArchiveLocation, FileBrowserPaneRecoverySnapshot, PaneId, PaneMode } from "../pages/FileBrowser/types";
 import type { Connection } from "../types";
 
 const BROWSER_RECOVERY_SNAPSHOT_KEY = "sambee:browser-recovery-snapshot";
@@ -12,6 +12,15 @@ export interface BrowserRecoverySnapshot {
   connections: Connection[];
   left: FileBrowserPaneRecoverySnapshot | null;
   right: FileBrowserPaneRecoverySnapshot | null;
+}
+
+function isArchiveLocation(value: unknown): value is ArchiveLocation {
+  if (typeof value !== "object" || value === null) {
+    return false;
+  }
+
+  const location = value as Partial<ArchiveLocation>;
+  return typeof location.providerId === "string" && typeof location.archivePath === "string" && typeof location.virtualPath === "string";
 }
 
 function isRecoveryPaneSnapshot(value: unknown): value is FileBrowserPaneRecoverySnapshot {
@@ -30,6 +39,7 @@ function isRecoveryPaneSnapshot(value: unknown): value is FileBrowserPaneRecover
     typeof snapshot.focusedIndex === "number" &&
     (typeof snapshot.focusedFileName === "string" || snapshot.focusedFileName === null) &&
     Array.isArray(snapshot.selectedFileNames) &&
+    (snapshot.archiveLocation === undefined || snapshot.archiveLocation === null || isArchiveLocation(snapshot.archiveLocation)) &&
     typeof snapshot.scrollOffset === "number"
   );
 }

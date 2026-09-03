@@ -21,7 +21,7 @@ import {
   createUnauthorizedError,
   setupSuccessfulApiMocks,
 } from "../../test/helpers";
-import { FileType } from "../../types";
+import { type ConflictInfo, FileType } from "../../types";
 import { QUICK_NAV_INCLUDE_DOT_DIRECTORIES_STORAGE_KEY } from "../FileBrowser/preferences";
 import { mockConnections, mockDirectoryListing, renderBrowser } from "./FileBrowser.test.utils";
 
@@ -34,6 +34,12 @@ const expectDirectoryLoad = (connectionId: string, path: string) => {
     })
   );
 };
+
+const completedTransferResult = {
+  status: "completed",
+  replaced: false,
+  effects: { source: "unchanged", destination: "mutated" },
+} as const;
 
 // Mock the API module
 vi.mock("../../services/api");
@@ -248,6 +254,42 @@ describe("Browser Component - Interactions", () => {
       });
     });
 
+    it("creates an archive from the active right pane into the opposite pane", async () => {
+      const user = userEvent.setup();
+      const { container } = renderBrowser("/browse/smb/test-server-1");
+
+      await waitFor(() => {
+        expect(screen.getAllByText("Documents").length).toBeGreaterThan(0);
+      });
+      await user.keyboard("{Control>}b{/Control}");
+
+      const rightPane = await waitFor(() => {
+        const pane = container.querySelector('[data-pane-id="right"]');
+        expect(pane).toBeInstanceOf(HTMLElement);
+        return pane as HTMLElement;
+      });
+      await user.click(within(rightPane).getByRole("button", { name: /folder: documents/i }));
+      await waitFor(() => {
+        expect(within(rightPane).getByText("readme.txt")).toBeInTheDocument();
+      });
+
+      await user.click(within(rightPane).getByTestId("virtual-list"));
+      await waitFor(() => {
+        expect(localStorage.getItem("active-pane")).toBe("right");
+      });
+      const event = createEvent.keyDown(document, { key: "F5", altKey: true });
+      fireEvent(document, event);
+
+      expect(event.defaultPrevented).toBe(true);
+      const directory = await screen.findByTestId("archive-create-prompt-directory");
+      expect(directory).toHaveTextContent("Test Server 1:/");
+      expect(directory.tagName).toBe("CODE");
+      expect(directory.parentElement).toHaveTextContent("Create a ZIP archive in Test Server 1:/ from 1 selected item.");
+
+      fireEvent.keyDown(document, { key: "Tab" });
+      expect(localStorage.getItem("active-pane")).toBe("right");
+    });
+
     it("reuses the current left-pane directory contents when opening dual-pane on the same target", async () => {
       const user = userEvent.setup();
       const { container } = renderBrowser("/browse/smb/test-server-1");
@@ -330,7 +372,7 @@ describe("Browser Component - Interactions", () => {
     it("refreshes the destination pane after copy to the other pane succeeds", async () => {
       const user = userEvent.setup();
 
-      vi.mocked(api.copyItem).mockResolvedValue(undefined);
+      vi.mocked(api.copyItem).mockResolvedValue(completedTransferResult);
 
       renderBrowser("/browse/smb/test-server-1?p2=smb/test-server-2/Documents");
 
@@ -356,15 +398,140 @@ describe("Browser Component - Interactions", () => {
       await user.click(copyButton);
 
       await waitFor(() => {
-        expect(api.copyItem).toHaveBeenCalledWith("conn-1", "Documents", "Documents/Documents", "conn-2");
-      });
-
-      await waitFor(() => {
         const destinationLoads = (api.listDirectory as Mock).mock.calls.filter(
           ([connectionId, path]) => connectionId === "conn-2" && path === "Documents"
         ).length;
         expect(destinationLoads).toBeGreaterThan(initialDestinationLoads);
       });
+    });
+
+    it("offers only safe file conflict actions when replacement is unavailable", async () => {
+      const user = userEvent.setup();
+      const conflict: ConflictInfo = {
+        incoming_file: {
+          name: "Documents",
+          path: "Documents",
+          type: FileType.FILE,
+          size: 1024,
+          modified_at: "2024-01-13T10:00:00Z",
+          is_readable: true,
+          is_hidden: false,
+        },
+        existing_file: {
+          name: "Documents",
+          path: "Documents/Documents",
+          type: FileType.FILE,
+          size: 2048,
+          modified_at: "2024-01-14T10:00:00Z",
+          is_readable: true,
+          is_hidden: false,
+        },
+      };
+      vi.mocked(api.copyItem).mockRejectedValueOnce({ response: { status: 409, data: { detail: conflict } } });
+
+      renderBrowser("/browse/smb/test-server-1?p2=smb/test-server-2/Documents");
+
+      await waitFor(() => {
+        expectDirectoryLoad("conn-1", "");
+        expectDirectoryLoad("conn-2", "Documents");
+      });
+
+      const listContainer = (await screen.findAllByTestId("virtual-list"))[0];
+      await user.click(listContainer);
+      await user.keyboard(" ");
+      await user.keyboard("{F5}");
+      await user.click(within(await screen.findByRole("dialog")).getByRole("button", { name: "Copy" }));
+      expect(await screen.findByRole("radio", { name: "Skip" })).toBeInTheDocument();
+      expect(screen.getByRole("radio", { name: "Rename" })).toBeInTheDocument();
+      expect(screen.queryByRole("radio", { name: "Overwrite" })).not.toBeInTheDocument();
+    });
+
+    it("reopens resolution when a renamed copy target also exists", async () => {
+      const user = userEvent.setup();
+      const firstConflict: ConflictInfo = {
+        incoming_file: {
+          name: "Documents",
+          path: "Documents",
+          type: FileType.FILE,
+          size: 1024,
+          modified_at: "2024-01-13T10:00:00Z",
+          is_readable: true,
+          is_hidden: false,
+        },
+        existing_file: {
+          name: "Documents",
+          path: "Documents/Documents",
+          type: FileType.FILE,
+          size: 2048,
+          modified_at: "2024-01-14T10:00:00Z",
+          is_readable: true,
+          is_hidden: false,
+        },
+      };
+      const renamedTargetConflict: ConflictInfo = {
+        ...firstConflict,
+        existing_file: {
+          ...firstConflict.existing_file,
+          name: "alternate.txt",
+          path: "Documents/alternate.txt",
+        },
+      };
+      vi.mocked(api.copyItem)
+        .mockRejectedValueOnce({ response: { status: 409, data: { detail: firstConflict } } })
+        .mockRejectedValueOnce({ response: { status: 409, data: { detail: renamedTargetConflict } } })
+        .mockResolvedValueOnce(completedTransferResult);
+
+      renderBrowser("/browse/smb/test-server-1?p2=smb/test-server-2/Documents");
+
+      await waitFor(() => {
+        expectDirectoryLoad("conn-1", "");
+        expectDirectoryLoad("conn-2", "Documents");
+      });
+
+      const listContainer = (await screen.findAllByTestId("virtual-list"))[0];
+      await user.click(listContainer);
+      await user.keyboard(" ");
+      await user.keyboard("{F5}");
+      await user.click(within(await screen.findByRole("dialog")).getByRole("button", { name: "Copy" }));
+      await user.click(await screen.findByRole("radio", { name: "Rename" }));
+      const targetName = screen.getByRole("textbox", { name: "Target name" });
+      await waitFor(() => expect(targetName).toHaveFocus());
+      fireEvent.change(targetName, { target: { value: "alternate.txt" } });
+      expect(targetName).toHaveValue("alternate.txt");
+      await user.click(screen.getByRole("button", { name: "Continue" }));
+
+      expect(await screen.findByRole("textbox", { name: "Target name" })).toHaveValue("alternate.txt");
+      await user.click(screen.getByRole("radio", { name: "Rename" }));
+      await user.click(screen.getByRole("button", { name: "Continue" }));
+
+      await waitFor(() => expect(api.copyItem).toHaveBeenCalledTimes(3));
+      expect(vi.mocked(api.copyItem).mock.calls[2]?.slice(0, 6)).toEqual([
+        "conn-1",
+        "Documents",
+        "Documents/alternate (copy).txt",
+        expect.any(String),
+        "conn-2",
+        "ask",
+      ]);
+    });
+
+    it("does not open Move when direct moves are unavailable", async () => {
+      const user = userEvent.setup();
+
+      renderBrowser("/browse/smb/test-server-1?p2=smb/test-server-2/Documents");
+
+      await waitFor(() => {
+        expectDirectoryLoad("conn-1", "");
+        expectDirectoryLoad("conn-2", "Documents");
+      });
+
+      const listContainer = (await screen.findAllByTestId("virtual-list"))[0];
+      await user.click(listContainer);
+      await user.keyboard(" ");
+      await user.keyboard("{F6}");
+
+      await waitFor(() => expect(screen.queryByRole("dialog")).not.toBeInTheDocument());
+      expect(api.moveItem).not.toHaveBeenCalled();
     });
 
     it("does not open copy dialog when the destination connection is read-only", async () => {
@@ -379,7 +546,7 @@ describe("Browser Component - Interactions", () => {
         expectDirectoryLoad("conn-2", "Documents");
       });
 
-      const listContainer = screen.getAllByTestId("virtual-list")[0];
+      const listContainer = (await screen.findAllByTestId("virtual-list"))[0];
       await user.click(listContainer);
       await user.keyboard(" ");
       await user.keyboard("{F5}");
@@ -402,7 +569,7 @@ describe("Browser Component - Interactions", () => {
         expectDirectoryLoad("conn-2", "Documents");
       });
 
-      const listContainer = screen.getAllByTestId("virtual-list")[0];
+      const listContainer = (await screen.findAllByTestId("virtual-list"))[0];
       await user.click(listContainer);
 
       const event = createEvent.keyDown(document, { key: "F5" });
@@ -413,10 +580,10 @@ describe("Browser Component - Interactions", () => {
       expect(api.copyItem).not.toHaveBeenCalled();
     });
 
-    it("does not open move dialog when the source connection is read-only", async () => {
+    it("phase_10_stabilization_move_commands_are_disabled", async () => {
       const user = userEvent.setup();
 
-      vi.mocked(api.getConnections).mockResolvedValue([{ ...mockConnections[0], access_mode: "read_only" }, mockConnections[1]]);
+      vi.mocked(api.getConnections).mockResolvedValue(mockConnections);
 
       renderBrowser("/browse/smb/test-server-1?p2=smb/test-server-2/Documents");
 
@@ -614,7 +781,7 @@ describe("Browser Component - Interactions", () => {
       });
     });
 
-    it("returns focus to the file list after cancelling the ZIP viewer picker", async () => {
+    it("returns focus to the file list after navigating up from ZIP archive root", async () => {
       const user = userEvent.setup();
 
       vi.mocked(api.listDirectory).mockResolvedValue({
@@ -649,12 +816,10 @@ describe("Browser Component - Interactions", () => {
       const virtualList = await screen.findByTestId("virtual-list");
       await user.click(virtualList);
       await user.keyboard("{Enter}");
-      await screen.findByRole("dialog", { name: "Choose Viewer" });
-
-      await user.keyboard("{Escape}");
+      await screen.findByText("temp.zip");
+      await user.keyboard("{Backspace}");
 
       await waitFor(() => {
-        expect(screen.queryByRole("dialog", { name: "Choose Viewer" })).not.toBeInTheDocument();
         expect(screen.getByTestId("file-list-container")).toHaveFocus();
       });
 
@@ -663,6 +828,185 @@ describe("Browser Component - Interactions", () => {
       await waitFor(() => {
         expect(screen.getByTestId("status-bar-focused-file-name")).toHaveTextContent("zebra.txt");
       });
+    });
+
+    it("does not open physical mutation dialogs from archive keyboard shortcuts", async () => {
+      const user = userEvent.setup();
+
+      vi.mocked(api.listDirectory).mockResolvedValue({
+        path: "",
+        items: [
+          {
+            name: "temp.zip",
+            path: "temp.zip",
+            type: FileType.FILE,
+            size: 102400,
+            modified_at: "2024-01-01T00:00:00Z",
+            mime_type: "application/zip",
+            is_readable: true,
+            is_hidden: false,
+          },
+        ],
+        total: 1,
+      });
+      vi.mocked(api.listArchiveDirectory).mockResolvedValue({
+        archive: { path: "temp.zip", size: 102400 },
+        path: "",
+        items: [{ name: "inside.txt", path: "inside.txt", type: FileType.FILE, state: "readable", is_hidden: false }],
+        total: 1,
+        page_size: 100,
+      });
+
+      renderBrowser("/browse/smb/test-server-1");
+
+      const virtualList = await screen.findByTestId("virtual-list");
+      await user.click(virtualList);
+      await user.keyboard("{Enter}");
+      await screen.findByRole("button", { name: /inside.txt/i });
+
+      await user.keyboard("{Delete}{F2}{F7}{Shift>}{F7}{/Shift}");
+
+      expect(screen.queryByText(/will be permanently deleted/i)).not.toBeInTheDocument();
+      expect(screen.queryByRole("dialog", { name: /rename/i })).not.toBeInTheDocument();
+      expect(screen.queryByRole("dialog", { name: /create/i })).not.toBeInTheDocument();
+    });
+
+    it("opens archive extraction with Alt+F9 and lists it in keyboard help", async () => {
+      const user = userEvent.setup();
+
+      vi.mocked(api.listDirectory).mockResolvedValue({
+        path: "",
+        items: [
+          {
+            name: "temp.zip",
+            path: "temp.zip",
+            type: FileType.FILE,
+            size: 102400,
+            modified_at: "2024-01-01T00:00:00Z",
+            mime_type: "application/zip",
+            is_readable: true,
+            is_hidden: false,
+          },
+        ],
+        total: 1,
+      });
+      vi.mocked(api.listArchiveDirectory).mockResolvedValue({
+        archive: { path: "temp.zip", size: 102400 },
+        path: "",
+        items: [{ name: "inside.txt", path: "inside.txt", type: FileType.FILE, state: "readable", is_hidden: false }],
+        total: 1,
+        page_size: 100,
+      });
+
+      renderBrowser("/browse/smb/test-server-1");
+
+      const virtualList = await screen.findByTestId("virtual-list");
+      await user.click(virtualList);
+      await user.keyboard("{Enter}");
+      await screen.findByRole("button", { name: /inside.txt/i });
+
+      fireEvent.keyDown(document, { key: "F9", altKey: true });
+
+      const extractDialog = await screen.findByRole("dialog", { name: "Extract ZIP Archive" });
+      expect(within(extractDialog).getByLabelText("Destination directory")).toHaveValue("temp");
+
+      await user.click(within(extractDialog).getByRole("button", { name: "Cancel" }));
+      fireEvent.keyDown(document, { key: "F1" });
+
+      const helpDialog = await screen.findByRole("dialog", { name: "File browser shortcuts" });
+      expect(within(helpDialog).getByText("Extract ZIP archive")).toBeInTheDocument();
+      expect(within(helpDialog).getByText("Alt+F9")).toBeInTheDocument();
+    });
+
+    it("opens archive extraction with Alt+F9 for a focused ZIP file", async () => {
+      vi.mocked(api.listDirectory).mockResolvedValue({
+        path: "",
+        items: [
+          {
+            name: "notes.txt",
+            path: "notes.txt",
+            type: FileType.FILE,
+            size: 1024,
+            modified_at: "2024-01-01T00:00:00Z",
+            mime_type: "text/plain",
+            is_readable: true,
+            is_hidden: false,
+          },
+          {
+            name: "temp.zip",
+            path: "temp.zip",
+            type: FileType.FILE,
+            size: 102400,
+            modified_at: "2024-01-01T00:00:00Z",
+            mime_type: "application/zip",
+            is_readable: true,
+            is_hidden: false,
+          },
+        ],
+        total: 2,
+      });
+
+      renderBrowser("/browse/smb/test-server-1?p2=smb/test-server-2");
+
+      const [listContainer] = await screen.findAllByTestId("file-list-container");
+      listContainer.focus();
+      fireEvent.keyDown(document, { key: "F9", altKey: true });
+      expect(screen.queryByRole("dialog", { name: "Extract ZIP Archive" })).not.toBeInTheDocument();
+
+      fireEvent.keyDown(document, { key: "ArrowDown" });
+      await waitFor(() => expect(screen.getAllByRole("button", { name: /file: temp\.zip/i })[0]).toHaveAttribute("data-selected", "true"));
+      fireEvent.keyDown(document, { key: "F9", altKey: true });
+
+      const extractDialog = await screen.findByRole("dialog", { name: "Extract ZIP Archive" });
+      expect(within(extractDialog).getByLabelText("Destination directory")).toHaveValue("Test Server 2:/");
+      const locationBeforeTab = screen.getByTestId("router-location").textContent;
+      fireEvent.keyDown(document, { key: "Tab" });
+      expect(screen.getByTestId("router-location")).toHaveTextContent(locationBeforeTab ?? "");
+    });
+
+    it("blocks copy, move, and archive creation when the opposite pane is a ZIP archive", async () => {
+      const user = userEvent.setup();
+      renderBrowser("/browse/smb/test-server-1/archive.zip?p2=smb/test-server-2");
+
+      const lists = await screen.findAllByTestId("virtual-list");
+      await user.click(lists[1]!);
+      await user.keyboard(" ");
+
+      fireEvent.keyDown(document, { key: "F5" });
+      fireEvent.keyDown(document, { key: "F6" });
+      fireEvent.keyDown(document, { key: "F5", altKey: true });
+
+      expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
+      expect(api.copyItem).not.toHaveBeenCalled();
+      expect(api.moveItem).not.toHaveBeenCalled();
+      expect(api.prepareArchiveOperation).not.toHaveBeenCalled();
+      expect(api.executeArchiveCreation).not.toHaveBeenCalled();
+    });
+
+    it("blocks copy, move, and archive creation when the selected source is inside a ZIP archive", async () => {
+      const user = userEvent.setup();
+      vi.mocked(api.listArchiveDirectory).mockResolvedValue({
+        archive: { path: "archive.zip", size: 1 },
+        path: "",
+        items: [{ name: "inside.txt", path: "inside.txt", type: FileType.FILE, state: "readable", is_hidden: false }],
+        total: 1,
+        page_size: 100,
+      });
+      renderBrowser("/browse/smb/test-server-1/archive.zip?p2=smb/test-server-2");
+
+      const lists = await screen.findAllByTestId("virtual-list");
+      await user.click(lists[0]!);
+      await user.keyboard(" ");
+
+      fireEvent.keyDown(document, { key: "F5" });
+      fireEvent.keyDown(document, { key: "F6" });
+      fireEvent.keyDown(document, { key: "F5", altKey: true });
+
+      expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
+      expect(api.copyItem).not.toHaveBeenCalled();
+      expect(api.moveItem).not.toHaveBeenCalled();
+      expect(api.prepareArchiveOperation).not.toHaveBeenCalled();
+      expect(api.executeArchiveCreation).not.toHaveBeenCalled();
     });
 
     it("opens the saved preferred Sambee viewer on Enter even when it is outside the default compatible subset", async () => {
@@ -1213,270 +1557,6 @@ describe("Browser Component - Interactions", () => {
         const fileSearchInput = screen.getByPlaceholderText("Search recent and current-directory files");
         expect(fileSearchInput).toHaveFocus();
       });
-    });
-
-    it.skip("filters the main file list with Ctrl+Alt+F and keeps the filter visible in the status bar", async () => {
-      const user = userEvent.setup();
-      renderBrowser("/browse/smb/test-server-1");
-
-      await waitFor(() => {
-        const documentsElements = screen.getAllByText("Documents");
-        expect(documentsElements.length).toBeGreaterThan(0);
-      });
-
-      await user.keyboard("{Control>}{Alt>}f{/Alt}{/Control}");
-
-      const filterInput = await screen.findByPlaceholderText("Filter files in the current directory");
-      expect(filterInput).toHaveFocus();
-
-      await user.type(filterInput, "read");
-
-      await waitFor(() => {
-        expect(screen.queryByRole("listbox")).not.toBeInTheDocument();
-        expect(screen.getByRole("button", { name: /readme.txt/i })).toBeInTheDocument();
-        expect(screen.queryByRole("button", { name: /pictures/i })).not.toBeInTheDocument();
-        expect(screen.getByText("Filtered by: read")).toBeInTheDocument();
-      });
-    });
-
-    it.skip("moves from the filter box into the filtered list with ArrowDown", async () => {
-      const user = userEvent.setup();
-      renderBrowser("/browse/smb/test-server-1");
-
-      await waitFor(() => {
-        expect(screen.getAllByText("Documents").length).toBeGreaterThan(0);
-      });
-
-      await user.keyboard("{Control>}{Alt>}f{/Alt}{/Control}");
-      const filterInput = await screen.findByPlaceholderText("Filter files in the current directory");
-      await user.type(filterInput, "read");
-      await user.keyboard("{ArrowDown}");
-
-      await waitFor(() => {
-        expect(screen.getByTestId("file-list-container")).toHaveFocus();
-      });
-
-      await user.keyboard("{Control>}{Alt>}f{/Alt}{/Control}");
-      expect(screen.getByPlaceholderText("Filter files in the current directory")).toHaveFocus();
-      expect(screen.getByPlaceholderText("Filter files in the current directory")).toHaveValue("read");
-    });
-
-    it.skip("clears the filter when leaving Filter mode and keeps it cleared after directory navigation", async () => {
-      const user = userEvent.setup();
-
-      vi.mocked(api.listDirectory).mockImplementation(async (_connectionId, path) => {
-        if (path === "Documents") {
-          return {
-            items: [
-              {
-                name: "report.pdf",
-                path: "Documents/report.pdf",
-                type: FileType.FILE,
-                size: 5120,
-                modified_at: "2024-01-02T12:00:00Z",
-                is_readable: true,
-                is_hidden: false,
-              },
-            ],
-            path: "Documents",
-            total: 1,
-          };
-        }
-
-        return mockDirectoryListing;
-      });
-
-      renderBrowser("/browse/smb/test-server-1");
-
-      await waitFor(() => {
-        expect(screen.getAllByText("Documents").length).toBeGreaterThan(0);
-      });
-
-      await user.keyboard("{Control>}{Alt>}f{/Alt}{/Control}");
-      const filterInput = await screen.findByPlaceholderText("Filter files in the current directory");
-      await user.type(filterInput, "doc");
-
-      await waitFor(() => {
-        expect(screen.getByText("Filtered by: doc")).toBeInTheDocument();
-      });
-
-      await user.keyboard("{Control>}k{/Control}");
-      expect(await screen.findByPlaceholderText("Navigate to any directory")).toHaveFocus();
-      expect(screen.queryByText("Filtered by: doc")).not.toBeInTheDocument();
-
-      await user.keyboard("{Control>}{Alt>}f{/Alt}{/Control}");
-      const restoredFilterInput = await screen.findByPlaceholderText("Filter files in the current directory");
-      expect(restoredFilterInput).toHaveValue("");
-
-      await user.click(screen.getByRole("button", { name: /documents/i }));
-
-      await waitFor(() => {
-        expectDirectoryLoad("conn-1", "Documents");
-      });
-
-      await user.keyboard("{Control>}{Alt>}f{/Alt}{/Control}");
-      expect(await screen.findByPlaceholderText("Filter files in the current directory")).toHaveValue("");
-      expect(screen.queryByText("Filtered by: doc")).not.toBeInTheDocument();
-    });
-
-    it.skip("restores the just-left directory selection after backing out of a filtered child directory", async () => {
-      const user = userEvent.setup();
-
-      vi.mocked(api.listDirectory).mockImplementation(async (_connectionId, path) => {
-        if (path === "Zeta") {
-          return {
-            items: [
-              {
-                name: "report.pdf",
-                path: "Zeta/report.pdf",
-                type: FileType.FILE,
-                size: 5120,
-                modified_at: "2024-01-02T12:00:00Z",
-                is_readable: true,
-                is_hidden: false,
-              },
-              {
-                name: "notes.txt",
-                path: "Zeta/notes.txt",
-                type: FileType.FILE,
-                size: 1024,
-                modified_at: "2024-01-02T11:00:00Z",
-                is_readable: true,
-                is_hidden: false,
-              },
-            ],
-            path: "Zeta",
-            total: 2,
-          };
-        }
-
-        return {
-          items: [
-            {
-              name: "Alpha",
-              path: "Alpha",
-              type: FileType.DIRECTORY,
-              size: 0,
-              modified_at: "2024-01-01T10:00:00Z",
-              is_readable: true,
-              is_hidden: false,
-            },
-            {
-              name: "Zeta",
-              path: "Zeta",
-              type: FileType.DIRECTORY,
-              size: 0,
-              modified_at: "2024-01-01T11:00:00Z",
-              is_readable: true,
-              is_hidden: false,
-            },
-          ],
-          path: "",
-          total: 2,
-        };
-      });
-
-      renderBrowser("/browse/smb/test-server-1");
-
-      await waitFor(() => {
-        expect(screen.getByRole("button", { name: /folder: zeta/i })).toBeInTheDocument();
-      });
-
-      await user.click(screen.getByRole("button", { name: /folder: zeta/i }));
-
-      await waitFor(() => {
-        expectDirectoryLoad("conn-1", "Zeta");
-      });
-
-      await user.keyboard("{Control>}{Alt>}f{/Alt}{/Control}");
-      const filterInput = await screen.findByPlaceholderText("Filter files in the current directory");
-      await user.type(filterInput, "rep");
-      await user.keyboard("{ArrowDown}");
-      await user.keyboard("{Backspace}");
-
-      await waitFor(() => {
-        expectDirectoryLoad("conn-1", "");
-      });
-
-      await waitFor(() => {
-        expect(screen.getByRole("button", { name: /folder: zeta/i })).toHaveAttribute("data-selected", "true");
-      });
-
-      expect(screen.getByRole("button", { name: /folder: alpha/i })).not.toHaveAttribute("data-selected", "true");
-    });
-
-    it.skip("does not navigate out when Backspace is pressed in an empty filter quick bar", async () => {
-      const user = userEvent.setup();
-
-      vi.mocked(api.listDirectory).mockImplementation(async (_connectionId, path) => {
-        if (path === "Zeta") {
-          return {
-            items: [
-              {
-                name: "report.pdf",
-                path: "Zeta/report.pdf",
-                type: FileType.FILE,
-                size: 5120,
-                modified_at: "2024-01-02T12:00:00Z",
-                is_readable: true,
-                is_hidden: false,
-              },
-            ],
-            path: "Zeta",
-            total: 1,
-          };
-        }
-
-        return {
-          items: [
-            {
-              name: "Alpha",
-              path: "Alpha",
-              type: FileType.DIRECTORY,
-              size: 0,
-              modified_at: "2024-01-01T10:00:00Z",
-              is_readable: true,
-              is_hidden: false,
-            },
-            {
-              name: "Zeta",
-              path: "Zeta",
-              type: FileType.DIRECTORY,
-              size: 0,
-              modified_at: "2024-01-01T11:00:00Z",
-              is_readable: true,
-              is_hidden: false,
-            },
-          ],
-          path: "",
-          total: 2,
-        };
-      });
-
-      renderBrowser("/browse/smb/test-server-1");
-
-      await waitFor(() => {
-        expect(screen.getByRole("button", { name: /folder: zeta/i })).toBeInTheDocument();
-      });
-
-      await user.click(screen.getByRole("button", { name: /folder: zeta/i }));
-
-      await waitFor(() => {
-        expectDirectoryLoad("conn-1", "Zeta");
-      });
-
-      await user.keyboard("{Control>}{Alt>}f{/Alt}{/Control}");
-      const filterInput = await screen.findByPlaceholderText("Filter files in the current directory");
-      await user.type(filterInput, "rep");
-      await user.keyboard("{Escape}");
-      expect(filterInput).toHaveValue("");
-      const initialCallCount = (api.listDirectory as Mock).mock.calls.length;
-      await user.keyboard("{Backspace}");
-
-      expect(filterInput).toHaveFocus();
-      expect((api.listDirectory as Mock).mock.calls.length).toBe(initialCallCount);
-      expect(screen.getByRole("button", { name: /switch quick bar mode/i })).toHaveTextContent("Filter");
-      expect(screen.getByRole("button", { name: /file: report\.pdf/i })).toBeInTheDocument();
     });
 
     it("switches quick-bar modes from the mode pill", async () => {

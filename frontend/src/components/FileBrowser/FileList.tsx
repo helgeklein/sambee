@@ -27,6 +27,7 @@ interface FileListProps {
   viewMode: ViewMode;
   onOpenAssociatedViewer?: (file: FileEntry, index: number) => void;
   onOpenViewerPicker?: (file: FileEntry, index: number) => void;
+  canOpenInBrowserViewer?: (file: FileEntry) => boolean;
   onOpenAssociatedNativeApp?: (file: FileEntry, index: number) => void;
   onOpenNativePicker?: (file: FileEntry, index: number) => void;
   /** Called when "Rename" is chosen from the context menu */
@@ -49,6 +50,7 @@ export const FileList = React.memo(
     viewMode,
     onOpenAssociatedViewer,
     onOpenViewerPicker,
+    canOpenInBrowserViewer,
     onOpenAssociatedNativeApp,
     onOpenNativePicker,
     onRename,
@@ -113,6 +115,7 @@ export const FileList = React.memo(
                     viewMode={viewMode}
                     onOpenAssociatedViewer={onOpenAssociatedViewer}
                     onOpenViewerPicker={onOpenViewerPicker}
+                    canOpenInBrowserViewer={canOpenInBrowserViewer}
                     onOpenAssociatedNativeApp={onOpenAssociatedNativeApp}
                     onOpenNativePicker={onOpenNativePicker}
                     onRename={onRename}

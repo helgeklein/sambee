@@ -50,6 +50,7 @@ from app.services.companion_downloads import (
     resolve_companion_download_metadata,
 )
 from app.services.connection_access import get_accessible_connection_or_404, require_connection_write_access
+from app.services.lock_manager import remove_expired_file_locks
 from app.storage.smb import SMBBackend
 from app.utils.content_disposition import build_content_disposition
 
@@ -754,6 +755,9 @@ async def exchange_companion_token(
 
     connection_id = payload.get("conn_id")
     path = payload.get("path")
+    if not isinstance(connection_id, str) or not isinstance(path, str):
+        logger.warning("Companion token exchange failed: malformed connection or path claim")
+        raise credentials_exception
 
     # Enforce single-use
     exp_timestamp = payload.get("exp", 0)
@@ -1100,7 +1104,7 @@ async def acquire_lock(
     connection = get_accessible_connection_or_404(session, current_user, connection_id)
     require_connection_write_access(current_user, connection, action="acquire_lock", path=path)
 
-    # Check for existing active lock
+    remove_expired_file_locks(session, connection_id, path)
     existing = _get_active_lock(connection_id, path, session)
     if existing:
         if existing.locked_by == current_user.username:
@@ -1146,39 +1150,13 @@ async def acquire_lock(
                     locked_at=replacement_lock.locked_at.isoformat(),
                 )
 
-            existing.last_heartbeat = datetime.now(timezone.utc)
-            session.add(existing)
-            session.commit()
-            session.refresh(existing)
-            operation_token = _create_operation_token(
-                user=current_user,
-                connection_id=connection_id,
-                path=path,
-                lock_id=existing.id,
-                operation_id=existing.operation_id,
-            )
-            logger.info(
-                f"Lock refreshed (same user): {_companion_audit_fields(user_id=current_user.id, username=current_user.username, connection_id=connection_id, path=path, lock_id=existing.id, operation_id=existing.operation_id)}"
-            )
-            return LockResponse(
-                lock_id=str(existing.id),
-                lock_capability=existing.lock_capability,
-                operation_id=existing.operation_id,
-                operation_token=operation_token,
-                operation_expires_in=OPERATION_TOKEN_EXPIRE_MINUTES * 60,
-                renew_after_seconds=OPERATION_TOKEN_RENEW_AFTER_SECONDS,
-                file_path=existing.file_path,
-                locked_by=existing.locked_by,
-                locked_at=existing.locked_at.isoformat(),
-            )
-        else:
-            logger.warning(
-                f"Lock conflict: {_companion_audit_fields(user_id=current_user.id, username=current_user.username, connection_id=connection_id, path=path, lock_owner=existing.locked_by, lock_id=existing.id, operation_id=existing.operation_id)}"
-            )
-            raise HTTPException(
-                status_code=status.HTTP_409_CONFLICT,
-                detail=f"File is locked for editing by {existing.locked_by}",
-            )
+        logger.warning(
+            f"Lock conflict: {_companion_audit_fields(user_id=current_user.id, username=current_user.username, connection_id=connection_id, path=path, lock_owner=existing.locked_by, lock_id=existing.id, operation_id=existing.operation_id)}"
+        )
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail=f"File is locked for editing by {existing.locked_by}",
+        )
 
     # Create new lock
     lock = EditLock(
@@ -1189,7 +1167,11 @@ async def acquire_lock(
         lock_capability=_generate_lock_capability(),
     )
     session.add(lock)
-    session.commit()
+    try:
+        session.commit()
+    except IntegrityError as error:
+        session.rollback()
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="File is already locked for editing") from error
     session.refresh(lock)
 
     operation_token = _create_operation_token(

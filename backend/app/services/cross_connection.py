@@ -9,8 +9,9 @@ Design decisions
 * **No overall timeout** — individual chunk reads/writes each have their
   own timeouts, so arbitrarily large files transfer without hitting a
   wall-clock limit.
-* **Move = copy + delete** — cross-share move is impossible as an atomic
-  server-side operation; we copy first, verify, then delete the source.
+* **Move source safety** — a target is committed before a move source is
+    considered for deletion; source deletion remains unavailable without an
+    identity-guarded primitive.
 * **Directories are recursive** — structure is replicated depth-first,
   files are streamed one-by-one.
 * **Progress callback** — the caller supplies an ``on_progress`` callback
@@ -22,9 +23,25 @@ from collections.abc import AsyncIterator
 from typing import Optional
 
 from app.models.file import FileInfo, FileType
+from app.services.content_transfer import (
+    RegularFileSourceSnapshot,
+    SourceChangedError,
+    SourceDeleteError,
+    TargetCollisionError,
+    resolve_regular_file_transfer,
+)
+from app.services.target_resolution import TargetResolutionDisposition, TargetResolutionPolicy
 from app.storage.base import ProgressCallback, StorageBackend
 
 logger = logging.getLogger(__name__)
+
+
+class DirectoryTransferError(OSError):
+    """A recursive directory transfer failed after a known target mutation."""
+
+    def __init__(self, message: str, *, destination_mutated: bool) -> None:
+        super().__init__(message)
+        self.destination_mutated = destination_mutated
 
 
 async def cross_connection_copy(
@@ -35,7 +52,8 @@ async def cross_connection_copy(
     on_progress: ProgressCallback | None = None,
     *,
     overwrite: bool = False,
-) -> int:
+    target_resolution_policy: TargetResolutionPolicy | None = None,
+) -> tuple[int | None, FileInfo]:
     """Copy a file or directory from one connection to another.
 
     For files, data is streamed chunk-by-chunk through the backend so
@@ -68,8 +86,85 @@ async def cross_connection_copy(
     info = await source.get_file_info(source_path)
 
     if info.type == FileType.DIRECTORY:
-        return await _copy_directory(source, dest, source_path, dest_path, on_progress, overwrite=overwrite)
-    return await _copy_file(source, dest, source_path, dest_path, on_progress, source_info=info, overwrite=overwrite)
+        if target_resolution_policy is not None:
+            try:
+                await dest.get_file_info(dest_path)
+            except FileNotFoundError:
+                pass
+            else:
+                if target_resolution_policy == TargetResolutionPolicy.SKIP:
+                    return None, info
+                raise TargetCollisionError(source=info, target=await dest.get_file_info(dest_path))
+        return await _copy_directory(source, dest, source_path, dest_path, on_progress, overwrite=overwrite), info
+
+    source_snapshot = RegularFileSourceSnapshot.from_file_info(info)
+    if target_resolution_policy is not None:
+        resolution = await resolve_regular_file_transfer(
+            source=info,
+            target_path=dest_path,
+            policy=target_resolution_policy,
+            observe_target=lambda: dest.get_file_info(dest_path),
+            attempt_create=lambda: _copy_file(
+                source,
+                dest,
+                source_path,
+                dest_path,
+                on_progress,
+                source_info=info,
+                source_snapshot=source_snapshot,
+                overwrite=False,
+            ),
+            replacement_supported=False,
+        )
+        if resolution.disposition == TargetResolutionDisposition.SKIP:
+            return None, info
+        if resolution.disposition == TargetResolutionDisposition.AWAIT_COLLISION:
+            raise TargetCollisionError(source=info, target=resolution.target)
+        if not isinstance(resolution.mutation_result, int):
+            raise RuntimeError("Regular-file transfer committed without reporting bytes written")
+        bytes_written = resolution.mutation_result
+    else:
+        bytes_written = await _copy_file(
+            source,
+            dest,
+            source_path,
+            dest_path,
+            on_progress,
+            source_info=info,
+            source_snapshot=source_snapshot,
+            overwrite=overwrite,
+        )
+
+    current_source = await source.get_file_info(source_path)
+    if not source_snapshot.matches(current_source):
+        raise SourceChangedError(f"Source changed while copying: {source_path}", destination_mutated=True)
+    return bytes_written, info
+
+
+async def copy_regular_file_to_missing_target(
+    source: StorageBackend,
+    dest: StorageBackend,
+    source_path: str,
+    dest_path: str,
+    source_info: FileInfo,
+    on_progress: ProgressCallback | None = None,
+) -> int:
+    """Copy one already-observed regular source through a staged missing-target commit."""
+
+    source_snapshot = RegularFileSourceSnapshot.from_file_info(source_info)
+    bytes_written = await _copy_file(
+        source,
+        dest,
+        source_path,
+        dest_path,
+        on_progress,
+        source_info=source_info,
+        source_snapshot=source_snapshot,
+    )
+    current_source = await source.get_file_info(source_path)
+    if not source_snapshot.matches(current_source):
+        raise SourceChangedError(f"Source changed while copying: {source_path}", destination_mutated=True)
+    return bytes_written
 
 
 async def cross_connection_move(
@@ -80,7 +175,8 @@ async def cross_connection_move(
     on_progress: ProgressCallback | None = None,
     *,
     overwrite: bool = False,
-) -> int:
+    target_resolution_policy: TargetResolutionPolicy | None = None,
+) -> tuple[int | None, FileInfo]:
     """Move a file or directory across connections (copy + delete).
 
     Copies the item to the destination first, then deletes the source.
@@ -106,24 +202,26 @@ async def cross_connection_move(
         OSError: On transfer failure.
     """
 
-    total_bytes = await cross_connection_copy(source, dest, source_path, dest_path, on_progress, overwrite=overwrite)
+    total_bytes, source_info = await cross_connection_copy(
+        source,
+        dest,
+        source_path,
+        dest_path,
+        on_progress,
+        overwrite=overwrite,
+        target_resolution_policy=target_resolution_policy,
+    )
+    if total_bytes is None:
+        return None, source_info
 
-    # Delete source after successful copy
-    try:
-        await source.delete_item(source_path)
-        logger.info(f"Cross-connection move: deleted source '{source_path}' after successful copy")
-    except Exception:
-        # Source delete failed — log but don't roll back the copy.
-        # The data is safely at the destination; losing it would be worse.
-        logger.error(
-            f"Cross-connection move: copy to '{dest_path}' succeeded, "
-            f"but failed to delete source '{source_path}'. "
-            "The source item remains and should be removed manually.",
-            exc_info=True,
-        )
-        raise
-
-    return total_bytes
+    # A separate get_file_info() followed by delete_item() is not a
+    # conditional delete: another writer can replace the source between those
+    # calls. Do not risk deleting a different object after publishing the
+    # destination. Storage backends must expose an atomic identity-guarded
+    # delete before cross-connection moves can remove their source.
+    raise SourceDeleteError(
+        f"Destination was created but the source was retained because conditional deletion is unavailable: {source_path}"
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -139,6 +237,7 @@ async def _copy_file(
     on_progress: ProgressCallback | None,
     *,
     source_info: FileInfo | None = None,
+    source_snapshot: RegularFileSourceSnapshot | None = None,
     overwrite: bool = False,
 ) -> int:
     """Stream a single file from *source* to *dest*.
@@ -155,6 +254,13 @@ async def _copy_file(
         except Exception:
             pass  # Non-critical; progress + mtime will degrade gracefully
 
+    if source_snapshot is not None:
+        if source_snapshot.stable_id is None:
+            raise SourceChangedError(f"Source has no stable identity for transfer: {source_path}")
+        current_source = await source.get_file_info(source_path)
+        if not source_snapshot.matches(current_source):
+            raise SourceChangedError(f"Source changed before reading: {source_path}")
+
     total_size = source_info.size if source_info else None
     source_mtime = source_info.modified_at if source_info else None
 
@@ -162,14 +268,24 @@ async def _copy_file(
         if on_progress:
             on_progress(transferred, total_size)
 
-    # Stream data: source.read_file() → dest.write_file_from_stream()
-    stream: AsyncIterator[bytes] = source.read_file(source_path)
+    async def verify_source_before_commit() -> None:
+        if source_snapshot is None:
+            return
+        try:
+            current_source = await source.get_file_info(source_path)
+        except FileNotFoundError as error:
+            raise SourceChangedError(f"Source disappeared before commit: {source_path}") from error
+        if not source_snapshot.matches(current_source):
+            raise SourceChangedError(f"Source changed before commit: {source_path}")
 
-    bytes_written = await dest.write_file_from_stream(
+    # A fresh reader is created only after target policy has authorized this
+    # attempt. The destination owns and discards its private stage on failure.
+    stream: AsyncIterator[bytes] = source.read_file(source_path)
+    bytes_written = await dest.stage_and_commit_new_file_from_stream(
         dest_path,
         stream,
+        before_commit=verify_source_before_commit,
         on_progress=_progress_with_total,
-        overwrite=overwrite,
         source_mtime=source_mtime,
     )
 
@@ -185,41 +301,61 @@ async def _copy_directory(
     on_progress: ProgressCallback | None,
     *,
     overwrite: bool = False,
+    root: bool = True,
 ) -> int:
     """Recursively copy a directory from *source* to *dest*."""
 
-    # When overwriting, the destination directory may already exist.
-    if overwrite:
-        if not await dest.file_exists(dest_path):
-            await dest.create_directory(dest_path)
-    else:
-        await dest.create_directory(dest_path)
-
-    listing = await source.list_directory(source_path)
-    total_bytes = 0
-
-    for item in listing.items:
-        child_source = f"{source_path}/{item.name}" if source_path else item.name
-        child_dest = f"{dest_path}/{item.name}" if dest_path else item.name
-
-        if item.type == FileType.DIRECTORY:
-            total_bytes += await _copy_directory(
-                source,
-                dest,
-                child_source,
-                child_dest,
-                on_progress,
-                overwrite=overwrite,
-            )
+    root_created = False
+    try:
+        # The root is the only directory collision considered by directory
+        # policy. Descendant collisions are transfer failures, never merges.
+        if overwrite:
+            if not await dest.file_exists(dest_path):
+                await dest.create_directory(dest_path)
         else:
-            total_bytes += await _copy_file(
-                source,
-                dest,
-                child_source,
-                child_dest,
-                on_progress,
-                overwrite=overwrite,
-            )
+            await dest.create_directory(dest_path)
+            root_created = True
+
+        listing = await source.list_directory(source_path)
+        total_bytes = 0
+
+        for item in listing.items:
+            child_source = f"{source_path}/{item.name}" if source_path else item.name
+            child_dest = f"{dest_path}/{item.name}" if dest_path else item.name
+
+            if item.type == FileType.DIRECTORY:
+                total_bytes += await _copy_directory(
+                    source,
+                    dest,
+                    child_source,
+                    child_dest,
+                    on_progress,
+                    overwrite=False,
+                    root=False,
+                )
+            else:
+                total_bytes += await _copy_file(
+                    source,
+                    dest,
+                    child_source,
+                    child_dest,
+                    on_progress,
+                    overwrite=False,
+                )
+    except FileExistsError as error:
+        if root and not root_created:
+            raise
+        raise DirectoryTransferError(
+            f"Directory child target already exists while copying '{source_path}'",
+            destination_mutated=True,
+        ) from error
+    except DirectoryTransferError:
+        raise
+    except Exception as error:
+        raise DirectoryTransferError(
+            f"Directory copy failed after creating '{dest_path}': {error}",
+            destination_mutated=True,
+        ) from error
 
     # Preserve the original directory modification timestamp.
     # Done after children are copied (adding children updates the mtime).

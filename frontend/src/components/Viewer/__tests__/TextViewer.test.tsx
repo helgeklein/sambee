@@ -123,7 +123,7 @@ async function enterEditMode(): Promise<HTMLElement> {
   fireEvent.click(editButton);
 
   await waitFor(() => {
-    expect(apiService.acquireEditLock).toHaveBeenCalledWith("conn1", "/docs/readme.txt", expect.any(String));
+    expect(apiService.acquireEditLock).toHaveBeenCalledWith("conn1", "/docs/readme.txt");
   });
 
   return screen.getByRole("textbox", { name: "Text editor" });
@@ -137,12 +137,14 @@ describe("TextViewer", () => {
     vi.spyOn(apiService, "getFileContent").mockResolvedValue("hello world");
     vi.spyOn(apiService, "acquireEditLock").mockResolvedValue({
       lock_id: "lock-1",
+      lock_capability: "capability-1",
+      operation_id: "operation-1",
       file_path: "/docs/readme.txt",
       locked_by: "alice",
       locked_at: "2026-03-23T12:00:00Z",
     });
     vi.spyOn(apiService, "releaseEditLock").mockResolvedValue();
-    vi.spyOn(apiService, "saveTextFile").mockResolvedValue();
+    vi.spyOn(apiService, "writeTextWithEditLock").mockResolvedValue();
     vi.spyOn(apiService, "downloadFile").mockResolvedValue();
     vi.spyOn(apiService, "getFileBlob").mockResolvedValue(new Blob(["test"]));
     mockTextEditorCommands.nextSearchResult.mockReset();
@@ -160,6 +162,42 @@ describe("TextViewer", () => {
     fireEvent.keyDown(editor, { altKey: true, key: "z" });
 
     expect(mockSetWordWrapEnabled).toHaveBeenCalledWith(true);
+  });
+
+  it("loads virtual text through its provider and blocks editing", async () => {
+    const virtualSource = {
+      kind: "virtual" as const,
+      path: "docs/notes.txt",
+      location: {
+        kind: "virtual" as const,
+        providerId: "zip",
+        connectionId: "conn1",
+        source: { kind: "physical" as const, connectionId: "conn1", path: "archives/backup.zip" },
+        path: "docs",
+      },
+    };
+    const getArchiveMemberSpy = vi
+      .spyOn(apiService, "getArchiveMember")
+      .mockResolvedValue(new Blob(["virtual text"], { type: "text/plain" }));
+    const getFileContentSpy = vi.spyOn(apiService, "getFileContent");
+    const acquireLockSpy = vi.spyOn(apiService, "acquireEditLock");
+
+    render(
+      <SambeeThemeProvider>
+        <TextViewer connectionId="conn1" path="docs/notes.txt" onClose={vi.fn()} virtualSource={virtualSource} />
+      </SambeeThemeProvider>
+    );
+
+    expect(await screen.findByRole("textbox", { name: "Text editor" })).toHaveValue("virtual text");
+    expect(getArchiveMemberSpy).toHaveBeenCalledWith("conn1", "archives/backup.zip", "docs/notes.txt", {
+      download: undefined,
+      request: { kind: "text" },
+      signal: expect.anything(),
+    });
+    expect(getFileContentSpy).not.toHaveBeenCalled();
+    expect(screen.getByText("Read only")).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: /^edit$/i })).not.toBeInTheDocument();
+    expect(acquireLockSpy).not.toHaveBeenCalled();
   });
 
   it("does not reload the file when the active translation changes", async () => {
@@ -189,7 +227,13 @@ describe("TextViewer", () => {
     fireEvent.click(screen.getByRole("button", { name: /save/i }));
 
     await waitFor(() => {
-      expect(apiService.saveTextFile).toHaveBeenCalledWith("conn1", "/docs/readme.txt", "updated text", { filename: "readme.txt" });
+      expect(apiService.writeTextWithEditLock).toHaveBeenCalledWith(
+        "conn1",
+        "/docs/readme.txt",
+        "updated text",
+        { lock_id: "lock-1", lock_capability: "capability-1", operation_id: "operation-1" },
+        { mimeType: undefined }
+      );
     });
   });
 

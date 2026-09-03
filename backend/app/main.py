@@ -9,7 +9,8 @@ from os import stat_result as os_stat_result
 from pathlib import Path
 from typing import AsyncIterator
 
-from fastapi import FastAPI, Request, Response
+from fastapi import FastAPI, HTTPException, Request, Response
+from fastapi.exceptions import RequestValidationError
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
@@ -17,7 +18,8 @@ from sqlmodel import Session, select
 from starlette.types import Scope
 
 from app import __version__
-from app.api import admin, admin_auth, auth, browser, companion, connections, logs, system_settings, viewer, websocket
+from app.api import admin, admin_auth, archive_operations, auth, browser, companion, connections, logs, system_settings, viewer, websocket
+from app.api.archive_v2_errors import archive_v2_http_exception_handler, archive_v2_request_validation_exception_handler
 from app.core.config import consume_unsupported_config_settings, settings
 from app.core.environment import DEV_CORS_ORIGINS, IS_DEVELOPMENT, IS_PRODUCTION
 from app.core.exceptions import ConfigurationError, SambeeError
@@ -299,6 +301,11 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
         start_lock_monitor()
         logger.info("Lock monitor started")
 
+        from app.services.archive.operation_monitor import start_archive_operation_monitor
+
+        start_archive_operation_monitor()
+        logger.info("Archive operation monitor started")
+
     except ConfigurationError as e:
         log_error(logger, f"Configuration error: {e}")
         log_error(logger, "Application startup failed. Exiting.")
@@ -323,6 +330,15 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     except Exception as e:
         log_error(logger, f"Error stopping lock monitor: {e}")
 
+    try:
+        from app.services.archive.operation_monitor import stop_archive_operation_monitor
+
+        logger.info("Stopping archive operation monitor...")
+        stop_archive_operation_monitor()
+        logger.info("Archive operation monitor stopped")
+    except Exception as e:
+        log_error(logger, f"Error stopping archive operation monitor: {e}")
+
     # Stop directory caches (CHANGE_NOTIFY watchers + rescan tasks)
     try:
         from app.services.directory_cache import shutdown_directory_cache
@@ -334,6 +350,14 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
         log_error(logger, f"Error stopping directory caches: {e}")
 
     # Close all SMB connection pool connections
+    logger.info("Stopping live archive creation writers...")
+    await archive_operations.shutdown_local_to_smb_creation_writers()
+    logger.info("Live archive creation writers stopped")
+
+    logger.info("Stopping live archive extraction sessions...")
+    await archive_operations.shutdown_live_extraction_sessions()
+    logger.info("Live archive extraction sessions stopped")
+
     logger.info("Closing SMB connection pool...")
     await shutdown_connection_pool()
     logger.info("SMB connection pool closed")
@@ -364,6 +388,8 @@ app = FastAPI(
     openapi_url=None,
 )
 app.add_middleware(PasswordFormBodyLimitMiddleware)
+app.add_exception_handler(HTTPException, archive_v2_http_exception_handler)
+app.add_exception_handler(RequestValidationError, archive_v2_request_validation_exception_handler)
 
 
 #
@@ -440,6 +466,7 @@ app.include_router(admin_auth.router, prefix="/api/admin", tags=["admin-auth"])
 app.include_router(system_settings.router, prefix="/api/admin", tags=["admin-settings"])
 app.include_router(browser.router, prefix="/api/browse", tags=["browse"])
 app.include_router(viewer.router, prefix="/api/viewer", tags=["viewer"])
+app.include_router(archive_operations.v2_router, prefix="/api/archive", tags=["archive"])
 app.include_router(companion.router, prefix="/api/companion", tags=["companion"])
 app.include_router(logs.router, prefix="/api/logs", tags=["logs"])
 app.include_router(websocket.router, prefix="/api", tags=["websocket"])

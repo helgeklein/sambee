@@ -439,6 +439,8 @@ export interface FileInfo {
   modified_at?: string;
   is_readable: boolean;
   is_hidden: boolean;
+  /** Availability reported by a virtual content provider. Absent for physical entries. */
+  archive_entry_state?: ArchiveEntryState;
   /** Companion-only source link classification. Absent for normal and remote entries. */
   link_kind?: LocalLinkKind;
   /** Client-side enrichment returned by Companion's deferred local link metadata request. */
@@ -450,6 +452,101 @@ export interface DirectoryListing {
   items: FileInfo[];
   total: number;
 }
+
+export type ArchiveEntryState = "readable" | "blocked" | "unavailable";
+
+export interface ArchiveIdentity {
+  path: string;
+  size: number;
+  modified_at?: string | null;
+}
+
+export interface ArchiveEntryInfo {
+  name: string;
+  path: string;
+  type: FileType;
+  size?: number | null;
+  compressed_size?: number | null;
+  compression_method?: number | null;
+  crc32?: number | null;
+  modified_at?: string | null;
+  state: ArchiveEntryState;
+  is_hidden: boolean;
+}
+
+export interface ArchiveDirectoryListing {
+  archive: ArchiveIdentity;
+  path: string;
+  items: ArchiveEntryInfo[];
+  next_cursor?: string | null;
+  page_size: number;
+}
+
+export type ArchiveOperationKind = "create" | "extract";
+export type ArchiveContractVersion = "v2";
+export type ArchiveOperationPhase =
+  | "prepared"
+  | "accepted"
+  | "streaming"
+  | "awaiting_user_decision"
+  | "verifying"
+  | "completed"
+  | "cancelled"
+  | "failed";
+
+export interface ArchiveOperationPrepare {
+  contract_version: ArchiveContractVersion;
+  kind: ArchiveOperationKind;
+  source_connection_id: string;
+  source_path: string;
+  destination_connection_id: string;
+  destination_path: string;
+  manifest_hash?: string;
+  plan_json?: string;
+}
+
+export interface ArchiveOperation {
+  id: string;
+  contract_version: ArchiveContractVersion;
+  kind: ArchiveOperationKind;
+  phase: ArchiveOperationPhase;
+  source_connection_id: string;
+  source_path: string;
+  destination_connection_id: string;
+  destination_path: string;
+  manifest_hash: string;
+  checkpoint_json: string;
+  pending_decision_json?: string | null;
+  collision_policy?: string | null;
+  cancellation_requested: boolean;
+  last_error_json?: string | null;
+  last_error: ArchiveOperationError | null;
+  created_at: string;
+  updated_at: string;
+  heartbeat_at: string;
+}
+
+export interface ArchiveOperationError {
+  code: string;
+  message: string;
+}
+
+export interface ArchiveCompanionSession {
+  token: string;
+  expires_in: number;
+  operation: ArchiveOperation;
+}
+
+export type ArchiveExtractionDecisionAction =
+  | "skip"
+  | "skip_all"
+  | "replace"
+  | "replace_all"
+  | "replace_older"
+  | "rename"
+  | "retry"
+  | "ignore"
+  | "cancel";
 
 /** Canonical local-drive target returned before activating a local entry. */
 export interface LocalActivationResolution {

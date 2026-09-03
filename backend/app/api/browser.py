@@ -1,11 +1,15 @@
 import asyncio
+import json
 import uuid
+from collections.abc import Awaitable, Callable
+from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
 from pathlib import PurePosixPath
 from typing import NoReturn, Optional
 
 from fastapi import APIRouter, Depends, File, HTTPException, Query, UploadFile, status
 from pydantic import BaseModel
+from sqlalchemy.exc import IntegrityError
 from sqlmodel import Session, select
 
 from app.api._smb_helpers import build_smb_backend, disconnect_backend_safely, require_share_name
@@ -18,12 +22,21 @@ from app.api.companion import (
     _validate_operation_lock_scope,
 )
 from app.core.logging import get_logger, set_user
-from app.core.security import decrypt_password, get_current_user_for_token, get_current_user_with_auth_check, oauth2_scheme_optional
+from app.core.security import (
+    decrypt_password,
+    get_current_user_for_token,
+    get_current_user_with_auth_check,
+    oauth2_scheme_optional,
+)
 from app.db.database import get_session
+from app.models.archive import ArchiveDirectoryListing
 from app.models.connection import Connection
 from app.models.edit_lock import HEARTBEAT_TIMEOUT_SECONDS, EditLock
 from app.models.file import (
     ConflictInfo,
+    ContentTransferEffects,
+    ContentTransferError,
+    ContentTransferResult,
     CopyMoveRequest,
     CreateItemRequest,
     DirectoryListing,
@@ -48,9 +61,21 @@ from app.models.recent_file import (
     RecentFileValidationError,
 )
 from app.models.user import User
+from app.services.archive.execution import resolve_archive_inspection_topology_plan
+from app.services.archive.zip_reader import ArchiveFormatError, ZipReader
 from app.services.connection_access import get_accessible_connection_or_404, require_connection_write_access
-from app.services.cross_connection import cross_connection_copy, cross_connection_move
+from app.services.content_transfer import (
+    SourceChangedError,
+    TargetCollisionError,
+    resolve_regular_file_transfer,
+)
+from app.services.cross_connection import (
+    DirectoryTransferError,
+    copy_regular_file_to_missing_target,
+    cross_connection_copy,
+)
 from app.services.history_common import LOCAL_DRIVE_PREFIX, normalize_recent_history_path
+from app.services.lock_manager import remove_expired_file_locks
 from app.services.recent_directories import (
     MAX_RECENT_DIRECTORY_RESULTS,
     clear_recent_directories,
@@ -67,12 +92,163 @@ from app.services.recent_files import (
     search_recent_files,
     should_record_recent_file,
 )
+from app.services.target_resolution import TargetResolutionDisposition, TargetResolutionPolicy
 from app.storage.smb import SMBBackend
 
 router = APIRouter()
 logger = get_logger(__name__)
 
 DIRECTORY_LIST_ROUTE_TIMEOUT_SECONDS = 35.0
+TRANSFER_RECEIPT_TTL_SECONDS = 5 * 60
+TRANSFER_UNAVAILABLE_DETAIL = "Transfers are unavailable in this release"
+
+
+@dataclass(frozen=True)
+class _TransferReceipt:
+    """A replayable transfer response owned by one authenticated user and key."""
+
+    expires_at: float
+    fingerprint: str
+    result: ContentTransferResult | None = None
+    error_status: int | None = None
+    error_detail: object | None = None
+
+
+@dataclass(frozen=True)
+class _InFlightTransferOutcome:
+    """The completion value shared by concurrent requests with one idempotency key."""
+
+    result: ContentTransferResult | None = None
+    error_status: int | None = None
+    error_detail: object | None = None
+
+
+_transfer_receipts: dict[tuple[str, str], _TransferReceipt] = {}
+_transfer_in_flight: dict[tuple[str, str], tuple[str, asyncio.Future[_InFlightTransferOutcome]]] = {}
+_transfer_receipt_lock = asyncio.Lock()
+
+
+def _transfer_fingerprint(body: CopyMoveRequest) -> str:
+    """Build a stable request fingerprint for idempotency-key reuse checks."""
+
+    return json.dumps(body.model_dump(exclude={"idempotency_key"}), sort_keys=True, default=str, separators=(",", ":"))
+
+
+async def _find_transfer_receipt(current_user: User, body: CopyMoveRequest) -> ContentTransferResult | None:
+    """Return a receipt or wait for the request that owns its idempotency key."""
+
+    import time
+
+    key = (current_user.username, body.idempotency_key)
+    fingerprint = _transfer_fingerprint(body)
+    in_flight: asyncio.Future[_InFlightTransferOutcome] | None = None
+    async with _transfer_receipt_lock:
+        now = time.monotonic()
+        expired = [receipt_key for receipt_key, receipt in _transfer_receipts.items() if receipt.expires_at <= now]
+        for receipt_key in expired:
+            del _transfer_receipts[receipt_key]
+        receipt = _transfer_receipts.get(key)
+        if receipt is None:
+            active = _transfer_in_flight.get(key)
+            if active is None:
+                _transfer_in_flight[key] = (fingerprint, asyncio.get_running_loop().create_future())
+                return None
+            existing_fingerprint, in_flight = active
+        else:
+            if receipt.fingerprint != fingerprint:
+                raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="Idempotency key conflicts with its transfer request")
+            if receipt.result is not None:
+                return receipt.result.model_copy(deep=True)
+            if receipt.error_status is not None:
+                raise HTTPException(status_code=receipt.error_status, detail=receipt.error_detail)
+            raise RuntimeError("Transfer receipt has no replayable outcome")
+
+        if existing_fingerprint != fingerprint:
+            raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="Idempotency key conflicts with its transfer request")
+
+    outcome = await asyncio.shield(in_flight)
+    if outcome.result is not None:
+        return outcome.result.model_copy(deep=True)
+    if outcome.error_status is not None:
+        raise HTTPException(status_code=outcome.error_status, detail=outcome.error_detail)
+    raise RuntimeError("In-flight transfer completed without a replayable outcome")
+
+
+async def _record_transfer_receipt(current_user: User, body: CopyMoveRequest, result: ContentTransferResult) -> ContentTransferResult:
+    """Retain one terminal factual result for a bounded retry window."""
+
+    import time
+
+    async with _transfer_receipt_lock:
+        key = (current_user.username, body.idempotency_key)
+        _transfer_receipts[key] = _TransferReceipt(
+            expires_at=time.monotonic() + TRANSFER_RECEIPT_TTL_SECONDS,
+            fingerprint=_transfer_fingerprint(body),
+            result=result.model_copy(deep=True),
+        )
+        active = _transfer_in_flight.pop(key, None)
+        if active is not None and not active[1].done():
+            active[1].set_result(_InFlightTransferOutcome(result=result.model_copy(deep=True)))
+    return result
+
+
+async def _record_transfer_http_error(current_user: User, body: CopyMoveRequest, error: HTTPException) -> None:
+    """Retain a known HTTP outcome and release waiters without changing its status."""
+
+    import time
+
+    key = (current_user.username, body.idempotency_key)
+    async with _transfer_receipt_lock:
+        active = _transfer_in_flight.pop(key, None)
+        if active is None:
+            return
+        fingerprint, future = active
+        _transfer_receipts[key] = _TransferReceipt(
+            expires_at=time.monotonic() + TRANSFER_RECEIPT_TTL_SECONDS,
+            fingerprint=fingerprint,
+            error_status=error.status_code,
+            error_detail=error.detail,
+        )
+        if not future.done():
+            future.set_result(_InFlightTransferOutcome(error_status=error.status_code, error_detail=error.detail))
+
+
+async def _record_unknown_transfer_outcome(current_user: User, body: CopyMoveRequest) -> None:
+    """Release an unrecorded reservation without allowing a second mutation."""
+
+    import time
+
+    key = (current_user.username, body.idempotency_key)
+    unknown_result = ContentTransferResult(
+        status="outcome_unknown",
+        effects=ContentTransferEffects(source="unknown", destination="unknown"),
+    )
+    async with _transfer_receipt_lock:
+        active = _transfer_in_flight.pop(key, None)
+        if active is None:
+            return
+        fingerprint, future = active
+        _transfer_receipts[key] = _TransferReceipt(
+            expires_at=time.monotonic() + TRANSFER_RECEIPT_TTL_SECONDS,
+            fingerprint=fingerprint,
+            result=unknown_result,
+        )
+        if not future.done():
+            future.set_result(_InFlightTransferOutcome(result=unknown_result.model_copy(deep=True)))
+
+
+async def _raise_recorded_transfer_http_error(
+    current_user: User,
+    body: CopyMoveRequest,
+    *,
+    status_code: int,
+    detail: object,
+) -> NoReturn:
+    """Record a factual HTTP failure, then preserve its response for the owner."""
+
+    error = HTTPException(status_code=status_code, detail=detail)
+    await _record_transfer_http_error(current_user, body, error)
+    raise error
 
 
 async def _verify_remote_recent_history_target(
@@ -418,6 +594,77 @@ def _get_active_lock(connection_id: uuid.UUID, path: str, session: Session) -> E
     return session.exec(statement).first()
 
 
+@router.get("/{connection_id}/archive/list", response_model=ArchiveDirectoryListing)
+async def list_archive_directory(
+    connection_id: uuid.UUID,
+    archive_path: str = Query(..., min_length=1, description="Path to the ZIP archive within the share"),
+    virtual_path: str = Query("", description="Virtual directory path within the archive"),
+    cursor: str | None = Query(None, description="Opaque archive listing cursor"),
+    page_size: int = Query(100, ge=1, le=500, description="Maximum virtual entries to return"),
+    current_user: User = Depends(get_current_user_with_auth_check),
+    session: Session = Depends(get_session),
+) -> ArchiveDirectoryListing:
+    """Return one bounded record-order page from a ZIP central directory."""
+
+    set_user(current_user.username)
+    if virtual_path:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
+            detail="Archive record-order listing does not support virtual directory paths",
+        )
+    connection = _get_connection_or_404(session, current_user, connection_id)
+    backend = build_smb_backend(connection, backend_factory=SMBBackend)
+    reader = None
+    try:
+        await backend.connect()
+        archive_info = await backend.get_file_info(archive_path)
+        if archive_info.type != FileType.FILE or archive_info.size is None:
+            raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_CONTENT, detail="Archive path must identify a regular file")
+        reader = await backend.open_random_access_reader(archive_path)
+        topology = resolve_archive_inspection_topology_plan(source_connection_id=str(connection_id))
+        if topology.source_is_local:
+            raise HTTPException(
+                status_code=status.HTTP_422_UNPROCESSABLE_CONTENT, detail="Archive inspection requires the Companion coordinator"
+            )
+        zip_reader = ZipReader(reader, archive_info.size)
+        entries, next_cursor = await zip_reader.inspection_page(cursor, page_size)
+        return ArchiveDirectoryListing(
+            archive={"path": archive_path, "size": archive_info.size, "modified_at": archive_info.modified_at},
+            path="",
+            items=[
+                {
+                    "name": entry.path.rsplit("/", 1)[-1],
+                    "path": entry.path,
+                    "type": FileType.DIRECTORY if entry.is_directory else FileType.FILE,
+                    "size": None if entry.is_directory else entry.uncompressed_size,
+                    "compressed_size": None if entry.is_directory else entry.compressed_size,
+                    "compression_method": None if entry.is_directory else entry.compression_method,
+                    "crc32": None if entry.is_directory else entry.crc32,
+                    "modified_at": entry.modified_at,
+                    "state": "blocked" if entry.encrypted else "readable" if entry.compression_method in {0, 8, 12} else "unavailable",
+                    "is_hidden": entry.path.rsplit("/", 1)[-1].startswith("."),
+                }
+                for entry in entries
+            ],
+            next_cursor=next_cursor,
+            page_size=page_size,
+        )
+    except ArchiveFormatError as exc:
+        raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_CONTENT, detail={"code": "invalid_zip", "message": str(exc)}) from exc
+    except FileNotFoundError as exc:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Archive file was not found") from exc
+    except TimeoutError as exc:
+        raise HTTPException(status_code=status.HTTP_504_GATEWAY_TIMEOUT, detail="Archive read timed out") from exc
+    finally:
+        if reader is not None:
+            await reader.close()
+        await disconnect_backend_safely(
+            backend,
+            logger=logger,
+            context=f"archive listing request: connection_id={connection_id}, archive_path={archive_path!r}",
+        )
+
+
 #
 # list_directory
 #
@@ -690,22 +937,17 @@ async def acquire_browser_edit_lock(
     current_user: User = Depends(get_current_user_with_auth_check),
     session: Session = Depends(get_session),
 ) -> BrowserEditLockResponse:
-    """Acquire or refresh an edit lock for in-browser markdown editing."""
+    """Acquire an exclusive edit lock for in-browser markdown editing."""
 
     set_user(current_user.username)
 
     connection = _get_connection_or_404(session, current_user, connection_id)
     require_connection_write_access(current_user, connection, action="acquire_browser_lock", path=path)
 
+    remove_expired_file_locks(session, connection_id, path)
     existing = _get_active_lock(connection_id, path, session)
     if existing:
-        if existing.locked_by != current_user.username:
-            raise HTTPException(
-                status_code=status.HTTP_409_CONFLICT,
-                detail=f"File is locked for editing by {existing.locked_by}",
-            )
-
-        if not existing.lock_capability or not existing.operation_id:
+        if existing.locked_by == current_user.username and (not existing.lock_capability or not existing.operation_id):
             session.delete(existing)
             session.commit()
 
@@ -729,18 +971,9 @@ async def acquire_browser_edit_lock(
                 locked_at=replacement_lock.locked_at.isoformat(),
             )
 
-        existing.last_heartbeat = datetime.now(timezone.utc)
-        session.add(existing)
-        session.commit()
-        session.refresh(existing)
-
-        return BrowserEditLockResponse(
-            lock_id=str(existing.id),
-            lock_capability=existing.lock_capability,
-            operation_id=existing.operation_id,
-            file_path=existing.file_path,
-            locked_by=existing.locked_by,
-            locked_at=existing.locked_at.isoformat(),
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail=f"File is locked for editing by {existing.locked_by}",
         )
 
     lock = EditLock(
@@ -751,7 +984,11 @@ async def acquire_browser_edit_lock(
         lock_capability=_generate_lock_capability(),
     )
     session.add(lock)
-    session.commit()
+    try:
+        session.commit()
+    except IntegrityError as error:
+        session.rollback()
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="File is already locked for editing") from error
     session.refresh(lock)
 
     return BrowserEditLockResponse(
@@ -857,6 +1094,9 @@ async def get_browser_edit_lock_status(
 async def upload_file(
     connection_id: uuid.UUID,
     path: str = Query(..., description="Destination path on the share"),
+    editor_operation_id: Optional[str] = Query(None, description="Active browser editor operation ID"),
+    editor_lock_id: Optional[str] = Query(None, description="Active browser editor lock ID"),
+    editor_lock_capability: Optional[str] = Query(None, description="Active browser editor lock capability"),
     operation_id: Optional[str] = Query(None, description="Active companion operation ID"),
     lock_id: Optional[str] = Query(None, description="Active companion lock ID"),
     lock_capability: Optional[str] = Query(None, description="Active companion lock capability"),
@@ -871,7 +1111,24 @@ async def upload_file(
     back edited files) and the web UI (future upload feature).
     """
 
-    if operation_id or lock_id or lock_capability:
+    if editor_operation_id or editor_lock_id or editor_lock_capability:
+        if not editor_operation_id or not editor_lock_id or not editor_lock_capability:
+            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Missing browser editor lock context")
+        current_user = await get_current_user_for_token(token, session)
+        lock = _get_active_lock(connection_id, path, session)
+        if not lock:
+            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Lock not found or expired")
+        _validate_browser_lock_control(
+            lock,
+            BrowserEditLockControlRequest(
+                operation_id=editor_operation_id,
+                lock_id=editor_lock_id,
+                lock_capability=editor_lock_capability,
+            ),
+        )
+        if lock.locked_by != current_user.username:
+            raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Lock is held by another user")
+    elif operation_id or lock_id or lock_capability:
         if not operation_id or not lock_id or not lock_capability or not token:
             raise HTTPException(
                 status_code=status.HTTP_400_BAD_REQUEST,
@@ -1336,6 +1593,9 @@ async def _conflict_response(
     dest: str,
     current_user: User,
     session: Session,
+    *,
+    source_info: FileInfo | None = None,
+    target_info: FileInfo | None = None,
 ) -> HTTPException:
     """Build a 409 response with ``ConflictInfo`` for overwrite prompts.
 
@@ -1343,6 +1603,12 @@ async def _conflict_response(
     source so the frontend can display a meaningful comparison dialog.
     Falls back to a plain 409 if metadata retrieval fails.
     """
+
+    if source_info is not None and target_info is not None:
+        return HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail=ConflictInfo(existing_file=target_info, incoming_file=source_info).model_dump(mode="json"),
+        )
 
     try:
         # Determine which backend to use for each path
@@ -1392,6 +1658,43 @@ async def _conflict_response(
         )
 
 
+async def _resolve_direct_regular_file_transfer(
+    *,
+    backend: SMBBackend,
+    source: str,
+    dest: str,
+    policy: TargetResolutionPolicy,
+    operation: Callable[[FileInfo], Awaitable[object]],
+) -> TargetResolutionDisposition:
+    """Resolve one SMB regular-file transfer without unsafe replacement.
+
+    SMB guarded replacement is not yet available. The coordinator can safely
+    authorize exclusive creation and skips, while replacement returns the
+    normal refreshed conflict path without deleting the current target.
+    """
+
+    source_info = await backend.get_file_info(source)
+    if source_info.type != FileType.FILE:
+        try:
+            await backend.get_file_info(dest)
+        except FileNotFoundError:
+            await operation(source_info)
+            return TargetResolutionDisposition.CREATE_NEW
+        if policy == TargetResolutionPolicy.SKIP:
+            return TargetResolutionDisposition.SKIP
+        return TargetResolutionDisposition.AWAIT_COLLISION
+
+    resolution = await resolve_regular_file_transfer(
+        source=source_info,
+        target_path=dest,
+        policy=policy,
+        observe_target=lambda: backend.get_file_info(dest),
+        attempt_create=lambda: operation(source_info),
+        replacement_supported=False,
+    )
+    return resolution.disposition
+
+
 def _get_connection_or_404(session: Session, current_user: User, connection_id: uuid.UUID) -> Connection:
     """Look up a connection by ID, raising 404 if not found or misconfigured."""
 
@@ -1409,13 +1712,13 @@ def _get_connection_or_404(session: Session, current_user: User, connection_id: 
 #
 # copy_item
 #
-@router.post("/{connection_id}/copy", status_code=status.HTTP_204_NO_CONTENT)
+@router.post("/{connection_id}/copy", response_model=ContentTransferResult)
 async def copy_item(
     connection_id: uuid.UUID,
     body: CopyMoveRequest,
     current_user: User = Depends(get_current_user_with_auth_check),
     session: Session = Depends(get_session),
-) -> None:
+) -> ContentTransferResult:
     """Copy a file or directory.
 
     Copies the source item to the destination path.  When
@@ -1434,8 +1737,13 @@ async def copy_item(
     source, dest = _validate_copy_move_paths(body.source_path, body.dest_path)
 
     is_cross_connection = bool(body.dest_connection_id and str(body.dest_connection_id) != str(connection_id))
+    policy = TargetResolutionPolicy(body.normalized_target_resolution_policy)
 
     connection = _get_connection_or_404(session, current_user, connection_id)
+
+    cached_result = await _find_transfer_receipt(current_user, body)
+    if cached_result is not None:
+        return cached_result
 
     try:
         if is_cross_connection:
@@ -1445,20 +1753,49 @@ async def copy_item(
                 uuid.UUID(str(body.dest_connection_id)),
             )
             require_connection_write_access(current_user, dest_connection, action="copy_destination", path=dest)
-            await _cross_connection_copy(
+            result = await _cross_connection_copy(
                 connection,
                 dest_connection,
                 source,
                 dest,
                 str(body.dest_connection_id),
-                overwrite=body.overwrite,
+                overwrite=False,
+                target_resolution_policy=policy,
             )
         else:
             require_connection_write_access(current_user, connection, action="copy_destination", path=dest)
             backend = build_smb_backend(connection, backend_factory=SMBBackend)
             await backend.connect()
             try:
-                await backend.copy_item(source, dest, overwrite=body.overwrite)
+
+                async def copy_direct(source_info: FileInfo) -> object:
+                    if source_info.type != FileType.FILE:
+                        await backend.copy_item(source, dest, overwrite=False)
+                        return None
+                    return await copy_regular_file_to_missing_target(
+                        backend,
+                        backend,
+                        source,
+                        dest,
+                        source_info,
+                    )
+
+                disposition = await _resolve_direct_regular_file_transfer(
+                    backend=backend,
+                    source=source,
+                    dest=dest,
+                    policy=policy,
+                    operation=copy_direct,
+                )
+                if disposition == TargetResolutionDisposition.AWAIT_COLLISION:
+                    raise FileExistsError(f"Destination already exists: {dest}")
+                result = ContentTransferResult(
+                    status="skipped" if disposition == TargetResolutionDisposition.SKIP else "completed",
+                    effects=ContentTransferEffects(
+                        source="unchanged",
+                        destination="unchanged" if disposition == TargetResolutionDisposition.SKIP else "mutated",
+                    ),
+                )
             finally:
                 await disconnect_backend_safely(
                     backend,
@@ -1466,22 +1803,70 @@ async def copy_item(
                     context=f"copy request: connection_id={connection_id}, source='{source}', dest='{dest}'",
                 )
 
-            # If a directory was copied, add it to the cache
-            _add_to_directory_cache(str(connection_id), dest)
+            if result.effects.destination == "mutated":
+                _add_to_directory_cache(str(connection_id), dest)
 
         logger.info(f"Copied item: connection_id={connection_id}, '{source}' -> '{dest}', user={current_user.username}")
+        return await _record_transfer_receipt(current_user, body, result)
 
+    except TargetCollisionError as exc:
+        conflict = await _conflict_response(
+            connection,
+            body,
+            connection_id,
+            source,
+            dest,
+            current_user,
+            session,
+            source_info=exc.source,
+            target_info=exc.target,
+        )
+        await _record_transfer_http_error(current_user, body, conflict)
+        raise conflict
+    except SourceChangedError as exc:
+        return await _record_transfer_receipt(
+            current_user,
+            body,
+            ContentTransferResult(
+                status="failed",
+                effects=ContentTransferEffects(
+                    source="unchanged",
+                    destination="mutated" if exc.destination_mutated else "unchanged",
+                ),
+                error=ContentTransferError(code="source_changed", detail=str(exc)),
+            ),
+        )
+    except DirectoryTransferError as exc:
+        return await _record_transfer_receipt(
+            current_user,
+            body,
+            ContentTransferResult(
+                status="failed",
+                effects=ContentTransferEffects(
+                    source="unchanged",
+                    destination="mutated" if exc.destination_mutated else "unchanged",
+                ),
+                error=ContentTransferError(code="transport", detail=str(exc)),
+            ),
+        )
     except FileNotFoundError:
-        raise HTTPException(
+        missing_source = HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
             detail=f"Source not found: {source}",
         )
+        await _record_transfer_http_error(current_user, body, missing_source)
+        raise missing_source
     except FileExistsError:
-        raise await _conflict_response(connection, body, connection_id, source, dest, current_user, session)
-    except HTTPException:
+        conflict = await _conflict_response(connection, body, connection_id, source, dest, current_user, session)
+        await _record_transfer_http_error(current_user, body, conflict)
+        raise conflict
+    except HTTPException as error:
+        await _record_transfer_http_error(current_user, body, error)
         raise
     except TimeoutError:
-        raise HTTPException(
+        await _raise_recorded_transfer_http_error(
+            current_user,
+            body,
             status_code=status.HTTP_504_GATEWAY_TIMEOUT,
             detail="Copy timed out. The remote share did not respond in time.",
         )
@@ -1490,7 +1875,9 @@ async def copy_item(
             f"Failed to copy item: connection_id={connection_id}, '{source}' -> '{dest}', error={type(e).__name__}: {e}",
             exc_info=True,
         )
-        raise HTTPException(
+        await _raise_recorded_transfer_http_error(
+            current_user,
+            body,
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail=f"Failed to copy item: {str(e)}",
         )
@@ -1499,10 +1886,14 @@ async def copy_item(
             f"Failed to copy item: connection_id={connection_id}, '{source}' -> '{dest}', error={type(e).__name__}: {e}",
             exc_info=True,
         )
-        raise HTTPException(
+        await _raise_recorded_transfer_http_error(
+            current_user,
+            body,
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail=f"Failed to copy item: {str(e)}",
         )
+    finally:
+        await _record_unknown_transfer_outcome(current_user, body)
 
 
 # ============================================================================
@@ -1513,103 +1904,23 @@ async def copy_item(
 #
 # move_item
 #
-@router.post("/{connection_id}/move", status_code=status.HTTP_204_NO_CONTENT)
+@router.post("/{connection_id}/move", response_model=ContentTransferResult)
 async def move_item(
     connection_id: uuid.UUID,
     body: CopyMoveRequest,
     current_user: User = Depends(get_current_user_with_auth_check),
     session: Session = Depends(get_session),
-) -> None:
-    """Move (rename across directories) a file or directory.
-
-    Moves the source item to the destination path.  When
-    ``dest_connection_id`` differs from the source connection, a
-    cross-connection move is performed (copy + delete source).
-    Byte-level progress is broadcast over WebSocket as
-    ``transfer_progress`` events.
-
-    When ``overwrite`` is ``True``, the destination is replaced if it
-    exists.  Otherwise a 409 response is returned with ``ConflictInfo``
-    containing metadata for both the existing and incoming items.
-    """
+) -> ContentTransferResult:
+    """Return the stabilized unavailable result for all Move requests."""
 
     set_user(current_user.username)
 
-    source, dest = _validate_copy_move_paths(body.source_path, body.dest_path)
-
-    is_cross_connection = bool(body.dest_connection_id and str(body.dest_connection_id) != str(connection_id))
-
-    connection = _get_connection_or_404(session, current_user, connection_id)
-
-    try:
-        if is_cross_connection:
-            dest_connection = _get_connection_or_404(
-                session,
-                current_user,
-                uuid.UUID(str(body.dest_connection_id)),
-            )
-            require_connection_write_access(current_user, connection, action="move_source", path=source)
-            require_connection_write_access(current_user, dest_connection, action="move_destination", path=dest)
-            await _cross_connection_move(
-                connection,
-                dest_connection,
-                source,
-                dest,
-                str(connection_id),
-                str(body.dest_connection_id),
-                overwrite=body.overwrite,
-            )
-        else:
-            require_connection_write_access(current_user, connection, action="move", path=source)
-            backend = build_smb_backend(connection, backend_factory=SMBBackend)
-            await backend.connect()
-            try:
-                await backend.move_item(source, dest, overwrite=body.overwrite)
-            finally:
-                await disconnect_backend_safely(
-                    backend,
-                    logger=logger,
-                    context=f"move request: connection_id={connection_id}, source='{source}', dest='{dest}'",
-                )
-
-            # Update directory cache: remove old path, add new path
-            _remove_from_directory_cache(str(connection_id), source)
-            _add_to_directory_cache(str(connection_id), dest)
-
-        logger.info(f"Moved item: connection_id={connection_id}, '{source}' -> '{dest}', user={current_user.username}")
-
-    except FileNotFoundError:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail=f"Source not found: {source}",
-        )
-    except FileExistsError:
-        raise await _conflict_response(connection, body, connection_id, source, dest, current_user, session)
-    except HTTPException:
-        raise
-    except TimeoutError:
-        raise HTTPException(
-            status_code=status.HTTP_504_GATEWAY_TIMEOUT,
-            detail="Move timed out. The remote share did not respond in time.",
-        )
-    except OSError as e:
-        logger.error(
-            f"Failed to move item: connection_id={connection_id}, '{source}' -> '{dest}', error={type(e).__name__}: {e}",
-            exc_info=True,
-        )
-        raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=f"Failed to move item: {str(e)}",
-        )
-    except Exception as e:
-        logger.error(
-            f"Failed to move item: connection_id={connection_id}, '{source}' -> '{dest}', error={type(e).__name__}: {e}",
-            exc_info=True,
-        )
-        raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=f"Failed to move item: {str(e)}",
-        )
+    _validate_copy_move_paths(body.source_path, body.dest_path)
+    return ContentTransferResult(
+        status="failed",
+        effects=ContentTransferEffects(source="unchanged", destination="unchanged"),
+        error=ContentTransferError(code="unavailable", detail=TRANSFER_UNAVAILABLE_DETAIL),
+    )
 
 
 # ============================================================================
@@ -1625,7 +1936,8 @@ async def _cross_connection_copy(
     dst_conn_id: str,
     *,
     overwrite: bool = False,
-) -> None:
+    target_resolution_policy: TargetResolutionPolicy | None = None,
+) -> ContentTransferResult:
     """Perform a cross-connection copy with WebSocket progress reporting.
 
     Builds two separate SMB backends, streams data from source to
@@ -1676,14 +1988,21 @@ async def _cross_connection_copy(
             pass  # No running event loop — skip this broadcast
 
     try:
-        await cross_connection_copy(
+        bytes_written, _source_snapshot = await cross_connection_copy(
             source_backend,
             dest_backend,
             source_path,
             dest_path,
             on_progress=on_progress,
             overwrite=overwrite,
+            target_resolution_policy=target_resolution_policy,
         )
+        if bytes_written is None:
+            return ContentTransferResult(
+                status="skipped",
+                effects=ContentTransferEffects(source="unchanged", destination="unchanged"),
+            )
+
         # Send a final 100 % broadcast
         try:
             await notify_transfer_progress(
@@ -1698,6 +2017,10 @@ async def _cross_connection_copy(
 
         # Update directory cache for the destination connection
         _add_to_directory_cache(dst_conn_id, dest_path)
+        return ContentTransferResult(
+            status="completed",
+            effects=ContentTransferEffects(source="unchanged", destination="mutated"),
+        )
 
     finally:
         await disconnect_backend_safely(
@@ -1709,93 +2032,6 @@ async def _cross_connection_copy(
             dest_backend,
             logger=logger,
             context=f"cross-connection copy destination cleanup: '{source_path}' -> '{dest_path}'",
-        )
-
-
-async def _cross_connection_move(
-    src_conn: Connection,
-    dst_conn: Connection,
-    source_path: str,
-    dest_path: str,
-    src_conn_id: str,
-    dst_conn_id: str,
-    *,
-    overwrite: bool = False,
-) -> None:
-    """Perform a cross-connection move (copy + delete) with progress reporting."""
-
-    from app.api.websocket import notify_transfer_progress
-
-    source_backend = build_smb_backend(src_conn, backend_factory=SMBBackend)
-    dest_backend = build_smb_backend(dst_conn, backend_factory=SMBBackend)
-
-    await source_backend.connect()
-    await dest_backend.connect()
-
-    dest_parent = str(PurePosixPath(dest_path).parent)
-    if dest_parent == ".":
-        dest_parent = ""
-    item_name = PurePosixPath(dest_path).name
-
-    _last_broadcast: list[float] = [0.0]
-    _min_broadcast_interval_s: float = 0.25
-
-    def on_progress(bytes_transferred: int, total_bytes: int | None) -> None:
-        import time
-
-        now = time.monotonic()
-        if now - _last_broadcast[0] < _min_broadcast_interval_s:
-            return
-        _last_broadcast[0] = now
-
-        try:
-            loop = asyncio.get_event_loop()
-            loop.create_task(
-                notify_transfer_progress(
-                    dst_conn_id,
-                    dest_parent,
-                    bytes_transferred,
-                    total_bytes,
-                    item_name,
-                )
-            )
-        except RuntimeError:
-            pass
-
-    try:
-        await cross_connection_move(
-            source_backend,
-            dest_backend,
-            source_path,
-            dest_path,
-            on_progress=on_progress,
-            overwrite=overwrite,
-        )
-        try:
-            await notify_transfer_progress(
-                dst_conn_id,
-                dest_parent,
-                -1,
-                -1,
-                item_name,
-            )
-        except Exception:
-            pass
-
-        # Update both caches
-        _remove_from_directory_cache(src_conn_id, source_path)
-        _add_to_directory_cache(dst_conn_id, dest_path)
-
-    finally:
-        await disconnect_backend_safely(
-            source_backend,
-            logger=logger,
-            context=f"cross-connection move source cleanup: '{source_path}' -> '{dest_path}'",
-        )
-        await disconnect_backend_safely(
-            dest_backend,
-            logger=logger,
-            context=f"cross-connection move destination cleanup: '{source_path}' -> '{dest_path}'",
         )
 
 

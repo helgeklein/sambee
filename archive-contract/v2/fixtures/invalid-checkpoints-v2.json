@@ -1,0 +1,61 @@
+{
+  "version": 2,
+  "cases": [
+    {
+      "name": "legacy_written_members_with_outcomes",
+      "checkpoint": {
+        "written_members": [
+          "legacy-only.txt"
+        ],
+        "member_outcomes": {
+          "complete.txt": {
+            "status": "extracted"
+          }
+        }
+      },
+      "error": "invalid_checkpoint"
+    },
+    {
+      "name": "unversioned_legacy_written_members",
+      "checkpoint": {
+        "written_members": [
+          "legacy.txt"
+        ]
+      },
+      "error": "invalid_checkpoint"
+    },
+    {
+      "name": "legacy_outcome_checkpoint_version",
+      "checkpoint": {
+        "extraction_outcome_checkpoint_version": 1,
+        "member_outcomes": {}
+      },
+      "error": "invalid_checkpoint"
+    },
+    {
+      "name": "unknown_outcome_status",
+      "checkpoint": {
+        "version": 2,
+        "manifest": [],
+        "source_snapshot": {
+          "size": 0,
+          "modified_at": null
+        },
+        "member_outcomes": {
+          "invalid.txt": {
+            "status": "unknown"
+          }
+        },
+        "decisions": {
+          "collision_actions": {},
+          "rename_targets": {},
+          "ignored_members": [],
+          "retry_members": []
+        },
+        "pending_decision": null,
+        "delivery_ids": {}
+      },
+      "error": "invalid_checkpoint"
+    }
+  ]
+}

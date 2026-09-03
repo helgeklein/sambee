@@ -1,13 +1,36 @@
 from abc import ABC, abstractmethod
 from collections.abc import AsyncIterator
 from datetime import datetime
-from typing import BinaryIO, Callable, Optional
+from typing import Awaitable, BinaryIO, Callable, Optional, Protocol
 
 from app.models.file import DirectoryListing, FileInfo
 
 # Type alias for progress callbacks.
 # Called with (bytes_transferred, total_bytes_or_none) after each chunk.
 ProgressCallback = Callable[[int, Optional[int]], None]
+
+
+class RandomAccessReader(Protocol):
+    """Operation-scoped reader for bounded random-access archive reads."""
+
+    async def read_at(self, offset: int, length: int) -> bytes:
+        """Read up to *length* bytes at *offset*, returning short data only at EOF."""
+
+    async def close(self) -> None:
+        """Release the underlying provider handle and associated resources."""
+
+
+class ExclusiveWriter(Protocol):
+    """Operation-scoped writer that owns a newly created final target."""
+
+    async def write(self, data: bytes) -> int:
+        """Append one bounded chunk to the target."""
+
+    async def close(self) -> None:
+        """Flush and release the writer without deleting its target."""
+
+    async def abort_and_delete_if_owned(self) -> bool:
+        """Attempt cleanup while this writer's active handle still owns the target."""
 
 
 class StorageBackend(ABC):
@@ -55,6 +78,18 @@ class StorageBackend(ABC):
     @abstractmethod
     def read_file(self, path: str) -> AsyncIterator[bytes]:
         """Read file contents as chunks"""
+
+        pass
+
+    @abstractmethod
+    async def open_random_access_reader(self, path: str) -> RandomAccessReader:
+        """Open an operation-scoped reader for bounded offset reads."""
+
+        pass
+
+    @abstractmethod
+    async def open_exclusive_writer(self, path: str) -> ExclusiveWriter:
+        """Create a final target exclusively and return its streaming writer."""
 
         pass
 
@@ -272,8 +307,29 @@ class StorageBackend(ABC):
 
         Raises:
             FileExistsError: If the destination already exists and
-                *overwrite* is ``False``.
+                *overwrite* is ``False``. Archive destinations use the
+                ``TargetExistsBeforeContent`` subtype only when no input chunk
+                has been accepted.
             OSError: If the write operation fails.
+        """
+
+        pass
+
+    @abstractmethod
+    async def stage_and_commit_new_file_from_stream(
+        self,
+        path: str,
+        stream: AsyncIterator[bytes],
+        *,
+        before_commit: Callable[[], Awaitable[None]],
+        on_progress: ProgressCallback | None = None,
+        source_mtime: datetime | None = None,
+    ) -> int:
+        """Stage one stream and atomically publish it only to a missing target.
+
+        Implementations must own and clean up the private stage on every
+        failure. A target appearance during final publication raises
+        ``FileExistsError`` without modifying the visible target.
         """
 
         pass

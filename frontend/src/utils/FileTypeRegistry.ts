@@ -9,6 +9,7 @@
  */
 
 import type React from "react";
+import type { VirtualItemHandle } from "../pages/FileBrowser/contentProviders";
 import { logger } from "../services/logger";
 
 // ============================================================================
@@ -20,6 +21,10 @@ export interface ViewerComponentProps {
   path: string;
   onClose: () => void;
   isReadOnly?: boolean;
+  virtualSource?: VirtualItemHandle;
+  hasMoreItems?: boolean;
+  isLoadingMoreItems?: boolean;
+  onLoadMoreItems?: () => void;
   // Gallery mode support
   images?: string[];
   currentIndex?: number;

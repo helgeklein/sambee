@@ -14,6 +14,7 @@ Started during application lifespan (main.py) and cancelled on shutdown.
 """
 
 import asyncio
+import uuid
 from datetime import datetime, timedelta, timezone
 
 from sqlmodel import Session, select
@@ -29,6 +30,22 @@ from app.models.edit_lock import (
 logger = get_logger(__name__)
 
 _orphan_task: asyncio.Task[None] | None = None
+
+
+def remove_expired_file_locks(session: Session, connection_id: uuid.UUID, path: str) -> None:
+    """Delete expired locks for one target before a new session is acquired."""
+
+    cutoff = datetime.now(timezone.utc) - timedelta(seconds=HEARTBEAT_TIMEOUT_SECONDS)
+    expired_locks = session.exec(
+        select(EditLock)
+        .where(EditLock.connection_id == connection_id)
+        .where(EditLock.file_path == path)
+        .where(EditLock.last_heartbeat < cutoff)
+    ).all()
+    for lock in expired_locks:
+        session.delete(lock)
+    if expired_locks:
+        session.flush()
 
 
 #

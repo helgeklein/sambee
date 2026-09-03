@@ -1,0 +1,245 @@
+{
+  "version": 2,
+  "manifest_scenarios": [
+    {
+      "name": "normalizes_manifest_paths_and_derives_summary",
+      "entries": [
+        {
+          "archive_path": "docs\\guides",
+          "is_directory": true,
+          "source_size": 0
+        },
+        {
+          "archive_path": "docs\\guides\\readme.txt",
+          "is_directory": false,
+          "source_size": 7
+        }
+      ],
+      "normalized_entries": [
+        {
+          "archive_path": "docs/guides",
+          "is_directory": true,
+          "source_size": 0
+        },
+        {
+          "archive_path": "docs/guides/readme.txt",
+          "is_directory": false,
+          "source_size": 7
+        }
+      ],
+      "progress": {
+        "files_created": 1,
+        "directories_created": 1,
+        "source_bytes": 7
+      }
+    },
+    {
+      "name": "empty_manifest_is_rejected",
+      "entries": [],
+      "error": "empty_manifest"
+    },
+    {
+      "name": "unsafe_manifest_path_is_rejected",
+      "entries": [
+        {
+          "archive_path": "../escape.txt",
+          "is_directory": false,
+          "source_size": 1
+        }
+      ],
+      "error": "unsafe_path"
+    },
+    {
+      "name": "directory_with_source_bytes_is_rejected",
+      "entries": [
+        {
+          "archive_path": "docs",
+          "is_directory": true,
+          "source_size": 1
+        }
+      ],
+      "error": "directory_source_bytes"
+    },
+    {
+      "name": "case_folded_manifest_duplicate_is_rejected",
+      "entries": [
+        {
+          "archive_path": "Report.txt",
+          "is_directory": false,
+          "source_size": 1
+        },
+        {
+          "archive_path": "report.txt",
+          "is_directory": false,
+          "source_size": 1
+        }
+      ],
+      "error": "duplicate_path"
+    },
+    {
+      "name": "file_descendant_manifest_collision_is_rejected",
+      "entries": [
+        {
+          "archive_path": "folder",
+          "is_directory": false,
+          "source_size": 1
+        },
+        {
+          "archive_path": "folder/child.txt",
+          "is_directory": false,
+          "source_size": 1
+        }
+      ],
+      "error": "structural_collision"
+    }
+  ],
+  "terminal_scenarios": [
+    {
+      "name": "terminal_summary_accepts_exact_replay",
+      "entries": [
+        {
+          "archive_path": "docs",
+          "is_directory": true,
+          "source_size": 0
+        },
+        {
+          "archive_path": "docs/readme.txt",
+          "is_directory": false,
+          "source_size": 7
+        }
+      ],
+      "result_reports": [
+        {
+          "archive_path": "docs",
+          "status": "directory",
+          "source_bytes": 0
+        },
+        {
+          "archive_path": "docs/readme.txt",
+          "status": "created",
+          "source_bytes": 7
+        },
+        {
+          "archive_path": "docs/readme.txt",
+          "status": "created",
+          "source_bytes": 7
+        }
+      ],
+      "progress": {
+        "files_created": 1,
+        "directories_created": 1,
+        "source_bytes": 7
+      }
+    },
+    {
+      "name": "changed_manifest_member_replay_is_rejected",
+      "entries": [
+        {
+          "archive_path": "readme.txt",
+          "is_directory": false,
+          "source_size": 7
+        }
+      ],
+      "result_reports": [
+        {
+          "archive_path": "readme.txt",
+          "status": "created",
+          "source_bytes": 7
+        },
+        {
+          "archive_path": "readme.txt",
+          "status": "created",
+          "source_bytes": 8
+        }
+      ],
+      "error": "member_outcome_conflict"
+    },
+    {
+      "name": "incomplete_manifest_blocks_terminal_summary",
+      "entries": [
+        {
+          "archive_path": "first.txt",
+          "is_directory": false,
+          "source_size": 5
+        },
+        {
+          "archive_path": "second.txt",
+          "is_directory": false,
+          "source_size": 6
+        }
+      ],
+      "result_reports": [
+        {
+          "archive_path": "first.txt",
+          "status": "created",
+          "source_bytes": 5
+        }
+      ],
+      "error": "incomplete_manifest"
+    }
+  ],
+  "scenarios": [
+    {
+      "name": "terminal_creation_reports_are_idempotent",
+      "result_reports": [
+        {
+          "archive_path": "docs",
+          "status": "directory",
+          "source_bytes": 0
+        },
+        {
+          "archive_path": "docs/readme.txt",
+          "status": "created",
+          "source_bytes": 7
+        },
+        {
+          "archive_path": "docs/readme.txt",
+          "status": "created",
+          "source_bytes": 7
+        }
+      ],
+      "member_outcomes": {
+        "docs": {
+          "status": "directory",
+          "source_bytes": 0
+        },
+        "docs/readme.txt": {
+          "status": "created",
+          "source_bytes": 7
+        }
+      },
+      "progress": {
+        "files_created": 1,
+        "directories_created": 1,
+        "source_bytes": 7
+      }
+    },
+    {
+      "name": "directory_result_rejects_source_bytes",
+      "result_reports": [
+        {
+          "archive_path": "docs",
+          "status": "directory",
+          "source_bytes": 1
+        }
+      ],
+      "error": "directory_source_bytes"
+    },
+    {
+      "name": "changed_member_replay_is_rejected",
+      "result_reports": [
+        {
+          "archive_path": "docs/readme.txt",
+          "status": "created",
+          "source_bytes": 7
+        },
+        {
+          "archive_path": "docs/readme.txt",
+          "status": "created",
+          "source_bytes": 8
+        }
+      ],
+      "error": "member_outcome_conflict"
+    }
+  ]
+}

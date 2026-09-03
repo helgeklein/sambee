@@ -145,6 +145,9 @@ function createMockPane(overrides: Partial<UseFileBrowserPaneReturn> = {}): UseF
     setConnectionId: vi.fn(),
     currentPath: "some/path",
     setCurrentPath: vi.fn(),
+    archiveLocation: null,
+    archiveHasMore: false,
+    archiveLoadingMore: false,
     files: testFiles,
     loading: false,
     error: null,
@@ -231,11 +234,16 @@ function createMockPane(overrides: Partial<UseFileBrowserPaneReturn> = {}): UseF
     handlePageUp: vi.fn(),
     handleOpenFile: vi.fn(),
     handleOpenFileForFile: vi.fn(),
+    openArchive: vi.fn(),
+    navigateArchiveToPath: vi.fn(),
+    loadMoreArchive: vi.fn(),
+    closeArchive: vi.fn(),
     handleNavigateUpDirectory: vi.fn(),
     handleNavigateUp: vi.fn(),
     handleClose: vi.fn(),
     handleFocusSearch: vi.fn(),
     handleRefresh: vi.fn(),
+    reloadCurrentLocation: vi.fn(),
 
     // Viewer handlers
     handleViewIndexChange: vi.fn(),
@@ -264,7 +272,6 @@ function createMockPane(overrides: Partial<UseFileBrowserPaneReturn> = {}): UseF
     handleDirectoryChanged: vi.fn(),
     clearCaches: vi.fn(),
     invalidateConnectionCache: vi.fn(),
-    loadFiles: vi.fn(),
 
     ...overrides,
   };
@@ -316,6 +323,17 @@ describe("FileBrowserPane", () => {
       const breadcrumbs = screen.getByTestId("breadcrumbs");
       expect(breadcrumbs).toHaveTextContent("My NAS");
       expect(breadcrumbs).toHaveTextContent("some/path");
+    });
+
+    it("renders an archive location in the existing breadcrumb trail", () => {
+      const pane = createMockPane({
+        archiveLocation: { archivePath: "some/path/backup.zip", virtualPath: "nested" },
+      });
+      render(<FileBrowserPane {...defaultProps({ pane })} />);
+
+      const breadcrumbs = screen.getByTestId("breadcrumbs");
+      expect(breadcrumbs).toHaveTextContent("backup.zip");
+      expect(breadcrumbs).toHaveTextContent("nested");
     });
 
     it("renders file list with file names", () => {

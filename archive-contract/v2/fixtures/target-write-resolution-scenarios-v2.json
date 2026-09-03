@@ -1,0 +1,220 @@
+{
+  "version": 2,
+  "scenarios": [
+    {
+      "name": "missing_target_creates",
+      "policy": "ask",
+      "source_modified_at": "2026-01-02T00:00:00+00:00",
+      "target": "missing",
+      "expected": "create_new"
+    },
+    {
+      "name": "unresolved_regular_target_pauses",
+      "policy": "ask",
+      "source_modified_at": "2026-01-02T00:00:00+00:00",
+      "target": "regular_file",
+      "target_modified_at": "2026-01-01T00:00:00+00:00",
+      "expected": "await_collision"
+    },
+    {
+      "name": "skip_policy_skips_regular_target",
+      "policy": "skip",
+      "source_modified_at": "2026-01-02T00:00:00+00:00",
+      "target": "regular_file",
+      "target_modified_at": "2026-01-01T00:00:00+00:00",
+      "expected": "skip"
+    },
+    {
+      "name": "replace_policy_replaces_regular_target",
+      "policy": "replace",
+      "source_modified_at": "2026-01-02T00:00:00+00:00",
+      "target": "regular_file",
+      "target_modified_at": "2026-01-01T00:00:00+00:00",
+      "expected": "replace_existing"
+    },
+    {
+      "name": "replace_older_replaces_older_target",
+      "policy": "replace_older",
+      "source_modified_at": "2026-01-02T00:00:00+00:00",
+      "target": "regular_file",
+      "target_modified_at": "2026-01-01T00:00:00+00:00",
+      "expected": "replace_existing"
+    },
+    {
+      "name": "replace_older_skips_equal_target",
+      "policy": "replace_older",
+      "source_modified_at": "2026-01-02T00:00:00+00:00",
+      "target": "regular_file",
+      "target_modified_at": "2026-01-02T00:00:00+00:00",
+      "expected": "skip"
+    },
+    {
+      "name": "replace_older_skips_newer_target",
+      "policy": "replace_older",
+      "source_modified_at": "2026-01-01T00:00:00+00:00",
+      "target": "regular_file",
+      "target_modified_at": "2026-01-02T00:00:00+00:00",
+      "expected": "skip"
+    },
+    {
+      "name": "replace_older_skips_incomparable_target",
+      "policy": "replace_older",
+      "source_modified_at": null,
+      "target": "regular_file",
+      "target_modified_at": "2026-01-01T00:00:00+00:00",
+      "expected": "skip"
+    },
+    {
+      "name": "replace_older_skips_target_without_timestamp",
+      "policy": "replace_older",
+      "source_modified_at": "2026-01-02T00:00:00+00:00",
+      "target": "regular_file",
+      "target_modified_at": null,
+      "expected": "skip"
+    },
+    {
+      "name": "non_file_target_pauses",
+      "policy": "replace",
+      "source_modified_at": "2026-01-02T00:00:00+00:00",
+      "target": "other",
+      "expected": "await_collision"
+    },
+    {
+      "name": "late_older_target_replaces",
+      "phase": "after_create_race",
+      "attempt_ordinal": 1,
+      "policy": "replace_older",
+      "source_modified_at": "2026-01-02T00:00:00+00:00",
+      "target": "regular_file",
+      "target_modified_at": "2026-01-01T00:00:00+00:00",
+      "expected": "replace_existing"
+    },
+    {
+      "name": "late_newer_target_skips",
+      "phase": "after_create_race",
+      "attempt_ordinal": 1,
+      "policy": "replace_older",
+      "source_modified_at": "2026-01-01T00:00:00+00:00",
+      "target": "regular_file",
+      "target_modified_at": "2026-01-02T00:00:00+00:00",
+      "expected": "skip"
+    },
+    {
+      "name": "second_late_non_file_target_pauses",
+      "phase": "after_create_race",
+      "attempt_ordinal": 2,
+      "policy": "replace",
+      "source_modified_at": "2026-01-02T00:00:00+00:00",
+      "target": "other",
+      "expected": "await_collision"
+    }
+  ],
+  "attempt_scenarios": [
+    {
+      "name": "late_target_disappears_then_creates",
+      "policy": "ask",
+      "source_modified_at": null,
+      "steps": [
+        {
+          "kind": "observe",
+          "target": "missing"
+        },
+        {
+          "kind": "write",
+          "result": "target_exists_before_content"
+        },
+        {
+          "kind": "observe",
+          "target": "missing"
+        },
+        {
+          "kind": "write",
+          "result": "ready"
+        }
+      ],
+      "expected": "create_new",
+      "expected_attempts": 2,
+      "expected_stream_polls": 1
+    },
+    {
+      "name": "late_older_target_replaces",
+      "policy": "replace_older",
+      "source_modified_at": "2026-01-02T00:00:00+00:00",
+      "steps": [
+        {
+          "kind": "observe",
+          "target": "missing"
+        },
+        {
+          "kind": "write",
+          "result": "target_exists_before_content"
+        },
+        {
+          "kind": "observe",
+          "target": "regular_file",
+          "target_modified_at": "2026-01-01T00:00:00+00:00"
+        },
+        {
+          "kind": "write",
+          "result": "ready"
+        }
+      ],
+      "expected": "replace_existing",
+      "expected_attempts": 2,
+      "expected_stream_polls": 1
+    },
+    {
+      "name": "late_newer_target_skips",
+      "policy": "replace_older",
+      "source_modified_at": "2026-01-01T00:00:00+00:00",
+      "steps": [
+        {
+          "kind": "observe",
+          "target": "missing"
+        },
+        {
+          "kind": "write",
+          "result": "target_exists_before_content"
+        },
+        {
+          "kind": "observe",
+          "target": "regular_file",
+          "target_modified_at": "2026-01-02T00:00:00+00:00"
+        }
+      ],
+      "expected": "skip",
+      "expected_attempts": 1,
+      "expected_stream_polls": 0
+    },
+    {
+      "name": "second_late_non_file_target_pauses",
+      "policy": "replace",
+      "source_modified_at": null,
+      "steps": [
+        {
+          "kind": "observe",
+          "target": "missing"
+        },
+        {
+          "kind": "write",
+          "result": "target_exists_before_content"
+        },
+        {
+          "kind": "observe",
+          "target": "missing"
+        },
+        {
+          "kind": "write",
+          "result": "target_exists_before_content"
+        },
+        {
+          "kind": "observe",
+          "target": "other"
+        }
+      ],
+      "expected": "await_collision",
+      "expected_attempts": 2,
+      "expected_stream_polls": 0
+    }
+  ]
+}

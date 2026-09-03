@@ -37,6 +37,7 @@ vi.mock("axios", () => {
   return {
     default: {
       create: vi.fn(() => mockAxiosInstance),
+      isAxiosError: vi.fn((error: unknown) => Boolean(error && typeof error === "object" && "isAxiosError" in error)),
       isCancel: vi.fn(() => false),
     },
   };
@@ -45,7 +46,7 @@ vi.mock("axios", () => {
 // Get reference to the mocked functions for assertions
 import axios from "axios";
 // Now import the API service (it will use the mocked axios.create)
-import apiService, { LOCAL_DRIVE_EDIT_LOCKS_UNSUPPORTED_MESSAGE, OIDC_FINALIZATION_REQUEST_TIMEOUT_MS } from "../api";
+import apiService, { OIDC_FINALIZATION_REQUEST_TIMEOUT_MS } from "../api";
 import { authSession } from "../authSession";
 import { getBackendAvailabilitySnapshot, markBackendUnavailable, resetBackendAvailabilityForTests } from "../backendAvailability";
 import * as draftRecovery from "../draftRecovery";
@@ -181,6 +182,53 @@ describe("API Service", () => {
       },
       { timeout: OIDC_FINALIZATION_REQUEST_TIMEOUT_MS }
     );
+  });
+
+  it("phase_10_stabilization_api_requires_a_supplied_idempotency_key", async () => {
+    mockAxiosInstance.post.mockResolvedValue({
+      data: { status: "completed", replaced: false, effects: { source: "unchanged", destination: "mutated" } },
+    } as AxiosResponse);
+
+    await apiService.copyItem("connection", "source.txt", "destination.txt", "00000000-0000-4000-8000-000000000003");
+
+    expect(mockAxiosInstance.post).toHaveBeenCalledWith(
+      "/browse/connection/copy",
+      expect.objectContaining({ idempotency_key: "00000000-0000-4000-8000-000000000003" }),
+      expect.anything()
+    );
+  });
+
+  it("phase_10_stabilization_no_response_returns_unknown_without_retry", async () => {
+    mockAxiosInstance.post.mockRejectedValue({ isAxiosError: true, message: "Network Error" });
+
+    await expect(
+      apiService.copyItem("connection", "source.txt", "destination.txt", "00000000-0000-4000-8000-000000000001")
+    ).resolves.toEqual({
+      status: "outcome_unknown",
+      replaced: false,
+      effects: { source: "unknown", destination: "unknown" },
+    });
+    expect(mockAxiosInstance.post).toHaveBeenCalledTimes(1);
+  });
+
+  it("phase_10_stabilization_normalizes_unavailable_response", async () => {
+    mockAxiosInstance.post.mockResolvedValue({
+      data: {
+        status: "failed",
+        replaced: false,
+        effects: { source: "unchanged", destination: "unchanged" },
+        error: { code: "unavailable", detail: "Transfers are unavailable in this release" },
+      },
+    } as AxiosResponse);
+
+    await expect(
+      apiService.copyItem("connection", "source.txt", "destination.txt", "00000000-0000-4000-8000-000000000002")
+    ).resolves.toEqual({
+      status: "failed",
+      replaced: false,
+      effects: { source: "unchanged", destination: "unchanged" },
+      error: { code: "unavailable", reason: "unsupported" },
+    });
   });
 
   describe("Authentication", () => {
@@ -856,6 +904,54 @@ describe("API Service", () => {
         timeout: 15_000,
       });
     });
+
+    it("starts a direct-local archive creation lifecycle execution", async () => {
+      localStorage.setItem("companion_secret", "test-companion-secret");
+      mockAxiosInstance.post.mockResolvedValueOnce({
+        data: { execution_id: "create-1", kind: "create", phase: "accepted", revision: 1, cancellation_requested: false },
+      } as AxiosResponse);
+
+      await expect(
+        apiService.startLocalArchiveCreation("local-drive:c", ["Documents/report.txt"], "Archives/backup.zip")
+      ).resolves.toMatchObject({
+        execution_id: "create-1",
+        kind: "create",
+      });
+
+      expect(mockAxiosInstance.post).toHaveBeenCalledWith(
+        "/browse/c/archive/v2/executions",
+        { contract_version: "v2", kind: "create", source_paths: ["Documents/report.txt"], target_path: "Archives/backup.zip" },
+        { headers: expect.any(Object) }
+      );
+    });
+
+    it("retries local archive cancellation after a stale progress revision", async () => {
+      localStorage.setItem("companion_secret", "test-companion-secret");
+      mockAxiosInstance.post.mockRejectedValueOnce({ response: { status: 409 } }).mockResolvedValueOnce({
+        data: { execution_id: "create-1", kind: "create", phase: "streaming", revision: 3, cancellation_requested: true },
+      } as AxiosResponse);
+      mockAxiosInstance.get.mockResolvedValueOnce({
+        data: { execution_id: "create-1", kind: "create", phase: "streaming", revision: 2, cancellation_requested: false },
+      } as AxiosResponse);
+
+      await expect(apiService.cancelLocalArchiveExecutionWithRevisionRetry("local-drive:c", "create-1", 1)).resolves.toMatchObject({
+        revision: 3,
+        cancellation_requested: true,
+      });
+
+      expect(mockAxiosInstance.post.mock.calls.slice(-2)).toEqual([
+        [
+          "/browse/c/archive/v2/executions/create-1/cancellation",
+          { contract_version: "v2", expected_revision: 1 },
+          { headers: expect.any(Object) },
+        ],
+        [
+          "/browse/c/archive/v2/executions/create-1/cancellation",
+          { contract_version: "v2", expected_revision: 2 },
+          { headers: expect.any(Object) },
+        ],
+      ]);
+    });
   });
 
   describe("Viewer Operations", () => {
@@ -875,6 +971,49 @@ describe("API Service", () => {
       expect(url).not.toContain("token=");
     });
 
+    it("getOriginalFileBlob() fetches untransformed bytes from the download endpoint", async () => {
+      authSession.setAuthenticated({ access_token: "download-token", token_type: "bearer", username: "testuser" }, false);
+      const controller = new AbortController();
+      const blob = new Blob(["original"]);
+      fetchMock.mockResolvedValueOnce({ ok: true, blob: vi.fn().mockResolvedValueOnce(blob) });
+
+      await expect(apiService.getOriginalFileBlob("conn1", "/photos/image.jxl", { signal: controller.signal })).resolves.toBe(blob);
+
+      expect(fetchMock).toHaveBeenCalledWith("http://localhost:3000/api/viewer/conn1/download?path=%2Fphotos%2Fimage.jxl", {
+        headers: { Authorization: "Bearer download-token" },
+        signal: controller.signal,
+      });
+    });
+
+    it("uses device-pixel viewport dimensions for physical and archive images", async () => {
+      vi.stubGlobal("devicePixelRatio", 2);
+      mockAxiosInstance.get
+        .mockResolvedValueOnce({ data: new Blob(["archive"]), headers: {} } as AxiosResponse)
+        .mockResolvedValueOnce({ data: new ArrayBuffer(0), headers: {} } as AxiosResponse);
+
+      await apiService.getArchiveMember("conn1", "photos.zip", "photos/image.jxl", {
+        request: { kind: "image", viewportWidth: 640, viewportHeight: 360 },
+      });
+      await apiService.getImageBlob("conn1", "photos/image.jxl", { viewportWidth: 640, viewportHeight: 360 });
+
+      expect(mockAxiosInstance.get).toHaveBeenNthCalledWith(
+        1,
+        "/archive/v2/inspection/member",
+        expect.objectContaining({
+          params: expect.objectContaining({ contract_version: "v2", connection_id: "conn1", viewport_width: 1280, viewport_height: 720 }),
+          responseType: "blob",
+        })
+      );
+      expect(mockAxiosInstance.get).toHaveBeenNthCalledWith(
+        2,
+        "/viewer/conn1/file",
+        expect.objectContaining({
+          params: expect.objectContaining({ path: "photos/image.jxl", viewport_width: 1280, viewport_height: 720 }),
+          responseType: "arraybuffer",
+        })
+      );
+    });
+
     it("getFileContent() fetches file content as text", async () => {
       localStorage.setItem("access_token", "content-token");
 
@@ -891,9 +1030,9 @@ describe("API Service", () => {
       });
     });
 
-    it("supportsEditLocks() reports server and local-drive support correctly", () => {
+    it("supportsEditLocks() reports server and Companion-local support", () => {
       expect(apiService.supportsEditLocks("conn1")).toBe(true);
-      expect(apiService.supportsEditLocks("local-drive:c")).toBe(false);
+      expect(apiService.supportsEditLocks("local-drive:c")).toBe(true);
     });
 
     it("saveTextFile() uploads text content to the same path", async () => {
@@ -1011,33 +1150,62 @@ describe("API Service", () => {
       });
     });
 
-    it("getEditLockStatus() treats local drives as unlocked", async () => {
+    it("getEditLockStatus() reads Companion-local lock state", async () => {
+      localStorage.setItem("companion_secret", "test-companion-secret");
+      mockAxiosInstance.get.mockResolvedValueOnce({ data: { locked: true, locked_by: "alice" } } as AxiosResponse);
+
       const result = await apiService.getEditLockStatus("local-drive:c", "/docs/readme.md");
 
-      expect(result).toEqual({ locked: false });
-      expect(mockAxiosInstance.get).not.toHaveBeenCalled();
+      expect(result).toEqual({ locked: true, locked_by: "alice" });
+      expect(mockAxiosInstance.get).toHaveBeenCalledWith(
+        "/browse/c/lock-status",
+        expect.objectContaining({ params: { path: "/docs/readme.md" }, headers: expect.any(Object) })
+      );
     });
 
-    it("edit lock mutations reject for local drives", async () => {
-      await expect(apiService.acquireEditLock("local-drive:c", "/docs/readme.md", "session-1")).rejects.toThrow(
-        LOCAL_DRIVE_EDIT_LOCKS_UNSUPPORTED_MESSAGE
+    it("edit lock mutations use Companion-local routes", async () => {
+      localStorage.setItem("companion_secret", "test-companion-secret");
+      const lockInfo = {
+        lock_id: "lock-1",
+        lock_capability: "cap-1",
+        operation_id: "op-1",
+        file_path: "/docs/readme.md",
+        locked_by: "alice",
+        locked_at: "2026-03-23T12:00:00Z",
+      };
+      mockAxiosInstance.post.mockResolvedValue({ data: lockInfo } as AxiosResponse);
+      mockAxiosInstance.delete.mockResolvedValue({ data: { status: "ok" } } as AxiosResponse);
+
+      await expect(apiService.acquireEditLock("local-drive:c", "/docs/readme.md", "session-1")).resolves.toEqual(lockInfo);
+      await apiService.heartbeatEditLock("local-drive:c", "/docs/readme.md", lockInfo);
+      await apiService.releaseEditLock("local-drive:c", "/docs/readme.md", lockInfo);
+
+      expect(mockAxiosInstance.post).toHaveBeenCalledWith(
+        "/browse/c/lock",
+        undefined,
+        expect.objectContaining({ params: { path: "/docs/readme.md" }, headers: expect.any(Object) })
       );
-      await expect(
-        apiService.heartbeatEditLock("local-drive:c", "/docs/readme.md", {
+      expect(mockAxiosInstance.post).toHaveBeenCalledWith(
+        "/browse/c/lock/heartbeat",
+        {
+          operation_id: "op-1",
           lock_id: "lock-1",
-          file_path: "/docs/readme.md",
-          locked_by: "alice",
-          locked_at: "2026-03-23T12:00:00Z",
+          lock_capability: "cap-1",
+        },
+        expect.objectContaining({ params: { path: "/docs/readme.md" }, headers: expect.any(Object) })
+      );
+      expect(mockAxiosInstance.delete).toHaveBeenCalledWith(
+        "/browse/c/lock",
+        expect.objectContaining({
+          params: { path: "/docs/readme.md" },
+          data: {
+            operation_id: "op-1",
+            lock_id: "lock-1",
+            lock_capability: "cap-1",
+          },
+          headers: expect.any(Object),
         })
-      ).rejects.toThrow(LOCAL_DRIVE_EDIT_LOCKS_UNSUPPORTED_MESSAGE);
-      await expect(
-        apiService.releaseEditLock("local-drive:c", "/docs/readme.md", {
-          lock_id: "lock-1",
-          file_path: "/docs/readme.md",
-          locked_by: "alice",
-          locked_at: "2026-03-23T12:00:00Z",
-        })
-      ).rejects.toThrow(LOCAL_DRIVE_EDIT_LOCKS_UNSUPPORTED_MESSAGE);
+      );
     });
   });
 

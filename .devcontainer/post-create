@@ -1,5 +1,7 @@
 #!/bin/bash
 
+set -euo pipefail
+
 PIP_AUDIT_VERSION="2.10.0"
 CARGO_AUDIT_VERSION="0.22.1"
 USER_LOCAL_DIR="/home/vscode/.local"

@@ -14,6 +14,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import companionService, { type DriveInfo, hasStoredSecret } from "../services/companion";
 import { syncCurrentLocalizationToCompanion } from "../services/companionLocalizationSync";
+import { companionSession } from "../services/companionSession";
 import { logger } from "../services/logger";
 
 /** Companion availability and pairing status. */
@@ -134,6 +135,21 @@ export function useCompanion(): UseCompanionResult {
       mountedRef.current = false;
     };
   }, [detect]);
+
+  useEffect(() => {
+    const sessionStatus =
+      status === "paired"
+        ? "paired"
+        : status === "detecting" || status === "pending_local_approval"
+          ? "pairing"
+          : status === "unavailable"
+            ? "unavailable"
+            : "unpaired";
+    companionSession.setState(
+      sessionStatus,
+      drives.map((drive) => ({ driveId: drive.id, name: drive.name, path: "" }))
+    );
+  }, [drives, status]);
 
   /**
    * Start pairing — returns the code for the UI to display.

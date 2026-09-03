@@ -2,3 +2,7 @@
 .yarl__container {
   background-color: transparent;
 }
+
+.image-viewer-load-error .yarl__slide_placeholder {
+  display: none;
+}
