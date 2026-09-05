@@ -48,12 +48,14 @@ describe("OverwriteConflictDialog", () => {
     expect(screen.getByTestId("overwrite-conflict-target-path")).toHaveTextContent("target");
     const sourcePath = screen.getByTestId("overwrite-conflict-source-path");
     expect(sourcePath).toHaveTextContent("source");
-    expect(within(sourcePath).getByText("source").tagName).toBe("CODE");
+    expect(within(sourcePath).getByText("source").tagName).toBe("SPAN");
     const metadata = screen.getByRole("region", { name: S.METADATA_LABEL });
     expect(within(metadata).getAllByText(S.LABEL_PATH)).toHaveLength(2);
     expect(within(metadata).getAllByText(S.LABEL_MODIFIED)).toHaveLength(2);
     expect(within(metadata).getAllByText(S.LABEL_SIZE)).toHaveLength(2);
-    expect(screen.getByTestId("overwrite-conflict-direction").querySelector("svg")).toBeInTheDocument();
+    const direction = screen.getByTestId("overwrite-conflict-direction");
+    expect(direction).toHaveStyle({ display: "grid" });
+    expect(direction.querySelector("svg")).toBeInTheDocument();
     expect(targetDetails.compareDocumentPosition(sourceDetails) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
     expect(screen.getByTestId("responsive-form-dialog-desktop-actions")).toBeInTheDocument();
   });

@@ -26,10 +26,8 @@ import { Fragment, useCallback, useEffect, useLayoutEffect, useMemo, useRef, use
 import type { ConflictInfo } from "../../types";
 import { dialogEnterKeyHandler } from "../../utils/keyboardUtils";
 import { formatLocalizedDateTime, formatLocalizedNumber } from "../../utils/localeFormatting";
-import { abbreviatePath } from "../../utils/pathDisplay";
 import { DialogReadOnlyField } from "../Admin/DialogReadOnlyField";
 import { ResponsiveFormDialog } from "../Admin/ResponsiveFormDialog";
-import { InlineItemName } from "./InlineItemName";
 import { validateItemName } from "./nameDialogStrings";
 import { OVERWRITE_CONFLICT_STRINGS as S } from "./overwriteConflictStrings";
 
@@ -69,7 +67,7 @@ export interface OverwriteConflictDialogProps {
   onCancel: () => void;
 }
 
-const DETAIL_ROW_COLUMNS = "minmax(4.5rem, 6rem) minmax(0, 1fr)";
+const DETAIL_ROW_COLUMNS = "minmax(4.5rem, 6rem) 1.5rem minmax(0, 1fr)";
 const CONFLICT_METADATA_SECTION_MARGIN_BOTTOM = 3;
 
 // ============================================================================
@@ -117,7 +115,7 @@ function getParentDirectory(path: string): string {
   return path.slice(0, separatorIndex) || "/";
 }
 
-function AbbreviatedInlinePath({
+function PathValue({
   path,
   testId,
   blockLayout = false,
@@ -128,68 +126,27 @@ function AbbreviatedInlinePath({
   blockLayout?: boolean;
   removeHorizontalMargin?: boolean;
 }) {
-  const pathRef = useRef<HTMLElement>(null);
-  const measureRef = useRef<HTMLSpanElement>(null);
-  const [displayPath, setDisplayPath] = useState(path);
-
-  useEffect(() => {
-    const pathElement = pathRef.current;
-    const measurement = measureRef.current;
-    if (!pathElement || !measurement) return;
-
-    const updatePath = () => {
-      const styles = getComputedStyle(pathElement);
-      const parent = pathElement.parentElement;
-      const measureText = (text: string) => {
-        measurement.textContent = text;
-        return measurement.getBoundingClientRect().width;
-      };
-      const availableWidth = blockLayout
-        ? pathElement.clientWidth - Number.parseFloat(styles.paddingLeft) - Number.parseFloat(styles.paddingRight)
-        : parent
-          ? parent.getBoundingClientRect().right - pathElement.getBoundingClientRect().left - measureText(":")
-          : 0;
-      if (availableWidth <= 0) {
-        setDisplayPath(path);
-        return;
-      }
-      setDisplayPath(abbreviatePath(path, availableWidth, measureText));
-    };
-
-    updatePath();
-    if (typeof ResizeObserver === "undefined") return;
-    const observer = new ResizeObserver(updatePath);
-    observer.observe(blockLayout ? pathElement : (pathElement.parentElement ?? pathElement));
-    return () => observer.disconnect();
-  }, [blockLayout, path]);
-
   return (
-    <>
-      <InlineItemName
-        ref={pathRef}
-        testId={testId}
-        title={path}
-        variant={blockLayout ? "metadata" : "prose"}
-        sx={{
-          ...(blockLayout
-            ? {
-                maxWidth: "100%",
-                overflow: "hidden",
-                textOverflow: "ellipsis",
-              }
-            : {}),
-          mx: removeHorizontalMargin ? 0 : undefined,
-        }}
-      >
-        {displayPath}
-      </InlineItemName>
-      <Box
-        aria-hidden
-        component="span"
-        ref={measureRef}
-        sx={{ fontFamily: "monospace", fontSize: "0.875em", left: -10000, position: "fixed", visibility: "hidden", whiteSpace: "nowrap" }}
-      />
-    </>
+    <Typography
+      component="span"
+      data-testid={testId}
+      title={path}
+      variant="body2"
+      sx={{
+        display: blockLayout ? "block" : undefined,
+        whiteSpace: "nowrap",
+        ...(blockLayout
+          ? {
+              maxWidth: "100%",
+              overflow: "hidden",
+              textOverflow: "ellipsis",
+            }
+          : {}),
+        mx: removeHorizontalMargin ? 0 : undefined,
+      }}
+    >
+      {path}
+    </Typography>
   );
 }
 
@@ -403,9 +360,9 @@ const OverwriteConflictDialog: React.FC<OverwriteConflictDialogProps> = ({
                 <Box
                   aria-hidden="true"
                   data-testid="overwrite-conflict-direction"
-                  sx={{ color: "text.secondary", display: "flex", justifyContent: "center", my: 0.5 }}
+                  sx={{ color: "text.secondary", display: "grid", gridTemplateColumns: DETAIL_ROW_COLUMNS, my: 0.5 }}
                 >
-                  <ArrowUpwardOutlinedIcon fontSize="small" />
+                  <ArrowUpwardOutlinedIcon fontSize="small" sx={{ gridColumn: 1, justifySelf: "end" }} />
                 </Box>
               ) : null}
               <Box data-testid={testId}>
@@ -414,13 +371,13 @@ const OverwriteConflictDialog: React.FC<OverwriteConflictDialogProps> = ({
                 </Typography>
                 <Box component="dl" sx={{ display: "grid", gap: 0.25, m: 0 }}>
                   {details.map((detail) => (
-                    <Box component="div" key={detail.label} sx={{ display: "grid", gridTemplateColumns: DETAIL_ROW_COLUMNS, columnGap: 1 }}>
+                    <Box component="div" key={detail.label} sx={{ display: "grid", gridTemplateColumns: DETAIL_ROW_COLUMNS }}>
                       <Typography component="dt" variant="caption" color="text.secondary">
                         {detail.label}
                       </Typography>
-                      <Box component="dd" data-testid={detail.testId} sx={{ m: 0, minWidth: 0 }}>
+                      <Box component="dd" data-testid={detail.testId} sx={{ gridColumn: 3, m: 0, minWidth: 0 }}>
                         {detail.testId ? (
-                          <AbbreviatedInlinePath path={detail.value} testId={`${detail.testId}-value`} blockLayout removeHorizontalMargin />
+                          <PathValue path={detail.value} testId={`${detail.testId}-value`} blockLayout removeHorizontalMargin />
                         ) : (
                           <Typography variant="body2">{detail.value}</Typography>
                         )}
