@@ -73,6 +73,8 @@ from app.services.connection_access import get_accessible_connection_or_404, req
 from app.services.content_transfer import (
     RegularFileSourceSnapshot,
     SourceChangedError,
+    SourceDeleteError,
+    SourceDeletionOutcomeUnknown,
     TargetCollisionError,
     resolve_regular_file_transfer,
 )
@@ -80,6 +82,7 @@ from app.services.cross_connection import (
     DirectoryTransferError,
     copy_regular_file_to_missing_target,
     cross_connection_copy,
+    cross_connection_move,
 )
 from app.services.history_common import LOCAL_DRIVE_PREFIX, normalize_recent_history_path
 from app.services.lock_manager import remove_expired_file_locks
@@ -1601,34 +1604,41 @@ async def execute_transfer_operation(
         async def check_cancellation_before_commit() -> None:
             check_cancellation()
 
-        bytes_written, _source_info = await cross_connection_copy(
-            source_backend,
-            destination_backend,
-            operation.source_path,
-            operation.destination_path,
-            on_progress=persist_progress,
-            before_destination_commit=check_cancellation_before_commit,
-            target_resolution_policy=TargetResolutionPolicy(operation.target_resolution_policy),
-        )
+        if operation.kind == "move":
+            bytes_written, _source_info = await cross_connection_move(
+                source_backend,
+                destination_backend,
+                operation.source_path,
+                operation.destination_path,
+                on_progress=persist_progress,
+                before_destination_commit=check_cancellation_before_commit,
+                target_resolution_policy=TargetResolutionPolicy(operation.target_resolution_policy),
+            )
+        else:
+            bytes_written, _source_info = await cross_connection_copy(
+                source_backend,
+                destination_backend,
+                operation.source_path,
+                operation.destination_path,
+                on_progress=persist_progress,
+                before_destination_commit=check_cancellation_before_commit,
+                target_resolution_policy=TargetResolutionPolicy(operation.target_resolution_policy),
+            )
         if bytes_written is None:
             result = ContentTransferResult(
                 status="skipped",
                 effects=ContentTransferEffects(source="unchanged", destination="unchanged"),
             )
-        elif operation.kind == "move":
-            result = ContentTransferResult(
-                status="completed_with_source_retained",
-                effects=ContentTransferEffects(source="unchanged", destination="mutated"),
-                error=ContentTransferError(
-                    code="source_delete_failed",
-                    detail="Destination was created but the source was retained because guarded cross-provider deletion is unavailable.",
-                ),
-            )
         else:
             result = ContentTransferResult(
                 status="completed",
-                effects=ContentTransferEffects(source="unchanged", destination="mutated"),
+                effects=ContentTransferEffects(
+                    source="mutated" if operation.kind == "move" else "unchanged",
+                    destination="mutated",
+                ),
             )
+        if operation.kind == "move" and result.status == "completed":
+            _remove_from_directory_cache(operation.source_connection_id, operation.source_path)
         _add_to_directory_cache(str(connection_id), operation.destination_path)
     except TargetCollisionError as exc:
         result = ContentTransferResult(
@@ -1644,6 +1654,20 @@ async def execute_transfer_operation(
                 destination="mutated" if exc.destination_mutated else "unchanged",
             ),
             error=ContentTransferError(code="source_changed", detail=str(exc)),
+        )
+    except SourceDeleteError as exc:
+        result = ContentTransferResult(
+            status="completed_with_source_retained" if exc.destination_mutated else "failed",
+            effects=ContentTransferEffects(
+                source="unchanged",
+                destination="mutated" if exc.destination_mutated else "unchanged",
+            ),
+            error=ContentTransferError(code="source_delete_failed", detail=str(exc)),
+        )
+    except SourceDeletionOutcomeUnknown:
+        result = ContentTransferResult(
+            status="outcome_unknown",
+            effects=ContentTransferEffects(source="unknown", destination="unknown"),
         )
     except TransferOperationCancelled:
         result = ContentTransferResult(
@@ -2378,7 +2402,7 @@ async def move_item(
             dest_connection = _get_connection_or_404(session, current_user, uuid.UUID(str(body.dest_connection_id)))
             require_connection_write_access(current_user, connection, action="move_source", path=source)
             require_connection_write_access(current_user, dest_connection, action="move_destination", path=dest)
-            copied = await _cross_connection_copy(
+            copied = await _cross_connection_move(
                 connection,
                 dest_connection,
                 source,
@@ -2386,15 +2410,6 @@ async def move_item(
                 str(body.dest_connection_id),
                 target_resolution_policy=TargetResolutionPolicy(body.normalized_target_resolution_policy),
             )
-            if copied.status == "completed":
-                copied = ContentTransferResult(
-                    status="completed_with_source_retained",
-                    effects=ContentTransferEffects(source="unchanged", destination="mutated"),
-                    error=ContentTransferError(
-                        code="source_delete_failed",
-                        detail=f"Destination was created but the source was retained because conditional deletion is unavailable: {source}",
-                    ),
-                )
             return await _record_transfer_receipt(current_user, body, copied)
 
         require_connection_write_access(current_user, connection, action="move", path=source)
@@ -2588,6 +2603,68 @@ async def _cross_connection_copy(
             dest_backend,
             logger=logger,
             context=f"cross-connection copy destination cleanup: '{source_path}' -> '{dest_path}'",
+        )
+
+
+async def _cross_connection_move(
+    src_conn: Connection,
+    dst_conn: Connection,
+    source_path: str,
+    dest_path: str,
+    dst_conn_id: str,
+    *,
+    target_resolution_policy: TargetResolutionPolicy | None = None,
+) -> ContentTransferResult:
+    """Move across SMB connections using a retained source handle when available."""
+
+    source_backend = build_smb_backend(src_conn, backend_factory=SMBBackend)
+    dest_backend = build_smb_backend(dst_conn, backend_factory=SMBBackend)
+    await source_backend.connect()
+    await dest_backend.connect()
+    try:
+        try:
+            bytes_written, _source_info = await cross_connection_move(
+                source_backend,
+                dest_backend,
+                source_path,
+                dest_path,
+                target_resolution_policy=target_resolution_policy,
+            )
+        except SourceDeleteError as error:
+            if not error.destination_mutated:
+                raise
+            _add_to_directory_cache(dst_conn_id, dest_path)
+            return ContentTransferResult(
+                status="completed_with_source_retained",
+                effects=ContentTransferEffects(source="unchanged", destination="mutated"),
+                error=ContentTransferError(code="source_delete_failed", detail=str(error)),
+            )
+        except SourceDeletionOutcomeUnknown:
+            return ContentTransferResult(
+                status="outcome_unknown",
+                effects=ContentTransferEffects(source="unknown", destination="unknown"),
+            )
+        if bytes_written is None:
+            return ContentTransferResult(
+                status="skipped",
+                effects=ContentTransferEffects(source="unchanged", destination="unchanged"),
+            )
+        _remove_from_directory_cache(str(src_conn.id), source_path)
+        _add_to_directory_cache(dst_conn_id, dest_path)
+        return ContentTransferResult(
+            status="completed",
+            effects=ContentTransferEffects(source="mutated", destination="mutated"),
+        )
+    finally:
+        await disconnect_backend_safely(
+            source_backend,
+            logger=logger,
+            context=f"cross-connection move source cleanup: '{source_path}' -> '{dest_path}'",
+        )
+        await disconnect_backend_safely(
+            dest_backend,
+            logger=logger,
+            context=f"cross-connection move destination cleanup: '{source_path}' -> '{dest_path}'",
         )
 
 

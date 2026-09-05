@@ -3573,7 +3573,7 @@ class TestMoveItem:
         test_connection: Connection,
         multiple_connections: list,
     ):
-        """A cross-connection move retains its source without a guarded delete primitive."""
+        """A cross-connection regular-file move deletes through its retained source handle."""
         dest_conn = multiple_connections[0]
 
         with patch("app.api.browser.SMBBackend") as MockBackend:
@@ -3588,6 +3588,9 @@ class TestMoveItem:
                 stable_id="source-a",
             )
             src_instance.get_file_size.return_value = 100
+            move_reader = AsyncMock()
+            move_reader.read_at.return_value = b"file content"
+            src_instance.open_move_source_reader.return_value = move_reader
 
             async def fake_read_file(path):
                 yield b"file content"
@@ -3611,8 +3614,9 @@ class TestMoveItem:
                 )
 
             assert response.status_code == 200
-            assert response.json()["status"] == "completed_with_source_retained"
-            assert response.json()["effects"] == {"source": "unchanged", "destination": "mutated"}
+            assert response.json()["status"] == "completed"
+            assert response.json()["effects"] == {"source": "mutated", "destination": "mutated"}
+            move_reader.commit_delete.assert_awaited_once()
             src_instance.delete_item.assert_not_called()
 
     def test_move_reports_destination_committed_when_source_delete_fails(
@@ -3622,7 +3626,7 @@ class TestMoveItem:
         test_connection: Connection,
         multiple_connections: list,
     ):
-        """An unguarded source delete is never attempted after destination commit."""
+        """An unobservable retained-source deletion result reports an unknown outcome."""
         dest_conn = multiple_connections[0]
         with patch("app.api.browser.SMBBackend") as MockBackend:
             source_backend = AsyncMock()
@@ -3634,6 +3638,10 @@ class TestMoveItem:
                 size=12,
                 stable_id="source-a",
             )
+            move_reader = AsyncMock()
+            move_reader.read_at.return_value = b"file content"
+            move_reader.commit_delete.side_effect = OSError("source delete denied")
+            source_backend.open_move_source_reader.return_value = move_reader
 
             async def fake_read_file(path):
                 yield b"file content"
@@ -3655,8 +3663,9 @@ class TestMoveItem:
             )
 
         assert response.status_code == 200
-        assert response.json()["status"] == "completed_with_source_retained"
-        assert response.json()["effects"] == {"source": "unchanged", "destination": "mutated"}
+        assert response.json()["status"] == "outcome_unknown"
+        assert response.json()["effects"] == {"source": "unknown", "destination": "unknown"}
+        move_reader.commit_delete.assert_awaited_once()
         source_backend.delete_item.assert_not_called()
 
     def test_move_cross_connection_dest_not_found(

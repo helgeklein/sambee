@@ -1444,16 +1444,19 @@ class ApiService {
         error: { code: "unavailable", reason: "unsupported" },
       };
     }
-    if (destConnectionId && destConnectionId !== connectionId) {
-      return this.executeDurableSmbTransfer(
-        "copy",
-        connectionId,
-        sourcePath,
-        destConnectionId,
-        destPath,
-        idempotencyKey,
-        targetResolutionPolicy
-      );
+    if (destConnectionId && destConnectionId !== connectionId && !isLocalDrive(connectionId) && !isLocalDrive(destConnectionId)) {
+      const sourceInfo = await this.getFileInfo(connectionId, sourcePath);
+      if (sourceInfo.type === "file") {
+        return this.executeDurableSmbTransfer(
+          "copy",
+          connectionId,
+          sourcePath,
+          destConnectionId,
+          destPath,
+          idempotencyKey,
+          targetResolutionPolicy
+        );
+      }
     }
     const segment = getBrowseSegment(connectionId);
     const { client, extraConfig } = await this.getClientConfig(connectionId);
@@ -1480,16 +1483,19 @@ class ApiService {
     destConnectionId?: string,
     targetResolutionPolicy: TargetResolutionPolicy = "ask"
   ): Promise<ContentTransferResult> {
-    if (destConnectionId && !this.isCrossBackendTransfer(connectionId, destConnectionId) && destConnectionId !== connectionId) {
-      return this.executeDurableSmbTransfer(
-        "move",
-        connectionId,
-        sourcePath,
-        destConnectionId,
-        destPath,
-        idempotencyKey,
-        targetResolutionPolicy
-      );
+    if (destConnectionId && destConnectionId !== connectionId && !isLocalDrive(connectionId) && !isLocalDrive(destConnectionId)) {
+      const sourceInfo = await this.getFileInfo(connectionId, sourcePath);
+      if (sourceInfo.type === "file") {
+        return this.executeDurableSmbTransfer(
+          "move",
+          connectionId,
+          sourcePath,
+          destConnectionId,
+          destPath,
+          idempotencyKey,
+          targetResolutionPolicy
+        );
+      }
     }
     const segment = getBrowseSegment(connectionId);
     const { client, extraConfig } = await this.getClientConfig(connectionId);

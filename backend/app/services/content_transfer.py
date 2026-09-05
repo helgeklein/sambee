@@ -109,6 +109,14 @@ class SourceChangedError(RuntimeError):
 class SourceDeleteError(RuntimeError):
     """Raised after a destination commit when guarded source deletion fails."""
 
+    def __init__(self, message: str, *, destination_mutated: bool) -> None:
+        super().__init__(message)
+        self.destination_mutated = destination_mutated
+
+
+class SourceDeletionOutcomeUnknown(RuntimeError):
+    """Raised when an attempted source-handle deletion has an unobservable result."""
+
 
 class TargetCollisionError(FileExistsError):
     """A refreshed target collision with the facts observed by the controller."""

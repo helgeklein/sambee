@@ -27,11 +27,12 @@ from app.services.content_transfer import (
     RegularFileSourceSnapshot,
     SourceChangedError,
     SourceDeleteError,
+    SourceDeletionOutcomeUnknown,
     TargetCollisionError,
     resolve_regular_file_transfer,
 )
 from app.services.target_resolution import TargetResolutionDisposition, TargetResolutionPolicy
-from app.storage.base import ProgressCallback, StorageBackend
+from app.storage.base import MoveSourceReader, ProgressCallback, StorageBackend
 
 logger = logging.getLogger(__name__)
 
@@ -176,6 +177,7 @@ async def cross_connection_move(
     source_path: str,
     dest_path: str,
     on_progress: ProgressCallback | None = None,
+    before_destination_commit: Callable[[], Awaitable[None]] | None = None,
     *,
     overwrite: bool = False,
     target_resolution_policy: TargetResolutionPolicy | None = None,
@@ -205,26 +207,89 @@ async def cross_connection_move(
         OSError: On transfer failure.
     """
 
-    total_bytes, source_info = await cross_connection_copy(
-        source,
-        dest,
-        source_path,
-        dest_path,
-        on_progress,
-        overwrite=overwrite,
-        target_resolution_policy=target_resolution_policy,
-    )
-    if total_bytes is None:
-        return None, source_info
+    source_info = await source.get_file_info(source_path)
+    if source_info.type == FileType.DIRECTORY:
+        await cross_connection_copy(
+            source,
+            dest,
+            source_path,
+            dest_path,
+            on_progress,
+            overwrite=overwrite,
+            target_resolution_policy=target_resolution_policy,
+        )
+        raise SourceDeleteError(
+            f"Destination was created but guarded directory deletion is unavailable: {source_path}",
+            destination_mutated=True,
+        )
+    source_snapshot = RegularFileSourceSnapshot.from_file_info(source_info)
+    try:
+        source_reader = await source.open_move_source_reader(source_path)
+    except NotImplementedError as error:
+        await cross_connection_copy(
+            source,
+            dest,
+            source_path,
+            dest_path,
+            on_progress,
+            overwrite=overwrite,
+            target_resolution_policy=target_resolution_policy,
+        )
+        raise SourceDeleteError(
+            f"Destination was created but guarded source deletion is unavailable: {source_path}",
+            destination_mutated=True,
+        ) from error
 
-    # A separate get_file_info() followed by delete_item() is not a
-    # conditional delete: another writer can replace the source between those
-    # calls. Do not risk deleting a different object after publishing the
-    # destination. Storage backends must expose an atomic identity-guarded
-    # delete before cross-connection moves can remove their source.
-    raise SourceDeleteError(
-        f"Destination was created but the source was retained because conditional deletion is unavailable: {source_path}"
-    )
+    try:
+        if target_resolution_policy is not None:
+            resolution = await resolve_regular_file_transfer(
+                source=source_info,
+                target_path=dest_path,
+                policy=target_resolution_policy,
+                observe_target=lambda: dest.get_file_info(dest_path),
+                attempt_create=lambda: _copy_file(
+                    source,
+                    dest,
+                    source_path,
+                    dest_path,
+                    on_progress,
+                    before_destination_commit=before_destination_commit,
+                    source_info=source_info,
+                    source_snapshot=source_snapshot,
+                    source_reader=source_reader,
+                    overwrite=False,
+                ),
+                replacement_supported=False,
+            )
+            if resolution.disposition == TargetResolutionDisposition.SKIP:
+                return None, source_info
+            if resolution.disposition == TargetResolutionDisposition.AWAIT_COLLISION:
+                raise TargetCollisionError(source=source_info, target=resolution.target)
+            if not isinstance(resolution.mutation_result, int):
+                raise RuntimeError("Regular-file move committed without reporting bytes written")
+            total_bytes = resolution.mutation_result
+        else:
+            total_bytes = await _copy_file(
+                source,
+                dest,
+                source_path,
+                dest_path,
+                on_progress,
+                before_destination_commit=before_destination_commit,
+                source_info=source_info,
+                source_snapshot=source_snapshot,
+                source_reader=source_reader,
+                overwrite=overwrite,
+            )
+        try:
+            await source_reader.commit_delete()
+        except Exception as error:
+            raise SourceDeletionOutcomeUnknown(
+                f"Guarded source deletion may have completed before its result was observed: {source_path}"
+            ) from error
+        return total_bytes, source_info
+    finally:
+        await source_reader.close()
 
 
 # ---------------------------------------------------------------------------
@@ -242,6 +307,7 @@ async def _copy_file(
     before_destination_commit: Callable[[], Awaitable[None]] | None = None,
     source_info: FileInfo | None = None,
     source_snapshot: RegularFileSourceSnapshot | None = None,
+    source_reader: MoveSourceReader | None = None,
     overwrite: bool = False,
 ) -> int:
     """Stream a single file from *source* to *dest*.
@@ -286,7 +352,10 @@ async def _copy_file(
 
     # A fresh reader is created only after target policy has authorized this
     # attempt. The destination owns and discards its private stage on failure.
-    stream: AsyncIterator[bytes] = source.read_file(source_path)
+    if source_reader is None:
+        stream: AsyncIterator[bytes] = source.read_file(source_path)
+    else:
+        stream = _read_retained_move_source(source_reader, total_size)
     bytes_written = await dest.stage_and_commit_new_file_from_stream(
         dest_path,
         stream,
@@ -297,6 +366,21 @@ async def _copy_file(
 
     logger.info(f"Cross-connection copy file: '{source_path}' -> '{dest_path}' ({bytes_written} bytes)")
     return bytes_written
+
+
+async def _read_retained_move_source(source_reader: MoveSourceReader, total_size: int | None) -> AsyncIterator[bytes]:
+    """Stream a retained source handle so its delete capability stays bound to copied bytes."""
+
+    if total_size is None:
+        raise SourceChangedError("Move source has no stable length")
+    chunk_size = 1024 * 1024
+    offset = 0
+    while offset < total_size:
+        chunk = await source_reader.read_at(offset, min(chunk_size, total_size - offset))
+        if not chunk:
+            raise SourceChangedError("Move source ended before its captured length")
+        offset += len(chunk)
+        yield chunk
 
 
 async def _copy_directory(

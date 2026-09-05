@@ -213,6 +213,9 @@ describe("API Service", () => {
   });
 
   it("routes a cross-connection SMB copy through a durable transfer operation", async () => {
+    mockAxiosInstance.get.mockResolvedValue({
+      data: { name: "source.txt", path: "source.txt", type: FileType.FILE, is_readable: true, is_hidden: false },
+    } as AxiosResponse);
     mockAxiosInstance.post.mockResolvedValueOnce({ data: { id: "transfer-1" } } as AxiosResponse).mockResolvedValueOnce({
       data: { status: "completed", replaced: false, effects: { source: "unchanged", destination: "mutated" } },
     } as AxiosResponse);
@@ -236,6 +239,55 @@ describe("API Service", () => {
       2,
       "/browse/destination/transfer-operations/transfer-1/execute",
       {},
+      expect.anything()
+    );
+  });
+
+  it.each(["copy", "move"] as const)("routes a cross-connection SMB directory %s through the staged backend path", async (operation) => {
+    mockAxiosInstance.get.mockResolvedValue({
+      data: { name: "source", path: "source", type: FileType.DIRECTORY, is_readable: true, is_hidden: false },
+    } as AxiosResponse);
+    mockAxiosInstance.post.mockResolvedValue({
+      data: { status: "completed", replaced: false, effects: { source: "unchanged", destination: "mutated" } },
+    } as AxiosResponse);
+
+    await apiService[operation === "copy" ? "copyItem" : "moveItem"](
+      "source",
+      "source",
+      "destination/source",
+      "00000000-0000-4000-8000-000000000007",
+      "destination"
+    );
+
+    expect(mockAxiosInstance.post).toHaveBeenCalledWith(
+      `/browse/source/${operation}`,
+      expect.objectContaining({ dest_connection_id: "destination" }),
+      expect.anything()
+    );
+  });
+
+  it.each(["copy", "move"] as const)("routes a cross-drive local %s through the Companion endpoint", async (operation) => {
+    localStorage.setItem("companion_secret", "test-companion-secret");
+    mockAxiosInstance.post.mockResolvedValue({
+      data: { status: "completed", replaced: false, effects: { source: "unchanged", destination: "mutated" } },
+    } as AxiosResponse);
+
+    await apiService[operation === "copy" ? "copyItem" : "moveItem"](
+      "local-drive:c",
+      "source.txt",
+      "output/source.txt",
+      "00000000-0000-4000-8000-000000000006",
+      "local-drive:d"
+    );
+
+    expect(mockAxiosInstance.post).toHaveBeenCalledWith(
+      `/browse/c/${operation}`,
+      expect.objectContaining({ dest_connection_id: "local-drive:d" }),
+      expect.anything()
+    );
+    expect(mockAxiosInstance.post).not.toHaveBeenCalledWith(
+      expect.stringContaining("transfer-operations"),
+      expect.anything(),
       expect.anything()
     );
   });

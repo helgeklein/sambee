@@ -9,13 +9,15 @@ from typing import Awaitable, BinaryIO, TypeVar
 
 import smbclient
 from smbclient._os import FileAttributes
+from smbprotocol.file_info import FileDispositionInformation, InfoType
+from smbprotocol.open import FileInformationClass, FilePipePrinterAccessMask, SMB2SetInfoRequest, SMB2SetInfoResponse
 
 from app.core.system_setting_definitions import SystemSettingKey
 from app.models.file import DirectoryListing, FileInfo, FileType
 from app.services.archive.target_write import TargetExistsBeforeContent, TargetWriteFailure, TargetWriteResult
 from app.services.archive.zip_reader import ArchiveSourceUnavailableError
 from app.services.system_settings import get_integer_setting_value, get_smbclient_policy_kwargs
-from app.storage.base import ExclusiveWriter, ProgressCallback, RandomAccessReader, StorageBackend
+from app.storage.base import ExclusiveWriter, MoveSourceReader, ProgressCallback, RandomAccessReader, StorageBackend
 from app.storage.smb_pool import get_connection_pool, get_smb_connection_cache
 from app.utils.file_type_registry import get_mime_type
 
@@ -77,6 +79,52 @@ class _SMBRandomAccessReader:
                 )
             finally:
                 await self._connection_lease.__aexit__(None, None, None)  # type: ignore[attr-defined]
+
+
+class _SMBMoveSourceReader(_SMBRandomAccessReader):
+    """A read handle that marks the exact opened SMB object for deletion on commit."""
+
+    async def commit_delete(self) -> None:
+        async with self._lock:
+            if self._closed:
+                raise ValueError("SMB move source reader is closed")
+
+            def _delete_opened_file() -> None:
+                raw = self._handle.raw
+                request = SMB2SetInfoRequest()
+                request["info_type"] = InfoType.SMB2_0_INFO_FILE
+                request["file_info_class"] = FileInformationClass.FILE_DISPOSITION_INFORMATION
+                request["file_id"] = raw.fd.file_id
+                disposition = FileDispositionInformation()
+                disposition["delete_pending"] = True
+                request["buffer"] = disposition.pack()
+                pending = raw.fd.connection.send(
+                    request,
+                    raw.fd.tree_connect.session.session_id,
+                    raw.fd.tree_connect.tree_connect_id,
+                )
+                response = raw.fd.connection.receive(pending)
+                parsed = SMB2SetInfoResponse()
+                parsed.unpack(response["data"].get_value())
+
+            try:
+                await self._backend._run_blocking_smb_call(
+                    "delete_retained_move_source",
+                    _delete_opened_file,
+                    SMB_DELETE_TIMEOUT_SECONDS,
+                    smb_path=self._smb_path,
+                )
+            finally:
+                self._closed = True
+                try:
+                    await self._backend._run_blocking_smb_call(
+                        "close_deleted_move_source",
+                        self._handle.close,
+                        SMB_FILE_CLOSE_TIMEOUT_SECONDS,
+                        smb_path=self._smb_path,
+                    )
+                finally:
+                    await self._connection_lease.__aexit__(None, None, None)  # type: ignore[attr-defined]
 
 
 class _SMBExclusiveWriter:
@@ -717,6 +765,49 @@ class SMBBackend(StorageBackend):
             path,
             share_access="rwd",
             operation_name="open_file_for_random_read",
+        )
+
+    async def open_move_source_reader(self, path: str) -> MoveSourceReader:
+        """Open an SMB source with delete access retained for post-commit move cleanup."""
+
+        smb_path = self._build_smb_path(path)
+        pool = await get_connection_pool()
+        connection_lease = pool.get_connection(
+            host=self.host,
+            port=self.port,
+            username=self.username,
+            password=self.password,
+            share_name=self.share_name,
+            connection_cache=self._connection_cache,
+        )
+        await connection_lease.__aenter__()
+        try:
+            handle = await self._run_blocking_smb_call(
+                "open_file_for_guarded_move",
+                lambda: smbclient.open_file(
+                    smb_path,
+                    mode="rb",
+                    buffering=0,
+                    share_access="rwd",
+                    desired_access=(
+                        FilePipePrinterAccessMask.FILE_READ_DATA
+                        | FilePipePrinterAccessMask.FILE_READ_ATTRIBUTES
+                        | FilePipePrinterAccessMask.FILE_READ_EA
+                        | FilePipePrinterAccessMask.DELETE
+                    ),
+                    **self._smb_auth_kwargs(),
+                ),
+                SMB_FILE_OPEN_TIMEOUT_SECONDS,
+                smb_path=smb_path,
+            )
+        except BaseException:
+            await connection_lease.__aexit__(None, None, None)
+            raise
+        return _SMBMoveSourceReader(
+            backend=self,
+            smb_path=smb_path,
+            handle=handle,
+            connection_lease=connection_lease,
         )
 
     async def open_archive_source_reader(self, path: str) -> RandomAccessReader:

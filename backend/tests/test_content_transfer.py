@@ -13,7 +13,7 @@ from app.services.content_transfer import (
     resolve_regular_file_transfer,
     resolve_target_mutation_attempt,
 )
-from app.services.cross_connection import DirectoryTransferError, cross_connection_copy
+from app.services.cross_connection import DirectoryTransferError, cross_connection_copy, cross_connection_move
 from app.services.target_resolution import TargetResolutionDisposition, TargetResolutionPolicy
 
 
@@ -66,6 +66,29 @@ class MemoryTransferBackend:
         self.write_count += 1
         self.files[path] = staged_content
         return len(staged_content)
+
+
+class RetainedMoveSource(MemoryTransferBackend):
+    def __init__(self, files: dict[str, bytes], modified_at: datetime) -> None:
+        super().__init__(files, modified_at)
+        self.delete_commits: list[str] = []
+        self.closed_paths: list[str] = []
+
+    async def open_move_source_reader(self, path: str):
+        source = self
+
+        class Reader:
+            async def read_at(self, offset: int, length: int) -> bytes:
+                return source.files[path][offset : offset + length]
+
+            async def commit_delete(self) -> None:
+                source.delete_commits.append(path)
+                del source.files[path]
+
+            async def close(self) -> None:
+                source.closed_paths.append(path)
+
+        return Reader()
 
 
 @pytest.mark.asyncio
@@ -249,6 +272,50 @@ async def test_explicit_policy_copy_commits_a_missing_target_once() -> None:
     assert source_info.path == "source.txt"
     assert target.files == {"target.txt": b"content"}
     assert target.write_count == 1
+
+
+@pytest.mark.asyncio
+async def test_regular_file_move_deletes_only_through_the_retained_source_reader() -> None:
+    now = datetime.now(timezone.utc)
+    source = RetainedMoveSource({"source.txt": b"content"}, now)
+    target = MemoryTransferBackend({}, now)
+
+    bytes_written, source_info = await cross_connection_move(
+        source,
+        target,
+        "source.txt",
+        "target.txt",
+        target_resolution_policy=TargetResolutionPolicy.ASK,
+    )
+
+    assert bytes_written == len(b"content")
+    assert source_info.path == "source.txt"
+    assert target.files == {"target.txt": b"content"}
+    assert source.files == {}
+    assert source.delete_commits == ["source.txt"]
+    assert source.closed_paths == ["source.txt"]
+
+
+@pytest.mark.asyncio
+async def test_skipped_regular_file_move_keeps_its_retained_source() -> None:
+    now = datetime.now(timezone.utc)
+    source = RetainedMoveSource({"source.txt": b"content"}, now)
+    target = MemoryTransferBackend({"target.txt": b"existing"}, now)
+
+    bytes_written, source_info = await cross_connection_move(
+        source,
+        target,
+        "source.txt",
+        "target.txt",
+        target_resolution_policy=TargetResolutionPolicy.SKIP,
+    )
+
+    assert bytes_written is None
+    assert source_info.path == "source.txt"
+    assert source.files == {"source.txt": b"content"}
+    assert target.files == {"target.txt": b"existing"}
+    assert source.delete_commits == []
+    assert source.closed_paths == ["source.txt"]
 
 
 @pytest.mark.asyncio
