@@ -172,6 +172,8 @@ class LiveSourceSession:
     _streaming: bool = field(default=False, init=False, repr=False)
     _close_lock: asyncio.Lock = field(default_factory=asyncio.Lock, init=False, repr=False)
     _closed: bool = field(default=False, init=False, repr=False)
+    _projected_entries: tuple[ZipEntry, ...] | None = field(default=None, init=False, repr=False)
+    _projected_entry_index: int = field(default=0, init=False, repr=False)
 
     async def next_member(self) -> LiveSourceMember | None:
         """Return the next destination-facing record after source-only rejections."""
@@ -191,11 +193,16 @@ class LiveSourceSession:
             return await self._next_member_locked()
 
     async def _next_member_locked(self) -> LiveSourceMember | None:
+        if self._projected_entries is None:
+            self._projected_entries, skipped_entries = await self.reader.extraction_entries()
+            for _ in range(skipped_entries):
+                self.aggregate.record("skipped")
         while True:
-            entry = await self.reader.next_entry()
-            if entry is None:
+            if self._projected_entry_index >= len(self._projected_entries):
                 self.phase = LiveSourceSessionPhase.COMPLETED
                 return None
+            entry = self._projected_entries[self._projected_entry_index]
+            self._projected_entry_index += 1
             outcome = self._source_only_outcome(entry)
             if outcome is not None:
                 self.finalize_source_outcome(entry, outcome)
