@@ -597,11 +597,6 @@ pub async fn browse_list_archive(
         return Err(ApiError::BadRequest("Archive path must identify a regular file".to_string()));
     }
     let virtual_path = query.virtual_path.unwrap_or_default();
-    if !virtual_path.is_empty() {
-        return Err(ApiError::BadRequest(
-            "Archive record-order listing does not support virtual directory paths".to_string(),
-        ));
-    }
     let presentation = ArchiveDirectoryListingPresentation::new(
         query.archive_path,
         metadata.len(),
@@ -5786,6 +5781,7 @@ mod tests {
     use axum::response::IntoResponse;
     use std::collections::{HashSet, VecDeque};
     use std::fs;
+    use std::io::Write;
     #[cfg(unix)]
     use std::os::unix::fs::symlink;
     use std::pin::Pin;
@@ -5793,6 +5789,8 @@ mod tests {
     use std::task::{Context, Poll};
     use tokio::io::{AsyncRead, AsyncReadExt, AsyncWriteExt, ReadBuf};
     use tokio::sync::{oneshot, Mutex};
+    use zip::write::SimpleFileOptions;
+    use zip::{CompressionMethod, ZipWriter};
     const NONCE_A: &str = "00112233445566778899aabbccddeeff00112233445566778899aabbccddeeff";
 
     #[tokio::test]
@@ -6152,11 +6150,14 @@ mod tests {
             .expect("inspection resolver test lock should not be poisoned");
         reset_inspection_resolver_call_count();
         let directory = tempfile::tempdir().expect("temporary archive directory should be created");
-        let source = directory.path().join("source.txt");
         let target = directory.path().join("archive.zip");
-        std::fs::write(&source, b"source").expect("source file should be written");
-        let entries = build_local_archive_manifest(&[source], &target).expect("archive manifest should be built");
-        create_local_archive(directory.path(), &target, &entries, || false).expect("archive should be created");
+        let mut archive = ZipWriter::new(fs::File::create(&target).expect("archive should be created"));
+        let options = SimpleFileOptions::default().compression_method(CompressionMethod::Stored);
+        archive.start_file("source.txt", options).expect("source entry should start");
+        archive.write_all(b"source").expect("source entry should be written");
+        archive.start_file("nested/readme.txt", options).expect("nested entry should start");
+        archive.write_all(b"nested").expect("nested entry should be written");
+        archive.finish().expect("archive should finish");
         let drive_id = format!("test-drive-{}", uuid::Uuid::new_v4());
         crate::server::drives::register_test_drive_path(drive_id.clone(), directory.path().to_path_buf());
         let archive_path = "archive.zip".to_string();
@@ -6172,22 +6173,32 @@ mod tests {
         )
         .await
         .expect("archive listing route should succeed");
-        assert_eq!(listing.0.items[0].name, "source.txt");
+        assert!(listing.0.items.iter().any(|item| item.name == "source.txt"));
+        let nested_archive_path = listing
+            .0
+            .items
+            .iter()
+            .find(|item| item.file_type == FileType::Directory)
+            .expect("root archive listing should contain a directory")
+            .path
+            .clone();
         assert_eq!(inspection_resolver_call_count(), 1);
 
         let virtual_listing = browse_list_archive(
             Path(drive_id.clone()),
             Query(ArchiveListQuery {
                 archive_path: archive_path.clone(),
-                virtual_path: Some("nested".to_string()),
+                virtual_path: Some(nested_archive_path.clone()),
                 cursor: None,
                 page_size: Some(10),
             }),
         )
         .await
-        .expect_err("virtual archive paths should be rejected for record-order listings");
-        assert!(matches!(virtual_listing, ApiError::BadRequest(message) if message.contains("does not support virtual directory paths")));
-        assert_eq!(inspection_resolver_call_count(), 1);
+        .expect("nested archive listing route should succeed");
+        assert_eq!(virtual_listing.0.path, nested_archive_path);
+        assert_eq!(virtual_listing.0.items.len(), 1);
+        assert_eq!(virtual_listing.0.items[0].name, "readme.txt");
+        assert_eq!(inspection_resolver_call_count(), 2);
 
         let member_response = viewer_archive_member(
             Path(drive_id.clone()),
@@ -6201,7 +6212,7 @@ mod tests {
         .expect("archive member route should succeed");
         assert_eq!(member_response.headers()["content-type"], "text/plain");
         assert_eq!(to_bytes(member_response.into_body(), usize::MAX).await.unwrap(), "source");
-        assert_eq!(inspection_resolver_call_count(), 2);
+        assert_eq!(inspection_resolver_call_count(), 3);
 
         let invalid_cursor = browse_list_archive(
             Path(drive_id.clone()),
@@ -6215,7 +6226,7 @@ mod tests {
         .await
         .expect_err("invalid archive cursor should be rejected");
         assert!(matches!(invalid_cursor, ApiError::BadRequest(message) if message.contains("cursor is invalid")));
-        assert_eq!(inspection_resolver_call_count(), 3);
+        assert_eq!(inspection_resolver_call_count(), 4);
 
         let missing_member = viewer_archive_member(
             Path(drive_id.clone()),
@@ -6228,7 +6239,7 @@ mod tests {
         .await
         .expect_err("unknown archive member should be rejected");
         assert!(matches!(missing_member, ApiError::BadRequest(message) if message.contains("member was not found")));
-        assert_eq!(inspection_resolver_call_count(), 4);
+        assert_eq!(inspection_resolver_call_count(), 5);
 
         let unavailable_target = directory.path().join("unavailable.zip");
         std::fs::copy(&target, &unavailable_target).expect("archive should be copied for codec mutation");
@@ -6244,7 +6255,7 @@ mod tests {
         .await
         .expect_err("unavailable archive member should be rejected");
         assert!(matches!(unavailable_member, ApiError::BadRequest(message) if message.contains("unavailable codec")));
-        assert_eq!(inspection_resolver_call_count(), 5);
+        assert_eq!(inspection_resolver_call_count(), 6);
 
         let encrypted_target = directory.path().join("encrypted.zip");
         std::fs::copy(&target, &encrypted_target).expect("archive should be copied for encryption mutation");
@@ -6260,7 +6271,7 @@ mod tests {
         .await
         .expect_err("encrypted archive member should be rejected");
         assert!(matches!(encrypted_member, ApiError::BadRequest(message) if message.contains("blocked feature")));
-        assert_eq!(inspection_resolver_call_count(), 6);
+        assert_eq!(inspection_resolver_call_count(), 7);
 
         let large_source = directory.path().join("large.txt");
         let large_target = directory.path().join("large.zip");
@@ -6279,7 +6290,7 @@ mod tests {
         .await
         .expect_err("oversized archive preview should be rejected");
         assert!(matches!(oversized_preview, ApiError::PayloadTooLarge(message) if message.contains("inline preview size limit")));
-        assert_eq!(inspection_resolver_call_count(), 7);
+        assert_eq!(inspection_resolver_call_count(), 8);
     }
 
     fn mark_zip_member_codec_unavailable(archive_path: &std::path::Path) {

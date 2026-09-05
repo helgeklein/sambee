@@ -8,7 +8,6 @@ export interface CodeMirrorSurfaceThemeOptions {
   currentSearchMatchBackground: string;
   isDarkMode: boolean;
   otherSearchMatchBackground: string;
-  selectionBackground: string;
   surfaceBackground: string;
   textColor: string;
 }
@@ -19,7 +18,6 @@ export function buildCodeMirrorSurfaceTheme({
   currentSearchMatchBackground,
   isDarkMode,
   otherSearchMatchBackground,
-  selectionBackground,
   surfaceBackground,
   textColor,
 }: CodeMirrorSurfaceThemeOptions): Extension[] {
@@ -35,11 +33,11 @@ export function buildCodeMirrorSurfaceTheme({
           backgroundColor: "transparent",
           caretColor: textColor,
         },
-        ".cm-selectionBackground": {
-          backgroundColor: selectionBackground,
+        "& > .cm-scroller > .cm-selectionLayer .cm-selectionBackground": {
+          backgroundColor: "transparent",
         },
         "&.cm-focused > .cm-scroller > .cm-selectionLayer .cm-selectionBackground": {
-          backgroundColor: selectionBackground,
+          backgroundColor: "transparent",
         },
         ".cm-searchMatch": {
           backgroundColor: otherSearchMatchBackground,
