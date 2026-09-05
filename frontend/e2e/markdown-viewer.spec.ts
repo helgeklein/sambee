@@ -490,6 +490,24 @@ test.describe("markdown editor selection", () => {
         Math.abs(emptyLine.getBoundingClientRect().height - nonEmptyLine.getBoundingClientRect().height) < 1
       );
     })).resolves.toBe(true);
+
+    await editor.click();
+    await page.keyboard.press("Control+A");
+    await expect(editor.evaluate((content) => {
+      const editorRoot = content.closest(".cm-editor");
+      const emptyLine = Array.from(content.querySelectorAll(".cm-line")).find((line) => line.textContent === "");
+      const markers = Array.from(editorRoot?.querySelectorAll(".sambee-editor-selection-range") ?? []);
+
+      if (!(emptyLine instanceof HTMLElement) || markers.length === 0) {
+        return false;
+      }
+
+      const lineRect = emptyLine.getBoundingClientRect();
+      return markers.some((marker) => {
+        const markerRect = marker.getBoundingClientRect();
+        return Math.abs(markerRect.top - lineRect.top) < 0.1 && Math.abs(markerRect.bottom - lineRect.bottom) < 0.1;
+      });
+    })).resolves.toBe(true);
   });
 
   test("renders a wrapped selection without a native browser overlay", async ({ page }) => {
@@ -507,6 +525,62 @@ test.describe("markdown editor selection", () => {
     await expect(page.locator(".sambee-editor-selection-layer")).toHaveCount(1);
     await expect(editorRoot.locator(".sambee-editor-selection-range").first()).toBeVisible();
     await expect(editorRoot.locator(".sambee-editor-selection-range").first()).toHaveCSS("background-color", "rgba(194, 68, 0, 0.18)");
+
+    await expect(editorRoot.evaluate((root) => {
+      const markers = Array.from(root.querySelectorAll(".sambee-editor-selection-range"))
+        .map((marker) => marker.getBoundingClientRect())
+        .sort((left, right) => left.top - right.top);
+      const rows: Array<{ top: number; bottom: number }> = [];
+
+      for (const marker of markers) {
+        const row = rows.find((candidate) => Math.abs(candidate.top - marker.top) < 0.5);
+
+        if (row) {
+          row.bottom = Math.max(row.bottom, marker.bottom);
+        } else {
+          rows.push({ top: marker.top, bottom: marker.bottom });
+        }
+      }
+
+      return rows.slice(1).every((row, index) => Math.abs(row.top - rows[index].bottom) < 1);
+    })).resolves.toBe(true);
+    await expect(editorRoot.evaluate((root) => {
+      const line = root.querySelector(".cm-line");
+      const markers = Array.from(root.querySelectorAll(".sambee-editor-selection-range"));
+
+      if (!(line instanceof HTMLElement) || markers.length === 0) {
+        return false;
+      }
+
+      const lineRect = line.getBoundingClientRect();
+      const markerRects = markers.map((marker) => marker.getBoundingClientRect());
+      const selectionTop = Math.min(...markerRects.map((marker) => marker.top));
+      const selectionBottom = Math.max(...markerRects.map((marker) => marker.bottom));
+
+      return Math.abs(selectionTop - lineRect.top) < 1 && Math.abs(selectionBottom - lineRect.bottom) < 1;
+    })).resolves.toBe(true);
+    await expect(editorRoot.evaluate((root) => {
+      const wrappedLine = Array.from(root.querySelectorAll(".cm-line")).find((line) => line.textContent?.includes("TestOps integration"));
+      const markers = Array.from(root.querySelectorAll(".sambee-editor-selection-range"));
+
+      if (!(wrappedLine instanceof HTMLElement) || markers.length === 0) {
+        return false;
+      }
+
+      const lineRect = wrappedLine.getBoundingClientRect();
+      const markerRects = markers
+        .map((marker) => marker.getBoundingClientRect())
+        .filter((marker) => marker.bottom > lineRect.top && marker.top < lineRect.bottom);
+
+      if (markerRects.length === 0) {
+        return false;
+      }
+
+      const selectionTop = Math.min(...markerRects.map((marker) => marker.top));
+      const selectionBottom = Math.max(...markerRects.map((marker) => marker.bottom));
+
+      return Math.abs(selectionTop - lineRect.top) < 0.1 && Math.abs(selectionBottom - lineRect.bottom) < 0.1;
+    })).resolves.toBe(true);
     await expect(editor).toHaveScreenshot("wrapped-selection.png");
 
     await page.keyboard.press("ArrowRight");
@@ -597,13 +671,33 @@ test.describe("markdown editor selection", () => {
 
         const activeLineRect = activeLine.getBoundingClientRect();
         const selectionMarkerRect = selectionMarker.getBoundingClientRect();
+        const rows = Array.from(selectionLayer.children)
+          .map((marker) => marker.getBoundingClientRect())
+          .sort((left, right) => left.top - right.top)
+          .reduce<Array<{ top: number; bottom: number }>>((selectionRows, marker) => {
+            const row = selectionRows.find((candidate) => Math.abs(candidate.top - marker.top) < 0.5);
+
+            if (row) {
+              row.bottom = Math.max(row.bottom, marker.bottom);
+            } else {
+              selectionRows.push({ top: marker.top, bottom: marker.bottom });
+            }
+
+            return selectionRows;
+          }, []);
+        const devicePixelRatio = window.devicePixelRatio;
+        const hasMismatchedPhysicalRowBoundary = rows.slice(1).some((row, index) => {
+          const previousRow = rows[index];
+          return Math.round(row.top * devicePixelRatio) !== Math.round(previousRow.bottom * devicePixelRatio);
+        });
 
         return {
           clipPath: getComputedStyle(selectionLayer).clipPath,
           coversViewportCenter: true,
+          hasMismatchedPhysicalRowBoundary,
           leftEdgesAlign: Math.abs(selectionMarkerRect.left - activeLineRect.left) < 1,
         };
       })
-    ).toEqual({ clipPath: "none", coversViewportCenter: true, leftEdgesAlign: true });
+    ).toEqual({ clipPath: "none", coversViewportCenter: true, hasMismatchedPhysicalRowBoundary: false, leftEdgesAlign: true });
   });
 });

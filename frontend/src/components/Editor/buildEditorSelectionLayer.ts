@@ -38,18 +38,57 @@ export function getSelectionLineSegments(doc: Text, range: { from: number; to: n
   return segments;
 }
 
-function expandSelectionRectangles(view: EditorView, markers: readonly RectangleMarker[], rangeClass: string): RectangleMarker[] {
+function expandSelectionRectangles(
+  view: EditorView,
+  markers: readonly RectangleMarker[],
+  rangeClass: string,
+  lineBlockBounds?: { top: number; bottom: number }
+): RectangleMarker[] {
   const targetHeight = view.defaultLineHeight;
+  const expandToDefaultLineHeight = markers.every((marker) => marker.height < targetHeight);
 
-  return markers.map((marker) => {
-    if (marker.height >= targetHeight) {
-      return marker;
+  const rows: Array<{ markers: RectangleMarker[]; top: number; bottom: number }> = [];
+
+  for (const marker of markers) {
+    const row = rows.find((candidate) => Math.abs(candidate.top - marker.top) < 0.5);
+
+    if (row) {
+      row.markers.push(marker);
+      row.bottom = Math.max(row.bottom, marker.top + marker.height);
+    } else {
+      rows.push({ markers: [marker], top: marker.top, bottom: marker.top + marker.height });
     }
+  }
 
-    const expansion = (targetHeight - marker.height) / 2;
+  rows.sort((left, right) => left.top - right.top);
 
-    return new RectangleMarker(rangeClass, marker.left, marker.top - expansion, marker.width, targetHeight);
+  const devicePixelRatio = view.contentDOM.ownerDocument.defaultView?.devicePixelRatio ?? 1;
+  const viewportTop = view.scrollDOM.getBoundingClientRect().top;
+  const snapToDevicePixel = (position: number) => Math.round((viewportTop + position) * devicePixelRatio) / devicePixelRatio - viewportTop;
+
+  return rows.flatMap((row, index) => {
+    const previousRow = rows[index - 1];
+    const nextRow = rows[index + 1];
+    const unroundedTop = previousRow
+      ? (previousRow.bottom + row.top) / 2
+      : (lineBlockBounds?.top ?? (expandToDefaultLineHeight ? row.top - (targetHeight - (row.bottom - row.top)) / 2 : row.top));
+    const unroundedBottom = nextRow
+      ? (row.bottom + nextRow.top) / 2
+      : (lineBlockBounds?.bottom ?? (expandToDefaultLineHeight ? row.bottom + (targetHeight - (row.bottom - row.top)) / 2 : row.bottom));
+    const top = previousRow ? snapToDevicePixel(unroundedTop) : unroundedTop;
+    const bottom = nextRow ? snapToDevicePixel(unroundedBottom) : unroundedBottom;
+
+    return row.markers.map((marker) => new RectangleMarker(rangeClass, marker.left, top, marker.width, bottom - top));
   });
+}
+
+function getLineBlockMarkerBounds(view: EditorView, position: number): { top: number; bottom: number } {
+  const block = view.lineBlockAt(position);
+  const scrollRect = view.scrollDOM.getBoundingClientRect();
+  const baseTop = scrollRect.top - view.scrollDOM.scrollTop * view.scaleY;
+  const blockTop = view.documentTop + block.top * view.scaleY - baseTop;
+
+  return { top: blockTop, bottom: blockTop + block.height * view.scaleY };
 }
 
 function alignSelectionRectanglesWithContentInset(
@@ -73,6 +112,7 @@ function alignSelectionRectanglesWithContentInset(
 
 function buildEmptyLineSelectionMarkers(view: EditorView, position: number, rangeClass: string): RectangleMarker[] {
   const cursorMarkers = RectangleMarker.forRange(view, rangeClass, EditorSelection.cursor(position));
+  const lineBlockBounds = getLineBlockMarkerBounds(view, position);
 
   return expandSelectionRectangles(
     view,
@@ -86,7 +126,8 @@ function buildEmptyLineSelectionMarkers(view: EditorView, position: number, rang
           marker.height
         )
     ),
-    rangeClass
+    rangeClass,
+    lineBlockBounds
   );
 }
 
@@ -112,12 +153,18 @@ export function buildSelectionLayerExtension({
         }
 
         for (const segment of getSelectionLineSegments(view.state.doc, range)) {
+          const line = view.state.doc.lineAt(segment.from);
+          const lineBlockBounds =
+            segment.emptyLine || segment.from !== line.from || segment.to !== line.to
+              ? undefined
+              : getLineBlockMarkerBounds(view, segment.from);
           const segmentMarkers = segment.emptyLine
             ? buildEmptyLineSelectionMarkers(view, segment.from, rangeClass)
             : expandSelectionRectangles(
                 view,
                 RectangleMarker.forRange(view, rangeClass, EditorSelection.range(segment.from, segment.to)),
-                rangeClass
+                rangeClass,
+                lineBlockBounds
               );
 
           markers.push(...alignSelectionRectanglesWithContentInset(view, segmentMarkers, rangeClass));
