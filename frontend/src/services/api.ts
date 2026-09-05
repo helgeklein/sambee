@@ -1436,6 +1436,17 @@ class ApiService {
         error: { code: "unavailable", reason: "unsupported" },
       };
     }
+    if (destConnectionId && destConnectionId !== connectionId) {
+      return this.executeDurableSmbTransfer(
+        "copy",
+        connectionId,
+        sourcePath,
+        destConnectionId,
+        destPath,
+        idempotencyKey,
+        targetResolutionPolicy
+      );
+    }
     const segment = getBrowseSegment(connectionId);
     const { client, extraConfig } = await this.getClientConfig(connectionId);
     return this.postTransfer(
@@ -1461,6 +1472,17 @@ class ApiService {
     destConnectionId?: string,
     targetResolutionPolicy: TargetResolutionPolicy = "ask"
   ): Promise<ContentTransferResult> {
+    if (destConnectionId && !this.isCrossBackendTransfer(connectionId, destConnectionId) && destConnectionId !== connectionId) {
+      return this.executeDurableSmbTransfer(
+        "move",
+        connectionId,
+        sourcePath,
+        destConnectionId,
+        destPath,
+        idempotencyKey,
+        targetResolutionPolicy
+      );
+    }
     const segment = getBrowseSegment(connectionId);
     const { client, extraConfig } = await this.getClientConfig(connectionId);
     return this.postTransfer(
@@ -1582,6 +1604,39 @@ class ApiService {
       }
       return { status: "outcome_unknown", replaced: false, effects: { source: "unknown", destination: "unknown" } };
     }
+  }
+
+  /** Execute a backend-owned durable transfer between two SMB connections. */
+  private async executeDurableSmbTransfer(
+    kind: "copy" | "move",
+    sourceConnectionId: string,
+    sourcePath: string,
+    destinationConnectionId: string,
+    destinationPath: string,
+    idempotencyKey: string,
+    targetResolutionPolicy: TargetResolutionPolicy
+  ): Promise<ContentTransferResult> {
+    const destinationSegment = getBrowseSegment(destinationConnectionId);
+    const { client, extraConfig } = await this.getClientConfig(destinationConnectionId);
+    const prepared = await client.post<{ id: string }>(
+      `/browse/${destinationSegment}/transfer-operations`,
+      {
+        protocol_version: "v1",
+        idempotency_key: idempotencyKey,
+        kind,
+        source_connection_id: sourceConnectionId,
+        source_path: sourcePath,
+        destination_path: destinationPath,
+        target_resolution_policy: targetResolutionPolicy,
+      },
+      extraConfig
+    );
+    return this.postTransfer(
+      client,
+      `/browse/${destinationSegment}/transfer-operations/${encodeURIComponent(prepared.data.id)}/execute`,
+      {},
+      extraConfig
+    );
   }
 
   private normalizeTransferResult(result: ContentTransferResult): ContentTransferResult {

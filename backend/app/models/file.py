@@ -107,7 +107,7 @@ class ContentTransferEffects(BaseModel):
 class ContentTransferError(BaseModel):
     """A stable failure detail for a factual transfer result."""
 
-    code: Literal["source_changed", "source_delete_failed", "transport", "unavailable"]
+    code: Literal["conflict", "source_changed", "source_delete_failed", "transport", "unavailable"]
     detail: str
 
 

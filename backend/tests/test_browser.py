@@ -187,6 +187,82 @@ def test_cross_provider_stream_destination_rejects_empty_path_before_smb_work(
     mock_backend.assert_not_called()
 
 
+def test_durable_transfer_operation_replays_preparation_and_persists_execution_receipt(
+    client: TestClient,
+    auth_headers_user: dict,
+    multiple_connections: list[Connection],
+):
+    """A regular SMB transfer has one durable operation and one factual receipt."""
+
+    source_connection, destination_connection = multiple_connections[:2]
+    source_info = FileInfo(
+        name="report.txt",
+        path="reports/report.txt",
+        type=FileType.FILE,
+        size=6,
+        modified_at=datetime(2025, 1, 1, tzinfo=timezone.utc),
+        stable_id="source-file-id",
+    )
+    idempotency_key = str(uuid.uuid4())
+    payload = {
+        "protocol_version": "v1",
+        "idempotency_key": idempotency_key,
+        "kind": "copy",
+        "source_connection_id": str(source_connection.id),
+        "source_path": "reports/report.txt",
+        "destination_path": "incoming/report.txt",
+        "target_resolution_policy": "ask",
+    }
+    with patch("app.api.browser.SMBBackend") as mock_backend:
+        prepared_source = AsyncMock()
+        execution_source = AsyncMock()
+        destination = AsyncMock()
+        prepared_source.get_file_info.return_value = source_info
+        execution_source.get_file_info.return_value = source_info
+
+        async def source_chunks():
+            yield b"report"
+
+        async def stage_and_commit(path: str, stream, *, before_commit, **_kwargs: object) -> int:
+            assert path == "incoming/report.txt"
+            assert b"".join([chunk async for chunk in stream]) == b"report"
+            await before_commit()
+            return 6
+
+        execution_source.read_file = lambda _path: source_chunks()
+        destination.get_file_info.side_effect = FileNotFoundError("missing target")
+        destination.stage_and_commit_new_file_from_stream.side_effect = stage_and_commit
+        mock_backend.side_effect = [prepared_source, execution_source, destination]
+
+        prepared = client.post(
+            f"/api/browse/{destination_connection.id}/transfer-operations",
+            headers=auth_headers_user,
+            json=payload,
+        )
+        replayed = client.post(
+            f"/api/browse/{destination_connection.id}/transfer-operations",
+            headers=auth_headers_user,
+            json=payload,
+        )
+        operation_id = prepared.json()["id"]
+        executed = client.post(
+            f"/api/browse/{destination_connection.id}/transfer-operations/{operation_id}/execute",
+            headers=auth_headers_user,
+        )
+        status = client.get(
+            f"/api/browse/{destination_connection.id}/transfer-operations/{operation_id}",
+            headers=auth_headers_user,
+        )
+
+    assert prepared.status_code == 200
+    assert replayed.status_code == 200
+    assert replayed.json()["id"] == operation_id
+    assert executed.json()["status"] == "completed"
+    assert status.json()["phase"] == "completed"
+    assert status.json()["bytes_transferred"] == 6
+    assert status.json()["result"]["status"] == "completed"
+
+
 @pytest.mark.parametrize("idempotency_key", [None, "not-a-uuid"])
 def test_copy_rejects_missing_or_malformed_idempotency_key(
     client: TestClient,

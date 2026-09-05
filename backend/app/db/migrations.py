@@ -855,6 +855,48 @@ def _apply_archive_operation_member_selection_migration(connection: Connection) 
         connection.execute(text("ALTER TABLE archive_operations ADD COLUMN selected_member_paths_json TEXT"))
 
 
+def _apply_transfer_operations_migration(connection: Connection) -> None:
+    """Create durable receipts for backend-owned SMB transfer operations."""
+
+    inspector = inspect(connection)
+    if inspector.has_table("transfer_operations"):
+        return
+    connection.execute(
+        text(
+            """
+            CREATE TABLE transfer_operations (
+                id CHAR(32) NOT NULL PRIMARY KEY,
+                user_id CHAR(32) NOT NULL,
+                protocol_version VARCHAR(8) NOT NULL DEFAULT 'v1'
+                    CONSTRAINT ck_transfer_operations_protocol_version_v1 CHECK (protocol_version = 'v1'),
+                idempotency_key VARCHAR(64) NOT NULL,
+                request_fingerprint VARCHAR(128) NOT NULL,
+                kind VARCHAR(8) NOT NULL,
+                phase VARCHAR(32) NOT NULL,
+                source_connection_id VARCHAR(256) NOT NULL,
+                source_path VARCHAR(4096) NOT NULL,
+                destination_connection_id VARCHAR(256) NOT NULL,
+                destination_path VARCHAR(4096) NOT NULL,
+                target_resolution_policy VARCHAR(32) NOT NULL,
+                source_size INTEGER NOT NULL,
+                source_modified_at DATETIME,
+                source_stable_id VARCHAR(512) NOT NULL,
+                bytes_transferred INTEGER NOT NULL DEFAULT 0,
+                result_json TEXT,
+                cancellation_requested BOOLEAN NOT NULL DEFAULT 0,
+                expires_at DATETIME NOT NULL,
+                created_at DATETIME NOT NULL,
+                updated_at DATETIME NOT NULL,
+                CONSTRAINT uq_transfer_operations_user_idempotency_key UNIQUE (user_id, idempotency_key),
+                FOREIGN KEY(user_id) REFERENCES user (id)
+            )
+            """
+        )
+    )
+    for column in ("user_id", "phase", "source_connection_id", "destination_connection_id", "cancellation_requested", "expires_at"):
+        connection.execute(text(f"CREATE INDEX IF NOT EXISTS ix_transfer_operations_{column} ON transfer_operations ({column})"))
+
+
 MIGRATIONS: tuple[Migration, ...] = (
     Migration(version=1, name="ensure_connection_slugs", apply=_apply_connection_slug_migration),
     Migration(version=2, name="add_user_role_and_session_fields", apply=_apply_user_role_migration),
@@ -891,6 +933,7 @@ MIGRATIONS: tuple[Migration, ...] = (
         version=32, name="allow_uninitialized_archive_operation_checkpoints", apply=_apply_nullable_archive_operation_checkpoint_migration
     ),
     Migration(version=33, name="add_archive_operation_member_selection", apply=_apply_archive_operation_member_selection_migration),
+    Migration(version=34, name="add_transfer_operations", apply=_apply_transfer_operations_migration),
 )
 
 

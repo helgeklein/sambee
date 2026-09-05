@@ -212,6 +212,34 @@ describe("API Service", () => {
     );
   });
 
+  it("routes a cross-connection SMB copy through a durable transfer operation", async () => {
+    mockAxiosInstance.post.mockResolvedValueOnce({ data: { id: "transfer-1" } } as AxiosResponse).mockResolvedValueOnce({
+      data: { status: "completed", replaced: false, effects: { source: "unchanged", destination: "mutated" } },
+    } as AxiosResponse);
+
+    await expect(
+      apiService.copyItem("source", "source.txt", "destination.txt", "00000000-0000-4000-8000-000000000005", "destination")
+    ).resolves.toMatchObject({ status: "completed" });
+
+    expect(mockAxiosInstance.post).toHaveBeenNthCalledWith(
+      1,
+      "/browse/destination/transfer-operations",
+      expect.objectContaining({
+        kind: "copy",
+        source_connection_id: "source",
+        destination_path: "destination.txt",
+        idempotency_key: "00000000-0000-4000-8000-000000000005",
+      }),
+      expect.anything()
+    );
+    expect(mockAxiosInstance.post).toHaveBeenNthCalledWith(
+      2,
+      "/browse/destination/transfer-operations/transfer-1/execute",
+      {},
+      expect.anything()
+    );
+  });
+
   it("relays a cross-provider regular file as a stream without Blob buffering", async () => {
     mockAxiosInstance.get.mockResolvedValue({
       data: { name: "source.txt", path: "source.txt", type: FileType.FILE, is_readable: true, is_hidden: false },

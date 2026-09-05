@@ -60,6 +60,12 @@ from app.models.recent_file import (
     RecentFileValidationCode,
     RecentFileValidationError,
 )
+from app.models.transfer_operation import (
+    TransferOperation,
+    TransferOperationCreate,
+    TransferOperationPhase,
+    TransferOperationRead,
+)
 from app.models.user import User
 from app.services.archive.execution import resolve_archive_inspection_topology_plan
 from app.services.archive.zip_reader import ArchiveFormatError, ZipReader
@@ -100,6 +106,7 @@ logger = get_logger(__name__)
 
 DIRECTORY_LIST_ROUTE_TIMEOUT_SECONDS = 35.0
 TRANSFER_RECEIPT_TTL_SECONDS = 5 * 60
+TRANSFER_OPERATION_TTL = timedelta(seconds=TRANSFER_RECEIPT_TTL_SECONDS)
 TRANSFER_UNAVAILABLE_DETAIL = "Transfers are unavailable in this release"
 
 
@@ -1272,6 +1279,271 @@ async def stream_transfer_to_new_item(
     except OSError as error:
         logger.error("Failed to publish cross-provider destination '%s': %s", target_path, error, exc_info=True)
         raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail=f"Transfer destination failed: {error}") from error
+
+
+def _transfer_operation_fingerprint(body: TransferOperationCreate, destination_connection_id: uuid.UUID) -> str:
+    """Return the immutable plan fingerprint used for idempotent operation creation."""
+
+    return json.dumps(
+        {**body.model_dump(exclude={"idempotency_key"}), "destination_connection_id": str(destination_connection_id)},
+        sort_keys=True,
+        separators=(",", ":"),
+    )
+
+
+def _transfer_operation_read(operation: TransferOperation) -> TransferOperationRead:
+    """Project the durable operation without exposing its internal request fingerprint."""
+
+    return TransferOperationRead.model_validate(operation)
+
+
+def _transfer_operation_result(operation: TransferOperation) -> ContentTransferResult | None:
+    """Decode a previously persisted factual result, failing closed on corrupt state."""
+
+    return _transfer_operation_read(operation).result
+
+
+def _record_transfer_operation_result(
+    session: Session,
+    operation: TransferOperation,
+    result: ContentTransferResult,
+) -> TransferOperation:
+    """Persist one terminal result before returning it to a retried caller."""
+
+    operation.phase = (
+        TransferOperationPhase.COMPLETED
+        if result.status
+        in {
+            "completed",
+            "skipped",
+            "completed_with_source_retained",
+        }
+        else TransferOperationPhase.FAILED
+    )
+    operation.bytes_transferred = operation.source_size if result.effects.destination == "mutated" else 0
+    operation.result_json = result.model_dump_json()
+    operation.updated_at = datetime.now(timezone.utc)
+    session.add(operation)
+    session.commit()
+    session.refresh(operation)
+    return operation
+
+
+def _transfer_operation_is_expired(operation: TransferOperation) -> bool:
+    """Compare SQLite's potentially naive timestamps safely against UTC now."""
+
+    expires_at = operation.expires_at
+    if expires_at.tzinfo is None:
+        expires_at = expires_at.replace(tzinfo=timezone.utc)
+    return expires_at <= datetime.now(timezone.utc)
+
+
+def _expire_transfer_operation(session: Session, operation: TransferOperation) -> TransferOperation:
+    """Expire an uncompleted operation without claiming its destination is unchanged."""
+
+    if operation.phase in {TransferOperationPhase.COMPLETED, TransferOperationPhase.FAILED, TransferOperationPhase.CANCELLED}:
+        return operation
+    result = ContentTransferResult(
+        status="outcome_unknown" if operation.phase == TransferOperationPhase.STREAMING else "cancelled",
+        effects=ContentTransferEffects(
+            source="unknown" if operation.phase == TransferOperationPhase.STREAMING else "unchanged",
+            destination="unknown" if operation.phase == TransferOperationPhase.STREAMING else "unchanged",
+        ),
+    )
+    operation.phase = (
+        TransferOperationPhase.FAILED if operation.phase == TransferOperationPhase.STREAMING else TransferOperationPhase.CANCELLED
+    )
+    operation.result_json = result.model_dump_json()
+    operation.updated_at = datetime.now(timezone.utc)
+    session.add(operation)
+    session.commit()
+    session.refresh(operation)
+    return operation
+
+
+def _get_owned_transfer_operation(
+    session: Session,
+    current_user: User,
+    operation_id: uuid.UUID,
+    destination_connection_id: uuid.UUID,
+) -> TransferOperation:
+    """Load a destination-owned durable operation or return an authorization-safe error."""
+
+    operation = session.get(TransferOperation, operation_id)
+    if operation is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Transfer operation not found")
+    if operation.user_id != current_user.id or operation.destination_connection_id != str(destination_connection_id):
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Transfer operation not found")
+    if _transfer_operation_is_expired(operation):
+        return _expire_transfer_operation(session, operation)
+    return operation
+
+
+@router.post("/{connection_id}/transfer-operations", response_model=TransferOperationRead)
+async def prepare_transfer_operation(
+    connection_id: uuid.UUID,
+    body: TransferOperationCreate,
+    current_user: User = Depends(get_current_user_with_auth_check),
+    session: Session = Depends(get_session),
+) -> TransferOperationRead:
+    """Persist a regular SMB transfer plan and capture its source identity before streaming."""
+
+    source_path, destination_path = _validate_copy_move_paths(body.source_path, body.destination_path)
+    try:
+        source_connection_id = uuid.UUID(body.source_connection_id)
+    except ValueError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_CONTENT, detail="Source connection must be an SMB connection"
+        ) from exc
+    destination_connection = _get_connection_or_404(session, current_user, connection_id)
+    source_connection = _get_connection_or_404(session, current_user, source_connection_id)
+    require_connection_write_access(current_user, destination_connection, action="transfer_destination", path=destination_path)
+    fingerprint = _transfer_operation_fingerprint(body, connection_id)
+    existing = session.exec(
+        select(TransferOperation).where(
+            TransferOperation.user_id == current_user.id,
+            TransferOperation.idempotency_key == body.idempotency_key,
+        )
+    ).first()
+    if existing is not None:
+        if existing.request_fingerprint != fingerprint:
+            raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="Idempotency key conflicts with its transfer operation")
+        return _transfer_operation_read(
+            _expire_transfer_operation(session, existing) if _transfer_operation_is_expired(existing) else existing
+        )
+    source_backend = build_smb_backend(source_connection, backend_factory=SMBBackend)
+    try:
+        await source_backend.connect()
+        source_info = await source_backend.get_file_info(source_path)
+    finally:
+        await disconnect_backend_safely(
+            source_backend,
+            logger=logger,
+            context=f"prepare transfer operation source: connection_id={source_connection_id}, path='{source_path}'",
+        )
+    if source_info.type != FileType.FILE or source_info.size is None or not source_info.stable_id:
+        raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_CONTENT, detail="Transfer source must be an identified regular file")
+    now = datetime.now(timezone.utc)
+    operation = TransferOperation(
+        user_id=current_user.id,
+        idempotency_key=body.idempotency_key,
+        request_fingerprint=fingerprint,
+        kind=body.kind,
+        source_connection_id=str(source_connection_id),
+        source_path=source_path,
+        destination_connection_id=str(connection_id),
+        destination_path=destination_path,
+        target_resolution_policy=body.target_resolution_policy,
+        source_size=source_info.size,
+        source_modified_at=source_info.modified_at,
+        source_stable_id=source_info.stable_id,
+        expires_at=now + TRANSFER_OPERATION_TTL,
+        created_at=now,
+        updated_at=now,
+    )
+    try:
+        session.add(operation)
+        session.commit()
+        session.refresh(operation)
+    except IntegrityError as exc:
+        session.rollback()
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT, detail="Transfer operation could not reserve its idempotency key"
+        ) from exc
+    return _transfer_operation_read(operation)
+
+
+@router.get("/{connection_id}/transfer-operations/{operation_id}", response_model=TransferOperationRead)
+async def get_transfer_operation(
+    connection_id: uuid.UUID,
+    operation_id: uuid.UUID,
+    current_user: User = Depends(get_current_user_with_auth_check),
+    session: Session = Depends(get_session),
+) -> TransferOperationRead:
+    """Return an authenticated destination-owned transfer receipt for reload recovery."""
+
+    return _transfer_operation_read(_get_owned_transfer_operation(session, current_user, operation_id, connection_id))
+
+
+@router.post("/{connection_id}/transfer-operations/{operation_id}/execute", response_model=ContentTransferResult)
+async def execute_transfer_operation(
+    connection_id: uuid.UUID,
+    operation_id: uuid.UUID,
+    current_user: User = Depends(get_current_user_with_auth_check),
+    session: Session = Depends(get_session),
+) -> ContentTransferResult:
+    """Execute one durable SMB regular-file copy through destination-owned staging."""
+
+    operation = _get_owned_transfer_operation(session, current_user, operation_id, connection_id)
+    existing_result = _transfer_operation_result(operation)
+    if existing_result is not None:
+        return existing_result
+    if operation.phase != TransferOperationPhase.PREPARED:
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="Transfer operation is already streaming")
+    source_connection = _get_connection_or_404(session, current_user, uuid.UUID(operation.source_connection_id))
+    destination_connection = _get_connection_or_404(session, current_user, connection_id)
+    source_backend = build_smb_backend(source_connection, backend_factory=SMBBackend)
+    destination_backend = build_smb_backend(destination_connection, backend_factory=SMBBackend)
+    operation.phase = TransferOperationPhase.STREAMING
+    operation.updated_at = datetime.now(timezone.utc)
+    session.add(operation)
+    session.commit()
+    try:
+        await source_backend.connect()
+        await destination_backend.connect()
+        bytes_written, _source_info = await cross_connection_copy(
+            source_backend,
+            destination_backend,
+            operation.source_path,
+            operation.destination_path,
+            target_resolution_policy=TargetResolutionPolicy(operation.target_resolution_policy),
+        )
+        if bytes_written is None:
+            result = ContentTransferResult(
+                status="skipped",
+                effects=ContentTransferEffects(source="unchanged", destination="unchanged"),
+            )
+        elif operation.kind == "move":
+            result = ContentTransferResult(
+                status="completed_with_source_retained",
+                effects=ContentTransferEffects(source="unchanged", destination="mutated"),
+                error=ContentTransferError(
+                    code="source_delete_failed",
+                    detail="Destination was created but the source was retained because guarded cross-provider deletion is unavailable.",
+                ),
+            )
+        else:
+            result = ContentTransferResult(
+                status="completed",
+                effects=ContentTransferEffects(source="unchanged", destination="mutated"),
+            )
+        _add_to_directory_cache(str(connection_id), operation.destination_path)
+    except TargetCollisionError as exc:
+        result = ContentTransferResult(
+            status="failed",
+            effects=ContentTransferEffects(source="unchanged", destination="unchanged"),
+            error=ContentTransferError(code="conflict", detail=str(exc)),
+        )
+    except SourceChangedError as exc:
+        result = ContentTransferResult(
+            status="failed",
+            effects=ContentTransferEffects(
+                source="unchanged",
+                destination="mutated" if exc.destination_mutated else "unchanged",
+            ),
+            error=ContentTransferError(code="source_changed", detail=str(exc)),
+        )
+    except Exception:
+        logger.exception("Durable transfer operation outcome is unknown: operation_id=%s", operation.id)
+        result = ContentTransferResult(
+            status="outcome_unknown",
+            effects=ContentTransferEffects(source="unknown", destination="unknown"),
+        )
+    finally:
+        await disconnect_backend_safely(source_backend, logger=logger, context=f"transfer operation source {operation.id}")
+        await disconnect_backend_safely(destination_backend, logger=logger, context=f"transfer operation destination {operation.id}")
+    _record_transfer_operation_result(session, operation, result)
+    return result
 
 
 # ============================================================================
