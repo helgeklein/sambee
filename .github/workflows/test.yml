@@ -98,8 +98,6 @@ jobs:
         target: backend-test
         load: true
         tags: sambee:backend-test
-        build-args: |
-          APT_REFRESH_KEY=${{ github.run_id }}-${{ github.run_attempt }}
         cache-from: type=gha,scope=backend-test
         cache-to: type=gha,mode=max,scope=backend-test
 
@@ -114,6 +112,8 @@ jobs:
           -e ENCRYPTION_KEY \
           sambee:backend-test \
           sh -c '
+            git --version &&
+            jq --version &&
             QUIET=1 scripts/setup-test-images &&
             cd backend &&
             .venv/bin/python -m mypy --cache-dir=/home/vscode/.cache/mypy app &&

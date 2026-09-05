@@ -604,14 +604,9 @@ async def list_archive_directory(
     current_user: User = Depends(get_current_user_with_auth_check),
     session: Session = Depends(get_session),
 ) -> ArchiveDirectoryListing:
-    """Return one bounded record-order page from a ZIP central directory."""
+    """Return one projected page from a virtual ZIP directory."""
 
     set_user(current_user.username)
-    if virtual_path:
-        raise HTTPException(
-            status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
-            detail="Archive record-order listing does not support virtual directory paths",
-        )
     connection = _get_connection_or_404(session, current_user, connection_id)
     backend = build_smb_backend(connection, backend_factory=SMBBackend)
     reader = None
@@ -627,10 +622,10 @@ async def list_archive_directory(
                 status_code=status.HTTP_422_UNPROCESSABLE_CONTENT, detail="Archive inspection requires the Companion coordinator"
             )
         zip_reader = ZipReader(reader, archive_info.size)
-        entries, next_cursor = await zip_reader.inspection_page(cursor, page_size)
+        directory_page = await zip_reader.list_directory(virtual_path, cursor, page_size)
         return ArchiveDirectoryListing(
             archive={"path": archive_path, "size": archive_info.size, "modified_at": archive_info.modified_at},
-            path="",
+            path=directory_page.path,
             items=[
                 {
                     "name": entry.path.rsplit("/", 1)[-1],
@@ -644,9 +639,9 @@ async def list_archive_directory(
                     "state": "blocked" if entry.encrypted else "readable" if entry.compression_method in {0, 8, 12} else "unavailable",
                     "is_hidden": entry.path.rsplit("/", 1)[-1].startswith("."),
                 }
-                for entry in entries
+                for entry in directory_page.entries
             ],
-            next_cursor=next_cursor,
+            next_cursor=directory_page.next_cursor,
             page_size=page_size,
         )
     except ArchiveFormatError as exc:

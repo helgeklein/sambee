@@ -254,7 +254,7 @@ async def test_live_extraction_retains_current_member_for_a_collision_decision()
 
 
 @pytest.mark.asyncio
-async def test_live_extraction_requires_a_collision_decision_for_replacement_decoded_names() -> None:
+async def test_live_extraction_selects_the_last_replacement_decoded_name() -> None:
     archive = (ARCHIVE_TESTDATA_ROOT / "compat-names.zip").read_bytes()
     backend = MemoryExtractionBackend(archive)
     source_session = LiveSourceSession(ZipReader(backend.reader, len(archive)))
@@ -266,13 +266,12 @@ async def test_live_extraction_requires_a_collision_decision_for_replacement_dec
         existing_file_policy=None,
     )
 
-    decision = await source_session.pending_decision()
-    assert aggregate.members_processed == 1
-    assert source_session.phase == LiveSourceSessionPhase.AWAITING_DECISION
-    assert decision is not None
-    assert decision.member_path == "bad\ufffd.txt"
+    assert aggregate.members_processed == 2
+    assert aggregate.members_completed == 1
+    assert aggregate.members_skipped == 1
+    assert source_session.phase == LiveSourceSessionPhase.COMPLETED
     assert backend.written_file_paths == ["output/bad\ufffd.txt"]
-    assert backend.files == {"output/bad\ufffd.txt": b"malformed UTF-8 name"}
+    assert backend.files == {"output/bad\ufffd.txt": b"replacement name"}
 
 
 @pytest.mark.asyncio
@@ -748,8 +747,8 @@ async def test_rejects_unsafe_members_before_creating_output() -> None:
 
     assert result.members_processed == 1
     assert result.members_completed == 0
-    assert result.members_skipped == 0
-    assert result.members_failed == 1
+    assert result.members_skipped == 1
+    assert result.members_failed == 0
     assert backend.directories == set()
     assert backend.files == {}
     assert backend.reader.closed is True
@@ -763,8 +762,8 @@ async def test_rejects_symbolic_link_members_before_creating_output() -> None:
 
     assert result.members_processed == 1
     assert result.members_completed == 0
-    assert result.members_skipped == 0
-    assert result.members_failed == 1
+    assert result.members_skipped == 1
+    assert result.members_failed == 0
     assert backend.directories == set()
     assert backend.files == {}
     assert backend.reader.closed is True
@@ -797,7 +796,7 @@ async def test_replace_all_policy_replaces_existing_files() -> None:
 
 
 @pytest.mark.asyncio
-async def test_live_source_processes_exact_duplicate_records_in_record_order() -> None:
+async def test_live_source_selects_the_last_duplicate_record() -> None:
     output = io.BytesIO()
     with zipfile.ZipFile(output, "w", compression=zipfile.ZIP_DEFLATED) as archive:
         archive.writestr("duplicate.txt", "first")
@@ -805,31 +804,17 @@ async def test_live_source_processes_exact_duplicate_records_in_record_order() -
     backend = MemoryExtractionBackend(output.getvalue())
 
     source_session = LiveSourceSession(ZipReader(backend.reader, len(backend.archive)))
-    first = await source_session.next_member()
-    assert first is not None
-    first_contents = b"".join(
-        [chunk async for chunk in source_session.stream_current_member(first.source_session_id, first.delivery_sequence)]
-    )
+    member = await source_session.next_member()
+    assert member is not None
+    contents = b"".join([chunk async for chunk in source_session.stream_current_member(member.source_session_id, member.delivery_sequence)])
     await source_session.apply_destination_write_result(
-        DestinationWriteResult(
-            first.source_session_id, first.delivery_sequence, first.path, "extracted", extracted_bytes=len(first_contents)
-        )
-    )
-    second = await source_session.next_member()
-    assert second is not None
-    second_contents = b"".join(
-        [chunk async for chunk in source_session.stream_current_member(second.source_session_id, second.delivery_sequence)]
-    )
-    await source_session.apply_destination_write_result(
-        DestinationWriteResult(
-            second.source_session_id, second.delivery_sequence, second.path, "extracted", extracted_bytes=len(second_contents)
-        )
+        DestinationWriteResult(member.source_session_id, member.delivery_sequence, member.path, "extracted", extracted_bytes=len(contents))
     )
 
-    assert (first.path, first.delivery_sequence, first_contents) == ("duplicate.txt", 1, b"first")
-    assert (second.path, second.delivery_sequence, second_contents) == ("duplicate.txt", 2, b"last")
+    assert (member.path, member.delivery_sequence, contents) == ("duplicate.txt", 1, b"last")
     assert (await source_session.next_member()) is None
-    assert source_session.aggregate.members_completed == 2
+    assert source_session.aggregate.members_completed == 1
+    assert source_session.aggregate.members_skipped == 1
     await source_session.close()
 
 

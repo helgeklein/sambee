@@ -293,7 +293,7 @@ describe("SourceTextEditor", () => {
 
     await waitFor(() => {
       expect(editor.closest(".cm-editor")?.querySelector(".cm-selectionLayer")).not.toBeNull();
-      expect(editor.closest(".cm-editor")?.querySelector(".sambee-editor-selection-layer")).toBeNull();
+      expect(editor.closest(".cm-editor")?.querySelector(".sambee-editor-selection-layer")).not.toBeNull();
     });
   });
 
@@ -334,7 +334,46 @@ describe("SourceTextEditor", () => {
 
     await waitFor(() => {
       expect(editor.closest(".cm-editor")?.querySelector(".cm-selectionLayer")).not.toBeNull();
-      expect(editor.closest(".cm-editor")?.querySelector(".sambee-editor-selection-layer")).toBeNull();
+      expect(editor.closest(".cm-editor")?.querySelector(".sambee-editor-selection-layer")).not.toBeNull();
+    });
+  });
+
+  it.each([
+    ["Markdown", buildMarkdownEditorExtensions(TEST_MARKDOWN_THEME)],
+    ["plain text", [...buildCommonEditorExtensions({ drawSelection: true }), ...buildTextEditorTheme(TEST_TEXT_THEME)]],
+  ])("does not clip the per-line selection layer for %s", async (_editorType, extensions) => {
+    const user = userEvent.setup();
+    const editorRef = createRef<SourceTextEditorHandle>();
+
+    render(
+      <SourceTextEditor
+        ref={editorRef}
+        value="First line\nSecond line"
+        extensions={extensions}
+        ariaLabel="Selection clipping editor"
+        onChange={() => {}}
+      />
+    );
+
+    const editor = await screen.findByLabelText("Selection clipping editor");
+    await user.click(editor);
+
+    const view = editorRef.current?.getView();
+
+    if (!view) {
+      throw new Error("Expected editor view to be available");
+    }
+
+    view.dispatch({ selection: EditorSelection.range(0, view.state.doc.length) });
+
+    await waitFor(() => {
+      const selectionLayer = editor.closest(".cm-editor")?.querySelector(".sambee-editor-selection-layer");
+
+      if (!(selectionLayer instanceof HTMLElement)) {
+        throw new Error("Expected per-line selection layer to be rendered");
+      }
+
+      expect(window.getComputedStyle(selectionLayer).clipPath).toBe("none");
     });
   });
 
