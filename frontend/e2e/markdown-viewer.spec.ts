@@ -159,6 +159,8 @@ async function mockMarkdownViewerApi(page: Page, { initialMarkdown, onUploadBody
         file_path: DEMO_PATH,
         locked_by: "demo-admin",
         locked_at: "2026-04-12T12:00:00Z",
+         lock_capability: "test-lock-capability",
+         operation_id: "test-operation-1",
       });
       return;
     }
@@ -502,15 +504,15 @@ test.describe("markdown editor selection", () => {
     await page.keyboard.press("Control+A");
 
     await expect(page.locator(".cm-selectionLayer")).toHaveCount(1);
-    await expect(page.locator(".sambee-editor-selection-layer")).toHaveCount(0);
-    await expect(editorRoot.locator(".cm-selectionBackground").first()).toBeVisible();
-    await expect(editorRoot.locator(".cm-selectionBackground").first()).toHaveCSS("background-color", "rgba(194, 68, 0, 0.18)");
+    await expect(page.locator(".sambee-editor-selection-layer")).toHaveCount(1);
+    await expect(editorRoot.locator(".sambee-editor-selection-range").first()).toBeVisible();
+    await expect(editorRoot.locator(".sambee-editor-selection-range").first()).toHaveCSS("background-color", "rgba(194, 68, 0, 0.18)");
     await expect(editor).toHaveScreenshot("wrapped-selection.png");
 
     await page.keyboard.press("ArrowRight");
     await page.keyboard.press("Control+Shift+ArrowLeft");
-    await expect(editorRoot.locator(".cm-selectionBackground").first()).toBeVisible();
-    await expect(editorRoot.locator(".cm-selectionBackground").first()).toHaveCSS("background-color", "rgba(194, 68, 0, 0.18)");
+    await expect(editorRoot.locator(".sambee-editor-selection-range").first()).toBeVisible();
+    await expect(editorRoot.locator(".sambee-editor-selection-range").first()).toHaveCSS("background-color", "rgba(194, 68, 0, 0.18)");
     await expect(editor).toHaveScreenshot("single-line-selection.png");
 
     await page.keyboard.press("ArrowRight");
@@ -527,7 +529,7 @@ test.describe("markdown editor selection", () => {
     const editor = page.getByRole("textbox", { name: "Markdown editor" });
     const editorRoot = page.locator(".sambee-markdown-editor .cm-editor");
     const scroller = editorRoot.locator(".cm-scroller");
-    const selection = editorRoot.locator(".cm-selectionBackground").first();
+    const selection = editorRoot.locator(".sambee-editor-selection-range").first();
 
     await editor.click();
     await page.keyboard.press("Control+End");
@@ -538,7 +540,7 @@ test.describe("markdown editor selection", () => {
     await expect(selection).toHaveCSS("background-color", "rgba(194, 68, 0, 0.18)");
 
     const selectionInsideViewport = await editorRoot.evaluate((root) => {
-      const selectionMarker = root.querySelector(".cm-selectionBackground");
+      const selectionMarker = root.querySelector(".sambee-editor-selection-range");
       const scrollContainer = root.querySelector(".cm-scroller");
 
       if (!(selectionMarker instanceof HTMLElement) || !(scrollContainer instanceof HTMLElement)) {
@@ -551,5 +553,57 @@ test.describe("markdown editor selection", () => {
     });
 
     expect(selectionInsideViewport).toBe(true);
+  });
+
+  test("keeps a document-spanning selection visible at the scroll viewport and aligned with the active-line gutter", async ({ page }) => {
+    await mockMarkdownViewerApi(page, { initialMarkdown: SCROLLED_SELECTION_MARKDOWN });
+
+    await openMarkdownViewer(page);
+    await enterMarkdownEditMode(page);
+
+    const editor = page.getByRole("textbox", { name: "Markdown editor" });
+    const editorRoot = page.locator(".sambee-markdown-editor .cm-editor");
+    const scroller = editorRoot.locator(".cm-scroller");
+
+    await editor.click();
+    await page.keyboard.press("Control+Home");
+    await page.keyboard.press("Control+Shift+End");
+
+    await scroller.evaluate((element) => {
+      element.scrollTop = Math.floor((element.scrollHeight - element.clientHeight) / 2);
+      element.dispatchEvent(new Event("scroll"));
+    });
+
+    await expect.poll(() =>
+      editorRoot.evaluate((root) => {
+        const selectionLayer = root.querySelector(".sambee-editor-selection-layer");
+        const activeLine = root.querySelector(".cm-activeLine");
+        const scrollContainer = root.querySelector(".cm-scroller");
+
+        if (!(selectionLayer instanceof HTMLElement) || !(activeLine instanceof HTMLElement) || !(scrollContainer instanceof HTMLElement)) {
+          return null;
+        }
+
+        const scrollRect = scrollContainer.getBoundingClientRect();
+        const viewportCenterY = scrollRect.top + scrollRect.height / 2;
+        const selectionMarker = Array.from(selectionLayer.children).find((marker) => {
+          const markerRect = marker.getBoundingClientRect();
+          return markerRect.top <= viewportCenterY && markerRect.bottom >= viewportCenterY;
+        });
+
+        if (!(selectionMarker instanceof HTMLElement)) {
+          return null;
+        }
+
+        const activeLineRect = activeLine.getBoundingClientRect();
+        const selectionMarkerRect = selectionMarker.getBoundingClientRect();
+
+        return {
+          clipPath: getComputedStyle(selectionLayer).clipPath,
+          coversViewportCenter: true,
+          leftEdgesAlign: Math.abs(selectionMarkerRect.left - activeLineRect.left) < 1,
+        };
+      })
+    ).toEqual({ clipPath: "none", coversViewportCenter: true, leftEdgesAlign: true });
   });
 });

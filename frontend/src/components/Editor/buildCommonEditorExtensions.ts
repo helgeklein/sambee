@@ -4,6 +4,7 @@ import { bracketMatching, defaultHighlightStyle, indentOnInput, syntaxHighlighti
 import { highlightSelectionMatches, search } from "@codemirror/search";
 import { EditorState, type Extension } from "@codemirror/state";
 import { drawSelection, EditorView, highlightActiveLine, keymap } from "@codemirror/view";
+import { buildSelectionLayerExtension } from "./buildEditorSelectionLayer";
 
 interface CommonEditorExtensionsOptions {
   defaultSyntaxHighlighting?: boolean;
@@ -21,6 +22,7 @@ export function buildCommonEditorExtensions({
   return [
     history(),
     ...(includeDrawSelection ? [drawSelection()] : []),
+    ...(includeDrawSelection ? [buildSelectionLayerExtension()] : []),
     EditorState.allowMultipleSelections.of(true),
     closeBrackets(),
     indentOnInput(),

@@ -69,7 +69,7 @@ describe("TextCodeEditor", () => {
     const editor = await screen.findByLabelText("Text editor");
 
     expect(editor.closest(".cm-editor")?.querySelector(".cm-selectionLayer")).not.toBeNull();
-    expect(editor.closest(".cm-editor")?.querySelector(".sambee-editor-selection-layer")).toBeNull();
+    expect(editor.closest(".cm-editor")?.querySelector(".sambee-editor-selection-layer")).not.toBeNull();
 
     editorRef.current?.replaceCurrentSearchResult();
 
