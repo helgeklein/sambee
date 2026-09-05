@@ -114,11 +114,18 @@ RUN --mount=type=cache,target=/root/.cache/pip \
     pip wheel --wheel-dir /tmp/wheels --require-hashes --no-deps \
         -r /tmp/pyvips-wheel-requirement.txt
 
-# Backend test target: combines the shared runtime dependencies with the
-# development toolchain required by Companion relay interoperability tests.
-FROM devcontainer AS backend-test
+# Backend tests share the production runtime but need only git and jq for
+# repository script coverage; Companion Rust validation runs in Companion CI.
+FROM runtime-base AS backend-test
 USER root
 WORKDIR /workspace
+RUN --mount=type=cache,target=/var/cache/apt,sharing=locked \
+    apt-get update && \
+    apt-get install -y --no-install-recommends git jq && \
+    rm -rf /var/lib/apt/lists/*
+RUN useradd --create-home --shell /bin/bash --uid 1000 vscode && \
+    mkdir -p /home/vscode/.cache/mypy && \
+    chown -R vscode:vscode /home/vscode
 COPY backend/requirements-dev.lock.txt /tmp/requirements-dev.lock.txt
 COPY --from=pyvips-wheel-builder /tmp/wheels /tmp/wheels
 RUN python -m venv /workspace/backend/.venv && \
@@ -130,9 +137,6 @@ RUN python -m venv /workspace/backend/.venv && \
     rm -rf /tmp/wheels
 COPY --chown=vscode:vscode archive-contract/ ./archive-contract/
 COPY --chown=vscode:vscode companion/ ./companion/
-USER vscode
-RUN cargo test --manifest-path companion/src-tauri/Cargo.toml --lib --no-run -q
-USER root
 COPY --chown=vscode:vscode backend/ ./backend/
 COPY --chown=vscode:vscode archive_testdata/ ./archive_testdata/
 COPY --chown=vscode:vscode VERSION ./VERSION

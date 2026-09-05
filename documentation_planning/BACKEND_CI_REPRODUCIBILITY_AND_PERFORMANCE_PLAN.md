@@ -14,7 +14,7 @@ took about 7 seconds. The workflow passed a unique `APT_REFRESH_KEY`,
 invalidating the Docker layer that installs and upgrades OS packages and every
 layer derived from it.
 
-Phase 1 is implemented. Phases 2 through 6 remain planned work.
+Phases 1, 2, and 5 are implemented. Phases 3 and 4 remain planned work.
 
 ## Desired Outcome
 
@@ -59,10 +59,9 @@ conditional optimizations, not prerequisites for fixing the current regression.
 | 2 | Stop producing duplicate and unused coverage reports | Medium | Low | Low | CI uploads XML only; current defaults also request HTML and duplicate terminal/XML reports. |
 | 3 | Resolve APT packages from an immutable Debian snapshot and remove `apt-get upgrade` | High | Medium | Medium | Makes the restored cache compatible with actual reproducibility rather than relying on the first build's moving APT result. |
 | 4 | Add a scheduled, validated system dependency refresh process | High | Medium | Medium | Keeps immutable inputs secure without returning to per-run package refreshes. |
-| 5 | Give `backend-test` a purpose-built toolchain stage instead of inheriting all devcontainer tooling | Medium | Medium | Medium | Reduces the cost of intentional cache misses and isolates test requirements. |
-| 6 | Persist or prebuild Cargo dependencies for Companion source changes | Low to medium | Medium to high | Medium | Helps only when Companion inputs change; measure after the first four phases. |
-| 7 | Publish and consume a shared prebuilt test-toolchain image | Low | High | High | Adds registry, retention, provenance, and promotion complexity; defer unless cache misses remain material. |
-| 8 | Split or remove tests, reduce coverage, or use larger runners | Low | Medium | Medium to high | Does not address the observed bottleneck and either weakens assurance or adds recurring cost. |
+| 5 | Give `backend-test` a purpose-built test image instead of inheriting all devcontainer tooling | Medium | Medium | Medium | Reduces image export/import time and isolates test requirements. |
+| 6 | Publish and consume a shared prebuilt test-toolchain image | Low | High | High | Adds registry, retention, provenance, and promotion complexity; defer unless cache misses remain material. |
+| 7 | Split or remove tests, reduce coverage, or use larger runners | Low | Medium | Medium to high | Does not address the observed bottleneck and either weakens assurance or adds recurring cost. |
 
 ## Phase 1: Restore Cache Reuse
 
@@ -73,8 +72,8 @@ Status: implemented. This is the independent, immediate remediation.
 1. Remove the `APT_REFRESH_KEY=${{ github.run_id }}-${{ github.run_attempt }}`
    build argument from the backend job in `.github/workflows/test.yml`.
 2. Retain the Dockerfile's `APT_REFRESH_KEY=static` default. This preserves the
-  existing opt-in refresh contract for scheduled image-validation and security
-  workflows while the backend test workflow uses the stable value.
+   existing opt-in refresh contract for scheduled image-validation and security
+   workflows while the backend test workflow uses the stable value.
 3. Keep the existing `cache-from` and `cache-to` entries in the
    `backend-test` scope.
 4. Keep the cache key independent of PR metadata, retries, and workflow runs.
@@ -82,9 +81,9 @@ Status: implemented. This is the independent, immediate remediation.
 ### Acceptance Criteria
 
 - Two builds from the same commit show cache hits for the runtime base,
-  devcontainer/toolchain, Python environment, and Companion precompile layers.
+  test-specific tools, and Python environment layers.
 - A backend application or test-only change does not rerun system package
-  installation, Node/Rust bootstrap, or Python dependency installation.
+  installation or Python dependency installation.
 - The backend CI checks still run inside `sambee:backend-test` and produce the
   coverage artifact.
 - The workflow YAML remains valid and the backend test job completes
@@ -99,13 +98,14 @@ diagnosed.
 
 ## Phase 2: Make Coverage Outputs Intentional
 
-This phase is independent of Phase 1 and may be merged separately.
+Status: implemented. This phase is independent of Phase 1 and may be merged
+separately.
 
 ### Changes
 
 1. Remove coverage report options from the global pytest `addopts` in
-   `backend/pyproject.toml`. Keep stable test-discovery, warning, traceback,
-   and strictness settings there.
+  `backend/pyproject.toml`. Keep stable test-discovery, warning, traceback,
+  and strictness settings there.
 2. Make each caller request only the reports it consumes:
    - local full-suite scripts may request terminal and HTML reports when a
      developer opts into coverage;
@@ -130,11 +130,12 @@ reproducibility improvement and should be implemented in a dedicated change.
 ### Dependency Model
 
 Use an immutable Debian snapshot timestamp as the system dependency revision.
-Configure every Debian APT use in both `runtime-base` and `devcontainer` to
-point to matching Debian and Debian security snapshot archives. `backend-test`
-inherits `devcontainer`, so freezing only the shared runtime layer is
-insufficient. Preserve the snapshot timestamp in a Dockerfile `ARG` with a
-checked-in default, for example `DEBIAN_SNAPSHOT=YYYYMMDDTHHMMSSZ`.
+Configure every Debian APT use in `runtime-base`, `backend-test`, and
+`devcontainer` to point to matching Debian and Debian security snapshot
+archives. `backend-test` derives directly from `runtime-base`, but it has its
+own test-specific APT layer. Preserve the snapshot timestamp in a Dockerfile
+`ARG` with a checked-in default, for example
+`DEBIAN_SNAPSHOT=YYYYMMDDTHHMMSSZ`.
 
 The snapshot is the resolver lock for direct packages and their transitive APT
 dependencies. The package names in `scripts/install-system-deps` remain the
@@ -144,28 +145,28 @@ transitive package versions is unnecessary and would be harder to maintain.
 The same phase must also freeze the non-Debian toolchain inputs in
 `devcontainer`: Node.js is currently selected through a moving NodeSource major
 repository and Rust is selected through the moving `stable` toolchain. These
-inputs are inherited by `backend-test` and are part of its platform contract.
+inputs are not part of the backend test image.
 
 ### Changes
 
 1. Add snapshot-source setup before the first `apt-get update`, and apply it to
-  the later `devcontainer` package installation as well. Support the Debian
-  source-file format used by the pinned Python base image and fail clearly if
-  the expected source definition is absent.
+   the later `devcontainer` package installation as well. Support the Debian
+   source-file format used by the pinned Python base image and fail clearly if
+   the expected source definition is absent.
 2. Use snapshot archive URLs for both normal Debian and security repositories.
-  Configure APT's snapshot-validity behavior deliberately rather than allowing
-  an expired metadata check to make historical rebuilds fail.
+   Configure APT's snapshot-validity behavior deliberately rather than allowing
+   an expired metadata check to make historical rebuilds fail.
 3. Remove `UPGRADE_EXISTING_PACKAGES=1` from the Dockerfile invocation and
    remove the conditional `apt-get upgrade` path from the common install helper
    when no other supported caller requires it. The pinned base image and APT
    snapshot together define the intended OS state.
 4. Replace the moving NodeSource major repository with either an official
-  Node.js image pinned by digest or a versioned, checksum-verified Node.js
-  distribution. Pin one full Node.js version, rather than a major line, and
-  update the existing runtime verifier to require that exact version.
+   Node.js image pinned by digest or a versioned, checksum-verified Node.js
+   distribution. Pin one full Node.js version, rather than a major line, and
+   update the existing runtime verifier to require that exact version.
 5. Pin the Rust toolchain to a full release and verify the Rust installer by
-  checksum, or copy the toolchain from an official Rust image pinned by digest.
-  Pin required Rust components and targets to that toolchain revision.
+   checksum, or copy the toolchain from an official Rust image pinned by digest.
+   Pin required Rust components and targets to that toolchain revision.
 6. Replace `APT_REFRESH_KEY` with the canonical `DEBIAN_SNAPSHOT` input and
   remove the timestamp-generated refresh-key preparation and build arguments
   from every image workflow in the same change. No image workflow may retain a
@@ -183,8 +184,8 @@ inputs are inherited by `backend-test` and are part of its platform contract.
 - Run the backend job checks in `backend-test`.
 - Run the image conversion tests, because the system dependency set includes
   ImageMagick, Ghostscript, libvips, and codecs.
-- Verify the exact pinned Node.js and Rust versions in `devcontainer` and
-  `backend-test`, including required Rust components and targets.
+- Verify the exact pinned Node.js and Rust versions in `devcontainer`,
+  including required Rust components and targets.
 - Verify the production image starts and passes its existing health endpoint
   check.
 - Rebuild the same commit twice with a cleared local cache and compare the
@@ -221,11 +222,11 @@ and low ongoing maintenance.
 ### Refresh Workflow
 
 1. Select one candidate Debian snapshot timestamp from the Debian snapshot
-  service, allowing enough publication delay for both normal and security
-  archive metadata to be available.
+   service, allowing enough publication delay for both normal and security
+   archive metadata to be available.
 2. Update the checked-in snapshot revision and any intentionally refreshed
-  pinned base-image, Node.js, or Rust toolchain input. Do not update unrelated
-  application dependencies in the same pull request.
+   pinned base-image, Node.js, or Rust toolchain input. Do not update unrelated
+   application dependencies in the same pull request.
 3. Build all three Docker targets without relying on the prior runtime-base
    layer. Save their sorted installed-package inventories and image digests as
    workflow artifacts.
@@ -260,54 +261,84 @@ updates into manual archaeology.
   once and produces reviewable inventories.
 - The devcontainer, backend-test, and production targets report the same
   snapshot revision and identical versions of their shared system packages.
-- The devcontainer and backend-test targets report the configured exact Node.js
-  and Rust toolchain versions.
+- The devcontainer target reports the configured exact Node.js and Rust
+  toolchain versions.
 - The scheduled workflow can be rerun safely and produces no change when the
   chosen candidate is already recorded.
 
 ## Phase 5: Right-Size The Backend Test Image
 
-Begin this phase only after Phase 1 and Phase 3 timings show that intentional
-cache misses are still a material contributor to CI time.
+Status: implemented. This work is independent of Phases 3 and 4.
+
+Phase 1 restores BuildKit cache reuse for normal pull requests, but the
+backend job must still use `load: true` before it can run `docker run`. Buildx
+therefore exports and imports the complete `backend-test` image on every run.
+The current test image contains a roughly 1 GB layer, so this transfer remains
+a material cost even when all build layers are cached.
+
+The backend CI command runs Python, mypy, pytest, `scripts/setup-test-images`,
+and Python tests that exercise repository shell scripts. It does not execute
+Node.js, Hugo, Cargo, Rust, or a compiled Companion binary. The backend's
+Companion coverage is Python-side archive-contract and relay protocol coverage;
+the Companion CI job owns Rust compilation, formatting, linting, and tests.
 
 ### Changes
 
-1. Introduce a `backend-test-tools` stage derived directly from the shared
-   runtime base.
-2. Install only what backend tests and Companion relay interoperability require:
-   Python test dependencies, Rust/Cargo tooling, and any compiler or system
-   libraries they demonstrably use.
-3. Do not inherit Node, Hugo, editor extensions, shell conveniences, or other
-   devcontainer-only dependencies merely because they are available there.
-4. Keep the existing backend-test application, test data, archive contract, and
-   Companion copy ordering so backend-only edits do not invalidate the
-   Companion precompile layer.
-5. Compare both the cold-build time and final image size against the current
-   target before merging.
+1. Change `backend-test` to derive directly from `runtime-base`; do not add an
+   intermediate toolchain stage unless it is needed to share a real dependency
+   set with another target.
+2. Preserve all shared runtime system dependencies installed by
+   `scripts/install-system-deps`. In particular, retain ImageMagick and its
+   supporting conversion stack because `scripts/setup-test-images` and the
+   image-conversion tests require it.
+3. Add a cache-mounted APT layer in `backend-test` for only the test-specific
+  operating-system tools that are demonstrably executed by the backend suite:
+   - `git`, for release-workflow script tests that create local repositories;
+   - `jq`, for metadata bundle and candidate-verification shell-script tests.
+  Keep these packages out of `scripts/install-system-deps` so the production
+  image retains its runtime-only dependency set.
+4. Create the existing non-root `vscode` user with its home and Mypy cache
+  directory before using `COPY --chown=vscode:vscode`. Retain `PYTHONPATH` and
+  run the backend checks as that user.
+5. Retain the hash-locked backend development virtual environment. Copy
+  `archive-contract`, `companion`, and `backend` because the backend tests read
+  these repository sources.
+6. Remove the `cargo test --no-run` image-build step. It adds Rust toolchain
+   and compiled target artifacts to every exported test image but is not used
+   by the backend job. Keep Companion Rust validation in the Companion CI job.
+7. Exclude Node.js, Hugo, Rustup, Cargo, Rust targets and components,
+   cross-compilers, editor extensions, shell conveniences, and other
+   devcontainer-only tooling from `backend-test`.
+8. Do not alter the `devcontainer` target or the production target in this
+   phase. Their broader and narrower tool surfaces, respectively, have
+   separate purposes and validation paths.
 
 ### Acceptance Criteria
 
-- All backend and Companion interoperability tests that currently run in
-  `backend-test` continue to run there.
-- The stage no longer contains tools used exclusively for website builds or
-  interactive development unless a test demonstrates a dependency.
-- A cold `backend-test` build improves by an agreed threshold; otherwise revert
-  the refactor rather than retaining extra stage complexity.
+- The existing backend CI command completes unchanged inside
+  `sambee:backend-test`, including mypy, both pytest partitions, coverage XML
+  generation, `scripts/setup-test-images`, and coverage-artifact export.
+- `git --version` and `jq --version` succeed in `backend-test`; the complete
+  backend suite contains no skips caused by either missing executable.
+- Image conversion tests continue to pass with the runtime image-processing
+  dependencies supplied by `runtime-base`.
+- The image contains no Node.js, Hugo, Cargo, or Rust toolchain unless a new
+  backend test demonstrates a direct requirement and documents it in this
+  phase.
+- A representative cache-hit backend-only build records a smaller exported and
+  loaded image and a lower `Build backend test image` duration than the current
+  target.
+- Record the total duration of a cache-miss build caused by a backend dependency
+  or Docker dependency change.
 
-## Phase 6: Conditional Cargo Optimization
+### Risks And Mitigations
 
-Only undertake this work if timings show Companion-source changes remain slow
-after Phase 5.
-
-1. Record build-step timings separately for a backend-only edit and a
-   Companion-source edit.
-2. Evaluate a Cargo dependency cache that is compatible with the GHA BuildKit
-  cache exporter, including registry, git checkout, and target artifacts.
-3. Prefer a simple Docker-layer dependency cache if it is sufficient. Do not
-   add a cache-persistence action or a new image registry solely to save a small
-   amount of time on infrequent Companion changes.
-4. Verify cached artifacts are target-architecture specific and cannot be
-   consumed across incompatible Rust toolchain or lockfile revisions.
+| Risk | Mitigation |
+| --- | --- |
+| A backend test relies on an inherited devcontainer executable | Run the complete existing backend CI command before merging; add the missing executable only when the failure proves it is required. |
+| Removing Cargo weakens Companion validation | The backend job does not execute Cargo. Keep Rust compilation and test coverage in the existing Companion CI job. |
+| A smaller image does not materially improve CI | Measure cache-hit export/load time as well as cold-build time before merging. |
+| Runtime image conversion behavior regresses | Preserve the shared runtime dependency installation and run the existing image-conversion tests. |
 
 ## Explicit Non-Goals
 
