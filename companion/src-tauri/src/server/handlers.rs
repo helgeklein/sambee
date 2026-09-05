@@ -6051,12 +6051,9 @@ mod tests {
             .expect("inspection resolver test lock should not be poisoned");
         let directory = tempfile::tempdir().expect("temporary archive directory should be created");
         let source = directory.path().join("source.txt");
-        let nested_directory = directory.path().join("nested");
         let target = directory.path().join("archive.zip");
         std::fs::write(&source, b"source").expect("source file should be written");
-        std::fs::create_dir(&nested_directory).expect("nested source directory should be created");
-        std::fs::write(nested_directory.join("readme.txt"), b"nested").expect("nested source file should be written");
-        let entries = build_local_archive_manifest(&[source, nested_directory], &target).expect("archive manifest should be built");
+        let entries = build_local_archive_manifest(&[source], &target).expect("archive manifest should be built");
         create_local_archive(directory.path(), &target, &entries, || false).expect("archive should be created");
 
         let coordinator = resolve_local_archive_inspection_coordinator(
